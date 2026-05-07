@@ -7,18 +7,20 @@ import type { TaxSummaryExportPayload } from '@/src/lib/taxCenterExportPayload';
 import type { Tax1099ReviewSummary, Tax1099ReviewVendorRow } from '@/src/lib/tax1099Review';
 import { format1099ReviewMoney } from '@/src/lib/tax1099Review';
 import { TAX_CATEGORIES, type TaxCategory } from '@/src/lib/taxCenter';
-import type { Vendor } from '@/src/lib/vendorTypes';
+import {
+  SUGGESTED_ACCOUNTING_CATEGORY,
+  SUGGESTED_CATEGORY_CONFIRM_NOTE,
+} from '@/src/lib/taxSuggestedAccountingCategories';
 
 const BRAND = 'Build Profit Solutions';
 
 const IMPORTANT_NOTICE_TEXT =
-  'This workbook is for bookkeeping and tax-preparation support only. It is not tax advice, does not replace a CPA or tax professional, and is not an official tax filing or official 1099 form. Users are responsible for verifying all amounts, categories, receipts, vendor information, and tax treatment with their CPA or tax professional before filing.';
+  'Tax Center reports are for bookkeeping and tax-preparation support only. They are not tax advice, do not replace a CPA or tax professional, and are not official tax filings or official 1099 forms. Verify all amounts, categories, receipts, vendors, and tax treatment before filing.';
 
 const FOOTER_NOTE =
-  'Prepared from user-entered project, payment, expense, purchase order, vendor, W-9, accounting mapping, and receipt data in Build Profit Solutions.\n\nAmounts are based on data available for the selected tax year. Missing, incomplete, duplicated, or incorrectly categorized entries may affect this workbook.';
+  'Prepared from user-entered project, payment, expense, purchase order, subcontractor, and receipt data in Build Profit Solutions.\n\nAmounts are based on data available in Build Profit Solutions for the selected tax year. Missing, incomplete, or incorrectly categorized entries may affect this workbook.';
 
 /** Excel theme-friendly fills (ARGB). */
-const FILL_SECTION = { fgColor: { rgb: 'FFE5E7EB' } }; // light gray
 const FILL_HEADER = { fgColor: { rgb: 'FFF1F5F9' } };
 
 const STYLE_BRAND_MAIN = {
@@ -33,21 +35,10 @@ const STYLE_BRAND_TAG = {
   font: { bold: true, sz: 11, color: { rgb: 'FF475569' } },
   alignment: { vertical: 'center' as const, wrapText: true },
 };
-const STYLE_SECTION_TITLE = {
-  font: { bold: true, sz: 12, color: { rgb: 'FF0F172A' } },
-  fill: FILL_SECTION,
-  alignment: { vertical: 'center' as const },
-};
-const STYLE_WRAP = {
-  alignment: { wrapText: true, vertical: 'top' as const },
-};
 const STYLE_TABLE_HEADER = {
   font: { bold: true, sz: 11, color: { rgb: 'FF0F172A' } },
   fill: FILL_HEADER,
   alignment: { vertical: 'center' as const },
-};
-const STYLE_CONTENT_DESC = {
-  alignment: { wrapText: true, vertical: 'top' as const },
 };
 
 function money2(n: number): string {
@@ -107,63 +98,25 @@ function mergeCols(ws: XLSX.WorkSheet, r0: number, c0: number, c1: number) {
   ws['!merges'].push({ s: { r: r0, c: c0 }, e: { r: r0, c: c1 } });
 }
 
-/** Branding: rows 1–3; blank row 4; table header row 5 (1-based). */
 function applyFreezeAndFilter(ws: XLSX.WorkSheet, headerRow1Based: number, colCount: number) {
   const lastCol = XLSX.utils.encode_col(Math.max(0, colCount - 1));
   ws['!autofilter'] = { ref: `A${headerRow1Based}:${lastCol}1000` };
 }
 
-function accountingMappedLabel(map: Partial<Record<TaxCategory, string>>, cat: TaxCategory): string {
+function optionalUserAccountingLabel(map: Partial<Record<TaxCategory, string>>, cat: TaxCategory): string {
   const raw = map[cat];
-  const t = typeof raw === 'string' ? raw.trim() : '';
-  return t || 'Unmapped';
+  return typeof raw === 'string' ? raw.trim() : '';
 }
 
-function accountingStatus(map: Partial<Record<TaxCategory, string>>, cat: TaxCategory): string {
-  const raw = map[cat];
-  const t = typeof raw === 'string' ? raw.trim() : '';
-  return t ? 'Mapped' : 'Needs Review';
+function mappingSheetStatus(map: Partial<Record<TaxCategory, string>>, cat: TaxCategory): string {
+  return optionalUserAccountingLabel(map, cat) ? 'Custom label' : 'Suggested only';
 }
 
-function accountingNotes(map: Partial<Record<TaxCategory, string>>, cat: TaxCategory): string {
-  const t = typeof map[cat] === 'string' ? map[cat]!.trim() : '';
+function mappingSheetNotes(map: Partial<Record<TaxCategory, string>>, cat: TaxCategory): string {
+  const t = optionalUserAccountingLabel(map, cat);
   return t
-    ? 'Ready for export review'
-    : 'Map this category before sending to bookkeeper or syncing later.';
-}
-
-function vendorEligibleForW9FollowUp(v: Vendor): boolean {
-  if (v.vendorType === 'supplier' && !v.requires1099Review) return false;
-  return (
-    v.vendorType === 'subcontractor' ||
-    v.vendorType === 'consultant' ||
-    v.vendorType === 'other' ||
-    v.requires1099Review === true
-  );
-}
-
-function includeVendorInW9FollowUp(v: Vendor): boolean {
-  if (!vendorEligibleForW9FollowUp(v)) return false;
-  if (v.w9Status === 'not_applicable') return false;
-  if (v.w9Status === 'verified') return false;
-  return v.w9Status === 'missing' || v.w9Status === 'requested' || v.w9Status === 'uploaded';
-}
-
-function w9FollowUpActionNeeded(v: Vendor): string {
-  switch (v.w9Status) {
-    case 'missing':
-      return 'Request W-9';
-    case 'requested':
-      return 'Follow up on requested W-9';
-    case 'uploaded':
-      return 'Review uploaded W-9';
-    case 'verified':
-      return 'No action';
-    case 'not_applicable':
-      return 'No action';
-    default:
-      return 'No action';
-  }
+    ? `Optional label: ${t}. ${SUGGESTED_CATEGORY_CONFIRM_NOTE}`
+    : `Suggested accounting labels only. ${SUGGESTED_CATEGORY_CONFIRM_NOTE}`;
 }
 
 function vendorReviewPaymentMethod(row: Tax1099ReviewVendorRow): string {
@@ -182,38 +135,27 @@ function vendorReviewFlags(row: Tax1099ReviewVendorRow): string {
   return f && f !== '—' ? f : 'No flags';
 }
 
-function vendorReviewActionNeeded(row: Tax1099ReviewVendorRow): string {
-  const a = String(row.workbookActionNeeded || '').trim();
-  if (a && a !== '—') return a;
-  const parts = row.actionNeeded.filter(Boolean);
-  return parts.length ? parts.join('; ') : 'No action';
+function humanizeActionList(row: Tax1099ReviewVendorRow): string {
+  const parts = row.actionNeeded.map((a) => {
+    if (a === 'Confirm Payment Method') return 'Missing payment method';
+    if (a === 'Potential 1099 Review') return 'Potential 1099 review';
+    if (a === 'Missing W-9') return 'Missing W-9';
+    return a;
+  });
+  return parts.length ? parts.join('; ') : 'None';
 }
 
-function applySummaryVisualPolish(ws: XLSX.WorkSheet) {
-  applyCols(ws, [32, 70, 22, 22]);
+function potential1099ReviewCell(row: Tax1099ReviewVendorRow): string {
+  return row.actionNeeded.includes('Potential 1099 Review')
+    ? 'Yes — confirm with CPA'
+    : 'No';
+}
 
+function applySummarySheetBasics(ws: XLSX.WorkSheet) {
+  applyCols(ws, [36, 74, 22, 22]);
   enrichStyle(ws, 0, 0, STYLE_BRAND_MAIN);
   enrichStyle(ws, 1, 0, STYLE_BRAND_SUB);
   enrichStyle(ws, 2, 0, STYLE_BRAND_TAG);
-
-  enrichStyle(ws, 9, 0, STYLE_SECTION_TITLE);
-  mergeCols(ws, 10, 0, 3);
-  enrichStyle(ws, 10, 0, STYLE_WRAP);
-
-  enrichStyle(ws, 12, 0, STYLE_SECTION_TITLE);
-  enrichStyle(ws, 13, 0, STYLE_TABLE_HEADER);
-  enrichStyle(ws, 13, 1, STYLE_TABLE_HEADER);
-
-  enrichStyle(ws, 23, 0, STYLE_SECTION_TITLE);
-  for (let r = 24; r <= 29; r++) {
-    enrichStyle(ws, r, 1, STYLE_CONTENT_DESC);
-  }
-
-  mergeCols(ws, 30, 0, 3);
-  enrichStyle(ws, 30, 0, STYLE_WRAP);
-
-  mergeCols(ws, 32, 0, 3);
-  enrichStyle(ws, 32, 0, STYLE_WRAP);
 }
 
 function applyDataSheetPresentation(ws: XLSX.WorkSheet, headerRow1Based: number, colCount: number, widths: number[]) {
@@ -232,18 +174,31 @@ function applyDataSheetPresentation(ws: XLSX.WorkSheet, headerRow1Based: number,
 export function generateAccountantWorkbookBase64(args: {
   payload: TaxSummaryExportPayload;
   review: Tax1099ReviewSummary;
-  vendors: Vendor[];
   quickBooksCategoryMap: Partial<Record<TaxCategory, string>>;
 }): string {
-  const { payload, review, vendors, quickBooksCategoryMap } = args;
+  const { payload, review, quickBooksCategoryMap } = args;
   const p = payload.portfolioSummary;
   const wb = XLSX.utils.book_new();
   const year = payload.selectedYear;
 
+  const workbookGuide: [string, string][] = [
+    ['Summary', 'Portfolio totals, disclaimers, and this guide.'],
+    ['Projects', 'Project-level revenue, expenses, net income, receipts, and margin.'],
+    ['Expenses', 'Transaction-level expenses. Vendor / description / notes are separate fields when provided in BPS.'],
+    ['Revenue Payments', 'Collected payments / milestones by project for the tax year.'],
+    ['Vendors', 'Vendor directory-style review from paid activity — informational only.'],
+    ['Potential 1099 Review', 'Vendors flagged for Potential 1099 review — confirm with CPA.'],
+    ['Receipt Backup Manifest', 'Receipt filenames and attachment status for backup workflows.'],
+    [
+      'Suggested Category Mapping',
+      'Suggested accounting labels only — not final tax categories until confirmed with a CPA.',
+    ],
+  ];
+
   const summaryRows: (string | number | null | undefined)[][] = [
     ['BUILD PROFIT SOLUTIONS'],
     ['Accountant Workbook'],
-    ['Tax-ready bookkeeping package · CPA review support'],
+    ['Tax-ready export · CPA review package · Project-first job costing'],
     [],
     [`Tax Year: ${year}`],
     [`Date Range: ${payload.dateRangeLabel}`],
@@ -264,35 +219,15 @@ export function generateAccountantWorkbookBase64(args: {
     ['Subcontractor Payments', money2(p.subcontractorPayments)],
     ['Receipt Count', p.receiptCount],
     [],
-    ['WORKBOOK CONTENTS'],
-    [
-      'Projects',
-      'Project-level revenue, expenses, net income, receipt count, and margin for CPA or bookkeeper review.',
-    ],
-    [
-      'Expense Categories',
-      'Amounts by BPS tax category with optional QuickBooks / accounting labels.',
-    ],
-    [
-      'Vendor & 1099 Review',
-      'Vendors detected from paid activity for the tax year — informational only; review with your CPA.',
-    ],
-    ['Receipts', 'Receipt-linked expense lines with readable dates (no file paths).'],
-    [
-      'W-9 Follow-Up',
-      'Directory vendors needing W-9 collection or review — informational only; not tax advice.',
-    ],
-    [
-      'Accounting Mapping',
-      'BPS categories mapped to your accounting system labels for export handoff.',
-    ],
+    ['WORKBOOK TABS (CPA PACKAGE)'],
+    ...workbookGuide.map(([a, b]) => [a, b]),
     [],
     [FOOTER_NOTE],
     [],
     [cleanText(review.disclaimer)],
   ];
   const summaryWs = sheetFromAoA(summaryRows);
-  applySummaryVisualPolish(summaryWs);
+  applySummarySheetBasics(summaryWs);
   XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
 
   const DATA_HEADER_ROW = 5;
@@ -300,7 +235,7 @@ export function generateAccountantWorkbookBase64(args: {
   const projectRows: (string | number | null | undefined)[][] = [
     [BRAND],
     ['Projects'],
-    ['Project-level revenue, expenses, net income, receipt count, and margin for CPA/bookkeeper review.'],
+    ['Project-level revenue, expenses, net income, receipt count, and margin for CPA review.'],
     [],
     ['Project', 'Revenue Collected', 'Outstanding', 'Expenses Paid', 'Net Income', 'Net Margin', 'Receipt Count'],
     ...payload.projectSummaries.map((r) => [
@@ -317,115 +252,197 @@ export function generateAccountantWorkbookBase64(args: {
   applyDataSheetPresentation(projectWs, DATA_HEADER_ROW, 7, [28, 18, 18, 18, 18, 14, 14]);
   XLSX.utils.book_append_sheet(wb, projectWs, 'Projects');
 
-  const catRows: (string | number | null | undefined)[][] = [
+  const expenseTxnRows: (string | number | null | undefined)[][] = [
     [BRAND],
-    ['Expense Categories'],
-    ['Expense totals by BPS category with accounting / QuickBooks mapping labels when set.'],
+    ['Expenses'],
+    ['Transaction-level expenses for the selected tax year. Description is the expense line detail; Notes are separate user notes. Unknown fields show as blank or “Needs review”.'],
     [],
-    ['BPS Category', 'Accounting / QuickBooks Category', 'Amount', 'Item Count'],
-    ...payload.expenseCategories.map((c) => {
-      const acct = String(c.accountingOrQuickBooksCategory || '').trim();
-      return [c.category, acct || 'Unmapped', money2(c.amount), c.itemCount];
-    }),
-  ];
-  const catWs = sheetFromAoA(catRows);
-  applyDataSheetPresentation(catWs, DATA_HEADER_ROW, 4, [28, 32, 18, 14]);
-  XLSX.utils.book_append_sheet(wb, catWs, 'Expense Categories');
-
-  const reviewRows: (string | number | null | undefined)[][] = [
-    [BRAND],
-    ['Vendor & 1099 Review'],
     [
-      'Vendors from paid activity for this tax year. Potential 1099 Review flags are informational — confirm with your CPA. Not tax advice.',
+      'Date',
+      'Project',
+      'Vendor',
+      'Description',
+      'BPS Category',
+      'Suggested Accounting Category',
+      'Amount',
+      'Payment Method',
+      'Receipt Attached',
+      'Receipt File Name',
+      '1099 Eligible',
+      'W-9 Status',
+      'Notes',
+    ],
+    ...payload.expenseTransactions.map((r) => [
+      r.date,
+      r.project,
+      r.vendor,
+      r.description,
+      r.bpsCategory,
+      r.accountingCategory,
+      r.amount,
+      r.paymentMethod,
+      r.receiptAttached,
+      r.receiptFileName,
+      r.eligible1099,
+      r.w9Status,
+      r.notes,
+    ]),
+  ];
+  const expenseWs = sheetFromAoA(expenseTxnRows);
+  applyDataSheetPresentation(expenseWs, DATA_HEADER_ROW, 13, [14, 22, 22, 28, 16, 22, 14, 18, 16, 22, 22, 18, 28]);
+  XLSX.utils.book_append_sheet(wb, expenseWs, 'Expenses');
+
+  const revenueRows: (string | number | null | undefined)[][] = [
+    [BRAND],
+    ['Revenue Payments'],
+    ['Collected payments allocated to the tax year. Outstanding balance is project-level context when available.'],
+    [],
+    [
+      'Date',
+      'Project',
+      'Customer',
+      'Invoice / Milestone',
+      'Amount Collected',
+      'Payment Method',
+      'Outstanding Balance',
+      'Notes',
+    ],
+    ...payload.revenuePayments.map((r) => [
+      r.date,
+      r.project,
+      r.customer,
+      r.invoiceOrMilestone,
+      r.amountCollected,
+      r.paymentMethod,
+      r.outstandingBalance,
+      r.notes,
+    ]),
+  ];
+  const revenueWs = sheetFromAoA(revenueRows);
+  applyDataSheetPresentation(revenueWs, DATA_HEADER_ROW, 8, [14, 22, 22, 28, 18, 18, 22, 28]);
+  XLSX.utils.book_append_sheet(wb, revenueWs, 'Revenue Payments');
+
+  const vendorRows: (string | number | null | undefined)[][] = [
+    [BRAND],
+    ['Vendors'],
+    [
+      'Review vendors, W-9 tracking, payment methods, and Potential 1099 review flags. Informational only — confirm with CPA.',
     ],
     [],
     [
       'Vendor',
       'Vendor Type',
       'Total Paid',
+      'Projects',
       'Payment Method',
       'W-9 Status',
-      'Projects',
+      'Potential 1099 Review',
       'Flags',
-      'Action Needed',
-      'Informational Note',
+      'Actions / Notes',
     ],
     ...review.rows.map((r: Tax1099ReviewVendorRow) => [
       cleanText(r.displayName),
       r.vendorTypeBadge,
       format1099ReviewMoney(r.totalPaid),
+      r.projects.length ? r.projects.join('; ') : 'Not set',
       vendorReviewPaymentMethod(r),
       vendorReviewW9Display(r),
-      r.projects.length ? r.projects.join('; ') : 'Not set',
+      potential1099ReviewCell(r),
       vendorReviewFlags(r),
-      vendorReviewActionNeeded(r),
-      cleanText(r.informationalNote, 'Informational only. Not tax advice.'),
+      humanizeActionList(r),
     ]),
   ];
-  const reviewWs = sheetFromAoA(reviewRows);
-  applyDataSheetPresentation(reviewWs, DATA_HEADER_ROW, 9, [28, 18, 18, 20, 18, 28, 32, 32, 42]);
-  XLSX.utils.book_append_sheet(wb, reviewWs, 'Vendor & 1099 Review');
+  const vendorWs = sheetFromAoA(vendorRows);
+  applyDataSheetPresentation(vendorWs, DATA_HEADER_ROW, 9, [26, 18, 16, 28, 22, 18, 22, 28, 36]);
+  XLSX.utils.book_append_sheet(wb, vendorWs, 'Vendors');
 
-  const receiptRows: (string | number | null | undefined)[][] = [
+  const p1099RowsFiltered = review.rows.filter((r) => r.actionNeeded.includes('Potential 1099 Review'));
+  const p1099Rows: (string | number | null | undefined)[][] = [
     [BRAND],
-    ['Receipts'],
-    ['Expense lines with receipts for the selected tax year. Dates are shown in readable form; receipt URIs are not exported.'],
+    ['Potential 1099 Review'],
+    ['Potential 1099 review — confirm eligibility and filing requirements with your CPA. Not tax advice.'],
     [],
-    ['Project', 'Expense Date', 'Month', 'Category', 'Vendor', 'Amount', 'Receipt Attached'],
-    ...payload.receipts.map((r) => [
-      cleanText(r.projectName),
-      formatWorkbookExpenseDate(r.date),
-      cleanText(r.month, 'Not set'),
-      cleanText(r.category),
-      cleanText(r.vendor, 'Not set'),
-      money2(r.amount),
-      (r.receiptUri || '').trim() ? 'Yes' : 'No',
-    ]),
-  ];
-  const receiptWs = sheetFromAoA(receiptRows);
-  applyDataSheetPresentation(receiptWs, DATA_HEADER_ROW, 7, [28, 18, 16, 20, 26, 16, 18]);
-  XLSX.utils.book_append_sheet(wb, receiptWs, 'Receipts');
-
-  const w9List = vendors.filter(includeVendorInW9FollowUp);
-  const w9Rows: (string | number | null | undefined)[][] = [
-    [BRAND],
-    ['W-9 Follow-Up'],
     [
-      'Directory vendors that may need W-9 collection or review. Informational only — confirm with your CPA or bookkeeper.',
+      'Vendor',
+      'Vendor Type',
+      'Total Paid',
+      'Projects',
+      'Payment Method',
+      'W-9 Status',
+      'Flags',
+      'Notes',
     ],
-    [],
-    ['Business Name', 'Legal Name', 'Vendor Type', 'W-9 Status', 'Email', 'Phone', 'Action Needed', 'Notes'],
-    ...w9List.map((v) => [
-      cleanText(v.businessName),
-      cleanText(v.legalName, 'Not set'),
-      v.vendorType,
-      v.w9Status,
-      cleanText(v.email, 'Not set'),
-      cleanText(v.phone, 'Not set'),
-      w9FollowUpActionNeeded(v),
-      cleanText(v.notes, 'Not set'),
+    ...p1099RowsFiltered.map((r: Tax1099ReviewVendorRow) => [
+      cleanText(r.displayName),
+      r.vendorTypeBadge,
+      format1099ReviewMoney(r.totalPaid),
+      r.projects.length ? r.projects.join('; ') : 'Not set',
+      vendorReviewPaymentMethod(r),
+      vendorReviewW9Display(r),
+      vendorReviewFlags(r),
+      cleanText(r.informationalNote, 'Confirm with CPA.'),
     ]),
   ];
-  const w9Ws = sheetFromAoA(w9Rows);
-  applyDataSheetPresentation(w9Ws, DATA_HEADER_ROW, 8, [28, 28, 18, 18, 28, 18, 32, 36]);
-  XLSX.utils.book_append_sheet(wb, w9Ws, 'W-9 Follow-Up');
+  const p1099Ws = sheetFromAoA(p1099Rows);
+  applyDataSheetPresentation(p1099Ws, DATA_HEADER_ROW, 8, [26, 18, 16, 28, 22, 18, 28, 40]);
+  XLSX.utils.book_append_sheet(wb, p1099Ws, 'Potential 1099 Review');
+
+  const receiptManifestRows: (string | number | null | undefined)[][] = [
+    [BRAND],
+    ['Receipt Backup Manifest'],
+    ['Receipt filenames and attachment status. Retain originals outside BPS for your records.'],
+    [],
+    [
+      'Receipt File Name',
+      'Expense Date',
+      'Vendor',
+      'Amount',
+      'Project',
+      'Category',
+      'Attached / Missing',
+      'Notes',
+    ],
+    ...payload.receipts.map((r) => {
+      const attached = (r.receiptUri || '').trim() ? 'Attached' : 'Missing';
+      return [
+        cleanText(r.receiptFileName, ''),
+        formatWorkbookExpenseDate(r.date),
+        cleanText(r.vendor, 'Not set'),
+        money2(r.amount),
+        cleanText(r.projectName),
+        cleanText(r.category),
+        attached,
+        cleanText(r.notes, ''),
+      ];
+    }),
+  ];
+  const receiptWs = sheetFromAoA(receiptManifestRows);
+  applyDataSheetPresentation(receiptWs, DATA_HEADER_ROW, 8, [28, 16, 24, 14, 22, 18, 18, 32]);
+  XLSX.utils.book_append_sheet(wb, receiptWs, 'Receipt Backup Manifest');
 
   const accountingRows: (string | number | null | undefined)[][] = [
     [BRAND],
-    ['Accounting Mapping'],
-    ['Map each BPS expense category to your accounting system before handoff to your bookkeeper.'],
+    ['Suggested Category Mapping'],
+    ['Suggested accounting labels only. Final category treatment should be confirmed with your CPA or tax professional.'],
     [],
-    ['BPS Category', 'Accounting / QuickBooks Category', 'Status', 'Notes'],
+    [
+      'BPS Category',
+      'Optional accounting label',
+      'Suggested accounting category',
+      'Status',
+      'Notes',
+    ],
     ...TAX_CATEGORIES.map((cat) => [
       cat,
-      accountingMappedLabel(quickBooksCategoryMap, cat),
-      accountingStatus(quickBooksCategoryMap, cat),
-      accountingNotes(quickBooksCategoryMap, cat),
+      optionalUserAccountingLabel(quickBooksCategoryMap, cat) || '—',
+      SUGGESTED_ACCOUNTING_CATEGORY[cat],
+      mappingSheetStatus(quickBooksCategoryMap, cat),
+      mappingSheetNotes(quickBooksCategoryMap, cat),
     ]),
   ];
   const mapWs = sheetFromAoA(accountingRows);
-  applyDataSheetPresentation(mapWs, DATA_HEADER_ROW, 4, [28, 36, 18, 40]);
-  XLSX.utils.book_append_sheet(wb, mapWs, 'Accounting Mapping');
+  applyDataSheetPresentation(mapWs, DATA_HEADER_ROW, 5, [22, 28, 32, 14, 44]);
+  XLSX.utils.book_append_sheet(wb, mapWs, 'Suggested Category Mapping');
 
   return XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
 }

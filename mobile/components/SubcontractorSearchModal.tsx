@@ -18,14 +18,11 @@ import {
   Animated,
   StatusBar,
   StyleSheet,
+  Switch,
 } from 'react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import {
-  BRAND_FRAME_GRADIENT_COLORS,
-  BRAND_FRAME_GRADIENT_END,
-  BRAND_FRAME_GRADIENT_START,
-} from "@/constants/brandFrameGradient";
+import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import GradientRingBackInner from './GradientRingBackInner';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -40,55 +37,181 @@ import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
+import { syncBpsDirectoryListing } from '@/services/bpsDirectorySync';
+import { SubWebFormOptionalChrome } from '@/components/SubWebFormOptionalChrome';
 
-/** Web: gradient card (860); native: padded column — matches Edit Team / SKU search. */
-function SubWebFormOptionalChrome({
-  isWeb,
-  darkMode,
-  Colors,
-  columnStyle,
-  children,
-}: {
-  isWeb: boolean;
-  darkMode: boolean;
-  Colors: any;
-  columnStyle?: Record<string, unknown>;
-  children: React.ReactNode;
-}) {
-  if (isWeb) {
-    return (
-      <LinearGradient
-        colors={BRAND_FRAME_GRADIENT_COLORS}
-        start={BRAND_FRAME_GRADIENT_START}
-        end={BRAND_FRAME_GRADIENT_END}
-        style={{
-          width: "100%",
-          maxWidth: 860,
-          alignSelf: "center",
-          borderRadius: 24,
-          padding: 1,
-          overflow: "hidden",
-          marginBottom: 4,
-        }}
-      >
-        <View
-          style={{
-            width: "100%",
-            borderRadius: 23,
-            padding: 28,
-            backgroundColor: darkMode ? "#050807" : Colors.surface2,
-          }}
-        >
-          <View style={{ gap: 14, width: "100%" }}>{children}</View>
-        </View>
-      </LinearGradient>
-    );
+function extractZipFromGeocode(addresses: { postalCode?: string | null }[]): string | null {
+  for (const a of addresses) {
+    const raw = (a.postalCode || '').trim();
+    const z = raw.replace(/\D/g, '').slice(0, 5);
+    if (z.length === 5) return z;
   }
-  return (
-    <View style={[{ paddingTop: 0, gap: 14, width: "100%" }, columnStyle || {}]}>
-      {children}
-    </View>
-  );
+  return null;
+}
+
+function digitsOnlyBudget(raw: string): string {
+  return String(raw ?? '').replace(/\D/g, '');
+}
+
+/** Thousands separators for display only; submit with digitsOnlyBudget. */
+function formatBudgetWithCommas(raw: string): string {
+  const d = digitsOnlyBudget(raw);
+  if (!d) return '';
+  return d.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+/** RN Web: `Alert.alert` often fails for validation/success; use browser alert on web. */
+function alertSimple(title: string, message?: string) {
+  const combined = message ? `${title}\n\n${message}` : title;
+  if (
+    Platform.OS === 'web' &&
+    typeof window !== 'undefined' &&
+    typeof window.alert === 'function'
+  ) {
+    window.alert(combined);
+    return;
+  }
+  Alert.alert(title, message ?? '');
+}
+
+/** Dynamic import can succeed while native methods are missing — validate before calling. */
+async function loadExpoLocationNative(): Promise<any | null> {
+  try {
+    const mod: any = await import('expo-location');
+    const api =
+      typeof mod.requestForegroundPermissionsAsync === 'function'
+        ? mod
+        : typeof mod.default?.requestForegroundPermissionsAsync === 'function'
+          ? mod.default
+          : null;
+    if (api && typeof api.getCurrentPositionAsync === 'function') {
+      return api;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+/** ZIP + optional Google address hint so web users see where Safari/Core Location placed the pin. */
+type ReverseGeocodeBackendResult = {
+  zip: string | null;
+  locality?: string | null;
+  adminArea1?: string | null;
+};
+
+/** Use backend Google Geocoding for accurate US ZIP (free APIs often snap to wrong boundary, e.g. 88914 vs 89141). */
+async function reverseGeocodeViaBackend(
+  latitude: number,
+  longitude: number
+): Promise<ReverseGeocodeBackendResult> {
+  try {
+    const base = resolveBackendRestApiBaseUrl();
+    const url = `${base}/geocode/reverse?lat=${encodeURIComponent(
+      String(latitude)
+    )}&lng=${encodeURIComponent(String(longitude))}&_=${encodeURIComponent(String(Date.now()))}`;
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) return { zip: null };
+    const data = await r.json().catch(() => ({}));
+    const z = String(data?.zip ?? '')
+      .replace(/\D/g, '')
+      .slice(0, 5);
+    const zipOk = z.length === 5 ? z : null;
+    const locality =
+      typeof data?.locality === 'string' && data.locality.trim() ? data.locality.trim() : null;
+    const adminArea1 =
+      typeof data?.adminArea1 === 'string' && data.adminArea1.trim()
+        ? data.adminArea1.trim()
+        : null;
+    return { zip: zipOk, locality, adminArea1 };
+  } catch (e) {
+    console.warn('Backend reverse geocode failed', e);
+    return { zip: null };
+  }
+}
+
+/** OSM fallback — CORS * when backend Google reverse geocode is unavailable. */
+async function reverseGeocodeWebNominatim(latitude: number, longitude: number): Promise<string | null> {
+  try {
+    const url =
+      `https://nominatim.openstreetmap.org/reverse?lat=${encodeURIComponent(
+        String(latitude)
+      )}&lon=${encodeURIComponent(String(longitude))}&format=json&addressdetails=1`;
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) return null;
+    const data = await r.json();
+    const pc = String(data?.address?.postcode ?? '')
+      .replace(/\D/g, '')
+      .slice(0, 5);
+    return pc.length === 5 ? pc : null;
+  } catch (e) {
+    console.warn('Web reverse geocode (Nominatim) failed', e);
+    return null;
+  }
+}
+
+/** Match backend geocode.js — only ask server to refine when GPS is in Clark County valley. */
+function inLasVegasMetroBBoxClient(lat: number, lng: number): boolean {
+  return lat >= 35.88 && lat <= 36.45 && lng >= -115.55 && lng <= -114.85;
+}
+
+/** After OSM Nominatim ZIP, snap to the postal polygon that actually contains the point (89074 vs 88914, etc.). */
+async function refineZipLasVegasClient(
+  latitude: number,
+  longitude: number,
+  zip: string | null
+): Promise<string | null> {
+  const z5 = zip?.replace(/\D/g, '').slice(0, 5);
+  if (!z5 || z5.length !== 5) return zip;
+  if (!inLasVegasMetroBBoxClient(latitude, longitude)) return z5;
+  try {
+    const base = resolveBackendRestApiBaseUrl();
+    const url = `${base}/geocode/refine-neighbor-zip?lat=${encodeURIComponent(
+      String(latitude)
+    )}&lng=${encodeURIComponent(String(longitude))}&zip=${encodeURIComponent(z5)}&_=${encodeURIComponent(
+      String(Date.now())
+    )}`;
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) return z5;
+    const data = await r.json().catch(() => ({}));
+    const z = String(data?.zip ?? '')
+      .replace(/\D/g, '')
+      .slice(0, 5);
+    return z.length === 5 ? z : z5;
+  } catch {
+    return z5;
+  }
+}
+
+/** Resolve coordinates to a US ZIP. Native requires expo-location (dynamic import). Web uses HTTP fallback only. */
+async function reverseGeocodeToZip(
+  latitude: number,
+  longitude: number,
+  expoLocationApi?: any
+): Promise<string | null> {
+  if (Platform.OS === 'web') {
+    const fromBackend = await reverseGeocodeViaBackend(latitude, longitude);
+    if (fromBackend.zip) return fromBackend.zip;
+    const fromOsm = await reverseGeocodeWebNominatim(latitude, longitude);
+    return refineZipLasVegasClient(latitude, longitude, fromOsm);
+  }
+
+  let Location = expoLocationApi;
+  if (!Location || typeof Location.reverseGeocodeAsync !== 'function') {
+    Location = await loadExpoLocationNative();
+    if (!Location || typeof Location.reverseGeocodeAsync !== 'function') {
+      return null;
+    }
+  }
+  try {
+    const addresses = await Location.reverseGeocodeAsync({ latitude, longitude });
+    const zipRaw = extractZipFromGeocode(addresses);
+    const zipRefined = await refineZipLasVegasClient(latitude, longitude, zipRaw);
+    if (zipRefined) return zipRefined;
+  } catch (e) {
+    console.warn('reverseGeocodeAsync failed', e);
+  }
+  return null;
 }
 
 const TRADE_OPTIONS = [
@@ -105,6 +228,8 @@ const TRADE_OPTIONS = [
   'Landscaping',
 ];
 
+const RADIUS_MI_OPTIONS = [10, 25, 50] as const;
+
 /** Map Google Places API (backend) row → in-app subcontractor card model. */
 function mapGooglePlacesRowToSub(row: any, selectedTrade: string): any {
   const tradeLabel =
@@ -118,6 +243,7 @@ function mapGooglePlacesRowToSub(row: any, selectedTrade: string): any {
   const status = row.businessStatus
     ? String(row.businessStatus).replace(/_/g, ' ').toLowerCase()
     : '—';
+  const isBps = row.source === 'bps' || row.bpsVerified === true;
   return {
     id: row.placeId,
     placeId: row.placeId,
@@ -128,7 +254,7 @@ function mapGooglePlacesRowToSub(row: any, selectedTrade: string): any {
     hourlyRate: { min: 0, max: 0 },
     hideHourlyRate: true,
     location: row.formattedAddress || '—',
-    distance: null,
+    distance: typeof row.distanceMiles === 'number' ? row.distanceMiles : null,
     licensed: false,
     insured: false,
     availability: status,
@@ -143,9 +269,10 @@ function mapGooglePlacesRowToSub(row: any, selectedTrade: string): any {
     fetchedAt: row.fetchedAt || null,
     primaryTypeDisplayName: row.primaryTypeDisplayName || null,
     types: Array.isArray(row.types) ? row.types : [],
-    source: 'google_places',
-    sourceLabel: 'Google',
-    unverifiedLabel: 'Not verified by BPS',
+    source: isBps ? 'bps' : 'google_places',
+    sourceLabel: isBps ? 'BPS' : 'Google',
+    unverifiedLabel: isBps ? 'Verified by BPS' : 'Not verified by BPS',
+    bpsVerified: isBps,
   };
 }
 
@@ -158,11 +285,17 @@ interface SubcontractorSearchModalProps {
   onOpenChat?: (conversationId: string, participantName: string, participantCompany: string) => void;
 }
 
+/** Parent often passes `""` when bid has no ZIP — use a sensible Las Vegas–area default for search. */
+function initialZipFromProp(z?: string): string {
+  const digits = (z ?? '').replace(/\D/g, '').slice(0, 5);
+  return digits.length === 5 ? digits : '89141';
+}
+
 function SubcontractorSearchModal({
   visible,
   onClose,
   onSelect,
-  defaultZip = '89011',
+  defaultZip,
   onPhotoClick,
   onOpenChat,
 }: SubcontractorSearchModalProps) {
@@ -178,17 +311,6 @@ function SubcontractorSearchModal({
     borderWidth: 1,
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
   };
-  /** Same border/fill as estimate Step 1 customer fields + main search inputs on this modal */
-  const requestFormInputShell = {
-    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: darkMode ? '#f8fafc' : Colors.text,
-  };
   const { createConversation } = useChat();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -201,13 +323,39 @@ function SubcontractorSearchModal({
     Platform.OS === 'web'
       ? { outlineStyle: 'none' as const, outlineWidth: 0 }
       : {};
+  /** Same border/fill as estimate Step 1 customer fields + main search inputs on this modal */
+  const requestFormInputShell = {
+    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    color: darkMode ? '#f8fafc' : Colors.text,
+    ...inputWebOutline,
+  };
   /** Wide enough to sit Refresh + Request in one row without cramming (native phones stay stacked). */
   const subSearchActionsRow = Dimensions.get("window").width >= 520;
   const [selectedTrade, setSelectedTrade] = useState('All Trades');
-  const [zipCode, setZipCode] = useState(defaultZip);
+  const [zipCode, setZipCode] = useState(() => initialZipFromProp(defaultZip));
+  const [radiusMiles, setRadiusMiles] = useState<number>(25);
   const [searchQuery, setSearchQuery] = useState('');
   const [googlePlacesResults, setGooglePlacesResults] = useState<any[]>([]);
+  /** Server returned metadata.disabled (e.g. GOOGLE_PLACES_API_KEY missing on local backend). */
+  const [placesDisabledMessage, setPlacesDisabledMessage] = useState<string | null>(null);
+  /** Server ignored GPS because it was far from the ZIP (common with desktop Safari). */
+  const [gpsZipMismatchNote, setGpsZipMismatchNote] = useState<string | null>(null);
+  /** When set, Google search is biased and distance-filtered from device GPS (corrects wrong reverse-ZIP in the field). */
+  const [searchAnchor, setSearchAnchor] = useState<{ lat: number; lng: number } | null>(null);
+  /** Web: city/state from Google for the browser’s GPS — clarifies when Safari places the pin far from where you expect */
+  const [geoHint, setGeoHint] = useState<string | null>(null);
+  /** Web: navigator accuracy radius — coarse Wi‑Fi/IP positioning on desktop Safari */
+  const [geoAccuracyWarning, setGeoAccuracyWarning] = useState<string | null>(null);
+  /** Profile-linked directory listing (same keys as Profile → Find Subcontractors). */
+  const [bpsDiscoverListOn, setBpsDiscoverListOn] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [locating, setLocating] = useState(false);
   const [selectedSubcontractor, setSelectedSubcontractor] = useState<any>(null);
   const [showProfile, setShowProfile] = useState(false);
   const [showRequestForm, setShowRequestForm] = useState(false);
@@ -243,6 +391,42 @@ function SubcontractorSearchModal({
       return 'contractor-demo';
     }
   };
+
+  const persistBpsDiscoverability = React.useCallback(async (listOn: boolean) => {
+    try {
+      const z = zipCode.replace(/\D/g, '').slice(0, 5);
+      const raw = await AsyncStorage.getItem('bps.contractorProfile');
+      const profile = raw ? JSON.parse(raw) : {};
+      const next = {
+        ...profile,
+        listOnFindSubcontractors: listOn,
+        serviceZip: z,
+      };
+      await AsyncStorage.setItem('bps.contractorProfile', JSON.stringify(next));
+      await syncBpsDirectoryListing({
+        id: String(getUserId()),
+        companyName: next.company || '',
+        contactName: next.name || '',
+        email: next.email || '',
+        phone: String(next.phone || '').replace(/\D/g, ''),
+        website: next.website || '',
+        trades: next.role ? [next.role] : ['General Contractor'],
+        zip: z,
+        listOnFindSubcontractors: listOn && z.length === 5,
+      });
+    } catch (e) {
+      console.warn('persistBpsDiscoverability', e);
+    }
+  }, [zipCode]);
+
+  // When discoverability is on, keep stored / backend ZIP aligned with the search bar ZIP.
+  useEffect(() => {
+    if (!visible || !bpsDiscoverListOn) return;
+    const z = zipCode.replace(/\D/g, '').slice(0, 5);
+    if (z.length !== 5) return;
+    const t = setTimeout(() => void persistBpsDiscoverability(true), 450);
+    return () => clearTimeout(t);
+  }, [zipCode, visible, bpsDiscoverListOn, persistBpsDiscoverability]);
 
   // Animate transition when switching between views
   useEffect(() => {
@@ -323,8 +507,20 @@ function SubcontractorSearchModal({
       loadCampaigns();
       // Real Google Places rows load when user taps Search / Refresh (see fetchGooglePlacesContractors).
       setGooglePlacesResults([]);
+      setPlacesDisabledMessage(null);
       setSelectedTrade('All Trades');
       setSearchQuery('');
+      void (async () => {
+        try {
+          const raw = await AsyncStorage.getItem('bps.contractorProfile');
+          if (raw) {
+            const p = JSON.parse(raw);
+            setBpsDiscoverListOn(!!p.listOnFindSubcontractors);
+          }
+        } catch {
+          /* ignore */
+        }
+      })();
     }
   }, [visible]);
 
@@ -376,18 +572,28 @@ function SubcontractorSearchModal({
     [selectedTrade, searchQuery, campaigns, campaignSubcontractors]
   );
 
+  const apiBpsDirectoryRows = useMemo(
+    () => filterByTradeAndQuery(googlePlacesResults.filter((s) => s.source === 'bps')),
+    [selectedTrade, searchQuery, googlePlacesResults]
+  );
+
+  const combinedBpsRows = useMemo(
+    () => [...realBpsRows, ...apiBpsDirectoryRows],
+    [realBpsRows, apiBpsDirectoryRows]
+  );
+
   const googleRowsFiltered = useMemo(
-    () => filterByTradeAndQuery(googlePlacesResults),
+    () => filterByTradeAndQuery(googlePlacesResults.filter((s) => s.source !== 'bps')),
     [selectedTrade, searchQuery, googlePlacesResults]
   );
 
   const resultSections = useMemo(() => {
     const sections: { key: string; title: string; rows: any[] }[] = [];
-    if (realBpsRows.length > 0) {
+    if (combinedBpsRows.length > 0) {
       sections.push({
         key: 'bps',
         title: 'Verified BPS Subcontractors',
-        rows: realBpsRows,
+        rows: combinedBpsRows,
       });
     }
     if (googleRowsFiltered.length > 0) {
@@ -398,25 +604,43 @@ function SubcontractorSearchModal({
       });
     }
     return sections;
-  }, [realBpsRows, googleRowsFiltered]);
+  }, [combinedBpsRows, googleRowsFiltered]);
 
   const hasAnyResults = resultSections.length > 0;
 
-  const fetchGooglePlacesContractors = async () => {
+  const fetchGooglePlacesContractors = async (
+    zipOverride?: string,
+    radiusOverride?: number,
+    anchorForRequest?: { lat: number; lng: number }
+  ) => {
     try {
-      const zip = zipCode.replace(/\D/g, '');
+      setPlacesDisabledMessage(null);
+      setGpsZipMismatchNote(null);
+      const zip = (zipOverride ?? zipCode).replace(/\D/g, '');
       if (zip.length < 5) {
         Alert.alert('ZIP code', 'Enter a 5-digit ZIP so we can search near the job site.');
         return;
       }
+      const radius = radiusOverride ?? radiusMiles;
       const apiBase = resolveBackendRestApiBaseUrl();
       const q = searchQuery.trim();
+      const anchor = anchorForRequest ?? searchAnchor;
+      const anchorQs =
+        anchor != null
+          ? `&anchorLat=${encodeURIComponent(String(anchor.lat))}&anchorLng=${encodeURIComponent(
+              String(anchor.lng)
+            )}`
+          : '';
       const url =
         `${apiBase}/places/contractors/search?trade=${encodeURIComponent(
           selectedTrade
-        )}&zip=${encodeURIComponent(zip)}&limit=15` + (q ? `&q=${encodeURIComponent(q)}` : '');
+        )}&zip=${encodeURIComponent(zip)}&limit=15&radiusMiles=${encodeURIComponent(
+          String(radius)
+        )}` +
+        (q ? `&q=${encodeURIComponent(q)}` : '') +
+        anchorQs;
 
-      const response = await fetch(url);
+      const response = await fetch(url, { cache: 'no-store' });
       if (!response.ok) {
         let detail = '';
         try {
@@ -431,13 +655,42 @@ function SubcontractorSearchModal({
       const data = await response.json();
       if (data.metadata?.disabled) {
         setGooglePlacesResults([]);
+        const msg =
+          typeof data.metadata?.message === 'string' && data.metadata.message.trim()
+            ? data.metadata.message.trim()
+            : 'Nearby Google search is turned off on this server (missing GOOGLE_PLACES_API_KEY).';
+        setPlacesDisabledMessage(msg);
         console.warn('Google Places:', data.metadata?.message || 'Disabled on server.');
+        setGpsZipMismatchNote(null);
         return;
+      }
+      if (data.metadata?.geocodeFailed) {
+        setGooglePlacesResults([]);
+        const msg =
+          typeof data.metadata?.message === 'string' && data.metadata.message.trim()
+            ? data.metadata.message.trim()
+            : 'Could not locate this ZIP on the map — check the ZIP or Geocoding API configuration.';
+        setPlacesDisabledMessage(msg);
+        setGpsZipMismatchNote(null);
+        return;
+      }
+      setPlacesDisabledMessage(null);
+      if (data.metadata?.anchorDroppedDueToZipMismatch) {
+        const mi = data.metadata.anchorZipMismatchMiles;
+        setGpsZipMismatchNote(
+          typeof mi === 'number'
+            ? `Browser location was about ${mi} mi from ZIP ${zip}, so search used your ZIP area instead.`
+            : `Browser location did not match your ZIP — search used your ZIP area instead.`
+        );
+      } else {
+        setGpsZipMismatchNote(null);
       }
       const mapped = (data.results || []).map((r: any) => mapGooglePlacesRowToSub(r, selectedTrade));
       setGooglePlacesResults(mapped);
     } catch (error: any) {
       console.error('Error fetching Google Places contractors:', error);
+      setPlacesDisabledMessage(null);
+      setGpsZipMismatchNote(null);
       setGooglePlacesResults([]);
       Alert.alert(
         'Search unavailable',
@@ -454,6 +707,120 @@ function SubcontractorSearchModal({
       await Promise.all([loadCampaigns(), fetchGooglePlacesContractors()]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUseMyLocation = async () => {
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+    setLocating(true);
+    try {
+      let lat: number;
+      let lng: number;
+      let expoLocationApi: any;
+      let webAccuracyM: number | undefined;
+
+      if (Platform.OS === 'web') {
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+          if (typeof navigator === 'undefined' || !navigator.geolocation) {
+            reject(new Error('Geolocation not supported'));
+            return;
+          }
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 30000,
+            maximumAge: 0,
+          });
+        });
+        lat = pos.coords.latitude;
+        lng = pos.coords.longitude;
+        webAccuracyM = pos.coords.accuracy;
+      } else {
+        expoLocationApi = await loadExpoLocationNative();
+        if (!expoLocationApi) {
+          Alert.alert(
+            'Rebuild dev app',
+            'This build doesn’t include the location native module (expo-location). Run a new EAS development build, or enter your ZIP manually.'
+          );
+          return;
+        }
+        const { status } = await expoLocationApi.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert(
+            'Location needed',
+            'Allow location to fill your ZIP from where you are, or enter a ZIP manually.'
+          );
+          return;
+        }
+        const pos = await expoLocationApi.getCurrentPositionAsync({
+          accuracy: expoLocationApi.Accuracy?.High ?? expoLocationApi.Accuracy?.Balanced ?? 4,
+        });
+        lat = pos.coords.latitude;
+        lng = pos.coords.longitude;
+      }
+
+      setSearchAnchor({ lat, lng });
+      setZipCode('');
+      setGeoHint(null);
+      setGeoAccuracyWarning(null);
+
+      let zip: string | null = null;
+
+      if (Platform.OS === 'web') {
+        if (typeof webAccuracyM === 'number') {
+          if (webAccuracyM > 25000) {
+            setGeoAccuracyWarning(
+              `Rough location (~${Math.round(webAccuracyM / 1000)} km accuracy). Desktop Safari often uses Wi‑Fi or IP — disable VPN, allow Precise Location for localhost, or enter ZIP manually.`
+            );
+          } else if (webAccuracyM > 6000) {
+            setGeoAccuracyWarning(
+              `Approximate location (~${Math.round(webAccuracyM / 1000)} km). Confirm ZIP if needed.`
+            );
+          }
+        }
+
+        const br = await reverseGeocodeViaBackend(lat, lng);
+        if (br.locality || br.adminArea1) {
+          setGeoHint([br.locality, br.adminArea1].filter(Boolean).join(', ') || null);
+        }
+        zip = br.zip;
+        if (!zip) {
+          const fromOsm = await reverseGeocodeWebNominatim(lat, lng);
+          zip = await refineZipLasVegasClient(lat, lng, fromOsm);
+          setGeoHint(null);
+        }
+      } else {
+        zip = await reverseGeocodeToZip(lat, lng, expoLocationApi);
+      }
+
+      if (!zip) {
+        setSearchAnchor(null);
+        Alert.alert(
+          'Could not resolve ZIP',
+          'We could not look up a ZIP for this location. Enter your ZIP manually.'
+        );
+        return;
+      }
+      setZipCode(zip);
+      setLocating(false);
+
+      setLoading(true);
+      try {
+        await Promise.all([loadCampaigns(), fetchGooglePlacesContractors(zip, undefined, { lat, lng })]);
+      } finally {
+        setLoading(false);
+      }
+    } catch (error: any) {
+      console.error('Use my location failed', error);
+      Alert.alert(
+        'Location error',
+        typeof error?.message === 'string' && error.message
+          ? error.message
+          : 'Could not get your location. Try entering a ZIP manually.'
+      );
+    } finally {
+      setLocating(false);
     }
   };
 
@@ -503,7 +870,8 @@ function SubcontractorSearchModal({
   const handleSelectSubcontractor = (sub: any) => {
     console.log('🔄 handleSelectSubcontractor called with:', sub.name);
     try {
-      const isGoogle = sub.source === 'google_places';
+      const isGoogleListing = sub.source === 'google_places';
+      const isBpsListing = sub.source === 'bps';
       const defaultRate =
         sub.hourlyRate && typeof sub.hourlyRate.min === 'number' && sub.hourlyRate.min > 0
           ? sub.hourlyRate.min
@@ -511,7 +879,7 @@ function SubcontractorSearchModal({
       const subData = {
         name: sub.name,
         trade: sub.trade,
-        rate: isGoogle || sub.hideHourlyRate ? 0 : defaultRate,
+        rate: isGoogleListing || isBpsListing || sub.hideHourlyRate ? 0 : defaultRate,
         mode: 'hourly',
         laborType: 'subcontractor',
         hours: 0,
@@ -519,8 +887,8 @@ function SubcontractorSearchModal({
           rating: sub.rating,
           reviews: sub.reviews,
           location: sub.location,
-          licensed: isGoogle ? false : !!sub.licensed,
-          insured: isGoogle ? false : !!sub.insured,
+          licensed: isGoogleListing ? false : !!sub.licensed,
+          insured: isGoogleListing ? false : !!sub.insured,
           source: sub.source,
           placeId: sub.placeId,
         }
@@ -538,9 +906,10 @@ function SubcontractorSearchModal({
   const handleRequestSubcontractor = async () => {
     // Reset form and animate to request form
     console.log('📝 Opening Request Subcontractor form modal');
+    const preTrade = selectedTrade !== 'All Trades' ? selectedTrade : '';
     setRequestFormData({
       trade: '',
-      customTrade: '',
+      customTrade: preTrade,
       projectName: '',
       budgetMax: '',
       timeline: 'Normal',
@@ -561,18 +930,19 @@ function SubcontractorSearchModal({
     // Prevent rapid submissions (debounce)
     const now = Date.now();
     if (now - lastSubmissionTime < 3000) { // 3 second cooldown
-      Alert.alert('Please wait', 'Please wait a moment before submitting another request.');
+      alertSimple('Please wait', 'Please wait a moment before submitting another request.');
       return;
     }
     
     // Validate form data before submitting
     if (!requestFormData.trade && !requestFormData.customTrade) {
-      Alert.alert('Error', 'Please enter a trade type.');
+      alertSimple('Error', 'Please enter a trade type.');
       return;
     }
     
-    if (!requestFormData.budgetMax) {
-      Alert.alert('Error', 'Please enter maximum budget.');
+    const budgetDigits = digitsOnlyBudget(requestFormData.budgetMax);
+    if (!budgetDigits) {
+      alertSimple('Error', 'Please enter maximum budget.');
       return;
     }
 
@@ -581,7 +951,7 @@ function SubcontractorSearchModal({
 
     try {
       // Use actual form data with proper validation
-      const budgetMax = parseInt(requestFormData.budgetMax) || 5000; // Default to $5000 if empty
+      const budgetMax = parseInt(budgetDigits, 10) || 5000;
       
       // Get actual user ID
       const userId = getUserId();
@@ -604,7 +974,10 @@ function SubcontractorSearchModal({
       const requestSignature = `${normalizeTrade(requestData.trade)}-${requestData.budgetMax}-${requestData.timeline}`;
       
       if (submittedRequests.has(requestSignature)) {
-        Alert.alert('Duplicate Request', 'You have already submitted a similar request. Please wait before submitting another.');
+        alertSimple(
+          'Duplicate Request',
+          'You have already submitted a similar request. Change trade, budget, or timeline and try again.'
+        );
         setIsSubmitting(false);
         return;
       }
@@ -633,8 +1006,20 @@ function SubcontractorSearchModal({
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('❌ API Error:', errorText);
-        throw new Error(`API Error: ${errorText}`);
+        console.error('❌ API Error:', response.status, errorText);
+        let detail = errorText.trim();
+        try {
+          const j = JSON.parse(errorText);
+          if (typeof j.message === 'string') detail = j.message;
+        } catch {
+          /* plain text body */
+        }
+        if (response.status === 429) {
+          throw new Error(
+            'Too many API requests (server rate limit). Wait about a minute and try again. For local dev, raise RATE_LIMIT_MAX_REQUESTS or set DISABLE_API_RATE_LIMIT=true in backend/.env.'
+          );
+        }
+        throw new Error(detail ? `API Error: ${detail}` : `Request failed (${response.status})`);
       }
 
       const result = await response.json();
@@ -656,35 +1041,62 @@ function SubcontractorSearchModal({
       const matchedCount = result.matchedContractorsCount || result.matchedContractors?.length || 0;
       const contractorList = result.matchedContractors?.slice(0, 3).map((c: any) => `• ${c.name || c.company || 'Contractor'}`).join('\n') || '';
       const moreText = matchedCount > 3 ? `\n...and ${matchedCount - 3} more` : '';
-      
-      Alert.alert(
-        '🎉 Request Posted!',
-        `Your ${requestData.trade.toLowerCase()} request has been posted!\n\n${matchedCount > 0 ? `✅ Matched with ${matchedCount} qualified contractor${matchedCount > 1 ? 's' : ''}:\n${contractorList}${moreText}` : '⏳ No contractors matched yet. We\'ll notify you when matches are found.'}\n\nView your request in the Leads page.`,
-        [
-          { 
-            text: 'View in Leads', 
+      const summaryBody = [
+        `Your ${requestData.trade.toLowerCase()} request has been posted!`,
+        '',
+        matchedCount > 0
+          ? `Matched with ${matchedCount} qualified contractor${matchedCount > 1 ? 's' : ''}:\n${contractorList}${moreText}`
+          : `No contractors matched yet. We'll notify you when matches are found.`,
+        '',
+        'You can view it in the Leads tab.',
+      ].join('\n');
+
+      if (
+        Platform.OS === 'web' &&
+        typeof window !== 'undefined' &&
+        typeof window.alert === 'function'
+      ) {
+        window.alert(`🎉 Request Posted!\n\n${summaryBody}`);
+        const goLeads =
+          typeof window.confirm === 'function' &&
+          window.confirm('Open the Leads tab now?');
+        if (goLeads) {
+          onClose();
+          setTimeout(() => router.push('/(tabs)/leads'), 300);
+        }
+      } else {
+        Alert.alert('🎉 Request Posted!', summaryBody, [
+          {
+            text: 'View in Leads',
             onPress: () => {
               onClose();
-              // Navigate to leads tab
               setTimeout(() => {
                 router.push('/(tabs)/leads');
               }, 300);
             },
-            style: 'default'
+            style: 'default',
           },
-          { 
-            text: 'OK', 
+          {
+            text: 'OK',
             onPress: () => {
               setShowRequestForm(false);
-            }
-          }
-        ]
-      );
+            },
+          },
+        ]);
+      }
       
     } catch (error) {
       console.error('❌ Error:', error);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Error', 'Failed to create subcontractor request. Please try again.');
+      const msg =
+        error instanceof Error ? error.message : 'Failed to create subcontractor request. Please try again.';
+      // Defer alert so React can paint the button state off "Sending…" (window.alert blocks the main thread).
+      const showErr = () => alertSimple('Error', msg);
+      if (Platform.OS === 'web' && typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => setTimeout(showErr, 0));
+      } else {
+        setTimeout(showErr, 0);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -919,7 +1331,13 @@ function SubcontractorSearchModal({
               />
               <TextInput
                 value={zipCode}
-                onChangeText={setZipCode}
+                onChangeText={(t) => {
+                  setSearchAnchor(null);
+                  setGeoHint(null);
+                  setGeoAccuracyWarning(null);
+                  setGpsZipMismatchNote(null);
+                  setZipCode(t);
+                }}
                 placeholder="ZIP"
                 placeholderTextColor={darkMode ? "rgba(226,232,240,0.55)" : Colors.sub}
                 keyboardType="phone-pad"
@@ -941,6 +1359,186 @@ function SubcontractorSearchModal({
                 }}
               />
             </View>
+            <Text
+              style={{
+                color: subMeta,
+                fontSize: 11,
+                lineHeight: 15,
+                marginTop: 6,
+              }}
+            >
+                Based on your location (US); may differ from mailing ZIP near boundaries.
+            </Text>
+            {isWeb && (geoHint || geoAccuracyWarning) ? (
+              <View style={{ marginTop: 8 }}>
+                {geoHint ? (
+                  <Text style={{ color: subMeta, fontSize: 12, lineHeight: 17 }}>
+                    Browser placed this point near: {geoHint}
+                  </Text>
+                ) : null}
+                {geoAccuracyWarning ? (
+                  <Text
+                    style={{
+                      color: darkMode ? '#fbbf24' : '#b45309',
+                      fontSize: 12,
+                      marginTop: geoHint ? 4 : 0,
+                      lineHeight: 17,
+                    }}
+                  >
+                    {geoAccuracyWarning}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+
+            {/* Radius from geocoded ZIP center (server-side filter) */}
+            <View style={{ marginTop: 12 }}>
+              <Text
+                style={{
+                  color: darkMode ? 'rgba(248, 250, 252, 0.85)' : '#000000',
+                  marginBottom: 8,
+                  fontSize: 11,
+                  fontWeight: '600',
+                  letterSpacing: 0.45,
+                  textTransform: 'uppercase',
+                }}
+              >
+                Within ({searchAnchor ? 'your location' : 'ZIP center'})
+              </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 8 }}>
+                {RADIUS_MI_OPTIONS.map((mi) => (
+                  <TouchableOpacity
+                    key={mi}
+                    onPress={async () => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setRadiusMiles(mi);
+                      const z = zipCode.replace(/\D/g, '');
+                      if (z.length !== 5) return;
+                      setLoading(true);
+                      try {
+                        await Promise.all([loadCampaigns(), fetchGooglePlacesContractors(undefined, mi)]);
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
+                    style={{
+                      backgroundColor:
+                        radiusMiles === mi
+                          ? 'rgba(34, 197, 94, 0.16)'
+                          : darkMode
+                            ? 'rgba(255, 255, 255, 0.04)'
+                            : Colors.surface2,
+                      paddingHorizontal: 14,
+                      paddingVertical: 9,
+                      borderRadius: 14,
+                      borderWidth: 1.5,
+                      borderColor:
+                        radiusMiles === mi
+                          ? '#22c55e'
+                          : darkMode
+                            ? 'rgba(148, 163, 184, 0.2)'
+                            : Colors.line,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color:
+                          radiusMiles === mi
+                            ? darkMode
+                              ? '#86efac'
+                              : '#166534'
+                            : darkMode
+                              ? '#f1f5f9'
+                              : '#000000',
+                        fontWeight: '700',
+                        fontSize: 12,
+                      }}
+                    >
+                      {mi} mi
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            <TouchableOpacity
+              onPress={handleUseMyLocation}
+              disabled={loading || locating}
+              accessibilityRole="button"
+              accessibilityLabel="Use my location to fill ZIP and search"
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+                marginTop: 10,
+                alignSelf: 'flex-start',
+                opacity: loading || locating ? 0.65 : 1,
+              }}
+            >
+              <MaterialIcons
+                name="my-location"
+                size={20}
+                color={darkMode ? '#4ade80' : '#16a34a'}
+              />
+              <Text
+                style={{
+                  color: darkMode ? '#86efac' : '#15803d',
+                  fontWeight: '600',
+                  fontSize: 14,
+                }}
+              >
+                {locating ? 'Getting location…' : 'Use my location'}
+              </Text>
+            </TouchableOpacity>
+
+            <View
+              style={{
+                marginTop: 16,
+                paddingTop: 14,
+                borderTopWidth: 1,
+                borderTopColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
+              }}
+            >
+              <Text
+                style={{
+                  color: darkMode ? 'rgba(248, 250, 252, 0.82)' : Colors.text,
+                  fontSize: 11,
+                  fontWeight: '700',
+                  letterSpacing: 0.45,
+                  textTransform: 'uppercase',
+                  marginBottom: 10,
+                }}
+              >
+                Your company on Find Subcontractors
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                <Text style={{ flex: 1, color: darkMode ? '#f1f5f9' : Colors.text, fontSize: 14, fontWeight: '600' }}>
+                  Show my company in search
+                </Text>
+                <Switch
+                  value={bpsDiscoverListOn}
+                  onValueChange={(v) => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    const z = zipCode.replace(/\D/g, '').slice(0, 5);
+                    if (v && z.length !== 5) {
+                      Alert.alert(
+                        'ZIP needed',
+                        'Set the ZIP in the search bar above (or tap Use my location) so we can place your listing in the right area.'
+                      );
+                      return;
+                    }
+                    setBpsDiscoverListOn(v);
+                    void persistBpsDiscoverability(v);
+                  }}
+                  trackColor={{ false: darkMode ? '#334155' : '#cbd5e1', true: '#22c55e' }}
+                  thumbColor="#f8fafc"
+                  ios_backgroundColor={darkMode ? '#334155' : '#cbd5e1'}
+                />
+              </View>
+              <Text style={{ color: subMeta, fontSize: 11, marginTop: 8, lineHeight: 15 }}>
+                Uses your Profile name, company, and role. Listing uses the ZIP shown above for this search (location-aware).
+              </Text>
+            </View>
           </View>
 
           {/* Search & Request Buttons */}
@@ -952,12 +1550,12 @@ function SubcontractorSearchModal({
                 handleSearch();
               }}
               activeOpacity={0.9}
-              disabled={loading}
+              disabled={loading || locating}
               style={{
                 flex: 1,
                 borderRadius: 12,
                 overflow: 'hidden',
-                opacity: loading ? 0.88 : 1,
+                opacity: loading || locating ? 0.88 : 1,
               }}
             >
               {isWeb ? (
@@ -1012,6 +1610,7 @@ function SubcontractorSearchModal({
                 handleRequestSubcontractor();
                 console.log('✅ handleRequestSubcontractor called');
               }}
+              disabled={loading || locating}
               style={{
                 flex: 1,
                 backgroundColor: 'transparent',
@@ -1035,20 +1634,35 @@ function SubcontractorSearchModal({
           </View>
 
             {/* Loading */}
-            {loading && (
+            {(loading || locating) && (
               <View style={{ paddingVertical: 40, alignItems: 'center' }}>
                 <ActivityIndicator size="large" color="#22c55e" />
-                <Text style={{ color: '#FFFFFF', marginTop: 12 }}>Searching...</Text>
+                <Text style={{ color: '#FFFFFF', marginTop: 12 }}>
+                  {loading ? 'Searching...' : 'Getting location...'}
+                </Text>
               </View>
             )}
 
             {/* Results */}
-            {!loading && hasAnyResults && (
+            {!loading && !locating && hasAnyResults && (
               <View>
                 <Text style={{ color: darkMode ? '#FFFFFF' : '#000000', fontSize: 17, fontWeight: '700', letterSpacing: -0.2, marginBottom: 12 }}>
-                  {realBpsRows.length + googleRowsFiltered.length} Subcontractor
-                  {realBpsRows.length + googleRowsFiltered.length !== 1 ? 's' : ''} found
+                  {combinedBpsRows.length + googleRowsFiltered.length} Subcontractor
+                  {combinedBpsRows.length + googleRowsFiltered.length !== 1 ? 's' : ''} found
                 </Text>
+                {gpsZipMismatchNote ? (
+                  <Text
+                    style={{
+                      color: darkMode ? '#fbbf24' : '#b45309',
+                      fontSize: 13,
+                      lineHeight: 18,
+                      marginBottom: 12,
+                      marginTop: -6,
+                    }}
+                  >
+                    {gpsZipMismatchNote}
+                  </Text>
+                ) : null}
 
                 {resultSections.map((section) => (
                   <View key={section.key} style={{ marginBottom: 6 }}>
@@ -1067,6 +1681,7 @@ function SubcontractorSearchModal({
                     </Text>
                     {section.rows.map((sub) => {
                       const isGoogle = sub.source === 'google_places';
+                      const isBpsListing = sub.source === 'bps';
                       const isSample = sub.source === 'sample' || sub.source === 'demo';
                       const locLine =
                         sub.location +
@@ -1078,6 +1693,10 @@ function SubcontractorSearchModal({
                           ? darkMode
                             ? 'rgba(59, 130, 246, 0.14)'
                             : 'rgba(37, 99, 235, 0.08)'
+                          : isBpsListing
+                            ? darkMode
+                              ? 'rgba(34, 197, 94, 0.18)'
+                              : 'rgba(22, 163, 74, 0.1)'
                           : sub.source === 'yelp'
                             ? darkMode
                               ? 'rgba(239, 68, 68, 0.1)'
@@ -1092,6 +1711,8 @@ function SubcontractorSearchModal({
                       const sourceBadgeBorder =
                         isGoogle
                           ? 'rgba(96, 165, 250, 0.35)'
+                          : isBpsListing
+                            ? 'rgba(52, 211, 153, 0.45)'
                           : sub.source === 'yelp'
                             ? 'rgba(248, 113, 113, 0.28)'
                             : isSample
@@ -1102,6 +1723,8 @@ function SubcontractorSearchModal({
                       const sourceIcon =
                         sub.source === 'bps_verified' || sub.hasCampaign
                           ? 'campaign'
+                          : sub.source === 'bps'
+                            ? 'verified'
                           : sub.source === 'yelp'
                             ? 'business'
                             : isGoogle
@@ -1116,6 +1739,10 @@ function SubcontractorSearchModal({
                           ? darkMode
                             ? '#93c5fd'
                             : '#1d4ed8'
+                          : isBpsListing
+                            ? darkMode
+                              ? '#86efac'
+                              : '#15803d'
                           : sub.source === 'yelp'
                             ? darkMode
                               ? '#fca5a5'
@@ -1132,6 +1759,10 @@ function SubcontractorSearchModal({
                           ? darkMode
                             ? '#bfdbfe'
                             : '#1e3a8a'
+                          : isBpsListing
+                            ? darkMode
+                              ? '#bbf7d0'
+                              : '#14532d'
                           : sub.source === 'yelp'
                             ? darkMode
                               ? '#fca5a5'
@@ -1165,7 +1796,11 @@ function SubcontractorSearchModal({
                             borderColor: darkMode ? 'rgba(148, 163, 184, 0.18)' : Colors.line,
                             backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.045)' : Colors.surface2,
                             borderLeftWidth: 3,
-                            borderLeftColor: isGoogle ? 'rgba(96, 165, 250, 0.5)' : 'rgba(45, 255, 196, 0.45)',
+                            borderLeftColor: isGoogle
+                              ? 'rgba(96, 165, 250, 0.5)'
+                              : isBpsListing
+                                ? 'rgba(34, 197, 94, 0.55)'
+                                : 'rgba(45, 255, 196, 0.45)',
                             overflow: 'hidden',
                           }}
                         >
@@ -1242,7 +1877,55 @@ function SubcontractorSearchModal({
                                           {sub.sourceLabel || 'Network'}
                                         </Text>
                                       </View>
-                                      {isGoogle && sub.unverifiedLabel ? (
+                                      {isBpsListing ? (
+                                        <>
+                                          <View
+                                            style={{
+                                              backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.14)' : 'rgba(22, 163, 74, 0.08)',
+                                              paddingHorizontal: 7,
+                                              paddingVertical: 3,
+                                              borderRadius: 8,
+                                              flexDirection: 'row',
+                                              alignItems: 'center',
+                                              borderWidth: 1,
+                                              borderColor: 'rgba(52, 211, 153, 0.4)',
+                                            }}
+                                          >
+                                            <MaterialIcons name={'verified' as any} size={11} color={sourceIconColor} />
+                                            <Text
+                                              style={{
+                                                color: sourceTextColor,
+                                                fontSize: 10,
+                                                fontWeight: '700',
+                                                marginLeft: 3,
+                                              }}
+                                            >
+                                              BPS
+                                            </Text>
+                                          </View>
+                                          <View
+                                            style={{
+                                              backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(22, 163, 74, 0.06)',
+                                              paddingHorizontal: 7,
+                                              paddingVertical: 3,
+                                              borderRadius: 8,
+                                              borderWidth: 1,
+                                              borderColor: 'rgba(52, 211, 153, 0.35)',
+                                            }}
+                                          >
+                                            <Text
+                                              style={{
+                                                color: darkMode ? '#86efac' : '#166534',
+                                                fontSize: 10,
+                                                fontWeight: '700',
+                                              }}
+                                            >
+                                              Verified by BPS
+                                            </Text>
+                                          </View>
+                                        </>
+                                      ) : null}
+                                      {!isBpsListing && isGoogle && sub.unverifiedLabel ? (
                                         <View
                                           style={{
                                             backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15,23,42,0.06)',
@@ -1544,38 +2227,16 @@ function SubcontractorSearchModal({
             )}
 
             {/* No Results */}
-            {!loading && !hasAnyResults && (
+            {!loading && !locating && !hasAnyResults && (
               <View style={{ justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40, paddingVertical: 60 }}>
                 <MaterialIcons name="search-off" size={64} color="#8DA0B8" />
-                <Text style={{ color: '#FFFFFF', fontSize: 18, textAlign: 'center', marginTop: 16, fontWeight: '600' }}>
-                  No subcontractors found
+                <Text style={{ color: darkMode ? '#FFFFFF' : Colors.text, fontSize: 18, textAlign: 'center', marginTop: 16, fontWeight: '600' }}>
+                  {placesDisabledMessage ? 'Nearby search unavailable' : 'No subcontractors found'}
                 </Text>
-                <Text style={{ color: '#8DA0B8', fontSize: 14, textAlign: 'center', marginTop: 8 }}>
-                  Can't find what you're looking for? Request subcontractors to come to you.
+                <Text style={{ color: darkMode ? '#8DA0B8' : Colors.sub, fontSize: 14, textAlign: 'center', marginTop: 8 }}>
+                  {placesDisabledMessage ||
+                    "Try another ZIP, trade, or radius — or tap Request Subcontractor above."}
                 </Text>
-                <TouchableOpacity
-                  style={{
-                    backgroundColor: showRequestForm ? '#22c55e' : 'rgba(255, 255, 255, 0.05)',
-                    paddingHorizontal: 24,
-                    paddingVertical: 14,
-                    borderRadius: 12,
-                    marginTop: 24,
-                    borderWidth: 1,
-                    borderColor: showRequestForm ? '#22c55e' : 'rgba(255, 255, 255, 0.15)',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 8,
-                  }}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    handleRequestSubcontractor();
-                  }}
-                >
-                  <MaterialIcons name="send" size={20} color={showRequestForm ? '#000000' : '#FFFFFF'} />
-                  <Text style={{ color: showRequestForm ? '#000000' : '#FFFFFF', fontWeight: '700', fontSize: 15 }}>
-                    Request {selectedTrade === 'All Trades' ? 'Subcontractors' : selectedTrade}
-                  </Text>
-                </TouchableOpacity>
               </View>
             )}
           </SubWebFormOptionalChrome>
@@ -1606,63 +2267,137 @@ function SubcontractorSearchModal({
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={{ flex: 1 }}
           >
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 12) + 40 }}
-              {...KEYBOARD_SCROLL_DEFAULTS}
-            >
-              {/* Header — respects status bar / notch */}
-              <View style={{
-                paddingTop: Math.max(insets.top, 0) + 14 + (isWeb ? 24 : 0),
-                paddingHorizontal: 22,
-                paddingBottom: 16,
-                flexDirection: 'row',
-                alignItems: 'center',
-                backgroundColor: darkMode ? '#000000' : Colors.bg,
-                borderBottomWidth: StyleSheet.hairlineWidth,
-                borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0,0,0,0.06)',
-              }}>
-                <View style={{ marginRight: 12 }}>
-                  <LinearGradient
-                    colors={BRAND_FRAME_GRADIENT_COLORS}
-                    start={{ x: 0.05, y: 0.15 }}
-                    end={{ x: 0.95, y: 0.85 }}
+          {!isWeb && (
+          <View style={{
+            paddingHorizontal: 22,
+            paddingTop: Math.max(insets.top, 0) + 10,
+            paddingBottom: 14,
+            backgroundColor: darkMode ? '#000000' : Colors.bg,
+            borderBottomWidth: StyleSheet.hairlineWidth,
+            borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0,0,0,0.06)',
+          }}>
+              <View style={[{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, webColumn860]}>
+              <View style={{ width: 52, alignItems: 'flex-start' }}>
+                <LinearGradient
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    padding: 1,
+                  }}
+                >
+                  <GradientRingBackInner
+                    darkMode={darkMode}
+                    onPress={handleBackFromRequest}
                     style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 20,
-                      padding: 1,
+                      width: '100%',
+                      height: '100%',
+                      borderRadius: 19,
+                      backgroundColor: darkMode ? '#000000' : Colors.bg,
+                      justifyContent: 'center',
+                      alignItems: 'center',
                     }}
                   >
-                    <GradientRingBackInner
-                      darkMode={darkMode}
-                      onPress={handleBackFromRequest}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        borderRadius: 19,
-                        backgroundColor: darkMode ? '#000000' : Colors.bg,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                      }}
-                    >
-                      <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : Colors.text} />
-                    </GradientRingBackInner>
-                  </LinearGradient>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 22, fontWeight: '700', letterSpacing: -0.35 }}>
-                    Request Subcontractor
-                  </Text>
-                  <Text style={{ color: subMeta2, fontSize: 14, marginTop: 5, lineHeight: 20 }}>
-                    Post your subcontractor needs
-                  </Text>
-                </View>
+                    <MaterialIcons
+                      name="arrow-back"
+                      size={24}
+                      color={darkMode ? '#FFFFFF' : Colors.text}
+                    />
+                  </GradientRingBackInner>
+                </LinearGradient>
               </View>
 
-              <View style={{ paddingHorizontal: 22, paddingTop: 20 }}>
+              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 }}>
+                <Text style={{ color: darkMode ? '#FFFFFF' : '#000000', fontSize: 23, fontWeight: '700', letterSpacing: -0.3, textAlign: 'center' }}>
+                  Request Subcontractor
+                </Text>
+                <Text style={{ color: darkMode ? 'rgba(226, 232, 240, 0.72)' : Colors.sub, fontSize: 13, marginTop: 5, lineHeight: 18, fontWeight: '500', textAlign: 'center' }}>
+                  Post your subcontractor needs
+                </Text>
+              </View>
 
-                {/* Trade Selection */}
+              <View style={{ width: 52 }} />
+              </View>
+            </View>
+          )}
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={
+              isWeb
+                ? {
+                    paddingTop: Math.max(insets.top, 8),
+                    paddingBottom: Math.max(insets.bottom, 12) + 40,
+                    paddingHorizontal: 32,
+                    flexGrow: 1,
+                    width: '100%',
+                    maxWidth: 1040,
+                    alignSelf: 'center',
+                  }
+                : {
+              paddingTop: 14,
+              paddingBottom: Math.max(insets.bottom, 12) + 40,
+              paddingHorizontal: 20,
+              ...(webColumn860 ? { alignItems: 'center' } : {}),
+            }
+            }
+              {...KEYBOARD_SCROLL_DEFAULTS}
+              keyboardShouldPersistTaps="always"
+            >
+          {isWeb && (
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                marginBottom: 24,
+                paddingTop: 24,
+                paddingBottom: 18,
+                borderBottomWidth: StyleSheet.hairlineWidth,
+                borderBottomColor: headerRule,
+              }}
+            >
+              <View style={{ width: 52, alignItems: 'flex-start', marginRight: 4 }}>
+                <LinearGradient
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    padding: 1,
+                  }}
+                >
+                  <GradientRingBackInner
+                    darkMode={darkMode}
+                    onPress={handleBackFromRequest}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      borderRadius: 19,
+                      backgroundColor: darkMode ? '#000000' : Colors.bg,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : Colors.text} />
+                  </GradientRingBackInner>
+                </LinearGradient>
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={{ color: darkMode ? '#FFFFFF' : Colors.text, fontSize: 26, fontWeight: '800', letterSpacing: -0.4 }}>
+                  Request Subcontractor
+                </Text>
+                <Text style={{ color: darkMode ? 'rgba(226, 232, 240, 0.72)' : Colors.sub, fontSize: 14, marginTop: 4, fontWeight: '500' }}>
+                  Post your subcontractor needs
+                </Text>
+              </View>
+            </View>
+          )}
+          <SubWebFormOptionalChrome isWeb={isWeb} darkMode={darkMode} Colors={Colors} columnStyle={webColumn860}>
+
       {showProfile && selectedSubcontractor && (
         <Modal
           visible={showProfile}
@@ -1738,7 +2473,18 @@ function SubcontractorSearchModal({
                     <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.2)', paddingHorizontal: 11, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.35)' }}>
                       <Text style={{ color: darkMode ? '#86efac' : '#166534', fontSize: 13, fontWeight: '700' }}>{selectedSubcontractor.trade}</Text>
                     </View>
-                    {selectedSubcontractor.source === 'google_places' ? (
+                    {selectedSubcontractor.source === 'bps' ? (
+                      <>
+                        <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.16)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(52, 211, 153, 0.4)' }}>
+                          <Text style={{ color: darkMode ? '#86efac' : '#166534', fontSize: 12, fontWeight: '700' }}>BPS</Text>
+                        </View>
+                        <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.12)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(52, 211, 153, 0.35)' }}>
+                          <Text style={{ color: darkMode ? '#86efac' : '#166534', fontSize: 12, fontWeight: '700' }}>
+                            Verified by BPS
+                          </Text>
+                        </View>
+                      </>
+                    ) : selectedSubcontractor.source === 'google_places' ? (
                       <>
                         <View style={{ backgroundColor: 'rgba(59, 130, 246, 0.14)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(96, 165, 250, 0.35)' }}>
                           <Text style={{ color: darkMode ? '#bfdbfe' : '#1e40af', fontSize: 12, fontWeight: '700' }}>Google</Text>
@@ -1750,12 +2496,12 @@ function SubcontractorSearchModal({
                         </View>
                       </>
                     ) : null}
-                    {selectedSubcontractor.source !== 'google_places' && selectedSubcontractor.licensed ? (
+                    {selectedSubcontractor.source !== 'google_places' && selectedSubcontractor.source !== 'bps' && selectedSubcontractor.licensed ? (
                       <View style={{ backgroundColor: 'rgba(34, 197, 94, 0.1)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(34, 197, 94, 0.28)' }}>
                         <Text style={{ color: darkMode ? '#a7f3d0' : '#166534', fontSize: 12, fontWeight: '600' }}>✓ Licensed</Text>
                       </View>
                     ) : null}
-                    {selectedSubcontractor.source !== 'google_places' && selectedSubcontractor.insured ? (
+                    {selectedSubcontractor.source !== 'google_places' && selectedSubcontractor.source !== 'bps' && selectedSubcontractor.insured ? (
                       <View style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(59, 130, 246, 0.28)' }}>
                         <Text style={{ color: darkMode ? '#93c5fd' : '#1d4ed8', fontSize: 12, fontWeight: '600' }}>✓ Insured</Text>
                       </View>
@@ -1786,7 +2532,7 @@ function SubcontractorSearchModal({
 
                   <View style={{ ...subCard, padding: 18 }}>
                     <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 6, letterSpacing: 0.15 }}>💰 Hourly Rate</Text>
-                    {selectedSubcontractor.hideHourlyRate || selectedSubcontractor.source === 'google_places' ? (
+                    {selectedSubcontractor.hideHourlyRate || selectedSubcontractor.source === 'google_places' || selectedSubcontractor.source === 'bps' ? (
                       <Text style={{ color: subMeta, fontSize: 16, fontWeight: '600', lineHeight: 22 }}>
                         Not listed for this listing — request a quote to confirm pricing.
                       </Text>
@@ -1850,7 +2596,7 @@ function SubcontractorSearchModal({
                     </View>
                   </View>
 
-                  {selectedSubcontractor.source === 'google_places' ? (
+                  {selectedSubcontractor.source === 'google_places' || selectedSubcontractor.source === 'bps' ? (
                     <View style={{ ...subCard, padding: 18 }}>
                       <Text style={{ color: subMeta2, fontSize: 12, fontWeight: '600', marginBottom: 10, letterSpacing: 0.15 }}>
                         Quick links
@@ -1908,6 +2654,11 @@ function SubcontractorSearchModal({
                         Public listing from Google Places. Build Profit Solutions has not verified license, insurance, or
                         pricing.
                       </Text>
+                    ) : selectedSubcontractor.source === 'bps' ? (
+                      <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18 }}>
+                        Listed because this company uses Build Profit Solutions. Confirm license, insurance, and pricing
+                        directly before hiring.
+                      </Text>
                     ) : (
                       <Text style={{ color: subMeta, fontSize: 13, lineHeight: 18 }}>
                         License: {selectedSubcontractor.licenseNumber || 'Not provided'}
@@ -1919,13 +2670,20 @@ function SubcontractorSearchModal({
                 {/* Professional Badges */}
                 <View style={{ marginBottom: 22 }}>
                   <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>
-                    {selectedSubcontractor.source === 'google_places' ? 'Verification' : 'Professional Credentials'}
+                    {selectedSubcontractor.source === 'google_places' ? 'Verification' : selectedSubcontractor.source === 'bps' ? 'BPS listing' : 'Professional Credentials'}
                   </Text>
                   {selectedSubcontractor.source === 'google_places' ? (
                     <View style={{ ...subCard, padding: 16 }}>
                       <Text style={{ color: subMeta, fontSize: 14, lineHeight: 22 }}>
                         BPS does not display license or insurance for Google-sourced listings. Confirm credentials
                         directly with the business before hiring.
+                      </Text>
+                    </View>
+                  ) : selectedSubcontractor.source === 'bps' ? (
+                    <View style={{ ...subCard, padding: 16 }}>
+                      <Text style={{ color: subMeta, fontSize: 14, lineHeight: 22 }}>
+                        Directory listings show active BPS accounts only. License and insurance are not verified by BPS
+                        here — confirm with the contractor.
                       </Text>
                     </View>
                   ) : (
@@ -2041,6 +2799,18 @@ function SubcontractorSearchModal({
                           <Text style={{ color: subMeta, fontSize: 14, lineHeight: 22, textAlign: 'left' }}>
                             This profile is from Google Places. Ratings and reviews reflect public Google data only.
                             Build Profit Solutions has not verified licensing, insurance, pricing, or availability.
+                          </Text>
+                          {selectedSubcontractor.specialties?.length ? (
+                            <Text style={{ color: subMeta, fontSize: 14, lineHeight: 22, textAlign: 'left' }}>
+                              Categories: {selectedSubcontractor.specialties.join(', ')}
+                            </Text>
+                          ) : null}
+                        </View>
+                      ) : selectedSubcontractor.source === 'bps' ? (
+                        <View style={{ alignItems: 'flex-start', gap: 8 }}>
+                          <Text style={{ color: subMeta, fontSize: 14, lineHeight: 22, textAlign: 'left' }}>
+                            This listing is from the Build Profit Solutions contractor directory (verified account). Ratings
+                            from Google are not shown unless this business also appears on Google.
                           </Text>
                           {selectedSubcontractor.specialties?.length ? (
                             <Text style={{ color: subMeta, fontSize: 14, lineHeight: 22, textAlign: 'left' }}>
@@ -2497,94 +3267,284 @@ function SubcontractorSearchModal({
           </View>
         </Modal>
       )}
-                <View style={{ marginBottom: 18 }}>
-                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 8, letterSpacing: -0.2 }}>
-                    Trade type *
+                <View style={{ marginBottom: 12 }}>
+                  <Text
+                    style={{
+                      color: darkMode ? 'rgba(248, 250, 252, 0.85)' : '#000000',
+                      marginBottom: 8,
+                      fontSize: 11,
+                      fontWeight: '600',
+                      letterSpacing: 0.45,
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Trade
+                  </Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 8 }}>
+                    {TRADE_OPTIONS.filter((t) => t !== 'All Trades').map((trade) => {
+                      const selected = requestFormData.customTrade === trade;
+                      return (
+                        <TouchableOpacity
+                          key={trade}
+                          onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            setRequestFormData({ ...requestFormData, trade: '', customTrade: trade });
+                          }}
+                          style={{
+                            backgroundColor: selected
+                              ? 'rgba(34, 197, 94, 0.16)'
+                              : darkMode
+                                ? 'rgba(255, 255, 255, 0.04)'
+                                : Colors.surface2,
+                            paddingHorizontal: 14,
+                            paddingVertical: 9,
+                            borderRadius: 14,
+                            borderWidth: 1.5,
+                            borderColor: selected
+                              ? '#22c55e'
+                              : darkMode
+                                ? 'rgba(148, 163, 184, 0.2)'
+                                : Colors.line,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color: selected
+                                ? darkMode
+                                  ? '#86efac'
+                                  : '#166534'
+                                : darkMode
+                                  ? '#f1f5f9'
+                                  : '#000000',
+                              fontWeight: '700',
+                              fontSize: 12,
+                            }}
+                          >
+                            {trade}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                  <Text
+                    style={{
+                      color: darkMode ? 'rgba(248, 250, 252, 0.85)' : '#000000',
+                      marginTop: 14,
+                      marginBottom: 8,
+                      fontSize: 11,
+                      fontWeight: '600',
+                      letterSpacing: 0.45,
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Or type a trade *
                   </Text>
                   <TextInput
                     style={{ ...requestFormInputShell, minHeight: 52 }}
-                    value={requestFormData.trade || requestFormData.customTrade}
-                    onChangeText={(text) => setRequestFormData({ ...requestFormData, trade: '', customTrade: text })}
+                    value={requestFormData.customTrade}
+                    onChangeText={(text) =>
+                      setRequestFormData({ ...requestFormData, trade: '', customTrade: text })
+                    }
                     placeholder="e.g. Plumbing, electrical, tile…"
-                    placeholderTextColor={subMeta2}
+                    placeholderTextColor={darkMode ? 'rgba(226,232,240,0.55)' : Colors.sub}
                   />
                 </View>
 
-                <View style={{ marginBottom: 18 }}>
-                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 8, letterSpacing: -0.2 }}>
-                    Project name <Text style={{ color: subMeta2, fontWeight: '600' }}>(optional)</Text>
+                <View style={{ marginBottom: 12 }}>
+                  <Text
+                    style={{
+                      color: darkMode ? 'rgba(248, 250, 252, 0.85)' : '#000000',
+                      marginBottom: 8,
+                      fontSize: 11,
+                      fontWeight: '600',
+                      letterSpacing: 0.45,
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Project name <Text style={{ textTransform: 'none', color: subMeta, fontWeight: '600' }}>(optional)</Text>
                   </Text>
                   <TextInput
                     style={{ ...requestFormInputShell, minHeight: 52 }}
                     value={requestFormData.projectName}
                     onChangeText={(text) => setRequestFormData({ ...requestFormData, projectName: text })}
                     placeholder="e.g. Kitchen remodel, office build"
-                    placeholderTextColor={subMeta2}
+                    placeholderTextColor={darkMode ? 'rgba(226,232,240,0.55)' : Colors.sub}
                   />
                 </View>
 
-                <View style={{ marginBottom: 18 }}>
-                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 8, letterSpacing: -0.2 }}>
+                <View style={{ marginBottom: 12 }}>
+                  <Text
+                    style={{
+                      color: darkMode ? 'rgba(248, 250, 252, 0.85)' : '#000000',
+                      marginBottom: 8,
+                      fontSize: 11,
+                      fontWeight: '600',
+                      letterSpacing: 0.45,
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Job ZIP (search area)
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <View
+                      style={{
+                        flex: 1,
+                        justifyContent: 'center',
+                        backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : Colors.surface2,
+                        paddingHorizontal: 14,
+                        paddingVertical: 12,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: darkMode ? 'rgba(148, 163, 184, 0.22)' : Colors.line,
+                        minHeight: 46,
+                      }}
+                    >
+                      <Text style={{ color: subMeta, fontSize: 12, lineHeight: 16 }}>
+                        Same ZIP as Find Subcontractors (shared). Edit here or on the search screen.
+                      </Text>
+                    </View>
+                    <TextInput
+                      value={zipCode}
+                      onChangeText={(t) => {
+                        setSearchAnchor(null);
+                        setGeoHint(null);
+                        setGeoAccuracyWarning(null);
+                        setGpsZipMismatchNote(null);
+                        setZipCode(t);
+                      }}
+                      placeholder="ZIP"
+                      placeholderTextColor={darkMode ? 'rgba(226,232,240,0.55)' : Colors.sub}
+                      keyboardType="phone-pad"
+                      maxLength={5}
+                      style={{
+                        width: 86,
+                        backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.08)' : Colors.surface2,
+                        color: darkMode ? '#FFFFFF' : '#000000',
+                        paddingHorizontal: 10,
+                        paddingVertical: 11,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: darkMode ? 'rgba(148, 163, 184, 0.32)' : Colors.line,
+                        fontSize: 15,
+                        textAlign: 'center',
+                        ...inputWebOutline,
+                      }}
+                    />
+                  </View>
+                  <Text style={{ color: subMeta, fontSize: 11, lineHeight: 15, marginTop: 6 }}>
+                    Based on your location (US); may differ from mailing ZIP near boundaries.
+                  </Text>
+                </View>
+
+                <View style={{ marginBottom: 12 }}>
+                  <Text
+                    style={{
+                      color: darkMode ? 'rgba(248, 250, 252, 0.85)' : '#000000',
+                      marginBottom: 8,
+                      fontSize: 11,
+                      fontWeight: '600',
+                      letterSpacing: 0.45,
+                      textTransform: 'uppercase',
+                    }}
+                  >
                     Maximum budget *
                   </Text>
                   <TextInput
                     style={{ ...requestFormInputShell, minHeight: 52 }}
                     value={requestFormData.budgetMax}
-                    onChangeText={(text) => setRequestFormData({ ...requestFormData, budgetMax: text })}
+                    onChangeText={(text) =>
+                      setRequestFormData({
+                        ...requestFormData,
+                        budgetMax: formatBudgetWithCommas(text),
+                      })
+                    }
                     placeholder="$50,000"
-                    placeholderTextColor={subMeta2}
-                    keyboardType="phone-pad"
+                    placeholderTextColor={darkMode ? 'rgba(226,232,240,0.55)' : Colors.sub}
+                    keyboardType="number-pad"
                   />
                 </View>
 
-                <View style={{ marginBottom: 18 }}>
-                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 10, letterSpacing: -0.2 }}>
+                <View style={{ marginBottom: 12 }}>
+                  <Text
+                    style={{
+                      color: darkMode ? 'rgba(248, 250, 252, 0.85)' : '#000000',
+                      marginBottom: 8,
+                      fontSize: 11,
+                      fontWeight: '600',
+                      letterSpacing: 0.45,
+                      textTransform: 'uppercase',
+                    }}
+                  >
                     Timeline *
                   </Text>
-                  {[
-                    { value: 'Normal', label: 'Normal (4+ weeks)', color: '#10B981' },
-                    { value: 'Soon', label: 'Soon (1–3 weeks)', color: '#F59E0B' },
-                    { value: 'Urgent', label: 'Urgent (< 1 week)', color: '#EF4444' },
-                  ].map((option) => {
-                    const selected = requestFormData.timeline === option.value;
-                    return (
-                    <TouchableOpacity
-                      key={option.value}
-                      activeOpacity={0.85}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        setRequestFormData({ ...requestFormData, timeline: option.value as any });
-                      }}
-                      style={{
-                        flexDirection: 'row',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        backgroundColor: selected
-                          ? (darkMode ? 'rgba(255, 255, 255, 0.06)' : Colors.surface2)
-                          : (darkMode ? 'rgba(255, 255, 255, 0.03)' : Colors.surface),
-                        borderRadius: 14,
-                        paddingVertical: 14,
-                        paddingHorizontal: 16,
-                        marginBottom: 8,
-                        borderWidth: selected ? 1.5 : 1,
-                        borderColor: selected ? option.color : (darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line),
-                      }}
-                    >
-                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: option.color, marginRight: 12 }} />
-                        <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 15, fontWeight: '600' }}>{option.label}</Text>
-                      </View>
-                      {selected && (
-                        <MaterialIcons name="check-circle" size={22} color={option.color} />
-                      )}
-                    </TouchableOpacity>
-                    );
-                  })}
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 8 }}>
+                    {[
+                      { value: 'Normal', label: 'Normal (4+ wk)', color: '#10B981' },
+                      { value: 'Soon', label: 'Soon (1–3 wk)', color: '#F59E0B' },
+                      { value: 'Urgent', label: 'Urgent (< 1 wk)', color: '#EF4444' },
+                    ].map((option) => {
+                      const selected = requestFormData.timeline === option.value;
+                      return (
+                        <TouchableOpacity
+                          key={option.value}
+                          activeOpacity={0.85}
+                          onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            setRequestFormData({ ...requestFormData, timeline: option.value as 'Normal' | 'Soon' | 'Urgent' });
+                          }}
+                          style={{
+                            backgroundColor: selected
+                              ? 'rgba(34, 197, 94, 0.16)'
+                              : darkMode
+                                ? 'rgba(255, 255, 255, 0.04)'
+                                : Colors.surface2,
+                            paddingHorizontal: 14,
+                            paddingVertical: 9,
+                            borderRadius: 14,
+                            borderWidth: 1.5,
+                            borderColor: selected
+                              ? '#22c55e'
+                              : darkMode
+                                ? 'rgba(148, 163, 184, 0.2)'
+                                : Colors.line,
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: option.color }} />
+                            <Text
+                              style={{
+                                color: selected
+                                  ? darkMode
+                                    ? '#86efac'
+                                    : '#166534'
+                                  : darkMode
+                                    ? '#f1f5f9'
+                                    : '#000000',
+                                fontWeight: '700',
+                                fontSize: 12,
+                              }}
+                            >
+                              {option.label}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
                 </View>
 
-                <View style={{ marginBottom: 22 }}>
-                  <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 8, letterSpacing: -0.2 }}>
-                    Additional details <Text style={{ color: subMeta2, fontWeight: '600' }}>(optional)</Text>
+                <View style={{ marginBottom: 16 }}>
+                  <Text
+                    style={{
+                      color: darkMode ? 'rgba(248, 250, 252, 0.85)' : '#000000',
+                      marginBottom: 8,
+                      fontSize: 11,
+                      fontWeight: '600',
+                      letterSpacing: 0.45,
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Additional details <Text style={{ textTransform: 'none', color: subMeta, fontWeight: '600' }}>(optional)</Text>
                   </Text>
                   <TextInput
                     style={{
@@ -2596,58 +3556,100 @@ function SubcontractorSearchModal({
                     value={requestFormData.description}
                     onChangeText={(text) => setRequestFormData({ ...requestFormData, description: text })}
                     placeholder="Requirements, site access, materials, or other notes…"
-                    placeholderTextColor={subMeta2}
+                    placeholderTextColor={darkMode ? 'rgba(226,232,240,0.55)' : Colors.sub}
                     multiline
                     numberOfLines={4}
                   />
                 </View>
 
-                <View style={{ gap: 10 }}>
-                  <TouchableOpacity
-                    activeOpacity={0.9}
-                    onPress={createSubRequest}
+                <View style={{ flexDirection: subSearchActionsRow ? 'row' : 'column', gap: 10, marginBottom: 8 }}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Send subcontractor request"
+                    onPress={() => void createSubRequest()}
                     disabled={isSubmitting}
-                    style={{ borderRadius: 14, overflow: 'hidden', opacity: isSubmitting ? 0.65 : 1 }}
+                    style={({ pressed }) => [
+                      {
+                        flex: 1,
+                        borderRadius: 12,
+                        overflow: 'hidden',
+                        opacity: isSubmitting ? 0.65 : pressed ? 0.92 : 1,
+                        minHeight: 42,
+                      },
+                      isWeb && ({ cursor: isSubmitting ? ('not-allowed' as const) : ('pointer' as const) } as object),
+                    ]}
                   >
-                    <LinearGradient
-                      colors={isSubmitting ? ['#6b7280', '#4b5563'] : ['#22c55e', '#22d3ee']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={{
-                        paddingVertical: 16,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <Text style={{ color: isSubmitting ? '#f8fafc' : '#020617', textAlign: 'center', fontWeight: '800', fontSize: 16, letterSpacing: 0.3 }}>
-                        {isSubmitting ? 'Sending…' : 'Send request'}
-                      </Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
+                    {isWeb ? (
+                      <View
+                        style={{
+                          paddingVertical: 11,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          minHeight: 42,
+                          backgroundColor: '#22c55e',
+                          shadowColor: '#000000',
+                          shadowOpacity: darkMode ? 0.25 : 0.12,
+                          shadowRadius: 8,
+                          shadowOffset: { width: 0, height: 3 },
+                          elevation: 3,
+                        }}
+                      >
+                        <Text style={{ color: '#020617', textAlign: 'center', fontWeight: '700', fontSize: 14, letterSpacing: 0.15 }}>
+                          {isSubmitting ? 'Sending…' : 'Send request'}
+                        </Text>
+                      </View>
+                    ) : (
+                      <LinearGradient
+                        colors={isSubmitting ? ['#6b7280', '#4b5563'] : ['#22c55e', '#22d3ee']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={{
+                          paddingVertical: 14,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          minHeight: 42,
+                        }}
+                      >
+                        <Text style={{ color: isSubmitting ? '#f8fafc' : '#020617', textAlign: 'center', fontWeight: '800', fontSize: 15, letterSpacing: 0.2 }}>
+                          {isSubmitting ? 'Sending…' : 'Send request'}
+                        </Text>
+                      </LinearGradient>
+                    )}
+                  </Pressable>
 
                   <TouchableOpacity
                     activeOpacity={0.85}
                     onPress={handleBackFromRequest}
+                    disabled={isSubmitting}
                     style={{
-                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
-                      paddingVertical: 15,
-                      borderRadius: 14,
+                      flex: 1,
+                      backgroundColor: 'transparent',
+                      paddingVertical: 10,
+                      borderRadius: 12,
                       alignItems: 'center',
+                      justifyContent: 'center',
                       borderWidth: 1,
-                      borderColor: darkMode ? 'rgba(148, 163, 184, 0.22)' : Colors.line,
+                      borderColor: darkMode ? 'rgba(148, 163, 184, 0.28)' : Colors.line,
+                      flexDirection: 'row',
+                      gap: 6,
+                      minHeight: 42,
+                      opacity: isSubmitting ? 0.5 : 1,
                     }}
                   >
-                    <Text style={{ color: darkMode ? '#f8fafc' : Colors.text, fontWeight: '600', fontSize: 15 }}>Cancel</Text>
+                    <MaterialIcons name="close" size={17} color={darkMode ? 'rgba(226, 232, 240, 0.85)' : Colors.sub} />
+                    <Text style={{ color: darkMode ? 'rgba(226, 232, 240, 0.92)' : Colors.text, fontWeight: '600', fontSize: 13 }}>
+                      Cancel
+                    </Text>
                   </TouchableOpacity>
                 </View>
 
-                <View style={{ ...subCard, flexDirection: 'row', alignItems: 'flex-start', padding: 16, marginTop: 18 }}>
+                <View style={{ ...subCard, flexDirection: 'row', alignItems: 'flex-start', padding: 16 }}>
                   <MaterialIcons name="info-outline" size={20} color="#34d399" style={{ marginTop: 1 }} />
                   <Text style={{ color: subMeta, fontSize: 13, marginLeft: 12, flex: 1, lineHeight: 19 }}>
                     Your request is shared with qualified subs in your area. Matches show up in your Leads tab.
                   </Text>
                 </View>
-              </View>
+          </SubWebFormOptionalChrome>
             </ScrollView>
           </KeyboardAvoidingView>
           </Animated.View>

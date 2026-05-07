@@ -789,7 +789,7 @@ const AIAssistantModal: React.FC<Props> = ({
   onClose,
   context,
   onAction,
-  defaultZip = '89011',
+  defaultZip = '89141',
   initialQuestion,
   selectedProjectId,
   onSelectedProjectIdChange,

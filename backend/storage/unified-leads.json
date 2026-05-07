@@ -550,5 +550,34 @@
     "reachedQualifiedAt": "2025-12-19T16:46:34.748Z",
     "bidSubmittedAt": "2025-12-22T16:46:34.748Z",
     "bidWonAt": "2025-12-24T16:46:34.748Z"
+  },
+  {
+    "id": "LEAD-1778131510324-d7410b66",
+    "createdAt": "2026-05-07T05:25:10.324Z",
+    "stage": "new",
+    "aiScore": 80,
+    "verified": true,
+    "isOwnRequest": true,
+    "matchedContractors": 0,
+    "title": "plumbing Work Needed",
+    "trade": "plumbing",
+    "projectId": "PRJ-1778131510319",
+    "source": "PROJECT_BASED",
+    "contact": {
+      "name": "contractor-demo",
+      "company": "Project Request"
+    },
+    "location": {
+      "city": "Las Vegas",
+      "state": "NV"
+    },
+    "project": {
+      "type": "other",
+      "budgetMin": 0,
+      "budgetMax": 24000,
+      "timeline": "Normal"
+    },
+    "description": "Looking for qualified plumbing subcontractors",
+    "createdBy": "contractor-demo"
   }
 ]

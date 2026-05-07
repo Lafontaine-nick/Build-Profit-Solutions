@@ -8,6 +8,7 @@ import {
   inferVendorTypeFromTaxCategory,
   isPoPaidForTax,
   mapExpenseToTaxCategory,
+  matchVendorForExpense,
   normalizeVendorNameKey,
   type TaxExpense,
   type TaxPayment,
@@ -37,13 +38,7 @@ function displayVendorName(e: TaxExpense): string {
 }
 
 export function resolveVendorForExpense(e: TaxExpense, vendors: Vendor[]): Vendor | undefined {
-  if (e.vendorId) {
-    const byId = vendors.find((v) => v.id === e.vendorId);
-    if (byId) return byId;
-  }
-  const label = normalizeVendorNameKey(displayVendorName(e));
-  if (!label) return undefined;
-  return vendors.find((v) => normalizeVendorNameKey(v.businessName) === label);
+  return matchVendorForExpense(e, vendors);
 }
 
 function effectiveVendorType(v: Vendor | undefined, expense: TaxExpense): VendorType | 'unknown' {
@@ -126,6 +121,7 @@ const DISCLAIMER =
 
 function formatVendorTypeBadge(t: VendorType | 'unknown'): string {
   if (t === 'unknown') return 'Unknown';
+  if (t === 'other') return 'Other Vendor';
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
@@ -135,12 +131,19 @@ function formatW9StatusDisplay(
   raw: W9Status | 'unknown'
 ): string {
   if (linked) {
-    if (linked.w9Status === 'not_applicable') return 'Not applicable';
+    if (linked.w9Status === 'not_applicable') return 'Not needed';
+    if (linked.w9Status === 'missing') return 'Missing';
+    if (linked.w9Status === 'requested') return 'Requested';
+    if (linked.w9Status === 'uploaded') return 'Received';
+    if (linked.w9Status === 'verified') return 'Received';
     return linked.w9Status;
   }
-  if (raw !== 'unknown') return raw;
+  if (raw !== 'unknown') {
+    if (raw === 'not_applicable') return 'Not needed';
+    return raw;
+  }
   const def = defaultW9StatusForVendorType(vType === 'unknown' ? 'supplier' : vType);
-  return def === 'not_applicable' ? 'Not applicable (inferred)' : 'Missing (inferred)';
+  return def === 'not_applicable' ? 'Not needed (inferred)' : 'Needs review';
 }
 
 function splitWorkbookFlagColumns(actionNeeded: string[]): { flags: string; actions: string } {

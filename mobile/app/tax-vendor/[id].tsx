@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Linking,
+  Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   Share,
   StatusBar,
@@ -11,14 +11,17 @@ import {
   Switch,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
+import { TAX_CENTER_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
+import GradientRingBackInner from '@/components/GradientRingBackInner';
+import TaxGradientFrame from '@/src/components/tax/TaxGradientFrame';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
@@ -52,6 +55,7 @@ const W9_PILL_LABEL: Record<W9Status, string> = {
 export default function TaxVendorDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const isNew = id === 'new';
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
@@ -162,7 +166,7 @@ export default function TaxVendorDetailScreen() {
 
   if (!isNew && hydrated && !existing) {
     return (
-      <View style={[styles.screen, { justifyContent: 'center', padding: 24 }]}>
+      <View style={[styles.screenRoot, { justifyContent: 'center', padding: 24 }]}>
         <StatusBar barStyle="light-content" />
         <Text style={{ color: '#fff', fontSize: 16, marginBottom: 16 }}>Vendor not found.</Text>
         <Pressable onPress={() => router.back()} style={styles.saveBtn}>
@@ -449,40 +453,55 @@ export default function TaxVendorDetailScreen() {
   );
 
   return (
-    <View style={styles.screen}>
+    <View style={styles.screenRoot}>
       <StatusBar barStyle="light-content" />
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.headerRow}>
-          <View style={styles.backWrap}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.backBorder}
-            >
-              <TouchableOpacity
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.back();
-                }}
-                style={[styles.backInner, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      <SafeAreaView style={styles.safeArea}>
+        <View
+          style={[
+            styles.pageShell,
+            Platform.OS === 'web' && styles.pageShellWeb,
+            Platform.OS === 'web' && {
+              paddingTop: Math.max(insets.top, 12) + 14,
+            },
+          ]}
+        >
+          <View style={styles.headerRow}>
+            <View style={styles.backButtonWrapper}>
+              <LinearGradient
+                colors={BRAND_FRAME_GRADIENT_COLORS}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={styles.backButtonBorder}
               >
-                <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
-              </TouchableOpacity>
-            </LinearGradient>
+                <GradientRingBackInner
+                  darkMode={darkMode}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    router.back();
+                  }}
+                  style={[styles.backButtonInner, { backgroundColor: darkMode ? Colors.card : Colors.bg }]}
+                >
+                  <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
+                </GradientRingBackInner>
+              </LinearGradient>
+            </View>
+            <View style={styles.headerTitleCluster}>
+              <Text style={styles.kicker}>Vendor directory</Text>
+              <Text style={styles.screenTitle}>{screenTitle}</Text>
+              {isNew ? (
+                <Text style={styles.titleHelper}>
+                  Add a supplier, subcontractor, consultant, or other vendor you pay for project work.
+                </Text>
+              ) : null}
+            </View>
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title}>{screenTitle}</Text>
-            {isNew ? (
-              <Text style={styles.titleHelper}>
-                Add a supplier, subcontractor, consultant, or other vendor you pay for project work.
-              </Text>
-            ) : null}
-          </View>
-        </View>
 
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scroll}
+            keyboardShouldPersistTaps="handled"
+          >
+            <TaxGradientFrame style={styles.formGradientRing} innerStyle={styles.formFrameInner}>
           <Field label="Business name" value={businessName} onChangeText={setBusinessName} />
 
           {fullBookkeepingProfile && !simpleSupplierProfile ? (
@@ -585,7 +604,9 @@ export default function TaxVendorDetailScreen() {
               <Text style={styles.delText}>Delete vendor</Text>
             </Pressable>
           ) : null}
-        </ScrollView>
+            </TaxGradientFrame>
+          </ScrollView>
+        </View>
       </SafeAreaView>
     </View>
   );
@@ -650,21 +671,63 @@ function ActionButton({
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#000000' },
-  safe: { flex: 1 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, marginTop: 8, gap: 12 },
-  backWrap: { width: 42 },
-  backBorder: { width: 42, height: 42, borderRadius: 20, padding: 1, overflow: 'hidden' },
-  backInner: { width: 40, height: 40, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
-  title: { color: '#FFFFFF', fontSize: 22, fontWeight: '900' },
-  titleHelper: {
-    color: 'rgba(148, 163, 184, 0.95)',
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 6,
-    fontWeight: '600',
+  screenRoot: { flex: 1, backgroundColor: '#000000' },
+  safeArea: { flex: 1, backgroundColor: '#000000' },
+  pageShell: {
+    flex: 1,
+    width: '100%',
+    paddingHorizontal: 8,
+    minHeight: 0,
   },
-  scroll: { padding: 16, paddingBottom: 48 },
+  pageShellWeb: {
+    maxWidth: TAX_CENTER_WEB_MAX_CONTENT_WIDTH,
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 4,
+    marginBottom: 14,
+    gap: 10,
+  },
+  backButtonWrapper: {},
+  backButtonBorder: { width: 42, height: 42, borderRadius: 20, padding: 1, overflow: 'hidden' },
+  backButtonInner: { width: 40, height: 40, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  headerTitleCluster: { flex: 1, minWidth: 0 },
+  kicker: {
+    color: '#2DFFC4',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  screenTitle: {
+    color: '#FFFFFF',
+    fontSize: 26,
+    fontWeight: '900',
+    marginTop: 2,
+    letterSpacing: -0.3,
+  },
+  titleHelper: {
+    color: 'rgba(203, 213, 225, 0.88)',
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 8,
+    fontWeight: '500',
+  },
+  formGradientRing: {
+    marginBottom: 0,
+  },
+  formFrameInner: {
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 20,
+  },
+  scroll: { paddingBottom: 48 },
   label: { color: 'rgba(148, 163, 184, 0.95)', fontSize: 12, fontWeight: '700', marginBottom: 6 },
   input: {
     backgroundColor: 'rgba(255,255,255,0.08)',

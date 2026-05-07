@@ -46,6 +46,7 @@ export default function DetailedLeadCard({
   
   // Quality indicators
   const qualityIndicators = getQualityIndicators(lead);
+  const hideSalesPipeline = lead.isOwnRequest === true;
 
   const handleCall = () => {
     if (lead.contact.phone) {
@@ -161,7 +162,8 @@ export default function DetailedLeadCard({
         </View>
       </TouchableOpacity>
 
-      {/* Action Buttons */}
+      {/* Action Buttons — contact row omitted for your own subcontractor requests */}
+      {!lead.isOwnRequest && (
       <View style={styles.actionsRow}>
         <View style={styles.actionRow}>
           <TouchableOpacity 
@@ -192,7 +194,7 @@ export default function DetailedLeadCard({
         </View>
 
         <View style={styles.actionRow}>
-          {onStageChange && (
+          {!hideSalesPipeline && onStageChange && (
             <TouchableOpacity 
               style={styles.actionButton}
               onPress={handleStageAdvance}
@@ -203,6 +205,7 @@ export default function DetailedLeadCard({
           )}
         </View>
       </View>
+      )}
     </TouchableOpacity>
   );
 }

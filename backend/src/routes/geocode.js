@@ -12,6 +12,16 @@ const axios = require('axios');
 const router = express.Router();
 const GEOCODE_URL = 'https://maps.googleapis.com/maps/api/geocode/json';
 
+/** Google's JSON includes `error_message` when status is REQUEST_DENIED, etc. — surfaced for local debugging. */
+function firstGoogleGeocodeErrorMessage(...payloads) {
+  for (const d of payloads) {
+    if (d && typeof d.error_message === 'string' && d.error_message.trim()) {
+      return d.error_message.trim();
+    }
+  }
+  return null;
+}
+
 function resolveGoogleMapsKey() {
   return String(
     process.env.GOOGLE_PLACES_API_KEY ||
@@ -149,8 +159,17 @@ async function refineLasVegasMetroZip(lat, lng, zip, apiKey) {
 
   if (!candidates.length) return zip;
 
-  candidates.sort((a, b) => a.d - b.d);
-  return candidates[0].z5;
+  // Postal viewports overlap: the same GPS point can lie inside 88914 and 89139 (etc.). Tie-breaking
+  // by centroid distance often picks 88914 even when mailing/neighborhood aligns with another ZIP.
+  // When another cluster ZIP's polygon also contains the point, prefer it over 88914.
+  let ranked = candidates;
+  if (candidates.length > 1 && candidates.some((c) => c.z5 === '88914')) {
+    ranked = candidates.filter((c) => c.z5 !== '88914');
+    if (!ranked.length) ranked = candidates;
+  }
+
+  ranked.sort((a, b) => a.d - b.d);
+  return ranked[0].z5;
 }
 
 /**
@@ -173,11 +192,53 @@ async function refineLasVegasNeighborZip(lat, lng, zip, apiKey) {
   return d89141 < d88914 ? '89141' : zip;
 }
 
+/** Rough US bounds — national ZIP viewport checks (continental + AK + HI approx). */
+function inRoughUsBBox(lat, lng) {
+  if (lat >= 24 && lat <= 50 && lng >= -125 && lng <= -66) return true;
+  if (lat >= 51 && lat <= 72 && lng >= -170 && lng <= -129) return true;
+  if (lat >= 18 && lat <= 23 && lng >= -161 && lng <= -154) return true;
+  return false;
+}
+
+/**
+ * Outside Las Vegas metro-specific logic: if the reverse-geocode ZIP's postal viewport does not
+ * contain GPS (common near city/county lines in UT, CO, TX, etc.), prefer `postal_code`-only reverse
+ * for that coordinate so search ZIP aligns with Google's polygon for the point.
+ */
+async function refineUsZipWhenOutsideForwardViewport(lat, lng, zip5, apiKey) {
+  if (!zip5 || zip5.length !== 5) return zip5;
+  if (!inRoughUsBBox(lat, lng)) return zip5;
+
+  const vp = await zipPostalViewport(zip5, apiKey);
+  if (vp && pointInLatLngViewport(lat, lng, vp)) return zip5;
+
+  try {
+    const { data } = await axios.get(GEOCODE_URL, {
+      params: {
+        latlng: `${lat},${lng}`,
+        key: apiKey,
+        result_type: 'postal_code',
+      },
+      timeout: 12000,
+    });
+    if (data.status === 'OK' && Array.isArray(data.results) && data.results.length) {
+      const zP = extractUsZipFromGeocodeResults(data.results);
+      if (zP && zP.length === 5) return zP;
+    }
+  } catch {
+    /* keep zip5 */
+  }
+  return zip5;
+}
+
 async function applyLasVegasZipRefinements(lat, lng, rawZip, apiKey) {
   const cleaned = String(rawZip ?? '').replace(/\D/g, '').slice(0, 5);
   if (cleaned.length !== 5) return rawZip;
   let z = await refineLasVegasMetroZip(lat, lng, cleaned, apiKey);
   z = await refineLasVegasNeighborZip(lat, lng, z, apiKey);
+  if (!inLasVegasMetroBBox(lat, lng)) {
+    z = await refineUsZipWhenOutsideForwardViewport(lat, lng, z, apiKey);
+  }
   return z;
 }
 
@@ -284,6 +345,16 @@ async function distanceMilesToZipCentroid(lat, lng, zip5, apiKey) {
 /** LV polygon refinement can overshoot; pick ZIP whose centroid is closer to GPS when they diverge. */
 async function resolveZipWithSanity(lat, lng, rawZip, refinedZip, apiKey) {
   if (!rawZip || !refinedZip || rawZip === refinedZip) return refinedZip;
+  // Google's street reverse often snaps to 88914; metro refinement intentionally picks another cluster
+  // ZIP when overlapping postal viewports contain the GPS point. Centroid sanity below would otherwise
+  // revert to raw 88914 whenever the device is closer to 88914's centroid — undoing that refinement.
+  if (rawZip === '88914' && refinedZip !== '88914') return refinedZip;
+
+  const rawVp = await zipPostalViewport(rawZip, apiKey);
+  if (rawVp && !pointInLatLngViewport(lat, lng, rawVp) && refinedZip !== rawZip) {
+    return refinedZip;
+  }
+
   const dRaw = await distanceMilesToZipCentroid(lat, lng, rawZip, apiKey);
   const dRef = await distanceMilesToZipCentroid(lat, lng, refinedZip, apiKey);
   if (dRaw == null && dRef == null) return refinedZip;
@@ -363,6 +434,7 @@ async function googleReverseZipUs(lat, lng, apiKey) {
     detail: 'none',
     geocodeStatus: dFull.status || dP?.status || 'UNKNOWN',
     results: null,
+    googleErrorMessage: firstGoogleGeocodeErrorMessage(dFull, dStreet, dP),
   };
 }
 
@@ -389,13 +461,14 @@ router.get('/reverse', async (req, res) => {
 
   try {
     const geo = await googleReverseZipUs(lat, lng, apiKey);
-    const { zip: rawZip, geocodeStatus, results } = geo;
+    const { zip: rawZip, geocodeStatus, results, googleErrorMessage } = geo;
 
     if (!rawZip) {
       return res.json({
         zip: null,
         source: 'google',
         status: geocodeStatus || 'NO_ZIP',
+        ...(googleErrorMessage ? { googleErrorMessage } : {}),
       });
     }
 

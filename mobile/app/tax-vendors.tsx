@@ -1,19 +1,22 @@
 import React, { useMemo } from 'react';
 import {
   FlatList,
+  Platform,
   Pressable,
-  SafeAreaView,
   StatusBar,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
+import { TAX_CENTER_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
+import GradientRingBackInner from '@/components/GradientRingBackInner';
+import TaxGradientFrame from '@/src/components/tax/TaxGradientFrame';
 import { useRouter } from 'expo-router';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { useVendorDirectory } from '@/contexts/VendorDirectoryContext';
@@ -37,6 +40,7 @@ function w9BadgeText(
 
 export default function TaxVendorsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = React.useMemo(() => getColors(themeContext), [themeContext]);
   const { vendors, hydrated } = useVendorDirectory();
@@ -68,157 +72,262 @@ export default function TaxVendorsScreen() {
   }, [vendors, yearExpenses]);
 
   return (
-    <View style={styles.screen}>
+    <View style={styles.screenRoot}>
       <StatusBar barStyle="light-content" />
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.headerRow}>
-          <View style={styles.backWrap}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={styles.backBorder}
-            >
-              <TouchableOpacity
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.back();
-                }}
-                style={[styles.backInner, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      <SafeAreaView style={styles.safeArea}>
+        <View
+          style={[
+            styles.pageShell,
+            Platform.OS === 'web' && styles.pageShellWeb,
+            Platform.OS === 'web' && {
+              paddingTop: Math.max(insets.top, 12) + 14,
+            },
+          ]}
+        >
+          <View style={styles.headerRow}>
+            <View style={styles.backButtonWrapper}>
+              <LinearGradient
+                colors={BRAND_FRAME_GRADIENT_COLORS}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={styles.backButtonBorder}
               >
-                <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
-              </TouchableOpacity>
-            </LinearGradient>
-          </View>
-          <Text style={styles.title}>Vendors & Subcontractors</Text>
-          <Pressable
-            style={styles.addBtn}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              router.push('/tax-vendor/new');
-            }}
-          >
-            <MaterialIcons name="add" size={26} color="#2DFFC4" />
-          </Pressable>
-        </View>
-
-        <Text style={styles.sub}>
-          Track W-9 status and vendor details for bookkeeping and Potential 1099 review. Informational only. Not tax
-          advice. Review with your CPA or tax professional.
-        </Text>
-
-        {!hydrated ? (
-          <Text style={styles.muted}>Loading…</Text>
-        ) : (
-          <FlatList
-            data={vendors}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.list}
-            ListEmptyComponent={
-              <Text style={styles.muted}>
-                No vendors yet. Tap + to add subcontractors, suppliers, consultants, or other project vendors.
-              </Text>
-            }
-            renderItem={({ item }) => {
-              const st = statsByVendorId.get(item.id);
-              const paid = st?.paid ?? 0;
-              const projList = st ? Array.from(st.projects).sort() : [];
-              const paidFmt = new Intl.NumberFormat('en-US', {
-                style: 'currency',
-                currency: 'USD',
-                maximumFractionDigits: 0,
-              }).format(paid);
-              const supplierMinimal = item.vendorType === 'supplier' && !item.requires1099Review;
-              const showW9AndFlags = isReviewableVendorType(item.vendorType) || item.requires1099Review === true;
-              const w9Line = showW9AndFlags ? w9BadgeText(item.w9Status, item.vendorType, item.requires1099Review) : null;
-
-              return (
-                <Pressable
-                  style={styles.row}
+                <GradientRingBackInner
+                  darkMode={darkMode}
                   onPress={() => {
-                    Haptics.selectionAsync();
-                    router.push(`/tax-vendor/${item.id}`);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    router.back();
                   }}
+                  style={[styles.backButtonInner, { backgroundColor: darkMode ? Colors.card : Colors.bg }]}
                 >
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.rowTitle}>{item.businessName}</Text>
-                    <View style={styles.badgeRow}>
-                      <View style={styles.typeBadge}>
-                        <Text style={styles.typeBadgeText}>{typeBadgeLabel(item.vendorType)}</Text>
+                  <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
+                </GradientRingBackInner>
+              </LinearGradient>
+            </View>
+            <View style={styles.headerTitleCluster}>
+              <Text style={styles.kicker}>Vendor directory</Text>
+              <Text style={styles.screenTitle}>Vendors & Subcontractors</Text>
+            </View>
+            <Pressable
+              style={styles.addBtn}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                router.push('/tax-vendor/new');
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <LinearGradient
+                colors={BRAND_FRAME_GRADIENT_COLORS}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={styles.addBtnBorder}
+              >
+                <View style={[styles.addBtnInner, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}>
+                  <MaterialIcons name="add" size={22} color="#2DFFC4" />
+                </View>
+              </LinearGradient>
+            </Pressable>
+          </View>
+
+          <TaxGradientFrame style={styles.mainGradientRing} innerStyle={styles.mainFrameInner}>
+            <Text style={styles.introText}>
+              Track W-9 status and vendor details for bookkeeping and Potential 1099 review. Informational only. Not tax
+              advice. Review with your CPA or tax professional.
+            </Text>
+
+            {!hydrated ? (
+              <Text style={styles.muted}>Loading…</Text>
+            ) : (
+              <FlatList
+                data={vendors}
+                keyExtractor={(item) => item.id}
+                style={styles.listGrow}
+                contentContainerStyle={styles.listContent}
+                showsVerticalScrollIndicator={false}
+                ListEmptyComponent={
+                  <Text style={styles.emptyText}>
+                    No vendors yet. Tap + to add subcontractors, suppliers, consultants, or other project vendors.
+                  </Text>
+                }
+                renderItem={({ item }) => {
+                  const st = statsByVendorId.get(item.id);
+                  const paid = st?.paid ?? 0;
+                  const projList = st ? Array.from(st.projects).sort() : [];
+                  const paidFmt = new Intl.NumberFormat('en-US', {
+                    style: 'currency',
+                    currency: 'USD',
+                    maximumFractionDigits: 0,
+                  }).format(paid);
+                  const supplierMinimal = item.vendorType === 'supplier' && !item.requires1099Review;
+                  const showW9AndFlags = isReviewableVendorType(item.vendorType) || item.requires1099Review === true;
+                  const w9Line = showW9AndFlags ? w9BadgeText(item.w9Status, item.vendorType, item.requires1099Review) : null;
+
+                  return (
+                    <Pressable
+                      style={styles.row}
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        router.push(`/tax-vendor/${item.id}`);
+                      }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.rowTitle}>{item.businessName}</Text>
+                        <View style={styles.badgeRow}>
+                          <View style={styles.typeBadge}>
+                            <Text style={styles.typeBadgeText}>{typeBadgeLabel(item.vendorType)}</Text>
+                          </View>
+                          {item.requires1099Review ? (
+                            <View style={styles.flagBadge}>
+                              <Text style={styles.flagBadgeText}>Potential 1099 Review</Text>
+                            </View>
+                          ) : null}
+                          {w9Line ? (
+                            <View style={styles.w9Badge}>
+                              <Text style={styles.w9BadgeText}>{w9Line}</Text>
+                            </View>
+                          ) : null}
+                        </View>
+                        {!supplierMinimal ? (
+                          <Text style={styles.rowMeta} numberOfLines={1}>
+                            {[item.email, item.phone].filter(Boolean).join(' · ') || '—'}
+                          </Text>
+                        ) : null}
+                        {item.defaultCategory ? (
+                          <Text style={styles.rowSmall} numberOfLines={1}>
+                            Default category: {item.defaultCategory}
+                          </Text>
+                        ) : null}
+                        {item.defaultPaymentMethod ? (
+                          <Text style={styles.rowSmall} numberOfLines={1}>
+                            Payment: {item.defaultPaymentMethod}
+                          </Text>
+                        ) : null}
+                        {!supplierMinimal && item.notes?.trim() ? (
+                          <Text style={styles.rowSmall} numberOfLines={2}>
+                            Note: {item.notes.trim()}
+                          </Text>
+                        ) : null}
+                        <Text style={styles.rowSmall}>
+                          Paid ({currentYear}): {paidFmt}
+                          {projList.length
+                            ? ` · Projects: ${projList.slice(0, 3).join(', ')}${projList.length > 3 ? '…' : ''}`
+                            : ''}
+                        </Text>
                       </View>
-                      {item.requires1099Review ? (
-                        <View style={styles.flagBadge}>
-                          <Text style={styles.flagBadgeText}>Potential 1099 Review</Text>
-                        </View>
-                      ) : null}
-                      {w9Line ? (
-                        <View style={styles.w9Badge}>
-                          <Text style={styles.w9BadgeText}>{w9Line}</Text>
-                        </View>
-                      ) : null}
-                    </View>
-                    {!supplierMinimal ? (
-                      <Text style={styles.rowMeta} numberOfLines={1}>
-                        {[item.email, item.phone].filter(Boolean).join(' · ') || '—'}
-                      </Text>
-                    ) : null}
-                    {item.defaultCategory ? (
-                      <Text style={styles.rowSmall} numberOfLines={1}>
-                        Default category: {item.defaultCategory}
-                      </Text>
-                    ) : null}
-                    {item.defaultPaymentMethod ? (
-                      <Text style={styles.rowSmall} numberOfLines={1}>
-                        Payment: {item.defaultPaymentMethod}
-                      </Text>
-                    ) : null}
-                    {!supplierMinimal && item.notes?.trim() ? (
-                      <Text style={styles.rowSmall} numberOfLines={2}>
-                        Note: {item.notes.trim()}
-                      </Text>
-                    ) : null}
-                    <Text style={styles.rowSmall}>
-                      Paid ({currentYear}): {paidFmt}
-                      {projList.length
-                        ? ` · Projects: ${projList.slice(0, 3).join(', ')}${projList.length > 3 ? '…' : ''}`
-                        : ''}
-                    </Text>
-                  </View>
-                  <MaterialIcons name="chevron-right" size={22} color="rgba(148,163,184,0.7)" />
-                </Pressable>
-              );
-            }}
-          />
-        )}
+                      <MaterialIcons name="chevron-right" size={22} color="rgba(148,163,184,0.7)" />
+                    </Pressable>
+                  );
+                }}
+              />
+            )}
+          </TaxGradientFrame>
+        </View>
       </SafeAreaView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#000000' },
-  safe: { flex: 1, paddingHorizontal: 16 },
+  screenRoot: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  pageShell: {
+    flex: 1,
+    width: '100%',
+    paddingHorizontal: 8,
+    minHeight: 0,
+  },
+  pageShellWeb: {
+    maxWidth: TAX_CENTER_WEB_MAX_CONTENT_WIDTH,
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 8,
-    gap: 12,
+    marginTop: 4,
+    marginBottom: 14,
+    gap: 10,
   },
-  backWrap: { width: 42 },
-  backBorder: { width: 42, height: 42, borderRadius: 20, padding: 1, overflow: 'hidden' },
-  backInner: {
+  backButtonWrapper: {},
+  backButtonBorder: {
+    width: 42,
+    height: 42,
+    borderRadius: 20,
+    padding: 1,
+    overflow: 'hidden',
+  },
+  backButtonInner: {
     width: 40,
     height: 40,
     borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerTitleCluster: {
+    flex: 1,
+    minWidth: 0,
+  },
+  kicker: {
+    color: '#2DFFC4',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  screenTitle: {
+    color: '#FFFFFF',
+    fontSize: 26,
+    fontWeight: '900',
+    marginTop: 2,
+    letterSpacing: -0.3,
+  },
+  addBtn: {},
+  addBtnBorder: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    padding: 1,
+    overflow: 'hidden',
+  },
+  addBtnInner: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: { flex: 1, color: '#FFFFFF', fontSize: 22, fontWeight: '900' },
-  addBtn: { padding: 6 },
-  sub: { color: 'rgba(148, 163, 184, 0.95)', fontSize: 13, lineHeight: 19, marginBottom: 16 },
-  list: { paddingBottom: 40 },
+  mainGradientRing: {
+    flex: 1,
+    marginBottom: 0,
+    minHeight: 0,
+  },
+  mainFrameInner: {
+    flex: 1,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 18,
+    minHeight: 200,
+  },
+  introText: {
+    color: 'rgba(203, 213, 225, 0.88)',
+    fontSize: 14,
+    lineHeight: 21,
+    marginBottom: 16,
+  },
+  listGrow: {
+    flex: 1,
+    minHeight: 0,
+  },
+  listContent: {
+    paddingBottom: 24,
+    flexGrow: 1,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -263,5 +372,12 @@ const styles = StyleSheet.create({
   w9BadgeText: { color: '#FDE68A', fontSize: 11, fontWeight: '700' },
   rowMeta: { color: 'rgba(148, 163, 184, 0.95)', fontSize: 12, marginTop: 6 },
   rowSmall: { color: 'rgba(148, 163, 184, 0.88)', fontSize: 11, marginTop: 4 },
-  muted: { color: 'rgba(148, 163, 184, 0.9)', fontSize: 14, paddingVertical: 20 },
+  muted: { color: 'rgba(148, 163, 184, 0.9)', fontSize: 14, paddingVertical: 12 },
+  emptyText: {
+    color: 'rgba(148, 163, 184, 0.92)',
+    fontSize: 14,
+    lineHeight: 21,
+    paddingVertical: 28,
+    textAlign: 'center',
+  },
 });

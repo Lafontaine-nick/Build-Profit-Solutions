@@ -4200,13 +4200,14 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     padding: 1,
   },
   innerCard: {
-    backgroundColor: darkMode ? "#0B0D10" : Colors.surface2,
+    /** Same shell as BudgetProfitMixCard / Budget Contract & Cost — theme surface2 + hairline */
+    backgroundColor: Colors.surface2,
     borderRadius: 26,
     paddingHorizontal: 18,
     paddingTop: 18,
     paddingBottom: 18,
     borderWidth: 1,
-    borderColor: darkMode ? "rgba(255,255,255,0.06)" : Colors.line,
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
     shadowColor: "#000",
     shadowOpacity: darkMode ? 0.18 : 0.08,
     shadowRadius: 16,

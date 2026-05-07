@@ -93,6 +93,13 @@ export default {
       'expo-dev-client',
       'expo-router',
       [
+        'expo-location',
+        {
+          locationWhenInUsePermission:
+            'Allow location access to find subcontractors near your current area.',
+        },
+      ],
+      [
         'expo-image-picker',
         {
           photosPermission:

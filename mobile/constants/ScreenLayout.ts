@@ -16,6 +16,9 @@ export const WEB_CENTERED_COLUMN_MAX_WIDTH = 720;
  */
 export const DASHBOARD_WEB_MAX_CONTENT_WIDTH = 1180;
 
+/** Tax Center year-end summary: readable column on wide monitors (web only). */
+export const TAX_CENTER_WEB_MAX_CONTENT_WIDTH = 920;
+
 /** Horizontal padding for tab shell content on desktop web (≥ DESKTOP_WEB_MIN_WIDTH). */
 export const WEB_DESKTOP_EDGE_HORIZONTAL = 32;
 

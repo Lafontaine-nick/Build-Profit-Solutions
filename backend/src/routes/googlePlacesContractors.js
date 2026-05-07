@@ -8,6 +8,7 @@
 
 const express = require('express');
 const axios = require('axios');
+const bpsDirectory = require('../services/bpsContractorDirectory');
 const router = express.Router();
 
 /** Same Maps Platform key works for Places (New) if enabled in Google Cloud. */
@@ -44,7 +45,7 @@ function cacheKey(trade, zip, qNorm, radiusMilesRounded, anchorKey) {
   const rPart =
     radiusMilesRounded != null && radiusMilesRounded > 0 ? `|r=${radiusMilesRounded}` : '';
   const aPart = anchorKey ? `|@${anchorKey}` : '';
-  return `v7|${String(trade || '').trim().toLowerCase()}|${String(zip || '').trim()}${qPart}${rPart}${aPart}`;
+  return `v9|${String(trade || '').trim().toLowerCase()}|${String(zip || '').trim()}${qPart}${rPart}${aPart}`;
 }
 
 function getCached(trade, zip, qNorm, radiusMilesRounded, anchorKey) {
@@ -170,6 +171,87 @@ function buildTextQueryTradeOnly(trade) {
   return map[t] || `${t.toLowerCase()} contractor`;
 }
 
+function tradeMatchesDirectory(selectedTrade, entryTrades) {
+  const t = (selectedTrade || 'All Trades').trim();
+  const arr = Array.isArray(entryTrades) ? entryTrades : [];
+  if (!arr.length) return t === 'All Trades';
+  if (!t || t === 'All Trades') return true;
+  const tl = t.toLowerCase();
+  return arr.some((x) => {
+    const s = String(x || '').toLowerCase();
+    return s.includes(tl) || tl.includes(s);
+  });
+}
+
+async function mapDirectoryEntryToPlaceResult(entry, zipCenter, radiusMiles, apiKey) {
+  const zip = String(entry.zip || '')
+    .replace(/\D/g, '')
+    .slice(0, 5);
+  if (zip.length !== 5) return null;
+  let lat = typeof entry.latitude === 'number' ? entry.latitude : null;
+  let lng = typeof entry.longitude === 'number' ? entry.longitude : null;
+  if (lat == null || lng == null) {
+    const g = await geocodeUsZipToLatLng(zip, apiKey);
+    if (!g) return null;
+    lat = g.lat;
+    lng = g.lng;
+  }
+  const d = haversineMiles(zipCenter.lat, zipCenter.lng, lat, lng);
+  if (d > radiusMiles) return null;
+  const name = entry.companyName || entry.contactName || 'BPS contractor';
+  const primary =
+    (Array.isArray(entry.trades) && entry.trades.length && entry.trades[0]) || 'Contractor';
+  const typesFromTrades = Array.isArray(entry.trades)
+    ? entry.trades.map((x) =>
+        String(x || '')
+          .toLowerCase()
+          .replace(/\s+/g, '_')
+      )
+    : [];
+  return {
+    placeId: `bps:${entry.id}`,
+    name,
+    rating: null,
+    reviewCount: 0,
+    formattedAddress: `${zip} — Build Profit Solutions member`,
+    phone: entry.phone || null,
+    website: entry.website || null,
+    googleMapsUri: null,
+    businessStatus: 'OPERATIONAL',
+    primaryTypeDisplayName: primary,
+    types: ['establishment', ...typesFromTrades],
+    fetchedAt: new Date().toISOString(),
+    source: 'bps',
+    bpsVerified: true,
+    latitude: lat,
+    longitude: lng,
+    distanceMiles: Math.round(d * 10) / 10,
+  };
+}
+
+async function fetchBpsDirectoryMatches(zipCenter, radiusMiles, trade, qNorm, apiKey) {
+  const entries = bpsDirectory.listPublic();
+  const qLower = qNorm ? String(qNorm).toLowerCase().trim() : '';
+  const out = [];
+  for (const e of entries) {
+    if (!tradeMatchesDirectory(trade, e.trades)) continue;
+    if (qLower) {
+      const hay = `${e.companyName || ''} ${e.contactName || ''}`.toLowerCase();
+      if (!hay.includes(qLower)) continue;
+    }
+    const row = await mapDirectoryEntryToPlaceResult(e, zipCenter, radiusMiles, apiKey);
+    if (row) out.push(row);
+  }
+  out.sort((a, b) => a.distanceMiles - b.distanceMiles);
+  return out;
+}
+
+async function mergeGoogleAndBps(googleRows, zipCenter, radiusMiles, trade, qNorm, limit, apiKey) {
+  if (!zipCenter) return googleRows;
+  const bpsRows = await fetchBpsDirectoryMatches(zipCenter, radiusMiles, trade, qNorm, apiKey);
+  return [...bpsRows, ...googleRows].slice(0, limit);
+}
+
 function mapPlaceToResult(place) {
   const id = place.name || place.id;
   const name = place.displayName?.text || place.displayName || 'Unknown';
@@ -286,9 +368,24 @@ router.get('/contractors/search', async (req, res) => {
 
   const cached = getCached(trade, zip, qNorm, radiusMilesRounded, anchorCacheKey);
   if (cached) {
+    const zc = cached.metadata?.zipCenter;
+    const merged = await mergeGoogleAndBps(
+      cached.results || [],
+      zc,
+      radiusMiles,
+      trade,
+      qNorm,
+      limit,
+      apiKey
+    );
     return res.json({
       ...cached,
-      metadata: { ...(cached.metadata || {}), cached: true },
+      results: merged,
+      metadata: {
+        ...(cached.metadata || {}),
+        count: merged.length,
+        cached: true,
+      },
     });
   }
 
@@ -398,7 +495,7 @@ router.get('/contractors/search', async (req, res) => {
     let droppedNoCoords = 0;
 
     const before = results.length;
-    results = results
+    const googleCandidates = results
       .map((r) => {
         if (r.latitude == null || r.longitude == null) {
           droppedNoCoords += 1;
@@ -410,7 +507,18 @@ router.get('/contractors/search', async (req, res) => {
       })
       .filter((r) => r != null && r.distanceMiles <= radiusMiles)
       .sort((a, b) => a.distanceMiles - b.distanceMiles)
-      .slice(0, limit);
+      .slice(0, limit + PLACES_FETCH_BUFFER);
+
+    const merged = await mergeGoogleAndBps(
+      googleCandidates,
+      zipCenter,
+      radiusMiles,
+      trade,
+      qNorm,
+      limit,
+      apiKey
+    );
+    results = merged;
     const metaExtra = {
       radiusMiles: radiusMilesRounded,
       zipCenter,
@@ -430,17 +538,20 @@ router.get('/contractors/search', async (req, res) => {
         : {}),
     };
     const payload = {
-      results,
+      results: googleCandidates,
       metadata: {
         dataSource: 'google_places',
         textQuery,
-        count: results.length,
+        count: merged.length,
         ...(qNorm ? { searchQ: qNorm } : {}),
         ...metaExtra,
       },
     };
     setCached(trade, zip, qNorm, radiusMilesRounded, anchorCacheKey, payload);
-    res.json({ ...payload, metadata: { ...payload.metadata, cached: false } });
+    res.json({
+      results: merged,
+      metadata: { ...payload.metadata, cached: false },
+    });
   } catch (err) {
     const status = err.response?.status;
     const msg =

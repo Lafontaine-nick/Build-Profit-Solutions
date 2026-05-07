@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { TaxCategoryRow } from '@/src/lib/taxCenter';
+import { ACCOUNTING_CATEGORY_MAPPING_ENABLED } from '@/src/lib/taxCenterLaunchFlags';
 import { taxCenterPanelCard } from '@/src/components/tax/taxPanelCardStyle';
 
 type Props = {
@@ -14,7 +15,9 @@ export default function TaxCategoryBreakdown({ rows, formatMoney }: Props) {
   return (
     <View style={styles.card}>
       <Text style={styles.title}>Expense categories</Text>
-      <Text style={styles.subtitle}>Mapped into tax-prep buckets from expenses paid and paid purchase orders.</Text>
+      <Text style={styles.subtitle}>
+        Based on Build Profit Solutions project categories from expenses paid and paid purchase orders.
+      </Text>
 
       {rows.length === 0 ? (
         <Text style={styles.empty}>No expenses found for this tax year.</Text>
@@ -30,7 +33,7 @@ export default function TaxCategoryBreakdown({ rows, formatMoney }: Props) {
               <View style={styles.track}>
                 <View style={[styles.fill, { width: `${Math.max(3, pct * 100)}%` }]} />
               </View>
-              {!!row.accountingLabel?.trim() ? (
+              {ACCOUNTING_CATEGORY_MAPPING_ENABLED && !!row.accountingLabel?.trim() ? (
                 <Text style={styles.accounting} numberOfLines={2}>
                   Accounting mapping: {row.accountingLabel.trim()}
                 </Text>

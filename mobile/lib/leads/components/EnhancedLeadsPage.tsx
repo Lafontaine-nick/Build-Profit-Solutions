@@ -793,7 +793,7 @@ const EnhancedLeadCard = ({
         styles.leadCard,
         leadCardBaseStyle,
         isCampaignLead && styles.campaignLeadCard, // Add purple border for campaign leads
-        isSubRequest && styles.subRequestLeadCard, // Add orange border for sub requests
+        isSubRequest && styles.subRequestLeadCard, // Green border for your subcontractor requests
         isAIMatched && styles.aiMatchedLeadCard // Add blue border for AI Matched leads
       ]}>
         {/* Campaign Badge - Purple */}
@@ -812,10 +812,10 @@ const EnhancedLeadCard = ({
           </View>
         ) : null}
         
-        {/* Your Request Badge - Orange */}
+        {/* Your Request Badge — green (matches BPS accent) */}
         {isSubRequest ? (
           <View style={styles.subRequestBadge}>
-            <MaterialIcons name="construction" size={14} color="#F59E0B" />
+            <MaterialIcons name="construction" size={14} color="#4ade80" />
             <Text style={styles.subRequestBadgeText}>Your Request</Text>
             {lead.matchedContractors !== undefined && lead.matchedContractors > 0 && (
               <View style={{ marginLeft: 8, flexDirection: 'row', alignItems: 'center' }}>
@@ -851,7 +851,7 @@ const EnhancedLeadCard = ({
                   isCampaignLead 
                     ? { backgroundColor: '#19E180', borderColor: '#19E180' }
                     : isSubRequest
-                    ? { backgroundColor: '#F59E0B', borderColor: '#D97706' }
+                    ? { backgroundColor: '#22c55e', borderColor: '#16a34a' }
                     : { backgroundColor: getTemperatureColor(leadScore.temperature) }
                 ]}>
                   <Text style={styles.temperatureBadgeText}>
@@ -862,7 +862,7 @@ const EnhancedLeadCard = ({
                 <MaterialIcons 
                 name={isExpanded ? "expand-less" : "expand-more"} 
                 size={24} 
-                color={isCampaignLead ? "#19E180" : isSubRequest ? "#F59E0B" : (darkMode ? "#FFFFFF" : Colors.text)} 
+                color={isCampaignLead ? "#19E180" : isSubRequest ? "#86efac" : (darkMode ? "#FFFFFF" : Colors.text)} 
               />
             </View>
             <View style={styles.compactMetaRow}>
@@ -925,6 +925,7 @@ const EnhancedLeadCard = ({
 
             {/* Quick Actions */}
             <View style={styles.compactActions}>
+              {!lead.isOwnRequest && (
               <TouchableOpacity
                 style={[styles.compactActionBtn, !darkMode && { backgroundColor: Colors.surface, borderColor: Colors.line, borderWidth: 1 }]}
                 onPress={() => {
@@ -940,6 +941,7 @@ const EnhancedLeadCard = ({
                 <MaterialIcons name="phone" size={18} color="#10B981" />
                 <Text style={[styles.compactActionText, !darkMode && { color: Colors.text }]}>Call</Text>
               </TouchableOpacity>
+              )}
 
               <TouchableOpacity
                 style={[styles.compactActionBtn, !darkMode && { backgroundColor: Colors.surface, borderColor: Colors.line, borderWidth: 1 }]}
@@ -1312,8 +1314,8 @@ const EnhancedLeadCard = ({
               </View>
             )}
 
-            {/* Stage Selector - Clickable to change stage */}
-            {onStageChange && (
+            {/* Stage Selector - hidden for your own posted requests */}
+            {onStageChange && !lead.isOwnRequest && (
               <View style={styles.stageSelectorRow}>
                 <Text style={styles.stageSelectorLabel}>Stage:</Text>
                 <TouchableOpacity
@@ -1416,8 +1418,10 @@ const EnhancedLeadCard = ({
               </>
             )}
 
-            {/* Action Buttons */}
+            {/* Action Buttons — Call / Email / Remind omitted for your own subcontractor requests */}
             <View style={styles.actionButtons}>
+              {!lead.isOwnRequest && (
+              <>
               <TouchableOpacity
                 style={[styles.actionButton, !darkMode && { backgroundColor: Colors.surface, borderColor: Colors.line }]}
                 onPress={async () => {
@@ -1465,6 +1469,8 @@ const EnhancedLeadCard = ({
                 <MaterialIcons name="email" size={16} color="#3B82F6" />
                 <Text style={[styles.actionText, !darkMode && { color: Colors.text }]}>Email</Text>
               </TouchableOpacity>
+              </>
+              )}
 
 
                 <TouchableOpacity
@@ -1490,6 +1496,7 @@ const EnhancedLeadCard = ({
                 <Text style={[styles.actionText, !darkMode && { color: Colors.text }]}>Notes</Text>
               </TouchableOpacity>
 
+              {!lead.isOwnRequest && (
               <TouchableOpacity
                 style={[styles.actionButton, !darkMode && { backgroundColor: Colors.surface, borderColor: Colors.line }]}
                 onPress={() => {
@@ -1523,6 +1530,7 @@ const EnhancedLeadCard = ({
                 <MaterialIcons name="alarm" size={16} color="#EF4444" />
                 <Text style={[styles.actionText, !darkMode && { color: Colors.text }]}>Remind</Text>
               </TouchableOpacity>
+              )}
             </View>
 
             {/* Phase 1: Quick Response Button */}
@@ -4267,7 +4275,7 @@ const styles = StyleSheet.create({
     // Keep surface2 background from leadCardBaseStyle
   },
   subRequestLeadCard: {
-    borderColor: '#F59E0B',
+    borderColor: '#22c55e',
     borderWidth: 2,
     // Keep surface2 background from leadCardBaseStyle
   },
@@ -4305,17 +4313,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
-    backgroundColor: '#F59E0B20',
+    backgroundColor: 'rgba(34, 197, 94, 0.14)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: '#F59E0B',
+    borderColor: '#22c55e',
     gap: 4,
   },
   subRequestBadgeText: {
-    color: '#F59E0B',
+    color: '#86efac',
     fontSize: 11,
     fontWeight: '700',
     marginLeft: 4,

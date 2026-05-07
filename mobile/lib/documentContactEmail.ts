@@ -14,6 +14,22 @@ function trimEmail(value: unknown): string {
 }
 
 /**
+ * Business / company name from stored contractor profile (`bps.contractorProfile.company`).
+ * Used for CPA Summary PDF metadata only.
+ */
+export async function getContractorCompanyNameAsync(): Promise<string | null> {
+  try {
+    const raw = await AsyncStorage.getItem(PROFILE_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as { company?: string };
+    const c = typeof p.company === 'string' ? p.company.trim() : '';
+    return c.length > 0 ? c : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Canonical contact email for exports, PDF contracts, and outbound document footers:
  * Profile (bps.contractorProfile) first, then Clerk login email, then legacy auth.
  */

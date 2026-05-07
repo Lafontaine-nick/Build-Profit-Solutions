@@ -1,4 +1,4 @@
-import type { VendorType } from '@/src/lib/vendorTypes';
+import type { Vendor, VendorType } from '@/src/lib/vendorTypes';
 
 export type TaxCategory =
   | 'Materials'
@@ -41,6 +41,8 @@ export type TaxExpense = {
   paidAt?: string;
   receiptUri?: string | null;
   notes?: string;
+  /** Line detail when present (material description, PO title, etc.). Not user notes. */
+  description?: string;
   status?: string;
   paymentMethod?: string;
   paymentStatus?: string;
@@ -234,6 +236,27 @@ export function normalizeVendorNameKey(name: string): string {
     .replace(/\s+/g, ' ');
 }
 
+/** Match saved vendor directory row without importing tax1099Review (avoid circular deps). */
+export function matchVendorForExpense(expense: TaxExpense, vendors: Vendor[]): Vendor | undefined {
+  if (!vendors.length) return undefined;
+  const vid = String(expense.vendorId || '').trim();
+  if (vid) {
+    const byId = vendors.find((v) => v.id === vid);
+    if (byId) return byId;
+  }
+  const label = normalizeVendorNameKey(String(expense.vendorName || expense.vendor || '').trim());
+  if (!label) return undefined;
+  return vendors.find((v) => normalizeVendorNameKey(v.businessName) === label);
+}
+
+/** Sum portfolio “Subcontractor Payments”: Subcontractors category **or** vendor directory type subcontractor. */
+export function expenseCountsTowardSubcontractorPayments(expense: TaxExpense, vendors?: Vendor[]): boolean {
+  if (mapExpenseToTaxCategory(expense) === 'Subcontractors') return true;
+  if (!vendors?.length) return false;
+  const v = matchVendorForExpense(expense, vendors);
+  return v?.vendorType === 'subcontractor';
+}
+
 /** Infer vendor type from BPS tax category (detection defaults; users can override in the directory). */
 export function inferVendorTypeFromTaxCategory(category: TaxCategory, expense?: Partial<TaxExpense>): VendorType {
   if (
@@ -418,6 +441,14 @@ export function getTaxCenterDataInputs(
   };
 }
 
+/** Payments collected in the tax year (same filter as Tax Center summary revenue). */
+export function getYearCollectedPayments(projects: any[], selectedYear: number): TaxPayment[] {
+  const inputs = getTaxCenterDataInputs(projects);
+  return inputs.payments.filter(
+    (payment) => isPaymentCollected(payment) && dateInYear(paymentDate(payment), selectedYear)
+  );
+}
+
 export function groupExpensesByTaxCategory(
   expenses: TaxExpense[],
   accountingLabelForCategory: (category: TaxCategory) => string = () => ''
@@ -481,13 +512,14 @@ export function buildProjectTaxSummaries(projects: any[], selectedYear: number):
 
 export function buildSubcontractorPaymentSummary(
   expenses: TaxExpense[],
-  selectedYear: number
+  selectedYear: number,
+  vendors: Vendor[] = []
 ): SubcontractorPaymentSummary[] {
   const byVendor = new Map<string, SubcontractorPaymentSummary>();
 
   asArray<TaxExpense>(expenses)
     .filter((expense) => dateInYear(expenseDate(expense), selectedYear))
-    .filter((expense) => mapExpenseToTaxCategory(expense) === 'Subcontractors')
+    .filter((expense) => expenseCountsTowardSubcontractorPayments(expense, vendors))
     .forEach((expense) => {
       const name = String(expense.vendor || 'Unknown subcontractor').trim() || 'Unknown subcontractor';
       const current =
@@ -519,7 +551,8 @@ export function computeTaxCenterSummary(
   expenses: TaxExpense[] = [],
   payments: TaxPayment[] = [],
   receipts: TaxReceipt[] = [],
-  selectedYear: number
+  selectedYear: number,
+  vendors: Vendor[] = []
 ): TaxCenterSummary {
   const inputs = getTaxCenterDataInputs(projects, expenses, payments, receipts);
   const yearExpenses = inputs.expenses.filter((expense) => dateInYear(expenseDate(expense), selectedYear));
@@ -547,7 +580,7 @@ export function computeTaxCenterSummary(
   const totalExpenses = yearExpenses.reduce((sum, expense) => sum + expenseAmount(expense), 0);
   const netProfit = grossIncomeCollected - totalExpenses;
   const subcontractorPayments = yearExpenses
-    .filter((expense) => mapExpenseToTaxCategory(expense) === 'Subcontractors')
+    .filter((expense) => expenseCountsTowardSubcontractorPayments(expense, vendors))
     .reduce((sum, expense) => sum + expenseAmount(expense), 0);
   const receiptsFromExpenses = yearExpenses.filter((expense) => !!expense.receiptUri).length;
 

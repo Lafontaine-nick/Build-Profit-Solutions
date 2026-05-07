@@ -49,6 +49,8 @@ export default function CompactLeadCard({
   const isOwnProjectBased = lead.source === 'PROJECT_BASED' && (lead.isOwnRequest === true || lead.createdBy === 'contractor-demo');
   const isCampaignLead = hasCampaignProjectId; // Only campaign leads have CAMPAIGN- prefix
   const isSubRequest = isOwnProjectBased && !hasCampaignProjectId; // Sub requests are PROJECT_BASED but NOT campaigns
+  /** Own posted requests are not a sales pipeline — hide stage UI. */
+  const hideSalesPipeline = lead.isOwnRequest === true;
   
   // Essential calculations
   const leadValue = Math.round((lead.project.budgetMin + lead.project.budgetMax) / 2);
@@ -59,7 +61,7 @@ export default function CompactLeadCard({
   if (isCampaignLead) {
     temperature = { icon: '🎯', label: 'Campaign', color: '#19E180' };
   } else if (isSubRequest) {
-    temperature = { icon: '🔧', label: 'Sub Request', color: '#F59E0B' };
+    temperature = { icon: '🔧', label: 'Sub Request', color: '#22c55e' };
   } else {
     temperature = getTemperature(lead);
   }
@@ -183,7 +185,7 @@ export default function CompactLeadCard({
       {/* Sub Request Badge */}
       {isSubRequest && (
         <View style={styles.subRequestBadge}>
-          <MaterialIcons name="construction" size={12} color="#F59E0B" />
+          <MaterialIcons name="construction" size={12} color="#4ade80" />
           <Text style={styles.subRequestBadgeText}>SUB REQUEST</Text>
         </View>
       )}
@@ -201,7 +203,7 @@ export default function CompactLeadCard({
                 <MaterialIcons name="campaign" size={14} color="#19E180" />
               )}
               {isSubRequest && (
-                <MaterialIcons name="construction" size={14} color="#F59E0B" />
+                <MaterialIcons name="construction" size={14} color="#4ade80" />
               )}
               <Text
                 style={[
@@ -319,8 +321,8 @@ export default function CompactLeadCard({
           </View>
         </View>
 
-        {/* Stage Selector - Clickable to change stage (only if not at final stage) */}
-        {onStageChange && lead.stage !== 'won' && lead.stage !== 'lost' && (() => {
+        {/* Stage selector & read-only — hidden for your own posted requests */}
+        {!hideSalesPipeline && onStageChange && lead.stage !== 'won' && lead.stage !== 'lost' && (() => {
           const stages = ['new', 'contacted', 'qualified', 'proposal', 'won'];
           // Normalize "quoted" to "qualified" for stage progression
           const normalizedStage = lead.stage === 'quoted' ? 'qualified' : lead.stage;
@@ -380,8 +382,7 @@ export default function CompactLeadCard({
           );
         })()}
         
-        {/* Stage Display (read-only) - Show when at final stage */}
-        {(!onStageChange || lead.stage === 'won' || lead.stage === 'lost') && (
+        {!hideSalesPipeline && (!onStageChange || lead.stage === 'won' || lead.stage === 'lost') && (
           <View style={styles.stageRow}>
             <Text style={[styles.stageLabel, lightSub && { color: lightSub }]}>
               Stage:
@@ -398,7 +399,8 @@ export default function CompactLeadCard({
         )}
       </TouchableOpacity>
 
-      {/* Quick Actions - Hierarchical */}
+      {/* Quick Actions — not shown for your own subcontractor requests */}
+      {!lead.isOwnRequest && (
       <View
         style={[
           styles.actionsRow,
@@ -446,8 +448,8 @@ export default function CompactLeadCard({
           </TouchableOpacity>
         </View>
 
-        {/* Advance Stage Button - Show when onStageChange is available and not at final stage */}
-        {onStageChange && lead.stage !== 'won' && lead.stage !== 'lost' && (() => {
+        {/* Advance stage — hidden for your own posted requests */}
+        {!hideSalesPipeline && onStageChange && lead.stage !== 'won' && lead.stage !== 'lost' && (() => {
           const stages = ['new', 'contacted', 'qualified', 'proposal', 'won'];
           // Normalize "quoted" to "qualified" for stage progression
           const normalizedStage = lead.stage === 'quoted' ? 'qualified' : lead.stage;
@@ -506,6 +508,7 @@ export default function CompactLeadCard({
           );
         })()}
       </View>
+      )}
     </TouchableOpacity>
   );
 }
@@ -573,7 +576,7 @@ const styles = StyleSheet.create({
     // Keep surface2 background from dynamic style
   },
   subRequestCard: {
-    borderColor: '#F59E0B',
+    borderColor: '#22c55e',
     borderWidth: 2,
     // Keep surface2 background from dynamic style
   },
@@ -596,34 +599,34 @@ const styles = StyleSheet.create({
   subRequestBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F59E0B20',
+    backgroundColor: 'rgba(34, 197, 94, 0.14)',
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: '#F59E0B40',
+    borderBottomColor: 'rgba(34, 197, 94, 0.35)',
     gap: 6,
   },
   subRequestBadgeText: {
-    color: '#F59E0B',
+    color: '#86efac',
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
   subRequestContactName: {
-    color: '#FBBF24',
+    color: '#86efac',
     fontWeight: '600',
   },
   subRequestSubtext: {
     fontSize: 11,
-    color: '#FCD34D',
+    color: '#a7f3d0',
     marginTop: 2,
   },
   subRequestTrade: {
-    color: '#FBBF24',
+    color: '#bbf7d0',
     fontWeight: '600',
   },
   subRequestBudget: {
-    color: '#FCD34D',
+    color: '#86efac',
     fontWeight: '500',
   },
   campaignContactName: {

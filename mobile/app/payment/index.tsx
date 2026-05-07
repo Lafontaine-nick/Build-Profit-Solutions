@@ -8,10 +8,12 @@ import {
   Alert,
   ActivityIndicator,
   RefreshControl,
+  Platform,
 } from 'react-native';
 import { Stack, router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
+import { TAX_CENTER_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -306,8 +308,9 @@ export default function PaymentScreen() {
   return (
     <LinearGradient colors={theme.background as [string, string, string]} style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
-      {/* Header with Back Button and Title */}
-      <View style={styles.headerRow}>
+      <View style={[styles.pageShell, Platform.OS === 'web' && styles.pageShellWeb]}>
+        {/* Header with Back Button and Title — same column as body (web) */}
+        <View style={styles.headerRow}>
         <View style={styles.backButtonWrapper}>
           <LinearGradient
             colors={BRAND_FRAME_GRADIENT_COLORS}
@@ -332,9 +335,9 @@ export default function PaymentScreen() {
         </View>
       </View>
 
-      <ScrollView 
-        style={{ flex: 1 }}
-        contentContainerStyle={{ paddingTop: 16, paddingBottom: 40, paddingHorizontal: 0 }}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={true}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -344,7 +347,7 @@ export default function PaymentScreen() {
           colors={["#2DFFC4", "#00A6FF"]}
           start={{ x: 0.05, y: 0.15 }}
           end={{ x: 0.95, y: 0.85 }}
-          style={{ borderRadius: 24, padding: 1, marginHorizontal: 8, marginBottom: 16 }}
+          style={styles.gradientFrameOuter}
         >
           <View
             style={[
@@ -566,6 +569,7 @@ export default function PaymentScreen() {
           </View>
         </LinearGradient>
       </ScrollView>
+      </View>
     </LinearGradient>
   );
 }
@@ -574,12 +578,34 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  /** Align header + card with Tax Center / profile-style narrow column on web. */
+  pageShell: {
+    flex: 1,
+    width: '100%',
+    paddingHorizontal: 8,
+  },
+  pageShellWeb: {
+    maxWidth: TAX_CENTER_WEB_MAX_CONTENT_WIDTH,
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingTop: 16,
+    paddingBottom: 40,
+  },
+  gradientFrameOuter: {
+    borderRadius: 24,
+    padding: 1,
+    marginBottom: 16,
+  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 60,
     marginBottom: 12,
-    marginHorizontal: 20,
   },
   backButtonWrapper: {
     marginRight: 12,

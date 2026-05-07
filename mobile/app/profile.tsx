@@ -77,6 +77,7 @@ import {
 } from '@/services/notificationService';
 import { useBetaFeedback } from '@/contexts/BetaFeedbackContext';
 import { isBetaFeedbackVisibleForUser } from '@/lib/betaFeedback/betaFeedbackConfig';
+import { syncBpsDirectoryListing } from '@/services/bpsDirectorySync';
 
 // Mock user data
 const mockUser = {
@@ -119,6 +120,11 @@ const mockUser = {
   projectPortfolio: [] as Array<{ id: string; uri: string; caption?: string }>,
 };
 
+/** First US ZIP in free-form location text (e.g. "Las Vegas, NV 89141"). */
+function extractUsZipFromText(text: string): string {
+  const m = String(text || '').match(/\b(\d{5})\b/);
+  return m ? m[1] : '';
+}
 
 interface EditFormData {
   firstName: string;
@@ -248,6 +254,7 @@ export default function ProfileScreen() {
   const { t } = useTranslation(); // Use directly for reactivity
 
   const [user, setUser] = useState(mockUser);
+  const [discoverability, setDiscoverability] = useState({ listOn: false });
 
   // Check notification permission status on mount
   useEffect(() => {
@@ -372,7 +379,9 @@ export default function ProfileScreen() {
         const saved = await AsyncStorage.getItem('bps.contractorProfile');
         if (saved) {
           const profile = JSON.parse(saved);
-          console.log('👤 Profile page: Loaded profile from storage:', profile);
+          setDiscoverability({
+            listOn: !!profile.listOnFindSubcontractors,
+          });
           setUser(prev => ({
             ...prev,
             name: profile.name || prev.name,
@@ -419,6 +428,9 @@ export default function ProfileScreen() {
           const saved = await AsyncStorage.getItem('bps.contractorProfile');
           if (cancelled || !saved) return;
           const profile = JSON.parse(saved);
+          setDiscoverability({
+            listOn: !!profile.listOnFindSubcontractors,
+          });
           setUser((prev) => ({
             ...prev,
             name: profile.name || prev.name,
@@ -555,6 +567,20 @@ export default function ProfileScreen() {
     if (!isEditingLicenses && !isEditingBio && !isEditingPortfolio) {
       const saveAllProfileData = async () => {
         try {
+          const listedZip = extractUsZipFromText(user.location);
+          let prevServiceZip = '';
+          try {
+            const existingRaw = await AsyncStorage.getItem('bps.contractorProfile');
+            if (existingRaw) {
+              prevServiceZip = String(JSON.parse(existingRaw).serviceZip || '')
+                .replace(/\D/g, '')
+                .slice(0, 5);
+            }
+          } catch {
+            /* ignore */
+          }
+          const serviceZip =
+            listedZip.length === 5 ? listedZip : prevServiceZip.length === 5 ? prevServiceZip : '';
           // Always save the complete profile object
           const fullProfile = {
             name: user.name,
@@ -569,9 +595,23 @@ export default function ProfileScreen() {
             licenses: user.licenses,
             companyBio: user.companyBio !== undefined ? user.companyBio : '',
             projectPortfolio: user.projectPortfolio || [],
+            listOnFindSubcontractors: discoverability.listOn,
+            serviceZip,
           };
           await AsyncStorage.setItem('bps.contractorProfile', JSON.stringify(fullProfile));
           console.log('💾 Saved complete profile to AsyncStorage');
+          const uid = clerkUser?.id || user.email || user.id || 'anonymous';
+          await syncBpsDirectoryListing({
+            id: String(uid),
+            companyName: user.company,
+            contactName: user.name,
+            email: user.email,
+            phone: user.phone?.replace(/\D/g, ''),
+            website: user.website,
+            trades: user.role ? [user.role] : ['General Contractor'],
+            zip: serviceZip,
+            listOnFindSubcontractors: discoverability.listOn && serviceZip.length === 5,
+          });
         } catch (error) {
           console.error('Failed to save profile:', error);
         }
@@ -581,7 +621,7 @@ export default function ProfileScreen() {
       const timeoutId = setTimeout(saveAllProfileData, 500);
       return () => clearTimeout(timeoutId);
     }
-  }, [user.name, user.company, user.avatar, user.phone, user.email, user.website, user.role, user.location, user.insurance, user.licenses, user.companyBio, user.projectPortfolio, isEditingLicenses, isEditingBio, isEditingPortfolio]);
+  }, [user.name, user.company, user.avatar, user.phone, user.email, user.website, user.role, user.location, user.insurance, user.licenses, user.companyBio, user.projectPortfolio, isEditingLicenses, isEditingBio, isEditingPortfolio, discoverability.listOn]);
 
   const handleSaveProfile = useCallback(async () => {
     try {
@@ -614,6 +654,20 @@ export default function ProfileScreen() {
       
       // Save to AsyncStorage - include all profile data
       try {
+        let prevServiceZip = '';
+        try {
+          const existingRaw = await AsyncStorage.getItem('bps.contractorProfile');
+          if (existingRaw) {
+            prevServiceZip = String(JSON.parse(existingRaw).serviceZip || '')
+              .replace(/\D/g, '')
+              .slice(0, 5);
+          }
+        } catch {
+          /* ignore */
+        }
+        const listedZip = extractUsZipFromText(location);
+        const serviceZip =
+          listedZip.length === 5 ? listedZip : prevServiceZip.length === 5 ? prevServiceZip : '';
         const profileToSave = {
           name: fullName,
           company: editForm.company,
@@ -627,9 +681,23 @@ export default function ProfileScreen() {
           licenses: user.licenses,
           companyBio: user.companyBio !== undefined ? user.companyBio : '',
           projectPortfolio: user.projectPortfolio || [],
+          listOnFindSubcontractors: discoverability.listOn,
+          serviceZip,
         };
         await AsyncStorage.setItem('bps.contractorProfile', JSON.stringify(profileToSave));
         console.log('💾 Saved complete contractor profile to AsyncStorage');
+        const uid = clerkUser?.id || editForm.email || user.email || user.id || 'anonymous';
+        await syncBpsDirectoryListing({
+          id: String(uid),
+          companyName: editForm.company,
+          contactName: fullName,
+          email: editForm.email,
+          phone: editForm.phone.replace(/\D/g, ''),
+          website: user.website,
+          trades: editForm.role ? [editForm.role] : ['General Contractor'],
+          zip: serviceZip,
+          listOnFindSubcontractors: discoverability.listOn && serviceZip.length === 5,
+        });
       } catch (error) {
         console.error('Failed to save profile to AsyncStorage:', error);
       }
@@ -642,7 +710,7 @@ export default function ProfileScreen() {
       Alert.alert('Error', 'Failed to save profile. Please try again.');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
-  }, [editForm, user.avatar, updateProfile]);
+  }, [editForm, user.avatar, user.website, user.companyBio, user.projectPortfolio, user.insurance, user.licenses, discoverability.listOn, updateProfile]);
 
   const handleCancelEdit = useCallback(() => {
     const nameParts = user.name?.split(' ') || [];
@@ -2151,6 +2219,56 @@ export default function ProfileScreen() {
             })}
           </>
         ), true)}
+
+        {renderSection('Find Subcontractors', (
+          <>
+            {filterSettings('Build Profit') && (
+              <View style={styles.settingItem}>
+                <View style={styles.settingLeft}>
+                  <View style={[styles.settingIconContainer, { backgroundColor: theme.iconBg }]}>
+                    <MaterialIcons name='location-on' size={20} color={theme.accent} />
+                  </View>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={[styles.settingText, { color: theme.text }]}>Show my company in search</Text>
+                    <Text style={{ color: theme.subtext, fontSize: 12, marginTop: 4, lineHeight: 16 }}>
+                      Uses your profile location (include a 5-digit ZIP there). Or enable from Find Subcontractors while searching your area.
+                    </Text>
+                  </View>
+                </View>
+                <Switch
+                  value={discoverability.listOn}
+                  onValueChange={async (v) => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    if (v) {
+                      const fromLoc = extractUsZipFromText(user.location);
+                      let prevZ = '';
+                      try {
+                        const raw = await AsyncStorage.getItem('bps.contractorProfile');
+                        if (raw) {
+                          prevZ = String(JSON.parse(raw).serviceZip || '')
+                            .replace(/\D/g, '')
+                            .slice(0, 5);
+                        }
+                      } catch {
+                        /* ignore */
+                      }
+                      if (!fromLoc && prevZ.length !== 5) {
+                        Alert.alert(
+                          'ZIP needed',
+                          'Add a 5-digit ZIP to your location when editing your profile (e.g. Las Vegas, NV 89141), or turn this on from Find Subcontractors using the ZIP at the top of that screen.'
+                        );
+                        return;
+                      }
+                    }
+                    setDiscoverability({ listOn: v });
+                  }}
+                  trackColor={{ false: theme.border, true: theme.accent }}
+                  thumbColor='#fff'
+                />
+              </View>
+            )}
+          </>
+        ))}
 
         {/* Preferences */}
         {renderSection('Preferences', (

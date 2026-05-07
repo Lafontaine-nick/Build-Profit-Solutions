@@ -1,5 +1,51 @@
 const path = require('path');
+const https = require('https');
+const { URL } = require('url');
 const { getDefaultConfig } = require('expo/metro-config');
+
+const RENDER_API_HOST = 'build-profit-solutions-backend.onrender.com';
+const PROXY_PREFIX = '/__bps_render_api__';
+
+/** Forward browser requests to hosted API — avoids CORS when Expo web runs on localhost. */
+function proxyRenderApi(req, res) {
+  if (!req.url.startsWith(PROXY_PREFIX)) {
+    return false;
+  }
+  const pathAndQuery = req.url.slice(PROXY_PREFIX.length);
+  const targetUrl = `https://${RENDER_API_HOST}${pathAndQuery}`;
+
+  const parsed = new URL(targetUrl);
+  const opts = {
+    hostname: parsed.hostname,
+    port: 443,
+    path: parsed.pathname + parsed.search,
+    method: req.method || 'GET',
+    headers: { ...req.headers, host: RENDER_API_HOST },
+  };
+  delete opts.headers.connection;
+  delete opts.headers['accept-encoding'];
+
+  const preq = https.request(opts, (pres) => {
+    const hop = ['connection', 'transfer-encoding', 'keep-alive'];
+    const headers = { ...pres.headers };
+    hop.forEach((h) => delete headers[h]);
+    res.writeHead(pres.statusCode || 502, headers);
+    pres.pipe(res);
+  });
+  preq.on('error', (err) => {
+    if (!res.headersSent) {
+      res.statusCode = 502;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ error: 'Dev proxy error', message: err.message }));
+    }
+  });
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    preq.end();
+  } else {
+    req.pipe(preq);
+  }
+  return true;
+}
 
 const config = getDefaultConfig(__dirname);
 
@@ -114,6 +160,9 @@ config.server = {
   ...config.server,
   enhanceMiddleware: (middleware) => {
     return (req, res, next) => {
+      if (proxyRenderApi(req, res)) {
+        return undefined;
+      }
       // Allow cache but ensure fresh updates for hot reload
       if (req.url && (req.url.includes('.bundle') || req.url.includes('index.bundle'))) {
         res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');

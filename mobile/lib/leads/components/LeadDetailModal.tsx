@@ -19,6 +19,7 @@ import {
   Clipboard,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   StatusBar,
 } from 'react-native';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
@@ -36,6 +37,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
+import { SubWebFormOptionalChrome } from '@/components/SubWebFormOptionalChrome';
 
 interface LeadDetailModalProps {
   visible: boolean;
@@ -308,6 +310,15 @@ export default function LeadDetailModal({
   }, [lead, localTasks]);
 
   if (!lead) return null;
+
+  const isWeb = Platform.OS === 'web';
+  const headerRule = darkMode ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0,0,0,0.06)';
+  const webColumn860 = isWeb
+    ? ({ width: '100%' as const, maxWidth: 860, alignSelf: 'center' as const })
+    : undefined;
+  const leadDetailSubtitle = lead.isOwnRequest
+    ? 'Your request'
+    : lead.contact?.name || 'New Lead';
 
   const leadValue = Math.round((lead.project.budgetMin + lead.project.budgetMax) / 2);
   const timeAgo = getTimeAgo(lead.createdAt);
@@ -590,23 +601,34 @@ export default function LeadDetailModal({
   };
 
   const handleDelete = () => {
-    Alert.alert(
-      'Delete Lead',
-      'This lead will be permanently removed.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            if (onDelete) {
-              onDelete(lead.id);
-              onClose();
-            }
-          },
-        },
-      ]
-    );
+    const title = 'Delete Lead';
+    const message = 'This lead will be permanently removed.';
+
+    const executeDelete = () => {
+      if (onDelete) {
+        onDelete(lead.id);
+        onClose();
+      }
+    };
+
+    if (
+      Platform.OS === 'web' &&
+      typeof window !== 'undefined' &&
+      typeof window.confirm === 'function'
+    ) {
+      const ok = window.confirm(`${title}\n\n${message}`);
+      if (ok) executeDelete();
+      return;
+    }
+
+    Alert.alert(title, message, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: executeDelete,
+      },
+    ]);
   };
 
   const handleShare = async () => {
@@ -665,16 +687,109 @@ export default function LeadDetailModal({
               style={styles.content}
               showsVerticalScrollIndicator={false}
               {...KEYBOARD_SCROLL_DEFAULTS}
-              contentContainerStyle={[
-                styles.scrollContent,
-                { paddingTop: Math.max(insets.top, 0) + 20, paddingHorizontal: 20, paddingBottom: insets.bottom + 100 }
-              ]}
+              contentContainerStyle={
+                isWeb
+                  ? {
+                      paddingTop: Math.max(insets.top, 8),
+                      paddingBottom: insets.bottom + 100,
+                      paddingHorizontal: 32,
+                      flexGrow: 1,
+                      width: '100%',
+                      maxWidth: 1040,
+                      alignSelf: 'center',
+                    }
+                  : [
+                      styles.scrollContent,
+                      {
+                        paddingTop: Math.max(insets.top, 0) + 20,
+                        paddingHorizontal: 20,
+                        paddingBottom: insets.bottom + 100,
+                      },
+                    ]
+              }
             >
-              {/* Header */}
-              <View style={[styles.header, { paddingTop: 0 }]}>
-                <View style={styles.headerContent}>
-                  <View style={styles.headerLeft}>
-                    <View style={styles.backButtonWrapper}>
+              {/* Header — Find Subcontractors layout (web row / native centered) */}
+              {isWeb ? (
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    marginBottom: 24,
+                    paddingTop: 24,
+                    paddingBottom: 18,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                    borderBottomColor: headerRule,
+                  }}
+                >
+                  <View style={{ width: 52, alignItems: 'flex-start', marginRight: 4 }}>
+                    <LinearGradient
+                      colors={BRAND_FRAME_GRADIENT_COLORS}
+                      start={{ x: 0.05, y: 0.15 }}
+                      end={{ x: 0.95, y: 0.85 }}
+                      style={styles.backButtonBorder}
+                    >
+                      <GradientRingBackInner
+                        darkMode={darkMode}
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          onClose();
+                        }}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          borderRadius: 19,
+                          backgroundColor: darkMode ? '#000000' : Colors.bg,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : Colors.text} />
+                      </GradientRingBackInner>
+                    </LinearGradient>
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text
+                      style={{
+                        color: darkMode ? '#FFFFFF' : Colors.text,
+                        fontSize: 26,
+                        fontWeight: '800',
+                        letterSpacing: -0.4,
+                      }}
+                    >
+                      Lead Details
+                    </Text>
+                    <Text
+                      style={{
+                        color: darkMode ? 'rgba(226, 232, 240, 0.72)' : Colors.sub,
+                        fontSize: 14,
+                        marginTop: 4,
+                        fontWeight: '500',
+                      }}
+                    >
+                      {leadDetailSubtitle}
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                <View
+                  style={{
+                    paddingHorizontal: 22,
+                    paddingTop: 0,
+                    paddingBottom: 14,
+                    marginBottom: 12,
+                    marginHorizontal: -20,
+                    backgroundColor: darkMode ? '#000000' : Colors.bg,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                    borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0,0,0,0.06)',
+                  }}
+                >
+                  <View
+                    style={[
+                      { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+                      webColumn860,
+                    ]}
+                  >
+                    <View style={{ width: 52, alignItems: 'flex-start' }}>
                       <LinearGradient
                         colors={BRAND_FRAME_GRADIENT_COLORS}
                         start={{ x: 0.05, y: 0.15 }}
@@ -687,99 +802,145 @@ export default function LeadDetailModal({
                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                             onClose();
                           }}
-                          style={[
-                            styles.backButton,
-                            !darkMode && { backgroundColor: Colors.bg },
-                          ]}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            borderRadius: 19,
+                            backgroundColor: darkMode ? '#000000' : Colors.bg,
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                          }}
                         >
-                          <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
+                          <MaterialIcons
+                            name="arrow-back"
+                            size={24}
+                            color={darkMode ? '#FFFFFF' : Colors.text}
+                          />
                         </GradientRingBackInner>
                       </LinearGradient>
                     </View>
-                    <View style={styles.headerTextContainer}>
+
+                    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 }}>
                       <Text
-                        style={[
-                          styles.headerTitle,
-                          !darkMode && { color: Colors.text },
-                        ]}
+                        style={{
+                          color: darkMode ? '#FFFFFF' : '#000000',
+                          fontSize: 23,
+                          fontWeight: '700',
+                          letterSpacing: -0.3,
+                          textAlign: 'center',
+                        }}
                       >
                         Lead Details
                       </Text>
                       <Text
-                        style={[
-                          styles.headerSubtitle,
-                          !darkMode && { color: Colors.sub },
-                        ]}
+                        style={{
+                          color: darkMode ? 'rgba(226, 232, 240, 0.72)' : Colors.sub,
+                          fontSize: 13,
+                          marginTop: 5,
+                          lineHeight: 18,
+                          fontWeight: '500',
+                          textAlign: 'center',
+                        }}
                       >
-                        {lead.contact.name || 'New Lead'}
+                        {leadDetailSubtitle}
                       </Text>
                     </View>
+
+                    <View style={{ width: 52 }} />
                   </View>
                 </View>
-              </View>
+              )}
               
-              {/* Tab Navigation - Matching Leads Header Style */}
-              <View style={styles.wideContainer}>
-                <View
-                  style={[
-                    styles.segmentContainer,
-                    !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line },
-                  ]}
-                >
-                  <View style={styles.segmentInner}>
-                    <SegmentTab
-                      label="Overview"
-                      icon="information-circle-outline"
-                      isActive={activeTab === 'overview'}
-                      darkMode={darkMode}
-                      Colors={Colors}
-                      onPress={() => {
-                        setActiveTab('overview');
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }}
-                    />
-                    <SegmentTab
-                      label="Analytics"
-                      icon="bar-chart-outline"
-                      isActive={activeTab === 'analytics'}
-                      darkMode={darkMode}
-                      Colors={Colors}
-                      onPress={() => {
-                        setActiveTab('analytics');
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }}
-                    />
-                    <SegmentTab
-                      label="Communication"
-                      icon="chatbubble-outline"
-                      isActive={activeTab === 'communication'}
-                      darkMode={darkMode}
-                      Colors={Colors}
-                      onPress={() => {
-                        setActiveTab('communication');
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }}
-                    />
+              {/* Tab Navigation — same pill bar as project detail (Duplex Build) */}
+              <View style={[styles.wideContainer, isWeb && styles.wideContainerWeb]}>
+                {darkMode ? (
+                  <View style={[styles.segmentContainer, styles.segmentTrackDark]}>
+                    <View style={[styles.segmentInner, isWeb && styles.segmentInnerWeb]}>
+                      <SegmentTab
+                        label="Overview"
+                        icon="grid-outline"
+                        isActive={activeTab === 'overview'}
+                        darkMode={darkMode}
+                        Colors={Colors}
+                        onPress={() => {
+                          setActiveTab('overview');
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                      />
+                      <SegmentTab
+                        label="Analytics"
+                        icon="bar-chart-outline"
+                        isActive={activeTab === 'analytics'}
+                        darkMode={darkMode}
+                        Colors={Colors}
+                        onPress={() => {
+                          setActiveTab('analytics');
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                      />
+                      <SegmentTab
+                        label="Communication"
+                        icon="chatbubble-outline"
+                        isActive={activeTab === 'communication'}
+                        darkMode={darkMode}
+                        Colors={Colors}
+                        onPress={() => {
+                          setActiveTab('communication');
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                      />
+                    </View>
                   </View>
-                </View>
+                ) : (
+                  <BlurView
+                    intensity={28}
+                    tint="light"
+                    style={[styles.segmentContainer, { backgroundColor: Colors.surface2 }]}
+                  >
+                    <View style={[styles.segmentInner, isWeb && styles.segmentInnerWeb]}>
+                      <SegmentTab
+                        label="Overview"
+                        icon="grid-outline"
+                        isActive={activeTab === 'overview'}
+                        darkMode={darkMode}
+                        Colors={Colors}
+                        onPress={() => {
+                          setActiveTab('overview');
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                      />
+                      <SegmentTab
+                        label="Analytics"
+                        icon="bar-chart-outline"
+                        isActive={activeTab === 'analytics'}
+                        darkMode={darkMode}
+                        Colors={Colors}
+                        onPress={() => {
+                          setActiveTab('analytics');
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                      />
+                      <SegmentTab
+                        label="Communication"
+                        icon="chatbubble-outline"
+                        isActive={activeTab === 'communication'}
+                        darkMode={darkMode}
+                        Colors={Colors}
+                        onPress={() => {
+                          setActiveTab('communication');
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                      />
+                    </View>
+                  </BlurView>
+                )}
               </View>
           {/* Tab Content */}
           {activeTab === 'overview' && (
             <>
               {/* Wrapped in Gradient Border - Hero through Tasks */}
-              <View style={styles.wideContainer}>
-                <LinearGradient
-                  colors={['#2DFFC4', '#00A6FF']}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.campaignGradientBorder}
-                >
-                <View
-                  style={[
-                    styles.campaignGradientContent,
-                    !darkMode && { backgroundColor: Colors.bg },
-                  ]}
-                >
+              <View style={[styles.wideContainer, isWeb && styles.wideContainerWeb]}>
+                <SubWebFormOptionalChrome isWeb={isWeb} darkMode={darkMode} Colors={Colors} columnStyle={webColumn860}>
                     {/* Hero Section - Redesigned */}
                     <View style={[styles.section, styles.sectionInGradient]}>
                       <View style={styles.heroSection}>
@@ -788,8 +949,17 @@ export default function LeadDetailModal({
                             <Text style={[styles.heroTitle, !darkMode && { color: Colors.text }]}>
                               {lead.contact.name || 'New Lead'}
                             </Text>
-                            <View style={styles.heroTradeChip}>
-                              <Text style={styles.heroTradeChipText}>{lead.trade}</Text>
+                            <View
+                              style={[
+                                styles.heroTradeChip,
+                                !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line },
+                              ]}
+                            >
+                              <Text
+                                style={[styles.heroTradeChipText, !darkMode && { color: Colors.text }]}
+                              >
+                                {lead.trade}
+                              </Text>
                             </View>
                           </View>
                           <View style={[styles.heroTimelinePill, { backgroundColor: temperature.color }]}>
@@ -1048,13 +1218,12 @@ export default function LeadDetailModal({
                         </View>
                       )}
                     </View>
-                  </View>
-                </LinearGradient>
+                </SubWebFormOptionalChrome>
               </View>
                     
                     {/* AI Insight Card */}
                     {lead.project.timeline === 'Soon' && (
-                      <View style={styles.wideContainer}>
+                      <View style={[styles.wideContainer, isWeb && styles.wideContainerWeb]}>
                         <View style={styles.section}>
                           <View style={styles.aiInsightCard}>
                             <MaterialIcons name="lightbulb" size={18} color="#19E180" />
@@ -1076,19 +1245,8 @@ export default function LeadDetailModal({
           {activeTab === 'analytics' && (
             <>
               {/* Lead Analytics - Wrapped in Gradient Border */}
-              <View style={styles.wideContainer}>
-                <LinearGradient
-                  colors={['#2DFFC4', '#00A6FF']}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.campaignGradientBorder}
-                >
-                <View
-                  style={[
-                    styles.campaignGradientContent,
-                    !darkMode && { backgroundColor: Colors.bg },
-                  ]}
-                >
+              <View style={[styles.wideContainer, isWeb && styles.wideContainerWeb]}>
+                <SubWebFormOptionalChrome isWeb={isWeb} darkMode={darkMode} Colors={Colors} columnStyle={webColumn860}>
                     <View style={[styles.section, styles.sectionInGradient]}>
                       <View style={styles.analyticsSectionHeader}>
                         <Text style={[styles.analyticsSectionTitle, !darkMode && { color: Colors.text }]}>
@@ -1117,24 +1275,12 @@ export default function LeadDetailModal({
                         </View>
                       </View>
                     </View>
-                  </View>
-                </LinearGradient>
+                </SubWebFormOptionalChrome>
               </View>
 
-              {/* Engagement Metrics - Wrapped in Gradient Border */}
-              <View style={styles.wideContainer}>
-                <LinearGradient
-                  colors={['#2DFFC4', '#00A6FF']}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.campaignGradientBorder}
-                >
-                  <View
-                    style={[
-                      styles.campaignGradientContent,
-                      !darkMode && { backgroundColor: Colors.bg },
-                    ]}
-                  >
+              {/* Engagement Metrics */}
+              <View style={[styles.wideContainer, isWeb && styles.wideContainerWeb]}>
+                <SubWebFormOptionalChrome isWeb={isWeb} darkMode={darkMode} Colors={Colors} columnStyle={webColumn860}>
                     <View style={[styles.section, styles.sectionInGradient]}>
                       <View style={styles.analyticsSectionHeader}>
                         <Text style={[styles.analyticsSectionTitle, !darkMode && { color: Colors.text }]}>
@@ -1206,24 +1352,12 @@ export default function LeadDetailModal({
                         
                       </View>
                     </View>
-                  </View>
-                </LinearGradient>
+                </SubWebFormOptionalChrome>
               </View>
 
-              {/* Quote Tracking - Wrapped in Gradient Border */}
-              <View style={styles.wideContainer}>
-                <LinearGradient
-                  colors={['#2DFFC4', '#00A6FF']}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.campaignGradientBorder}
-                >
-                  <View
-                    style={[
-                      styles.campaignGradientContent,
-                      !darkMode && { backgroundColor: Colors.bg },
-                    ]}
-                  >
+              {/* Quote Tracking */}
+              <View style={[styles.wideContainer, isWeb && styles.wideContainerWeb]}>
+                <SubWebFormOptionalChrome isWeb={isWeb} darkMode={darkMode} Colors={Colors} columnStyle={webColumn860}>
                     <View style={[styles.section, styles.sectionInGradient]}>
                       <View style={styles.analyticsSectionHeader}>
                         <Text style={[styles.analyticsSectionTitle, !darkMode && { color: Colors.text }]}>
@@ -1308,12 +1442,11 @@ export default function LeadDetailModal({
                         </TouchableOpacity>
                       </View>
                     </View>
-                  </View>
-                </LinearGradient>
+                </SubWebFormOptionalChrome>
               </View>
 
               {/* Market Intelligence */}
-              <View style={styles.wideContainer}>
+              <View style={[styles.wideContainer, isWeb && styles.wideContainerWeb]}>
                 <View style={styles.section}>
                 <View style={styles.analyticsSectionHeader}>
                   <Text style={[styles.analyticsSectionTitle, !darkMode && { color: Colors.text }]}>
@@ -1345,20 +1478,9 @@ export default function LeadDetailModal({
           {/* Communication Tab Content */}
           {activeTab === 'communication' && (
             <>
-              {/* Communication Log - Wrapped in Gradient Border */}
-              <View style={styles.wideContainer}>
-                <LinearGradient
-                  colors={['#2DFFC4', '#00A6FF']}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.campaignGradientBorder}
-                >
-                  <View
-                    style={[
-                      styles.campaignGradientContent,
-                      !darkMode && { backgroundColor: Colors.bg },
-                    ]}
-                  >
+              {/* Communication Log */}
+              <View style={[styles.wideContainer, isWeb && styles.wideContainerWeb]}>
+                <SubWebFormOptionalChrome isWeb={isWeb} darkMode={darkMode} Colors={Colors} columnStyle={webColumn860}>
                     <View style={[styles.section, styles.sectionInGradient]}>
                       <View style={styles.analyticsSectionHeader}>
                         <Text style={[styles.analyticsSectionTitle, !darkMode && { color: Colors.text }]}>
@@ -1485,24 +1607,12 @@ export default function LeadDetailModal({
                         </View>
                       )}
                     </View>
-                  </View>
-                </LinearGradient>
+                </SubWebFormOptionalChrome>
               </View>
 
-              {/* Notes Section - Wrapped in Gradient Border */}
-              <View style={styles.wideContainer}>
-                <LinearGradient
-                  colors={['#2DFFC4', '#00A6FF']}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.campaignGradientBorder}
-                >
-                  <View
-                    style={[
-                      styles.campaignGradientContent,
-                      !darkMode && { backgroundColor: Colors.bg },
-                    ]}
-                  >
+              {/* Notes */}
+              <View style={[styles.wideContainer, isWeb && styles.wideContainerWeb]}>
+                <SubWebFormOptionalChrome isWeb={isWeb} darkMode={darkMode} Colors={Colors} columnStyle={webColumn860}>
                     <View style={[styles.section, styles.sectionInGradient]}>
                       <View style={styles.analyticsSectionHeader}>
                         <Text style={[styles.analyticsSectionTitle, !darkMode && { color: Colors.text }]}>
@@ -1578,12 +1688,11 @@ export default function LeadDetailModal({
                   </View>
                 )}
                     </View>
-                  </View>
-                </LinearGradient>
+                </SubWebFormOptionalChrome>
               </View>
 
               {/* Recommended Next Actions - No Border */}
-              <View style={styles.wideContainer}>
+              <View style={[styles.wideContainer, isWeb && styles.wideContainerWeb]}>
                 <View style={styles.section}>
                   <View style={styles.analyticsSectionHeader}>
                     <Text style={[styles.analyticsSectionTitle, !darkMode && { color: Colors.text }]}>
@@ -1629,56 +1738,114 @@ export default function LeadDetailModal({
           )}
 
 
-          {/* Action Buttons - Hierarchical - Only in Overview Tab */}
+          {/* Action Buttons — compact row matching Find Subcontractors */}
           {activeTab === 'overview' && (
-            <View style={styles.wideContainer}>
-              <View style={styles.section}>
-                {/* Primary Action - Full Width */}
-                <TouchableOpacity 
-                  style={[styles.actionPrimary, !lead.contact.phone && styles.disabledCard]}
+            <View style={[styles.wideContainer, isWeb && styles.wideContainerWeb]}>
+              <View
+                style={[
+                  styles.actionsFooterWrap,
+                  darkMode && styles.actionsFooterWrapDark,
+                  !darkMode && { borderColor: Colors.line, backgroundColor: Colors.surface2 },
+                ]}
+              >
+                <Text
+                  style={[styles.actionsFooterLabel, !darkMode && { color: Colors.sub }]}
+                  accessibilityRole="header"
+                >
+                  Contact
+                </Text>
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  style={[styles.actionPrimaryOuter, !lead.contact.phone && styles.disabledCard]}
                   onPress={handleCall}
                   disabled={!lead.contact.phone}
                 >
-                  <MaterialIcons name="phone" size={20} color={lead.contact.phone ? '#FFFFFF' : '#F3F4F6'} />
-                  <Text style={[styles.actionPrimaryText, !lead.contact.phone && styles.disabledText]}>
-                    Call Lead
-                  </Text>
+                  <LinearGradient
+                    colors={['#22c55e', '#22d3ee']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.actionPrimaryGradient}
+                  >
+                    <MaterialIcons
+                      name="phone"
+                      size={18}
+                      color={lead.contact.phone ? '#020617' : '#94a3b8'}
+                    />
+                    <Text
+                      style={[
+                        styles.actionPrimaryText,
+                        !lead.contact.phone && styles.disabledText,
+                      ]}
+                    >
+                      Call Lead
+                    </Text>
+                  </LinearGradient>
                 </TouchableOpacity>
-                
-                {/* Secondary Actions - Side by Side */}
+
                 <View style={styles.actionSecondaryRow}>
-                  <TouchableOpacity 
-                    style={[styles.actionSecondary, !lead.contact.email && styles.disabledCard]}
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    style={[
+                      styles.actionSecondary,
+                      !darkMode && { borderColor: Colors.line, backgroundColor: Colors.surface },
+                      !lead.contact.email && styles.disabledCard,
+                    ]}
                     onPress={handleEmail}
                     disabled={!lead.contact.email}
                   >
-                    <MaterialIcons name="email" size={18} color={lead.contact.email ? '#3B82F6' : '#F3F4F6'} />
-                    <Text style={[styles.actionSecondaryText, !lead.contact.email && styles.disabledText]}>
+                    <MaterialIcons
+                      name="email"
+                      size={17}
+                      color={
+                        lead.contact.email
+                          ? darkMode
+                            ? 'rgba(226, 232, 240, 0.95)'
+                            : Colors.text
+                          : '#94a3b8'
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.actionSecondaryText,
+                        !darkMode && { color: Colors.text },
+                        !lead.contact.email && styles.disabledText,
+                      ]}
+                    >
                       Email
                     </Text>
                   </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={styles.actionSecondary}
+
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    style={[
+                      styles.actionSecondary,
+                      !darkMode && { borderColor: Colors.line, backgroundColor: Colors.surface },
+                    ]}
                     onPress={handleText}
                   >
-                    <MaterialIcons name="message" size={18} color="#8B5CF6" />
-                    <Text style={styles.actionSecondaryText}>Text</Text>
+                    <MaterialIcons
+                      name="message"
+                      size={17}
+                      color={darkMode ? 'rgba(226, 232, 240, 0.95)' : Colors.text}
+                    />
+                    <Text style={[styles.actionSecondaryText, !darkMode && { color: Colors.text }]}>
+                      Text
+                    </Text>
                   </TouchableOpacity>
                 </View>
-                
-                {/* Destructive Action - Separated */}
-                <View style={styles.actionDestructiveContainer}>
-                  <TouchableOpacity 
+
+                <View style={[styles.actionDestructiveContainer, darkMode && styles.actionDestructiveContainerDark]}>
+                  <TouchableOpacity
+                    activeOpacity={0.85}
                     style={[
                       styles.actionDestructive,
-                      !darkMode && { backgroundColor: 'rgba(239, 68, 68, 0.12)' },
+                      !darkMode && { borderColor: 'rgba(239, 68, 68, 0.35)', backgroundColor: 'rgba(239, 68, 68, 0.06)' },
                     ]}
                     onPress={handleDelete}
                   >
-                    <MaterialIcons name="delete" size={16} color="#EF4444" />
-                    <View style={styles.actionDestructiveContent}>
-                      <Text style={styles.actionDestructiveText}>Delete</Text>
+                    <MaterialIcons name="delete-outline" size={18} color="#f87171" />
+                    <View style={styles.actionDestructiveTextCol}>
+                      <Text style={styles.actionDestructiveText}>Delete lead</Text>
                       <Text style={styles.actionDestructiveSubtext}>This cannot be undone</Text>
                     </View>
                   </TouchableOpacity>
@@ -1714,9 +1881,9 @@ const SegmentTab: React.FC<SegmentTabProps> = ({ label, icon, isActive, onPress,
         end={{ x: 1, y: 1 }}
         style={[styles.segmentTab, styles.segmentTabActive]}
       >
-        <TouchableOpacity onPress={onPress}>
+        <Pressable onPress={onPress} style={({ pressed }) => [{ opacity: pressed ? 0.92 : 1 }]}>
           <View style={styles.segmentTabInner}>
-            <Ionicons name={icon} size={16} color="#050B13" />
+            <Ionicons name={icon} size={16} color={darkMode ? '#050B13' : '#071018'} />
             <Text 
               style={[styles.segmentLabel, styles.segmentLabelActive]}
               numberOfLines={1}
@@ -1727,21 +1894,22 @@ const SegmentTab: React.FC<SegmentTabProps> = ({ label, icon, isActive, onPress,
               {label}
             </Text>
           </View>
-        </TouchableOpacity>
+        </Pressable>
       </LinearGradient>
     );
   }
 
   return (
-    <TouchableOpacity
+    <Pressable
       onPress={onPress}
-      style={styles.segmentTab}
+      style={({ pressed }) => [styles.segmentTab, { opacity: pressed ? 0.85 : 1 }]}
     >
       <View style={styles.segmentTabInner}>
-        <Ionicons name={icon} size={16} color={darkMode ? "#E5F7FF" : Colors.text} />
+        <Ionicons name={icon} size={16} color={darkMode ? '#FFFFFF' : Colors.text} />
         <Text 
           style={[
             styles.segmentLabel,
+            darkMode && styles.segmentLabelInactiveDark,
             !darkMode && { color: Colors.text },
           ]}
           numberOfLines={1}
@@ -1752,7 +1920,7 @@ const SegmentTab: React.FC<SegmentTabProps> = ({ label, icon, isActive, onPress,
           {label}
         </Text>
       </View>
-    </TouchableOpacity>
+    </Pressable>
   );
 };
 
@@ -2030,16 +2198,9 @@ const styles = StyleSheet.create({
     marginHorizontal: -20, // Extend beyond ScrollView padding (matches dashboard, projects, landing)
     paddingHorizontal: 8, // Add padding back inside (matches dashboard, projects, landing)
   },
-  campaignGradientBorder: {
-    borderRadius: 24,
-    padding: 1, // This creates the border width
-    marginBottom: 16,
-    marginHorizontal: 0, // No margin - wideContainer handles width
-  },
-  campaignGradientContent: {
-    backgroundColor: '#000000',
-    borderRadius: 23, // 24 - 1 to account for border
-    padding: 16, // Reduced from 20 to reduce spacing inside cards
+  wideContainerWeb: {
+    marginHorizontal: 0,
+    paddingHorizontal: 0,
   },
   section: {
     marginTop: 20,
@@ -2050,12 +2211,13 @@ const styles = StyleSheet.create({
     marginBottom: 0, // Remove bottom margin for sections inside gradient
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 11,
     fontWeight: '700',
     color: '#FFFFFF',
     marginTop: 8, // Added more vertical spacing above section headers
     marginBottom: 12,
-    letterSpacing: 0.3,
+    letterSpacing: 0.45,
+    textTransform: 'uppercase',
   },
   // Analytics section headers - matching Lead Sources and My Leads style
   analyticsSectionHeader: {
@@ -2094,17 +2256,17 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   heroTradeChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: 'rgba(67, 206, 162, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(67, 206, 162, 0.3)',
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(148, 163, 184, 0.2)',
   },
   heroTradeChipText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#43cea2',
+    fontWeight: '700',
+    color: '#f1f5f9',
   },
   heroTimelinePill: {
     paddingHorizontal: 10,
@@ -2364,78 +2526,110 @@ const styles = StyleSheet.create({
     color: '#19E180',
     marginTop: 2,
   },
-  // Hierarchical Actions
-  actionPrimary: {
+  // Overview footer actions — Find Subcontractors density + gradient primary
+  actionsFooterWrap: {
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.14)',
+    gap: 10,
+  },
+  actionsFooterWrapDark: {
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  actionsFooterLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.45,
+    textTransform: 'uppercase',
+    color: 'rgba(148, 163, 184, 0.9)',
+    marginBottom: 2,
+  },
+  actionPrimaryOuter: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000000',
+    shadowOpacity: 0.24,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  actionPrimaryGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#34C759',
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    marginBottom: 12,
+    paddingVertical: 11,
+    paddingHorizontal: 18,
+    minHeight: 44,
     gap: 8,
   },
   actionPrimaryText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.15,
+    color: '#020617',
   },
   actionSecondaryRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
+    gap: 10,
+    alignItems: 'stretch',
   },
   actionSecondary: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+    backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: 'rgba(59, 130, 246, 0.3)',
+    borderColor: 'rgba(148, 163, 184, 0.28)',
     borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    minHeight: 42,
     gap: 6,
   },
   actionSecondaryText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#3B82F6',
+    letterSpacing: 0.12,
+    color: 'rgba(226, 232, 240, 0.95)',
   },
   actionDestructiveContainer: {
-    marginTop: 8,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    marginTop: 2,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(148, 163, 184, 0.18)',
+  },
+  actionDestructiveContainerDark: {
+    borderTopColor: 'rgba(148, 163, 184, 0.12)',
   },
   actionDestructive: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.3)',
+    justifyContent: 'flex-start',
+    gap: 12,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
     borderRadius: 12,
-    paddingVertical: 8, // Reduced height by ~15%
-    paddingHorizontal: 16,
-    gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(248, 113, 113, 0.35)',
+    backgroundColor: 'rgba(248, 113, 113, 0.06)',
   },
-  actionDestructiveContent: {
-    alignItems: 'center',
-    gap: 2,
+  actionDestructiveTextCol: {
+    flex: 1,
+    alignItems: 'flex-start',
   },
   actionDestructiveText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#EF4444',
+    color: '#fca5a5',
   },
   actionDestructiveSubtext: {
-    fontSize: 10,
-    fontWeight: '400',
-    color: '#F3F4F6',
-    opacity: 0.7,
+    fontSize: 11,
+    fontWeight: '500',
+    color: 'rgba(248, 250, 252, 0.55)',
+    marginTop: 2,
   },
   disabledText: {
     color: '#F3F4F6',
@@ -2791,44 +2985,60 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
-  // Segment Tab Styles - Matching Leads Header
+  // Segment tabs — match project-detail / Duplex Build pill bar
   segmentContainer: {
     borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#19E180",
     overflow: 'hidden',
-    marginBottom: 12,
-    marginHorizontal: 0, // No margin - wideContainer handles width
+    borderWidth: 1,
+    borderColor: '#19E180',
+    marginBottom: 18,
+  },
+  segmentTrackDark: {
+    backgroundColor: '#000000',
   },
   segmentInner: {
-    flexDirection: "row",
+    flexDirection: 'row',
+    alignItems: 'center',
     padding: 4,
+    gap: 4,
+    backgroundColor: 'transparent',
+  },
+  segmentInnerWeb: {
+    width: '100%',
+    gap: 0,
   },
   segmentTab: {
     flex: 1,
+    minWidth: 0,
     borderRadius: 999,
+    marginHorizontal: Platform.OS === 'web' ? 0 : 1,
   },
   segmentTabActive: {
-    shadowColor: "#22c55e",
-    shadowOpacity: 0.36, // Reduced by ~10% (from 0.4)
-    shadowRadius: 12.6, // Reduced by ~10% (from 14)
-    shadowOffset: { width: 0, height: 0 },
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   segmentTabInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 2,
-    gap: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    gap: 6,
   },
   segmentLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#E5F7FF",
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: -0.1,
+  },
+  segmentLabelInactiveDark: {
+    color: '#FFFFFF',
   },
   segmentLabelActive: {
-    color: "#050B13",
+    color: '#050B13',
   },
   analyticsGrid: {
     flexDirection: 'row',

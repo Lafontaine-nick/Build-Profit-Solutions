@@ -8,7 +8,8 @@ import EnhancedLeadsPage from '@/lib/leads/components/EnhancedLeadsPage';
 import LeadDetailModal from '@/lib/leads/components/LeadDetailModal';
 import { Lead, LeadStage } from '@/lib/leads/types';
 import { unifiedLeadService } from '@/services/unifiedLeadService';
-import { testApiConnection, resolveMobileApiBaseUrl } from '@/services/apiTest';
+import { testApiConnection } from '@/services/apiTest';
+import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ReminderService from '@/services/reminderService';
@@ -1992,13 +1993,13 @@ export default function LeadsScreen() {
       // Fetch user's own subcontractor requests (Sub Needs) FIRST
       // Get actual user ID from authentication
       const authState = clerkAuthService.getAuthState();
-      const userId = authState.user?.id || authState.user?.email || 'unknown';
+      const userId = authState.user?.id || authState.user?.email || 'contractor-demo';
       console.log(`👤 Using user ID for leads: ${userId}`);
       let userRequests: Lead[] = [];
       
       try {
         // Disable caching to always get fresh data
-        const apiUrl = `${resolveMobileApiBaseUrl()}/project-leads/my-requests/${userId}`;
+        const apiUrl = `${resolveBackendRestApiBaseUrl()}/project-leads/my-requests/${encodeURIComponent(userId)}`;
         console.log(`🔍 Fetching user requests from: ${apiUrl}`);
         const requestsResponse = await fetch(apiUrl, {
           headers: {
@@ -2151,7 +2152,7 @@ export default function LeadsScreen() {
       // Fetch bid invitations (Invites)
       let inviteLeads: Lead[] = [];
       try {
-        const invitesResponse = await fetch(`${resolveMobileApiBaseUrl()}/bid-invitations/contractor/${userId}`);
+        const invitesResponse = await fetch(`${resolveBackendRestApiBaseUrl()}/bid-invitations/contractor/${encodeURIComponent(userId)}`);
         if (invitesResponse.ok) {
           const invitesData = await invitesResponse.json();
           console.log(`✅ Fetched ${invitesData.invitations?.length || 0} bid invitations`);
@@ -2201,7 +2202,7 @@ export default function LeadsScreen() {
       // Fetch marketplace leads
       let marketplaceLeads: Lead[] = [];
       try {
-        const marketplaceResponse = await fetch(`${resolveMobileApiBaseUrl()}/marketplace-leads`);
+        const marketplaceResponse = await fetch(`${resolveBackendRestApiBaseUrl()}/marketplace-leads`);
         if (marketplaceResponse.ok) {
           const marketplaceData = await marketplaceResponse.json();
           console.log(`✅ Fetched ${marketplaceData.leads?.length || 0} marketplace leads`);
@@ -3580,7 +3581,7 @@ export default function LeadsScreen() {
             // Check if this is an API lead (starts with LEAD-) and try to delete from backend
             if (leadId.startsWith('LEAD-')) {
               // Delete from backend API for project-based leads (fire and forget)
-              fetch(`${resolveMobileApiBaseUrl()}/project-leads/${leadId}`, {
+              fetch(`${resolveBackendRestApiBaseUrl()}/project-leads/${leadId}`, {
                 method: 'DELETE',
               }).catch(err => console.warn('Backend deletion failed:', err));
             }
@@ -3611,7 +3612,7 @@ export default function LeadsScreen() {
             
             // If it's a backend lead, update on backend (fire and forget)
             if (leadId.startsWith('LEAD-')) {
-              fetch(`${resolveMobileApiBaseUrl()}/unified-leads/leads/${leadId}/archive`, {
+              fetch(`${resolveBackendRestApiBaseUrl()}/unified-leads/leads/${leadId}/archive`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ archived: true }),
@@ -3645,7 +3646,7 @@ export default function LeadsScreen() {
             
             // If it's a backend lead, update on backend (fire and forget)
             if (leadId.startsWith('LEAD-')) {
-              fetch(`${resolveMobileApiBaseUrl()}/unified-leads/leads/${leadId}/archive`, {
+              fetch(`${resolveBackendRestApiBaseUrl()}/unified-leads/leads/${leadId}/archive`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ archived: false }),
@@ -3757,7 +3758,7 @@ export default function LeadsScreen() {
             // Check if this is an API lead (starts with LEAD-) and try to delete from backend
             if (leadId.startsWith('LEAD-')) {
               // Delete from backend API for project-based leads (fire and forget)
-              fetch(`${resolveMobileApiBaseUrl()}/project-leads/${leadId}`, {
+              fetch(`${resolveBackendRestApiBaseUrl()}/project-leads/${leadId}`, {
                 method: 'DELETE',
               }).catch(err => console.warn('Backend deletion failed:', err));
             }

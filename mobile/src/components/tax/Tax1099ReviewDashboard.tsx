@@ -4,6 +4,13 @@ import { MaterialIcons } from '@expo/vector-icons';
 import type { Tax1099ReviewSummary, Tax1099ReviewVendorRow } from '@/src/lib/tax1099Review';
 import { format1099ReviewMoney } from '@/src/lib/tax1099Review';
 
+function formatChipLabel(action: string): string {
+  if (action === 'Confirm Payment Method') return 'Missing payment method';
+  if (action === 'Potential 1099 Review') return 'Potential 1099 review';
+  if (action === 'Missing W-9') return 'Missing W-9';
+  return action;
+}
+
 type Props = {
   review: Tax1099ReviewSummary;
   onPressVendor?: (row: Tax1099ReviewVendorRow) => void;
@@ -42,22 +49,18 @@ export default function Tax1099ReviewDashboard({
     <View style={styles.root}>
       {omitSectionTitle ? null : <Text style={styles.sectionTitle}>Vendor & 1099 Review</Text>}
       <Text style={styles.sectionSub}>
-        Review vendors detected from expenses. Suppliers usually do not need W-9 tracking, while subcontractors and
-        consultants may need year-end review with your CPA.
+        Review vendors detected from expenses. Confirm Potential 1099 review flags and W-9 tracking with your CPA —
+        not tax advice.
       </Text>
 
       <View style={styles.grid}>
         <SummaryCard
-          label="Potential 1099 vendors"
+          label="Potential 1099 review"
           value={review.potential1099VendorCount}
           icon="groups"
         />
-        <SummaryCard label="Missing W-9s" value={review.missingW9Count} icon="description" />
-        <SummaryCard
-          label="Payments missing method"
-          value={review.paymentsMissingMethodCount}
-          icon="payment"
-        />
+        <SummaryCard label="Missing W-9" value={review.missingW9Count} icon="description" />
+        <SummaryCard label="Missing payment method" value={review.paymentsMissingMethodCount} icon="payment" />
         <SummaryCard label="Missing vendor info" value={review.missingVendorInfoCount} icon="person-search" />
       </View>
 
@@ -116,7 +119,7 @@ export default function Tax1099ReviewDashboard({
                 ) : (
                   row.actionNeeded.map((a) => (
                     <View key={a} style={styles.chip}>
-                      <Text style={styles.chipText}>{a}</Text>
+                      <Text style={styles.chipText}>{formatChipLabel(a)}</Text>
                     </View>
                   ))
                 )}
@@ -125,20 +128,20 @@ export default function Tax1099ReviewDashboard({
 
             {row.hasSavedVendor && row.vendorId && onEditVendorProfile ? (
               <Pressable
-                style={styles.saveVendorBtn}
+                style={styles.vendorSecondaryBtn}
                 onPress={() => onEditVendorProfile(row)}
               >
-                <MaterialIcons name="edit" size={18} color="#0f172a" />
-                <Text style={styles.saveVendorText}>Edit Vendor Profile</Text>
+                <MaterialIcons name="edit" size={17} color="#8BE8D1" />
+                <Text style={styles.vendorSecondaryBtnText}>Edit Vendor Profile</Text>
               </Pressable>
             ) : null}
             {!row.hasSavedVendor && row.saveDraft && onSaveVendor ? (
               <Pressable
-                style={styles.saveVendorBtn}
+                style={styles.vendorSecondaryBtn}
                 onPress={() => onSaveVendor(row)}
               >
-                <MaterialIcons name="person-add-alt-1" size={18} color="#0f172a" />
-                <Text style={styles.saveVendorText}>Save Vendor</Text>
+                <MaterialIcons name="person-add-alt-1" size={17} color="#8BE8D1" />
+                <Text style={styles.vendorSecondaryBtnText}>Save Vendor</Text>
               </Pressable>
             ) : null}
           </View>
@@ -232,15 +235,24 @@ const styles = StyleSheet.create({
     marginTop: 14,
     fontStyle: 'italic',
   },
-  saveVendorBtn: {
+  vendorSecondaryBtn: {
     marginTop: 12,
+    alignSelf: 'flex-end',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#2DFFC4',
-    borderRadius: 12,
-    paddingVertical: 12,
+    gap: 7,
+    paddingHorizontal: 18,
+    paddingVertical: 11,
+    minHeight: 42,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: 'rgba(45, 255, 196, 0.38)',
+    backgroundColor: 'rgba(45, 255, 196, 0.06)',
   },
-  saveVendorText: { color: '#0f172a', fontSize: 14, fontWeight: '900' },
+  vendorSecondaryBtnText: {
+    color: '#8BE8D1',
+    fontSize: 13,
+    fontWeight: '800',
+  },
 });

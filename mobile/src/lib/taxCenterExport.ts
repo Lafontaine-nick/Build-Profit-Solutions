@@ -1,6 +1,7 @@
 /**
  * Tax Center exports (PDF, CSV, receipt manifest).
  * Requires: expo-print, expo-sharing, expo-file-system (see mobile/package.json).
+ * Web PDF: uses html2pdf.js (see taxCenterExportWebPdf.web.ts); expo-print opens print UI on web.
  * Install if missing: npx expo install expo-print expo-sharing expo-file-system
  * Uses expo-file-system/legacy for cache paths (expo-file-system v19+ stable entry differs).
  */
@@ -8,11 +9,15 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { Platform } from 'react-native';
 import type { TaxSummaryExportPayload } from '@/src/lib/taxCenterExportPayload';
+import type { TaxCategory } from '@/src/lib/taxCenter';
+import { ACCOUNTING_CATEGORY_MAPPING_ENABLED } from '@/src/lib/taxCenterLaunchFlags';
+import { SUGGESTED_ACCOUNTING_CATEGORY } from '@/src/lib/taxSuggestedAccountingCategories';
 
 /** Full legal notice for PDF / CSV exports (same substantive copy). */
 const TAX_EXPORT_NOTICE_FULL =
-  'This report is for bookkeeping and tax-preparation support only. It is not tax advice, does not replace a CPA or tax professional, and is not an official tax filing or official 1099 form. Users are responsible for verifying all amounts, categories, receipts, vendor information, and tax treatment with their CPA or tax professional before filing.';
+  'Tax Center reports are for bookkeeping and tax-preparation support only. They are not tax advice, do not replace a CPA or tax professional, and are not official tax filings or official 1099 forms. Verify all amounts, categories, receipts, vendors, and tax treatment before filing.';
 
 const TAX_EXPORT_DATA_SOURCE_LINE =
   'Prepared from user-entered project, payment, expense, purchase order, subcontractor, and receipt data in Build Profit Solutions.';
@@ -20,10 +25,9 @@ const TAX_EXPORT_DATA_SOURCE_LINE =
 const TAX_EXPORT_DATA_ACCURACY_NOTE =
   'Amounts are based on data available in Build Profit Solutions for the selected tax year. Missing, incomplete, or incorrectly categorized entries may affect this report.';
 
-const ACCENT = '#0d9488';
-const TEXT = '#1e293b';
-const TEXT_MUTED = '#64748b';
-const CARD_BG = '#f1f5f9';
+/** CPA Summary PDF callout only — concise wording for the Important Tax Notice card. */
+const TAX_EXPORT_NOTICE_PDF_CARD =
+  'This report is for bookkeeping and tax-preparation support only. It is not tax advice, does not replace a CPA or tax professional, and is not an official tax filing or official 1099 form. Users are responsible for verifying all amounts, categories, receipts, vendors, and tax treatment before filing.';
 
 const money = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(
@@ -124,15 +128,108 @@ function cardValueClass(kind: 'revenue' | 'expense' | 'net' | 'receivable' | 'co
 }
 
 function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
+  /**
+   * expo-print (iOS/Android WebView → PDF) sometimes fails to apply `<style>` rules; the PDF then
+   * falls back to UA defaults (Times, no backgrounds). Mirror critical presentation as inline styles.
+   */
+  const PDF_FONT =
+    '-apple-system,BlinkMacSystemFont,"Helvetica Neue","Segoe UI",Arial,sans-serif';
+  /** Roomier padding + larger base type so PDF text reads clearly when printed. */
+  const IN_BODY = `margin:0;padding:36px 40px 44px;background:#ffffff;color:#0f172a;font-family:${PDF_FONT};font-size:12px;line-height:1.55;-webkit-print-color-adjust:exact;print-color-adjust:exact;`;
+  const IN_BRAND_BAR = `height:6px;margin:-36px -40px 22px -40px;background:#14b8a6;border-radius:0 0 3px 3px;`;
+  const IN_HEADER_WRAP = `background:#fafafa;border:1px solid #e5e7eb;border-radius:12px;padding:20px 20px 0;margin:0 0 22px 0;`;
+  const IN_HEADER_RULE = `height:3px;margin:16px -20px 0 -20px;background:#14b8a6;border-radius:0 0 11px 11px;`;
+  const IN_RD_CARD = `display:inline-block;text-align:left;vertical-align:top;min-width:248px;max-width:310px;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;box-shadow:0 1px 5px rgba(15,23,42,0.07);`;
+  const IN_RD_HEAD = `margin:0;padding:10px 14px;background:#f8fafc;border-bottom:1px solid #e5e7eb;font-size:9px;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;color:#0f766e;`;
+  const IN_RD_BODY = 'padding:12px 14px 14px;';
+  const IN_RD_ROW = `display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:8px;font-size:11px;line-height:1.45;`;
+  const IN_RD_ROW_LAST = `display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:0;font-size:11px;line-height:1.45;`;
+  const IN_RD_LABEL = `color:#64748b;font-weight:600;flex-shrink:0;`;
+  const IN_RD_VALUE = `color:#1f2937;font-weight:600;text-align:right;word-break:break-word;max-width:64%;`;
+  const IN_RD_BADGE =
+    'display:inline-block;padding:3px 9px;border-radius:999px;font-size:9px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;';
+  const IN_PORTFOLIO_NOTE = `margin:10px 0 0 0;font-size:10px;color:#64748b;line-height:1.45;font-weight:500;`;
+  const IN_NOTICE = `background:#fef3c7;background-image:linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%);border:1px solid #fbbf24;border-left:5px solid #d97706;border-radius:14px;padding:18px 22px;margin:0 0 22px 0;`;
+  const IN_NOTICE_TITLE = `font-size:10.5px;font-weight:800;letter-spacing:0.14em;text-transform:uppercase;color:#92400e;margin:0 0 12px 0;`;
+  const IN_NOTICE_BODY = `font-size:12px;color:#451a03;margin:0;line-height:1.6;`;
+  const IN_NOTICE_BLUE = `background:#eff6ff;background-image:linear-gradient(135deg,#eff6ff 0%,#dbeafe 100%);border:1px solid #60a5fa;border-left:4px solid #2563eb;border-radius:12px;padding:16px 18px;margin-bottom:14px;`;
+  const IN_NOTICE_BLUE_TITLE = `font-size:10px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#1e40af;margin:0 0 10px 0;`;
+  const IN_NOTICE_BLUE_BODY = `font-size:11px;color:#1e3a8a;margin:0;line-height:1.55;`;
+  const IN_AI_KICKER =
+    'margin:0 0 10px 0;font-size:11px;color:#64748b;font-weight:500;line-height:1.45;';
+  const IN_INSIGHT_TABLE =
+    'border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#ffffff;margin-top:4px;width:100%;border-collapse:collapse;box-shadow:0 1px 4px rgba(15,23,42,0.06);';
+  const IN_INSIGHT_STRIP =
+    'width:3px;min-width:3px;padding:0;line-height:0;font-size:0;background:#14b8a6;';
+  const IN_INSIGHT_CELL = 'background:#fafafa;';
+  const IN_INSIGHT_INNER = 'padding:16px 18px 14px;';
+  const IN_INSIGHT_TEXT = 'font-size:12px;color:#1f2937;line-height:1.62;margin:0;';
+  const IN_INSIGHT_DISCLAIMER =
+    'font-size:9px;color:#94a3b8;margin:12px 0 0 0;line-height:1.45;padding-top:12px;border-top:1px solid #e5e7eb;font-style:italic;';
+  const IN_EMPTY_MSG = `font-size:11px;color:#64748b;font-style:italic;margin:10px 0 0 0;padding:16px;background:#f8fafc;border-radius:12px;border:1px dashed #94a3b8;`;
+  const IN_EMPTY_SUB_BOX = `font-size:11px;color:#64748b;font-style:italic;margin:10px 0 0 0;padding:24px 20px;background:#f8fafc;border-radius:14px;border:2px dashed #cbd5e1;text-align:center;line-height:1.55;`;
+  const IN_REPORT_FOOTER = `margin-top:16px;padding:14px 12px 12px;border-top:1px solid #e5e7eb;text-align:center;color:#64748b;font-size:9.5px;line-height:1.58;background:#fafafa;border-radius:0 0 10px 10px;`;
+  const IN_REPORT_FOOTER_LEAD = `font-weight:700;color:#374151;margin-bottom:10px;font-size:11px;letter-spacing:0.01em;`;
+  const IN_REPORT_BRAND = `font-size:11.5px;font-weight:800;letter-spacing:0.18em;text-transform:uppercase;color:#0f766e;margin:0 0 6px 0;`;
+  const IN_REPORT_PRODUCT = `font-size:9.5px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:#64748b;margin:0 0 16px 0;`;
+  const IN_REPORT_TITLE = `margin:0 0 8px 0;font-size:32px;font-weight:800;letter-spacing:-0.035em;color:#0f172a;line-height:1.12;`;
+  const IN_REPORT_SUB = `margin:0;font-size:13px;color:#475569;font-weight:500;letter-spacing:0.01em;`;
+  const IN_PORTFOLIO_TFOOT_TD = `font-size:10px;color:#64748b;font-style:italic;line-height:1.5;padding:14px 12px 12px;border-top:2px solid #e2e8f0;background:#f8fafc;vertical-align:top;`;
+
+  const IN_CARD =
+    'background:#ffffff;background-image:linear-gradient(180deg,#ffffff 0%,#f8fafc 100%);border:1px solid #e5e7eb;border-left:3px solid #14b8a6;border-radius:12px;padding:18px 18px 16px;min-height:96px;box-shadow:0 1px 4px rgba(15,23,42,0.06);';
+  const IN_CARD_LABEL =
+    'font-size:9.5px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#64748b;margin-bottom:10px;';
+  const IN_CARD_HINT = 'margin-top:10px;font-size:8.5px;line-height:1.4;color:#94a3b8;font-weight:500;';
+  /** Slim heading + teal rule — avoids heavy rounded section boxes. */
+  const IN_SECTION_HEAD =
+    'margin:0 0 8px 0;padding:0 0 6px 0;border-bottom:2px solid #14b8a6;background:transparent;box-shadow:none;border-left:none;border-radius:0;';
+  const IN_SECTION_TITLE = 'margin:0;font-size:15px;font-weight:700;color:#1e293b;letter-spacing:-0.02em;';
+  const IN_TABLE =
+    'width:100%;max-width:100%;table-layout:fixed;border-collapse:collapse;margin-top:6px;font-size:11px;border:1px solid #e5e7eb;border-radius:8px;overflow:visible;box-shadow:0 1px 3px rgba(15,23,42,0.04);';
+  const IN_TABLE_PROJECT = `${IN_TABLE}font-size:10px;`;
+  const IN_TH =
+    'background:#0f766e;color:#ffffff;font-weight:700;text-align:left;font-size:10px;padding:11px 12px;border-bottom:1px solid #0d9488;border-right:1px solid rgba(255,255,255,0.15);letter-spacing:0.01em;text-transform:uppercase;vertical-align:bottom;';
+  const IN_TH_NUM = `${IN_TH}text-align:right;`;
+  const IN_TD =
+    'padding:10px 12px;border-bottom:1px solid #eef0f3;border-right:1px solid #f3f4f6;color:#1f2937;font-size:11px;vertical-align:middle;';
+  const IN_TD_NUM =
+    'padding:10px 12px;border-bottom:1px solid #eef0f3;border-right:1px solid #f3f4f6;color:#1f2937;font-size:11px;vertical-align:middle;text-align:right;font-variant-numeric:tabular-nums;font-weight:700;';
+  const metricValueInline = (cls: string): string => {
+    let color = '#1f2937';
+    if (cls.includes('card-val-neg')) color = '#dc2626';
+    else if (cls.includes('card-val-pos')) color = '#0d9488';
+    else if (cls.includes('card-val-muted')) color = '#94a3b8';
+    return `font-size:26px;font-weight:800;letter-spacing:-0.025em;line-height:1.12;color:${color};`;
+  };
+  const moneyTdColor = (n: number) => (Number.isFinite(n) && n < 0 ? '#dc2626' : '#1f2937');
+
   const p = payload.portfolioSummary;
   const year = payload.selectedYear;
   const genDisplay = escapeHtml(payload.generatedAtDisplay);
-  const contactEmail = String(payload.contractorContactEmail || '').trim();
-  const contactMetaRow = contactEmail
-    ? `<div><span class="meta-k">Contractor contact:</span> ${escapeHtml(contactEmail)}</div>`
-    : '';
+  const preparedForValueRaw = String(payload.contractorCompanyName ?? '').trim();
+  const preparedForDisplay = preparedForValueRaw ? escapeHtml(preparedForValueRaw) : 'User Account';
 
-  const execCards = [
+  const reportDetailsHtml = `<div class="report-details-card" role="group" aria-label="Report details" style="${IN_RD_CARD}">
+    <p style="${IN_RD_HEAD}">Report Details</p>
+    <div style="${IN_RD_BODY}">
+      <div style="${IN_RD_ROW}"><span style="${IN_RD_LABEL}">Tax Year</span><span style="${IN_RD_VALUE}">${year}</span></div>
+      <div style="${IN_RD_ROW}"><span style="${IN_RD_LABEL}">Prepared For</span><span style="${IN_RD_VALUE}">${preparedForDisplay}</span></div>
+      <div style="${IN_RD_ROW}"><span style="${IN_RD_LABEL}">Generated Date</span><span style="${IN_RD_VALUE}">${genDisplay}</span></div>
+      <div style="${IN_RD_ROW}"><span style="${IN_RD_LABEL}">Report Type</span><span style="${IN_RD_VALUE}">CPA Summary</span></div>
+      <div style="${IN_RD_ROW_LAST}"><span style="${IN_RD_LABEL}">Status</span><span style="${IN_RD_VALUE}"><span style="${IN_RD_BADGE}">For Review</span></span></div>
+    </div>
+  </div>`;
+
+  const PORTFOLIO_BELOW_NOTE =
+    'Portfolio totals reflect amounts recorded in Build Profit Solutions for the selected tax year.';
+
+  const execCards: Array<{
+    label: string;
+    value: string;
+    cls: string;
+    hint?: string;
+  }> = [
     { label: 'Revenue Collected', value: money(p.revenueCollected), cls: cardValueClass('revenue', p.revenueCollected) },
     { label: 'Expenses Paid', value: money(p.expensesPaid), cls: cardValueClass('expense', p.expensesPaid) },
     { label: 'Net Income', value: money(p.netIncome), cls: cardValueClass('net', p.netIncome) },
@@ -141,19 +238,30 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
       value: money(p.outstandingReceivables),
       cls: cardValueClass('receivable', p.outstandingReceivables),
     },
-    { label: 'Committed Costs', value: money(p.committedCosts), cls: cardValueClass('committed', p.committedCosts) },
+    {
+      label: 'Committed Costs',
+      value: money(p.committedCosts),
+      cls: cardValueClass('committed', p.committedCosts),
+      hint: 'Approved purchase orders not yet paid',
+    },
     { label: 'Receipt Count', value: String(p.receiptCount), cls: cardValueClass('count', p.receiptCount) },
   ];
 
-  const execGrid = execCards
-    .map(
-      (c) => `
-    <div class="summary-card">
-      <div class="summary-card-label">${escapeHtml(c.label)}</div>
-      <div class="summary-card-value ${c.cls}">${escapeHtml(c.value)}</div>
-    </div>`
-    )
-    .join('');
+  const metricCardHtml = (c: (typeof execCards)[0]) =>
+    `<div class="summary-card" style="${IN_CARD}">
+      <div class="summary-card-label" style="${IN_CARD_LABEL}">${escapeHtml(c.label)}</div>
+      <div class="summary-card-value ${c.cls}" style="${metricValueInline(c.cls)}">${escapeHtml(c.value)}</div>
+      ${c.hint ? `<div class="summary-card-hint" style="${IN_CARD_HINT}">${escapeHtml(c.hint)}</div>` : ''}
+    </div>`;
+
+  /** Table-based 2-column layout: html2canvas reliably paints tables vs CSS Grid/Flex in some WebViews. */
+  const metricRows: string[] = [];
+  for (let i = 0; i < execCards.length; i += 2) {
+    const left = metricCardHtml(execCards[i]);
+    const rightCell = execCards[i + 1] ? metricCardHtml(execCards[i + 1]) : '&nbsp;';
+    metricRows.push(`<tr><td class="metric-cell">${left}</td><td class="metric-cell">${rightCell}</td></tr>`);
+  }
+  const execGrid = `<table class="metrics-table" role="presentation" aria-label="Summary metrics" width="100%"><tbody>${metricRows.join('')}</tbody></table>`;
 
   const portfolioDefs: Array<{ label: string; amount?: number; text?: string }> = [
     { label: 'Revenue Collected', amount: p.revenueCollected },
@@ -169,37 +277,75 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
   const portfolioBody = portfolioDefs
     .map((row, i) => {
       const stripe = i % 2 === 0 ? 'stripe' : 'stripe-alt';
+      const rowBg = i % 2 === 0 ? '#ffffff' : '#fafbfc';
       if (row.text != null) {
         const cls = row.text === 'N/A' ? 'amt-muted' : '';
-        return `<tr class="${stripe}"><td>${escapeHtml(row.label)}</td><td class="num ${cls}">${escapeHtml(row.text)}</td></tr>`;
+        const textColor = row.text === 'N/A' ? '#94a3b8' : '#1f2937';
+        return `<tr class="${stripe}" style="background-color:${rowBg}"><td style="${IN_TD}border-right:1px solid #f1f5f9;">${escapeHtml(row.label)}</td><td class="num ${cls}" style="${IN_TD_NUM}color:${textColor};font-weight:${row.text === 'N/A' ? 600 : 700};border-right:none;">${escapeHtml(row.text)}</td></tr>`;
       }
       const n = row.amount ?? 0;
-      return `<tr class="${stripe}"><td>${escapeHtml(row.label)}</td><td class="num money ${moneyCellClass(n)}">${escapeHtml(money(n))}</td></tr>`;
+      const amtColor = n < 0 ? '#dc2626' : '#1f2937';
+      return `<tr class="${stripe}" style="background-color:${rowBg}"><td style="${IN_TD}border-right:1px solid #f1f5f9;">${escapeHtml(row.label)}</td><td class="num money ${moneyCellClass(n)}" style="${IN_TD_NUM}color:${amtColor};border-right:none;">${escapeHtml(money(n))}</td></tr>`;
     })
     .join('');
 
   const accountingCell = (raw: string) => {
     const t = String(raw || '').trim();
-    return t ? t : 'Unmapped';
+    return t ? t : 'Needs review';
   };
-  const catRows =
+  const suggestedAccountingCell = (categoryLabel: string) => {
+    const key = categoryLabel as TaxCategory;
+    const sug = SUGGESTED_ACCOUNTING_CATEGORY[key];
+    return sug ? sug : '';
+  };
+
+  const unmappedCategoryCount = payload.expenseCategories.filter(
+    (c) => !String(c.accountingOrQuickBooksCategory || '').trim()
+  ).length;
+  const mappingReminderHtml =
+    ACCOUNTING_CATEGORY_MAPPING_ENABLED && unmappedCategoryCount > 0
+      ? `<div class="notice" role="note" style="${IN_NOTICE_BLUE}">
+    <p class="notice-title" style="${IN_NOTICE_BLUE_TITLE}">Mapping reminder</p>
+    <p class="notice-body" style="${IN_NOTICE_BLUE_BODY}">${unmappedCategoryCount} categor${unmappedCategoryCount === 1 ? 'y' : 'ies'} need mapping before export. Confirm final labels with your CPA or tax professional.</p>
+  </div>`
+      : '';
+
+  const catRowsLaunch =
     payload.expenseCategories.length === 0
       ? ''
       : payload.expenseCategories
-          .map(
-            (c, i) =>
-              `<tr class="${i % 2 === 0 ? 'stripe' : 'stripe-alt'}"><td>${escapeHtml(c.category)}</td><td>${escapeHtml(accountingCell(c.accountingOrQuickBooksCategory))}</td><td class="num money ${moneyCellClass(c.amount)}">${escapeHtml(money(c.amount))}</td><td class="num">${c.itemCount}</td></tr>`
-          )
+          .map((c, i) => {
+            const bg = i % 2 === 0 ? '#ffffff' : '#fafbfc';
+            const amtCol = moneyTdColor(c.amount);
+            return `<tr style="background-color:${bg}"><td style="${IN_TD}">${escapeHtml(c.category)}</td><td class="num money ${moneyCellClass(c.amount)}" style="${IN_TD_NUM}color:${amtCol};">${escapeHtml(money(c.amount))}</td><td class="num" style="${IN_TD_NUM};border-right:none;">${c.itemCount}</td></tr>`;
+          })
           .join('');
+
+  const catRowsFull =
+    payload.expenseCategories.length === 0
+      ? ''
+      : payload.expenseCategories
+          .map((c, i) => {
+            const bg = i % 2 === 0 ? '#ffffff' : '#fafbfc';
+            const amtCol = moneyTdColor(c.amount);
+            return `<tr style="background-color:${bg}"><td style="${IN_TD}">${escapeHtml(c.category)}</td><td style="${IN_TD}">${escapeHtml(accountingCell(c.accountingOrQuickBooksCategory))}</td><td style="${IN_TD}">${escapeHtml(suggestedAccountingCell(c.category))}</td><td class="num money ${moneyCellClass(c.amount)}" style="${IN_TD_NUM}color:${amtCol};">${escapeHtml(money(c.amount))}</td><td class="num" style="${IN_TD_NUM};border-right:none;">${c.itemCount}</td></tr>`;
+          })
+          .join('');
+
+  const catRows = ACCOUNTING_CATEGORY_MAPPING_ENABLED ? catRowsFull : catRowsLaunch;
 
   const projRows =
     payload.projectSummaries.length === 0
       ? ''
       : payload.projectSummaries
-          .map(
-            (r, i) =>
-              `<tr class="${i % 2 === 0 ? 'stripe' : 'stripe-alt'}"><td class="proj-name">${escapeHtml(r.projectName)}</td><td class="num money ${moneyCellClass(r.revenueCollected)}">${escapeHtml(money(r.revenueCollected))}</td><td class="num money ${moneyCellClass(r.outstandingInvoices)}">${escapeHtml(money(r.outstandingInvoices))}</td><td class="num money ${moneyCellClass(r.expensesPaid)}">${escapeHtml(money(r.expensesPaid))}</td><td class="num money ${moneyCellClass(r.netIncome)}">${escapeHtml(money(r.netIncome))}</td><td class="num ${r.netMargin == null || !Number.isFinite(r.netMargin) ? 'amt-muted' : ''}">${escapeHtml(formatNetMargin(r.netMargin))}</td><td class="num">${r.receiptCount}</td></tr>`
-          )
+          .map((r, i) => {
+            const bg = i % 2 === 0 ? '#ffffff' : '#fafbfc';
+            const nmMuted = r.netMargin == null || !Number.isFinite(r.netMargin);
+            const nmInline = nmMuted
+              ? `${IN_TD_NUM}color:#94a3b8;font-weight:600;`
+              : `${IN_TD_NUM}color:#1f2937;`;
+            return `<tr style="background-color:${bg}"><td class="proj-name" style="${IN_TD}">${escapeHtml(r.projectName)}</td><td class="num money ${moneyCellClass(r.revenueCollected)}" style="${IN_TD_NUM}color:${moneyTdColor(r.revenueCollected)};">${escapeHtml(money(r.revenueCollected))}</td><td class="num money ${moneyCellClass(r.outstandingInvoices)}" style="${IN_TD_NUM}color:${moneyTdColor(r.outstandingInvoices)};">${escapeHtml(money(r.outstandingInvoices))}</td><td class="num money ${moneyCellClass(r.expensesPaid)}" style="${IN_TD_NUM}color:${moneyTdColor(r.expensesPaid)};">${escapeHtml(money(r.expensesPaid))}</td><td class="num money ${moneyCellClass(r.netIncome)}" style="${IN_TD_NUM}color:${moneyTdColor(r.netIncome)};">${escapeHtml(money(r.netIncome))}</td><td class="num" style="${nmInline}">${escapeHtml(formatNetMargin(r.netMargin))}</td><td class="num" style="${IN_TD_NUM};border-right:none;">${r.receiptCount}</td></tr>`;
+          })
           .join('');
 
   const subRows =
@@ -207,9 +353,10 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
       ? ''
       : payload.subcontractors
           .map((s, i) => {
+            const bg = i % 2 === 0 ? '#ffffff' : '#fafbfc';
             const w9 = s.w9Uploaded ? 'On file' : 'Not on file';
             const rev = s.potential1099Review ? 'Yes' : 'No';
-            return `<tr class="${i % 2 === 0 ? 'stripe' : 'stripe-alt'}"><td>${escapeHtml(s.vendorName)}</td><td class="num money ${moneyCellClass(s.totalPaid)}">${escapeHtml(money(s.totalPaid))}</td><td>${escapeHtml(s.projectNames.join('; '))}</td><td>${escapeHtml(w9)}</td><td>${escapeHtml(rev)}</td></tr>`;
+            return `<tr style="background-color:${bg}"><td style="${IN_TD}">${escapeHtml(s.vendorName)}</td><td class="num money ${moneyCellClass(s.totalPaid)}" style="${IN_TD_NUM}color:${moneyTdColor(s.totalPaid)};">${escapeHtml(money(s.totalPaid))}</td><td style="${IN_TD}">${escapeHtml(s.projectNames.join('; '))}</td><td style="${IN_TD}">${escapeHtml(w9)}</td><td style="${IN_TD}">${escapeHtml(rev)}</td><td class="td-muted td-flags" style="${IN_TD};text-align:center;color:#64748b;font-size:10px;border-right:none;">—</td></tr>`;
           })
           .join('');
 
@@ -217,31 +364,49 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
 
   const emptyCat =
     payload.expenseCategories.length === 0
-      ? '<p class="empty-msg">No expense category data found for this tax year.</p>'
-      : `<table class="data-table" aria-label="Expense categories"><thead><tr><th>BPS Category</th><th>Accounting / QuickBooks Category</th><th class="num">Amount</th><th class="num">Item Count</th></tr></thead><tbody>${catRows}</tbody></table>`;
+      ? `<p class="empty-msg" style="${IN_EMPTY_MSG}">No expense category data found for this tax year.</p>`
+      : ACCOUNTING_CATEGORY_MAPPING_ENABLED
+        ? `${mappingReminderHtml}<p class="section-subtitle section-subtitle--tight">Expense categories are based on Build Profit Solutions project categories.</p><table class="data-table" aria-label="Expense categories" style="${IN_TABLE}"><thead><tr><th style="${IN_TH}">BPS Category</th><th style="${IN_TH}">Your accounting category</th><th style="${IN_TH}">Suggested accounting category</th><th style="${IN_TH_NUM}">Amount</th><th style="${IN_TH_NUM};border-right:none;">Item Count</th></tr></thead><tbody>${catRows}</tbody></table><p class="table-note">${escapeHtml(
+            'Suggested accounting category is an editable starting point. Confirm final category treatment with your CPA or tax professional.'
+          )}</p>`
+        : `${mappingReminderHtml}<p class="section-subtitle section-subtitle--tight">Expense categories are based on Build Profit Solutions project categories.</p><table class="data-table" aria-label="Expense categories" style="${IN_TABLE}"><thead><tr><th style="${IN_TH}">BPS Category</th><th style="${IN_TH_NUM}">Amount</th><th style="${IN_TH_NUM};border-right:none;">Item Count</th></tr></thead><tbody>${catRows}</tbody></table><p class="table-note">${escapeHtml(
+            'Expense categories are based on Build Profit Solutions project categories. Final tax category treatment should be reviewed with a CPA or tax professional.'
+          )}</p>`;
 
   const emptyProj =
     payload.projectSummaries.length === 0
-      ? '<p class="empty-msg">No project data found for this tax year.</p>'
-      : `<table class="data-table project-table" aria-label="Projects"><thead><tr><th>Project</th><th class="num">Revenue Collected</th><th class="num">Outstanding</th><th class="num">Expenses Paid</th><th class="num">Net Income</th><th class="num">Net Margin</th><th class="num">Receipts</th></tr></thead><tbody>${projRows}</tbody></table>`;
+      ? `<p class="empty-msg" style="${IN_EMPTY_MSG}">No project data found for this tax year.</p>`
+      : `<p class="section-subtitle section-subtitle--tight">Tax summaries are based on collected revenue and actual paid expenses.</p><table class="data-table project-table" aria-label="Projects" style="${IN_TABLE_PROJECT}"><thead><tr><th style="${IN_TH}">Project</th><th style="${IN_TH_NUM}">Revenue Collected</th><th style="${IN_TH_NUM}">Outstanding</th><th style="${IN_TH_NUM}">Expenses Paid</th><th style="${IN_TH_NUM}">Net Income</th><th style="${IN_TH_NUM}">Net Margin</th><th style="${IN_TH_NUM};border-right:none;">Receipts</th></tr></thead><tbody>${projRows}</tbody></table>`;
 
   const emptySub =
     payload.subcontractors.length === 0
-      ? '<p class="empty-msg">No subcontractor payments found for this tax year.</p>'
-      : `<table class="data-table" aria-label="Subcontractors"><thead><tr><th>Vendor / Subcontractor</th><th class="num">Total Paid</th><th>Projects</th><th>W-9 tracking (informational)</th><th>Potential 1099 Review</th></tr></thead><tbody>${subRows}</tbody></table>`;
+      ? `<div class="empty-state-box" role="status" style="${IN_EMPTY_SUB_BOX}">No subcontractor payments found for this tax year.</div>`
+      : `<table class="data-table data-table--subs" aria-label="Subcontractors" style="${IN_TABLE}"><thead><tr><th style="${IN_TH}">Vendor</th><th style="${IN_TH_NUM}">Total Paid</th><th style="${IN_TH}">Projects</th><th style="${IN_TH}">W-9 Status</th><th style="${IN_TH}">Potential 1099 Review</th><th style="${IN_TH};border-right:none;">Flags</th></tr></thead><tbody>${subRows}</tbody></table>`;
 
-  const portfolioBlock = `<div class="section keep-together section-first">
-    <div class="section-title">Portfolio Summary</div>
-    <table class="data-table" aria-label="Portfolio summary"><thead><tr><th>Metric</th><th class="num">Amount</th></tr></thead><tbody>${portfolioBody}</tbody></table>
+  const portfolioFootnoteTfoot =
+    p.netMargin == null
+      ? `<tfoot class="portfolio-table-foot"><tr><td colspan="2" class="table-footnote" style="${IN_PORTFOLIO_TFOOT_TD}">Net margin is not applicable when there is no collected income yet.</td></tr></tfoot>`
+      : '';
+
+  const portfolioBlock = `<div class="section section-portfolio section-first pdf-cluster pdf-cluster--portfolio pdf-no-break">
+    <div class="section-heading" style="${IN_SECTION_HEAD}">
+      <h2 class="section-title" style="${IN_SECTION_TITLE}">Portfolio Summary</h2>
+    </div>
+    <table class="data-table" aria-label="Portfolio summary" style="${IN_TABLE}"><thead><tr><th style="${IN_TH}border-right:1px solid rgba(255,255,255,0.22);">Metric</th><th style="${IN_TH_NUM}border-right:none;">Amount</th></tr></thead><tbody>${portfolioBody}</tbody>${portfolioFootnoteTfoot}</table>
+    <p class="portfolio-below-note" style="${IN_PORTFOLIO_NOTE}">${escapeHtml(PORTFOLIO_BELOW_NOTE)}</p>
   </div>`;
 
-  const expenseBlock = `<div class="section keep-together section-allow-inner-break section-page-start">
-    <div class="section-title">Expense Categories</div>
+  const expenseBlock = `<div class="section section-expense section-allow-inner-break">
+    <div class="section-heading" style="${IN_SECTION_HEAD}">
+      <h2 class="section-title" style="${IN_SECTION_TITLE}">Expense Categories</h2>
+    </div>
     ${emptyCat}
   </div>`;
 
-  const projectBlock = `<div class="section keep-together section-allow-inner-break">
-    <div class="section-title">Project-by-Project Summary</div>
+  const projectBlock = `<div class="section section-projects section-allow-inner-break">
+    <div class="section-heading" style="${IN_SECTION_HEAD}">
+      <h2 class="section-title" style="${IN_SECTION_TITLE}">Project-by-Project Summary</h2>
+    </div>
     ${emptyProj}
   </div>`;
 
@@ -251,293 +416,632 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
     ? '<p class="section-hint">Confirm vendor eligibility, payment method, W-9 status, and filing requirements with your CPA or tax professional.</p>'
     : '';
 
-  const subBlock = `<div class="section keep-together section-allow-inner-break">
-    <div class="section-title">Subcontractor Payment Summary</div>
+  const subBlock = `<div class="section section-subs section-allow-inner-break">
+    <div class="section-heading" style="${IN_SECTION_HEAD}">
+      <h2 class="section-title" style="${IN_SECTION_TITLE}">Subcontractor Payment Summary</h2>
+    </div>
     ${subHintHtml}
     ${emptySub}
   </div>`;
 
-  const aiBlock = `<div class="section keep-together">
-    <div class="section-title">AI Tax Insight</div>
-    <div class="insight-card">
-      <div class="insight-text">${aiHtml}</div>
-      <div class="insight-subtext">Rules-based insight. Not tax advice. Review with your CPA or tax professional.</div>
+  const aiBlock = `<div class="section section-ai pdf-no-break">
+    <div class="section-heading" style="${IN_SECTION_HEAD}">
+      <h2 class="section-title" style="${IN_SECTION_TITLE}">AI Tax Insight</h2>
     </div>
+    <p class="ai-insight-kicker" style="${IN_AI_KICKER}">Rules-based insight · Not tax advice</p>
+    <table class="insight-table" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="${IN_INSIGHT_TABLE}">
+      <tr>
+        <td class="insight-strip-cell" valign="top" aria-hidden="true" style="${IN_INSIGHT_STRIP}"></td>
+        <td class="insight-content-cell" valign="top" style="${IN_INSIGHT_CELL}">
+          <div class="insight-body-inner" style="${IN_INSIGHT_INNER}">
+            <div class="insight-text" style="${IN_INSIGHT_TEXT}">${aiHtml}</div>
+            <div class="insight-disclaimer" style="${IN_INSIGHT_DISCLAIMER}">Rules-based insight. Not tax advice. Review with your CPA or tax professional.</div>
+          </div>
+        </td>
+      </tr>
+    </table>
   </div>`;
 
   return `<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Year-End Tax Summary ${year}</title>
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Year-End Tax Summary ${year}</title>
 <style>
-  /* @page margins are unreliable in WKWebView / expo-print; safe inset is body + .page padding. */
   @page {
-    size: Letter;
+    size: Letter portrait;
     margin: 0;
   }
-  html, body {
+  html {
     margin: 0;
+    padding: 0;
     width: 100%;
     background: #ffffff;
   }
-  * { box-sizing: border-box; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-    color: #17202a;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    background: #ffffff !important;
+    color: #111827 !important;
+  }
+  * {
+    box-sizing: border-box;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+  body.pdf-root {
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", Arial, sans-serif;
     font-size: 12px;
-    line-height: 1.45;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-    padding: 36px 52px 56px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    padding: 36px 40px 44px;
     max-width: 100%;
+    color: #0f172a !important;
   }
-  .page {
-    width: 100%;
-    max-width: 640px;
+  p, .table-note, .table-footnote, .section-subtitle, .insight-text {
+    orphans: 3;
+    widows: 3;
+  }
+  .pdf-shell {
+    max-width: 720px;
     margin: 0 auto;
-    padding: 0 16px 48px;
-    overflow: visible;
+    position: relative;
   }
-  .header {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 18px;
-    align-items: flex-start;
-    border-bottom: 4px solid #22f0bd;
-    padding-bottom: 18px;
-    margin-bottom: 18px;
-    width: 100%;
+  .pdf-brand-accent {
+    height: 6px;
+    margin: -36px -40px 22px -40px;
+    background: #14b8a6;
+    border-radius: 0 0 3px 3px;
   }
-  .brand {
-    font-size: 12px;
-    font-weight: 900;
-    color: #0f766e;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    margin: 0 0 6px 0;
-  }
-  .title {
-    margin-top: 8px;
-    font-size: 24px;
-    font-weight: 900;
-    color: #17202a;
-    letter-spacing: -0.5px;
-    margin-bottom: 6px;
-  }
-  .doc-sub { font-size: 12px; color: ${TEXT_MUTED}; margin: 0; }
-  .metadata {
-    text-align: right;
-    color: #667085;
-    font-size: 10px;
-    min-width: 190px;
-    max-width: 240px;
-  }
-  .metadata div { margin-bottom: 4px; }
-  .metadata .meta-k { color: #667085; font-weight: 600; margin-right: 6px; }
-  .notice { background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%); border: 1px solid #e9d5a8; border-radius: 10px; padding: 14px 16px; margin: 0 0 22px 0; }
-  .notice-title { font-size: 11px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #92400e; margin: 0 0 8px 0; }
-  .notice-body { font-size: 11px; color: #78350f; margin: 0; line-height: 1.55; }
-  .summary-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-    margin: 16px 0 24px;
-    width: 100%;
-  }
-  .summary-card {
-    background: #f8fafc;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    padding: 12px;
-    min-height: 74px;
+  .pdf-page-split-marker {
+    break-before: page;
+    page-break-before: always;
+    height: 0;
+    margin: 0;
+    padding: 0;
+    font-size: 0;
+    line-height: 0;
     overflow: hidden;
   }
-  .summary-card-label { font-size: 9px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: ${TEXT_MUTED}; margin-bottom: 8px; }
-  .summary-card-value { font-size: 17px; font-weight: 800; letter-spacing: -0.02em; }
-  .card-val { color: #17202a; }
-  .card-val-pos { color: #0f766e; }
-  .card-val-neg { color: #b91c1c; }
-  .card-val-muted { color: #94a3b8; }
-  .section {
-    margin-top: 24px;
-    width: 100%;
+  .pdf-no-break {
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  .section-first { margin-top: 12px; }
-  .section-title {
-    font-size: 15px;
-    font-weight: 900;
-    color: #17202a;
-    margin-bottom: 8px;
-    padding-bottom: 6px;
-    border-bottom: 3px solid #0f766e;
+  .pdf-cluster--portfolio {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .pdf-back-matter .section:first-child {
+    margin-top: 0;
+  }
+  .pdf-back-matter .section {
+    margin-top: 20px;
+  }
+
+  .report-header-wrap {
+    background: #fafafa;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 20px 20px 0;
+    margin: 0 0 22px 0;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+  }
+  .report-header-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    margin: 0;
+    padding: 0;
+  }
+  .report-header-rule {
+    height: 3px;
+    margin: 16px -20px 0 -20px;
+    border-radius: 0 0 11px 11px;
+    background: #14b8a6;
+  }
+  .report-header-left {
+    width: 62%;
+    padding: 0 18px 0 0;
+    vertical-align: top;
+  }
+  .report-header-right {
+    width: 38%;
+    padding: 0;
+    vertical-align: top;
+    text-align: right;
+  }
+  .report-brand {
+    font-size: 11.5px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #0f766e;
+    margin: 0 0 6px 0;
+  }
+  .report-product {
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #64748b;
+    margin: 0 0 16px 0;
+  }
+  .report-title {
+    margin: 0 0 8px 0;
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    color: #0f172a;
+    line-height: 1.12;
+  }
+  .report-sub {
+    margin: 0;
+    font-size: 13px;
+    color: #475569;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+  }
+  .report-details-card {
+    display: inline-block;
+    text-align: left;
+    vertical-align: top;
+    min-width: 248px;
+    max-width: 310px;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 1px 5px rgba(15, 23, 42, 0.07);
+  }
+
+  .notice {
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    border: 1px solid #60a5fa;
+    border-left: 4px solid #2563eb;
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 14px;
+    box-shadow: 0 2px 12px rgba(37, 99, 235, 0.08);
+  }
+  .notice-title {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #1e40af;
+    margin: 0 0 10px 0;
+  }
+  .notice-body {
+    font-size: 11px;
+    color: #1e3a8a;
+    margin: 0;
+    line-height: 1.55;
+  }
+
+  .notice-card {
+    background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+    border: 1px solid #fbbf24;
+    border-left: 5px solid #d97706;
+    border-radius: 14px;
+    padding: 16px 20px;
+    margin: 0 0 22px 0;
+    box-shadow: 0 4px 18px rgba(217, 119, 6, 0.12);
+  }
+  .notice-card-title {
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #92400e;
+    margin: 0 0 12px 0;
+  }
+  .notice-card-body {
+    font-size: 12px;
+    color: #451a03;
+    margin: 0;
+    line-height: 1.6;
+  }
+
+  .summary-metrics-wrap {
+    width: 100%;
+    margin: 0 0 22px 0;
+  }
+  .metrics-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 14px 14px;
+    margin: 0;
+  }
+  .metric-cell {
+    width: 50%;
+    vertical-align: top;
+    padding: 0;
+  }
+  .summary-card {
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    border: 1px solid #e5e7eb;
+    border-left: 3px solid #14b8a6;
+    border-radius: 12px;
+    padding: 18px 18px 16px;
+    min-height: 96px;
+    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
+  }
+  .summary-card-label {
+    font-size: 9.5px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #64748b;
+    margin-bottom: 10px;
+  }
+  .summary-card-value {
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.12;
+  }
+  .summary-card-hint {
+    margin-top: 10px;
+    font-size: 8.5px;
+    line-height: 1.4;
+    color: #94a3b8;
+    font-weight: 500;
+  }
+  .card-val { color: #1f2937; }
+  .card-val-pos { color: #0d9488; }
+  .card-val-neg { color: #dc2626; }
+  .card-val-muted { color: #94a3b8; }
+
+  .section {
+    margin-top: 22px;
+    margin-bottom: 0;
+    width: 100%;
+  }
+  .section-first { margin-top: 10px; }
+  .section-portfolio { margin-top: 18px; }
+  .section-heading {
+    margin: 0 0 8px 0;
+    padding: 0 0 6px 0;
+    border-bottom: 2px solid #14b8a6;
+    background: transparent;
+    box-shadow: none;
+    border-left: none;
+    border-radius: 0;
     break-after: avoid;
     page-break-after: avoid;
   }
-  .section-page-start {
-    break-before: page;
-    page-break-before: always;
-    /* WKWebView often puts the first line flush under the page break; pad the new page top. */
-    padding-top: 48px;
-    margin-top: 0;
+  .section-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: #1e293b;
+    letter-spacing: -0.02em;
   }
+  .section-subtitle {
+    font-size: 10.5px;
+    color: #64748b;
+    margin: 0 0 6px 0;
+    line-height: 1.45;
+    font-weight: 500;
+  }
+  .section-subtitle--tight { margin-top: 2px; margin-bottom: 6px; }
+  .section-hint {
+    font-size: 10px;
+    color: #64748b;
+    margin: 0 0 8px 0;
+    line-height: 1.45;
+  }
+
   .keep-together {
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  .section.keep-together.section-allow-inner-break {
+  .section-allow-inner-break {
     break-inside: auto;
     page-break-inside: auto;
   }
-  table {
+
+  table.data-table tfoot {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  table.data-table tfoot td {
+    border-bottom: none;
+  }
+
+  table.data-table {
     width: 100%;
     max-width: 100%;
     table-layout: fixed;
     border-collapse: collapse;
-    margin-top: 8px;
-    font-size: 10px;
+    margin-top: 6px;
+    font-size: 11px;
     border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    overflow: visible;
     overflow-wrap: anywhere;
     word-break: normal;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  }
+  thead { display: table-header-group; }
+  tfoot { display: table-footer-group; }
+  .section-portfolio .data-table tbody tr {
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  thead { display: table-header-group; }
-  tr {
-    break-inside: avoid;
-    page-break-inside: avoid;
+  .section-allow-inner-break .data-table tbody tr {
+    break-inside: auto;
+    page-break-inside: auto;
   }
   .section-allow-inner-break table.data-table {
     break-inside: auto;
     page-break-inside: auto;
   }
-  th, td {
-    padding: 8px 7px;
-    border-bottom: 1px solid #e5e7eb;
-    color: #17202a;
-    vertical-align: top;
-    overflow-wrap: anywhere;
-  }
   .data-table th {
-    background: #e2e8f0;
-    font-weight: 800;
+    background: #0f766e;
+    font-weight: 700;
     text-align: left;
-    font-size: 9px;
-    text-transform: none;
-    border-right: 1px solid #cbd5e1;
+    font-size: 10px;
+    padding: 11px 12px;
+    border-bottom: 1px solid #0d9488;
+    border-right: 1px solid rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    vertical-align: bottom;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
   }
   .data-table th:last-child { border-right: none; }
   .data-table th.num { text-align: right; }
   .data-table td {
-    border-right: 1px solid #e5e7eb;
+    padding: 10px 12px;
+    border-bottom: 1px solid #eef0f3;
+    border-right: 1px solid #f3f4f6;
+    color: #1f2937;
     vertical-align: middle;
+    font-size: 11px;
+    background: #ffffff;
   }
   .data-table td:last-child { border-right: none; }
-  .data-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .data-table tr.stripe { background: #fff; }
-  .data-table tr.stripe-alt { background: #f8fafc; }
-  .money { font-weight: 800; white-space: nowrap; }
-  .project-table { font-size: 9px; }
+  .data-table td.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .data-table tr.stripe { background: #ffffff; }
+  .data-table tr.stripe td { background: #ffffff; }
+  .data-table tr.stripe-alt { background: #fafbfc; }
+  .data-table tr.stripe-alt td { background: #fafbfc; }
+  .data-table--subs td.td-flags {
+    text-align: center;
+    color: #6b7280;
+    font-size: 10px;
+  }
+  .money { font-weight: 700; white-space: nowrap; }
+  .project-table { font-size: 10px; }
   .project-table th,
-  .project-table td { padding: 7px 5px; }
+  .project-table td { padding: 9px 8px; }
   .project-table th:nth-child(1),
-  .project-table td:nth-child(1) { width: 16%; }
+  .project-table td:nth-child(1) { width: 15%; }
   .project-table th:nth-child(2),
-  .project-table td:nth-child(2) { width: 17%; }
+  .project-table td:nth-child(2) { width: 14%; }
   .project-table th:nth-child(3),
-  .project-table td:nth-child(3) { width: 18%; }
+  .project-table td:nth-child(3) { width: 14%; }
   .project-table th:nth-child(4),
-  .project-table td:nth-child(4) { width: 15%; }
+  .project-table td:nth-child(4) { width: 14%; }
   .project-table th:nth-child(5),
-  .project-table td:nth-child(5) { width: 13%; }
+  .project-table td:nth-child(5) { width: 14%; }
   .project-table th:nth-child(6),
-  .project-table td:nth-child(6) { width: 11%; }
+  .project-table td:nth-child(6) { width: 15%; }
   .project-table th:nth-child(7),
-  .project-table td:nth-child(7) { width: 10%; }
+  .project-table td:nth-child(7) { width: 14%; }
   .project-table .proj-name { word-wrap: break-word; }
-  .amt-pos { color: #0f172a; }
-  .amt-neg { color: #b91c1c; font-weight: 700; }
-  .amt-zero { color: ${TEXT_MUTED}; }
+
+  .amt-pos { color: #1f2937; }
+  .amt-neg { color: #dc2626; font-weight: 700; }
+  .amt-zero { color: #64748b; }
   .amt-muted { color: #94a3b8; font-weight: 600; }
-  .empty-msg { font-size: 11px; color: ${TEXT_MUTED}; font-style: italic; margin: 8px 0 0 0; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1; }
-  .insight-card { border: 1px solid #cbd5e1; border-radius: 12px; padding: 16px 18px; margin-top: 0; background: #fafafa; }
-  .insight-text { font-size: 11px; color: #17202a; line-height: 1.55; margin: 0; }
-  .insight-subtext { font-size: 9px; color: ${TEXT_MUTED}; margin: 12px 0 0 0; font-style: italic; line-height: 1.45; }
-  .section-hint {
-    font-size: 9px;
+
+  .table-footnote {
+    font-size: 10px;
+    color: #6b7280;
+    margin: 10px 0 0 0;
+    line-height: 1.45;
+    font-style: italic;
+  }
+  .portfolio-below-note {
+    margin: 10px 0 0 0;
+    font-size: 10px;
     color: #64748b;
-    margin: 0 0 10px 0;
+    line-height: 1.45;
+    font-weight: 500;
+  }
+
+  .table-note {
+    font-size: 10px;
+    color: #6b7280;
+    margin: 8px 0 0 0;
     line-height: 1.45;
     max-width: 100%;
   }
-  .footer {
-    margin-top: 40px;
-    padding-top: 16px;
-    border-top: 1px solid #e5e7eb;
-    color: #667085;
-    font-size: 10px;
+
+  .empty-msg {
+    font-size: 11px;
+    color: #64748b;
+    font-style: italic;
+    margin: 10px 0 0 0;
+    padding: 16px;
+    background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+    border-radius: 12px;
+    border: 1px dashed #94a3b8;
+  }
+  .empty-state-box {
+    font-size: 11px;
+    color: #64748b;
+    font-style: italic;
+    margin: 10px 0 0 0;
+    padding: 24px 20px;
+    background: #f8fafc;
+    border-radius: 14px;
+    border: 2px dashed #cbd5e1;
     text-align: center;
-    line-height: 1.4;
+    line-height: 1.55;
   }
-  .footer div {
-    margin-bottom: 4px;
-  }
-  .footer-small {
-    color: #667085;
-    font-size: 9.5px;
-    line-height: 1.35;
-    max-width: 620px;
-    margin: 6px auto 0;
-    text-align: center;
-  }
-  .footer-small + .footer-small {
+
+  .insight-table {
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #ffffff;
     margin-top: 4px;
+    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
   }
-</style></head><body>
-  <div class="page">
-  <header class="header">
-    <div>
-      <p class="brand">Build Profit Solutions</p>
-      <h1 class="title">Year-End Tax Summary</h1>
-      <p class="doc-sub">Tax-ready report · CPA-ready summary</p>
-    </div>
-    <div class="metadata">
-      <div><span class="meta-k">Tax Year:</span> ${year}</div>
-      <div><span class="meta-k">Date Range:</span> ${escapeHtml(payload.dateRangeLabel)}</div>
-      <div><span class="meta-k">Generated:</span> ${genDisplay}</div>
-      ${contactMetaRow}
-    </div>
-  </header>
+  .insight-strip-cell {
+    width: 3px;
+    min-width: 3px;
+    padding: 0;
+    line-height: 0;
+    font-size: 0;
+    background: #14b8a6;
+  }
+  .insight-content-cell {
+    background: #fafafa;
+  }
+  .insight-body-inner {
+    padding: 16px 18px 14px;
+  }
+  .insight-text {
+    font-size: 12px;
+    color: #1e293b;
+    line-height: 1.62;
+    margin: 0;
+  }
+  .insight-disclaimer {
+    font-size: 9px;
+    color: #94a3b8;
+    margin: 12px 0 0 0;
+    line-height: 1.45;
+    padding-top: 12px;
+    border-top: 1px solid #e5e7eb;
+    font-style: italic;
+  }
+  .ai-insight-kicker {
+    margin: 0 0 10px 0;
+    font-size: 11px;
+    color: #64748b;
+    font-weight: 500;
+    line-height: 1.45;
+  }
 
-  <div class="notice" role="note">
-    <p class="notice-title">Important Tax Notice</p>
-    <p class="notice-body">${escapeHtml(TAX_EXPORT_NOTICE_FULL)}</p>
-  </div>
+  .report-footer {
+    margin-top: 16px;
+    padding: 14px 12px 12px;
+    border-top: 1px solid #e5e7eb;
+    text-align: center;
+    color: #64748b;
+    font-size: 9.5px;
+    line-height: 1.58;
+    background: #fafafa;
+    border-radius: 0 0 10px 10px;
+  }
+  .report-footer-lead {
+    font-weight: 700;
+    color: #374151;
+    margin-bottom: 10px;
+    font-size: 11px;
+    letter-spacing: 0.01em;
+  }
+  .report-footer-line {
+    margin: 3px 0;
+    max-width: 560px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+</style></head><body class="pdf-root" style="${IN_BODY}">
+  <div class="pdf-shell" style="max-width:720px;margin:0 auto;position:relative;">
+    <div class="pdf-brand-accent" aria-hidden="true" style="${IN_BRAND_BAR}"></div>
 
-  <div class="summary-grid">${execGrid}</div>
+      <div class="report-header-wrap" style="${IN_HEADER_WRAP}">
+        <table class="report-header-table" role="presentation" width="100%" cellpadding="0" cellspacing="0" aria-label="Report header">
+          <tbody><tr>
+            <td class="report-header-left" valign="top">
+              <p class="report-brand" style="${IN_REPORT_BRAND}">BUILD PROFIT SOLUTIONS</p>
+              <p class="report-product" style="${IN_REPORT_PRODUCT}">CPA SUMMARY REPORT</p>
+              <h1 class="report-title" style="${IN_REPORT_TITLE}">Year-End Tax Summary</h1>
+              <p class="report-sub" style="${IN_REPORT_SUB}">Tax-ready report · CPA-ready summary</p>
+            </td>
+            <td class="report-header-right" valign="top" align="right">
+              ${reportDetailsHtml}
+            </td>
+          </tr></tbody>
+        </table>
+        <div class="report-header-rule" aria-hidden="true" style="${IN_HEADER_RULE}"></div>
+      </div>
 
-  ${portfolioBlock}
-  ${expenseBlock}
-  ${projectBlock}
-  ${subBlock}
-  ${aiBlock}
+      <div class="notice-card pdf-no-break" role="note" style="${IN_NOTICE}">
+        <p class="notice-card-title" style="${IN_NOTICE_TITLE}">Important Tax Notice</p>
+        <p class="notice-card-body" style="${IN_NOTICE_BODY}">${escapeHtml(TAX_EXPORT_NOTICE_PDF_CARD)}</p>
+      </div>
 
-  <footer class="footer">
-    <div><strong>Generated by Build Profit Solutions</strong></div>
-    <div>Tax-ready report for bookkeeping and CPA review</div>
-    <p class="footer-small">${escapeHtml(TAX_EXPORT_DATA_SOURCE_LINE)}</p>
-    <p class="footer-small">${escapeHtml(TAX_EXPORT_DATA_ACCURACY_NOTE)}</p>
-  </footer>
+      <div class="summary-metrics-wrap metrics-pdf-block pdf-no-break">${execGrid}</div>
+
+      ${portfolioBlock}
+
+      <div class="pdf-page-split-marker html2pdf__page-break" aria-hidden="true"></div>
+
+      <div class="pdf-back-matter">
+      ${expenseBlock}
+      ${projectBlock}
+      ${subBlock}
+      ${aiBlock}
+
+      <footer class="report-footer pdf-no-break" style="${IN_REPORT_FOOTER}">
+        <div class="report-footer-lead" style="${IN_REPORT_FOOTER_LEAD}">Generated by Build Profit Solutions</div>
+        <div class="report-footer-line">Tax-ready report for bookkeeping and CPA review</div>
+        <div class="report-footer-line">${escapeHtml(TAX_EXPORT_DATA_SOURCE_LINE)}</div>
+        <div class="report-footer-line">${escapeHtml(TAX_EXPORT_DATA_ACCURACY_NOTE)}</div>
+      </footer>
+      </div>
+
   </div>
 </body></html>`;
 }
 
-/** Generates a PDF file in cache and returns its URI. */
-export async function generateTaxSummaryPdf(payload: TaxSummaryExportPayload): Promise<string> {
+/** US Letter @ 72 PPI — matches expo-print defaults and proposal PDF export. */
+const LETTER_PAGE_WIDTH_PX = 612;
+const LETTER_PAGE_HEIGHT_PX = 792;
+
+/**
+ * Generates a PDF. On native, writes to cache and returns a file URI for sharing.
+ * On web, `expo-print`'s `printToFileAsync` opens the print dialog (Expo docs); we use
+ * client-side HTML→PDF instead and return null (no share step).
+ */
+export async function generateTaxSummaryPdf(payload: TaxSummaryExportPayload): Promise<string | null> {
   const html = buildTaxSummaryHtml(payload);
-  const { uri: tempUri } = await Print.printToFileAsync({ html });
+
+  if (Platform.OS === 'web') {
+    const { downloadTaxSummaryPdfFromHtml } = await import('./taxCenterExportWebPdf');
+    await downloadTaxSummaryPdfFromHtml(html, `BPS_CPA_Summary_${payload.selectedYear}.pdf`);
+    return null;
+  }
+
+  const { uri: tempUri } = await Print.printToFileAsync({
+    html,
+    width: LETTER_PAGE_WIDTH_PX,
+    height: LETTER_PAGE_HEIGHT_PX,
+    ...(Platform.OS === 'ios'
+      ? {
+          margins: {
+            left: 0,
+            right: 0,
+            top: 0,
+            bottom: 0,
+          },
+        }
+      : {}),
+  });
   const base = FileSystem.cacheDirectory || FileSystem.documentDirectory || '';
-  const dest = `${base}BPS_Year_End_Tax_Summary_${payload.selectedYear}.pdf`;
+  const dest = `${base}BPS_CPA_Summary_${payload.selectedYear}.pdf`;
   try {
     await FileSystem.copyAsync({ from: tempUri, to: dest });
     return dest;
@@ -558,10 +1062,10 @@ export function generateTaxCenterCsv(payload: TaxSummaryExportPayload): string {
 
   push(escapeCsvCell('BUILD PROFIT SOLUTIONS'));
   push(escapeCsvCell('Year-End Tax Summary'));
-  push(escapeCsvCell('Tax-ready report / CPA-ready summary'));
+  push(escapeCsvCell('Tax-ready report · CPA-ready summary'));
   push('');
   push(escapeCsvCell('DOCUMENT DETAILS'));
-  kv('Report Type', 'Year-End Tax Summary CSV');
+  kv('Report Type', 'Tax CSV');
   kv('Tax Year', y);
   kv('Date Range', dateRangeCsv);
   kv('Generated', genShort);
@@ -580,19 +1084,100 @@ export function generateTaxCenterCsv(payload: TaxSummaryExportPayload): string {
   kv('Receipt Count', p.receiptCount);
   push('');
   push(escapeCsvCell('EXPENSE CATEGORIES'));
-  push(
-    `${escapeCsvCell('BPS Category')},${escapeCsvCell('Accounting / QuickBooks Category')},${escapeCsvCell('Amount')},${escapeCsvCell('Item Count')}`
-  );
+  if (ACCOUNTING_CATEGORY_MAPPING_ENABLED) {
+    push(
+      `${escapeCsvCell('BPS Category')},${escapeCsvCell('Your Accounting Category')},${escapeCsvCell('Suggested Accounting Category')},${escapeCsvCell('Amount')},${escapeCsvCell('Item Count')}`
+    );
+  } else {
+    push(`${escapeCsvCell('BPS Category')},${escapeCsvCell('Amount')},${escapeCsvCell('Item Count')}`);
+  }
   if (payload.expenseCategories.length === 0) {
     push(csvLongTextSecondColumn('No expense category data found for this tax year.'));
-  } else {
+  } else if (ACCOUNTING_CATEGORY_MAPPING_ENABLED) {
     payload.expenseCategories.forEach((c) => {
       const acct = String(c.accountingOrQuickBooksCategory || '').trim();
+      const sug = SUGGESTED_ACCOUNTING_CATEGORY[c.category as TaxCategory] ?? '';
       push(
-        `${escapeCsvCell(c.category)},${escapeCsvCell(acct || 'Unmapped')},${escapeCsvCell(formatMoneyCsv(c.amount))},${escapeCsvCell(c.itemCount)}`
+        `${escapeCsvCell(c.category)},${escapeCsvCell(acct || 'Needs review')},${escapeCsvCell(sug)},${escapeCsvCell(formatMoneyCsv(c.amount))},${escapeCsvCell(c.itemCount)}`
+      );
+    });
+  } else {
+    payload.expenseCategories.forEach((c) => {
+      push(
+        `${escapeCsvCell(c.category)},${escapeCsvCell(formatMoneyCsv(c.amount))},${escapeCsvCell(c.itemCount)}`
       );
     });
   }
+  push('');
+  push(escapeCsvCell('EXPENSE TRANSACTIONS'));
+  push(
+    [
+      'Date',
+      'Project',
+      'Vendor',
+      'Description',
+      'BPS Category',
+      'Suggested Accounting Category',
+      'Amount',
+      'Payment Method',
+      'Receipt Attached',
+      'Receipt File Name',
+      '1099 Eligible',
+      'W-9 Status',
+      'Notes',
+    ]
+      .map(escapeCsvCell)
+      .join(',')
+  );
+  payload.expenseTransactions.forEach((r) => {
+    push(
+      [
+        escapeCsvCell(r.date),
+        escapeCsvCell(r.project),
+        escapeCsvCell(r.vendor),
+        escapeCsvCell(r.description),
+        escapeCsvCell(String(r.bpsCategory)),
+        escapeCsvCell(r.accountingCategory),
+        escapeCsvCell(r.amount),
+        escapeCsvCell(r.paymentMethod),
+        escapeCsvCell(r.receiptAttached),
+        escapeCsvCell(r.receiptFileName),
+        escapeCsvCell(r.eligible1099),
+        escapeCsvCell(r.w9Status),
+        escapeCsvCell(r.notes),
+      ].join(',')
+    );
+  });
+  push('');
+  push(escapeCsvCell('REVENUE PAYMENTS'));
+  push(
+    [
+      'Date',
+      'Project',
+      'Customer',
+      'Invoice / Milestone',
+      'Amount Collected',
+      'Payment Method',
+      'Outstanding Balance',
+      'Notes',
+    ]
+      .map(escapeCsvCell)
+      .join(',')
+  );
+  payload.revenuePayments.forEach((r) => {
+    push(
+      [
+        escapeCsvCell(r.date),
+        escapeCsvCell(r.project),
+        escapeCsvCell(r.customer),
+        escapeCsvCell(r.invoiceOrMilestone),
+        escapeCsvCell(r.amountCollected),
+        escapeCsvCell(r.paymentMethod),
+        escapeCsvCell(r.outstandingBalance),
+        escapeCsvCell(r.notes),
+      ].join(',')
+    );
+  });
   push('');
   push(escapeCsvCell('PROJECT-BY-PROJECT SUMMARY'));
   push(
@@ -680,22 +1265,26 @@ export function generateReceiptManifestCsv(payload: TaxSummaryExportPayload): st
       ? [`${escapeCsvCell('Contractor contact')},${escapeCsvCell(String(payload.contractorContactEmail).trim())}`]
       : []),
     '',
+    escapeCsvCell('IMPORTANT TAX NOTICE'),
+    csvLongTextSecondColumn(TAX_EXPORT_NOTICE_FULL),
+    '',
     escapeCsvCell('RECEIPT LINES'),
-    ['Project Name', 'Expense Date', 'Month', 'Category', 'Vendor', 'Amount', 'Receipt Attached']
+    ['Receipt File Name', 'Expense Date', 'Vendor', 'Amount', 'Project', 'Category', 'Attached / Missing', 'Notes']
       .map(escapeCsvCell)
       .join(','),
   ];
 
   const rows = rowsIn.map((r) => {
-    const attached = (r.receiptUri || '').trim() ? 'Yes' : 'No';
+    const attached = (r.receiptUri || '').trim() ? 'Attached' : 'Missing';
     return [
-      escapeCsvCell(r.projectName),
+      escapeCsvCell(r.receiptFileName || ''),
       escapeCsvCell(formatReadableExpenseDate(r.date)),
-      escapeCsvCell(formatMonthDisplay(r.month)),
-      escapeCsvCell(r.category),
       escapeCsvCell(r.vendor),
       escapeCsvCell(moneyReceiptManifest(r.amount)),
+      escapeCsvCell(r.projectName),
+      escapeCsvCell(r.category),
       escapeCsvCell(attached),
+      escapeCsvCell(r.notes || ''),
     ].join(',');
   });
 

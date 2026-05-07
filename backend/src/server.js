@@ -34,6 +34,7 @@ const os = require('os');
 
 const leadRoutes = require('./routes/leads');
 const contractorRoutes = require('./routes/contractors');
+const bpsDirectoryRoutes = require('./routes/bpsDirectory');
 const stripeRoutes = require('./routes/stripe');
 const authRoutes = require('./routes/auth');
 const projectRoutes = require('./routes/projects');
@@ -139,10 +140,15 @@ app.use(cors({
 }));
 
 // Rate limiting - more restrictive in production
+// Set DISABLE_API_RATE_LIMIT=true in .env to bypass during local dev (or raise RATE_LIMIT_MAX_REQUESTS).
+const apiRateLimitDisabled =
+  process.env.DISABLE_API_RATE_LIMIT === 'true' || process.env.DISABLE_API_RATE_LIMIT === '1';
+
 const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || (process.env.NODE_ENV === 'production' ? 500 : 5000), // Increased for development
-  message: 'Too many requests from this IP, please try again later.'
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000, // 15 minutes
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || (process.env.NODE_ENV === 'production' ? 500 : 5000),
+  message: 'Too many requests from this IP, please try again later.',
+  skip: () => apiRateLimitDisabled,
 });
 app.use('/api/', limiter);
 
@@ -207,6 +213,7 @@ app.post('/api/marketplace-sync/trigger', async (req, res) => {
 // API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/leads', leadRoutes);
+app.use('/api/contractors', bpsDirectoryRoutes);
 app.use('/api/contractors', contractorRoutes);
 app.use('/api/stripe', stripeRoutes);
 app.use('/api/projects', projectRoutes);

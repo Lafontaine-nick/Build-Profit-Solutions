@@ -831,7 +831,11 @@ export default function BudgetTab({
                   style={[
                     styles.sectionCard,
                     darkMode && styles.sectionCardElevated,
-                    darkMode ? styles.premiumBudgetCard : { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line },
+                    {
+                      backgroundColor: Colors.surface2,
+                      borderWidth: 1,
+                      borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                    },
                   ]}
                 >
                   <View style={styles.budgetCardHeaderMatch}>
@@ -2155,20 +2159,6 @@ const styles = StyleSheet.create({
   sectionCard: {
     borderRadius: 16,
     padding: 15,
-  },
-  premiumBudgetCard: {
-    backgroundColor: '#0B0D10',
-    borderRadius: 26,
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    elevation: 4,
   },
   /** Match project Overview Financial Health / innerCard headers */
   budgetCardHeaderMatch: {

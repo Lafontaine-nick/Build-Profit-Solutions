@@ -12086,7 +12086,7 @@ export default function EstimateGeneratorScreen() {
             {/* SKU Search Modal */}
             <AttachSkuModal
               visible={skuModalVisible}
-              defaultZip={bid.customerZip || ''}
+              defaultZip={bid.customerZip || undefined}
               onClose={() => setSkuModalVisible(false)}
               onAttach={handleSkuAttach}
               onOpenSaved={() => {
@@ -12764,7 +12764,7 @@ export default function EstimateGeneratorScreen() {
               visible={subcontractorModalVisible}
               onClose={() => setSubcontractorModalVisible(false)}
               onSelect={handleSubcontractorSelect}
-              defaultZip={bid.customerZip || ''}
+              defaultZip={bid.customerZip || undefined}
             />
           </>
         );

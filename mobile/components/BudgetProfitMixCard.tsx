@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
@@ -229,7 +229,12 @@ export default function BudgetProfitMixCard({
             </View>
           ) : null}
         </View>
-        <View style={styles.budgetProfitMixDonutWrap}>
+        <View
+          style={[
+            styles.budgetProfitMixDonutWrap,
+            Platform.OS === 'web' && styles.budgetProfitMixDonutWrapWeb,
+          ]}
+        >
           {hasContractForMix ? (
             <BudgetProfitMixDonut
               contractValue={adjustedContractValue}
@@ -402,6 +407,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingTop: 2,
     paddingBottom: 8,
+  },
+  /** Web layout: nudge donut down vs chip row (native spacing already reads balanced). */
+  budgetProfitMixDonutWrapWeb: {
+    marginTop: 24,
   },
   budgetProfitMixFooterBlock: {
     paddingTop: 4,

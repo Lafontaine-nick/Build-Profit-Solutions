@@ -1,11 +1,20 @@
 import type {
   ProjectTaxSummary,
-  ReceiptExportBundle,
   SubcontractorPaymentSummary,
   TaxCategory,
   TaxCategoryRow,
   TaxCenterSummary,
+  TaxExpense,
+  TaxPayment,
 } from '@/src/lib/taxCenter';
+import { expenseAmount, expenseDate, mapExpenseToTaxCategory } from '@/src/lib/taxCenter';
+import type { Vendor } from '@/src/lib/vendorTypes';
+import {
+  buildExpenseTransactionExportRows,
+  buildRevenuePaymentExportRows,
+  type ExpenseTransactionExportRow,
+  type RevenuePaymentExportRow,
+} from '@/src/lib/taxExportDetailRows';
 
 export function formatTaxExportGeneratedAtDisplay(at: Date = new Date()): string {
   const datePart = at.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -30,7 +39,7 @@ export type TaxSummaryExportPayload = {
   };
   expenseCategories: Array<{
     category: string;
-    /** User mapping label, or empty when unmapped (exports may show "Unmapped"). */
+    /** User mapping label, or empty when unmapped (exports may show "Needs review"). */
     accountingOrQuickBooksCategory: string;
     amount: number;
     itemCount: number;
@@ -61,28 +70,47 @@ export type TaxSummaryExportPayload = {
     vendor: string;
     amount: number;
     receiptUri: string;
+    /** Receipt filename when attached; empty when missing. */
+    receiptFileName: string;
+    /** User notes from the expense line when available. */
+    notes: string;
   }>;
+  expenseTransactions: ExpenseTransactionExportRow[];
+  revenuePayments: RevenuePaymentExportRow[];
   /** From Profile → Edit Profile (bps.contractorProfile); shown on tax exports when set. */
   contractorContactEmail?: string | null;
+  /** Company name from Profile storage (bps.contractorProfile.company); CPA PDF header only. */
+  contractorCompanyName?: string | null;
   aiTaxInsight: string;
 };
 
-function flattenReceiptExportBundle(bundle: ReceiptExportBundle): TaxSummaryExportPayload['receipts'] {
-  const lines = Object.values(bundle.byProject).flat();
+function monthKeyFromRawDate(raw: string | undefined): string {
+  if (!raw) return 'unknown';
+  const d = new Date(String(raw));
+  if (Number.isNaN(d.getTime())) return 'unknown';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** All tax-year expense lines for receipt backup (includes missing attachments). */
+function buildReceiptManifestFromYearExpenses(yearExpenses: TaxExpense[]): TaxSummaryExportPayload['receipts'] {
   const seen = new Set<string>();
   const out: TaxSummaryExportPayload['receipts'] = [];
-  for (const line of lines) {
-    const key = `${line.receiptUri || ''}|${line.date || ''}|${line.amount}|${line.projectName}`;
+  for (const e of yearExpenses) {
+    const uri = String(e.receiptUri ?? '').trim();
+    const key = `${uri}|${expenseDate(e) ?? ''}|${expenseAmount(e)}|${String(e.projectName ?? '')}`;
     if (seen.has(key)) continue;
     seen.add(key);
+    const fname = uri ? uri.split(/[/\\]/).pop() || '' : '';
     out.push({
-      projectName: line.projectName,
-      date: line.date || '',
-      month: line.monthKey,
-      category: line.category,
-      vendor: line.vendor || '',
-      amount: line.amount,
-      receiptUri: String(line.receiptUri || ''),
+      projectName: String(e.projectName || '').trim() || 'Unassigned',
+      date: expenseDate(e) || '',
+      month: monthKeyFromRawDate(expenseDate(e)),
+      category: mapExpenseToTaxCategory(e),
+      vendor: String(e.vendor || e.vendorName || '').trim(),
+      amount: expenseAmount(e),
+      receiptUri: uri,
+      receiptFileName: fname.length > 120 ? `${fname.slice(0, 117)}…` : fname,
+      notes: String(e.notes || '').trim(),
     });
   }
   return out;
@@ -95,8 +123,14 @@ export function buildTaxSummaryExportPayload(input: {
   quickBooksCategoryMap: Partial<Record<TaxCategory, string>>;
   projectSummaries: ProjectTaxSummary[];
   subcontractorSummary: SubcontractorPaymentSummary[];
-  receiptGroups: ReceiptExportBundle;
   aiTaxInsight: string | string[];
+  /** Projects list (for revenue row customer / outstanding lookup). */
+  projects: any[];
+  /** Paid expense lines for the selected tax year. */
+  yearExpenses: TaxExpense[];
+  /** Collected payments in the tax year (same basis as Tax Center revenue). */
+  yearCollectedPayments: TaxPayment[];
+  vendors: Vendor[];
 }): TaxSummaryExportPayload {
   const {
     selectedYear,
@@ -105,12 +139,30 @@ export function buildTaxSummaryExportPayload(input: {
     quickBooksCategoryMap,
     projectSummaries,
     subcontractorSummary,
-    receiptGroups,
     aiTaxInsight,
+    projects,
+    yearExpenses,
+    yearCollectedPayments,
+    vendors,
   } = input;
   const dateRangeLabel = `Jan 1 - Dec 31, ${selectedYear}`;
   const generatedAtDisplay = formatTaxExportGeneratedAtDisplay();
   const insightText = Array.isArray(aiTaxInsight) ? aiTaxInsight.join('\n') : aiTaxInsight;
+
+  const categoryToAccountingLabel = (cat: TaxCategory): string => {
+    const raw = quickBooksCategoryMap[cat];
+    return typeof raw === 'string' ? raw.trim() : '';
+  };
+
+  const expenseTransactions = buildExpenseTransactionExportRows(yearExpenses, vendors, categoryToAccountingLabel);
+  const revenuePayments = buildRevenuePaymentExportRows(
+    projects,
+    yearCollectedPayments,
+    projectSummaries,
+    selectedYear
+  );
+
+  const receipts = buildReceiptManifestFromYearExpenses(yearExpenses);
 
   return {
     selectedYear,
@@ -152,7 +204,9 @@ export function buildTaxSummaryExportPayload(input: {
       w9Uploaded: s.w9Uploaded,
       potential1099Review: s.potential1099Review,
     })),
-    receipts: flattenReceiptExportBundle(receiptGroups),
+    receipts,
+    expenseTransactions,
+    revenuePayments,
     aiTaxInsight: insightText,
   };
 }
