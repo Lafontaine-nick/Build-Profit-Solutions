@@ -275,8 +275,8 @@ export default function TaxCenterScreen() {
   const handleReceiptManifestExport = async () => {
     if (busy) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    if (yearExpenses.length === 0) {
-      Alert.alert('Export Receipt Backup', 'No expense lines were found for this tax year.');
+    if (exportPayload.receipts.length === 0) {
+      Alert.alert('Export Receipt Backup', 'No receipt-backed expense lines were found for this tax year.');
       return;
     }
     setExportingType('receipts');
@@ -549,6 +549,13 @@ export default function TaxCenterScreen() {
               })}
             </Text>
 
+            <Text style={styles.taxCenterDisclaimer}>
+              Tax Center uses project activity dated within the selected tax year. Active projects are included only
+              for payments collected, expenses paid, invoices, receipts, and vendor activity recorded in that year.
+              Pending receivables and committed costs are shown for review but may not be counted as taxable income or
+              deductible expenses until collected or paid, depending on your accounting method.
+            </Text>
+
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Tax year</Text>
               <Text style={styles.sectionHint}>Defaulted to current year</Text>
@@ -572,50 +579,71 @@ export default function TaxCenterScreen() {
               })}
             </ScrollView>
 
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Tax basis</Text>
+            </View>
+            <View style={styles.basisRow}>
+              <View style={[styles.basisPill, styles.basisPillActive]}>
+                <Text style={styles.basisPillTextActive}>Cash Basis</Text>
+              </View>
+              <View style={[styles.basisPill, styles.basisPillDisabled]} accessibilityState={{ disabled: true }}>
+                <Text style={styles.basisPillTextMuted}>Accrual / Invoice</Text>
+              </View>
+            </View>
+            <Text style={styles.basisFootnote}>
+              Cash Basis is recommended for most small contractors. Accrual / Invoice Basis coming soon.
+            </Text>
+
             <View style={styles.summaryGrid}>
               <TaxSummaryCard
                 label="Revenue Collected"
                 value={money(summary.grossIncomeCollected)}
                 icon="payments"
-                helper="Milestones collected in this tax year, except completed jobs: adjusted contract (includes approved change orders), matching Budget."
+                helper="Payments actually collected during the selected tax year."
               />
               <TaxSummaryCard
                 label="Outstanding Receivables"
                 value={money(summary.outstandingReceivables)}
                 icon="account-balance-wallet"
-                helper="Open jobs: invoices or milestones in this tax year not yet collected. Completed jobs: $0 (revenue already at adjusted contract)."
+                helper="Unpaid invoices or scheduled payments tied to the selected tax year. Not counted as cash-basis income until collected."
               />
               <TaxSummaryCard
                 label="Expenses Paid"
                 value={money(summary.totalExpenses)}
                 icon="receipt-long"
-                helper="In-year expenses plus POs marked Received or Paid/Complete. Pending POs are under Committed costs."
+                helper="Expenses and received/paid purchase orders dated within the selected tax year."
               />
               <TaxSummaryCard
                 label="Committed Costs"
                 value={money(summary.committedCosts)}
                 icon="inventory"
-                helper="Pending POs only (not received yet)"
+                helper="Pending purchase orders and committed costs not yet paid or received. Shown for review only."
               />
               <TaxSummaryCard
                 label="Net Income"
                 value={money(summary.netProfit)}
                 icon="trending-up"
                 accent={summary.netProfit >= 0 ? '#2DFFC4' : '#FCA5A5'}
-                helper="Portfolio revenue minus expenses paid this tax year. Completed jobs count adjusted contract as revenue."
+                helper="Revenue collected minus expenses paid for the selected tax year."
               />
               <TaxSummaryCard
                 label="Net Margin"
                 value={percent(summary.netMargin)}
                 icon="percent"
-                helper={summary.netMargin == null ? 'No collected income yet' : undefined}
+                helper="Cash-basis net income divided by revenue collected."
               />
               <TaxSummaryCard
                 label="Subcontractor payments"
                 value={money(summary.subcontractorPayments)}
                 icon="groups"
+                helper="Subcontractor payments made during the selected tax year."
               />
-              <TaxSummaryCard label="Receipt count" value={String(summary.receiptCount)} icon="fact-check" />
+              <TaxSummaryCard
+                label="Receipt count"
+                value={String(summary.receiptCount)}
+                icon="fact-check"
+                helper="Receipts attached to expenses dated within the selected tax year."
+              />
             </View>
             {summary.committedCosts > 0 ? (
               <Text style={styles.summaryReconcileNote}>
@@ -1130,6 +1158,51 @@ const styles = StyleSheet.create({
   },
   yearTextActive: {
     color: '#FFFFFF',
+  },
+  taxCenterDisclaimer: {
+    color: 'rgba(148, 163, 184, 0.95)',
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  basisRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    alignItems: 'center',
+  },
+  basisPill: {
+    borderRadius: 99,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  basisPillActive: {
+    backgroundColor: 'rgba(45, 255, 196, 0.14)',
+    borderColor: 'rgba(45, 255, 196, 0.65)',
+  },
+  basisPillDisabled: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    opacity: 0.55,
+  },
+  basisPillTextActive: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  basisPillTextMuted: {
+    color: 'rgba(148, 163, 184, 0.9)',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  basisFootnote: {
+    color: 'rgba(148, 163, 184, 0.9)',
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 8,
+    marginBottom: 2,
   },
   summaryGrid: {
     flexDirection: 'row',

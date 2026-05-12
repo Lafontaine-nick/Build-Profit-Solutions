@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { isChangeOrderTimelineMilestone } from "@/src/lib/projectFinancials";
 
 const TIMELINE_V2_PREFIX = "bps.timeline.v2.";
 const LEGACY_TIMELINE_PREFIX = "timeline_";
@@ -15,9 +16,9 @@ function isDepositMilestone(m: any): boolean {
   return t.includes("deposit") || String(m?.type || "").toLowerCase() === "deposit";
 }
 
-/** Same rollup as project-detail / TimelineTabV2 (deposit excluded from %). */
+/** Same rollup as project-detail / TimelineTabV2 (deposit + change-order rows excluded from %). */
 export function computeOverallProgressExcludingDeposit(milestones: any[]): number {
-  const work = milestones.filter((m) => !isDepositMilestone(m));
+  const work = milestones.filter((m) => !isDepositMilestone(m) && !isChangeOrderTimelineMilestone(m));
   if (!work.length) return 0;
   const total = work.reduce((sum, m) => {
     const pct = Math.min(100, Math.max(0, Number(m.progressPct) || 0));

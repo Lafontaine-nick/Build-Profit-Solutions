@@ -18,7 +18,12 @@ import { getColors } from '@/theme/getColors';
 import { useMemo } from 'react';
 import * as Haptics from 'expo-haptics';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
+import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
+import {
+  PROFILE_HELP_CHROME_H_MARGIN,
+  useWebProfileHelpHeaderMargins,
+} from '@/lib/useWebProfileHelpHeaderMargins';
 
 interface SettingsRowProps {
   iconName?: keyof typeof MaterialIcons.glyphMap;
@@ -67,9 +72,10 @@ const SettingsRow = ({ iconName, icon, label, onPress }: SettingsRowProps) => {
 
 export default function HelpSupportScreen() {
   const router = useRouter();
+  const webHelpHeaderMargins = useWebProfileHelpHeaderMargins();
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
-  
+
   // Navigation handlers - create placeholder screens or handle inline
   const handleFAQ = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -133,31 +139,40 @@ export default function HelpSupportScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <LinearGradient colors={theme.background} style={styles.gradient}>
         <SafeAreaView style={styles.safeArea}>
-          {/* Header */}
-          <View style={styles.headerRow}>
-            <View style={styles.backButtonWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backButtonBorder}
-              >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    router.back();
-                  }}
-                  style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
+          {/* Header — web: shared payment-style row; native: centered title */}
+          {Platform.OS === 'web' ? (
+            <HelpSupportSubpageWebHeader
+              title='Help & Support'
+              darkMode={darkMode}
+              lightBg={Colors.bg}
+              webHelpHeaderMargins={webHelpHeaderMargins}
+            />
+          ) : (
+            <View style={[styles.headerRow, webHelpHeaderMargins]}>
+              <View style={styles.backButtonWrapper}>
+                <LinearGradient
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={styles.backButtonBorder}
                 >
-                  <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-                </GradientRingBackInner>
-              </LinearGradient>
+                  <GradientRingBackInner
+                    darkMode={darkMode}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      router.back();
+                    }}
+                    style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
+                  >
+                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
+                  </GradientRingBackInner>
+                </LinearGradient>
+              </View>
+              <View style={styles.titleContainer}>
+                <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>Help & Support</Text>
+              </View>
             </View>
-            <View style={styles.titleContainer}>
-              <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>Help & Support</Text>
-            </View>
-          </View>
+          )}
 
           {/* Content Card */}
           <ScrollView
@@ -174,7 +189,7 @@ export default function HelpSupportScreen() {
               colors={["#2DFFC4", "#00A6FF"]}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
-              style={{ borderRadius: 24, padding: 1, marginHorizontal: 8, marginBottom: 16 }}
+              style={styles.chromeFrame}
             >
               <View
                 style={[
@@ -332,12 +347,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: 12,
   },
+  chromeFrame: {
+    borderRadius: 24,
+    padding: 1,
+    marginHorizontal: PROFILE_HELP_CHROME_H_MARGIN,
+    marginBottom: 16,
+  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 40,
     marginBottom: 12,
-    marginHorizontal: 20,
+    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 20 }),
     position: 'relative',
   },
   backButtonWrapper: {

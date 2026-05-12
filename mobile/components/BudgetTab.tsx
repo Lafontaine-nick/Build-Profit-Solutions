@@ -219,6 +219,7 @@ export default function BudgetTab({
   const [showPOModal, setShowPOModal] = useState(false);
   const [editingPO, setEditingPO] = useState<any>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [pendingChangeOrderEditId, setPendingChangeOrderEditId] = useState<string | null>(null);
   const [newExpense, setNewExpense] = useState({ vendor: '', amount: '', category: '', notes: '' });
   const [newChangeOrder, setNewChangeOrder] = useState({ title: '', amount: '', materialsAmount: '', laborAmount: '', notes: '' });
   const [editingChangeOrder, setEditingChangeOrder] = useState<any>(null);
@@ -991,7 +992,7 @@ export default function BudgetTab({
                     const categoryIconName = itemName.toLowerCase().includes('labor') ? 'engineering' : 
                                         itemName.toLowerCase().includes('materials') || itemName.toLowerCase().includes('equipment') ? 'construction' :
                                         itemName.toLowerCase().includes('subs') ? 'people' : 'inventory';
-                    
+
                     return (
                       <View key={item.stableId || item.id || `budget-item-${index}`} style={[styles.budgetCardContainer, { marginTop: index === 0 ? 0 : 12 }]}>
                         <View style={[styles.budgetCard, { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line, borderRadius: 14 }]}>
@@ -1735,52 +1736,21 @@ export default function BudgetTab({
                     setNewChangeOrder({ title: '', amount: '', materialsAmount: '', laborAmount: '', notes: '' });
                     Alert.alert('Success', 'Change order updated successfully!');
                   } else {
-                    // New change order - ask if they want to approve it
+                    addChangeOrder({
+                      id: `co-${Date.now()}`,
+                      title: co.title,
+                      amount: total,
+                      materialsAmount: materials,
+                      laborAmount: labor,
+                      notes: co.notes || '',
+                      approved: false,
+                      status: 'Submitted',
+                    });
+                    setShowChangeOrderModal(false);
+                    setNewChangeOrder({ title: '', amount: '', materialsAmount: '', laborAmount: '', notes: '' });
                     Alert.alert(
-                      'Approve Change Order?',
-                      `Do you want to approve this change order for $${total.toFixed(2)}? Approved change orders will be added to your budget.`,
-                      [
-                        {
-                          text: 'Not Now',
-                          style: 'cancel',
-                          onPress: () => {
-                            // Create as unapproved
-                            addChangeOrder({
-                              id: `co-${Date.now()}`,
-                              title: co.title,
-                              amount: total,
-                              materialsAmount: materials,
-                              laborAmount: labor,
-                              notes: co.notes || '',
-                              approved: false,
-                              status: 'Submitted',
-                            });
-                            setShowChangeOrderModal(false);
-                            setNewChangeOrder({ title: '', amount: '', materialsAmount: '', laborAmount: '', notes: '' });
-                            Alert.alert('Saved', 'Change order added. You can approve it later from the Orders tab.');
-                          },
-                        },
-                        {
-                          text: 'Approve',
-                          style: 'default',
-                          onPress: () => {
-                            // Create as approved - this will add to budget
-                            addChangeOrder({
-                              id: `co-${Date.now()}`,
-                              title: co.title,
-                              amount: total,
-                              materialsAmount: materials,
-                              laborAmount: labor,
-                              notes: co.notes || '',
-                              approved: true,
-                              status: 'Approved',
-                            });
-                            setShowChangeOrderModal(false);
-                            setNewChangeOrder({ title: '', amount: '', materialsAmount: '', laborAmount: '', notes: '' });
-                            Alert.alert('Approved!', `Change order approved and added to budget. The amount ($${total.toFixed(2)}) has been added to your total budget.`);
-                          },
-                        },
-                      ]
+                      'Saved',
+                      'Change order saved as submitted. When the customer approves, open Change Orders and tap Approve on the card to add it to your budget.'
                     );
                   }
               }}
@@ -1816,7 +1786,18 @@ export default function BudgetTab({
       <CategoryDetailModal
         visible={selectedCategory !== null}
         categoryName={selectedCategory || ''}
-        onClose={() => setSelectedCategory(null)}
+        onClose={() => {
+          setSelectedCategory(null);
+          setPendingChangeOrderEditId(null);
+        }}
+        openChangeOrderEditId={
+          selectedCategory === "Change Orders" ? pendingChangeOrderEditId : null
+        }
+        onConsumedOpenChangeOrderEditId={() => setPendingChangeOrderEditId(null)}
+        onRequestOpenChangeOrder={(coId) => {
+          setPendingChangeOrderEditId(coId);
+          setSelectedCategory("Change Orders");
+        }}
         theme={theme}
       />
 

@@ -3,6 +3,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ProjectOverview } from '../components/OverviewScreen';
 import { useProjectList } from './ProjectListContext';
 import { pmEventTracker } from '@/hooks/usePMEventReactions';
+import {
+  isChangeOrderMirrorExpenseId,
+  reconcileChangeOrderMirrorExpenses,
+} from '../lib/changeOrderMirrorExpenses';
 
 export type PurchaseOrder = {
   id: string;
@@ -296,17 +300,19 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
   const replaceProjectDataState = useCallback(
     (next: ProjectOverview) => {
       if (!next) return;
-      
+
+      const reconciled = reconcileChangeOrderMirrorExpenses(next) as ProjectOverview;
+
       // Prevent infinite loop: if we're already syncing, don't sync again
       if (isSyncingRef.current) {
-        setProjectData(next);
+        setProjectData(reconciled);
         return;
       }
       
       isSyncingRef.current = true;
       try {
-        syncProjectList(next);
-        setProjectData(next);
+        syncProjectList(reconciled);
+        setProjectData(reconciled);
       } finally {
         // Reset the flag after a short delay to allow the sync to complete
         setTimeout(() => {
@@ -724,6 +730,12 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
         return prev;
       }
 
+      if (isChangeOrderMirrorExpenseId(expenseId)) {
+        clearTimeout(suppressTimer);
+        suppressedListExpenseIdsRef.current.delete(idKey);
+        return prev;
+      }
+
       const updatedExpenses = (prev.expenses || []).filter((e: any) => e.id !== expenseId);
 
       // Flexible category matching (same as addExpense)
@@ -817,6 +829,10 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     applyProjectDataUpdate(prev => {
       const oldExpense = prev.expenses?.find(e => e.id === updatedExpense.id);
       if (!oldExpense) return prev;
+
+      if (isChangeOrderMirrorExpenseId(updatedExpense.id)) {
+        return prev;
+      }
 
       const amountDiff = updatedExpense.amount - oldExpense.amount;
 
@@ -1149,12 +1165,12 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
           newBudgeted = prev.budgeted - existing.amount + changeOrder.amount;
         }
         
-        return {
+        return reconcileChangeOrderMirrorExpenses({
           ...prev,
           changeOrders: updatedChangeOrders,
           budgeted: newBudgeted,
           lastUpdated: new Date().toISOString(),
-        };
+        });
       } else {
         // Add new change order
         const changeOrderWithStatus = {
@@ -1174,12 +1190,12 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
           newBudgeted: newBudgeted,
         });
         
-        return {
+        return reconcileChangeOrderMirrorExpenses({
           ...prev,
           changeOrders: updatedChangeOrders,
           budgeted: newBudgeted,
           lastUpdated: new Date().toISOString(),
-        };
+        });
       }
     });
   };
@@ -1214,12 +1230,12 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
         ? prev.budgeted - (changeOrderToDelete.amount || 0)
         : prev.budgeted;
 
-      return {
+      return reconcileChangeOrderMirrorExpenses({
         ...prev,
         changeOrders: (prev.changeOrders || []).filter(co => co.id !== changeOrderId),
         budgeted: newBudgeted,
         lastUpdated: new Date().toISOString(),
-      };
+      });
     });
   };
 
@@ -1272,12 +1288,12 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
         calculation: `${prev.budgeted} + ${changeOrderToApprove.amount} = ${newBudgeted}`,
       });
 
-      return {
+      return reconcileChangeOrderMirrorExpenses({
         ...prev,
         changeOrders: updatedChangeOrders,
         budgeted: newBudgeted,
         lastUpdated: new Date().toISOString(),
-      };
+      });
     });
   };
 

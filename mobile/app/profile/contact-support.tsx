@@ -22,10 +22,16 @@ import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
+import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
+import {
+  PROFILE_HELP_CHROME_H_MARGIN,
+  useWebProfileHelpHeaderMargins,
+} from '@/lib/useWebProfileHelpHeaderMargins';
 
 export default function ContactSupportScreen() {
   const router = useRouter();
+  const webHelpHeaderMargins = useWebProfileHelpHeaderMargins();
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const [loading, setLoading] = useState(false);
@@ -147,34 +153,42 @@ export default function ContactSupportScreen() {
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={styles.keyboardView}
           >
-            {/* Header */}
-            <View style={styles.headerRow}>
-              <View style={styles.backButtonWrapper}>
-                <LinearGradient
-                  colors={BRAND_FRAME_GRADIENT_COLORS}
-                  start={{ x: 0.05, y: 0.15 }}
-                  end={{ x: 0.95, y: 0.85 }}
-                  style={styles.backButtonBorder}
-                >
-                  <GradientRingBackInner
-                    darkMode={darkMode}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      router.back();
-                    }}
-                    style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
+            {Platform.OS === 'web' ? (
+              <HelpSupportSubpageWebHeader
+                title='Contact Support'
+                darkMode={darkMode}
+                lightBg={Colors.bg}
+                webHelpHeaderMargins={webHelpHeaderMargins}
+              />
+            ) : (
+              <View style={[styles.headerRow, webHelpHeaderMargins]}>
+                <View style={styles.backButtonWrapper}>
+                  <LinearGradient
+                    colors={BRAND_FRAME_GRADIENT_COLORS}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={styles.backButtonBorder}
                   >
-                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-                  </GradientRingBackInner>
-                </LinearGradient>
+                    <GradientRingBackInner
+                      darkMode={darkMode}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        router.back();
+                      }}
+                      style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
+                    >
+                      <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
+                    </GradientRingBackInner>
+                  </LinearGradient>
+                </View>
+                <View style={styles.titleContainer}>
+                  <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
+                    Contact Support
+                  </Text>
+                </View>
+                <View style={styles.backButtonWrapper} />
               </View>
-              <View style={styles.titleContainer}>
-                <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
-                  Contact Support
-                </Text>
-              </View>
-              <View style={styles.backButtonWrapper} />
-            </View>
+            )}
 
             <ScrollView
               style={{ flex: 1 }}
@@ -191,9 +205,18 @@ export default function ContactSupportScreen() {
                 colors={["#2DFFC4", "#00A6FF"]}
                 start={{ x: 0.05, y: 0.15 }}
                 end={{ x: 0.95, y: 0.85 }}
-                style={{ borderRadius: 24, padding: 1, marginHorizontal: 8, marginBottom: 16 }}
+                style={styles.chromeFrame}
               >
-                <View style={[styles.contentCard, { backgroundColor: theme.background[0] }]}>
+                <View
+                  style={[
+                    styles.contentCard,
+                    {
+                      backgroundColor: darkMode ? Colors.cardDark : Colors.bg,
+                      borderColor: theme.border,
+                      borderWidth: 1,
+                    },
+                  ]}
+                >
                   <View style={styles.scrollContent}>
                     {/* Quick Contact Options */}
                     <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -398,8 +421,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 40,
     marginBottom: 12,
-    marginHorizontal: 20,
+    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 20 }),
     position: 'relative',
+  },
+  chromeFrame: {
+    borderRadius: 24,
+    padding: 1,
+    marginHorizontal: PROFILE_HELP_CHROME_H_MARGIN,
+    marginBottom: 16,
   },
   backButtonWrapper: {
     width: 42,

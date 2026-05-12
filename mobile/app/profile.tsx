@@ -32,7 +32,10 @@ import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
-import WebPageShell, { getWebPageShellMaxWidth } from '@/components/layout/WebPageShell';
+import WebPageShell, {
+  getWebPageShellMaxWidth,
+  WEB_PAGE_SHELL_HORIZONTAL_PADDING,
+} from '@/components/layout/WebPageShell';
 import {
   ScreenLayout,
   isDesktopWebLayoutWidth,
@@ -75,7 +78,6 @@ import {
   unregisterFromPushNotifications,
   getNotificationPermissionStatus,
 } from '@/services/notificationService';
-import { useBetaFeedback } from '@/contexts/BetaFeedbackContext';
 import { isBetaFeedbackVisibleForUser } from '@/lib/betaFeedback/betaFeedbackConfig';
 import { syncBpsDirectoryListing } from '@/services/bpsDirectorySync';
 
@@ -124,6 +126,34 @@ const mockUser = {
 function extractUsZipFromText(text: string): string {
   const m = String(text || '').match(/\b(\d{5})\b/);
   return m ? m[1] : '';
+}
+
+/**
+ * Expo web image picker returns `blob:` / `file:` URIs. Estimate contract PDFs merge stored
+ * profile and inline images for Puppeteer — those schemes cannot be loaded server-side.
+ * Persist a `data:` URL so exports use the same photo as Profile, not an OAuth fallback.
+ */
+async function logoUriPersistableForWebPdf(uri: string | undefined | null): Promise<string | undefined> {
+  if (Platform.OS !== 'web') return uri ?? undefined;
+  const v = String(uri ?? '').trim();
+  if (!v) return undefined;
+  if (v.startsWith('data:')) return v;
+  if (!v.startsWith('blob:') && !v.startsWith('file:')) return v;
+  try {
+    const response = await fetch(v);
+    if (!response.ok) return undefined;
+    const blob = await response.blob();
+    const dataUrl = await new Promise<string | null>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+      reader.onerror = () => reject(new Error('FileReader failed'));
+      reader.readAsDataURL(blob);
+    });
+    return dataUrl ?? undefined;
+  } catch (e) {
+    console.warn('Web profile logo → data URL for PDF storage failed:', e);
+    return undefined;
+  }
 }
 
 interface EditFormData {
@@ -223,8 +253,6 @@ export default function ProfileScreen() {
   // Require authentication to access this screen
   useRequireAuth();
 
-  const betaFeedback = useBetaFeedback();
-
   const { darkMode, setDarkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const { width: layoutWidth } = useWindowDimensions();
@@ -240,6 +268,14 @@ export default function ProfileScreen() {
           }
         : undefined;
   const edge = desktopWeb ? WEB_DESKTOP_EDGE_HORIZONTAL : ScreenLayout.edge.horizontal;
+  /** Web: match Profile header (back + title) to WebPageShell column + inner padding so the arrow lines up with the green frame. */
+  const webProfileHeaderMargins = useMemo(() => {
+    if (Platform.OS !== 'web') return undefined;
+    const maxW = getWebPageShellMaxWidth('profile');
+    const gutter = (layoutWidth - Math.min(layoutWidth, maxW)) / 2;
+    const inset = gutter + WEB_PAGE_SHELL_HORIZONTAL_PADDING;
+    return { marginLeft: inset, marginRight: inset };
+  }, [layoutWidth]);
   /** Web: column shell handles insets; native keeps edge bleed. */
   const profileShellBleedActive = Platform.OS !== 'web';
   const footerSvgWidth = Math.max(
@@ -312,7 +348,7 @@ export default function ProfileScreen() {
     clerkUser?.emailAddresses?.[0]?.emailAddress ||
     null;
   const showBetaFeedbackRow =
-    Boolean(betaFeedback) && isBetaFeedbackVisibleForUser(clerkEmailForBeta);
+    isBetaFeedbackVisibleForUser(clerkEmailForBeta);
 
   const [activeTab, setActiveTab] = useState<
     'overview' | 'settings'
@@ -581,11 +617,17 @@ export default function ProfileScreen() {
           }
           const serviceZip =
             listedZip.length === 5 ? listedZip : prevServiceZip.length === 5 ? prevServiceZip : '';
+          const rawAvatar = user.avatar;
+          let avatarForStorage = rawAvatar;
+          if (Platform.OS === 'web' && rawAvatar) {
+            const converted = await logoUriPersistableForWebPdf(rawAvatar);
+            if (converted) avatarForStorage = converted;
+          }
           // Always save the complete profile object
           const fullProfile = {
             name: user.name,
             company: user.company,
-            avatar: user.avatar,
+            avatar: avatarForStorage,
             phone: user.phone,
             email: user.email,
             website: user.website,
@@ -597,6 +639,9 @@ export default function ProfileScreen() {
             projectPortfolio: user.projectPortfolio || [],
             listOnFindSubcontractors: discoverability.listOn,
             serviceZip,
+            ...(Platform.OS === 'web' && String(avatarForStorage || '').trim()
+              ? { logoUrl: String(avatarForStorage).trim() }
+              : {}),
           };
           await AsyncStorage.setItem('bps.contractorProfile', JSON.stringify(fullProfile));
           console.log('💾 Saved complete profile to AsyncStorage');
@@ -668,6 +713,12 @@ export default function ProfileScreen() {
         const listedZip = extractUsZipFromText(location);
         const serviceZip =
           listedZip.length === 5 ? listedZip : prevServiceZip.length === 5 ? prevServiceZip : '';
+        const rawAvatar = user.avatar;
+        let avatarForStorage = rawAvatar;
+        if (Platform.OS === 'web' && rawAvatar) {
+          const converted = await logoUriPersistableForWebPdf(rawAvatar);
+          if (converted) avatarForStorage = converted;
+        }
         const profileToSave = {
           name: fullName,
           company: editForm.company,
@@ -676,13 +727,16 @@ export default function ProfileScreen() {
           website: user.website,
           role: editForm.role,
           location,
-          avatar: user.avatar,
+          avatar: avatarForStorage,
           insurance: user.insurance,
           licenses: user.licenses,
           companyBio: user.companyBio !== undefined ? user.companyBio : '',
           projectPortfolio: user.projectPortfolio || [],
           listOnFindSubcontractors: discoverability.listOn,
           serviceZip,
+          ...(Platform.OS === 'web' && String(avatarForStorage || '').trim()
+            ? { logoUrl: String(avatarForStorage).trim() }
+            : {}),
         };
         await AsyncStorage.setItem('bps.contractorProfile', JSON.stringify(profileToSave));
         console.log('💾 Saved complete contractor profile to AsyncStorage');
@@ -1396,7 +1450,7 @@ export default function ProfileScreen() {
               <Image 
                 source={{ uri: user.avatar }} 
                 style={styles.profileImage}
-                defaultSource={require('../assets/images/bps-logo.png')}
+                defaultSource={require('../assets/images/bps-logo-updated.png')}
                 onError={() => console.log('Profile image failed to load')}
               />
             </View>
@@ -2062,10 +2116,13 @@ export default function ProfileScreen() {
       text: string,
       onPress: () => void,
       showChevron: boolean = true,
-      rightComponent?: React.ReactNode
+      rightComponent?: React.ReactNode,
+      subtext?: string
     ) => {
-      if (!filterSettings(text)) return null;
-      
+      const matchesSearch =
+        filterSettings(text) || (subtext ? filterSettings(subtext) : false);
+      if (!matchesSearch) return null;
+
       return (
         <TouchableOpacity
           key={key}
@@ -2077,11 +2134,33 @@ export default function ProfileScreen() {
             <View style={[styles.settingIconContainer, { backgroundColor: theme.iconBg }]}>
               <MaterialIcons name={icon as any} size={20} color={theme.accent} />
             </View>
-            <Text style={[styles.settingText, { color: theme.text }]}>
-              {text}
-            </Text>
+            {subtext ? (
+              <View
+                style={[
+                  { flex: 1, minWidth: 0 },
+                  Platform.OS !== 'web' ? { maxWidth: '70%' } : null,
+                ]}
+              >
+                <Text style={[styles.settingText, { color: theme.text }]}>{text}</Text>
+                <Text
+                  style={[styles.settingSubtext, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}
+                >
+                  {subtext}
+                </Text>
+              </View>
+            ) : (
+              <Text style={[styles.settingText, { color: theme.text }]}>{text}</Text>
+            )}
           </View>
-          {rightComponent || (showChevron && <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 1 : 0.7 }} />)}
+          {rightComponent ||
+            (showChevron &&
+              (Platform.OS === 'web' ? (
+                <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 1 : 0.7 }} />
+              ) : (
+                <View style={styles.settingTrailSlot}>
+                  <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 1 : 0.7 }} />
+                </View>
+              )))}
         </TouchableOpacity>
       );
     };
@@ -2228,43 +2307,46 @@ export default function ProfileScreen() {
                   <View style={[styles.settingIconContainer, { backgroundColor: theme.iconBg }]}>
                     <MaterialIcons name='location-on' size={20} color={theme.accent} />
                   </View>
-                  <View style={{ flex: 1, marginRight: 8 }}>
+                  <View style={{ flex: 1, minWidth: 0, maxWidth: Platform.OS !== 'web' ? '62%' : undefined }}>
                     <Text style={[styles.settingText, { color: theme.text }]}>Show my company in search</Text>
                     <Text style={{ color: theme.subtext, fontSize: 12, marginTop: 4, lineHeight: 16 }}>
                       Uses your profile location (include a 5-digit ZIP there). Or enable from Find Subcontractors while searching your area.
                     </Text>
                   </View>
                 </View>
-                <Switch
-                  value={discoverability.listOn}
-                  onValueChange={async (v) => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    if (v) {
-                      const fromLoc = extractUsZipFromText(user.location);
-                      let prevZ = '';
-                      try {
-                        const raw = await AsyncStorage.getItem('bps.contractorProfile');
-                        if (raw) {
-                          prevZ = String(JSON.parse(raw).serviceZip || '')
-                            .replace(/\D/g, '')
-                            .slice(0, 5);
+                <View style={styles.switchWrapper}>
+                  <Switch
+                    value={discoverability.listOn}
+                    onValueChange={async (v) => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      if (v) {
+                        const fromLoc = extractUsZipFromText(user.location);
+                        let prevZ = '';
+                        try {
+                          const raw = await AsyncStorage.getItem('bps.contractorProfile');
+                          if (raw) {
+                            prevZ = String(JSON.parse(raw).serviceZip || '')
+                              .replace(/\D/g, '')
+                              .slice(0, 5);
+                          }
+                        } catch {
+                          /* ignore */
                         }
-                      } catch {
-                        /* ignore */
+                        if (!fromLoc && prevZ.length !== 5) {
+                          Alert.alert(
+                            'ZIP needed',
+                            'Add a 5-digit ZIP to your location when editing your profile (e.g. Las Vegas, NV 89141), or turn this on from Find Subcontractors using the ZIP at the top of that screen.'
+                          );
+                          return;
+                        }
                       }
-                      if (!fromLoc && prevZ.length !== 5) {
-                        Alert.alert(
-                          'ZIP needed',
-                          'Add a 5-digit ZIP to your location when editing your profile (e.g. Las Vegas, NV 89141), or turn this on from Find Subcontractors using the ZIP at the top of that screen.'
-                        );
-                        return;
-                      }
-                    }
-                    setDiscoverability({ listOn: v });
-                  }}
-                  trackColor={{ false: theme.border, true: theme.accent }}
-                  thumbColor='#fff'
-                />
+                      setDiscoverability({ listOn: v });
+                    }}
+                    trackColor={{ false: theme.border, true: theme.accent }}
+                    thumbColor='#fff'
+                    ios_backgroundColor={theme.border}
+                  />
+                </View>
               </View>
             )}
           </>
@@ -2301,7 +2383,7 @@ export default function ProfileScreen() {
                   <View style={[styles.settingIconContainer, { backgroundColor: theme.iconBg }]}>
                     <MaterialIcons name='notifications' size={20} color={theme.accent} />
                   </View>
-                  <View style={{ flex: 1, maxWidth: '62%' }}>
+                  <View style={{ flex: 1, minWidth: 0, maxWidth: Platform.OS !== 'web' ? '62%' : undefined }}>
                     <Text style={[styles.settingText, { color: theme.text }]}>Push Notifications</Text>
                     <Text style={[styles.settingSubtext, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
                       Leads, updates, reminders
@@ -2465,29 +2547,18 @@ export default function ProfileScreen() {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               router.push('/tax-center');
             })}
-            <View style={styles.settingItemWithSubtext}>
-              <TouchableOpacity
-                style={styles.settingItemContent}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  handlePaymentMethods();
-                }}
-                activeOpacity={0.6}
-              >
-                <View style={styles.settingLeft}>
-                  <View style={[styles.settingIconContainer, { backgroundColor: theme.iconBg }]}>
-                    <MaterialIcons name='payment' size={20} color={theme.accent} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.settingText, { color: theme.text }]}>Payment Methods</Text>
-                    <Text style={[styles.settingSubtext, { color: theme.subtext, opacity: darkMode ? 1 : 0.85 }]}>
-                      Payouts & client payments
-                    </Text>
-                  </View>
-                  <MaterialIcons name='chevron-right' size={20} color={theme.subtext} style={{ opacity: darkMode ? 1 : 0.7 }} />
-                </View>
-              </TouchableOpacity>
-            </View>
+            {renderSettingItem(
+              'payment-methods',
+              'payment',
+              'Payment Methods',
+              () => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                handlePaymentMethods();
+              },
+              true,
+              undefined,
+              'Payouts & client payments'
+            )}
           </>
         ))}
 
@@ -2504,7 +2575,7 @@ export default function ProfileScreen() {
               filterSettings('Beta feedback') &&
               renderSettingItem('beta-feedback', 'feedback', 'Beta feedback', () => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                betaFeedback?.openBetaFeedback();
+                router.push('/profile/beta-feedback');
               })}
             {renderSettingItem('terms', 'description', 'Terms of Service', () => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -2633,7 +2704,7 @@ export default function ProfileScreen() {
       )}
       <LinearGradient colors={theme.background} style={styles.container}>
       {/* Header with Back Button and Title */}
-      <View style={styles.headerRow}>
+      <View style={[styles.headerRow, webProfileHeaderMargins]}>
         <View style={styles.backButtonWrapper}>
           <LinearGradient
             colors={BRAND_FRAME_GRADIENT_COLORS}
@@ -2831,7 +2902,7 @@ export default function ProfileScreen() {
         onRequestClose={handleCancelEdit}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { 
+          <View style={[styles.modalContent, styles.modalContentWebEditProfile, { 
             backgroundColor: darkMode ? '#2a2a2a' : '#f0f0f0',
             borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
           }]}>
@@ -3135,7 +3206,7 @@ export default function ProfileScreen() {
               {...KEYBOARD_SCROLL_DEFAULTS}
             >
               {/* Password change card - matching language & edit profile modal */}
-              <View style={[styles.passwordModalCard, { 
+              <View style={[styles.passwordModalCard, styles.passwordModalCardWeb, { 
                 backgroundColor: darkMode ? '#2a2a2a' : '#f0f0f0',
                 borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
               }]}>
@@ -3792,7 +3863,8 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     alignItems: 'center',
     marginTop: 60,
     marginBottom: 12,
-    marginHorizontal: edge,
+    // Web: horizontal inset comes from `webProfileHeaderMargins` (aligned with WebPageShell).
+    ...(Platform.OS === 'web' ? {} : { marginHorizontal: edge }),
   },
   scrollContent: {
     paddingTop: desktopWeb ? 24 : 16,
@@ -4262,6 +4334,9 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 2,
+    ...(Platform.OS === 'web'
+      ? { outlineStyle: 'none' as const, outlineWidth: 0 }
+      : {}),
   },
   bioText: {
     fontSize: 14,
@@ -4546,20 +4621,6 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.1)',
   },
-  settingItemWithSubtext: {
-    minHeight: 60,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
-  },
-  settingItemContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingLeft: 16,
-    paddingRight: 0,
-    overflow: 'hidden',
-  },
   settingSubtext: {
     fontSize: 13,
     marginTop: 2,
@@ -4568,6 +4629,12 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     marginTop: 6,
     marginRight: 0,
     flexShrink: 0,
+  },
+  /** Native: keeps chevrons from drifting past padded edge when the label column uses flex. */
+  settingTrailSlot: {
+    flexShrink: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   settingLeft: {
     flexDirection: 'row',
@@ -4750,6 +4817,13 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     flexDirection: 'column',
     display: 'flex',
   },
+  /** Web: Edit Profile form — cap width on large viewports (base modal is 90%). */
+  modalContentWebEditProfile: Platform.OS === 'web'
+    ? {
+        maxWidth: 460,
+        alignSelf: 'center',
+      }
+    : {},
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -4919,6 +4993,14 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     shadowRadius: 8,
     elevation: 8,
   },
+  /** Web: cap width on large viewports (matches Edit Profile modal). */
+  passwordModalCardWeb: Platform.OS === 'web'
+    ? {
+        maxWidth: 460,
+        alignSelf: 'center',
+        width: '100%' as const,
+      }
+    : {},
   passwordModalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -4951,6 +5033,12 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     shadowOffset: { width: 0, height: 8 },
     shadowRadius: 16,
     elevation: 10,
+    ...(Platform.OS === 'web'
+      ? {
+          maxWidth: 400,
+          width: '100%' as const,
+        }
+      : {}),
   },
   languageModalHeader: {
     flexDirection: 'row',

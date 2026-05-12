@@ -18,6 +18,7 @@ import {
   sanitizeContractDoc,
   stripEditorListPrefix,
 } from "./contractTemplate";
+import { DEFAULT_CONTRACT_HEADER_LOGO_DATA_URL } from "./defaultContractHeaderLogoDataUrl";
 
 const money = (n: number | undefined | null) =>
   (Math.round((n ?? 0) * 100) / 100).toLocaleString(undefined, {
@@ -184,7 +185,11 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
   const company = resolvePdfHeaderCompany(options.branding, sanitizedDoc.contractor);
   const contractorName = options.branding.contractorName || sanitizedDoc.contractor.contactName || company;
   const contractorTitle = options.branding.contractorTitle || "Contractor";
-  const logo = options.branding.logoUrl || sanitizedDoc.contractor.logoUrl;
+  const userLogoRaw = options.branding.logoUrl || sanitizedDoc.contractor.logoUrl;
+  const userLogo = typeof userLogoRaw === "string" && userLogoRaw.trim() ? userLogoRaw.trim() : "";
+  /** Profile UI can show `defaultSource` while `avatar` was never persisted — match that on the PDF cover. */
+  const coverLogo = userLogo || DEFAULT_CONTRACT_HEADER_LOGO_DATA_URL;
+  const coverLogoIsDefaultMark = !userLogo;
   const startDate = formatDate(sanitizedDoc.summary.startDate);
   const validThrough = formatDate(sanitizedDoc.summary.expiresDate);
   const scheduleRail = getScheduleSummaryForContract(sanitizedDoc);
@@ -434,9 +439,9 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       <header class="cover-header">
         <div class="cover-header-brand">
           ${
-            logo
-              ? `<div class="brand-image"><img src="${esc(logo)}" alt="" /></div>`
-              : `<div class="brand-image brand-image--empty"></div>`
+            coverLogoIsDefaultMark
+              ? `<div class="brand-image brand-image--mark"><img src="${esc(coverLogo)}" alt="" /></div>`
+              : `<div class="brand-image"><img src="${esc(coverLogo)}" alt="" /></div>`
           }
           <div class="cover-header-text">
             <div class="company-name">${esc(company)}</div>
@@ -830,6 +835,14 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       display: flex;
       align-items: center;
       justify-content: center;
+    }
+    .brand-image--mark {
+      background: #0b1220;
+      border-color: #1e293b;
+    }
+    .brand-image--mark img {
+      object-fit: contain;
+      padding: 10px;
     }
     .brand-image--empty { border-style: dashed; }
     .brand-image img { width: 100%; height: 100%; object-fit: cover; }

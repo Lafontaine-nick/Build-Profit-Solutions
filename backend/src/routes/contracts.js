@@ -174,11 +174,27 @@ router.post('/render-pdf', async (req, res) => {
     await page.setViewport({ width: 1280, height: 1660, deviceScaleFactor: 1 });
     await page.emulateMediaType('screen');
     await page.setContent(html, {
-      // `networkidle0` has been unreliable here and was timing out even for
-      // trivial HTML. For this server-side generated document we only need the
-      // DOM/CSS to be ready before printing.
-      waitUntil: 'domcontentloaded',
-      timeout: 30000,
+      // `domcontentloaded` fires before remote <img> bytes finish — cover logos often
+      // looked “broken” in the PDF. `load` waits for subresources; we still wait on
+      // images below in case `load` races with decode.
+      waitUntil: 'load',
+      timeout: 45000,
+    });
+
+    await page.evaluate(async () => {
+      const imgs = Array.from(document.images);
+      const waitOne = (img) =>
+        new Promise((resolve) => {
+          if (img.complete) {
+            resolve();
+            return;
+          }
+          const done = () => resolve();
+          img.addEventListener('load', done, { once: true });
+          img.addEventListener('error', done, { once: true });
+          setTimeout(done, 12000);
+        });
+      await Promise.all(imgs.map(waitOne));
     });
 
     await page.evaluate(() => {

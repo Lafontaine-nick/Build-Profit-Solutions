@@ -70,6 +70,8 @@ type Props = {
   initialDraft?: AddTransactionChangeOrderDraft | null;
   /** Identity for draft changes (e.g. change order id or `"new"`). */
   initialDraftKey?: string;
+  /** Change orders: delete persisted CO when user confirms footer "delete" while editing (`initialDraftKey` !== `"new"`). */
+  onRequestDeleteChangeOrder?: (changeOrderId: string) => void;
 };
 
 export default function AddTransactionModal({
@@ -79,6 +81,7 @@ export default function AddTransactionModal({
   onSave,
   initialDraft = null,
   initialDraftKey = "",
+  onRequestDeleteChangeOrder,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { theme, darkMode } = useTheme();
@@ -139,6 +142,8 @@ export default function AddTransactionModal({
   const categoryNameLower = categoryName.toLowerCase();
   const isPurchaseOrdersCategory = categoryNameLower.includes('purchase order');
   const isChangeOrdersCategory = categoryNameLower.includes('change order');
+  /** Change Orders: left action reads "delete" per product copy (still dismisses / closes like Cancel). */
+  const budgetFooterDismissLabel = isChangeOrdersCategory ? 'delete' : 'Cancel';
   /** Budget add form for materials & equipment (not labor, subs, PO, or change order). */
   const isMaterialsEquipmentExpense =
     (categoryNameLower.includes('material') || categoryNameLower.includes('equipment')) &&
@@ -475,6 +480,67 @@ export default function AddTransactionModal({
     ? 'What was rented or purchased?'
     : 'What was purchased or service provided?';
 
+  const resetFormState = () => {
+    setVendor("");
+    setMaterial("");
+    setLaborDescription("");
+    setTrade("");
+    setAmount("");
+    setDescription("");
+    setPo("");
+    setReceiptUri(null);
+    setIsPlanned(true);
+    setProjectPhase('');
+    setScope('');
+    setPriceReasonableness(null);
+    setExpectedDelivery(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
+    setPricingMode("flat");
+    setSqftInput("");
+    setRatePerSqftInput("");
+    setMaterialSqftInput("");
+    setMaterialRatePerSqftInput("");
+    setLaborSqftInput("");
+    setLaborRatePerSqftInput("");
+    setMaterialsAmountInput("");
+    setLaborAmountInput("");
+  };
+
+  const dismissModal = () => {
+    resetFormState();
+    Keyboard.dismiss();
+    onClose();
+  };
+
+  const handleFooterDismiss = () => {
+    const editingCoId =
+      isChangeOrdersCategory &&
+      initialDraftKey &&
+      initialDraftKey !== "new" &&
+      onRequestDeleteChangeOrder
+        ? initialDraftKey
+        : null;
+
+    if (editingCoId) {
+      const runDelete = () => {
+        onRequestDeleteChangeOrder(editingCoId);
+        dismissModal();
+      };
+      if (Platform.OS === "web" && typeof window !== "undefined" && typeof window.confirm === "function") {
+        if (window.confirm("Delete this change order?\n\nThis removes it from the project.")) {
+          runDelete();
+        }
+        return;
+      }
+      Alert.alert("Delete change order?", "This removes it from the project.", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: runDelete },
+      ]);
+      return;
+    }
+
+    dismissModal();
+  };
+
   const handleSave = () => {
     if (isLaborOrSubs) {
       if (!laborDescription.trim()) {
@@ -612,55 +678,7 @@ export default function AddTransactionModal({
         : undefined,
     });
 
-    // Reset form
-    setVendor("");
-    setMaterial("");
-    setLaborDescription("");
-    setTrade("");
-    setAmount("");
-    setDescription("");
-    setPo("");
-    setReceiptUri(null);
-    setIsPlanned(true);
-    setProjectPhase('');
-    setScope('');
-    setPriceReasonableness(null);
-    setExpectedDelivery(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
-    setPricingMode("flat");
-    setSqftInput("");
-    setRatePerSqftInput("");
-    setMaterialSqftInput("");
-    setMaterialRatePerSqftInput("");
-    setLaborSqftInput("");
-    setLaborRatePerSqftInput("");
-    setMaterialsAmountInput("");
-    setLaborAmountInput("");
-  };
-
-  const handleCancel = () => {
-    setVendor("");
-    setMaterial("");
-    setLaborDescription("");
-    setTrade("");
-    setAmount("");
-    setDescription("");
-    setPo("");
-    setReceiptUri(null);
-    setIsPlanned(true);
-    setProjectPhase('');
-    setScope('');
-    setPriceReasonableness(null);
-    setExpectedDelivery(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
-    setPricingMode("flat");
-    setSqftInput("");
-    setRatePerSqftInput("");
-    setMaterialSqftInput("");
-    setMaterialRatePerSqftInput("");
-    setLaborSqftInput("");
-    setLaborRatePerSqftInput("");
-    setMaterialsAmountInput("");
-    setLaborAmountInput("");
-    onClose();
+    resetFormState();
   };
 
   const onSqftChange = useCallback((text: string) => {
@@ -928,7 +946,7 @@ export default function AddTransactionModal({
                   darkMode={darkMode}
                   onPress={() => {
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    handleCancel();
+                    dismissModal();
                   }}
                   style={[styles.backBtn, { backgroundColor: Colors.bg }]}
                 >
@@ -979,6 +997,8 @@ export default function AddTransactionModal({
               !webBudgetExpenseShell && styles.form,
               { backgroundColor: darkMode ? '#000000' : Colors.bg },
               webBudgetExpenseShell && { flex: 1 },
+              /** Native: bound scroll height so footer actions stay on-screen and receive taps. */
+              !webBudgetExpenseShell && { flex: 1 },
             ]} 
             contentContainerStyle={
               webBudgetExpenseShell
@@ -987,7 +1007,7 @@ export default function AddTransactionModal({
                     paddingTop: 8,
                     paddingBottom: 24,
                   }
-                : { paddingBottom: 24 }
+                : { paddingBottom: 32, flexGrow: 1 }
             }
             showsVerticalScrollIndicator={false} 
             keyboardShouldPersistTaps="handled"
@@ -2229,10 +2249,10 @@ export default function AddTransactionModal({
           {webBudgetExpenseShell && poWebChrome ? (
             <View style={[poWebChrome.footerFlow, { paddingBottom: Math.max(insets.bottom, 16) }]}>
               <Pressable
-                onPress={handleCancel}
+                onPress={handleFooterDismiss}
                 style={({ pressed }) => [poWebChrome.cancelBtn, pressed && { opacity: 0.75 }]}
               >
-                <Text style={poWebChrome.cancelText}>Cancel</Text>
+                <Text style={poWebChrome.cancelText}>{budgetFooterDismissLabel}</Text>
               </Pressable>
               <Pressable
                 onPress={() => {
@@ -2257,10 +2277,11 @@ export default function AddTransactionModal({
               styles.actions,
               { paddingBottom: Math.max(insets.bottom, 20) + 10 },
               !darkMode && { borderTopColor: Colors.line, backgroundColor: Colors.bg },
+              { zIndex: 10, elevation: 12 },
             ]}
           >
             <TouchableOpacity
-              onPress={handleCancel}
+              onPress={handleFooterDismiss}
               style={[
                 styles.cancelButtonFlat,
                 darkMode
@@ -2281,7 +2302,7 @@ export default function AddTransactionModal({
                   { color: darkMode ? "rgba(226, 232, 240, 0.92)" : Colors.text },
                 ]}
               >
-                Cancel
+                {budgetFooterDismissLabel}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity 

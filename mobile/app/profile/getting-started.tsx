@@ -16,7 +16,9 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import * as Haptics from 'expo-haptics';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
+import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
+import { useWebProfileHelpHeaderMargins } from '@/lib/useWebProfileHelpHeaderMargins';
 
 interface StepCardProps {
   number: number;
@@ -71,6 +73,8 @@ const StepCard = ({ number, title, description, icon, theme, onPress, isLast }: 
 
 export default function GettingStartedScreen() {
   const router = useRouter();
+  /** Web chrome uses no horizontal inset — frame is flush with shell padding. */
+  const webHelpHeaderMargins = useWebProfileHelpHeaderMargins(0);
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
 
@@ -149,34 +153,42 @@ export default function GettingStartedScreen() {
       <LinearGradient colors={theme.background} style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
           <View style={styles.pageShell}>
-          {/* Header */}
-          <View style={[styles.headerRow, Platform.OS === 'web' && styles.headerRowWeb]}>
-            <View style={styles.backButtonWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backButtonBorder}
-              >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    router.back();
-                  }}
-                  style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
+          {Platform.OS === 'web' ? (
+            <HelpSupportSubpageWebHeader
+              title='Getting Started'
+              darkMode={darkMode}
+              lightBg={Colors.bg}
+              webHelpHeaderMargins={webHelpHeaderMargins}
+            />
+          ) : (
+            <View style={[styles.headerRow, webHelpHeaderMargins]}>
+              <View style={styles.backButtonWrapper}>
+                <LinearGradient
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={styles.backButtonBorder}
                 >
-                  <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-                </GradientRingBackInner>
-              </LinearGradient>
+                  <GradientRingBackInner
+                    darkMode={darkMode}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      router.back();
+                    }}
+                    style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
+                  >
+                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
+                  </GradientRingBackInner>
+                </LinearGradient>
+              </View>
+              <View style={styles.titleContainer}>
+                <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
+                  Getting Started
+                </Text>
+              </View>
+              <View style={styles.backButtonWrapper} />
             </View>
-            <View style={styles.titleContainer}>
-              <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
-                Getting Started
-              </Text>
-            </View>
-            <View style={styles.backButtonWrapper} />
-          </View>
+          )}
 
           {/* Content Card */}
           <ScrollView
@@ -193,10 +205,7 @@ export default function GettingStartedScreen() {
               colors={["#2DFFC4", "#00A6FF"]}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
-              style={[
-                styles.cardGradientBorder,
-                Platform.OS === 'web' ? styles.cardGradientBorderWeb : styles.cardGradientBorderMobile,
-              ]}
+              style={styles.chromeFrame}
             >
               <View
                 style={[
@@ -290,11 +299,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 40,
     marginBottom: 12,
-    marginHorizontal: 20,
+    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 20 }),
     position: 'relative',
   },
-  headerRowWeb: {
-    marginHorizontal: 0,
+  chromeFrame: {
+    borderRadius: 24,
+    padding: 1,
+    marginBottom: 16,
+    ...Platform.select({
+      web: { marginHorizontal: 0 },
+      default: { marginHorizontal: 8 },
+    }),
   },
   backButtonWrapper: {
     width: 42,
@@ -322,17 +337,6 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: "800",
     letterSpacing: 0.15,
-  },
-  cardGradientBorder: {
-    borderRadius: 24,
-    padding: 1,
-    marginBottom: 16,
-  },
-  cardGradientBorderMobile: {
-    marginHorizontal: 8,
-  },
-  cardGradientBorderWeb: {
-    marginHorizontal: 0,
   },
   contentCard: {
     borderRadius: 23,

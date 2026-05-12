@@ -16,6 +16,95 @@ import type { Milestone } from "../src/types/timeline";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
+import {
+  getApprovedChangeOrderPaymentRows,
+  formatChangeOrderPaymentRowTitle,
+  isChangeOrderTimelineMilestone,
+} from "@/src/lib/projectFinancials";
+
+/** Merge list + live ProjectData so change orders match Budget tab. */
+function mergeProjectRecordForTimelineCo(project: any, projectFromList: any, projectData: any) {
+  return {
+    ...(projectFromList || {}),
+    ...(project || {}),
+    estimateData:
+      (project as any)?.estimateData ??
+      projectFromList?.estimateData ??
+      projectData?.estimateData ??
+      (project as any)?.projectData?.estimateData ??
+      projectFromList?.projectData?.estimateData,
+    projectData: {
+      ...(projectFromList?.projectData || {}),
+      ...(project?.projectData || {}),
+      ...(projectData || {}),
+    },
+    changeOrders:
+      projectData?.changeOrders ??
+      (project as any)?.changeOrders ??
+      (project as any)?.projectData?.changeOrders ??
+      projectFromList?.changeOrders ??
+      projectFromList?.projectData?.changeOrders,
+  };
+}
+
+/** Append approved CO payment rows so All Payments sums to adjusted contract (same $ as Overview/Budget). */
+function appendChangeOrderPaymentMilestones(base: any[], mergedProject: any): any[] {
+  const coRows = getApprovedChangeOrderPaymentRows(mergedProject);
+  if (!coRows.length) return base;
+
+  const addDays = (dateStr: string, days: number): string => {
+    if (!dateStr) return new Date().toISOString().split("T")[0];
+    try {
+      const d = new Date(dateStr + "T12:00:00");
+      d.setDate(d.getDate() + days);
+      return d.toISOString().split("T")[0];
+    } catch {
+      return dateStr;
+    }
+  };
+
+  let maxMs = 0;
+  let maxDate = "";
+  for (const m of base) {
+    const raw = m.scheduledDate ?? m.dueDate ?? m.date;
+    if (!raw) continue;
+    const t = new Date(String(raw)).getTime();
+    const dm = String(raw).match(/^(\d{4}-\d{2}-\d{2})/);
+    const dateOnly = dm ? dm[1] : "";
+    if (Number.isFinite(t) && t >= maxMs) {
+      maxMs = t;
+      maxDate = dateOnly || new Date(t).toISOString().split("T")[0];
+    }
+  }
+  const anchorDate = maxDate || new Date().toISOString().split("T")[0];
+
+  const seenIds = new Set(base.map((x: any) => String(x?.id ?? "")));
+  const extras: any[] = [];
+  let i = 0;
+  for (const row of coRows) {
+    if (seenIds.has(row.id)) continue;
+    seenIds.add(row.id);
+    const raw = row.dateRaw ? String(row.dateRaw) : "";
+    const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+    const fromCo = m ? m[1] : "";
+    const sched =
+      fromCo && !Number.isNaN(new Date(fromCo + "T12:00:00").getTime())
+        ? fromCo
+        : addDays(anchorDate, 7 + i++ * 3);
+    extras.push({
+      id: row.id,
+      name: row.title,
+      title: row.title,
+      type: "change_order",
+      paymentAmount: row.amount,
+      amount: row.amount,
+      scheduledDate: sched,
+      dueDate: sched,
+      status: "pending",
+    });
+  }
+  return [...base, ...extras];
+}
 
 /** Supporting text on Timeline — neutral grey / soft white (not full white; keeps hierarchy). */
 function timelineMuted(dark: boolean) {
@@ -41,7 +130,7 @@ function isDepositMilestone(m: Milestone): boolean {
 }
 
 function computeOverallPct(items: Milestone[]) {
-  const workItems = items.filter((m) => !isDepositMilestone(m));
+  const workItems = items.filter((m) => !isDepositMilestone(m) && !isChangeOrderTimelineMilestone(m));
   if (!workItems.length) return 0;
   return workItems.reduce((acc, m) => acc + clampPct(m.progressPct), 0) / workItems.length;
 }
@@ -285,14 +374,21 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
       costCategory: payment.costCategory || "materials",
       dependsOnId: payment.dependsOnId,
       amount: payment.amount || payment.paymentAmount || 0,
+      ...(payment.actualDate ? { actualDate: safeISODate(String(payment.actualDate)) } : {}),
+      ...(payment.collectedAt ? { collectedAt: String(payment.collectedAt) } : {}),
     }));
   };
 
   const convertPaymentMilestonesToTimeline = (paymentMilestones: any[]): Milestone[] => {
     if (!paymentMilestones || !Array.isArray(paymentMilestones)) return [];
-    return paymentMilestones.map((milestone, index) => ({
+    return paymentMilestones.map((milestone, index) => {
+      const rawTitle = milestone.name || milestone.title || `Payment ${index + 1}`;
+      const isCoRow =
+        (milestone as any).type === "change_order" || String(milestone.id || "").startsWith("bps-co-");
+      const title = isCoRow ? formatChangeOrderPaymentRowTitle(String(rawTitle)) : rawTitle;
+      return {
       id: milestone.id || `payment-${index}`,
-      title: milestone.name || milestone.title || `Payment ${index + 1}`,
+      title,
       plannedDate: safeISODate(milestone.scheduledDate || milestone.dueDate || new Date(Date.now() + (index + 1) * 7 * 86400000).toISOString()),
       progressPct:
         milestone.status === "completed" ? 100 : milestone.status === "in_progress" ? 50 : 0,
@@ -307,10 +403,16 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
       costCategory: milestone.costCategory || "materials",
       dependsOnId: index > 0 ? paymentMilestones[index - 1]?.id || `payment-${index - 1}` : undefined,
       amount: milestone.paymentAmount || milestone.amount || 0,
-    }));
+      ...(milestone.actualDate ? { actualDate: safeISODate(String(milestone.actualDate)) } : {}),
+      ...(milestone.collectedAt ? { collectedAt: String(milestone.collectedAt) } : {}),
+    };
+    });
   };
 
   const collectPaymentMilestones = useCallback(() => {
+    const mergedForCo = mergeProjectRecordForTimelineCo(project, projectFromList, projectData);
+    const withChangeOrders = (arr: any[]) => appendChangeOrderPaymentMilestones(arr || [], mergedForCo);
+
     const baseEstimate = (project as any)?.estimateData || projectFromList?.estimateData || {};
     // Prefer live bid from Estimate tab (bps.currentBid.v2) when it matches this project — ensures dates match what user sees in Estimate
     const estimateData = liveBidPaymentData
@@ -391,11 +493,11 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
             status: w.status ?? "pending",
           };
         });
-        return fromWeeklyOnly;
+        return withChangeOrders(fromWeeklyOnly);
       }
       // Fall back only when weeklyPayments are missing.
-      if (paymentMs.length) return paymentMs;
-      if (milestones.length) return milestones;
+      if (paymentMs.length) return withChangeOrders(paymentMs);
+      if (milestones.length) return withChangeOrders(milestones);
     }
 
     // Hybrid: deposit + week 1, week 2, etc. — combine from estimate to avoid duplicates.
@@ -481,31 +583,46 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
         const dB = new Date(b.scheduledDate || b.dueDate || 0).getTime();
         return dA - dB;
       });
-      return combined;
+      return withChangeOrders(combined);
     }
 
     // Non-hybrid: use milestones if available
-    if (milestones.length) return milestones;
+    if (milestones.length) return withChangeOrders(milestones);
 
-    if (paymentMs.length) return paymentMs;
-    if (weekly.length) return convertWeeklyPaymentsToMilestones(weekly);
+    if (paymentMs.length) return withChangeOrders(paymentMs);
+    if (weekly.length) return withChangeOrders(convertWeeklyPaymentsToMilestones(weekly));
 
     if (estimateData?.weeklyPayments?.length) {
-      return estimateData.weeklyPayments.map((w: any, i: number) => ({
-        id: w.id || `week-${i}`,
-        name: w.description || `Week ${w.weekNumber || i + 1} Payment`,
-        paymentAmount: w.amount || 0,
-        amount: w.amount || 0,
-        percentage: w.percentage || 0,
-        scheduledDate: w.scheduledDate,
-        dueDate: w.scheduledDate,
-        description: w.description,
-        status: "pending",
-      }));
+      return withChangeOrders(
+        estimateData.weeklyPayments.map((w: any, i: number) => ({
+          id: w.id || `week-${i}`,
+          name: w.description || `Week ${w.weekNumber || i + 1} Payment`,
+          paymentAmount: w.amount || 0,
+          amount: w.amount || 0,
+          percentage: w.percentage || 0,
+          scheduledDate: w.scheduledDate,
+          dueDate: w.scheduledDate,
+          description: w.description,
+          status: "pending",
+        }))
+      );
     }
 
-    return [];
-  }, [liveBidPaymentData, project?.milestones, project?.weeklyPayments, projectFromList?.milestones, projectFromList?.weeklyPayments, (project as any)?.estimateData, (project as any)?.paymentSchedule]);
+    return withChangeOrders([]);
+  }, [
+    liveBidPaymentData,
+    project?.milestones,
+    project?.weeklyPayments,
+    projectFromList?.milestones,
+    projectFromList?.weeklyPayments,
+    (project as any)?.estimateData,
+    (project as any)?.paymentSchedule,
+    (project as any)?.changeOrders,
+    (project as any)?.projectData?.changeOrders,
+    projectFromList?.changeOrders,
+    projectFromList?.projectData?.changeOrders,
+    projectData?.changeOrders,
+  ]);
 
   const convertTimelineMilestonesToProject = () => {
     const existingLookup = new Map(
@@ -536,6 +653,10 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
         amount: milestone.amount ?? existing?.amount ?? milestone.amount ?? 0,
         percentage: existing?.percentage ?? 0,
         assignee: milestone.assignee || existing?.assignee || "Client",
+        collectedAt: (milestone as Milestone & { collectedAt?: string }).collectedAt ?? (existing as any)?.collectedAt,
+        ...((milestone as Milestone).actualDate
+          ? { actualDate: safeISODate(String((milestone as Milestone).actualDate)) }
+          : {}),
       };
     });
   };
@@ -666,6 +787,8 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                     assignee: savedM.assignee || newM.assignee,
                     costDelta: savedM.costDelta,
                     costCategory: savedM.costCategory,
+                    collectedAt: (savedM as Milestone & { collectedAt?: string }).collectedAt ?? (newM as Milestone & { collectedAt?: string }).collectedAt,
+                    actualDate: (savedM as Milestone).actualDate ?? (newM as Milestone).actualDate,
                     // Always use current schedule dates (from estimate/project) so timeline matches Estimate page; only keep status/progress from saved.
                     plannedDate: newM.plannedDate,
                   };
@@ -993,6 +1116,8 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
           assignee: existing.assignee || newM.assignee,
           costDelta: existing.costDelta,
           costCategory: existing.costCategory,
+          collectedAt: (existing as Milestone & { collectedAt?: string }).collectedAt,
+          actualDate: (existing as Milestone).actualDate ?? (newM as Milestone).actualDate,
         };
       });
 

@@ -9,6 +9,7 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -25,6 +26,10 @@ import { useUser } from '@clerk/clerk-react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
 import { BRAND_FRAME_GRADIENT_COLORS } from '@/constants/brandFrameGradient';
+import WebPageShell, {
+  getWebPageShellMaxWidth,
+  WEB_PAGE_SHELL_HORIZONTAL_PADDING,
+} from '@/components/layout/WebPageShell';
 
 function planShortName(name: string): string {
   return name.replace(/\s+Plan\s*$/i, '').trim() || name;
@@ -65,6 +70,7 @@ export default function SubscriptionPlansModal({
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const { user: clerkUser } = useUser();
   const insets = useSafeAreaInsets();
+  const { width: layoutWidth } = useWindowDimensions();
   const [plans, setPlans] = useState<SubscriptionPlan[]>(() => stripeService.getMockSubscriptionPlans());
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -169,11 +175,29 @@ export default function SubscriptionPlansModal({
 
   const isScreenMode = mode === 'screen';
 
+  /** Web: align header with WebPageShell column (same math as Profile). */
+  const webPaymentScreenHeaderMargins = useMemo(() => {
+    if (Platform.OS !== 'web') return undefined;
+    const maxW = getWebPageShellMaxWidth('profile');
+    const gutter = (layoutWidth - Math.min(layoutWidth, maxW)) / 2;
+    const inset = gutter + WEB_PAGE_SHELL_HORIZONTAL_PADDING;
+    return { marginLeft: inset, marginRight: inset };
+  }, [layoutWidth]);
+
   const handleClose = () => {
     if (onClose) {
       onClose();
     } else if (isScreenMode) {
-      router.back();
+      try {
+        const r = router as { canGoBack?: () => boolean; back: () => void; replace: (href: string) => void };
+        if (typeof r.canGoBack === 'function' && r.canGoBack()) {
+          r.back();
+        } else {
+          r.replace('/payment');
+        }
+      } catch {
+        router.replace('/payment');
+      }
     }
   };
 
@@ -536,10 +560,56 @@ export default function SubscriptionPlansModal({
   const subtitleCopy =
     'Simple pricing for serious builders. Start in minutes—upgrade or downgrade anytime.';
 
+  const billingChromeTree = (
+    <LinearGradient
+      colors={['#2DFFC4', '#00A6FF']}
+      start={{ x: 0.05, y: 0.15 }}
+      end={{ x: 0.95, y: 0.85 }}
+      style={styles.billingChrome}
+    >
+      <View
+        style={[
+          styles.billingInner,
+          {
+            backgroundColor: darkMode ? theme.cardDark : Colors.bg,
+            borderColor: theme.border,
+          },
+        ]}
+      >
+        {plans.map(renderPlan)}
+
+        <View
+          style={[
+            styles.footer,
+            {
+              backgroundColor: theme.card,
+              borderColor: theme.border,
+            },
+          ]}
+        >
+          <Text style={[styles.footerText, { color: theme.text }]}>Start with a 7-day free trial</Text>
+          <Text style={[styles.footerMuted, { color: theme.subtext }]}>Cancel anytime · No setup fees</Text>
+        </View>
+      </View>
+    </LinearGradient>
+  );
+
   const content = (
     <LinearGradient colors={theme.background} style={styles.container}>
       {isScreenMode && (
-        <View style={[styles.headerRow, { paddingTop: Math.max(insets.top, 8) + 4 }]}>
+        <View
+          style={[
+            styles.headerRow,
+            webPaymentScreenHeaderMargins,
+            {
+              // Web: safe-area insets are usually 0 in Safari/Chrome — add space below the tab bar.
+              paddingTop:
+                Platform.OS === 'web'
+                  ? Math.max(insets.top, 12) + 36
+                  : Math.max(insets.top, 8) + 4,
+            },
+          ]}
+        >
           <View style={styles.backButtonWrapper}>
             <LinearGradient
               colors={BRAND_FRAME_GRADIENT_COLORS}
@@ -550,7 +620,9 @@ export default function SubscriptionPlansModal({
               <GradientRingBackInner
                 darkMode={darkMode}
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  if (Platform.OS !== 'web') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }
                   handleClose();
                 }}
                 style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
@@ -578,7 +650,10 @@ export default function SubscriptionPlansModal({
       )}
 
       <ScrollView
-        style={styles.content}
+        style={[
+          styles.content,
+          isScreenMode && Platform.OS === 'web' && { paddingHorizontal: 0 },
+        ]}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
@@ -588,37 +663,13 @@ export default function SubscriptionPlansModal({
           <View style={styles.screenSubtitleSpacer} />
         )}
 
-        <LinearGradient
-          colors={['#2DFFC4', '#00A6FF']}
-          start={{ x: 0.05, y: 0.15 }}
-          end={{ x: 0.95, y: 0.85 }}
-          style={styles.billingChrome}
-        >
-          <View
-            style={[
-              styles.billingInner,
-              {
-                backgroundColor: darkMode ? theme.cardDark : Colors.bg,
-                borderColor: theme.border,
-              },
-            ]}
-          >
-            {plans.map(renderPlan)}
-
-            <View
-              style={[
-                styles.footer,
-                {
-                  backgroundColor: theme.card,
-                  borderColor: theme.border,
-                },
-              ]}
-            >
-              <Text style={[styles.footerText, { color: theme.text }]}>Start with a 7-day free trial</Text>
-              <Text style={[styles.footerMuted, { color: theme.subtext }]}>Cancel anytime · No setup fees</Text>
-            </View>
-          </View>
-        </LinearGradient>
+        {isScreenMode ? (
+          <WebPageShell size="profile" scroll={false} contentStyle={{ paddingTop: 4, paddingBottom: 24 }}>
+            {billingChromeTree}
+          </WebPageShell>
+        ) : (
+          billingChromeTree
+        )}
       </ScrollView>
     </LinearGradient>
   );
@@ -648,7 +699,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     paddingBottom: 8,
-    marginHorizontal: 20,
+    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 20 }),
     gap: 12,
   },
   headerTitleBlock: {

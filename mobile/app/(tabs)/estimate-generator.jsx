@@ -896,8 +896,6 @@ const LINE_ITEM_MODAL_WEB_MAX_WIDTH = 900;
 
 // Module-level variable to persist header top position across component remounts
 let paymentMilestoneHeaderTop = null;
-let weeklyPaymentHeaderTop = null;
-
 // Payment Milestone Modal
 const PaymentMilestoneModal = ({ visible, onClose, item, onSave, onDelete, grandTotal }) => {
   const insets = useSafeAreaInsets();
@@ -1420,10 +1418,23 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, onDelete, grand
   );
 };
 
-// Weekly Payment Modal
+// Weekly Payment Modal — layout/styling parity with Add Labor (`LineItemModal` + `LineItemFormShell`).
 const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
   const insets = useSafeAreaInsets();
   const tabScrollBottomInset = useTabScrollBottomInset();
+  const { width: weeklyModalLayoutWidth } = useWindowDimensions();
+  const weeklyWebConstrained =
+    Platform.OS === 'web' && isDesktopWebLayoutWidth(weeklyModalLayoutWidth);
+  const weeklyLayoutPad = useMemo(() => {
+    if (weeklyWebConstrained) {
+      return getProjectExpenseFormHorizontalPadding({ desktopWeb: true });
+    }
+    if (Platform.OS === 'web') {
+      return getProjectExpenseFormHorizontalPadding({ desktopWeb: false });
+    }
+    const h = ScreenLayout.edge.horizontal;
+    return { header: h, scroll: h, footer: h };
+  }, [weeklyWebConstrained]);
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const modalStyles = useMemo(() => getModalStyles(Colors, darkMode), [Colors, darkMode]);
@@ -1433,40 +1444,8 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
   const [weekNumber, setWeekNumber] = useState(item?.weekNumber?.toString() || '');
   const [scheduledDate, setScheduledDate] = useState(item?.scheduledDate || '');
   const [showDatePicker, setShowDatePicker] = useState(false);
-  
-  // Lock header top position on first modal open - persists across remounts via module variable
-  // This prevents the header from moving when navigating back
-  useEffect(() => {
-    if (visible && weeklyPaymentHeaderTop === null) {
-      // Lock to the current safe area top value - this will persist even when navigating back
-      weeklyPaymentHeaderTop = Math.max(insets.top || 0, 0);
-      console.log('🔒 WeeklyPaymentModal: Locked header top to', weeklyPaymentHeaderTop, 'and will not recalculate');
-    }
-  }, [visible, insets.top]);
-  
-  // Always use the locked value - never recalculate once set, even if insets change
-  // This ensures the header position remains stable when navigating back
-  const headerTop = weeklyPaymentHeaderTop !== null ? weeklyPaymentHeaderTop : Math.max(insets.top || 0, 0);
-  
-  // Memoize header style - only recalculate if headerTop actually changes
-  const headerStyle = useMemo(() => ({
-    position: 'absolute',
-    top: headerTop,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-    backgroundColor: '#000000',
-    paddingTop: 12,
-    paddingBottom: 16,
-  }), [headerTop]);
-  
-  // Memoize ScrollView contentContainerStyle to prevent layout recalculation
-  const scrollViewContentStyle = useMemo(() => ({
-    paddingHorizontal: 20,
-    paddingTop: headerTop + 110,
-    paddingBottom: tabScrollBottomInset,
-  }), [headerTop, tabScrollBottomInset]);
-  
+  const weeklyNativeFullBleed = Platform.OS === 'ios' || Platform.OS === 'android';
+
   useEffect(() => {
     if (item) {
       setDescription(item.description || '');
@@ -1482,25 +1461,27 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
       setScheduledDate('');
     }
   }, [item]);
-  
+
   const handleAmountChange = (text) => {
-    setAmount(text);
-    if (grandTotal > 0 && text) {
-      const amt = parseFloat(text) || 0;
+    const cleaned = text.replace(/[^0-9.]/g, '');
+    setAmount(cleaned);
+    if (grandTotal > 0 && cleaned) {
+      const amt = parseFloat(cleaned) || 0;
       const pct = Math.round((amt / grandTotal) * 100 * 100) / 100;
       setPercentage(pct.toString());
     }
   };
-  
+
   const handlePercentageChange = (text) => {
-    setPercentage(text);
-    if (grandTotal > 0 && text) {
-      const pct = parseFloat(text) || 0;
+    const cleaned = text.replace(/[^0-9.]/g, '');
+    setPercentage(cleaned);
+    if (grandTotal > 0 && cleaned) {
+      const pct = parseFloat(cleaned) || 0;
       const amt = Math.round((pct / 100) * grandTotal * 100) / 100;
       setAmount(amt.toString());
     }
   };
-  
+
   const handleSave = () => {
     const paymentData = {
       ...(item?.id && { id: item.id }),
@@ -1508,238 +1489,335 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
       amount: parseFloat(amount) || 0,
       paymentAmount: parseFloat(amount) || 0,
       percentage: parseFloat(percentage) || 0,
-      weekNumber: parseInt(weekNumber) || undefined,
+      weekNumber: parseInt(weekNumber, 10) || undefined,
       scheduledDate: scheduledDate || undefined,
       dueDate: scheduledDate || undefined,
     };
-    
+
     onSave(paymentData);
   };
-  
+
+  /** Native: gradient ring per field. Web: ring only on outer `LineItemFormShell` (Add Labor parity). */
+  const GradientFieldShell = ({ children }) => {
+    if (Platform.OS === 'web') {
+      return <>{children}</>;
+    }
+    return (
+      <LinearGradient
+        colors={BRAND_FRAME_GRADIENT_COLORS}
+        start={{ x: 0.05, y: 0.15 }}
+        end={{ x: 0.95, y: 0.85 }}
+        style={modalStyles.materialInputBorder}
+      >
+        {children}
+      </LinearGradient>
+    );
+  };
+
+  const amountNum = parseFloat(String(amount || '').replace(/[^0-9.-]/g, '')) || 0;
+  const pctNum = parseFloat(String(percentage || '').replace(/[^0-9.-]/g, '')) || 0;
+
+  const weeklyFormBody = (
+    <>
+      <View style={modalStyles.materialFieldGroup}>
+        <Text style={modalStyles.materialLabel}>Week number *</Text>
+        <GradientFieldShell>
+          <View style={modalStyles.materialInputWrapper}>
+            <Feather name="hash" size={16} color="#8DA0B8" style={modalStyles.materialInputIcon} />
+            <TextInput
+              style={[
+                modalStyles.materialInput,
+                { color: darkMode ? '#e9f1ff' : '#000000' },
+              ]}
+              value={weekNumber}
+              onChangeText={setWeekNumber}
+              keyboardType="numeric"
+              returnKeyType="next"
+              placeholder="e.g., 1, 2, 3"
+              placeholderTextColor={darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub}
+              selectionColor="#22c55e"
+              underlineColorAndroid="transparent"
+            />
+          </View>
+        </GradientFieldShell>
+      </View>
+
+      <View style={modalStyles.materialFieldGroup}>
+        <Text style={modalStyles.materialLabel}>Description (optional)</Text>
+        <View style={[modalStyles.materialInputWrapper, { alignItems: 'flex-start', paddingVertical: 12 }]}>
+          <Feather
+            name="file-text"
+            size={16}
+            color="#8DA0B8"
+            style={[modalStyles.materialInputIcon, { marginTop: 4 }]}
+          />
+          <TextInput
+            style={[
+              modalStyles.materialInput,
+              { minHeight: 80, textAlignVertical: 'top', color: darkMode ? '#e9f1ff' : '#000000' },
+            ]}
+            value={description}
+            onChangeText={setDescription}
+            placeholder="Optional description"
+            placeholderTextColor={darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub}
+            multiline
+            selectionColor="#22c55e"
+            underlineColorAndroid="transparent"
+          />
+        </View>
+      </View>
+
+      <View style={modalStyles.materialFieldGroup}>
+        <Text style={modalStyles.materialLabel}>Amount *</Text>
+        <GradientFieldShell>
+          <View style={modalStyles.materialInputWrapper}>
+            <Feather name="dollar-sign" size={16} color="#22c55e" style={modalStyles.materialInputIcon} />
+            <TextInput
+              style={[
+                modalStyles.materialInput,
+                { color: darkMode ? '#e9f1ff' : '#000000' },
+              ]}
+              value={amount}
+              onChangeText={handleAmountChange}
+              keyboardType="decimal-pad"
+              returnKeyType="next"
+              placeholder="$ 0.00"
+              placeholderTextColor={darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub}
+              selectionColor="#22c55e"
+              underlineColorAndroid="transparent"
+            />
+          </View>
+        </GradientFieldShell>
+      </View>
+
+      <View style={modalStyles.materialFieldGroup}>
+        <Text style={modalStyles.materialLabel}>Percentage (%)</Text>
+        <GradientFieldShell>
+          <View style={modalStyles.materialInputWrapper}>
+            <Feather name="percent" size={16} color="#8DA0B8" style={modalStyles.materialInputIcon} />
+            <TextInput
+              style={[
+                modalStyles.materialInput,
+                { color: darkMode ? '#e9f1ff' : '#000000' },
+              ]}
+              value={percentage}
+              onChangeText={handlePercentageChange}
+              keyboardType="decimal-pad"
+              returnKeyType="next"
+              placeholder="0"
+              placeholderTextColor={darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub}
+              selectionColor="#22c55e"
+              underlineColorAndroid="transparent"
+            />
+          </View>
+        </GradientFieldShell>
+      </View>
+
+      <View style={[modalStyles.materialFieldGroup, { marginBottom: 8 }]}>
+        <Text style={modalStyles.materialLabel}>Scheduled date (optional)</Text>
+        <GradientFieldShell>
+          <TouchableOpacity
+            style={modalStyles.materialInputWrapper}
+            onPress={() => setShowDatePicker(!showDatePicker)}
+          >
+            <Feather name="calendar" size={16} color="#8DA0B8" style={modalStyles.materialInputIcon} />
+            <Text
+              style={{
+                flex: 1,
+                fontSize: 15,
+                color: scheduledDate
+                  ? darkMode
+                    ? '#FFFFFF'
+                    : Colors.text
+                  : darkMode
+                    ? 'rgba(255,255,255,0.4)'
+                    : Colors.sub,
+                fontWeight: '500',
+                paddingVertical: 12,
+              }}
+            >
+              {scheduledDate
+                ? new Date(`${scheduledDate}T00:00:00`).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })
+                : 'Select date'}
+            </Text>
+          </TouchableOpacity>
+        </GradientFieldShell>
+        {showDatePicker ? (
+          <View style={{ marginTop: 12 }}>
+            <GreyCalendar
+              onDayPress={(day) => {
+                setScheduledDate(day.dateString);
+                setShowDatePicker(false);
+              }}
+              markedDates={{
+                [scheduledDate || '']: {
+                  selected: true,
+                  selectedColor: '#22c55e',
+                  selectedTextColor: '#000000',
+                },
+              }}
+              initialDate={scheduledDate}
+            />
+          </View>
+        ) : null}
+      </View>
+
+      <View style={[modalStyles.materialFieldGroup, { marginTop: 8, marginBottom: 4 }]}>
+        <View
+          style={{
+            backgroundColor: 'rgba(34, 197, 94, 0.12)',
+            borderRadius: 12,
+            padding: 16,
+            borderWidth: 1,
+            borderColor: 'rgba(34, 197, 94, 0.35)',
+          }}
+        >
+          <Text
+            style={{
+              color: darkMode ? '#22c55e' : Colors.text,
+              fontSize: 18,
+              fontWeight: '700',
+              textAlign: 'center',
+            }}
+          >
+            {grandTotal > 0
+              ? `Payment: ${formatMoneyFull(amountNum, { decimals: 2 })} · ${pctNum.toFixed(1)}% of bid (${formatMoneyFull(grandTotal, { decimals: 2 })})`
+              : `Payment: ${formatMoneyFull(amountNum, { decimals: 2 })}`}
+          </Text>
+        </View>
+      </View>
+    </>
+  );
+
   return (
     <Modal
       visible={visible}
-      transparent
       animationType="slide"
-      {...(Platform.OS !== 'web' ? { presentationStyle: 'overFullScreen' } : {})}
+      {...(Platform.OS !== 'web'
+        ? { presentationStyle: 'fullScreen', statusBarTranslucent: true }
+        : {})}
       onRequestClose={onClose}
     >
-      <SafeAreaView edges={[]} style={{ flex: 1, backgroundColor: Colors.bg }}>
-        <StatusBar barStyle={Colors.bg === '#000000' ? "light-content" : "dark-content"} translucent={false} />
-        {/* HEADER - Fixed at top, respects safe area - outside layout containers */}
-        <View style={[modalStyles.materialHeader, headerStyle]} collapsable={false}>
-          <View style={modalStyles.backButtonWrapper}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={modalStyles.backButtonBorder}
-            >
-              <GradientRingBackInner
-                darkMode={darkMode}
-                onPress={onClose}
-                style={modalStyles.backButton}
-              >
-                <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
-              </GradientRingBackInner>
-            </LinearGradient>
-          </View>
-
-          <View style={modalStyles.headerTitleRow}>
-            <View style={modalStyles.headerIconContainerWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={modalStyles.headerIconBorder}
-              >
-                <View style={modalStyles.headerIconContainer}>
-                  <MaterialCommunityIcons
-                    name="calendar-week"
-                    size={20}
-                    color="#22c55e"
-                  />
-                </View>
-              </LinearGradient>
-            </View>
-            <View style={modalStyles.headerTextBlock}>
-              <Text style={modalStyles.materialTitle}>
-                {item ? 'Edit' : 'Add'} Weekly Payment
-              </Text>
-              <Text style={modalStyles.materialSubtitle}>
-                Set payment amount and schedule
-              </Text>
-            </View>
-          </View>
-        </View>
-        
-        <View style={{ flex: 1, backgroundColor: Colors.bg, position: 'relative' }} collapsable={false}>
-          {/* CONTENT */}
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={{ flex: 1 }}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      <StatusBar barStyle={Colors.bg === '#000000' ? 'light-content' : 'dark-content'} translucent={false} />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'android' ? 'padding' : undefined}
+        enabled={Platform.OS === 'android'}
+        style={{ flex: 1, backgroundColor: Colors.bg }}
+        keyboardVerticalOffset={0}
+      >
+        <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: Colors.bg }}>
+          <View
+            style={[
+              { flex: 1, width: '100%' },
+              weeklyWebConstrained && {
+                maxWidth: LINE_ITEM_MODAL_WEB_MAX_WIDTH,
+                width: '100%',
+                alignSelf: 'center',
+              },
+            ]}
           >
+            <View
+              style={[
+                modalStyles.materialHeader,
+                { paddingHorizontal: weeklyLayoutPad.header },
+                Platform.OS === 'web' && { paddingTop: 32 },
+              ]}
+            >
+              <View style={modalStyles.backButtonWrapper}>
+                <LinearGradient
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={modalStyles.backButtonBorder}
+                >
+                  <GradientRingBackInner darkMode={darkMode} onPress={onClose} style={modalStyles.backButton}>
+                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
+                  </GradientRingBackInner>
+                </LinearGradient>
+              </View>
+              <View style={modalStyles.headerTitleRow}>
+                <View style={modalStyles.headerIconContainerWrapper}>
+                  <LinearGradient
+                    colors={BRAND_FRAME_GRADIENT_COLORS}
+                    start={{ x: 0.05, y: 0.15 }}
+                    end={{ x: 0.95, y: 0.85 }}
+                    style={modalStyles.headerIconBorder}
+                  >
+                    <View style={modalStyles.headerIconContainer}>
+                      <MaterialCommunityIcons name="calendar-week" size={24} color="#22c55e" />
+                    </View>
+                  </LinearGradient>
+                </View>
+                <View style={modalStyles.headerTextBlock}>
+                  <Text style={modalStyles.materialTitle}>
+                    {item ? 'Edit Weekly Payment' : 'Add Weekly Payment'}
+                  </Text>
+                  <Text style={modalStyles.materialSubtitle}>Set payment amount and schedule</Text>
+                </View>
+              </View>
+            </View>
+
             <ScrollView
               {...KEYBOARD_SCROLL_DEFAULTS}
+              style={{ flex: 1 }}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={scrollViewContentStyle}
+              automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+              automaticallyAdjustContentInsets={false}
+              contentInsetAdjustmentBehavior="never"
+              contentContainerStyle={{
+                paddingHorizontal: weeklyLayoutPad.scroll,
+                paddingTop: 8,
+                paddingBottom: 16 + tabScrollBottomInset,
+              }}
             >
-              <View style={modalStyles.materialFieldGroup}>
-                <Text style={modalStyles.materialLabel}>Week Number *</Text>
-                <View style={modalStyles.materialInputWrapper}>
-                  <Feather
-                    name="hash"
-                    size={16}
-                    color="#8DA0B8"
-                    style={modalStyles.materialInputIcon}
-                  />
-                  <TextInput
-                    style={modalStyles.materialInput}
-                    value={weekNumber}
-                    onChangeText={setWeekNumber}
-                    keyboardType="numeric"
-                    returnKeyType="next"
-                    placeholder="e.g., 1, 2, 3"
-                    placeholderTextColor="rgba(255,255,255,0.4)"
-                  />
-                </View>
-              </View>
-              
-              <View style={modalStyles.materialFieldGroup}>
-                <Text style={modalStyles.materialLabel}>Description (Optional)</Text>
-                <View style={[modalStyles.materialInputWrapper, { alignItems: 'flex-start', paddingVertical: 12 }]}>
-                  <Feather
-                    name="file-text"
-                    size={16}
-                    color="#8DA0B8"
-                    style={[modalStyles.materialInputIcon, { marginTop: 4 }]}
-                  />
-                  <TextInput
-                    style={[modalStyles.materialInput, { minHeight: 80, textAlignVertical: 'top' }]}
-                    value={description}
-                    onChangeText={setDescription}
-                    placeholder="Optional description"
-                    placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.text}
-                    multiline
-                  />
-                </View>
-              </View>
-              
-              <View style={modalStyles.materialFieldGroup}>
-                <Text style={modalStyles.materialLabel}>Amount *</Text>
-                <View style={modalStyles.materialInputWrapper}>
-                  <Feather
-                    name="dollar-sign"
-                    size={16}
-                    color="#22c55e"
-                    style={modalStyles.materialInputIcon}
-                  />
-                  <TextInput
-                    style={modalStyles.materialInput}
-                    value={amount}
-                    onChangeText={handleAmountChange}
-                    keyboardType="decimal-pad"
-                    returnKeyType="next"
-                    placeholder="$ 0.00"
-                    placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
-                  />
-                </View>
-              </View>
-              
-              <View style={modalStyles.materialFieldGroup}>
-                <Text style={modalStyles.materialLabel}>Percentage (%)</Text>
-                <View style={modalStyles.materialInputWrapper}>
-                  <Feather
-                    name="percent"
-                    size={16}
-                    color="#8DA0B8"
-                    style={modalStyles.materialInputIcon}
-                  />
-                  <TextInput
-                    style={modalStyles.materialInput}
-                    value={percentage}
-                    onChangeText={handlePercentageChange}
-                    keyboardType="decimal-pad"
-                    returnKeyType="next"
-                    placeholder="0"
-                    placeholderTextColor="rgba(255,255,255,0.4)"
-                  />
-                </View>
-              </View>
-              
-              <View style={[modalStyles.materialFieldGroup, { marginBottom: 20 }]}>
-                <Text style={modalStyles.materialLabel}>Scheduled Date (Optional)</Text>
-                <TouchableOpacity
-                  style={modalStyles.materialInputWrapper}
-                  onPress={() => setShowDatePicker(!showDatePicker)}
-                >
-                  <Feather
-                    name="calendar"
-                    size={16}
-                    color="#8DA0B8"
-                    style={modalStyles.materialInputIcon}
-                  />
-                  <Text style={{ 
-                    flex: 1, 
-                    fontSize: 15, 
-                    color: scheduledDate
-                      ? (darkMode ? '#FFFFFF' : Colors.text)
-                      : (darkMode ? 'rgba(255,255,255,0.4)' : Colors.text),
-                    fontWeight: '500',
-                    paddingVertical: 12,
-                  }}>
-                    {scheduledDate ? new Date(scheduledDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select date'}
-                  </Text>
-                </TouchableOpacity>
-                {showDatePicker && (
-                  <View style={{ marginTop: 8 }}>
-                    <GreyCalendar
-                      onDayPress={(day) => {
-                        setScheduledDate(day.dateString);
-                        setShowDatePicker(false);
-                      }}
-                      markedDates={{
-                        [scheduledDate || '']: {
-                          selected: true,
-                          selectedColor: '#22c55e',
-                          selectedTextColor: '#000000',
-                        }
-                      }}
-                      initialDate={scheduledDate}
-                    />
-                  </View>
-                )}
-              </View>
+              <LineItemFormShell nativeFullBleed={weeklyNativeFullBleed} darkMode={darkMode} Colors={Colors}>
+                {weeklyFormBody}
+              </LineItemFormShell>
             </ScrollView>
-            
-            {/* BOTTOM ACTION BAR */}
-            <View style={[modalStyles.materialFooter, { paddingBottom: Math.max(insets.bottom, 20) + 30 }]}>
+
+            <View
+              style={[
+                modalStyles.materialFooterFlow,
+                {
+                  paddingBottom: Math.max(insets.bottom, 16),
+                  paddingHorizontal: weeklyLayoutPad.footer,
+                },
+              ]}
+            >
               <Pressable
+                onPress={onClose}
                 style={({ pressed }) => [
                   modalStyles.materialCancelBtn,
-                  pressed && { opacity: 0.8 },
+                  { flex: 1 },
+                  pressed && { opacity: 0.75 },
                 ]}
-                onPress={onClose}
+                android_disableSound
+                delayPressIn={0}
               >
                 <Text style={modalStyles.materialCancelText}>Cancel</Text>
               </Pressable>
-
               <Pressable
+                onPress={handleSave}
                 style={({ pressed }) => [
                   modalStyles.materialSaveBtn,
-                  pressed && { transform: [{ scale: 0.97 }] },
+                  { flex: 1 },
+                  pressed && { opacity: 0.92, transform: [{ scale: 0.99 }] },
                 ]}
-                onPress={handleSave}
+                android_disableSound
+                delayPressIn={0}
               >
                 <View style={[modalStyles.materialSaveButtonGradient, { backgroundColor: '#22c55e' }]}>
                   <Text style={modalStyles.materialSaveText}>✓ Save</Text>
                 </View>
               </Pressable>
             </View>
-            </KeyboardAvoidingView>
+          </View>
         </View>
-      </SafeAreaView>
+      </KeyboardAvoidingView>
     </Modal>
   );
 };
@@ -6388,7 +6466,8 @@ export default function EstimateGeneratorScreen() {
         if (saved) {
           const parsed = JSON.parse(saved);
           console.log(`👤 Loaded contractor profile: ${parsed.name} - ${parsed.company}`);
-          setContractorProfile(parsed);
+          /** Merge so partial JSON (missing `avatar` / logo keys) does not wipe PDF branding. */
+          setContractorProfile((prev) => ({ ...prev, ...parsed }));
         }
       } catch (error) {
         console.error('Failed to load profile:', error);
@@ -9230,7 +9309,7 @@ export default function EstimateGeneratorScreen() {
         insurer: bidData.insuranceCoverage || undefined,
         glLimit: undefined,
         wcActive: bidData.insurance || false,
-        logoUrl: cp.avatar || cp.logoUrl || undefined,
+        logoUrl: resolveBrandImageUrl(cp) || undefined,
       },
       owner: {
         legalName: bidData.customerName || 'Client',
@@ -9397,14 +9476,24 @@ export default function EstimateGeneratorScreen() {
 
   const resolveContractBrandAsset = async (profile) => {
     const assetPath = resolveBrandImageUrl(profile);
-    if (!assetPath || !String(assetPath).startsWith('file://')) {
-      return assetPath || null;
-    }
+    if (!assetPath) return null;
 
-    /** `expo-file-system/legacy` must not be imported at module scope on web — it breaks the Estimates bundle. */
-    if (Platform.OS === 'web') {
+    let src = String(assetPath).trim();
+    if (src.startsWith('//')) src = `https:${src}`;
+    if (src.startsWith('data:')) return src;
+
+    /**
+     * Contract HTML is rendered by the backend (Puppeteer). `blob:` URLs only exist in the
+     * browser session — Chromium on the server cannot load them, so the PDF shows a broken image.
+     * Inlining as a data URL keeps the payload self-contained for `/contracts/render-pdf`.
+     *
+     * Remote `https?` logos are also inlined when possible: even valid public URLs could race
+     * with `page.pdf()` if the server only waited for `domcontentloaded` (now fixed), and LAN
+     * URLs are invisible to a hosted PDF worker.
+     */
+    const readFetchableAsDataUrl = async (url) => {
       try {
-        const response = await fetch(assetPath);
+        const response = await fetch(url);
         if (!response.ok) return null;
         const blob = await response.blob();
         const dataUrl = await new Promise((resolve, reject) => {
@@ -9415,23 +9504,67 @@ export default function EstimateGeneratorScreen() {
         });
         return typeof dataUrl === 'string' ? dataUrl : null;
       } catch (error) {
-        console.error('Failed to convert contract brand image (web):', error);
+        console.error('Failed to convert contract brand image to data URL:', error);
+        return null;
+      }
+    };
+
+    if (src.startsWith('blob:')) {
+      if (Platform.OS !== 'web') return null;
+      const viaFetch = await readFetchableAsDataUrl(src);
+      if (viaFetch) return viaFetch;
+      try {
+        const xhrBlob = await new Promise((resolve) => {
+          try {
+            const xhr = new XMLHttpRequest();
+            xhr.open('GET', src);
+            xhr.responseType = 'blob';
+            xhr.onload = () => resolve(xhr.response || null);
+            xhr.onerror = () => resolve(null);
+            xhr.send();
+          } catch {
+            resolve(null);
+          }
+        });
+        if (!xhrBlob) return null;
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error('FileReader failed'));
+          reader.readAsDataURL(xhrBlob);
+        });
+        return typeof dataUrl === 'string' ? dataUrl : null;
+      } catch (e) {
+        console.error('Contract brand blob→data URL (XHR fallback) failed:', e);
         return null;
       }
     }
 
-    try {
-      const FileSystem = require('expo-file-system/legacy');
-      const base64 = await FileSystem.readAsStringAsync(assetPath, {
-        encoding: 'base64',
-      });
-      const extension = assetPath.split('.').pop().toLowerCase();
-      const mimeType = extension === 'png' ? 'image/png' : 'image/jpeg';
-      return `data:${mimeType};base64,${base64}`;
-    } catch (error) {
-      console.error('Failed to convert contract brand image:', error);
-      return null;
+    if (src.startsWith('file://')) {
+      /** `expo-file-system/legacy` must not be imported at module scope on web — it breaks the Estimates bundle. */
+      if (Platform.OS === 'web') {
+        return readFetchableAsDataUrl(src);
+      }
+      try {
+        const FileSystem = require('expo-file-system/legacy');
+        const base64 = await FileSystem.readAsStringAsync(src, {
+          encoding: 'base64',
+        });
+        const extension = src.split('.').pop().toLowerCase();
+        const mimeType = extension === 'png' ? 'image/png' : 'image/jpeg';
+        return `data:${mimeType};base64,${base64}`;
+      } catch (error) {
+        console.error('Failed to convert contract brand image:', error);
+        return null;
+      }
     }
+
+    if (/^https?:\/\//i.test(src)) {
+      const inlined = await readFetchableAsDataUrl(src);
+      if (inlined) return inlined;
+    }
+
+    return src;
   };
 
   // Generate and Share Contract - Goes straight to PDF sharing
@@ -9461,10 +9594,22 @@ export default function EstimateGeneratorScreen() {
       const preflightWarnings = validateContractPreflight(doc, contractOptions);
 
       const runExport = async () => {
+        const rawBrand = resolveBrandImageUrl(profileForPdf);
         const brandAsset = await resolveContractBrandAsset(profileForPdf);
         if (brandAsset) {
           doc.contractor.logoUrl = brandAsset;
           contractOptions.branding = { ...branding, logoUrl: brandAsset };
+        } else if (rawBrand) {
+          let raw = String(rawBrand).trim();
+          if (raw.startsWith('//')) raw = `https:${raw}`;
+          const cannotServeFromPdfBackend =
+            raw.startsWith('blob:') ||
+            raw.startsWith('file:') ||
+            /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::|\b)/i.test(raw);
+          if (cannotServeFromPdfBackend) {
+            doc.contractor.logoUrl = undefined;
+            contractOptions.branding = { ...branding, logoUrl: undefined };
+          }
         }
 
         await exportContractPdf(doc, contractOptions, `${bid.title || 'contract'}-agreement-${bid.id}`);
@@ -10616,100 +10761,111 @@ export default function EstimateGeneratorScreen() {
     }));
   };
 
+  const confirmCreateNewBid = async () => {
+    // Set flag to prevent useFocusEffect from restoring old data
+    isCreatingNewBidRef.current = true;
+
+    await backupCurrentEstimateSilently();
+
+    // CRITICAL: When "New bid" is clicked, clear walkthrough flags
+    // Walkthrough should ONLY show when "Reset onboarding" is explicitly clicked
+    // After creating a new bid, walkthrough should be hidden
+    setIsOnboardingReset(false);
+    await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'false');
+    await AsyncStorage.setItem('bps.showEstimateGuideRail', 'false');
+    await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
+    await AsyncStorage.removeItem('bps.forceEstimateOnboarding'); // Clear reset flag
+
+    // Clear all AsyncStorage keys related to the bid
+    try {
+      // Clear materials and rentals first
+      await AsyncStorage.setItem('bps.materialsCart', JSON.stringify([]));
+      await AsyncStorage.setItem('bps.rentalCart', JSON.stringify([]));
+      await AsyncStorage.multiRemove([
+        'manualMaterialEntry',
+        'manualLaborEntry',
+        BID_STORAGE_KEY, // Clear the current bid storage
+        'bps.currentBid',
+        'bps.currentBid.v1',
+        'bps.haimBid',
+        'bps.backupBid',
+      ]);
+    } catch (error) {
+      console.warn('Failed to clear previous bid data:', error);
+    }
+
+    // Create a completely blank bid (not first time, so no default items)
+    const proposalNumber = await allocateNextProposalNumber();
+    const nextBid = {
+      ...blankState(),
+      proposalNumber,
+      // Ensure all calculation-related fields are cleared
+      previousTotal: undefined,
+      materialLineItems: [],
+      laborLineItems: [],
+      paymentMilestones: [],
+      weeklyPayments: [],
+      // Clear all customer/client info
+      customerName: '',
+      customerEmail: '',
+      customerPhone: '',
+      customerAddress: '',
+      customerCity: '',
+      customerState: '',
+      customerZip: '',
+      customerCompany: '',
+      customerNotes: '',
+      clientName: '',
+      clientEmail: '',
+      // Clear title
+      title: 'Untitled Bid',
+      // Add a flag to indicate this is a fresh new bid
+      _isNewBid: true,
+      _createdAt: Date.now(),
+    };
+
+    lastSavedBidRef.current = null;
+    pendingSaveRef.current = null;
+
+    // Reset all state variables immediately
+    setMaterialsCart([]);
+    setRentalCart([]);
+    setBid(nextBid);
+    setStep(0); // Reset to summary step
+    setActiveScope('kitchen');
+    setHasReviewedMarkup(false);
+    setHasReviewedTotal(false);
+    setMaterialsAddedFlag(false);
+    setActiveNavButton(null); // Clear active nav button
+
+    // Save the blank bid to storage
+    try {
+      await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(nextBid));
+      console.log('🆕 Started new bid and saved blank state to storage');
+    } catch (error) {
+      console.warn('Failed to save new blank bid to storage:', error);
+    }
+
+    // Reset the flag after a delay to allow the new bid to be set
+    setTimeout(() => {
+      isCreatingNewBidRef.current = false;
+    }, 2000);
+  };
+
   const createNewBid = () => {
+    // RN Web: Alert.alert with buttons is unreliable — use confirm so "+ New" works in the browser.
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.confirm('Start a new bid? Current bid will be saved.')) {
+        confirmCreateNewBid().catch((err) => console.warn('createNewBid (web):', err));
+      }
+      return;
+    }
     Alert.alert('New Bid', 'Start a new bid? Current bid will be saved.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'New Bid',
-        onPress: async () => {
-          // Set flag to prevent useFocusEffect from restoring old data
-          isCreatingNewBidRef.current = true;
-          
-          await backupCurrentEstimateSilently();
-          
-          // CRITICAL: When "New bid" is clicked, clear walkthrough flags
-          // Walkthrough should ONLY show when "Reset onboarding" is explicitly clicked
-          // After creating a new bid, walkthrough should be hidden
-          setIsOnboardingReset(false);
-          await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'false');
-          await AsyncStorage.setItem('bps.showEstimateGuideRail', 'false');
-          await AsyncStorage.setItem('bps.dismissEstimateGuideRail', 'true');
-          await AsyncStorage.removeItem('bps.forceEstimateOnboarding'); // Clear reset flag
-          
-          // Clear all AsyncStorage keys related to the bid
-          try {
-            // Clear materials and rentals first
-            await AsyncStorage.setItem('bps.materialsCart', JSON.stringify([]));
-            await AsyncStorage.setItem('bps.rentalCart', JSON.stringify([]));
-            await AsyncStorage.multiRemove([
-              'manualMaterialEntry',
-              'manualLaborEntry',
-              BID_STORAGE_KEY, // Clear the current bid storage
-              'bps.currentBid',
-              'bps.currentBid.v1',
-              'bps.haimBid',
-              'bps.backupBid',
-            ]);
-          } catch (error) {
-            console.warn('Failed to clear previous bid data:', error);
-          }
-
-          // Create a completely blank bid (not first time, so no default items)
-          const proposalNumber = await allocateNextProposalNumber();
-          const nextBid = {
-            ...blankState(),
-            proposalNumber,
-            // Ensure all calculation-related fields are cleared
-            previousTotal: undefined,
-            materialLineItems: [],
-            laborLineItems: [],
-            paymentMilestones: [],
-            weeklyPayments: [],
-            // Clear all customer/client info
-            customerName: '',
-            customerEmail: '',
-            customerPhone: '',
-            customerAddress: '',
-            customerCity: '',
-            customerState: '',
-            customerZip: '',
-            customerCompany: '',
-            customerNotes: '',
-            clientName: '',
-            clientEmail: '',
-            // Clear title
-            title: 'Untitled Bid',
-            // Add a flag to indicate this is a fresh new bid
-            _isNewBid: true,
-            _createdAt: Date.now(),
-          };
-          
-          lastSavedBidRef.current = null;
-          pendingSaveRef.current = null;
-
-          // Reset all state variables immediately
-          setMaterialsCart([]);
-          setRentalCart([]);
-          setBid(nextBid);
-          setStep(0); // Reset to summary step
-          setActiveScope('kitchen');
-          setHasReviewedMarkup(false);
-          setHasReviewedTotal(false);
-          setMaterialsAddedFlag(false);
-          setActiveNavButton(null); // Clear active nav button
-
-          // Save the blank bid to storage
-          try {
-            await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(nextBid));
-            console.log('🆕 Started new bid and saved blank state to storage');
-          } catch (error) {
-            console.warn('Failed to save new blank bid to storage:', error);
-          }
-          
-          // Reset the flag after a delay to allow the new bid to be set
-          setTimeout(() => {
-            isCreatingNewBidRef.current = false;
-          }, 2000);
+        onPress: () => {
+          confirmCreateNewBid().catch((err) => console.warn('createNewBid:', err));
         },
       },
     ]);
@@ -14522,7 +14678,22 @@ export default function EstimateGeneratorScreen() {
           paddingHorizontal: 12,
           paddingVertical: 9,
         };
+        const step7DepositDateField = {
+          backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.14)',
+          borderWidth: 2,
+          borderColor: '#22c55e',
+          borderRadius: 12,
+          paddingHorizontal: 12,
+          paddingVertical: 9,
+        };
         const step7FieldLabel = { color: step7Muted, fontSize: 11, fontWeight: '600', marginBottom: 5, letterSpacing: 0.2 };
+        const step7DepositFieldLabel = {
+          color: '#22c55e',
+          fontSize: 11,
+          fontWeight: '800',
+          marginBottom: 5,
+          letterSpacing: 0.35,
+        };
         
         return (
           <View style={[s.wideContainer, { marginTop: 0, marginBottom: 80, paddingTop: 4 }]}>
@@ -14690,12 +14861,16 @@ export default function EstimateGeneratorScreen() {
                               borderColor: 'rgba(45, 255, 196, 0.45)',
                               borderStyle: 'dashed',
                             } : {};
-                            // Deposit: green glow - dark mode only
-                            const depositStyle = isDeposit ? {
-                              backgroundColor: 'rgba(56, 211, 159, 0.16)',
-                              borderWidth: 1,
-                              borderColor: 'rgba(56, 211, 159, 0.35)',
-                            } : {};
+                            // Deposit: strong green frame (all themes)
+                            const depositStyle = isDeposit
+                              ? {
+                                  backgroundColor: darkMode
+                                    ? 'rgba(34, 197, 94, 0.22)'
+                                    : 'rgba(34, 197, 94, 0.16)',
+                                  borderWidth: 2,
+                                  borderColor: '#22c55e',
+                                }
+                              : {};
                             // Progress: subtle - dark mode only
                             const progressStyle = (!isFinal && !isDeposit && darkMode) ? {
                               backgroundColor: 'rgba(255, 255, 255, 0.06)',
@@ -14719,7 +14894,7 @@ export default function EstimateGeneratorScreen() {
                                   progressStyle,
                                 ]}
                               >
-                                <Text style={{ color: step7Muted, fontSize: 10, marginBottom: 6, fontWeight: '700', letterSpacing: 0.2 }} numberOfLines={2}>
+                                <Text style={{ color: isDeposit ? (darkMode ? '#86efac' : '#15803d') : step7Muted, fontSize: 10, marginBottom: 6, fontWeight: '700', letterSpacing: 0.2 }} numberOfLines={2}>
                                   {item.label}
                                 </Text>
                                 <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '800', marginBottom: 3 }}>
@@ -15045,10 +15220,10 @@ export default function EstimateGeneratorScreen() {
                           )}
                         </View>
                         <View style={{ flex: 1 }}>
-                          <Text style={step7FieldLabel}>Deposit Date</Text>
+                          <Text style={step7DepositFieldLabel}>Deposit Date</Text>
                           <TouchableOpacity
                             onPress={() => setShowDepositCalendar(!showDepositCalendar)}
-                            style={step7DateField}
+                            style={step7DepositDateField}
                           >
                             <Text style={{ color: (() => {
                               const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
@@ -16062,10 +16237,10 @@ export default function EstimateGeneratorScreen() {
                               )}
                             </View>
                             <View>
-                              <Text style={step7FieldLabel}>Deposit Date</Text>
+                              <Text style={step7DepositFieldLabel}>Deposit Date</Text>
                               <TouchableOpacity
                                 onPress={() => setShowDepositCalendar(!showDepositCalendar)}
-                                style={step7DateField}
+                                style={step7DepositDateField}
                               >
                                 <Text style={{ color: (() => {
                                   const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
@@ -16783,10 +16958,10 @@ export default function EstimateGeneratorScreen() {
                                   )}
                                 </View>
                                 <View>
-                                  <Text style={step7FieldLabel}>Deposit Date</Text>
+                                  <Text style={step7DepositFieldLabel}>Deposit Date</Text>
                                   <TouchableOpacity
                                     onPress={() => setShowDepositCalendar(!showDepositCalendar)}
-                                    style={step7DateField}
+                                    style={step7DepositDateField}
                                   >
                                     <Text style={{ color: (() => {
                                       const depositPayment = weeklyPayments.find(w => w.weekNumber === 0 || (w.description && w.description.toLowerCase().includes('deposit')));

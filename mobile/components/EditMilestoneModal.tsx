@@ -39,6 +39,8 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
   const [costCategory, setCostCategory] = useState<MilestoneCostCategory>("materials");
   const [paymentAmount, setPaymentAmount] = useState("");
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [actualDate, setActualDate] = useState<Date | null>(null);
+  const [showActualDatePicker, setShowActualDatePicker] = useState(false);
 
   // Debug logging
   useEffect(() => {
@@ -57,6 +59,12 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
       setCostCategory(milestone.costCategory || "materials");
       // Keep the original payment amount - don't change it
       setPaymentAmount(milestone.amount ? String(milestone.amount) : "");
+      const adRaw = milestone.actualDate
+        ? String(milestone.actualDate).match(/^(\d{4}-\d{2}-\d{2})/)?.[1]
+        : null;
+      setActualDate(adRaw ? new Date(`${adRaw}T00:00:00`) : null);
+      setShowDatePicker(false);
+      setShowActualDatePicker(false);
     }
   }, [visible, milestone]);
 
@@ -68,6 +76,10 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
     
     const cost = parseFloat(costDelta) || undefined;
     const amount = parseFloat(paymentAmount) || undefined;
+    const numericAmount =
+      (typeof amount === 'number' && Number.isFinite(amount) ? amount : 0) ||
+      (typeof milestone.amount === 'number' && Number.isFinite(milestone.amount) ? milestone.amount : 0) ||
+      0;
 
     // Auto-set progress to 100% if completed, otherwise keep existing progress
     let finalProgress = milestone.progressPct || 0;
@@ -77,7 +89,11 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
       finalProgress = 50;
     }
 
-    const updatedMilestone = {
+    const actualDateIso = actualDate
+      ? `${actualDate.getFullYear()}-${String(actualDate.getMonth() + 1).padStart(2, '0')}-${String(actualDate.getDate()).padStart(2, '0')}`
+      : undefined;
+
+    const updatedMilestone: Milestone & { collectedAt?: string } = {
       ...milestone,
       title: title.trim(),
       plannedDate: `${plannedDate.getFullYear()}-${String(plannedDate.getMonth() + 1).padStart(2, '0')}-${String(plannedDate.getDate()).padStart(2, '0')}`,
@@ -88,6 +104,23 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
       costCategory: cost !== undefined ? costCategory : undefined,
       amount: amount, // Keep the original payment amount
     };
+
+    if (actualDateIso) {
+      updatedMilestone.actualDate = actualDateIso;
+    } else {
+      delete updatedMilestone.actualDate;
+    }
+
+    if (status === 'completed' && numericAmount > 0) {
+      if (actualDateIso) {
+        updatedMilestone.collectedAt = new Date(`${actualDateIso}T12:00:00`).toISOString();
+      } else {
+        updatedMilestone.collectedAt =
+          (milestone as Milestone & { collectedAt?: string }).collectedAt || new Date().toISOString();
+      }
+    } else {
+      delete updatedMilestone.collectedAt;
+    }
 
     console.log(`💾 Saving milestone:`, {
       id: updatedMilestone.id,
@@ -244,7 +277,10 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
             <View style={styles.field}>
               <Text style={[styles.label, !darkMode && { color: ThemeColors.text }]}>Planned Date</Text>
               <TouchableOpacity 
-                onPress={() => setShowDatePicker(!showDatePicker)}
+                onPress={() => {
+                  setShowActualDatePicker(false);
+                  setShowDatePicker(!showDatePicker);
+                }}
                 style={[
                   styles.dateButton,
                   {
@@ -275,6 +311,77 @@ export default function EditMilestoneModal({ visible, milestone, projectBudget =
                       }
                     }}
                     initialDate={`${plannedDate.getFullYear()}-${String(plannedDate.getMonth() + 1).padStart(2, '0')}-${String(plannedDate.getDate()).padStart(2, '0')}`}
+                  />
+                </View>
+              )}
+            </View>
+
+            <View style={styles.field}>
+              <Text style={[styles.label, !darkMode && { color: ThemeColors.text }]}>Actual Date (Optional)</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowDatePicker(false);
+                  setShowActualDatePicker(!showActualDatePicker);
+                }}
+                style={[
+                  styles.dateButton,
+                  {
+                    backgroundColor: ThemeColors.surface2,
+                    borderColor: ThemeColors.line,
+                    borderWidth: 1,
+                    borderRadius: 12,
+                  }
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.dateButtonText,
+                    !darkMode && { color: ThemeColors.text },
+                    actualDate && { color: '#22c55e', fontWeight: '700' },
+                  ]}
+                >
+                  {actualDate
+                    ? `📅 ${actualDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                    : 'Tap to set — e.g. paid earlier than planned'}
+                </Text>
+              </TouchableOpacity>
+              {actualDate ? (
+                <TouchableOpacity
+                  onPress={() => setActualDate(null)}
+                  style={{ alignSelf: 'flex-start', marginTop: 8 }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={[styles.hint, { color: '#22c55e', fontWeight: '600' }]}>Clear actual date</Text>
+                </TouchableOpacity>
+              ) : (
+                <Text style={[styles.hint, !darkMode && { color: ThemeColors.sub }]}>
+                  When you were actually paid (can be before the planned date).
+                </Text>
+              )}
+              {showActualDatePicker && (
+                <View style={styles.datePickerContainer}>
+                  <GreyCalendar
+                    onDayPress={(day) => {
+                      const selectedDate = new Date(day.dateString + 'T00:00:00');
+                      setActualDate(selectedDate);
+                      setShowActualDatePicker(false);
+                    }}
+                    markedDates={{
+                      ...(actualDate
+                        ? {
+                            [`${actualDate.getFullYear()}-${String(actualDate.getMonth() + 1).padStart(2, '0')}-${String(actualDate.getDate()).padStart(2, '0')}`]: {
+                              selected: true,
+                              selectedColor: '#22c55e',
+                              selectedTextColor: '#000000',
+                            },
+                          }
+                        : {}),
+                    }}
+                    initialDate={
+                      actualDate
+                        ? `${actualDate.getFullYear()}-${String(actualDate.getMonth() + 1).padStart(2, '0')}-${String(actualDate.getDate()).padStart(2, '0')}`
+                        : `${plannedDate.getFullYear()}-${String(plannedDate.getMonth() + 1).padStart(2, '0')}-${String(plannedDate.getDate()).padStart(2, '0')}`
+                    }
                   />
                 </View>
               )}

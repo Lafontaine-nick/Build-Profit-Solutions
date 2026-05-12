@@ -1,6 +1,6 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo } from 'react';
 import { View } from 'react-native';
-import BetaFeedbackModal from '@/components/BetaFeedbackModal';
+import { router } from 'expo-router';
 
 export type BetaFeedbackPreset = {
   feedbackType?: string;
@@ -20,21 +20,29 @@ export function useBetaFeedback(): BetaFeedbackContextValue | null {
 }
 
 /**
+ * Full-screen feedback lives at `/profile/beta-feedback`.
  * Must render under ClerkProvider. Omitted entirely when the app runs without Clerk.
- * Entry point: Profile → Beta feedback (no floating pill, no AI header link).
  */
 export function BetaFeedbackProvider({ children }: { children: React.ReactNode }) {
-  const [visible, setVisible] = useState(false);
-  const [preset, setPreset] = useState<BetaFeedbackPreset | undefined>(undefined);
-
   const openBetaFeedback = useCallback((p?: BetaFeedbackPreset) => {
-    setPreset(p);
-    setVisible(true);
-  }, []);
-
-  const close = useCallback(() => {
-    setVisible(false);
-    setPreset(undefined);
+    const hasPreset =
+      Boolean(p?.feedbackType) ||
+      Boolean(p?.projectId) ||
+      Boolean(p?.estimateId) ||
+      Boolean(p?.aiContextFlag);
+    if (!hasPreset) {
+      router.push('/profile/beta-feedback');
+      return;
+    }
+    router.push({
+      pathname: '/profile/beta-feedback',
+      params: {
+        ...(p?.feedbackType ? { feedbackType: p.feedbackType } : {}),
+        ...(p?.projectId ? { projectId: p.projectId } : {}),
+        ...(p?.estimateId ? { estimateId: p.estimateId } : {}),
+        ...(p?.aiContextFlag ? { aiContextFlag: '1' } : {}),
+      },
+    });
   }, []);
 
   const value = useMemo(
@@ -46,10 +54,7 @@ export function BetaFeedbackProvider({ children }: { children: React.ReactNode }
 
   return (
     <BetaFeedbackContext.Provider value={value}>
-      <View style={{ flex: 1 }}>
-        {children}
-        <BetaFeedbackModal visible={visible} onClose={close} preset={preset} />
-      </View>
+      <View style={{ flex: 1 }}>{children}</View>
     </BetaFeedbackContext.Provider>
   );
 }

@@ -38,6 +38,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { computeProjectListRowFinancials } from '@/lib/projectListRowMetrics';
+import { isChangeOrderTimelineMilestone } from '@/src/lib/projectFinancials';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenLayout, isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, WEB_DESKTOP_EDGE_HORIZONTAL } from '@/constants/ScreenLayout';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
@@ -104,10 +105,10 @@ const isDepositMilestone = (m: any): boolean => {
   return t.includes("deposit") || m?.type === "deposit";
 };
 
-// Helper to calculate progress from milestone items (same logic as TimelineTabV2)
+// Helper to calculate progress from milestone items (same logic as TimelineTabV2: deposit + change-order rows excluded)
 const computeOverallPctFromItems = (items: any[]): number => {
   if (!items || !Array.isArray(items) || items.length === 0) return 0;
-  const workItems = items.filter((m) => !isDepositMilestone(m));
+  const workItems = items.filter((m) => !isDepositMilestone(m) && !isChangeOrderTimelineMilestone(m));
   if (!workItems.length) return 0;
   const sum = workItems.reduce((acc, m) => {
     const pct = Math.min(100, Math.max(0, m.progressPct || (m.status === 'completed' ? 100 : m.status === 'in_progress' ? 50 : 0)));
@@ -118,7 +119,7 @@ const computeOverallPctFromItems = (items: any[]): number => {
 
 const progressFromItems = (items: any[]): number => {
   if (!Array.isArray(items) || items.length === 0) return 0;
-  const workItems = items.filter((m) => !isDepositMilestone(m));
+  const workItems = items.filter((m) => !isDepositMilestone(m) && !isChangeOrderTimelineMilestone(m));
   if (!workItems.length) return 0;
   const total = workItems.reduce((sum, item) => {
     const explicitPct = toFiniteNumber(item?.progressPct);
@@ -1005,10 +1006,14 @@ export default function ProjectsScreen() {
         }
       } catch (error) {
         console.error('Error deleting project:', error);
+        const hint =
+          error instanceof Error && error.message
+            ? `\n\n${error.message}`
+            : '';
         if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.alert === 'function') {
-          window.alert(`${t('common.error')}\n\n${t('projects.deleteError')}`);
+          window.alert(`${t('common.error')}\n\n${t('projects.deleteError')}${hint}`);
         } else {
-          Alert.alert(t('common.error'), t('projects.deleteError'));
+          Alert.alert(t('common.error'), `${t('projects.deleteError')}${hint}`);
         }
         skipNextRefreshRef.current = false;
       } finally {

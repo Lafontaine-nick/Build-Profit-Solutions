@@ -642,6 +642,16 @@ function SubcontractorSearchModal({
 
       const response = await fetch(url, { cache: 'no-store' });
       if (!response.ok) {
+        if (response.status === 429) {
+          const retrySec = response.headers.get('Retry-After');
+          const wait =
+            retrySec && /^\d+$/.test(retrySec.trim())
+              ? ` Try again in about ${retrySec.trim()} seconds.`
+              : ' Try again in a few minutes.';
+          throw new Error(
+            `Too many search requests from this device (server rate limit).${wait} For local dev, raise RATE_LIMIT_MAX_REQUESTS or set DISABLE_API_RATE_LIMIT=true in backend/.env.`
+          );
+        }
         let detail = '';
         try {
           const errBody = await response.json();

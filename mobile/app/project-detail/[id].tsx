@@ -57,6 +57,7 @@ import Svg, { Circle } from 'react-native-svg';
 import AIAssistantModal from '../../components/AIAssistantModal';
 import GradientRingBackInner from '../../components/GradientRingBackInner';
 import ProjectActivationFlow from '../../components/ProjectActivationFlow';
+import { isChangeOrderMirrorExpenseId } from '../../lib/changeOrderMirrorExpenses';
 import { setLastOpenedProjectId } from '../../lib/ai/userProjectSettings';
 import api from '../../services/BackendAPI';
 import { useAuth } from '@clerk/clerk-react';
@@ -1057,6 +1058,11 @@ function ProjectDetailContent() {
       committedPOs: contextProjectData?.committedPOs || 0,
     });
 
+    /** Real receipts/invoices only — CO cost is already reflected in BudgetTab via approved allocations + mirror rows. */
+    const ctxExpensesNoCoMirrors = (contextProjectData?.expenses || []).filter(
+      (e: any) => !isChangeOrderMirrorExpenseId(e?.id)
+    );
+
     // Prefer live buckets on the merged project, then context (Orders/POs still work when estimate payload is missing)
     const getBucketList = () => {
       const fromProject = Array.isArray(project?.buckets) ? project.buckets : [];
@@ -1118,7 +1124,7 @@ function ProjectDetailContent() {
       const labB = findBucket('labor');
       const labBudget = getBucketBudget('labor');
       const labSpent = getBucketSpend('labor');
-      const labExpCtx = (contextProjectData?.expenses || []).reduce((sum: number, e: any) => {
+      const labExpCtx = ctxExpensesNoCoMirrors.reduce((sum: number, e: any) => {
         const c = String(e?.category || '').trim().toLowerCase();
         if (c.includes('labor') || c.includes('labour')) return sum + (Number(e?.amount) || 0);
         return sum;
@@ -1222,6 +1228,11 @@ function ProjectDetailContent() {
       materialsFromFields,
       bucketMaterialsBudget
     ) ?? 0;
+    const materialsSpentFromInvoices = ctxExpensesNoCoMirrors.reduce((sum: number, e: any) => {
+      const c = String(e?.category || '').trim().toLowerCase();
+      if (c.includes('materials') || c.includes('equipment')) return sum + (Number(e?.amount) || 0);
+      return sum;
+    }, 0);
     const materialsBucket = findBucket('material', 'equip');
     const materialsSpent = getBucketSpend('materials', 'equip');
     const shouldIncludeMaterials =
@@ -1233,7 +1244,7 @@ function ProjectDetailContent() {
     const materialsBudget = shouldIncludeMaterials
       ? rawMaterialsTotal > 0
         ? rawMaterialsTotal
-        : Math.max(materialsSpent, bucketMaterialsBudget, 0)
+        : Math.max(materialsSpentFromInvoices, bucketMaterialsBudget, 0)
       : 0;
 
     // Calculate total budget (base + change orders) for capping materials budget
@@ -1284,7 +1295,7 @@ function ProjectDetailContent() {
     const laborBucket = findBucket('labor');
     const laborBucketBudget = getBucketBudget('labor');
     const laborSpent = getBucketSpend('labor');
-    const laborExpensesFromContext = (contextProjectData?.expenses || []).reduce((sum: number, e: any) => {
+    const laborExpensesFromContext = ctxExpensesNoCoMirrors.reduce((sum: number, e: any) => {
       const c = String(e?.category || '').trim().toLowerCase();
       if (c.includes('labor') || c.includes('labour')) return sum + (Number(e?.amount) || 0);
       return sum;

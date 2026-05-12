@@ -98,6 +98,69 @@ export function sumApprovedChangeOrderRevenue(changeOrders: any[], fallbackMarku
   }, 0);
 }
 
+export type ChangeOrderPaymentRow = {
+  id: string;
+  title: string;
+  amount: number;
+  dateRaw?: string;
+};
+
+/** Label for timeline / payment schedule: readable as a change order (avoids bare scope names like "Concrete"). */
+export function formatChangeOrderPaymentRowTitle(raw: string): string {
+  const t = String(raw ?? "").trim();
+  if (!t) return "Change order";
+  if (/^change\s*order(\s*[:\-|–—]|\s*\(|$)/i.test(t)) return t;
+  return `Change order: ${t}`;
+}
+
+/**
+ * One payment row per approved change order (same client dollars as Budget / `computeProjectFinancials`).
+ * If only an aggregate `changeOrderTotal` exists, returns a single synthetic row so schedules can still sum.
+ */
+export function getApprovedChangeOrderPaymentRows(project: any): ChangeOrderPaymentRow[] {
+  const changeOrders = coalesceChangeOrders(project);
+  const ed = project?.estimateData || project?.projectData?.estimateData || {};
+  const fallbackMarkupPct = safeNum(
+    ed?.markupPct ?? ed?.markup ?? project?.markupPct ?? project?.markup
+  );
+  const rows: ChangeOrderPaymentRow[] = [];
+  for (const co of changeOrders) {
+    if (!isApprovedChangeOrder(co)) continue;
+    const amount = resolveApprovedChangeOrderRevenue(co, fallbackMarkupPct);
+    if (!(amount > 0)) continue;
+    const cid = co?.id != null ? String(co.id) : "";
+    rows.push({
+      id: cid ? `bps-co-${cid}` : `bps-co-idx-${rows.length}`,
+      title: formatChangeOrderPaymentRowTitle(String(co.title ?? co.name ?? "").trim() || "Change order"),
+      amount,
+      dateRaw: co.date ?? co.createdAt ?? co.updatedAt,
+    });
+  }
+  const financials = computeProjectFinancials(project, {});
+  const target = financials.approvedChangeOrderRevenue;
+  const sumRows = rows.reduce((s, r) => s + r.amount, 0);
+  const gap = target - sumRows;
+  if (gap > 0.01) {
+    rows.push({
+      id: "bps-co-unallocated",
+      title: "Change order (balance)",
+      amount: gap,
+      dateRaw: undefined,
+    });
+  }
+  return rows;
+}
+
+/**
+ * Synthetic timeline rows for approved change orders use `bps-co-…` ids (see {@link getApprovedChangeOrderPaymentRows}).
+ * Overall timeline % should reflect the original payment schedule only, not these add-on rows.
+ */
+export function isChangeOrderTimelineMilestone(m: { id?: unknown; type?: unknown } | null | undefined): boolean {
+  if (!m) return false;
+  if (String((m as { type?: unknown }).type || "").toLowerCase() === "change_order") return true;
+  return String(m.id ?? "").startsWith("bps-co-");
+}
+
 /**
  * Estimated cost added by approved COs: explicit materials+labor when present,
  * else prorate sell amount by plannedCost / contractValueBase.

@@ -6,6 +6,7 @@ import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
 import { MaterialIcons } from "@expo/vector-icons";
 import * as Haptics from 'expo-haptics';
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
+import { isChangeOrderMirrorExpenseId, parseChangeOrderIdFromMirrorExpenseId } from "../lib/changeOrderMirrorExpenses";
 import AddTransactionModal from "./AddTransactionModal";
 import EditTransactionModal from "./EditTransactionModal";
 import EditPurchaseOrderModal from "./EditPurchaseOrderModal";
@@ -92,9 +93,21 @@ type Props = {
   categoryName: string;
   onClose: () => void;
   theme?: any;
+  /** When user taps a Labor/Materials row synced from an approved CO, parent switches here and passes id once. */
+  openChangeOrderEditId?: string | null;
+  onConsumedOpenChangeOrderEditId?: () => void;
+  onRequestOpenChangeOrder?: (changeOrderId: string) => void;
 };
 
-export default function CategoryDetailModal({ visible, categoryName, onClose, theme: _theme }: Props) {
+export default function CategoryDetailModal({
+  visible,
+  categoryName,
+  onClose,
+  theme: _theme,
+  openChangeOrderEditId = null,
+  onConsumedOpenChangeOrderEditId,
+  onRequestOpenChangeOrder,
+}: Props) {
   const DEBUG_MODAL = false;
   const debugLog = (...args: any[]) => { if (DEBUG_MODAL) console.log(...args); };
   const { theme: appTheme, darkMode } = useTheme();
@@ -149,6 +162,27 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
       description: String(raw.notes ?? ''),
     };
   }, [editingChangeOrderId, isChangeOrdersCategory, projectData.changeOrders]);
+
+  useEffect(() => {
+    if (!visible || !isChangeOrdersCategory || !openChangeOrderEditId) return;
+    const id = String(openChangeOrderEditId).trim();
+    if (!id) {
+      onConsumedOpenChangeOrderEditId?.();
+      return;
+    }
+    const exists = (projectData.changeOrders || []).some((c: any) => String(c?.id) === id);
+    if (exists) {
+      setEditingChangeOrderId(id);
+      setShowAddForm(true);
+    }
+    onConsumedOpenChangeOrderEditId?.();
+  }, [
+    visible,
+    isChangeOrdersCategory,
+    openChangeOrderEditId,
+    projectData.changeOrders,
+    onConsumedOpenChangeOrderEditId,
+  ]);
   
   // Filter expenses by category (flexible matching for Materials/Equipment)
   // OR show change orders if category is "Change Orders"
@@ -314,6 +348,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
           id: expenseId || `exp-${Date.now()}-${Math.random()}`, // Only generate if truly missing
           date: exp.date || new Date().toISOString(),
           vendor: exp.vendor || 'Unknown',
+          material: exp.material || '',
           amount: exp.amount || 0,
           description: exp.notes || '',
           po: exp.po || undefined,
@@ -323,6 +358,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
           scope: exp.scope || undefined,
           priceReasonableness: exp.priceReasonableness || undefined,
           isChangeOrder: false,
+          isChangeOrderMirror: isChangeOrderMirrorExpenseId(expenseId),
         };
       })
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); // Most recent first
@@ -453,84 +489,20 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
         return;
       }
 
-      const approvePrompt = `Do you want to approve this change order for ${formatMoneyFull(amount, { decimals: 2 })}? Approved change orders will be added to your budget.\n\nOK = Approve now\nCancel = Save without approving (you can approve later)`;
-      if (
-        Platform.OS === "web" &&
-        typeof window !== "undefined" &&
-        typeof window.confirm === "function"
-      ) {
-        const approve = window.confirm(`Approve Change Order?\n\n${approvePrompt}`);
-        if (approve) {
-          addChangeOrder({
-            id: `co-${Date.now()}`,
-            title: transaction.vendor,
-            amount: amount,
-            materialsAmount,
-            laborAmount,
-            notes: transaction.description || "",
-            approved: true,
-            status: "Approved",
-          });
-          setShowAddForm(false);
-          categoryDetailWebAlert("Approved!", "Change order approved and added to budget.");
-        } else {
-          addChangeOrder({
-            id: `co-${Date.now()}`,
-            title: transaction.vendor,
-            amount: amount,
-            materialsAmount,
-            laborAmount,
-            notes: transaction.description || "",
-            approved: false,
-            status: "Submitted",
-          });
-          setShowAddForm(false);
-          categoryDetailWebAlert("Saved", "Change order added. You can approve it later.");
-        }
-        return;
-      }
-
-      Alert.alert(
-        'Approve Change Order?',
-        `Do you want to approve this change order for ${formatMoneyFull(amount, { decimals: 2 })}? Approved change orders will be added to your budget.`,
-        [
-          {
-            text: 'Not Now',
-            style: 'cancel',
-            onPress: () => {
-              addChangeOrder({
-                id: `co-${Date.now()}`,
-                title: transaction.vendor,
-                amount: amount,
-                materialsAmount,
-                laborAmount,
-                notes: transaction.description || '',
-                approved: false,
-                status: 'Submitted',
-              });
-              setShowAddForm(false);
-              Alert.alert('Saved', 'Change order added. You can approve it later.');
-            },
-          },
-          {
-            text: 'Approve',
-            style: 'default',
-            onPress: () => {
-              addChangeOrder({
-                id: `co-${Date.now()}`,
-                title: transaction.vendor,
-                amount: amount,
-                materialsAmount,
-                laborAmount,
-                notes: transaction.description || '',
-                approved: true,
-                status: 'Approved',
-              });
-              setShowAddForm(false);
-              Alert.alert('Approved!', 'Change order approved and added to budget.');
-            },
-          },
-        ]
+      addChangeOrder({
+        id: `co-${Date.now()}`,
+        title: transaction.vendor,
+        amount: amount,
+        materialsAmount,
+        laborAmount,
+        notes: transaction.description || "",
+        approved: false,
+        status: "Submitted",
+      });
+      setShowAddForm(false);
+      categoryDetailWebAlert(
+        "Saved",
+        "Change order saved as submitted. When the customer approves, tap Approve on the card to add it to your budget."
       );
       return;
     }
@@ -890,6 +862,31 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
             </LinearGradient>
           </TouchableOpacity>
 
+          {isChangeOrdersCategory && (
+            <View
+              style={[
+                styles.coTimelineReminder,
+                {
+                  backgroundColor: darkMode ? "rgba(34, 197, 94, 0.08)" : "rgba(34, 197, 94, 0.1)",
+                  borderColor: darkMode ? "rgba(34, 197, 94, 0.3)" : "rgba(34, 197, 94, 0.28)",
+                },
+              ]}
+              accessibilityRole="text"
+            >
+              <MaterialIcons name="event-available" size={22} color="#22c55e" style={{ marginTop: 1 }} />
+              <Text
+                style={[
+                  styles.coTimelineReminderText,
+                  { color: darkMode ? "rgba(226, 232, 240, 0.92)" : Colors.text },
+                ]}
+              >
+                When payment is received, mark the matching line as{" "}
+                <Text style={{ fontWeight: "800", color: "#22c55e" }}>Completed</Text> in the
+                Timeline tab.
+              </Text>
+            </View>
+          )}
+
           {/* Transactions List */}
           {data.length > 0 ? (
             <View style={styles.transactionsContainer}>
@@ -1211,6 +1208,16 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                         ]}
                         onPress={() => {
                       if (isItemDeleting) return;
+                      if (item.isChangeOrderMirror) {
+                        const coId = parseChangeOrderIdFromMirrorExpenseId(item.id);
+                        if (coId && onRequestOpenChangeOrder) {
+                          if (Platform.OS === "ios") {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          }
+                          onRequestOpenChangeOrder(coId);
+                        }
+                        return;
+                      }
                       if (item.isChangeOrder) {
                         setEditingChangeOrderId(item.id);
                         setShowAddForm(true);
@@ -1235,7 +1242,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                       }
                     }}
                     activeOpacity={0.7}
-                    disabled={isItemDeleting}
+                    disabled={isItemDeleting || (item.isChangeOrderMirror && !onRequestOpenChangeOrder)}
                   >
                     <View style={styles.transactionHeader}>
                       <View style={{ flex: 1 }}>
@@ -1398,6 +1405,11 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                           </View>
                         ) : (
                           <>
+                            {!!item.material && (
+                              <Text style={styles.description} numberOfLines={2} ellipsizeMode="tail">
+                                {item.material}
+                              </Text>
+                            )}
                             {item.description && (
                               <Text style={styles.description} numberOfLines={1} ellipsizeMode="tail">
                                 {item.description}
@@ -1557,32 +1569,32 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                             <Text style={{ color: '#ef4444', fontSize: 10, fontWeight: '600' }}>⚠️ No Receipt</Text>
                           </View>
                         )}
+                        {!item.isChangeOrderMirror ? (
                         <Text style={styles.tapToEdit}>Tap to edit →</Text>
+                        ) : onRequestOpenChangeOrder ? (
+                        <Text style={styles.tapToEdit}>Tap to open change order →</Text>
+                        ) : null}
                       </View>
                     )}
                     
                     {/* Approval Button for Change Orders */}
                     {item.isChangeOrder && !item.approved && item.status !== 'Approved' && (
-                      <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' }}>
+                      <View
+                        style={[
+                          styles.coApproveButtonWrap,
+                          { borderTopColor: "rgba(255,255,255,0.1)" },
+                        ]}
+                      >
                         <TouchableOpacity
-                          style={{
-                            paddingHorizontal: 10,
-                            paddingVertical: 6,
-                            borderRadius: 8,
-                            backgroundColor: 'rgba(34, 197, 94, 0.15)',
-                            borderWidth: 1,
-                            borderColor: 'rgba(34, 197, 94, 0.3)',
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 4,
-                          }}
+                          style={styles.coApproveButton}
+                          activeOpacity={0.88}
                           onPress={() => {
                             approveChangeOrder(item.id);
                             Alert.alert('Approved', `Change order "${item.vendor}" has been approved. Budget updated.`);
                           }}
                         >
-                          <MaterialIcons name="check-circle-outline" size={14} color="#22c55e" />
-                          <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '600' }}>Approve</Text>
+                          <MaterialIcons name="check-circle" size={22} color="#020617" />
+                          <Text style={styles.coApproveButtonText}>Approve</Text>
                         </TouchableOpacity>
                       </View>
                     )}
@@ -1601,6 +1613,16 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                           ]}
                           onPress={() => {
                             if (isItemDeleting) return;
+                            if (item.isChangeOrderMirror) {
+                              const coId = parseChangeOrderIdFromMirrorExpenseId(item.id);
+                              if (coId && onRequestOpenChangeOrder) {
+                                if (Platform.OS === "ios") {
+                                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                }
+                                onRequestOpenChangeOrder(coId);
+                              }
+                              return;
+                            }
                             if (item.isChangeOrder) {
                               setEditingChangeOrderId(item.id);
                               setShowAddForm(true);
@@ -1634,7 +1656,7 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                             }
                           }}
                           activeOpacity={0.7}
-                          disabled={isItemDeleting}
+                          disabled={isItemDeleting || (item.isChangeOrderMirror && !onRequestOpenChangeOrder)}
                         >
                           <View style={styles.transactionHeader}>
                             <View style={{ flex: 1 }}>
@@ -1711,6 +1733,11 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                                   </View>
                                 )}
                               </View>
+                              {!!item.material && (
+                                <Text style={[styles.description, { color: Colors.sub }]} numberOfLines={2} ellipsizeMode="tail">
+                                  {item.material}
+                                </Text>
+                              )}
                               {item.description && (
                                 <Text style={[styles.description, { color: Colors.sub }]} numberOfLines={1} ellipsizeMode="tail">
                                   {item.description}
@@ -1755,31 +1782,32 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
                                 <Text style={{ color: '#ef4444', fontSize: 10, fontWeight: '600' }}>⚠️ No Receipt</Text>
                               </View>
                             )}
+                            {!item.isChangeOrderMirror ? (
                             <Text style={styles.tapToEdit}>Tap to edit →</Text>
-                            {/* Approval Button for Change Orders */}
-                            {item.isChangeOrder && !item.approved && item.status !== 'Approved' && (
+                            ) : onRequestOpenChangeOrder ? (
+                            <Text style={styles.tapToEdit}>Tap to open change order →</Text>
+                            ) : null}
+                          </View>
+                          {item.isChangeOrder && !item.approved && item.status !== 'Approved' && (
+                            <View
+                              style={[
+                                styles.coApproveButtonWrap,
+                                { borderTopColor: Colors.line },
+                              ]}
+                            >
                               <TouchableOpacity
-                                style={{
-                                  paddingHorizontal: 10,
-                                  paddingVertical: 6,
-                                  borderRadius: 8,
-                                  backgroundColor: 'rgba(34, 197, 94, 0.15)',
-                                  borderWidth: 1,
-                                  borderColor: 'rgba(34, 197, 94, 0.3)',
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                }}
+                                style={styles.coApproveButton}
+                                activeOpacity={0.88}
                                 onPress={() => {
                                   approveChangeOrder(item.id);
                                   Alert.alert('Approved', `Change order "${item.vendor}" has been approved. Budget updated.`);
                                 }}
                               >
-                                <MaterialIcons name="check-circle-outline" size={14} color="#22c55e" />
-                                <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '600' }}>Approve</Text>
+                                <MaterialIcons name="check-circle" size={22} color="#020617" />
+                                <Text style={styles.coApproveButtonText}>Approve</Text>
                               </TouchableOpacity>
-                            )}
-                          </View>
+                            </View>
+                          )}
                         </TouchableOpacity>
                       </View>
                     )}
@@ -1832,6 +1860,9 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
           categoryName={categoryName}
           initialDraft={isChangeOrdersCategory ? changeOrderEditDraft : null}
           initialDraftKey={isChangeOrdersCategory ? (editingChangeOrderId ?? "new") : undefined}
+          onRequestDeleteChangeOrder={
+            isChangeOrdersCategory ? (id) => deleteChangeOrder(id) : undefined
+          }
           onClose={() => {
             setShowAddForm(false);
             setEditingChangeOrderId(null);
@@ -1918,6 +1949,9 @@ export default function CategoryDetailModal({ visible, categoryName, onClose, th
           categoryName={categoryName}
           initialDraft={isChangeOrdersCategory ? changeOrderEditDraft : null}
           initialDraftKey={isChangeOrdersCategory ? (editingChangeOrderId ?? "new") : undefined}
+          onRequestDeleteChangeOrder={
+            isChangeOrdersCategory ? (id) => deleteChangeOrder(id) : undefined
+          }
           onClose={() => {
             setShowAddForm(false);
             setEditingChangeOrderId(null);
@@ -2196,6 +2230,49 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "700",
     letterSpacing: 0.2,
+  },
+  coTimelineReminder: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 18,
+  },
+  coTimelineReminderText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "500",
+    letterSpacing: 0.15,
+  },
+  coApproveButtonWrap: {
+    marginTop: 4,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  coApproveButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: "#22c55e",
+    shadowColor: "#22c55e",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  coApproveButtonText: {
+    color: "#020617",
+    fontSize: 16,
+    fontWeight: "800",
+    letterSpacing: 0.35,
   },
   transactionsContainer: {
     gap: 16,

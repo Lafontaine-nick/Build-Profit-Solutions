@@ -140,13 +140,28 @@ app.use(cors({
 }));
 
 // Rate limiting - more restrictive in production
-// Set DISABLE_API_RATE_LIMIT=true in .env to bypass during local dev (or raise RATE_LIMIT_MAX_REQUESTS).
+// Set DISABLE_API_RATE_LIMIT=true in .env to bypass during local dev.
+// In development, a low RATE_LIMIT_MAX_REQUESTS (e.g. 100) is raised to 5000 unless
+// RATE_LIMIT_STRICT_DEV=true — the SPA + Find Subcontractors (Places + geocode) share one IP bucket.
 const apiRateLimitDisabled =
   process.env.DISABLE_API_RATE_LIMIT === 'true' || process.env.DISABLE_API_RATE_LIMIT === '1';
 
+const isProdNode = process.env.NODE_ENV === 'production';
+const strictDevRateLimit =
+  process.env.RATE_LIMIT_STRICT_DEV === 'true' || process.env.RATE_LIMIT_STRICT_DEV === '1';
+const parsedRateLimitMax = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10);
+const defaultRateLimitMax = isProdNode ? 500 : 5000;
+let rateLimitMax =
+  Number.isFinite(parsedRateLimitMax) && parsedRateLimitMax > 0
+    ? parsedRateLimitMax
+    : defaultRateLimitMax;
+if (!isProdNode && !apiRateLimitDisabled && !strictDevRateLimit && rateLimitMax < 2000) {
+  rateLimitMax = 5000;
+}
+
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || (process.env.NODE_ENV === 'production' ? 500 : 5000),
+  max: rateLimitMax,
   message: 'Too many requests from this IP, please try again later.',
   skip: () => apiRateLimitDisabled,
 });

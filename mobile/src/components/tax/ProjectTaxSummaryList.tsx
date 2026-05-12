@@ -14,8 +14,9 @@ export default function ProjectTaxSummaryList({ projects, formatMoney, formatPer
     <View style={styles.card}>
       <Text style={styles.title}>Project-by-project tax summary</Text>
       <Text style={styles.subtitle}>
-        Revenue is cash collected in this tax year for active work; completed jobs use adjusted contract value
-        (includes approved change orders), same as Budget. Expenses are paid or received amounts in this tax year.
+        Revenue is cash collected in the selected tax year. Expenses paid follow cash-basis dates (including when
+        purchase orders are received or completed). Outstanding receivables and committed costs are informational only
+        in this view.
       </Text>
 
       {projects.length === 0 ? (

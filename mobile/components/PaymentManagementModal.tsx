@@ -8,6 +8,8 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -22,6 +24,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
 import { useUser } from '@clerk/clerk-react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import WebPageShell, {
+  getWebPageShellMaxWidth,
+  WEB_PAGE_SHELL_HORIZONTAL_PADDING,
+} from '@/components/layout/WebPageShell';
 
 type PlanCatalogEntry = {
   id: string;
@@ -55,10 +62,22 @@ export default function PaymentManagementModal({
   mode = 'modal',
 }: PaymentManagementModalProps) {
   const router = useRouter();
+  const { width: layoutWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const { user: clerkUser } = useUser();
   const isScreenMode = mode === 'screen';
+
+  /** Web: align header with WebPageShell column (same math as Profile). */
+  const webPaymentScreenHeaderMargins = useMemo(() => {
+    if (Platform.OS !== 'web') return undefined;
+    const maxW = getWebPageShellMaxWidth('profile');
+    const gutter = (layoutWidth - Math.min(layoutWidth, maxW)) / 2;
+    const inset = gutter + WEB_PAGE_SHELL_HORIZONTAL_PADDING;
+    return { marginLeft: inset, marginRight: inset };
+  }, [layoutWidth]);
+
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [allSubscriptions, setAllSubscriptions] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(false);
@@ -71,7 +90,16 @@ export default function PaymentManagementModal({
     if (onClose) {
       onClose();
     } else if (isScreenMode) {
-      router.back();
+      try {
+        const r = router as { canGoBack?: () => boolean; back: () => void; replace: (href: string) => void };
+        if (typeof r.canGoBack === 'function' && r.canGoBack()) {
+          r.back();
+        } else {
+          r.replace('/payment');
+        }
+      } catch {
+        router.replace('/payment');
+      }
     }
   };
 
@@ -108,6 +136,7 @@ export default function PaymentManagementModal({
   const theme = useMemo(() => ({
     background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
     card: Colors.surface2,
+    cardDark: Colors.cardDark,
     text: Colors.text,
     subtext: Colors.sub,
     accent: Colors.primary,
@@ -433,10 +462,150 @@ export default function PaymentManagementModal({
     );
   };
 
+  const manageScreenSubtitleWeb =
+    'View billing, switch plans, or cancel — same secure checkout as Choose Your Plan.';
+
+  const manageSubscriptionsAndFooter = (
+    <>
+      {loading && subscriptions.length === 0 ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.accent} />
+          <Text style={[styles.loadingText, { color: theme.subtext }]}>Loading subscriptions...</Text>
+        </View>
+      ) : subscriptions.length > 0 ? (
+        <View style={styles.subscriptionsContainer}>{subscriptions.map(renderSubscription)}</View>
+      ) : (
+        <View style={styles.emptyContainer}>
+          <MaterialIcons
+            name={activeTab === 'active' ? 'payment' : 'cancel'}
+            size={64}
+            color={theme.subtext}
+          />
+          <Text style={[styles.emptyTitle, { color: theme.text }]}>
+            {activeTab === 'active' ? 'No Active Subscriptions' : 'No Cancelled Subscriptions'}
+          </Text>
+          <Text style={[styles.emptyText, { color: theme.subtext }]}>
+            {activeTab === 'active'
+              ? "You don't have any active subscriptions. Subscribe to a plan to unlock premium features."
+              : "You don't have any cancelled subscriptions."}
+          </Text>
+        </View>
+      )}
+      <View
+        style={[
+          styles.footer,
+          {
+            backgroundColor: theme.card,
+            borderColor: theme.border,
+            shadowColor: '#000',
+            shadowOpacity: 0.08,
+            shadowRadius: 12,
+            shadowOffset: { width: 0, height: 4 },
+            elevation: 3,
+          },
+        ]}
+      >
+        <Text style={[styles.footerText, { color: theme.subtext }]}>Start with a 7-day free trial</Text>
+        <Text style={[styles.footerText, { color: theme.subtext }]}>Cancel anytime • No setup fees</Text>
+      </View>
+    </>
+  );
+
+  const manageTabSwitchers = (
+    <View
+      style={[
+        styles.tabContainer,
+        isScreenMode && Platform.OS === 'web' && { paddingHorizontal: 0 },
+      ]}
+    >
+      <TouchableOpacity
+        style={[
+          styles.tab,
+          activeTab === 'active' && styles.activeTab,
+          {
+            borderColor: activeTab === 'active' ? theme.accent : theme.border,
+            backgroundColor: theme.card,
+          },
+        ]}
+        onPress={() => setActiveTab('active')}
+      >
+        <Text
+          style={[
+            styles.tabText,
+            {
+              color: activeTab === 'active' ? theme.accent : theme.subtext,
+              fontWeight: activeTab === 'active' ? '600' : '400',
+            },
+          ]}
+        >
+          Active
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[
+          styles.tab,
+          activeTab === 'cancelled' && styles.activeTab,
+          {
+            borderColor: activeTab === 'cancelled' ? theme.accent : theme.border,
+            backgroundColor: theme.card,
+          },
+        ]}
+        onPress={() => setActiveTab('cancelled')}
+      >
+        <Text
+          style={[
+            styles.tabText,
+            {
+              color: activeTab === 'cancelled' ? theme.accent : theme.subtext,
+              fontWeight: activeTab === 'cancelled' ? '600' : '400',
+            },
+          ]}
+        >
+          Cancelled
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   const content = (
     <LinearGradient colors={theme.background} style={styles.container}>
-      {isScreenMode && (
-        <View style={styles.headerRow}>
+      {isScreenMode && Platform.OS === 'web' && (
+        <View
+          style={[
+            styles.headerRowWeb,
+            webPaymentScreenHeaderMargins,
+            { paddingTop: Math.max(insets.top, 12) + 36 },
+          ]}
+        >
+          <View style={styles.backButtonWrapperWeb}>
+            <LinearGradient
+              colors={BRAND_FRAME_GRADIENT_COLORS}
+              start={{ x: 0.05, y: 0.15 }}
+              end={{ x: 0.95, y: 0.85 }}
+              style={styles.backButtonBorder}
+            >
+              <GradientRingBackInner
+                darkMode={darkMode}
+                onPress={() => {
+                  if (Platform.OS !== 'web') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }
+                  handleClose();
+                }}
+                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
+              >
+                <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
+              </GradientRingBackInner>
+            </LinearGradient>
+          </View>
+          <View style={styles.headerTitleBlock}>
+            <Text style={[styles.screenTitleWeb, { color: theme.text }]}>Manage Subscription</Text>
+            <Text style={[styles.headerSubtitleWeb, { color: theme.subtext }]}>{manageScreenSubtitleWeb}</Text>
+          </View>
+        </View>
+      )}
+      {isScreenMode && Platform.OS !== 'web' && (
+        <View style={[styles.headerRow, webPaymentScreenHeaderMargins]}>
           <View style={styles.backButtonWrapper}>
             <LinearGradient
               colors={BRAND_FRAME_GRADIENT_COLORS}
@@ -447,148 +616,81 @@ export default function PaymentManagementModal({
               <GradientRingBackInner
                 darkMode={darkMode}
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  if (Platform.OS !== 'web') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }
                   handleClose();
                 }}
-                style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
+                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
               >
-                <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
+                <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
               </GradientRingBackInner>
             </LinearGradient>
           </View>
           <View style={styles.titleContainerCentered}>
-            <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>Manage</Text>
-            <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>Subscription</Text>
+            <Text style={[styles.screenTitle, { color: darkMode ? '#f9fafb' : '#000000' }]}>Manage</Text>
+            <Text style={[styles.screenTitle, { color: darkMode ? '#f9fafb' : '#000000' }]}>Subscription</Text>
           </View>
           <View style={{ width: 52 }} />
         </View>
       )}
       {!isScreenMode && (
         <View style={styles.header}>
-          <TouchableOpacity
-            onPress={handleClose}
-            style={styles.closeButton}
-          >
-            <MaterialIcons
-              name="close"
-              size={24}
-              color={theme.text}
-            />
+          <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+            <MaterialIcons name="close" size={24} color={theme.text} />
           </TouchableOpacity>
           <View style={styles.titleContainer}>
-            <Text style={[styles.title, { color: '#FFFFFF' }]}>
-              Manage Subscription
-            </Text>
+            <Text style={[styles.title, { color: '#FFFFFF' }]}>Manage Subscription</Text>
           </View>
           <View style={{ width: 24 }} />
         </View>
       )}
 
-        {/* Tabs */}
-        <View style={styles.tabContainer}>
-          <TouchableOpacity
-            style={[
-              styles.tab,
-              activeTab === 'active' && styles.activeTab,
-              { 
-                borderColor: activeTab === 'active' ? theme.accent : theme.border,
-                backgroundColor: theme.card,
-              },
-            ]}
-            onPress={() => setActiveTab('active')}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                {
-                  color: activeTab === 'active' ? theme.accent : theme.subtext,
-                  fontWeight: activeTab === 'active' ? '600' : '400',
-                },
-              ]}
+      {isScreenMode && Platform.OS === 'web' ? (
+        <ScrollView
+          style={[styles.manageOuterScroll, { flex: 1 }]}
+          contentContainerStyle={styles.manageOuterScrollContent}
+          showsVerticalScrollIndicator
+        >
+          <View style={styles.screenSubtitleSpacer} />
+          <WebPageShell size="profile" scroll={false} contentStyle={{ paddingTop: 4, paddingBottom: 24 }}>
+            <LinearGradient
+              colors={['#2DFFC4', '#00A6FF']}
+              start={{ x: 0.05, y: 0.15 }}
+              end={{ x: 0.95, y: 0.85 }}
+              style={styles.billingChrome}
             >
-              Active
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.tab,
-              activeTab === 'cancelled' && styles.activeTab,
-              { 
-                borderColor: activeTab === 'cancelled' ? theme.accent : theme.border,
-                backgroundColor: theme.card,
-              },
-            ]}
-            onPress={() => setActiveTab('cancelled')}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                {
-                  color: activeTab === 'cancelled' ? theme.accent : theme.subtext,
-                  fontWeight: activeTab === 'cancelled' ? '600' : '400',
-                },
-              ]}
-            >
-              Cancelled
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {loading && subscriptions.length === 0 ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size='large' color={theme.accent} />
-              <Text style={[styles.loadingText, { color: theme.subtext }]}>
-                Loading subscriptions...
-              </Text>
-            </View>
-          ) : subscriptions.length > 0 ? (
-            <View style={styles.subscriptionsContainer}>
-              {subscriptions.map(renderSubscription)}
-            </View>
-          ) : (
-            <View style={styles.emptyContainer}>
-              <MaterialIcons 
-                name={activeTab === 'active' ? 'payment' : 'cancel'} 
-                size={64} 
-                color={theme.subtext} 
-              />
-              <Text style={[styles.emptyTitle, { color: theme.text }]}>
-                {activeTab === 'active' 
-                  ? 'No Active Subscriptions' 
-                  : 'No Cancelled Subscriptions'}
-              </Text>
-              <Text style={[styles.emptyText, { color: theme.subtext }]}>
-                {activeTab === 'active'
-                  ? 'You don\'t have any active subscriptions. Subscribe to a plan to unlock premium features.'
-                  : 'You don\'t have any cancelled subscriptions.'}
-              </Text>
-            </View>
-          )}
-
-          <View
-            style={[
-              styles.footer,
-              {
-                backgroundColor: theme.card,
-                borderColor: theme.border,
-                shadowColor: '#000',
-                shadowOpacity: 0.08,
-                shadowRadius: 12,
-                shadowOffset: { width: 0, height: 4 },
-                elevation: 3,
-              },
-            ]}
-          >
-            <Text style={[styles.footerText, { color: theme.subtext }]}>
-              Start with a 7-day free trial
-            </Text>
-            <Text style={[styles.footerText, { color: theme.subtext }]}>
-              Cancel anytime • No setup fees
-            </Text>
-          </View>
+              <View
+                style={[
+                  styles.billingInner,
+                  {
+                    backgroundColor: darkMode ? theme.cardDark : Colors.bg,
+                    borderColor: theme.border,
+                  },
+                ]}
+              >
+                {manageTabSwitchers}
+                {manageSubscriptionsAndFooter}
+              </View>
+            </LinearGradient>
+          </WebPageShell>
         </ScrollView>
-      </LinearGradient>
+      ) : isScreenMode ? (
+        <WebPageShell size="profile" scroll={false} style={{ flex: 1 }} contentStyle={{ paddingTop: 8, paddingBottom: 24 }}>
+          {manageTabSwitchers}
+          <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+            {manageSubscriptionsAndFooter}
+          </ScrollView>
+        </WebPageShell>
+      ) : (
+        <>
+          {manageTabSwitchers}
+          <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+            {manageSubscriptionsAndFooter}
+          </ScrollView>
+        </>
+      )}
+    </LinearGradient>
   );
 
   if (isScreenMode) {
@@ -611,12 +713,63 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  /** Web screen: matches Choose Your Plan header row (back + left title block). */
+  headerRowWeb: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingBottom: 8,
+    gap: 12,
+  },
+  backButtonWrapperWeb: {
+    marginTop: 2,
+  },
+  headerTitleBlock: {
+    flex: 1,
+    paddingTop: 2,
+  },
+  screenTitleWeb: {
+    fontSize: 26,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+  },
+  headerSubtitleWeb: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 6,
+    letterSpacing: 0.15,
+    opacity: 0.92,
+  },
+  screenSubtitleSpacer: {
+    height: 4,
+  },
+  manageOuterScroll: {
+    flex: 1,
+    ...(Platform.OS === 'web' ? { paddingHorizontal: 0 } : {}),
+  },
+  manageOuterScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 24,
+    paddingTop: 0,
+  },
+  /** Same chrome as SubscriptionPlansModal / payment index */
+  billingChrome: {
+    borderRadius: 24,
+    padding: 1,
+    marginBottom: 8,
+  },
+  billingInner: {
+    borderRadius: 23,
+    borderWidth: 1,
+    padding: 16,
+    paddingBottom: 20,
+    overflow: 'visible',
+  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 60,
     marginBottom: 20,
-    marginHorizontal: 20,
+    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 20 }),
     paddingBottom: 8,
     position: 'relative',
   },
@@ -629,6 +782,7 @@ const styles = StyleSheet.create({
     right: 0,
     alignItems: 'center',
     justifyContent: 'center',
+    pointerEvents: 'none',
   },
   screenTitle: {
     fontSize: 32,

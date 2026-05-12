@@ -10,6 +10,7 @@ import {
   RefreshControl,
   Modal,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -24,6 +25,11 @@ import { paymentMethodService, PaymentMethod } from '@/services/paymentMethodSer
 import { stripeService } from '@/services/stripeService';
 import * as Haptics from 'expo-haptics';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
+import WebPageShell, {
+  getWebPageShellMaxWidth,
+  WEB_PAGE_SHELL_HORIZONTAL_PADDING,
+} from '@/components/layout/WebPageShell';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface PaymentMethodsListProps {
   mode?: 'modal' | 'screen';
@@ -37,9 +43,21 @@ export default function PaymentMethodsList({
   onClose,
 }: PaymentMethodsListProps) {
   const router = useRouter();
+  const { width: layoutWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const isScreenMode = mode === 'screen';
+
+  /** Web: align header with WebPageShell column (same math as Profile / plans). */
+  const webPaymentScreenHeaderMargins = useMemo(() => {
+    if (Platform.OS !== 'web') return undefined;
+    const maxW = getWebPageShellMaxWidth('profile');
+    const gutter = (layoutWidth - Math.min(layoutWidth, maxW)) / 2;
+    const inset = gutter + WEB_PAGE_SHELL_HORIZONTAL_PADDING;
+    return { marginLeft: inset, marginRight: inset };
+  }, [layoutWidth]);
+
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -52,6 +70,7 @@ export default function PaymentMethodsList({
   const theme = useMemo(() => ({
     background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
     card: Colors.surface2,
+    cardDark: Colors.cardDark,
     text: Colors.text,
     subtext: Colors.sub,
     accent: Colors.primary,
@@ -112,7 +131,16 @@ export default function PaymentMethodsList({
     if (onClose) {
       onClose();
     } else if (isScreenMode) {
-      router.back();
+      try {
+        const r = router as { canGoBack?: () => boolean; back: () => void; replace: (href: string) => void };
+        if (typeof r.canGoBack === 'function' && r.canGoBack()) {
+          r.back();
+        } else {
+          r.replace('/payment');
+        }
+      } catch {
+        router.replace('/payment');
+      }
     }
   };
 
@@ -121,7 +149,9 @@ export default function PaymentMethodsList({
       Alert.alert('Error', 'Please log in to add a payment method.');
       return;
     }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
     setShowAddModal(true);
   };
 
@@ -189,7 +219,9 @@ export default function PaymentMethodsList({
 
   const handleSetDefault = async (paymentMethodId: string) => {
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      if (Platform.OS !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
       await paymentMethodService.setDefaultPaymentMethod(paymentMethodId, userEmail);
       Alert.alert('Success', 'Default payment method updated.');
       await loadPaymentMethods();
@@ -199,7 +231,9 @@ export default function PaymentMethodsList({
   };
 
   const handleDelete = async (paymentMethodId: string, last4: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
     Alert.alert(
       'Delete Payment Method',
       `Are you sure you want to delete card ending in ${last4}?`,
@@ -287,10 +321,100 @@ export default function PaymentMethodsList({
     </View>
   );
 
+  const refreshControlEl = (
+    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />
+  );
+
+  const methodsMainBody = (
+    <>
+      {loading && paymentMethods.length === 0 && !error && !userEmail ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size='large' color={theme.accent} />
+          <Text style={[styles.loadingText, { color: theme.subtext }]}>Loading...</Text>
+        </View>
+      ) : loading && paymentMethods.length === 0 && !error ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size='large' color={theme.accent} />
+          <Text style={[styles.loadingText, { color: theme.subtext }]}>Loading payment methods...</Text>
+        </View>
+      ) : error ? (
+        <View style={styles.errorContainer}>
+          <MaterialIcons name='error-outline' size={48} color={theme.error} />
+          <Text style={[styles.errorText, { color: theme.error }]}>{error}</Text>
+          <TouchableOpacity onPress={loadPaymentMethods} style={styles.retryButton}>
+            <Text style={styles.retryButtonText}>Try Again</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={styles.paymentMethodsContainer}>
+          {paymentMethods.map(renderPaymentMethod)}
+
+          {paymentMethods.length === 0 && !loading && (
+            <View style={styles.emptyContainer}>
+              <MaterialIcons name='credit-card-off' size={64} color={theme.subtext} />
+              <Text style={[styles.emptyTitle, { color: theme.text }]}>No Payment Methods</Text>
+              <Text style={[styles.emptyText, { color: theme.subtext }]}>
+                {userEmail
+                  ? 'Add a payment method to get started. Payment methods added during checkout will appear here.'
+                  : 'Please log in to view your payment methods.'}
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+
+      <TouchableOpacity
+        style={[styles.addButton, { backgroundColor: theme.accent }]}
+        onPress={handleAddCard}
+        activeOpacity={0.8}
+      >
+        <MaterialIcons name='add' size={24} color='#FFFFFF' />
+        <Text style={styles.addButtonText}>Add Payment Method</Text>
+      </TouchableOpacity>
+    </>
+  );
+
   const content = (
     <LinearGradient colors={theme.background} style={styles.container}>
-      {isScreenMode && (
-        <View style={styles.headerRow}>
+      {isScreenMode && Platform.OS === 'web' && (
+        <View
+          style={[
+            styles.headerRowWeb,
+            webPaymentScreenHeaderMargins,
+            { paddingTop: Math.max(insets.top, 12) + 36 },
+          ]}
+        >
+          <View style={styles.backButtonWrapperWeb}>
+            <LinearGradient
+              colors={BRAND_FRAME_GRADIENT_COLORS}
+              start={{ x: 0.05, y: 0.15 }}
+              end={{ x: 0.95, y: 0.85 }}
+              style={styles.backButtonBorder}
+            >
+              <GradientRingBackInner
+                darkMode={darkMode}
+                onPress={() => {
+                  if (Platform.OS !== 'web') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }
+                  handleClose();
+                }}
+                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
+              >
+                <MaterialIcons name='arrow-back' size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
+              </GradientRingBackInner>
+            </LinearGradient>
+          </View>
+          <View style={styles.headerTitleBlock}>
+            <Text style={[styles.screenTitleWeb, { color: theme.text }]}>Payment Methods</Text>
+            <Text style={[styles.headerSubtitleWeb, { color: theme.subtext }]}>
+              Add or remove cards saved to your account.
+            </Text>
+          </View>
+        </View>
+      )}
+      {isScreenMode && Platform.OS !== 'web' && (
+        <View style={[styles.headerRow, webPaymentScreenHeaderMargins]}>
           <View style={styles.backButtonWrapper}>
             <LinearGradient
               colors={BRAND_FRAME_GRADIENT_COLORS}
@@ -334,58 +458,44 @@ export default function PaymentMethodsList({
         </View>
       )}
 
-      <ScrollView
-        style={styles.content}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />
-        }
-      >
-        {loading && paymentMethods.length === 0 && !error && !userEmail ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size='large' color={theme.accent} />
-            <Text style={[styles.loadingText, { color: theme.subtext }]}>Loading...</Text>
-          </View>
-        ) : loading && paymentMethods.length === 0 && !error ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size='large' color={theme.accent} />
-            <Text style={[styles.loadingText, { color: theme.subtext }]}>Loading payment methods...</Text>
-          </View>
-        ) : error ? (
-          <View style={styles.errorContainer}>
-            <MaterialIcons name='error-outline' size={48} color={theme.error} />
-            <Text style={[styles.errorText, { color: theme.error }]}>{error}</Text>
-            <TouchableOpacity onPress={loadPaymentMethods} style={styles.retryButton}>
-              <Text style={styles.retryButtonText}>Try Again</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={styles.paymentMethodsContainer}>
-            {paymentMethods.map(renderPaymentMethod)}
-            
-            {paymentMethods.length === 0 && !loading && (
-              <View style={styles.emptyContainer}>
-                <MaterialIcons name='credit-card-off' size={64} color={theme.subtext} />
-                <Text style={[styles.emptyTitle, { color: theme.text }]}>No Payment Methods</Text>
-                <Text style={[styles.emptyText, { color: theme.subtext }]}>
-                  {userEmail 
-                    ? 'Add a payment method to get started. Payment methods added during checkout will appear here.'
-                    : 'Please log in to view your payment methods.'}
-                </Text>
-              </View>
-            )}
-          </View>
-        )}
-
-        <TouchableOpacity
-          style={[styles.addButton, { backgroundColor: theme.accent }]}
-          onPress={handleAddCard}
-          activeOpacity={0.8}
+      {isScreenMode && Platform.OS === 'web' ? (
+        <ScrollView
+          style={styles.manageOuterScroll}
+          contentContainerStyle={styles.manageOuterScrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={refreshControlEl}
         >
-          <MaterialIcons name='add' size={24} color='#FFFFFF' />
-          <Text style={styles.addButtonText}>Add Payment Method</Text>
-        </TouchableOpacity>
-      </ScrollView>
+          <View style={styles.screenSubtitleSpacer} />
+          <WebPageShell scroll={false} size='profile' contentStyle={{ paddingTop: 4, paddingBottom: 24 }}>
+            <LinearGradient
+              colors={['#2DFFC4', '#00A6FF']}
+              start={{ x: 0.05, y: 0.15 }}
+              end={{ x: 0.95, y: 0.85 }}
+              style={styles.billingChrome}
+            >
+              <View
+                style={[
+                  styles.billingInner,
+                  {
+                    backgroundColor: darkMode ? theme.cardDark : Colors.bg,
+                    borderColor: theme.border,
+                  },
+                ]}
+              >
+                {methodsMainBody}
+              </View>
+            </LinearGradient>
+          </WebPageShell>
+        </ScrollView>
+      ) : (
+        <ScrollView
+          style={styles.content}
+          showsVerticalScrollIndicator={false}
+          refreshControl={refreshControlEl}
+        >
+          {methodsMainBody}
+        </ScrollView>
+      )}
 
       {/* Add Card Modal - TODO: Implement Stripe Payment Element */}
       <Modal
@@ -448,12 +558,60 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  headerRowWeb: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingBottom: 8,
+    gap: 12,
+  },
+  backButtonWrapperWeb: {
+    marginTop: 2,
+  },
+  headerTitleBlock: {
+    flex: 1,
+    paddingTop: 2,
+  },
+  screenTitleWeb: {
+    fontSize: 26,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+  },
+  headerSubtitleWeb: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 6,
+    letterSpacing: 0.15,
+    opacity: 0.92,
+  },
+  screenSubtitleSpacer: {
+    height: 4,
+  },
+  manageOuterScroll: {
+    flex: 1,
+    ...(Platform.OS === 'web' ? { paddingHorizontal: 0 } : {}),
+  },
+  manageOuterScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 24,
+  },
+  billingChrome: {
+    borderRadius: 24,
+    padding: 1,
+    marginBottom: 8,
+  },
+  billingInner: {
+    borderRadius: 23,
+    borderWidth: 1,
+    padding: 16,
+    paddingBottom: 20,
+    overflow: 'visible',
+  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 60,
     marginBottom: 20,
-    marginHorizontal: 20,
+    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 20 }),
     paddingBottom: 8,
   },
   backButtonWrapper: {

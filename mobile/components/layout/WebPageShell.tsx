@@ -37,6 +37,9 @@ export function getWebPageShellMaxWidth(size: WebPageShellSize): number {
   return MAX_WIDTH[size];
 }
 
+/** Inner horizontal padding of the centered web column — keep in sync with `columnStyle` below. */
+export const WEB_PAGE_SHELL_HORIZONTAL_PADDING = 32;
+
 export type WebPageShellProps = {
   children: React.ReactNode;
   size?: WebPageShellSize;
@@ -65,7 +68,7 @@ export default function WebPageShell({
     width: "100%",
     maxWidth: maxW,
     alignSelf: "center",
-    paddingHorizontal: 32,
+    paddingHorizontal: WEB_PAGE_SHELL_HORIZONTAL_PADDING,
     paddingTop: 40,
     paddingBottom: 80,
   };

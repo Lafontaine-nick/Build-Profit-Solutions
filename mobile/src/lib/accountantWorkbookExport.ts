@@ -215,7 +215,7 @@ export function generateAccountantWorkbookBase64(args: {
     ['Expenses Paid', money2(p.expensesPaid)],
     ['Committed Costs', money2(p.committedCosts)],
     ['Net Income', money2(p.netIncome)],
-    ['Net Margin', p.netMargin == null ? 'N/A' : pctOrNa(p.netMargin)],
+    ['Net Margin', pctOrNa(p.netMargin)],
     ['Subcontractor Payments', money2(p.subcontractorPayments)],
     ['Receipt Count', p.receiptCount],
     [],
@@ -244,7 +244,7 @@ export function generateAccountantWorkbookBase64(args: {
       money2(r.outstandingInvoices),
       money2(r.expensesPaid),
       money2(r.netIncome),
-      r.netMargin == null ? 'N/A' : pctOrNa(r.netMargin),
+      pctOrNa(r.netMargin),
       r.receiptCount,
     ]),
   ];

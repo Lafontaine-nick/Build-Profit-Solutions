@@ -5,7 +5,6 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
   Linking,
   Platform,
   SafeAreaView,
@@ -18,8 +17,11 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import * as Haptics from 'expo-haptics';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
-
-const { width } = Dimensions.get('window');
+import WebPageShell from '@/components/layout/WebPageShell';
+import {
+  PROFILE_HELP_CHROME_H_MARGIN,
+  useWebProfileHelpHeaderMargins,
+} from '@/lib/useWebProfileHelpHeaderMargins';
 
 type TabType = 'terms' | 'privacy' | 'refund' | 'tax' | 'attrib';
 
@@ -34,6 +36,7 @@ type TabType = 'terms' | 'privacy' | 'refund' | 'tax' | 'attrib';
 export default function LegalHubScreen() {
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
+  const webHelpHeaderMargins = useWebProfileHelpHeaderMargins();
   const params = useLocalSearchParams<{ tab?: string }>();
   const [activeTab, setActiveTab] = useState<TabType>('terms');
   const [scrollToSection, setScrollToSection] = useState<string | null>(null);
@@ -60,13 +63,17 @@ export default function LegalHubScreen() {
   }, [params.tab]);
 
   const handleTabChange = (tab: TabType) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
     setActiveTab(tab);
     setScrollToSection(null);
   };
 
   const navigateToSection = (section: string, tab: TabType) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
     setActiveTab(tab);
     setScrollToSection(section);
     // Scroll to top first, then let the content render
@@ -76,7 +83,9 @@ export default function LegalHubScreen() {
   };
 
   const openExternalLink = (url: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
     Linking.openURL(url);
   };
 
@@ -84,7 +93,7 @@ export default function LegalHubScreen() {
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <SafeAreaView style={styles.safeArea}>
         {/* Header */}
-        <View style={styles.headerRow}>
+        <View style={[styles.headerRow, webHelpHeaderMargins]}>
           <View style={styles.backButtonWrapper}>
             <LinearGradient
               colors={BRAND_FRAME_GRADIENT_COLORS}
@@ -95,7 +104,9 @@ export default function LegalHubScreen() {
               <GradientRingBackInner
                 darkMode={darkMode}
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  if (Platform.OS !== 'web') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }
                   router.back();
                 }}
                 style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
@@ -112,114 +123,238 @@ export default function LegalHubScreen() {
           <View style={styles.backButtonWrapper} />
         </View>
 
-        {/* Tabs: horizontal scroll so long labels stay on one line (no flex squeeze). */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.tabsRow}
-          contentContainerStyle={styles.tabsRowContent}
-          bounces
-        >
-          <TouchableOpacity
-            style={[
-              styles.tab,
-              { backgroundColor: activeTab === 'terms' ? theme.card : 'transparent', borderColor: theme.border }
-            ]}
-            onPress={() => handleTabChange('terms')}
-          >
-            <Text
-              numberOfLines={1}
-              style={[styles.tabText, { color: activeTab === 'terms' ? theme.text : theme.subtext }]}
-            >
-              Terms
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.tab,
-              { backgroundColor: activeTab === 'privacy' ? theme.card : 'transparent', borderColor: theme.border }
-            ]}
-            onPress={() => handleTabChange('privacy')}
-          >
-            <Text
-              numberOfLines={1}
-              style={[styles.tabText, { color: activeTab === 'privacy' ? theme.text : theme.subtext }]}
-            >
-              Privacy
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.tab,
-              { backgroundColor: activeTab === 'refund' ? theme.card : 'transparent', borderColor: theme.border }
-            ]}
-            onPress={() => handleTabChange('refund')}
-          >
-            <Text
-              numberOfLines={1}
-              style={[styles.tabText, { color: activeTab === 'refund' ? theme.text : theme.subtext }]}
-            >
-              Refund Policy
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.tab,
-              { backgroundColor: activeTab === 'tax' ? theme.card : 'transparent', borderColor: theme.border }
-            ]}
-            onPress={() => handleTabChange('tax')}
-          >
-            <Text
-              numberOfLines={1}
-              style={[styles.tabText, { color: activeTab === 'tax' ? theme.text : theme.subtext }]}
-            >
-              Tax Disclosure
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.tab,
-              { backgroundColor: activeTab === 'attrib' ? theme.card : 'transparent', borderColor: theme.border }
-            ]}
-            onPress={() => handleTabChange('attrib')}
-          >
-            <Text
-              numberOfLines={1}
-              style={[styles.tabText, { color: activeTab === 'attrib' ? theme.text : theme.subtext }]}
-            >
-              Attributions
-            </Text>
-          </TouchableOpacity>
-        </ScrollView>
+        {Platform.OS === 'web' ? (
+          <WebPageShell size="profile" scroll={false} contentStyle={styles.webShellContent}>
+            <View style={styles.webColumn}>
+              {/* Tabs: horizontal scroll so long labels stay on one line (no flex squeeze). */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.tabsRow}
+                contentContainerStyle={styles.tabsRowContentWeb}
+                bounces
+              >
+                <TouchableOpacity
+                  style={[
+                    styles.tab,
+                    { backgroundColor: activeTab === 'terms' ? theme.card : 'transparent', borderColor: theme.border }
+                  ]}
+                  onPress={() => handleTabChange('terms')}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.tabText, { color: activeTab === 'terms' ? theme.text : theme.subtext }]}
+                  >
+                    Terms
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.tab,
+                    { backgroundColor: activeTab === 'privacy' ? theme.card : 'transparent', borderColor: theme.border }
+                  ]}
+                  onPress={() => handleTabChange('privacy')}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.tabText, { color: activeTab === 'privacy' ? theme.text : theme.subtext }]}
+                  >
+                    Privacy
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.tab,
+                    { backgroundColor: activeTab === 'refund' ? theme.card : 'transparent', borderColor: theme.border }
+                  ]}
+                  onPress={() => handleTabChange('refund')}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.tabText, { color: activeTab === 'refund' ? theme.text : theme.subtext }]}
+                  >
+                    Refund Policy
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.tab,
+                    { backgroundColor: activeTab === 'tax' ? theme.card : 'transparent', borderColor: theme.border }
+                  ]}
+                  onPress={() => handleTabChange('tax')}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.tabText, { color: activeTab === 'tax' ? theme.text : theme.subtext }]}
+                  >
+                    Tax Disclosure
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.tab,
+                    { backgroundColor: activeTab === 'attrib' ? theme.card : 'transparent', borderColor: theme.border }
+                  ]}
+                  onPress={() => handleTabChange('attrib')}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.tabText, { color: activeTab === 'attrib' ? theme.text : theme.subtext }]}
+                  >
+                    Attributions
+                  </Text>
+                </TouchableOpacity>
+              </ScrollView>
 
-        {/* Content Card */}
-        <LinearGradient
-          colors={["#2DFFC4", "#00A6FF"]}
-          start={{ x: 0.05, y: 0.15 }}
-          end={{ x: 0.95, y: 0.85 }}
-          style={{ borderRadius: 24, padding: 1, marginHorizontal: 8, flex: 1, marginBottom: 16 }}
-        >
-          <View style={[styles.contentCard, { backgroundColor: theme.background }]}>
+              <LinearGradient
+                colors={["#2DFFC4", "#00A6FF"]}
+                start={{ x: 0.05, y: 0.15 }}
+                end={{ x: 0.95, y: 0.85 }}
+                style={styles.chromeFrame}
+              >
+                <View
+                  style={[
+                    styles.contentCard,
+                    {
+                      backgroundColor: darkMode ? Colors.cardDark : theme.background,
+                      borderColor: theme.border,
+                      borderWidth: 1,
+                    },
+                  ]}
+                >
+                  <ScrollView
+                    ref={scrollViewRef}
+                    style={styles.scrollView}
+                    showsVerticalScrollIndicator={true}
+                    contentContainerStyle={styles.scrollContent}
+                  >
+                    {activeTab === 'terms' && <TermsOfUseContent highlightSection={scrollToSection} theme={theme} />}
+                    {activeTab === 'privacy' && <PrivacyPolicyContent theme={theme} />}
+                    {activeTab === 'refund' && <RefundPolicyContent theme={theme} />}
+                    {activeTab === 'tax' && <TaxCenterDisclosureContent theme={theme} />}
+                    {activeTab === 'attrib' && (
+                      <AttributionsContent
+                        onNavigate={navigateToSection}
+                        onOpenLink={openExternalLink}
+                        theme={theme}
+                      />
+                    )}
+                  </ScrollView>
+                </View>
+              </LinearGradient>
+            </View>
+          </WebPageShell>
+        ) : (
+          <>
+            {/* Tabs: horizontal scroll so long labels stay on one line (no flex squeeze). */}
             <ScrollView
-              ref={scrollViewRef}
-              style={styles.scrollView}
-              showsVerticalScrollIndicator={true}
-              contentContainerStyle={styles.scrollContent}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.tabsRow}
+              contentContainerStyle={styles.tabsRowContent}
+              bounces
             >
-              {activeTab === 'terms' && <TermsOfUseContent highlightSection={scrollToSection} theme={theme} />}
-              {activeTab === 'privacy' && <PrivacyPolicyContent theme={theme} />}
-              {activeTab === 'refund' && <RefundPolicyContent theme={theme} />}
-              {activeTab === 'tax' && <TaxCenterDisclosureContent theme={theme} />}
-              {activeTab === 'attrib' && (
-                <AttributionsContent
-                  onNavigate={navigateToSection}
-                  onOpenLink={openExternalLink}
-                  theme={theme}
-                />
-              )}
+              <TouchableOpacity
+                style={[
+                  styles.tab,
+                  { backgroundColor: activeTab === 'terms' ? theme.card : 'transparent', borderColor: theme.border }
+                ]}
+                onPress={() => handleTabChange('terms')}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={[styles.tabText, { color: activeTab === 'terms' ? theme.text : theme.subtext }]}
+                >
+                  Terms
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.tab,
+                  { backgroundColor: activeTab === 'privacy' ? theme.card : 'transparent', borderColor: theme.border }
+                ]}
+                onPress={() => handleTabChange('privacy')}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={[styles.tabText, { color: activeTab === 'privacy' ? theme.text : theme.subtext }]}
+                >
+                  Privacy
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.tab,
+                  { backgroundColor: activeTab === 'refund' ? theme.card : 'transparent', borderColor: theme.border }
+                ]}
+                onPress={() => handleTabChange('refund')}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={[styles.tabText, { color: activeTab === 'refund' ? theme.text : theme.subtext }]}
+                >
+                  Refund Policy
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.tab,
+                  { backgroundColor: activeTab === 'tax' ? theme.card : 'transparent', borderColor: theme.border }
+                ]}
+                onPress={() => handleTabChange('tax')}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={[styles.tabText, { color: activeTab === 'tax' ? theme.text : theme.subtext }]}
+                >
+                  Tax Disclosure
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.tab,
+                  { backgroundColor: activeTab === 'attrib' ? theme.card : 'transparent', borderColor: theme.border }
+                ]}
+                onPress={() => handleTabChange('attrib')}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={[styles.tabText, { color: activeTab === 'attrib' ? theme.text : theme.subtext }]}
+                >
+                  Attributions
+                </Text>
+              </TouchableOpacity>
             </ScrollView>
-          </View>
-        </LinearGradient>
+
+            <LinearGradient
+              colors={["#2DFFC4", "#00A6FF"]}
+              start={{ x: 0.05, y: 0.15 }}
+              end={{ x: 0.95, y: 0.85 }}
+              style={styles.chromeFrame}
+            >
+              <View style={[styles.contentCard, { backgroundColor: theme.background }]}>
+                <ScrollView
+                  ref={scrollViewRef}
+                  style={styles.scrollView}
+                  showsVerticalScrollIndicator={true}
+                  contentContainerStyle={styles.scrollContent}
+                >
+                  {activeTab === 'terms' && <TermsOfUseContent highlightSection={scrollToSection} theme={theme} />}
+                  {activeTab === 'privacy' && <PrivacyPolicyContent theme={theme} />}
+                  {activeTab === 'refund' && <RefundPolicyContent theme={theme} />}
+                  {activeTab === 'tax' && <TaxCenterDisclosureContent theme={theme} />}
+                  {activeTab === 'attrib' && (
+                    <AttributionsContent
+                      onNavigate={navigateToSection}
+                      onOpenLink={openExternalLink}
+                      theme={theme}
+                    />
+                  )}
+                </ScrollView>
+              </View>
+            </LinearGradient>
+          </>
+        )}
       </SafeAreaView>
     </View>
   );
@@ -1097,13 +1232,31 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
+  webShellContent: {
+    flex: 1,
+    minHeight: 0,
+    paddingTop: 12,
+    paddingBottom: 24,
+  },
+  webColumn: {
+    flex: 1,
+    minHeight: 0,
+  },
+  chromeFrame: {
+    borderRadius: 24,
+    padding: 1,
+    marginHorizontal: PROFILE_HELP_CHROME_H_MARGIN,
+    marginBottom: 16,
+    flex: 1,
+    minHeight: 0,
+  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: 20,
     marginBottom: 12,
-    marginHorizontal: 20,
+    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 20 }),
     position: 'relative',
   },
   backButtonWrapper: {
@@ -1147,6 +1300,13 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 16,
     paddingRight: 20,
+  },
+  tabsRowContentWeb: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 0,
+    paddingRight: 8,
   },
   tab: {
     flexShrink: 0,

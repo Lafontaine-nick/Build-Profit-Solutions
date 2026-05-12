@@ -20,6 +20,7 @@ const toNumber = (value: unknown): number => {
 };
 
 const paymentDate = (payment: TaxPayment): string | undefined =>
+  payment.actualDate ||
   payment.collectedAt ||
   payment.paidAt ||
   payment.paymentDate ||

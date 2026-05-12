@@ -7,16 +7,17 @@ import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
 import { computeProjectsCompareData, type CompareProjectItem } from '@/src/lib/projectsCompareData';
+import { isChangeOrderTimelineMilestone } from '@/src/lib/projectFinancials';
 
 const isDepositMilestone = (m: any): boolean => {
   const t = (m?.title || m?.name || '').toLowerCase();
   return t.includes('deposit') || m?.type === 'deposit';
 };
 
-// Must match Projects page computeOverallPctFromItems exactly (including || for status fallback)
+// Must match Projects page computeOverallPctFromItems exactly (including || for status fallback; CO rows excluded)
 const computeOverallPctFromItems = (items: any[]): number => {
   if (!items?.length) return 0;
-  const workItems = items.filter((m) => !isDepositMilestone(m));
+  const workItems = items.filter((m) => !isDepositMilestone(m) && !isChangeOrderTimelineMilestone(m));
   if (!workItems.length) return 0;
   const sum = workItems.reduce((acc, m) => {
     const pct = Math.min(100, Math.max(0, m.progressPct || (m.status === 'completed' ? 100 : m.status === 'in_progress' ? 50 : 0)));

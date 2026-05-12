@@ -1,5 +1,4 @@
 import type { Vendor, VendorType } from '@/src/lib/vendorTypes';
-import { getProjectRevenue } from '@/lib/projectRevenue';
 
 export type TaxCategory =
   | 'Materials'
@@ -61,6 +60,8 @@ export type TaxPayment = {
   paymentAmount?: number | string;
   collectedAmount?: number | string;
   collectedAt?: string;
+  /** Date-only cash receipt; preferred over collectedAt for tax-year bucketing when set. */
+  actualDate?: string;
   paidAt?: string;
   paymentDate?: string;
   scheduledDate?: string;
@@ -85,24 +86,21 @@ export type TaxReceipt = {
 };
 
 export type TaxCenterSummary = {
-  /**
-   * Recognized revenue for the tax year: per project, cash collected in-year, except **completed**
-   * jobs use **adjusted contract value** (approved change orders included), matching Budget.
-   */
+  /** Cash-basis: payments actually collected during the selected tax year. */
   grossIncomeCollected: number;
   outstandingReceivables: number;
   /**
-   * Cash-style “paid” job costs for the tax year: project expenses dated in-year plus purchase
-   * orders treated as paid/received (`isPoPaidForTax`: Received, Paid/Complete, or `isPaid`).
-   * Pending POs are excluded here and appear under `committedCosts` (matches Budget committed POs).
+   * Cash-basis expenses paid in the tax year: non-PO lines use paid date when present, otherwise
+   * paid-status + line date; POs only when `isPoPaidForTax`, bucketed by paid/received/delivery dates.
+   * Pending POs are excluded and appear under `committedCosts`.
    */
   totalExpenses: number;
   /** Sum of **Pending** purchase orders only (not yet received/paid); aligns with Budget “Committed POs”. */
   committedCosts: number;
-  /** Tax-year: `grossIncomeCollected - totalExpenses` (revenue rule above). */
+  /** `grossIncomeCollected - totalExpenses` for the selected tax year. */
   netProfit: number;
-  /** Net Income / Revenue Collected; null when no collected revenue */
-  netMargin: number | null;
+  /** Net Income ÷ Revenue Collected; **0** when there is no collected revenue in the year. */
+  netMargin: number;
   subcontractorPayments: number;
   receiptCount: number;
 };
@@ -118,15 +116,13 @@ export type TaxCategoryRow = {
 export type ProjectTaxSummary = {
   projectId: string;
   projectName: string;
-  /**
-   * Completed: **adjusted contract value** (`getProjectRevenue` — includes approved COs).
-   * Otherwise: milestone payments marked collected with dates in this tax year.
-   */
+  /** Cash collected in the selected tax year (same basis as portfolio revenue). */
   revenueCollected: number;
   outstandingInvoices: number;
   expensesPaid: number;
   netIncome: number;
-  margin: number | null;
+  /** Net income ÷ revenue collected; **0** when there is no revenue collected for the project in-year. */
+  margin: number;
   receiptCount: number;
 };
 
@@ -189,6 +185,7 @@ const poDate = (po: any): string | undefined =>
   po?.orderDate || po?.expectedDelivery || po?.date || po?.createdAt || po?.updatedAt;
 
 const paymentDate = (payment: any): string | undefined =>
+  payment?.actualDate ||
   payment?.collectedAt ||
   payment?.paidAt ||
   payment?.paymentDate ||
@@ -197,23 +194,131 @@ const paymentDate = (payment: any): string | undefined =>
   payment?.plannedDate ||
   payment?.date;
 
+/**
+ * Which tax year an **uncollected** milestone belongs to for AR: prefer Timeline / schedule fields
+ * (`plannedDate`, `scheduledDate`, `dueDate`) before `paymentDate()`'s cash-flow-first order.
+ * Otherwise open lines can land in the wrong year or disappear vs what the Timeline tab shows.
+ */
+const arMilestoneYearBucketDate = (payment: any): string | undefined => {
+  const fromSchedule = payment?.plannedDate || payment?.scheduledDate || payment?.dueDate;
+  const trimmed = String(fromSchedule || '').trim();
+  if (trimmed) return trimmed;
+  return paymentDate(payment);
+};
+
 const isExpenseInYear = (expense: any, year: number, project?: any): boolean => {
   const date = expense.__isPurchaseOrder ? poDate(expense) : expenseDate(expense);
   if (date) return dateInYear(date, year);
   return project ? projectOverlapsYear(project, year) : false;
 };
 
-const isPaymentCollected = (payment: any): boolean => {
-  const status = String(payment?.status || '').toLowerCase();
+export function projectByIdFromList(projects: any[], projectId: string): any | undefined {
+  const id = String(projectId || '').trim();
+  if (!id) return undefined;
+  return asArray<any>(projects).find((p) => String(p?.id || '') === id);
+}
+
+const expenseExplicitlyUnpaid = (expense: any): boolean => {
+  const ps = String(expense?.paymentStatus || '').toLowerCase();
+  const st = String(expense?.status || '').toLowerCase();
+  return ps === 'unpaid' || ps === 'pending' || st === 'unpaid' || st === 'pending';
+};
+
+const expenseExplicitlyPaid = (expense: any): boolean => {
+  if (expense?.isPaid === true) return true;
+  const ps = String(expense?.paymentStatus || '').toLowerCase();
+  const st = String(expense?.status || '').toLowerCase();
   return (
-    payment?.paid === true ||
-    payment?.collected === true ||
-    payment?.isPaid === true ||
+    ps === 'paid' ||
+    ps === 'collected' ||
+    ps === 'completed' ||
+    ps === 'complete' ||
+    ps === 'cleared' ||
+    ps === 'posted' ||
+    st === 'paid' ||
+    st === 'complete' ||
+    st === 'completed'
+  );
+};
+
+const cashBasisPoPaidYearDate = (po: any): string | undefined =>
+  String(po?.paidAt || '').trim() ||
+  String(po?.receivedAt || '').trim() ||
+  String(po?.updatedAt || '').trim() ||
+  String(poDate(po) || '').trim() ||
+  undefined;
+
+const cashBasisNonPoExpensePaidYearDate = (expense: any): string | undefined => {
+  const paidAt = String(expense?.paidAt || '').trim();
+  if (paidAt) return paidAt;
+  if (expenseExplicitlyPaid(expense)) {
+    return (
+      String(expense?.date || '').trim() ||
+      String(expense?.orderDate || '').trim() ||
+      String(expense?.createdAt || '').trim() ||
+      undefined
+    );
+  }
+  if (!expenseExplicitlyUnpaid(expense)) {
+    return (
+      String(expense?.date || '').trim() ||
+      String(expense?.orderDate || '').trim() ||
+      String(expense?.createdAt || '').trim() ||
+      undefined
+    );
+  }
+  return undefined;
+};
+
+/**
+ * Cash-basis: expense counts in a tax year when it was actually paid/received (not when a bill was
+ * first recorded, unless that is the only dated field and the line is not marked unpaid).
+ */
+export function isCashBasisExpensePaidInTaxYear(expense: any, year: number, project?: any): boolean {
+  if (expense?.__isPurchaseOrder) {
+    if (!isPoPaidForTax(expense)) return false;
+    const d = cashBasisPoPaidYearDate(expense);
+    if (d) return dateInYear(d, year);
+    return project ? projectOverlapsYear(project, year) : false;
+  }
+  const d = cashBasisNonPoExpensePaidYearDate(expense);
+  if (d) return dateInYear(d, year);
+  return false;
+}
+
+/** Line date for receipt backup / receipt counts (follows expense or PO schedule, not cash paid date). */
+export function expenseRecordDateForTaxYear(expense: any): string | undefined {
+  if (expense?.__isPurchaseOrder) return poDate(expense);
+  return (
+    String(expense?.date || '').trim() ||
+    String(expense?.orderDate || '').trim() ||
+    String(expense?.paidAt || '').trim() ||
+    String(expense?.createdAt || '').trim() ||
+    undefined
+  );
+}
+
+export function isExpenseRecordDatedInTaxYear(expense: any, year: number, project?: any): boolean {
+  const d = expenseRecordDateForTaxYear(expense);
+  if (d) return dateInYear(d, year);
+  return project ? projectOverlapsYear(project, year) : false;
+}
+
+const isPaymentCollected = (payment: any): boolean => {
+  if (payment?.paid === true || payment?.collected === true || payment?.isPaid === true) return true;
+  if (payment?.completed === true || payment?.isComplete === true) return true;
+  const status = String(payment?.status || '').toLowerCase();
+  if (
     status === 'paid' ||
     status === 'collected' ||
     status === 'completed' ||
     status === 'complete'
-  );
+  ) {
+    return true;
+  }
+  const amt = toNumber(payment?.amount ?? payment?.paymentAmount ?? payment?.collectedAmount);
+  if (amt > 0 && (Number(payment?.progressPct) || 0) >= 99.5) return true;
+  return false;
 };
 
 const paymentAmount = (payment: any): number =>
@@ -223,13 +328,6 @@ export const expenseAmount = (expense: any): number => toNumber(expense?.amount 
 
 const normalizeProjectName = (project: any): string =>
   String(project?.title || project?.name || project?.projectData?.title || project?.estimateData?.title || 'Untitled Project');
-
-/** Job closed — tax revenue uses adjusted contract (includes approved change orders). */
-export function isProjectTaxCompleted(project: any): boolean {
-  const raw = project?.status ?? project?.projectData?.status;
-  const s = String(raw ?? '').toLowerCase().replace(/\s+/g, '_');
-  return s === 'completed';
-}
 
 const uniqueByKey = <T>(items: T[], getKey: (item: T, index: number) => string): T[] => {
   const seen = new Set<string>();
@@ -376,6 +474,11 @@ function collectProjectPurchaseOrderLines(project: any): TaxExpense[] {
   }));
 }
 
+/** All expense rows + all PO rows (any status) for receipt-date anchoring and similar review. */
+export function collectAllProjectExpenseAndPoLines(project: any): TaxExpense[] {
+  return [...collectProjectExpenseLinesOnly(project), ...collectProjectPurchaseOrderLines(project)];
+}
+
 /** Taxable expense lines: regular expenses + only paid POs */
 export function collectTaxableExpenseLines(project: any): TaxExpense[] {
   const regular = collectProjectExpenseLinesOnly(project);
@@ -400,16 +503,11 @@ function collectProjectInvoices(project: any): any[] {
 /**
  * Outstanding receivables for a project in a tax year: **uncollected** amounts still expected
  * (invoice balances dated in the year, or — if there are no invoices — payment milestones dated
- * in the year that are not yet marked collected).
- *
- * **Completed** jobs return **0**: revenue is recognized at adjusted contract (includes change orders);
- * milestone totals may not match that number even when the job is closed, so we do not show synthetic AR.
+ * in the year that are not yet marked collected; milestone year uses schedule dates first so it
+ * aligns with Timeline `plannedDate` / `scheduledDate` / `dueDate`). Informational only for cash-basis
+ * revenue — not added to Revenue Collected until collected.
  */
 export function calculateOutstandingInvoices(project: any, selectedYear: number): number {
-  if (isProjectTaxCompleted(project)) {
-    return 0;
-  }
-
   const invoices = collectProjectInvoices(project).filter((inv) => {
     if (String(inv?.status || '').toLowerCase() === 'cancelled') return false;
     const d = inv?.issueDate || inv?.createdAt;
@@ -431,7 +529,7 @@ export function calculateOutstandingInvoices(project: any, selectedYear: number)
 
   // No invoice records: use scheduled payments dated in year that are not yet collected.
   const openSchedule = collectProjectPayments(project).filter(
-    (p) => dateInYear(paymentDate(p), selectedYear) && !isPaymentCollected(p)
+    (p) => dateInYear(arMilestoneYearBucketDate(p), selectedYear) && !isPaymentCollected(p)
   );
   return openSchedule.reduce((s, p) => s + paymentAmount(p), 0);
 }
@@ -453,13 +551,49 @@ function collectProjectPayments(project: any): TaxPayment[] {
     project?.estimateData?.paymentMilestones,
     project?.estimateData?.weeklyPayments,
   ];
-  const payments = sources.flatMap((source) => asArray<TaxPayment>(source));
+  const flat = sources.flatMap((source) => asArray<TaxPayment>(source));
 
-  return uniqueByKey(payments, (payment, index) => {
-    const id = payment?.id;
+  const paymentAmtForDedupe = (p: any) =>
+    toNumber(p?.collectedAmount ?? p?.paidAmount ?? p?.amount ?? p?.paymentAmount);
+
+  const paymentKeyWithId = (p: any) => {
+    const id = String(p?.id || '').trim();
+    return id ? `${projectId}::id::${id}` : '';
+  };
+
+  /** Prefer collected / high-progress rows when the same milestone id appears in timeline + estimate copies. */
+  const mergeScore = (p: any) => {
+    let s = 0;
+    if (isPaymentCollected(p)) s += 100;
+    s += Math.min(25, Math.floor((Number(p?.progressPct) || 0) / 4));
+    return s;
+  };
+
+  const byId = new Map<string, TaxPayment>();
+  const idOrder: string[] = [];
+  const noIdSeen = new Set<string>();
+  const noIdRows: TaxPayment[] = [];
+
+  for (const payment of flat) {
+    const idKey = paymentKeyWithId(payment);
+    if (idKey) {
+      const prev = byId.get(idKey);
+      if (!prev || mergeScore(payment) > mergeScore(prev)) {
+        byId.set(idKey, payment);
+      }
+      if (!idOrder.includes(idKey)) idOrder.push(idKey);
+      continue;
+    }
     const label = payment?.title || payment?.name || payment?.description || '';
-    return id ? `${projectId}:${id}` : `${projectId}:${index}:${label}:${paymentAmount(payment)}:${paymentDate(payment) || ''}`;
-  }).map((payment) => ({
+    const nk = `${projectId}::noid::${label}:${paymentAmtForDedupe(payment)}:${paymentDate(payment) || ''}`;
+    if (noIdSeen.has(nk)) continue;
+    noIdSeen.add(nk);
+    noIdRows.push(payment);
+  }
+
+  const merged = [...idOrder.map((k) => byId.get(k)!), ...noIdRows];
+
+  return merged.map((payment) => ({
     ...payment,
     projectId,
     projectName,
@@ -481,7 +615,7 @@ export function getTaxCenterDataInputs(
   };
 }
 
-/** Payments collected in the tax year (cash dates in year). Portfolio revenue also applies completed-job adjusted contract — see `computeTaxCenterSummary`. */
+/** Payments collected in the tax year (collection / paid date in year). */
 export function getYearCollectedPayments(projects: any[], selectedYear: number): TaxPayment[] {
   const inputs = getTaxCenterDataInputs(projects);
   return inputs.payments.filter(
@@ -519,18 +653,20 @@ export function buildProjectTaxSummaries(projects: any[], selectedYear: number):
   return asArray<any>(projects)
     .map((project) => {
       const projectId = String(project?.id || '');
-      const taxable = collectTaxableExpenseLines(project).filter((e) => isExpenseInYear(e, selectedYear, project));
+      const taxable = collectTaxableExpenseLines(project).filter((e) =>
+        isCashBasisExpensePaidInTaxYear(e, selectedYear, project)
+      );
       const expensesPaid = taxable.reduce((sum, e) => sum + expenseAmount(e), 0);
       const payments = collectProjectPayments(project).filter(
         (payment) => isPaymentCollected(payment) && dateInYear(paymentDate(payment), selectedYear)
       );
       const cashCollectedInYear = payments.reduce((sum, payment) => sum + paymentAmount(payment), 0);
-      const adjustedContract = getProjectRevenue(project);
-      const revenueCollected =
-        isProjectTaxCompleted(project) && adjustedContract > 0 ? adjustedContract : cashCollectedInYear;
+      const revenueCollected = cashCollectedInYear;
       const outstandingInvoices = calculateOutstandingInvoices(project, selectedYear);
       const netIncome = revenueCollected - expensesPaid;
-      const receiptCount = taxable.filter((e) => !!e.receiptUri).length;
+      const receiptCount = collectAllProjectExpenseAndPoLines(project).filter(
+        (e) => !!String(e.receiptUri ?? '').trim() && isExpenseRecordDatedInTaxYear(e, selectedYear, project)
+      ).length;
 
       return {
         projectId,
@@ -539,7 +675,7 @@ export function buildProjectTaxSummaries(projects: any[], selectedYear: number):
         outstandingInvoices,
         expensesPaid,
         netIncome,
-        margin: revenueCollected > 0 ? netIncome / revenueCollected : null,
+        margin: revenueCollected > 0 ? netIncome / revenueCollected : 0,
         receiptCount,
       };
     })
@@ -555,13 +691,12 @@ export function buildProjectTaxSummaries(projects: any[], selectedYear: number):
 
 export function buildSubcontractorPaymentSummary(
   expenses: TaxExpense[],
-  selectedYear: number,
+  _selectedYear: number,
   vendors: Vendor[] = []
 ): SubcontractorPaymentSummary[] {
   const byVendor = new Map<string, SubcontractorPaymentSummary>();
 
   asArray<TaxExpense>(expenses)
-    .filter((expense) => dateInYear(expenseDate(expense), selectedYear))
     .filter((expense) => expenseCountsTowardSubcontractorPayments(expense, vendors))
     .forEach((expense) => {
       const name = String(expense.vendor || 'Unknown subcontractor').trim() || 'Unknown subcontractor';
@@ -590,9 +725,8 @@ export function buildSubcontractorPaymentSummary(
 }
 
 /**
- * Portfolio gross for the tax year: each project once — cash collected in-year, except **completed**
- * jobs use **adjusted contract value** (includes approved change orders). Adds orphan in-year payments
- * (no matching project id in the list).
+ * Portfolio cash revenue for the tax year: sum of payments actually collected in-year, per project once,
+ * plus orphan in-year payments (no matching project id in the list).
  */
 function grossRecognizedRevenueFromProjects(
   projects: any[],
@@ -610,12 +744,7 @@ function grossRecognizedRevenueFromProjects(
     const cashInYear = collectProjectPayments(project)
       .filter((payment) => isPaymentCollected(payment) && dateInYear(paymentDate(payment), selectedYear))
       .reduce((s, p) => s + paymentAmount(p), 0);
-    if (isProjectTaxCompleted(project)) {
-      const adj = getProjectRevenue(project);
-      sum += adj > 0 ? adj : cashInYear;
-    } else {
-      sum += cashInYear;
-    }
+    sum += cashInYear;
   }
   const projectIds = new Set(asArray<any>(projects).map((p) => String(p?.id ?? '')).filter(Boolean));
   const orphanSum = asArray<TaxPayment>(allPayments)
@@ -638,7 +767,11 @@ export function computeTaxCenterSummary(
   vendors: Vendor[] = []
 ): TaxCenterSummary {
   const inputs = getTaxCenterDataInputs(projects, expenses, payments, receipts);
-  const yearExpenses = inputs.expenses.filter((expense) => dateInYear(expenseDate(expense), selectedYear));
+  const yearExpenses = inputs.expenses.filter((expense) => {
+    const pid = String(expense.projectId || '');
+    const proj = pid ? projectByIdFromList(projects, pid) : undefined;
+    return isCashBasisExpensePaidInTaxYear(expense, selectedYear, proj);
+  });
   const yearReceipts = inputs.receipts.filter((receipt) =>
     dateInYear(receipt.date || receipt.createdAt, selectedYear)
   );
@@ -662,7 +795,31 @@ export function computeTaxCenterSummary(
   const subcontractorPayments = yearExpenses
     .filter((expense) => expenseCountsTowardSubcontractorPayments(expense, vendors))
     .reduce((sum, expense) => sum + expenseAmount(expense), 0);
-  const receiptsFromExpenses = yearExpenses.filter((expense) => !!expense.receiptUri).length;
+
+  const seenReceiptKeys = new Set<string>();
+  let receiptCount = 0;
+  for (const project of asArray<any>(projects)) {
+    const pid = String(project?.id || '');
+    for (const e of collectAllProjectExpenseAndPoLines(project)) {
+      const uri = String(e.receiptUri ?? '').trim();
+      if (!uri || !isExpenseRecordDatedInTaxYear(e, selectedYear, project)) continue;
+      const k = `${pid}|${String(e.id || '')}|${uri}|${expenseRecordDateForTaxYear(e) || ''}`;
+      if (seenReceiptKeys.has(k)) continue;
+      seenReceiptKeys.add(k);
+      receiptCount += 1;
+    }
+  }
+  for (const e of asArray<TaxExpense>(expenses)) {
+    const pid = String(e.projectId || '');
+    const proj = pid ? projectByIdFromList(projects, pid) : undefined;
+    const uri = String(e.receiptUri ?? '').trim();
+    if (!uri || !isExpenseRecordDatedInTaxYear(e, selectedYear, proj)) continue;
+    const k = `extra|${pid}|${String(e.id || '')}|${uri}|${expenseRecordDateForTaxYear(e) || ''}`;
+    if (seenReceiptKeys.has(k)) continue;
+    seenReceiptKeys.add(k);
+    receiptCount += 1;
+  }
+  receiptCount += yearReceipts.length;
 
   return {
     grossIncomeCollected,
@@ -670,9 +827,9 @@ export function computeTaxCenterSummary(
     totalExpenses,
     committedCosts,
     netProfit,
-    netMargin: grossIncomeCollected > 0 ? netProfit / grossIncomeCollected : null,
+    netMargin: grossIncomeCollected > 0 ? netProfit / grossIncomeCollected : 0,
     subcontractorPayments,
-    receiptCount: receiptsFromExpenses + yearReceipts.length,
+    receiptCount,
   };
 }
 
@@ -690,6 +847,7 @@ export function getTaxYearOptions(projects: any[], currentYear = new Date().getF
       project?.estimateData?.projectStartDate,
       project?.estimateData?.projectEndDate,
       ...collectTaxableExpenseLines(project).map((e) => expenseDate(e)),
+      ...collectAllProjectExpenseAndPoLines(project).map((e) => expenseRecordDateForTaxYear(e) || expenseDate(e)),
       ...collectProjectPayments(project).map(paymentDate),
       ...collectProjectInvoices(project).map((inv) => inv?.issueDate || inv?.createdAt),
     ].forEach((value) => {
@@ -701,10 +859,37 @@ export function getTaxYearOptions(projects: any[], currentYear = new Date().getF
   return Array.from(years).sort((a, b) => b - a);
 }
 
-/** Taxable expense lines for the year (paid POs + regular expenses) */
+/** Cash-basis expense lines paid/received in the selected tax year (paid POs + qualifying non-PO lines). */
 export function getYearExpenses(projects: any[], selectedYear: number, expenses: TaxExpense[] = []): TaxExpense[] {
   const inputs = getTaxCenterDataInputs(projects, expenses);
-  return inputs.expenses.filter((expense) => dateInYear(expenseDate(expense), selectedYear));
+  return inputs.expenses.filter((expense) => {
+    const pid = String(expense.projectId || '');
+    const proj = pid ? projectByIdFromList(projects, pid) : undefined;
+    return isCashBasisExpensePaidInTaxYear(expense, selectedYear, proj);
+  });
+}
+
+/** Expense/PO lines with a receipt attachment whose **record date** falls in the tax year (receipt backup manifest). */
+export function getYearReceiptManifestExpenseLines(
+  projects: any[],
+  selectedYear: number,
+  extra: TaxExpense[] = []
+): TaxExpense[] {
+  const fromProjects = asArray<any>(projects).flatMap((project) =>
+    collectAllProjectExpenseAndPoLines(project).filter(
+      (e) => !!String(e.receiptUri ?? '').trim() && isExpenseRecordDatedInTaxYear(e, selectedYear, project)
+    )
+  );
+  const fromExtra = asArray<TaxExpense>(extra).filter((e) => {
+    const pid = String(e.projectId || '');
+    const proj = pid ? projectByIdFromList(projects, pid) : undefined;
+    return !!String(e.receiptUri ?? '').trim() && isExpenseRecordDatedInTaxYear(e, selectedYear, proj);
+  });
+  return uniqueByKey([...fromProjects, ...fromExtra], (e, i) => {
+    const id = String(e?.id || '').trim();
+    const pid = String(e?.projectId || '').trim();
+    return id ? `${pid}:${id}:${e.__isPurchaseOrder ? 'po' : 'exp'}` : `${pid}:idx:${i}:${expenseAmount(e)}`;
+  });
 }
 
 export type ReceiptExportLine = {
@@ -734,10 +919,19 @@ export function groupReceiptsForExport(
   selectedYear: number,
   extraExpenses: TaxExpense[] = []
 ): ReceiptExportBundle {
-  const taxable = [
-    ...asArray<any>(projects).flatMap(collectTaxableExpenseLines),
+  const combined: TaxExpense[] = [
+    ...asArray<any>(projects).flatMap(collectAllProjectExpenseAndPoLines),
     ...asArray<TaxExpense>(extraExpenses),
-  ].filter((e) => dateInYear(expenseDate(e), selectedYear) && !!e.receiptUri);
+  ];
+  const taxable = uniqueByKey(combined, (e, i) => {
+    const id = String(e?.id || '').trim();
+    const pid = String(e?.projectId || '').trim();
+    return id ? `${pid}:${id}:${e.__isPurchaseOrder ? 'po' : 'exp'}` : `${pid}:idx:${i}:${expenseAmount(e)}`;
+  }).filter((e) => {
+    const pid = String(e.projectId || '');
+    const proj = pid ? projectByIdFromList(projects, pid) : undefined;
+    return !!String(e.receiptUri ?? '').trim() && isExpenseRecordDatedInTaxYear(e, selectedYear, proj);
+  });
 
   const byProject: Record<string, ReceiptExportLine[]> = {};
   const byMonth: Record<string, ReceiptExportLine[]> = {};
@@ -745,7 +939,8 @@ export function groupReceiptsForExport(
 
   taxable.forEach((e) => {
     const cat = mapExpenseToTaxCategory(e);
-    const d = parseDate(expenseDate(e));
+    const anchor = expenseRecordDateForTaxYear(e) || expenseDate(e);
+    const d = parseDate(anchor);
     const monthKey = d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : 'unknown';
     const pid = String(e.projectId || 'unassigned');
     const pname = String(e.projectName || 'Unassigned');
@@ -756,7 +951,7 @@ export function groupReceiptsForExport(
       monthKey,
       category: cat,
       amount: expenseAmount(e),
-      date: expenseDate(e),
+      date: anchor,
       receiptUri: e.receiptUri,
       vendor: e.vendor,
       notes: e.notes,

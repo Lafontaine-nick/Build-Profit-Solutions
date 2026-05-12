@@ -770,16 +770,15 @@ class ApiService {
       if (!response.ok) {
         // Try to get error message from response body
         let errorMessage = `HTTP error! status: ${response.status}`;
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorData.error || errorMessage;
-        } catch (e) {
-          // If response is not JSON, try text
+        const errText = await response.text().catch(() => '');
+        if (errText && errText.trim()) {
           try {
-            const text = await response.text();
-            if (text) errorMessage = text;
-          } catch (e2) {
-            // Ignore if we can't read the response
+            const errorData = JSON.parse(errText);
+            errorMessage =
+              errorData.message || errorData.error || errorData.details || errorMessage;
+          } catch {
+            const trimmed = errText.trim().slice(0, 400);
+            if (trimmed) errorMessage = trimmed;
           }
         }
         const error = new Error(errorMessage);
@@ -787,13 +786,30 @@ class ApiService {
         throw error;
       }
 
-      const data = await response.json();
+      const okText = await response.text();
+      let data: any = null;
+      if (okText && okText.trim()) {
+        try {
+          data = JSON.parse(okText);
+        } catch {
+          throw Object.assign(
+            new Error('Server returned a non-JSON response (check API base URL and proxy).'),
+            { status: response.status }
+          );
+        }
+      }
       return { data, status: response.status };
     } catch (error) {
-      // Only log errors, don't let them block Fast Refresh
-      // Use console.warn instead of console.error to prevent error boundaries from triggering
-      if (error instanceof TypeError && error.message.includes('Network request failed')) {
-        // Silently handle network errors during development to not block Fast Refresh
+      const errMsg = error instanceof Error ? error.message : String(error ?? '');
+      const isRNNetworkFailure =
+        error instanceof TypeError && errMsg.includes('Network request failed');
+      const isWebFetchFailure =
+        error instanceof TypeError &&
+        (/failed to fetch/i.test(errMsg) ||
+          /load failed/i.test(errMsg) ||
+          /networkerror/i.test(errMsg) ||
+          errMsg.includes('ECONNREFUSED'));
+      if (isRNNetworkFailure || isWebFetchFailure) {
         if (__DEV__) {
           console.warn('⚠️  Network request failed (non-blocking):', this.baseUrl);
         } else {
@@ -801,13 +817,13 @@ class ApiService {
         }
         const networkError = new Error(
           `Cannot connect to backend at ${this.baseUrl}. ` +
-          `Please ensure: 1) Backend is running 2) Correct IP address 3) Device can reach backend`
+            `Please ensure: 1) Backend is running 2) Correct IP address 3) Device can reach backend`
         );
         (networkError as any).status = 0;
         (networkError as any).isNetworkError = true;
         throw networkError;
       }
-      
+
       // For other errors, still log but don't let them crash the app
       if (__DEV__) {
         console.warn('⚠️  API request error (non-blocking):', endpoint, error);

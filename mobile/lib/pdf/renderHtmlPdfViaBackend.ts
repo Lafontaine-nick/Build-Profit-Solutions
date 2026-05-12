@@ -80,6 +80,24 @@ export const getCandidateApiBasesForPdfRender = () => {
 
   const devOnPhysicalDevice = __DEV__ && Constants.isDevice && Platform.OS !== 'web';
 
+  /**
+   * Expo web dev: `resolveBackendRestApiBaseUrl()` often resolves to Metro’s
+   * `/__bps_render_api__/api` → **hosted Render**, not `backend/` on this machine.
+   * Contract/estimate PDFs must hit the same Node process that runs Puppeteer
+   * (`POST /api/contracts/render-pdf`), or HTML/logo fixes never apply.
+   */
+  if (Platform.OS === "web" && __DEV__ && typeof window !== "undefined") {
+    const host = String(window.location?.hostname || "").trim();
+    if (/^(localhost|127\.0\.0\.1)$/i.test(host)) {
+      candidates.push("http://localhost:3001/api", "http://127.0.0.1:3001/api");
+    } else if (
+      /^\d{1,3}(\.\d{1,3}){3}$/.test(host) &&
+      /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[0-1])\./i.test(host)
+    ) {
+      candidates.push(`http://${host}:3001/api`);
+    }
+  }
+
   if (devOnPhysicalDevice) {
     candidates.push(...collectDevDeviceLanPdfBases());
   }

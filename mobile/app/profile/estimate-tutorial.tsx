@@ -16,7 +16,12 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import * as Haptics from 'expo-haptics';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
+import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
+import {
+  PROFILE_HELP_CHROME_H_MARGIN,
+  useWebProfileHelpHeaderMargins,
+} from '@/lib/useWebProfileHelpHeaderMargins';
 
 interface TutorialStepProps {
   number: number;
@@ -64,6 +69,7 @@ const TutorialStep = ({
 
 export default function EstimateTutorialScreen() {
   const router = useRouter();
+  const webHelpHeaderMargins = useWebProfileHelpHeaderMargins();
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
 
@@ -155,39 +161,48 @@ export default function EstimateTutorialScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <LinearGradient colors={theme.background} style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
-          {/* Header */}
-          <View style={styles.headerRow}>
-            <View style={styles.backButtonWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backButtonBorder}
-              >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    router.back();
-                  }}
-                  style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
+          {Platform.OS === 'web' ? (
+            <HelpSupportSubpageWebHeader
+              title='How to Create an'
+              titleLine2='Estimate'
+              darkMode={darkMode}
+              lightBg={Colors.bg}
+              webHelpHeaderMargins={webHelpHeaderMargins}
+            />
+          ) : (
+            <View style={[styles.headerRow, webHelpHeaderMargins]}>
+              <View style={styles.backButtonWrapper}>
+                <LinearGradient
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={styles.backButtonBorder}
                 >
-                  <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-                </GradientRingBackInner>
-              </LinearGradient>
-            </View>
-            <View style={styles.titleContainer}>
-              <View style={styles.titleWrapper}>
-                <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
-                  How to Create an
-                </Text>
-                <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
-                  Estimate
-                </Text>
+                  <GradientRingBackInner
+                    darkMode={darkMode}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      router.back();
+                    }}
+                    style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
+                  >
+                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
+                  </GradientRingBackInner>
+                </LinearGradient>
               </View>
+              <View style={styles.titleContainer}>
+                <View style={styles.titleWrapper}>
+                  <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
+                    How to Create an
+                  </Text>
+                  <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
+                    Estimate
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.backButtonWrapper} />
             </View>
-            <View style={styles.backButtonWrapper} />
-          </View>
+          )}
 
           {/* Content Card */}
           <ScrollView
@@ -204,7 +219,7 @@ export default function EstimateTutorialScreen() {
               colors={["#2DFFC4", "#00A6FF"]}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
-              style={{ borderRadius: 24, padding: 1, marginHorizontal: 8, marginBottom: 16 }}
+              style={styles.chromeFrame}
             >
               <View
                 style={[
@@ -301,8 +316,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 40,
     marginBottom: 12,
-    marginHorizontal: 20,
+    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 20 }),
     position: 'relative',
+  },
+  chromeFrame: {
+    borderRadius: 24,
+    padding: 1,
+    marginHorizontal: PROFILE_HELP_CHROME_H_MARGIN,
+    marginBottom: 16,
   },
   backButtonWrapper: {
     width: 42,

@@ -17,11 +17,17 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import * as Haptics from 'expo-haptics';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
+import HelpSupportSubpageWebHeader from '@/components/profile/HelpSupportSubpageWebHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
+import {
+  PROFILE_HELP_CHROME_H_MARGIN,
+  useWebProfileHelpHeaderMargins,
+} from '@/lib/useWebProfileHelpHeaderMargins';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withTiming,
+  interpolate,
 } from 'react-native-reanimated';
 
 interface FAQItem {
@@ -183,7 +189,81 @@ const categoryLabels: Record<string, string> = {
   account: 'Account',
 };
 
-function FAQItemComponent({ item, isExpanded, onToggle, theme, darkMode }: { item: FAQItem; isExpanded: boolean; onToggle: () => void; theme: any; darkMode: boolean }) {
+function FAQItemAnswerBody({
+  item,
+  theme,
+  darkMode,
+}: {
+  item: FAQItem;
+  theme: any;
+  darkMode: boolean;
+}) {
+  return (
+    <>
+      {item.bestFor && (
+        <Text style={[styles.bestForText, { color: theme.accent, opacity: 0.8 }]}>
+          Best for: {item.bestFor}
+        </Text>
+      )}
+      <Text
+        style={[
+          styles.faqAnswer,
+          { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 },
+          item.bestFor && { marginTop: 8 },
+        ]}
+      >
+        {item.answer}
+      </Text>
+    </>
+  );
+}
+
+/** Web: Reanimated layout on `Animated.View` is unreliable inside nested scroll on RN Web. */
+function FAQItemWeb({
+  item,
+  isExpanded,
+  onToggle,
+  theme,
+  darkMode,
+}: {
+  item: FAQItem;
+  isExpanded: boolean;
+  onToggle: () => void;
+  theme: any;
+  darkMode: boolean;
+}) {
+  return (
+    <View style={[styles.faqItem, { borderBottomColor: theme.border }]}>
+      <TouchableOpacity style={styles.faqHeader} onPress={onToggle} activeOpacity={0.7}>
+        <Text style={[styles.faqQuestion, { color: theme.text }]}>{item.question}</Text>
+        <MaterialIcons
+          name={isExpanded ? 'expand-less' : 'expand-more'}
+          size={24}
+          color={theme.accent}
+        />
+      </TouchableOpacity>
+      {isExpanded ? (
+        <View style={[styles.faqAnswerContainer, styles.faqAnswerContainerWeb, { borderTopColor: theme.border }]}>
+          <FAQItemAnswerBody item={item} theme={theme} darkMode={darkMode} />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function FAQItemNative({
+  item,
+  isExpanded,
+  onToggle,
+  theme,
+  darkMode,
+}: {
+  item: FAQItem;
+  isExpanded: boolean;
+  onToggle: () => void;
+  theme: any;
+  darkMode: boolean;
+}) {
   const height = useSharedValue(0);
   const opacity = useSharedValue(0);
 
@@ -198,17 +278,13 @@ function FAQItemComponent({ item, isExpanded, onToggle, theme, darkMode }: { ite
   }, [isExpanded]);
 
   const animatedStyle = useAnimatedStyle(() => ({
-    maxHeight: height.value === 1 ? 500 : 0,
+    maxHeight: interpolate(height.value, [0, 1], [0, 4000]),
     opacity: opacity.value,
   }));
 
   return (
     <View style={[styles.faqItem, { borderBottomColor: theme.border }]}>
-      <TouchableOpacity
-        style={styles.faqHeader}
-        onPress={onToggle}
-        activeOpacity={0.7}
-      >
+      <TouchableOpacity style={styles.faqHeader} onPress={onToggle} activeOpacity={0.7}>
         <Text style={[styles.faqQuestion, { color: theme.text }]}>{item.question}</Text>
         <MaterialIcons
           name={isExpanded ? 'expand-less' : 'expand-more'}
@@ -217,19 +293,38 @@ function FAQItemComponent({ item, isExpanded, onToggle, theme, darkMode }: { ite
         />
       </TouchableOpacity>
       <Animated.View style={[styles.faqAnswerContainer, animatedStyle, { borderTopColor: theme.border }]}>
-        {item.bestFor && (
-          <Text style={[styles.bestForText, { color: theme.accent, opacity: 0.8 }]}>
-            Best for: {item.bestFor}
-          </Text>
-        )}
-        <Text style={[styles.faqAnswer, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }, item.bestFor && { marginTop: 8 }]}>{item.answer}</Text>
+        <FAQItemAnswerBody item={item} theme={theme} darkMode={darkMode} />
       </Animated.View>
     </View>
   );
 }
 
+function FAQItemComponent({
+  item,
+  isExpanded,
+  onToggle,
+  theme,
+  darkMode,
+}: {
+  item: FAQItem;
+  isExpanded: boolean;
+  onToggle: () => void;
+  theme: any;
+  darkMode: boolean;
+}) {
+  if (Platform.OS === 'web') {
+    return (
+      <FAQItemWeb item={item} isExpanded={isExpanded} onToggle={onToggle} theme={theme} darkMode={darkMode} />
+    );
+  }
+  return (
+    <FAQItemNative item={item} isExpanded={isExpanded} onToggle={onToggle} theme={theme} darkMode={darkMode} />
+  );
+}
+
 export default function FAQScreen() {
   const router = useRouter();
+  const webHelpHeaderMargins = useWebProfileHelpHeaderMargins();
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -287,34 +382,42 @@ export default function FAQScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <LinearGradient colors={theme.background} style={styles.gradient}>
         <SafeAreaView style={styles.safeArea}>
-          {/* Header */}
-          <View style={styles.headerRow}>
-            <View style={styles.backButtonWrapper}>
-              <LinearGradient
-                colors={BRAND_FRAME_GRADIENT_COLORS}
-                start={{ x: 0.05, y: 0.15 }}
-                end={{ x: 0.95, y: 0.85 }}
-                style={styles.backButtonBorder}
-              >
-                <GradientRingBackInner
-                  darkMode={darkMode}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    router.back();
-                  }}
-                  style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
+          {Platform.OS === 'web' ? (
+            <HelpSupportSubpageWebHeader
+              title='Frequently Asked Questions'
+              darkMode={darkMode}
+              lightBg={Colors.bg}
+              webHelpHeaderMargins={webHelpHeaderMargins}
+            />
+          ) : (
+            <View style={[styles.headerRow, webHelpHeaderMargins]}>
+              <View style={styles.backButtonWrapper}>
+                <LinearGradient
+                  colors={BRAND_FRAME_GRADIENT_COLORS}
+                  start={{ x: 0.05, y: 0.15 }}
+                  end={{ x: 0.95, y: 0.85 }}
+                  style={styles.backButtonBorder}
                 >
-                  <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
-                </GradientRingBackInner>
-              </LinearGradient>
+                  <GradientRingBackInner
+                    darkMode={darkMode}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      router.back();
+                    }}
+                    style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
+                  >
+                    <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
+                  </GradientRingBackInner>
+                </LinearGradient>
+              </View>
+              <View style={styles.titleContainer}>
+                <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
+                  Frequently Asked Questions
+                </Text>
+              </View>
+              <View style={styles.backButtonWrapper} />
             </View>
-            <View style={styles.titleContainer}>
-              <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>
-                Frequently Asked Questions
-              </Text>
-            </View>
-            <View style={styles.backButtonWrapper} />
-          </View>
+          )}
 
           {/* Content Card */}
           <ScrollView
@@ -331,9 +434,18 @@ export default function FAQScreen() {
               colors={["#2DFFC4", "#00A6FF"]}
               start={{ x: 0.05, y: 0.15 }}
               end={{ x: 0.95, y: 0.85 }}
-              style={{ borderRadius: 24, padding: 1, marginHorizontal: 8, marginBottom: 16 }}
+              style={styles.chromeFrame}
             >
-              <View style={[styles.contentCard, { backgroundColor: theme.background[0] }]}>
+              <View
+                style={[
+                  styles.contentCard,
+                  {
+                    backgroundColor: darkMode ? Colors.cardDark : Colors.bg,
+                    borderColor: theme.border,
+                    borderWidth: 1,
+                  },
+                ]}
+              >
                 <View style={styles.scrollContent}>
                   {/* Search Bar */}
                   <View style={[styles.searchContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -454,8 +566,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 40,
     marginBottom: 12,
-    marginHorizontal: 20,
+    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 20 }),
     position: 'relative',
+  },
+  chromeFrame: {
+    borderRadius: 24,
+    padding: 1,
+    marginHorizontal: PROFILE_HELP_CHROME_H_MARGIN,
+    marginBottom: 16,
   },
   backButtonWrapper: {
     width: 42,
@@ -557,6 +675,10 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
+  },
+  /** Web: parent `overflow: 'hidden'` + animated maxHeight breaks answer layout in RN Web. */
+  faqAnswerContainerWeb: {
+    overflow: 'visible',
   },
   faqAnswer: {
     fontSize: 13,

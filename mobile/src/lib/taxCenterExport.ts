@@ -220,7 +220,7 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
   </div>`;
 
   const PORTFOLIO_BELOW_NOTE =
-    'Portfolio totals are for the selected tax year. Revenue uses milestone payments collected in-year for open jobs. Completed jobs use adjusted contract value (same as Budget — includes approved change orders), so revenue matches your closed contract. Net Income is that revenue minus expenses paid this year. Confirm treatment with your CPA.';
+    'Portfolio totals use cash-basis activity dated in the selected tax year: payments when collected, expenses when paid or when purchase orders are received or completed. Outstanding receivables and committed costs are informational and are not included in revenue or expenses paid until collected or paid, depending on your accounting method. Confirm treatment with your CPA.';
 
   const execCards: Array<{
     label: string;
@@ -232,33 +232,38 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
       label: 'Revenue Collected',
       value: money(p.revenueCollected),
       cls: cardValueClass('revenue', p.revenueCollected),
-      hint: 'In-year milestone payments collected, except completed jobs: adjusted contract (includes approved change orders), same as Budget.',
+      hint: 'Payments actually collected during the selected tax year.',
     },
     {
       label: 'Expenses Paid',
       value: money(p.expensesPaid),
       cls: cardValueClass('expense', p.expensesPaid),
-      hint: 'In-year expenses + POs marked Received or Paid/Complete. Pending → Committed costs.',
+      hint: 'Expenses and received/paid purchase orders dated within the selected tax year.',
     },
     {
       label: 'Net Income',
       value: money(p.netIncome),
       cls: cardValueClass('net', p.netIncome),
-      hint: 'Revenue (rule above) minus expenses paid this tax year. On completed jobs, revenue is adjusted contract.',
+      hint: 'Revenue collected minus expenses paid for the selected tax year.',
     },
     {
       label: 'Outstanding Receivables',
       value: money(p.outstandingReceivables),
       cls: cardValueClass('receivable', p.outstandingReceivables),
-      hint: 'Open jobs: in-year scheduled amounts not yet collected. Completed jobs: none (revenue is adjusted contract).',
+      hint: 'Unpaid invoices or scheduled payments tied to the selected tax year. Not counted as cash-basis income until collected.',
     },
     {
       label: 'Committed Costs',
       value: money(p.committedCosts),
       cls: cardValueClass('committed', p.committedCosts),
-      hint: 'Pending POs only (matches Budget committed POs)',
+      hint: 'Pending purchase orders and committed costs not yet paid or received. Shown for review only.',
     },
-    { label: 'Receipt Count', value: String(p.receiptCount), cls: cardValueClass('count', p.receiptCount) },
+    {
+      label: 'Receipt Count',
+      value: String(p.receiptCount),
+      cls: cardValueClass('count', p.receiptCount),
+      hint: 'Receipts attached to expenses dated within the selected tax year.',
+    },
   ];
 
   const execGridFootnote =
@@ -363,7 +368,7 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
       : payload.projectSummaries
           .map((r, i) => {
             const bg = i % 2 === 0 ? '#ffffff' : '#fafbfc';
-            const nmMuted = r.netMargin == null || !Number.isFinite(r.netMargin);
+            const nmMuted = !Number.isFinite(r.netMargin);
             const nmInline = nmMuted
               ? `${IN_TD_NUM}color:#94a3b8;font-weight:600;`
               : `${IN_TD_NUM}color:#1f2937;`;
@@ -399,17 +404,14 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
   const emptyProj =
     payload.projectSummaries.length === 0
       ? `<p class="empty-msg" style="${IN_EMPTY_MSG}">No project data found for this tax year.</p>`
-      : `<p class="section-subtitle section-subtitle--tight">Tax summaries are based on collected revenue and actual paid expenses.</p><table class="data-table project-table" aria-label="Projects" style="${IN_TABLE_PROJECT}"><thead><tr><th style="${IN_TH}">Project</th><th style="${IN_TH_NUM}">Revenue Collected</th><th style="${IN_TH_NUM}">Outstanding</th><th style="${IN_TH_NUM}">Expenses Paid</th><th style="${IN_TH_NUM}">Net Income</th><th style="${IN_TH_NUM}">Net Margin</th><th style="${IN_TH_NUM};border-right:none;">Receipts</th></tr></thead><tbody>${projRows}</tbody></table>`;
+      : `<p class="section-subtitle section-subtitle--tight">Tax summaries use cash collected and expenses paid in the selected tax year.</p><table class="data-table project-table" aria-label="Projects" style="${IN_TABLE_PROJECT}"><thead><tr><th style="${IN_TH}">Project</th><th style="${IN_TH_NUM}">Revenue Collected</th><th style="${IN_TH_NUM}">Outstanding</th><th style="${IN_TH_NUM}">Expenses Paid</th><th style="${IN_TH_NUM}">Net Income</th><th style="${IN_TH_NUM}">Net Margin</th><th style="${IN_TH_NUM};border-right:none;">Receipts</th></tr></thead><tbody>${projRows}</tbody></table>`;
 
   const emptySub =
     payload.subcontractors.length === 0
       ? `<div class="empty-state-box" role="status" style="${IN_EMPTY_SUB_BOX}">No subcontractor payments found for this tax year.</div>`
       : `<table class="data-table data-table--subs" aria-label="Subcontractors" style="${IN_TABLE}"><thead><tr><th style="${IN_TH}">Vendor</th><th style="${IN_TH_NUM}">Total Paid</th><th style="${IN_TH}">Projects</th><th style="${IN_TH}">W-9 Status</th><th style="${IN_TH}">Potential 1099 Review</th><th style="${IN_TH};border-right:none;">Flags</th></tr></thead><tbody>${subRows}</tbody></table>`;
 
-  const portfolioFootnoteTfoot =
-    p.netMargin == null
-      ? `<tfoot class="portfolio-table-foot"><tr><td colspan="2" class="table-footnote" style="${IN_PORTFOLIO_TFOOT_TD}">Net margin is not applicable when there is no collected income yet.</td></tr></tfoot>`
-      : '';
+  const portfolioFootnoteTfoot = '';
 
   const portfolioBlock = `<div class="section section-portfolio section-first pdf-cluster pdf-cluster--portfolio pdf-no-break">
     <div class="section-heading" style="${IN_SECTION_HEAD}">

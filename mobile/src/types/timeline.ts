@@ -14,4 +14,8 @@ export interface Milestone {
   attachmentsCount?: number;
   notesCount?: number;
   amount?: number;         // Payment amount for payment milestones
+  /** Calendar date (YYYY-MM-DD) when payment was actually received — e.g. earlier than planned. */
+  actualDate?: string;
+  /** When marked collected/completed — Tax Center uses this for cash-basis revenue year. */
+  collectedAt?: string;
 } 

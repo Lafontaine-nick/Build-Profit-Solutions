@@ -10,6 +10,7 @@ import {
   RefreshControl,
   Modal,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -23,6 +24,11 @@ import * as Haptics from 'expo-haptics';
 import * as Sharing from 'expo-sharing';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
+import WebPageShell, {
+  getWebPageShellMaxWidth,
+  WEB_PAGE_SHELL_HORIZONTAL_PADDING,
+} from '@/components/layout/WebPageShell';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface InvoicesListProps {
   mode?: 'modal' | 'screen';
@@ -36,9 +42,21 @@ export default function InvoicesList({
   onClose,
 }: InvoicesListProps) {
   const router = useRouter();
+  const { width: layoutWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
   const isScreenMode = mode === 'screen';
+
+  /** Web: align header with WebPageShell column (same math as Profile / plans). */
+  const webPaymentScreenHeaderMargins = useMemo(() => {
+    if (Platform.OS !== 'web') return undefined;
+    const maxW = getWebPageShellMaxWidth('profile');
+    const gutter = (layoutWidth - Math.min(layoutWidth, maxW)) / 2;
+    const inset = gutter + WEB_PAGE_SHELL_HORIZONTAL_PADDING;
+    return { marginLeft: inset, marginRight: inset };
+  }, [layoutWidth]);
+
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [filteredInvoices, setFilteredInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,6 +71,7 @@ export default function InvoicesList({
   const theme = useMemo(() => ({
     background: [Colors.bg, Colors.bg, Colors.bg] as [string, string, string],
     card: Colors.surface2,
+    cardDark: Colors.cardDark,
     text: Colors.text,
     subtext: Colors.sub,
     accent: Colors.primary,
@@ -121,12 +140,23 @@ export default function InvoicesList({
     if (onClose) {
       onClose();
     } else if (isScreenMode) {
-      router.back();
+      try {
+        const r = router as { canGoBack?: () => boolean; back: () => void; replace: (href: string) => void };
+        if (typeof r.canGoBack === 'function' && r.canGoBack()) {
+          r.back();
+        } else {
+          r.replace('/payment');
+        }
+      } catch {
+        router.replace('/payment');
+      }
     }
   };
 
   const handleFilterChange = (filter: typeof activeFilter) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
     setActiveFilter(filter);
   };
 
@@ -220,10 +250,200 @@ export default function InvoicesList({
     }
   };
 
+  const billingHistorySubtitleWeb =
+    'Filter by status, download PDFs, and send reminders — same billing hub as Payment & Billing.';
+
+  const refreshControlEl = (
+    <RefreshControl
+      refreshing={refreshing}
+      onRefresh={() => {
+        setRefreshing(true);
+        loadInvoices();
+      }}
+    />
+  );
+
+  const filterTabsScroll = (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.filterContainer}
+      contentContainerStyle={[
+        styles.filterContent,
+        isScreenMode && Platform.OS === 'web' && styles.filterContentInChrome,
+      ]}
+    >
+      {(['all', 'pending', 'paid', 'overdue'] as const).map((filter) => (
+        <TouchableOpacity
+          key={filter}
+          style={[
+            styles.filterTab,
+            activeFilter === filter && styles.activeFilterTab,
+            {
+              backgroundColor: activeFilter === filter ? theme.accent : theme.card,
+              borderColor: activeFilter === filter ? theme.accent : theme.border,
+            },
+          ]}
+          onPress={() => handleFilterChange(filter)}
+        >
+          <Text
+            style={[
+              styles.filterText,
+              {
+                color: activeFilter === filter ? '#FFFFFF' : theme.text,
+                fontWeight: activeFilter === filter ? '600' : '400',
+              },
+            ]}
+          >
+            {filter.charAt(0).toUpperCase() + filter.slice(1)}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </ScrollView>
+  );
+
+  const invoicesBody = (
+    <>
+      {loading && invoices.length === 0 ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.accent} />
+          <Text style={[styles.loadingText, { color: theme.subtext }]}>Loading invoices...</Text>
+        </View>
+      ) : filteredInvoices.length > 0 ? (
+        <View style={styles.invoicesContainer}>
+          {filteredInvoices.map((invoice) => (
+            <TouchableOpacity
+              key={invoice.id}
+              style={[styles.invoiceCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+              onPress={() => handleViewInvoice(invoice)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.invoiceHeader}>
+                <View style={styles.invoiceLeft}>
+                  <Text style={[styles.invoiceNumber, { color: theme.text }]}>{invoice.number}</Text>
+                  <Text style={[styles.invoiceClient, { color: theme.subtext }]}>{invoice.clientName}</Text>
+                </View>
+                <View
+                  style={[styles.statusBadge, { backgroundColor: getStatusColor(invoice.status) + '20' }]}
+                >
+                  <Text style={[styles.statusText, { color: getStatusColor(invoice.status) }]}>
+                    {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.invoiceDetails}>
+                <View style={styles.invoiceDetailRow}>
+                  <Text style={[styles.detailLabel, { color: theme.subtext }]}>Issued:</Text>
+                  <Text style={[styles.detailValue, { color: theme.text }]}>
+                    {formatDate(invoice.issueDate)}
+                  </Text>
+                </View>
+                {invoice.dueDate && (
+                  <View style={styles.invoiceDetailRow}>
+                    <Text style={[styles.detailLabel, { color: theme.subtext }]}>Due:</Text>
+                    <Text style={[styles.detailValue, { color: theme.text }]}>
+                      {formatDate(invoice.dueDate)}
+                    </Text>
+                  </View>
+                )}
+                <View style={styles.invoiceDetailRow}>
+                  <Text style={[styles.detailLabel, { color: theme.subtext }]}>Amount:</Text>
+                  <Text style={[styles.amountText, { color: theme.text }]}>
+                    {formatCurrency(invoice.total)}
+                  </Text>
+                </View>
+                {invoice.balance > 0 && (
+                  <View style={styles.invoiceDetailRow}>
+                    <Text style={[styles.detailLabel, { color: theme.subtext }]}>Balance:</Text>
+                    <Text style={[styles.balanceText, { color: theme.error }]}>
+                      {formatCurrency(invoice.balance)}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.invoiceActions}>
+                <TouchableOpacity
+                  style={[styles.actionButton, { backgroundColor: theme.iconBg }]}
+                  onPress={() => handleDownloadInvoice(invoice)}
+                >
+                  <MaterialIcons name="download" size={18} color={theme.accent} />
+                  <Text style={[styles.actionText, { color: theme.accent }]}>Download</Text>
+                </TouchableOpacity>
+                {invoice.status === 'sent' && (
+                  <TouchableOpacity
+                    style={[styles.actionButton, { backgroundColor: theme.iconBg }]}
+                    onPress={() => {
+                      if (Platform.OS !== 'web') {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }
+                      setInvoiceForReminder(invoice);
+                      setReminderDate(new Date(Date.now() + 24 * 60 * 60 * 1000));
+                      setShowReminderDatePicker(true);
+                    }}
+                  >
+                    <MaterialIcons name="send" size={18} color={theme.warning} />
+                    <Text style={[styles.actionText, { color: theme.warning }]}>Remind</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+      ) : (
+        <View style={styles.emptyContainer}>
+          <MaterialIcons name="receipt-long" size={64} color={theme.subtext} />
+          <Text style={[styles.emptyTitle, { color: theme.text }]}>No Invoices Found</Text>
+          <Text style={[styles.emptyText, { color: theme.subtext }]}>
+            {activeFilter === 'all'
+              ? "You don't have any invoices yet. Invoices will appear here when created."
+              : `No ${activeFilter} invoices found.`}
+          </Text>
+        </View>
+      )}
+    </>
+  );
+
   const content = (
     <LinearGradient colors={theme.background} style={styles.container}>
-      {isScreenMode && (
-        <View style={styles.headerRow}>
+      {isScreenMode && Platform.OS === 'web' && (
+        <View
+          style={[
+            styles.headerRowWeb,
+            webPaymentScreenHeaderMargins,
+            { paddingTop: Math.max(insets.top, 12) + 36 },
+          ]}
+        >
+          <View style={styles.backButtonWrapperWeb}>
+            <LinearGradient
+              colors={BRAND_FRAME_GRADIENT_COLORS}
+              start={{ x: 0.05, y: 0.15 }}
+              end={{ x: 0.95, y: 0.85 }}
+              style={styles.backButtonBorder}
+            >
+              <GradientRingBackInner
+                darkMode={darkMode}
+                onPress={() => {
+                  if (Platform.OS !== 'web') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }
+                  handleClose();
+                }}
+                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
+              >
+                <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
+              </GradientRingBackInner>
+            </LinearGradient>
+          </View>
+          <View style={styles.headerTitleBlock}>
+            <Text style={[styles.screenTitleWeb, { color: theme.text }]}>Billing History</Text>
+            <Text style={[styles.headerSubtitleWeb, { color: theme.subtext }]}>{billingHistorySubtitleWeb}</Text>
+          </View>
+        </View>
+      )}
+      {isScreenMode && Platform.OS !== 'web' && (
+        <View style={[styles.headerRow, webPaymentScreenHeaderMargins]}>
           <View style={styles.backButtonWrapper}>
             <LinearGradient
               colors={BRAND_FRAME_GRADIENT_COLORS}
@@ -234,213 +454,77 @@ export default function InvoicesList({
               <GradientRingBackInner
                 darkMode={darkMode}
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  if (Platform.OS !== 'web') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }
                   handleClose();
                 }}
-                style={[styles.backButton, { backgroundColor: darkMode ? "#000000" : Colors.bg }]}
+                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
               >
-                <MaterialIcons name="arrow-back" size={24} color={darkMode ? "#FFFFFF" : "#000000"} />
+                <MaterialIcons name="arrow-back" size={24} color={darkMode ? '#FFFFFF' : '#000000'} />
               </GradientRingBackInner>
             </LinearGradient>
           </View>
           <View style={styles.titleContainerCentered}>
-            <Text style={[styles.screenTitle, { color: darkMode ? "#f9fafb" : "#000000" }]}>Billing History</Text>
+            <Text style={[styles.screenTitle, { color: darkMode ? '#f9fafb' : '#000000' }]}>Billing History</Text>
           </View>
           <View style={{ width: 52 }} />
         </View>
       )}
       {!isScreenMode && (
         <View style={styles.header}>
-          <TouchableOpacity
-            onPress={handleClose}
-            style={styles.closeButton}
-          >
-            <MaterialIcons
-              name="close"
-              size={24}
-              color={theme.text}
-            />
+          <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+            <MaterialIcons name="close" size={24} color={theme.text} />
           </TouchableOpacity>
           <View style={styles.titleContainer}>
-            <Text style={[styles.title, { color: '#FFFFFF' }]}>
-              Billing History
-            </Text>
+            <Text style={[styles.title, { color: '#FFFFFF' }]}>Billing History</Text>
           </View>
           <View style={{ width: 24 }} />
         </View>
       )}
 
-      {/* Filter Tabs */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.filterContainer}
-        contentContainerStyle={styles.filterContent}
-      >
-        {(['all', 'pending', 'paid', 'overdue'] as const).map((filter) => (
-          <TouchableOpacity
-            key={filter}
-            style={[
-              styles.filterTab,
-              activeFilter === filter && styles.activeFilterTab,
-              {
-                backgroundColor: activeFilter === filter ? theme.accent : theme.card,
-                borderColor: activeFilter === filter ? theme.accent : theme.border,
-              },
-            ]}
-            onPress={() => handleFilterChange(filter)}
-          >
-            <Text
-              style={[
-                styles.filterText,
-                {
-                  color: activeFilter === filter ? '#FFFFFF' : theme.text,
-                  fontWeight: activeFilter === filter ? '600' : '400',
-                },
-              ]}
+      {isScreenMode && Platform.OS === 'web' ? (
+        <ScrollView
+          style={styles.manageOuterScroll}
+          contentContainerStyle={styles.manageOuterScrollContent}
+          showsVerticalScrollIndicator
+          refreshControl={refreshControlEl}
+        >
+          <View style={styles.screenSubtitleSpacer} />
+          <WebPageShell size="profile" scroll={false} contentStyle={{ paddingTop: 4, paddingBottom: 24 }}>
+            <LinearGradient
+              colors={['#2DFFC4', '#00A6FF']}
+              start={{ x: 0.05, y: 0.15 }}
+              end={{ x: 0.95, y: 0.85 }}
+              style={styles.billingChrome}
             >
-              {filter.charAt(0).toUpperCase() + filter.slice(1)}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {/* Invoices List */}
-      <ScrollView
-        style={styles.content}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => {
-            setRefreshing(true);
-            loadInvoices();
-          }} />
-        }
-      >
-        {loading && invoices.length === 0 ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size='large' color={theme.accent} />
-            <Text style={[styles.loadingText, { color: theme.subtext }]}>
-              Loading invoices...
-            </Text>
-          </View>
-        ) : filteredInvoices.length > 0 ? (
-          <View style={styles.invoicesContainer}>
-            {filteredInvoices.map((invoice) => (
-              <TouchableOpacity
-                key={invoice.id}
-                style={[styles.invoiceCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-                onPress={() => handleViewInvoice(invoice)}
-                activeOpacity={0.7}
+              <View
+                style={[
+                  styles.billingInner,
+                  {
+                    backgroundColor: darkMode ? theme.cardDark : Colors.bg,
+                    borderColor: theme.border,
+                  },
+                ]}
               >
-                <View style={styles.invoiceHeader}>
-                  <View style={styles.invoiceLeft}>
-                    <Text style={[styles.invoiceNumber, { color: theme.text }]}>
-                      {invoice.number}
-                    </Text>
-                    <Text style={[styles.invoiceClient, { color: theme.subtext }]}>
-                      {invoice.clientName}
-                    </Text>
-                  </View>
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      { backgroundColor: getStatusColor(invoice.status) + '20' },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.statusText,
-                        { color: getStatusColor(invoice.status) },
-                      ]}
-                    >
-                      {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.invoiceDetails}>
-                  <View style={styles.invoiceDetailRow}>
-                    <Text style={[styles.detailLabel, { color: theme.subtext }]}>
-                      Issued:
-                    </Text>
-                    <Text style={[styles.detailValue, { color: theme.text }]}>
-                      {formatDate(invoice.issueDate)}
-                    </Text>
-                  </View>
-                  {invoice.dueDate && (
-                    <View style={styles.invoiceDetailRow}>
-                      <Text style={[styles.detailLabel, { color: theme.subtext }]}>
-                        Due:
-                      </Text>
-                      <Text style={[styles.detailValue, { color: theme.text }]}>
-                        {formatDate(invoice.dueDate)}
-                      </Text>
-                    </View>
-                  )}
-                  <View style={styles.invoiceDetailRow}>
-                    <Text style={[styles.detailLabel, { color: theme.subtext }]}>
-                      Amount:
-                    </Text>
-                    <Text style={[styles.amountText, { color: theme.text }]}>
-                      {formatCurrency(invoice.total)}
-                    </Text>
-                  </View>
-                  {invoice.balance > 0 && (
-                    <View style={styles.invoiceDetailRow}>
-                      <Text style={[styles.detailLabel, { color: theme.subtext }]}>
-                        Balance:
-                      </Text>
-                      <Text style={[styles.balanceText, { color: theme.error }]}>
-                        {formatCurrency(invoice.balance)}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-
-                <View style={styles.invoiceActions}>
-                  <TouchableOpacity
-                    style={[styles.actionButton, { backgroundColor: theme.iconBg }]}
-                    onPress={() => handleDownloadInvoice(invoice)}
-                  >
-                    <MaterialIcons name='download' size={18} color={theme.accent} />
-                    <Text style={[styles.actionText, { color: theme.accent }]}>
-                      Download
-                    </Text>
-                  </TouchableOpacity>
-                  {invoice.status === 'sent' && (
-                    <TouchableOpacity
-                      style={[styles.actionButton, { backgroundColor: theme.iconBg }]}
-                      onPress={() => {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        setInvoiceForReminder(invoice);
-                        setReminderDate(new Date(Date.now() + 24 * 60 * 60 * 1000)); // Default to tomorrow
-                        setShowReminderDatePicker(true);
-                      }}
-                    >
-                      <MaterialIcons name='send' size={18} color={theme.warning} />
-                      <Text style={[styles.actionText, { color: theme.warning }]}>
-                        Remind
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-        ) : (
-          <View style={styles.emptyContainer}>
-            <MaterialIcons name='receipt-long' size={64} color={theme.subtext} />
-            <Text style={[styles.emptyTitle, { color: theme.text }]}>
-              No Invoices Found
-            </Text>
-            <Text style={[styles.emptyText, { color: theme.subtext }]}>
-              {activeFilter === 'all'
-                ? 'You don\'t have any invoices yet. Invoices will appear here when created.'
-                : `No ${activeFilter} invoices found.`}
-            </Text>
-          </View>
-        )}
-      </ScrollView>
+                {filterTabsScroll}
+                {invoicesBody}
+              </View>
+            </LinearGradient>
+          </WebPageShell>
+        </ScrollView>
+      ) : (
+        <>
+          {filterTabsScroll}
+          <ScrollView
+            style={styles.content}
+            showsVerticalScrollIndicator={false}
+            refreshControl={refreshControlEl}
+          >
+            {invoicesBody}
+          </ScrollView>
+        </>
+      )}
 
       {/* Reminder Date Picker Modal */}
       <Modal
@@ -551,12 +635,64 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  headerRowWeb: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingBottom: 8,
+    gap: 12,
+  },
+  backButtonWrapperWeb: {
+    marginTop: 2,
+  },
+  headerTitleBlock: {
+    flex: 1,
+    paddingTop: 2,
+  },
+  screenTitleWeb: {
+    fontSize: 26,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+  },
+  headerSubtitleWeb: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 6,
+    letterSpacing: 0.15,
+    opacity: 0.92,
+  },
+  screenSubtitleSpacer: {
+    height: 4,
+  },
+  manageOuterScroll: {
+    flex: 1,
+    ...(Platform.OS === 'web' ? { paddingHorizontal: 0 } : {}),
+  },
+  manageOuterScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 24,
+  },
+  billingChrome: {
+    borderRadius: 24,
+    padding: 1,
+    marginBottom: 8,
+  },
+  billingInner: {
+    borderRadius: 23,
+    borderWidth: 1,
+    padding: 16,
+    paddingBottom: 20,
+    overflow: 'visible',
+  },
+  filterContentInChrome: {
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 60,
     marginBottom: 20,
-    marginHorizontal: 20,
+    ...(Platform.OS === 'web' ? {} : { marginHorizontal: 20 }),
     paddingBottom: 8,
     position: 'relative',
   },
@@ -569,6 +705,7 @@ const styles = StyleSheet.create({
     right: 0,
     alignItems: 'center',
     justifyContent: 'center',
+    pointerEvents: 'none',
   },
   screenTitle: {
     fontSize: 32,

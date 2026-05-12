@@ -7,7 +7,13 @@ import type {
   TaxExpense,
   TaxPayment,
 } from '@/src/lib/taxCenter';
-import { expenseAmount, expenseDate, mapExpenseToTaxCategory } from '@/src/lib/taxCenter';
+import {
+  expenseAmount,
+  expenseDate,
+  expenseRecordDateForTaxYear,
+  getYearReceiptManifestExpenseLines,
+  mapExpenseToTaxCategory,
+} from '@/src/lib/taxCenter';
 import type { Vendor } from '@/src/lib/vendorTypes';
 import {
   buildExpenseTransactionExportRows,
@@ -33,7 +39,7 @@ export type TaxSummaryExportPayload = {
     expensesPaid: number;
     committedCosts: number;
     netIncome: number;
-    netMargin: number | null;
+    netMargin: number;
     subcontractorPayments: number;
     receiptCount: number;
   };
@@ -53,7 +59,7 @@ export type TaxSummaryExportPayload = {
     expensesPaid: number;
     netIncome: number;
     receiptCount: number;
-    netMargin: number | null;
+    netMargin: number;
   }>;
   subcontractors: Array<{
     vendorName: string;
@@ -97,14 +103,15 @@ function buildReceiptManifestFromYearExpenses(yearExpenses: TaxExpense[]): TaxSu
   const out: TaxSummaryExportPayload['receipts'] = [];
   for (const e of yearExpenses) {
     const uri = String(e.receiptUri ?? '').trim();
-    const key = `${uri}|${expenseDate(e) ?? ''}|${expenseAmount(e)}|${String(e.projectName ?? '')}`;
+    const anchor = expenseRecordDateForTaxYear(e) || expenseDate(e) || '';
+    const key = `${uri}|${anchor}|${expenseAmount(e)}|${String(e.projectName ?? '')}`;
     if (seen.has(key)) continue;
     seen.add(key);
     const fname = uri ? uri.split(/[/\\]/).pop() || '' : '';
     out.push({
       projectName: String(e.projectName || '').trim() || 'Unassigned',
-      date: expenseDate(e) || '',
-      month: monthKeyFromRawDate(expenseDate(e)),
+      date: anchor,
+      month: monthKeyFromRawDate(anchor),
       category: mapExpenseToTaxCategory(e),
       vendor: String(e.vendor || e.vendorName || '').trim(),
       amount: expenseAmount(e),
@@ -162,7 +169,8 @@ export function buildTaxSummaryExportPayload(input: {
     selectedYear
   );
 
-  const receipts = buildReceiptManifestFromYearExpenses(yearExpenses);
+  const receiptManifestLines = getYearReceiptManifestExpenseLines(projects, selectedYear, []);
+  const receipts = buildReceiptManifestFromYearExpenses(receiptManifestLines);
 
   return {
     selectedYear,

@@ -72,6 +72,7 @@ import {
 import { computeProjectListRowFinancials } from "@/lib/projectListRowMetrics";
 import { getProjectRevenue } from "@/lib/projectRevenue";
 import { computeProfitForecast } from "@/src/lib/profitForecast";
+import { isChangeOrderTimelineMilestone } from "@/src/lib/projectFinancials";
 import {
   computeProfitabilityByProjectType,
   getCompletedProjectMarginPercent,
@@ -97,10 +98,10 @@ const isDepositMilestone = (m: any): boolean => {
   return t.includes("deposit") || m?.type === "deposit" || m?.weekNumber === 0;
 };
 
-// Helper to calculate progress from milestone items (same logic as TimelineTabV2 and projects.tsx)
+// Helper to calculate progress from milestone items (same logic as TimelineTabV2 and projects.tsx: deposit + CO rows excluded)
 const computeOverallPctFromItems = (items: any[]): number => {
   if (!items || !Array.isArray(items) || items.length === 0) return 0;
-  const workItems = items.filter((m) => !isDepositMilestone(m));
+  const workItems = items.filter((m) => !isDepositMilestone(m) && !isChangeOrderTimelineMilestone(m));
   if (!workItems.length) return 0;
   const sum = workItems.reduce((acc, m) => {
     const pct = Math.min(100, Math.max(0, m.progressPct || (m.status === 'completed' ? 100 : m.status === 'in_progress' ? 50 : 0)));
@@ -117,7 +118,7 @@ const toFiniteNumber = (value: any): number => {
 
 const progressFromItems = (items: any[]): number => {
   if (!items || !Array.isArray(items) || items.length === 0) return 0;
-  const workItems = items.filter((m) => !isDepositMilestone(m));
+  const workItems = items.filter((m) => !isDepositMilestone(m) && !isChangeOrderTimelineMilestone(m));
   if (!workItems.length) return 0;
   const total = workItems.reduce((sum, item) => {
     if (item.status === 'completed') return sum + 100;
@@ -6749,11 +6750,11 @@ const getStyles = (
     fontWeight: "600",
   },
 
-  // FLOATING AI BADGE
+  // FLOATING AI BADGE — web: sit lower (more space above tab chrome); native unchanged
   aiFloatingWrapper: {
     position: "absolute",
     right: desktopWeb ? 28 : 18,
-    bottom: 96,
+    bottom: Platform.OS === "web" ? 56 : 96,
     zIndex: 10,
   },
   aiFloating: {
@@ -6779,7 +6780,7 @@ const getStyles = (
   },
   aiFloatingWrapperCalendarTab: {
     opacity: 0.9,
-    bottom: 102,
+    bottom: Platform.OS === "web" ? 62 : 102,
   },
   aiFloatingCalendarTab: {
     paddingHorizontal: 9,

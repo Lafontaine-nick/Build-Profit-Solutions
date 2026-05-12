@@ -528,6 +528,16 @@ const listBackendProjects = async (): Promise<any[]> => {
   return backendProjects;
 };
 
+/** DELETE could not reach the API — allow local-only removal (same spirit as 404). */
+function isBackendUnreachableForDelete(error: unknown): boolean {
+  const any = error as { status?: number; isNetworkError?: boolean };
+  if (any?.isNetworkError) return true;
+  if (any?.status === 0) return true;
+  const msg = error instanceof Error ? error.message : String(error ?? '');
+  if (msg.includes('Cannot connect to backend')) return true;
+  return false;
+}
+
 const toBackendCreatePayload = (project: UnifiedProject) => {
   const nowIso = new Date().toISOString();
   return {
@@ -776,7 +786,8 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
     );
   };
 
-  // Delete project — must remove on server first; refreshProjects merges fromServer and would resurrect locals-only deletes.
+  // Delete project — prefer server delete so refresh won't resurrect it. If the API is
+  // unreachable, still remove locally and persist (web often throws TypeError: Failed to fetch).
   const deleteProject = async (projectId: string) => {
     const targetId = normalizeProjectId(projectId);
 
@@ -784,7 +795,16 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
       await apiService.deleteProject(String(projectId));
     } catch (error: any) {
       const status = error?.status;
-      if (status !== 404 && status !== 410) {
+      const unreachable = isBackendUnreachableForDelete(error);
+      if (status === 404 || status === 410) {
+        // Already gone on server (or never existed there).
+      } else if (unreachable) {
+        if (__DEV__) {
+          console.warn(
+            'deleteProject: backend unreachable — removed from this device only. Start the API and delete again to remove from the server, or the project may reappear after a successful sync.'
+          );
+        }
+      } else {
         console.error('deleteProject: backend delete failed:', error);
         throw error;
       }
@@ -800,6 +820,19 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
       if (__DEV__) console.log(`💾 Saved deleted project state to AsyncStorage`);
     } catch (error) {
       console.error('Error saving deleted project:', error);
+    }
+    try {
+      await AsyncStorage.multiRemove([
+        `bps.project.${targetId}`,
+        `bps.project.${targetId}.progress`,
+      ]);
+    } catch {
+      try {
+        await AsyncStorage.removeItem(`bps.project.${targetId}`);
+        await AsyncStorage.removeItem(`bps.project.${targetId}.progress`);
+      } catch {
+        /* ignore */
+      }
     }
   };
 
