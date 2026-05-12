@@ -3,11 +3,10 @@
 > node src/server.js
 
 📦 Loaded 1 users from disk
-📦 Loaded 16 unified leads from persistent storage
-⏭️ Skipping demo leads - 16 leads already loaded from storage
-📦 Loaded 4 project leads from persistent storage
-✅ Twilio client initialized successfully
-📞 Using phone number: +18777094936
+📦 Loaded 17 unified leads from persistent storage
+⏭️ Skipping demo leads - 17 leads already loaded from storage
+📦 Loaded 5 project leads from persistent storage
+❌ Failed to initialize Twilio client: accountSid must start with AC
 ✅ Database initialization attempted
 🚀 Starting marketplace lead sync service...
 🔄 Syncing marketplace leads...
@@ -17,9 +16,9 @@
 📊 Health check: http://localhost:3001/health
 🔗 API Base: http://localhost:3001/api
 🌐 Customer website: http://localhost:3001
-📱 LAN access: http://192.168.0.11:3001
-   - Health: http://192.168.0.11:3001/health
-   - API: http://192.168.0.11:3001/api
+📱 LAN access: http://192.168.0.142:3001
+   - Health: http://192.168.0.142:3001/health
+   - API: http://192.168.0.142:3001/api
 🌍 Environment: development
 🔄 Marketplace sync: Running every 5 minutes
 
@@ -33,33 +32,12 @@
 📊 Health check: http://localhost:3000/health
 🔗 API Base: http://localhost:3000/api
 🌐 Customer website: http://localhost:3000
-📱 LAN access: http://192.168.0.11:3000
-   - Health: http://192.168.0.11:3000/health
-   - API: http://192.168.0.11:3000/api
+📱 LAN access: http://192.168.0.142:3000
+   - Health: http://192.168.0.142:3000/health
+   - API: http://192.168.0.142:3000/api
 ============================================================
 
-❌ Database connection failed: 
-Error code: ECONNREFUSED
-Error details: { code: 'ECONNREFUSED', message: '', hint: undefined }
-💡 PostgreSQL might not be running. Start it with: brew services start postgresql@14 (or your version)
 📄 Loaded 4 invoices from storage
-[0mGET /api/marketplace-leads?since=2026-03-13T01:24:09.288Z [32m200[0m 1.342 ms - 76[0m
+[0mGET /api/marketplace-leads?since=2026-05-11T22:25:07.410Z [32m200[0m 1.306 ms - 76[0m
 ✅ No new marketplace leads to sync
-[0mPOST /api/ai-assistant/greeting [32m200[0m 20.181 ms - -[0m
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-13T01:29:09.299Z [32m200[0m 0.992 ms - 76[0m
-✅ No new marketplace leads to sync
-📊 Market analysis for kitchen in las_vegas
-🔍 Fetching BLS labor data for: las_vegas
-📊 Would fetch BLS data for area code: 27220
-[0mGET /api/bls/labor-rates/las_vegas [32m200[0m 1.092 ms - 254[0m
-[0mGET /api/bls/market-analysis/las_vegas/kitchen [32m200[0m 23.670 ms - 427[0m
-🔍 Fetching BLS labor data for: las_vegas
-📊 Would fetch BLS data for area code: 27220
-[0mGET /api/bls/labor-rates/las_vegas [32m200[0m 0.529 ms - 254[0m
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-13T01:34:09.304Z [32m200[0m 0.988 ms - 76[0m
-✅ No new marketplace leads to sync
-🔄 Syncing marketplace leads...
-[0mGET /api/marketplace-leads?since=2026-03-13T01:39:09.304Z [32m200[0m 0.982 ms - 76[0m
-✅ No new marketplace leads to sync
+✅ Database connected successfully
