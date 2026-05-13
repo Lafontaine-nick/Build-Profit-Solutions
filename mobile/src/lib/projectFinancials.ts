@@ -33,8 +33,10 @@ export function collectUniqueChangeOrders(project: any): any[] {
   const sources = [
     project?.projectData?.changeOrders,
     project?.changeOrders,
+    project?.estimateData?.changeOrders,
     (project as any)?.rawProject?.projectData?.changeOrders,
     (project as any)?.rawProject?.changeOrders,
+    (project as any)?.rawProject?.estimateData?.changeOrders,
   ];
   const collected: any[] = [];
   for (const s of sources) {
@@ -58,10 +60,10 @@ function coalesceChangeOrders(project: any): any[] {
 }
 
 function isApprovedChangeOrder(co: any): boolean {
-  return (
-    (typeof co.approved === 'boolean' && co.approved) ||
-    (typeof co.status === 'string' && co.status.toLowerCase() === 'approved')
-  );
+  const a = co?.approved;
+  if (a === true || a === 1 || String(a).toLowerCase() === 'true') return true;
+  const st = String(co?.status || '').toLowerCase();
+  return st === 'approved';
 }
 
 function resolveApprovedChangeOrderRevenue(co: any, fallbackMarkupPct = 0): number {
@@ -159,6 +161,32 @@ export function isChangeOrderTimelineMilestone(m: { id?: unknown; type?: unknown
   if (!m) return false;
   if (String((m as { type?: unknown }).type || "").toLowerCase() === "change_order") return true;
   return String(m.id ?? "").startsWith("bps-co-");
+}
+
+/**
+ * Outstanding receivables: synthetic CO payment rows count only when they match an **approved**
+ * change order (same ids as {@link getApprovedChangeOrderPaymentRows}). Submitted-only or stale
+ * timeline rows must not inflate receivables.
+ *
+ * Also matches by normalized title when `id` is missing or differs between Timeline and `bps-co-*`
+ * rows so approved COs are not dropped from AR.
+ */
+export function shouldExcludeChangeOrderPaymentFromOutstandingReceivables(
+  project: any,
+  payment: { id?: unknown; type?: unknown; title?: unknown; name?: unknown } | null | undefined
+): boolean {
+  if (!isChangeOrderTimelineMilestone(payment)) return false;
+  const approvedRows = getApprovedChangeOrderPaymentRows(project);
+  const pid = String((payment as { id?: unknown }).id ?? "").trim();
+  if (pid && approvedRows.some((r) => r.id === pid)) return false;
+  const rawTitle = String((payment as { title?: unknown; name?: unknown }).title ?? (payment as any).name ?? "").trim();
+  const payTitleKey = formatChangeOrderPaymentRowTitle(rawTitle);
+  if (payTitleKey && approvedRows.some((r) => formatChangeOrderPaymentRowTitle(String(r.title ?? "").trim()) === payTitleKey)) {
+    return false;
+  }
+  // No id we can match to `bps-co-*` and no title match — do not exclude (avoid hiding legitimate CO lines).
+  if (!pid) return false;
+  return true;
 }
 
 /**

@@ -438,7 +438,7 @@ export default function AddTransactionModal({
       } else {
         Alert.alert(
           'OCR Processing',
-          'Receipt scanned. Could not extract data automatically. Please enter details manually.',
+          `Receipt scanned. ${ocrResult.error || 'Could not extract data automatically.'}\n\nPlease enter details manually.`,
           [{ text: 'OK' }]
         );
       }

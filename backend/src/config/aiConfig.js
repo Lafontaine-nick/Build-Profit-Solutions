@@ -73,7 +73,7 @@ const RUNTIME_DEFAULTS = Object.freeze({
   ocr: Object.freeze({
     receipt: Object.freeze({
       temperature: 0.1,
-      maxTokens: 1000,
+      maxTokens: 2048,
     }),
   }),
   leadScoring: Object.freeze({

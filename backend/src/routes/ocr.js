@@ -18,6 +18,115 @@ function getOcrClient() {
   return createOpenAiClient(apiKey);
 }
 
+const JSON_OBJECT_FORMAT = { type: 'json_object' };
+
+function parseVisionJsonContent(raw) {
+  let s = String(raw ?? '').trim();
+  if (!s) return null;
+  if (s.startsWith('```json')) {
+    s = s.replace(/^```json\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  } else if (s.startsWith('```')) {
+    s = s.replace(/^```\w*\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  }
+  const start = s.indexOf('{');
+  const end = s.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    s = s.slice(start, end + 1);
+  }
+  return JSON.parse(s);
+}
+
+function coerceMoney(raw) {
+  if (raw == null || raw === '') return 0;
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+  const n = parseFloat(String(raw).replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function normalizeReceiptData(data) {
+  if (!data || typeof data !== 'object') return null;
+  const out = { ...data };
+  out.amount = coerceMoney(out.amount);
+  out.taxAmount = coerceMoney(out.taxAmount);
+  if (!Array.isArray(out.items)) out.items = [];
+  else {
+    out.items = out.items
+      .slice(0, 12)
+      .map((it) => ({
+        ...it,
+        description: String(it?.description ?? '').trim() || 'Item',
+        amount: coerceMoney(it?.amount),
+        unitPrice: coerceMoney(it?.unitPrice),
+        quantity:
+          typeof it?.quantity === 'number' && Number.isFinite(it.quantity) ? it.quantity : undefined,
+      }));
+  }
+  out.vendor = typeof out.vendor === 'string' ? out.vendor : String(out.vendor || '').trim();
+  out.date = typeof out.date === 'string' ? out.date : String(out.date || '').trim();
+  out.category = typeof out.category === 'string' ? out.category : String(out.category || 'Other');
+  const conf = Number(out.confidence);
+  out.confidence = Number.isFinite(conf) ? Math.min(100, Math.max(0, conf)) : 75;
+  return out;
+}
+
+const RECEIPT_VISION_PROMPT = `Analyze this receipt image and return one JSON object with:
+- vendor: store name as printed (string, empty if illegible)
+- date: YYYY-MM-DD if visible (string, empty if unknown)
+- amount: final total charged as a number (not subtotal; prefer TOTAL / AMOUNT DUE)
+- category: one of Materials, Tools, Equipment, Labor, Fuel, Meals, Other
+- items: up to 8 line objects { description, amount, quantity?, unitPrice? }
+- taxAmount: number if visible else 0
+- confidence: 0-100 how sure you are`;
+
+async function runReceiptVisionExtraction(client, imageBase64, multerMimeType) {
+  const mime =
+    multerMimeType && String(multerMimeType).startsWith('image/') ? multerMimeType : 'image/jpeg';
+
+  const buildPayload = (useJsonObjectFormat) => ({
+    model: aiModels.ocr.receipt,
+    temperature: aiRuntime.ocr.receipt.temperature,
+    max_tokens: aiRuntime.ocr.receipt.maxTokens,
+    ...(useJsonObjectFormat ? { response_format: JSON_OBJECT_FORMAT } : {}),
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: `${RECEIPT_VISION_PROMPT}
+
+Respond with JSON only matching the shape described.`,
+          },
+          {
+            type: 'image_url',
+            image_url: {
+              url: `data:${mime};base64,${imageBase64}`,
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  const parseFromResponse = (response) => {
+    const raw = response.choices[0]?.message?.content;
+    const parsed = parseVisionJsonContent(raw);
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('Empty or invalid JSON from vision model');
+    }
+    return normalizeReceiptData(parsed);
+  };
+
+  try {
+    const response = await client.chat.completions.create(buildPayload(true));
+    return parseFromResponse(response);
+  } catch (firstErr) {
+    console.warn('OCR vision (json_object) failed, retrying without response_format:', firstErr?.message || firstErr);
+    const response = await client.chat.completions.create(buildPayload(false));
+    return parseFromResponse(response);
+  }
+}
+
 // Configure multer for handling image uploads
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -50,8 +159,6 @@ router.post('/receipt', upload.single('image'), async (req, res) => {
     const client = getOcrClient();
 
     if (client) {
-      
-      // Use OpenAI Vision API for real OCR
       try {
         let imageData;
         if (req.file) {
@@ -60,102 +167,32 @@ router.post('/receipt', upload.single('image'), async (req, res) => {
           imageData = req.body.image;
         }
 
-        const response = await client.chat.completions.create({
-          model: aiModels.ocr.receipt,
-          temperature: aiRuntime.ocr.receipt.temperature,
-          max_tokens: aiRuntime.ocr.receipt.maxTokens,
-          messages: [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: `Please analyze this receipt image and extract the following information in JSON format:
-                  {
-                    "vendor": "store/company name",
-                    "date": "YYYY-MM-DD",
-                    "amount": total_amount_as_number,
-                    "category": "categorize as Materials, Tools, Equipment, Labor, Fuel, Meals, or Other",
-                    "items": [
-                      {
-                        "description": "item name",
-                        "amount": item_price_as_number,
-                        "quantity": quantity_if_visible,
-                        "unitPrice": unit_price_if_visible
-                      }
-                    ],
-                    "taxAmount": tax_amount_as_number_if_visible,
-                    "confidence": confidence_percentage_as_number
-                  }
-                  
-                  Extraction rules:
-                  - vendor must be the merchant name printed at the top/header (not guessed from typical stores).
-                  - amount must be the FINAL TOTAL charged (prefer lines labeled TOTAL / GRAND TOTAL / AMOUNT DUE).
-                  - Do NOT use subtotal or tax as amount.
-                  - If vendor is not visible/legible, set vendor to an empty string and confidence below 70.
-                  - Include up to 8 top line items under "items" as supplies/materials.
-                  - If uncertain, return confidence below 70 and still provide best parsed values.
+        const receiptData = await runReceiptVisionExtraction(client, imageData, req.file?.mimetype);
 
-                  Only return valid JSON, no other text.`
-                },
-                {
-                  type: "image_url",
-                  image_url: {
-                    url: `data:image/jpeg;base64,${imageData}`
-                  }
-                }
-              ]
-            }
-          ]
-        });
-
-        const content = response.choices[0].message.content;
-        
-        try {
-          // Clean the content - remove markdown code blocks if present
-          let cleanedContent = content.trim();
-          if (cleanedContent.startsWith('```json')) {
-            cleanedContent = cleanedContent.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-          } else if (cleanedContent.startsWith('```')) {
-            cleanedContent = cleanedContent.replace(/```\n?/g, '').replace(/```\n?/g, '');
-          }
-          
-          const receiptData = JSON.parse(cleanedContent);
-          
-          // Ensure confidence is set
-          if (!receiptData.confidence) {
-            receiptData.confidence = 85; // Default confidence
-          }
-          
-          console.log('✅ OCR Success: Extracted receipt data using OpenAI');
-          
-          return res.json({
-            success: true,
-            data: receiptData,
-            confidence: receiptData.confidence
-          });
-        } catch (parseError) {
-          console.error('Failed to parse OpenAI response:', parseError);
-          console.error('Raw response:', content);
-          return res.status(500).json({
-            success: false,
-            error: 'Failed to parse receipt data from OpenAI',
-            confidence: 0
-          });
+        if (!receiptData.confidence) {
+          receiptData.confidence = 85;
         }
+
+        console.log('✅ OCR Success: Extracted receipt data using OpenAI');
+
+        return res.json({
+          success: true,
+          data: receiptData,
+          confidence: receiptData.confidence,
+        });
       } catch (openaiError) {
         console.error('OpenAI OCR error:', openaiError);
         if (!ENABLE_MOCK_OCR) {
           return res.status(502).json({
             success: false,
             error: 'OCR service unavailable (OpenAI request failed)',
-            confidence: 0
+            confidence: 0,
           });
         }
         return res.status(500).json({
           success: false,
           error: 'OpenAI OCR failed',
-          confidence: 0
+          confidence: 0,
         });
       }
     } else {
@@ -232,87 +269,19 @@ router.post('/receipt/openai', upload.single('image'), async (req, res) => {
       });
     }
 
-    const response = await client.chat.completions.create({
-      model: aiModels.ocr.receipt,
-      temperature: aiRuntime.ocr.receipt.temperature,
-      max_tokens: aiRuntime.ocr.receipt.maxTokens,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: `Please analyze this receipt image and extract the following information in JSON format:
-              {
-                "vendor": "store/company name",
-                "date": "YYYY-MM-DD",
-                "amount": total_amount_as_number,
-                "category": "categorize as Materials, Tools, Equipment, Labor, Fuel, Meals, or Other",
-                "items": [
-                  {
-                    "description": "item name",
-                    "amount": item_price_as_number,
-                    "quantity": quantity_if_visible,
-                    "unitPrice": unit_price_if_visible
-                  }
-                ],
-                "taxAmount": tax_amount_as_number_if_visible,
-                "confidence": confidence_percentage_as_number
-              }
-              
-              Extraction rules:
-              - vendor must be the merchant name printed at the top/header (not guessed from typical stores).
-              - amount must be the FINAL TOTAL charged (prefer lines labeled TOTAL / GRAND TOTAL / AMOUNT DUE).
-              - Do NOT use subtotal or tax as amount.
-              - If uncertain, return confidence below 70 and still provide best parsed values.
-              - Include up to 8 top line items in "items".
+    const receiptData = await runReceiptVisionExtraction(client, imageData, req.file?.mimetype);
 
-              Only return valid JSON, no other text.`
-            },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:image/jpeg;base64,${imageData}`
-              }
-            }
-          ]
-        }
-      ]
+    return res.json({
+      success: true,
+      data: receiptData,
+      confidence: receiptData.confidence || 85,
     });
-
-    const content = response.choices[0].message.content;
-    
-    try {
-      let cleanedContent = String(content || '').trim();
-      if (cleanedContent.startsWith('```json')) {
-        cleanedContent = cleanedContent.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-      } else if (cleanedContent.startsWith('```')) {
-        cleanedContent = cleanedContent.replace(/```\n?/g, '').replace(/```\n?/g, '');
-      }
-
-      const receiptData = JSON.parse(cleanedContent);
-      
-      res.json({
-        success: true,
-        data: receiptData,
-        confidence: receiptData.confidence || 85
-      });
-    } catch (parseError) {
-      console.error('Failed to parse OpenAI response:', parseError);
-      console.error('Raw OpenAI OCR content:', content);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to parse receipt data',
-        confidence: 0
-      });
-    }
-
   } catch (error) {
     console.error('OpenAI OCR error:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to process receipt with AI',
-      confidence: 0
+      error: error?.message || 'Failed to process receipt with AI',
+      confidence: 0,
     });
   }
 });

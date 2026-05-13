@@ -25,13 +25,23 @@ import TaxCategoryBreakdown from '@/src/components/tax/TaxCategoryBreakdown';
 import ProjectTaxSummaryList from '@/src/components/tax/ProjectTaxSummaryList';
 import SubcontractorTaxReport from '@/src/components/tax/SubcontractorTaxReport';
 import TaxSummaryCard from '@/src/components/tax/TaxSummaryCard';
+import TaxCenterSummaryDetailModal, {
+  type TaxCenterDetailKind,
+} from '@/src/components/tax/TaxCenterSummaryDetailModal';
 import { useProjectList } from '@/contexts/ProjectListContext';
 import {
   buildProjectTaxSummaries,
   buildRuleBasedTaxInsights,
   buildSubcontractorPaymentSummary,
   computeTaxCenterSummary,
+  customerNameFromProject,
+  expenseCountsTowardSubcontractorPayments,
+  getCommittedCostsDetailRows,
+  getOutstandingReceivablesDetailRows,
+  getReceiptCountDetailRows,
+  getRevenueCollectedDetailPayments,
   getTaxCenterDataInputs,
+  getTaxCenterYearBucketAnomalies,
   getTaxYearOptions,
   getTaxYearRange,
   getYearCollectedPayments,
@@ -41,14 +51,15 @@ import {
 import { computeTaxCenterReadiness, type ReadinessChecklistItem } from '@/src/lib/taxCenterReadiness';
 import { ACCOUNTING_CATEGORY_MAPPING_ENABLED } from '@/src/lib/taxCenterLaunchFlags';
 import {
-  generateReceiptManifestCsv,
-  generateTaxCenterCsv,
   generateTaxSummaryPdf,
   shareExportUri,
   writeBase64ToCacheFile,
-  writeStringToCacheFile,
 } from '@/src/lib/taxCenterExport';
-import { generateAccountantWorkbookBase64 } from '@/src/lib/accountantWorkbookExport';
+import {
+  generateAccountantWorkbookBase64,
+  generateCpaVendorReviewXlsxBase64,
+  generateReceiptManifestXlsxBase64,
+} from '@/src/lib/accountantWorkbookExport';
 import { build1099ReviewSummary } from '@/src/lib/tax1099Review';
 import { useVendorDirectory } from '@/contexts/VendorDirectoryContext';
 import Tax1099ReviewDashboard from '@/src/components/tax/Tax1099ReviewDashboard';
@@ -60,7 +71,8 @@ const money = (value: number): string =>
   new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(Number.isFinite(value) ? value : 0);
 
 const percent = (value: number | null): string => {
@@ -68,27 +80,31 @@ const percent = (value: number | null): string => {
   return `${Math.round(value * 100)}%`;
 };
 
-function exportDialogTitle(kind: 'pdf' | 'csv' | 'receipt'): string {
+function exportDialogTitle(kind: 'pdf' | 'receipt'): string {
   if (kind === 'pdf') return 'CPA Summary PDF';
-  if (kind === 'csv') return 'Tax CSV';
   return 'Export Receipt Backup';
 }
 
-function exportGeneratingLine(type: 'pdf' | 'csv' | 'receipts' | 'workbook' | null): string | null {
+function exportGeneratingLine(
+  type: 'pdf' | 'receipts' | 'workbook' | 'cpa1099' | null
+): string | null {
   if (type === 'pdf') return 'Generating your CPA summary PDF...';
-  if (type === 'csv') return 'Generating your tax CSV...';
   if (type === 'receipts') return 'Preparing your receipt backup...';
   if (type === 'workbook') return 'Building your accountant workbook...';
+  if (type === 'cpa1099') return 'Building your CPA vendor review spreadsheet...';
   return null;
 }
 
-function mapExportFailureMessage(err: unknown, kind: 'pdf' | 'csv' | 'receipt' | 'workbook'): string {
+function mapExportFailureMessage(
+  err: unknown,
+  kind: 'pdf' | 'receipt' | 'workbook' | 'cpa1099'
+): string {
   const m = err instanceof Error ? err.message : String(err);
   if (m === 'SHARING_UNAVAILABLE') return 'Sharing is not available on this device.';
   if (m === 'NO_FILESYSTEM_BASE' || m === 'EXPORT_WRITE_FAILED') return 'Export failed. Please try again.';
   if (kind === 'pdf') return 'PDF export failed. Please try again.';
-  if (kind === 'csv') return 'CSV export failed. Please try again.';
   if (kind === 'workbook') return 'Workbook export failed. Please try again.';
+  if (kind === 'cpa1099') return 'Vendor review export failed. Please try again.';
   return 'Receipt backup export failed. Please try again.';
 }
 
@@ -112,7 +128,31 @@ function checklistRowTone(
   if (row.ok) return 'done';
   if (row.id === 'export') return 'pending';
   if (row.id === 'revenue') return revenueNeedsAttention ? 'attention' : 'pending';
+  if (row.id === 'dates') return row.ok ? 'done' : 'attention';
   return 'attention';
+}
+
+function taxCenterDetailTitle(kind: TaxCenterDetailKind): string {
+  switch (kind) {
+    case 'revenue':
+      return 'Revenue collected';
+    case 'ar':
+      return 'Outstanding receivables';
+    case 'expenses':
+      return 'Expenses paid';
+    case 'committed':
+      return 'Committed costs';
+    case 'netIncome':
+      return 'Net income';
+    case 'netMargin':
+      return 'Net margin';
+    case 'subcontractor':
+      return 'Subcontractor payments';
+    case 'receipts':
+      return 'Receipt count';
+    default:
+      return 'Detail';
+  }
 }
 
 export default function TaxCenterScreen() {
@@ -134,9 +174,12 @@ export default function TaxCenterScreen() {
   const currentYear = new Date().getFullYear();
   const yearOptions = useMemo(() => getTaxYearOptions(projects, currentYear), [projects, currentYear]);
   const [selectedYear, setSelectedYear] = useState(currentYear);
-  const [exportingType, setExportingType] = useState<'pdf' | 'csv' | 'receipts' | 'workbook' | null>(null);
+  const [exportingType, setExportingType] = useState<
+    'pdf' | 'receipts' | 'workbook' | 'cpa1099' | null
+  >(null);
   const [taxBreakdownExpanded, setTaxBreakdownExpanded] = useState(false);
   const [vendorReviewExpanded, setVendorReviewExpanded] = useState(false);
+  const [detailKind, setDetailKind] = useState<TaxCenterDetailKind | null>(null);
 
   const yearRange = useMemo(() => getTaxYearRange(selectedYear), [selectedYear]);
   const summary = useMemo(
@@ -166,6 +209,38 @@ export default function TaxCenterScreen() {
   );
 
   const taxInputs = useMemo(() => getTaxCenterDataInputs(projects), [projects]);
+  const revenueDetailPayments = useMemo(
+    () => getRevenueCollectedDetailPayments(projects, selectedYear, taxInputs.payments),
+    [projects, selectedYear, taxInputs.payments]
+  );
+  const revenueCustomerByProjectId = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const p of projects) {
+      const id = String(p?.id || '').trim();
+      if (id) m[id] = customerNameFromProject(p);
+    }
+    return m;
+  }, [projects]);
+  const arDetailRows = useMemo(
+    () => getOutstandingReceivablesDetailRows(projects, selectedYear),
+    [projects, selectedYear]
+  );
+  const committedDetailRows = useMemo(
+    () => getCommittedCostsDetailRows(projects, selectedYear),
+    [projects, selectedYear]
+  );
+  const receiptDetailRows = useMemo(
+    () => getReceiptCountDetailRows(projects, selectedYear),
+    [projects, selectedYear]
+  );
+  const subcontractorExpenseRows = useMemo(
+    () => yearExpenses.filter((e) => expenseCountsTowardSubcontractorPayments(e, vendors)),
+    [yearExpenses, vendors]
+  );
+  const taxBucketAnomalies = useMemo(
+    () => getTaxCenterYearBucketAnomalies(projects, selectedYear),
+    [projects, selectedYear]
+  );
   const review1099 = useMemo(
     () =>
       build1099ReviewSummary({
@@ -189,8 +264,9 @@ export default function TaxCenterScreen() {
         categoryRows,
         yearExpenses,
         review1099,
+        anomalies: taxBucketAnomalies,
       }),
-    [summary, categoryRows, yearExpenses, review1099]
+    [summary, categoryRows, yearExpenses, review1099, taxBucketAnomalies]
   );
 
   const aiInsightLines = useMemo(
@@ -254,24 +330,6 @@ export default function TaxCenterScreen() {
     }
   };
 
-  const handleCsvExport = async () => {
-    if (busy) return;
-    setExportingType('csv');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    try {
-      const payload = await withContractorExportMetaOnPayload(exportPayload);
-      const csv = generateTaxCenterCsv(payload);
-      const path = await writeStringToCacheFile(csv, `BPS_Tax_CSV_${selectedYear}.csv`);
-      await shareExportUri(path, 'text/csv');
-      Alert.alert(exportDialogTitle('csv'), 'Your tax CSV is ready to share.');
-    } catch (err) {
-      console.error('Tax CSV export', err);
-      Alert.alert(exportDialogTitle('csv'), mapExportFailureMessage(err, 'csv'));
-    } finally {
-      setExportingType(null);
-    }
-  };
-
   const handleReceiptManifestExport = async () => {
     if (busy) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -282,19 +340,23 @@ export default function TaxCenterScreen() {
     setExportingType('receipts');
     try {
       const payload = await withContractorExportMetaOnPayload(exportPayload);
-      const csv = generateReceiptManifestCsv(payload);
-      const filename = `BPS_Receipt_Backup_Manifest_${selectedYear}.csv`;
+      const b64 = generateReceiptManifestXlsxBase64({ payload });
+      const filename = `BPS_Receipt_Backup_Manifest_${selectedYear}.xlsx`;
       if (Platform.OS === 'web') {
-        triggerBrowserFileDownload(filename, csv, 'text/csv');
+        triggerBrowserFileDownload(
+          filename,
+          decodeBase64ToUint8Array(b64),
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        );
       } else {
-        const path = await writeStringToCacheFile(csv, filename);
-        await shareExportUri(path, 'text/csv');
+        const path = await writeBase64ToCacheFile(b64, filename);
+        await shareExportUri(path, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       }
       Alert.alert(
         'Export Receipt Backup',
         Platform.OS === 'web'
           ? 'Your receipt backup manifest download should start in your browser.'
-          : 'Your Receipt Backup Manifest is ready to share.'
+          : 'Your styled receipt backup manifest is ready to share.'
       );
     } catch (err) {
       console.error('Tax receipt manifest export', err);
@@ -335,6 +397,42 @@ export default function TaxCenterScreen() {
     } catch (err) {
       console.error('Accountant workbook export', err);
       Alert.alert('Accountant Workbook', mapExportFailureMessage(err, 'workbook'));
+    } finally {
+      setExportingType(null);
+    }
+  };
+
+  const handleCpaVendorReviewExport = async () => {
+    if (busy) return;
+    setExportingType('cpa1099');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const payload = await withContractorExportMetaOnPayload(exportPayload);
+      const b64 = generateCpaVendorReviewXlsxBase64({
+        payload,
+        review: review1099,
+        vendors,
+      });
+      const filename = `BPS_CPA_Vendor_Review_${selectedYear}.xlsx`;
+      if (Platform.OS === 'web') {
+        triggerBrowserFileDownload(
+          filename,
+          decodeBase64ToUint8Array(b64),
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        );
+      } else {
+        const path = await writeBase64ToCacheFile(b64, filename);
+        await shareExportUri(path, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      }
+      Alert.alert(
+        'CPA vendor review',
+        Platform.OS === 'web'
+          ? 'Your vendor review download should start in your browser.'
+          : 'Your styled vendor review spreadsheet is ready to share.'
+      );
+    } catch (err) {
+      console.error('CPA vendor review export', err);
+      Alert.alert('CPA vendor review', mapExportFailureMessage(err, 'cpa1099'));
     } finally {
       setExportingType(null);
     }
@@ -537,8 +635,8 @@ export default function TaxCenterScreen() {
             </View>
             <Text style={styles.heroTitle}>Project-first job costing with tax-ready exports</Text>
             <Text style={styles.heroText}>
-              Track project income, expenses, receipts, and vendors. Export CPA-ready PDFs, accountant workbooks, CSV
-              files, and receipt manifests — then review totals with your CPA or enter them into tax software.
+              Track project income, expenses, receipts, and vendors. Export CPA-ready PDFs, the accountant workbook,
+              vendor and receipt spreadsheets — then review totals with your CPA or enter them into tax software.
             </Text>
             <Text style={styles.rangeText}>
               {yearRange.start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} -{' '}
@@ -558,7 +656,7 @@ export default function TaxCenterScreen() {
 
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Tax year</Text>
-              <Text style={styles.sectionHint}>Defaulted to current year</Text>
+              <Text style={styles.sectionHint}>Defaulted to current year · Jan 1 – Dec 31</Text>
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.yearRow}>
               {yearOptions.map((year) => {
@@ -591,7 +689,8 @@ export default function TaxCenterScreen() {
               </View>
             </View>
             <Text style={styles.basisFootnote}>
-              Cash Basis is recommended for most small contractors. Accrual / Invoice Basis coming soon.
+              Tax year: Jan 1 – Dec 31. Cash Basis is recommended for most small contractors. Accrual / Invoice Basis
+              coming soon.
             </Text>
 
             <View style={styles.summaryGrid}>
@@ -600,24 +699,40 @@ export default function TaxCenterScreen() {
                 value={money(summary.grossIncomeCollected)}
                 icon="payments"
                 helper="Payments actually collected during the selected tax year."
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setDetailKind('revenue');
+                }}
               />
               <TaxSummaryCard
                 label="Outstanding Receivables"
                 value={money(summary.outstandingReceivables)}
                 icon="account-balance-wallet"
                 helper="Unpaid invoices or scheduled payments tied to the selected tax year. Not counted as cash-basis income until collected."
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setDetailKind('ar');
+                }}
               />
               <TaxSummaryCard
                 label="Expenses Paid"
                 value={money(summary.totalExpenses)}
                 icon="receipt-long"
                 helper="Expenses and received/paid purchase orders dated within the selected tax year."
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setDetailKind('expenses');
+                }}
               />
               <TaxSummaryCard
                 label="Committed Costs"
                 value={money(summary.committedCosts)}
                 icon="inventory"
                 helper="Pending purchase orders and committed costs not yet paid or received. Shown for review only."
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setDetailKind('committed');
+                }}
               />
               <TaxSummaryCard
                 label="Net Income"
@@ -625,24 +740,40 @@ export default function TaxCenterScreen() {
                 icon="trending-up"
                 accent={summary.netProfit >= 0 ? '#2DFFC4' : '#FCA5A5'}
                 helper="Revenue collected minus expenses paid for the selected tax year."
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setDetailKind('netIncome');
+                }}
               />
               <TaxSummaryCard
                 label="Net Margin"
                 value={percent(summary.netMargin)}
                 icon="percent"
                 helper="Cash-basis net income divided by revenue collected."
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setDetailKind('netMargin');
+                }}
               />
               <TaxSummaryCard
                 label="Subcontractor payments"
                 value={money(summary.subcontractorPayments)}
                 icon="groups"
                 helper="Subcontractor payments made during the selected tax year."
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setDetailKind('subcontractor');
+                }}
               />
               <TaxSummaryCard
                 label="Receipt count"
                 value={String(summary.receiptCount)}
                 icon="fact-check"
                 helper="Receipts attached to expenses dated within the selected tax year."
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setDetailKind('receipts');
+                }}
               />
             </View>
             {summary.committedCosts > 0 ? (
@@ -803,8 +934,8 @@ export default function TaxCenterScreen() {
               </View>
             </View>
             <Text style={styles.qbPrepNote}>
-              QuickBooks integration is coming later. For now, use CPA-ready exports, tax CSV files, receipt backup,
-              vendor review, and year-end summaries from your project data.
+              QuickBooks integration is coming later. For now, use CPA-ready exports, the accountant workbook, receipt
+              backup, vendor review, and year-end summaries from your project data.
             </Text>
           </TaxGradientFrame>
 
@@ -858,7 +989,16 @@ export default function TaxCenterScreen() {
               showTopDivider={false}
             />
             <Text style={styles.exportRowHint}>Polished summary report for your records or CPA.</Text>
-            <ExportButton icon="table-chart" title="Export Tax CSV" disabled={busy} onPress={handleCsvExport} />
+            <ExportButton
+              icon="assignment-ind"
+              title="Export CPA vendor review (spreadsheet)"
+              disabled={busy}
+              onPress={handleCpaVendorReviewExport}
+            />
+            <Text style={styles.exportRowHint}>
+              Informational vendor list for CPA review — not official 1099 forms. Uses Potential 1099 review language
+              only.
+            </Text>
             <ExportButton
               icon="folder-zip"
               title="Export Receipt Backup Manifest"
@@ -901,6 +1041,23 @@ export default function TaxCenterScreen() {
         </ScrollView>
         </View>
       </SafeAreaView>
+      <TaxCenterSummaryDetailModal
+        visible={detailKind != null}
+        onClose={() => setDetailKind(null)}
+        kind={detailKind ?? 'revenue'}
+        title={detailKind ? taxCenterDetailTitle(detailKind) : 'Detail'}
+        selectedYear={selectedYear}
+        summary={summary}
+        revenuePayments={revenueDetailPayments}
+        revenueCustomerByProjectId={revenueCustomerByProjectId}
+        arRows={arDetailRows}
+        expenseRows={yearExpenses}
+        committedRows={committedDetailRows}
+        subcontractorExpenseRows={subcontractorExpenseRows}
+        receiptRows={receiptDetailRows}
+        vendors={vendors}
+        formatMoney={money}
+      />
     </View>
   );
 }

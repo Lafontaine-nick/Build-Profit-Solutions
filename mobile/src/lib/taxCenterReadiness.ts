@@ -1,5 +1,5 @@
 import type { Tax1099ReviewSummary } from '@/src/lib/tax1099Review';
-import type { TaxCategoryRow, TaxExpense, TaxCenterSummary } from '@/src/lib/taxCenter';
+import type { TaxCategoryRow, TaxExpense, TaxCenterSummary, TaxYearBucketAnomalies } from '@/src/lib/taxCenter';
 import { ACCOUNTING_CATEGORY_MAPPING_ENABLED } from '@/src/lib/taxCenterLaunchFlags';
 
 export type ReadinessChecklistItem = {
@@ -16,6 +16,9 @@ export type TaxCenterReadinessResult = {
   missingPaymentMethod: number;
   potential1099Review: number;
   revenueNeedsAttention: boolean;
+  paymentsMissingCollectedDate: number;
+  expensesMissingPaidDate: number;
+  expenseLinesUsedProjectOverlapFallback: number;
   checklist: ReadinessChecklistItem[];
   missingSummaryLines: string[];
 };
@@ -37,8 +40,14 @@ export function computeTaxCenterReadiness(args: {
   categoryRows: TaxCategoryRow[];
   yearExpenses: TaxExpense[];
   review1099: Tax1099ReviewSummary;
+  anomalies?: TaxYearBucketAnomalies;
 }): TaxCenterReadinessResult {
   const { summary, categoryRows, yearExpenses, review1099 } = args;
+  const anomalies = args.anomalies ?? {
+    paymentsMissingCollectedDate: 0,
+    expensesMissingPaidDate: 0,
+    expenseLinesUsedProjectOverlapFallback: 0,
+  };
 
   const missingReceipts = countMissingReceipts(yearExpenses);
   const unmappedCategories = categoryRows.filter((r) => !String(r.accountingLabel || '').trim()).length;
@@ -46,11 +55,21 @@ export function computeTaxCenterReadiness(args: {
   const revenueNeedsAttention =
     summary.totalExpenses > 0 && summary.grossIncomeCollected === 0;
 
+  const datesOk =
+    anomalies.paymentsMissingCollectedDate === 0 &&
+    anomalies.expensesMissingPaidDate === 0 &&
+    anomalies.expenseLinesUsedProjectOverlapFallback === 0;
+
   const checklist: ReadinessChecklistItem[] = [
     {
       id: 'revenue',
       label: 'Revenue reviewed',
       ok: !revenueNeedsAttention,
+    },
+    {
+      id: 'dates',
+      label: 'Payment & expense dates reviewed',
+      ok: datesOk,
     },
     {
       id: 'categories',
@@ -80,7 +99,8 @@ export function computeTaxCenterReadiness(args: {
         (ACCOUNTING_CATEGORY_MAPPING_ENABLED ? unmappedCategories === 0 : true) &&
         review1099.missingW9Count === 0 &&
         review1099.paymentsMissingMethodCount === 0 &&
-        !revenueNeedsAttention,
+        !revenueNeedsAttention &&
+        datesOk,
     },
   ];
 
@@ -108,6 +128,21 @@ export function computeTaxCenterReadiness(args: {
       `${review1099.potential1099VendorCount} Potential 1099 review vendor${review1099.potential1099VendorCount === 1 ? '' : 's'}`
     );
   }
+  if (anomalies.paymentsMissingCollectedDate > 0) {
+    missingSummaryLines.push(
+      `${anomalies.paymentsMissingCollectedDate} payment${anomalies.paymentsMissingCollectedDate === 1 ? '' : 's'} missing collected date`
+    );
+  }
+  if (anomalies.expensesMissingPaidDate > 0) {
+    missingSummaryLines.push(
+      `${anomalies.expensesMissingPaidDate} expense line${anomalies.expensesMissingPaidDate === 1 ? '' : 's'} missing paid date`
+    );
+  }
+  if (anomalies.expenseLinesUsedProjectOverlapFallback > 0) {
+    missingSummaryLines.push(
+      `${anomalies.expenseLinesUsedProjectOverlapFallback} paid PO line${anomalies.expenseLinesUsedProjectOverlapFallback === 1 ? '' : 's'} used project overlap for tax year — confirm dates`
+    );
+  }
 
   const allReady = checklist.every((c) => c.ok);
 
@@ -119,6 +154,9 @@ export function computeTaxCenterReadiness(args: {
     missingPaymentMethod: review1099.paymentsMissingMethodCount,
     potential1099Review: review1099.potential1099VendorCount,
     revenueNeedsAttention,
+    paymentsMissingCollectedDate: anomalies.paymentsMissingCollectedDate,
+    expensesMissingPaidDate: anomalies.expensesMissingPaidDate,
+    expenseLinesUsedProjectOverlapFallback: anomalies.expenseLinesUsedProjectOverlapFallback,
     checklist,
     missingSummaryLines,
   };

@@ -81,32 +81,32 @@ import {
 import { isBetaFeedbackVisibleForUser } from '@/lib/betaFeedback/betaFeedbackConfig';
 import { syncBpsDirectoryListing } from '@/services/bpsDirectorySync';
 
-// Mock user data
-const mockUser = {
-  id: '1',
-  name: 'John Smith',
-  email: 'john.smith@email.com',
-  phone: '(555) 123-4567',
-  company: 'Smith Construction Co.',
+/**
+ * In-memory defaults only — never persisted as-is. Avoids debounced autosave racing
+ * `loadProfile` and overwriting `bps.contractorProfile` with demo data.
+ */
+const DEFAULT_CONTRACTOR_USER = {
+  id: 'local',
+  name: '',
+  email: '',
+  phone: '',
+  company: '',
+  website: '',
   role: 'General Contractor',
-  location: 'San Diego, CA',
-  experience: 8,
-  avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face',
-  joinDate: '2023-01-15',
-  totalProjects: 47,
-  completedProjects: 42,
-  activeProjects: 5,
-  totalRevenue: 1250000,
-  averageRating: 4.8,
-  reviewCount: 156,
-  licenses: [
-    'General Contractor License',
-    'Electrical License',
-    'Plumbing License',
-  ],
+  location: '',
+  experience: 0,
+  avatar: '',
+  joinDate: new Date().toISOString().split('T')[0],
+  totalProjects: 0,
+  completedProjects: 0,
+  activeProjects: 0,
+  totalRevenue: 0,
+  averageRating: 0,
+  reviewCount: 0,
+  licenses: [] as string[],
   insurance: {
-    generalLiability: true,
-    autoInsurance: true,
+    generalLiability: false,
+    autoInsurance: false,
   },
   preferences: {
     notifications: true,
@@ -121,6 +121,22 @@ const mockUser = {
   companyBio: '',
   projectPortfolio: [] as Array<{ id: string; uri: string; caption?: string }>,
 };
+
+/** Gallery/camera URIs on native often live in temp/cache; copy into app documents so AsyncStorage paths stay valid. */
+async function persistPickedImageToDocuments(uri: string, filePrefix: string): Promise<string> {
+  if (Platform.OS === 'web' || !uri) return uri;
+  try {
+    const FileSystem = require('expo-file-system') as typeof import('expo-file-system');
+    const base = FileSystem.documentDirectory || FileSystem.cacheDirectory;
+    if (!base) return uri;
+    const dest = `${base}${filePrefix}-${Date.now()}.jpg`;
+    await FileSystem.copyAsync({ from: uri, to: dest });
+    return dest;
+  } catch (e) {
+    console.warn(`persistPickedImageToDocuments(${filePrefix}): copy failed`, e);
+    return uri;
+  }
+}
 
 /** First US ZIP in free-form location text (e.g. "Las Vegas, NV 89141"). */
 function extractUsZipFromText(text: string): string {
@@ -289,7 +305,9 @@ export default function ProfileScreen() {
   const { currentLanguage, changeLanguage } = useLanguage();
   const { t } = useTranslation(); // Use directly for reactivity
 
-  const [user, setUser] = useState(mockUser);
+  const [user, setUser] = useState(DEFAULT_CONTRACTOR_USER);
+  /** False until first `loadProfile` finishes — blocks autosave from clobbering storage with defaults. */
+  const profileReadyRef = useRef(false);
   const [discoverability, setDiscoverability] = useState({ listOn: false });
 
   // Check notification permission status on mount
@@ -411,6 +429,7 @@ export default function ProfileScreen() {
   // Load and sync profile data on mount
   React.useEffect(() => {
     const loadProfile = async () => {
+      profileReadyRef.current = false;
       try {
         const saved = await AsyncStorage.getItem('bps.contractorProfile');
         if (saved) {
@@ -433,23 +452,12 @@ export default function ProfileScreen() {
             companyBio: profile.companyBio !== undefined ? profile.companyBio : prev.companyBio,
             projectPortfolio: profile.projectPortfolio || prev.projectPortfolio || [],
           }));
-        } else {
-          // Save initial profile if none exists
-          const initialProfile = {
-            name: user.name,
-            company: user.company,
-            avatar: user.avatar,
-            phone: user.phone,
-            email: user.email,
-            website: user.website,
-            role: user.role,
-            location: user.location,
-          };
-          await AsyncStorage.setItem('bps.contractorProfile', JSON.stringify(initialProfile));
-          console.log('💾 Profile page: Saved initial profile to storage');
         }
+        // If nothing saved, do not write in-memory defaults to storage (avoids autosave race + demo overwrite).
       } catch (error) {
         console.error('Failed to load profile:', error);
+      } finally {
+        profileReadyRef.current = true;
       }
     };
     loadProfile();
@@ -575,13 +583,32 @@ export default function ProfileScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      // In real app, fetch user data from API
-      setUser({ ...mockUser });
+      const saved = await AsyncStorage.getItem('bps.contractorProfile');
+      if (saved) {
+        const profile = JSON.parse(saved);
+        setDiscoverability({
+          listOn: !!profile.listOnFindSubcontractors,
+        });
+        setUser((prev) => ({
+          ...prev,
+          name: profile.name || prev.name,
+          company: profile.company || prev.company,
+          avatar: profile.avatar || prev.avatar,
+          phone: profile.phone || prev.phone,
+          email: profile.email || prev.email,
+          website: profile.website || prev.website,
+          role: profile.role || prev.role,
+          location: profile.location || prev.location,
+          insurance: profile.insurance || prev.insurance,
+          licenses: profile.licenses || prev.licenses,
+          companyBio:
+            profile.companyBio !== undefined ? profile.companyBio : prev.companyBio,
+          projectPortfolio: profile.projectPortfolio || prev.projectPortfolio || [],
+        }));
+      }
     } catch (error) {
       if (__DEV__) {
-        console.error('Error refreshing profile:', error);
+        console.error('Error refreshing profile from storage:', error);
       }
     } finally {
       setRefreshing(false);
@@ -603,6 +630,7 @@ export default function ProfileScreen() {
     if (!isEditingLicenses && !isEditingBio && !isEditingPortfolio) {
       const saveAllProfileData = async () => {
         try {
+          if (!profileReadyRef.current) return;
           const listedZip = extractUsZipFromText(user.location);
           let prevServiceZip = '';
           try {
@@ -1286,12 +1314,11 @@ export default function ProfileScreen() {
       });
 
       if (!result.canceled && result.assets[0]) {
-        const newAvatar = result.assets[0].uri;
-        setUser(prev => ({ ...prev, avatar: newAvatar }));
-        
+        const picked = result.assets[0].uri;
+        const newAvatar = await persistPickedImageToDocuments(picked, 'bps-profile-avatar');
+        setUser((prev) => ({ ...prev, avatar: newAvatar }));
+
         // Avatar save will be handled by the useEffect that watches user.avatar
-        // No need to save here separately
-        
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert('Success', 'Profile image updated successfully!');
       }
@@ -1299,7 +1326,7 @@ export default function ProfileScreen() {
       console.error('Error uploading image:', error);
       Alert.alert('Error', 'Failed to upload image. Please try again.');
     }
-  }, [user]);
+  }, []);
 
 
   const handleAddPortfolioImage = useCallback(async () => {
@@ -1322,13 +1349,15 @@ export default function ProfileScreen() {
       });
 
       if (!result.canceled && result.assets[0]) {
+        const picked = result.assets[0].uri;
+        const persistedUri = await persistPickedImageToDocuments(picked, 'bps-portfolio');
         const newImage = {
           id: `portfolio-${Date.now()}`,
-          uri: result.assets[0].uri,
+          uri: persistedUri,
           caption: '',
         };
-        
-        setUser(prev => ({
+
+        setUser((prev) => ({
           ...prev,
           projectPortfolio: [...(prev.projectPortfolio || []), newImage],
         }));
@@ -1342,7 +1371,7 @@ export default function ProfileScreen() {
       console.error('Error uploading portfolio images:', error);
       Alert.alert('Error', 'Failed to upload portfolio images. Please try again.');
     }
-  }, [user.projectPortfolio]);
+  }, []);
 
   // Calculate real stats from leads data
   const realStats = useMemo(() => {
@@ -1447,8 +1476,12 @@ export default function ProfileScreen() {
         <View style={styles.profileHeaderContent}>
           <View style={styles.profileImageContainer}>
             <View style={styles.avatarGlowContainer}>
-              <Image 
-                source={{ uri: user.avatar }} 
+              <Image
+                source={
+                  String(user.avatar || '').trim()
+                    ? { uri: user.avatar }
+                    : require('../assets/images/bps-logo-updated.png')
+                }
                 style={styles.profileImage}
                 defaultSource={require('../assets/images/bps-logo-updated.png')}
                 onError={() => console.log('Profile image failed to load')}

@@ -12,6 +12,13 @@ import type { TaxSummaryExportPayload } from '@/src/lib/taxCenterExportPayload';
 import type { TaxCategory } from '@/src/lib/taxCenter';
 import { ACCOUNTING_CATEGORY_MAPPING_ENABLED } from '@/src/lib/taxCenterLaunchFlags';
 import { SUGGESTED_ACCOUNTING_CATEGORY } from '@/src/lib/taxSuggestedAccountingCategories';
+import {
+  POTENTIAL_1099_REVIEW_EXPLANATION,
+  TAX_CENTER_METHODOLOGY_BODY,
+  TAX_CENTER_METHODOLOGY_TITLE,
+} from '@/src/lib/taxCenterMethodologyCopy';
+import type { Tax1099ReviewSummary, Tax1099ReviewVendorRow } from '@/src/lib/tax1099Review';
+import type { Vendor } from '@/src/lib/vendorTypes';
 
 /** Full legal notice for PDF / CSV exports (same substantive copy). */
 const TAX_EXPORT_NOTICE_FULL =
@@ -27,10 +34,14 @@ const TAX_EXPORT_DATA_ACCURACY_NOTE =
 const TAX_EXPORT_NOTICE_PDF_CARD =
   'This report is for bookkeeping and tax-preparation support only. It is not tax advice, does not replace a CPA or tax professional, and is not an official tax filing or official 1099 form. Users are responsible for verifying all amounts, categories, receipts, vendors, and tax treatment before filing.';
 
+/** CPA summary PDF table cells — two decimals for tax/cash-basis alignment with Tax Center UI. */
 const money = (n: number) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(
-    Number.isFinite(n) ? n : 0
-  );
+  new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(n) ? n : 0);
 
 /** Receipt manifest amounts: always two decimals (e.g. $6,743.00). */
 function moneyReceiptManifest(n: number): string {
@@ -1016,6 +1027,13 @@ function buildTaxSummaryHtml(payload: TaxSummaryExportPayload): string {
         <p class="notice-card-body" style="${IN_NOTICE_BODY}">${escapeHtml(TAX_EXPORT_NOTICE_PDF_CARD)}</p>
       </div>
 
+      <div class="methodology-card pdf-no-break" role="note" style="${IN_NOTICE_BLUE}">
+        <p class="methodology-title" style="${IN_NOTICE_BLUE_TITLE}">${escapeHtml(TAX_CENTER_METHODOLOGY_TITLE)}</p>
+        <p class="methodology-body" style="${IN_NOTICE_BLUE_BODY}white-space:pre-wrap;">${escapeHtml(
+          TAX_CENTER_METHODOLOGY_BODY
+        )}</p>
+      </div>
+
       <div class="summary-metrics-wrap metrics-pdf-block pdf-no-break">${execGrid}${execGridFootnote}</div>
 
       ${portfolioBlock}
@@ -1054,200 +1072,6 @@ export async function generateTaxSummaryPdf(payload: TaxSummaryExportPayload): P
     displayHeaderFooter: false,
     autoShareOnNative: false,
   });
-}
-
-export function generateTaxCenterCsv(payload: TaxSummaryExportPayload): string {
-  const lines: string[] = [];
-  const p = payload.portfolioSummary;
-  const y = payload.selectedYear;
-  const genShort = csvGeneratedDateOnly(payload.generatedAtDisplay);
-  const dateRangeCsv = `Jan 1 - Dec 31, ${y}`;
-
-  const push = (line: string) => lines.push(line);
-  const kv = (k: string, v: string | number) => push(`${escapeCsvCell(k)},${escapeCsvCell(v)}`);
-
-  push(escapeCsvCell('BUILD PROFIT SOLUTIONS'));
-  push(escapeCsvCell('Year-End Tax Summary'));
-  push(escapeCsvCell('Tax-ready report · CPA-ready summary'));
-  push('');
-  push(escapeCsvCell('DOCUMENT DETAILS'));
-  kv('Report Type', 'Tax CSV');
-  kv('Tax Year', y);
-  kv('Date Range', dateRangeCsv);
-  kv('Generated', genShort);
-  const ce = String(payload.contractorContactEmail || '').trim();
-  if (ce) kv('Contractor contact', ce);
-  push('');
-  push(escapeCsvCell('PORTFOLIO SUMMARY'));
-  push(`${escapeCsvCell('Metric')},${escapeCsvCell('Amount')}`);
-  kv('Revenue Collected', formatMoneyCsv(p.revenueCollected));
-  kv('Outstanding Receivables', formatMoneyCsv(p.outstandingReceivables));
-  kv('Expenses Paid', formatMoneyCsv(p.expensesPaid));
-  kv('Committed Costs', formatMoneyCsv(p.committedCosts));
-  if (p.committedCosts > 0) {
-    kv('Expenses paid + committed POs (informational)', formatMoneyCsv(p.expensesPaid + p.committedCosts));
-  }
-  kv('Net Income', formatMoneyCsv(p.netIncome));
-  kv('Net Margin', formatNetMargin(p.netMargin));
-  kv('Subcontractor Payments', formatMoneyCsv(p.subcontractorPayments));
-  kv('Receipt Count', p.receiptCount);
-  push('');
-  push(escapeCsvCell('EXPENSE CATEGORIES'));
-  if (ACCOUNTING_CATEGORY_MAPPING_ENABLED) {
-    push(
-      `${escapeCsvCell('BPS Category')},${escapeCsvCell('Your Accounting Category')},${escapeCsvCell('Suggested Accounting Category')},${escapeCsvCell('Amount')},${escapeCsvCell('Item Count')}`
-    );
-  } else {
-    push(`${escapeCsvCell('BPS Category')},${escapeCsvCell('Amount')},${escapeCsvCell('Item Count')}`);
-  }
-  if (payload.expenseCategories.length === 0) {
-    push(csvLongTextSecondColumn('No expense category data found for this tax year.'));
-  } else if (ACCOUNTING_CATEGORY_MAPPING_ENABLED) {
-    payload.expenseCategories.forEach((c) => {
-      const acct = String(c.accountingOrQuickBooksCategory || '').trim();
-      const sug = SUGGESTED_ACCOUNTING_CATEGORY[c.category as TaxCategory] ?? '';
-      push(
-        `${escapeCsvCell(c.category)},${escapeCsvCell(acct || 'Needs review')},${escapeCsvCell(sug)},${escapeCsvCell(formatMoneyCsv(c.amount))},${escapeCsvCell(c.itemCount)}`
-      );
-    });
-  } else {
-    payload.expenseCategories.forEach((c) => {
-      push(
-        `${escapeCsvCell(c.category)},${escapeCsvCell(formatMoneyCsv(c.amount))},${escapeCsvCell(c.itemCount)}`
-      );
-    });
-  }
-  push('');
-  push(escapeCsvCell('EXPENSE TRANSACTIONS'));
-  push(
-    [
-      'Date',
-      'Project',
-      'Vendor',
-      'Description',
-      'BPS Category',
-      'Suggested Accounting Category',
-      'Amount',
-      'Payment Method',
-      'Receipt Attached',
-      'Receipt File Name',
-      '1099 Eligible',
-      'W-9 Status',
-      'Notes',
-    ]
-      .map(escapeCsvCell)
-      .join(',')
-  );
-  payload.expenseTransactions.forEach((r) => {
-    push(
-      [
-        escapeCsvCell(r.date),
-        escapeCsvCell(r.project),
-        escapeCsvCell(r.vendor),
-        escapeCsvCell(r.description),
-        escapeCsvCell(String(r.bpsCategory)),
-        escapeCsvCell(r.accountingCategory),
-        escapeCsvCell(r.amount),
-        escapeCsvCell(r.paymentMethod),
-        escapeCsvCell(r.receiptAttached),
-        escapeCsvCell(r.receiptFileName),
-        escapeCsvCell(r.eligible1099),
-        escapeCsvCell(r.w9Status),
-        escapeCsvCell(r.notes),
-      ].join(',')
-    );
-  });
-  push('');
-  push(escapeCsvCell('REVENUE PAYMENTS'));
-  push(
-    [
-      'Date',
-      'Project',
-      'Customer',
-      'Invoice / Milestone',
-      'Amount Collected',
-      'Payment Method',
-      'Outstanding Balance',
-      'Notes',
-    ]
-      .map(escapeCsvCell)
-      .join(',')
-  );
-  payload.revenuePayments.forEach((r) => {
-    push(
-      [
-        escapeCsvCell(r.date),
-        escapeCsvCell(r.project),
-        escapeCsvCell(r.customer),
-        escapeCsvCell(r.invoiceOrMilestone),
-        escapeCsvCell(r.amountCollected),
-        escapeCsvCell(r.paymentMethod),
-        escapeCsvCell(r.outstandingBalance),
-        escapeCsvCell(r.notes),
-      ].join(',')
-    );
-  });
-  push('');
-  push(escapeCsvCell('PROJECT-BY-PROJECT SUMMARY'));
-  push(
-    `${escapeCsvCell('Project')},${escapeCsvCell('Revenue Collected')},${escapeCsvCell('Outstanding')},${escapeCsvCell('Expenses Paid')},${escapeCsvCell('Net Income')},${escapeCsvCell('Net Margin')},${escapeCsvCell('Receipt Count')}`
-  );
-  if (payload.projectSummaries.length === 0) {
-    push(csvLongTextSecondColumn('No project data found for this tax year.'));
-  } else {
-    payload.projectSummaries.forEach((r) => {
-      push(
-        [
-          escapeCsvCell(r.projectName),
-          escapeCsvCell(formatMoneyCsv(r.revenueCollected)),
-          escapeCsvCell(formatMoneyCsv(r.outstandingInvoices)),
-          escapeCsvCell(formatMoneyCsv(r.expensesPaid)),
-          escapeCsvCell(formatMoneyCsv(r.netIncome)),
-          escapeCsvCell(formatNetMargin(r.netMargin)),
-          escapeCsvCell(r.receiptCount),
-        ].join(',')
-      );
-    });
-  }
-  push('');
-  push(escapeCsvCell('SUBCONTRACTOR PAYMENT SUMMARY'));
-  push(
-    `${escapeCsvCell('Vendor/Subcontractor')},${escapeCsvCell('Total Paid')},${escapeCsvCell('Projects')},${escapeCsvCell('W-9 tracking (informational)')},${escapeCsvCell('Potential 1099 Review')}`
-  );
-  if (payload.subcontractors.length === 0) {
-    push(csvLongTextSecondColumn('No subcontractor payments found for this tax year.'));
-  } else {
-    payload.subcontractors.forEach((s) => {
-      push(
-        [
-          escapeCsvCell(s.vendorName),
-          escapeCsvCell(formatMoneyCsv(s.totalPaid)),
-          escapeCsvCell(s.projectNames.join('; ')),
-          escapeCsvCell(s.w9Uploaded ? 'On file' : 'Not on file'),
-          escapeCsvCell(s.potential1099Review ? 'Yes' : 'No'),
-        ].join(',')
-      );
-    });
-  }
-  push('');
-  push(escapeCsvCell('AI TAX INSIGHT'));
-  push(csvLongTextSecondColumn(payload.aiTaxInsight));
-  push(
-    csvLongTextSecondColumn(
-      'Rules-based insight. Not tax advice. Review with your CPA or tax professional.'
-    )
-  );
-  push('');
-  push(escapeCsvCell('IMPORTANT TAX NOTICE'));
-  push(csvLongTextSecondColumn(TAX_EXPORT_NOTICE_FULL));
-  push(csvLongTextSecondColumn(TAX_EXPORT_DATA_SOURCE_LINE));
-  push(csvLongTextSecondColumn(TAX_EXPORT_DATA_ACCURACY_NOTE));
-  push('');
-  push(escapeCsvCell('END OF REPORT'));
-  kv('Prepared For', 'Bookkeeping and CPA Review');
-  kv('Product', 'Build Profit Solutions');
-
-  return `\uFEFF${lines.join('\n')}`;
 }
 
 const RECEIPT_MANIFEST_FOOTER_PREPARED =
@@ -1305,6 +1129,76 @@ export function generateReceiptManifestCsv(payload: TaxSummaryExportPayload): st
   ];
 
   return `\uFEFF${[...headerLines, ...rows, ...footerLines].join('\n')}`;
+}
+
+/**
+ * Standalone CSV for CPA review of vendors/subcontractors. Totals are informational; same vendor logic as Tax Center
+ * review — not official 1099 forms.
+ */
+export function generateSubcontractorCpaReviewCsv(
+  payload: TaxSummaryExportPayload,
+  review: Tax1099ReviewSummary,
+  vendors: Vendor[]
+): string {
+  const lines: string[] = [];
+  const push = (s: string) => lines.push(s);
+  const y = payload.selectedYear;
+  push(escapeCsvCell('BUILD PROFIT SOLUTIONS'));
+  push(escapeCsvCell('CPA Vendor / Subcontractor Review (informational)'));
+  push('');
+  push(`${escapeCsvCell('Tax Year')},${escapeCsvCell(y)}`);
+  push(csvLongTextSecondColumn(POTENTIAL_1099_REVIEW_EXPLANATION));
+  push(csvLongTextSecondColumn(review.disclaimer));
+  push('');
+  push(
+    [
+      'Vendor/subcontractor name',
+      'Business name',
+      'Project name(s)',
+      'Total paid (selected year)',
+      'Payment method',
+      'W-9 status',
+      'Tax classification',
+      'Address',
+      'Email',
+      'Phone',
+      'Potential 1099 review',
+      'Notes for CPA',
+    ]
+      .map(escapeCsvCell)
+      .join(',')
+  );
+  for (const r of review.rows) {
+    const v = r.vendorId ? vendors.find((x) => x.id === r.vendorId) : undefined;
+    const addr = v
+      ? [v.address, v.city && v.state ? `${v.city}, ${v.state}` : v.city || v.state].filter(Boolean).join(' · ')
+      : '';
+    const p1099 = r.actionNeeded.includes('Potential 1099 Review') ? 'Yes — confirm with CPA' : 'No';
+    const notes = [...r.actionNeeded, r.informationalNote].filter(Boolean).join(' | ');
+    push(
+      [
+        escapeCsvCell(r.displayName),
+        escapeCsvCell(v?.businessName || r.displayName),
+        escapeCsvCell(r.projects.length ? r.projects.join('; ') : '—'),
+        escapeCsvCell(formatMoneyCsv(r.totalPaid)),
+        escapeCsvCell(r.paymentMethodDisplay === '—' ? 'Not set' : r.paymentMethodDisplay),
+        escapeCsvCell(r.w9StatusDisplay),
+        escapeCsvCell(r.vendorTypeBadge),
+        escapeCsvCell(addr || '—'),
+        escapeCsvCell(v?.email || '—'),
+        escapeCsvCell(v?.phone || '—'),
+        escapeCsvCell(p1099),
+        escapeCsvCell(notes),
+      ].join(',')
+    );
+  }
+  push('');
+  push(escapeCsvCell('REPORT METHODOLOGY'));
+  TAX_CENTER_METHODOLOGY_BODY.split(/\n\n+/).forEach((para) => {
+    const t = para.trim();
+    if (t) push(csvLongTextSecondColumn(t));
+  });
+  return `\uFEFF${lines.join('\n')}`;
 }
 
 export type ExportShareMimeType =

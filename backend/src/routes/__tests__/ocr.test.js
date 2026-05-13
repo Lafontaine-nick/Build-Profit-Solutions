@@ -79,6 +79,7 @@ describe('ocr routes', () => {
         model: 'gpt-test-ocr',
         temperature: 0.25,
         max_tokens: 1234,
+        response_format: { type: 'json_object' },
       })
     );
   });

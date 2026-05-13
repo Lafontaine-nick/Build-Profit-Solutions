@@ -1,4 +1,20 @@
 import type { Vendor, VendorType } from '@/src/lib/vendorTypes';
+import { getPotential1099ReviewThreshold } from '@/src/lib/taxReviewThresholds';
+import {
+  shouldExcludeChangeOrderPaymentFromOutstandingReceivables,
+  getApprovedChangeOrderPaymentRows,
+  collectUniqueChangeOrders,
+  formatChangeOrderPaymentRowTitle,
+  type ChangeOrderPaymentRow,
+} from '@/src/lib/projectFinancials';
+
+/**
+ * Tax year bucketing uses **business-facing dates** (typically `YYYY-MM-DD` or localized date strings)
+ * parsed with `new Date(string)`. Prefer date-only fields for tax anchors (`actualDate`, `paidAt`,
+ * `collectedAt`, expense `date`, PO `receivedAt`, etc.) to reduce UTC midnight surprises. Year membership
+ * is calendar `getFullYear()` on the parsed value — do not silently invent dates for missing fields
+ * (readiness warnings surface gaps instead).
+ */
 
 export type TaxCategory =
   | 'Materials'
@@ -205,6 +221,70 @@ const arMilestoneYearBucketDate = (payment: any): string | undefined => {
   if (trimmed) return trimmed;
   return paymentDate(payment);
 };
+
+function parseCoIdFromApprovedPaymentRowId(rowId: string): string | null {
+  if (rowId === 'bps-co-unallocated') return null;
+  const m = rowId.match(/^bps-co-(.+)$/);
+  if (!m) return null;
+  if (/^idx-/.test(m[1])) return null;
+  return m[1] || null;
+}
+
+function approvedCoRowBucketsInTaxYear(
+  project: any,
+  row: ChangeOrderPaymentRow,
+  mergedPayment: TaxPayment | undefined,
+  selectedYear: number
+): boolean {
+  if (mergedPayment) {
+    return dateInYear(arMilestoneYearBucketDate(mergedPayment), selectedYear);
+  }
+  const raw = row.dateRaw ? String(row.dateRaw) : '';
+  const dm = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (dm && dateInYear(dm[1], selectedYear)) return true;
+  const cid = parseCoIdFromApprovedPaymentRowId(row.id);
+  if (cid) {
+    const cos = collectUniqueChangeOrders(project);
+    const co = cos.find((c: any) => String(c?.id ?? '') === cid);
+    const d = co?.date ?? co?.createdAt ?? co?.updatedAt;
+    if (d && dateInYear(d, selectedYear)) return true;
+  }
+  if (row.id === 'bps-co-unallocated') return projectOverlapsYear(project, selectedYear);
+  return projectOverlapsYear(project, selectedYear);
+}
+
+/** Approved CO sell still owed when it is not already counted on the open (in-year, uncollected) schedule. */
+function approvedChangeOrderReceivableSupplement(
+  project: any,
+  selectedYear: number,
+  openSchedule: TaxPayment[]
+): number {
+  const merged = mergeApprovedChangeOrderPaymentRowsIntoPaymentList(project, collectProjectPayments(project));
+  const rows = getApprovedChangeOrderPaymentRows(project);
+  let sum = 0;
+  for (const row of rows) {
+    const rowTitleKey = formatChangeOrderPaymentRowTitle(String(row.title ?? '').trim());
+    const alreadyOnOpenSchedule =
+      openSchedule.some((p) => String(p.id || '') === row.id) ||
+      openSchedule.some((p) => {
+        const tk = formatChangeOrderPaymentRowTitle(String((p as any).title ?? (p as any).name ?? '').trim());
+        return tk === rowTitleKey && Math.abs(paymentAmount(p) - row.amount) < 0.02;
+      });
+    if (alreadyOnOpenSchedule) continue;
+
+    let p = merged.find((x) => String(x.id || '') === row.id);
+    if (!p) {
+      p = merged.find(
+        (x) =>
+          formatChangeOrderPaymentRowTitle(String((x as any).title ?? (x as any).name ?? '').trim()) === rowTitleKey
+      );
+    }
+    if (p && isPaymentCollected(p)) continue;
+    if (!approvedCoRowBucketsInTaxYear(project, row, p, selectedYear)) continue;
+    sum += row.amount;
+  }
+  return sum;
+}
 
 const isExpenseInYear = (expense: any, year: number, project?: any): boolean => {
   const date = expense.__isPurchaseOrder ? poDate(expense) : expenseDate(expense);
@@ -506,6 +586,12 @@ function collectProjectInvoices(project: any): any[] {
  * in the year that are not yet marked collected; milestone year uses schedule dates first so it
  * aligns with Timeline `plannedDate` / `scheduledDate` / `dueDate`). Informational only for cash-basis
  * revenue — not added to Revenue Collected until collected.
+ * Synthetic **change order** payment rows (`bps-co-…` / `type: change_order`) count only when they
+ * match an **approved** change order (submitted-only COs must not increase receivables).
+ * **Approved** change orders that are not yet on the merged payment schedule (or use a different id)
+ * are merged in from {@link getApprovedChangeOrderPaymentRows} before AR is computed, and any remainder
+ * is still added via a small supplement. When invoice records exist for the year, invoice balances
+ * include that supplement so CO-only receivables are not dropped.
  */
 export function calculateOutstandingInvoices(project: any, selectedYear: number): number {
   const invoices = collectProjectInvoices(project).filter((inv) => {
@@ -513,6 +599,17 @@ export function calculateOutstandingInvoices(project: any, selectedYear: number)
     const d = inv?.issueDate || inv?.createdAt;
     return dateInYear(d, selectedYear);
   });
+
+  const basePayments = collectProjectPayments(project);
+  const mergedPayments = mergeApprovedChangeOrderPaymentRowsIntoPaymentList(project, basePayments);
+  const openSchedule = mergedPayments.filter(
+    (p) =>
+      dateInYear(arMilestoneYearBucketDate(p), selectedYear) &&
+      !isPaymentCollected(p) &&
+      !shouldExcludeChangeOrderPaymentFromOutstandingReceivables(project, p)
+  );
+  const scheduleTotal = openSchedule.reduce((s, p) => s + paymentAmount(p), 0);
+  const coSupplement = approvedChangeOrderReceivableSupplement(project, selectedYear, openSchedule);
 
   if (invoices.length > 0) {
     const billed = invoices.reduce((sum, inv) => {
@@ -524,14 +621,10 @@ export function calculateOutstandingInvoices(project: any, selectedYear: number)
           : Math.max(0, total - paidOnInvoice);
       return sum + balance;
     }, 0);
-    return Math.max(0, billed);
+    return Math.max(0, billed + coSupplement);
   }
 
-  // No invoice records: use scheduled payments dated in year that are not yet collected.
-  const openSchedule = collectProjectPayments(project).filter(
-    (p) => dateInYear(arMilestoneYearBucketDate(p), selectedYear) && !isPaymentCollected(p)
-  );
-  return openSchedule.reduce((s, p) => s + paymentAmount(p), 0);
+  return Math.max(0, scheduleTotal + coSupplement);
 }
 
 function collectProjectPayments(project: any): TaxPayment[] {
@@ -598,6 +691,82 @@ function collectProjectPayments(project: any): TaxPayment[] {
     projectId,
     projectName,
   }));
+}
+
+/**
+ * Receivables: ensure each **approved** change order appears as a payment line (same ids/amounts as Budget).
+ * If timeline milestones are not on the project list yet, inject rows from {@link getApprovedChangeOrderPaymentRows}
+ * so Outstanding Receivables increases when a CO is approved.
+ */
+function mergeApprovedChangeOrderPaymentRowsIntoPaymentList(project: any, payments: TaxPayment[]): TaxPayment[] {
+  const rows = getApprovedChangeOrderPaymentRows(project);
+  if (!rows.length) return payments;
+
+  const rowTitleKey = (title: string) => formatChangeOrderPaymentRowTitle(String(title ?? '').trim());
+
+  const hasSameLine = (row: (typeof rows)[0]) => {
+    if (payments.some((p) => String(p.id || '').trim() === row.id)) return true;
+    const rk = rowTitleKey(row.title);
+    return payments.some((p) => {
+      const pk = rowTitleKey(String((p as any).title ?? (p as any).name ?? ''));
+      return pk === rk && Math.abs(paymentAmount(p) - row.amount) < 0.02;
+    });
+  };
+
+  const projectId = String(project?.id || '');
+  const projectName = normalizeProjectName(project);
+  const extras: TaxPayment[] = [];
+
+  for (const row of rows) {
+    if (hasSameLine(row)) continue;
+
+    const raw = row.dateRaw ? String(row.dateRaw) : '';
+    const dm = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+    let sched =
+      dm && !Number.isNaN(new Date(`${dm[1]}T12:00:00`).getTime()) ? dm[1] : '';
+    if (!sched) {
+      const cid = parseCoIdFromApprovedPaymentRowId(row.id);
+      if (cid) {
+        const co = collectUniqueChangeOrders(project).find((c: any) => String(c?.id ?? '') === cid);
+        const d = co?.date ?? co?.createdAt ?? co?.updatedAt;
+        const m = d ? String(d).match(/^(\d{4}-\d{2}-\d{2})/) : null;
+        if (m) sched = m[1];
+      }
+    }
+    if (!sched) {
+      const candidates = [
+        project?.projectData?.endISO,
+        project?.endDate,
+        project?.estimateData?.projectEndDate,
+        project?.estimateData?.endDate,
+      ];
+      for (const c of candidates) {
+        const m = c ? String(c).match(/^(\d{4}-\d{2}-\d{2})/) : null;
+        if (m) {
+          sched = m[1];
+          break;
+        }
+      }
+    }
+    if (!sched) sched = new Date().toISOString().split('T')[0];
+
+    extras.push({
+      id: row.id,
+      title: row.title,
+      name: row.title,
+      type: 'change_order',
+      amount: row.amount,
+      paymentAmount: row.amount,
+      scheduledDate: sched,
+      dueDate: sched,
+      plannedDate: sched,
+      status: 'pending',
+      projectId,
+      projectName,
+    } as TaxPayment);
+  }
+
+  return [...payments, ...extras];
 }
 
 export function getTaxCenterDataInputs(
@@ -691,9 +860,10 @@ export function buildProjectTaxSummaries(projects: any[], selectedYear: number):
 
 export function buildSubcontractorPaymentSummary(
   expenses: TaxExpense[],
-  _selectedYear: number,
+  selectedYear: number,
   vendors: Vendor[] = []
 ): SubcontractorPaymentSummary[] {
+  const reviewThreshold = getPotential1099ReviewThreshold(selectedYear);
   const byVendor = new Map<string, SubcontractorPaymentSummary>();
 
   asArray<TaxExpense>(expenses)
@@ -717,7 +887,7 @@ export function buildSubcontractorPaymentSummary(
       if (expense.projectName && !current.projects.includes(expense.projectName)) {
         current.projects.push(expense.projectName);
       }
-      current.potential1099Review = current.totalPaid >= 600;
+      current.potential1099Review = current.totalPaid >= reviewThreshold;
       byVendor.set(name, current);
     });
 
@@ -766,6 +936,13 @@ export function computeTaxCenterSummary(
   selectedYear: number,
   vendors: Vendor[] = []
 ): TaxCenterSummary {
+  /**
+   * VALIDATION (read-only): Portfolio Tax Center uses `selectedYear`, cash-basis expense inclusion via
+   * `isCashBasisExpensePaidInTaxYear`, revenue via `grossRecognizedRevenueFromProjects`, AR via
+   * `calculateOutstandingInvoices` (informational), committed POs via pending-status POs dated in-year.
+   * Pending receivables / committed costs are not added to net income here. If any of that appears wrong,
+   * add a TODO rather than changing formulas without an explicit product decision.
+   */
   const inputs = getTaxCenterDataInputs(projects, expenses, payments, receipts);
   const yearExpenses = inputs.expenses.filter((expense) => {
     const pid = String(expense.projectId || '');
@@ -1002,4 +1179,316 @@ export function buildRuleBasedTaxInsights(
     lines.push('Add collected payments and paid expenses to unlock more year-end insights.');
   }
   return lines.slice(0, 3);
+}
+
+export function customerNameFromProject(project: any): string {
+  return String(
+    project?.clientName ??
+      project?.customerName ??
+      project?.projectData?.clientName ??
+      project?.estimateData?.clientName ??
+      ''
+  ).trim();
+}
+
+/**
+ * Labels each **collected** payment row for drill-through only. Does not change revenue math.
+ *
+ * TODO (product / CPA review): Confirm whether all approved change-order cash collections are always
+ * represented on `collectProjectPayment` rows today. If any approved CO cash is missing from Revenue
+ * Collected, that would be a math change — do not implement without approval.
+ */
+export function classifyRevenuePaymentSource(
+  payment: TaxPayment
+): 'base_contract' | 'change_order' | 'unclassified' {
+  const id = String(payment.id || '');
+  const t = String((payment as { type?: string }).type || '').toLowerCase();
+  if (t === 'change_order' || id.startsWith('bps-co-')) return 'change_order';
+  if (t && !['milestone', 'payment', 'deposit', 'progress', 'invoice'].includes(t)) return 'unclassified';
+  return 'base_contract';
+}
+
+/**
+ * Same **payment row set** as portfolio Revenue Collected: per-project `collectProjectPayments` collected
+ * in the selected year (duplicate project ids in the list skipped like `grossRecognizedRevenueFromProjects`)
+ * plus orphan collected payments on `allPayments` whose `projectId` is missing or not in the list.
+ */
+export function getRevenueCollectedDetailPayments(
+  projects: any[],
+  selectedYear: number,
+  allPayments: TaxPayment[]
+): TaxPayment[] {
+  const seenProject = new Set<string>();
+  const rows: TaxPayment[] = [];
+  const pushPayment = (p: TaxPayment) => {
+    rows.push(p);
+  };
+
+  for (const project of asArray<any>(projects)) {
+    const id = String(project?.id ?? '');
+    if (id) {
+      if (seenProject.has(id)) continue;
+      seenProject.add(id);
+    }
+    const list = collectProjectPayments(project).filter(
+      (payment) => isPaymentCollected(payment) && dateInYear(paymentDate(payment), selectedYear)
+    );
+    for (const p of list) pushPayment(p);
+  }
+
+  const projectIds = new Set(asArray<any>(projects).map((p) => String(p?.id ?? '')).filter(Boolean));
+  for (const p of asArray<TaxPayment>(allPayments)) {
+    if (!isPaymentCollected(p) || !dateInYear(paymentDate(p), selectedYear)) continue;
+    if (!p.projectId || !projectIds.has(String(p.projectId))) {
+      pushPayment(p);
+    }
+  }
+  return rows;
+}
+
+export type OutstandingReceivableDetailRow = {
+  projectId: string;
+  projectName: string;
+  customerName: string;
+  lineKind: 'invoice' | 'milestone' | 'change_order' | 'approved_co_supplement';
+  label: string;
+  scheduledOrDue: string;
+  amount: number;
+  status: string;
+};
+
+/**
+ * Line items behind **Outstanding Receivables** for drill-through. Mirrors `calculateOutstandingInvoices`
+ * branches (invoice balance path vs open schedule path) plus the approved-CO supplement when present.
+ */
+export function getOutstandingReceivablesDetailRows(
+  projects: any[],
+  selectedYear: number
+): OutstandingReceivableDetailRow[] {
+  const out: OutstandingReceivableDetailRow[] = [];
+
+  for (const project of asArray<any>(projects)) {
+    const projectId = String(project?.id || '');
+    const projectName = normalizeProjectName(project);
+    const customerName = customerNameFromProject(project);
+
+    const invoices = collectProjectInvoices(project).filter((inv) => {
+      if (String(inv?.status || '').toLowerCase() === 'cancelled') return false;
+      const d = inv?.issueDate || inv?.createdAt;
+      return dateInYear(d, selectedYear);
+    });
+
+    const mergedPayments = mergeApprovedChangeOrderPaymentRowsIntoPaymentList(
+      project,
+      collectProjectPayments(project)
+    );
+    const openSchedule = mergedPayments.filter(
+      (p) =>
+        dateInYear(arMilestoneYearBucketDate(p), selectedYear) &&
+        !isPaymentCollected(p) &&
+        !shouldExcludeChangeOrderPaymentFromOutstandingReceivables(project, p)
+    );
+    const coSupplement = approvedChangeOrderReceivableSupplement(project, selectedYear, openSchedule);
+
+    if (invoices.length > 0) {
+      for (const inv of invoices) {
+        const total = toNumber(inv.total ?? inv.subtotal);
+        const paidOnInvoice = toNumber(inv.paidAmount);
+        const balance =
+          inv.balance != null && inv.balance !== ''
+            ? Math.max(0, toNumber(inv.balance))
+            : Math.max(0, total - paidOnInvoice);
+        if (balance <= 0) continue;
+        out.push({
+          projectId,
+          projectName,
+          customerName,
+          lineKind: 'invoice',
+          label: String(inv.number || inv.id || 'Invoice').trim() || 'Invoice',
+          scheduledOrDue: String(inv.dueDate || inv.issueDate || inv.createdAt || '').trim(),
+          amount: balance,
+          status: String(inv.status || 'Open').trim() || 'Open',
+        });
+      }
+      if (coSupplement > 0) {
+        out.push({
+          projectId,
+          projectName,
+          customerName,
+          lineKind: 'approved_co_supplement',
+          label: 'Approved change orders / milestones (receivable supplement)',
+          scheduledOrDue: '',
+          amount: coSupplement,
+          status: 'Supplement (see Budget / Timeline)',
+        });
+      }
+    } else {
+      for (const p of openSchedule) {
+        const id = String(p.id || '');
+        const t = String((p as { type?: string }).type || '').toLowerCase();
+        const isCo = t === 'change_order' || id.startsWith('bps-co-');
+        out.push({
+          projectId,
+          projectName,
+          customerName,
+          lineKind: isCo ? 'change_order' : 'milestone',
+          label: String(p.title || p.name || p.description || 'Scheduled payment').trim(),
+          scheduledOrDue: String(arMilestoneYearBucketDate(p) || paymentDate(p) || '').trim(),
+          amount: paymentAmount(p),
+          status: 'Uncollected',
+        });
+      }
+      if (coSupplement > 0) {
+        out.push({
+          projectId,
+          projectName,
+          customerName,
+          lineKind: 'approved_co_supplement',
+          label: 'Approved change orders / milestones (receivable supplement)',
+          scheduledOrDue: '',
+          amount: coSupplement,
+          status: 'Supplement (see Budget / Timeline)',
+        });
+      }
+    }
+  }
+
+  return out;
+}
+
+export type CommittedCostDetailRow = {
+  projectName: string;
+  vendor: string;
+  poLabel: string;
+  committedDate: string;
+  amount: number;
+  status: string;
+  receivedOrPaid: string;
+};
+
+export function getCommittedCostsDetailRows(projects: any[], selectedYear: number): CommittedCostDetailRow[] {
+  const rows: CommittedCostDetailRow[] = [];
+  for (const project of asArray<any>(projects)) {
+    const projectName = normalizeProjectName(project);
+    for (const po of collectUnpaidPurchaseOrderLines(project)) {
+      if (!isExpenseInYear(po, selectedYear, project)) continue;
+      rows.push({
+        projectName,
+        vendor: String(po.vendor || '').trim() || '—',
+        poLabel: String(po.id || (po as { poNumber?: string }).poNumber || 'PO').trim(),
+        committedDate: String(poDate(po) || '').trim(),
+        amount: expenseAmount(po),
+        status: String(po.status || 'pending').trim(),
+        receivedOrPaid: 'No',
+      });
+    }
+  }
+  return rows;
+}
+
+export type ReceiptCountDetailRow = {
+  projectName: string;
+  vendor: string;
+  expenseDate: string;
+  category: TaxCategory;
+  amount: number;
+  receiptStatus: string;
+  attachmentName: string;
+  source: 'expense' | 'purchase_order';
+};
+
+/**
+ * Receipt-backed lines counted in portfolio **Receipt count** (same de-dupe keys as `computeTaxCenterSummary`).
+ */
+export function getReceiptCountDetailRows(
+  projects: any[],
+  selectedYear: number,
+  extraExpenses: TaxExpense[] = []
+): ReceiptCountDetailRow[] {
+  const rows: ReceiptCountDetailRow[] = [];
+  const seenReceiptKeys = new Set<string>();
+
+  const pushLine = (e: TaxExpense, pid: string, project: any | undefined) => {
+    const uri = String(e.receiptUri ?? '').trim();
+    if (!uri) return;
+    if (!isExpenseRecordDatedInTaxYear(e, selectedYear, project)) return;
+    const k = `${pid}|${String(e.id || '')}|${uri}|${expenseRecordDateForTaxYear(e) || ''}`;
+    if (seenReceiptKeys.has(k)) return;
+    seenReceiptKeys.add(k);
+    rows.push({
+      projectName: String(e.projectName || '').trim() || 'Unassigned',
+      vendor: String(e.vendor || e.vendorName || '').trim() || '—',
+      expenseDate: String(expenseRecordDateForTaxYear(e) || expenseDate(e) || '').trim(),
+      category: mapExpenseToTaxCategory(e),
+      amount: expenseAmount(e),
+      receiptStatus: 'Attached',
+      attachmentName: uri.split(/[/\\]/).pop() || uri,
+      source: e.__isPurchaseOrder ? 'purchase_order' : 'expense',
+    });
+  };
+
+  for (const project of asArray<any>(projects)) {
+    const pid = String(project?.id || '');
+    for (const e of collectAllProjectExpenseAndPoLines(project)) {
+      pushLine(e, pid, project);
+    }
+  }
+  for (const e of asArray<TaxExpense>(extraExpenses)) {
+    const pid = String(e.projectId || '');
+    const proj = pid ? projectByIdFromList(projects, pid) : undefined;
+    pushLine(e, pid || 'extra', proj);
+  }
+  return rows;
+}
+
+export type TaxYearBucketAnomalies = {
+  paymentsMissingCollectedDate: number;
+  expensesMissingPaidDate: number;
+  expenseLinesUsedProjectOverlapFallback: number;
+};
+
+/**
+ * Readiness-only counts (does not change Tax Center totals). Surfaces rows where primary paid/collected
+ * dates are blank so the UI can warn without inventing dates.
+ */
+export function getTaxCenterYearBucketAnomalies(
+  projects: any[],
+  selectedYear: number,
+  extraExpenses: TaxExpense[] = []
+): TaxYearBucketAnomalies {
+  const inputs = getTaxCenterDataInputs(projects, extraExpenses);
+  let paymentsMissingCollectedDate = 0;
+  for (const p of inputs.payments) {
+    if (!isPaymentCollected(p) || !dateInYear(paymentDate(p), selectedYear)) continue;
+    const hasPrimary =
+      !!String(p.actualDate || '').trim() ||
+      !!String(p.collectedAt || '').trim() ||
+      !!String(p.paidAt || '').trim();
+    if (!hasPrimary) paymentsMissingCollectedDate += 1;
+  }
+
+  let expensesMissingPaidDate = 0;
+  let expenseLinesUsedProjectOverlapFallback = 0;
+
+  for (const e of inputs.expenses) {
+    const pid = String(e.projectId || '');
+    const proj = pid ? projectByIdFromList(projects, pid) : undefined;
+    if (!isCashBasisExpensePaidInTaxYear(e, selectedYear, proj)) continue;
+    if (e.__isPurchaseOrder) {
+      const d = cashBasisPoPaidYearDate(e);
+      if (!String(d || '').trim()) {
+        expensesMissingPaidDate += 1;
+        if (proj && projectOverlapsYear(proj, selectedYear)) expenseLinesUsedProjectOverlapFallback += 1;
+      }
+    } else {
+      const d = cashBasisNonPoExpensePaidYearDate(e);
+      if (!String(d || '').trim()) expensesMissingPaidDate += 1;
+    }
+  }
+
+  return {
+    paymentsMissingCollectedDate,
+    expensesMissingPaidDate,
+    expenseLinesUsedProjectOverlapFallback,
+  };
 }

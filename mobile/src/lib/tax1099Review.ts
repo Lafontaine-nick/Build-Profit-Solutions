@@ -15,8 +15,7 @@ import {
 } from '@/src/lib/taxCenter';
 import type { Vendor, VendorType, W9Status } from '@/src/lib/vendorTypes';
 import { defaultW9StatusForVendorType } from '@/src/lib/vendorTypes';
-
-const REVIEW_THRESHOLD = 600;
+import { getPotential1099ReviewThreshold } from '@/src/lib/taxReviewThresholds';
 
 const WORKBOOK_INFO_NOTE =
   'Informational only. Not tax advice. Review with your CPA or tax professional.';
@@ -228,7 +227,7 @@ export function build1099ReviewSummary(args: {
     const eligiblePotential1099 =
       isPotential1099EligibleVendorType(vType) || (vType === 'supplier' && override);
 
-    if (eligiblePotential1099 && g.paid1099Total >= REVIEW_THRESHOLD) {
+    if (eligiblePotential1099 && g.paid1099Total >= getPotential1099ReviewThreshold(selectedYear)) {
       actionNeeded.push('Potential 1099 Review');
     }
 
