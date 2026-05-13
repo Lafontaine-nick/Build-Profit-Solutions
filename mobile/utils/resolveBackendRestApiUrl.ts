@@ -4,6 +4,13 @@ import { getNetworkInfo } from './networkDetection';
 
 const RENDER_DEFAULT = 'https://build-profit-solutions-backend.onrender.com/api';
 
+/** True when JS is in dev mode or app.config marked development (dev client / Expo profile). */
+export function isExpoDevelopmentProfile(): boolean {
+  if (typeof __DEV__ !== 'undefined' && __DEV__) return true;
+  const extra = Constants.expoConfig?.extra as { isDevelopment?: boolean } | undefined;
+  return extra?.isDevelopment === true;
+}
+
 /** Web / Expo Go may expose `extra` only on `manifest` or `manifest2`. */
 function readExtraString(key: string): string | undefined {
   const c = Constants as Record<string, unknown>;
@@ -151,7 +158,7 @@ export function resolveBackendRestApiBaseUrl(): string {
   // production while Metro/backend run on the LAN → RN "Network request failed". Prefer a private
   // LAN URL from networkDetection when we would otherwise use Render.
   if (
-    __DEV__ &&
+    isExpoDevelopmentProfile() &&
     (Platform.OS === 'ios' || Platform.OS === 'android') &&
     Constants.isDevice &&
     primary &&

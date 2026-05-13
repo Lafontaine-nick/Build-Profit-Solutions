@@ -69,6 +69,8 @@ export default {
         NSAppTransportSecurity: {
           NSAllowsLocalNetworking: true,
         },
+        NSLocalNetworkUsageDescription:
+          'Build Profit Solutions uses your local network to reach your development server on Wi‑Fi for receipts, estimates, and the API.',
       },
     },
     android: {

@@ -1,7 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
+import { resolveBackendRestApiBaseUrl, isExpoDevelopmentProfile } from '@/utils/resolveBackendRestApiUrl';
 import { getNetworkInfo } from '@/utils/networkDetection';
 
 // Type definitions for receipt data
@@ -54,7 +54,12 @@ class ReceiptOCRService {
     let raw = resolveBackendRestApiBaseUrl().trim().replace(/\/$/, '');
     let base = raw.replace(/\/api\/?$/i, '');
 
-    if (__DEV__ && Constants.isDevice && Platform.OS !== 'web' && /render\.com/i.test(base)) {
+    if (
+      isExpoDevelopmentProfile() &&
+      Constants.isDevice &&
+      Platform.OS !== 'web' &&
+      /render\.com/i.test(base)
+    ) {
       try {
         const { recommendedApiUrl } = getNetworkInfo();
         const lan = String(recommendedApiUrl || '').trim().replace(/\/$/, '');
@@ -116,7 +121,7 @@ class ReceiptOCRService {
       const msg = error?.message || 'Failed to process receipt';
       const hint =
         typeof msg === 'string' && msg.toLowerCase().includes('network request failed')
-          ? ' Check that your phone and Mac are on the same Wi‑Fi, the backend is running on port 3001, and set EXPO_PUBLIC_API_BASE_URL to http://YOUR_MAC_IP:3001/api if needed.'
+          ? ' Same Wi‑Fi as your Mac, backend on port 3001, mobile/.env EXPO_PUBLIC_API_BASE_URL=http://YOUR_MAC_IP:3001/api. On iOS: Settings → Privacy & Security → Local Network → enable this app (rebuild after app.config changes).'
           : '';
       return {
         success: false,
