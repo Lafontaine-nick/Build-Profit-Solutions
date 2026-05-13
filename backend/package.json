@@ -57,6 +57,9 @@
     "node": ">=18.0.0",
     "npm": ">=8.0.0"
   },
+  "puppeteer": {
+    "skipDownload": true
+  },
   "keywords": [
     "express",
     "api",

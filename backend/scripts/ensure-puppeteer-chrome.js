@@ -9,7 +9,11 @@ const path = require('path');
 const cacheDir = path.join(__dirname, '..', '.puppeteer-cache');
 fs.mkdirSync(cacheDir, { recursive: true });
 
+// Root package.json sets skipDownload so Puppeteer's npm postinstall doesn't fail CI/Render.
+// Here we explicitly try to install Chrome — clear skip flags for this subprocess only.
 const env = { ...process.env, PUPPETEER_CACHE_DIR: cacheDir };
+delete env.PUPPETEER_SKIP_DOWNLOAD;
+delete env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD;
 
 try {
   execSync('npx puppeteer browsers install chrome', {
