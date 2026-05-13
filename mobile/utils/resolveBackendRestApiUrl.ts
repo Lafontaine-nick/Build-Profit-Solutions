@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+import { Platform, NativeModules } from 'react-native';
 import Constants from 'expo-constants';
 import { getNetworkInfo } from './networkDetection';
 
@@ -41,10 +41,23 @@ function isPrivateOrLocalhostApiUrl(url: string): boolean {
   return /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(t);
 }
 
-/** True when the API base points at loopback only (fine on simulator, wrong on a physical phone). */
+/** True when the API host is loopback only (simulator OK; physical phone must use Mac LAN IP). */
 function isLoopbackApiHost(url: string): boolean {
-  const t = url.trim();
-  return /^https?:\/\/(localhost|127\.0\.0\.1)(\/|:|\?|$)/i.test(t);
+  try {
+    const u = new URL(url.trim());
+    const h = (u.hostname || '').toLowerCase();
+    return h === 'localhost' || h === '127.0.0.1';
+  } catch {
+    return /^https?:\/\/(localhost|127\.0\.0\.1)(\/|:|\?|$)/i.test(String(url).trim());
+  }
+}
+
+/** First private LAN IPv4 in a string, excluding loopback (Metro on Mac: 192.168.x.x). */
+function extractPrivateLanIpv4(src: string): string | null {
+  const ip = extractLanIpv4(src);
+  if (!ip || ip === '127.0.0.1') return null;
+  if (/^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return ip;
+  return null;
 }
 
 /** First IPv4 in string (handles `192.168.0.142:8081`, `exp://192.168.0.142:8081`). */
@@ -161,13 +174,15 @@ export function resolveBackendRestApiBaseUrl(): string {
     }
   }
 
-  // Physical device: localhost / 127.0.0.1 is the phone itself, not your Mac — OCR and REST fail.
+  // Physical device (or dev client loading bundle from LAN): localhost / 127.0.0.1 in env/extra
+  // targets the phone, not your Mac → "Network request failed". Do not require __DEV__ (false in
+  // some dev-client / release-js bundles). Also accept Metro scriptURL private IP when isDevice is flaky.
   if (
-    __DEV__ &&
     (Platform.OS === 'ios' || Platform.OS === 'android') &&
-    Constants.isDevice &&
     primary &&
-    isLoopbackApiHost(primary)
+    isLoopbackApiHost(primary) &&
+    (Constants.isDevice === true ||
+      !!extractPrivateLanIpv4(String((NativeModules as { SourceCode?: { scriptURL?: string } })?.SourceCode?.scriptURL || '')))
   ) {
     const expoConfig: any = Constants.expoConfig || (Constants as any).manifest;
     const hostUri: string | undefined =
@@ -192,7 +207,7 @@ export function resolveBackendRestApiBaseUrl(): string {
       }
     }
     if (lanBase) {
-      console.log('🔧 Backend REST API: dev device → loopback replaced with LAN (not 127.0.0.1 on phone) →', lanBase);
+      console.log('🔧 Backend REST API: native → loopback replaced with LAN (127.0.0.1 is the phone) →', lanBase);
       return lanBase;
     }
     console.warn(
