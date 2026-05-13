@@ -1,4 +1,4 @@
-import { Platform, NativeModules } from 'react-native';
+import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { getNetworkInfo } from './networkDetection';
 
@@ -181,16 +181,12 @@ export function resolveBackendRestApiBaseUrl(): string {
     }
   }
 
-  // Physical device (or dev client loading bundle from LAN): localhost / 127.0.0.1 in env/extra
-  // targets the phone, not your Mac → "Network request failed". Do not require __DEV__ (false in
-  // some dev-client / release-js bundles). Also accept Metro scriptURL private IP when isDevice is flaky.
-  if (
-    (Platform.OS === 'ios' || Platform.OS === 'android') &&
-    primary &&
-    isLoopbackApiHost(primary) &&
-    (Constants.isDevice === true ||
-      !!extractPrivateLanIpv4(String((NativeModules as { SourceCode?: { scriptURL?: string } })?.SourceCode?.scriptURL || '')))
-  ) {
+  // Native iOS/Android: localhost / 127.0.0.1 in env or baked `extra` often means "works on my Mac"
+  // but (a) on a phone it targets the device, (b) on Simulator it can be stale while Metro is on
+  // 192.168.x.x — fetch then fails with "Network request failed". Replace using Expo hostUri /
+  // networkDetection whenever we can derive a non-loopback host. Do not gate on Constants.isDevice
+  // (Simulator is false; ImagePicker paths can look like a device).
+  if ((Platform.OS === 'ios' || Platform.OS === 'android') && primary && isLoopbackApiHost(primary)) {
     const expoConfig: any = Constants.expoConfig || (Constants as any).manifest;
     const hostUri: string | undefined =
       expoConfig?.hostUri ||
@@ -198,7 +194,7 @@ export function resolveBackendRestApiBaseUrl(): string {
       (Constants as any)?.manifest2?.extra?.expoClient?.hostUri;
 
     let lanBase: string | undefined;
-    const ipFromUri = hostUri ? extractLanIpv4(hostUri) : null;
+    const ipFromUri = hostUri ? extractPrivateLanIpv4(hostUri) : null;
     if (ipFromUri) {
       lanBase = ensureApiSuffix(`http://${ipFromUri}:3001`);
     }
@@ -218,7 +214,7 @@ export function resolveBackendRestApiBaseUrl(): string {
       return lanBase;
     }
     console.warn(
-      '🔧 Backend REST API: EXPO_PUBLIC_API_BASE_URL / extra use localhost on a physical device (unreachable). Set http://<Mac-LAN-IP>:3001/api — falling through past primary.',
+      '🔧 Backend REST API: API URL is loopback but could not infer Mac LAN from Metro (hostUri). Set EXPO_PUBLIC_API_BASE_URL=http://<Mac-LAN-IP>:3001/api and restart Metro with -c — falling through past primary.',
     );
     primary = undefined;
   }
