@@ -41,6 +41,18 @@ function isPrivateOrLocalhostApiUrl(url: string): boolean {
   return /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(t);
 }
 
+/** True when the API base points at loopback only (fine on simulator, wrong on a physical phone). */
+function isLoopbackApiHost(url: string): boolean {
+  const t = url.trim();
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(\/|:|\?|$)/i.test(t);
+}
+
+/** First IPv4 in string (handles `192.168.0.142:8081`, `exp://192.168.0.142:8081`). */
+function extractLanIpv4(src: string): string | null {
+  const m = String(src || '').match(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/);
+  return m && m[1] ? m[1] : null;
+}
+
 /**
  * Backend REST API base (`…/api`) for Stripe, subscriptions, Places search, etc.
  *
@@ -54,7 +66,7 @@ export function resolveBackendRestApiBaseUrl(): string {
   const envApi = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
   const envDevOnly = process.env.EXPO_PUBLIC_DEV_API_BASE_URL?.trim();
   const extraApi = readExtraString('apiBaseUrl');
-  const primary = envApi || extraApi;
+  let primary = envApi || extraApi;
   const devEnv = envDevOnly || readExtraString('devApiBaseUrl');
   const restUseRender =
     process.env.EXPO_PUBLIC_REST_USE_RENDER === '1' ||
@@ -149,6 +161,46 @@ export function resolveBackendRestApiBaseUrl(): string {
     }
   }
 
+  // Physical device: localhost / 127.0.0.1 is the phone itself, not your Mac — OCR and REST fail.
+  if (
+    __DEV__ &&
+    (Platform.OS === 'ios' || Platform.OS === 'android') &&
+    Constants.isDevice &&
+    primary &&
+    isLoopbackApiHost(primary)
+  ) {
+    const expoConfig: any = Constants.expoConfig || (Constants as any).manifest;
+    const hostUri: string | undefined =
+      expoConfig?.hostUri ||
+      expoConfig?.debuggerHost ||
+      (Constants as any)?.manifest2?.extra?.expoClient?.hostUri;
+
+    let lanBase: string | undefined;
+    const ipFromUri = hostUri ? extractLanIpv4(hostUri) : null;
+    if (ipFromUri) {
+      lanBase = ensureApiSuffix(`http://${ipFromUri}:3001`);
+    }
+    if (!lanBase) {
+      try {
+        const { recommendedApiUrl } = getNetworkInfo();
+        const h = String(recommendedApiUrl || '').trim().replace(/\/$/, '');
+        if (h && !isLoopbackApiHost(h) && /^https?:\/\//i.test(h)) {
+          lanBase = ensureApiSuffix(h);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    if (lanBase) {
+      console.log('🔧 Backend REST API: dev device → loopback replaced with LAN (not 127.0.0.1 on phone) →', lanBase);
+      return lanBase;
+    }
+    console.warn(
+      '🔧 Backend REST API: EXPO_PUBLIC_API_BASE_URL / extra use localhost on a physical device (unreachable). Set http://<Mac-LAN-IP>:3001/api — falling through past primary.',
+    );
+    primary = undefined;
+  }
+
   // In Expo Go / Metro / web, `process.env.EXPO_PUBLIC_*` is sometimes missing in the bundle,
   // but `app.config.js` bakes `extra.apiBaseUrl` (defaults to Render when unset).
   if (primary) {
@@ -196,8 +248,8 @@ export function resolveBackendRestApiBaseUrl(): string {
     (Constants as any)?.manifest2?.extra?.expoClient?.hostUri;
 
   if (hostUri && typeof hostUri === 'string') {
-    const maybeIp = hostUri.split(':')[0];
-    if (maybeIp && /^\d{1,3}(\.\d{1,3}){3}$/.test(maybeIp)) {
+    const maybeIp = extractLanIpv4(hostUri);
+    if (maybeIp) {
       const u = ensureApiSuffix(`http://${maybeIp}:3001`);
       console.log('🔧 Backend REST API: Expo hostUri →', u);
       return u;
