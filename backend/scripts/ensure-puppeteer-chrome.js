@@ -6,6 +6,15 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+// Render builds: downloading Chrome into the repo cache often flakes (partial extract →
+// "folder exists but executable missing", Firefox provider retries, exit 1). That fails
+// the whole deploy. OCR and the REST API do not need Puppeteer. Contract PDF on Render
+// can use PUPPETEER_EXECUTABLE_PATH or a system Chromium image later.
+if (process.env.RENDER === 'true') {
+  console.log('[ensure-puppeteer-chrome] Skipping Chrome install on Render (keeps deploy green).');
+  process.exit(0);
+}
+
 const cacheDir = path.join(__dirname, '..', '.puppeteer-cache');
 fs.mkdirSync(cacheDir, { recursive: true });
 
