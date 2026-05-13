@@ -174,7 +174,12 @@ class ApiService {
       const url = envUrl.replace(/\/api$/, '');
       // Local env URLs can accidentally leak across devices/simulators.
       // Only use them when explicit local mode is enabled.
-      if (url.includes('localhost') || url.includes('192.168') || url.includes('10.0.2.2')) {
+      if (
+        url.includes('localhost') ||
+        url.includes('127.0.0.1') ||
+        url.includes('192.168') ||
+        url.includes('10.0.2.2')
+      ) {
         if (allowLocalBackend) {
           if (!(this as any)._localUrlWarned) {
             console.log('⚠️  Using LOCAL backend URL from env:', url);
@@ -203,7 +208,12 @@ class ApiService {
     if (configUrl) {
       const url = configUrl.replace(/\/api$/, '');
       // If config has local URL, ignore it and use production instead
-      if (url.includes('localhost') || url.includes('192.168') || url.includes('10.0.2.2')) {
+      if (
+        url.includes('localhost') ||
+        url.includes('127.0.0.1') ||
+        url.includes('192.168') ||
+        url.includes('10.0.2.2')
+      ) {
         if (!(this as any)._configLocalIgnored) {
           console.log('⚠️  Config has local URL, but using production instead:', url);
           console.log('✅ Defaulting to production backend for reliability');
