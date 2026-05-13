@@ -33,12 +33,15 @@ export interface OCRResult {
 const isExplicitMockResponse = (result: { mock?: boolean }): boolean => result?.mock === true;
 
 class ReceiptOCRService {
-  private apiBaseUrl: string;
-  private readonly OCR_TIMEOUT_MS = 22000;
+  private readonly OCR_TIMEOUT_MS = 45000;
   private readonly ENABLE_MOCK_OCR_FALLBACK = process.env.EXPO_PUBLIC_ENABLE_MOCK_OCR === 'true';
 
   constructor() {
-    this.apiBaseUrl = this.resolveApiBaseUrl();
+    /* base URL resolved lazily — host/LAN can be wrong at module load */
+  }
+
+  private getApiBaseUrl(): string {
+    return this.resolveApiBaseUrl();
   }
 
   /**
@@ -184,8 +187,9 @@ class ReceiptOCRService {
 
   private async callBackendAPIWithFile(imageUri: string): Promise<OCRResult> {
     try {
-      const openAiUrl = `${this.apiBaseUrl}/api/ocr/receipt/openai`;
-      const fallbackUrl = `${this.apiBaseUrl}/api/ocr/receipt`;
+      const base = this.getApiBaseUrl();
+      const openAiUrl = `${base}/api/ocr/receipt/openai`;
+      const fallbackUrl = `${base}/api/ocr/receipt`;
       const lower = imageUri.toLowerCase();
       const isPng = lower.includes('.png') || lower.includes('image/png');
       const isWebp = lower.includes('.webp');
@@ -279,8 +283,9 @@ class ReceiptOCRService {
    */
   private async callBackendAPIWithBase64(base64Image: string): Promise<OCRResult> {
     try {
-      const openAiUrl = `${this.apiBaseUrl}/api/ocr/receipt/openai`;
-      const fallbackUrl = `${this.apiBaseUrl}/api/ocr/receipt`;
+      const base = this.getApiBaseUrl();
+      const openAiUrl = `${base}/api/ocr/receipt/openai`;
+      const fallbackUrl = `${base}/api/ocr/receipt`;
       console.log('🌐 Calling backend at:', openAiUrl);
       console.log('📊 Image data size:', base64Image.length, 'characters');
 
@@ -500,7 +505,7 @@ class ReceiptOCRService {
    */
   private async openAIVisionOCR(base64Image: string): Promise<OCRResult> {
     try {
-      const response = await fetch(`${this.apiBaseUrl}/api/ocr/receipt`, {
+      const response = await fetch(`${this.getApiBaseUrl()}/api/ocr/receipt`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

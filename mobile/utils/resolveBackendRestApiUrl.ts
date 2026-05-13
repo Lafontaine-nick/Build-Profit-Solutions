@@ -122,6 +122,33 @@ export function resolveBackendRestApiBaseUrl(): string {
     return u;
   }
 
+  // Physical iOS/Android in dev: `extra.apiBaseUrl` is usually Render, which makes the phone call
+  // production while Metro/backend run on the LAN → RN "Network request failed". Prefer a private
+  // LAN URL from networkDetection when we would otherwise use Render.
+  if (
+    __DEV__ &&
+    (Platform.OS === 'ios' || Platform.OS === 'android') &&
+    Constants.isDevice &&
+    primary &&
+    /render\.com/i.test(primary)
+  ) {
+    try {
+      const { recommendedApiUrl } = getNetworkInfo();
+      const host = String(recommendedApiUrl || '').trim().replace(/\/$/, '');
+      if (
+        host &&
+        !/render\.com/i.test(host) &&
+        /^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(host)
+      ) {
+        const u = ensureApiSuffix(host);
+        console.log('🔧 Backend REST API: dev device → LAN (Render extra overridden) →', u);
+        return u;
+      }
+    } catch {
+      /* keep primary */
+    }
+  }
+
   // In Expo Go / Metro / web, `process.env.EXPO_PUBLIC_*` is sometimes missing in the bundle,
   // but `app.config.js` bakes `extra.apiBaseUrl` (defaults to Render when unset).
   if (primary) {
