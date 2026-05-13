@@ -3,8 +3,11 @@ services:
     name: build-profit-solutions-backend
     env: node
     plan: starter
-    # Same cache dir as server.js (NODE_ENV=production → backend/.puppeteer-cache)
-    buildCommand: export PUPPETEER_CACHE_DIR=$PWD/.puppeteer-cache && npm install && npx puppeteer browsers install chrome
+    # Same cache dir as server.js (NODE_ENV=production → backend/.puppeteer-cache).
+    # Do not chain a second `npx puppeteer browsers install chrome` here: postinstall already runs
+    # scripts/ensure-puppeteer-chrome.js (non-fatal on failure). A strict duplicate install often exits
+    # non-zero on Render and fails the whole deploy even when the API would otherwise start.
+    buildCommand: export PUPPETEER_CACHE_DIR=$PWD/.puppeteer-cache && npm install
     # Match build cache dir at runtime (Render home default cache is empty here).
     startCommand: export PUPPETEER_CACHE_DIR="$PWD/.puppeteer-cache" && npm start
     envVars:
