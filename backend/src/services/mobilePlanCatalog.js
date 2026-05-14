@@ -48,7 +48,7 @@ const PLAN_DEFINITIONS = [
       'Overhead & markup automation',
       'Full Leads tab (filters + management)',
       'Budget vs. actuals tracking',
-      'Subcontractor marketplace (full access)',
+      'Find Subcontractors & verified directory (full access)',
       'Price spike alerts',
       'Supplier integrations',
       'Priority support',

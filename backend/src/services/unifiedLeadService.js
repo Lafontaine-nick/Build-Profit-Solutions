@@ -125,6 +125,7 @@ class UnifiedLeadService {
     const sourceBonus = {
       PROJECT_BASED: 5,
       BID_INVITATION: 10,
+      BPS_SELECTION: 8,
       SHARED: 3,
       AI_ESTIMATE: 2,
       MARKETPLACE: 0,
@@ -133,6 +134,40 @@ class UnifiedLeadService {
 
     // Cap at 100
     return Math.min(score, 100);
+  }
+
+  /**
+   * GC selected a verified BPS directory contractor (Find Subcontractors) on an estimate.
+   * One lead row: createdBy = GC, assignedTo = selected contractor id.
+   */
+  async createDirectBpsSelectionLead(leadData) {
+    const lead = {
+      id: `LEAD-${Date.now()}-${uuidv4().substr(0, 8)}`,
+      createdAt: new Date().toISOString(),
+      stage: 'new',
+      aiScore: this.calculateAIScore(leadData),
+      matchedContractors: 1,
+      ...leadData,
+    };
+
+    this.allLeads.push(lead);
+    this.persistUnifiedLeads();
+
+    let notificationsSent = 0;
+    try {
+      const sub = await this.contractorProfileService.getContractorById(leadData.assignedTo);
+      if (sub?.expoPushToken) {
+        const result = await this.pushNotificationService.sendBulkLeadNotifications(
+          [{ ...sub, distance: '0' }],
+          lead
+        );
+        notificationsSent = result.sent || 0;
+      }
+    } catch (e) {
+      console.warn('BPS selection push notification failed:', e.message);
+    }
+
+    return { lead, notificationsSent, success: true };
   }
 
   // Create leads from project-based subcontractor requests
@@ -307,11 +342,12 @@ class UnifiedLeadService {
 
     // Sort by priority (source-based)
     const sourcePriority = {
-      'PROJECT_BASED': 1,
-      'BID_INVITATION': 2,
-      'SHARED': 3,
-      'AI_ESTIMATE': 4,
-      'MARKETPLACE': 5
+      PROJECT_BASED: 1,
+      BPS_SELECTION: 1,
+      BID_INVITATION: 2,
+      SHARED: 3,
+      AI_ESTIMATE: 4,
+      MARKETPLACE: 5
     };
 
     leads.sort((a, b) => {
@@ -337,6 +373,7 @@ class UnifiedLeadService {
       total: leads.length,
       bySource: {
         PROJECT_BASED: leads.filter(l => l.source === 'PROJECT_BASED').length,
+        BPS_SELECTION: leads.filter(l => l.source === 'BPS_SELECTION').length,
         BID_INVITATION: leads.filter(l => l.source === 'BID_INVITATION').length,
         SHARED: leads.filter(l => l.source === 'SHARED').length,
         AI_ESTIMATE: leads.filter(l => l.source === 'AI_ESTIMATE').length,

@@ -29,14 +29,13 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { GooglePlacesResultsFooter } from '@/components/AttributionBadge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useChat } from '../contexts/ChatContext';
-import { ChatModal } from './ChatModal';
 import { normalizeTrade } from '../lib/trades';
 import { clerkAuthService } from '@/services/clerkAuth';
 import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
+import { withProjectLeadsAuth } from '@/utils/projectLeadsAuthFetch';
 import { syncBpsDirectoryListing } from '@/services/bpsDirectorySync';
 import { SubWebFormOptionalChrome } from '@/components/SubWebFormOptionalChrome';
 
@@ -297,7 +296,6 @@ function SubcontractorSearchModal({
   onSelect,
   defaultZip,
   onPhotoClick,
-  onOpenChat,
 }: SubcontractorSearchModalProps) {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -311,7 +309,6 @@ function SubcontractorSearchModal({
     borderWidth: 1,
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
   };
-  const { createConversation } = useChat();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === "web";
@@ -339,6 +336,8 @@ function SubcontractorSearchModal({
   const subSearchActionsRow = Dimensions.get("window").width >= 520;
   const [selectedTrade, setSelectedTrade] = useState('All Trades');
   const [zipCode, setZipCode] = useState(() => initialZipFromProp(defaultZip));
+  const zipCodeRef = useRef(zipCode);
+  zipCodeRef.current = zipCode;
   const [radiusMiles, setRadiusMiles] = useState<number>(25);
   const [searchQuery, setSearchQuery] = useState('');
   const [googlePlacesResults, setGooglePlacesResults] = useState<any[]>([]);
@@ -367,8 +366,6 @@ function SubcontractorSearchModal({
   const slideAnim = useRef(new Animated.Value(0)).current;
   
   // Chat state
-  const [showChat, setShowChat] = useState(false);
-  const [currentConversationId, setCurrentConversationId] = useState<string>('');
   
   // Enhanced filtering for campaign data
   const [campaigns, setCampaigns] = useState<any[]>([]);
@@ -501,27 +498,46 @@ function SubcontractorSearchModal({
     };
   };
 
-  // Load all subcontractors when modal opens
+  // When the modal opens: reset filters, then auto-run a nearby search so the list is not empty
+  // until the user taps Search / Refresh (state from this render is passed via overrides).
   useEffect(() => {
-    if (visible) {
-      loadCampaigns();
-      // Real Google Places rows load when user taps Search / Refresh (see fetchGooglePlacesContractors).
-      setGooglePlacesResults([]);
-      setPlacesDisabledMessage(null);
-      setSelectedTrade('All Trades');
-      setSearchQuery('');
-      void (async () => {
-        try {
-          const raw = await AsyncStorage.getItem('bps.contractorProfile');
-          if (raw) {
-            const p = JSON.parse(raw);
-            setBpsDiscoverListOn(!!p.listOnFindSubcontractors);
-          }
-        } catch {
-          /* ignore */
+    if (!visible) return undefined;
+
+    loadCampaigns();
+    setGooglePlacesResults([]);
+    setPlacesDisabledMessage(null);
+    setSelectedTrade('All Trades');
+    setSearchQuery('');
+    void (async () => {
+      try {
+        const raw = await AsyncStorage.getItem('bps.contractorProfile');
+        if (raw) {
+          const p = JSON.parse(raw);
+          setBpsDiscoverListOn(!!p.listOnFindSubcontractors);
         }
-      })();
-    }
+      } catch {
+        /* ignore */
+      }
+    })();
+
+    const z = zipCodeRef.current.replace(/\D/g, '').slice(0, 5);
+    if (z.length !== 5) return undefined;
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setLoading(true);
+      fetchGooglePlacesContractors(z, undefined, undefined, {
+        textQuery: '',
+        trade: 'All Trades',
+      }).finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [visible]);
 
   // Reset photo viewer state when profile modal closes
@@ -536,6 +552,11 @@ function SubcontractorSearchModal({
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter((sub) => {
+        // Places search already sent `q` to the backend; results are relevant even when
+        // the keyword does not appear verbatim in the card (e.g. "Framer" → general contractors).
+        if (sub.source === 'google_places' || sub.source === 'bps') {
+          return true;
+        }
         const certs = sub.certifications;
         const certMatch =
           certs && certs.some((cert: string) => cert.toLowerCase().includes(q));
@@ -543,20 +564,7 @@ function SubcontractorSearchModal({
           sub.name?.toLowerCase().includes(q) ||
           sub.trade?.toLowerCase().includes(q) ||
           certMatch;
-        if (baseMatch) return true;
-        if (sub.source === 'google_places') {
-          const hay = [
-            sub.formattedAddress,
-            sub.primaryTypeDisplayName,
-            (sub.specialties || []).join(' '),
-            (sub.types || []).join(' '),
-          ]
-            .filter(Boolean)
-            .join(' ')
-            .toLowerCase();
-          return hay.includes(q);
-        }
-        return false;
+        return baseMatch;
       });
     }
     return filtered;
@@ -611,7 +619,8 @@ function SubcontractorSearchModal({
   const fetchGooglePlacesContractors = async (
     zipOverride?: string,
     radiusOverride?: number,
-    anchorForRequest?: { lat: number; lng: number }
+    anchorForRequest?: { lat: number; lng: number },
+    opts?: { textQuery?: string; trade?: string }
   ) => {
     try {
       setPlacesDisabledMessage(null);
@@ -623,7 +632,11 @@ function SubcontractorSearchModal({
       }
       const radius = radiusOverride ?? radiusMiles;
       const apiBase = resolveBackendRestApiBaseUrl();
-      const q = searchQuery.trim();
+      const tradeForRequest = opts?.trade ?? selectedTrade;
+      const q =
+        opts && Object.prototype.hasOwnProperty.call(opts, 'textQuery')
+          ? String(opts.textQuery ?? '').trim()
+          : searchQuery.trim();
       const anchor = anchorForRequest ?? searchAnchor;
       const anchorQs =
         anchor != null
@@ -633,7 +646,7 @@ function SubcontractorSearchModal({
           : '';
       const url =
         `${apiBase}/places/contractors/search?trade=${encodeURIComponent(
-          selectedTrade
+          tradeForRequest
         )}&zip=${encodeURIComponent(zip)}&limit=15&radiusMiles=${encodeURIComponent(
           String(radius)
         )}` +
@@ -695,7 +708,9 @@ function SubcontractorSearchModal({
       } else {
         setGpsZipMismatchNote(null);
       }
-      const mapped = (data.results || []).map((r: any) => mapGooglePlacesRowToSub(r, selectedTrade));
+      const mapped = (data.results || []).map((r: any) =>
+        mapGooglePlacesRowToSub(r, tradeForRequest)
+      );
       setGooglePlacesResults(mapped);
     } catch (error: any) {
       console.error('Error fetching Google Places contractors:', error);
@@ -960,28 +975,59 @@ function SubcontractorSearchModal({
     setLastSubmissionTime(now);
 
     try {
-      // Use actual form data with proper validation
       const budgetMax = parseInt(budgetDigits, 10) || 5000;
-      
-      // Get actual user ID
       const userId = getUserId();
-
       const tradeValue = requestFormData.customTrade || requestFormData.trade;
+
+      /** GC “sub need” posts are scoped to the ZIP shown on Find Subcontractors (not a hardcoded metro). */
+      const zip = zipCode.replace(/\D/g, '').slice(0, 5);
+      if (zip.length !== 5) {
+        alertSimple(
+          'ZIP required',
+          'Enter a 5-digit job ZIP at the top of Find Subcontractors before requesting subs. That ZIP sets where your request is posted and matched.'
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
+      const apiBase = resolveBackendRestApiBaseUrl();
+      const geoRes = await fetch(
+        `${apiBase}/geocode/zip-locality?zip=${encodeURIComponent(zip)}`,
+        { cache: 'no-store' }
+      );
+      const geo = await geoRes.json().catch(() => ({}));
+      if (geoRes.status === 503 && geo?.disabled) {
+        throw new Error(
+          typeof geo.message === 'string' && geo.message.trim()
+            ? geo.message
+            : 'ZIP lookup is not available on this server (geocoding API key).'
+        );
+      }
+      if (!geo.ok || !geo.state || !geo.city) {
+        alertSimple(
+          'ZIP not found',
+          'We could not resolve this ZIP to a city and state. Check the ZIP and try again.'
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
       const requestData: any = {
         title: requestFormData.projectName || `${tradeValue} Work Needed`,
         trade: normalizeTrade(tradeValue),
         projectId: `PRJ-${Date.now()}`,
-        city: "Las Vegas", // Default for now - could be made dynamic
-        state: "NV",
+        city: geo.city,
+        state: geo.state,
+        zip: geo.zip || zip,
         budgetMax: budgetMax,
         timeline: requestFormData.timeline,
         createdBy: userId,
-        description: requestFormData.description || `Looking for qualified ${tradeValue} subcontractors`
+        description:
+          requestFormData.description ||
+          `Looking for qualified ${tradeValue} subcontractors near ${geo.city}, ${geo.state}.`,
       };
-      // Don't send budgetMin - backend will default it to 0
 
-      // Create a unique request signature to prevent duplicates
-      const requestSignature = `${normalizeTrade(requestData.trade)}-${requestData.budgetMax}-${requestData.timeline}`;
+      const requestSignature = `${zip}|${normalizeTrade(requestData.trade)}-${requestData.budgetMax}-${requestData.timeline}`;
       
       if (submittedRequests.has(requestSignature)) {
         alertSimple(
@@ -1003,14 +1049,16 @@ function SubcontractorSearchModal({
       console.log('📋 budgetMin explicitly removed?', !('budgetMin' in cleanRequestData));
       console.log('📋 budgetMax in request?', 'budgetMax' in cleanRequestData, cleanRequestData.budgetMax);
 
-      const apiBase = resolveBackendRestApiBaseUrl();
-      const response = await fetch(`${apiBase}/project-leads`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(cleanRequestData),
-      });
+      const response = await fetch(
+        `${apiBase}/project-leads`,
+        await withProjectLeadsAuth({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(cleanRequestData),
+        })
+      );
 
       console.log('📡 Response status:', response.status);
 
@@ -3105,43 +3153,8 @@ function SubcontractorSearchModal({
                 </View>
                 ) : null}
 
-                {/* Primary actions: quote + bid, then call + message */}
+                {/* Primary actions: bid, then call + message */}
                 <View style={{ gap: 10, paddingBottom: 24 }}>
-                  {/* Get Quote Button */}
-                  <TouchableOpacity
-                    activeOpacity={0.9}
-                    onPress={() => {
-                      Alert.alert(
-                        'Get Quote',
-                        'This will open a project details form to request a custom quote.',
-                        [{ text: 'OK', style: 'default' }]
-                      );
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    }}
-                    style={{ borderRadius: 14, overflow: 'hidden' }}
-                  >
-                    <LinearGradient
-                      colors={['#22c55e', '#22d3ee']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={{
-                        paddingVertical: 16,
-                        alignItems: 'center',
-                        flexDirection: 'row',
-                        justifyContent: 'center',
-                        gap: 8,
-                        shadowColor: '#000000',
-                        shadowOpacity: 0.2,
-                        shadowRadius: 8,
-                        shadowOffset: { width: 0, height: 3 },
-                        elevation: 4,
-                      }}
-                    >
-                    <MaterialIcons name="request-quote" size={20} color="#020617" />
-                    <Text style={{ color: '#020617', fontWeight: '800', fontSize: 16, letterSpacing: 0.2 }}>Get Custom Quote</Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                  
                   {/* Add to Bid Button */}
                   <TouchableOpacity
                     style={{
@@ -3240,30 +3253,35 @@ function SubcontractorSearchModal({
                       onPress={async () => {
                         try {
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                          const subId = selectedSubcontractor.id;
-                          const subName = selectedSubcontractor.name;
-                          const subCompany = selectedSubcontractor.company || selectedSubcontractor.name;
-                          const subPhone = selectedSubcontractor.phone;
-                          const subEmail = selectedSubcontractor.email;
-                          const conversationId = await createConversation(
-                            subId,
-                            subName,
-                            subCompany,
-                            subPhone,
-                            subEmail,
-                            'contractor'
-                          );
-                          setShowProfile(false);
-                          setTimeout(() => {
-                            onClose();
-                            setTimeout(() => {
-                              setCurrentConversationId(conversationId);
-                              setShowChat(true);
-                            }, 500);
-                          }, 300);
+                          const raw = String(
+                            selectedSubcontractor.phone ||
+                              selectedSubcontractor.contactPhone ||
+                              ''
+                          ).trim();
+                          const digits = raw.replace(/\D/g, '');
+                          if (digits.length < 10) {
+                            Alert.alert(
+                              'No phone number',
+                              'This listing does not include a number we can text. Try Call, or use their website if shown above.'
+                            );
+                            return;
+                          }
+                          let smsRecipient = digits;
+                          if (digits.length === 10) {
+                            smsRecipient = `+1${digits}`;
+                          } else if (digits.length === 11 && digits.startsWith('1')) {
+                            smsRecipient = `+${digits}`;
+                          } else {
+                            smsRecipient = `+${digits}`;
+                          }
+                          const url = `sms:${smsRecipient}`;
+                          await Linking.openURL(url);
                         } catch (error) {
-                          console.error('Error opening chat:', error);
-                          Alert.alert('Error', 'Failed to open chat. Please try again.');
+                          console.error('Error opening Messages:', error);
+                          Alert.alert(
+                            'Could not open Messages',
+                            'Try the Call button, or send a text from your phone using the number on this profile.'
+                          );
                         }
                       }}
                     >
@@ -3667,27 +3685,6 @@ function SubcontractorSearchModal({
       </View>
     </Modal>
 
-      {/* Chat Modal */}
-      {(() => {
-        console.log('🔍 Chat Modal Conditional Check:', {
-          showChat,
-          hasSubcontractor: !!selectedSubcontractor,
-          hasConversationId: !!currentConversationId,
-          conversationId: currentConversationId
-        });
-        return showChat && selectedSubcontractor && currentConversationId;
-      })() && (
-        <ChatModal
-          visible={showChat}
-          onClose={() => {
-            console.log('🔒 Closing chat modal');
-            setShowChat(false);
-          }}
-          conversationId={currentConversationId}
-          participantName={selectedSubcontractor.name}
-          participantCompany={selectedSubcontractor.company || selectedSubcontractor.name}
-        />
-      )}
     </>
   );
 }

@@ -26,7 +26,7 @@ import { SvgXml } from 'react-native-svg';
 import { SubcontractorProfileBuilder } from './SubcontractorProfileBuilder';
 import { PhotoUploadComponent } from './PhotoUploadComponent';
 import { ServiceAreaSelector } from './ServiceAreaSelector';
-import { PricingCalculator } from './PricingCalculator';
+import { SPECIALTY_PRICING_TEMPLATES } from './PricingCalculator';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
@@ -50,6 +50,37 @@ const IG_GRADIENT = `
 
 function IGLogo() {
   return <SvgXml xml={IG_GRADIENT} />;
+}
+
+const DEFAULT_PROJECT_MINIMUM = 2500;
+
+function typicalHourlyForServices(services: string[] | undefined) {
+  const primary = services?.[0] as keyof typeof SPECIALTY_PRICING_TEMPLATES | undefined;
+  if (primary && SPECIALTY_PRICING_TEMPLATES[primary]) {
+    return SPECIALTY_PRICING_TEMPLATES[primary];
+  }
+  return SPECIALTY_PRICING_TEMPLATES['General Contracting'];
+}
+
+/** Legacy campaigns may have $0 pricing; merge templates so the short form shows sensible defaults. */
+function mergePricingDefaultsForForm(
+  pricing: SubcontractorCampaign['pricing'] | undefined,
+  services: string[] | undefined,
+): SubcontractorCampaign['pricing'] {
+  const tpl = typicalHourlyForServices(services);
+  const hrMin = pricing?.hourlyRate?.min;
+  const hrMax = pricing?.hourlyRate?.max;
+  const min = typeof hrMin === 'number' && hrMin > 0 ? hrMin : tpl.min;
+  const max = typeof hrMax === 'number' && hrMax > 0 ? hrMax : tpl.max;
+  const projectMinimum =
+    typeof pricing?.projectMinimum === 'number' && pricing.projectMinimum > 0
+      ? pricing.projectMinimum
+      : DEFAULT_PROJECT_MINIMUM;
+  return {
+    hourlyRate: { min, max },
+    projectMinimum,
+    specialties: pricing?.specialties || {},
+  };
 }
 
 /** Web: gradient frame (860) like Find Subcontractors / Messages; native: simple column. */
@@ -201,8 +232,8 @@ export default function CampaignCreationModal({
     specialties: [],
     serviceAreas: [],
     pricing: {
-      hourlyRate: { min: 0, max: 0 },
-      projectMinimum: 0,
+      hourlyRate: { ...typicalHourlyForServices([]) },
+      projectMinimum: DEFAULT_PROJECT_MINIMUM,
       specialties: {},
     },
     availability: {
@@ -225,7 +256,10 @@ export default function CampaignCreationModal({
   // Populate form with initial data when in edit mode
   useEffect(() => {
     if (isEditMode && initialData) {
-      setCampaign(initialData);
+      setCampaign({
+        ...initialData,
+        pricing: mergePricingDefaultsForForm(initialData.pricing, initialData.services),
+      });
     } else if (!isEditMode) {
       // Reset form for new campaign
       setCampaign({
@@ -235,8 +269,8 @@ export default function CampaignCreationModal({
         specialties: [],
         serviceAreas: [],
         pricing: {
-          hourlyRate: { min: 0, max: 0 },
-          projectMinimum: 0,
+          hourlyRate: { ...typicalHourlyForServices([]) },
+          projectMinimum: DEFAULT_PROJECT_MINIMUM,
           specialties: {},
         },
         availability: {
@@ -258,18 +292,25 @@ export default function CampaignCreationModal({
     }
   }, [isEditMode, initialData]);
 
-  const totalSteps = 6; // Step 1: Campaign Settings, Step 2: Company Info, Step 3: Portfolio, Step 4: Service Areas, Step 5: Pricing, Step 6: Review
+  useEffect(() => {
+    if (!visible) return;
+    setShowPreview(false);
+    if (!isEditMode) {
+      setCurrentStep(1);
+    }
+  }, [visible, isEditMode]);
 
-  // Validation function to check for incomplete sections
+  /** Three steps: basics + company, reach + pricing, review (was six). */
+  const totalSteps = 3;
+
+  // Validation: required fields only; portfolio and fine-grained pricing are optional / defaulted on publish.
   const getValidationWarnings = (): string[] => {
     const warnings: string[] = [];
-    
-    // Step 1: Campaign Settings
+
     if (!campaign.campaignName || campaign.campaignName.trim() === '') {
       warnings.push('Campaign name is required');
     }
-    
-    // Step 2: Company Information
+
     if (!campaign.companyName || !campaign.contactName || !campaign.email || !campaign.phone) {
       warnings.push('Company information is incomplete');
     }
@@ -277,195 +318,23 @@ export default function CampaignCreationModal({
       warnings.push('No services selected');
     }
     if (!campaign.specialties || campaign.specialties.length === 0) {
-      warnings.push('No specialties selected');
+      warnings.push('No markets selected');
     }
-    
-    // Step 3: Portfolio
-    if (!campaign.portfolio || campaign.portfolio.length === 0) {
-      warnings.push('No portfolio photos added (recommended for better visibility)');
-    }
-    
-    // Step 4: Service Areas
+
     if (!campaign.serviceAreas || campaign.serviceAreas.length === 0) {
       warnings.push('No service areas selected');
     }
-    
-    // Step 5: Pricing
-    if (!campaign.pricing || (campaign.pricing.hourlyRate.max === 0 && campaign.pricing.projectMinimum === 0)) {
-      warnings.push('Pricing information is incomplete');
+
+    const hr = campaign.pricing?.hourlyRate;
+    const pm = campaign.pricing?.projectMinimum ?? 0;
+    if (!hr || hr.min <= 0 || hr.max <= 0 || hr.min > hr.max) {
+      warnings.push('Hourly rate range looks incomplete');
     }
-    
+    if (pm <= 0) {
+      warnings.push('Minimum job size is missing');
+    }
+
     return warnings;
-  };
-
-  // Enhanced Deal Flow Intelligence Calculations
-  const calculateDealFlowIntelligence = (campaign: Partial<SubcontractorCampaign>) => {
-    const primaryService = campaign.services?.[0] || 'General Contracting';
-    const primaryLocation = campaign.serviceAreas?.[0];
-    const locationText = primaryLocation ? `${primaryLocation.city}, ${primaryLocation.state}` : 'Your Area';
-    
-    // Service-specific average job sizes (base values, adjusted by market)
-    const baseJobSizes: Record<string, number> = {
-      'Electrical': 4800,
-      'Plumbing': 3200,
-      'HVAC': 5200,
-      'Roofing': 6800,
-      'Flooring': 2800,
-      'Painting': 2400,
-      'Drywall': 2200,
-      'Concrete': 4500,
-      'Landscaping': 3500,
-      'Kitchen Remodel': 28000,
-      'Bathroom Remodel': 12000,
-      'General Contracting': 4000,
-      'Carpentry': 3200,
-      'Tile Work': 2800,
-    };
-    
-    // Service-specific close rates (industry averages)
-    const closeRates: Record<string, number> = {
-      'Electrical': 32, // Higher demand, emergency work
-      'Plumbing': 35, // High urgency, emergency work
-      'HVAC': 28, // Seasonal, competitive
-      'Roofing': 25, // Competitive, high-stakes
-      'Flooring': 30,
-      'Painting': 28,
-      'Drywall': 26,
-      'Concrete': 24,
-      'Landscaping': 22,
-      'Kitchen Remodel': 20, // Longer sales cycle
-      'Bathroom Remodel': 22,
-      'General Contracting': 28,
-      'Carpentry': 26,
-      'Tile Work': 28,
-    };
-    
-    // Get base values
-    const baseAvgJobSize = baseJobSizes[primaryService] || 4000;
-    const baseCloseRate = closeRates[primaryService] || 28;
-    
-    // Calculate service area coverage
-    const serviceAreas = campaign.serviceAreas || [];
-    let totalCoverageArea = 0; // square miles
-    
-    serviceAreas.forEach(area => {
-      const radius = area.radius || 25; // default 25 miles
-      const areaSqMiles = Math.PI * radius * radius;
-      totalCoverageArea += areaSqMiles;
-    });
-    
-    // Estimate population density (varies by region, using conservative estimate)
-    // Urban: ~3000/sq mile, Suburban: ~1500/sq mile, Rural: ~200/sq mile
-    // Using average of 1500/sq mile for estimation
-    const avgPopulationDensity = 1500; // people per square mile
-    const estimatedPopulation = Math.floor(totalCoverageArea * avgPopulationDensity);
-    
-    // Demand multiplier by service type (requests per 1000 people per month)
-    const demandMultipliers: Record<string, number> = {
-      'Electrical': 2.5, // High frequency (emergencies, upgrades)
-      'Plumbing': 3.0, // Highest frequency (emergencies)
-      'HVAC': 1.8, // Seasonal spikes
-      'Roofing': 0.8, // Lower frequency, larger jobs
-      'Flooring': 1.5,
-      'Painting': 2.0,
-      'Drywall': 1.2,
-      'Concrete': 0.9,
-      'Landscaping': 1.8,
-      'Kitchen Remodel': 0.4, // Lower frequency, high value
-      'Bathroom Remodel': 0.5,
-      'General Contracting': 1.5,
-      'Carpentry': 1.3,
-      'Tile Work': 1.0,
-    };
-    
-    const demandMultiplier = demandMultipliers[primaryService] || 1.5;
-    
-    // Calculate monthly requests
-    // Formula: (population / 1000) * demand multiplier
-    const estimatedMonthlyRequests = serviceAreas.length > 0
-      ? Math.max(5, Math.floor((estimatedPopulation / 1000) * demandMultiplier))
-      : 15; // Default if no service areas
-    
-    // Apply market adjustments if location data suggests higher/lower prices
-    // (In production, this would use real market data from BLS API)
-    let marketMultiplier = 1.0;
-    if (primaryLocation?.state) {
-      // High-cost states (simplified example)
-      const highCostStates = ['CA', 'NY', 'MA', 'CT', 'NJ', 'HI'];
-      if (highCostStates.includes(primaryLocation.state)) {
-        marketMultiplier = 1.2; // 20% higher
-      }
-    }
-    
-    const avgJobSize = Math.floor(baseAvgJobSize * marketMultiplier);
-    const closeRate = baseCloseRate;
-    
-    // Calculate monthly awarded value
-    // Formula: monthly requests × close rate % × average job size
-    const monthlyAwarded = Math.floor(estimatedMonthlyRequests * (closeRate / 100) * avgJobSize);
-    
-    return {
-      primaryService,
-      locationText,
-      avgJobSize,
-      closeRate,
-      estimatedMonthlyRequests,
-      monthlyAwarded,
-      estimatedPopulation,
-    };
-  };
-
-  // Budget Intelligence Calculations
-  const calculateCostPerLead = (campaign: Partial<SubcontractorCampaign>): number => {
-    // Base cost per lead varies by platform and targeting
-    // Average cost: $25-75 for contractors in home services
-    // More specific targeting (service areas, project types) increases cost
-    const baseCostPerLead = 50;
-    const serviceAreaMultiplier = campaign.serviceAreas?.length || 1;
-    const specialtyMultiplier = (campaign.specialties?.length || 1) > 3 ? 1.2 : 1.0;
-    
-    // More specific targeting costs more
-    const hasProjectTypeFilter = campaign.leadPreferences?.projectTypes && campaign.leadPreferences.projectTypes.length > 0;
-    const hasBudgetFilter = campaign.leadPreferences?.budgetRanges && 
-      (campaign.leadPreferences.budgetRanges.min || campaign.leadPreferences.budgetRanges.max);
-    
-    let costMultiplier = 1.0;
-    if (hasProjectTypeFilter) costMultiplier += 0.15;
-    if (hasBudgetFilter) costMultiplier += 0.1;
-    
-    return baseCostPerLead * serviceAreaMultiplier * specialtyMultiplier * costMultiplier;
-  };
-
-  const calculateRecommendedWeeklyBudget = (campaign: Partial<SubcontractorCampaign>): number => {
-    const costPerLead = calculateCostPerLead(campaign);
-    // Recommended: 10-20 leads per week for steady pipeline
-    const targetLeadsPerWeek = 15;
-    return costPerLead * targetLeadsPerWeek;
-  };
-
-  const calculateExpectedLeads = (campaign: Partial<SubcontractorCampaign>): { min: number; max: number } => {
-    // Calculate based on service area coverage
-    // Average: 0.5-2 leads per 1000 population per month for home services
-    const serviceAreas = campaign.serviceAreas || [];
-    let totalRadius = 0;
-    
-    serviceAreas.forEach(area => {
-      totalRadius += area.radius || 0;
-    });
-    
-    // Estimate population covered (rough calculation: 1000 people per square mile)
-    // Area = π * r², population ≈ 1000 * area
-    const avgRadius = serviceAreas.length > 0 ? totalRadius / serviceAreas.length : 0;
-    const estimatedPopulation = Math.PI * Math.pow(avgRadius, 2) * 1000 * serviceAreas.length;
-    
-    // Monthly leads: 0.5-2 per 1000 population
-    const minLeads = Math.max(5, Math.floor(estimatedPopulation / 1000 * 0.5));
-    const maxLeads = Math.floor(estimatedPopulation / 1000 * 2);
-    
-    return {
-      min: Math.min(minLeads, 50), // Cap at reasonable maximum
-      max: Math.min(maxLeads, 200),
-    };
   };
 
   const handleNext = () => {
@@ -511,6 +380,28 @@ export default function CampaignCreationModal({
   };
 
   const publishCampaign = () => {
+    const tpl = typicalHourlyForServices(campaign.services);
+    const specialtiesFinal =
+      campaign.specialties && campaign.specialties.length > 0
+        ? campaign.specialties
+        : ['Residential'];
+
+    let hourlyMin = campaign.pricing?.hourlyRate?.min ?? tpl.min;
+    let hourlyMax = campaign.pricing?.hourlyRate?.max ?? tpl.max;
+    if (hourlyMin <= 0 || hourlyMax <= 0) {
+      hourlyMin = tpl.min;
+      hourlyMax = tpl.max;
+    }
+    if (hourlyMin > hourlyMax) {
+      const t = hourlyMin;
+      hourlyMin = hourlyMax;
+      hourlyMax = t;
+    }
+    const projectMinimum =
+      campaign.pricing?.projectMinimum && campaign.pricing.projectMinimum > 0
+        ? campaign.pricing.projectMinimum
+        : DEFAULT_PROJECT_MINIMUM;
+
     const completeCampaign: SubcontractorCampaign = {
       id: `campaign-${Date.now()}`,
       campaignName: campaign.campaignName,
@@ -524,9 +415,13 @@ export default function CampaignCreationModal({
       insuranceProvider: campaign.insuranceProvider,
       insuranceExpiry: campaign.insuranceExpiry,
       services: campaign.services || [],
-      specialties: campaign.specialties || [],
+      specialties: specialtiesFinal,
       serviceAreas: campaign.serviceAreas || [],
-      pricing: campaign.pricing!,
+      pricing: {
+        hourlyRate: { min: hourlyMin, max: hourlyMax },
+        projectMinimum,
+        specialties: campaign.pricing?.specialties || {},
+      },
       availability: campaign.availability!,
       portfolio: campaign.portfolio || [],
       certifications: campaign.certifications || [],
@@ -555,15 +450,16 @@ export default function CampaignCreationModal({
     switch (currentStep) {
       case 1:
         return (
-          <View style={styles.campaignSettingsContainer}>
+          <View>
+            <View style={styles.campaignSettingsContainer}>
             <View style={styles.sectionHeader}>
               <MaterialIcons name="settings" size={20} color={neutralIconColor} />
-              <Text style={styles.sectionTitle}>Availability Profile</Text>
+              <Text style={styles.sectionTitle}>Your campaign</Text>
             </View>
-            <Text style={styles.sectionHint}>This is how you appear in the BPS network.</Text>
+            <Text style={styles.sectionHint}>How you appear in the BPS network.</Text>
             
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Availability Name *</Text>
+              <Text style={styles.inputLabel}>Campaign name *</Text>
               <TextInput
                 style={styles.textInput}
                 placeholder="e.g., Residential Electrical Services"
@@ -571,23 +467,9 @@ export default function CampaignCreationModal({
                 value={campaign.campaignName || ''}
                 onChangeText={(text) => setCampaign({ ...campaign, campaignName: text })}
               />
-              <Text style={styles.inputHint}>How you'll appear to contractors and developers in the network</Text>
             </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>What type of work you want *</Text>
-              <TextInput
-                style={[styles.textInput, styles.textArea]}
-                placeholder="Describe the types of projects and work you're looking for..."
-                placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
-                multiline
-                numberOfLines={3}
-                value={campaign.campaignDescription || ''}
-                onChangeText={(text) => setCampaign({ ...campaign, campaignDescription: text })}
-              />
-            </View>
-
-            <Text style={styles.sectionTitle}>Availability Window</Text>
+            <Text style={styles.sectionTitle}>Availability</Text>
             
             <TouchableOpacity
               style={styles.toggleRow}
@@ -652,219 +534,47 @@ export default function CampaignCreationModal({
                 </View>
               </>
             )}
-
-            <Text style={styles.sectionTitle}>Deal Preferences (Optional)</Text>
-            <Text style={styles.sectionHint}>Filter which types of deals you want to receive</Text>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Project Types</Text>
-              <View style={styles.chipContainer}>
-                {['Kitchen Remodel', 'Bathroom Remodel', 'New Build', 'Other'].map((type) => {
-                  const key = type.toLowerCase().replace(/\s+/g, '_');
-                  const isSelected = campaign.leadPreferences?.projectTypes?.includes(key);
-                  return (
-                    <TouchableOpacity
-                      key={type}
-                      style={[
-                        styles.chip,
-                        isSelected &&
-                          (isWeb
-                            ? { backgroundColor: '#22c55e', borderColor: '#22c55e' }
-                            : styles.chipSelected),
-                      ]}
-                      onPress={() => {
-                        const currentTypes = campaign.leadPreferences?.projectTypes || [];
-                        const newTypes = isSelected
-                          ? currentTypes.filter(t => t !== key)
-                          : [...currentTypes, key];
-                        setCampaign({
-                          ...campaign,
-                          leadPreferences: {
-                            ...campaign.leadPreferences,
-                            projectTypes: newTypes,
-                          },
-                        });
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }}
-                    >
-                      <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>
-                        {type}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Budget Range (Optional)</Text>
-              <View style={styles.budgetRow}>
-                <TextInput
-                  style={[styles.textInput, { flex: 1, marginRight: 8 }]}
-                  placeholder="Min $"
-                  placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
-                  keyboardType="numeric"
-                  value={campaign.leadPreferences?.budgetRanges?.min?.toString() || ''}
-                  onChangeText={(text) => {
-                    const min = text ? parseInt(text, 10) : undefined;
-                    setCampaign({
-                      ...campaign,
-                      leadPreferences: {
-                        ...campaign.leadPreferences,
-                        budgetRanges: {
-                          ...campaign.leadPreferences?.budgetRanges,
-                          min,
-                        },
-                      },
-                    });
-                  }}
-                />
-                <TextInput
-                  style={[styles.textInput, { flex: 1 }]}
-                  placeholder="Max $"
-                  placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
-                  keyboardType="numeric"
-                  value={campaign.leadPreferences?.budgetRanges?.max?.toString() || ''}
-                  onChangeText={(text) => {
-                    const max = text ? parseInt(text, 10) : undefined;
-                    setCampaign({
-                      ...campaign,
-                      leadPreferences: {
-                        ...campaign.leadPreferences,
-                        budgetRanges: {
-                          ...campaign.leadPreferences?.budgetRanges,
-                          max,
-                        },
-                      },
-                    });
-                  }}
-                />
-              </View>
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Timeline Preferences</Text>
-              <View style={styles.chipContainer}>
-                {['Normal', 'Soon', 'Urgent'].map((timeline) => {
-                  const isSelected = campaign.leadPreferences?.timelines?.includes(timeline);
-                  return (
-                    <TouchableOpacity
-                      key={timeline}
-                      style={[
-                        styles.chip,
-                        isSelected &&
-                          (isWeb
-                            ? { backgroundColor: '#22c55e', borderColor: '#22c55e' }
-                            : styles.chipSelected),
-                      ]}
-                      onPress={() => {
-                        const currentTimelines = campaign.leadPreferences?.timelines || [];
-                        const newTimelines = isSelected
-                          ? currentTimelines.filter(t => t !== timeline)
-                          : [...currentTimelines, timeline];
-                        setCampaign({
-                          ...campaign,
-                          leadPreferences: {
-                            ...campaign.leadPreferences,
-                            timelines: newTimelines,
-                          },
-                        });
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }}
-                    >
-                      <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>
-                        {timeline}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
+          </View>
+            <SubcontractorProfileBuilder
+              variant="essential"
+              campaign={campaign}
+              onUpdate={(updates) => setCampaign({ ...campaign, ...updates })}
+            />
           </View>
         );
       case 2:
         return (
-          <SubcontractorProfileBuilder
-            campaign={campaign}
-            onUpdate={(updates) => setCampaign({ ...campaign, ...updates })}
-          />
-        );
-      case 3:
-        return (
-          <PhotoUploadComponent
-            portfolio={campaign.portfolio || []}
-            onUpdate={(portfolio) => setCampaign({ ...campaign, portfolio })}
-          />
-        );
-      case 4:
-        return (
-          <ServiceAreaSelector
-            serviceAreas={campaign.serviceAreas || []}
-            onUpdate={(serviceAreas) => setCampaign({ ...campaign, serviceAreas })}
-          />
-        );
-      case 5:
-        // Calculate Deal Flow Intelligence
-        const dealFlowData = calculateDealFlowIntelligence(campaign);
-        
-        return (
-          <View style={{ flex: 1 }}>
-            <PricingCalculator
-              pricing={campaign.pricing!}
-              onUpdate={(pricing) => setCampaign({ ...campaign, pricing })}
-            />
-            
-            {/* Deal Flow Intelligence */}
-            <View style={styles.dealFlowIntelligenceCard}>
-              <View style={styles.dealFlowIntelligenceHeader}>
-                <MaterialIcons name="trending-up" size={20} color="#19E180" />
-                <Text style={styles.dealFlowIntelligenceTitle}>Deal Flow Intelligence</Text>
-              </View>
-              
-              <View style={styles.dealFlowIntelligenceContent}>
-                <View style={styles.dealFlowIntelligenceRow}>
-                  <MaterialIcons name="business-center" size={18} color="#60A5FA" />
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={styles.dealFlowIntelligenceLabel}>Average Job Size ({dealFlowData.primaryService})</Text>
-                    <Text style={styles.dealFlowIntelligenceValue}>
-                      ${dealFlowData.avgJobSize.toLocaleString()}
-                    </Text>
-                    <Text style={styles.dealFlowIntelligenceSubtext}>
-                      Based on {dealFlowData.locationText} market data
-                    </Text>
-                  </View>
-                </View>
-                
-                <View style={styles.dealFlowIntelligenceRow}>
-                  <MaterialIcons name="percent" size={18} color="#43cea2" />
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={styles.dealFlowIntelligenceLabel}>Typical Close Rate</Text>
-                    <Text style={styles.dealFlowIntelligenceValue}>
-                      {dealFlowData.closeRate}%
-                    </Text>
-                    <Text style={styles.dealFlowIntelligenceSubtext}>
-                      Industry average for {dealFlowData.primaryService}
-                    </Text>
-                  </View>
-                </View>
-                
-                <View style={styles.dealFlowIntelligenceRow}>
-                  <MaterialIcons name="attach-money" size={18} color="#19E180" />
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={styles.dealFlowIntelligenceLabel}>Estimated Monthly Awarded Value</Text>
-                    <Text style={[styles.dealFlowIntelligenceValue, { color: '#19E180', fontSize: 22 }]}>
-                      ${dealFlowData.monthlyAwarded.toLocaleString()}
-                    </Text>
-                    <Text style={styles.dealFlowIntelligenceSubtext}>
-                      With your reach: ~{dealFlowData.estimatedMonthlyRequests} requests/month potential
-                    </Text>
-                  </View>
-                </View>
-              </View>
+          <View style={{ flex: 1, gap: 8 }}>
+            <View style={styles.sectionHeader}>
+              <MaterialIcons name="photo-library" size={20} color={neutralIconColor} />
+              <Text style={styles.sectionTitle}>Your work</Text>
             </View>
+            <Text style={styles.sectionHint}>
+              Show completed jobs or before & after — helps contractors see your quality.
+            </Text>
+            <PhotoUploadComponent
+              portfolio={campaign.portfolio || []}
+              onUpdate={(portfolio) => setCampaign({ ...campaign, portfolio })}
+            />
+
+            <View style={[styles.sectionHeader, { marginTop: 16 }]}>
+              <MaterialIcons name="location-on" size={20} color={neutralIconColor} />
+              <Text style={styles.sectionTitle}>Where you work</Text>
+            </View>
+            <Text style={styles.sectionHint}>
+              Add at least one area. You can refine coverage later.
+            </Text>
+            <ServiceAreaSelector
+              serviceAreas={campaign.serviceAreas || []}
+              onUpdate={(serviceAreas) => setCampaign({ ...campaign, serviceAreas })}
+            />
+
+            <Text style={[styles.sectionHint, { marginTop: 12 }]}>
+              Hourly rates and minimum job size use trade defaults until you set them in Profile. You can add more photos there too.
+            </Text>
           </View>
         );
-      case 6:
+      case 3:
         const warnings = getValidationWarnings();
         return (
           <View style={styles.reviewContainer}>
@@ -901,6 +611,10 @@ export default function CampaignCreationModal({
               <Text style={styles.reviewValue}>{campaign.services?.join(', ') || 'None'}</Text>
             </View>
             <View style={styles.reviewSection}>
+              <Text style={styles.reviewLabel}>Markets:</Text>
+              <Text style={styles.reviewValue}>{campaign.specialties?.join(', ') || 'None'}</Text>
+            </View>
+            <View style={styles.reviewSection}>
               <Text style={styles.reviewLabel}>Service Areas:</Text>
               <Text style={styles.reviewValue}>
                 {campaign.serviceAreas?.length > 0 
@@ -909,14 +623,26 @@ export default function CampaignCreationModal({
               </Text>
             </View>
             <View style={styles.reviewSection}>
-              <Text style={styles.reviewLabel}>Hourly Rate:</Text>
+              <Text style={styles.reviewLabel}>Hourly rate:</Text>
               <Text style={styles.reviewValue}>
-                ${campaign.pricing?.hourlyRate.min || 0} - ${campaign.pricing?.hourlyRate.max || 0}/hr
+                ${campaign.pricing?.hourlyRate.min || 0} – ${campaign.pricing?.hourlyRate.max || 0}/hr
               </Text>
             </View>
             <View style={styles.reviewSection}>
-              <Text style={styles.reviewLabel}>Portfolio Photos:</Text>
-              <Text style={styles.reviewValue}>{campaign.portfolio?.length || 0} photos</Text>
+              <Text style={styles.reviewLabel}>Minimum job:</Text>
+              <Text style={styles.reviewValue}>
+                {campaign.pricing?.projectMinimum
+                  ? `$${campaign.pricing.projectMinimum.toLocaleString()}`
+                  : 'Not set'}
+              </Text>
+            </View>
+            <View style={styles.reviewSection}>
+              <Text style={styles.reviewLabel}>Portfolio:</Text>
+              <Text style={styles.reviewValue}>
+                {(campaign.portfolio?.length ?? 0) > 0
+                  ? `${campaign.portfolio.length} photo${campaign.portfolio.length === 1 ? '' : 's'}`
+                  : 'None (optional — add in Profile)'}
+              </Text>
             </View>
             {campaign.runUntilPaused ? (
               <View style={styles.reviewSection}>
@@ -966,27 +692,33 @@ export default function CampaignCreationModal({
     }
   };
 
-  const getStepTitle = () => {
-    switch (currentStep) {
-      case 1: return 'Availability Profile';
-      case 2: return 'Company Information';
-      case 3: return 'Project Proof';
-      case 4: return 'Service Areas';
-      case 5: return 'Pricing & Rates';
-      case 6: return 'Review & Publish';
-      default: return '';
+  const getSubtitleForWizardStep = (step: number) => {
+    switch (step) {
+      case 1:
+        return 'Campaign & company';
+      case 2:
+        return 'Work & areas';
+      case 3:
+        return 'Review & publish';
+      default:
+        return '';
     }
+  };
+
+  const getStepTitle = () => {
+    return getSubtitleForWizardStep(currentStep);
   };
 
   const getStepIcon = (step: number) => {
     switch (step) {
-      case 1: return 'settings';
-      case 2: return 'business';
-      case 3: return 'photo-library';
-      case 4: return 'location-on';
-      case 5: return 'attach-money';
-      case 6: return 'check-circle';
-      default: return 'circle';
+      case 1:
+        return 'business';
+      case 2:
+        return 'place';
+      case 3:
+        return 'check-circle';
+      default:
+        return 'circle';
     }
   };
 
@@ -998,34 +730,46 @@ export default function CampaignCreationModal({
           isWeb && { paddingHorizontal: 0, paddingVertical: 14 },
         ]}
       >
-        {[1, 2, 3, 4, 5, 6].map((step, index) => {
+        {[1, 2, 3].map((step, index) => {
           const isCompleted = step < currentStep;
           const isCurrent = step === currentStep;
-          const isUpcoming = step > currentStep;
 
           return (
             <View key={step} style={styles.progressStepWrapper}>
-              {/* Step Circle */}
-              {(isCompleted || isCurrent) ? (
-                <View style={[styles.progressStepCircle, { backgroundColor: '#43cea2', borderColor: '#43cea2' }]}>
-                  <MaterialIcons
-                    name={isCompleted ? 'check' : getStepIcon(step)}
-                    size={20}
-                    color="#000000"
-                  />
-                </View>
-              ) : (
-                <View style={[styles.progressStepCircle, styles.progressStepUpcoming]}>
-                  <MaterialIcons
-                    name={getStepIcon(step)}
-                    size={20}
-                    color={darkMode ? "#6B7280" : Colors.sub}
-                  />
-                </View>
-              )}
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel={`Step ${step} of ${totalSteps}: ${getSubtitleForWizardStep(step)}`}
+                accessibilityState={{ selected: isCurrent }}
+                hitSlop={{ top: 14, bottom: 14, left: 10, right: 10 }}
+                activeOpacity={0.75}
+                onPress={() => {
+                  if (step === currentStep) return;
+                  setCurrentStep(step);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }}
+                style={isWeb ? ({ cursor: 'pointer' } as const) : undefined}
+              >
+                {(isCompleted || isCurrent) ? (
+                  <View style={[styles.progressStepCircle, { backgroundColor: '#43cea2', borderColor: '#43cea2' }]}>
+                    <MaterialIcons
+                      name={isCompleted ? 'check' : getStepIcon(step)}
+                      size={20}
+                      color="#000000"
+                    />
+                  </View>
+                ) : (
+                  <View style={[styles.progressStepCircle, styles.progressStepUpcoming]}>
+                    <MaterialIcons
+                      name={getStepIcon(step)}
+                      size={20}
+                      color={darkMode ? "#6B7280" : Colors.sub}
+                    />
+                  </View>
+                )}
+              </TouchableOpacity>
 
               {/* Connector Line */}
-              {index < 5 && (
+              {index < totalSteps - 1 && (
                 <View
                   style={[
                     styles.progressConnector,
@@ -1187,10 +931,9 @@ export default function CampaignCreationModal({
         </View>
       )}
 
-      <View style={styles.previewSection}>
-        <Text style={styles.previewSectionTitle}>Project Proof</Text>
-        {campaign.portfolio && campaign.portfolio.length > 0 ? (
-          <>
+      {campaign.portfolio && campaign.portfolio.length > 0 && (
+        <View style={styles.previewSection}>
+          <Text style={styles.previewSectionTitle}>Project proof</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.previewPhotoScroll}>
               {campaign.portfolio.slice(0, 3).map((photo, index) => (
                 <View key={index} style={styles.previewPhotoCard}>
@@ -1213,14 +956,8 @@ export default function CampaignCreationModal({
             {campaign.portfolio.length > 3 && (
               <Text style={styles.previewPortfolioMore}>View full portfolio →</Text>
             )}
-          </>
-        ) : (
-          <View style={styles.previewPortfolioEmpty}>
-            <MaterialIcons name="photo-library" size={32} color="#6B7280" />
-            <Text style={styles.previewPortfolioEmptyText}>Add photos to improve visibility and trust</Text>
-          </View>
-        )}
-      </View>
+        </View>
+      )}
 
       {campaign.certifications && campaign.certifications.length > 0 && (
         <View style={styles.previewSection}>
@@ -2235,48 +1972,5 @@ const getStyles = (darkMode: boolean, Colors: ReturnType<typeof getColors>) => (
     color: '#F59E0B',
     marginBottom: 4,
     lineHeight: 16,
-  },
-  dealFlowIntelligenceCard: {
-    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.surface2,
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 20,
-    borderWidth: 1,
-    borderColor: darkMode ? 'rgba(255, 255, 255, 0.2)' : Colors.line,
-  },
-  dealFlowIntelligenceHeader: {
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
-    marginBottom: 16,
-    gap: 10,
-  },
-  dealFlowIntelligenceTitle: {
-    fontSize: 16,
-    fontWeight: '700' as const,
-    color: darkMode ? '#FFFFFF' : Colors.text,
-  },
-  dealFlowIntelligenceContent: {
-    gap: 16,
-  },
-  dealFlowIntelligenceRow: {
-    flexDirection: 'row' as const,
-    alignItems: 'flex-start' as const,
-  },
-  dealFlowIntelligenceLabel: {
-    fontSize: 13,
-    color: darkMode ? '#9CA3AF' : Colors.sub,
-    marginBottom: 4,
-    fontWeight: '500' as const,
-  },
-  dealFlowIntelligenceValue: {
-    fontSize: 18,
-    fontWeight: '700' as const,
-    color: darkMode ? '#FFFFFF' : Colors.text,
-  },
-  dealFlowIntelligenceSubtext: {
-    fontSize: 11,
-    color: darkMode ? '#6B7280' : Colors.sub,
-    marginTop: 4,
-    fontStyle: 'italic' as const,
   },
 });

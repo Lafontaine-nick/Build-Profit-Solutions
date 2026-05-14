@@ -109,7 +109,7 @@ export default function HelpSupportScreen() {
 
   const handleLeadManagement = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push('/profile/leads-tutorial');
+    router.push('/(tabs)/leads');
   };
 
 

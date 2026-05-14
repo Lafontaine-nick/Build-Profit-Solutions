@@ -3,7 +3,7 @@
  * Clean, data-rich but focused design for better readability
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -21,6 +21,20 @@ import { buildBidPayloadFromLead } from '../leadToEstimateBid';
 import { trackLeadResponse, trackLeadView } from '../../../services/engagementTracking';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import { getSubRequestSeenMatchCount, setSubRequestSeenMatchCount } from '../subRequestMatchNotifications';
+
+/** Teal accent for MY CAMPAIGN cards (distinct from green Sub Request). */
+const CAMPAIGN_TEAL = {
+  border: '#2dd4bf',
+  strong: '#14b8a6',
+  icon: '#5eead4',
+  text: '#5eead4',
+  textMuted: '#99f6e4',
+  trade: '#5eead4',
+  badgeBg: 'rgba(45, 212, 191, 0.14)',
+  badgeBorder: 'rgba(45, 212, 191, 0.38)',
+  budget: '#5eead4',
+} as const;
 
 interface CompactLeadCardProps {
   lead: Lead;
@@ -28,6 +42,8 @@ interface CompactLeadCardProps {
   onAddNote: (lead: Lead) => void;
   onSetReminder: (lead: Lead) => void;
   onStageChange?: (lead: Lead, newStage: string) => void;
+  /** Same id used for campaign / my-requests ingest (Clerk id or email). */
+  leadScopeUserId?: string;
 }
 
 export default function CompactLeadCard({
@@ -36,6 +52,7 @@ export default function CompactLeadCard({
   onAddNote,
   onSetReminder,
   onStageChange,
+  leadScopeUserId,
 }: CompactLeadCardProps) {
   const router = useRouter();
   const { theme } = useTheme();
@@ -43,23 +60,62 @@ export default function CompactLeadCard({
   const darkMode = theme.bg === '#000000';
   const lightText = !darkMode ? Colors.text : undefined;
   const lightSub = !darkMode ? Colors.sub : undefined;
+  const scopeUserId = leadScopeUserId?.trim() || 'contractor-demo';
   
   // Check if this is a campaign lead (CAMPAIGN- prefix) vs sub request (PRJ- prefix or other PROJECT_BASED)
   const hasCampaignProjectId = !!lead.projectId?.startsWith?.('CAMPAIGN-');
-  const isOwnProjectBased = lead.source === 'PROJECT_BASED' && (lead.isOwnRequest === true || lead.createdBy === 'contractor-demo');
+  const isOwnProjectBased =
+    lead.source === 'PROJECT_BASED' &&
+    (lead.isOwnRequest === true || lead.createdBy === scopeUserId);
   const isCampaignLead = hasCampaignProjectId; // Only campaign leads have CAMPAIGN- prefix
   const isSubRequest = isOwnProjectBased && !hasCampaignProjectId; // Sub requests are PROJECT_BASED but NOT campaigns
   /** Own posted requests are not a sales pipeline — hide stage UI. */
   const hideSalesPipeline = lead.isOwnRequest === true;
-  
-  // Essential calculations
+
+  const [seenMatchCount, setSeenMatchCount] = useState(0);
+  const [seenLoaded, setSeenLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!isSubRequest) {
+      setSeenLoaded(true);
+      return;
+    }
+    let cancelled = false;
+    getSubRequestSeenMatchCount(lead.id).then((n) => {
+      if (!cancelled) {
+        setSeenMatchCount(n);
+        setSeenLoaded(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [lead.id, isSubRequest]);
+
+  const acknowledgeSubRequestMatches = useCallback(async () => {
+    if (!isSubRequest) return;
+    const mc = lead.matchedContractors ?? 0;
+    if (mc <= 0) return;
+    await setSubRequestSeenMatchCount(lead.id, mc);
+    setSeenMatchCount(mc);
+  }, [isSubRequest, lead.id, lead.matchedContractors]);
+
+  const currentMatched = lead.matchedContractors ?? 0;
+  const newMatchDelta =
+    seenLoaded && isSubRequest ? Math.max(0, currentMatched - seenMatchCount) : 0;
+  const hasNewSubRequestMatches = newMatchDelta > 0;
+
+  const openLeadDetails = useCallback(() => {
+    void acknowledgeSubRequestMatches();
+    onPress();
+  }, [acknowledgeSubRequestMatches, onPress]);
   const leadValue = Math.round((lead.project.budgetMin + lead.project.budgetMax) / 2);
   const timeAgo = getTimeAgo(lead.createdAt);
   
   // Temperature calculation - different for campaign vs sub request
   let temperature;
   if (isCampaignLead) {
-    temperature = { icon: '🎯', label: 'Campaign', color: '#19E180' };
+    temperature = { icon: '🎯', label: 'Campaign', color: CAMPAIGN_TEAL.strong };
   } else if (isSubRequest) {
     temperature = { icon: '🔧', label: 'Sub Request', color: '#22c55e' };
   } else {
@@ -93,12 +149,12 @@ export default function CompactLeadCard({
     }
   };
   
-  // Track view when lead card is pressed
-  React.useEffect(() => {
+  useEffect(() => {
     trackLeadView(lead.id);
   }, [lead.id]);
 
   const handleExpand = () => {
+    void acknowledgeSubRequestMatches();
     onPress();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
@@ -172,12 +228,12 @@ export default function CompactLeadCard({
         isCampaignLead && styles.campaignCard,
         isSubRequest && styles.subRequestCard
       ]} 
-      onPress={onPress}
+      onPress={openLeadDetails}
     >
       {/* Campaign Badge */}
       {isCampaignLead && (
         <View style={styles.campaignBadge}>
-          <MaterialIcons name="campaign" size={12} color="#19E180" />
+          <MaterialIcons name="campaign" size={12} color={CAMPAIGN_TEAL.icon} />
           <Text style={styles.campaignBadgeText}>MY CAMPAIGN</Text>
         </View>
       )}
@@ -185,8 +241,18 @@ export default function CompactLeadCard({
       {/* Sub Request Badge */}
       {isSubRequest && (
         <View style={styles.subRequestBadge}>
-          <MaterialIcons name="construction" size={12} color="#4ade80" />
-          <Text style={styles.subRequestBadgeText}>SUB REQUEST</Text>
+          <View style={styles.subRequestBadgeLeft}>
+            <MaterialIcons name="construction" size={12} color="#4ade80" />
+            <Text style={styles.subRequestBadgeText}>SUB REQUEST</Text>
+          </View>
+          {hasNewSubRequestMatches && (
+            <View style={styles.subRequestNotifyPill}>
+              <MaterialIcons name="notifications-active" size={12} color="#78350f" />
+              <Text style={styles.subRequestNotifyPillText}>
+                {newMatchDelta === 1 ? '1 new match' : `${newMatchDelta} new matches`}
+              </Text>
+            </View>
+          )}
         </View>
       )}
       
@@ -200,7 +266,7 @@ export default function CompactLeadCard({
           <View style={styles.leadInfo}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               {isCampaignLead && (
-                <MaterialIcons name="campaign" size={14} color="#19E180" />
+                <MaterialIcons name="campaign" size={14} color={CAMPAIGN_TEAL.icon} />
               )}
               {isSubRequest && (
                 <MaterialIcons name="construction" size={14} color="#4ade80" />
@@ -314,7 +380,15 @@ export default function CompactLeadCard({
                 <MaterialIcons 
                   name={indicator.icon as any} 
                   size={12} 
-                  color={indicator.verified ? '#5EEAD4' : '#9CA3AF'} 
+                  color={
+                    indicator.verified
+                      ? isCampaignLead
+                        ? CAMPAIGN_TEAL.icon
+                        : isSubRequest
+                          ? '#86efac'
+                          : '#5EEAD4'
+                      : '#9CA3AF'
+                  } 
                 />
               </View>
             ))}
@@ -571,7 +645,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   campaignCard: {
-    borderColor: '#19E180',
+    borderColor: CAMPAIGN_TEAL.border,
     borderWidth: 2,
     // Keep surface2 background from dynamic style
   },
@@ -583,15 +657,15 @@ const styles = StyleSheet.create({
   campaignBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#19E18020',
+    backgroundColor: CAMPAIGN_TEAL.badgeBg,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: '#19E18040',
+    borderBottomColor: CAMPAIGN_TEAL.badgeBorder,
     gap: 6,
   },
   campaignBadgeText: {
-    color: '#19E180',
+    color: CAMPAIGN_TEAL.text,
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -599,12 +673,36 @@ const styles = StyleSheet.create({
   subRequestBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: 'rgba(34, 197, 94, 0.14)',
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(34, 197, 94, 0.35)',
+    gap: 8,
+  },
+  subRequestBadgeLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 6,
+    flexShrink: 1,
+  },
+  subRequestNotifyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#fef08a',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(234, 179, 8, 0.65)',
+    flexShrink: 0,
+  },
+  subRequestNotifyPillText: {
+    color: '#78350f',
+    fontSize: 10,
+    fontWeight: '800',
   },
   subRequestBadgeText: {
     color: '#86efac',
@@ -630,20 +728,20 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   campaignContactName: {
-    color: '#19E180',
+    color: CAMPAIGN_TEAL.text,
     fontWeight: '700',
   },
   campaignSubtext: {
     fontSize: 11,
-    color: '#19E180',
+    color: CAMPAIGN_TEAL.textMuted,
     marginTop: 2,
     fontWeight: '500',
   },
   campaignTrade: {
-    color: '#19E180',
+    color: CAMPAIGN_TEAL.trade,
   },
   campaignBudget: {
-    color: '#19E180',
+    color: CAMPAIGN_TEAL.budget,
   },
   mainContent: {
     paddingHorizontal: 14,

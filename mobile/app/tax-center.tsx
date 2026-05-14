@@ -47,6 +47,7 @@ import {
   getYearCollectedPayments,
   getYearExpenses,
   groupExpensesByTaxCategory,
+  type TaxCenterSummary,
 } from '@/src/lib/taxCenter';
 import { computeTaxCenterReadiness, type ReadinessChecklistItem } from '@/src/lib/taxCenterReadiness';
 import { ACCOUNTING_CATEGORY_MAPPING_ENABLED } from '@/src/lib/taxCenterLaunchFlags';
@@ -135,23 +136,46 @@ function checklistRowTone(
 function taxCenterDetailTitle(kind: TaxCenterDetailKind): string {
   switch (kind) {
     case 'revenue':
-      return 'Revenue collected';
+      return 'Revenue Collected';
     case 'ar':
-      return 'Outstanding receivables';
+      return 'Outstanding Receivables';
     case 'expenses':
-      return 'Expenses paid';
+      return 'Expenses Paid';
     case 'committed':
-      return 'Committed costs';
+      return 'Committed Costs';
     case 'netIncome':
-      return 'Net income';
+      return 'Net Income';
     case 'netMargin':
-      return 'Net margin';
+      return 'Net Margin';
     case 'subcontractor':
-      return 'Subcontractor payments';
+      return 'Subcontractor Payments';
     case 'receipts':
-      return 'Receipt count';
+      return 'Receipt Count';
     default:
       return 'Detail';
+  }
+}
+
+function taxCenterDetailSummaryCardValue(kind: TaxCenterDetailKind, summary: TaxCenterSummary): string {
+  switch (kind) {
+    case 'revenue':
+      return money(summary.grossIncomeCollected);
+    case 'ar':
+      return money(summary.outstandingReceivables);
+    case 'expenses':
+      return money(summary.totalExpenses);
+    case 'committed':
+      return money(summary.committedCosts);
+    case 'netIncome':
+      return money(summary.netProfit);
+    case 'netMargin':
+      return percent(summary.netMargin);
+    case 'subcontractor':
+      return money(summary.subcontractorPayments);
+    case 'receipts':
+      return String(summary.receiptCount);
+    default:
+      return '';
   }
 }
 
@@ -756,7 +780,7 @@ export default function TaxCenterScreen() {
                 }}
               />
               <TaxSummaryCard
-                label="Subcontractor payments"
+                label="Subcontractor Payments"
                 value={money(summary.subcontractorPayments)}
                 icon="groups"
                 helper="Subcontractor payments made during the selected tax year."
@@ -766,7 +790,7 @@ export default function TaxCenterScreen() {
                 }}
               />
               <TaxSummaryCard
-                label="Receipt count"
+                label="Receipt Count"
                 value={String(summary.receiptCount)}
                 icon="fact-check"
                 helper="Receipts attached to expenses dated within the selected tax year."
@@ -1046,6 +1070,9 @@ export default function TaxCenterScreen() {
         onClose={() => setDetailKind(null)}
         kind={detailKind ?? 'revenue'}
         title={detailKind ? taxCenterDetailTitle(detailKind) : 'Detail'}
+        summaryCardValue={
+          detailKind ? taxCenterDetailSummaryCardValue(detailKind, summary) : ''
+        }
         selectedYear={selectedYear}
         summary={summary}
         revenuePayments={revenueDetailPayments}
@@ -1056,6 +1083,7 @@ export default function TaxCenterScreen() {
         subcontractorExpenseRows={subcontractorExpenseRows}
         receiptRows={receiptDetailRows}
         vendors={vendors}
+        review1099={review1099}
         formatMoney={money}
       />
     </View>

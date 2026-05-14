@@ -550,8 +550,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
   // Calculate real statistics from actual lead data
   const calculateRealStatistics = useMemo(() => {
     if (!allLeads || allLeads.length === 0) {
-      // Fallback to default values if no leads available
-      return { leadsPerMonth: 20, avgJobSize: 10000 };
+      return { leadsPerMonth: 0, avgJobSize: 0 };
     }
 
     // Calculate average job size from actual budget data
@@ -568,7 +567,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
     
     const avgJobSize = budgets.length > 0
       ? budgets.reduce((sum, budget) => sum + budget, 0) / budgets.length
-      : 10000;
+      : 0;
 
     // Calculate leads per month based on creation dates
     const now = Date.now();
@@ -580,7 +579,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
       .filter((date): date is number => date !== null && date <= now)
       .sort((a, b) => a - b);
 
-    let leadsPerMonth = 20; // Default fallback
+    let leadsPerMonth = 0;
     if (creationDates.length > 0) {
       const oldestDate = creationDates[0];
       const newestDate = creationDates[creationDates.length - 1];
@@ -594,7 +593,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
 
   const getTradeTypeImpact = (tradeKey: keyof ContractorPreferences['tradeTypes']): { leadsPerMonth: number; avgJobSize: number } => {
     if (!allLeads || allLeads.length === 0) {
-      return { leadsPerMonth: 20, avgJobSize: 10000 };
+      return { leadsPerMonth: 0, avgJobSize: 0 };
     }
 
     // Keyword mappings for each job type to filter leads
@@ -650,7 +649,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
         .filter((date): date is number => date !== null && date <= now)
         .sort((a, b) => a - b);
 
-      let leadsPerMonth = 20;
+      let leadsPerMonth = 0;
       if (creationDates.length > 0) {
         const oldestDate = creationDates[0];
         const daysDiff = Math.max(1, (now - oldestDate) / (1000 * 60 * 60 * 24));
@@ -678,7 +677,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
 
     const multiplier = variationMultipliers[tradeKey] || 1.0;
     return {
-      leadsPerMonth: Math.round(calculateRealStatistics.leadsPerMonth * (0.8 + Math.random() * 0.4)), // Add some variation
+      leadsPerMonth: Math.round(calculateRealStatistics.leadsPerMonth * 0.95 * multiplier),
       avgJobSize: Math.round(calculateRealStatistics.avgJobSize * multiplier),
     };
   };
@@ -1503,7 +1502,7 @@ const ContractorPreferences: React.FC<ContractorPreferencesProps> = ({ onClose }
             !darkMode && { color: Colors.sub },
           ]}
         >
-          Control which jobs you see and how they're prioritized
+          Control which jobs you see and how they are prioritized. Applies to leads from My Campaign, sub requests, and directory picks.
         </Text>
       </View>
     </View>

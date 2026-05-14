@@ -1190,7 +1190,7 @@ export default function LeadDetailModal({
                             <TextInput 
                               style={styles.taskInput} 
                               placeholder="Enter task description..."
-                              placeholderTextColor="#F3F4F6"
+                              placeholderTextColor={darkMode ? '#6B7280' : '#64748B'}
                               value={taskText}
                               onChangeText={setTaskText}
                               multiline
@@ -1656,7 +1656,7 @@ export default function LeadDetailModal({
                       <TextInput 
                         style={[styles.noteInput, !darkMode && { color: Colors.text }]} 
                         placeholder="Enter your note here..."
-                        placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
+                        placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
                         value={noteText}
                         onChangeText={setNoteText}
                         multiline

@@ -1484,6 +1484,7 @@ export default function ProfileScreen() {
                 }
                 style={styles.profileImage}
                 defaultSource={require('../assets/images/bps-logo-updated.png')}
+                resizeMode="contain"
                 onError={() => console.log('Profile image failed to load')}
               />
             </View>
@@ -4069,6 +4070,9 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     borderRadius: 40,
     borderWidth: 2,
     borderColor: '#43cea2',
+    /** Logos are often transparent PNGs; without this the dark card shows through and reads as “black”. */
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
   },
   editAvatarButton: {
     position: 'absolute',

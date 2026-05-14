@@ -3,6 +3,77 @@ const { v4: uuidv4 } = require('uuid');
 const router = express.Router();
 const unifiedLeadService = require('../services/unifiedLeadService');
 const { loadProjectLeads, saveProjectLeads } = require('../services/leadStorage');
+const { authenticateToken } = require('../middleware/authenticateToken');
+
+function normalizeLeadOwnerKey(s) {
+  return String(s || '').trim().toLowerCase();
+}
+
+function authOwnerKeys(req) {
+  const u = req.user || {};
+  const keys = new Set();
+  if (u.userId) keys.add(normalizeLeadOwnerKey(u.userId));
+  if (u.sub) keys.add(normalizeLeadOwnerKey(u.sub));
+  if (u.id != null && u.id !== '') keys.add(normalizeLeadOwnerKey(u.id));
+  if (u.email) keys.add(normalizeLeadOwnerKey(u.email));
+  return keys;
+}
+
+function resolveAuthoritativeCreatedBy(req) {
+  const u = req.user || {};
+  if (u.userId) return String(u.userId).trim();
+  if (u.sub) return String(u.sub).trim();
+  if (u.id != null && u.id !== '') return String(u.id).trim();
+  if (u.email) return String(u.email).trim();
+  return null;
+}
+
+function urlParamUserMatchesAuth(req, paramUserId) {
+  const keys = authOwnerKeys(req);
+  const p = normalizeLeadOwnerKey(decodeURIComponent(String(paramUserId || '')));
+  return keys.has(p);
+}
+
+function leadOwnedByRequester(req, lead) {
+  if (!lead) return false;
+  return authOwnerKeys(req).has(normalizeLeadOwnerKey(lead.createdBy));
+}
+
+function collectLeadsByProjectId(projectId) {
+  const byId = new Map();
+  for (const l of projectLeads) {
+    if (l.projectId === projectId) byId.set(l.id, l);
+  }
+  for (const l of unifiedLeadService.allLeads) {
+    if (l.projectId === projectId) byId.set(l.id, l);
+  }
+  return [...byId.values()];
+}
+
+/** Resolve one lead row to check `createdBy` before delete (projectLeads or unified). */
+function resolveLeadForDeleteOwnership(leadId) {
+  let leadIndex = projectLeads.findIndex((lead) => lead.id === leadId);
+  if (leadIndex === -1) {
+    const stripped = leadId.replace(/-contractor-\w+$/, '');
+    leadIndex = projectLeads.findIndex((lead) => lead.id === stripped);
+  }
+  if (leadIndex !== -1) return projectLeads[leadIndex];
+
+  const direct = unifiedLeadService.allLeads.find((l) => l.id === leadId);
+  if (direct) return direct;
+
+  const baseId = leadId.includes('-')
+    ? `${leadId.split('-')[0]}-${leadId.split('-')[1]}`
+    : leadId;
+  return (
+    unifiedLeadService.allLeads.find((l) => {
+      const leadBaseId = l.id.includes('-')
+        ? `${l.id.split('-')[0]}-${l.id.split('-')[1]}`
+        : l.id;
+      return leadBaseId === baseId || l.id === leadId;
+    }) || null
+  );
+}
 
 // Persistent storage - load from disk on startup
 let projectLeads = loadProjectLeads();
@@ -67,15 +138,33 @@ const projects = [
 ];
 
 // Create a single subcontractor request (direct endpoint)
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   try {
     console.log('📥 ===== PROJECT LEAD CREATION REQUEST =====');
     console.log('🔍 Backend received request body:', JSON.stringify(req.body, null, 2));
     console.log('✅ CODE VERSION: budgetMin is OPTIONAL - validation removed');
     
-    // Extract fields - explicitly ignore budgetMin if present
-    const { budgetMin, ...rest } = req.body;
-    const { title, trade, projectId, city, state, budgetMax, timeline, createdBy, description } = rest;
+    // Extract fields - explicitly ignore budgetMin if present; createdBy comes from auth only
+    const { budgetMin, createdBy: _clientCreatedBy, ...rest } = req.body;
+    const {
+      title,
+      trade,
+      projectId,
+      city,
+      state,
+      zip: zipRaw,
+      budgetMax,
+      timeline,
+      description,
+    } = rest;
+
+    const createdBy = resolveAuthoritativeCreatedBy(req);
+    if (!createdBy) {
+      return res.status(401).json({ error: 'Could not resolve authenticated user for createdBy' });
+    }
+    const zipNormalized = (zipRaw != null ? String(zipRaw) : '')
+      .replace(/\D/g, '')
+      .slice(0, 5);
 
     console.log('📋 Received fields:', Object.keys(req.body));
     console.log('📋 budgetMin received?', 'budgetMin' in req.body, 'value:', budgetMin);
@@ -93,7 +182,6 @@ router.post('/', async (req, res) => {
     // budgetMin is optional - completely removed from validation - DO NOT CHECK IT
     if (!budgetMax && budgetMax !== 0) missingFields.push('budgetMax');
     if (!timeline) missingFields.push('timeline');
-    if (!createdBy) missingFields.push('createdBy');
     
     console.log('✅ Validation complete - budgetMin NOT checked. Missing fields:', missingFields);
 
@@ -119,6 +207,7 @@ router.post('/', async (req, res) => {
       location: {
         city,
         state,
+        ...(zipNormalized.length === 5 ? { zip: zipNormalized } : {}),
       },
       project: {
         type: 'other',
@@ -170,6 +259,71 @@ router.post('/', async (req, res) => {
   } catch (error) {
     console.error('Error creating subcontractor request:', error);
     res.status(500).json({ error: 'Failed to create subcontractor request', details: error.message });
+  }
+});
+
+// GC selected a verified BPS directory contractor from Find Subcontractors (estimate labor line)
+router.post('/bps-selection', authenticateToken, async (req, res) => {
+  try {
+    const { createdBy: _clientCreatedBy, assignedTo, title, trade, description, city, state, zip: zipRaw } = req.body;
+    const createdBy = resolveAuthoritativeCreatedBy(req);
+    const missing = [];
+    if (!createdBy) missing.push('createdBy');
+    if (!assignedTo) missing.push('assignedTo');
+    if (!trade) missing.push('trade');
+    if (!title) missing.push('title');
+    if (!city) missing.push('city');
+    if (!state) missing.push('state');
+    if (missing.length) {
+      return res.status(400).json({ error: 'Missing required fields', missing });
+    }
+    const zip5 = (zipRaw != null ? String(zipRaw) : '')
+      .replace(/\D/g, '')
+      .slice(0, 5);
+
+    const leadData = {
+      title,
+      trade,
+      projectId: `EST-${Date.now()}`,
+      source: 'BPS_SELECTION',
+      contact: {
+        name: 'Build Profit Solutions',
+        company: 'Find Subcontractors',
+        email: '',
+        phone: '',
+      },
+      location: {
+        city: String(city).trim(),
+        state: String(state).trim(),
+        ...(zip5.length === 5 ? { zip: zip5 } : {}),
+      },
+      project: {
+        type: 'other',
+        budgetMin: 0,
+        budgetMax: 0,
+        timeline: 'Normal',
+      },
+      description:
+        description ||
+        `You were selected by a GC from the verified BPS directory for ${trade} work.`,
+      verified: true,
+      createdBy,
+      assignedTo,
+      isOwnRequest: false,
+    };
+
+    const result = await unifiedLeadService.createDirectBpsSelectionLead(leadData);
+    projectLeads.push(result.lead);
+    persistProjectLeads();
+
+    res.status(201).json({
+      success: true,
+      lead: result.lead,
+      notificationsSent: result.notificationsSent || 0,
+    });
+  } catch (error) {
+    console.error('Error creating BPS selection lead:', error);
+    res.status(500).json({ error: 'Failed to create BPS selection lead', details: error.message });
   }
 });
 
@@ -329,10 +483,17 @@ router.get('/projects', async (req, res) => {
 });
 
 // Get subcontractor requests created by a specific user
-router.get('/my-requests/:userId', async (req, res) => {
+router.get('/my-requests/:userId', authenticateToken, async (req, res) => {
   try {
     const { userId } = req.params;
     const { status, trade } = req.query;
+
+    if (!urlParamUserMatchesAuth(req, userId)) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Authenticated account does not match requested user scope.',
+      });
+    }
 
     // Disable caching for this endpoint to always get fresh data
     res.set({
@@ -352,18 +513,15 @@ router.get('/my-requests/:userId', async (req, res) => {
       // Normalize createdBy for comparison (trim whitespace, handle case)
       const leadCreatedBy = (lead.createdBy || '').trim().toLowerCase();
       const searchUserId = userId.toLowerCase();
-      
-      // Also check if lead is from a campaign (has CAMPAIGN- prefix in projectId)
-      const isCampaignLead = lead.projectId && lead.projectId.startsWith('CAMPAIGN-');
-      
-      // Match if:
-      // 1. Exact userId match (normalized), OR
-      // 2. It's a campaign lead (created from campaigns in the app - regardless of createdBy name)
-      const matchesUser = leadCreatedBy === searchUserId || 
-                         (isCampaignLead && lead.source === 'PROJECT_BASED');
-      
+
+      const matchesUser = leadCreatedBy === searchUserId;
+
       const isOriginalLead = !lead.assignedTo; // Only original unassigned leads, not contractor-specific assigned ones
-      
+
+      if (lead.source === 'BPS_SELECTION' && leadCreatedBy === searchUserId) {
+        return true;
+      }
+
       if (lead.source === 'PROJECT_BASED' && matchesUser && isOriginalLead) {
         return true;
       }
@@ -391,19 +549,11 @@ router.get('/my-requests/:userId', async (req, res) => {
 
     // Also include from local storage (projectLeads array)
     const localRequests = projectLeads.filter(lead => {
-      // Normalize createdBy for comparison (trim whitespace, handle case)
       const leadCreatedBy = (lead.createdBy || '').trim().toLowerCase();
       const searchUserId = userId.toLowerCase();
-      
-      // Also check if lead is from a campaign (has CAMPAIGN- prefix in projectId)
-      const isCampaignLead = lead.projectId && lead.projectId.startsWith('CAMPAIGN-');
-      
-      // Match if:
-      // 1. Exact userId match (normalized), OR
-      // 2. It's a campaign lead (created from campaigns in the app - regardless of createdBy name)
-      const matchesUser = leadCreatedBy === searchUserId || 
-                         (isCampaignLead && lead.source === 'PROJECT_BASED');
-      
+
+      const matchesUser = leadCreatedBy === searchUserId;
+
       if (lead.source === 'PROJECT_BASED' && matchesUser) {
         return true;
       }
@@ -445,9 +595,11 @@ router.get('/my-requests/:userId', async (req, res) => {
         id: lead.id,
         title: lead.title,
         trade: lead.trade,
+        source: lead.source || 'PROJECT_BASED',
         projectId: lead.projectId || null, // IMPORTANT: Include projectId so frontend can identify campaign leads
         city: lead.location?.city || 'Unknown',
         state: lead.location?.state || 'Unknown',
+        zip: lead.location?.zip || null,
         budgetMin: lead.project?.budgetMin || 0,
         budgetMax: lead.project?.budgetMax || 0,
         timeline: lead.project?.timeline || 'Normal',
@@ -479,9 +631,21 @@ router.get('/my-requests/:userId', async (req, res) => {
 });
 
 // DELETE a specific project lead
-router.delete('/:leadId', async (req, res) => {
+router.delete('/:leadId', authenticateToken, async (req, res) => {
   try {
     const { leadId } = req.params;
+    const canonical = resolveLeadForDeleteOwnership(leadId);
+    if (!canonical) {
+      console.log(`❌ Lead not found: ${leadId}`);
+      return res.status(404).json({ error: 'Lead not found' });
+    }
+    if (!leadOwnedByRequester(req, canonical)) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Not allowed to delete this lead',
+      });
+    }
+
     console.log(`🗑️ Deleting project lead: ${leadId}`);
     console.log(`📊 Current projectLeads count: ${projectLeads.length}`);
     console.log(`📋 Available lead IDs: ${projectLeads.map(l => l.id).join(', ')}`);
@@ -545,19 +709,30 @@ router.delete('/:leadId', async (req, res) => {
 });
 
 // Bulk delete by projectId (for campaigns)
-router.delete('/campaign/:projectId', async (req, res) => {
+router.delete('/campaign/:projectId', authenticateToken, async (req, res) => {
   try {
     const { projectId } = req.params;
-    console.log(`🗑️ Bulk deleting campaign leads for projectId: ${projectId}`);
+    const decodedId = decodeURIComponent(projectId);
+    const batch = collectLeadsByProjectId(decodedId);
+    for (const lead of batch) {
+      if (!leadOwnedByRequester(req, lead)) {
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'Not allowed to delete leads for this campaign',
+        });
+      }
+    }
+
+    console.log(`🗑️ Bulk deleting campaign leads for projectId: ${decodedId}`);
     
     // Delete from projectLeads array
     const initialProjectCount = projectLeads.length;
-    projectLeads = projectLeads.filter(lead => lead.projectId !== projectId);
+    projectLeads = projectLeads.filter(lead => lead.projectId !== decodedId);
     const deletedFromProject = initialProjectCount - projectLeads.length;
     
     // Delete from unifiedLeadService.allLeads
     const initialUnifiedCount = unifiedLeadService.allLeads.length;
-    unifiedLeadService.allLeads = unifiedLeadService.allLeads.filter(lead => lead.projectId !== projectId);
+    unifiedLeadService.allLeads = unifiedLeadService.allLeads.filter(lead => lead.projectId !== decodedId);
     unifiedLeadService.persistUnifiedLeads(); // Save to disk
     const deletedFromUnified = initialUnifiedCount - unifiedLeadService.allLeads.length;
     

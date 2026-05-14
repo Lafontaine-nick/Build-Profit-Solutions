@@ -7,8 +7,9 @@ export type LeadStage = 'new' | 'contacted' | 'quoted' | 'proposal' | 'proposal-
 
 export type LeadSource = 
   | 'PROJECT_BASED'
+  | 'BPS_SELECTION'
   | 'BID_INVITATION'
-  | 'MARKETPLACE'
+  | 'MARKETPLACE' // legacy / not ingested in app
   | 'AI_ESTIMATE'
   | 'SHARED'
   | 'web'

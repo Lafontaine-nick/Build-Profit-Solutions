@@ -199,9 +199,9 @@ export default function AboutScreen() {
                         </View>
 
                         <View style={styles.featureItem}>
-                          <Text style={[styles.bulletTitle, { color: theme.text }]}>Subcontractor Marketplace</Text>
+                          <Text style={[styles.bulletTitle, { color: theme.text }]}>Find Subcontractors</Text>
                           <Text style={[styles.bulletText, { color: theme.subtext }]}>
-                            Compare pricing, discover subcontractors, and build competitive
+                            Discover verified subs in the BPS directory, compare options, and build competitive
                             bids with AI-assisted labor cost suggestions.
                           </Text>
                         </View>

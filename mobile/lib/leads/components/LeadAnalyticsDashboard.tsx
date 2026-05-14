@@ -273,9 +273,9 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
 
   const trends = useMemo(() => computeTrends(filteredLeads), [filteredLeads, engagementData]);
 
-  // Calculate Revenue Pipeline Forecast (AI-weighted)
+  // Expected close range from active pipeline (uses match score on each lead, not a separate “auto-match” feed)
   const revenueForecast = useMemo(() => {
-    // Calculate expected revenue based on win rate and AI scores
+    // Weighted expected revenue from budgets × per-lead score / win history
     // Active pipeline (leads not won/lost)
     const activeLeads = filteredLeads.filter(l => !['won', 'lost'].includes(l.stage));
     
@@ -542,7 +542,7 @@ export const LeadAnalyticsDashboard: React.FC<LeadAnalyticsDashboardProps> = ({ 
                     !darkMode && { color: Colors.sub },
                   ]}
                 >
-                  Expected Close (AI-weighted):
+                  Expected close (score-weighted):
                 </Text>
                 <Text style={styles.revenueForecastValue}>
                   ${(revenueForecast.expectedRevenue / 1000).toFixed(0)}K–${(revenueForecast.bestCaseRevenue / 1000).toFixed(0)}K

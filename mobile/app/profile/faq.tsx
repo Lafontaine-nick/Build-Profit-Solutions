@@ -29,6 +29,7 @@ import Animated, {
   withTiming,
   interpolate,
 } from 'react-native-reanimated';
+import { leadSourcesFaqAnswer } from '@/lib/leads/leadSourcesHelp';
 
 interface FAQItem {
   id: string;
@@ -69,6 +70,13 @@ const faqData: FAQItem[] = [
       'Our AI analyzes lead data including project type, budget, location, and timeline to generate a Perfect Fit score. This score helps you prioritize leads that best match your business profile and preferences. AI recommendations, not automatic changes—you decide which leads to pursue.',
     category: 'features',
     bestFor: 'Prioritizing new leads',
+  },
+  {
+    id: '4-lead-sources',
+    question: 'How do leads show up in my app?',
+    answer: leadSourcesFaqAnswer(),
+    category: 'features',
+    bestFor: 'Leads tab and Find Subcontractors',
   },
   {
     id: '5',

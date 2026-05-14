@@ -18,6 +18,8 @@ interface LeadCardManagerProps {
   onSetReminder: (lead: Lead) => void;
   onDelete?: (lead: Lead) => void;
   onStageChange?: (lead: Lead, newStage: string) => void;
+  /** Clerk id or email — same scope as `project-leads/my-requests/:userId` (fallback demo id). */
+  leadScopeUserId?: string;
 }
 
 export default function LeadCardManager({
@@ -28,6 +30,7 @@ export default function LeadCardManager({
   onSetReminder,
   onDelete,
   onStageChange,
+  leadScopeUserId,
 }: LeadCardManagerProps) {
   // Render different card types based on mode
   switch (mode) {
@@ -39,6 +42,7 @@ export default function LeadCardManager({
           onAddNote={onAddNote}
           onSetReminder={onSetReminder}
           onStageChange={onStageChange}
+          leadScopeUserId={leadScopeUserId}
         />
       );
 
@@ -61,6 +65,7 @@ export default function LeadCardManager({
           onPress={onPress}
           onAddNote={onAddNote}
           onSetReminder={onSetReminder}
+          leadScopeUserId={leadScopeUserId}
         />
       );
   }

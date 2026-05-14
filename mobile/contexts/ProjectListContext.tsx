@@ -58,6 +58,8 @@ export interface UnifiedProject {
   // Metadata
   createdAt: string;
   updatedAt: string;
+  /** Set when the job first enters `completed` — used with schedule end for list dates. */
+  completedAt?: string;
   
   // Estimate data (if from estimates page)
   estimateData?: any;
@@ -512,6 +514,8 @@ const mapBackendProjectToUnified = (project: any): UnifiedProject => {
     clientPhone: project?.clientPhone,
     createdAt: toIsoDate(project?.createdAt, nowIso),
     updatedAt: toIsoDate(project?.updatedAt, nowIso),
+    completedAt:
+      project?.completedAt || project?.projectData?.completedAt || undefined,
     estimateData: project?.estimateData,
     projectData: project?.projectData,
     projectType: project?.projectType || project?.projectData?.projectType || title,
@@ -1014,6 +1018,17 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
           // Timeline/storage can briefly report <100 and wrongly moved completed jobs to Active (Expo vs TestFlight).
         }
 
+        if (normalizeStatus(next.status) === 'completed' && !updates.completedAt) {
+          if (!next.completedAt) {
+            next.completedAt =
+              p.completedAt ||
+              p.projectData?.completedAt ||
+              (normalizeStatus(p.status) !== 'completed'
+                ? new Date().toISOString()
+                : undefined);
+          }
+        }
+
         return { ...next, updatedAt: new Date().toISOString() };
       })
     );
@@ -1068,6 +1083,11 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
                 100
               ),
               updatedAt: new Date().toISOString(),
+              completedAt:
+                localP.completedAt ||
+                localP.projectData?.completedAt ||
+                serverP.completedAt ||
+                serverP.projectData?.completedAt,
             };
           }
           return serverP;

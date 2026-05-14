@@ -3,6 +3,7 @@
  * More accurate US ZIP from lat/lng than free reverse-geocode APIs (boundary snap issues).
  *
  * GET /api/geocode/reverse?lat=&lng=
+ * GET /api/geocode/zip-locality?zip=89141 — city + state for subcontractor request posts
  * GET /api/geocode/refine-neighbor-zip?lat=&lng=&zip= — LV metro viewport + legacy 88914/89141 tweak (OSM fallback)
  */
 
@@ -490,6 +491,103 @@ router.get('/reverse', async (req, res) => {
     res.status(502).json({
       zip: null,
       source: 'error',
+      error: err.response?.data?.error_message || err.message || 'Geocode failed',
+    });
+  }
+});
+
+/**
+ * Forward-resolve a US ZIP to a display city + 2-letter state (for subcontractor requests, etc.).
+ * GET /api/geocode/zip-locality?zip=89141
+ */
+router.get('/zip-locality', async (req, res) => {
+  const zip5 = (req.query.zip || '').toString().replace(/\D/g, '').slice(0, 5);
+  if (zip5.length !== 5) {
+    return res.status(400).json({
+      error: 'zip query param must be 5 US digits',
+      ok: false,
+      zip: zip5 || null,
+      city: null,
+      state: null,
+    });
+  }
+
+  const apiKey = resolveGoogleMapsKey();
+  if (!apiKey || apiKey === 'YOUR_GOOGLE_PLACES_API_KEY_HERE') {
+    return res.status(503).json({
+      ok: false,
+      disabled: true,
+      zip: zip5,
+      city: null,
+      state: null,
+      message:
+        'Geocoding is not configured. Set GOOGLE_PLACES_API_KEY or GOOGLE_MAPS_API_KEY on the server.',
+    });
+  }
+
+  try {
+    const { data } = await axios.get(GEOCODE_URL, {
+      params: {
+        components: `country:US|postal_code:${zip5}`,
+        key: apiKey,
+      },
+      timeout: 8000,
+    });
+
+    if (data.status !== 'OK' || !Array.isArray(data.results) || !data.results.length) {
+      return res.json({
+        ok: false,
+        zip: zip5,
+        city: null,
+        state: null,
+        geocodeStatus: data.status || 'EMPTY',
+        googleErrorMessage: firstGoogleGeocodeErrorMessage(data),
+      });
+    }
+
+    let { locality, adminArea1 } = extractLocalityStateFromGeocodeResults(data.results);
+    if (!locality) {
+      const comps = data.results[0].address_components || [];
+      for (const c of comps) {
+        const types = c.types || [];
+        if (
+          types.includes('sublocality_level_1') ||
+          types.includes('neighborhood') ||
+          types.includes('administrative_area_level_3')
+        ) {
+          locality = c.long_name || c.short_name || locality;
+          if (locality) break;
+        }
+      }
+    }
+    if (!locality) {
+      locality = `ZIP ${zip5}`;
+    }
+    if (!adminArea1) {
+      return res.json({
+        ok: false,
+        zip: zip5,
+        city: locality,
+        state: null,
+        geocodeStatus: data.status,
+        googleErrorMessage: firstGoogleGeocodeErrorMessage(data),
+      });
+    }
+
+    return res.json({
+      ok: true,
+      zip: zip5,
+      city: locality,
+      state: adminArea1,
+      geocodeStatus: data.status,
+    });
+  } catch (err) {
+    console.error('GET /geocode/zip-locality', err.message);
+    res.status(502).json({
+      ok: false,
+      zip: zip5,
+      city: null,
+      state: null,
       error: err.response?.data?.error_message || err.message || 'Geocode failed',
     });
   }

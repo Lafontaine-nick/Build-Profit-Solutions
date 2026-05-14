@@ -59,7 +59,7 @@ export default function InstagramField({
             onChange?.(clean);
           }}
           placeholder="yourcompany"
-          placeholderTextColor={darkMode ? "rgba(255,255,255,0.45)" : "#64748B"}
+          placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
           autoCapitalize="none"
           autoCorrect={false}
           style={styles.input}

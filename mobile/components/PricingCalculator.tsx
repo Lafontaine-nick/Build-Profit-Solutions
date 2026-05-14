@@ -21,7 +21,8 @@ interface PricingCalculatorProps {
   onUpdate: (pricing: any) => void;
 }
 
-const SPECIALTY_PRICING_TEMPLATES = {
+/** Typical hourly ranges by trade — used by full calculator and quick campaign setup. */
+export const SPECIALTY_PRICING_TEMPLATES = {
   'Plumbing': { min: 75, max: 150 },
   'Electrical': { min: 85, max: 175 },
   'HVAC': { min: 90, max: 200 },

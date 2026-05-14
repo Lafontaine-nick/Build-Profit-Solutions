@@ -218,7 +218,7 @@ export default function SearchSuggestions({
           value={query}
           onChangeText={handleQueryChange}
           placeholder={placeholder}
-          placeholderTextColor="#FFFFFF"
+          placeholderTextColor="#94A3B8"
           onFocus={() => setShowSuggestions(query.length >= 2)}
           onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
         />

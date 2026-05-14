@@ -57,6 +57,7 @@ export interface LeadStats {
   total: number;
   bySource: {
     PROJECT_BASED: number;
+    BPS_SELECTION: number;
     BID_INVITATION: number;
     SHARED: number;
     AI_ESTIMATE: number;

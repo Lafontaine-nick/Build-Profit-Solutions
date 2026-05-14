@@ -20,8 +20,8 @@ import {
   Pressable,
   ScrollView,
   Image,
+  ActivityIndicator,
 } from 'react-native';
-import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 // // // import MapView, { Marker } from 'react-native-maps'; // Disabled for Expo Go compatibility // Requires development build
@@ -29,6 +29,8 @@ import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { Dimensions } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Lead, LeadStage } from '../types';
+import { LEAD_SOURCES_WAYS } from '../leadSourcesHelp';
+import { isAllowedProductLead } from '../allowedLeadIngest';
 import {
   hasReachedPipelineStage,
   matchesProposalSentPipelineBucket,
@@ -43,6 +45,8 @@ import LeadsHeader from './LeadsHeader';
 import LeadCardManager, { CardDisplayMode } from './LeadCardManager';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
+import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
+import { withProjectLeadsAuth } from '@/utils/projectLeadsAuthFetch';
 import { BRAND_FRAME_GRADIENT_COLORS, BRAND_FRAME_GRADIENT_END, BRAND_FRAME_GRADIENT_START } from '@/constants/brandFrameGradient';
 import {
   getTimeAgo,
@@ -94,6 +98,16 @@ const LEADS_SECTION_GRADIENT = {
   light: [...BRAND_FRAME_GRADIENT_COLORS] as [string, string],
 };
 
+/** PROJECT_BASED row tied to CAMPAIGN- project ids (My Campaign on Leads). */
+function isCampaignPathLead(lead: Lead): boolean {
+  return lead.source === 'PROJECT_BASED' && !!lead.projectId?.startsWith?.('CAMPAIGN-');
+}
+
+/** PROJECT_BASED rows that are not campaign-backed (your sub need or a matched incoming need). */
+function isSubRequestPathLead(lead: Lead): boolean {
+  return lead.source === 'PROJECT_BASED' && !lead.projectId?.startsWith?.('CAMPAIGN-');
+}
+
 interface EnhancedLeadsPageProps {
   leads: Lead[];
   onStageChange: (lead: Lead, newStage: LeadStage) => void;
@@ -124,6 +138,10 @@ interface EnhancedLeadsPageProps {
     preferredTimelines?: ('Urgent' | 'Soon' | 'Normal' | 'Flexible')[];
     filterByTrade?: boolean;
   } | null;
+  /** Same user id used for product-only lead ingest on the Leads tab (Clerk id or email, else demo). */
+  leadScopeUserId?: string;
+  /** When true, empty list shows a loading placeholder instead of “No leads here yet” (initial hydrate + API refresh). */
+  suppressEmptyStateWhileLoading?: boolean;
 }
 
 // Helper Functions
@@ -200,8 +218,9 @@ const scoreLead = (lead: Lead): number => {
 const getSourceLabel = (source: string): string => {
   const sourceMap: Record<string, string> = {
     'PROJECT_BASED': 'Sub Needs',
-    'BID_INVITATION': 'Invites',
-    'MARKETPLACE': 'Marketplace',
+    'BPS_SELECTION': 'Directory pick',
+    'BID_INVITATION': 'Bid invites',
+    'MARKETPLACE': 'Marketplace (legacy)',
     'AI_ESTIMATE': 'Auto-Match',
     'SHARED': 'Shared',
   };
@@ -213,6 +232,8 @@ const getSourceStyle = (source: string) => {
   switch(source) {
     case 'PROJECT_BASED':
       return { backgroundColor: '#1E3A8A', borderColor: '#3B82F6' };
+    case 'BPS_SELECTION':
+      return { backgroundColor: '#0F766E', borderColor: '#2DD4BF' };
     case 'BID_INVITATION':
       return { backgroundColor: '#7C2D12', borderColor: '#F59E0B' };
     case 'MARKETPLACE':
@@ -303,57 +324,52 @@ const SourceAnalytics = ({ leads, selectedSource, onSourceSelect }: SourceAnalyt
   const darkMode = theme.bg === '#000000';
 
   const sourceCounts = useMemo(() => {
-    // For PROJECT_BASED, only count campaign leads and user's own sub requests
-    const projectBasedLeads = leads.filter(l => {
-      if (l.source !== 'PROJECT_BASED') return false;
-      const isCampaignLead = l.projectId?.startsWith?.('CAMPAIGN-');
-      const isOwnSubRequest = (l.isOwnRequest === true || l.createdBy === 'contractor-demo') && !isCampaignLead;
-      return isCampaignLead || isOwnSubRequest;
-    });
-    
-    const counts = {
+    const myCampaign = leads.filter(isCampaignPathLead).length;
+    const subRequest = leads.filter(isSubRequestPathLead).length;
+    const directory = leads.filter((l) => l.source === 'BPS_SELECTION').length;
+    return {
       all: leads.length,
-      PROJECT_BASED: projectBasedLeads.length,
-      BID_INVITATION: leads.filter(l => l.source === 'BID_INVITATION').length,
-      MARKETPLACE: leads.filter(l => l.source === 'MARKETPLACE').length,
-      AI_ESTIMATE: leads.filter(l => l.source === 'AI_ESTIMATE').length,
-      SHARED: leads.filter(l => l.source === 'SHARED').length,
+      MY_CAMPAIGN: myCampaign,
+      SUB_REQUEST: subRequest,
+      BPS_SELECTION: directory,
     };
-    return counts;
   }, [leads]);
 
-        const sources = [
-          { 
-            key: 'all', 
-            label: 'All', 
-            count: sourceCounts.all, 
-            description: 'All leads from every source'
-          },
-          { 
-            key: 'PROJECT_BASED', 
-            label: 'Sub Needs', 
-            count: sourceCounts.PROJECT_BASED, 
-            description: 'Subcontractor requests from your projects'
-          },
-          { 
-            key: 'BID_INVITATION', 
-            label: 'Invites', 
-            count: sourceCounts.BID_INVITATION, 
-            description: 'Direct invitations from GCs for specific projects'
-          },
-          { 
-            key: 'AI_ESTIMATE', 
-            label: 'Auto-Match', 
-            count: sourceCounts.AI_ESTIMATE, 
-            description: 'AI-matched leads based on your trade & location'
-          },
-          { 
-            key: 'MARKETPLACE', 
-            label: 'Marketplace', 
-            count: sourceCounts.MARKETPLACE, 
-            description: 'Public project postings from customers'
-          },
-        ];
+  const sources = [
+    {
+      key: 'all',
+      label: 'All',
+      count: sourceCounts.all,
+      description: 'Campaign posts, sub requests you send or receive, and directory picks',
+    },
+    {
+      key: 'MY_CAMPAIGN',
+      label: 'My Campaign',
+      count: sourceCounts.MY_CAMPAIGN,
+      description: LEAD_SOURCES_WAYS[0]?.detail ?? '',
+    },
+    {
+      key: 'SUB_REQUEST',
+      label: 'Sub request',
+      count: sourceCounts.SUB_REQUEST,
+      description: LEAD_SOURCES_WAYS[1]?.detail ?? '',
+    },
+    {
+      key: 'BPS_SELECTION',
+      label: 'Directory pick',
+      count: sourceCounts.BPS_SELECTION,
+      description: LEAD_SOURCES_WAYS[2]?.detail ?? '',
+    },
+  ];
+
+  const selectedKey =
+    selectedSource === 'PROJECT_BASED'
+      ? 'SUB_REQUEST'
+      : selectedSource === 'BID_INVITATION' ||
+          selectedSource === 'AI_ESTIMATE' ||
+          selectedSource === 'SHARED'
+        ? 'all'
+        : selectedSource;
 
   // Show high-value leads insight
   const highValueLeads = useMemo(() => {
@@ -396,8 +412,8 @@ const SourceAnalytics = ({ leads, selectedSource, onSourceSelect }: SourceAnalyt
                 style={[styles.helpButton, !darkMode && { backgroundColor: Colors.surface }]}
                 onPress={() => {
                   Alert.alert(
-                    'Lead Source Types',
-                    sources.map(s => `${s.label}: ${s.description}`).join('\n\n'),
+                    'How leads enter BPS',
+                    LEAD_SOURCES_WAYS.map((w, i) => `${i + 1}. ${w.title}\n${w.detail}`).join('\n\n'),
                     [{ text: 'Got it', style: 'default' }]
                   );
                 }}
@@ -413,9 +429,9 @@ const SourceAnalytics = ({ leads, selectedSource, onSourceSelect }: SourceAnalyt
                   key={source.key}
                   style={[
                     styles.sourceTab,
-                    selectedSource === source.key && styles.sourceTabActive,
+                    selectedKey === source.key && styles.sourceTabActive,
                     !darkMode &&
-                      (selectedSource === source.key
+                      (selectedKey === source.key
                         ? { borderBottomColor: Colors.primary }
                         : { borderBottomColor: 'transparent' }),
                   ]}
@@ -433,10 +449,10 @@ const SourceAnalytics = ({ leads, selectedSource, onSourceSelect }: SourceAnalyt
                   <Text
                     style={[
                       styles.sourceTabLabel,
-                      selectedSource === source.key && styles.sourceTabLabelActive,
+                      selectedKey === source.key && styles.sourceTabLabelActive,
                       !darkMode && {
-                        color: selectedSource === source.key ? Colors.text : Colors.sub,
-                        fontWeight: selectedSource === source.key ? '700' : '600',
+                        color: selectedKey === source.key ? Colors.text : Colors.sub,
+                        fontWeight: selectedKey === source.key ? '700' : '600',
                       },
                     ]}
                   >
@@ -445,16 +461,16 @@ const SourceAnalytics = ({ leads, selectedSource, onSourceSelect }: SourceAnalyt
                   <View
                     style={[
                       styles.sourceBadge,
-                      selectedSource === source.key && styles.sourceBadgeActive,
+                      selectedKey === source.key && styles.sourceBadgeActive,
                       !darkMode && {
-                        backgroundColor: selectedSource === source.key ? Colors.iconBg : Colors.surface2,
+                        backgroundColor: selectedKey === source.key ? Colors.iconBg : Colors.surface2,
                       },
                     ]}
                   >
                     <Text
                       style={[
                         styles.sourceBadgeText,
-                        selectedSource === source.key && styles.sourceBadgeTextActive,
+                        selectedKey === source.key && styles.sourceBadgeTextActive,
                         !darkMode && { color: Colors.text },
                       ]}
                     >
@@ -465,24 +481,24 @@ const SourceAnalytics = ({ leads, selectedSource, onSourceSelect }: SourceAnalyt
               ))}
             </ScrollView>
 
-      {/* Source Analytics Summary — dark keeps accent chips; light uses calmer surfaces */}
+      {/* Summary chips — same three paths as the horizontal tabs */}
       <View style={styles.sourceStatsChipsContainer}>
         <View style={styles.sourceStatsChipRow}>
           <View
             style={[
               styles.sourceStatsChip,
               darkMode
-                ? { backgroundColor: '#581C8720', borderColor: '#A855F7' }
+                ? { backgroundColor: '#0e749020', borderColor: '#38BDF8' }
                 : { backgroundColor: Colors.surface2, borderColor: Colors.line },
             ]}
           >
             <Text
               style={[
                 styles.sourceStatsChipText,
-                { color: darkMode ? '#A855F7' : Colors.text },
+                { color: darkMode ? '#38BDF8' : Colors.text },
               ]}
             >
-              Auto-Match {sourceCounts.AI_ESTIMATE}
+              My Campaign {sourceCounts.MY_CAMPAIGN}
             </Text>
           </View>
           <View
@@ -499,7 +515,7 @@ const SourceAnalytics = ({ leads, selectedSource, onSourceSelect }: SourceAnalyt
                 { color: darkMode ? '#19E180' : Colors.text },
               ]}
             >
-              Sub Needs {sourceCounts.PROJECT_BASED}
+              Sub request {sourceCounts.SUB_REQUEST}
             </Text>
           </View>
         </View>
@@ -508,34 +524,17 @@ const SourceAnalytics = ({ leads, selectedSource, onSourceSelect }: SourceAnalyt
             style={[
               styles.sourceStatsChip,
               darkMode
-                ? { backgroundColor: '#7C2D1220', borderColor: '#F59E0B' }
+                ? { backgroundColor: '#0F766E20', borderColor: '#2DD4BF' }
                 : { backgroundColor: Colors.surface2, borderColor: Colors.line },
             ]}
           >
             <Text
               style={[
                 styles.sourceStatsChipText,
-                { color: darkMode ? '#F59E0B' : Colors.text },
+                { color: darkMode ? '#2DD4BF' : Colors.text },
               ]}
             >
-              Invites {sourceCounts.BID_INVITATION}
-            </Text>
-          </View>
-          <View
-            style={[
-              styles.sourceStatsChip,
-              darkMode
-                ? { backgroundColor: '#1E3A8A20', borderColor: '#3B82F6' }
-                : { backgroundColor: Colors.surface2, borderColor: Colors.line },
-            ]}
-          >
-            <Text
-              style={[
-                styles.sourceStatsChipText,
-                { color: darkMode ? '#3B82F6' : Colors.text },
-              ]}
-            >
-              Marketplace {sourceCounts.MARKETPLACE}
+              Directory {sourceCounts.BPS_SELECTION}
             </Text>
           </View>
         </View>
@@ -655,6 +654,7 @@ interface EnhancedLeadCardProps {
   onSetReminder?: (reminderDate: Date, reminderNote?: string) => void;
   onOpenNotes?: (lead: Lead) => void;
   onStageChange?: (lead: Lead, newStage: LeadStage) => void;
+  leadScopeUserId?: string;
 }
 
 const EnhancedLeadCard = ({
@@ -665,10 +665,12 @@ const EnhancedLeadCard = ({
   onSetReminder,
   onOpenNotes,
   onStageChange,
+  leadScopeUserId,
 }: EnhancedLeadCardProps) => {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
+  const scopeUserId = leadScopeUserId?.trim() || 'contractor-demo';
   
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [showReminderModal, setShowReminderModal] = useState(false);
@@ -754,7 +756,9 @@ const EnhancedLeadCard = ({
   
   // Check if this is a campaign lead (CAMPAIGN- prefix) vs sub request (PRJ- prefix or other PROJECT_BASED)
   const hasCampaignProjectId = !!lead.projectId?.startsWith?.('CAMPAIGN-');
-  const isOwnProjectBased = lead.source === 'PROJECT_BASED' && (lead.isOwnRequest === true || lead.createdBy === 'contractor-demo');
+  const isOwnProjectBased =
+    lead.source === 'PROJECT_BASED' &&
+    (lead.isOwnRequest === true || lead.createdBy === scopeUserId);
   // Also check title for campaign indicator as fallback
   const titleHasCampaign = lead.title?.toLowerCase().includes('campaign') || false;
   const isCampaignLead = hasCampaignProjectId; // Only campaign leads have CAMPAIGN- prefix
@@ -1633,7 +1637,7 @@ const EnhancedLeadCard = ({
             <TextInput
               style={styles.noteInput}
               placeholder="Type your note here..."
-              placeholderTextColor="#FFFFFF"
+              placeholderTextColor="#94A3B8"
               multiline
               value={noteText}
               onChangeText={setNoteText}
@@ -1709,7 +1713,7 @@ const EnhancedLeadCard = ({
             <TextInput
               style={styles.reminderNoteInput}
               placeholder="Optional reminder note..."
-              placeholderTextColor="#FFFFFF"
+              placeholderTextColor="#94A3B8"
               value={reminderNote}
               onChangeText={setReminderNote}
             />
@@ -1738,7 +1742,10 @@ export default function EnhancedLeadsPage({
   onPreferencesPress,
   onLeadsViewMeta,
   contractorProfile,
+  leadScopeUserId,
+  suppressEmptyStateWhileLoading = false,
 }: EnhancedLeadsPageProps) {
+  const scopedLeadUserId = (leadScopeUserId ?? 'contractor-demo').trim();
   // Tab Navigation
   const [activeViewTab, setActiveViewTab] = useState<'leads' | 'analytics' | 'insights'>('leads');
   
@@ -1771,12 +1778,6 @@ export default function EnhancedLeadsPage({
   const [bulkActionMode, setBulkActionMode] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
 
-  // Non-campaign, non-archived (unless showArchived) — scope of the main Leads list before pipeline/search filters
-  const eligibleInLeadsTab = useMemo(() => {
-    const visibleLeads = showArchived ? leads : leads.filter((lead) => !lead.archived);
-    return visibleLeads.filter((lead) => !lead.projectId?.startsWith('CAMPAIGN-')).length;
-  }, [leads, showArchived]);
-
   const [showCampaignModal, setShowCampaignModal] = useState(false);
   const [showEditCampaignModal, setShowEditCampaignModal] = useState(false);
   const [editingCampaign, setEditingCampaign] = useState<SubcontractorCampaign | null>(null);
@@ -1785,6 +1786,27 @@ export default function EnhancedLeadsPage({
   const [campaignScrollX, setCampaignScrollX] = useState(new Animated.Value(0));
   const [showMessagesInbox, setShowMessagesInbox] = useState(false);
   const [campaignTimePeriod, setCampaignTimePeriod] = useState<'month' | 'alltime'>('month');
+
+  /** Same ingest rules as `leads.tsx` when `leadScopeUserId` is set. */
+  const displayLeads = useMemo(() => {
+    const uid = (leadScopeUserId || '').trim();
+    if (!uid) return leads;
+    return leads.filter((l) => isAllowedProductLead(l, uid));
+  }, [leads, leadScopeUserId]);
+
+  useEffect(() => {
+    setSourceFilter((prev) => {
+      if (prev === 'PROJECT_BASED') return 'SUB_REQUEST';
+      if (prev === 'BID_INVITATION' || prev === 'AI_ESTIMATE' || prev === 'SHARED') return 'all';
+      return prev;
+    });
+  }, []);
+
+  // All non-archived product leads (unless showArchived) — used for “X of Y” meta vs filtered list
+  const eligibleInLeadsTab = useMemo(() => {
+    const visibleLeads = showArchived ? displayLeads : displayLeads.filter((lead) => !lead.archived);
+    return visibleLeads.length;
+  }, [displayLeads, showArchived]);
   
   // Get chat context for unread count
   const { conversations } = useChat();
@@ -1812,8 +1834,8 @@ export default function EnhancedLeadsPage({
   >({});
 
   const leadsStageSignature = useMemo(
-    () => leads.map((l) => `${l.id}:${l.stage}`).join('|'),
-    [leads]
+    () => displayLeads.map((l) => `${l.id}:${l.stage}`).join('|'),
+    [displayLeads]
   );
 
   const refreshPipelineEngagement = useCallback(async () => {
@@ -1904,7 +1926,7 @@ export default function EnhancedLeadsPage({
 
   // Calculate campaign performance metrics
   const calculateCampaignMetrics = useCallback((campaignId: string) => {
-    const campaignLeads = leads.filter(l => l.projectId?.startsWith(`CAMPAIGN-${campaignId}`));
+    const campaignLeads = displayLeads.filter(l => l.projectId?.startsWith(`CAMPAIGN-${campaignId}`));
     const totalLeads = campaignLeads.length;
     const bookedJobs = campaignLeads.filter(l => l.stage === 'won').length;
     const winRate = totalLeads > 0 ? (bookedJobs / totalLeads) * 100 : 0;
@@ -1934,7 +1956,7 @@ export default function EnhancedLeadsPage({
       costPerLead,
       roi,
     };
-  }, [leads]);
+  }, [displayLeads]);
 
   // Calculate aggregate performance across all campaigns
   const aggregateCampaignMetrics = useMemo(() => {
@@ -1978,7 +2000,7 @@ export default function EnhancedLeadsPage({
     };
   }, [campaigns, calculateCampaignMetrics, campaignTimePeriod]);
   
-  // Calculate marketplace reach for a campaign (estimated population in service areas)
+  // Calculate network reach for a campaign (estimated population in service areas)
   const calculateMarketplaceReach = useCallback((campaign: SubcontractorCampaign) => {
     if (!campaign.serviceAreas || campaign.serviceAreas.length === 0) return 0;
     
@@ -2016,7 +2038,7 @@ export default function EnhancedLeadsPage({
   
   // Calculate additional campaign metrics (Response Time, Quotes Sent, Avg Job Size)
   const calculateAdditionalMetrics = useCallback((campaignId: string) => {
-    const campaignLeads = leads.filter(l => l.projectId?.startsWith(`CAMPAIGN-${campaignId}`));
+    const campaignLeads = displayLeads.filter(l => l.projectId?.startsWith(`CAMPAIGN-${campaignId}`));
     const quotesSent = campaignLeads.filter(l => l.stage === 'proposal' || l.stage === 'proposal-sent' || l.stage === 'quoted').length;
     
     // Calculate average job size from won leads
@@ -2039,7 +2061,7 @@ export default function EnhancedLeadsPage({
       quotesSent,
       avgJobSize,
     };
-  }, [leads]);
+  }, [displayLeads]);
 
   // Bulk action functions
   const toggleBulkMode = () => {
@@ -2132,7 +2154,7 @@ export default function EnhancedLeadsPage({
   // Enhanced filtering with new filters
   const filteredAndSortedLeads = useMemo(() => {
     console.log('🔍 Filtering leads:', {
-      totalLeads: leads.length,
+      totalLeads: displayLeads.length,
       pipeline,
       sourceFilter,
       projectTypeFilter,
@@ -2146,35 +2168,14 @@ export default function EnhancedLeadsPage({
     
     // FIRST: Filter archived leads (unless showArchived is true)
     const visibleLeads = showArchived 
-      ? leads 
-      : leads.filter(lead => !lead.archived);
+      ? displayLeads 
+      : displayLeads.filter(lead => !lead.archived);
     
-    // SECOND: Filter out campaign leads - they should NOT appear in the Leads tab
-    // Campaign leads should only appear in the Campaigns tab (insights tab)
-    const regularLeads = visibleLeads.filter(lead => {
-      // Campaign leads have projectId starting with 'CAMPAIGN-'
-      const hasCampaignProjectId = lead.projectId?.startsWith('CAMPAIGN-');
-      const isCampaignLead = hasCampaignProjectId;
-      
-      if (isCampaignLead) {
-        console.log(`🚫 Campaign lead filtered out from Leads tab: "${lead.title}" (projectId: "${lead.projectId}") - should only appear in Campaigns tab`);
-        return false; // Exclude campaign leads from Leads tab
-      }
-      
-      // Debug logging for sub request leads
-      if (lead.isOwnRequest === true || lead.source === 'PROJECT_BASED') {
-        const isOwnSubRequest = lead.source === 'PROJECT_BASED' && 
-                               (lead.isOwnRequest === true || lead.createdBy === 'contractor-demo') &&
-                               !hasCampaignProjectId;
-        if (isOwnSubRequest) {
-          console.log(`✅ Sub request lead (will show in Leads tab): "${lead.title}" (projectId: "${lead.projectId || 'none'}", isOwnRequest: ${lead.isOwnRequest}, source: "${lead.source}")`);
-        }
-      }
-      
-      return true; // Include all non-campaign leads
-    });
-    
-    console.log(`📊 Filtered leads: ${regularLeads.length} regular leads (campaign leads excluded - they only show in Campaigns tab)`);
+    // Campaign-backed leads (CAMPAIGN- projectId), sub requests, and directory picks
+    const regularLeads = visibleLeads;
+    console.log(
+      `📊 Leads tab list: ${regularLeads.length} leads (My Campaign, sub request, directory pick)`
+    );
     
     // Apply filters to regular leads
     // Filter by pipeline stage
@@ -2204,18 +2205,17 @@ export default function EnhancedLeadsPage({
           return l.stage === pipeline;
         });
     
-    // Filter by source
-    const bySource = sourceFilter === 'all' 
-      ? byPipeline 
-      : sourceFilter === 'PROJECT_BASED'
-      ? byPipeline.filter((l) => {
-          // For "Sub Needs", only show sub request leads (user's own PROJECT_BASED leads)
-          // Campaign leads are already separated above
-          const isOwnSubRequest = l.source === 'PROJECT_BASED' && 
-                                  (l.isOwnRequest === true || l.createdBy === 'contractor-demo');
-          return isOwnSubRequest;
-        })
-      : byPipeline.filter((l) => l.source === sourceFilter);
+    // Filter by source (three product paths)
+    const bySource =
+      sourceFilter === 'all'
+        ? byPipeline
+        : sourceFilter === 'MY_CAMPAIGN'
+          ? byPipeline.filter(isCampaignPathLead)
+          : sourceFilter === 'SUB_REQUEST' || sourceFilter === 'PROJECT_BASED'
+            ? byPipeline.filter(isSubRequestPathLead)
+            : sourceFilter === 'BPS_SELECTION'
+              ? byPipeline.filter((l) => l.source === 'BPS_SELECTION')
+              : byPipeline;
 
     // Filter by budget range
     const byBudget = budgetFilter === 'all' 
@@ -2287,7 +2287,7 @@ export default function EnhancedLeadsPage({
     console.log('🔍 Final filtered leads:', arr.length);
     return arr;
   }, [
-    leads,
+    displayLeads,
     pipeline,
     pipelineEngagementByLeadId,
     sourceFilter,
@@ -2348,7 +2348,7 @@ export default function EnhancedLeadsPage({
 
   // Empty state component
   const EmptyState = () => {
-    const hasLeads = leads.length > 0;
+    const hasLeads = displayLeads.length > 0;
     const hasFilters =
       query !== '' ||
       sourceFilter !== 'all' ||
@@ -2364,9 +2364,26 @@ export default function EnhancedLeadsPage({
         <Text style={[styles.emptyStateText, !darkMode && { color: Colors.text }]}>
           {hasLeads && hasFilters 
             ? "No leads match your filters." 
-            : "No leads available."}
+            : 'No leads here yet.'}
         </Text>
-        
+
+        {!hasLeads && (
+          <View style={[styles.emptyStateWaysWrap, !darkMode && styles.emptyStateWaysWrapLight]}>
+            <Text style={[styles.emptyStateWaysTitle, !darkMode && { color: Colors.text }]}>
+              Three ways to receive leads
+            </Text>
+            {LEAD_SOURCES_WAYS.map((way, idx) => (
+              <View key={way.title} style={styles.emptyStateWayBlock}>
+                <Text style={[styles.emptyStateWayHeading, !darkMode && { color: Colors.text }]}>
+                  {idx + 1}. {way.title}
+                </Text>
+                <Text style={[styles.emptyStateWayDetail, !darkMode && { color: Colors.sub }]}>
+                  {way.detail}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
         {hasLeads && hasFilters && (
       <TouchableOpacity
         onPress={() => {
@@ -2423,11 +2440,13 @@ export default function EnhancedLeadsPage({
             <Text style={[styles.sectionTitle, !darkMode && { color: Colors.text }]}>
               Lead Sources
             </Text>
-            <Text style={[styles.sectionSubtitle, !darkMode && { color: Colors.sub }]}>Filter by lead origin and source type</Text>
+            <Text style={[styles.sectionSubtitle, !darkMode && { color: Colors.sub }]}>
+              My Campaign, sub requests you send or receive, and directory picks
+            </Text>
           </View>
           <View style={styles.sectionContent}>
             <SourceAnalytics 
-              leads={leads} 
+              leads={displayLeads} 
               selectedSource={sourceFilter} 
               onSourceSelect={setSourceFilter} 
             />
@@ -2748,7 +2767,7 @@ export default function EnhancedLeadsPage({
                   style={styles.tradeTokenAdd}
                   onPress={() => {
                     // Get unique trades from leads and add standard trades
-                    const leadTrades = Array.from(new Set(leads.map(l => l.trade)));
+                    const leadTrades = Array.from(new Set(displayLeads.map(l => l.trade)));
                     const standardTrades = ['Cabinets', 'Concrete', 'Countertops', 'Drywall', 'Electrical', 'Flooring', 'General', 'HVAC', 'Landscaping', 'Painting', 'Plumbing', 'Roofing', 'Tile'];
                     const allTrades = Array.from(new Set([...standardTrades, ...leadTrades])).sort();
                     Alert.alert(
@@ -2799,6 +2818,7 @@ export default function EnhancedLeadsPage({
       key={lead.id}
       lead={lead}
       mode="compact"
+      leadScopeUserId={scopedLeadUserId}
       onPress={() => {
         if (bulkActionMode) {
           toggleLeadSelection(lead.id);
@@ -2928,7 +2948,16 @@ export default function EnhancedLeadsPage({
           <>
             {/* Leads List */}
             {filteredAndSortedLeads.length === 0 ? (
-              <EmptyState />
+              suppressEmptyStateWhileLoading ? (
+                <View style={styles.leadsLoadingPlaceholder} accessibilityRole="progressbar" accessibilityLabel="Loading leads">
+                  <ActivityIndicator size="large" color={darkMode ? '#5eead4' : '#0d9488'} />
+                  <Text style={[styles.leadsLoadingText, !darkMode && { color: Colors.sub }]}>
+                    Loading leads…
+                  </Text>
+                </View>
+              ) : (
+                <EmptyState />
+              )
             ) : (
               <View>
                 <CombinedHeader />
@@ -3060,8 +3089,8 @@ export default function EnhancedLeadsPage({
 
         {activeViewTab === 'analytics' && (
           <LeadAnalyticsDashboard 
-            key={`analytics-${leads.length}-${leads.filter(l => l && l.stage && (l.stage === 'proposal' || l.stage === 'proposal-sent')).length}-${leads.filter(l => l && l.stage && l.stage === 'qualified').length}`} 
-            leads={leads}
+            key={`analytics-${displayLeads.length}-${displayLeads.filter(l => l && l.stage && (l.stage === 'proposal' || l.stage === 'proposal-sent')).length}-${displayLeads.filter(l => l && l.stage && l.stage === 'qualified').length}`} 
+            leads={displayLeads}
             onStagePress={(stage) => {
               console.log(`🔍 onStagePress called with stage: "${stage}" - setting pipeline and switching to leads tab`);
               setPipeline(stage === 'all' ? 'all' : stage);
@@ -3236,7 +3265,7 @@ export default function EnhancedLeadsPage({
                             Top contractors earn $8,000–$20,000/month from campaigns.
                           </Text>
                           <Text style={[styles.emptyCampaignsSubtext, !darkMode && { color: Colors.sub }]}>
-                            Create your first campaign to start generating leads from the marketplace.
+                            Create your first campaign to get visibility with other contractors in your service areas.
                           </Text>
                         </View>
                       ) : (
@@ -3246,7 +3275,7 @@ export default function EnhancedLeadsPage({
                             const statusColor = getStatusColor(campaign.status || 'active');
                             const statusLabel = getStatusLabel(campaign.status || 'active');
                             const primaryServiceArea = campaign.serviceAreas?.[0];
-                            const marketplaceReach = calculateMarketplaceReach(campaign);
+                            const networkReach = calculateMarketplaceReach(campaign);
                             const aiRouting = getAIRoutingStatus(campaign, metrics);
                             const additionalMetrics = calculateAdditionalMetrics(campaign.id);
                             
@@ -3324,7 +3353,7 @@ export default function EnhancedLeadsPage({
                                 </View>
 
                                 {/* Network Reach */}
-                                {marketplaceReach > 0 && (
+                                {networkReach > 0 && (
                                   <View style={styles.marketplaceReach}>
                                     <MaterialIcons name="network-check" size={14} color="rgba(94, 234, 212, 0.9)" />
                                     <Text
@@ -3333,7 +3362,7 @@ export default function EnhancedLeadsPage({
                                         !darkMode && { color: Colors.sub },
                                       ]}
                                     >
-                                      Contractors & Deal Sources in Range: {marketplaceReach.toLocaleString()}
+                                      Contractors & deal sources in range: {networkReach.toLocaleString()}
                                     </Text>
                                   </View>
                                 )}
@@ -3528,17 +3557,13 @@ export default function EnhancedLeadsPage({
         onSave={async (campaign) => {
           try {
             console.log('💼 Campaign created:', campaign);
-            
-            // Get API base URL from config
-            const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl || 'http://192.168.1.115:3001/api';
-            
-            // Post each service in the campaign as a project lead
-            // This makes the campaign appear in the marketplace for other contractors
-            const postedLeads = [];
-            
+
+            const apiBase = resolveBackendRestApiBaseUrl();
+            const ownerId = scopedLeadUserId;
+
             console.log('📋 Campaign services:', campaign.services);
             console.log('📍 Campaign service areas:', campaign.serviceAreas);
-            
+
             if (!campaign.services || campaign.services.length === 0) {
               Alert.alert(
                 'No Services',
@@ -3547,7 +3572,7 @@ export default function EnhancedLeadsPage({
               );
               return;
             }
-            
+
             if (!campaign.serviceAreas || campaign.serviceAreas.length === 0) {
               Alert.alert(
                 'No Service Areas',
@@ -3556,11 +3581,9 @@ export default function EnhancedLeadsPage({
               );
               return;
             }
-            
-            // Create a single lead card for the entire campaign (all services)
+
             const serviceArea = campaign.serviceAreas[0];
-            
-            // Calculate combined budget range from all services
+
             const allBudgets = campaign.services.map(service => {
               const pricing = campaign.pricing.specialties[service] || {
                 min: campaign.pricing.projectMinimum || 5000,
@@ -3570,44 +3593,47 @@ export default function EnhancedLeadsPage({
             });
             const budgetMin = Math.min(...allBudgets.map(b => b.min));
             const budgetMax = Math.max(...allBudgets.map(b => b.max));
-            
-            // Create description with all services listed
+
             const servicesList = campaign.services.join(', ');
-            const description = campaign.bio || 
+            const description = campaign.bio ||
               `Professional services from ${campaign.companyName}. Services: ${servicesList}. ${campaign.specialties?.join(', ') || ''}. Available: ${campaign.availability.schedule}`;
-            
+
             const leadPayload = {
               title: `${campaign.companyName} - Professional Services`,
-              trade: campaign.services[0] || 'General Contracting', // Use first service as primary trade
+              trade: campaign.services[0] || 'General Contracting',
               city: serviceArea.city,
               state: serviceArea.state,
               budgetMin: budgetMin,
               budgetMax: budgetMax,
-              timeline: campaign.availability.schedule === 'immediate' ? 'Urgent' : 
+              timeline: campaign.availability.schedule === 'immediate' ? 'Urgent' :
                         campaign.availability.schedule === '1-2 weeks' ? 'Soon' : 'Normal',
-              createdBy: 'contractor-demo',
+              createdBy: ownerId,
               description: description,
               projectId: `CAMPAIGN-${campaign.id}`,
             };
-            
+
             console.log(`📤 Posting campaign lead:`, leadPayload);
-            console.log(`📤 API URL: ${apiBaseUrl}/project-leads`);
-            
+            console.log(`📤 API URL: ${apiBase}/project-leads`);
+
+            let postedToNetwork = false;
             try {
-              const leadResponse = await fetch(`${apiBaseUrl}/project-leads`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(leadPayload),
-              });
-              
+              const leadResponse = await fetch(
+                `${apiBase}/project-leads`,
+                await withProjectLeadsAuth({
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify(leadPayload),
+                })
+              );
+
               console.log(`📥 Response status:`, leadResponse.status);
-              
+
               if (leadResponse.ok) {
-                const result = await leadResponse.json();
-                postedLeads.push(result);
-                console.log(`✅ Posted campaign as lead:`, result.lead?.id);
+                await leadResponse.json();
+                postedToNetwork = true;
+                console.log(`✅ Posted campaign as lead`);
               } else {
                 const errorText = await leadResponse.text();
                 console.error(`❌ Failed to post campaign:`, leadResponse.status, errorText);
@@ -3615,8 +3641,7 @@ export default function EnhancedLeadsPage({
             } catch (error) {
               console.error(`❌ Error posting campaign:`, error);
             }
-            
-            // Save campaign locally
+
             console.log('💾 Saving campaign to storage...');
             console.log('💾 Current campaigns count:', campaigns.length);
             console.log('💾 Current campaigns state:', campaigns.map((c: any) => ({ id: c.id, companyName: c.companyName })));
@@ -3626,7 +3651,6 @@ export default function EnhancedLeadsPage({
             console.log('💾 New campaigns array:', newCampaigns.map((c: any) => ({ id: c.id, companyName: c.companyName })));
             await saveCampaigns(newCampaigns);
             console.log('💾 Campaign saved, verifying storage...');
-            // Verify it was saved
             const verify = await AsyncStorage.getItem('subcontractorCampaigns');
             if (verify) {
               const verifyParsed = JSON.parse(verify);
@@ -3636,38 +3660,38 @@ export default function EnhancedLeadsPage({
               console.error('❌ Verification FAILED: Storage is empty after save!');
             }
             console.log('💾 Reloading campaigns...');
-            await loadCampaigns(); // Force reload to verify
-            
-            // Close modal first
+            await loadCampaigns();
+
             setShowCampaignModal(false);
-            
-            // Navigate to campaigns tab to show the new campaign
             setActiveViewTab('insights');
-            
-            Alert.alert(
-              'Campaign Created!', 
-              `Posted your campaign to the marketplace. ${postedLeads.length > 0 ? 'Your lead should appear shortly.' : 'Please check your campaign details and try again.'}`,
-              [
-                { 
-                  text: 'OK', 
-                  style: 'default',
-                  onPress: () => {
-                    // Wait a moment then refresh leads to show the new campaign leads
-                    setTimeout(() => {
-                      if (onRefreshLeads) {
-                        console.log('🔄 Refreshing leads after campaign creation...');
-                        onRefreshLeads();
-                      }
-                    }, 1000);
-                  }
+
+            const refreshSoon = () => {
+              setTimeout(() => {
+                if (onRefreshLeads) {
+                  console.log('🔄 Refreshing leads after campaign creation...');
+                  onRefreshLeads();
                 }
-              ]
-            );
+              }, 1000);
+            };
+
+            if (postedToNetwork) {
+              Alert.alert(
+                'Campaign created',
+                'Your campaign is posted to the contractor network. Your lead should appear shortly after sync.',
+                [{ text: 'OK', style: 'default', onPress: refreshSoon }]
+              );
+            } else {
+              Alert.alert(
+                'Saved on this device',
+                'We could not reach the network to post your campaign as a lead. Your campaign is saved here — check your connection and pull to refresh on Leads, or try creating again.',
+                [{ text: 'OK', style: 'default', onPress: refreshSoon }]
+              );
+            }
           } catch (error) {
             console.error('❌ Error creating campaign:', error);
             Alert.alert(
               'Error',
-              'Failed to publish campaign. It was saved locally but not posted to marketplace.',
+              'Something went wrong while saving your campaign.',
               [{ text: 'OK', style: 'default' }]
             );
           }
@@ -3686,17 +3710,18 @@ export default function EnhancedLeadsPage({
             try {
               console.log('✏️ Campaign updated:', updatedCampaign);
               
-              // Get API base URL from config
-              const apiBaseUrl = Constants.expoConfig?.extra?.apiBaseUrl || 'http://192.168.1.115:3001/api';
+              const apiBase = resolveBackendRestApiBaseUrl();
+              const ownerId = scopedLeadUserId;
               const campaignProjectId = `CAMPAIGN-${updatedCampaign.id}`;
               
               // First, delete existing leads for this campaign to prevent duplicates
               let deletedCount = 0;
               try {
                 // Bulk delete all leads for this campaign using projectId
-                const deleteResponse = await fetch(`${apiBaseUrl}/project-leads/campaign/${campaignProjectId}`, {
-                  method: 'DELETE',
-                });
+                const deleteResponse = await fetch(
+                  `${apiBase}/project-leads/campaign/${encodeURIComponent(campaignProjectId)}`,
+                  await withProjectLeadsAuth({ method: 'DELETE' })
+                );
                 if (deleteResponse.ok) {
                   const deleteResult = await deleteResponse.json();
                   deletedCount = deleteResult.deletedCount || 0;
@@ -3704,10 +3729,13 @@ export default function EnhancedLeadsPage({
                 } else {
                   console.log('⚠️ Bulk delete failed, fetching existing leads for individual deletion...');
                   // Fallback: fetch and delete individually
-                  const existingResponse = await fetch(`${apiBaseUrl}/project-leads/my-requests/contractor-demo`, {
-                    headers: { 'Cache-Control': 'no-cache' },
-                    cache: 'no-store'
-                  });
+                  const existingResponse = await fetch(
+                    `${apiBase}/project-leads/my-requests/${encodeURIComponent(ownerId)}`,
+                    await withProjectLeadsAuth({
+                      headers: { 'Cache-Control': 'no-cache' },
+                      cache: 'no-store',
+                    })
+                  );
                   
                   if (existingResponse.ok) {
                     const existingData = await existingResponse.json();
@@ -3718,9 +3746,10 @@ export default function EnhancedLeadsPage({
                     
                     for (const leadId of existingLeadIds) {
                       try {
-                        await fetch(`${apiBaseUrl}/project-leads/${leadId}`, {
-                          method: 'DELETE',
-                        });
+                        await fetch(
+                          `${apiBase}/project-leads/${encodeURIComponent(leadId)}`,
+                          await withProjectLeadsAuth({ method: 'DELETE' })
+                        );
                         deletedCount++;
                       } catch (error) {
                         console.error(`❌ Error deleting lead ${leadId}:`, error);
@@ -3736,7 +3765,7 @@ export default function EnhancedLeadsPage({
               }
               
               // Repost campaign as a single lead card
-              const postedLeads = [];
+              const postedLeads: unknown[] = [];
               
               if (updatedCampaign.services && updatedCampaign.services.length > 0 && 
                   updatedCampaign.serviceAreas && updatedCampaign.serviceAreas.length > 0) {
@@ -3768,7 +3797,7 @@ export default function EnhancedLeadsPage({
                   budgetMax: budgetMax,
                   timeline: updatedCampaign.availability.schedule === 'immediate' ? 'Urgent' : 
                             updatedCampaign.availability.schedule === '1-2 weeks' ? 'Soon' : 'Normal',
-                  createdBy: 'contractor-demo',
+                  createdBy: ownerId,
                   description: description,
                   projectId: campaignProjectId,
                 };
@@ -3776,13 +3805,16 @@ export default function EnhancedLeadsPage({
                 console.log(`📤 Reposting campaign lead:`, leadPayload);
                 
                 try {
-                  const leadResponse = await fetch(`${apiBaseUrl}/project-leads`, {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(leadPayload),
-                  });
+                  const leadResponse = await fetch(
+                    `${apiBase}/project-leads`,
+                    await withProjectLeadsAuth({
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify(leadPayload),
+                    })
+                  );
                   
                   if (leadResponse.ok) {
                     const result = await leadResponse.json();
@@ -3812,12 +3844,19 @@ export default function EnhancedLeadsPage({
                 }
               }, 1000);
               
-              // deletedCount was already set in the delete block above
-              Alert.alert(
-                'Campaign Updated!', 
-                `Removed ${deletedCount} old lead${deletedCount !== 1 ? 's' : ''} and reposted your campaign to the marketplace. Your lead should appear shortly.`,
-                [{ text: 'Great!', style: 'default' }]
-              );
+              if (postedLeads.length > 0) {
+                Alert.alert(
+                  'Campaign updated',
+                  `Removed ${deletedCount} old lead${deletedCount !== 1 ? 's' : ''} and reposted your campaign to the contractor network.`,
+                  [{ text: 'OK', style: 'default' }]
+                );
+              } else {
+                Alert.alert(
+                  'Campaign saved locally',
+                  `We could not confirm reposting to the network. Your updated campaign is saved on this device.${deletedCount > 0 ? ` Removed ${deletedCount} old lead${deletedCount !== 1 ? 's' : ''} from the server where possible.` : ''} Pull to refresh on Leads after checking your connection.`,
+                  [{ text: 'OK', style: 'default' }]
+                );
+              }
             } catch (error) {
               console.error('❌ Error updating campaign:', error);
               Alert.alert(
@@ -4621,11 +4660,59 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
+  leadsLoadingPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+    paddingHorizontal: 24,
+    minHeight: 200,
+  },
+  leadsLoadingText: {
+    marginTop: 16,
+    fontSize: 15,
+    color: 'rgba(255,255,255,0.72)',
+    textAlign: 'center',
+  },
   emptyStateText: {
     color: '#FFFFFF',
     marginTop: 12,
-    marginBottom: 16,
+    marginBottom: 8,
     fontSize: 16,
+    textAlign: 'center',
+  },
+  emptyStateWaysWrap: {
+    alignSelf: 'stretch',
+    marginTop: 8,
+    marginBottom: 12,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: 'rgba(25, 225, 128, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(45, 255, 196, 0.25)',
+  },
+  emptyStateWaysWrapLight: {
+    backgroundColor: 'rgba(25, 225, 128, 0.08)',
+    borderColor: 'rgba(0, 166, 255, 0.2)',
+  },
+  emptyStateWaysTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 10,
+  },
+  emptyStateWayBlock: {
+    marginBottom: 10,
+  },
+  emptyStateWayHeading: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  emptyStateWayDetail: {
+    color: 'rgba(255, 255, 255, 0.78)',
+    fontSize: 13,
+    lineHeight: 19,
   },
   clearFiltersButton: {
     flexDirection: 'row',

@@ -38,6 +38,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { computeProjectListRowFinancials } from '@/lib/projectListRowMetrics';
+import { pickCompletedDisplayDateRaw } from '@/lib/projectCompletedDisplayDate';
 import { isChangeOrderTimelineMilestone } from '@/src/lib/projectFinancials';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenLayout, isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, WEB_DESKTOP_EDGE_HORIZONTAL } from '@/constants/ScreenLayout';
@@ -704,6 +705,10 @@ export default function ProjectsScreen() {
         const scheduleTimelineMs = resolveTimelineLatestPlannedMsFromMap(mergedProject, timelineLatestPlannedMs);
         const scheduleEndPick = getEffectiveScheduleEndPick(mergedProject, scheduleTimelineMs);
         const scheduleEnd = scheduleEndPick?.raw;
+        const dateSourceRaw =
+          fin.slugForUi === 'completed'
+            ? pickCompletedDisplayDateRaw(mergedProject, scheduleEndPick)
+            : scheduleEnd;
 
         return {
           id: p.id,
@@ -715,10 +720,10 @@ export default function ProjectsScreen() {
           margin: fin.margin,
           marginDisplay: fin.marginDisplay,
           projectedProfit: fin.projectedProfit,
-          dateLabel: scheduleEnd
+          dateLabel: dateSourceRaw
             ? fin.slugForUi === 'completed'
-              ? `Completed ${formatDateShort(scheduleEnd)}`
-              : `Schedule ${formatDateShort(scheduleEnd)}`
+              ? `Completed ${formatDateShort(dateSourceRaw)}`
+              : `Schedule ${formatDateShort(dateSourceRaw)}`
             : 'No schedule',
           rawProject: mergedProject,
           rawStatus: fin.rawStatus,

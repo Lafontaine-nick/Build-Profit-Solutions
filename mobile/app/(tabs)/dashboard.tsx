@@ -70,6 +70,7 @@ import {
   type ActionBucket,
 } from "@/utils/aiInsightsUi";
 import { computeProjectListRowFinancials } from "@/lib/projectListRowMetrics";
+import { pickCompletedDisplayDateRaw } from "@/lib/projectCompletedDisplayDate";
 import { getProjectRevenue } from "@/lib/projectRevenue";
 import { computeProfitForecast } from "@/src/lib/profitForecast";
 import { isChangeOrderTimelineMilestone } from "@/src/lib/projectFinancials";
@@ -2618,7 +2619,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                       value={eventTitle}
                       onChangeText={setEventTitle}
                       placeholder="e.g., Framing Inspection"
-                      placeholderTextColor={darkMode ? "#E5E7EB" : "#C7C7CC"}
+                      placeholderTextColor={darkMode ? "#6B7280" : "#C7C7CC"}
                     />
                   </View>
                   <View style={{
@@ -2648,7 +2649,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                         setEventDate(formatted);
                       }}
                       placeholder="MM-DD-YY"
-                      placeholderTextColor={darkMode ? "#E5E7EB" : "#C7C7CC"}
+                      placeholderTextColor={darkMode ? "#6B7280" : "#C7C7CC"}
                     />
                   </View>
                   <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, minHeight: 44 }}>
@@ -2658,7 +2659,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                       value={eventTime}
                       onChangeText={setEventTime}
                       placeholder="09:00"
-                      placeholderTextColor={darkMode ? "#E5E7EB" : "#C7C7CC"}
+                      placeholderTextColor={darkMode ? "#6B7280" : "#C7C7CC"}
                     />
                   </View>
                 </View>
@@ -2747,7 +2748,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                       value={eventSubcontractor}
                       onChangeText={setEventSubcontractor}
                       placeholder="e.g., ABC Electric"
-                      placeholderTextColor={darkMode ? "#E5E7EB" : "#C7C7CC"}
+                      placeholderTextColor={darkMode ? "#6B7280" : "#C7C7CC"}
                     />
                   </View>
                   <View style={{ flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 16, minHeight: 100 }}>
@@ -2757,7 +2758,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                       value={eventNotes}
                       onChangeText={setEventNotes}
                       placeholder="Additional details..."
-                      placeholderTextColor={darkMode ? "#E5E7EB" : "#C7C7CC"}
+                      placeholderTextColor={darkMode ? "#6B7280" : "#C7C7CC"}
                       multiline
                       numberOfLines={4}
                       textAlignVertical="top"
@@ -3564,6 +3565,10 @@ const DashboardScreen: React.FC = () => {
         const timelineMs = resolveTimelineLatestPlannedMsFromMap(mergedProject, timelineLatestPlannedMs);
         const scheduleEndPick = getEffectiveScheduleEndPick(mergedProject, timelineMs);
         const scheduleEnd = scheduleEndPick?.raw;
+        const dateSourceRaw =
+          fin.slugForUi === "completed"
+            ? pickCompletedDisplayDateRaw(mergedProject, scheduleEndPick)
+            : scheduleEnd;
 
         return {
           id: mergedProject.id,
@@ -3575,10 +3580,10 @@ const DashboardScreen: React.FC = () => {
           margin: fin.margin,
           marginDisplay: fin.marginDisplay,
           projectedProfit: fin.projectedProfit,
-          dateLabel: scheduleEnd
+          dateLabel: dateSourceRaw
             ? fin.slugForUi === "completed"
-              ? `Completed ${formatDateShort(scheduleEnd)}`
-              : `Schedule ${formatDateShort(scheduleEnd)}`
+              ? `Completed ${formatDateShort(dateSourceRaw)}`
+              : `Schedule ${formatDateShort(dateSourceRaw)}`
             : "No schedule",
           rawProject: mergedProject,
           rawStatus: fin.rawStatus,

@@ -7,9 +7,11 @@ import { useFocusEffect } from '@react-navigation/native';
 import EnhancedLeadsPage from '@/lib/leads/components/EnhancedLeadsPage';
 import LeadDetailModal from '@/lib/leads/components/LeadDetailModal';
 import { Lead, LeadStage } from '@/lib/leads/types';
+import { isAllowedProductLead } from '@/lib/leads/allowedLeadIngest';
 import { unifiedLeadService } from '@/services/unifiedLeadService';
 import { testApiConnection } from '@/services/apiTest';
 import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
+import { withProjectLeadsAuth } from '@/utils/projectLeadsAuthFetch';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ReminderService from '@/services/reminderService';
@@ -179,12 +181,11 @@ const mockLeads: Lead[] = [
     assignedTo: 'sub-current-user',
     createdAt: '2025-10-15T10:45:00.000Z',
   },
-  // MARKETPLACE leads
   {
     id: 'L1005',
     title: 'Stucco work needed',
     trade: 'Stucco',
-    source: 'MARKETPLACE',
+    source: 'PROJECT_BASED',
     contact: {
       name: 'Emily Chen',
       email: 'emily.chen@email.com',
@@ -212,14 +213,14 @@ const mockLeads: Lead[] = [
       emailValid: true,
       phoneValid: false,
     },
-    createdBy: 'owner-emily-004',
+    createdBy: 'gc-emily-004',
     createdAt: '2025-10-16T16:30:00.000Z',
   },
   {
     id: 'L1006',
     title: 'Roofing work needed',
     trade: 'Roofing',
-    source: 'MARKETPLACE',
+    source: 'PROJECT_BASED',
     contact: {
       name: 'James Wilson',
       email: 'james@wilsonhomes.com',
@@ -247,7 +248,7 @@ const mockLeads: Lead[] = [
       emailValid: true,
       phoneValid: true,
     },
-    createdBy: 'owner-james-005',
+    createdBy: 'gc-james-005',
     createdAt: '2025-10-17T09:15:00.000Z',
   },
   // AI_ESTIMATE leads
@@ -575,7 +576,7 @@ const mockLeads: Lead[] = [
     id: 'L1016',
     title: 'Kitchen remodel — Boulder City',
     trade: 'General',
-    source: 'MARKETPLACE',
+    source: 'PROJECT_BASED',
     contact: {
       name: 'Jennifer Lee',
       email: 'jlee@email.com',
@@ -600,7 +601,7 @@ const mockLeads: Lead[] = [
     verified: true,
     description: 'Full kitchen gut and remodel in 1980s ranch. New cabinets, quartz counters, lighting, and appliance rough-in. Permit required.',
     verification: { emailValid: true, phoneValid: true },
-    createdBy: 'owner-jlee-016',
+    createdBy: 'gc-jlee-016',
     createdAt: '2026-01-10T10:00:00.000Z',
   },
   {
@@ -739,7 +740,7 @@ const mockLeads: Lead[] = [
     id: 'L1021',
     title: 'Fence & gate — HOA community',
     trade: 'General',
-    source: 'MARKETPLACE',
+    source: 'PROJECT_BASED',
     contact: {
       name: 'Chris Okonkwo',
       email: 'c.okonkwo@email.com',
@@ -764,14 +765,14 @@ const mockLeads: Lead[] = [
     verified: true,
     description: 'Perimeter vinyl privacy fence ~180 LF plus dual drive gates. Client went with another vendor on price.',
     verification: { emailValid: true, phoneValid: true },
-    createdBy: 'owner-chris-021',
+    createdBy: 'gc-chris-021',
     createdAt: '2025-12-01T16:45:00.000Z',
   },
   {
     id: 'L1022',
     title: 'Epoxy garage floor — 3-car',
     trade: 'Painting',
-    source: 'MARKETPLACE',
+    source: 'PROJECT_BASED',
     contact: {
       name: 'Ryan Cooper',
       email: 'ryan.cooper@email.com',
@@ -796,7 +797,7 @@ const mockLeads: Lead[] = [
     verified: false,
     description: 'Grind, repair cracks, moisture test, metallic epoxy with clear topcoat. Three-car garage ~780 sq ft.',
     verification: { emailValid: true, phoneValid: false },
-    createdBy: 'owner-ryan-022',
+    createdBy: 'gc-ryan-022',
     createdAt: '2026-01-12T13:20:00.000Z',
   },
   {
@@ -904,7 +905,7 @@ const mockLeads: Lead[] = [
     id: 'L1026',
     title: 'EV charger pedestal — retail parking',
     trade: 'Electrical',
-    source: 'MARKETPLACE',
+    source: 'PROJECT_BASED',
     contact: {
       name: 'Kevin O\'Brien',
       email: 'k.obrien@retailwest.com',
@@ -929,7 +930,7 @@ const mockLeads: Lead[] = [
     verified: true,
     description: 'Six Level 2 pedestals, load calc, service sizing memo, and coordination with utility. Grand opening target in 6 weeks.',
     verification: { emailValid: true, phoneValid: true },
-    createdBy: 'owner-kevin-026',
+    createdBy: 'gc-kevin-026',
     createdAt: '2026-01-13T08:10:00.000Z',
   },
   {
@@ -1031,7 +1032,7 @@ function isEmbeddedSeedLeadId(id: string): boolean {
 /**
  * When the API returns leads, the app used to hide every `mockLeads` row — so new L10xx demos never appeared.
  * In __DEV__, merge the seed catalog unless EXPO_PUBLIC_INCLUDE_MOCK_LEADS=false.
- * In production, merge only if EXPO_PUBLIC_INCLUDE_MOCK_LEADS=true.
+ * In production (non-__DEV__), embedded demo leads and AI auto-match demos stay OFF unless EXPO_PUBLIC_INCLUDE_MOCK_LEADS=true.
  */
 function shouldMergeEmbeddedMockCatalog(): boolean {
   if (process.env.EXPO_PUBLIC_INCLUDE_MOCK_LEADS === 'true') return true;
@@ -1041,6 +1042,7 @@ function shouldMergeEmbeddedMockCatalog(): boolean {
 
 function leadBypassesMatchPrefs(lead: Lead): boolean {
   return (
+    lead.source === 'BPS_SELECTION' ||
     !!lead.projectId?.startsWith('CAMPAIGN-') ||
     lead.isOwnRequest === true ||
     (lead.createdBy != null && lead.createdBy === 'contractor-demo') ||
@@ -1093,6 +1095,9 @@ export default function LeadsScreen() {
     name: 'Nick Lafontaine',
     initials: 'NL',
   };
+
+  const authState = clerkAuthService.getAuthState();
+  const leadScopeUserId = authState.user?.id || authState.user?.email || 'contractor-demo';
   
   const [leads, setLeads] = useState<Lead[]>([]);
   
@@ -1105,6 +1110,8 @@ export default function LeadsScreen() {
   const [deletedLeadIds, setDeletedLeadIds] = useState<Set<string>>(new Set());
   const [deletedLeadIdsLoaded, setDeletedLeadIdsLoaded] = useState(false);
   const [isLoadingLeads, setIsLoadingLeads] = useState(false);
+  /** After first AsyncStorage read for `leadsData`/mocks when profile is ready — avoids empty-state flash before local hydrate. */
+  const [savedLeadsHydrated, setSavedLeadsHydrated] = useState(false);
   const [contractorProfile, setContractorProfile] = useState<{
     tradeTypes?: string[];
     specificTrades?: string[];
@@ -1745,6 +1752,7 @@ export default function LeadsScreen() {
       return;
     }
     const loadSavedLeadsData = async () => {
+      setSavedLeadsHydrated(false);
       try {
         const leadsData = await AsyncStorage.getItem('leadsData');
         let parsedLeads: Lead[] | null = null;
@@ -1882,6 +1890,8 @@ export default function LeadsScreen() {
         }
       } catch (error) {
         console.error('Failed to load saved leads data:', error);
+      } finally {
+        setSavedLeadsHydrated(true);
       }
     };
 
@@ -1966,7 +1976,7 @@ export default function LeadsScreen() {
       return;
     }
     apiLeadsBootstrapDoneRef.current = true;
-    console.log('🔄 Initial API load of leads (unified + marketplace + invites)...');
+    console.log('🔄 Initial API load of leads (unified + my-requests)...');
     const timer = setTimeout(() => {
       loadLeads();
     }, 100);
@@ -2001,13 +2011,16 @@ export default function LeadsScreen() {
         // Disable caching to always get fresh data
         const apiUrl = `${resolveBackendRestApiBaseUrl()}/project-leads/my-requests/${encodeURIComponent(userId)}`;
         console.log(`🔍 Fetching user requests from: ${apiUrl}`);
-        const requestsResponse = await fetch(apiUrl, {
-          headers: {
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
-          },
-          cache: 'no-store'
-        });
+        const requestsResponse = await fetch(
+          apiUrl,
+          await withProjectLeadsAuth({
+            headers: {
+              'Cache-Control': 'no-cache',
+              'Pragma': 'no-cache',
+            },
+            cache: 'no-store',
+          })
+        );
         
         console.log(`📡 User requests API response status: ${requestsResponse.status}`);
         
@@ -2037,7 +2050,8 @@ export default function LeadsScreen() {
             console.error('⚠️ Could not load campaigns:', err);
           }
           
-          // Convert user requests to Lead format with PROJECT_BASED source
+          // Convert user requests to Lead format with PROJECT_BASED source.
+          // Includes: (1) GC "Request Subcontractor" posts (your sub needs), (2) campaign-driven rows when projectId starts with CAMPAIGN- (subs seeking work you activated in-app).
           // Use all requests, but extract base ID for display (remove contractor suffix)
           const baseRequests = (requestsData.requests || []).map((req: any) => ({
             ...req,
@@ -2088,22 +2102,36 @@ export default function LeadsScreen() {
               }
             }
             
+            const leadSource =
+              req.source === 'BPS_SELECTION'
+                ? 'BPS_SELECTION'
+                : 'PROJECT_BASED';
+            const isBpsPick = leadSource === 'BPS_SELECTION';
+
             const mappedLead = {
             id: req.id,
             title: req.title,
             trade: req.trade,
               projectId: req.projectId || undefined, // Preserve projectId (should have CAMPAIGN- prefix if from campaign)
-            source: 'PROJECT_BASED', // This will show up in "Sub Needs" filter
+            source: leadSource,
             contact: {
-                name: isFromCampaign ? campaignContactName : 'Your Request',
-                company: isFromCampaign ? campaignCompanyName : 'Self',
-                email: isFromCampaign ? campaignEmail : 'your-email@example.com',
-                phone: isFromCampaign ? campaignPhone : '555-000-0000',
+                name: isBpsPick
+                  ? 'Find Subcontractors'
+                  : isFromCampaign
+                    ? campaignContactName
+                    : 'Your Request',
+                company: isBpsPick
+                  ? 'BPS directory'
+                  : isFromCampaign
+                    ? campaignCompanyName
+                    : 'Self',
+                email: isBpsPick ? '' : isFromCampaign ? campaignEmail : 'your-email@example.com',
+                phone: isBpsPick ? '' : isFromCampaign ? campaignPhone : '555-000-0000',
             },
             location: {
               city: req.city,
               state: req.state,
-              zip: '00000',
+              zip: req.zip && String(req.zip).replace(/\D/g, '').length >= 5 ? String(req.zip).replace(/\D/g, '').slice(0, 5) : '00000',
               lat: 40.7608,
               lng: -111.8910,
             },
@@ -2149,383 +2177,16 @@ export default function LeadsScreen() {
         // Continue without user requests - don't block the app
       }
 
-      // Fetch bid invitations (Invites)
-      let inviteLeads: Lead[] = [];
-      try {
-        const invitesResponse = await fetch(`${resolveBackendRestApiBaseUrl()}/bid-invitations/contractor/${encodeURIComponent(userId)}`);
-        if (invitesResponse.ok) {
-          const invitesData = await invitesResponse.json();
-          console.log(`✅ Fetched ${invitesData.invitations?.length || 0} bid invitations`);
-          
-          inviteLeads = (invitesData.invitations || []).map((invite: any) => ({
-            id: invite.id,
-            title: invite.title,
-            trade: invite.trade,
-            projectId: invite.projectId,
-            source: 'BID_INVITATION',
-            contact: {
-              name: invite.contact?.name || 'GC Contact',
-              company: invite.contact?.company || 'General Contractor',
-              email: invite.contact?.email || 'gc@example.com',
-              phone: invite.contact?.phone || '555-000-0000',
-            },
-            location: {
-              city: invite.location?.city || 'Unknown',
-              state: invite.location?.state || 'Unknown',
-              zip: invite.location?.zip || '00000',
-              lat: invite.location?.lat || 40.7608,
-              lng: invite.location?.lng || -111.8910,
-            },
-            project: {
-              type: invite.project?.type || 'other',
-              budgetMin: invite.project?.budgetMin || 0,
-              budgetMax: invite.project?.budgetMax || 0,
-              timeline: invite.project?.timeline || 'Normal',
-            },
-            stage: invite.stage || 'new',
-            aiScore: invite.aiScore || 85,
-            verified: invite.verified || true,
-            createdAt: invite.createdAt,
-            description: invite.description,
-            deadline: invite.deadline,
-            invitationMessage: invite.invitationMessage,
-          }));
-        } else if (invitesResponse.status === 429) {
-          console.log('⏳ Rate limited on bid invitations, skipping...');
-        } else {
-          console.warn('Failed to fetch bid invitations:', invitesResponse.status);
-        }
-      } catch (err) {
-        console.log('⚠️ Could not fetch bid invitations:', err);
-      }
+      // Marketplace removed — BPS is contractor-to-contractor only (no homeowner feed).
 
-      // Fetch marketplace leads
-      let marketplaceLeads: Lead[] = [];
-      try {
-        const marketplaceResponse = await fetch(`${resolveBackendRestApiBaseUrl()}/marketplace-leads`);
-        if (marketplaceResponse.ok) {
-          const marketplaceData = await marketplaceResponse.json();
-          console.log(`✅ Fetched ${marketplaceData.leads?.length || 0} marketplace leads`);
-          
-          marketplaceLeads = (marketplaceData.leads || []).map((lead: any) => ({
-            id: lead.id,
-            title: lead.title,
-            trade: lead.trade,
-            projectId: lead.projectId,
-            source: 'MARKETPLACE',
-            contact: {
-              name: lead.contact?.name || 'Customer',
-              company: lead.contact?.company || null,
-              email: lead.contact?.email || 'customer@example.com',
-              phone: lead.contact?.phone || '555-000-0000',
-            },
-            location: {
-              city: lead.location?.city || 'Unknown',
-              state: lead.location?.state || 'Unknown',
-              zip: lead.location?.zip || '00000',
-              lat: lead.location?.lat || 40.7608,
-              lng: lead.location?.lng || -111.8910,
-            },
-            project: {
-              type: lead.project?.type || 'other',
-              budgetMin: lead.project?.budgetMin || 0,
-              budgetMax: lead.project?.budgetMax || 0,
-              timeline: lead.project?.timeline || 'Normal',
-            },
-            stage: lead.stage || 'new',
-            aiScore: lead.aiScore || 70,
-            verified: lead.verified || false,
-            createdAt: lead.createdAt,
-            description: lead.description,
-            marketplaceData: lead.marketplaceData,
-          }));
-        } else if (marketplaceResponse.status === 429) {
-          console.log('⏳ Rate limited on marketplace leads, skipping...');
-        } else {
-          console.warn('Failed to fetch marketplace leads:', marketplaceResponse.status);
-        }
-      } catch (err) {
-        console.log('⚠️ Could not fetch marketplace leads:', err);
-      }
+      // Legacy AI auto-match demo leads removed — Leads only uses campaign, sub request, and directory picks.
+      const autoMatchLeads: Lead[] = [];
 
-      // Create Auto Match leads (AI-powered matching)
-      // NOTE: Only use auto-match leads if we don't have API leads
-      let autoMatchLeads: Lead[] = [];
-      
-      // Check if we'll have API leads first (we'll fetch them next)
-      // For now, we'll create auto-match leads, but we'll filter them out if API leads exist
-      try {
-        // For now, we'll create some demo auto-match leads
-        // In production, this would come from an AI matching service
-        const autoMatchData = [
-          {
-            id: 'AUTO-001',
-            title: 'Kitchen Remodel - AI Matched',
-            trade: 'General',
-            source: 'AI_ESTIMATE',
-            contact: {
-              name: 'AI Matched Customer',
-              company: null,
-              email: 'ai-matched@example.com',
-              phone: '555-AI-MATCH',
-            },
-            location: {
-              city: 'Las Vegas',
-              state: 'NV',
-              zip: '89123',
-              lat: 36.1699,
-              lng: -115.1398,
-            },
-            project: {
-              type: 'remodel',
-              budgetMin: 25000,
-              budgetMax: 40000,
-              timeline: 'Soon',
-            },
-            stage: 'new',
-            aiScore: 92,
-            verified: true,
-            createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
-            description: 'AI-matched lead based on your profile and past projects. Complete kitchen renovation including cabinet installation, countertop replacement, flooring, and electrical work. Homeowner is looking for experienced contractor with kitchen remodel expertise. Project includes design consultation, material selection, and full installation. Must coordinate with other trades and provide detailed timeline.',
-            autoMatchReason: 'High compatibility with your kitchen remodel experience',
-          },
-          {
-            id: 'AUTO-002',
-            title: 'Bathroom Renovation - AI Matched',
-            trade: 'Plumbing',
-            source: 'AI_ESTIMATE',
-            contact: {
-              name: 'AI Matched Customer',
-              company: null,
-              email: 'ai-matched@example.com',
-              phone: '555-AI-MATCH',
-            },
-            location: {
-              city: 'Salt Lake City',
-              state: 'UT',
-              zip: '84101',
-              lat: 40.7608,
-              lng: -111.8910,
-            },
-            project: {
-              type: 'renovation',
-              budgetMin: 15000,
-              budgetMax: 25000,
-              timeline: 'Normal',
-            },
-            stage: 'new',
-            aiScore: 88,
-            verified: true,
-            createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(), // 4 hours ago
-            description: 'AI-matched lead based on your plumbing expertise. Complete bathroom renovation including plumbing rough-in, fixture installation, tile work, and vanity setup. Master bathroom remodel with modern fixtures and finishes. Project includes plumbing layout, water line installation, drain work, and final fixture connections. Must coordinate with electrical and tile contractors.',
-            autoMatchReason: 'Perfect match for your bathroom renovation skills',
-          },
-          {
-            id: 'AUTO-003',
-            title: 'HVAC Installation - AI Matched',
-            trade: 'HVAC',
-            source: 'AI_ESTIMATE',
-            contact: {
-              name: 'Sarah Johnson',
-              company: 'Johnson Properties',
-              email: 'sarah@johnsonprop.com',
-              phone: '555-789-0123',
-            },
-            location: {
-              city: 'Henderson',
-              state: 'NV',
-              zip: '89014',
-              lat: 36.0395,
-              lng: -114.9817,
-            },
-            project: {
-              type: 'other',
-              budgetMin: 15000,
-              budgetMax: 22000,
-              timeline: 'Soon',
-            },
-            stage: 'new',
-            aiScore: 85,
-            verified: true,
-            createdAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(), // 1 hour ago
-            description: 'AI-matched lead for HVAC system replacement. Residential HVAC system upgrade including new furnace, air conditioning unit, ductwork modifications, and thermostat installation. Home is 2,500 sq ft with existing ductwork that needs updating. Must include energy efficiency improvements and proper sizing calculations. Looking for licensed HVAC contractor with residential experience.',
-            autoMatchReason: 'Matches your HVAC expertise and location',
-          },
-          {
-            id: 'AUTO-004',
-            title: 'Roofing Repair - AI Matched',
-            trade: 'Roofing',
-            source: 'AI_ESTIMATE',
-            contact: {
-              name: 'Mike Rodriguez',
-              company: 'Rodriguez Construction',
-              email: 'mike@rodriguezbuild.com',
-              phone: '555-456-7890',
-            },
-            location: {
-              city: 'North Las Vegas',
-              state: 'NV',
-              zip: '89030',
-              lat: 36.1989,
-              lng: -115.1175,
-            },
-            project: {
-              type: 'other',
-              budgetMin: 18000,
-              budgetMax: 28000,
-              timeline: 'Normal',
-            },
-            stage: 'new',
-            aiScore: 78,
-            verified: false,
-            createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(), // 3 hours ago
-            description: 'AI-matched lead for roof repair and maintenance',
-            autoMatchReason: 'Good match for your roofing experience',
-          },
-          {
-            id: 'AUTO-005',
-            title: 'Electrical Upgrade - AI Matched',
-            trade: 'Electrical',
-            source: 'AI_ESTIMATE',
-            contact: {
-              name: 'Jennifer Lee',
-              company: 'Lee Development',
-              email: 'jennifer@leedev.com',
-              phone: '555-321-6549',
-            },
-            location: {
-              city: 'Boulder City',
-              state: 'NV',
-              zip: '89005',
-              lat: 35.9786,
-              lng: -114.8325,
-            },
-            project: {
-              type: 'other',
-              budgetMin: 12000,
-              budgetMax: 18000,
-              timeline: 'Urgent',
-            },
-            stage: 'new',
-            aiScore: 91,
-            verified: true,
-            createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(), // 30 minutes ago
-            description: 'AI-matched lead for electrical panel upgrade',
-            autoMatchReason: 'Excellent match for your electrical expertise',
-          },
-          {
-            id: 'AUTO-006',
-            title: 'Flooring Installation - AI Matched',
-            trade: 'Flooring',
-            source: 'AI_ESTIMATE',
-            contact: {
-              name: 'David Chen',
-              company: 'Chen Homes',
-              email: 'david@chenhomes.com',
-              phone: '555-654-3210',
-            },
-            location: {
-              city: 'Summerlin',
-              state: 'NV',
-              zip: '89134',
-              lat: 36.1617,
-              lng: -115.3242,
-            },
-            project: {
-              type: 'remodel',
-              budgetMin: 20000,
-              budgetMax: 35000,
-              timeline: 'Soon',
-            },
-            stage: 'new',
-            aiScore: 82,
-            verified: true,
-            createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(), // 6 hours ago
-            description: 'AI-matched lead for hardwood flooring installation',
-            autoMatchReason: 'Great match for your flooring installation skills',
-          },
-          {
-            id: 'AUTO-007',
-            title: 'Painting Project - AI Matched',
-            trade: 'Painting',
-            source: 'AI_ESTIMATE',
-            contact: {
-              name: 'Lisa Martinez',
-              company: 'Martinez Properties',
-              email: 'lisa@martinezprop.com',
-              phone: '555-987-6543',
-            },
-            location: {
-              city: 'Paradise',
-              state: 'NV',
-              zip: '89169',
-              lat: 36.0972,
-              lng: -115.1467,
-            },
-            project: {
-              type: 'other',
-              budgetMin: 8000,
-              budgetMax: 15000,
-              timeline: 'Normal',
-            },
-            stage: 'new',
-            aiScore: 75,
-            verified: false,
-            createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(), // 5 hours ago
-            description: 'AI-matched lead for interior and exterior painting',
-            autoMatchReason: 'Good match for your painting services',
-          },
-          {
-            id: 'AUTO-008',
-            title: 'Landscaping Design - AI Matched',
-            trade: 'Landscaping',
-            source: 'AI_ESTIMATE',
-            contact: {
-              name: 'Robert Wilson',
-              company: 'Wilson Estates',
-              email: 'robert@wilsonestates.com',
-              phone: '555-147-2580',
-            },
-            location: {
-              city: 'Green Valley',
-              state: 'NV',
-              zip: '89014',
-              lat: 36.0429,
-              lng: -115.0764,
-            },
-            project: {
-              type: 'other',
-              budgetMin: 25000,
-              budgetMax: 45000,
-              timeline: 'Soon',
-            },
-            stage: 'new',
-            aiScore: 88,
-            verified: true,
-            createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(), // 4 hours ago
-            description: 'AI-matched lead for complete landscape design and installation',
-            autoMatchReason: 'Perfect match for your landscaping expertise',
-          },
-        ];
-        
-        autoMatchLeads = autoMatchData.map((lead: any) => ({
-          ...lead,
-          verification: {
-            emailValid: true,
-            phoneValid: true,
-          },
-        }));
-        
-        console.log(`✅ Created ${autoMatchLeads.length} AI auto-match leads`);
-      } catch (err) {
-        console.log('⚠️ Could not create auto-match leads:', err);
-      }
-      
       // Always fetch unified leads from API (these are the main leads)
       let testLeads: Lead[] = [];
       console.log(`🔍 Fetching unified leads from API...`);
       try {
-        const testLeadsResponse = await testApiConnection();
+        const testLeadsResponse = await testApiConnection(userId);
         if (testLeadsResponse && Array.isArray(testLeadsResponse)) {
           // Filter out hardcoded demo leads from unified leads API
           testLeads = testLeadsResponse.filter(lead => !lead.id.startsWith('demo-'));
@@ -2554,7 +2215,7 @@ export default function LeadsScreen() {
       let testLocationLeads: Lead[] = [];
       
       if (hasApiLeads) {
-        allLeads = [...testLeads, ...userRequests, ...inviteLeads, ...marketplaceLeads];
+        allLeads = [...testLeads, ...userRequests];
         if (shouldMergeEmbeddedMockCatalog()) {
           const existingIds = new Set(allLeads.map((l) => l.id));
           const seedExtras = mockLeads.filter((l) => !existingIds.has(l.id));
@@ -2568,68 +2229,63 @@ export default function LeadsScreen() {
           );
         }
       } else {
-        // No API leads - use mock leads as fallback for testing
-        console.log(`⚠️ No API leads found - using mock leads as fallback`);
-        stGeorgeMockLeads = mockLeads.filter(lead => 
-          lead.location?.city === 'St. George' && lead.location?.state === 'UT'
-        );
-        testLocationLeads = mockLeadsWithTest.filter(lead => 
-          lead.id?.startsWith('TEST-')
-        );
-        allLeads = [...testLeads, ...userRequests, ...inviteLeads, ...marketplaceLeads, ...autoMatchLeads, ...stGeorgeMockLeads, ...testLocationLeads];
-        
-        if (stGeorgeMockLeads.length > 0) {
-          console.log(`🏜️ Added ${stGeorgeMockLeads.length} St. George mock leads for location testing`);
-        }
-        if (testLocationLeads.length > 0) {
-          testLocationLeads.forEach(lead => {
-            const coords = lead.location?.lat && lead.location?.lng 
-              ? `(${lead.location.lat}, ${lead.location.lng})` 
-              : '(⚠️ NO COORDINATES - will use state center for distance calculation)';
-            console.log(`🧪 TEST LEAD: "${lead.title}"`);
-            console.log(`   📍 Location: ${lead.location?.city}, ${lead.location?.state}`);
-            console.log(`   📍 Coordinates: ${coords}`);
-            console.log(`   🎯 Trade: ${lead.trade}`);
-            console.log(`   ✅ This lead should appear if ${lead.location?.city}, ${lead.location?.state} is in your service areas with appropriate radius`);
-          });
+        if (shouldMergeEmbeddedMockCatalog()) {
+          console.log(`⚠️ No API leads found - using mock leads as fallback`);
+          stGeorgeMockLeads = mockLeads.filter(
+            (lead) => lead.location?.city === 'St. George' && lead.location?.state === 'UT'
+          );
+          testLocationLeads = mockLeadsWithTest.filter((lead) => lead.id?.startsWith('TEST-'));
+          allLeads = [
+            ...testLeads,
+            ...userRequests,
+            ...stGeorgeMockLeads,
+            ...testLocationLeads,
+          ];
+
+          if (stGeorgeMockLeads.length > 0) {
+            console.log(`🏜️ Added ${stGeorgeMockLeads.length} St. George mock leads for location testing`);
+          }
+          if (testLocationLeads.length > 0) {
+            testLocationLeads.forEach((lead) => {
+              const coords =
+                lead.location?.lat && lead.location?.lng
+                  ? `(${lead.location.lat}, ${lead.location.lng})`
+                  : '(⚠️ NO COORDINATES - will use state center for distance calculation)';
+              console.log(`🧪 TEST LEAD: "${lead.title}"`);
+              console.log(`   📍 Location: ${lead.location?.city}, ${lead.location?.state}`);
+              console.log(`   📍 Coordinates: ${coords}`);
+              console.log(`   🎯 Trade: ${lead.trade}`);
+              console.log(
+                `   ✅ This lead should appear if ${lead.location?.city}, ${lead.location?.state} is in your service areas with appropriate radius`
+              );
+            });
+          }
+        } else {
+          allLeads = [...testLeads, ...userRequests];
+          console.log(
+            `⚠️ No unified API leads — showing real sources only (Sub Needs, directory picks). Demo L10xx / St. George / test leads omitted in production.`
+          );
         }
       }
       
-      const uniqueLeads = allLeads.filter((lead, index, self) =>
-        index === self.findIndex((l) => l.id === lead.id)
-      );
+      const uniqueLeads = allLeads
+        .filter((lead, index, self) =>
+          index === self.findIndex((l) => l.id === lead.id)
+        )
+        .filter((lead) => lead.source !== 'MARKETPLACE');
       
       // Filter out deleted leads
       let visibleLeads = uniqueLeads.filter(lead => !deletedLeadIds.has(lead.id));
-      
-      // ROOT CAUSE FIX: If no leads were loaded and we have auto-match leads, ensure they're included
-      if (visibleLeads.length === 0 && autoMatchLeads.length > 0) {
-        console.warn('⚠️ No visible leads found, but we have auto-match leads. This should not happen!');
-        console.warn(`⚠️ Debug: uniqueLeads=${uniqueLeads.length}, autoMatchLeads=${autoMatchLeads.length}, deletedLeadIds=${deletedLeadIds.size}`);
-        // Force include auto-match leads even if something went wrong
-        const autoMatchVisible = autoMatchLeads.filter(lead => !deletedLeadIds.has(lead.id));
-        if (autoMatchVisible.length > 0) {
-          console.warn(`⚠️ Using auto-match leads as fallback: ${autoMatchVisible.length} leads`);
-          visibleLeads = [...visibleLeads, ...autoMatchVisible];
-        }
+
+      // Only the three product lead paths (campaign, sub request / matches, directory pick)
+      const beforeProductFilter = visibleLeads.length;
+      visibleLeads = visibleLeads.filter((lead) => isAllowedProductLead(lead, userId));
+      if (beforeProductFilter !== visibleLeads.length) {
+        console.log(
+          `📌 Product-only leads: ${beforeProductFilter} → ${visibleLeads.length} (removed legacy/demo sources)`
+        );
       }
-      
-      // ROOT CAUSE FIX: If still no visible leads, use mock leads as last resort (API empty, or all IDs deleted/filtered)
-      if (visibleLeads.length === 0) {
-        if (hasApiLeads) {
-          console.warn(
-            '⚠️ API returned leads but none are visible (likely all marked deleted). Using mock leads as emergency fallback.'
-          );
-        } else {
-          console.warn('⚠️ CRITICAL: No leads found after all sources! Using mock leads as emergency fallback.');
-        }
-        const mockVisible = mockLeads.filter(lead => !deletedLeadIds.has(lead.id));
-        if (mockVisible.length > 0) {
-          console.warn(`⚠️ Emergency fallback: Using ${mockVisible.length} mock leads`);
-          visibleLeads = [...visibleLeads, ...mockVisible];
-        }
-      }
-      
+
       console.log(`📊 FINAL visibleLeads count: ${visibleLeads.length} (before personalization)`);
       
       // Merge with saved local data (tasks and notes) from AsyncStorage
@@ -2816,7 +2472,7 @@ export default function LeadsScreen() {
       console.log(`📱 Current deletedLeadIds:`, Array.from(deletedLeadIds));
       console.log(`📱 All lead IDs:`, uniqueLeads.map(l => l.id));
       console.log(`📱 Filtered out:`, uniqueLeads.filter(lead => deletedLeadIds.has(lead.id)).map(l => l.id));
-      console.log(`📊 Lead sources breakdown: API=${testLeads.length}, userRequests=${userRequests.length}, invites=${inviteLeads.length}, marketplace=${marketplaceLeads.length}, autoMatch=${autoMatchLeads.length}, mock=${stGeorgeMockLeads.length}, test=${testLocationLeads.length}`);
+      console.log(`📊 Lead sources breakdown: API=${testLeads.length}, userRequests=${userRequests.length}, autoMatch=${autoMatchLeads.length}, mock=${stGeorgeMockLeads.length}, test=${testLocationLeads.length}`);
       console.log(`✅ Loaded ${visibleLeads.length} visible leads (${uniqueLeads.length} total before filtering, ${deletedLeadIds.size} hidden)`);
       
       // CRITICAL CHECK: Warn if we have no leads
@@ -2827,47 +2483,58 @@ export default function LeadsScreen() {
     } catch (err) {
       console.error('❌ Error loading leads from API:', err);
       setError('Failed to load leads from API');
-      // Use mock data as fallback - but apply personalized scoring
-      console.log('⚠️ API failed, using mock data with personalized scoring...');
-      let fallbackLeads = mockLeads.map(lead => {
-        const newScore = contractorProfile ? scoreLead(lead, undefined, {
-          ...contractorProfile,
-          specificTrades: contractorProfile.specificTrades || [],
-        }) : lead.aiScore || 0;
-        return {
-          ...lead,
-          aiScore: newScore,
-        };
-      });
-      
-      // Apply filtering if enabled
-      if (contractorProfile?.filterByTrade && contractorProfile.specificTrades && contractorProfile.specificTrades.length > 0) {
-        fallbackLeads = fallbackLeads.filter(lead => {
-          if (contractorProfile.specificTrades!.includes(lead.trade)) {
-            return true;
-          }
-          
-          const hasMatch = contractorProfile.specificTrades!.some(specificTrade => {
-            const leadTradeLower = lead.trade.toLowerCase();
-            const specificTradeLower = specificTrade.toLowerCase();
-            
-            return leadTradeLower.includes(specificTradeLower) || 
-                   specificTradeLower.includes(leadTradeLower) ||
-                   (specificTradeLower === 'electrician' && leadTradeLower === 'electrical') ||
-                   (specificTradeLower === 'painter' && leadTradeLower === 'painting') ||
-                   (specificTradeLower === 'flooring installer' && leadTradeLower === 'flooring') ||
-                   (specificTradeLower === 'carpenter' && (leadTradeLower.includes('framing') || leadTradeLower.includes('carpentry'))) ||
-                   (specificTradeLower === 'landscaper' && leadTradeLower === 'landscaping') ||
-                   (specificTradeLower === 'hvac technician' && leadTradeLower === 'hvac');
-          });
-          
-          return hasMatch;
+      if (shouldMergeEmbeddedMockCatalog()) {
+        console.log('⚠️ API failed, using mock data with personalized scoring...');
+        let fallbackLeads = mockLeads.map((lead) => {
+          const newScore = contractorProfile
+            ? scoreLead(lead, undefined, {
+                ...contractorProfile,
+                specificTrades: contractorProfile.specificTrades || [],
+              })
+            : lead.aiScore || 0;
+          return {
+            ...lead,
+            aiScore: newScore,
+          };
         });
+
+        if (
+          contractorProfile?.filterByTrade &&
+          contractorProfile.specificTrades &&
+          contractorProfile.specificTrades.length > 0
+        ) {
+          fallbackLeads = fallbackLeads.filter((lead) => {
+            if (contractorProfile.specificTrades!.includes(lead.trade)) {
+              return true;
+            }
+
+            const hasMatch = contractorProfile.specificTrades!.some((specificTrade) => {
+              const leadTradeLower = lead.trade.toLowerCase();
+              const specificTradeLower = specificTrade.toLowerCase();
+
+              return (
+                leadTradeLower.includes(specificTradeLower) ||
+                specificTradeLower.includes(leadTradeLower) ||
+                (specificTradeLower === 'electrician' && leadTradeLower === 'electrical') ||
+                (specificTradeLower === 'painter' && leadTradeLower === 'painting') ||
+                (specificTradeLower === 'flooring installer' && leadTradeLower === 'flooring') ||
+                (specificTradeLower === 'carpenter' &&
+                  (leadTradeLower.includes('framing') || leadTradeLower.includes('carpentry'))) ||
+                (specificTradeLower === 'landscaper' && leadTradeLower === 'landscaping') ||
+                (specificTradeLower === 'hvac technician' && leadTradeLower === 'hvac')
+              );
+            });
+
+            return hasMatch;
+          });
+        }
+
+        const personalizedLeads = getPersonalizedLeads(fallbackLeads);
+        setLeads(personalizedLeads);
+      } else {
+        console.warn('⚠️ API failed; embedded mock fallback disabled in production.');
+        setLeads([]);
       }
-      
-      // Apply personalization to fallback leads
-      const personalizedLeads = getPersonalizedLeads(fallbackLeads);
-      setLeads(personalizedLeads);
     } finally {
       setLoading(false);
       setIsLoadingLeads(false);
@@ -2878,13 +2545,15 @@ export default function LeadsScreen() {
   const [lastLoadTime, setLastLoadTime] = useState(0);
   const DEBOUNCE_DELAY = 5000; // 5 seconds between loads
 
-  // Sync leads to Zustand store for smart filtering
-      // IMPORTANT: Sync ALL leads BEFORE filtering, so Zustand has the complete set
+  // Sync leads to Zustand for Match Prefs scoring — same product-only set as the Leads tab
   useEffect(() => {
     if (leads.length > 0) {
-      const rawLeads = leads.map(convertToLeadRaw);
+      const uid = clerkAuthService.getAuthState().user?.id || clerkAuthService.getAuthState().user?.email || 'contractor-demo';
+      const rawLeads = leads
+        .filter((lead) => isAllowedProductLead(lead, uid))
+        .map(convertToLeadRaw);
       setAll(rawLeads);
-          console.log(`📦 Synced ${rawLeads.length} leads to Zustand store (all leads, before filtering)`);
+      console.log(`📦 Synced ${rawLeads.length} product leads to Zustand store (Match Prefs / scoring)`);
     }
   }, [leads, setAll]);
 
@@ -3179,7 +2848,7 @@ export default function LeadsScreen() {
 
 
   const handleRefreshLeads = async () => {
-    console.log('🔄 Refreshing leads (same path as initial load: unified + marketplace + invites + prefs)...');
+    console.log('🔄 Refreshing leads (same path as initial load: unified + my-requests + prefs)...');
     try {
       setDeletedLeadIds(new Set());
       await AsyncStorage.removeItem('deletedLeadIds');
@@ -3534,12 +3203,17 @@ export default function LeadsScreen() {
           {/* Main Content */}
           <View style={styles.contentCard}>
           <EnhancedLeadsPage
+        leadScopeUserId={leadScopeUserId}
+        suppressEmptyStateWhileLoading={
+          !deletedLeadIdsLoaded ||
+          !contractorProfile ||
+          !savedLeadsHydrated ||
+          isLoadingLeads
+        }
         onLeadsViewMeta={handleLeadsViewMeta}
         leads={(() => {
-          // NEVER filter out leads completely - always show all leads
-          // Use Zustand scoring for AI scores and sorting, but don't use it to hide leads
-          // The filtering in EnhancedLeadsPage will handle visibility based on user's source/trade filters
-          
+          // Parent `leads` state is already limited to campaign, sub request, and directory pick (see loadLeads).
+          // Merge Zustand scores for Match Prefs when counts align.
           if (scoredLeads.length > 0 && hydrated && prefs.filterByTrade && scoredLeads.length === leads.length) {
             // Only use scored leads if ALL leads were scored (same count) - this ensures no data loss
             console.log(`🎯 Using Zustand-scored leads for scoring: ${scoredLeads.length} scored from ${leads.length} total`);
@@ -3581,9 +3255,10 @@ export default function LeadsScreen() {
             // Check if this is an API lead (starts with LEAD-) and try to delete from backend
             if (leadId.startsWith('LEAD-')) {
               // Delete from backend API for project-based leads (fire and forget)
-              fetch(`${resolveBackendRestApiBaseUrl()}/project-leads/${leadId}`, {
-                method: 'DELETE',
-              }).catch(err => console.warn('Backend deletion failed:', err));
+              void fetch(
+                `${resolveBackendRestApiBaseUrl()}/project-leads/${leadId}`,
+                await withProjectLeadsAuth({ method: 'DELETE' })
+              ).catch(err => console.warn('Backend deletion failed:', err));
             }
             
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -3758,9 +3433,10 @@ export default function LeadsScreen() {
             // Check if this is an API lead (starts with LEAD-) and try to delete from backend
             if (leadId.startsWith('LEAD-')) {
               // Delete from backend API for project-based leads (fire and forget)
-              fetch(`${resolveBackendRestApiBaseUrl()}/project-leads/${leadId}`, {
-                method: 'DELETE',
-              }).catch(err => console.warn('Backend deletion failed:', err));
+              void fetch(
+                `${resolveBackendRestApiBaseUrl()}/project-leads/${leadId}`,
+                await withProjectLeadsAuth({ method: 'DELETE' })
+              ).catch(err => console.warn('Backend deletion failed:', err));
             }
             
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

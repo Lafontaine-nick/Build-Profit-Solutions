@@ -99,6 +99,8 @@ import {
   formatProposalIdForContract,
 } from '../../utils/proposalNumber';
 import { useTabScrollBottomInset } from '../../hooks/useTabScrollBottomInset';
+import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
+import { withProjectLeadsAuth } from '@/utils/projectLeadsAuthFetch';
 import { estimateCategorySlugForScope } from '../../lib/leads/leadToEstimateBid';
 import {
   ScreenLayout,
@@ -10375,6 +10377,54 @@ export default function EstimateGeneratorScreen() {
         console.log('✅ Bid state updated, new labor items count:', updated.laborLineItems.length);
         return updated;
       });
+
+      // Verified BPS directory pick → unified lead for the selected contractor (GC must have job location on the bid)
+      void (async () => {
+        try {
+          const md = subData?.metadata;
+          const pid = md?.placeId;
+          if (md?.source !== 'bps' || typeof pid !== 'string' || !pid.startsWith('bps:')) return;
+          const assignedTo = pid.slice(4).trim();
+          const gcId = clerkUser?.id;
+          if (!assignedTo || !gcId) return;
+          const city = String(bid.customerCity || '').trim();
+          const state = String(bid.customerState || '').trim();
+          if (!city || !state) {
+            console.warn('BPS selection lead skipped: add customer city and state on the bid for location.');
+            return;
+          }
+          const zip = String(bid.customerZip || '').replace(/\D/g, '').slice(0, 5);
+          const bidTitle = bid.title && bid.title !== 'Untitled Bid' ? bid.title : 'Estimate';
+          const title = `${subData.trade} — ${bidTitle}`;
+          const description = `A GC added you from Find Subcontractors on an estimate: ${subData.name}.`;
+          const base = resolveBackendRestApiBaseUrl();
+          const res = await fetch(
+            `${base}/project-leads/bps-selection`,
+            await withProjectLeadsAuth(
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  assignedTo,
+                  title,
+                  trade: subData.trade,
+                  description,
+                  city,
+                  state,
+                  ...(zip.length === 5 ? { zip } : {}),
+                }),
+              },
+              getToken
+            )
+          );
+          if (!res.ok) {
+            const t = await res.text().catch(() => '');
+            console.warn('BPS selection lead API error:', res.status, t);
+          }
+        } catch (e) {
+          console.warn('BPS selection lead request failed:', e);
+        }
+      })();
       
       // Simple success feedback without Alert to prevent freezing
       console.log('✅ Added subcontractor:', subData.name);

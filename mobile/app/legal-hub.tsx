@@ -509,7 +509,7 @@ function TermsOfUseContent({ highlightSection, theme }: { highlightSection: stri
       </Section>
 
       <Section id="11" highlight={highlightSection === '11'} theme={theme}>
-        <H2 theme={theme}>11. Subcontractor Marketplace Disclaimer</H2>
+        <H2 theme={theme}>11. Subcontractor Directory Disclaimer</H2>
         <P theme={theme}>
           If BPS allows subcontractors to list prices, services, or profiles, BPS does not vet,
           endorse, or guarantee subcontractor quality. BPS is not a hiring party, broker, or agent
@@ -1094,7 +1094,7 @@ function AttributionsContent({
       </Section>
 
       <View style={[styles.exampleCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <Text style={[styles.exampleTitle, { color: theme.text }]}>Marketplace / Contractor Search</Text>
+        <Text style={[styles.exampleTitle, { color: theme.text }]}>Contractor search</Text>
         <Text style={[styles.exampleText, { color: theme.subtext }]}>
           Some ratings sourced via Yelp Fusion API.{' '}
           <Text

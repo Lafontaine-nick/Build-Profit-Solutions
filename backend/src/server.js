@@ -293,8 +293,11 @@ app.use('*', (req, res) => {
   });
 });
 
-// Start marketplace sync service
-marketplaceSyncService.start();
+// Marketplace sync disabled — BPS targets contractors, developers, and subs only (no homeowner marketplace feed).
+// Re-enable with ENABLE_MARKETPLACE_SYNC=true if you restore marketplace ingestion.
+if (process.env.ENABLE_MARKETPLACE_SYNC === 'true') {
+  marketplaceSyncService.start();
+}
 
 // Get local IP address for LAN access
 function getLocalIP() {

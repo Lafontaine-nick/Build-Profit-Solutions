@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,8 @@ import { getColors } from '@/theme/getColors';
 interface SubcontractorProfileBuilderProps {
   campaign: Partial<SubcontractorCampaign>;
   onUpdate: (updates: Partial<SubcontractorCampaign>) => void;
+  /** `essential` = minimum fields for a quick campaign (full profile lives in Profile). */
+  variant?: 'full' | 'essential';
 }
 
 const SERVICE_OPTIONS = [
@@ -41,9 +43,18 @@ const CERTIFICATION_OPTIONS = [
   'Specialty Trade License', 'Safety Certified', 'Quality Certified'
 ];
 
+const ESSENTIAL_SPECIALTY_OPTIONS = [
+  'Residential',
+  'Commercial',
+  'Renovation',
+  'New Construction',
+  'Emergency Services',
+];
+
 export function SubcontractorProfileBuilder({
   campaign,
   onUpdate,
+  variant = 'full',
 }: SubcontractorProfileBuilderProps) {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -53,6 +64,18 @@ export function SubcontractorProfileBuilder({
   const [selectedServices, setSelectedServices] = useState<string[]>(campaign.services || []);
   const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>(campaign.specialties || []);
   const [selectedCertifications, setSelectedCertifications] = useState<string[]>(campaign.certifications || []);
+
+  useEffect(() => {
+    setSelectedServices(campaign.services || []);
+  }, [campaign.services]);
+
+  useEffect(() => {
+    setSelectedSpecialties(campaign.specialties || []);
+  }, [campaign.specialties]);
+
+  useEffect(() => {
+    setSelectedCertifications(campaign.certifications || []);
+  }, [campaign.certifications]);
 
   const handleServiceToggle = (service: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -123,6 +146,86 @@ export function SubcontractorProfileBuilder({
     </View>
   );
 
+  if (variant === 'essential') {
+    return (
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <MaterialIcons name="business" size={20} color={neutralIconColor} />
+            <Text style={styles.sectionTitle}>Company & contact</Text>
+          </View>
+          <Text style={[styles.inputSubtitle, { marginBottom: 12 }]}>
+            You can add website, license, bio, and more later in Profile.
+          </Text>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Company name *</Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="Your company name"
+              placeholderTextColor={darkMode ? '#6B7280' : '#64748B'}
+              value={campaign.companyName || ''}
+              onChangeText={(text) => onUpdate({ companyName: text })}
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Your name *</Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="Contact person"
+              placeholderTextColor={darkMode ? '#6B7280' : '#64748B'}
+              value={campaign.contactName || ''}
+              onChangeText={(text) => onUpdate({ contactName: text })}
+            />
+          </View>
+
+          <View style={styles.inputRow}>
+            <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
+              <Text style={styles.inputLabel}>Email *</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="you@company.com"
+                placeholderTextColor={darkMode ? '#6B7280' : '#64748B'}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                value={campaign.email || ''}
+                onChangeText={(text) => onUpdate({ email: text })}
+              />
+            </View>
+            <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
+              <Text style={styles.inputLabel}>Phone *</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="(555) 123-4567"
+                placeholderTextColor={darkMode ? '#6B7280' : '#64748B'}
+                keyboardType="phone-pad"
+                value={campaign.phone || ''}
+                onChangeText={(text) => onUpdate({ phone: text })}
+              />
+            </View>
+          </View>
+        </View>
+
+        {renderMultiSelect(
+          'Trade(s) you offer *',
+          SERVICE_OPTIONS,
+          selectedServices,
+          handleServiceToggle,
+          'build'
+        )}
+
+        {renderMultiSelect(
+          'Markets you serve *',
+          ESSENTIAL_SPECIALTY_OPTIONS,
+          selectedSpecialties,
+          handleSpecialtyToggle,
+          'star'
+        )}
+      </ScrollView>
+    );
+  }
+
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       {/* Basic Information */}
@@ -137,7 +240,7 @@ export function SubcontractorProfileBuilder({
           <TextInput
             style={styles.textInput}
             placeholder="Enter your company name"
-            placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
+            placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
             value={campaign.companyName || ''}
             onChangeText={(text) => onUpdate({ companyName: text })}
           />
@@ -148,7 +251,7 @@ export function SubcontractorProfileBuilder({
           <TextInput
             style={styles.textInput}
             placeholder="Your full name"
-            placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
+            placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
             value={campaign.contactName || ''}
             onChangeText={(text) => onUpdate({ contactName: text })}
           />
@@ -160,7 +263,7 @@ export function SubcontractorProfileBuilder({
             <TextInput
               style={styles.textInput}
               placeholder="email@company.com"
-              placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
+              placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
               keyboardType="email-address"
               autoCapitalize="none"
               value={campaign.email || ''}
@@ -172,7 +275,7 @@ export function SubcontractorProfileBuilder({
             <TextInput
               style={styles.textInput}
               placeholder="(555) 123-4567"
-              placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
+              placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
               keyboardType="phone-pad"
               value={campaign.phone || ''}
               onChangeText={(text) => onUpdate({ phone: text })}
@@ -185,7 +288,7 @@ export function SubcontractorProfileBuilder({
           <TextInput
             style={styles.textInput}
             placeholder="https://yourcompany.com"
-            placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
+            placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
             keyboardType="url"
             autoCapitalize="none"
             value={campaign.website || ''}
@@ -208,7 +311,7 @@ export function SubcontractorProfileBuilder({
           <TextInput
             style={[styles.textInput, styles.textArea]}
             placeholder="We are a family-owned business with 15 years of experience in residential and commercial construction..."
-            placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
+            placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
             multiline
             numberOfLines={6}
             maxLength={500}
@@ -232,7 +335,7 @@ export function SubcontractorProfileBuilder({
             <TextInput
               style={styles.textInput}
               placeholder="License #"
-              placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
+              placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
               value={campaign.licenseNumber || ''}
               onChangeText={(text) => onUpdate({ licenseNumber: text })}
             />
@@ -242,7 +345,7 @@ export function SubcontractorProfileBuilder({
             <TextInput
               style={styles.textInput}
               placeholder="5"
-              placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
+              placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
               keyboardType="numeric"
               value={campaign.yearsExperience?.toString() || ''}
               onChangeText={(text) => onUpdate({ yearsExperience: parseInt(text) || 0 })}
@@ -256,7 +359,7 @@ export function SubcontractorProfileBuilder({
             <TextInput
               style={styles.textInput}
               placeholder="1"
-              placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
+              placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
               keyboardType="numeric"
               value={campaign.teamSize?.toString() || ''}
               onChangeText={(text) => onUpdate({ teamSize: parseInt(text) || 1 })}
@@ -310,7 +413,7 @@ export function SubcontractorProfileBuilder({
             <TextInput
               style={styles.textInput}
               placeholder="Insurance Co."
-              placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
+              placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
               value={campaign.insuranceProvider || ''}
               onChangeText={(text) => onUpdate({ insuranceProvider: text })}
             />
@@ -320,7 +423,7 @@ export function SubcontractorProfileBuilder({
             <TextInput
               style={styles.textInput}
               placeholder="MM/YYYY"
-              placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
+              placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
               value={campaign.insuranceExpiry || ''}
               onChangeText={(text) => onUpdate({ insuranceExpiry: text })}
             />
@@ -364,7 +467,7 @@ export function SubcontractorProfileBuilder({
         <TextInput
           style={[styles.textInput, styles.textArea]}
           placeholder="List your major equipment and tools (e.g., Excavator, Crane, Specialized Tools)"
-          placeholderTextColor={darkMode ? "#E5E7EB" : "#64748B"}
+          placeholderTextColor={darkMode ? "#6B7280" : "#64748B"}
           multiline
           numberOfLines={3}
           value={campaign.equipment?.join(', ') || ''}

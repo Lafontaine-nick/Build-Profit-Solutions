@@ -8,7 +8,7 @@ const normalizeApiBaseUrl = (url: string): string => {
   return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
 };
 
-/** Use for all mobile `fetch` calls to the Node backend (project-leads, marketplace, etc.). */
+/** Use for all mobile `fetch` calls to the Node backend (project-leads, unified-leads, etc.). */
 export const resolveMobileApiBaseUrl = (): string =>
   normalizeApiBaseUrl(
     Constants.expoConfig?.extra?.apiBaseUrl ||
@@ -16,15 +16,16 @@ export const resolveMobileApiBaseUrl = (): string =>
       'https://build-profit-solutions-backend.onrender.com/api'
   );
 
-export const testApiConnection = async () => {
+export const testApiConnection = async (contractorUserId?: string) => {
   const API_BASE_URL = resolveMobileApiBaseUrl();
+  const userKey = contractorUserId?.trim() || 'contractor-demo';
 
   console.log('🧪 Testing API connection...');
   console.log('🧪 API_BASE_URL:', API_BASE_URL);
   
   try {
     // Test unified leads endpoint directly
-    const leadsUrl = `${API_BASE_URL}/unified-leads/contractor/contractor-demo`;
+    const leadsUrl = `${API_BASE_URL}/unified-leads/contractor/${encodeURIComponent(userKey)}`;
     console.log('🧪 Testing leads endpoint:', leadsUrl);
     
     const leadsResponse = await fetch(leadsUrl, {

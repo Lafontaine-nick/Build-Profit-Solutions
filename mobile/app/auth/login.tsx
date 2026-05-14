@@ -174,7 +174,7 @@ export default function LoginScreen() {
                       <TextInput
                         style={styles.input}
                         placeholder='you@company.com'
-                        placeholderTextColor='#FFFFFF'
+                        placeholderTextColor='#9CA3AF'
                         autoCapitalize='none'
                         keyboardType='email-address'
                         value={email}
@@ -210,7 +210,7 @@ export default function LoginScreen() {
                       <TextInput
                         style={styles.input}
                         placeholder='Enter code'
-                        placeholderTextColor='#FFFFFF'
+                        placeholderTextColor='#9CA3AF'
                         autoCapitalize='none'
                         keyboardType='phone-pad'
                         value={code}
