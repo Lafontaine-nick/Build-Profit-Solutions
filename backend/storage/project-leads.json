@@ -25,5 +25,64 @@
     },
     "description": "Professional services from American building . Services: Plumbing. . Available: 1-2 weeks",
     "createdBy": "contractor-demo"
+  },
+  {
+    "id": "LEAD-1778815676348-4a191773",
+    "createdAt": "2026-05-15T03:27:56.348Z",
+    "stage": "new",
+    "aiScore": 80,
+    "verified": true,
+    "isOwnRequest": true,
+    "matchedContractors": 0,
+    "title": "Kitchen ",
+    "trade": "tile",
+    "projectId": "PRJ-1778815676125",
+    "source": "PROJECT_BASED",
+    "contact": {
+      "name": "Build Profit Solutions",
+      "company": "Build Profit Solutions"
+    },
+    "location": {
+      "city": "Las Vegas",
+      "state": "NV",
+      "zip": "89141"
+    },
+    "project": {
+      "type": "other",
+      "budgetMin": 0,
+      "budgetMax": 12000,
+      "timeline": "Normal"
+    },
+    "description": "Looking for qualified Tile  subcontractors near Las Vegas, NV.",
+    "createdBy": "user_3C199YYNSLjygvWOa0z8TbO1Uuo"
+  },
+  {
+    "id": "LEAD-1778815794419-1b9b7a04",
+    "createdAt": "2026-05-15T03:29:54.419Z",
+    "stage": "new",
+    "aiScore": 85,
+    "verified": true,
+    "isOwnRequest": true,
+    "matchedContractors": 0,
+    "title": "Build profit solutions  - Professional Services",
+    "trade": "General Contracting",
+    "projectId": "CAMPAIGN-campaign-1778815794371",
+    "source": "PROJECT_BASED",
+    "contact": {
+      "name": "Build profit solutions",
+      "company": "Build profit solutions"
+    },
+    "location": {
+      "city": "St. George",
+      "state": "UT"
+    },
+    "project": {
+      "type": "other",
+      "budgetMin": 2500,
+      "budgetMax": 5000,
+      "timeline": "Soon"
+    },
+    "description": "Professional services from Build profit solutions . Services: General Contracting. Residential. Available: 1-2 weeks",
+    "createdBy": "user_3C199YYNSLjygvWOa0z8TbO1Uuo"
   }
 ]

@@ -1,5 +1,6 @@
 // Simple API test to verify connectivity
 import Constants from 'expo-constants';
+import { withProjectLeadsAuth } from '@/utils/projectLeadsAuthFetch';
 
 /** Backend mounts routes under /api — avoid 404 when env URL is host-only (e.g. http://192.168.x.x:3001). */
 const normalizeApiBaseUrl = (url: string): string => {
@@ -28,14 +29,17 @@ export const testApiConnection = async (contractorUserId?: string) => {
     const leadsUrl = `${API_BASE_URL}/unified-leads/contractor/${encodeURIComponent(userKey)}`;
     console.log('🧪 Testing leads endpoint:', leadsUrl);
     
-    const leadsResponse = await fetch(leadsUrl, {
-      headers: {
-        'Accept': 'application/json',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache',
-      },
-      cache: 'no-store'
-    });
+    const leadsResponse = await fetch(
+      leadsUrl,
+      await withProjectLeadsAuth({
+        headers: {
+          Accept: 'application/json',
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+        },
+        cache: 'no-store',
+      })
+    );
     console.log('🧪 Leads response status:', leadsResponse.status);
     
     if (leadsResponse.ok) {

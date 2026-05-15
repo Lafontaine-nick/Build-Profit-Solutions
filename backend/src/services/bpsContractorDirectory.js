@@ -56,8 +56,48 @@ function upsert(entry) {
   return rows[idx >= 0 ? idx : rows.length - 1];
 }
 
+function isDemoDirectoryId(id) {
+  const s = String(id || '').trim().toLowerCase();
+  return s === 'contractor-demo' || s === 'anonymous' || s.startsWith('demo-');
+}
+
+/** When the same contractor registered twice (e.g. legacy `contractor-demo` + Clerk `user_…`), keep one row. */
+function dedupeDirectoryRows(rows) {
+  const keyFor = (r) => {
+    const email = String(r.email || '')
+      .trim()
+      .toLowerCase();
+    if (email) return `email:${email}`;
+    const phone = String(r.phone || '').replace(/\D/g, '');
+    const co = String(r.companyName || '')
+      .trim()
+      .toLowerCase();
+    if (phone && co) return `pc:${phone}|${co}`;
+    return `id:${String(r.id || '').trim()}`;
+  };
+
+  const pick = (a, b) => {
+    const aDemo = isDemoDirectoryId(a.id);
+    const bDemo = isDemoDirectoryId(b.id);
+    if (aDemo && !bDemo) return b;
+    if (!aDemo && bDemo) return a;
+    const ta = new Date(a.updatedAt || 0).getTime();
+    const tb = new Date(b.updatedAt || 0).getTime();
+    return tb >= ta ? b : a;
+  };
+
+  const map = new Map();
+  for (const r of rows) {
+    const k = keyFor(r);
+    const prev = map.get(k);
+    map.set(k, prev ? pick(prev, r) : r);
+  }
+  return [...map.values()];
+}
+
 function listPublic() {
-  return loadAll().filter((r) => r.listOnFindSubcontractors === true);
+  const listed = loadAll().filter((r) => r.listOnFindSubcontractors === true);
+  return dedupeDirectoryRows(listed);
 }
 
 module.exports = {

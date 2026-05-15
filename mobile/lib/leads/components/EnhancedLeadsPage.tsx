@@ -29,8 +29,9 @@ import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { Dimensions } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Lead, LeadStage } from '../types';
+import { touchesLeadScope } from '../leadScopeTouch';
 import { LEAD_SOURCES_WAYS } from '../leadSourcesHelp';
-import { isAllowedProductLead } from '../allowedLeadIngest';
+import { isVisibleInProductLeadsTab } from '../allowedLeadIngest';
 import {
   hasReachedPipelineStage,
   matchesProposalSentPipelineBucket,
@@ -140,6 +141,8 @@ interface EnhancedLeadsPageProps {
   } | null;
   /** Same user id used for product-only lead ingest on the Leads tab (Clerk id or email, else demo). */
   leadScopeUserId?: string;
+  /** Second identity (e.g. email when `leadScopeUserId` is Clerk id) so ingest rules match server `createdBy`. */
+  leadScopeUserEmail?: string | null;
   /** When true, empty list shows a loading placeholder instead of “No leads here yet” (initial hydrate + API refresh). */
   suppressEmptyStateWhileLoading?: boolean;
 }
@@ -488,14 +491,14 @@ const SourceAnalytics = ({ leads, selectedSource, onSourceSelect }: SourceAnalyt
             style={[
               styles.sourceStatsChip,
               darkMode
-                ? { backgroundColor: '#0e749020', borderColor: '#38BDF8' }
-                : { backgroundColor: Colors.surface2, borderColor: Colors.line },
+                ? { backgroundColor: '#1D4ED8', borderColor: '#3B82F6' }
+                : { backgroundColor: '#EFF6FF', borderColor: '#93C5FD' },
             ]}
           >
             <Text
               style={[
                 styles.sourceStatsChipText,
-                { color: darkMode ? '#38BDF8' : Colors.text },
+                { color: darkMode ? '#FFFFFF' : '#1E3A8A' },
               ]}
             >
               My Campaign {sourceCounts.MY_CAMPAIGN}
@@ -505,14 +508,14 @@ const SourceAnalytics = ({ leads, selectedSource, onSourceSelect }: SourceAnalyt
             style={[
               styles.sourceStatsChip,
               darkMode
-                ? { backgroundColor: '#19E18020', borderColor: '#19E180' }
-                : { backgroundColor: Colors.surface2, borderColor: Colors.line },
+                ? { backgroundColor: '#047857', borderColor: '#34D399' }
+                : { backgroundColor: '#ECFDF5', borderColor: '#6EE7B7' },
             ]}
           >
             <Text
               style={[
                 styles.sourceStatsChipText,
-                { color: darkMode ? '#19E180' : Colors.text },
+                { color: darkMode ? '#FFFFFF' : '#065F46' },
               ]}
             >
               Sub request {sourceCounts.SUB_REQUEST}
@@ -524,14 +527,14 @@ const SourceAnalytics = ({ leads, selectedSource, onSourceSelect }: SourceAnalyt
             style={[
               styles.sourceStatsChip,
               darkMode
-                ? { backgroundColor: '#0F766E20', borderColor: '#2DD4BF' }
-                : { backgroundColor: Colors.surface2, borderColor: Colors.line },
+                ? { backgroundColor: '#0F766E', borderColor: '#2DD4BF' }
+                : { backgroundColor: '#F0FDFA', borderColor: '#5EEAD4' },
             ]}
           >
             <Text
               style={[
                 styles.sourceStatsChipText,
-                { color: darkMode ? '#2DD4BF' : Colors.text },
+                { color: darkMode ? '#FFFFFF' : '#134E4A' },
               ]}
             >
               Directory {sourceCounts.BPS_SELECTION}
@@ -756,13 +759,13 @@ const EnhancedLeadCard = ({
   
   // Check if this is a campaign lead (CAMPAIGN- prefix) vs sub request (PRJ- prefix or other PROJECT_BASED)
   const hasCampaignProjectId = !!lead.projectId?.startsWith?.('CAMPAIGN-');
-  const isOwnProjectBased =
+  const isCampaignLead = lead.source === 'PROJECT_BASED' && hasCampaignProjectId;
+  const isSubRequest =
     lead.source === 'PROJECT_BASED' &&
-    (lead.isOwnRequest === true || lead.createdBy === scopeUserId);
-  // Also check title for campaign indicator as fallback
-  const titleHasCampaign = lead.title?.toLowerCase().includes('campaign') || false;
-  const isCampaignLead = hasCampaignProjectId; // Only campaign leads have CAMPAIGN- prefix
-  const isSubRequest = isOwnProjectBased && !hasCampaignProjectId; // Sub requests are PROJECT_BASED but NOT campaigns
+    !hasCampaignProjectId &&
+    (lead.isOwnRequest === true ||
+      touchesLeadScope(scopeUserId, lead.createdBy) ||
+      touchesLeadScope(scopeUserId, lead.assignedTo));
   const isAIMatched = lead.source === 'AI_ESTIMATE'; // AI Matched leads
   
   // Base style for lead card background/border - match project cards exactly
@@ -784,9 +787,10 @@ const EnhancedLeadCard = ({
       source: lead.source,
       isOwnRequest: lead.isOwnRequest,
       createdBy: lead.createdBy,
+      assignedTo: lead.assignedTo,
       hasCampaignProjectId,
-      isOwnProjectBased,
       isCampaignLead,
+      isSubRequest,
       contactName: lead.contact?.name,
     });
   }
@@ -1743,6 +1747,7 @@ export default function EnhancedLeadsPage({
   onLeadsViewMeta,
   contractorProfile,
   leadScopeUserId,
+  leadScopeUserEmail,
   suppressEmptyStateWhileLoading = false,
 }: EnhancedLeadsPageProps) {
   const scopedLeadUserId = (leadScopeUserId ?? 'contractor-demo').trim();
@@ -1791,8 +1796,8 @@ export default function EnhancedLeadsPage({
   const displayLeads = useMemo(() => {
     const uid = (leadScopeUserId || '').trim();
     if (!uid) return leads;
-    return leads.filter((l) => isAllowedProductLead(l, uid));
-  }, [leads, leadScopeUserId]);
+    return leads.filter((l) => isVisibleInProductLeadsTab(l, uid, leadScopeUserEmail ?? ''));
+  }, [leads, leadScopeUserId, leadScopeUserEmail]);
 
   useEffect(() => {
     setSourceFilter((prev) => {
@@ -3610,6 +3615,8 @@ export default function EnhancedLeadsPage({
               createdBy: ownerId,
               description: description,
               projectId: `CAMPAIGN-${campaign.id}`,
+              companyName: campaign.companyName,
+              contactName: campaign.contactName || campaign.companyName,
             };
 
             console.log(`📤 Posting campaign lead:`, leadPayload);

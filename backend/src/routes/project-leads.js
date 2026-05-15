@@ -4,39 +4,68 @@ const router = express.Router();
 const unifiedLeadService = require('../services/unifiedLeadService');
 const { loadProjectLeads, saveProjectLeads } = require('../services/leadStorage');
 const { authenticateToken } = require('../middleware/authenticateToken');
+const {
+  resolveActorIdFromAuth,
+  urlParamUserMatchesAuth,
+  leadOwnedByRequester,
+  normalizeLeadOwnerKey,
+} = require('../lib/leadActorAuth');
 
-function normalizeLeadOwnerKey(s) {
-  return String(s || '').trim().toLowerCase();
+const resolveAuthoritativeCreatedBy = resolveActorIdFromAuth;
+
+function firstNonEmptyTrimmedString(...vals) {
+  for (const v of vals) {
+    if (typeof v === 'string') {
+      const t = v.trim();
+      if (t) return t;
+    }
+  }
+  return '';
 }
 
-function authOwnerKeys(req) {
+/**
+ * Headline shown on lead cards for the poster (Request Subcontractor / campaign).
+ * Historically `contact.name` was set to `createdBy`, which is often a Clerk `user_…` id — unreadable in UI.
+ */
+function resolveLeadPosterContactName(req, createdBy, body = {}) {
+  const company = firstNonEmptyTrimmedString(
+    body.companyName,
+    body.businessName,
+    body.organizationName
+  );
+  const person = firstNonEmptyTrimmedString(
+    body.contactName,
+    body.displayName,
+    body.posterName
+  );
+  if (company) return company.slice(0, 160);
+  if (person) return person.slice(0, 160);
+
   const u = req.user || {};
-  const keys = new Set();
-  if (u.userId) keys.add(normalizeLeadOwnerKey(u.userId));
-  if (u.sub) keys.add(normalizeLeadOwnerKey(u.sub));
-  if (u.id != null && u.id !== '') keys.add(normalizeLeadOwnerKey(u.id));
-  if (u.email) keys.add(normalizeLeadOwnerKey(u.email));
-  return keys;
+  const nm = firstNonEmptyTrimmedString(u.name, u.fullName, u.displayName);
+  if (nm) return nm.slice(0, 160);
+
+  const em = firstNonEmptyTrimmedString(u.email);
+  if (em) {
+    const local = em.split('@')[0];
+    const pretty = local
+      .replace(/[._-]+/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+      .trim();
+    if (pretty.length >= 2) return pretty.slice(0, 160);
+    return em.slice(0, 160);
+  }
+
+  const id = String(createdBy || '').trim();
+  if (/^user[_]/i.test(id)) return 'Your company';
+
+  return id.slice(0, 160) || 'Your request';
 }
 
-function resolveAuthoritativeCreatedBy(req) {
-  const u = req.user || {};
-  if (u.userId) return String(u.userId).trim();
-  if (u.sub) return String(u.sub).trim();
-  if (u.id != null && u.id !== '') return String(u.id).trim();
-  if (u.email) return String(u.email).trim();
-  return null;
-}
-
-function urlParamUserMatchesAuth(req, paramUserId) {
-  const keys = authOwnerKeys(req);
-  const p = normalizeLeadOwnerKey(decodeURIComponent(String(paramUserId || '')));
-  return keys.has(p);
-}
-
-function leadOwnedByRequester(req, lead) {
-  if (!lead) return false;
-  return authOwnerKeys(req).has(normalizeLeadOwnerKey(lead.createdBy));
+/** Matches `unified-leads.js` — e.g. LEAD-<ms>-<suffix> and LEAD-<ms>-<suffix>-contractor-<user> share one base. */
+function stageBaseIdFromParam(leadId) {
+  if (!leadId || !String(leadId).includes('-')) return leadId;
+  return String(leadId).split('-').slice(0, 3).join('-');
 }
 
 function collectLeadsByProjectId(projectId) {
@@ -62,15 +91,11 @@ function resolveLeadForDeleteOwnership(leadId) {
   const direct = unifiedLeadService.allLeads.find((l) => l.id === leadId);
   if (direct) return direct;
 
-  const baseId = leadId.includes('-')
-    ? `${leadId.split('-')[0]}-${leadId.split('-')[1]}`
-    : leadId;
+  const paramBase = stageBaseIdFromParam(leadId);
   return (
     unifiedLeadService.allLeads.find((l) => {
-      const leadBaseId = l.id.includes('-')
-        ? `${l.id.split('-')[0]}-${l.id.split('-')[1]}`
-        : l.id;
-      return leadBaseId === baseId || l.id === leadId;
+      const leadBaseId = stageBaseIdFromParam(l.id);
+      return leadBaseId === paramBase || l.id === leadId;
     }) || null
   );
 }
@@ -162,6 +187,12 @@ router.post('/', authenticateToken, async (req, res) => {
     if (!createdBy) {
       return res.status(401).json({ error: 'Could not resolve authenticated user for createdBy' });
     }
+
+    const posterContactName = resolveLeadPosterContactName(req, createdBy, rest);
+    const posterCompany =
+      firstNonEmptyTrimmedString(rest.companyName, rest.businessName, rest.organizationName) ||
+      'Project Request';
+
     const zipNormalized = (zipRaw != null ? String(zipRaw) : '')
       .replace(/\D/g, '')
       .slice(0, 5);
@@ -201,8 +232,8 @@ router.post('/', authenticateToken, async (req, res) => {
       projectId: projectId || `PRJ-${Date.now()}`,
       source: 'PROJECT_BASED',
       contact: {
-        name: createdBy,
-        company: 'Project Request',
+        name: posterContactName,
+        company: posterCompany,
       },
       location: {
         city,
@@ -328,7 +359,7 @@ router.post('/bps-selection', authenticateToken, async (req, res) => {
 });
 
 // Create subcontractor requests from a project
-router.post('/projects/:projectId/create-leads', async (req, res) => {
+router.post('/projects/:projectId/create-leads', authenticateToken, async (req, res) => {
   try {
     const { projectId } = req.params;
     const { trades, contractorId } = req.body;
@@ -337,6 +368,8 @@ router.post('/projects/:projectId/create-leads', async (req, res) => {
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
+
+    const createdByAuthoritative = resolveAuthoritativeCreatedBy(req);
 
     const createdLeads = [];
 
@@ -377,7 +410,7 @@ router.post('/projects/:projectId/create-leads', async (req, res) => {
           emailValid: true,
           phoneValid: true
         },
-        createdBy: project.createdBy,
+        createdBy: createdByAuthoritative || project.createdBy,
         assignedTo: contractorId, // Specific contractor assigned
         createdAt: new Date().toISOString(),
         description: `Professional ${trade.toLowerCase()} services needed for ${project.name}. Project timeline: ${project.timeline}`
@@ -386,6 +419,8 @@ router.post('/projects/:projectId/create-leads', async (req, res) => {
       projectLeads.push(lead);
       createdLeads.push(lead);
     }
+
+    persistProjectLeads();
 
     res.status(201).json({
       success: true,
@@ -399,10 +434,17 @@ router.post('/projects/:projectId/create-leads', async (req, res) => {
   }
 });
 
-// Get all project-based leads for a contractor
-router.get('/contractor/:contractorId', async (req, res) => {
+// Get all project-based leads for a contractor (legacy projectLeads store)
+router.get('/contractor/:contractorId', authenticateToken, async (req, res) => {
   try {
     const { contractorId } = req.params;
+    if (!urlParamUserMatchesAuth(req, contractorId)) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Authenticated account does not match requested contractor scope.',
+      });
+    }
+
     const { trade, status } = req.query;
 
     let filteredLeads = projectLeads.filter(lead => 
@@ -430,28 +472,39 @@ router.get('/contractor/:contractorId', async (req, res) => {
   }
 });
 
-// Accept a project-based lead
-router.post('/leads/:leadId/accept', async (req, res) => {
+// Accept a project-based lead (legacy projectLeads store; actor from auth)
+router.post('/leads/:leadId/accept', authenticateToken, async (req, res) => {
   try {
     const { leadId } = req.params;
-    const { contractorId, message } = req.body;
+    const { message } = req.body;
+    const actorId = resolveAuthoritativeCreatedBy(req);
+    if (!actorId) {
+      return res.status(401).json({ error: 'Could not resolve authenticated user' });
+    }
 
     const lead = projectLeads.find(l => l.id === leadId);
     if (!lead) {
       return res.status(404).json({ error: 'Lead not found' });
     }
 
-    if (lead.assignedTo && lead.assignedTo !== contractorId) {
+    if (lead.assignedTo && lead.assignedTo !== actorId) {
       return res.status(400).json({ error: 'Lead already assigned to another contractor' });
     }
 
+    const creatorNorm = lead.createdBy ? normalizeLeadOwnerKey(lead.createdBy) : null;
+    if (!lead.assignedTo && creatorNorm && creatorNorm === normalizeLeadOwnerKey(actorId)) {
+      return res.status(403).json({ error: 'Listing owner cannot accept their own lead via this action' });
+    }
+
     // Update lead
-    lead.assignedTo = contractorId;
+    lead.assignedTo = actorId;
     lead.stage = 'contacted';
     lead.acceptedAt = new Date().toISOString();
     if (message) {
       lead.acceptanceMessage = message;
     }
+
+    persistProjectLeads();
 
     res.json({
       success: true,
@@ -466,7 +519,7 @@ router.post('/leads/:leadId/accept', async (req, res) => {
 });
 
 // Get available projects for lead creation
-router.get('/projects', async (req, res) => {
+router.get('/projects', authenticateToken, async (req, res) => {
   try {
     const { status = 'active' } = req.query;
     const filteredProjects = projects.filter(p => p.status === status);
@@ -610,6 +663,8 @@ router.get('/my-requests/:userId', authenticateToken, async (req, res) => {
         notificationsSent: lead.notificationsSent || 0,
         assignedTo: lead.assignedTo,
         isOwnRequest: true, // All requests from this endpoint are user's own requests
+        contactName: lead.contact?.name || '',
+        companyName: lead.contact?.company || '',
       };
       // Debug log for campaign leads
       if (lead.projectId?.startsWith('CAMPAIGN-')) {
@@ -666,15 +721,13 @@ router.delete('/:leadId', authenticateToken, async (req, res) => {
       console.log(`✅ Deleted from projectLeads: ${deletedLead.id}`);
     }
     
-    // Also delete from unifiedLeadService.allLeads
-    // Delete by exact ID or base ID (for contractor-assigned variants)
-    const baseId = leadId.includes('-') ? leadId.split('-')[0] + '-' + leadId.split('-')[1] : leadId;
+    // Also delete from unifiedLeadService.allLeads (exact id + same stage base as unified-leads routes)
+    const paramBase = stageBaseIdFromParam(leadId);
     const initialCount = unifiedLeadService.allLeads.length;
-    
-    // Remove all leads that match this ID (including contractor variants)
-    unifiedLeadService.allLeads = unifiedLeadService.allLeads.filter(lead => {
-      const leadBaseId = lead.id.includes('-') ? lead.id.split('-')[0] + '-' + lead.id.split('-')[1] : lead.id;
-      return leadBaseId !== baseId && lead.id !== leadId;
+
+    unifiedLeadService.allLeads = unifiedLeadService.allLeads.filter((lead) => {
+      const leadBase = stageBaseIdFromParam(lead.id);
+      return lead.id !== leadId && leadBase !== paramBase;
     });
     unifiedLeadService.persistUnifiedLeads(); // Save to disk
     

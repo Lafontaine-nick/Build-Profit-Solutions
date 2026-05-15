@@ -246,6 +246,8 @@ function mapGooglePlacesRowToSub(row: any, selectedTrade: string): any {
   return {
     id: row.placeId,
     placeId: row.placeId,
+    directoryId: row.directoryId ?? null,
+    directoryEmail: row.directoryEmail ?? null,
     name: row.name,
     trade: tradeLabel,
     rating: row.rating ?? 0,
@@ -273,6 +275,54 @@ function mapGooglePlacesRowToSub(row: any, selectedTrade: string): any {
     unverifiedLabel: isBps ? 'Verified by BPS' : 'Not verified by BPS',
     bpsVerified: isBps,
   };
+}
+
+function normFindSubsEmail(s: string | undefined | null): string {
+  return String(s || '')
+    .trim()
+    .toLowerCase();
+}
+
+function readFindSubsAuthIdentity(): { id: string; emailNorm: string } {
+  try {
+    const auth = clerkAuthService.getAuthState();
+    return {
+      id: String(auth?.user?.id || '').trim(),
+      emailNorm: normFindSubsEmail(auth?.user?.email ?? null),
+    };
+  } catch {
+    return { id: '', emailNorm: '' };
+  }
+}
+
+/** Hide your own directory row when hiring subs (match Clerk id or email on the directory entry). */
+function isSelfBpsDirectoryCard(
+  sub: any,
+  authId: string,
+  authEmailNorm: string,
+  profileEmailNorm: string
+): boolean {
+  const dirId = String(sub.directoryId || '').trim();
+  if (dirId && authId && dirId === authId) return true;
+  const rowEm = normFindSubsEmail(sub.directoryEmail ?? null);
+  if (!rowEm) return false;
+  if (authEmailNorm && rowEm === authEmailNorm) return true;
+  if (profileEmailNorm && rowEm === profileEmailNorm) return true;
+  return false;
+}
+
+/** Hide your own campaign promo card in this search list (same email as account / profile). */
+function isSelfCampaignSubCard(
+  sub: any,
+  authEmailNorm: string,
+  profileEmailNorm: string
+): boolean {
+  if (!sub?.hasCampaign) return false;
+  const ce = normFindSubsEmail(sub.email ?? null);
+  if (!ce) return false;
+  if (authEmailNorm && ce === authEmailNorm) return true;
+  if (profileEmailNorm && ce === profileEmailNorm) return true;
+  return false;
 }
 
 interface SubcontractorSearchModalProps {
@@ -353,6 +403,8 @@ function SubcontractorSearchModal({
   const [geoAccuracyWarning, setGeoAccuracyWarning] = useState<string | null>(null);
   /** Profile-linked directory listing (same keys as Profile → Find Subcontractors). */
   const [bpsDiscoverListOn, setBpsDiscoverListOn] = useState(false);
+  /** Normalized Profile email — used to hide your own directory + campaign cards when hiring subs. */
+  const [selfProfileEmailNorm, setSelfProfileEmailNorm] = useState('');
   const [loading, setLoading] = useState(false);
   const [locating, setLocating] = useState(false);
   const [selectedSubcontractor, setSelectedSubcontractor] = useState<any>(null);
@@ -514,6 +566,9 @@ function SubcontractorSearchModal({
         if (raw) {
           const p = JSON.parse(raw);
           setBpsDiscoverListOn(!!p.listOnFindSubcontractors);
+          setSelfProfileEmailNorm(normFindSubsEmail(p.email ?? null));
+        } else {
+          setSelfProfileEmailNorm('');
         }
       } catch {
         /* ignore */
@@ -575,15 +630,23 @@ function SubcontractorSearchModal({
     [campaigns]
   );
 
-  const realBpsRows = useMemo(
-    () => filterByTradeAndQuery(campaignSubcontractors),
-    [selectedTrade, searchQuery, campaigns, campaignSubcontractors]
-  );
+  const realBpsRows = useMemo(() => {
+    const { emailNorm: authEmailNorm } = readFindSubsAuthIdentity();
+    const scoped = campaignSubcontractors.filter(
+      (sub) => !isSelfCampaignSubCard(sub, authEmailNorm, selfProfileEmailNorm)
+    );
+    return filterByTradeAndQuery(scoped);
+  }, [selectedTrade, searchQuery, campaigns, campaignSubcontractors, selfProfileEmailNorm]);
 
-  const apiBpsDirectoryRows = useMemo(
-    () => filterByTradeAndQuery(googlePlacesResults.filter((s) => s.source === 'bps')),
-    [selectedTrade, searchQuery, googlePlacesResults]
-  );
+  const apiBpsDirectoryRows = useMemo(() => {
+    const { id: authId, emailNorm: authEmailNorm } = readFindSubsAuthIdentity();
+    const rows = googlePlacesResults.filter(
+      (s) =>
+        s.source === 'bps' &&
+        !isSelfBpsDirectoryCard(s, authId, authEmailNorm, selfProfileEmailNorm)
+    );
+    return filterByTradeAndQuery(rows);
+  }, [selectedTrade, searchQuery, googlePlacesResults, selfProfileEmailNorm]);
 
   const combinedBpsRows = useMemo(
     () => [...realBpsRows, ...apiBpsDirectoryRows],
@@ -1012,6 +1075,26 @@ function SubcontractorSearchModal({
         return;
       }
 
+      let profileCompany = '';
+      let profileContactName = '';
+      try {
+        const rawProf = await AsyncStorage.getItem('bps.contractorProfile');
+        if (rawProf) {
+          const prof = JSON.parse(rawProf);
+          profileCompany = String(prof.company || '').trim();
+          profileContactName = String(prof.name || '').trim();
+        }
+      } catch {
+        /* ignore */
+      }
+      const authUser = clerkAuthService.getAuthState().user;
+      const authDisplay =
+        [authUser?.firstName, authUser?.lastName].filter(Boolean).join(' ').trim() ||
+        [authUser?.first_name, authUser?.last_name].filter(Boolean).join(' ').trim();
+      if (!profileContactName && authDisplay) {
+        profileContactName = authDisplay;
+      }
+
       const requestData: any = {
         title: requestFormData.projectName || `${tradeValue} Work Needed`,
         trade: normalizeTrade(tradeValue),
@@ -1025,6 +1108,8 @@ function SubcontractorSearchModal({
         description:
           requestFormData.description ||
           `Looking for qualified ${tradeValue} subcontractors near ${geo.city}, ${geo.state}.`,
+        ...(profileCompany ? { companyName: profileCompany } : {}),
+        ...(profileContactName ? { contactName: profileContactName } : {}),
       };
 
       const requestSignature = `${zip}|${normalizeTrade(requestData.trade)}-${requestData.budgetMax}-${requestData.timeline}`;

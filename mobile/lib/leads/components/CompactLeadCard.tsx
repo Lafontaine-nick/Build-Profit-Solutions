@@ -23,6 +23,8 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { getSubRequestSeenMatchCount, setSubRequestSeenMatchCount } from '../subRequestMatchNotifications';
 
+import { touchesLeadScope } from '../leadScopeTouch';
+
 /** Teal accent for MY CAMPAIGN cards (distinct from green Sub Request). */
 const CAMPAIGN_TEAL = {
   border: '#2dd4bf',
@@ -61,14 +63,30 @@ export default function CompactLeadCard({
   const lightText = !darkMode ? Colors.text : undefined;
   const lightSub = !darkMode ? Colors.sub : undefined;
   const scopeUserId = leadScopeUserId?.trim() || 'contractor-demo';
-  
-  // Check if this is a campaign lead (CAMPAIGN- prefix) vs sub request (PRJ- prefix or other PROJECT_BASED)
+
+  /**
+   * Card chrome (3 tiers):
+   * - Teal “MY CAMPAIGN”: PROJECT_BASED + projectId CAMPAIGN-…
+   * - Green “SUB REQUEST”: PROJECT_BASED job-need posts / matched copies (not campaigns).
+   * - Default grey border / no banner: everything else in the tab — notably `BPS_SELECTION`
+   *   (“general network” / directory picks) when another contractor selects you from Find Subcontractors.
+   */
+  // Campaign = PROJECT_BASED + CAMPAIGN- project id (same as Leads tab “My Campaign”).
   const hasCampaignProjectId = !!lead.projectId?.startsWith?.('CAMPAIGN-');
-  const isOwnProjectBased =
+  const isCampaignLead = lead.source === 'PROJECT_BASED' && hasCampaignProjectId;
+
+  // Sub request path = any PROJECT_BASED row that is not a campaign tile: your post, OR incoming matched copy
+  // (assignee). Previously we only keyed off createdBy / isOwnRequest, so matched subs saw plain cards.
+  const isSubRequest =
     lead.source === 'PROJECT_BASED' &&
-    (lead.isOwnRequest === true || lead.createdBy === scopeUserId);
-  const isCampaignLead = hasCampaignProjectId; // Only campaign leads have CAMPAIGN- prefix
-  const isSubRequest = isOwnProjectBased && !hasCampaignProjectId; // Sub requests are PROJECT_BASED but NOT campaigns
+    !hasCampaignProjectId &&
+    (lead.isOwnRequest === true ||
+      touchesLeadScope(scopeUserId, lead.createdBy) ||
+      touchesLeadScope(scopeUserId, lead.assignedTo));
+
+  const isOwnSubPost =
+    lead.isOwnRequest === true || touchesLeadScope(scopeUserId, lead.createdBy);
+
   /** Own posted requests are not a sales pipeline — hide stage UI. */
   const hideSalesPipeline = lead.isOwnRequest === true;
 
@@ -276,14 +294,14 @@ export default function CompactLeadCard({
                   styles.contactName,
                   isCampaignLead && styles.campaignContactName,
                   isSubRequest && styles.subRequestContactName,
-                  lightText && { color: lightText },
+                  lightText && !(isCampaignLead || isSubRequest) && { color: lightText },
                 ]}
                 numberOfLines={1}
               >
                 {lead.contact.name || 'New Lead'}
               </Text>
             </View>
-            {lead.contact.company && !isCampaignLead && !isSubRequest && (
+            {lead.contact.company && !isCampaignLead && !(isSubRequest && isOwnSubPost) && (
               <Text
                 style={[styles.companyName, lightSub && { color: lightSub }]}
                 numberOfLines={1}
@@ -298,7 +316,7 @@ export default function CompactLeadCard({
             )}
             {isSubRequest && (
               <Text style={styles.subRequestSubtext} numberOfLines={1}>
-                Looking for Subcontractors
+                {isOwnSubPost ? 'Looking for Subcontractors' : 'Sub need matched to you'}
               </Text>
             )}
           </View>
@@ -341,7 +359,7 @@ export default function CompactLeadCard({
                 styles.trade,
                 isCampaignLead && styles.campaignTrade,
                 isSubRequest && styles.subRequestTrade,
-                lightText && { color: lightText },
+                lightText && !(isCampaignLead || isSubRequest) && { color: lightText },
               ]}
             >
               {lead.trade}
@@ -351,7 +369,7 @@ export default function CompactLeadCard({
                 styles.budget,
                 isCampaignLead && styles.campaignBudget,
                 isSubRequest && styles.subRequestBudget,
-                lightText && { color: lightText },
+                lightText && !(isCampaignLead || isSubRequest) && { color: lightText },
               ]}
             >
               ${lead.project.budgetMin.toLocaleString()} - ${lead.project.budgetMax.toLocaleString()}

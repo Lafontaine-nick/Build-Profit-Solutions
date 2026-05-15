@@ -210,6 +210,9 @@ async function mapDirectoryEntryToPlaceResult(entry, zipCenter, radiusMiles, api
     : [];
   return {
     placeId: `bps:${entry.id}`,
+    /** Same as suffix of `placeId` — lets clients hide “your own” directory card in Find Subcontractors. */
+    directoryId: entry.id,
+    directoryEmail: entry.email || null,
     name,
     rating: null,
     reviewCount: 0,

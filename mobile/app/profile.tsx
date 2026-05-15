@@ -172,6 +172,43 @@ async function logoUriPersistableForWebPdf(uri: string | undefined | null): Prom
   }
 }
 
+/**
+ * Persist avatar to `bps.contractorProfile` immediately after the user picks a photo.
+ * Otherwise `useFocusEffect` / pull-to-refresh can re-read storage before the debounced
+ * autosave (500ms) and merge `profile.avatar || prev.avatar`, which prefers stale disk and
+ * makes the picture flip between the new image and the old / default logo.
+ */
+async function flushAvatarToStoredContractorProfile(avatarUri: string): Promise<void> {
+  try {
+    let stored = avatarUri;
+    if (Platform.OS === 'web' && stored) {
+      const converted = await logoUriPersistableForWebPdf(stored);
+      if (converted) stored = converted;
+    }
+    const raw = await AsyncStorage.getItem('bps.contractorProfile');
+    if (!raw) return;
+    const profile = JSON.parse(raw);
+    const next = {
+      ...profile,
+      avatar: stored,
+      ...(Platform.OS === 'web' && String(stored || '').trim()
+        ? { logoUrl: String(stored).trim() }
+        : {}),
+    };
+    await AsyncStorage.setItem('bps.contractorProfile', JSON.stringify(next));
+  } catch (e) {
+    console.warn('flushAvatarToStoredContractorProfile failed', e);
+  }
+}
+
+/** Re-hydrate from disk without clobbering a newer in-memory avatar (see flush above). */
+function mergeAvatarOnProfileFocus(prevAvatar: string | undefined, diskAvatar: unknown): string {
+  const disk = typeof diskAvatar === 'string' ? diskAvatar.trim() : '';
+  const prev = String(prevAvatar ?? '').trim();
+  if (prev && prev !== disk) return String(prevAvatar ?? '').trim();
+  return disk || prev || '';
+}
+
 interface EditFormData {
   firstName: string;
   lastName: string;
@@ -441,7 +478,7 @@ export default function ProfileScreen() {
             ...prev,
             name: profile.name || prev.name,
             company: profile.company || prev.company,
-            avatar: profile.avatar || prev.avatar,
+            avatar: mergeAvatarOnProfileFocus(prev.avatar, profile.avatar),
             phone: profile.phone || prev.phone,
             email: profile.email || prev.email,
             website: profile.website || prev.website,
@@ -479,7 +516,7 @@ export default function ProfileScreen() {
             ...prev,
             name: profile.name || prev.name,
             company: profile.company || prev.company,
-            avatar: profile.avatar || prev.avatar,
+            avatar: mergeAvatarOnProfileFocus(prev.avatar, profile.avatar),
             phone: profile.phone || prev.phone,
             email: profile.email || prev.email,
             website: profile.website || prev.website,
@@ -593,7 +630,7 @@ export default function ProfileScreen() {
           ...prev,
           name: profile.name || prev.name,
           company: profile.company || prev.company,
-          avatar: profile.avatar || prev.avatar,
+          avatar: mergeAvatarOnProfileFocus(prev.avatar, profile.avatar),
           phone: profile.phone || prev.phone,
           email: profile.email || prev.email,
           website: profile.website || prev.website,
@@ -1316,9 +1353,15 @@ export default function ProfileScreen() {
       if (!result.canceled && result.assets[0]) {
         const picked = result.assets[0].uri;
         const newAvatar = await persistPickedImageToDocuments(picked, 'bps-profile-avatar');
-        setUser((prev) => ({ ...prev, avatar: newAvatar }));
+        let avatarForState = newAvatar;
+        if (Platform.OS === 'web' && newAvatar) {
+          const converted = await logoUriPersistableForWebPdf(newAvatar);
+          if (converted) avatarForState = converted;
+        }
+        await flushAvatarToStoredContractorProfile(avatarForState);
+        setUser((prev) => ({ ...prev, avatar: avatarForState }));
 
-        // Avatar save will be handled by the useEffect that watches user.avatar
+        // Full profile still debounced-saved by useEffect; avatar is already on disk to avoid focus races.
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert('Success', 'Profile image updated successfully!');
       }
@@ -1483,7 +1526,9 @@ export default function ProfileScreen() {
                     : require('../assets/images/bps-logo-updated.png')
                 }
                 style={styles.profileImage}
-                defaultSource={require('../assets/images/bps-logo-updated.png')}
+                {...(String(user.avatar || '').trim()
+                  ? {}
+                  : { defaultSource: require('../assets/images/bps-logo-updated.png') })}
                 resizeMode="contain"
                 onError={() => console.log('Profile image failed to load')}
               />

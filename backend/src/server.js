@@ -242,8 +242,23 @@ app.use('/api/bls', blsRoutes);
 app.use('/api/cost-benchmarks', costBenchmarksRoutes);
 app.use('/api/marketplace-leads', marketplaceLeadsRoutes);
 app.use('/api/project-leads', projectLeadsRoutes);
-app.use('/api/bid-invitations', bidInvitationsRoutes);
-app.use('/api/shared-leads', sharedLeadsRoutes);
+// Legacy demo APIs (not part of product: campaign, sub request, directory pick only).
+// Opt in for local experiments: ENABLE_LEGACY_LEAD_APIS=true
+if (process.env.ENABLE_LEGACY_LEAD_APIS === 'true') {
+  app.use('/api/bid-invitations', bidInvitationsRoutes);
+  app.use('/api/shared-leads', sharedLeadsRoutes);
+  console.warn('⚠️ ENABLE_LEGACY_LEAD_APIS: bid-invitations + shared-leads routes are mounted');
+} else {
+  const legacyLeadApisGone = (req, res) => {
+    res.status(410).json({
+      error: 'Gone',
+      message:
+        'Legacy bid-invitations and shared-leads APIs are disabled. Product leads use campaign, sub request (project-leads), and directory pick only.',
+    });
+  };
+  app.use('/api/bid-invitations', legacyLeadApisGone);
+  app.use('/api/shared-leads', legacyLeadApisGone);
+}
 app.use('/api/unified-leads', unifiedLeadsRoutes);
 app.use('/api/invoices', invoicesRoutes);
 app.use('/api/payment-methods', paymentMethodsRoutes);

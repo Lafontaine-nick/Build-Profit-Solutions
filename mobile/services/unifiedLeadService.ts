@@ -1,5 +1,7 @@
 import { Lead, LeadSource, LeadStage } from '../lib/leads/types';
 import Constants from 'expo-constants';
+import { withProjectLeadsAuth } from '@/utils/projectLeadsAuthFetch';
+import { clerkAuthService } from './clerkAuth';
 
 const PRODUCTION_API_BASE_URL = 'https://build-profit-solutions-backend.onrender.com/api';
 
@@ -88,6 +90,14 @@ export class UnifiedLeadService {
     return resolveApiBaseUrl();
   }
 
+  /** Clerk id or email — must match `GET /unified-leads/contractor/:id` auth scope. */
+  private resolveContractorScopeKey(): string {
+    const u = clerkAuthService.getAuthState().user;
+    const fromSession = (u?.id || u?.email || '').trim();
+    if (fromSession) return fromSession;
+    return (this.contractorId || 'contractor-demo').trim();
+  }
+
   constructor(contractorId: string = 'contractor-demo') {
     this.contractorId = contractorId;
   }
@@ -113,16 +123,21 @@ export class UnifiedLeadService {
         queryParams.append('sortBy', filters.sortBy);
       }
 
-      const url = `${this.apiBaseUrl}/unified-leads/contractor/${this.contractorId}?${queryParams.toString()}`;
-      
-      const response = await fetch(url, {
-        headers: {
-          'Accept': 'application/json',
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache',
-        },
-        cache: 'no-store'
-      });
+      const url = `${this.apiBaseUrl}/unified-leads/contractor/${encodeURIComponent(
+        this.resolveContractorScopeKey()
+      )}?${queryParams.toString()}`;
+
+      const response = await fetch(
+        url,
+        await withProjectLeadsAuth({
+          headers: {
+            Accept: 'application/json',
+            'Cache-Control': 'no-cache',
+            Pragma: 'no-cache',
+          },
+          cache: 'no-store',
+        })
+      );
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -140,7 +155,12 @@ export class UnifiedLeadService {
   // Get lead statistics
   async getLeadStats(): Promise<LeadStats> {
     try {
-      const response = await fetch(`${this.apiBaseUrl}/unified-leads/contractor/${this.contractorId}/stats`);
+      const response = await fetch(
+        `${this.apiBaseUrl}/unified-leads/contractor/${encodeURIComponent(
+          this.resolveContractorScopeKey()
+        )}/stats`,
+        await withProjectLeadsAuth({ headers: { Accept: 'application/json' } })
+      );
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -158,7 +178,12 @@ export class UnifiedLeadService {
   // Get lead insights
   async getLeadInsights(): Promise<LeadInsights> {
     try {
-      const response = await fetch(`${this.apiBaseUrl}/unified-leads/contractor/${this.contractorId}/insights`);
+      const response = await fetch(
+        `${this.apiBaseUrl}/unified-leads/contractor/${encodeURIComponent(
+          this.resolveContractorScopeKey()
+        )}/insights`,
+        await withProjectLeadsAuth({ headers: { Accept: 'application/json' } })
+      );
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -176,16 +201,16 @@ export class UnifiedLeadService {
   // Update lead stage
   async updateLeadStage(leadId: string, stage: LeadStage): Promise<Lead> {
     try {
-      const response = await fetch(`${this.apiBaseUrl}/unified-leads/leads/${leadId}/stage`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          stage,
-          contractorId: this.contractorId
-        }),
-      });
+      const response = await fetch(
+        `${this.apiBaseUrl}/unified-leads/leads/${leadId}/stage`,
+        await withProjectLeadsAuth({
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ stage }),
+        })
+      );
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -203,16 +228,16 @@ export class UnifiedLeadService {
   // Accept a lead
   async acceptLead(leadId: string, message?: string): Promise<Lead> {
     try {
-      const response = await fetch(`${this.apiBaseUrl}/unified-leads/leads/${leadId}/accept`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contractorId: this.contractorId,
-          message
-        }),
-      });
+      const response = await fetch(
+        `${this.apiBaseUrl}/unified-leads/leads/${leadId}/accept`,
+        await withProjectLeadsAuth({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(message != null ? { message } : {}),
+        })
+      );
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -236,19 +261,21 @@ export class UnifiedLeadService {
     documents?: string[]
   ): Promise<Lead> {
     try {
-      const response_body = await fetch(`${this.apiBaseUrl}/unified-leads/leads/${leadId}/respond-bid`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contractorId: this.contractorId,
-          response,
-          bidAmount,
-          message,
-          documents
-        }),
-      });
+      const response_body = await fetch(
+        `${this.apiBaseUrl}/unified-leads/leads/${leadId}/respond-bid`,
+        await withProjectLeadsAuth({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            response,
+            bidAmount,
+            message,
+            documents,
+          }),
+        })
+      );
 
       if (!response_body.ok) {
         throw new Error(`HTTP error! status: ${response_body.status}`);
@@ -266,7 +293,10 @@ export class UnifiedLeadService {
   // Get lead details
   async getLeadDetails(leadId: string): Promise<Lead> {
     try {
-      const response = await fetch(`${this.apiBaseUrl}/unified-leads/leads/${leadId}`);
+      const response = await fetch(
+        `${this.apiBaseUrl}/unified-leads/leads/${leadId}`,
+        await withProjectLeadsAuth({ headers: { Accept: 'application/json' } })
+      );
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -284,16 +314,19 @@ export class UnifiedLeadService {
   // Create project-based leads (for GCs)
   async createProjectLeads(projectId: string, trades: string[]): Promise<Lead[]> {
     try {
-      const response = await fetch(`${this.apiBaseUrl}/project-leads/projects/${projectId}/create-leads`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          trades,
-          contractorId: this.contractorId
-        }),
-      });
+      const response = await fetch(
+        `${this.apiBaseUrl}/project-leads/projects/${projectId}/create-leads`,
+        await withProjectLeadsAuth({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            trades,
+            contractorId: this.resolveContractorScopeKey(),
+          }),
+        })
+      );
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -308,85 +341,13 @@ export class UnifiedLeadService {
     }
   }
 
-  // Send bid invitations (for GCs)
-  async sendBidInvitations(
-    projectId: string,
-    trade: string,
-    contractorIds: string[],
-    message?: string,
-    deadline?: string
-  ): Promise<Lead[]> {
-    try {
-      const response = await fetch(`${this.apiBaseUrl}/bid-invitations/send-invitations`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          projectId,
-          trade,
-          contractorIds,
-          message,
-          deadline
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      return data.invitations;
-
-    } catch (error) {
-      console.error('Error sending bid invitations:', error);
-      throw error;
-    }
-  }
-
-  // Share a lead with other contractors
-  async shareLead(
-    originalLeadId: string,
-    trade: string,
-    message?: string,
-    maxShares: number = 5,
-    targetAreas: string[] = [],
-    minRating: number = 4.0
-  ): Promise<Lead[]> {
-    try {
-      const response = await fetch(`${this.apiBaseUrl}/shared-leads/share-lead`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          originalLeadId,
-          sharedBy: this.contractorId,
-          trade,
-          message,
-          maxShares,
-          targetAreas,
-          minRating
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      return data.sharedLeads;
-
-    } catch (error) {
-      console.error('Error sharing lead:', error);
-      throw error;
-    }
-  }
-
   // Get available projects for lead creation
   async getAvailableProjects(): Promise<any[]> {
     try {
-      const response = await fetch(`${this.apiBaseUrl}/project-leads/projects`);
+      const response = await fetch(
+        `${this.apiBaseUrl}/project-leads/projects`,
+        await withProjectLeadsAuth({ headers: { Accept: 'application/json' } })
+      );
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -397,38 +358,6 @@ export class UnifiedLeadService {
 
     } catch (error) {
       console.error('Error fetching available projects:', error);
-      throw error;
-    }
-  }
-
-  // Get contractor network for sharing
-  async getContractorNetwork(trade?: string, minRating: number = 4.0, area?: string): Promise<any[]> {
-    try {
-      const queryParams = new URLSearchParams();
-      
-      if (trade) {
-        queryParams.append('trade', trade);
-      }
-      if (minRating) {
-        queryParams.append('minRating', minRating.toString());
-      }
-      if (area) {
-        queryParams.append('area', area);
-      }
-
-      const url = `${this.apiBaseUrl}/shared-leads/network?${queryParams.toString()}`;
-      
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      return data.contractors;
-
-    } catch (error) {
-      console.error('Error fetching contractor network:', error);
       throw error;
     }
   }

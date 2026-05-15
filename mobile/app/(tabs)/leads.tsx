@@ -7,7 +7,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import EnhancedLeadsPage from '@/lib/leads/components/EnhancedLeadsPage';
 import LeadDetailModal from '@/lib/leads/components/LeadDetailModal';
 import { Lead, LeadStage } from '@/lib/leads/types';
-import { isAllowedProductLead } from '@/lib/leads/allowedLeadIngest';
+import { isEmbeddedSeedCatalogLeadId, isVisibleInProductLeadsTab } from '@/lib/leads/allowedLeadIngest';
 import { unifiedLeadService } from '@/services/unifiedLeadService';
 import { testApiConnection } from '@/services/apiTest';
 import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
@@ -23,6 +23,7 @@ import { normalizeTrade, tradesMatch } from '@/lib/trades';
 import { distanceMi, geocodeCity, getStateCenter } from '@/lib/geo';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
 import { clerkAuthService } from '@/services/clerkAuth';
+import { useUser } from '@clerk/clerk-react';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
@@ -30,6 +31,52 @@ import { ScreenLayout } from '@/constants/ScreenLayout';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import WebPageShell from '@/components/layout/WebPageShell';
+import Constants from 'expo-constants';
+
+/** Matches `useRequireAuth` — when true, wait for Clerk `useUser().isLoaded` before first leads API bootstrap. */
+function isClerkConfiguredForProduct(): boolean {
+  const pk =
+    Constants.expoConfig?.extra?.clerkPublishableKey || process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  return !!(
+    pk &&
+    (pk.startsWith('pk_live_') ||
+      (pk.startsWith('pk_test_') && pk !== 'pk_test_Y2xlcmsuZGV2LmNsZXJrLmF1dGgudGVzdC5rZXk'))
+  );
+}
+
+/** Strips `-contractor-<actor>` so unified rows and my-requests rows dedupe to one card. */
+function canonicalLeadIdForMerge(lead: Pick<Lead, 'id'>): string {
+  const id = lead.id || '';
+  const cut = id.indexOf('-contractor-');
+  return cut === -1 ? id : id.slice(0, cut);
+}
+
+/**
+ * Unified API can return the same logical sub need as both the base `LEAD-…` row and a
+ * `…-contractor-…` copy; my-requests uses the base id. Prefer the unified row (richer `contact`).
+ */
+function mergeUnifiedAndMyRequestLeads(testLeads: Lead[], userRequests: Lead[]): Lead[] {
+  const sortedUnified = [...testLeads].sort((a, b) => {
+    const aCopy = a.id.includes('-contractor-') ? 1 : 0;
+    const bCopy = b.id.includes('-contractor-') ? 1 : 0;
+    return aCopy - bCopy;
+  });
+  const seen = new Set<string>();
+  const out: Lead[] = [];
+  for (const lead of sortedUnified) {
+    const k = canonicalLeadIdForMerge(lead);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(lead);
+  }
+  for (const lead of userRequests) {
+    const k = canonicalLeadIdForMerge(lead);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(lead);
+  }
+  return out;
+}
 
 // Mock data with different lead sources
 const mockLeads: Lead[] = [
@@ -1024,11 +1071,6 @@ const testLocationLead = createTestLead(TEST_CITY, TEST_STATE, TEST_TRADE);
 // Add the test lead to mockLeads array for easy testing
 const mockLeadsWithTest = [...mockLeads, testLocationLead];
 
-/** In-app seed catalog IDs (`mockLeads`, e.g. L1001–L1027). Bypass Match Prefs like campaign leads when shown. */
-function isEmbeddedSeedLeadId(id: string): boolean {
-  return /^L10\d+$/.test(id);
-}
-
 /**
  * When the API returns leads, the app used to hide every `mockLeads` row — so new L10xx demos never appeared.
  * In __DEV__, merge the seed catalog unless EXPO_PUBLIC_INCLUDE_MOCK_LEADS=false.
@@ -1046,7 +1088,7 @@ function leadBypassesMatchPrefs(lead: Lead): boolean {
     !!lead.projectId?.startsWith('CAMPAIGN-') ||
     lead.isOwnRequest === true ||
     (lead.createdBy != null && lead.createdBy === 'contractor-demo') ||
-    isEmbeddedSeedLeadId(lead.id)
+    isEmbeddedSeedCatalogLeadId(lead.id)
   );
 }
 
@@ -1081,6 +1123,7 @@ function convertToLeadRaw(lead: Lead): LeadRaw {
 export default function LeadsScreen() {
   // Require authentication to access this screen
   useRequireAuth();
+  const { user: clerkUser, isLoaded: clerkUserLoaded } = useUser();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { theme } = useTheme();
@@ -1097,7 +1140,15 @@ export default function LeadsScreen() {
   };
 
   const authState = clerkAuthService.getAuthState();
-  const leadScopeUserId = authState.user?.id || authState.user?.email || 'contractor-demo';
+  /** Clerk is source of truth when enabled; `clerkAuthService.user` is often empty in Clerk-only sessions. */
+  const leadIdentityClerkId = (clerkUser?.id || authState.user?.id || '').trim();
+  const leadIdentityClerkEmail = (
+    clerkUser?.primaryEmailAddress?.emailAddress ||
+    clerkUser?.emailAddresses?.[0]?.emailAddress ||
+    authState.user?.email ||
+    ''
+  ).trim();
+  const leadScopeUserId = leadIdentityClerkId || leadIdentityClerkEmail || 'contractor-demo';
   
   const [leads, setLeads] = useState<Lead[]>([]);
   
@@ -1225,7 +1276,7 @@ export default function LeadsScreen() {
         };
         campaignLeads.push(campaignLeadWithScore);
         console.log(
-          `✅ Lead bypasses Match Prefs: "${lead.title}" (projectId: "${lead.projectId}", isOwnRequest: ${lead.isOwnRequest}, createdBy: "${lead.createdBy}", seedId: ${isEmbeddedSeedLeadId(lead.id)})`
+          `✅ Lead bypasses Match Prefs: "${lead.title}" (projectId: "${lead.projectId}", isOwnRequest: ${lead.isOwnRequest}, createdBy: "${lead.createdBy}", seedId: ${isEmbeddedSeedCatalogLeadId(lead.id)})`
         );
       } else {
         regularLeads.push(lead);
@@ -1969,10 +2020,16 @@ export default function LeadsScreen() {
       'bootstrapDone:',
       apiLeadsBootstrapDoneRef.current,
       'contractorProfile:',
-      !!contractorProfile
+      !!contractorProfile,
+      'clerkUserLoaded:',
+      clerkUserLoaded
     );
     if (!deletedLeadIdsLoaded || !contractorProfile || apiLeadsBootstrapDoneRef.current) {
       console.log('⏳ Waiting for API bootstrap prerequisites or already bootstrapped');
+      return;
+    }
+    if (isClerkConfiguredForProduct() && !clerkUserLoaded) {
+      console.log('⏳ Waiting for Clerk (useUser isLoaded) before first leads API bootstrap — avoids empty identity filter');
       return;
     }
     apiLeadsBootstrapDoneRef.current = true;
@@ -1981,7 +2038,7 @@ export default function LeadsScreen() {
       loadLeads();
     }, 100);
     return () => clearTimeout(timer);
-  }, [deletedLeadIdsLoaded, contractorProfile]);
+  }, [deletedLeadIdsLoaded, contractorProfile, clerkUserLoaded]);
 
   const loadLeads = async (opts?: { force?: boolean }) => {
     // Prevent multiple simultaneous loads
@@ -2001,9 +2058,7 @@ export default function LeadsScreen() {
       console.log('🚀 Starting to load leads...');
       
       // Fetch user's own subcontractor requests (Sub Needs) FIRST
-      // Get actual user ID from authentication
-      const authState = clerkAuthService.getAuthState();
-      const userId = authState.user?.id || authState.user?.email || 'contractor-demo';
+      const userId = leadScopeUserId;
       console.log(`👤 Using user ID for leads: ${userId}`);
       let userRequests: Lead[] = [];
       
@@ -2108,6 +2163,15 @@ export default function LeadsScreen() {
                 : 'PROJECT_BASED';
             const isBpsPick = leadSource === 'BPS_SELECTION';
 
+            const reqPosterName =
+              typeof req.contactName === 'string' && req.contactName.trim()
+                ? req.contactName.trim()
+                : '';
+            const reqCompanyName =
+              typeof req.companyName === 'string' && req.companyName.trim()
+                ? req.companyName.trim()
+                : '';
+
             const mappedLead = {
             id: req.id,
             title: req.title,
@@ -2119,12 +2183,12 @@ export default function LeadsScreen() {
                   ? 'Find Subcontractors'
                   : isFromCampaign
                     ? campaignContactName
-                    : 'Your Request',
+                    : reqPosterName || reqCompanyName || 'Your Request',
                 company: isBpsPick
                   ? 'BPS directory'
                   : isFromCampaign
                     ? campaignCompanyName
-                    : 'Self',
+                    : reqCompanyName || 'Self',
                 email: isBpsPick ? '' : isFromCampaign ? campaignEmail : 'your-email@example.com',
                 phone: isBpsPick ? '' : isFromCampaign ? campaignPhone : '555-000-0000',
             },
@@ -2215,10 +2279,13 @@ export default function LeadsScreen() {
       let testLocationLeads: Lead[] = [];
       
       if (hasApiLeads) {
-        allLeads = [...testLeads, ...userRequests];
+        allLeads = mergeUnifiedAndMyRequestLeads(testLeads, userRequests);
         if (shouldMergeEmbeddedMockCatalog()) {
           const existingIds = new Set(allLeads.map((l) => l.id));
-          const seedExtras = mockLeads.filter((l) => !existingIds.has(l.id));
+          const existingMergeKeys = new Set(allLeads.map((l) => canonicalLeadIdForMerge(l)));
+          const seedExtras = mockLeads.filter(
+            (l) => !existingIds.has(l.id) && !existingMergeKeys.has(canonicalLeadIdForMerge(l))
+          );
           allLeads = [...allLeads, ...seedExtras];
           console.log(
             `🧪 Embedded seed catalog: merged ${seedExtras.length} L10xx demo leads with API (${testLeads.length} from API). Production: set EXPO_PUBLIC_INCLUDE_MOCK_LEADS=true; dev: set EXPO_PUBLIC_INCLUDE_MOCK_LEADS=false to disable.`
@@ -2236,8 +2303,7 @@ export default function LeadsScreen() {
           );
           testLocationLeads = mockLeadsWithTest.filter((lead) => lead.id?.startsWith('TEST-'));
           allLeads = [
-            ...testLeads,
-            ...userRequests,
+            ...mergeUnifiedAndMyRequestLeads(testLeads, userRequests),
             ...stGeorgeMockLeads,
             ...testLocationLeads,
           ];
@@ -2261,7 +2327,7 @@ export default function LeadsScreen() {
             });
           }
         } else {
-          allLeads = [...testLeads, ...userRequests];
+          allLeads = mergeUnifiedAndMyRequestLeads(testLeads, userRequests);
           console.log(
             `⚠️ No unified API leads — showing real sources only (Sub Needs, directory picks). Demo L10xx / St. George / test leads omitted in production.`
           );
@@ -2275,14 +2341,33 @@ export default function LeadsScreen() {
         .filter((lead) => lead.source !== 'MARKETPLACE');
       
       // Filter out deleted leads
-      let visibleLeads = uniqueLeads.filter(lead => !deletedLeadIds.has(lead.id));
+      let visibleLeads = uniqueLeads.filter(
+        (lead) =>
+          !deletedLeadIds.has(lead.id) &&
+          !deletedLeadIds.has(canonicalLeadIdForMerge(lead))
+      );
 
       // Only the three product lead paths (campaign, sub request / matches, directory pick)
       const beforeProductFilter = visibleLeads.length;
-      visibleLeads = visibleLeads.filter((lead) => isAllowedProductLead(lead, userId));
+      visibleLeads = visibleLeads.filter((lead) =>
+        isVisibleInProductLeadsTab(lead, leadIdentityClerkId, leadIdentityClerkEmail)
+      );
       if (beforeProductFilter !== visibleLeads.length) {
         console.log(
           `📌 Product-only leads: ${beforeProductFilter} → ${visibleLeads.length} (removed legacy/demo sources)`
+        );
+      }
+      if (beforeProductFilter > 0 && visibleLeads.length === 0) {
+        console.warn(
+          '📌 Product filter removed every lead — sample rows (check source vs PROJECT_BASED / BPS_SELECTION and createdBy/assignedTo):',
+          uniqueLeads.slice(0, 5).map((l) => ({
+            id: l.id,
+            source: l.source,
+            createdBy: l.createdBy,
+            assignedTo: l.assignedTo,
+            projectId: l.projectId,
+            isOwnRequest: l.isOwnRequest,
+          }))
         );
       }
 
@@ -2548,14 +2633,13 @@ export default function LeadsScreen() {
   // Sync leads to Zustand for Match Prefs scoring — same product-only set as the Leads tab
   useEffect(() => {
     if (leads.length > 0) {
-      const uid = clerkAuthService.getAuthState().user?.id || clerkAuthService.getAuthState().user?.email || 'contractor-demo';
       const rawLeads = leads
-        .filter((lead) => isAllowedProductLead(lead, uid))
+        .filter((lead) => isVisibleInProductLeadsTab(lead, leadIdentityClerkId, leadIdentityClerkEmail))
         .map(convertToLeadRaw);
       setAll(rawLeads);
       console.log(`📦 Synced ${rawLeads.length} product leads to Zustand store (Match Prefs / scoring)`);
     }
-  }, [leads, setAll]);
+  }, [leads, setAll, leadIdentityClerkId, leadIdentityClerkEmail]);
 
   // Use Zustand-scored leads when preferences are available
   useEffect(() => {
@@ -3204,6 +3288,7 @@ export default function LeadsScreen() {
           <View style={styles.contentCard}>
           <EnhancedLeadsPage
         leadScopeUserId={leadScopeUserId}
+        leadScopeUserEmail={leadIdentityClerkEmail || undefined}
         suppressEmptyStateWhileLoading={
           !deletedLeadIdsLoaded ||
           !contractorProfile ||
@@ -3242,15 +3327,17 @@ export default function LeadsScreen() {
         contractorProfile={contractorProfile}
         onDeleteLead={async (leadId) => {
           try {
-            // Add to deleted leads set to prevent it from reappearing
-            const newDeletedIds = new Set([...deletedLeadIds, leadId]);
+            const mergeKey = canonicalLeadIdForMerge({ id: leadId });
+            const newDeletedIds = new Set([...deletedLeadIds, leadId, mergeKey]);
             setDeletedLeadIds(newDeletedIds);
             
             // Save to AsyncStorage immediately
             await AsyncStorage.setItem('deletedLeadIds', JSON.stringify(Array.from(newDeletedIds)));
             
             // Remove from local state immediately
-            setLeads(prevLeads => prevLeads.filter(l => l.id !== leadId));
+            setLeads((prevLeads) =>
+              prevLeads.filter((l) => canonicalLeadIdForMerge(l) !== mergeKey)
+            );
             
             // Check if this is an API lead (starts with LEAD-) and try to delete from backend
             if (leadId.startsWith('LEAD-')) {
@@ -3287,11 +3374,14 @@ export default function LeadsScreen() {
             
             // If it's a backend lead, update on backend (fire and forget)
             if (leadId.startsWith('LEAD-')) {
-              fetch(`${resolveBackendRestApiBaseUrl()}/unified-leads/leads/${leadId}/archive`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ archived: true }),
-              }).catch(err => console.warn('Backend archive update failed:', err));
+              void fetch(
+                `${resolveBackendRestApiBaseUrl()}/unified-leads/leads/${leadId}/archive`,
+                await withProjectLeadsAuth({
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ archived: true }),
+                })
+              ).catch(err => console.warn('Backend archive update failed:', err));
             }
             
             console.log(`📦 Archived lead: ${leadId}`);
@@ -3321,11 +3411,14 @@ export default function LeadsScreen() {
             
             // If it's a backend lead, update on backend (fire and forget)
             if (leadId.startsWith('LEAD-')) {
-              fetch(`${resolveBackendRestApiBaseUrl()}/unified-leads/leads/${leadId}/archive`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ archived: false }),
-              }).catch(err => console.warn('Backend unarchive update failed:', err));
+              void fetch(
+                `${resolveBackendRestApiBaseUrl()}/unified-leads/leads/${leadId}/archive`,
+                await withProjectLeadsAuth({
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ archived: false }),
+                })
+              ).catch(err => console.warn('Backend unarchive update failed:', err));
             }
             
             console.log(`📦 Unarchived lead: ${leadId}`);
@@ -3420,15 +3513,18 @@ export default function LeadsScreen() {
         }}
         onDelete={async (leadId) => {
           try {
-            // Add to deleted leads set to prevent it from reappearing
-            const newDeletedIds = new Set([...deletedLeadIds, leadId]);
+            const mergeKey = canonicalLeadIdForMerge({ id: leadId });
+            // Add to deleted leads set to prevent it from reappearing (base + contractor-variant ids)
+            const newDeletedIds = new Set([...deletedLeadIds, leadId, mergeKey]);
             setDeletedLeadIds(newDeletedIds);
             
             // Save to AsyncStorage immediately
             await AsyncStorage.setItem('deletedLeadIds', JSON.stringify(Array.from(newDeletedIds)));
             
             // Remove from local state immediately
-            setLeads(prevLeads => prevLeads.filter(l => l.id !== leadId));
+            setLeads((prevLeads) =>
+              prevLeads.filter((l) => canonicalLeadIdForMerge(l) !== mergeKey)
+            );
             
             // Check if this is an API lead (starts with LEAD-) and try to delete from backend
             if (leadId.startsWith('LEAD-')) {

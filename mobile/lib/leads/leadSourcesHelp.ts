@@ -16,7 +16,7 @@ export const LEAD_SOURCES_WAYS: readonly { title: string; detail: string }[] = [
   {
     title: 'Directory pick',
     detail:
-      'Verified BPS contractors appear in Find Subcontractors. When someone opens your profile and adds you to an estimate (Add to bid), a Directory pick lead is created for you.',
+      'Verified BPS contractors appear in Find Subcontractors. When someone selects you from that directory (general network) and adds you to an estimate (Add to bid), a Directory pick lead is created — it shows as a neutral grey card on your Leads tab (no green Sub Request or teal Campaign banner).',
   },
 ] as const;
 

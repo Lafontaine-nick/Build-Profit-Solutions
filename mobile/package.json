@@ -15,6 +15,7 @@
     "start:dev:tunnel:web": "EXPO_NO_DOCTOR=1 npx expo start --dev-client --tunnel --web --clear",
     "build:dev:ios": "EXPO_NO_CAPABILITY_SYNC=1 eas build --profile development --platform ios",
     "build:dev:android": "EXPO_NO_CAPABILITY_SYNC=1 eas build --profile development --platform android",
+    "submit:ios:production": "EXPO_PUBLIC_APP_ENV=production npx eas-cli submit --platform ios --profile production",
     "dev": "EXPO_NO_DOCTOR=1 npx expo start --dev-client --tunnel",
     "dev:lan": "bash start-lan.sh",
     "dev:clear": "pkill -f 'expo start' 2>/dev/null || true; sleep 1; EXPO_NO_DOCTOR=1 npx expo start --dev-client --tunnel --clear",

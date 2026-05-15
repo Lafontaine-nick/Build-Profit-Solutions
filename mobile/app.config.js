@@ -4,6 +4,8 @@ import path from 'path';
 // Load order: base → production file → .env.local last.
 // For local development, .env.local should win. For production EAS builds, do not let
 // a local override flip EXPO_PUBLIC_APP_ENV back to development during config evaluation.
+// Local `eas submit`: set EXPO_PUBLIC_APP_ENV=production first (see npm script submit:ios:production)
+// or .env.local will force the .dev bundle and ASC submission will target the wrong app.
 const dotenvOpts = { quiet: true };
 config({ path: path.resolve(__dirname, '.env'), ...dotenvOpts });
 config({ path: path.resolve(__dirname, '.env.production'), ...dotenvOpts });
