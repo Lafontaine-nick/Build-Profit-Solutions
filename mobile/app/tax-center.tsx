@@ -111,7 +111,14 @@ function mapExportFailureMessage(
       lower.includes('puppeteer') ||
       lower.includes('pdf render') ||
       lower.includes('network request failed') ||
-      lower.includes('aborted')
+      lower.includes('failed to fetch') ||
+      lower.includes('abort') ||
+      lower.includes('aborted') ||
+      lower.includes('timeout') ||
+      lower.includes('timed out') ||
+      lower.includes('524') ||
+      lower.includes('504') ||
+      lower.includes('502')
     ) {
       const clipped = m.length > 1200 ? `${m.slice(0, 1200)}…` : m;
       return `PDF export failed.\n\n${clipped}`;

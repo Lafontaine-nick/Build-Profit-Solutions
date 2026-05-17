@@ -14,8 +14,8 @@ const ensureApiSuffix = (url: string) => {
 
 const unique = <T,>(items: T[]) => [...new Set(items)];
 
-/** Cold Puppeteer + large Tax Center HTML on Render can exceed a few seconds. */
-const PDF_FETCH_TIMEOUT_MS = 60_000;
+/** First PDF on a cold Render dyno installs Chrome (1–3+ min) then renders; keep client open long enough. */
+const PDF_FETCH_TIMEOUT_MS = 480_000;
 
 /** Private LAN IPv4 embedded in Metro / Expo host strings (Expo Go on device). */
 function extractLanIpv4FromHostString(src: string | undefined): string | null {
