@@ -6,7 +6,10 @@ services:
     # Same cache dir as server.js (NODE_ENV=production → backend/.puppeteer-cache).
     # package.json sets puppeteer.skipDownload so the default npm Chromium download is skipped;
     # scripts/ensure-puppeteer-chrome.js + the loop below install Chrome into PUPPETEER_CACHE_DIR.
-    buildCommand: export PUPPETEER_CACHE_DIR=$PWD/.puppeteer-cache && npm install && export PUPPETEER_CACHE_DIR=$PWD/.puppeteer-cache && for i in 1 2 3; do npx puppeteer browsers install chrome && break; sleep 25; done
+    # Chrome install runs in npm postinstall (scripts/ensure-puppeteer-chrome.js). Do not add a
+    # separate `npx puppeteer …` loop here — Render uses `set -e`; a failed `npx` aborts the whole
+    # build before `sleep`/retries, which caused "Exited with status 1 while building".
+    buildCommand: export PUPPETEER_CACHE_DIR=$PWD/.puppeteer-cache && npm install
     # Match build cache dir at runtime (Render home default cache is empty here).
     startCommand: export PUPPETEER_CACHE_DIR="$PWD/.puppeteer-cache" && npm start
     envVars:

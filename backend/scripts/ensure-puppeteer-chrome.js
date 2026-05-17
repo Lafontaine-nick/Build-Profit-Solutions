@@ -39,7 +39,8 @@ function installChrome(maxAttempts) {
         stdio: 'inherit',
         env,
         cwd,
-        timeout: 900000,
+        // Render build has a total time budget; keep each attempt bounded.
+        timeout: process.env.RENDER === 'true' ? 420000 : 900000,
       });
       console.log('[ensure-puppeteer-chrome] Chrome install succeeded.');
       return true;
@@ -57,14 +58,14 @@ function installChrome(maxAttempts) {
 }
 
 const isRender = process.env.RENDER === 'true';
-const attempts = isRender ? 4 : 2;
+const attempts = isRender ? 3 : 2;
 const ok = installChrome(attempts);
 if (!ok && isRender) {
   console.error(
-    '[ensure-puppeteer-chrome] Render: deploy finished without a working Chrome binary. Re-deploy or run on the service: PUPPETEER_CACHE_DIR=$PWD/.puppeteer-cache npx puppeteer browsers install chrome',
+    '[ensure-puppeteer-chrome] Render: Chrome install failed after retries. PDF routes need a browser binary. Fix network/disk or install manually, then redeploy.',
   );
+  process.exit(1);
 }
 
-// Never fail `npm install` / Render build — API must still boot; pdf-ready will show chromeOnDisk false.
-void ok;
+// Local / CI: do not block `npm install` if Chrome is missing (devs can install later).
 process.exit(0);
