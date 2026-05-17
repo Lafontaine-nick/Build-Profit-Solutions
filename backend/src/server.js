@@ -20,6 +20,16 @@ if (onRenderHost) {
   process.env.PUPPETEER_CACHE_DIR = PUPPETEER_CACHE_IN_APP;
 }
 
+// Render: install Chrome in the background so PDF works even if Dashboard Start Command is still `npm start`.
+const { installPuppeteerChromeIfMissing: bootInstallPuppeteerChrome } = require('./services/puppeteerChromeInstall');
+if (onRenderHost) {
+  setImmediate(() => {
+    void bootInstallPuppeteerChrome({ logPrefix: '[server-boot]', maxAttempts: 3 }).catch((err) => {
+      console.error('[server-boot] Background Chrome install failed:', err instanceof Error ? err.message : err);
+    });
+  });
+}
+
 function normalizeEnvKey(name) {
   const v = process.env[name];
   if (v == null || typeof v !== 'string') return;
