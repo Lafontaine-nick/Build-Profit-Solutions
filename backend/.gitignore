@@ -1,3 +1,5 @@
 .gitignore storage/
 .env
-.puppeteer-cache/
+# Do not list `.puppeteer-cache/` here: hosts like Render can omit gitignored paths from the
+# deploy artifact, which would drop the Chrome binary installed during `npm install` postinstall.
+# Locally, the folder stays untracked unless you `git add` it — avoid committing it (large binaries).
