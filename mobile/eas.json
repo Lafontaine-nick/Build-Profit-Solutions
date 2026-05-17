@@ -43,6 +43,12 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "appleTeamId": "CSGZ33M63A",
+        "bundleIdentifier": "com.buildprofitsolutions.mobile",
+        "appName": "Build Profit Solutions"
+      }
+    }
   }
 }

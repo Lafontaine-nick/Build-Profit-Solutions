@@ -1,5 +1,6 @@
 require('express-async-errors');
 const path = require('path');
+const { isRenderHosting } = require('./utils/renderEnv');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 // Puppeteer: keep Chrome under backend/.puppeteer-cache (matches postinstall + Render).
@@ -9,7 +10,12 @@ const incomingPuppeteerCache = (process.env.PUPPETEER_CACHE_DIR || '').trim();
 const puppeteerCacheUnsetOrSandbox =
   !incomingPuppeteerCache ||
   /cursor-sandbox|sandbox-cache/i.test(incomingPuppeteerCache);
-if (puppeteerCacheUnsetOrSandbox) {
+const onRenderHost = isRenderHosting();
+// Render: render.yaml used to set PUPPETEER_CACHE_DIR from $PWD; monorepo / Root Directory mismatches
+// leave an empty cache dir while Puppeteer still resolves a missing binary. Always pin to this package dir.
+if (onRenderHost) {
+  process.env.PUPPETEER_CACHE_DIR = PUPPETEER_CACHE_IN_APP;
+} else if (puppeteerCacheUnsetOrSandbox) {
   process.env.PUPPETEER_CACHE_DIR = PUPPETEER_CACHE_IN_APP;
 }
 

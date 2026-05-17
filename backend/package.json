@@ -15,6 +15,7 @@
     "lint:fix": "eslint src/ --fix",
     "build": "echo 'No build step required for Node.js'",
     "postinstall": "echo 'Backend dependencies installed successfully' && node scripts/ensure-puppeteer-chrome.js",
+    "install-chrome:render-build": "node scripts/install-puppeteer-chrome-render-build.js",
     "verify-sku": "node verify-sku-search.js",
     "verify-ai-core": "node verify-ai-assistant-core.js",
     "verify:ai": "node verify-ai-assistant-core.js && node scripts/verify-ai-contracts.js",

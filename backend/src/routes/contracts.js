@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const express = require('express');
+const { isRenderHosting } = require('../utils/renderEnv');
 
 const router = express.Router();
 
@@ -28,12 +29,23 @@ const launchArgs = [
   '--disable-gpu',
 ];
 
-/** Render: build-time Chrome may be omitted from the slug; install once at runtime (first PDF is slow). */
-let renderChromeRuntimeInstallAttempted = false;
+/** Render: build-time Chrome may be omitted from the slug; install at runtime when the binary is missing. */
+function puppeteerCacheDirForInstall() {
+  const fromEnv = (process.env.PUPPETEER_CACHE_DIR || '').trim();
+  if (fromEnv) return fromEnv;
+  return path.resolve(__dirname, '..', '..', '.puppeteer-cache');
+}
+
+function sleepSyncRender(seconds) {
+  try {
+    execSync(`sleep ${seconds}`, { stdio: 'ignore' });
+  } catch {
+    /* ignore */
+  }
+}
 
 function tryRuntimeInstallChromeOnRender(puppeteer) {
-  const onRender = process.env.RENDER === 'true' || process.env.RENDER === '1';
-  if (!onRender || renderChromeRuntimeInstallAttempted) return;
+  if (!isRenderHosting()) return;
 
   let expected = null;
   try {
@@ -41,25 +53,40 @@ function tryRuntimeInstallChromeOnRender(puppeteer) {
       expected = puppeteer.executablePath();
     }
   } catch {
-    return;
+    /* continue — still try browsers install */
   }
   if (expected && fs.existsSync(expected)) return;
 
-  renderChromeRuntimeInstallAttempted = true;
-  const backendRoot = path.join(__dirname, '..', '..');
-  console.warn(
-    '[contracts] Render: Puppeteer Chrome missing on disk; running `npx puppeteer browsers install chrome` (may take 1–3 min, first PDF only)…',
-  );
+  const cacheDir = puppeteerCacheDirForInstall();
   try {
-    execSync('npx puppeteer browsers install chrome', {
-      stdio: 'inherit',
-      cwd: backendRoot,
-      env: { ...process.env },
-      timeout: 720000,
-    });
-    console.warn('[contracts] Render: Chrome install finished.');
-  } catch (e) {
-    console.error('[contracts] Render: runtime Chrome install failed:', e instanceof Error ? e.message : e);
+    fs.mkdirSync(cacheDir, { recursive: true });
+  } catch {
+    /* ignore */
+  }
+
+  const backendRoot = path.join(__dirname, '..', '..');
+  const installEnv = { ...process.env, PUPPETEER_CACHE_DIR: cacheDir };
+  const maxAttempts = 2;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    console.warn(
+      `[contracts] Render: Chrome missing at ${expected || '(unknown)'}; running browsers install (attempt ${attempt}/${maxAttempts}, ~1–3 min)…`,
+    );
+    try {
+      execSync('npx puppeteer browsers install chrome', {
+        stdio: 'inherit',
+        cwd: backendRoot,
+        env: installEnv,
+        timeout: 720000,
+      });
+      console.warn('[contracts] Render: Chrome install finished.');
+      return;
+    } catch (e) {
+      console.error(
+        '[contracts] Render: runtime Chrome install failed:',
+        e instanceof Error ? e.message : e,
+      );
+      if (attempt < maxAttempts) sleepSyncRender(20);
+    }
   }
 }
 
@@ -145,7 +172,7 @@ async function launchBrowser(puppeteer) {
 
   // Local dev: optional system Chrome (skip on Render/production — avoids "Could not find Chrome" noise).
   const skipSystemChannel =
-    process.env.RENDER === 'true' ||
+    isRenderHosting() ||
     process.env.PUPPETEER_SKIP_CHANNEL === '1' ||
     process.env.NODE_ENV === 'production';
   if (!skipSystemChannel) {
@@ -342,8 +369,7 @@ router.get('/pdf-ready', (req, res) => {
   const ok = exists && !loadError;
   let whatToDo = null;
   if (!ok && !loadError) {
-    const onRender = process.env.RENDER === 'true' || process.env.RENDER === '1';
-    if (onRender) {
+    if (isRenderHosting()) {
       whatToDo =
         'chromeOnDisk is false until the first PDF on this dyno: POST /api/contracts/render-pdf runs a one-time `npx puppeteer browsers install chrome` on Render (~1–3 min). Refresh this URL after a successful PDF, or from backend/: PUPPETEER_CACHE_DIR=.puppeteer-cache npx puppeteer browsers install chrome.';
     } else {
@@ -361,6 +387,8 @@ router.get('/pdf-ready', (req, res) => {
     cacheDirOnDisk: cacheDirExists,
     puppeteerExecutablePath: puppeteerPath,
     chromeOnDisk: exists,
+    /** True when the server will run managed Chrome install on first PDF (Render-style hosting). */
+    detectedRenderRuntime: isRenderHosting(),
     ...(loadError ? { puppeteerLoadError: loadError } : {}),
     ...(whatToDo ? { whatToDo } : {}),
   });

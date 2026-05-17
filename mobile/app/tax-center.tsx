@@ -67,6 +67,7 @@ import Tax1099ReviewDashboard from '@/src/components/tax/Tax1099ReviewDashboard'
 import { buildTaxSummaryExportPayload, type TaxSummaryExportPayload } from '@/src/lib/taxCenterExportPayload';
 import { getContractorCompanyNameAsync, getDocumentContactEmailAsync } from '@/lib/documentContactEmail';
 import { decodeBase64ToUint8Array, triggerBrowserFileDownload } from '@/utils/triggerBrowserFileDownload';
+import { probePdfBackendReadiness } from '@/lib/pdf/renderHtmlPdfViaBackend';
 
 const money = (value: number): string =>
   new Intl.NumberFormat('en-US', {
@@ -121,7 +122,7 @@ function mapExportFailureMessage(
       lower.includes('502')
     ) {
       const clipped = m.length > 1200 ? `${m.slice(0, 1200)}…` : m;
-      return `PDF export failed.\n\n${clipped}`;
+      return `PDF export failed.\n\nCPA Summary uses the hosted server to turn HTML into a PDF (same engine as contract PDFs). Accountant Workbook, vendor review, and receipt manifest are built on your device and do not need that server.\n\n${clipped}`;
     }
     return 'PDF export failed. Please try again.';
   }
@@ -215,6 +216,28 @@ export default function TaxCenterScreen() {
       void refreshProjectsRef.current();
     }, [])
   );
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      void (async () => {
+        try {
+          const r = await probePdfBackendReadiness();
+          if (cancelled) return;
+          if (!r.reachable) {
+            setPdfEngineReady('unknown');
+            return;
+          }
+          setPdfEngineReady(r.chromeReady ? 'ready' : 'not_ready');
+        } catch {
+          if (!cancelled) setPdfEngineReady('unknown');
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [])
+  );
   const { vendors, quickBooksCategoryMap, addVendor } = useVendorDirectory();
   const currentYear = new Date().getFullYear();
   const yearOptions = useMemo(() => getTaxYearOptions(projects, currentYear), [projects, currentYear]);
@@ -225,6 +248,8 @@ export default function TaxCenterScreen() {
   const [taxBreakdownExpanded, setTaxBreakdownExpanded] = useState(false);
   const [vendorReviewExpanded, setVendorReviewExpanded] = useState(false);
   const [detailKind, setDetailKind] = useState<TaxCenterDetailKind | null>(null);
+  /** Hosted Puppeteer only; spreadsheet exports ignore this. */
+  const [pdfEngineReady, setPdfEngineReady] = useState<'unknown' | 'ready' | 'not_ready'>('unknown');
 
   const yearRange = useMemo(() => getTaxYearRange(selectedYear), [selectedYear]);
   const summary = useMemo(
@@ -367,6 +392,7 @@ export default function TaxCenterScreen() {
           ? 'Your CPA summary PDF download should start in your browser.'
           : 'Your CPA summary PDF is ready to share.'
       );
+      setPdfEngineReady('ready');
     } catch (err) {
       console.error('Tax PDF export', err);
       Alert.alert(exportDialogTitle('pdf'), mapExportFailureMessage(err, 'pdf'));
@@ -1033,6 +1059,13 @@ export default function TaxCenterScreen() {
               onPress={handlePdfExport}
               showTopDivider={false}
             />
+            {pdfEngineReady === 'not_ready' ? (
+              <Text style={styles.exportRowHintPdfEngine}>
+                The online PDF server is still installing Chrome (often 1–3 minutes after a deploy). You can retry this
+                export or use the Accountant Workbook — spreadsheets are built on your device and do not need the PDF
+                server.
+              </Text>
+            ) : null}
             <Text style={styles.exportRowHint}>Polished summary report for your records or CPA.</Text>
             <ExportButton
               icon="assignment-ind"
@@ -1744,6 +1777,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     marginTop: -6,
     marginBottom: 10,
+  },
+  exportRowHintPdfEngine: {
+    color: 'rgba(251, 191, 36, 0.95)',
+    fontSize: 11,
+    lineHeight: 16,
+    paddingHorizontal: 14,
+    marginTop: -4,
+    marginBottom: 8,
+    fontWeight: '600',
   },
   disclaimerText: {
     color: '#FDE68A',

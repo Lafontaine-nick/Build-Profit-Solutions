@@ -18,7 +18,15 @@ export default function TaxSummaryCard({ label, value, icon, accent = '#2DFFC4',
         <MaterialIcons name={icon} size={20} color={accent} />
       </View>
       <Text style={styles.label}>{label}</Text>
-      <Text style={styles.value}>{value}</Text>
+      <Text
+        style={styles.value}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.32}
+        maxFontSizeMultiplier={1.35}
+      >
+        {value}
+      </Text>
       {helper ? <Text style={styles.helper}>{helper}</Text> : null}
       {onPress ? (
         <Text style={styles.tapHint}>Tap for detail</Text>
@@ -69,6 +77,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 20,
     fontWeight: '800',
+    width: '100%',
   },
   helper: {
     color: '#7FDAC5',

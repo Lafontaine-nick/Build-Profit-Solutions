@@ -17,6 +17,18 @@ const unique = <T,>(items: T[]) => [...new Set(items)];
 /** First PDF on a cold Render dyno installs Chrome (1–3+ min) then renders; keep client open long enough. */
 const PDF_FETCH_TIMEOUT_MS = 480_000;
 
+/** Light check before heavy HTML→PDF POST (Tax Center can show a hint when Chrome is not on disk yet). */
+const PDF_READY_PROBE_TIMEOUT_MS = 12_000;
+
+export type PdfBackendReadiness = {
+  /** At least one candidate base returned HTTP for GET /contracts/pdf-ready */
+  reachable: boolean;
+  /** Same condition as server `pdf-ready` payload: bundled Chrome exists */
+  chromeReady: boolean;
+  apiBase?: string;
+  serverHint?: string;
+};
+
 /** Private LAN IPv4 embedded in Metro / Expo host strings (Expo Go on device). */
 function extractLanIpv4FromHostString(src: string | undefined): string | null {
   if (!src || typeof src !== 'string') return null;
@@ -206,6 +218,58 @@ function buildBackendPdfFailureHint(attemptErrors: string[]): string {
   );
 
   return parts.join('\n');
+}
+
+/**
+ * GET /api/contracts/pdf-ready — same candidate bases as PDF render. Use to warn when hosted Chrome is missing
+ * (CPA Summary / contract PDFs) while spreadsheet exports still work on-device.
+ */
+export async function probePdfBackendReadiness(): Promise<PdfBackendReadiness> {
+  const bases = getCandidateApiBasesForPdfRender();
+  let lastErr = '';
+  for (const apiBase of bases) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), PDF_READY_PROBE_TIMEOUT_MS);
+    try {
+      const response = await fetch(`${apiBase}/contracts/pdf-ready`, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        lastErr = `${apiBase}: HTTP ${response.status}`;
+        continue;
+      }
+      const raw = await response.text();
+      let body: Record<string, unknown> = {};
+      try {
+        body = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        lastErr = `${apiBase}: non-JSON pdf-ready response`;
+        continue;
+      }
+      const chromeOnDisk = Boolean(body.chromeOnDisk);
+      const ok = Boolean(body.ok);
+      const serverHint =
+        typeof body.whatToDo === 'string'
+          ? body.whatToDo
+          : typeof body.puppeteerLoadError === 'string'
+            ? body.puppeteerLoadError
+            : undefined;
+      return {
+        reachable: true,
+        chromeReady: ok && chromeOnDisk,
+        apiBase,
+        serverHint,
+      };
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      lastErr = `${apiBase}: ${err.message}`;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+  return { reachable: false, chromeReady: false, serverHint: lastErr || undefined };
 }
 
 /**

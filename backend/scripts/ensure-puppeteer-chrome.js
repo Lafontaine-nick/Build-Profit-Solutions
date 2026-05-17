@@ -1,15 +1,17 @@
 /**
- * Install Puppeteer's Chrome into backend/.puppeteer-cache for **local dev** only.
+ * Install Puppeteer's Chrome into backend/.puppeteer-cache for **local dev** (npm postinstall).
  *
- * On Render: **do not** download Chrome during `npm install` — it often fails the build (time,
- * disk, OOM) and must not be committed anyway. Chrome is installed once at **runtime** on the
- * first PDF request (see src/routes/contracts.js `tryRuntimeInstallChromeOnRender`).
+ * On Render: skip here — Chrome is installed in the **build** step via
+ * `scripts/install-puppeteer-chrome-render-build.js` (see render.yaml). Runtime install remains
+ * in `src/routes/contracts.js` as a fallback.
  */
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const onRender = process.env.RENDER === 'true' || process.env.RENDER === '1';
+const { isRenderHosting } = require('../src/utils/renderEnv');
+
+const onRender = isRenderHosting();
 if (onRender) {
   console.log(
     '[ensure-puppeteer-chrome] Render build: skipping Chrome download during npm install (installed on first PDF at runtime).',
