@@ -191,7 +191,7 @@ function buildBackendPdfFailureHint(attemptErrors: string[]): string {
 
   if (/render\.com.*Chrome|Could not find Chrome|puppeteer/i.test(blob)) {
     parts.push(
-      'ROOT 1 — Hosted backend (Render): Puppeteer cannot find Chrome on the server. Redeploy backend with the Puppeteer cache fix (see backend render.yaml + server.js PUPPETEER_CACHE_DIR). Verify GET …/api/contracts/pdf-ready returns ok and chromeOnDisk true.',
+      'ROOT 1 — Hosted backend (Render): Puppeteer cannot find Chrome on the server. Redeploy backend so the build runs `install-chrome:render-build` (see backend/render.yaml); Chrome lives in `backend/render-pdf-chrome/`. Verify GET …/api/contracts/pdf-ready returns ok and chromeOnDisk true.',
     );
   }
 

@@ -1,4 +1,4 @@
 .gitignore storage/
 .env
-# Large binaries — never commit. On Render, Chrome is installed at runtime on first PDF (see contracts.js).
+# Legacy Puppeteer cache (local); app now uses render-pdf-chrome/ for installs.
 .puppeteer-cache/

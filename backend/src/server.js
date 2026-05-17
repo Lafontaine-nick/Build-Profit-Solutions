@@ -3,9 +3,10 @@ const path = require('path');
 const { isRenderHosting } = require('./utils/renderEnv');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
-// Puppeteer: keep Chrome under backend/.puppeteer-cache (matches postinstall + Render).
-// Cursor and other sandboxes often inject PUPPETEER_CACHE_DIR into a temp dir without the browser binary.
-const PUPPETEER_CACHE_IN_APP = path.resolve(__dirname, '..', '.puppeteer-cache');
+// Puppeteer: Chrome lives under backend/render-pdf-chrome/ (NOT gitignored) so Render deploy bundles
+// include binaries installed during build. Do not commit large files under that folder.
+// Cursor/sandboxes often inject PUPPETEER_CACHE_DIR into a temp dir without the browser binary.
+const PUPPETEER_CACHE_IN_APP = path.resolve(__dirname, '..', 'render-pdf-chrome');
 const incomingPuppeteerCache = (process.env.PUPPETEER_CACHE_DIR || '').trim();
 const puppeteerCacheUnsetOrSandbox =
   !incomingPuppeteerCache ||

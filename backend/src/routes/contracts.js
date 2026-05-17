@@ -33,7 +33,7 @@ const launchArgs = [
 function puppeteerCacheDirForInstall() {
   const fromEnv = (process.env.PUPPETEER_CACHE_DIR || '').trim();
   if (fromEnv) return fromEnv;
-  return path.resolve(__dirname, '..', '..', '.puppeteer-cache');
+  return path.resolve(__dirname, '..', '..', 'render-pdf-chrome');
 }
 
 function sleepSyncRender(seconds) {
@@ -149,7 +149,7 @@ async function launchBrowser(puppeteer) {
     }
   } else {
     console.error(
-      '[contracts] No Puppeteer Chrome at executablePath(). PUPPETEER_CACHE_DIR=%s — run from backend/: npx puppeteer browsers install chrome',
+      '[contracts] No Puppeteer Chrome at executablePath(). PUPPETEER_CACHE_DIR=%s — from backend/: export PUPPETEER_CACHE_DIR="$PWD/render-pdf-chrome" && npx puppeteer browsers install chrome',
       process.env.PUPPETEER_CACHE_DIR || '(default)',
     );
   }
@@ -370,11 +370,10 @@ router.get('/pdf-ready', (req, res) => {
   let whatToDo = null;
   if (!ok && !loadError) {
     if (isRenderHosting()) {
-      whatToDo =
-        'chromeOnDisk is false until the first PDF on this dyno: POST /api/contracts/render-pdf runs a one-time `npx puppeteer browsers install chrome` on Render (~1–3 min). Refresh this URL after a successful PDF, or from backend/: PUPPETEER_CACHE_DIR=.puppeteer-cache npx puppeteer browsers install chrome.';
+        'chromeOnDisk is false: ensure the Render **build** runs `npm run install-chrome:render-build` (see backend/render.yaml). Chrome is stored under `backend/render-pdf-chrome/` (not gitignored) so it ships in the deploy. Or in Render Shell from `backend/`: export PUPPETEER_CACHE_DIR="$PWD/render-pdf-chrome" && npx puppeteer browsers install chrome.';
     } else {
       whatToDo =
-        'chromeOnDisk is false: from backend/ run PUPPETEER_CACHE_DIR=.puppeteer-cache npx puppeteer browsers install chrome (or install Google Chrome on macOS for dev).';
+        'chromeOnDisk is false: from the `backend/` folder run: export PUPPETEER_CACHE_DIR="$PWD/render-pdf-chrome" && npx puppeteer browsers install chrome (or install Google Chrome on macOS for dev).';
     }
   } else if (loadError) {
     whatToDo = 'Fix puppeteerLoadError (puppeteer module or executablePath).';

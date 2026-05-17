@@ -1,11 +1,12 @@
-# Option A (PDFs): Chrome installs during **build** so every deploy includes Puppeteer's browser.
+# Option A (PDFs): Chrome installs during **build** into `render-pdf-chrome/` (tracked folder, not gitignored)
+# so Render includes it in the deploy slug. Do not commit large binaries under `render-pdf-chrome/`.
 #
 # Render Dashboard (if you are NOT using a Blueprint from this file):
 #   • Root Directory: `backend` (folder that contains package.json + this render.yaml)
 #   • Build Command:  npm install && npm run install-chrome:render-build
 #   • Start Command:  npm start
 # After deploy: GET /api/contracts/pdf-ready should show chromeOnDisk true.
-# server.js pins PUPPETEER_CACHE_DIR on Render; contracts.js keeps a runtime Chrome install fallback.
+# server.js pins PUPPETEER_CACHE_DIR on Render to backend/render-pdf-chrome/; contracts.js keeps a runtime Chrome install fallback.
 services:
   - type: web
     name: build-profit-solutions-backend

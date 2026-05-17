@@ -1,5 +1,5 @@
 /**
- * Install Puppeteer's Chrome into backend/.puppeteer-cache for **local dev** (npm postinstall).
+ * Install Puppeteer's Chrome into backend/render-pdf-chrome/ for **local dev** (npm postinstall).
  *
  * On Render: skip here — Chrome is installed in the **build** step via
  * `scripts/install-puppeteer-chrome-render-build.js` (see render.yaml). Runtime install remains
@@ -14,14 +14,14 @@ const { isRenderHosting } = require('../src/utils/renderEnv');
 const onRender = isRenderHosting();
 if (onRender) {
   console.log(
-    '[ensure-puppeteer-chrome] Render build: skipping Chrome download during npm install (installed on first PDF at runtime).',
+    '[ensure-puppeteer-chrome] Render build: skipping Chrome download during npm install (see install-chrome:render-build).',
   );
   process.exit(0);
 }
 
 const cacheDir =
   (process.env.PUPPETEER_CACHE_DIR && String(process.env.PUPPETEER_CACHE_DIR).trim()) ||
-  path.join(__dirname, '..', '.puppeteer-cache');
+  path.join(__dirname, '..', 'render-pdf-chrome');
 
 fs.mkdirSync(cacheDir, { recursive: true });
 
