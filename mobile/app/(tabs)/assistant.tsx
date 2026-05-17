@@ -22,6 +22,18 @@ import {
   computeOverallProgressExcludingDeposit,
 } from '@/lib/markPaymentCollected';
 
+/** Last wins per id (or title if id missing) — avoids duplicate rows inflating Command Center / compare counts. */
+function dedupeProjectsForAssistantAi(list: any[]): any[] {
+  const m = new Map<string, any>();
+  for (const p of list || []) {
+    const id = String(p?.id ?? '').trim();
+    const titleKey = String(p?.title ?? p?.name ?? '').trim().toLowerCase();
+    const key = id || (titleKey ? `t:${titleKey}` : `_:${m.size}`);
+    m.set(key, p);
+  }
+  return [...m.values()];
+}
+
 const getStyles = (Colors: any) => StyleSheet.create({
   container: {
     flex: 1,
@@ -101,7 +113,9 @@ export default function AssistantScreen() {
 
   // Build context and project options for AI Assistant — use full projects list for chips (includes all statuses)
   const { context, projectOptions } = React.useMemo(() => {
-    const allProjectsList = projects?.length > 0 ? projects : [...activeProjects, ...estimates];
+    const allProjectsList = dedupeProjectsForAssistantAi(
+      projects?.length > 0 ? projects : [...activeProjects, ...estimates]
+    );
     const safeNum = (value: unknown) => {
       const n = Number(value || 0);
       return Number.isFinite(n) ? n : 0;

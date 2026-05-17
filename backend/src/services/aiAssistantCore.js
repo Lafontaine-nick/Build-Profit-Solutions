@@ -753,6 +753,17 @@ function buildDailyCommandCenter(items = [], opts = {}) {
     .slice(0, 5);
 
   const activeItems = safeItems.filter((item) => !['completed', 'done', 'finished'].includes(String(item?.status || '').toLowerCase()));
+  const uniqueKeys = (items) =>
+    items
+      .map((item) => {
+        const id = String(item?.projectId ?? '').trim();
+        if (id) return `id:${id}`;
+        const t = String(item?.title || '').trim().toLowerCase();
+        return t ? `t:${t}` : '';
+      })
+      .filter(Boolean);
+  const activeProjectCount = new Set(uniqueKeys(activeItems)).size;
+  const totalProjectCount = new Set(uniqueKeys(safeItems)).size;
   const totalProjectedProfit = activeItems.reduce((sum, item) => sum + Number(item?.projectedProfit || 0), 0);
   const averageMargin = activeItems.length > 0
     ? activeItems.reduce((sum, item) => sum + Number(item?.margin || 0), 0) / activeItems.length
@@ -764,8 +775,8 @@ function buildDailyCommandCenter(items = [], opts = {}) {
     upcomingPayments: allUpcomingPayments,
     upcomingScheduleItems: upcomingScheduleItems.slice(0, 5),
     portfolioSummary: {
-      activeProjectCount: activeItems.length,
-      totalProjectCount: safeItems.length,
+      activeProjectCount,
+      totalProjectCount,
       totalProjectedProfit: Math.round(totalProjectedProfit),
       averageMargin: Math.round(averageMargin * 10) / 10,
       highestRiskProject: topProfitRisks[0]?.projectTitle || null,
@@ -1497,6 +1508,31 @@ function buildPortfolioNextActions(rows = [], max = 3) {
   return `**Suggested next moves**\n${lines.join('\n')}\n`;
 }
 
+/** Last row wins — same as mobile ProjectListContext dedupe; prevents 1k+ duplicate ids blowing compare / “focus today”. */
+function dedupeAllProjectsForCompare(allProjects) {
+  const list = Array.isArray(allProjects) ? allProjects : [];
+  const m = new Map();
+  for (const p of list) {
+    const id = String(p?.id ?? '').trim();
+    const titleKey = String(p?.title || p?.name || '').trim().toLowerCase();
+    const key = id || (titleKey ? `t:${titleKey}` : `_:${m.size}`);
+    m.set(key, p);
+  }
+  return [...m.values()];
+}
+
+/** compare_projects rows should be one per job; merge duplicate titles from client payloads. */
+function dedupeCompareProjectsDataRows(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const m = new Map();
+  for (const c of list) {
+    const k = String(c?.title || '').toLowerCase().trim();
+    if (!k) continue;
+    m.set(k, c);
+  }
+  return [...m.values()];
+}
+
 /**
  * Shared compare_projects analysis (same as aiAssistant route tool). Used by stream + tool executor.
  */
@@ -1517,7 +1553,7 @@ function runCompareProjectsPipeline({ allProjects = [], parsedContext = {}, args
       ? args.projectNames.map((n) => String(n).toLowerCase().trim()).filter(Boolean)
       : [];
 
-    let candidates = Array.isArray(allProjects) ? [...allProjects] : [];
+    let candidates = dedupeAllProjectsForCompare(Array.isArray(allProjects) ? [...allProjects] : []);
     if (statusFilter) {
       candidates = candidates.filter((p) => String(p?.status || '').toLowerCase().includes(statusFilter));
     }
@@ -1541,7 +1577,9 @@ function runCompareProjectsPipeline({ allProjects = [], parsedContext = {}, args
     }
 
     const progressByProjectId = parsedContext?.progressByProjectId || {};
-    const compareProjectsData = Array.isArray(parsedContext?.compareProjectsData) ? parsedContext.compareProjectsData : [];
+    const compareProjectsData = dedupeCompareProjectsDataRows(
+      Array.isArray(parsedContext?.compareProjectsData) ? parsedContext.compareProjectsData : []
+    );
 
     const analyzed = candidates.map((p) => {
       const title = p?.title || p?.name || 'Untitled Project';

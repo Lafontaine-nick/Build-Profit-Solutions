@@ -1020,6 +1020,17 @@ function completedProjectTitlesForAiFilter(
   return [...new Set(titles)];
 }
 
+/** Titles for any row still in merged project lists (used to drop GPT rows that name a deleted job with no projectId). */
+function allStoredProjectTitlesForAiFilter(activeProjects: any[], estimates: any[]): string[] {
+  const merged = dedupeProjectsByBestStatus([...activeProjects, ...estimates]);
+  const titles: string[] = [];
+  for (const p of merged) {
+    const t = String(p?.title || p?.name || "").toLowerCase().trim();
+    if (t.length >= 4) titles.push(t);
+  }
+  return [...new Set(titles)];
+}
+
 function normalizeInsightProjectId(insight: {
   projectId?: unknown;
   project_id?: unknown;
@@ -1027,6 +1038,41 @@ function normalizeInsightProjectId(insight: {
   const raw = insight.projectId ?? (insight as { project_id?: unknown }).project_id;
   if (raw == null) return "";
   return String(raw).trim();
+}
+
+/**
+ * Rule-based / GPT titles often look like "Check permit fees on Duplex Build".
+ * When projectId is missing, we match the named phrase against stored titles so deletes don't leave stale cards.
+ */
+function extractScopedJobPhraseFromInsightText(title: string, extra?: string): string | null {
+  const sources = [String(title || "").trim(), String(extra || "").trim()].filter(Boolean);
+  for (const src of sources) {
+    const m = /\b(?:on|for)\s+([^\n.!?]+)/i.exec(src);
+    if (!m) continue;
+    const phrase = m[1]
+      .replace(/\s+/g, " ")
+      .replace(/["""'`]+$/, "")
+      .trim()
+      .replace(/[.!?:;,]+$/, "")
+      .trim();
+    if (phrase.length < 3) continue;
+    const words = phrase.split(/\s+/).filter(Boolean);
+    // Avoid treating generic copy ("materials on site") as a job name
+    if (words.length === 1 && phrase.length < 7) continue;
+    return phrase;
+  }
+  return null;
+}
+
+/** True when title/body uses "… on JobName" / "… for JobName" but that job no longer exists in merged lists. */
+function insightScopedTitleReferencesRemovedProject(
+  title: string,
+  extra: string | undefined,
+  allStoredTitles: string[]
+): boolean {
+  const phrase = extractScopedJobPhraseFromInsightText(title, extra);
+  if (!phrase) return false;
+  return !aiTextReferencesCompletedJob(phrase.toLowerCase(), allStoredTitles);
 }
 
 /**
@@ -3018,13 +3064,6 @@ const DashboardScreen: React.FC = () => {
     loadTimelineProgress();
   }, [loadTimelineProgress]);
 
-  // Reload timeline progress when dashboard is focused (to catch updates from other screens)
-  useFocusEffect(
-    useCallback(() => {
-      loadTimelineProgress();
-    }, [loadTimelineProgress])
-  );
-
   // Compute projects hash for change detection (dedupe + timeline progress so insights refresh when schedule moves)
   const computeProjectsHash = useCallback(() => {
     const deduped = dedupeProjectsByBestStatus([...activeProjects, ...estimates]);
@@ -3227,6 +3266,7 @@ const DashboardScreen: React.FC = () => {
         estimates,
         timelineProgress
       );
+      const allStoredTitles = allStoredProjectTitlesForAiFilter(activeProjects, estimates);
 
       // Pipeline-only ids for operational insights; closed jobs only keep retrospective rows
       const filteredData = {
@@ -3246,6 +3286,15 @@ const DashboardScreen: React.FC = () => {
           if (pid) {
             return currentProjectIds.has(pid);
           }
+          if (
+            insightScopedTitleReferencesRemovedProject(
+              String(insight.title || ""),
+              String(insight.body || ""),
+              allStoredTitles
+            )
+          ) {
+            return false;
+          }
           return true;
         }),
         nextSteps: (mergedResponse.nextSteps || []).filter((step: any) => {
@@ -3256,6 +3305,15 @@ const DashboardScreen: React.FC = () => {
           if (aiTextReferencesCompletedJob(stepBlob, closedTitles)) return false;
           if (pid) {
             return currentProjectIds.has(pid);
+          }
+          if (
+            insightScopedTitleReferencesRemovedProject(
+              String(step.label || ""),
+              String(step.chip || ""),
+              allStoredTitles
+            )
+          ) {
+            return false;
           }
           return true;
         }),
@@ -3373,7 +3431,7 @@ const DashboardScreen: React.FC = () => {
     }
   }, [aiPmMode, activeProjects, estimates, timelineProgress]);
 
-  // Debounced effect: only fetch when projects actually change (after 10 second debounce)
+  // Debounced effect: only fetch when projects actually change (short debounce so deletes/completions feel instant)
   useEffect(() => {
     if (!aiPmMode) {
       setAiData(null);
@@ -3398,11 +3456,11 @@ const DashboardScreen: React.FC = () => {
       clearTimeout(debounceTimerRef.current);
     }
 
-    // Debounce: wait 10 seconds after last project change before fetching
+    // Debounce: coalesce rapid list updates; still fast enough after delete/complete
     debounceTimerRef.current = setTimeout(() => {
       lastProjectsHashRef.current = currentHash;
       fetchAiData(false);
-    }, 10000); // 10 seconds debounce
+    }, 1500);
 
     return () => {
       if (debounceTimerRef.current) {
@@ -3439,6 +3497,29 @@ const DashboardScreen: React.FC = () => {
     fetchAiData(true); // Force refresh
   }, [fetchAiData]);
 
+  // After returning from Projects / detail screens, timeline + list can change without waiting on debounce
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      void (async () => {
+        await loadTimelineProgress();
+        if (cancelled || !aiPmMode) return;
+        const h = computeAiRefreshHash();
+        if (h !== lastProjectsHashRef.current) {
+          if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+            debounceTimerRef.current = null;
+          }
+          lastProjectsHashRef.current = h;
+          fetchAiData(false);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [loadTimelineProgress, computeAiRefreshHash, fetchAiData, aiPmMode])
+  );
+
   // AI insights: eligible projects only (no completed); orphan text must not name a completed job
   const filteredInsights = useMemo(() => {
     if (!aiData?.insights) return [];
@@ -3458,6 +3539,7 @@ const DashboardScreen: React.FC = () => {
       estimates,
       timelineProgress
     );
+    const allStoredTitles = allStoredProjectTitlesForAiFilter(activeProjects, estimates);
 
     return dedupeAiInsightsByNormalizedTitle(
       aiData.insights.filter((insight) => {
@@ -3474,6 +3556,15 @@ const DashboardScreen: React.FC = () => {
         }
         if (pid) {
           return currentProjectIds.has(pid);
+        }
+        if (
+          insightScopedTitleReferencesRemovedProject(
+            String(insight.title || ""),
+            String(insight.body || ""),
+            allStoredTitles
+          )
+        ) {
+          return false;
         }
         return true;
       })
@@ -3498,6 +3589,7 @@ const DashboardScreen: React.FC = () => {
       estimates,
       timelineProgress
     );
+    const allStoredTitles = allStoredProjectTitlesForAiFilter(activeProjects, estimates);
 
     return dedupeAiNextStepsByNormalizedLabel(
       aiData.nextSteps.filter((step) => {
@@ -3510,6 +3602,15 @@ const DashboardScreen: React.FC = () => {
         if (aiTextReferencesCompletedJob(stepBlob, closedTitles)) return false;
         if (pid) {
           return currentProjectIds.has(pid);
+        }
+        if (
+          insightScopedTitleReferencesRemovedProject(
+            String(step.label || ""),
+            String(step.chip || ""),
+            allStoredTitles
+          )
+        ) {
+          return false;
         }
         return true;
       })

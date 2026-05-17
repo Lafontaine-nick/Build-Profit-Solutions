@@ -295,7 +295,10 @@ function readFindSubsAuthIdentity(): { id: string; emailNorm: string } {
   }
 }
 
-/** Hide your own directory row when hiring subs (match Clerk id or email on the directory entry). */
+/**
+ * True when this row is the signed-in user's BPS directory listing.
+ * Backend uses `placeId` / `directoryId` like `bps:<register id>` (see googlePlacesContractors.js).
+ */
 function isSelfBpsDirectoryCard(
   sub: any,
   authId: string,
@@ -304,6 +307,11 @@ function isSelfBpsDirectoryCard(
 ): boolean {
   const dirId = String(sub.directoryId || '').trim();
   if (dirId && authId && dirId === authId) return true;
+  const pid = String(sub.placeId || sub.id || '').trim();
+  if (authId && /^bps:/i.test(pid)) {
+    const suffix = pid.replace(/^bps:/i, '').trim();
+    if (suffix && suffix === authId) return true;
+  }
   const rowEm = normFindSubsEmail(sub.directoryEmail ?? null);
   if (!rowEm) return false;
   if (authEmailNorm && rowEm === authEmailNorm) return true;
@@ -632,21 +640,22 @@ function SubcontractorSearchModal({
 
   const realBpsRows = useMemo(() => {
     const { emailNorm: authEmailNorm } = readFindSubsAuthIdentity();
-    const scoped = campaignSubcontractors.filter(
-      (sub) => !isSelfCampaignSubCard(sub, authEmailNorm, selfProfileEmailNorm)
-    );
+    const scoped = campaignSubcontractors.filter((sub) => {
+      if (bpsDiscoverListOn) return true;
+      return !isSelfCampaignSubCard(sub, authEmailNorm, selfProfileEmailNorm);
+    });
     return filterByTradeAndQuery(scoped);
-  }, [selectedTrade, searchQuery, campaigns, campaignSubcontractors, selfProfileEmailNorm]);
+  }, [selectedTrade, searchQuery, campaigns, campaignSubcontractors, selfProfileEmailNorm, bpsDiscoverListOn]);
 
   const apiBpsDirectoryRows = useMemo(() => {
     const { id: authId, emailNorm: authEmailNorm } = readFindSubsAuthIdentity();
-    const rows = googlePlacesResults.filter(
-      (s) =>
-        s.source === 'bps' &&
-        !isSelfBpsDirectoryCard(s, authId, authEmailNorm, selfProfileEmailNorm)
-    );
+    const rows = googlePlacesResults.filter((s) => {
+      if (s.source !== 'bps') return false;
+      if (bpsDiscoverListOn) return true;
+      return !isSelfBpsDirectoryCard(s, authId, authEmailNorm, selfProfileEmailNorm);
+    });
     return filterByTradeAndQuery(rows);
-  }, [selectedTrade, searchQuery, googlePlacesResults, selfProfileEmailNorm]);
+  }, [selectedTrade, searchQuery, googlePlacesResults, selfProfileEmailNorm, bpsDiscoverListOn]);
 
   const combinedBpsRows = useMemo(
     () => [...realBpsRows, ...apiBpsDirectoryRows],
