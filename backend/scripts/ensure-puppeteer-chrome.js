@@ -1,9 +1,7 @@
 /**
- * Install Puppeteer's Chrome into backend/.puppeteer-cache so runtime (server.js)
- * and npm postinstall use the same directory (matches Render + local dev).
- *
- * Render: previously skipped entirely, which left production with no Chrome and
- * broke POST /api/contracts/render-pdf (contracts + Tax Center CPA PDF).
+ * Install Puppeteer's Chrome into backend/.puppeteer-cache (local dev + optional Render build).
+ * Never `process.exit(1)` — large Chrome must not be committed; on Render we also install at
+ * runtime on first PDF (see src/routes/contracts.js) if the build artifact omits this cache.
  */
 const { execSync } = require('child_process');
 const fs = require('fs');
@@ -39,7 +37,6 @@ function installChrome(maxAttempts) {
         stdio: 'inherit',
         env,
         cwd,
-        // Render build has a total time budget; keep each attempt bounded.
         timeout: process.env.RENDER === 'true' ? 420000 : 900000,
       });
       console.log('[ensure-puppeteer-chrome] Chrome install succeeded.');
@@ -51,21 +48,13 @@ function installChrome(maxAttempts) {
     }
   }
   console.error(
-    '[ensure-puppeteer-chrome] Chrome install failed after retries. PDF export will fail until Chrome is installed. Last error:',
+    '[ensure-puppeteer-chrome] Chrome install failed after retries. On Render, PDFs may still work after a runtime install on first request. Last error:',
     lastMsg,
   );
   return false;
 }
 
 const isRender = process.env.RENDER === 'true';
-const attempts = isRender ? 3 : 2;
-const ok = installChrome(attempts);
-if (!ok && isRender) {
-  console.error(
-    '[ensure-puppeteer-chrome] Render: Chrome install failed after retries. PDF routes need a browser binary. Fix network/disk or install manually, then redeploy.',
-  );
-  process.exit(1);
-}
-
-// Local / CI: do not block `npm install` if Chrome is missing (devs can install later).
+const attempts = isRender ? 2 : 2;
+void installChrome(attempts);
 process.exit(0);

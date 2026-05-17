@@ -1,4 +1,6 @@
 const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
 const express = require('express');
 
 const router = express.Router();
@@ -25,6 +27,41 @@ const launchArgs = [
   '--disable-dev-shm-usage',
   '--disable-gpu',
 ];
+
+/** Render: build-time Chrome may be omitted from the slug; install once at runtime (first PDF is slow). */
+let renderChromeRuntimeInstallAttempted = false;
+
+function tryRuntimeInstallChromeOnRender(puppeteer) {
+  const onRender = process.env.RENDER === 'true' || process.env.RENDER === '1';
+  if (!onRender || renderChromeRuntimeInstallAttempted) return;
+
+  let expected = null;
+  try {
+    if (typeof puppeteer.executablePath === 'function') {
+      expected = puppeteer.executablePath();
+    }
+  } catch {
+    return;
+  }
+  if (expected && fs.existsSync(expected)) return;
+
+  renderChromeRuntimeInstallAttempted = true;
+  const backendRoot = path.join(__dirname, '..', '..');
+  console.warn(
+    '[contracts] Render: Puppeteer Chrome missing on disk; running `npx puppeteer browsers install chrome` (may take 1–3 min, first PDF only)…',
+  );
+  try {
+    execSync('npx puppeteer browsers install chrome', {
+      stdio: 'inherit',
+      cwd: backendRoot,
+      env: { ...process.env },
+      timeout: 720000,
+    });
+    console.warn('[contracts] Render: Chrome install finished.');
+  } catch (e) {
+    console.error('[contracts] Render: runtime Chrome install failed:', e instanceof Error ? e.message : e);
+  }
+}
 
 /** When bundled Chromium is missing, use a real browser if installed (common on macOS dev). */
 function findSystemChromeExecutable() {
@@ -61,6 +98,8 @@ async function launchBrowser(puppeteer) {
       args: launchArgs,
     });
   }
+
+  tryRuntimeInstallChromeOnRender(puppeteer);
 
   // On Render/Linux there is no Google Chrome app; use Puppeteer's downloaded binary first.
   let bundledPath = null;
@@ -303,10 +342,14 @@ router.get('/pdf-ready', (req, res) => {
   const ok = exists && !loadError;
   let whatToDo = null;
   if (!ok && !loadError) {
-    whatToDo =
-      'chromeOnDisk is false: Puppeteer expects Chrome at puppeteerExecutablePath but the file is missing. ' +
-      'Redeploy the backend so the Render build runs Chrome install (see backend/render.yaml buildCommand and scripts/ensure-puppeteer-chrome.js). ' +
-      'In the Render dashboard open the latest build logs and search for "puppeteer browsers install" or "ensure-puppeteer-chrome".';
+    const onRender = process.env.RENDER === 'true' || process.env.RENDER === '1';
+    if (onRender) {
+      whatToDo =
+        'chromeOnDisk is false until the first PDF on this dyno: POST /api/contracts/render-pdf runs a one-time `npx puppeteer browsers install chrome` on Render (~1–3 min). Refresh this URL after a successful PDF, or from backend/: PUPPETEER_CACHE_DIR=.puppeteer-cache npx puppeteer browsers install chrome.';
+    } else {
+      whatToDo =
+        'chromeOnDisk is false: from backend/ run PUPPETEER_CACHE_DIR=.puppeteer-cache npx puppeteer browsers install chrome (or install Google Chrome on macOS for dev).';
+    }
   } else if (loadError) {
     whatToDo = 'Fix puppeteerLoadError (puppeteer module or executablePath).';
   }
