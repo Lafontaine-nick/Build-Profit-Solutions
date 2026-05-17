@@ -14,7 +14,8 @@ const ensureApiSuffix = (url: string) => {
 
 const unique = <T,>(items: T[]) => [...new Set(items)];
 
-const PDF_FETCH_TIMEOUT_MS = 14_000;
+/** Cold Puppeteer + large Tax Center HTML on Render can exceed a few seconds. */
+const PDF_FETCH_TIMEOUT_MS = 60_000;
 
 /** Private LAN IPv4 embedded in Metro / Expo host strings (Expo Go on device). */
 function extractLanIpv4FromHostString(src: string | undefined): string | null {
@@ -77,6 +78,17 @@ export const getCandidateApiBasesForPdfRender = () => {
     (process.env.EXPO_PUBLIC_PDF_API_BASE_URL as string | undefined) ||
     (Constants.expoConfig?.extra?.pdfApiBaseUrl as string | undefined)
   )?.trim();
+
+  /**
+   * EAS / TestFlight / App Store / production web: only HTTPS production (or explicit PDF override).
+   * Avoids trying Metro `hostUri` LAN :3001 baked into manifests or stale dev IPs before Render.
+   */
+  if (!__DEV__) {
+    const prod: string[] = [];
+    if (pdfApiBaseUrl) prod.push(ensureApiSuffix(pdfApiBaseUrl));
+    prod.push(resolveBackendRestApiBaseUrl());
+    return unique(prod.filter(Boolean));
+  }
 
   const devOnPhysicalDevice = __DEV__ && Constants.isDevice && Platform.OS !== 'web';
 

@@ -4,9 +4,9 @@ services:
     env: node
     plan: starter
     # Same cache dir as server.js (NODE_ENV=production → backend/.puppeteer-cache).
-    # PUPPETEER_SKIP_DOWNLOAD: belt-and-suspenders when the dashboard build command omits env vars.
-    # Primary skip is backend/package.json → "puppeteer": { "skipDownload": true } (read by Puppeteer's postinstall).
-    buildCommand: export PUPPETEER_CACHE_DIR=$PWD/.puppeteer-cache PUPPETEER_SKIP_DOWNLOAD=true && npm install
+    # package.json sets puppeteer.skipDownload so the default npm Chromium download is skipped;
+    # scripts/ensure-puppeteer-chrome.js + the loop below install Chrome into PUPPETEER_CACHE_DIR.
+    buildCommand: export PUPPETEER_CACHE_DIR=$PWD/.puppeteer-cache && npm install && export PUPPETEER_CACHE_DIR=$PWD/.puppeteer-cache && for i in 1 2 3; do npx puppeteer browsers install chrome && break; sleep 25; done
     # Match build cache dir at runtime (Render home default cache is empty here).
     startCommand: export PUPPETEER_CACHE_DIR="$PWD/.puppeteer-cache" && npm start
     envVars:

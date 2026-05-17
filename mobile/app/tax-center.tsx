@@ -103,7 +103,21 @@ function mapExportFailureMessage(
   const m = err instanceof Error ? err.message : String(err);
   if (m === 'SHARING_UNAVAILABLE') return 'Sharing is not available on this device.';
   if (m === 'NO_FILESYSTEM_BASE' || m === 'EXPORT_WRITE_FAILED') return 'Export failed. Please try again.';
-  if (kind === 'pdf') return 'PDF export failed. Please try again.';
+  if (kind === 'pdf') {
+    const lower = m.toLowerCase();
+    if (
+      lower.includes('could not render pdf') ||
+      lower.includes('chrome') ||
+      lower.includes('puppeteer') ||
+      lower.includes('pdf render') ||
+      lower.includes('network request failed') ||
+      lower.includes('aborted')
+    ) {
+      const clipped = m.length > 1200 ? `${m.slice(0, 1200)}…` : m;
+      return `PDF export failed.\n\n${clipped}`;
+    }
+    return 'PDF export failed. Please try again.';
+  }
   if (kind === 'workbook') return 'Workbook export failed. Please try again.';
   if (kind === 'cpa1099') return 'Vendor review export failed. Please try again.';
   return 'Receipt backup export failed. Please try again.';

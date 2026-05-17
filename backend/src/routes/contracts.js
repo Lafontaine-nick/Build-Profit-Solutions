@@ -287,6 +287,7 @@ router.post('/render-pdf', async (req, res) => {
 /** Verify deploy: GET /api/contracts/pdf-ready — `ok` is true only if bundled Chrome exists on disk. */
 router.get('/pdf-ready', (req, res) => {
   const cacheDir = process.env.PUPPETEER_CACHE_DIR || '';
+  const cacheDirExists = Boolean(cacheDir && fs.existsSync(cacheDir));
   let puppeteerPath = null;
   let exists = false;
   let loadError = null;
@@ -299,14 +300,26 @@ router.get('/pdf-ready', (req, res) => {
   } catch (e) {
     loadError = e instanceof Error ? e.message : String(e);
   }
+  const ok = exists && !loadError;
+  let whatToDo = null;
+  if (!ok && !loadError) {
+    whatToDo =
+      'chromeOnDisk is false: Puppeteer expects Chrome at puppeteerExecutablePath but the file is missing. ' +
+      'Redeploy the backend so the Render build runs Chrome install (see backend/render.yaml buildCommand and scripts/ensure-puppeteer-chrome.js). ' +
+      'In the Render dashboard open the latest build logs and search for "puppeteer browsers install" or "ensure-puppeteer-chrome".';
+  } else if (loadError) {
+    whatToDo = 'Fix puppeteerLoadError (puppeteer module or executablePath).';
+  }
   res.json({
-    ok: exists && !loadError,
+    ok,
     route: 'contracts',
     pdf: 'POST /api/contracts/render-pdf',
     puppeteerCacheDir: cacheDir,
+    cacheDirOnDisk: cacheDirExists,
     puppeteerExecutablePath: puppeteerPath,
     chromeOnDisk: exists,
     ...(loadError ? { puppeteerLoadError: loadError } : {}),
+    ...(whatToDo ? { whatToDo } : {}),
   });
 });
 
