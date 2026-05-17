@@ -1707,8 +1707,10 @@ function runProactiveIntelligence(ctx) {
     return new Date(m.plannedDate) < today;
   });
   if (overdue.length > 0) {
-    const overdueNames = overdue.map(m => `"${m.title}" ($${Number(m.amount||0).toLocaleString()})`).join(', ');
-    alerts.push(`📅 OVERDUE PAYMENTS: ${overdue.length} milestone(s) are past their due date and not yet collected: ${overdueNames}. Follow up with your client immediately.`);
+    const show = overdue.slice(0, 5);
+    const overdueNames = show.map((m) => `"${m.title}" ($${Number(m.amount || 0).toLocaleString()})`).join(', ');
+    const more = overdue.length > show.length ? ` (+${overdue.length - show.length} more)` : '';
+    alerts.push(`📅 OVERDUE PAYMENTS: ${overdue.length} milestone(s) are past their due date and not yet collected: ${overdueNames}${more}. Follow up with your client immediately.`);
   }
 
   // ⑦ CFO Mode: gross margin summary (always show in PM mode if data available)
@@ -1915,6 +1917,18 @@ function buildProjectDataSnapshot(parsedContext) {
   const allProjects = Array.isArray(parsedContext?.allProjects) ? parsedContext.allProjects : [];
   if (!allProjects.length) return '';
 
+  const screenL = String(parsedContext?.screen || '').toLowerCase();
+  const isPortfolioCommandScreen =
+    screenL === 'projects' ||
+    screenL === 'ai assistant tab' ||
+    /\bai\s+assistant\b/i.test(String(parsedContext?.screen || ''));
+  const multiProject = allProjects.length >= 2;
+  /** Fewer tokens: Command Center / multi-job snapshots must not list every milestone line-by-line. */
+  const tightPortfolioSnapshot = isPortfolioCommandScreen || multiProject;
+  const milestoneCaps = tightPortfolioSnapshot
+    ? { unpaid: 6, paid: 4, titleMax: 36 }
+    : { unpaid: 14, paid: 10, titleMax: 56 };
+
   const now = new Date();
   const fmt = (v) => {
     const n = Number(typeof v === 'string' ? v.replace(/[$,\s]/g, '') : v);
@@ -1963,14 +1977,28 @@ function buildProjectDataSnapshot(parsedContext) {
     const unpaid = milestones.filter((m) => !isCollected(m));
     const paid = milestones.filter((m) => isCollected(m));
     if (milestones.length > 0) {
-      const paidSummary = paid.map((m) => `${m?.title || m?.name || 'Payment'} $${fmt(m?.amount || m?.paymentAmount).toLocaleString()} (PAID)`).join(', ');
-      const unpaidSummary = unpaid.map((m) => {
-        const dt = m?.plannedDate || m?.scheduledDate || m?.dueDate || m?.date;
-        const dateStr = dt ? new Date(dt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'no date';
-        return `${m?.title || m?.name || 'Payment'} $${fmt(m?.amount || m?.paymentAmount).toLocaleString()} due ${dateStr} (UNPAID)`;
-      }).join(', ');
-      if (paidSummary) parts.push(`Paid: ${paidSummary}`);
-      if (unpaidSummary) parts.push(`Upcoming: ${unpaidSummary}`);
+      const shortLabel = (m) => {
+        const raw = String(m?.title || m?.name || m?.description || 'Payment').trim() || 'Payment';
+        return raw.length > milestoneCaps.titleMax ? `${raw.slice(0, milestoneCaps.titleMax - 1)}…` : raw;
+      };
+      const paidLimited = paid.slice(0, milestoneCaps.paid);
+      const unpaidLimited = unpaid.slice(0, milestoneCaps.unpaid);
+      const paidSummary = paidLimited
+        .map((m) => `${shortLabel(m)} $${fmt(m?.amount || m?.paymentAmount).toLocaleString()} (PAID)`)
+        .join(', ');
+      const unpaidSummary = unpaidLimited
+        .map((m) => {
+          const dt = m?.plannedDate || m?.scheduledDate || m?.dueDate || m?.date;
+          const dateStr = dt ? new Date(dt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'no date';
+          return `${shortLabel(m)} $${fmt(m?.amount || m?.paymentAmount).toLocaleString()} due ${dateStr} (UNPAID)`;
+        })
+        .join(', ');
+      if (paidSummary) parts.push(`Paid: ${paidSummary}${paid.length > paidLimited.length ? ` (+${paid.length - paidLimited.length} more)` : ''}`);
+      if (unpaidSummary) {
+        parts.push(
+          `Upcoming: ${unpaidSummary}${unpaid.length > unpaidLimited.length ? ` (+${unpaid.length - unpaidLimited.length} more)` : ''}`
+        );
+      }
     }
 
     // Top expense vendors
@@ -1981,9 +2009,10 @@ function buildProjectDataSnapshot(parsedContext) {
         const v = (e?.vendor || 'Unknown').trim();
         vendorTotals[v] = (vendorTotals[v] || 0) + fmt(e?.amount);
       });
+      const vendorTopN = tightPortfolioSnapshot ? 3 : 5;
       const topVendors = Object.entries(vendorTotals)
         .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
+        .slice(0, vendorTopN)
         .map(([v, total]) => `${v} ($${total.toLocaleString()})`)
         .join(', ');
       parts.push(`Vendors: ${topVendors} | ${expenses.length} total expenses`);
@@ -8689,10 +8718,25 @@ router.post('/', async (req, res) => {
     const memoryBlock = buildMemoryContext(session);
     if (memoryBlock) systemPrompt += memoryBlock;
 
+    const screenLForHist = String(parsedContext?.screen || '').toLowerCase();
+    /** Command Center / Projects: long threads + big snapshots blow past OpenAI TPM on Tier 1. */
+    const portfolioHeavyHist =
+      (screenLForHist === 'projects' || screenLForHist === 'ai assistant tab') &&
+      Array.isArray(parsedContext?.allProjects) &&
+      parsedContext.allProjects.length >= 1;
+    const rawHistory = history.filter((m) => m.role && m.content);
+    const historyForModel = portfolioHeavyHist ? rawHistory.slice(-12) : rawHistory;
+    const maxHistChars = portfolioHeavyHist ? 4000 : 12000;
+    const historyTrimmed = historyForModel.map((m) => {
+      const c = String(m.content || '');
+      if (c.length <= maxHistChars) return m;
+      return { ...m, content: `${c.slice(0, maxHistChars)}\n…(earlier message truncated for portfolio context)` };
+    });
+
     // Build messages array from history + new message
     const messages = [
       { role: 'system', content: systemPrompt },
-      ...history.filter(m => m.role && m.content),
+      ...historyTrimmed,
       { role: 'user', content: normalizedMessage },
     ];
 
@@ -11873,6 +11917,64 @@ router.post('/', async (req, res) => {
     if (routerResult.clarification_question && routerResult.proposed_tool === 'mark_payment_collected' && routerResult.action !== 'execute') {
       if (process.env.DEBUG_AI_CONTEXT) console.log('🛑 Router: payment confirmation question →', routerResult.clarification_question);
       return res.json({ reply: routerResult.clarification_question, actions: [], projectUpdateData: null });
+    }
+
+    // PORTFOLIO DETERMINISTIC (POST, non-stream): same shortcuts as SSE — skip executor LLM entirely.
+    // POST previously sent the full system prompt + history on the first OpenAI call; Tier 1 TPM (~30k) then failed before compare_projects ran.
+    const screenLowerPortfolioPost = String(parsedContext?.screen || '').toLowerCase();
+    const postCommandCenterPortfolio = screenLowerPortfolioPost === 'projects' || screenLowerPortfolioPost === 'ai assistant tab';
+    const portfolioPostFollowUps = [
+      { label: 'Portfolio overview', prompt: 'Give me a quick portfolio overview with key numbers' },
+      { label: 'Where am I losing money?', prompt: 'Where am I losing money across my active projects? Show me the biggest profit leaks.' },
+      { label: 'Projects over budget', prompt: 'Which active projects are over budget and by how much?' },
+    ];
+    if (
+      postCommandCenterPortfolio &&
+      Array.isArray(allProjects) &&
+      allProjects.length > 0 &&
+      routerResult?.proposed_tool === 'compare_projects' &&
+      !(routerResult.required_fields_missing && routerResult.required_fields_missing.length > 0)
+    ) {
+      const postCompareDraft = { ...(routerResult.tool_args_draft || {}) };
+      const postShortCircuitPortfolio =
+        routerResult._focusTodayIntent ||
+        routerResult._losingMoneyIntent ||
+        routerResult._overBudgetIntent ||
+        routerResult._compareActiveIntent ||
+        routerResult._worstProjectIntent ||
+        routerResult._completedProjectsIntent;
+      if (postShortCircuitPortfolio) {
+        const crPost = runCompareProjectsPipeline({ allProjects, parsedContext, args: postCompareDraft });
+        if (crPost.success) {
+          let replyPost;
+          if (routerResult._focusTodayIntent) {
+            replyPost = buildFocusTodayDirectReply({
+              compareResult: crPost,
+              parsedContext,
+              allProjects,
+            });
+          } else if (!crPost.sorted || crPost.sorted.length === 0) {
+            replyPost =
+              postCompareDraft.activeOnly === true
+                ? 'You have **no active projects** in this view (or none matched the filter). Open **Projects** or pull to refresh, then ask again.'
+                : '**No projects matched** this filter in the current view. Pull to refresh if you recently added or updated jobs.';
+            replyPost = appendDataFreshness(replyPost, parsedContext);
+          } else {
+            replyPost = buildPortfolioComparisonReply(crPost.sorted);
+            const nextMovesPost = buildPortfolioNextActions(crPost.sorted);
+            if (nextMovesPost) replyPost += `\n${nextMovesPost}`;
+            replyPost = appendDataFreshness(replyPost, parsedContext);
+          }
+          extractConversationFacts(message, replyPost, session);
+          console.log('🛡️ PORTFOLIO POST: deterministic compare_projects — skipped executor (pre-routed portfolio intent)');
+          return res.json({
+            reply: replyPost,
+            actions: [],
+            suggestedFollowUps: portfolioPostFollowUps,
+            ...(session ? { sessionId: session.id } : {}),
+          });
+        }
+      }
     }
 
     // Map router proposed_tool to finalToolChoice

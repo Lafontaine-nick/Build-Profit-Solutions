@@ -69,46 +69,114 @@ import PaymentSelectionChips from "@/lib/ai/paymentSelectionChips";
 import AnalysisTypeChips from "@/lib/ai/analysisTypeChips";
 import SelectionCards from "@/lib/ai/SelectionCards";
 
+/** Hosted backend origin (no path). TestFlight / App Store builds must use this on cellular, not LAN. */
+const PRODUCTION_AI_ORIGIN = "https://build-profit-solutions-backend.onrender.com";
+const PRODUCTION_AI_API = `${PRODUCTION_AI_ORIGIN}/api/ai-assistant`;
+
+function stripApiBaseSuffix(url: string): string {
+  return url.replace(/\/api\/?$/, "").replace(/\/$/, "") || url;
+}
+
+/** True when the host clearly cannot be reached from the public internet (LAN / loopback / emulator). */
+function isNonPublicDevBackendBase(base: string): boolean {
+  const b = (base || "").trim().toLowerCase();
+  if (!b) return true;
+  if (b.includes("localhost") || b.includes("127.0.0.1") || b.includes("0.0.0.0")) return true;
+  if (b.includes("192.168.")) return true;
+  if (b.includes("10.0.2.2")) return true;
+  try {
+    const normalized = /^[a-z]+:\/\//i.test(b) ? b : `http://${b}`;
+    const u = new URL(normalized);
+    const h = u.hostname;
+    if (/^10\./.test(h)) return true;
+    if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(h)) return true;
+    if (/^169\.254\./.test(h)) return true;
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 function resolveAIBaseUrl(): string {
+  const extra = Constants.expoConfig?.extra as
+    | { appEnv?: string; isDevelopment?: boolean; devApiBaseUrl?: string }
+    | undefined;
+  const isProductionApp =
+    process.env.EXPO_PUBLIC_APP_ENV === "production" || extra?.appEnv === "production";
+
+  // Store / TestFlight production: never prefer LAN `EXPO_PUBLIC_AI_API_URL` or Metro hostUri — cellular must reach HTTPS.
+  if (isProductionApp) {
+    const apiBase = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
+    if (apiBase) {
+      const candidate = stripApiBaseSuffix(apiBase);
+      if (candidate.startsWith("https://") && !isNonPublicDevBackendBase(candidate)) {
+        console.log("🤖 Production: AI base from EXPO_PUBLIC_API_BASE_URL →", candidate);
+        return candidate;
+      }
+      if (candidate.startsWith("http://") || isNonPublicDevBackendBase(candidate)) {
+        console.warn(
+          "⚠️ Production: EXPO_PUBLIC_API_BASE_URL is not a public HTTPS origin for AI; using hosted backend."
+        );
+      }
+    }
+
+    const aiOnly = process.env.EXPO_PUBLIC_AI_API_URL?.trim();
+    if (aiOnly && /^https:\/\//i.test(aiOnly) && !isNonPublicDevBackendBase(aiOnly)) {
+      try {
+        const origin = new URL(aiOnly).origin;
+        if (!isNonPublicDevBackendBase(origin)) {
+          console.log("🤖 Production: AI base from EXPO_PUBLIC_AI_API_URL (HTTPS) →", origin);
+          return origin;
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+
+    console.log("🤖 Production: default hosted AI base →", PRODUCTION_AI_ORIGIN);
+    return PRODUCTION_AI_ORIGIN;
+  }
+
   const envBase = process.env.EXPO_PUBLIC_AI_API_URL;
   if (envBase && typeof envBase === "string") {
-    console.log('🤖 Using AI API URL from env:', envBase);
+    console.log("🤖 Using AI API URL from env:", envBase);
     return envBase;
   }
 
   // PRIORITY 1: For iOS Simulator, ALWAYS use localhost (simulator shares network with Mac)
   // Check both isDevice being false/undefined and Platform.OS being ios
   if (Platform.OS === "ios" && Constants.isDevice === false) {
-    console.log('📱 iOS Simulator detected - using localhost:3001');
+    console.log("📱 iOS Simulator detected - using localhost:3001");
     return "http://localhost:3001";
   }
 
   if (Platform.OS === "web") {
-    console.log('🌐 Web platform detected - using localhost:3001');
+    console.log("🌐 Web platform detected - using localhost:3001");
     return "http://localhost:3001";
   }
 
   // PRIORITY 2: For Android Emulator, use special IP
   if (Platform.OS === "android" && Constants.isDevice === false) {
-    console.log('🤖 Android Emulator detected - using 10.0.2.2:3001');
+    console.log("🤖 Android Emulator detected - using 10.0.2.2:3001");
     return "http://10.0.2.2:3001";
   }
 
   // PRIORITY 3: Use configured API base URL first (stable for physical devices)
-  const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 
-                     process.env.EXPO_PUBLIC_DEV_API_BASE_URL ||
-                     (Constants.expoConfig?.extra?.devApiBaseUrl);
-  
+  const apiBaseUrl =
+    process.env.EXPO_PUBLIC_API_BASE_URL ||
+    process.env.EXPO_PUBLIC_DEV_API_BASE_URL ||
+    extra?.devApiBaseUrl;
+
   if (apiBaseUrl) {
     // Extract base URL without /api suffix if present
-    const base = apiBaseUrl.replace(/\/api\/?$/, '');
+    const base = stripApiBaseSuffix(String(apiBaseUrl));
     // Guard against stale hardcoded LAN IPs from older app config/runtime cache.
     // If this matches a known legacy IP, skip it and fall through to hostUri detection.
     if (base.includes("192.168.1.115")) {
       console.warn("⚠️ Ignoring stale configured API base URL:", base);
     } else {
-    console.log('📱 Using API base URL from config:', base);
-    return base;
+      console.log("📱 Using API base URL from config:", base);
+      return base;
     }
   }
 
@@ -124,21 +192,153 @@ function resolveAIBaseUrl(): string {
     const maybeIp = typeof hostUri === "string" ? hostUri.split(":")[0] : undefined;
     if (maybeIp && /^\d{1,3}(\.\d{1,3}){3}$/.test(maybeIp)) {
       const url = `http://${maybeIp}:3001`;
-      console.log('📱 Physical device detected - using network IP:', url);
+      console.log("📱 Physical device detected - using network IP:", url);
       return url;
     }
+  }
+
+  // Release bundle on a real phone: localhost / missing Metro host is useless off Wi‑Fi — use hosted AI.
+  const isProdBundle = extra?.isDevelopment !== true;
+  if (isProdBundle && Constants.isDevice === true && Platform.OS !== "web") {
+    console.warn(
+      "⚠️ Non-development bundle on a physical device with no dev API URL: using hosted AI backend."
+    );
+    return PRODUCTION_AI_ORIGIN;
   }
 
   // Final fallback: avoid stale hardcoded LAN IPs.
   // On physical devices, require explicit env config when hostUri cannot be resolved.
   const localhostFallback = "http://localhost:3001";
-  console.warn('⚠️ Could not resolve LAN IP from Expo hostUri.');
-  console.warn('💡 Set EXPO_PUBLIC_AI_API_URL (or EXPO_PUBLIC_API_BASE_URL) to your Mac IP, e.g. http://192.168.x.x:3001');
-  console.warn('⚠️ Falling back to localhost (works for simulator/web, not physical devices):', localhostFallback);
+  console.warn("⚠️ Could not resolve LAN IP from Expo hostUri.");
+  console.warn(
+    "💡 Set EXPO_PUBLIC_AI_API_URL (or EXPO_PUBLIC_API_BASE_URL) to your Mac IP, e.g. http://192.168.x.x:3001"
+  );
+  console.warn(
+    "⚠️ Falling back to localhost (works for simulator/web, not physical devices):",
+    localhostFallback
+  );
   return localhostFallback;
 }
 
-const PRODUCTION_AI_API = 'https://build-profit-solutions-backend.onrender.com/api/ai-assistant';
+function isProductionAiAppBundle(): boolean {
+  const extra = Constants.expoConfig?.extra as { appEnv?: string } | undefined;
+  return process.env.EXPO_PUBLIC_APP_ENV === "production" || extra?.appEnv === "production";
+}
+
+/** True when OpenAI’s message indicates account billing / hard quota (not the same as short RPM/TPM throttling). */
+function isOpenAiBillingOrHardQuotaMessage(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("exceeded your current quota") ||
+    m.includes("insufficient_quota") ||
+    m.includes("billing_hard") ||
+    (m.includes("you exceeded") && m.includes("quota")) ||
+    (m.includes("quota") && (m.includes("billing") || m.includes("payment") || m.includes("plan")))
+  );
+}
+
+/** OpenAI org hit max tokens-per-minute for this burst (estimate + question can exceed low TPM tiers). */
+function isOpenAiTpmOrRequestTooLargeMessage(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("request too large") ||
+    m.includes("tokens per min") ||
+    /\btpm\b/.test(m) ||
+    (m.includes("limit") && m.includes("requested") && (m.includes("token") || m.includes("tpm")))
+  );
+}
+
+/** 429 or explicit rate limiting (often clears after a short wait; funded accounts still hit this). */
+function isOpenAiThrottleOr429Message(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    /\b429\b/.test(m) ||
+    m.includes("rate limit") ||
+    m.includes("rate_limit") ||
+    m.includes("too many requests")
+  );
+}
+
+/** User-facing copy for AI POST/stream failures (avoid blaming Wi‑Fi when OpenAI quota is the cause). */
+function formatAiAssistantRequestError(error: any, urlsToTry: string[]): string {
+  const raw = String(error?.message || error || "").trim();
+  const triedHosted =
+    urlsToTry.some((u) => /onrender\.com|\.render\.com/i.test(u)) || isProductionAiAppBundle();
+  const looksHostedOrOpenAi =
+    triedHosted ||
+    /onrender\.com|openai\.com|api\.openai|gpt-\d|organization\s+org-|tokens per min|\btpm\b|request too large/i.test(
+      raw
+    ) ||
+    resolveAIBaseUrl().startsWith("https://");
+
+  if (error?.name === "AbortError" || raw.includes("aborted") || raw.toLowerCase().includes("timeout")) {
+    if (isProductionAiAppBundle() || triedHosted) {
+      return (
+        "The AI request timed out.\n\n" +
+        "Try again in a moment. The hosted service may have been waking from sleep, or the network was slow."
+      );
+    }
+    return (
+      "The request timed out.\n\n" +
+      "1. Check your network\n" +
+      "2. If you use a local backend: cd backend && npm start\n" +
+      "3. Health: http://localhost:3001/health"
+    );
+  }
+
+  if (isOpenAiBillingOrHardQuotaMessage(raw)) {
+    return (
+      "OpenAI reported a billing or quota problem for the API key on your server (not your phone’s Wi‑Fi).\n\n" +
+      "Fix it in the OpenAI account that owns the secret you set on Render (Environment → OpenAI API key). Add credits or a payment method, or paste a new secret from that same org.\n\n" +
+      "Funding a different OpenAI account than the one tied to Render will not change this error."
+    );
+  }
+
+  if (isOpenAiTpmOrRequestTooLargeMessage(raw)) {
+    return (
+      "OpenAI blocked this because the request was too large for your org’s current token-per-minute (TPM) limit.\n\n" +
+      "The app sends your bid/estimate as context plus your question — that can go past a 30k TPM cap in one shot (your error showed something like 55k requested vs 30k allowed).\n\n" +
+      "This is not “connect TestFlight to your Mac.” TestFlight already talks to your Render backend on the internet.\n\n" +
+      "What helps: wait one minute and ask a narrower question, or raise TPM / usage tier under OpenAI → Organization → Limits, or use a higher-limit org."
+    );
+  }
+
+  if (isOpenAiThrottleOr429Message(raw)) {
+    return (
+      "OpenAI rate-limited this request (tokens or requests per minute). A new API key does not remove per-minute caps — it can still happen with a funded account.\n\n" +
+      "Wait 30–60 seconds and try again. Long prompts (full estimates, bid context) use more tokens and hit limits faster.\n\n" +
+      "After changing the key on Render: save Environment, then Manual Deploy or Restart so the service reloads. TestFlight always uses Render, not your Mac .env files."
+    );
+  }
+
+  if (raw.includes("Network request failed") || raw.includes("Failed to fetch")) {
+    return triedHosted
+      ? "Could not reach the AI service over the internet. Check cellular or Wi‑Fi and try again."
+      : `Cannot reach the AI backend at ${resolveAIBaseUrl()}.\n\n` +
+        "If you expect a local server: run cd backend && npm start on your machine and use the same network as this device.";
+  }
+
+  if (raw.includes("Can't reach OpenAI") || raw.includes("internet connection") || raw.includes("api.openai.com")) {
+    return raw;
+  }
+
+  if (isProductionAiAppBundle() || triedHosted) {
+    return raw
+      ? `Something went wrong with the AI service.\n\n${raw}`
+      : "Something went wrong with the AI service. Please try again.";
+  }
+
+  if (looksHostedOrOpenAi) {
+    return raw ? `AI request failed.\n\n${raw}` : "AI request failed. Please try again.";
+  }
+
+  return (
+    `Connection error: ${raw || "Unknown error"}\n\n` +
+    "If this persists:\n" +
+    "1. Backend running: cd backend && npm start\n" +
+    "2. Health check: http://localhost:3001/health"
+  );
+}
 
 /** ISO timestamp so backend can show “data as of …” in financial/trust footers */
 function stampAiContextSnapshot(ctxStr: string | null | undefined): string | null {
@@ -1025,6 +1225,8 @@ const AIAssistantModal: React.FC<Props> = ({
 
   // Auto-send initial question if provided
   const initialQuestionSentRef = useRef(false);
+  /** When user taps a chip while a request is in flight, run it next (avoids silent no-op on “Review Project”). */
+  const pendingQuickPromptRef = useRef<string | null>(null);
   const sendMessageRef = useRef<((messageOverride?: string) => Promise<void>) | null>(null);
 
   // Global AI Assistant: fetch greeting with portfolio insights when opening with empty conversation
@@ -3935,22 +4137,8 @@ const AIAssistantModal: React.FC<Props> = ({
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error: any) {
       console.warn("AI request failed", error);
-      let errorMessage = "I ran into a connection issue talking to the AI.";
-      
-      // Provide more specific error messages
-      if (error?.name === 'AbortError' || error?.message?.includes("aborted") || error?.message?.includes("timeout")) {
-        errorMessage = "The request timed out. This usually means:\n\n1. Network connection to the backend is unstable\n2. The AI provider response is slow\n3. Backend is down\n\nCheck backend health at: http://localhost:3001/health";
-      } else if (error?.message?.includes("Network request failed") || error?.message?.includes("Failed to fetch")) {
-        const triedProduction = urlsToTry.some((u) => u.includes('render.com'));
-        errorMessage = triedProduction
-          ? `Couldn't reach the AI (tried local and production). Check your internet connection, or start the local backend:\n\ncd backend && npm start`
-          : `I can't connect to the AI backend at ${resolveAIBaseUrl()}.\n\n1. Start backend: cd backend && npm start\n2. Same network (physical devices)\n3. Check: http://localhost:3001/health`;
-      } else if (error?.message?.includes("Can't reach OpenAI") || error?.message?.includes("internet connection") || error?.message?.includes("api.openai.com")) {
-        errorMessage = error.message;
-      } else if (error?.message) {
-        errorMessage = `Connection error: ${error.message}\n\nIf this persists, check:\n1. Backend is running: cd backend && npm start\n2. Backend health: http://localhost:3001/health`;
-      }
-      
+      const errorMessage = formatAiAssistantRequestError(error, urlsToTry);
+
       setMessages((prev) => [
         ...prev,
         {
@@ -3963,6 +4151,13 @@ const AIAssistantModal: React.FC<Props> = ({
     } finally {
       setLoading(false);
       setIsTyping(false);
+      const queued = pendingQuickPromptRef.current;
+      pendingQuickPromptRef.current = null;
+      if (queued?.trim()) {
+        setTimeout(() => {
+          void sendMessageRef.current?.(queued.trim());
+        }, 0);
+      }
     }
   };
 
@@ -3973,6 +4168,7 @@ const AIAssistantModal: React.FC<Props> = ({
   useEffect(() => {
     if (!visible) {
       initialQuestionSentRef.current = false;
+      pendingQuickPromptRef.current = null;
       return;
     }
     if (!initialQuestion || messages.length > 0 || loading || initialQuestionSentRef.current) return;
@@ -4085,9 +4281,14 @@ const AIAssistantModal: React.FC<Props> = ({
       return;
     }
 
-    // All other actions: use sendMessage
-    if (messageToSend.trim() && !loading) {
-      sendMessage(messageToSend.trim());
+    // All other actions: use sendMessage (queue if a turn is already in flight — avoids dead taps on Review Project)
+    if (messageToSend.trim()) {
+      if (loading) {
+        pendingQuickPromptRef.current = messageToSend.trim();
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        return;
+      }
+      void sendMessage(messageToSend.trim());
     }
   };
 
