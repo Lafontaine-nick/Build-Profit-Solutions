@@ -3,10 +3,12 @@ const path = require('path');
 const express = require('express');
 const { isRenderHosting } = require('../utils/renderEnv');
 const {
-  installPuppeteerChromeIfMissing,
-  getChromeInstallMountStatus,
-  getResolvedChromeBinaryPath,
-} = require('../services/puppeteerChromeInstall');
+  launchPdfBrowser,
+  getPdfChromeExecutablePath,
+  isPdfChromeReady,
+  getPdfChromeEngine,
+} = require('../services/pdfBrowser');
+const { getChromeInstallMountStatus } = require('../services/puppeteerChromeInstall');
 
 const router = express.Router();
 
@@ -26,134 +28,9 @@ function escapeHtmlFooterText(value) {
     .replace(/"/g, '&quot;');
 }
 
-const launchArgs = [
-  '--no-sandbox',
-  '--disable-setuid-sandbox',
-  '--disable-dev-shm-usage',
-  '--disable-gpu',
-];
-
-/** When bundled Chromium is missing, use a real browser if installed (common on macOS dev). */
-function findSystemChromeExecutable() {
-  if (process.platform === 'darwin') {
-    const candidates = [
-      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-      '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
-      '/Applications/Chromium.app/Contents/MacOS/Chromium',
-    ];
-    for (const p of candidates) {
-      if (fs.existsSync(p)) return p;
-    }
-    return null;
-  }
-  if (process.platform === 'linux') {
-    const candidates = [
-      '/usr/bin/google-chrome-stable',
-      '/usr/bin/google-chrome',
-      '/usr/bin/chromium-browser',
-      '/usr/bin/chromium',
-    ];
-    for (const p of candidates) {
-      if (fs.existsSync(p)) return p;
-    }
-  }
-  return null;
-}
-
-async function launchBrowser(puppeteer) {
-  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-    return puppeteer.launch({
-      headless: true,
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
-      args: launchArgs,
-    });
-  }
-
-  await installPuppeteerChromeIfMissing({ logPrefix: '[contracts]', maxAttempts: 3 });
-
-  let pw = puppeteer;
-  try {
-    const resolved = require.resolve('puppeteer');
-    delete require.cache[resolved];
-    pw = require('puppeteer');
-  } catch {
-    /* keep original puppeteer reference */
-  }
-
-  // Prefer path from @puppeteer/browsers cache (matches Render install); executablePath() alone misses with skipDownload.
-  const bundledPath = getResolvedChromeBinaryPath();
-  if (bundledPath && fs.existsSync(bundledPath)) {
-    try {
-      return await pw.launch({
-        headless: true,
-        executablePath: bundledPath,
-        args: launchArgs,
-      });
-    } catch (e) {
-      console.warn('[contracts] Launch with bundled Chrome failed:', e instanceof Error ? e.message : e);
-    }
-  } else {
-    console.error(
-      '[contracts] No Chrome binary under managed cache / executablePath. PUPPETEER_CACHE_DIR=%s — from backend/: export PUPPETEER_CACHE_DIR="$PWD/render-pdf-chrome" && npx puppeteer browsers install chrome',
-      process.env.PUPPETEER_CACHE_DIR || '(default)',
-    );
-  }
-
-  const systemChrome = findSystemChromeExecutable();
-  if (systemChrome) {
-    try {
-      return await pw.launch({
-        headless: true,
-        executablePath: systemChrome,
-        args: launchArgs,
-      });
-    } catch (e) {
-      console.warn(
-        '[contracts] Launch with system Chrome/Chromium failed:',
-        e instanceof Error ? e.message : e,
-      );
-    }
-  }
-
-  // Local dev: optional system Chrome (skip on Render/production — avoids "Could not find Chrome" noise).
-  const skipSystemChannel =
-    isRenderHosting() ||
-    process.env.PUPPETEER_SKIP_CHANNEL === '1' ||
-    process.env.NODE_ENV === 'production';
-  if (!skipSystemChannel) {
-    try {
-      return await pw.launch({
-        headless: true,
-        channel: process.env.PUPPETEER_CHANNEL || 'chrome',
-        args: launchArgs,
-      });
-    } catch (e) {
-      console.warn(
-        '[contracts] Launch with channel=chrome failed, falling back:',
-        e instanceof Error ? e.message : e,
-      );
-    }
-  }
-
-  return pw.launch({
-    headless: true,
-    args: launchArgs,
-  });
-}
-
 async function getBrowser() {
-  // Lazy-load so the rest of the API still starts if puppeteer fails to install in an environment.
-  let puppeteer;
-  try {
-    puppeteer = require('puppeteer');
-  } catch (e) {
-    const err = new Error('puppeteer is not available on this server');
-    err.cause = e;
-    throw err;
-  }
-
   if (!browserPromise) {
-    browserPromise = launchBrowser(puppeteer);
+    browserPromise = launchPdfBrowser();
   }
   try {
     return await browserPromise;
@@ -295,40 +172,26 @@ router.post('/render-pdf', async (req, res) => {
   }
 });
 
-/** Verify deploy: GET /api/contracts/pdf-ready — `ok` is true only if bundled Chrome exists on disk. */
+/** Verify deploy: GET /api/contracts/pdf-ready — `ok` when the PDF browser binary is available. */
 router.get('/pdf-ready', async (req, res) => {
-  if (isRenderHosting() && !getResolvedChromeBinaryPath()) {
-    const inFlight = global.__bpsPuppeteerChromeInstallPromise;
-    if (inFlight) {
-      try {
-        await Promise.race([
-          inFlight,
-          new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('pdf-ready install wait timeout')), 20_000);
-          }),
-        ]);
-      } catch (e) {
-        console.warn('[pdf-ready] Chrome install wait:', e instanceof Error ? e.message : e);
-      }
-    } else if (getChromeInstallMountStatus() !== 'running') {
-      void installPuppeteerChromeIfMissing({ logPrefix: '[pdf-ready]', maxAttempts: 1 });
-    }
-  }
-
-  const cacheDir = process.env.PUPPETEER_CACHE_DIR || '';
-  const cacheDirExists = Boolean(cacheDir && fs.existsSync(cacheDir));
+  const pdfEngine = getPdfChromeEngine();
   let puppeteerPath = null;
   let exists = false;
   let loadError = null;
   try {
-    require.resolve('puppeteer');
+    if (isRenderHosting()) {
+      require.resolve('@sparticuz/chromium');
+      require.resolve('puppeteer-core');
+    } else {
+      require.resolve('puppeteer');
+    }
   } catch (e) {
     loadError = e instanceof Error ? e.message : String(e);
   }
   if (!loadError) {
     try {
-      puppeteerPath = getResolvedChromeBinaryPath();
-      exists = Boolean(puppeteerPath);
+      puppeteerPath = await getPdfChromeExecutablePath();
+      exists = await isPdfChromeReady();
     } catch (e) {
       loadError = e instanceof Error ? e.message : String(e);
     }
@@ -336,28 +199,24 @@ router.get('/pdf-ready', async (req, res) => {
   const ok = exists && !loadError;
   let whatToDo = null;
   if (!ok && !loadError) {
-    if (isRenderHosting()) {
-      whatToDo =
-        'chromeOnDisk is false: the server may still be downloading Chrome in the background (see Render Logs for [server-boot] or [puppeteer-chrome]). Wait 2–4 minutes after deploy and refresh. First PDF request also triggers install.';
-    } else {
-      whatToDo =
-        'chromeOnDisk is false: from the `backend/` folder run: export PUPPETEER_CACHE_DIR="$PWD/render-pdf-chrome" && npx puppeteer browsers install chrome (or install Google Chrome on macOS for dev).';
-    }
+    whatToDo = isRenderHosting()
+      ? 'PDF engine not ready: redeploy backend after `npm install` (uses @sparticuz/chromium). Check Render build logs for npm errors.'
+      : 'chromeOnDisk is false: from `backend/` run `npx puppeteer browsers install chrome` or install Google Chrome for local dev.';
   } else if (loadError) {
-    whatToDo = 'Fix puppeteerLoadError (puppeteer module or executablePath).';
+    whatToDo = 'Fix puppeteerLoadError — ensure @sparticuz/chromium and puppeteer-core are installed on the server.';
   }
+  const cacheDir = process.env.PUPPETEER_CACHE_DIR || '';
   res.json({
     ok,
     route: 'contracts',
     pdf: 'POST /api/contracts/render-pdf',
+    pdfEngine,
     puppeteerCacheDir: cacheDir,
-    cacheDirOnDisk: cacheDirExists,
+    cacheDirOnDisk: Boolean(cacheDir && fs.existsSync(cacheDir)),
     puppeteerExecutablePath: puppeteerPath,
     chromeOnDisk: exists,
-    /** True when the server will run managed Chrome install on first PDF (Render-style hosting). */
     detectedRenderRuntime: isRenderHosting(),
-    /** Background install state: idle | running | succeeded | failed */
-    chromeInstallMountStatus: getChromeInstallMountStatus(),
+    chromeInstallMountStatus: isRenderHosting() ? (exists ? 'succeeded' : 'idle') : getChromeInstallMountStatus(),
     ...(loadError ? { puppeteerLoadError: loadError } : {}),
     ...(whatToDo ? { whatToDo } : {}),
   });

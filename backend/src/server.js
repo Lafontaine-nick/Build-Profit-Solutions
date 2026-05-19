@@ -20,13 +20,17 @@ if (onRenderHost) {
   process.env.PUPPETEER_CACHE_DIR = PUPPETEER_CACHE_IN_APP;
 }
 
-// Render: install Chrome in the background so PDF works even if Dashboard Start Command is still `npm start`.
-const { installPuppeteerChromeIfMissing: bootInstallPuppeteerChrome } = require('./services/puppeteerChromeInstall');
+// Render: PDF uses @sparticuz/chromium from node_modules (no background Chrome download).
 if (onRenderHost) {
+  const { isPdfChromeReady, getPdfChromeEngine } = require('./services/pdfBrowser');
   setImmediate(() => {
-    void bootInstallPuppeteerChrome({ logPrefix: '[server-boot]', maxAttempts: 3 }).catch((err) => {
-      console.error('[server-boot] Background Chrome install failed:', err instanceof Error ? err.message : err);
-    });
+    void isPdfChromeReady()
+      .then((ready) => {
+        console.log(`[server-boot] PDF engine=${getPdfChromeEngine()} chromeReady=${ready}`);
+      })
+      .catch((err) => {
+        console.warn('[server-boot] PDF readiness check:', err instanceof Error ? err.message : err);
+      });
   });
 }
 

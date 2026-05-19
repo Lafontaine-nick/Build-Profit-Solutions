@@ -205,9 +205,9 @@ function buildBackendPdfFailureHint(attemptErrors: string[]): string {
   const blob = attemptErrors.join('\n');
   const parts: string[] = [];
 
-  if (/render\.com.*Chrome|Could not find Chrome|puppeteer/i.test(blob)) {
+  if (/render\.com.*Chrome|Could not find Chrome|puppeteer|sparticuz/i.test(blob)) {
     parts.push(
-      'ROOT 1 — Hosted backend (Render): Puppeteer cannot find Chrome on the server. Redeploy backend so the build runs `install-chrome:render-build` (see backend/render.yaml); Chrome lives in `backend/render-pdf-chrome/`. Verify GET …/api/contracts/pdf-ready returns ok and chromeOnDisk true.',
+      'ROOT 1 — Hosted backend (Render): PDF server could not launch Chrome. Redeploy the backend (`npm install` installs @sparticuz/chromium). Verify GET …/api/contracts/pdf-ready returns ok: true and pdfEngine: sparticuz-chromium.',
     );
   }
 

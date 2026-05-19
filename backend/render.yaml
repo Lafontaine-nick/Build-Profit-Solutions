@@ -1,20 +1,17 @@
-# Chrome: build step may not ship binaries into the runtime slug; **start** runs
-# `ensure-puppeteer-chrome-on-render-start.js` (idempotent) so Chrome exists on the same disk as the app.
+# PDF on Render: @sparticuz/chromium (installed with npm install — no separate Chrome download).
 #
 # Render Dashboard (if you are NOT using a Blueprint from this file):
-#   • Root Directory: `backend` (folder that contains package.json + this render.yaml)
-#   • Build Command:  npm install && npm run install-chrome:render-build
-#   • Start Command:  npm run start:render
-# After deploy: GET /api/contracts/pdf-ready should show chromeOnDisk true (may take 2–4 min on first boot while Chrome downloads).
-# server.js pins PUPPETEER_CACHE_DIR on Render to backend/render-pdf-chrome/; contracts.js keeps a runtime Chrome install fallback.
+#   • Root Directory: `backend`
+#   • Build Command:  npm install
+#   • Start Command:  npm start
+# After deploy: GET /api/contracts/pdf-ready → ok: true, pdfEngine: sparticuz-chromium
 services:
   - type: web
     name: build-profit-solutions-backend
     env: node
     plan: starter
-    # Chrome build step is best-effort (exit 0); runtime + first PDF retry if missing.
-    buildCommand: echo ">>> BPS CHROME BUILD START <<<" && npm install && npm run install-chrome:render-build && echo ">>> BPS CHROME BUILD DONE <<<"
-    startCommand: npm run start:render
+    buildCommand: npm install
+    startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production
