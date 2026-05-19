@@ -16,6 +16,7 @@ export function BlurView({
   tint = 'light',
   style,
   children,
+  pointerEvents = 'box-none',
   ...rest
 }: BlurViewProps) {
   const isDark = tint === 'dark' || tint === 'prominent';
@@ -26,7 +27,7 @@ export function BlurView({
     : `rgba(255, 255, 255, ${alpha})`;
 
   return (
-    <View {...rest} style={[{ backgroundColor, overflow: 'hidden' }, style]}>
+    <View {...rest} pointerEvents={pointerEvents} style={[{ backgroundColor, overflow: 'hidden' }, style]}>
       {children}
     </View>
   );

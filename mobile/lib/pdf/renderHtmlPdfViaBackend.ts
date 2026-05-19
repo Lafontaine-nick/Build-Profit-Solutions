@@ -12,13 +12,16 @@ const ensureApiSuffix = (url: string) => {
   return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
 };
 
+/** Production Render backend — CPA Summary + contract PDFs (HTTPS, works from TestFlight / App Store). */
+const HOSTED_RENDER_PDF_API = 'https://build-profit-solutions-backend.onrender.com/api';
+
 const unique = <T,>(items: T[]) => [...new Set(items)];
 
 /** First PDF on a cold Render dyno installs Chrome (1–3+ min) then renders; keep client open long enough. */
 const PDF_FETCH_TIMEOUT_MS = 480_000;
 
 /** Light check before heavy HTML→PDF POST (Tax Center can show a hint when Chrome is not on disk yet). */
-const PDF_READY_PROBE_TIMEOUT_MS = 12_000;
+const PDF_READY_PROBE_TIMEOUT_MS = 25_000;
 
 export type PdfBackendReadiness = {
   /** At least one candidate base returned HTTP for GET /contracts/pdf-ready */
@@ -91,6 +94,8 @@ export const getCandidateApiBasesForPdfRender = () => {
     (Constants.expoConfig?.extra?.pdfApiBaseUrl as string | undefined)
   )?.trim();
 
+  const hostedProd = ensureApiSuffix(HOSTED_RENDER_PDF_API);
+
   /**
    * EAS / TestFlight / App Store / production web: only HTTPS production (or explicit PDF override).
    * Avoids trying Metro `hostUri` LAN :3001 baked into manifests or stale dev IPs before Render.
@@ -98,7 +103,9 @@ export const getCandidateApiBasesForPdfRender = () => {
   if (!__DEV__) {
     const prod: string[] = [];
     if (pdfApiBaseUrl) prod.push(ensureApiSuffix(pdfApiBaseUrl));
-    prod.push(resolveBackendRestApiBaseUrl());
+    prod.push(hostedProd);
+    const resolved = resolveBackendRestApiBaseUrl();
+    if (resolved && resolved !== hostedProd) prod.push(resolved);
     return unique(prod.filter(Boolean));
   }
 
@@ -122,12 +129,17 @@ export const getCandidateApiBasesForPdfRender = () => {
     }
   }
 
-  if (devOnPhysicalDevice) {
-    candidates.push(...collectDevDeviceLanPdfBases());
-  }
-
   if (pdfApiBaseUrl) {
     candidates.push(ensureApiSuffix(pdfApiBaseUrl));
+  }
+
+  /**
+   * Dev on a physical phone: use hosted HTTPS first so CPA PDF works without Mac LAN / Expo HTTP.
+   * LAN remains as fallback for local backend work.
+   */
+  if (devOnPhysicalDevice) {
+    candidates.push(hostedProd);
+    candidates.push(...collectDevDeviceLanPdfBases());
   }
 
   if (Platform.OS === 'ios' && Constants.isDevice === false) {
@@ -164,7 +176,11 @@ export const getCandidateApiBasesForPdfRender = () => {
     candidates.push(ensureApiSuffix(devApiBaseUrl));
   }
 
-  candidates.push(resolveBackendRestApiBaseUrl());
+  candidates.push(hostedProd);
+  const resolvedRest = resolveBackendRestApiBaseUrl();
+  if (resolvedRest && resolvedRest !== hostedProd) {
+    candidates.push(resolvedRest);
+  }
 
   const merged = unique(candidates.filter(Boolean));
   if (Constants.isDevice) {

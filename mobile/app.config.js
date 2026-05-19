@@ -96,6 +96,7 @@ export default {
     plugins: [
       'expo-dev-client',
       'expo-router',
+      'expo-web-browser',
       [
         'expo-location',
         {

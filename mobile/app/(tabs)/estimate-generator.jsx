@@ -4749,7 +4749,20 @@ export default function EstimateGeneratorScreen() {
   }, [materialsCart]);
 
   const calc = useMemo(() => {
-    const materials = materialsCart.reduce((sum, r) => sum + (r.total || 0), 0);
+    const materialsFromCart = materialsCart.reduce(
+      (sum, r) => sum + (Number(r.total) || 0),
+      0
+    );
+    const materialsFromBidLines = Array.isArray(bid.materialLineItems)
+      ? bid.materialLineItems.reduce(
+          (sum, item) => sum + (Number(item.total) || 0),
+          0
+        )
+      : 0;
+    // On first open, `loadBid()` can commit before `loadMaterials()` finishes. Prefer the cart when
+    // it has any rows (even $0 lines); otherwise fall back to persisted `bid.materialLineItems`.
+    const cartHasRows = Array.isArray(materialsCart) && materialsCart.length > 0;
+    const materials = cartHasRows ? materialsFromCart : materialsFromBidLines;
     const laborFromItems = bid.laborLineItems?.reduce((sum, item) => sum + (item.total || 0), 0) || 0;
     const labor = laborFromItems;
     const rentals = rentalCart.length;
@@ -6377,31 +6390,30 @@ export default function EstimateGeneratorScreen() {
             parsed.clientEmail = '';
           } else if (!isNewBid && (parsed.title === 'Untitled Bid' || !parsed.title || parsed.title === '')) {
             console.log('🔍 Current bid is blank, searching for Haim bid...');
-            
-            // Try different possible storage keys
             const possibleKeys = [
               'bps.currentBid',
-              'bps.currentBid.v1', 
+              'bps.currentBid.v1',
               'bps.haimBid',
-              'bps.backupBid'
+              'bps.backupBid',
             ];
-            
-            for (const key of possibleKeys) {
-              try {
-                const backup = await AsyncStorage.getItem(key);
-                if (backup) {
+            try {
+              const backupEntries = await AsyncStorage.multiGet(possibleKeys);
+              for (const [, backup] of backupEntries) {
+                if (!backup) continue;
+                try {
                   const backupParsed = JSON.parse(backup);
                   if (backupParsed.title && backupParsed.title.toLowerCase().includes('haim')) {
-                    console.log(`🎉 Found Haim bid in ${key}: ${backupParsed.title}`);
+                    console.log(`🎉 Found Haim bid: ${backupParsed.title}`);
                     setBid(backupParsed);
                     return;
                   }
+                } catch {
+                  /* continue */
                 }
-              } catch (e) {
-                // Continue searching
               }
+            } catch {
+              /* ignore */
             }
-            
             console.log('⚠️ No Haim bid found in backup storage');
           }
           
@@ -6457,8 +6469,6 @@ export default function EstimateGeneratorScreen() {
         }
       } catch (error) {
         console.error('Failed to load bid:', error);
-      } finally {
-        setIsLoaded(true);
       }
     };
     
@@ -6584,21 +6594,20 @@ export default function EstimateGeneratorScreen() {
       }
     };
     
-    // Check if user came from onboarding first - MUST happen before loadBid
-    // 
-    // TESTING MODE: Only shows walkthrough when resetFlag is explicitly set
-    // 
-    // LIVE IMPLEMENTATION (for production):
-    // - For new users: isFirstTimeFlag will be set by onboarding flow
-    // - Show walkthrough for first estimate only (before first submission)
-    // - After first estimate submitted, never show again
-    // - No need for resetFlag check in live mode
-    const checkOnboardingFirst = async () => {
+    /**
+     * Onboarding flags (walkthrough / first-time) — independent of bid JSON.
+     * Run in parallel with `loadBid` so we don't add a full onboarding pass *before* the bid can load
+     * (that was keeping the summary spinner on screen too long).
+     */
+    const applyOnboardingFlags = async () => {
       try {
-        const isFirstTimeFlag = await AsyncStorage.getItem('bps.isFirstTimeEstimate');
-        const resetFlag = await AsyncStorage.getItem('bps.forceEstimateOnboarding'); // TESTING ONLY
-        const firstEstimateSubmitted = await AsyncStorage.getItem('bps.firstEstimateSubmitted');
-        const savedEstimatesRaw = await AsyncStorage.getItem('savedEstimates');
+        const [_isFirstTimeFlag, resetFlag, firstEstimateSubmitted, savedEstimatesRaw] =
+          await Promise.all([
+            AsyncStorage.getItem('bps.isFirstTimeEstimate'),
+            AsyncStorage.getItem('bps.forceEstimateOnboarding'),
+            AsyncStorage.getItem('bps.firstEstimateSubmitted'),
+            AsyncStorage.getItem('savedEstimates'),
+          ]);
         const savedEstimatesList = savedEstimatesRaw ? JSON.parse(savedEstimatesRaw) : [];
         const hasAnySavedEstimates = Array.isArray(savedEstimatesList) && savedEstimatesList.length > 0;
         const hasSubmittedSavedEstimate =
@@ -6613,16 +6622,14 @@ export default function EstimateGeneratorScreen() {
               status === 'active'
             );
           });
-        // Determine if user has already created/submitted estimates
         const hasExistingWork = firstEstimateSubmitted === 'true' || hasSubmittedSavedEstimate || hasAnySavedEstimates;
-        
+
         if (resetFlag === 'true') {
           setIsOnboardingReset(true);
           setIsFirstTime(true);
           await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'false');
           await AsyncStorage.setItem('bps.showEstimateGuideRail', 'false');
         } else if (hasExistingWork) {
-          // User has already created/submitted estimates - don't show guidance
           await AsyncStorage.removeItem('bps.isFirstTimeEstimate');
           await AsyncStorage.setItem('bps.showEstimateCoachFlags', 'false');
           await AsyncStorage.setItem('bps.showEstimateGuideRail', 'false');
@@ -6638,23 +6645,27 @@ export default function EstimateGeneratorScreen() {
       } catch (error) {
         console.error('Error checking onboarding flag:', error);
       }
-      
-      // Normal flow: Load bid first, then load materials/rentals based on bid source
-      loadBid().then(() => {
-        console.log('📱 Estimate generator mounted, bid loaded');
-        loadProfile();
-        loadMaterials();
-        loadRentals();
-        
-        // Clear initial load flag after everything is loaded
+    };
+
+    void (async () => {
+      try {
+        await Promise.all([loadBid(), applyOnboardingFlags()]);
+      } catch (e) {
+        console.error('Initial estimate load failed:', e);
+      }
+      setIsLoaded(true);
+      console.log('📱 Estimate generator mounted, bid + onboarding flags ready');
+      void loadProfile();
+      void Promise.all([
+        loadMaterials().catch((err) => console.error('loadMaterials failed:', err)),
+        loadRentals().catch((err) => console.error('loadRentals failed:', err)),
+      ]).then(() => {
         setTimeout(() => {
           isInitialLoadRef.current = false;
           console.log('✅ Initial load complete - all data loaded');
         }, 1500);
       });
-    };
-    
-    checkOnboardingFirst();
+    })();
   }, []);
 
   // Reload bid when screen comes into focus (in case it was just saved from lead detail modal)
@@ -11071,7 +11082,9 @@ export default function EstimateGeneratorScreen() {
                     borderWidth: 1,
                     borderColor: chipBorder,
                   }}>
-                    <Text style={{ color: summaryMuted, fontSize: 11, fontWeight: '600' }}>{money(calc.unitPrice)} / sqft</Text>
+                    <Text style={{ color: summaryMuted, fontSize: 11, fontWeight: '600' }}>
+                      {money(calc.unitPrice)} / sqft
+                    </Text>
                   </View>
                   <View style={{
                     backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',

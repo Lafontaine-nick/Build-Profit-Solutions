@@ -44,6 +44,15 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
               tabBarVariant: 'material' as const,
               tabBarLabelPosition: 'below-icon' as const,
               tabBarButton: HapticTab,
+              ...(Platform.OS === 'web'
+                ? {
+                    /** Scene content uses negative horizontal margins; without this, RN-web can leave the scene “above” the bar and steal all sidebar taps. */
+                    sceneContainerStyle: {
+                      flex: 1,
+                      overflow: 'hidden' as const,
+                    },
+                  }
+                : {}),
               tabBarStyle: {
                 paddingTop: Platform.OS === 'web' ? 20 : 8,
                 paddingBottom: Platform.OS === 'web' ? 16 : 0,
@@ -52,6 +61,12 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
                 backgroundColor: sidebarBg,
                 borderRightWidth: StyleSheet.hairlineWidth,
                 borderRightColor: sidebarBorder,
+                ...(Platform.OS === 'web'
+                  ? {
+                      zIndex: 100,
+                      elevation: 100,
+                    }
+                  : {}),
               },
             }
           : {

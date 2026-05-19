@@ -6,7 +6,6 @@ import {
   ScrollView,
   Pressable,
   StatusBar,
-  SafeAreaView,
   Animated,
   Modal,
   Platform,
@@ -15,6 +14,7 @@ import {
   KeyboardAvoidingView,
   Alert,
   useWindowDimensions,
+  InteractionManager,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
@@ -36,7 +36,7 @@ import { useTranslation } from "react-i18next";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets, SafeAreaView } from "react-native-safe-area-context";
 import type { CalendarEvent } from "@/components/ProjectCalendar";
 import {
   ScreenLayout,
@@ -2984,7 +2984,10 @@ const DashboardScreen: React.FC = () => {
         const prev = suffixToLatestPlanned[key];
         suffixToLatestPlanned[key] = prev == null ? ms : Math.max(prev, ms);
       };
-      for (const k of timelineKeys) {
+      // One batch read — sequential getItem per key blocked the JS thread and made the app feel frozen.
+      const timelineEntries =
+        timelineKeys.length > 0 ? await AsyncStorage.multiGet(timelineKeys) : [];
+      for (const [k, raw] of timelineEntries) {
         const suffix = k.startsWith('bps.timeline.v2.')
           ? k.replace('bps.timeline.v2.', '')
           : k.startsWith('timeline_')
@@ -2992,7 +2995,6 @@ const DashboardScreen: React.FC = () => {
             : '';
         if (!suffix) continue;
         try {
-          const raw = await AsyncStorage.getItem(k);
           if (raw) {
             const milestones = JSON.parse(raw);
             if (Array.isArray(milestones) && milestones.length > 0) {
@@ -3501,21 +3503,24 @@ const DashboardScreen: React.FC = () => {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      void (async () => {
-        await loadTimelineProgress();
-        if (cancelled || !aiPmMode) return;
-        const h = computeAiRefreshHash();
-        if (h !== lastProjectsHashRef.current) {
-          if (debounceTimerRef.current) {
-            clearTimeout(debounceTimerRef.current);
-            debounceTimerRef.current = null;
+      const interaction = InteractionManager.runAfterInteractions(() => {
+        void (async () => {
+          await loadTimelineProgress();
+          if (cancelled || !aiPmMode) return;
+          const h = computeAiRefreshHash();
+          if (h !== lastProjectsHashRef.current) {
+            if (debounceTimerRef.current) {
+              clearTimeout(debounceTimerRef.current);
+              debounceTimerRef.current = null;
+            }
+            lastProjectsHashRef.current = h;
+            fetchAiData(false);
           }
-          lastProjectsHashRef.current = h;
-          fetchAiData(false);
-        }
-      })();
+        })();
+      });
       return () => {
         cancelled = true;
+        interaction.cancel?.();
       };
     }, [loadTimelineProgress, computeAiRefreshHash, fetchAiData, aiPmMode])
   );
@@ -3797,11 +3802,17 @@ const DashboardScreen: React.FC = () => {
       <View style={StyleSheet.absoluteFill} pointerEvents="none" />
 
         <ScrollView
+          style={
+            Platform.OS === "web"
+              ? { flex: 1, minHeight: 0, width: "100%" as const }
+              : undefined
+          }
           contentContainerStyle={[
             styles.scrollContent,
             Platform.OS === "web" && { paddingHorizontal: 0, paddingTop: 0 },
             webScrollContentCap,
           ]}
+          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
         <WebPageShell size="dashboard" scroll={false} contentStyle={{ paddingBottom: 0 }}>
@@ -4044,28 +4055,30 @@ type SegmentProps = {
   onPress: () => void;
 };
 
-const SegmentTab: React.FC<SegmentProps> = ({ label, icon, isActive, onPress }) => {
+const SegmentTab = React.memo(function SegmentTab({ label, icon, isActive, onPress }: SegmentProps) {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useDashboardStyles(Colors);
   
   if (isActive) {
+    // Web/Safari: outer Pressable ensures the full tab hit target receives clicks (gradient as outer
+    // wrapper can swallow or shrink the interactive region with some RN-web + LinearGradient combos).
     return (
-      <LinearGradient
-        colors={["#22c55e", "#22d3ee"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={[styles.segmentTab, styles.segmentTabActive]}
-      >
-        <Pressable onPress={onPress}>
+      <Pressable onPress={onPress} style={[styles.segmentTab, { flex: 1 }]}>
+        <LinearGradient
+          colors={["#22c55e", "#22d3ee"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[StyleSheet.absoluteFillObject, styles.segmentTabActive]}
+        >
           <View style={styles.segmentTabInner}>
             <Ionicons name={icon} size={16} color="#050B13" />
             <Text style={[styles.segmentLabel, styles.segmentLabelActive]}>
               {label}
             </Text>
           </View>
-        </Pressable>
-      </LinearGradient>
+        </LinearGradient>
+      </Pressable>
     );
   }
 
@@ -4082,7 +4095,7 @@ const SegmentTab: React.FC<SegmentProps> = ({ label, icon, isActive, onPress }) 
       </View>
     </Pressable>
   );
-};
+});
 
 /* ----------------- ENHANCED METRIC CARD ----------------- */
 
@@ -5776,8 +5789,11 @@ const getStyles = (
     flex: 1,
     borderRadius: 999,
     marginHorizontal: 1,
+    /** Clip the active gradient to the pill; otherwise RN draws a square fill inside a rounded pressable. */
+    overflow: "hidden",
   },
   segmentTabActive: {
+    borderRadius: 999,
     backgroundColor: Colors.bg === '#000000' ? "transparent" : "#FFFFFF",
     shadowColor: Colors.bg === '#000000' ? "#22c55e" : "#000",
     shadowOpacity: Colors.bg === '#000000' ? 0.4 : 0.12,

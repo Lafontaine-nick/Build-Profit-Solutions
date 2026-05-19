@@ -17,6 +17,8 @@
     "dev": "cd mobile && npm run dev",
     "dev:clear": "cd mobile && npm run dev:clear",
     "dev:reset": "cd mobile && npm run dev:reset",
+    "start:stack": "bash start-dev-stack.sh",
+    "start:stack:web": "bash start-dev-stack.sh web",
     "web": "cd mobile && npm run web",
     "web:desktop": "cd mobile && npm run web:desktop",
     "web:desktop:clear": "cd mobile && npm run web:desktop:clear",

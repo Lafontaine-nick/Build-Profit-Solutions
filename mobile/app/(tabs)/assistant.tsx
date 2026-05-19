@@ -100,14 +100,18 @@ export default function AssistantScreen() {
     loadExtraProjectData();
   }, [projects, activeProjects, estimates]);
 
-  // Auto-open modal when this tab is focused
+  // Auto-open modal when this tab is focused — MUST close on blur: RN `Modal` portals above the
+  // whole app (all tabs). Leaving `visible` true after switching to Dashboard freezes web + native.
   useFocusEffect(
     React.useCallback(() => {
-      // Small delay to ensure smooth transition
       setIsReady(true);
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         setShowAIAssistant(true);
       }, 50);
+      return () => {
+        clearTimeout(timer);
+        setShowAIAssistant(false);
+      };
     }, [])
   );
 

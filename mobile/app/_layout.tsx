@@ -9,6 +9,8 @@ import React, { useEffect, useState } from 'react';
 import { useFonts as useMontserrat, Montserrat_700Bold } from '@expo-google-fonts/montserrat';
 import { useFonts as useSaira, Saira_400Regular } from '@expo-google-fonts/saira';
 import { View, Text, Platform, Keyboard, type StyleProp, type ViewStyle } from 'react-native';
+import { enableScreens } from 'react-native-screens';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import KeyboardDoneBar from '../components/KeyboardDoneBar';
 import { KEYBOARD_ACCESSORY_IDS } from '../constants/keyboard';
 import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
@@ -34,11 +36,31 @@ import { VendorDirectoryProviderLocal } from '../contexts/VendorDirectoryContext
 import { ClerkUiProvider } from '../contexts/ClerkUiContext';
 import { getClerkPublishableKey } from '../lib/clerkPublishableKey';
 
+// Web + Safari: native screen containers from react-native-screens can swallow pointer events
+// with Expo Router + bottom tabs. JS screens restore reliable Pressable / tab hit testing.
+if (Platform.OS === 'web') {
+  enableScreens(false);
+}
+
 /** RN-web: avoid short viewport / rubber-band glitches when the shell does not fill the window. */
 const gestureHandlerRootStyle: StyleProp<ViewStyle> =
   Platform.OS === 'web'
     ? ({ flex: 1, minHeight: '100vh' } as ViewStyle)
     : { flex: 1 };
+
+/** Web: `GestureHandlerRootView` can still steal or confuse pointer routing with RN-web + tabs. */
+function RootGestureShell({
+  children,
+  style,
+}: {
+  children: React.ReactNode;
+  style: StyleProp<ViewStyle>;
+}) {
+  if (Platform.OS === 'web') {
+    return <View style={style}>{children}</View>;
+  }
+  return <GestureHandlerRootView style={style}>{children}</GestureHandlerRootView>;
+}
 
 // Component to apply theme-aware styling and StatusBar
 function ThemeAwareLayout({ children }: { children: React.ReactNode }) {
@@ -374,7 +396,8 @@ export default function RootLayout() {
   if (!clerkEnabled) {
     return (
       <ClerkUiProvider clerkEnabled={false}>
-      <GestureHandlerRootView style={gestureHandlerRootStyle}>
+      <RootGestureShell style={gestureHandlerRootStyle}>
+        <SafeAreaProvider>
         <ErrorBoundary>
         <ApiProvider>
           <WalkthroughStateProviderLegacy>
@@ -400,14 +423,16 @@ export default function RootLayout() {
           </WalkthroughStateProviderLegacy>
         </ApiProvider>
         </ErrorBoundary>
-      </GestureHandlerRootView>
+        </SafeAreaProvider>
+      </RootGestureShell>
       </ClerkUiProvider>
     );
   }
 
   return (
     <ClerkUiProvider clerkEnabled={true}>
-    <GestureHandlerRootView style={gestureHandlerRootStyle}>
+    <RootGestureShell style={gestureHandlerRootStyle}>
+      <SafeAreaProvider>
       <ErrorBoundary>
         <ApiProvider>
           <ClerkWebBootstrap publishableKey={publishableKey}>
@@ -437,7 +462,8 @@ export default function RootLayout() {
           </ClerkWebBootstrap>
         </ApiProvider>
       </ErrorBoundary>
-    </GestureHandlerRootView>
+      </SafeAreaProvider>
+    </RootGestureShell>
     </ClerkUiProvider>
   );
 }

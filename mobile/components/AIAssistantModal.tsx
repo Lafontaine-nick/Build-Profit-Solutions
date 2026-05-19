@@ -4776,6 +4776,12 @@ const AIAssistantModal: React.FC<Props> = ({
 
   const keyboardOpen = keyboardHeight > 0;
 
+  // RN-web: a mounted <Modal visible={false}> can still leave a full-screen portal that captures
+  // all clicks — dashboard + tabs feel “frozen”. Do not mount the modal tree on web until open.
+  if (Platform.OS === "web" && !visible) {
+    return null;
+  }
+
   return (
     <Modal visible={visible} animationType={Platform.OS === "ios" ? "slide" : "fade"} onRequestClose={onClose}>
       <KeyboardAvoidingView
