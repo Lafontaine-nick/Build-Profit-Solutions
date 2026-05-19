@@ -10,6 +10,7 @@ import React, {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiService } from '../services/api';
 import { UNIFIED_PROJECTS_STORAGE_KEY } from '../lib/projectListCache';
+import { recordDeletedProject } from '../utils/aiDashboardPortfolioFilter';
 
 const STORAGE_KEY = UNIFIED_PROJECTS_STORAGE_KEY;
 
@@ -816,6 +817,13 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
 
     let filtered: UnifiedProject[] = [];
     setProjects((prev) => {
+      const victim = prev.find((p) => normalizeProjectId(p.id) === targetId);
+      if (victim) {
+        void recordDeletedProject(
+          targetId,
+          String(victim.title || victim.name || '').trim()
+        );
+      }
       filtered = prev.filter((p) => normalizeProjectId(p.id) !== targetId);
       return filtered;
     });

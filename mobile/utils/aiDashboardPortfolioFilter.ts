@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { AiDashboardResponse, AiInsight, AiNextStep } from '@/types/aiDashboard';
 
 /** Normalize status for comparisons (matches dashboard.tsx). */
@@ -25,6 +26,61 @@ export function isProjectEligibleForAiDashboardInsights(
 ): boolean {
   if (!p || p.id == null || String(p.id).trim() === '') return false;
   return AI_DASHBOARD_PROJECT_STATUSES.has(normalizePortfolioStatus(p.status));
+}
+
+/** Same visibility rules as Dashboard → All Projects (hides draft/estimate-only rows). */
+export function isDashboardListedProject(p: { status?: unknown } | null | undefined): boolean {
+  const status = normalizePortfolioStatus(p?.status);
+  if (status === 'draft' || status === 'estimate') return false;
+  return (
+    status === 'bid_submitted' ||
+    status === 'submitted' ||
+    status === 'won' ||
+    status === 'in_progress' ||
+    status === 'active' ||
+    status === 'completed' ||
+    status === 'complete' ||
+    status === 'closed' ||
+    status === 'done' ||
+    status === 'finished'
+  );
+}
+
+const DELETED_PROJECTS_STORAGE_KEY = 'bps.deletedProjects.v1';
+
+export type DeletedProjectRecord = { id: string; title: string; deletedAt: string };
+
+export async function loadDeletedProjectRecords(): Promise<DeletedProjectRecord[]> {
+  try {
+    const raw = await AsyncStorage.getItem(DELETED_PROJECTS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function recordDeletedProject(id: string, title: string): Promise<void> {
+  const pid = String(id || '').trim();
+  if (!pid) return;
+  const t = String(title || '').trim();
+  const existing = await loadDeletedProjectRecords();
+  const next = [
+    { id: pid, title: t, deletedAt: new Date().toISOString() },
+    ...existing.filter((r) => r.id !== pid),
+  ].slice(0, 200);
+  await AsyncStorage.setItem(DELETED_PROJECTS_STORAGE_KEY, JSON.stringify(next));
+}
+
+function extractProjectIdFromInsightId(insightId: unknown): string {
+  const id = String(insightId || '').trim();
+  const patterns = [/^permit-risk-(.+)$/i, /^add-permit-fees-(.+)$/i, /^material-(?:up|down)-(.+)$/i];
+  for (const re of patterns) {
+    const m = re.exec(id);
+    if (m?.[1]) return m[1].trim();
+  }
+  return '';
 }
 
 const STATUS_RANK_FOR_AI_DEDUPE: Record<string, number> = {
@@ -227,38 +283,58 @@ function isRetrospectiveInsight(insight: AiInsight): boolean {
 
 export type AiPortfolioFilterContext = {
   knownProjectIds: Set<string>;
+  dashboardListedIds: Set<string>;
   openPipelineIds: Set<string>;
   closedIds: Set<string>;
   openPipelineTitles: string[];
   closedTitles: string[];
   knownTitles: string[];
+  dashboardListedTitles: string[];
+  deletedProjectIds: Set<string>;
+  deletedTitles: string[];
 };
 
 export function buildAiPortfolioFilterContext(
   activeProjects: any[],
   estimates: any[],
-  timelineProgress: Record<string, number>
+  timelineProgress: Record<string, number>,
+  deletedRecords: DeletedProjectRecord[] = []
 ): AiPortfolioFilterContext {
   const merged = dedupeProjectsByBestStatus([...activeProjects, ...estimates]);
   const closedIds = buildDashboardClosedProjectIdSet(activeProjects, estimates, timelineProgress);
   const knownProjectIds = new Set(
     merged.map((p) => String(p.id ?? '')).filter((id) => id.length > 0)
   );
+  const dashboardListed = merged.filter(isDashboardListedProject);
+  const dashboardListedIds = new Set(dashboardListed.map((p) => String(p.id ?? '')));
   const openPipeline = merged.filter(
     (p) =>
       isProjectEligibleForAiDashboardInsights(p) &&
+      isDashboardListedProject(p) &&
       !closedIds.has(String(p.id ?? '')) &&
       !isProjectClosedForDashboardAi(p, timelineProgress)
   );
   const openPipelineIds = new Set(openPipeline.map((p) => String(p.id ?? '')));
   const closedProjects = merged.filter((p) => closedIds.has(String(p.id ?? '')));
+  const deletedProjectIds = new Set(deletedRecords.map((r) => r.id).filter(Boolean));
+  const deletedTitles = [
+    ...new Set(
+      deletedRecords
+        .map((r) => String(r.title || '').toLowerCase().trim())
+        .filter((t) => t.length >= 3)
+    ),
+  ];
   return {
     knownProjectIds,
+    dashboardListedIds,
     openPipelineIds,
     closedIds,
     openPipelineTitles: projectTitles(openPipeline),
     closedTitles: projectTitles(closedProjects),
     knownTitles: projectTitles(merged),
+    dashboardListedTitles: projectTitles(dashboardListed),
+    deletedProjectIds,
+    deletedTitles,
   };
 }
 
@@ -267,21 +343,43 @@ export function filterAiInsightForPortfolio(
   ctx: AiPortfolioFilterContext
 ): boolean {
   const pid = normalizeInsightProjectId(insight);
+  const embeddedId = extractProjectIdFromInsightId(insight.id);
   const blob = `${insight.title || ''} ${insight.body || ''}`;
   const retrospective = isRetrospectiveInsight(insight);
 
-  if (pid) {
-    if (!ctx.knownProjectIds.has(pid)) return false;
-    if (ctx.closedIds.has(pid)) return retrospective;
-    if (!retrospective && !ctx.openPipelineIds.has(pid)) return false;
-  } else {
-    if (aiTextReferencesJobTitle(blob, ctx.closedTitles) && !retrospective) {
-      return false;
-    }
-    if (insightReferencesRemovedOpenJob(insight.title, insight.body, ctx.openPipelineTitles, ctx.knownTitles)) {
-      return false;
-    }
+  if (
+    (pid && ctx.deletedProjectIds.has(pid)) ||
+    (embeddedId && ctx.deletedProjectIds.has(embeddedId)) ||
+    (ctx.deletedTitles.length > 0 && aiTextReferencesJobTitle(blob, ctx.deletedTitles))
+  ) {
+    return false;
   }
+
+  const refId = pid || embeddedId;
+  if (refId && !ctx.knownProjectIds.has(refId)) return false;
+
+  if (!retrospective) {
+    if (refId && !ctx.dashboardListedIds.has(refId)) return false;
+    if (refId && !ctx.openPipelineIds.has(refId)) return false;
+    if (aiTextReferencesJobTitle(blob, ctx.closedTitles)) return false;
+    if (
+      insightReferencesRemovedOpenJob(
+        insight.title,
+        insight.body,
+        ctx.openPipelineTitles,
+        ctx.dashboardListedTitles
+      )
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  if (pid) {
+    if (ctx.closedIds.has(pid)) return true;
+    return ctx.dashboardListedIds.has(pid);
+  }
+  if (aiTextReferencesJobTitle(blob, ctx.closedTitles)) return true;
   return true;
 }
 
@@ -293,15 +391,29 @@ export function filterAiNextStepForPortfolio(
   if (stepText.includes('josh')) return false;
 
   const pid = normalizeInsightProjectId(step);
+  const embeddedId = extractProjectIdFromInsightId(step.id);
+  const refId = pid || embeddedId;
   const stepBlob = `${step.label || ''} ${step.chip || ''}`;
-  if (pid) {
-    if (!ctx.knownProjectIds.has(pid)) return false;
-    if (ctx.closedIds.has(pid)) return false;
-    if (!ctx.openPipelineIds.has(pid)) return false;
+  if (
+    (refId && ctx.deletedProjectIds.has(refId)) ||
+    (ctx.deletedTitles.length > 0 && aiTextReferencesJobTitle(stepBlob, ctx.deletedTitles))
+  ) {
+    return false;
+  }
+  if (refId) {
+    if (!ctx.knownProjectIds.has(refId)) return false;
+    if (!ctx.dashboardListedIds.has(refId)) return false;
+    if (ctx.closedIds.has(refId)) return false;
+    if (!ctx.openPipelineIds.has(refId)) return false;
   } else if (aiTextReferencesJobTitle(stepBlob, ctx.closedTitles)) {
     return false;
   } else if (
-    insightReferencesRemovedOpenJob(String(step.label || ''), String(step.chip || ''), ctx.openPipelineTitles, ctx.knownTitles)
+    insightReferencesRemovedOpenJob(
+      String(step.label || ''),
+      String(step.chip || ''),
+      ctx.openPipelineTitles,
+      ctx.dashboardListedTitles
+    )
   ) {
     return false;
   }
@@ -312,15 +424,59 @@ export function filterAiDashboardResponse(
   data: AiDashboardResponse | null,
   activeProjects: any[],
   estimates: any[],
-  timelineProgress: Record<string, number>
+  timelineProgress: Record<string, number>,
+  deletedRecords: DeletedProjectRecord[] = []
 ): AiDashboardResponse | null {
   if (!data) return null;
-  const ctx = buildAiPortfolioFilterContext(activeProjects, estimates, timelineProgress);
+  const ctx = buildAiPortfolioFilterContext(
+    activeProjects,
+    estimates,
+    timelineProgress,
+    deletedRecords
+  );
   return {
     ...data,
     insights: (data.insights ?? []).filter((insight) => filterAiInsightForPortfolio(insight, ctx)),
     nextSteps: (data.nextSteps ?? []).filter((step) => filterAiNextStepForPortfolio(step, ctx)),
   };
+}
+
+/** Learn deleted jobs from stale API rows (e.g. user deleted before we recorded titles). */
+export async function reconcileDeletedProjectsFromInsights(
+  insights: AiInsight[],
+  knownProjectIds: Set<string>
+): Promise<DeletedProjectRecord[]> {
+  const existing = await loadDeletedProjectRecords();
+  const byId = new Map(existing.map((r) => [r.id, r]));
+  for (const ins of insights) {
+    const embedded = extractProjectIdFromInsightId(ins.id);
+    const pid = normalizeInsightProjectId(ins) || embedded;
+    if (!pid || knownProjectIds.has(pid)) continue;
+    const phrase =
+      extractScopedJobPhraseFromInsightText(ins.title, ins.body) ||
+      String(ins.title || '').trim();
+    byId.set(pid, {
+      id: pid,
+      title: phrase,
+      deletedAt: new Date().toISOString(),
+    });
+  }
+  const next = [...byId.values()].slice(0, 200);
+  await AsyncStorage.setItem(DELETED_PROJECTS_STORAGE_KEY, JSON.stringify(next));
+  return next;
+}
+
+export function aiDashboardResponsesDiffer(
+  a: AiDashboardResponse | null,
+  b: AiDashboardResponse | null
+): boolean {
+  if (!a || !b) return a !== b;
+  const aIds = (a.insights ?? []).map((i) => i.id).join('|');
+  const bIds = (b.insights ?? []).map((i) => i.id).join('|');
+  if (aIds !== bIds) return true;
+  const aSteps = (a.nextSteps ?? []).map((s) => s.id).join('|');
+  const bSteps = (b.nextSteps ?? []).map((s) => s.id).join('|');
+  return aSteps !== bSteps;
 }
 
 /** Hash of all project ids + pipeline snapshot — any delete/add/complete changes this. */

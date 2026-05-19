@@ -80,11 +80,15 @@ import {
   getCompletedProjectProfit,
 } from "@/lib/completedProjectProfitability";
 import {
+  aiDashboardResponsesDiffer,
   buildAiPortfolioFilterContext,
   computePortfolioListFingerprint,
   filterAiDashboardResponse,
   filterAiInsightForPortfolio,
   filterAiNextStepForPortfolio,
+  loadDeletedProjectRecords,
+  reconcileDeletedProjectsFromInsights,
+  type DeletedProjectRecord,
 } from "@/utils/aiDashboardPortfolioFilter";
 
 const AI_DASHBOARD_FETCH_TIMEOUT_MS = 60_000;
@@ -2937,6 +2941,7 @@ const DashboardScreen: React.FC = () => {
   /** Max planned date (ms) from live timeline storage — extends schedule anchor past stale project endDate. */
   const [timelineLatestPlannedMs, setTimelineLatestPlannedMs] = useState<Record<string, number>>({});
   const [projectDataOverrides, setProjectDataOverrides] = useState<Record<string, any>>({});
+  const [deletedProjectRecords, setDeletedProjectRecords] = useState<DeletedProjectRecord[]>([]);
 
   // Debounce refs for project changes
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3073,6 +3078,10 @@ const DashboardScreen: React.FC = () => {
   useEffect(() => {
     loadTimelineProgress();
   }, [loadTimelineProgress]);
+
+  useEffect(() => {
+    void loadDeletedProjectRecords().then(setDeletedProjectRecords);
+  }, []);
 
   // Compute projects hash for change detection (dedupe + timeline progress so insights refresh when schedule moves)
   const computeProjectsHash = useCallback(() => {
@@ -3361,7 +3370,8 @@ const DashboardScreen: React.FC = () => {
           filteredDataWithRetrospectives,
           activeProjects,
           estimates,
-          timelineProgress
+          timelineProgress,
+          deletedProjectRecords
         ) ?? filteredDataWithRetrospectives
       );
     } catch (err: any) {
@@ -3446,19 +3456,22 @@ const DashboardScreen: React.FC = () => {
         setAiLoading(false);
       }
     }
-  }, [aiPmMode, activeProjects, estimates, timelineProgress]);
+  }, [aiPmMode, activeProjects, estimates, timelineProgress, deletedProjectRecords]);
 
   // Drop stale insight cards immediately when projects are deleted/completed (don't wait on API).
   useEffect(() => {
     if (!aiPmMode || !aiData) return;
-    const pruned = filterAiDashboardResponse(aiData, activeProjects, estimates, timelineProgress);
-    if (!pruned) return;
-    const before = (aiData.insights?.length ?? 0) + (aiData.nextSteps?.length ?? 0);
-    const after = (pruned.insights?.length ?? 0) + (pruned.nextSteps?.length ?? 0);
-    if (after !== before) {
+    const pruned = filterAiDashboardResponse(
+      aiData,
+      activeProjects,
+      estimates,
+      timelineProgress,
+      deletedProjectRecords
+    );
+    if (pruned && aiDashboardResponsesDiffer(aiData, pruned)) {
       setAiData(pruned);
     }
-  }, [aiPmMode, aiData, activeProjects, estimates, timelineProgress]);
+  }, [aiPmMode, aiData, activeProjects, estimates, timelineProgress, deletedProjectRecords]);
 
   // Debounced refetch when portfolio fingerprint changes
   useEffect(() => {
@@ -3533,8 +3546,32 @@ const DashboardScreen: React.FC = () => {
       let cancelled = false;
       const interaction = InteractionManager.runAfterInteractions(() => {
         void (async () => {
+          let deleted = await loadDeletedProjectRecords();
+          const mergedKnown = dedupeProjectsByBestStatus([...activeProjects, ...estimates]);
+          const knownIds = new Set(
+            mergedKnown.map((p) => String(p?.id ?? '')).filter(Boolean)
+          );
+
           await loadTimelineProgress();
           if (cancelled || !aiPmMode) return;
+
+          if (aiData?.insights?.length) {
+            deleted = await reconcileDeletedProjectsFromInsights(aiData.insights, knownIds);
+          }
+          if (!cancelled) setDeletedProjectRecords(deleted);
+
+          setAiData((prev) => {
+            if (!prev) return prev;
+            const pruned = filterAiDashboardResponse(
+              prev,
+              activeProjects,
+              estimates,
+              timelineProgress,
+              deleted
+            );
+            return pruned ?? prev;
+          });
+
           const h = computeAiRefreshHash();
           if (h !== lastProjectsHashRef.current) {
             if (debounceTimerRef.current) {
@@ -3542,7 +3579,7 @@ const DashboardScreen: React.FC = () => {
               debounceTimerRef.current = null;
             }
             lastProjectsHashRef.current = h;
-            fetchAiData(false);
+            fetchAiData(true);
           }
         })();
       });
@@ -3550,12 +3587,27 @@ const DashboardScreen: React.FC = () => {
         cancelled = true;
         interaction.cancel?.();
       };
-    }, [loadTimelineProgress, computeAiRefreshHash, fetchAiData, aiPmMode])
+    }, [
+      loadTimelineProgress,
+      computeAiRefreshHash,
+      fetchAiData,
+      aiPmMode,
+      activeProjects,
+      estimates,
+      timelineProgress,
+      aiData,
+    ])
   );
 
   const portfolioFilterCtx = useMemo(
-    () => buildAiPortfolioFilterContext(activeProjects, estimates, timelineProgress),
-    [activeProjects, estimates, timelineProgress]
+    () =>
+      buildAiPortfolioFilterContext(
+        activeProjects,
+        estimates,
+        timelineProgress,
+        deletedProjectRecords
+      ),
+    [activeProjects, estimates, timelineProgress, deletedProjectRecords]
   );
 
   const filteredInsights = useMemo(() => {
