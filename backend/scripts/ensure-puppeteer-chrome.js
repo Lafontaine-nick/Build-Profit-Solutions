@@ -12,9 +12,12 @@ const path = require('path');
 const { isRenderHosting } = require('../src/utils/renderEnv');
 
 const onRender = isRenderHosting();
-if (onRender) {
+const onCi =
+  String(process.env.CI || '').trim() === 'true' ||
+  String(process.env.CI || '').trim() === '1';
+if (onRender || onCi) {
   console.log(
-    '[ensure-puppeteer-chrome] Render build: skipping Chrome download during npm install (see install-chrome:render-build).',
+    '[ensure-puppeteer-chrome] CI/Render: skipping Chrome during npm install (see install-chrome:render-build or runtime install).',
   );
   process.exit(0);
 }

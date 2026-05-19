@@ -1,6 +1,6 @@
 /**
- * Render **start** (optional): install Chrome before `node src/server.js`.
- * Server also kicks the same install in the background; this is belt-and-suspenders for long installs.
+ * Render **start** (optional): kick off Chrome install before `node src/server.js`.
+ * Never blocks deploy — server boot also starts a background install.
  */
 const { isRenderHosting } = require('../src/utils/renderEnv');
 const {
@@ -16,16 +16,19 @@ const {
     console.log('[ensure-chrome-start] Chrome already on disk; skipping.');
     process.exit(0);
   }
+  console.log('[ensure-chrome-start] Chrome missing — starting install (non-blocking for deploy)…');
   const ok = await installPuppeteerChromeIfMissing({
     logPrefix: '[ensure-chrome-start]',
-    maxAttempts: 3,
+    maxAttempts: 2,
+    attemptTimeoutMs: 8 * 60 * 1000,
   });
   if (!ok || !chromeExecutableExists()) {
-    console.error('[ensure-chrome-start] Chrome install failed.');
-    process.exit(1);
+    console.warn(
+      '[ensure-chrome-start] Chrome not ready yet; server will start and retry in background.',
+    );
   }
   process.exit(0);
 })().catch((e) => {
-  console.error('[ensure-chrome-start]', e);
-  process.exit(1);
+  console.warn('[ensure-chrome-start] WARN —', e instanceof Error ? e.message : e);
+  process.exit(0);
 });

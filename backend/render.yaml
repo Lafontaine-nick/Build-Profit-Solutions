@@ -12,7 +12,8 @@ services:
     name: build-profit-solutions-backend
     env: node
     plan: starter
-    buildCommand: echo ">>> BPS CHROME BUILD START <<<" && npm install && npm run install-chrome:render-build && echo ">>> BPS CHROME BUILD OK <<<"
+    # Chrome build step is best-effort (exit 0); runtime + first PDF retry if missing.
+    buildCommand: echo ">>> BPS CHROME BUILD START <<<" && npm install && npm run install-chrome:render-build && echo ">>> BPS CHROME BUILD DONE <<<"
     startCommand: npm run start:render
     envVars:
       - key: NODE_ENV

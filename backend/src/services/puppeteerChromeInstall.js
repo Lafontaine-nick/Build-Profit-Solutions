@@ -14,10 +14,19 @@ const INSTALL_ATTEMPT_TIMEOUT_MS = 12 * 60 * 1000;
 /** idle | running | succeeded | failed */
 let mountStatus = 'idle';
 
+const RENDER_CHROME_CACHE_DIR = path.join(BACKEND_ROOT, 'render-pdf-chrome');
+
 function getCacheDir() {
+  /** On Render / forced install, always use app-local dir so build output is in the deploy slug. */
+  if (
+    process.env.BPS_FORCE_PUPPETEER_CHROME_INSTALL === '1' ||
+    isRenderHosting()
+  ) {
+    return RENDER_CHROME_CACHE_DIR;
+  }
   const fromEnv = (process.env.PUPPETEER_CACHE_DIR || '').trim();
-  if (fromEnv) return fromEnv;
-  return path.join(BACKEND_ROOT, 'render-pdf-chrome');
+  if (fromEnv && !/cursor-sandbox|sandbox-cache/i.test(fromEnv)) return fromEnv;
+  return RENDER_CHROME_CACHE_DIR;
 }
 
 function readChromeBuildIdSync() {
@@ -160,7 +169,10 @@ function wipeDir(dir) {
   }
 }
 
-async function installChromeProgrammaticOnce(logPrefix, { wipeCache = true } = {}) {
+async function installChromeProgrammaticOnce(
+  logPrefix,
+  { wipeCache = true, timeoutMs, pinnedBuildId = false } = {},
+) {
   const cacheDir = getCacheDir();
   const legacyCache = path.join(BACKEND_ROOT, '.puppeteer-cache');
   if (wipeCache) {
@@ -172,7 +184,9 @@ async function installChromeProgrammaticOnce(logPrefix, { wipeCache = true } = {
 
   const { install, Browser } = require('@puppeteer/browsers');
   const platform = getBrowserPlatformForManagedChrome();
-  const buildId = await readChromeBuildIdForInstall();
+  const buildId = pinnedBuildId
+    ? readChromeBuildIdSync()
+    : await readChromeBuildIdForInstall();
   console.warn(
     `${logPrefix} @puppeteer/browsers install chrome buildId=${buildId} platform=${platform} → ${cacheDir}`,
   );
@@ -184,13 +198,19 @@ async function installChromeProgrammaticOnce(logPrefix, { wipeCache = true } = {
     unpack: true,
     downloadProgressCallback: 'default',
   });
+  const attemptTimeoutMs = timeoutMs ?? INSTALL_ATTEMPT_TIMEOUT_MS;
   let timeoutId;
   await Promise.race([
     installPromise,
     new Promise((_, reject) => {
       timeoutId = setTimeout(
-        () => reject(new Error(`Chrome download timed out after ${INSTALL_ATTEMPT_TIMEOUT_MS / 60000} minutes`)),
-        INSTALL_ATTEMPT_TIMEOUT_MS,
+        () =>
+          reject(
+            new Error(
+              `Chrome download timed out after ${attemptTimeoutMs / 60000} minutes`,
+            ),
+          ),
+        attemptTimeoutMs,
       );
     }),
   ]).finally(() => {
@@ -216,8 +236,11 @@ function verifyOrThrow() {
 async function installPuppeteerChromeIfMissing(opts = {}) {
   const maxAttempts = opts.maxAttempts ?? 3;
   const logPrefix = opts.logPrefix ?? '[puppeteer-chrome]';
+  const buildPhase = opts.buildPhase === true;
   const force =
     opts.force === true || process.env.BPS_FORCE_PUPPETEER_CHROME_INSTALL === '1';
+  const attemptTimeoutMs = opts.attemptTimeoutMs;
+  const pinnedBuildId = opts.pinnedBuildId === true || buildPhase;
 
   if (!isRenderHosting() && !force) {
     mountStatus = 'idle';
@@ -240,7 +263,11 @@ async function installPuppeteerChromeIfMissing(opts = {}) {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         console.warn(`${logPrefix} install attempt ${attempt}/${maxAttempts} …`);
-        await installChromeProgrammaticOnce(logPrefix, { wipeCache: attempt === 1 });
+        await installChromeProgrammaticOnce(logPrefix, {
+          wipeCache: attempt === 1,
+          timeoutMs: attemptTimeoutMs,
+          pinnedBuildId,
+        });
         verifyOrThrow();
         mountStatus = 'succeeded';
         console.warn(`${logPrefix} Chrome install succeeded.`);

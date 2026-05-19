@@ -1,7 +1,6 @@
 /**
- * Render **build**: install Chrome into `render-pdf-chrome/` (same logic as runtime / first PDF).
- * This script is only invoked from render.yaml `buildCommand` — always install, do not skip when
- * Render env vars are missing during the build phase.
+ * Render **build**: try to install Chrome into `render-pdf-chrome/` (bundled in deploy slug).
+ * Does NOT fail the deploy if download fails — runtime installs in the background (server boot + first PDF).
  */
 const path = require('path');
 const {
@@ -11,24 +10,28 @@ const {
   getResolvedChromeBinaryPath,
 } = require('../src/services/puppeteerChromeInstall');
 
+const BUILD_CACHE = path.join(__dirname, '..', 'render-pdf-chrome');
+
 (async () => {
-  process.env.PUPPETEER_CACHE_DIR =
-    process.env.PUPPETEER_CACHE_DIR || path.join(__dirname, '..', 'render-pdf-chrome');
-  /** Build containers may not set RENDER_* yet; must not skip install or return success without Chrome. */
   process.env.BPS_FORCE_PUPPETEER_CHROME_INSTALL = '1';
+  process.env.PUPPETEER_CACHE_DIR = BUILD_CACHE;
   console.log('[install-chrome:render-build] START cacheDir=', getCacheDir());
   const ok = await installPuppeteerChromeIfMissing({
     logPrefix: '[install-chrome:render-build]',
-    maxAttempts: 3,
+    maxAttempts: 1,
     force: true,
+    buildPhase: true,
+    attemptTimeoutMs: 8 * 60 * 1000,
   });
-  if (!ok || !chromeExecutableExists()) {
-    console.error('[install-chrome:render-build] FAILED — Chrome install verification failed.');
-    process.exit(1);
+  if (ok && chromeExecutableExists()) {
+    console.log('[install-chrome:render-build] OK chrome=', getResolvedChromeBinaryPath());
+    process.exit(0);
   }
-  console.log('[install-chrome:render-build] OK chrome=', getResolvedChromeBinaryPath());
+  console.warn(
+    '[install-chrome:render-build] WARN — Chrome not on disk after build step (deploy will continue; runtime will retry).',
+  );
   process.exit(0);
 })().catch((e) => {
-  console.error('[install-chrome:render-build]', e);
-  process.exit(1);
+  console.warn('[install-chrome:render-build] WARN —', e instanceof Error ? e.message : e);
+  process.exit(0);
 });
