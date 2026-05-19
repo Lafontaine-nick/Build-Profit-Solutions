@@ -5,7 +5,11 @@
 function isRenderHosting() {
   if (process.env.RENDER === 'true' || process.env.RENDER === '1') return true;
   if (String(process.env.RENDER_SERVICE_ID || '').trim()) return true;
+  if (String(process.env.RENDER_SERVICE_NAME || '').trim()) return true;
   if (/onrender\.com/i.test(String(process.env.RENDER_EXTERNAL_URL || ''))) return true;
+  if (String(process.env.CI || '').trim() && String(process.cwd() || '').includes('/opt/render/project')) {
+    return true;
+  }
   if (String(process.cwd() || '').includes('/opt/render/project')) return true;
   return false;
 }

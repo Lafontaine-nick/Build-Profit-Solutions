@@ -296,7 +296,25 @@ router.post('/render-pdf', async (req, res) => {
 });
 
 /** Verify deploy: GET /api/contracts/pdf-ready — `ok` is true only if bundled Chrome exists on disk. */
-router.get('/pdf-ready', (req, res) => {
+router.get('/pdf-ready', async (req, res) => {
+  if (isRenderHosting() && !getResolvedChromeBinaryPath()) {
+    const inFlight = global.__bpsPuppeteerChromeInstallPromise;
+    if (inFlight) {
+      try {
+        await Promise.race([
+          inFlight,
+          new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('pdf-ready install wait timeout')), 20_000);
+          }),
+        ]);
+      } catch (e) {
+        console.warn('[pdf-ready] Chrome install wait:', e instanceof Error ? e.message : e);
+      }
+    } else if (getChromeInstallMountStatus() !== 'running') {
+      void installPuppeteerChromeIfMissing({ logPrefix: '[pdf-ready]', maxAttempts: 1 });
+    }
+  }
+
   const cacheDir = process.env.PUPPETEER_CACHE_DIR || '';
   const cacheDirExists = Boolean(cacheDir && fs.existsSync(cacheDir));
   let puppeteerPath = null;

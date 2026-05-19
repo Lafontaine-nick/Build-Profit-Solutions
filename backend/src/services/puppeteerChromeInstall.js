@@ -7,6 +7,9 @@ const path = require('path');
 const { isRenderHosting } = require('../utils/renderEnv');
 
 const BACKEND_ROOT = path.resolve(__dirname, '..', '..');
+const CHROME_BUILD_ID_MARKER = '.bps-chrome-build-id.txt';
+/** Per-attempt ceiling so Render does not sit in chromeInstallMountStatus "running" forever. */
+const INSTALL_ATTEMPT_TIMEOUT_MS = 12 * 60 * 1000;
 
 /** idle | running | succeeded | failed */
 let mountStatus = 'idle';
@@ -17,7 +20,7 @@ function getCacheDir() {
   return path.join(BACKEND_ROOT, 'render-pdf-chrome');
 }
 
-function readChromeBuildId() {
+function readChromeBuildIdSync() {
   try {
     const m = require('puppeteer-core/lib/cjs/puppeteer/revisions.js');
     const id = m?.PUPPETEER_REVISIONS?.chrome;
@@ -28,10 +31,25 @@ function readChromeBuildId() {
   return '146.0.7680.153';
 }
 
+/** Resolve the build id used for @puppeteer/browsers install (stable channel). */
+async function readChromeBuildIdForInstall() {
+  try {
+    const { resolveBuildId, Browser } = require('@puppeteer/browsers');
+    const platform = getBrowserPlatformForManagedChrome();
+    const id = await resolveBuildId(Browser.CHROME, platform, 'stable');
+    if (id && typeof id === 'string') return id;
+  } catch (e) {
+    console.warn('[puppeteer-chrome] resolveBuildId(stable) failed:', e instanceof Error ? e.message : e);
+  }
+  return readChromeBuildIdSync();
+}
+
 /** Render runs Linux x64; local dev uses the host platform (matches `npx puppeteer browsers install`). */
 function getBrowserPlatformForManagedChrome() {
   const { BrowserPlatform } = require('@puppeteer/browsers');
-  if (isRenderHosting()) return BrowserPlatform.LINUX;
+  const forceLinux =
+    process.env.BPS_FORCE_PUPPETEER_CHROME_INSTALL === '1' || isRenderHosting();
+  if (forceLinux) return BrowserPlatform.LINUX;
   if (process.platform === 'linux') return BrowserPlatform.LINUX;
   if (process.platform === 'darwin') {
     return process.arch === 'arm64' ? BrowserPlatform.MAC_ARM : BrowserPlatform.MAC;
@@ -47,20 +65,68 @@ function getBrowserPlatformForManagedChrome() {
  * Render build/start install). Prefer this over puppeteer.executablePath() — with skipDownload, the
  * latter often does not point at the downloaded binary.
  */
+function readInstalledBuildIdMarker(cacheDir) {
+  try {
+    const raw = fs.readFileSync(path.join(cacheDir, CHROME_BUILD_ID_MARKER), 'utf8').trim();
+    return raw || null;
+  } catch {
+    return null;
+  }
+}
+
+function writeInstalledBuildIdMarker(cacheDir, buildId) {
+  try {
+    fs.writeFileSync(path.join(cacheDir, CHROME_BUILD_ID_MARKER), String(buildId), 'utf8');
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Walk cache for a `chrome` binary (handles buildId mismatch vs readChromeBuildIdSync). */
+function findChromeBinaryUnderCache(cacheDir) {
+  if (!fs.existsSync(cacheDir)) return null;
+  const walk = (dir, depth) => {
+    if (depth > 10) return null;
+    let kids;
+    try {
+      kids = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return null;
+    }
+    for (const k of kids) {
+      const p = path.join(dir, k.name);
+      if (k.isFile() && k.name === 'chrome') return p;
+      if (k.isDirectory()) {
+        const hit = walk(p, depth + 1);
+        if (hit) return hit;
+      }
+    }
+    return null;
+  };
+  return walk(cacheDir, 0);
+}
+
 function getResolvedChromeBinaryPath() {
   const cacheDir = getCacheDir();
   process.env.PUPPETEER_CACHE_DIR = cacheDir;
+
+  const scanned = findChromeBinaryUnderCache(cacheDir);
+  if (scanned) return scanned;
+
   try {
     const { computeExecutablePath, Browser } = require('@puppeteer/browsers');
-    const buildId = readChromeBuildId();
     const platform = getBrowserPlatformForManagedChrome();
-    const viaCompute = computeExecutablePath({
-      browser: Browser.CHROME,
-      buildId,
-      cacheDir,
-      platform,
-    });
-    if (viaCompute && fs.existsSync(viaCompute)) return viaCompute;
+    const markerId = readInstalledBuildIdMarker(cacheDir);
+    const buildIds = uniqueNonEmpty([markerId, readChromeBuildIdSync()]);
+    for (const buildId of buildIds) {
+      const viaCompute = computeExecutablePath({
+        browser: Browser.CHROME,
+        buildId,
+        cacheDir,
+        platform,
+      });
+      if (viaCompute && fs.existsSync(viaCompute)) return viaCompute;
+    }
   } catch {
     /* fall through */
   }
@@ -80,6 +146,10 @@ function getResolvedChromeBinaryPath() {
   return null;
 }
 
+function uniqueNonEmpty(items) {
+  return [...new Set(items.filter(Boolean))];
+}
+
 function chromeExecutableExists() {
   return Boolean(getResolvedChromeBinaryPath());
 }
@@ -90,25 +160,43 @@ function wipeDir(dir) {
   }
 }
 
-async function installChromeProgrammaticOnce(logPrefix) {
+async function installChromeProgrammaticOnce(logPrefix, { wipeCache = true } = {}) {
   const cacheDir = getCacheDir();
   const legacyCache = path.join(BACKEND_ROOT, '.puppeteer-cache');
-  wipeDir(cacheDir);
-  wipeDir(legacyCache);
+  if (wipeCache) {
+    wipeDir(cacheDir);
+    wipeDir(legacyCache);
+  }
   fs.mkdirSync(cacheDir, { recursive: true });
   process.env.PUPPETEER_CACHE_DIR = cacheDir;
 
-  const { install, Browser, BrowserPlatform } = require('@puppeteer/browsers');
-  const buildId = readChromeBuildId();
-  console.warn(`${logPrefix} @puppeteer/browsers install chrome buildId=${buildId} → ${cacheDir}`);
-  await install({
+  const { install, Browser } = require('@puppeteer/browsers');
+  const platform = getBrowserPlatformForManagedChrome();
+  const buildId = await readChromeBuildIdForInstall();
+  console.warn(
+    `${logPrefix} @puppeteer/browsers install chrome buildId=${buildId} platform=${platform} → ${cacheDir}`,
+  );
+  const installPromise = install({
     browser: Browser.CHROME,
     buildId,
-    platform: BrowserPlatform.LINUX,
+    platform,
     cacheDir,
     unpack: true,
     downloadProgressCallback: 'default',
   });
+  let timeoutId;
+  await Promise.race([
+    installPromise,
+    new Promise((_, reject) => {
+      timeoutId = setTimeout(
+        () => reject(new Error(`Chrome download timed out after ${INSTALL_ATTEMPT_TIMEOUT_MS / 60000} minutes`)),
+        INSTALL_ATTEMPT_TIMEOUT_MS,
+      );
+    }),
+  ]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+  writeInstalledBuildIdMarker(cacheDir, buildId);
 }
 
 function verifyOrThrow() {
@@ -128,10 +216,12 @@ function verifyOrThrow() {
 async function installPuppeteerChromeIfMissing(opts = {}) {
   const maxAttempts = opts.maxAttempts ?? 3;
   const logPrefix = opts.logPrefix ?? '[puppeteer-chrome]';
+  const force =
+    opts.force === true || process.env.BPS_FORCE_PUPPETEER_CHROME_INSTALL === '1';
 
-  if (!isRenderHosting()) {
+  if (!isRenderHosting() && !force) {
     mountStatus = 'idle';
-    return true;
+    return chromeExecutableExists();
   }
 
   if (chromeExecutableExists()) {
@@ -150,7 +240,7 @@ async function installPuppeteerChromeIfMissing(opts = {}) {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         console.warn(`${logPrefix} install attempt ${attempt}/${maxAttempts} …`);
-        await installChromeProgrammaticOnce(logPrefix);
+        await installChromeProgrammaticOnce(logPrefix, { wipeCache: attempt === 1 });
         verifyOrThrow();
         mountStatus = 'succeeded';
         console.warn(`${logPrefix} Chrome install succeeded.`);

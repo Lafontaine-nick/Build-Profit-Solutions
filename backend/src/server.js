@@ -107,6 +107,37 @@ function isAllowedDevBrowserOrigin(origin) {
   return false;
 }
 
+/** Comma-separated full origins, e.g. `https://my-branch-foo.vercel.app` */
+function parseExtraCorsOrigins() {
+  const raw = (process.env.CORS_EXTRA_ORIGINS || '').trim();
+  if (!raw) return new Set();
+  return new Set(
+    raw
+      .split(',')
+      .map((s) => s.trim().replace(/\/$/, ''))
+      .filter(Boolean),
+  );
+}
+
+/**
+ * Vercel preview URLs (`project-git-branch-team.vercel.app`) never equal production
+ * `FRONTEND_URL` (`https://project.vercel.app`) — browsers would fail CORS on the API.
+ */
+function isAllowedVercelDeploymentOrigin(origin, frontendUrl) {
+  if (!frontendUrl) return false;
+  try {
+    const feHost = new URL(frontendUrl).hostname.toLowerCase();
+    const oHost = new URL(origin).hostname.toLowerCase();
+    if (oHost === feHost) return true;
+    if (!feHost.endsWith('.vercel.app') || !oHost.endsWith('.vercel.app')) return false;
+    const slug = feHost.replace(/\.vercel\.app$/i, '');
+    if (!slug) return false;
+    return oHost === feHost || oHost.startsWith(`${slug}-`) || oHost.startsWith(`${slug}.`);
+  } catch (_) {
+    return false;
+  }
+}
+
 // Initialize database
 try {
   initializeDatabase();
@@ -133,6 +164,8 @@ app.use(helmet({
     },
   },
 }));
+const extraCorsOrigins = parseExtraCorsOrigins();
+
 app.use(cors({
   origin(origin, callback) {
     // Same-origin server-side, curl, mobile native fetch — often no Origin header
@@ -145,6 +178,12 @@ app.use(cors({
     const fe = (process.env.FRONTEND_URL || '').trim().replace(/\/$/, '');
     const normalized = origin.trim().replace(/\/$/, '');
     if (fe && normalized === fe) {
+      return callback(null, true);
+    }
+    if (extraCorsOrigins.has(normalized)) {
+      return callback(null, true);
+    }
+    if (fe && isAllowedVercelDeploymentOrigin(origin, fe)) {
       return callback(null, true);
     }
     if (isAllowedDevBrowserOrigin(origin)) {
