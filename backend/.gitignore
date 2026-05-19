@@ -1,4 +1,5 @@
 .gitignore storage/
 .env
-# Legacy Puppeteer cache (local); app now uses render-pdf-chrome/ for installs.
+# Puppeteer Chrome (installed at build/runtime on Render — do not commit binaries).
 .puppeteer-cache/
+render-pdf-chrome/
