@@ -79,6 +79,13 @@ import {
   getCompletedProjectMarginPercent,
   getCompletedProjectProfit,
 } from "@/lib/completedProjectProfitability";
+import {
+  buildAiPortfolioFilterContext,
+  computePortfolioListFingerprint,
+  filterAiDashboardResponse,
+  filterAiInsightForPortfolio,
+  filterAiNextStepForPortfolio,
+} from "@/utils/aiDashboardPortfolioFilter";
 
 const AI_DASHBOARD_FETCH_TIMEOUT_MS = 60_000;
 
@@ -2934,6 +2941,7 @@ const DashboardScreen: React.FC = () => {
   // Debounce refs for project changes
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastProjectsHashRef = useRef<string>('');
+  const lastPortfolioIdCountRef = useRef<number>(0);
   /** Latest dashboard-insights request wins; stale responses must not toggle loading or overwrite data */
   const aiDashboardReqSeqRef = useRef(0);
   const aiDashboardAbortRef = useRef<AbortController | null>(null);
@@ -3124,8 +3132,8 @@ const DashboardScreen: React.FC = () => {
   }, [activeProjects, estimates, timelineProgress]);
 
   const computeAiRefreshHash = useCallback(() => {
-    return `${computeProjectsHash()}|closed:${computeClosedJobsAiHash()}`;
-  }, [computeProjectsHash, computeClosedJobsAiHash]);
+    return `${computePortfolioListFingerprint(activeProjects, estimates, timelineProgress)}|${computeProjectsHash()}|closed:${computeClosedJobsAiHash()}`;
+  }, [activeProjects, estimates, timelineProgress, computeProjectsHash, computeClosedJobsAiHash]);
 
   // Fetch AI insights function (reusable for manual refresh)
   const fetchAiData = useCallback(async (forceRefresh = false) => {
@@ -3348,7 +3356,14 @@ const DashboardScreen: React.FC = () => {
       }
 
       if (seq !== aiDashboardReqSeqRef.current) return;
-      setAiData(filteredDataWithRetrospectives);
+      setAiData(
+        filterAiDashboardResponse(
+          filteredDataWithRetrospectives,
+          activeProjects,
+          estimates,
+          timelineProgress
+        ) ?? filteredDataWithRetrospectives
+      );
     } catch (err: any) {
       if (seq !== aiDashboardReqSeqRef.current) return;
 
@@ -3433,7 +3448,19 @@ const DashboardScreen: React.FC = () => {
     }
   }, [aiPmMode, activeProjects, estimates, timelineProgress]);
 
-  // Debounced effect: only fetch when projects actually change (short debounce so deletes/completions feel instant)
+  // Drop stale insight cards immediately when projects are deleted/completed (don't wait on API).
+  useEffect(() => {
+    if (!aiPmMode || !aiData) return;
+    const pruned = filterAiDashboardResponse(aiData, activeProjects, estimates, timelineProgress);
+    if (!pruned) return;
+    const before = (aiData.insights?.length ?? 0) + (aiData.nextSteps?.length ?? 0);
+    const after = (pruned.insights?.length ?? 0) + (pruned.nextSteps?.length ?? 0);
+    if (after !== before) {
+      setAiData(pruned);
+    }
+  }, [aiPmMode, aiData, activeProjects, estimates, timelineProgress]);
+
+  // Debounced refetch when portfolio fingerprint changes
   useEffect(() => {
     if (!aiPmMode) {
       setAiData(null);
@@ -3442,34 +3469,35 @@ const DashboardScreen: React.FC = () => {
         clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = null;
       }
+      lastPortfolioIdCountRef.current = 0;
       return;
     }
 
-    // Pipeline + closed-job fingerprint (completed jobs were missing from pipeline-only hash)
     const currentHash = computeAiRefreshHash();
+    const merged = dedupeProjectsByBestStatus([...activeProjects, ...estimates]);
+    const idCount = merged.length;
+    const portfolioShrunk = idCount < lastPortfolioIdCountRef.current;
+    lastPortfolioIdCountRef.current = idCount;
 
-    // If hash hasn't changed, don't refetch
-    if (currentHash === lastProjectsHashRef.current && aiData !== null) {
+    if (currentHash === lastProjectsHashRef.current) {
       return;
     }
 
-    // Clear any existing debounce timer
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
 
-    // Debounce: coalesce rapid list updates; still fast enough after delete/complete
     debounceTimerRef.current = setTimeout(() => {
       lastProjectsHashRef.current = currentHash;
-      fetchAiData(false);
-    }, 1500);
+      fetchAiData(portfolioShrunk);
+    }, 400);
 
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
     };
-  }, [aiPmMode, activeProjects, estimates, computeAiRefreshHash, fetchAiData, aiData]);
+  }, [aiPmMode, activeProjects, estimates, timelineProgress, computeAiRefreshHash, fetchAiData]);
 
   // Initial fetch when AI PM mode is toggled ON (no debounce)
   useEffect(() => {
@@ -3525,102 +3553,24 @@ const DashboardScreen: React.FC = () => {
     }, [loadTimelineProgress, computeAiRefreshHash, fetchAiData, aiPmMode])
   );
 
-  // AI insights: eligible projects only (no completed); orphan text must not name a completed job
+  const portfolioFilterCtx = useMemo(
+    () => buildAiPortfolioFilterContext(activeProjects, estimates, timelineProgress),
+    [activeProjects, estimates, timelineProgress]
+  );
+
   const filteredInsights = useMemo(() => {
     if (!aiData?.insights) return [];
-
-    const currentProjects = dedupeProjectsByBestStatus([
-      ...activeProjects,
-      ...estimates,
-    ]).filter(isProjectEligibleForAiDashboardInsights);
-    const currentProjectIds = new Set(currentProjects.map((p) => String(p.id)));
-    const closedIds = buildDashboardClosedProjectIdSet(
-      activeProjects,
-      estimates,
-      timelineProgress
-    );
-    const closedTitles = completedProjectTitlesForAiFilter(
-      activeProjects,
-      estimates,
-      timelineProgress
-    );
-    const allStoredTitles = allStoredProjectTitlesForAiFilter(activeProjects, estimates);
-
     return dedupeAiInsightsByNormalizedTitle(
-      aiData.insights.filter((insight) => {
-        const pid = normalizeInsightProjectId(insight);
-        const blob = `${insight.title || ""} ${insight.body || ""}`;
-        const retrospective =
-          insight.retrospective === true ||
-          String(insight.id || "").startsWith("completed-retrospective-");
-        if (pid && closedIds.has(pid)) {
-          return retrospective;
-        }
-        if (aiTextReferencesCompletedJob(blob, closedTitles) && !retrospective) {
-          return false;
-        }
-        if (pid) {
-          return currentProjectIds.has(pid);
-        }
-        if (
-          insightScopedTitleReferencesRemovedProject(
-            String(insight.title || ""),
-            String(insight.body || ""),
-            allStoredTitles
-          )
-        ) {
-          return false;
-        }
-        return true;
-      })
+      aiData.insights.filter((insight) => filterAiInsightForPortfolio(insight, portfolioFilterCtx))
     );
-  }, [aiData?.insights, activeProjects, estimates, timelineProgress]);
+  }, [aiData?.insights, portfolioFilterCtx]);
 
   const filteredNextSteps = useMemo(() => {
     if (!aiData?.nextSteps) return [];
-
-    const currentProjects = dedupeProjectsByBestStatus([
-      ...activeProjects,
-      ...estimates,
-    ]).filter(isProjectEligibleForAiDashboardInsights);
-    const currentProjectIds = new Set(currentProjects.map((p) => String(p.id)));
-    const closedIds = buildDashboardClosedProjectIdSet(
-      activeProjects,
-      estimates,
-      timelineProgress
-    );
-    const closedTitles = completedProjectTitlesForAiFilter(
-      activeProjects,
-      estimates,
-      timelineProgress
-    );
-    const allStoredTitles = allStoredProjectTitlesForAiFilter(activeProjects, estimates);
-
     return dedupeAiNextStepsByNormalizedLabel(
-      aiData.nextSteps.filter((step) => {
-        const stepText = String(step.label || "").toLowerCase();
-        if (stepText.includes("josh")) return false;
-
-        const pid = normalizeInsightProjectId(step);
-        const stepBlob = `${step.label || ""} ${step.chip || ""}`;
-        if (pid && closedIds.has(pid)) return false;
-        if (aiTextReferencesCompletedJob(stepBlob, closedTitles)) return false;
-        if (pid) {
-          return currentProjectIds.has(pid);
-        }
-        if (
-          insightScopedTitleReferencesRemovedProject(
-            String(step.label || ""),
-            String(step.chip || ""),
-            allStoredTitles
-          )
-        ) {
-          return false;
-        }
-        return true;
-      })
+      aiData.nextSteps.filter((step) => filterAiNextStepForPortfolio(step, portfolioFilterCtx))
     );
-  }, [aiData?.nextSteps, activeProjects, estimates, timelineProgress]);
+  }, [aiData?.nextSteps, portfolioFilterCtx]);
 
   // Transform projects data - only show submitted and above (hide draft/estimate)
   const projects = useMemo(() => {

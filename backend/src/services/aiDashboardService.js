@@ -914,9 +914,54 @@ Return ONLY JSON in this shape:
     });
   }
 
+  const closedProjectIdsForReturn = new Set(
+    projectsForModel
+      .filter((p) => {
+        const statusNorm = String(p.status || '')
+          .toLowerCase()
+          .trim()
+          .replace(/-/g, '_');
+        return (
+          statusNorm === 'completed' ||
+          statusNorm === 'complete' ||
+          statusNorm === 'closed' ||
+          statusNorm === 'done' ||
+          statusNorm === 'finished' ||
+          statusNorm === 'lost' ||
+          (typeof p.progressPct === 'number' && p.progressPct >= 99)
+        );
+      })
+      .map((p) => String(p.id))
+  );
+  const openPipelineIds = new Set(
+    projectsForModel
+      .filter((p) => !closedProjectIdsForReturn.has(String(p.id)))
+      .map((p) => String(p.id))
+  );
+  const knownProjectIds = new Set(projectsForModel.map((p) => String(p.id)));
+
+  const filterInsightForPipeline = (ins) => {
+    const pid = ins.projectId != null ? String(ins.projectId).trim() : '';
+    const retrospective =
+      ins.retrospective === true ||
+      String(ins.id || '').startsWith('completed-retrospective-');
+    if (!pid) return true;
+    if (!knownProjectIds.has(pid)) return false;
+    if (closedProjectIdsForReturn.has(pid)) return retrospective;
+    return openPipelineIds.has(pid) || retrospective;
+  };
+
+  const filteredInsights = allInsights.filter(filterInsightForPipeline);
+  const filteredNextSteps = allNextSteps.filter((st) => {
+    const pid = st.projectId != null ? String(st.projectId).trim() : '';
+    if (!pid) return true;
+    if (!knownProjectIds.has(pid)) return false;
+    return openPipelineIds.has(pid);
+  });
+
   const result = {
-    insights: allInsights,
-    nextSteps: allNextSteps,
+    insights: filteredInsights,
+    nextSteps: filteredNextSteps,
     dailyBrief,
     ruleBasedUpdatedAt,
     aiUpdatedAt,
