@@ -1,0 +1,40 @@
+
+> build-profit-solutions-backend@1.0.0 start
+> node src/server.js
+
+📦 Loaded 1 users from disk
+📦 Loaded 18 unified leads from persistent storage
+⏭️ Skipping demo leads - 18 leads already loaded from storage
+📦 Loaded 3 project leads from persistent storage
+❌ Failed to initialize Twilio client: accountSid must start with AC
+✅ Database initialization attempted
+
+============================================================
+🚀 Server running on port 3001
+📊 Health check: http://localhost:3001/health
+🔗 API Base: http://localhost:3001/api
+🌐 Customer website: http://localhost:3001
+📱 LAN access: http://192.168.0.142:3001
+   - Health: http://192.168.0.142:3001/health
+   - API: http://192.168.0.142:3001/api
+🌍 Environment: development
+🔄 Marketplace sync: Running every 5 minutes
+
+✅ SKU Search API ready:
+   ✅ SerpAPI configured (real product images & prices)
+============================================================
+
+
+============================================================
+🚀 Server running on port 3000
+📊 Health check: http://localhost:3000/health
+🔗 API Base: http://localhost:3000/api
+🌐 Customer website: http://localhost:3000
+📱 LAN access: http://192.168.0.142:3000
+   - Health: http://192.168.0.142:3000/health
+   - API: http://192.168.0.142:3000/api
+============================================================
+
+📄 Loaded 4 invoices from storage
+✅ Database connected successfully
+[0mGET /health [32m200[0m 1.607 ms - 100[0m
