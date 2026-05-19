@@ -32,6 +32,8 @@ export interface InAppNotificationData {
   onPress?: () => void;
   duration?: number;
   data?: any;
+  /** Called when the banner auto-dismisses or the user closes it. */
+  onDismiss?: () => void;
 }
 
 interface InAppNotificationProps {

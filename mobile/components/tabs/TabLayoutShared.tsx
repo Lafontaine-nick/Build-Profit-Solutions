@@ -16,6 +16,7 @@ import {
   TAB_NAV_ACTIVE,
 } from '@/components/ui/TabBarPillIcons';
 import { isDesktopWebLayoutWidth } from '@/constants/ScreenLayout';
+import ProfileCompletionReminder from '@/components/ProfileCompletionReminder';
 
 const ASSISTANT_LABEL_COLOR = '#5eead4';
 
@@ -161,7 +162,9 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
   );
 
   return (
-    <Tabs initialRouteName="dashboard" screenOptions={screenOptions}>
+    <>
+      <ProfileCompletionReminder />
+      <Tabs initialRouteName="dashboard" screenOptions={screenOptions}>
       <Tabs.Screen
         name="dashboard"
         options={{
@@ -195,6 +198,7 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
         }}
       />
     </Tabs>
+    </>
   );
 }
 

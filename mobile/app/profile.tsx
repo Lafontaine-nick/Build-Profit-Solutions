@@ -80,6 +80,15 @@ import {
 } from '@/services/notificationService';
 import { isBetaFeedbackVisibleForUser } from '@/lib/betaFeedback/betaFeedbackConfig';
 import { syncBpsDirectoryListing } from '@/services/bpsDirectorySync';
+import {
+  DEFAULT_PROFILE_AVATAR_SOURCE,
+  getProfileAvatarImageSource,
+  profileHasCustomAvatar,
+  sanitizeStoredProfileAvatar,
+  scrubContractorProfileAvatarFields,
+} from '@/lib/profileAvatar';
+import { evaluateContractorProfileCompletion } from '@/lib/profileCompletion';
+import { clearProfileCompletionReminderDismissed } from '@/lib/profileCompletionReminderStorage';
 
 /**
  * In-memory defaults only — never persisted as-is. Avoids debounced autosave racing
@@ -180,7 +189,8 @@ async function logoUriPersistableForWebPdf(uri: string | undefined | null): Prom
  */
 async function flushAvatarToStoredContractorProfile(avatarUri: string): Promise<void> {
   try {
-    let stored = avatarUri;
+    let stored = sanitizeStoredProfileAvatar(avatarUri);
+    if (!stored) return;
     if (Platform.OS === 'web' && stored) {
       const converted = await logoUriPersistableForWebPdf(stored);
       if (converted) stored = converted;
@@ -203,9 +213,11 @@ async function flushAvatarToStoredContractorProfile(avatarUri: string): Promise<
 
 /** Re-hydrate from disk without clobbering a newer in-memory avatar (see flush above). */
 function mergeAvatarOnProfileFocus(prevAvatar: string | undefined, diskAvatar: unknown): string {
-  const disk = typeof diskAvatar === 'string' ? diskAvatar.trim() : '';
-  const prev = String(prevAvatar ?? '').trim();
-  if (prev && prev !== disk) return String(prevAvatar ?? '').trim();
+  const disk = sanitizeStoredProfileAvatar(
+    typeof diskAvatar === 'string' ? diskAvatar : ''
+  );
+  const prev = sanitizeStoredProfileAvatar(prevAvatar);
+  if (prev && prev !== disk) return prev;
   return disk || prev || '';
 }
 
@@ -470,7 +482,17 @@ export default function ProfileScreen() {
       try {
         const saved = await AsyncStorage.getItem('bps.contractorProfile');
         if (saved) {
-          const profile = JSON.parse(saved);
+          const parsed = JSON.parse(saved);
+          const profile = scrubContractorProfileAvatarFields(parsed);
+          if (
+            parsed.avatar !== profile.avatar ||
+            parsed.logoUrl !== profile.logoUrl
+          ) {
+            await AsyncStorage.setItem(
+              'bps.contractorProfile',
+              JSON.stringify(profile)
+            );
+          }
           setDiscoverability({
             listOn: !!profile.listOnFindSubcontractors,
           });
@@ -508,7 +530,17 @@ export default function ProfileScreen() {
         try {
           const saved = await AsyncStorage.getItem('bps.contractorProfile');
           if (cancelled || !saved) return;
-          const profile = JSON.parse(saved);
+          const parsed = JSON.parse(saved);
+          const profile = scrubContractorProfileAvatarFields(parsed);
+          if (
+            !cancelled &&
+            (parsed.avatar !== profile.avatar || parsed.logoUrl !== profile.logoUrl)
+          ) {
+            await AsyncStorage.setItem(
+              'bps.contractorProfile',
+              JSON.stringify(profile)
+            );
+          }
           setDiscoverability({
             listOn: !!profile.listOnFindSubcontractors,
           });
@@ -622,7 +654,17 @@ export default function ProfileScreen() {
     try {
       const saved = await AsyncStorage.getItem('bps.contractorProfile');
       if (saved) {
-        const profile = JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        const profile = scrubContractorProfileAvatarFields(parsed);
+        if (
+          parsed.avatar !== profile.avatar ||
+          parsed.logoUrl !== profile.logoUrl
+        ) {
+          await AsyncStorage.setItem(
+            'bps.contractorProfile',
+            JSON.stringify(profile)
+          );
+        }
         setDiscoverability({
           listOn: !!profile.listOnFindSubcontractors,
         });
@@ -682,11 +724,11 @@ export default function ProfileScreen() {
           }
           const serviceZip =
             listedZip.length === 5 ? listedZip : prevServiceZip.length === 5 ? prevServiceZip : '';
-          const rawAvatar = user.avatar;
+          const rawAvatar = sanitizeStoredProfileAvatar(user.avatar);
           let avatarForStorage = rawAvatar;
           if (Platform.OS === 'web' && rawAvatar) {
             const converted = await logoUriPersistableForWebPdf(rawAvatar);
-            if (converted) avatarForStorage = converted;
+            if (converted) avatarForStorage = sanitizeStoredProfileAvatar(converted);
           }
           // Always save the complete profile object
           const fullProfile = {
@@ -709,6 +751,15 @@ export default function ProfileScreen() {
               : {}),
           };
           await AsyncStorage.setItem('bps.contractorProfile', JSON.stringify(fullProfile));
+          if (evaluateContractorProfileCompletion(fullProfile).isComplete) {
+            const reminderUserId =
+              clerkUser?.id ||
+              String(fullProfile.email || user.email || '')
+                .trim()
+                .toLowerCase() ||
+              'local';
+            await clearProfileCompletionReminderDismissed(reminderUserId);
+          }
           console.log('💾 Saved complete profile to AsyncStorage');
           const uid = clerkUser?.id || user.email || user.id || 'anonymous';
           await syncBpsDirectoryListing({
@@ -778,11 +829,11 @@ export default function ProfileScreen() {
         const listedZip = extractUsZipFromText(location);
         const serviceZip =
           listedZip.length === 5 ? listedZip : prevServiceZip.length === 5 ? prevServiceZip : '';
-        const rawAvatar = user.avatar;
+        const rawAvatar = sanitizeStoredProfileAvatar(user.avatar);
         let avatarForStorage = rawAvatar;
         if (Platform.OS === 'web' && rawAvatar) {
           const converted = await logoUriPersistableForWebPdf(rawAvatar);
-          if (converted) avatarForStorage = converted;
+          if (converted) avatarForStorage = sanitizeStoredProfileAvatar(converted);
         }
         const profileToSave = {
           name: fullName,
@@ -804,6 +855,15 @@ export default function ProfileScreen() {
             : {}),
         };
         await AsyncStorage.setItem('bps.contractorProfile', JSON.stringify(profileToSave));
+        if (evaluateContractorProfileCompletion(profileToSave).isComplete) {
+          const reminderUserId =
+            clerkUser?.id ||
+            String(profileToSave.email || user.email || '')
+              .trim()
+              .toLowerCase() ||
+            'local';
+          await clearProfileCompletionReminderDismissed(reminderUserId);
+        }
         console.log('💾 Saved complete contractor profile to AsyncStorage');
         const uid = clerkUser?.id || editForm.email || user.email || user.id || 'anonymous';
         await syncBpsDirectoryListing({
@@ -1249,7 +1309,7 @@ export default function ProfileScreen() {
     if (user.location && user.location.trim()) completedFields++;
     if (user.licenses && user.licenses.length > 0) completedFields++;
     if (user.insurance && Object.values(user.insurance).some(v => v === true)) completedFields++;
-    if (user.avatar) completedFields++;
+    if (profileHasCustomAvatar(user.avatar)) completedFields++;
     
     return Math.round((completedFields / totalFields) * 100);
   }, [user]);
@@ -1520,15 +1580,9 @@ export default function ProfileScreen() {
           <View style={styles.profileImageContainer}>
             <View style={styles.avatarGlowContainer}>
               <Image
-                source={
-                  String(user.avatar || '').trim()
-                    ? { uri: user.avatar }
-                    : require('../assets/images/bps-logo-updated.png')
-                }
+                source={getProfileAvatarImageSource(user.avatar)}
                 style={styles.profileImage}
-                {...(String(user.avatar || '').trim()
-                  ? {}
-                  : { defaultSource: require('../assets/images/bps-logo-updated.png') })}
+                defaultSource={DEFAULT_PROFILE_AVATAR_SOURCE}
                 resizeMode="contain"
                 onError={() => console.log('Profile image failed to load')}
               />

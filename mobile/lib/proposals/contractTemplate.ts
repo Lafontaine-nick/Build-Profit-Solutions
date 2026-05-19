@@ -1,4 +1,5 @@
 import { ContractDoc } from "../contracts/types";
+import { sanitizeStoredProfileAvatar } from "../profileAvatar";
 
 /**
  * - `client` — summarized Scope & pricing (no line-item tables).
@@ -101,15 +102,18 @@ const nonEmpty = (...values: Array<unknown>) =>
     .map((value) => String(value ?? "").trim())
     .find(Boolean);
 
-export const resolveBrandImageUrl = (profile: any): string | undefined =>
-  nonEmpty(
-    profile?.logoUrl,
-    profile?.companyLogo,
-    profile?.companyLogoUrl,
-    profile?.profileImageUrl,
-    profile?.profileImage,
-    profile?.avatar,
+export const resolveBrandImageUrl = (profile: any): string | undefined => {
+  const userAvatar = sanitizeStoredProfileAvatar(profile?.avatar);
+  const userLogo = sanitizeStoredProfileAvatar(profile?.logoUrl);
+  return nonEmpty(
+    userLogo,
+    userAvatar,
+    sanitizeStoredProfileAvatar(profile?.companyLogo),
+    sanitizeStoredProfileAvatar(profile?.companyLogoUrl),
+    sanitizeStoredProfileAvatar(profile?.profileImageUrl),
+    sanitizeStoredProfileAvatar(profile?.profileImage),
   );
+};
 
 /** Cover header “company” line: prefer saved company, then doc legal name, then person name before app default. */
 export const resolvePdfHeaderCompany = (

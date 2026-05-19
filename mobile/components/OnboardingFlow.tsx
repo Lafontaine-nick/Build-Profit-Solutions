@@ -30,7 +30,7 @@ interface OnboardingFlowProps {
   onComplete: () => void;
 }
 
-type RoleOption = 'gc' | 'subcontractor' | 'developer' | 'owner-builder';
+type RoleOption = 'gc' | 'subcontractor' | 'developer' | 'owner-builder' | 'other';
 type WorkSource = 'referrals' | 'repeat' | 'online' | 'subcontractor' | 'mix';
 type HelpOption = 'estimates' | 'projects' | 'costs' | 'schedule' | 'profit' | 'all';
 
@@ -271,6 +271,7 @@ function OnboardingFlowCore({
       { id: 'subcontractor' as RoleOption, label: 'Subcontractor' },
       { id: 'developer' as RoleOption, label: 'Developer' },
       { id: 'owner-builder' as RoleOption, label: 'Owner-Builder' },
+      { id: 'other' as RoleOption, label: 'Other' },
     ];
 
     return (

@@ -1,5 +1,5 @@
-import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo } from 'react';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 
 type Props = {
@@ -11,6 +11,62 @@ type Props = {
   onPress?: () => void;
 };
 
+/** Split $12,777,936.00 so cents stay on the same row (avoids ".00" wrapping alone on narrow cards). */
+function splitUsdValue(value: string): { dollars: string; cents: string } | null {
+  const m = /^(\$[\d,]+)(\.\d{2})$/.exec(String(value || '').trim());
+  if (!m) return null;
+  return { dollars: m[1], cents: m[2] };
+}
+
+function fontSizeForCardValue(value: string): number {
+  const len = String(value || '').length;
+  if (len <= 9) return 20;
+  if (len <= 11) return 18;
+  if (len <= 13) return 16;
+  if (len <= 15) return 14;
+  return 12;
+}
+
+function TaxSummaryCardValue({ value }: { value: string }) {
+  const currency = useMemo(() => splitUsdValue(value), [value]);
+  const fontSize = useMemo(() => fontSizeForCardValue(value), [value]);
+
+  if (!currency) {
+    return (
+      <View style={styles.valueClip}>
+        <Text
+          style={[styles.value, { fontSize }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit={Platform.OS === 'ios'}
+          minimumFontScale={0.45}
+          maxFontSizeMultiplier={1.2}
+          ellipsizeMode="clip"
+        >
+          {value}
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.valueRow}>
+      <Text
+        style={[styles.valueDollars, { fontSize }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit={Platform.OS === 'ios'}
+        minimumFontScale={0.45}
+        maxFontSizeMultiplier={1.2}
+        ellipsizeMode="clip"
+      >
+        {currency.dollars}
+      </Text>
+      <Text style={[styles.valueCents, { fontSize: Math.max(11, Math.round(fontSize * 0.72)) }]}>
+        {currency.cents}
+      </Text>
+    </View>
+  );
+}
+
 export default function TaxSummaryCard({ label, value, icon, accent = '#2DFFC4', helper, onPress }: Props) {
   const inner = (
     <>
@@ -18,15 +74,7 @@ export default function TaxSummaryCard({ label, value, icon, accent = '#2DFFC4',
         <MaterialIcons name={icon} size={20} color={accent} />
       </View>
       <Text style={styles.label}>{label}</Text>
-      <Text
-        style={styles.value}
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.32}
-        maxFontSizeMultiplier={1.35}
-      >
-        {value}
-      </Text>
+      <TaxSummaryCardValue value={value} />
       {helper ? <Text style={styles.helper}>{helper}</Text> : null}
       {onPress ? (
         <Text style={styles.tapHint}>Tap for detail</Text>
@@ -73,11 +121,37 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     marginBottom: 6,
   },
+  valueClip: {
+    width: '100%',
+    overflow: 'hidden',
+    minHeight: 26,
+    justifyContent: 'center',
+  },
+  valueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    flexWrap: 'nowrap',
+    width: '100%',
+    overflow: 'hidden',
+    minHeight: 26,
+  },
   value: {
     color: '#FFFFFF',
-    fontSize: 20,
     fontWeight: '800',
     width: '100%',
+    fontVariant: ['tabular-nums'],
+  },
+  valueDollars: {
+    flexShrink: 1,
+    minWidth: 0,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  valueCents: {
+    flexShrink: 0,
+    fontWeight: '800',
+    marginLeft: 1,
+    fontVariant: ['tabular-nums'],
   },
   helper: {
     color: '#7FDAC5',

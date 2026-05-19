@@ -48,7 +48,16 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   const hideNotification = useCallback(() => {
-    setNotification(null);
+    setNotification((current) => {
+      if (current?.onDismiss) {
+        try {
+          current.onDismiss();
+        } catch (e) {
+          if (__DEV__) console.warn('Notification onDismiss failed', e);
+        }
+      }
+      return null;
+    });
   }, []);
 
   const handleNotificationPress = useCallback(() => {

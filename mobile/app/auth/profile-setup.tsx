@@ -20,6 +20,7 @@ import * as Haptics from 'expo-haptics';
 import { clerkAuthService } from '@/services/clerkAuth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { sanitizeStoredProfileAvatar } from '@/lib/profileAvatar';
 
 // Try to import Clerk hooks
 let clerkUserFactory: any = null;
@@ -169,12 +170,28 @@ export default function ProfileSetupScreen() {
         projectPortfolio: [],
       };
 
-      // Load existing profile to preserve other fields
+      // Load existing profile to preserve other fields (same account only — never reuse another user's photo)
+      const clerkEmail = (
+        clerkUser?.primaryEmailAddress?.emailAddress ||
+        clerkUser?.emailAddresses?.[0]?.emailAddress ||
+        ''
+      )
+        .trim()
+        .toLowerCase();
       try {
         const existingProfileData = await AsyncStorage.getItem('bps.contractorProfile');
         if (existingProfileData) {
           const existingProfile = JSON.parse(existingProfileData);
-          contractorProfile.avatar = existingProfile.avatar || '';
+          const existingEmail = String(existingProfile.email || '')
+            .trim()
+            .toLowerCase();
+          const sameAccount =
+            Boolean(clerkEmail) &&
+            Boolean(existingEmail) &&
+            existingEmail === clerkEmail;
+          contractorProfile.avatar = sameAccount
+            ? sanitizeStoredProfileAvatar(existingProfile.avatar)
+            : '';
           contractorProfile.insurance = existingProfile.insurance || { generalLiability: false, autoInsurance: false };
           contractorProfile.licenses = existingProfile.licenses || [];
           contractorProfile.companyBio = existingProfile.companyBio || '';

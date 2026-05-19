@@ -5158,6 +5158,13 @@ export default function EstimateGeneratorScreen() {
     !hasMultipleBids &&
     !coachGate.secondBid;
 
+  /** Intro or per-step tips — suppress empty-state gate so users can tour all steps without filling fields. */
+  const firstEstimateWalkthroughTourActive =
+    shouldShowFirstEstimateWalkthrough &&
+    firstEstimateWtProgressHydrated &&
+    !firstEstimateWtSkipTipsSession &&
+    (firstEstimateWtStarted || !firstEstimateWtIntroResolved);
+
   // Persist intro / skip / per-step dismissals so leaving the app does not replay completed cards.
   useEffect(() => {
     if (!isLoaded || firstEstimateWalkthroughDone) {
@@ -5251,10 +5258,78 @@ export default function EstimateGeneratorScreen() {
     setFirstEstimateWtSkipTipsSession(true);
   }, []);
 
+  const ensureBidReadyForFirstEstimateWalkthrough = useCallback(async () => {
+    const hasNoEstimates = estimates.length === 0 && savedEstimates.length === 0;
+    const hasEmptyBid =
+      (!bid.title || bid.title === 'Untitled Bid') &&
+      (!bid.customerName || bid.customerName === '') &&
+      (!bid.materialLineItems || bid.materialLineItems.length === 0) &&
+      (!bid.laborLineItems || bid.laborLineItems.length === 0) &&
+      materialsCart.length === 0 &&
+      (!calc?.total || calc.total === 0);
+
+    if (!hasNoEstimates || !hasEmptyBid) {
+      setStep(1);
+      setActiveNavButton('next');
+      return;
+    }
+
+    const proposalNumber = await allocateNextProposalNumber();
+    const nextBid = { ...blankState(), proposalNumber };
+    if (nextBid.materialLineItems && nextBid.materialLineItems.length > 0) {
+      const defaultMaterials = nextBid.materialLineItems.map((item) => ({
+        id: item.id,
+        name: item.name,
+        description: item.description || item.name,
+        qty: item.quantity,
+        quantity: item.quantity,
+        unit: item.unit,
+        unitPrice: item.unitPrice,
+        cost: item.unitPrice,
+        total: item.total,
+        section: item.section || 'General Materials',
+        scope: activeScope,
+      }));
+      setMaterialsCart(defaultMaterials);
+      await AsyncStorage.setItem('bps.materialsCart', JSON.stringify(defaultMaterials));
+    }
+    setBid(nextBid);
+    setStep(1);
+    setActiveNavButton('next');
+    try {
+      await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(nextBid));
+    } catch (error) {
+      console.warn('Failed to save new bid for walkthrough:', error);
+    }
+  }, [
+    estimates.length,
+    savedEstimates.length,
+    bid,
+    materialsCart.length,
+    calc?.total,
+    activeScope,
+  ]);
+
   const handleFirstEstimateWalkthroughGotIt = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     dismissFirstEstimateWalkthroughStep(step);
-  }, [step, dismissFirstEstimateWalkthroughStep]);
+    if (step < 7) {
+      setStep(step + 1);
+      setActiveNavButton('next');
+      return;
+    }
+    if (step === 7) {
+      setStep(8);
+      setActiveNavButton('next');
+      void markFirstEstimateWalkthroughComplete(clerkUser?.id);
+      void refreshWalkthroughState();
+    }
+  }, [
+    step,
+    dismissFirstEstimateWalkthroughStep,
+    clerkUser?.id,
+    refreshWalkthroughState,
+  ]);
 
   useEffect(() => {
     if (Platform.OS === 'web') {
@@ -5383,7 +5458,8 @@ export default function EstimateGeneratorScreen() {
       : 'partial';
   const isEstimateReady = readinessState === 'ready';
   const isFirstTimeFlow = isFirstTime || shouldShowGuidance;
-  const shouldGateAdvanced = isFirstTimeFlow && !isEstimateReady;
+  const shouldGateAdvanced =
+    isFirstTimeFlow && !isEstimateReady && !firstEstimateWalkthroughTourActive;
 
   const handleReadinessCTA = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -18479,7 +18555,8 @@ export default function EstimateGeneratorScreen() {
     (!bid.materialLineItems || bid.materialLineItems.length === 0) &&
     (!bid.laborLineItems || bid.laborLineItems.length === 0) &&
     materialsCart.length === 0 &&
-    (!calc?.total || calc.total === 0);
+    (!calc?.total || calc.total === 0) &&
+    !firstEstimateWalkthroughTourActive;
 
   const firstEstimateFloatingTipVisible =
     shouldShowFirstEstimateWalkthrough &&
@@ -18525,11 +18602,11 @@ export default function EstimateGeneratorScreen() {
                   ? 'A strong payment schedule protects cash flow, covers upfront costs, and reduces collection risk.'
                   : '';
 
+  /** Dim chrome only during the intro sheet — keep nav/stepper fully tappable during per-step tips. */
   const firstEstimateWalkthroughUiActive =
-    (shouldShowFirstEstimateWalkthrough &&
-      firstEstimateWtProgressHydrated &&
-      !firstEstimateWtIntroResolved) ||
-    firstEstimateFloatingTipVisible;
+    shouldShowFirstEstimateWalkthrough &&
+    firstEstimateWtProgressHydrated &&
+    !firstEstimateWtIntroResolved;
 
   const walkthroughScrollPadBottom =
     firstEstimateFloatingTipVisible ||
@@ -19075,52 +19152,21 @@ export default function EstimateGeneratorScreen() {
                               (!bid.laborLineItems || bid.laborLineItems.length === 0) && 
                               materialsCart.length === 0 &&
                               (!calc?.total || calc.total === 0);
-          const shouldShowEmpty = isFirstTime && isLoaded && hasNoEstimates && hasEmptyBid;
+          const shouldShowEmpty =
+            isFirstTime && isLoaded && hasNoEstimates && hasEmptyBid && !firstEstimateWalkthroughTourActive;
 
           return shouldShowEmpty;
         })() ? (
           <View style={s.wideContainer}>
           <EmptyStateCard
-            onPress={async () => {
-              // If we're coming from onboarding, keep everything empty ($0 total)
-              const proposalNumber = await allocateNextProposalNumber();
-              const nextBid = { ...blankState(), proposalNumber };
-              // Convert materialLineItems to materialsCart format
-              if (nextBid.materialLineItems && nextBid.materialLineItems.length > 0) {
-                const defaultMaterials = nextBid.materialLineItems.map(item => ({
-                  id: item.id,
-                  name: item.name,
-                  description: item.description || item.name,
-                  qty: item.quantity,
-                  quantity: item.quantity,
-                  unit: item.unit,
-                  unitPrice: item.unitPrice,
-                  cost: item.unitPrice,
-                  total: item.total,
-                  section: item.section || 'General Materials',
-                  scope: activeScope,
-                }));
-                setMaterialsCart(defaultMaterials);
-                await AsyncStorage.setItem('bps.materialsCart', JSON.stringify(defaultMaterials));
-              }
-              setBid(nextBid);
-              setStep(1);
-              setActiveNavButton('next');
-              // Keep isFirstTime true so coach flags can show
-              // setIsFirstTime(false); // Don't set to false here - let flags show
-              try {
-                await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(nextBid));
-              } catch (error) {
-                console.warn('Failed to save new bid:', error);
-              }
-            }}
+            onPress={ensureBidReadyForFirstEstimateWalkthrough}
             subtitle="Create your first estimate to get started."
           />
           </View>
         ) : (
           <>
             {/* Estimate Readiness Panel (first-run only, above breakdown) */}
-            {shouldShowGuidance && step === 0 && (
+            {shouldShowGuidance && step === 0 && !firstEstimateWalkthroughTourActive && (
               <View style={{ marginTop: 10, marginBottom: 16 }}>
                 {/* Next Step Chip */}
                 <View style={{ marginBottom: 10 }}>
@@ -19267,6 +19313,7 @@ export default function EstimateGeneratorScreen() {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setFirstEstimateWtIntroResolved(true);
               setFirstEstimateWtStarted(true);
+              void ensureBidReadyForFirstEstimateWalkthrough();
             }}
             onSkip={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

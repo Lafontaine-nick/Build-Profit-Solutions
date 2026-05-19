@@ -1,13 +1,19 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /** Stored in onboarding JSON and mapped to profile Role display text */
-export type OnboardingRoleId = 'gc' | 'subcontractor' | 'developer' | 'owner-builder';
+export type OnboardingRoleId =
+  | 'gc'
+  | 'subcontractor'
+  | 'developer'
+  | 'owner-builder'
+  | 'other';
 
 const ROLE_DISPLAY: Record<OnboardingRoleId, string> = {
   gc: 'General contractor',
   subcontractor: 'Subcontractor',
   developer: 'Developer',
   'owner-builder': 'Owner-Builder',
+  other: 'Other',
 };
 
 /** Human-readable role for Edit Profile / contractor card */
