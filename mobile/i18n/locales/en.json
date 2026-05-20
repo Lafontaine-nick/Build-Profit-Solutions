@@ -129,8 +129,24 @@
     "dataPrivacy": "Private & secure data",
     "whatBuildersSay": "What Builders Say",
     "trustedBy": "Trusted by contractors nationwide",
-    "testimonialQuote": "\"The best tool for managing construction projects.\"",
-    "testimonialAttribution": "— David Rodriguez, Contractor",
+    "testimonials": [
+      {
+        "quote": "\"The best tool for managing construction projects.\"",
+        "attribution": "— David Rodriguez, General Contractor"
+      },
+      {
+        "quote": "\"Finally, estimates and job costing in one place. Our margins are clearer every week.\"",
+        "attribution": "— Maria Chen, Remodeling Contractor"
+      },
+      {
+        "quote": "\"AI estimates saved us hours on every bid. The team actually uses it daily.\"",
+        "attribution": "— James Mitchell, Commercial Builder"
+      },
+      {
+        "quote": "\"From bid to live job tracking—exactly what we needed without the spreadsheet chaos.\"",
+        "attribution": "— Sarah Williams, Project Manager"
+      }
+    ],
     "contractorFeedbackTitle": "Built With Contractor Feedback",
     "contractorFeedbackSubtitle": "Now testing with real contractors and construction teams."
   },

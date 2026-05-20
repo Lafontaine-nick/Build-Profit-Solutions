@@ -1421,7 +1421,7 @@ const PaymentMilestoneModal = ({ visible, onClose, item, onSave, onDelete, grand
 };
 
 // Weekly Payment Modal — layout/styling parity with Add Labor (`LineItemModal` + `LineItemFormShell`).
-const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
+const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal, paymentLabel = 'Weekly Payment' }) => {
   const insets = useSafeAreaInsets();
   const tabScrollBottomInset = useTabScrollBottomInset();
   const { width: weeklyModalLayoutWidth } = useWindowDimensions();
@@ -1445,6 +1445,7 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
   const [percentage, setPercentage] = useState(item?.percentage?.toString() || '');
   const [weekNumber, setWeekNumber] = useState(item?.weekNumber?.toString() || '');
   const [scheduledDate, setScheduledDate] = useState(item?.scheduledDate || '');
+  const [paymentTerms, setPaymentTerms] = useState(item?.paymentTerms || item?.terms || item?.notes || '');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const weeklyNativeFullBleed = Platform.OS === 'ios' || Platform.OS === 'android';
 
@@ -1455,12 +1456,14 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
       setPercentage(item.percentage?.toString() || '');
       setWeekNumber(item.weekNumber?.toString() || '');
       setScheduledDate(item.scheduledDate || '');
+      setPaymentTerms(item.paymentTerms || item.terms || item.notes || '');
     } else {
       setDescription('');
       setAmount('');
       setPercentage('');
       setWeekNumber('');
       setScheduledDate('');
+      setPaymentTerms('');
     }
   }, [item]);
 
@@ -1494,6 +1497,9 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
       weekNumber: parseInt(weekNumber, 10) || undefined,
       scheduledDate: scheduledDate || undefined,
       dueDate: scheduledDate || undefined,
+      paymentTerms: paymentTerms.trim() || undefined,
+      notes: paymentTerms.trim() || undefined,
+      ...(paymentLabel === 'Custom Payment' ? { type: 'custom' } : {}),
     };
 
     onSave(paymentData);
@@ -1522,7 +1528,9 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
   const weeklyFormBody = (
     <>
       <View style={modalStyles.materialFieldGroup}>
-        <Text style={modalStyles.materialLabel}>Week number *</Text>
+        <Text style={modalStyles.materialLabel}>
+          {paymentLabel === 'Custom Payment' ? 'Payment order (optional)' : 'Week number *'}
+        </Text>
         <GradientFieldShell>
           <View style={modalStyles.materialInputWrapper}>
             <Feather name="hash" size={16} color="#8DA0B8" style={modalStyles.materialInputIcon} />
@@ -1535,7 +1543,7 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
               onChangeText={setWeekNumber}
               keyboardType="numeric"
               returnKeyType="next"
-              placeholder="e.g., 1, 2, 3"
+              placeholder={paymentLabel === 'Custom Payment' ? 'e.g., 1, 2, 3' : 'e.g., 1, 2, 3'}
               placeholderTextColor={darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub}
               selectionColor="#22c55e"
               underlineColorAndroid="transparent"
@@ -1545,7 +1553,9 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
       </View>
 
       <View style={modalStyles.materialFieldGroup}>
-        <Text style={modalStyles.materialLabel}>Description (optional)</Text>
+        <Text style={modalStyles.materialLabel}>
+          {paymentLabel === 'Custom Payment' ? 'Payment label' : 'Description (optional)'}
+        </Text>
         <View style={[modalStyles.materialInputWrapper, { alignItems: 'flex-start', paddingVertical: 12 }]}>
           <Feather
             name="file-text"
@@ -1560,7 +1570,7 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
             ]}
             value={description}
             onChangeText={setDescription}
-            placeholder="Optional description"
+            placeholder={paymentLabel === 'Custom Payment' ? 'e.g., Material deposit, Lender draw, Final payment' : 'Optional description'}
             placeholderTextColor={darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub}
             multiline
             selectionColor="#22c55e"
@@ -1614,6 +1624,33 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
           </View>
         </GradientFieldShell>
       </View>
+
+      {paymentLabel === 'Custom Payment' && (
+        <View style={modalStyles.materialFieldGroup}>
+          <Text style={modalStyles.materialLabel}>Payment terms / notes (optional)</Text>
+          <View style={[modalStyles.materialInputWrapper, { alignItems: 'flex-start', paddingVertical: 12 }]}>
+            <Feather
+              name="edit-3"
+              size={16}
+              color="#8DA0B8"
+              style={[modalStyles.materialInputIcon, { marginTop: 4 }]}
+            />
+            <TextInput
+              style={[
+                modalStyles.materialInput,
+                { minHeight: 72, textAlignVertical: 'top', color: darkMode ? '#e9f1ff' : '#000000' },
+              ]}
+              value={paymentTerms}
+              onChangeText={setPaymentTerms}
+              placeholder="Example: Due upon lender draw approval"
+              placeholderTextColor={darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub}
+              multiline
+              selectionColor="#22c55e"
+              underlineColorAndroid="transparent"
+            />
+          </View>
+        </View>
+      )}
 
       <View style={[modalStyles.materialFieldGroup, { marginBottom: 8 }]}>
         <Text style={modalStyles.materialLabel}>Scheduled date (optional)</Text>
@@ -1756,7 +1793,7 @@ const WeeklyPaymentModal = ({ visible, onClose, item, onSave, grandTotal }) => {
                 </View>
                 <View style={modalStyles.headerTextBlock}>
                   <Text style={modalStyles.materialTitle}>
-                    {item ? 'Edit Weekly Payment' : 'Add Weekly Payment'}
+                    {item ? `Edit ${paymentLabel}` : `Add ${paymentLabel}`}
                   </Text>
                   <Text style={modalStyles.materialSubtitle}>Set payment amount and schedule</Text>
                 </View>
@@ -3350,9 +3387,10 @@ const blankState = () => ({
   unitMode: 'sqft',
   
   // Payment Schedule
-  paymentSchedule: 'milestone-based',
+  paymentSchedule: 'weekly',
   paymentMilestones: [],
   weeklyPayments: [],
+  customPayments: [],
 });
 
 // Money formatting helper - preserves exact decimals, shows 2 decimal places
@@ -3666,6 +3704,99 @@ const buildEstimateWeeklySchedule = (total, weeks = 4, { startDate, safer = fals
     });
   }
   return payments;
+};
+
+const WEEKLY_PROGRESS_HOLDBACK_OPTIONS = [0, 2.5, 5, 10];
+
+const WEEKLY_PROGRESS_HOLDBACK_DUE_LABELS = {
+  substantial_completion: 'At substantial completion',
+  final_walkthrough_punch_list: 'After final walkthrough / punch-list completion',
+  final_inspection: 'After final inspection',
+  custom_date: 'Custom date',
+};
+
+const buildWeeklyProgressSchedule = ({
+  contractAmount,
+  projectWeeks,
+  depositPercent,
+  holdbackPercent,
+  holdbackDueLabel,
+  startDate,
+}) => {
+  const safeContractAmount = Math.max(Number(contractAmount) || 0, 0);
+  const safeProjectWeeks = Math.max(Math.round(Number(projectWeeks) || 1), 1);
+  const safeDepositPercent = Math.min(Math.max(Number(depositPercent) || 0, 0), 100);
+  const safeHoldbackPercent = Math.min(
+    Math.max(Number(holdbackPercent) || 0, 0),
+    Math.max(0, 100 - safeDepositPercent),
+  );
+  const safeHoldbackLabel =
+    holdbackDueLabel || WEEKLY_PROGRESS_HOLDBACK_DUE_LABELS.final_walkthrough_punch_list;
+  const now = Date.now();
+  const depositAmount = roundEstimateAiMoney(safeContractAmount * (safeDepositPercent / 100));
+  const holdbackAmount = roundEstimateAiMoney(safeContractAmount * (safeHoldbackPercent / 100));
+  const weeklyPool = Math.max(safeContractAmount - depositAmount - holdbackAmount, 0);
+  const baseWeeklyAmount = roundEstimateAiMoney(weeklyPool / safeProjectWeeks);
+  const baseWeeklyPercent =
+    safeContractAmount > 0 ? (baseWeeklyAmount / safeContractAmount) * 100 : 0;
+  const rows = [];
+
+  if (safeDepositPercent > 0 || depositAmount > 0) {
+    const scheduledDate = startDate || new Date().toISOString().split('T')[0];
+    rows.push({
+      id: `weekly-progress-deposit-${now}`,
+      name: 'Deposit',
+      description: 'Deposit',
+      dueLabel: 'Due before work begins',
+      amount: depositAmount,
+      percentage: safeDepositPercent,
+      weekNumber: 0,
+      type: 'deposit',
+      scheduledDate,
+      dueDate: scheduledDate,
+    });
+  }
+
+  for (let index = 1; index <= safeProjectWeeks; index += 1) {
+    const isLastWeekly = index === safeProjectWeeks;
+    const amount = isLastWeekly
+      ? roundEstimateAiMoney(weeklyPool - baseWeeklyAmount * (safeProjectWeeks - 1))
+      : baseWeeklyAmount;
+    const percentage = safeContractAmount > 0
+      ? (amount / safeContractAmount) * 100
+      : baseWeeklyPercent;
+    const scheduledDate = addDaysToDateString(startDate, index * 7);
+    rows.push({
+      id: `weekly-progress-week-${now}-${index}`,
+      name: `Week ${index} Progress Payment`,
+      description: `Week ${index} Progress Payment`,
+      dueLabel: `Due at end of week ${index}`,
+      amount,
+      percentage,
+      weekNumber: index,
+      type: 'weekly',
+      scheduledDate,
+      dueDate: scheduledDate,
+    });
+  }
+
+  if (safeHoldbackPercent > 0 || holdbackAmount > 0) {
+    const scheduledDate = addDaysToDateString(startDate, safeProjectWeeks * 7);
+    rows.push({
+      id: `weekly-progress-holdback-${now}`,
+      name: 'Final Holdback',
+      description: 'Final Holdback',
+      dueLabel: safeHoldbackLabel,
+      amount: holdbackAmount,
+      percentage: safeHoldbackPercent,
+      weekNumber: safeProjectWeeks + 1,
+      type: 'holdback',
+      scheduledDate,
+      dueDate: scheduledDate,
+    });
+  }
+
+  return rows;
 };
 
 const buildEstimateAssistantBrief = ({
@@ -5438,17 +5569,22 @@ export default function EstimateGeneratorScreen() {
   const hasPaymentSchedule = useMemo(() => {
     const milestones = Array.isArray(bid.paymentMilestones) ? bid.paymentMilestones : [];
     const weeklyPayments = Array.isArray(bid.weeklyPayments) ? bid.weeklyPayments : [];
+    const customPayments = Array.isArray(bid.customPayments) ? bid.customPayments : [];
     const hasMilestoneAmount = milestones.some(
       (m) => (m.paymentAmount || m.amount || 0) > 0 || (m.percentage || 0) > 0
     );
     const hasWeeklyAmount = weeklyPayments.some(
       (w) => (w.amount || 0) > 0 || (w.percentage || 0) > 0
     );
+    const hasCustomAmount = customPayments.some(
+      (w) => (w.amount || 0) > 0 || (w.percentage || 0) > 0
+    );
 
+    if (bid.paymentSchedule === 'weekly' && bid.paymentScheduleVariant === 'custom') return hasCustomAmount;
     if (bid.paymentSchedule === 'weekly') return hasWeeklyAmount;
     if (bid.paymentSchedule === 'hybrid') return hasMilestoneAmount || hasWeeklyAmount;
     return hasMilestoneAmount;
-  }, [bid.paymentSchedule, bid.paymentMilestones, bid.weeklyPayments]);
+  }, [bid.paymentSchedule, bid.paymentScheduleVariant, bid.paymentMilestones, bid.weeklyPayments, bid.customPayments]);
   const markupPct = Number(bid.markupPct) || 0;
   const markupLow = markupPct > 0 && markupPct < 18;
   const readinessState = !hasClientInfo && !hasJobInfo && !hasLabor && !hasMaterials
@@ -5584,7 +5720,7 @@ export default function EstimateGeneratorScreen() {
       case 6:
         return ['scenarioAnalysis', 'projectAnalysis', 'marketRates', 'laborRates'];
       case 7:
-        return ['paymentSchedule', 'paymentMilestones', 'weeklyPayments'];
+        return ['paymentSchedule', 'paymentMilestones', 'weeklyPayments', 'customPayments'];
       case 8:
         return ['healthScore', 'contract', 'export', 'finalReview'];
       default:
@@ -6070,6 +6206,12 @@ export default function EstimateGeneratorScreen() {
                 id: payment.id || `week-${index}`,
               }))
             : [],
+          customPayments: Array.isArray(bid.customPayments)
+            ? bid.customPayments.map((payment, index) => ({
+                ...payment,
+                id: payment.id || `custom-${index}`,
+              }))
+            : [],
         };
         await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(snapshot));
         console.log('💾 Saved current bid snapshot (including payment schedule) to storage.');
@@ -6300,6 +6442,21 @@ export default function EstimateGeneratorScreen() {
   const [calendarClickModal, setCalendarClickModal] = useState({ visible: false, date: null });
   const [customDepositModal, setCustomDepositModal] = useState({ visible: false, value: '' });
   const [customFinalModal, setCustomFinalModal] = useState({ visible: false, value: '' });
+  const [weeklyDepositPercentText, setWeeklyDepositPercentText] = useState('20');
+  const [weeklyProjectWeeksText, setWeeklyProjectWeeksText] = useState('20');
+  const [weeklyHoldbackPercentText, setWeeklyHoldbackPercentText] = useState('5');
+  const [weeklyHoldbackDue, setWeeklyHoldbackDue] = useState('final_walkthrough_punch_list');
+  const [milestoneDepositPercentText, setMilestoneDepositPercentText] = useState('20');
+  const [milestoneCountText, setMilestoneCountText] = useState('3');
+  const [milestoneFinalPercentText, setMilestoneFinalPercentText] = useState('5');
+  const [milestoneDescriptionTexts, setMilestoneDescriptionTexts] = useState(['', '', '']);
+  const [step7ExpandedSchedule, setStep7ExpandedSchedule] = useState(null);
+  const weeklyProjectWeeksInputRef = useRef(null);
+  const weeklyDepositPercentInputRef = useRef(null);
+  const weeklyHoldbackPercentInputRef = useRef(null);
+  const milestoneDepositPercentInputRef = useRef(null);
+  const milestoneCountInputRef = useRef(null);
+  const milestoneFinalPercentInputRef = useRef(null);
   const [subcontractorModalVisible, setSubcontractorModalVisible] = useState(false);
   const [showMessagesInbox, setShowMessagesInbox] = useState(false);
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
@@ -6308,9 +6465,11 @@ export default function EstimateGeneratorScreen() {
   const [milestoneModal, setMilestoneModal] = useState({ visible: false, item: null });
   const [weeklyPaymentModal, setWeeklyPaymentModal] = useState({ visible: false, item: null });
   const [scoreExplanationExpanded, setScoreExplanationExpanded] = useState(false);
+  useEffect(() => {
+    setStep7ExpandedSchedule(null);
+  }, [step]);
   // For first-time users, collapse health score by default
   const [healthScoreBreakdownExpanded, setHealthScoreBreakdownExpanded] = useState(false);
-  const [paymentTimelineExpanded, setPaymentTimelineExpanded] = useState(false);
   const [finalStepLegalExpanded, setFinalStepLegalExpanded] = useState(false);
   const [contractWordingExpanded, setContractWordingExpanded] = useState(false);
   const [contractLangAssumptions, setContractLangAssumptions] = useState([]);
@@ -8704,6 +8863,21 @@ export default function EstimateGeneratorScreen() {
   const roundPayment = (amount) => {
     return Math.round((amount || 0) * 100) / 100;
   };
+
+  const isWeeklyProgressPaymentRow = (payment) => {
+    if (payment?.type === 'custom') return false;
+    const description = String(payment?.description || payment?.name || '').toLowerCase();
+    if (payment?.type === 'deposit' || payment?.type === 'holdback') return false;
+    return /week\s*\d+\s*progress\s*payment/i.test(description);
+  };
+
+  const getCustomPaymentRows = () => {
+    if (bid.paymentScheduleVariant !== 'custom') return [];
+    if (bid.customPayments?.length) return bid.customPayments;
+    return (bid.weeklyPayments || []).filter(
+      (p) => p.type === 'custom' || !isWeeklyProgressPaymentRow(p),
+    );
+  };
   
   // Helper function to normalize payment amounts so they sum to exactly grandTotal
   // Also recalculates all percentages from amounts to ensure they sum to exactly 100%
@@ -8920,6 +9094,7 @@ export default function EstimateGeneratorScreen() {
       key === 'paymentSchedule' ||
       key === 'paymentMilestones' ||
       key === 'weeklyPayments' ||
+      key === 'customPayments' ||
       key === 'startDate' ||
       key === 'projectStartDate' ||
       key === 'endDate' ||
@@ -9130,9 +9305,27 @@ export default function EstimateGeneratorScreen() {
   };
 
   const handleSaveWeeklyPayment = (paymentData) => {
-    const currentPayments = bid.weeklyPayments || [];
+    const isCustomSchedule = bid.paymentScheduleVariant === 'custom';
+    const currentPayments = isCustomSchedule
+      ? (bid.customPayments || [])
+      : (bid.weeklyPayments || []);
     const grandTotal = bid.grandTotal || bid.total || 0;
     let updatedPayments;
+    if (isCustomSchedule) {
+      paymentData = {
+        ...paymentData,
+        id: paymentData.id || `custom-${Date.now()}`,
+        type: 'custom',
+      };
+      updatedPayments = paymentData.id && currentPayments.some(p => p.id === paymentData.id)
+        ? currentPayments.map(p => (p.id === paymentData.id ? paymentData : p))
+        : [...currentPayments, paymentData];
+      updatedPayments.sort((a, b) => (a.weekNumber || 0) - (b.weekNumber || 0));
+      updateBid('customPayments', updatedPayments);
+      setWeeklyPaymentModal({ visible: false, item: null });
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      return;
+    }
     
     if (paymentData.id) {
       // Edit existing payment - apply smart recalculation for time-based
@@ -9247,29 +9440,62 @@ export default function EstimateGeneratorScreen() {
       updatedPayments = normalizePaymentsToExactTotal(updatedPayments, grandTotal, false);
     }
     
-    updateBid('weeklyPayments', updatedPayments);
+    if (isCustomSchedule) {
+      updateBid('customPayments', updatedPayments);
+    } else {
+      updateBid('weeklyPayments', updatedPayments);
+    }
     setWeeklyPaymentModal({ visible: false, item: null });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   const handleDeleteWeeklyPayment = (paymentId) => {
+    const isCustomSchedule = bid.paymentScheduleVariant === 'custom';
     Alert.alert(
-      'Delete Weekly Payment',
-      'Are you sure you want to delete this weekly payment?',
+      isCustomSchedule ? 'Delete Custom Payment' : 'Delete Weekly Payment',
+      isCustomSchedule
+        ? 'Are you sure you want to delete this custom payment?'
+        : 'Are you sure you want to delete this weekly payment?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
           onPress: () => {
-            const updatedPayments = (bid.weeklyPayments || []).filter(p => p.id !== paymentId);
-            updateBid('weeklyPayments', updatedPayments);
+            if (isCustomSchedule) {
+              const updatedPayments = (bid.customPayments || []).filter(p => p.id !== paymentId);
+              updateBid('customPayments', updatedPayments);
+            } else {
+              const updatedPayments = (bid.weeklyPayments || []).filter(p => p.id !== paymentId);
+              updateBid('weeklyPayments', updatedPayments);
+            }
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           },
         },
       ]
     );
   };
+
+  useEffect(() => {
+    if (bid.paymentScheduleVariant !== 'custom') return;
+    const weekly = bid.weeklyPayments || [];
+    const hasStaleWeeklyRows = weekly.some(isWeeklyProgressPaymentRow);
+    if (!hasStaleWeeklyRows) return;
+    const migratedCustom = weekly.filter(
+      (p) => p.type === 'custom' || !isWeeklyProgressPaymentRow(p),
+    );
+    setBid((prev) => {
+      const updated = {
+        ...prev,
+        weeklyPayments: [],
+        customPayments: prev.customPayments?.length ? prev.customPayments : migratedCustom,
+      };
+      AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(updated)).catch((err) =>
+        console.error('Error auto-saving:', err),
+      );
+      return updated;
+    });
+  }, [bid.paymentScheduleVariant, bid.weeklyPayments]);
 
   useEffect(() => {
     const sourceType =
@@ -9443,8 +9669,8 @@ export default function EstimateGeneratorScreen() {
             dueDate: m.scheduledDate || undefined,
             status: 'Pending',
           }))
-        : bidData.paymentSchedule === 'weekly' && bidData.weeklyPayments
-        ? bidData.weeklyPayments.map((w, i) => ({
+        : bidData.paymentSchedule === 'weekly' && (bidData.paymentScheduleVariant === 'custom' ? bidData.customPayments : bidData.weeklyPayments)
+        ? (bidData.paymentScheduleVariant === 'custom' ? bidData.customPayments : bidData.weeklyPayments).map((w, i) => ({
             id: w.id,
             name: w.description || (w.weekNumber === 0 ? 'Deposit' : `Week ${w.weekNumber || i + 1} Payment`),
             percentage: grandTotal > 0 ? Number((((w.amount || 0) / grandTotal) * 100).toFixed(1)) : 0,
@@ -9452,6 +9678,8 @@ export default function EstimateGeneratorScreen() {
             paymentAmount: w.amount || 0,
             amount: w.amount || 0,
             description: w.description || undefined,
+            paymentTerms: w.paymentTerms || w.terms || w.notes || undefined,
+            notes: w.paymentTerms || w.terms || w.notes || undefined,
             scheduledDate: w.scheduledDate || undefined,
             dueDate: w.scheduledDate || undefined,
             status: 'Pending',
@@ -10942,6 +11170,7 @@ export default function EstimateGeneratorScreen() {
       laborLineItems: [],
       paymentMilestones: [],
       weeklyPayments: [],
+      customPayments: [],
       // Clear all customer/client info
       customerName: '',
       customerEmail: '',
@@ -14489,50 +14718,12 @@ export default function EstimateGeneratorScreen() {
                   <Text style={{ color: darkMode ? '#FFFFFF' : Colors.sub, fontSize: ew(13, 16), marginTop: 4, lineHeight: ew(18, 22) }}>Scenario presets & stress testing</Text>
                 </View>
               </View>
-              {shouldGateAdvanced ? (
-                <View style={{
-                  borderRadius: 16,
-                  padding: 16,
-                  backgroundColor: 'rgba(255, 255, 255, 0.03)',
-                  borderWidth: 1,
-                  borderColor: 'rgba(255, 255, 255, 0.12)',
-                }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                    <MaterialIcons name="lock" size={18} color={darkMode ? '#FFFFFF' : Colors.sub} />
-                    <Text style={{ color: Colors.text, fontSize: ew(14, 16), fontWeight: '700' }}>
-                      Project Analysis
-                    </Text>
-                  </View>
-                  <Text style={{ color: darkMode ? '#FFFFFF' : Colors.sub, fontSize: ew(12, 14), lineHeight: ew(18, 21) }}>
-                    Complete your estimate to unlock scenario presets and risk modeling.
-                  </Text>
-                  <TouchableOpacity
-                    onPress={handleReadinessCTA}
-                    activeOpacity={0.8}
-                    style={{
-                      marginTop: 12,
-                      alignSelf: 'flex-start',
-                      paddingVertical: 8,
-                      paddingHorizontal: 12,
-                      borderRadius: 10,
-                      borderWidth: 1,
-                      borderColor: 'rgba(45, 255, 196, 0.4)',
-                      backgroundColor: 'rgba(45, 255, 196, 0.08)',
-                    }}
-                  >
-                    <Text style={{ color: '#2DFFC4', fontSize: ew(12, 14), fontWeight: '700' }}>
-                      Finish setup to unlock
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <ProjectAnalysis
-                  bid={bid}
-                  calc={calc}
-                  materialsCart={materialsCart}
-                  laborLineItems={bid.laborLineItems || []}
-                />
-              )}
+              <ProjectAnalysis
+                bid={bid}
+                calc={calc}
+                materialsCart={materialsCart}
+                laborLineItems={bid.laborLineItems || []}
+              />
             </GlassBorderCard>
             </FirstEstimateWalkthroughHighlight>
             
@@ -14595,18 +14786,220 @@ export default function EstimateGeneratorScreen() {
         };
         
         // Smart defaults: Default to milestone-based
-        const defaultSchedule = 'milestone-based';
+        const defaultSchedule = 'weekly';
         
-        // Use bid.paymentSchedule if explicitly set, otherwise use default
-        // Important: Only use default if paymentSchedule is truly undefined/null/empty
-        // If schedule is 'hybrid', convert to 'milestone-based' (hybrid option removed)
-        const rawSchedule = (bid.paymentSchedule !== undefined && bid.paymentSchedule !== null && bid.paymentSchedule !== '') 
+        const persistedMilestones = bid.paymentMilestones || [];
+        const persistedWeeklyPayments = bid.weeklyPayments || [];
+        const hasPersistedPaymentRows =
+          persistedMilestones.length > 0 || persistedWeeklyPayments.length > 0;
+        // Use saved schedule only when rows already exist; otherwise weekly progress is the default.
+        // If schedule is 'hybrid', convert to 'milestone-based' (hybrid option removed).
+        const rawSchedule = (hasPersistedPaymentRows && bid.paymentSchedule !== undefined && bid.paymentSchedule !== null && bid.paymentSchedule !== '') 
           ? bid.paymentSchedule 
           : defaultSchedule;
         const scheduleType = rawSchedule === 'hybrid' ? 'milestone-based' : rawSchedule;
-        const milestones = bid.paymentMilestones || [];
-        const weeklyPayments = bid.weeklyPayments || [];
+        const selectedScheduleOption =
+          bid.paymentScheduleVariant === 'custom'
+            ? 'custom'
+            : scheduleType === 'weekly'
+              ? 'weekly'
+              : 'milestone-based';
+        const milestones = persistedMilestones;
+        const weeklyPayments = persistedWeeklyPayments;
         const grandTotal = calc?.grandTotal || calc?.total || 0;
+        const weeklyProgressStartDate =
+          bid.startDate || bid.projectStartDate || new Date().toISOString().split('T')[0];
+        const getWeeklyProgressRows = (overrides = {}) =>
+          buildWeeklyProgressSchedule({
+            contractAmount: grandTotal,
+            projectWeeks: Number(overrides.weeksText ?? weeklyProjectWeeksText) || 20,
+            depositPercent: Number(overrides.depositText ?? weeklyDepositPercentText) || 0,
+            holdbackPercent: Number(overrides.holdbackText ?? weeklyHoldbackPercentText) || 0,
+            holdbackDueLabel:
+              WEEKLY_PROGRESS_HOLDBACK_DUE_LABELS[
+                overrides.holdbackDue ?? weeklyHoldbackDue
+              ],
+            startDate: weeklyProgressStartDate,
+          });
+        const applyWeeklyProgressSchedule = (overrides = {}) => {
+          const rows = getWeeklyProgressRows(overrides);
+          setBid(prev => {
+            const updated = {
+              ...prev,
+              paymentSchedule: 'weekly',
+              paymentScheduleVariant: 'weekly_progress',
+              weeklyPayments: rows,
+            };
+            AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(updated)).catch(err => console.error('Error auto-saving:', err));
+            return updated;
+          });
+        };
+        const applyMilestoneBasedSchedule = (overrides = {}) => {
+          const depositPct = Math.min(Math.max(Number(overrides.depositText ?? milestoneDepositPercentText) || 0, 0), 100);
+          const finalPct = Math.min(
+            Math.max(Number(overrides.finalText ?? milestoneFinalPercentText) || 0, 0),
+            Math.max(0, 100 - depositPct)
+          );
+          const progressCount = Math.max(Math.round(Number(overrides.countText ?? milestoneCountText) || 1), 1);
+          const progressPoolPct = Math.max(0, 100 - depositPct - finalPct);
+          const progressPct = progressPoolPct / progressCount;
+          const milestoneDescriptions = overrides.milestoneDescriptions ?? milestoneDescriptionTexts;
+          const now = Date.now();
+          const rows = [];
+          const depositAmount = roundPayment((grandTotal * depositPct) / 100);
+          if (depositPct > 0 || depositAmount > 0) {
+            const scheduledDate = weeklyProgressStartDate;
+            rows.push({
+              id: `milestone-deposit-${now}`,
+              name: 'Deposit',
+              paymentAmount: depositAmount,
+              amount: depositAmount,
+              percentage: depositPct,
+              type: 'deposit',
+              scheduledDate,
+              dueDate: scheduledDate,
+            });
+          }
+
+          const baseProgressAmount = roundPayment((grandTotal * progressPct) / 100);
+          for (let index = 1; index <= progressCount; index += 1) {
+            const isLastProgress = index === progressCount;
+            const priorProgressTotal = baseProgressAmount * (progressCount - 1);
+            const finalAmount = roundPayment((grandTotal * finalPct) / 100);
+            const amount = isLastProgress
+              ? roundPayment(grandTotal - depositAmount - finalAmount - priorProgressTotal)
+              : baseProgressAmount;
+            const percentage = grandTotal > 0 ? (amount / grandTotal) * 100 : progressPct;
+            const scheduledDate = addDaysToDateString(weeklyProgressStartDate, index * 7);
+            const milestoneLabel =
+              milestoneDescriptions[index - 1]?.trim() || `Milestone ${index}`;
+            rows.push({
+              id: `milestone-progress-${now}-${index}`,
+              name: milestoneLabel,
+              description: milestoneLabel,
+              paymentAmount: amount,
+              amount,
+              percentage,
+              type: index === progressCount && finalPct <= 0 ? 'final' : 'milestone',
+              scheduledDate,
+              dueDate: scheduledDate,
+            });
+          }
+
+          if (finalPct > 0) {
+            const finalAmount = roundPayment((grandTotal * finalPct) / 100);
+            const scheduledDate = addDaysToDateString(weeklyProgressStartDate, (progressCount + 1) * 7);
+            rows.push({
+              id: `milestone-final-${now}`,
+              name: 'Final Payment',
+              paymentAmount: finalAmount,
+              amount: finalAmount,
+              percentage: finalPct,
+              type: 'final',
+              scheduledDate,
+              dueDate: scheduledDate,
+            });
+          }
+
+          setBid(prev => {
+            const updated = {
+              ...prev,
+              paymentSchedule: 'milestone-based',
+              paymentScheduleVariant: undefined,
+              paymentMilestones: normalizePaymentsToExactTotal(rows, grandTotal, true),
+            };
+            AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(updated)).catch(err => console.error('Error auto-saving:', err));
+            return updated;
+          });
+        };
+        const selectPaymentScheduleOption = (option) => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          setStep7ExpandedSchedule(option);
+          if (option === 'weekly') {
+            setBid(prev => {
+              const updated = { ...prev, paymentSchedule: 'weekly', paymentScheduleVariant: 'weekly_progress' };
+              AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(updated)).catch(err => console.error('Error auto-saving:', err));
+              return updated;
+            });
+            return;
+          }
+          if (option === 'custom') {
+            setBid(prev => {
+              const updated = {
+                ...prev,
+                paymentSchedule: 'weekly',
+                paymentScheduleVariant: 'custom',
+              };
+              AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(updated)).catch(err => console.error('Error auto-saving:', err));
+              return updated;
+            });
+            return;
+          }
+          setBid(prev => {
+            const updated = { ...prev, paymentSchedule: 'milestone-based', paymentScheduleVariant: undefined };
+            AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(updated)).catch(err => console.error('Error auto-saving:', err));
+            return updated;
+          });
+        };
+        const highlightedScheduleOption = step7ExpandedSchedule ?? selectedScheduleOption;
+        const weeklyPreviewWeeks = Math.max(Math.round(Number(weeklyProjectWeeksText) || 20), 1);
+        const weeklyPreviewDepositPct = Math.min(Math.max(Number(weeklyDepositPercentText) || 0, 0), 100);
+        const weeklyPreviewHoldbackPct = Math.min(
+          Math.max(Number(weeklyHoldbackPercentText) || 0, 0),
+          Math.max(0, 100 - weeklyPreviewDepositPct),
+        );
+        const weeklyPreviewDepositAmount = roundPayment((grandTotal * weeklyPreviewDepositPct) / 100);
+        const weeklyPreviewHoldbackAmount = roundPayment((grandTotal * weeklyPreviewHoldbackPct) / 100);
+        const weeklyPreviewPool = Math.max(
+          grandTotal - weeklyPreviewDepositAmount - weeklyPreviewHoldbackAmount,
+          0,
+        );
+        const weeklyPreviewPaymentAmount = roundPayment(weeklyPreviewPool / weeklyPreviewWeeks);
+        const weeklyPreviewScheduledTotal = roundPayment(
+          weeklyPreviewDepositAmount + weeklyPreviewPool + weeklyPreviewHoldbackAmount,
+        );
+        const milestoneDescriptionCount = Math.max(Math.round(Number(milestoneCountText) || 3), 1);
+        const milestonePreviewDepositPct = Math.min(Math.max(Number(milestoneDepositPercentText) || 0, 0), 100);
+        const milestonePreviewFinalPct = Math.min(
+          Math.max(Number(milestoneFinalPercentText) || 0, 0),
+          Math.max(0, 100 - milestonePreviewDepositPct),
+        );
+        const milestonePreviewPoolPct = Math.max(
+          0,
+          100 - milestonePreviewDepositPct - milestonePreviewFinalPct,
+        );
+        const milestonePreviewDepositAmount = roundPayment((grandTotal * milestonePreviewDepositPct) / 100);
+        const milestonePreviewFinalAmount = roundPayment((grandTotal * milestonePreviewFinalPct) / 100);
+        const milestonePreviewBaseAmount = roundPayment(
+          ((grandTotal * milestonePreviewPoolPct) / 100) / milestoneDescriptionCount,
+        );
+        const milestonePreviewRows = Array.from({ length: milestoneDescriptionCount }, (_, index) => {
+          const isLast = index === milestoneDescriptionCount - 1;
+          const amount = isLast
+            ? roundPayment(
+                grandTotal
+                  - milestonePreviewDepositAmount
+                  - milestonePreviewFinalAmount
+                  - milestonePreviewBaseAmount * (milestoneDescriptionCount - 1),
+              )
+            : milestonePreviewBaseAmount;
+          const label = milestoneDescriptionTexts[index]?.trim() || `Milestone ${index + 1}`;
+          return { label, amount };
+        });
+        const milestonePreviewScheduledTotal = roundPayment(
+          milestonePreviewDepositAmount
+            + milestonePreviewRows.reduce((sum, row) => sum + row.amount, 0)
+            + milestonePreviewFinalAmount,
+        );
+        const customPaymentRows = getCustomPaymentRows();
+        const customPreviewScheduledTotal = roundPayment(
+          customPaymentRows.reduce((sum, payment) => sum + (payment.amount || 0), 0),
+        );
+        const customPreviewScheduledPct =
+          grandTotal > 0 ? (customPreviewScheduledTotal / grandTotal) * 100 : 0;
+        const customPreviewRemaining = roundPayment(grandTotal - customPreviewScheduledTotal);
+        const customPreviewIsExact = grandTotal > 0 && Math.abs(customPreviewRemaining) < 0.01;
+        const customPreviewIsOver = customPreviewRemaining < -0.01;
         const buildStep7MarkedDates = (items, activeItemId = null) =>
           (items || []).reduce((acc, item) => {
             if (!item?.scheduledDate) return acc;
@@ -14657,147 +15050,6 @@ export default function EstimateGeneratorScreen() {
         const remainingPctMilestone = scheduleType === 'milestone-based' || scheduleType === 'hybrid' ? Math.max(0, 100 - milestoneTotalPct) : 0;
         const remainingPctWeekly = scheduleType === 'weekly' ? Math.max(0, 100 - weeklyTotalPct) : 0;
         
-        // Calculate payment risk and cash-flow insight
-        const calculatePaymentRisk = () => {
-          if (scheduleType === 'weekly' && weeklyPayments.length > 0) {
-            // Check if equal payments
-            const firstPct = weeklyPayments[0]?.percentage || (weeklyPayments[0]?.amount && grandTotal > 0 ? Math.round((weeklyPayments[0].amount / grandTotal) * 100) : 0);
-            const allEqual = weeklyPayments.every(w => {
-              const pct = w.percentage || (w.amount && grandTotal > 0 ? Math.round((w.amount / grandTotal) * 100) : 0);
-              return Math.abs(pct - firstPct) < 1;
-            });
-            if (allEqual) return 'low';
-          }
-          
-          // Check for deposit
-          const firstMilestone = milestones[0];
-          const firstMilestonePct = firstMilestone?.percentage || (firstMilestone?.paymentAmount && grandTotal > 0 ? Math.round((firstMilestone.paymentAmount / grandTotal) * 100) : 0);
-          const firstWeekly = weeklyPayments[0];
-          const firstWeeklyPct = firstWeekly?.percentage || (firstWeekly?.amount && grandTotal > 0 ? Math.round((firstWeekly.amount / grandTotal) * 100) : 0);
-          const depositPct = scheduleType === 'milestone-based' ? firstMilestonePct : scheduleType === 'weekly' ? firstWeeklyPct : Math.max(firstMilestonePct, firstWeeklyPct);
-          
-          if (depositPct >= 20) return 'low';
-          
-          // Check final payment size
-          const lastMilestone = milestones[milestones.length - 1];
-          const lastMilestonePct = lastMilestone?.percentage || (lastMilestone?.paymentAmount && grandTotal > 0 ? Math.round((lastMilestone.paymentAmount / grandTotal) * 100) : 0);
-          const lastWeekly = weeklyPayments[weeklyPayments.length - 1];
-          const lastWeeklyPct = lastWeekly?.percentage || (lastWeekly?.amount && grandTotal > 0 ? Math.round((lastWeekly.amount / grandTotal) * 100) : 0);
-          const finalPct = scheduleType === 'milestone-based' ? lastMilestonePct : scheduleType === 'weekly' ? lastWeeklyPct : Math.max(lastMilestonePct, lastWeeklyPct);
-          
-          if (depositPct < 15 && finalPct > 25) return 'moderate';
-          if (depositPct < 10 && finalPct > 30) return 'tight';
-          if (depositPct < 15) return 'moderate';
-          
-          return 'low';
-        };
-        
-        const paymentRisk = calculatePaymentRisk();
-        const riskLabels = {
-          low: { label: 'Low Payment Risk', color: '#22c55e', emoji: '🟢' },
-          moderate: { label: 'Moderate Payment Risk', color: '#f59e0b', emoji: '🟡' },
-          tight: { label: 'High Payment Risk', color: '#ef4444', emoji: '🔴' }
-        };
-        
-        // Calculate cash-flow insight (cash flow only, never profit)
-        const getCashFlowInsight = () => {
-          // Hybrid-specific insights
-          if (scheduleType === 'hybrid') {
-            const depositMilestone = milestones.find(m => m.type === 'deposit' || (m.name && m.name.toLowerCase().includes('deposit')));
-            const finalMilestone = milestones.find(m => m.type === 'final' || (m.name && m.name.toLowerCase().includes('final')) || (m.name && m.name.toLowerCase().includes('completion')));
-            
-            const depositPct = depositMilestone?.percentage || (depositMilestone?.paymentAmount && grandTotal > 0 ? Math.round((depositMilestone.paymentAmount / grandTotal) * 100) : 0);
-            const finalPct = finalMilestone?.percentage || (finalMilestone?.paymentAmount && grandTotal > 0 ? Math.round((finalMilestone.paymentAmount / grandTotal) * 100) : 0);
-            
-            if (depositPct >= 15 && finalPct <= 20) {
-              return "💡 This hybrid schedule keeps cash flow positive by Week 1 while limiting end-of-job risk.";
-            }
-            if (finalPct > 25) {
-              return "⚠️ Large final payment may increase collection risk.";
-            }
-            return "💡 This hybrid schedule balances cash flow protection with client comfort.";
-          }
-          
-          if (scheduleType === 'weekly' && weeklyPayments.length > 0) {
-            const firstPct = weeklyPayments[0]?.percentage || (weeklyPayments[0]?.amount && grandTotal > 0 ? Math.round((weeklyPayments[0].amount / grandTotal) * 100) : 0);
-            if (firstPct >= 20) {
-              return "This schedule keeps cash flow positive by Week 2.";
-            }
-            if (firstPct < 15 && weeklyPayments.length >= 3) {
-              return "Cash flow tight until Week 3 — consider a larger deposit.";
-            }
-            return "Equal weekly payments provide steady cash flow throughout the project.";
-          }
-          
-          if (milestones.length > 0) {
-            const firstPct = milestones[0]?.percentage || (milestones[0]?.paymentAmount && grandTotal > 0 ? Math.round((milestones[0].paymentAmount / grandTotal) * 100) : 0);
-            const midPoint = Math.floor(milestones.length / 2);
-            const paidBeforeMid = milestones.slice(0, midPoint + 1).reduce((sum, m) => {
-              const pct = m.percentage || (m.paymentAmount && grandTotal > 0 ? Math.round((m.paymentAmount / grandTotal) * 100) : 0);
-              return sum + pct;
-            }, 0);
-            
-            if (firstPct >= 20 && paidBeforeMid >= 50) {
-              return "Early payments cover initial cash flow needs.";
-            }
-            if (paidBeforeMid < 40) {
-              return "Most payments are back-loaded — plan cash flow accordingly.";
-            }
-          }
-          
-          return "Payment schedule provides steady cash flow.";
-        };
-        
-        // Build timeline data
-        const buildTimeline = () => {
-          const timeline = [];
-          if (scheduleType === 'milestone-based' || scheduleType === 'hybrid') {
-            milestones.forEach((m, index) => {
-              const pct = m.percentage || (m.paymentAmount && grandTotal > 0 ? Math.round((m.paymentAmount / grandTotal) * 100) : 0);
-              const amount = roundPayment(m.paymentAmount || (grandTotal * pct / 100));
-              const isFirst = index === 0;
-              const isLast = index === milestones.length - 1;
-              timeline.push({
-                label: m.name || `Milestone ${index + 1}`,
-                pct,
-                amount,
-                type: isFirst ? 'deposit' : isLast ? 'final' : 'progress',
-                isMilestone: true,
-                order: index
-              });
-            });
-          }
-          if (scheduleType === 'weekly' || scheduleType === 'hybrid') {
-            weeklyPayments.forEach((w, index) => {
-              const pct = w.percentage || (w.amount && grandTotal > 0 ? Math.round((w.amount / grandTotal) * 100) : 0);
-              const amount = roundPayment(w.amount || (grandTotal * pct / 100));
-              const isFirst = index === 0 && scheduleType === 'weekly';
-              const isLast = index === weeklyPayments.length - 1 && scheduleType === 'weekly';
-              timeline.push({
-                label: (scheduleType === 'weekly' && index === 0)
-                  ? 'Deposit'
-                  : `Week ${w.weekNumber || index + 1}`,
-                pct,
-                amount,
-                type: isFirst ? 'deposit' : isLast ? 'final' : 'progress',
-                isMilestone: false,
-                order: scheduleType === 'hybrid' ? (milestones.length + index) : index
-              });
-            });
-          }
-          // Sort chronologically by order (for hybrid) or by type (for single mode)
-          return timeline.sort((a, b) => {
-            if (scheduleType === 'hybrid') {
-              return a.order - b.order;
-            }
-            // For single mode, show deposit first, then progress, then final
-            const order = { deposit: 0, progress: 1, final: 2 };
-            return order[a.type] - order[b.type];
-          });
-        };
-        
-        const timeline = buildTimeline();
-
         // Step 7 UI-only tokens (no logic changes)
         const step7Muted = darkMode ? 'rgba(198, 214, 232, 0.9)' : Colors.sub;
         const step7MutedSoft = darkMode ? 'rgba(186, 204, 224, 0.82)' : Colors.sub;
@@ -14835,7 +15087,7 @@ export default function EstimateGeneratorScreen() {
         };
         
         return (
-          <View style={[s.wideContainer, { marginTop: 0, marginBottom: 80, paddingTop: 4 }]}>
+          <View style={[s.wideContainer, { marginTop: 0, marginBottom: 96, paddingTop: 4 }]}>
             <FirstEstimateWalkthroughHighlight active={firstEstimateFloatingTipVisible}>
             <GlassBorderCard radius={24} innerRadius={22} pad={12} lightBg>
               <View style={s.inputGroup}>
@@ -14848,240 +15100,673 @@ export default function EstimateGeneratorScreen() {
                     <Text style={{ color: step7MutedSoft, fontSize: 12, marginTop: 3, lineHeight: 17 }}>Choose how progress payments are structured</Text>
                   </View>
                 </View>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
-                  <TouchableOpacity
-                    style={[
-                      {
-                        paddingHorizontal: 16,
-                        paddingVertical: 13,
-                        borderRadius: 14,
-                        borderWidth: 2,
-                        borderColor: scheduleType === 'milestone-based'
-                          ? '#22c55e'
-                          : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
-                        backgroundColor: scheduleType === 'milestone-based'
-                          ? 'rgba(56, 211, 159, 0.12)'
-                          : (darkMode ? 'rgba(255, 255, 255, 0.035)' : Colors.surface2),
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flex: 1,
-                        minWidth: '47%',
-                      }
-                    ]}
-                    onPress={() => {
-                      // When switching to milestone-based, clear payments from other schedule types
-                      if (scheduleType === 'hybrid') {
-                        // Clear both milestones and weekly payments from hybrid
-                        setBid(prev => {
-                          const updated = { ...prev, paymentSchedule: 'milestone-based', paymentMilestones: [], weeklyPayments: [] };
-                          AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(updated)).catch(err => console.error('Error auto-saving:', err));
-                          return updated;
-                        });
-                      } else if (scheduleType === 'weekly') {
-                        // Clear weekly payments when switching from weekly
-                        updateBid('weeklyPayments', []);
-                        updateBid('paymentSchedule', 'milestone-based');
-                      } else {
-                        // Just switch if already milestone-based
-                        updateBid('paymentSchedule', 'milestone-based');
-                      }
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    }}
-                  >
-                    <Text style={[
-                      {
-                        color: scheduleType === 'milestone-based' ? '#22c55e' : Colors.text,
-                        fontSize: 13,
-                        fontWeight: scheduleType === 'milestone-based' ? '700' : '600',
-                        textAlign: 'center',
-                      }
-                    ]}>
-                      Milestone-Based
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      {
-                        paddingHorizontal: 16,
-                        paddingVertical: 13,
-                        borderRadius: 14,
-                        borderWidth: 2,
-                        borderColor: scheduleType === 'weekly'
-                          ? '#22c55e'
-                          : (darkMode ? 'rgba(255, 255, 255, 0.15)' : Colors.line),
-                        backgroundColor: scheduleType === 'weekly'
-                          ? 'rgba(56, 211, 159, 0.12)'
-                          : (darkMode ? 'rgba(255, 255, 255, 0.035)' : Colors.surface2),
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flex: 1,
-                        minWidth: '47%',
-                      }
-                    ]}
-                    onPress={() => {
-                      // When switching to weekly, clear payments from other schedule types
-                      if (scheduleType === 'hybrid') {
-                        // Clear both milestones and weekly payments from hybrid
-                        setBid(prev => {
-                          const updated = { ...prev, paymentSchedule: 'weekly', paymentMilestones: [], weeklyPayments: [] };
-                          AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(updated)).catch(err => console.error('Error auto-saving:', err));
-                          return updated;
-                        });
-                      } else if (scheduleType === 'milestone-based') {
-                        // Clear milestones when switching from milestone-based
-                        updateBid('paymentMilestones', []);
-                        updateBid('paymentSchedule', 'weekly');
-                      } else {
-                        // Just switch if already weekly
-                        updateBid('paymentSchedule', 'weekly');
-                      }
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    }}
-                  >
-                    <Text style={[
-                      {
-                        color: scheduleType === 'weekly' ? '#22c55e' : Colors.text,
-                        fontSize: 13,
-                        fontWeight: scheduleType === 'weekly' ? '700' : '600',
-                        textAlign: 'center',
-                      }
-                    ]}>
-                      Time-Based (Weekly)
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-              
-              {/* Payment Timeline Preview - Collapsible for first-time users */}
-              {timeline.length > 0 && (
-                <View style={{ marginTop: 8, marginBottom: 6 }}>
-                  <TouchableOpacity
-                    onPress={() => {
-                      if (shouldShowGuidance) {
-                        setPaymentTimelineExpanded(!paymentTimelineExpanded);
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }
-                    }}
-                    activeOpacity={shouldShowGuidance ? 0.7 : 1}
-                    style={{ marginBottom: 10 }}
-                  >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[s.label, { marginBottom: 5, fontSize: 12, letterSpacing: 0.6, textTransform: 'uppercase', color: step7Muted }]}>Payment Timeline</Text>
-                        <Text style={{ color: step7MutedSoft, fontSize: 11, lineHeight: 15, fontStyle: 'italic' }}>
-                          Shows when payments are received — not cost timing.
-                        </Text>
-                      </View>
-                      {shouldShowGuidance && (
-                        <MaterialIcons
-                          name={paymentTimelineExpanded ? 'expand-less' : 'expand-more'}
-                          size={22}
-                          color={step7Muted}
-                        />
-                      )}
-                    </View>
-                  </TouchableOpacity>
-                  {(!shouldShowGuidance || paymentTimelineExpanded) && (
-                    <>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 12, paddingVertical: 4 }}>
-                        <View style={{ flexDirection: 'row', gap: 10 }}>
-                          {timeline.map((item, index) => {
-                            const isFinal = item.type === 'final';
-                            const isDeposit = item.type === 'deposit';
-                            const lightTimelineStyle = !darkMode
-                              ? { backgroundColor: Colors.surface2, borderWidth: 1, borderColor: Colors.line }
-                              : {};
-                            // Final payment: outlined style (not filled) - dark mode only
-                            const finalStyle = (isFinal && darkMode) ? {
-                              backgroundColor: 'transparent',
-                              borderWidth: 2,
-                              borderColor: 'rgba(45, 255, 196, 0.45)',
-                              borderStyle: 'dashed',
-                            } : {};
-                            // Deposit: strong green frame (all themes)
-                            const depositStyle = isDeposit
-                              ? {
-                                  backgroundColor: darkMode
-                                    ? 'rgba(34, 197, 94, 0.22)'
-                                    : 'rgba(34, 197, 94, 0.16)',
-                                  borderWidth: 2,
-                                  borderColor: '#22c55e',
-                                }
-                              : {};
-                            // Progress: subtle - dark mode only
-                            const progressStyle = (!isFinal && !isDeposit && darkMode) ? {
-                              backgroundColor: 'rgba(255, 255, 255, 0.06)',
-                              borderWidth: 1,
-                              borderColor: 'rgba(255, 255, 255, 0.12)',
-                            } : {};
-                            
-                            return (
-                              <View
-                                key={index}
-                                style={[
-                                  {
-                                    minWidth: 108,
-                                    paddingVertical: 12,
-                                    paddingHorizontal: 12,
-                                    borderRadius: 14,
-                                  },
-                                  lightTimelineStyle,
-                                  finalStyle,
-                                  depositStyle,
-                                  progressStyle,
-                                ]}
-                              >
-                                <Text style={{ color: isDeposit ? (darkMode ? '#86efac' : '#15803d') : step7Muted, fontSize: 10, marginBottom: 6, fontWeight: '700', letterSpacing: 0.2 }} numberOfLines={2}>
-                                  {item.label}
-                                </Text>
-                                <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '800', marginBottom: 3 }}>
-                                  {item.pct.toFixed(1)}%
-                                </Text>
-                                <Text style={{ color: step7MutedSoft, fontSize: 11, fontWeight: '600' }}>
-                                  {money(item.amount)}
-                                </Text>
-                              </View>
-                            );
-                          })}
-                        </View>
-                      </ScrollView>
-                      
-                      <View style={{
-                        marginTop: 14,
-                        padding: 14,
-                        borderRadius: 14,
-                        backgroundColor: darkMode ? 'rgba(34, 211, 238, 0.07)' : 'rgba(34, 211, 238, 0.06)',
-                        borderWidth: 1,
-                        borderColor: darkMode ? 'rgba(34, 211, 238, 0.18)' : 'rgba(34, 211, 238, 0.2)',
-                      }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                          <Ionicons name="bulb-outline" size={17} color="#22d3ee" style={{ marginRight: 10, marginTop: 1 }} />
-                          <Text style={{ color: Colors.text, fontSize: 12.5, flex: 1, lineHeight: 19, fontWeight: '500' }}>
-                            {getCashFlowInsight()}
-                          </Text>
-                        </View>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}>
+                <View style={{ gap: 10, marginBottom: 18 }}>
+                  {[
+                    {
+                      key: 'weekly',
+                      title: 'Weekly Progress Billing',
+                      badge: 'Recommended',
+                      icon: 'repeat-outline',
+                      description: 'Best for cash flow. Deposit + weekly payments + optional holdback.',
+                    },
+                    {
+                      key: 'milestone-based',
+                      title: 'Milestone-Based',
+                      icon: 'flag-outline',
+                      description: 'Best for simple jobs with clearly defined phases. May delay payment if milestones are held up.',
+                      warning: true,
+                    },
+                    {
+                      key: 'custom',
+                      title: 'Custom Schedule',
+                      icon: 'create-outline',
+                      description: 'Manually create payment rows with custom amounts, dates, labels, and terms.',
+                    },
+                  ].map((option) => {
+                    const selected = highlightedScheduleOption === option.key;
+                    return (
+                      <TouchableOpacity
+                        key={option.key}
+                        activeOpacity={0.85}
+                        onPress={() => selectPaymentScheduleOption(option.key)}
+                        style={{
+                          borderRadius: 18,
+                          padding: 14,
+                          borderWidth: selected ? 2 : 1,
+                          borderColor: selected
+                            ? '#2DFFC4'
+                            : (darkMode ? 'rgba(255, 255, 255, 0.14)' : Colors.line),
+                          backgroundColor: selected
+                            ? 'rgba(45, 255, 196, 0.10)'
+                            : (darkMode ? 'rgba(255, 255, 255, 0.035)' : Colors.surface2),
+                        }}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
                           <View style={{
-                            flexDirection: 'row',
+                            width: 38,
+                            height: 38,
+                            borderRadius: 19,
+                            backgroundColor: selected ? '#2DFFC4' : (darkMode ? 'rgba(255,255,255,0.07)' : Colors.surface),
                             alignItems: 'center',
-                            paddingHorizontal: 12,
-                            paddingVertical: 7,
-                            borderRadius: 20,
-                            backgroundColor: riskLabels[paymentRisk].color + '22',
-                            borderWidth: 1,
-                            borderColor: riskLabels[paymentRisk].color + '45',
+                            justifyContent: 'center',
                           }}>
-                            <Text style={{ fontSize: 13, marginRight: 6 }}>{riskLabels[paymentRisk].emoji}</Text>
-                            <Text style={{ color: riskLabels[paymentRisk].color, fontSize: 12, fontWeight: '700' }}>
-                              {riskLabels[paymentRisk].label}
+                            <Ionicons
+                              name={option.icon}
+                              size={19}
+                              color={selected ? '#001B14' : option.warning ? '#FFD166' : '#2DFFC4'}
+                            />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                              <Text style={{ color: selected ? '#2DFFC4' : Colors.text, fontSize: 15, fontWeight: '800' }}>
+                                {option.title}
+                              </Text>
+                              {option.badge ? (
+                                <View style={{
+                                  borderRadius: 999,
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 3,
+                                  backgroundColor: 'rgba(34, 197, 94, 0.16)',
+                                  borderWidth: 1,
+                                  borderColor: 'rgba(34, 197, 94, 0.42)',
+                                }}>
+                                  <Text style={{ color: '#22c55e', fontSize: 9, fontWeight: '900', letterSpacing: 0.7 }}>
+                                    {option.badge.toUpperCase()}
+                                  </Text>
+                                </View>
+                              ) : null}
+                            </View>
+                            <Text style={{ color: step7MutedSoft, fontSize: 12, lineHeight: 16, marginTop: 5 }}>
+                              {option.description}
                             </Text>
                           </View>
                         </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+              
+              {step7ExpandedSchedule === 'weekly' && (
+                <View style={[step7SectionCard, { marginTop: 2 }]}>
+                  <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '800', marginBottom: 4 }}>
+                    Weekly Progress Settings
+                  </Text>
+                  <Text style={{ color: step7MutedSoft, fontSize: 12, lineHeight: 18, marginBottom: 14 }}>
+                    Recommended structure: deposit, weekly progress payments, and a smaller final holdback.
+                  </Text>
+
+                  <View style={{ gap: 12 }}>
+                    <View>
+                      <Text style={step7FieldLabel}>Contract Amount</Text>
+                      <View style={step7DateField}>
+                        <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>
+                          {money(grandTotal)}
+                        </Text>
                       </View>
-                    </>
-                  )}
+                    </View>
+
+                    <View style={{ flexDirection: 'row', gap: 10 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={step7FieldLabel}>Project Duration</Text>
+                        <TouchableOpacity
+                          activeOpacity={1}
+                          onPress={() => weeklyProjectWeeksInputRef.current?.focus?.()}
+                          style={[step7DateField, { flexDirection: 'row', alignItems: 'center', minHeight: 46 }]}
+                        >
+                          <TextInput
+                            ref={weeklyProjectWeeksInputRef}
+                            value={weeklyProjectWeeksText}
+                            onChangeText={setWeeklyProjectWeeksText}
+                            keyboardType="decimal-pad"
+                            placeholder="20"
+                            placeholderTextColor={estimateStepMutedInputColor}
+                            style={{ flex: 1, color: Colors.text, fontSize: 15, fontWeight: '800', paddingVertical: 8, minHeight: 34 }}
+                          />
+                          <Text style={{ color: step7MutedSoft, fontSize: 12, fontWeight: '700' }}>weeks</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      <View style={{ flex: 1 }}>
+                        <Text style={step7FieldLabel}>Deposit</Text>
+                        <TouchableOpacity
+                          activeOpacity={1}
+                          onPress={() => weeklyDepositPercentInputRef.current?.focus?.()}
+                          style={[step7DateField, { flexDirection: 'row', alignItems: 'center', minHeight: 46 }]}
+                        >
+                          <TextInput
+                            ref={weeklyDepositPercentInputRef}
+                            value={weeklyDepositPercentText}
+                            onChangeText={setWeeklyDepositPercentText}
+                            keyboardType="decimal-pad"
+                            placeholder="20"
+                            placeholderTextColor={estimateStepMutedInputColor}
+                            style={{ flex: 1, color: Colors.text, fontSize: 15, fontWeight: '800', paddingVertical: 8, minHeight: 34 }}
+                          />
+                          <Text style={{ color: step7MutedSoft, fontSize: 12, fontWeight: '700' }}>%</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    <View>
+                      <Text style={step7FieldLabel}>Final Holdback / Punch List</Text>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+                        {WEEKLY_PROGRESS_HOLDBACK_OPTIONS.map((value) => {
+                          const selected = Number(weeklyHoldbackPercentText) === value;
+                          return (
+                            <TouchableOpacity
+                              key={value}
+                              onPress={() => {
+                                setWeeklyHoldbackPercentText(String(value));
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              }}
+                              style={{
+                                paddingVertical: 8,
+                                paddingHorizontal: 11,
+                                borderRadius: 999,
+                                borderWidth: 1,
+                                borderColor: selected ? '#2DFFC4' : (darkMode ? 'rgba(255,255,255,0.13)' : Colors.line),
+                                backgroundColor: selected ? 'rgba(45,255,196,0.12)' : (darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2),
+                              }}
+                            >
+                              <Text style={{ color: selected ? '#2DFFC4' : Colors.text, fontSize: 12, fontWeight: '700' }}>
+                                {value === 0 ? 'No holdback' : `${value}%`}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                      <TouchableOpacity
+                        activeOpacity={1}
+                        onPress={() => weeklyHoldbackPercentInputRef.current?.focus?.()}
+                        style={[step7DateField, { flexDirection: 'row', alignItems: 'center', minHeight: 46 }]}
+                      >
+                        <TextInput
+                          ref={weeklyHoldbackPercentInputRef}
+                          value={weeklyHoldbackPercentText}
+                          onChangeText={setWeeklyHoldbackPercentText}
+                          keyboardType="decimal-pad"
+                          placeholder="5"
+                          placeholderTextColor={estimateStepMutedInputColor}
+                          style={{ flex: 1, color: Colors.text, fontSize: 15, fontWeight: '800', paddingVertical: 8, minHeight: 34 }}
+                        />
+                        <Text style={{ color: step7MutedSoft, fontSize: 12, fontWeight: '700' }}>%</Text>
+                      </TouchableOpacity>
+                      <Text style={{ color: step7MutedSoft, fontSize: 11.5, lineHeight: 16, marginTop: 8 }}>
+                        Recommended: 5%. Helps protect closeout without trapping too much cash.
+                      </Text>
+                    </View>
+
+                    <View>
+                      <Text style={step7FieldLabel}>Holdback Due</Text>
+                      <View style={{ gap: 8 }}>
+                        {Object.entries(WEEKLY_PROGRESS_HOLDBACK_DUE_LABELS).map(([key, label]) => {
+                          const selected = weeklyHoldbackDue === key;
+                          return (
+                            <TouchableOpacity
+                              key={key}
+                              onPress={() => {
+                                setWeeklyHoldbackDue(key);
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              }}
+                              style={{
+                                minHeight: 44,
+                                borderRadius: 13,
+                                borderWidth: 1,
+                                borderColor: selected ? '#2DFFC4' : (darkMode ? 'rgba(255,255,255,0.12)' : Colors.line),
+                                backgroundColor: selected ? 'rgba(45,255,196,0.10)' : (darkMode ? 'rgba(255,255,255,0.035)' : Colors.surface2),
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 9,
+                                paddingHorizontal: 12,
+                              }}
+                            >
+                              <Ionicons
+                                name={selected ? 'checkmark-circle' : 'ellipse-outline'}
+                                size={18}
+                                color={selected ? '#2DFFC4' : step7MutedSoft}
+                              />
+                              <Text style={{ color: selected ? Colors.text : step7MutedSoft, fontSize: 12.5, fontWeight: '700', flex: 1, lineHeight: 17 }}>
+                                {label}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+
+                    <View style={{
+                      borderRadius: 15,
+                      padding: 13,
+                      backgroundColor: darkMode ? 'rgba(255,255,255,0.045)' : Colors.surface2,
+                      borderWidth: 1,
+                      borderColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line,
+                    }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                        <Ionicons name="calculator-outline" size={17} color="#2DFFC4" />
+                        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800' }}>Payment Preview</Text>
+                      </View>
+                      {[
+                        {
+                          label: `Deposit Payment (${weeklyPreviewDepositPct}%)`,
+                          value: money(weeklyPreviewDepositAmount),
+                        },
+                        {
+                          label: `Weekly Payment (${weeklyPreviewWeeks} ${weeklyPreviewWeeks === 1 ? 'week' : 'weeks'})`,
+                          value: money(weeklyPreviewPaymentAmount),
+                          accent: true,
+                        },
+                        {
+                          label: `Final Holdback (${weeklyPreviewHoldbackPct}%)`,
+                          value: money(weeklyPreviewHoldbackAmount),
+                        },
+                        {
+                          label: 'Scheduled Total',
+                          value: money(weeklyPreviewScheduledTotal),
+                          strong: true,
+                        },
+                      ].map((row) => (
+                        <View
+                          key={row.label}
+                          style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            paddingTop: row.strong ? 10 : 0,
+                            marginTop: row.strong ? 8 : 0,
+                            marginBottom: row.strong ? 0 : 8,
+                            borderTopWidth: row.strong ? 1 : 0,
+                            borderTopColor: darkMode ? 'rgba(255,255,255,0.1)' : Colors.line,
+                          }}
+                        >
+                          <Text style={{ color: row.strong ? Colors.text : step7MutedSoft, fontSize: 12, fontWeight: row.strong ? '800' : '600', flex: 1 }}>
+                            {row.label}
+                          </Text>
+                          <Text style={{ color: row.accent || row.strong ? '#2DFFC4' : Colors.text, fontSize: row.strong ? 15 : 13, fontWeight: '900' }}>
+                            {row.value}
+                          </Text>
+                        </View>
+                      ))}
+                      <Text style={{ color: step7MutedSoft, fontSize: 11, lineHeight: 15, marginTop: 10 }}>
+                        Preview only. Tap Generate / Update Weekly Schedule to apply these rows.
+                      </Text>
+                    </View>
+
+                    <View style={{
+                      borderRadius: 15,
+                      padding: 13,
+                      backgroundColor: 'rgba(45,255,196,0.08)',
+                      borderWidth: 1,
+                      borderColor: 'rgba(45,255,196,0.3)',
+                    }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                        <Ionicons name="shield-checkmark" size={17} color="#2DFFC4" />
+                        <Text style={{ color: '#2DFFC4', fontSize: 14, fontWeight: '800' }}>Punch List Protection</Text>
+                      </View>
+                      <Text style={{ color: step7Muted, fontSize: 12, lineHeight: 18 }}>
+                        Minor punch-list items should not delay payment for completed work. If incomplete or defective work remains, the customer may only withhold a reasonable amount directly related to those specific items.
+                      </Text>
+                    </View>
+
+                    <TouchableOpacity
+                      activeOpacity={0.86}
+                      onPress={() => {
+                        applyWeeklyProgressSchedule();
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      }}
+                      style={{
+                        minHeight: 48,
+                        borderRadius: 15,
+                        backgroundColor: '#2DFFC4',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginTop: 2,
+                      }}
+                    >
+                      <Text style={{ color: '#001B14', fontSize: 15, fontWeight: '900' }}>
+                        Generate / Update Weekly Schedule
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {step7ExpandedSchedule === 'milestone-based' && (
+                <View style={[step7SectionCard, { marginTop: 2 }]}>
+                  <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '800', marginBottom: 4 }}>
+                    Milestone-Based Settings
+                  </Text>
+                  <Text style={{ color: step7MutedSoft, fontSize: 12, lineHeight: 18, marginBottom: 14 }}>
+                    Best for simple jobs with clearly defined phases. May create cash-flow delays if milestones are held up.
+                  </Text>
+
+                  <View style={{ gap: 12 }}>
+                    <View>
+                      <Text style={step7FieldLabel}>Contract Amount</Text>
+                      <View style={step7DateField}>
+                        <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>
+                          {money(grandTotal)}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={{ flexDirection: 'row', gap: 10 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={step7FieldLabel}>Deposit</Text>
+                        <TouchableOpacity
+                          activeOpacity={1}
+                          onPress={() => milestoneDepositPercentInputRef.current?.focus?.()}
+                          style={[step7DateField, { flexDirection: 'row', alignItems: 'center', minHeight: 46 }]}
+                        >
+                          <TextInput
+                            ref={milestoneDepositPercentInputRef}
+                            value={milestoneDepositPercentText}
+                            onChangeText={setMilestoneDepositPercentText}
+                            keyboardType="decimal-pad"
+                            placeholder="20"
+                            placeholderTextColor={estimateStepMutedInputColor}
+                            style={{ flex: 1, color: Colors.text, fontSize: 15, fontWeight: '800', paddingVertical: 8, minHeight: 34 }}
+                          />
+                          <Text style={{ color: step7MutedSoft, fontSize: 12, fontWeight: '700' }}>%</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      <View style={{ flex: 1 }}>
+                        <Text style={step7FieldLabel}>Milestones</Text>
+                        <TouchableOpacity
+                          activeOpacity={1}
+                          onPress={() => milestoneCountInputRef.current?.focus?.()}
+                          style={[step7DateField, { flexDirection: 'row', alignItems: 'center', minHeight: 46 }]}
+                        >
+                          <TextInput
+                            ref={milestoneCountInputRef}
+                            value={milestoneCountText}
+                            onChangeText={setMilestoneCountText}
+                            keyboardType="number-pad"
+                            placeholder="3"
+                            placeholderTextColor={estimateStepMutedInputColor}
+                            style={{ flex: 1, color: Colors.text, fontSize: 15, fontWeight: '800', paddingVertical: 8, minHeight: 34 }}
+                          />
+                          <Text style={{ color: step7MutedSoft, fontSize: 12, fontWeight: '700' }}>rows</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    <View>
+                      <Text style={step7FieldLabel}>Milestone Details</Text>
+                      <Text style={{ color: step7MutedSoft, fontSize: 11.5, lineHeight: 16, marginBottom: 8 }}>
+                        Explain what must be completed for each milestone payment.
+                      </Text>
+                      <View style={{ gap: 8 }}>
+                        {Array.from({ length: milestoneDescriptionCount }, (_, index) => (
+                          <TouchableOpacity
+                            key={`milestone-description-${index}`}
+                            activeOpacity={1}
+                            style={[step7DateField, { minHeight: 58, paddingVertical: 8 }]}
+                          >
+                            <Text style={{ color: step7MutedSoft, fontSize: 10.5, fontWeight: '800', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.35 }}>
+                              Milestone {index + 1}
+                            </Text>
+                            <TextInput
+                              value={milestoneDescriptionTexts[index] || ''}
+                              onChangeText={(text) => {
+                                setMilestoneDescriptionTexts((prev) => {
+                                  const next = [...prev];
+                                  next[index] = text;
+                                  return next;
+                                });
+                              }}
+                              multiline
+                              placeholder={`Example: ${index === 0 ? 'Demo and rough-in complete' : index === 1 ? 'Drywall, paint, and trim complete' : 'Final finishes complete'}`}
+                              placeholderTextColor={estimateStepMutedInputColor}
+                              inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
+                              style={{
+                                color: Colors.text,
+                                fontSize: 13,
+                                fontWeight: '700',
+                                lineHeight: 18,
+                                minHeight: 34,
+                                paddingVertical: 0,
+                              }}
+                            />
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+
+                    <View>
+                      <Text style={step7FieldLabel}>Final Closeout Payment</Text>
+                      <TouchableOpacity
+                        activeOpacity={1}
+                        onPress={() => milestoneFinalPercentInputRef.current?.focus?.()}
+                        style={[step7DateField, { flexDirection: 'row', alignItems: 'center', minHeight: 46 }]}
+                      >
+                        <TextInput
+                          ref={milestoneFinalPercentInputRef}
+                          value={milestoneFinalPercentText}
+                          onChangeText={setMilestoneFinalPercentText}
+                          keyboardType="decimal-pad"
+                          placeholder="5"
+                          placeholderTextColor={estimateStepMutedInputColor}
+                          style={{ flex: 1, color: Colors.text, fontSize: 15, fontWeight: '800', paddingVertical: 8, minHeight: 34 }}
+                        />
+                        <Text style={{ color: step7MutedSoft, fontSize: 12, fontWeight: '700' }}>%</Text>
+                      </TouchableOpacity>
+                      <Text style={{ color: step7MutedSoft, fontSize: 11.5, lineHeight: 16, marginTop: 8 }}>
+                        Keep closeout payment modest so cash is not trapped at the end.
+                      </Text>
+                    </View>
+
+                    <View style={{
+                      borderRadius: 15,
+                      padding: 13,
+                      backgroundColor: darkMode ? 'rgba(255,255,255,0.045)' : Colors.surface2,
+                      borderWidth: 1,
+                      borderColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line,
+                    }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                        <Ionicons name="calculator-outline" size={17} color="#2DFFC4" />
+                        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800' }}>Payment Preview</Text>
+                      </View>
+                      {[
+                        {
+                          label: `Deposit Payment (${milestonePreviewDepositPct}%)`,
+                          value: money(milestonePreviewDepositAmount),
+                        },
+                        ...milestonePreviewRows.map((row, index) => ({
+                          label: `${row.label}`,
+                          value: money(row.amount),
+                          accent: index === 0,
+                        })),
+                        {
+                          label: `Final Closeout (${milestonePreviewFinalPct}%)`,
+                          value: money(milestonePreviewFinalAmount),
+                        },
+                        {
+                          label: 'Scheduled Total',
+                          value: money(milestonePreviewScheduledTotal),
+                          strong: true,
+                        },
+                      ].map((row) => (
+                        <View
+                          key={row.label}
+                          style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            paddingTop: row.strong ? 10 : 0,
+                            marginTop: row.strong ? 8 : 0,
+                            marginBottom: row.strong ? 0 : 8,
+                            borderTopWidth: row.strong ? 1 : 0,
+                            borderTopColor: darkMode ? 'rgba(255,255,255,0.1)' : Colors.line,
+                          }}
+                        >
+                          <Text style={{ color: row.strong ? Colors.text : step7MutedSoft, fontSize: 12, fontWeight: row.strong ? '800' : '600', flex: 1, paddingRight: 10 }}>
+                            {row.label}
+                          </Text>
+                          <Text style={{ color: row.accent || row.strong ? '#2DFFC4' : Colors.text, fontSize: row.strong ? 15 : 13, fontWeight: '900' }}>
+                            {row.value}
+                          </Text>
+                        </View>
+                      ))}
+                      <Text style={{ color: step7MutedSoft, fontSize: 11, lineHeight: 15, marginTop: 10 }}>
+                        Preview only. Tap Generate / Update Milestone Schedule to apply these rows.
+                      </Text>
+                    </View>
+
+                    <TouchableOpacity
+                      activeOpacity={0.86}
+                      onPress={() => {
+                        applyMilestoneBasedSchedule();
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      }}
+                      style={{
+                        minHeight: 48,
+                        borderRadius: 15,
+                        backgroundColor: '#2DFFC4',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginTop: 2,
+                      }}
+                    >
+                      <Text style={{ color: '#001B14', fontSize: 15, fontWeight: '900' }}>
+                        Generate / Update Milestone Schedule
+                      </Text>
+                    </TouchableOpacity>
+
+                    <View style={{
+                      borderRadius: 15,
+                      padding: 13,
+                      backgroundColor: 'rgba(255, 209, 102, 0.08)',
+                      borderWidth: 1,
+                      borderColor: 'rgba(255, 209, 102, 0.35)',
+                    }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                        <Ionicons name="warning-outline" size={17} color="#FFD166" />
+                        <Text style={{ color: '#FFD166', fontSize: 14, fontWeight: '800' }}>
+                          Milestone billing may delay payment
+                        </Text>
+                      </View>
+                      <Text style={{ color: darkMode ? '#D7D1C4' : Colors.text, fontSize: 12, lineHeight: 18 }}>
+                        Milestone billing can delay payment if inspections, materials, client decisions, or trade dependencies slow down a milestone.
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              )}
+
+              {step7ExpandedSchedule === 'custom' && (
+                <View style={[step7SectionCard, { marginTop: 2 }]}>
+                  <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '800', marginBottom: 4 }}>
+                    Custom Schedule Settings
+                  </Text>
+                  <Text style={{ color: step7MutedSoft, fontSize: 12, lineHeight: 18, marginBottom: 14 }}>
+                    Manually create payment rows with custom dates, percentages, labels, and payment terms.
+                  </Text>
+
+                  <View style={{ gap: 12 }}>
+                    <View>
+                      <Text style={step7FieldLabel}>Contract Amount</Text>
+                      <View style={step7DateField}>
+                        <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>
+                          {money(grandTotal)}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={{
+                      borderRadius: 15,
+                      padding: 13,
+                      backgroundColor: darkMode ? 'rgba(255,255,255,0.045)' : Colors.surface2,
+                      borderWidth: 1,
+                      borderColor: customPreviewIsExact
+                        ? 'rgba(34, 197, 94, 0.35)'
+                        : customPreviewIsOver
+                          ? 'rgba(245, 158, 11, 0.42)'
+                          : (darkMode ? 'rgba(255,255,255,0.12)' : Colors.line),
+                    }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                        <Ionicons name="calculator-outline" size={17} color={customPreviewIsOver ? Colors.orange : '#2DFFC4'} />
+                        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800' }}>Payment Preview</Text>
+                      </View>
+                      {[
+                        {
+                          label: 'Scheduled Total',
+                          value: money(customPreviewScheduledTotal),
+                          strong: true,
+                          color: customPreviewIsOver ? Colors.orange : '#2DFFC4',
+                        },
+                        {
+                          label: customPreviewIsOver ? 'Over Contract Amount' : 'Remaining',
+                          value: money(Math.abs(customPreviewRemaining)),
+                          color: customPreviewIsExact ? '#22c55e' : customPreviewIsOver ? Colors.orange : Colors.text,
+                        },
+                        {
+                          label: 'Percent Scheduled',
+                          value: `${customPreviewScheduledPct.toFixed(1)}%`,
+                          color: customPreviewIsExact ? '#22c55e' : customPreviewIsOver ? Colors.orange : Colors.text,
+                        },
+                      ].map((row) => (
+                        <View
+                          key={row.label}
+                          style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: row.label === 'Percent Scheduled' ? 0 : 8,
+                          }}
+                        >
+                          <Text style={{ color: row.strong ? Colors.text : step7MutedSoft, fontSize: 12, fontWeight: row.strong ? '800' : '600', flex: 1 }}>
+                            {row.label}
+                          </Text>
+                          <Text style={{ color: row.color || Colors.text, fontSize: row.strong ? 15 : 13, fontWeight: '900' }}>
+                            {row.value}
+                          </Text>
+                        </View>
+                      ))}
+                      <Text style={{ color: step7MutedSoft, fontSize: 11, lineHeight: 15, marginTop: 10 }}>
+                        Custom rows can be under or over the contract amount. Review totals before sending.
+                      </Text>
+                    </View>
+
+                    <TouchableOpacity
+                      activeOpacity={0.86}
+                      onPress={() => {
+                        handleAddWeeklyPayment();
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }}
+                      style={{
+                        minHeight: 48,
+                        borderRadius: 15,
+                        backgroundColor: '#2DFFC4',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                      }}
+                    >
+                      <Ionicons name="add" size={20} color="#001B14" />
+                      <Text style={{ color: '#001B14', fontSize: 15, fontWeight: '900' }}>
+                        Add Custom Payment
+                      </Text>
+                    </TouchableOpacity>
+
+                    <View style={{
+                      borderRadius: 15,
+                      padding: 13,
+                      backgroundColor: 'rgba(45,255,196,0.08)',
+                      borderWidth: 1,
+                      borderColor: 'rgba(45,255,196,0.3)',
+                    }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                        <Ionicons name="create-outline" size={17} color="#2DFFC4" />
+                        <Text style={{ color: '#2DFFC4', fontSize: 14, fontWeight: '800' }}>Manual Billing Control</Text>
+                      </View>
+                      <Text style={{ color: step7Muted, fontSize: 12, lineHeight: 18 }}>
+                        Use custom rows when the client, lender, or contract requires specific dates, amounts, labels, or billing terms.
+                      </Text>
+                    </View>
+                  </View>
                 </View>
               )}
               
@@ -16121,7 +16806,7 @@ export default function EstimateGeneratorScreen() {
                     </>
                   )}
                 </View>
-              ) : scheduleType === 'milestone-based' ? (
+              ) : scheduleType === 'milestone-based' && selectedScheduleOption !== 'milestone-based' ? (
                 <View style={{ marginTop: 4 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                     <View>
@@ -17007,10 +17692,10 @@ export default function EstimateGeneratorScreen() {
                 </View>
               ) : null}
               
-              {scheduleType === 'weekly' || (scheduleType === 'hybrid' && weeklyPayments.length > 0) ? (
+              {selectedScheduleOption === 'custom' && getCustomPaymentRows().length > 0 ? (
                 <View style={{ marginTop: scheduleType === 'hybrid' ? 24 : 0 }}>
                   {/* Upfront Deposit Card for Time-Based */}
-                  {scheduleType === 'weekly' && weeklyPayments.length > 0 ? (
+                  {selectedScheduleOption === 'weekly' && scheduleType === 'weekly' && weeklyPayments.length > 0 ? (
                     (() => {
                       const depositPayment = weeklyPayments.find(w => w.weekNumber === 0 || (w.description && w.description.toLowerCase().includes('deposit')));
                       if (depositPayment) {
@@ -17341,7 +18026,7 @@ export default function EstimateGeneratorScreen() {
                   ) : null}
                   
                   {/* Weekly Progress Payments Card for Time-Based */}
-                  {scheduleType === 'weekly' && weeklyPayments.length > 0 ? (
+                  {selectedScheduleOption === 'weekly' && scheduleType === 'weekly' && weeklyPayments.length > 0 ? (
                     <View style={step7SectionCard}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
                         <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(59, 130, 246, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 10 }}>
@@ -17357,10 +18042,17 @@ export default function EstimateGeneratorScreen() {
                         // For time-based, check if there's a deposit (weekNumber 0 or description includes 'deposit')
                         const depositPayment = weeklyPayments.find(w => w.weekNumber === 0 || (w.description && w.description.toLowerCase().includes('deposit')));
                         const depositPct = depositPayment?.percentage || (depositPayment?.amount && grandTotal > 0 ? Math.round((depositPayment.amount / grandTotal) * 100) : 0);
-                        // Remaining percentage for weekly payments (excluding deposit if present)
-                        const remainingPct = 100 - depositPct;
-                        // Count only progress weekly payments (excluding deposit)
-                        const progressPayments = weeklyPayments.filter(w => w.weekNumber !== 0 && !(w.description && w.description.toLowerCase().includes('deposit')));
+                        const holdbackPayment = weeklyPayments.find(w => w.type === 'holdback' || (w.description && w.description.toLowerCase().includes('holdback')));
+                        const holdbackPct = holdbackPayment?.percentage || (holdbackPayment?.amount && grandTotal > 0 ? (holdbackPayment.amount / grandTotal) * 100 : 0);
+                        // Remaining percentage for weekly payments (excluding deposit and final holdback if present)
+                        const remainingPct = 100 - depositPct - holdbackPct;
+                        // Count only progress weekly payments (excluding deposit and holdback)
+                        const progressPayments = weeklyPayments.filter(w =>
+                          w.weekNumber !== 0 &&
+                          !(w.description && w.description.toLowerCase().includes('deposit')) &&
+                          w.type !== 'holdback' &&
+                          !(w.description && w.description.toLowerCase().includes('holdback'))
+                        );
                         const weeks = progressPayments.length || weeklyPayments.length || 4;
                         const weeklyPctPerWeek = weeks > 0 ? remainingPct / weeks : 0;
                         const isCustomWeeks = weeks > 12;
@@ -17563,11 +18255,18 @@ export default function EstimateGeneratorScreen() {
                   
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                     <View>
-                      <Text style={[s.label, { marginBottom: 4 }]}>Weekly Payments</Text>
-                      {weeklyPayments.length > 0 && (
+                      <Text style={[s.label, { marginBottom: 4 }]}>
+                        {selectedScheduleOption === 'custom' ? 'Custom Payments' : 'Weekly Payments'}
+                      </Text>
+                      {(selectedScheduleOption === 'custom' ? getCustomPaymentRows().length > 0 : weeklyPayments.length > 0) && (
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
                           {(() => {
-                            const displayPct = scheduleType === 'hybrid' ? combinedTotalPct : weeklyTotalPct;
+                            const customRows = getCustomPaymentRows();
+                            const customTotal = customRows.reduce((sum, p) => sum + (p.amount || 0), 0);
+                            const customTotalPct = grandTotal > 0 ? (customTotal / grandTotal) * 100 : 0;
+                            const displayPct = selectedScheduleOption === 'custom'
+                              ? customTotalPct
+                              : (scheduleType === 'hybrid' ? combinedTotalPct : weeklyTotalPct);
                             const isExactly100 = Math.abs(displayPct - 100) < 0.01;
                             return (
                               <Text style={{ color: isExactly100 ? '#22c55e' : displayPct > 100 ? Colors.orange : Colors.sub, fontSize: 12, fontWeight: '600', marginRight: 8 }}>
@@ -17575,7 +18274,7 @@ export default function EstimateGeneratorScreen() {
                               </Text>
                             );
                           })()}
-                          {remainingPctWeekly > 0 && scheduleType === 'weekly' && (
+                          {remainingPctWeekly > 0 && scheduleType === 'weekly' && selectedScheduleOption !== 'custom' && (
                             <TouchableOpacity
                               onPress={() => {
                                 // Auto-balance: distribute remaining percentage evenly across all weekly payments
@@ -17604,7 +18303,7 @@ export default function EstimateGeneratorScreen() {
                       )}
                     </View>
                     <View style={{ flexDirection: 'row', gap: 8 }}>
-                      {weeklyPayments.length > 0 && (
+                      {(selectedScheduleOption === 'custom' ? getCustomPaymentRows().length > 0 : weeklyPayments.length > 0) && (
                         <TouchableOpacity
                           style={{
                             flexDirection: 'row',
@@ -17618,15 +18317,21 @@ export default function EstimateGeneratorScreen() {
                           }}
                           onPress={() => {
                             Alert.alert(
-                              'Clear Weekly Payments',
-                              'This will remove all weekly payments. Continue?',
+                              selectedScheduleOption === 'custom' ? 'Clear Custom Payments' : 'Clear Weekly Payments',
+                              selectedScheduleOption === 'custom'
+                                ? 'This will remove all custom payments. Continue?'
+                                : 'This will remove all weekly payments. Continue?',
                               [
                                 { text: 'Cancel', style: 'cancel' },
                                 {
                                   text: 'Clear',
                                   style: 'destructive',
                                   onPress: () => {
-                                    updateBid('weeklyPayments', []);
+                                    if (selectedScheduleOption === 'custom') {
+                                      updateBid('customPayments', []);
+                                    } else {
+                                      updateBid('weeklyPayments', []);
+                                    }
                                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                                   }
                                 }
@@ -17643,7 +18348,7 @@ export default function EstimateGeneratorScreen() {
                     </View>
                   </View>
                   
-                  {weeklyPayments.length === 0 && scheduleType !== 'hybrid' ? (
+                  {weeklyPayments.length === 0 && scheduleType !== 'hybrid' && selectedScheduleOption !== 'custom' ? (
                     <View style={[s.stepCard, { padding: 32, alignItems: 'center', borderColor: 'rgba(255, 255, 255, 0.15)', backgroundColor: 'rgba(255, 255, 255, 0.05)' }]}>
                       <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(255, 255, 255, 0.05)', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
                         <Ionicons name="calendar-outline" size={32} color="rgba(255, 255, 255, 0.6)" />
@@ -17657,49 +18362,7 @@ export default function EstimateGeneratorScreen() {
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
                         <TouchableOpacity
                           onPress={() => {
-                            const depositPct = 20;
-                            const weeks = 4;
-                            const remainingPct = 100 - depositPct;
-                            const pctPerWeek = remainingPct / weeks; // 20% per week
-                            
-                            // Calculate deposit amount
-                            const depositAmount = roundPayment((grandTotal * depositPct) / 100);
-                            
-                            // Calculate amounts for first (weeks - 1) weekly payments
-                            const amountPerWeek = roundPayment((grandTotal * pctPerWeek) / 100);
-                            const weeklyPayments = Array.from({ length: weeks - 1 }, (_, i) => ({
-                              id: `weekly-${Date.now()}-${i}`,
-                              weekNumber: i + 1,
-                              description: `Week ${i + 1} Payment`,
-                              amount: amountPerWeek,
-                              percentage: pctPerWeek,
-                            }));
-                            
-                            // Calculate sum of deposit + first (weeks - 1) payments
-                            const sumOfFirstPayments = depositAmount + (amountPerWeek * (weeks - 1));
-                            
-                            // Make last weekly payment equal to grandTotal - sum of all others (ensures exact 100%)
-                            const lastWeekAmount = roundPayment(grandTotal - sumOfFirstPayments);
-                            const lastWeekPct = grandTotal > 0 ? (lastWeekAmount / grandTotal) * 100 : 0;
-                            
-                            const newPayments = [
-                              {
-                                id: `weekly-deposit-${Date.now()}`,
-                                weekNumber: 0,
-                                description: 'Deposit',
-                                amount: depositAmount,
-                                percentage: depositPct,
-                              },
-                              ...weeklyPayments,
-                              {
-                                id: `weekly-${Date.now()}-${weeks - 1}`,
-                                weekNumber: weeks,
-                                description: `Week ${weeks} Payment`,
-                                amount: lastWeekAmount,
-                                percentage: lastWeekPct,
-                              }
-                            ];
-                            updateBid('weeklyPayments', newPayments);
+                            applyWeeklyProgressSchedule();
                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                           }}
                           style={{
@@ -17715,7 +18378,7 @@ export default function EstimateGeneratorScreen() {
                         >
                           <View style={{ alignItems: 'center' }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                              <Text style={{ color: '#2DFFC4', fontSize: 13, fontWeight: '600' }}>Deposit + Weekly</Text>
+                              <Text style={{ color: '#2DFFC4', fontSize: 13, fontWeight: '600' }}>Weekly Progress Billing</Text>
                               <View style={{
                                 paddingHorizontal: 6,
                                 paddingVertical: 2,
@@ -17727,17 +18390,16 @@ export default function EstimateGeneratorScreen() {
                                 <Text style={{ color: '#22c55e', fontSize: 9, fontWeight: '700', letterSpacing: 0.5 }}>RECOMMENDED</Text>
                               </View>
                             </View>
-                            <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 2, opacity: 0.8 }}>Protects cash flow and covers upfront costs</Text>
+                            <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 2, opacity: 0.8 }}>20% deposit + weekly progress + 5% final holdback</Text>
                           </View>
                         </TouchableOpacity>
                       </View>
                     </View>
-                  ) : weeklyPayments.length === 0 && scheduleType === 'hybrid' ? null : (
-                    weeklyPayments.map((payment, index) => {
-                      // Calculate percentage if not set but amount is
+                  ) : getCustomPaymentRows().length === 0 && scheduleType === 'hybrid' ? null : (
+                    getCustomPaymentRows().map((payment, index) => {
                       let displayPercentage = payment.percentage || 0;
                       if (!displayPercentage && payment.amount && grandTotal > 0) {
-                        displayPercentage = Math.round((payment.amount / grandTotal) * 100);
+                        displayPercentage = Math.round((payment.amount / grandTotal) * 1000) / 10;
                       }
                       
                       return (
@@ -17784,9 +18446,9 @@ export default function EstimateGeneratorScreen() {
                           </View>
                           
                           <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700', marginBottom: 6, paddingRight: 88, lineHeight: 20 }}>
-                            {payment.description || `Week ${payment.weekNumber || index + 1} Payment`}
+                            {payment.description || (selectedScheduleOption === 'custom' ? `Custom Payment ${index + 1}` : `Week ${payment.weekNumber || index + 1} Payment`)}
                       </Text>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 4 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 8 }}>
                             <View>
                               <Text style={{ color: step7MutedSoft, fontSize: 10, marginBottom: 2, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.3 }}>Amount</Text>
                               <Text style={{ color: Colors.text, fontSize: 17, fontWeight: '800' }}>
@@ -17796,24 +18458,32 @@ export default function EstimateGeneratorScreen() {
                             <View style={{ alignItems: 'flex-end' }}>
                               <Text style={{ color: step7MutedSoft, fontSize: 10, marginBottom: 2, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.3 }}>Percent</Text>
                               <Text style={{ color: '#22d3ee', fontSize: 15, fontWeight: '800' }}>
-                                {displayPercentage}%
+                                {Number(displayPercentage).toFixed(1)}%
                               </Text>
                             </View>
                       </View>
-                      {payment.scheduledDate && (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
-                              <Ionicons name="calendar-outline" size={13} color={step7MutedSoft} />
-                              <Text style={{ color: step7MutedSoft, fontSize: 11.5, marginLeft: 6 }}>
-                                Due: {payment.scheduledDate}
-                        </Text>
-                            </View>
-                      )}
+                      <View style={{ gap: 6 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <Ionicons name="calendar-outline" size={13} color={step7MutedSoft} />
+                          <Text style={{ color: step7MutedSoft, fontSize: 11.5, marginLeft: 6 }}>
+                            Due: {payment.scheduledDate || 'No due date'}
+                          </Text>
+                        </View>
+                        {(payment.paymentTerms || payment.terms || payment.notes) && (
+                          <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                            <Ionicons name="document-text-outline" size={13} color={step7MutedSoft} style={{ marginTop: 1 }} />
+                            <Text style={{ color: step7MutedSoft, fontSize: 11.5, lineHeight: 16, marginLeft: 6, flex: 1 }}>
+                              Terms: {payment.paymentTerms || payment.terms || payment.notes}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
                     </View>
                       );
                     })
                   )}
                   
-                  {weeklyPayments.length > 0 && scheduleType !== 'hybrid' && (
+                  {weeklyPayments.length > 0 && scheduleType !== 'hybrid' && selectedScheduleOption !== 'custom' && (
                     <View style={{
                       backgroundColor: 'rgba(34, 197, 94, 0.12)',
                       borderRadius: 16,
@@ -17889,17 +18559,15 @@ export default function EstimateGeneratorScreen() {
                 </View>
               )}
               
-              {/* Legal Protection Disclaimer */}
-              {(milestones.length > 0 || weeklyPayments.length > 0) && (
-                <View style={{ marginTop: 18, paddingTop: 14, paddingHorizontal: 2, borderTopWidth: 1, borderTopColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                      <Ionicons name="information-circle-outline" size={16} color={step7Muted} style={{ marginRight: 8, marginTop: 1 }} />
-                      <Text style={{ color: step7MutedSoft, fontSize: 11, lineHeight: 17, flex: 1, fontWeight: '500' }}>
-                        ℹ️ Payment schedules vary by contract and jurisdiction. Review before sending.
-                      </Text>
-                    </View>
+              {/* Payment schedule disclaimer */}
+              <View style={{ marginTop: 18, paddingTop: 14, paddingHorizontal: 2, borderTopWidth: 1, borderTopColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                  <Ionicons name="information-circle-outline" size={16} color={step7Muted} style={{ marginRight: 8, marginTop: 1 }} />
+                  <Text style={{ color: step7MutedSoft, fontSize: 11, lineHeight: 17, flex: 1, fontWeight: '500' }}>
+                    Review payment terms before sending. Requirements may vary by contract and jurisdiction.
+                  </Text>
                 </View>
-              )}
+              </View>
             </GlassBorderCard>
             </FirstEstimateWalkthroughHighlight>
           </View>
@@ -19475,6 +20143,7 @@ export default function EstimateGeneratorScreen() {
         item={weeklyPaymentModal.item}
         onSave={handleSaveWeeklyPayment}
         grandTotal={calc?.grandTotal || calc?.total || 0}
+        paymentLabel={bid.paymentScheduleVariant === 'custom' ? 'Custom Payment' : 'Weekly Payment'}
       />
       
       {/* Recovery Modal - Full Page */}

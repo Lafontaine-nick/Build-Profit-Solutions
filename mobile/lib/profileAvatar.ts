@@ -1,7 +1,7 @@
 import type { ImageSourcePropType } from 'react-native';
 
 /** Bundled placeholder shown until the user uploads their own profile photo. */
-export const DEFAULT_PROFILE_AVATAR_SOURCE = require('../assets/images/bps-logo-updated.png');
+export const DEFAULT_PROFILE_AVATAR_SOURCE = require('../assets/images/bps-profile-default-logo.jpg');
 
 const OAUTH_OR_STOCK_AVATAR_HOST =
   /(?:clerk\.com|googleusercontent\.com|gravatar\.com|fbcdn\.net|appleid\.apple\.com|licdn\.com|graph\.facebook|via\.placeholder)/i;

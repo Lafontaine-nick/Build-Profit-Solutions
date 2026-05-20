@@ -126,8 +126,24 @@
     "dataPrivacy": "Datos privados y seguros",
     "whatBuildersSay": "Lo que Dicen los Constructores",
     "trustedBy": "Confiado por contratistas en todo el país",
-    "testimonialQuote": "\"La mejor herramienta para gestionar proyectos de construcción.\"",
-    "testimonialAttribution": "— David Rodríguez, Contratista",
+    "testimonials": [
+      {
+        "quote": "\"La mejor herramienta para gestionar proyectos de construcción.\"",
+        "attribution": "— David Rodríguez, Contratista General"
+      },
+      {
+        "quote": "\"Por fin, estimaciones y costos de obra en un solo lugar. Nuestros márgenes son más claros cada semana.\"",
+        "attribution": "— Maria Chen, Contratista de Remodelación"
+      },
+      {
+        "quote": "\"Las estimaciones con IA nos ahorraron horas en cada oferta. El equipo lo usa todos los días.\"",
+        "attribution": "— James Mitchell, Constructor Comercial"
+      },
+      {
+        "quote": "\"Desde la oferta hasta el seguimiento en vivo—justo lo que necesitábamos sin el caos de las hojas de cálculo.\"",
+        "attribution": "— Sarah Williams, Gerente de Proyecto"
+      }
+    ],
     "contractorFeedbackTitle": "Construido con opiniones de contratistas",
     "contractorFeedbackSubtitle": "En pruebas con contratistas y equipos de construcción reales."
   },

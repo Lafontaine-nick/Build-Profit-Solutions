@@ -31,10 +31,9 @@ interface OnboardingFlowProps {
 }
 
 type RoleOption = 'gc' | 'subcontractor' | 'developer' | 'owner-builder' | 'other';
-type WorkSource = 'referrals' | 'repeat' | 'online' | 'subcontractor' | 'mix';
 type HelpOption = 'estimates' | 'projects' | 'costs' | 'schedule' | 'profit' | 'all';
 
-const ONBOARDING_PAGE_COUNT = 6;
+const ONBOARDING_PAGE_COUNT = 5;
 const LAST_PAGE_INDEX = ONBOARDING_PAGE_COUNT - 1;
 
 function OnboardingFlowCore({
@@ -58,9 +57,8 @@ function OnboardingFlowCore({
     }
   };
   const [currentPage, setCurrentPage] = useState(0);
-  const [selectedRole, setSelectedRole] = useState<RoleOption | null>(null);
-  const [selectedWorkSource, setSelectedWorkSource] = useState<WorkSource | null>(null);
-  const [selectedHelp, setSelectedHelp] = useState<HelpOption | null>(null);
+  const [selectedRoles, setSelectedRoles] = useState<RoleOption[]>([]);
+  const [selectedHelpOptions, setSelectedHelpOptions] = useState<HelpOption[]>([]);
 
   // Always use dark mode colors for onboarding
   const colors = {
@@ -189,12 +187,10 @@ function OnboardingFlowCore({
       case 1:
         return renderPage2();
       case 2:
-        return renderPage3();
-      case 3:
         return renderPage4();
-      case 4:
+      case 3:
         return renderCombinedProductPage();
-      case 5:
+      case 4:
         return renderFinalPage();
       default:
         return null;
@@ -264,7 +260,19 @@ function OnboardingFlowCore({
     </View>
   );
 
-  // PAGE 2 — Role Selection
+  const toggleSelectedRole = (roleId: RoleOption) => {
+    setSelectedRoles((prev) =>
+      prev.includes(roleId) ? prev.filter((id) => id !== roleId) : [...prev, roleId]
+    );
+  };
+
+  const toggleHelpOption = (optionId: HelpOption) => {
+    setSelectedHelpOptions((prev) =>
+      prev.includes(optionId) ? prev.filter((id) => id !== optionId) : [...prev, optionId]
+    );
+  };
+
+  // PAGE 2 — Role Selection (multi-select)
   const renderPage2 = () => {
     const roles = [
       { id: 'gc' as RoleOption, label: 'General contractor' },
@@ -280,18 +288,23 @@ function OnboardingFlowCore({
           <Text style={[styles.title, webTitle, { color: colors.text }]}>
             What best describes you?
           </Text>
+          <Text style={[styles.helperText, styles.helperTextSubtle, webHelper, { marginBottom: 16 }]}>
+            Select all that apply.
+          </Text>
           <View style={styles.optionsContainer}>
-            {roles.map((role) => (
+            {roles.map((role) => {
+              const isSelected = selectedRoles.includes(role.id);
+              return (
               <TouchableOpacity
                 key={role.id}
                 style={[
                   styles.optionButton,
-                  optionCardStyle(selectedRole === role.id),
+                  optionCardStyle(isSelected),
                   webDesktop && styles.optionButtonWeb,
                 ]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setSelectedRole(role.id);
+                  toggleSelectedRole(role.id);
                 }}
                 activeOpacity={0.7}
               >
@@ -300,82 +313,26 @@ function OnboardingFlowCore({
                     styles.optionText,
                     webOptionText,
                     {
-                      color: selectedRole === role.id ? '#fff' : colors.text,
-                      fontWeight: selectedRole === role.id ? '600' : '400',
+                      color: isSelected ? '#fff' : colors.text,
+                      fontWeight: isSelected ? '600' : '400',
                     },
                   ]}
                 >
                   {role.label}
                 </Text>
-                {selectedRole === role.id && (
+                {isSelected && (
                   <MaterialIcons name="check" size={iconSm} color="#fff" />
                 )}
               </TouchableOpacity>
-            ))}
+            );
+            })}
           </View>
         </View>
       </View>
     );
   };
 
-  // PAGE 3 — Work Source
-  const renderPage3 = () => {
-    const workSources = [
-      { id: 'referrals' as WorkSource, label: 'Referrals or word of mouth' },
-      { id: 'repeat' as WorkSource, label: 'Repeat clients' },
-      { id: 'online' as WorkSource, label: 'Online leads' },
-      { id: 'subcontractor' as WorkSource, label: 'Subcontractor work' },
-      { id: 'mix' as WorkSource, label: 'A mix of everything' },
-    ];
-
-    return (
-      <View style={pageOuterStyle}>
-        <View style={contentCenteredStyle}>
-          <Text style={[styles.title, webTitle, { color: colors.text }]}>
-            How do you usually get work?
-          </Text>
-          <View style={styles.optionsContainer}>
-            {workSources.map((source) => (
-              <TouchableOpacity
-                key={source.id}
-                style={[
-                  styles.optionButton,
-                  optionCardStyle(selectedWorkSource === source.id),
-                  webDesktop && styles.optionButtonWeb,
-                ]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setSelectedWorkSource(source.id);
-                }}
-                activeOpacity={0.7}
-              >
-                <Text
-                  style={[
-                    styles.optionText,
-                    webOptionText,
-                    {
-                      color: selectedWorkSource === source.id ? '#fff' : colors.text,
-                      fontWeight: selectedWorkSource === source.id ? '600' : '400',
-                    },
-                  ]}
-                >
-                  {source.label}
-                </Text>
-                {selectedWorkSource === source.id && (
-                  <MaterialIcons name="check" size={iconSm} color="#fff" />
-                )}
-              </TouchableOpacity>
-            ))}
-          </View>
-          <Text style={[styles.helperText, styles.helperTextSubtle, webHelper]}>
-            You can also connect with builders and contractors inside Build Profit Solutions.
-          </Text>
-        </View>
-      </View>
-    );
-  };
-
-  // PAGE 4 — Primary goal / personalization
+  // PAGE 3 — Primary goals (estimates + project management)
   const renderPage4 = () => {
     const helpOptions = [
       { id: 'estimates' as HelpOption, label: 'Building accurate estimates' },
@@ -392,18 +349,23 @@ function OnboardingFlowCore({
           <Text style={[styles.title, webTitle, { color: colors.text }]}>
             What do you want help with most?
           </Text>
+          <Text style={[styles.helperText, styles.helperTextSubtle, webHelper, { marginBottom: 16 }]}>
+            Select all that apply — we will tailor tips around estimates and running the job.
+          </Text>
           <View style={styles.optionsContainer}>
-            {helpOptions.map((option) => (
+            {helpOptions.map((option) => {
+              const isSelected = selectedHelpOptions.includes(option.id);
+              return (
               <TouchableOpacity
                 key={option.id}
                 style={[
                   styles.optionButton,
-                  optionCardStyle(selectedHelp === option.id),
+                  optionCardStyle(isSelected),
                   webDesktop && styles.optionButtonWeb,
                 ]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setSelectedHelp(option.id);
+                  toggleHelpOption(option.id);
                 }}
                 activeOpacity={0.7}
               >
@@ -412,18 +374,19 @@ function OnboardingFlowCore({
                     styles.optionText,
                     webOptionText,
                     {
-                      color: selectedHelp === option.id ? '#fff' : colors.text,
-                      fontWeight: selectedHelp === option.id ? '600' : '400',
+                      color: isSelected ? '#fff' : colors.text,
+                      fontWeight: isSelected ? '600' : '400',
                     },
                   ]}
                 >
                   {option.label}
                 </Text>
-                {selectedHelp === option.id && (
+                {isSelected && (
                   <MaterialIcons name="check" size={iconSm} color="#fff" />
                 )}
               </TouchableOpacity>
-            ))}
+            );
+            })}
           </View>
         </View>
       </View>
@@ -433,16 +396,17 @@ function OnboardingFlowCore({
   const saveOnboardingAndOpenEstimate = async () => {
     try {
       const onboardingData = {
-        role: selectedRole,
-        workSource: selectedWorkSource,
-        help: selectedHelp,
+        role: selectedRoles[0] ?? null,
+        roles: selectedRoles,
+        help: selectedHelpOptions[0] ?? null,
+        helpOptions: selectedHelpOptions,
         completedAt: new Date().toISOString(),
       };
       await AsyncStorage.setItem(
         onboardingDataKeyForUser(userId),
         JSON.stringify(onboardingData)
       );
-      await mergeOnboardingRoleIntoContractorProfile(selectedRole);
+      await mergeOnboardingRoleIntoContractorProfile(selectedRoles);
       await markWalkthroughCompleted(userId, 'appOnboarding');
       await resyncProjectsFromServer();
       await AsyncStorage.setItem('bps.isFirstTimeEstimate', 'true');
@@ -454,7 +418,7 @@ function OnboardingFlowCore({
     }
   };
 
-  // PAGE 5 — Combined product flow (estimate → execution → margin → AI)
+  // PAGE 4 — Combined product flow (estimate → execution → margin → AI)
   const renderCombinedProductPage = () => {
     const flowBullets: { icon: 'account-balance-wallet' | 'engineering' | 'trending-up' | 'flag'; text: string }[] = [
       { icon: 'account-balance-wallet', text: 'Estimate becomes the live job budget' },
@@ -508,7 +472,7 @@ function OnboardingFlowCore({
     );
   };
 
-  // PAGE 6 — Final action (single primary CTA)
+  // PAGE 5 — Final action (single primary CTA)
   const renderFinalPage = () => (
     <View style={pageOuterFinalStyle}>
       <View style={contentFinalStyle}>
@@ -540,9 +504,8 @@ function OnboardingFlowCore({
   );
 
   const canProceed = () => {
-    if (currentPage === 1) return selectedRole !== null;
-    if (currentPage === 2) return selectedWorkSource !== null;
-    if (currentPage === 3) return selectedHelp !== null;
+    if (currentPage === 1) return selectedRoles.length > 0;
+    if (currentPage === 2) return selectedHelpOptions.length > 0;
     return true;
   };
 

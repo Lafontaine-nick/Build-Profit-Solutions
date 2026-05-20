@@ -126,8 +126,24 @@
     "dataPrivacy": "Données privées et sécurisées",
     "whatBuildersSay": "Ce que Disent les Constructeurs",
     "trustedBy": "Approuvé par les entrepreneurs à travers le pays",
-    "testimonialQuote": "« Le meilleur outil pour gérer les projets de construction. »",
-    "testimonialAttribution": "— David Rodriguez, Entrepreneur",
+    "testimonials": [
+      {
+        "quote": "« Le meilleur outil pour gérer les projets de construction. »",
+        "attribution": "— David Rodriguez, Entrepreneur général"
+      },
+      {
+        "quote": "« Enfin, estimations et coûts de chantier au même endroit. Nos marges sont plus claires chaque semaine. »",
+        "attribution": "— Maria Chen, Entrepreneure en rénovation"
+      },
+      {
+        "quote": "« Les estimations IA nous ont fait gagner des heures sur chaque soumission. L'équipe l'utilise vraiment au quotidien. »",
+        "attribution": "— James Mitchell, Constructeur commercial"
+      },
+      {
+        "quote": "« De la soumission au suivi de chantier en direct—exactement ce qu'il nous fallait sans le chaos des tableurs. »",
+        "attribution": "— Sarah Williams, Chef de projet"
+      }
+    ],
     "contractorFeedbackTitle": "Conçu avec le retour des entrepreneurs",
     "contractorFeedbackSubtitle": "Tests en cours avec de vrais entrepreneurs et équipes de chantier."
   },

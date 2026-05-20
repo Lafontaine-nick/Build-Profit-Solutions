@@ -27,6 +27,7 @@ import GradientRingBackInner from './GradientRingBackInner';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
+import { requireOptionalNativeModule } from 'expo-modules-core';
 import { GooglePlacesResultsFooter } from '@/components/AttributionBadge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { normalizeTrade } from '../lib/trades';
@@ -75,7 +76,11 @@ function alertSimple(title: string, message?: string) {
 
 /** Dynamic import can succeed while native methods are missing — validate before calling. */
 async function loadExpoLocationNative(): Promise<any | null> {
+  if (Platform.OS === 'web') return null;
   try {
+    if (!requireOptionalNativeModule('ExpoLocation')) {
+      return null;
+    }
     const mod: any = await import('expo-location');
     const api =
       typeof mod.requestForegroundPermissionsAsync === 'function'
@@ -593,6 +598,7 @@ function SubcontractorSearchModal({
       fetchGooglePlacesContractors(z, undefined, undefined, {
         textQuery: '',
         trade: 'All Trades',
+        silent: true,
       }).finally(() => {
         if (!cancelled) setLoading(false);
       });
@@ -692,7 +698,7 @@ function SubcontractorSearchModal({
     zipOverride?: string,
     radiusOverride?: number,
     anchorForRequest?: { lat: number; lng: number },
-    opts?: { textQuery?: string; trade?: string }
+    opts?: { textQuery?: string; trade?: string; silent?: boolean }
   ) => {
     try {
       setPlacesDisabledMessage(null);
@@ -785,16 +791,23 @@ function SubcontractorSearchModal({
       );
       setGooglePlacesResults(mapped);
     } catch (error: any) {
-      console.error('Error fetching Google Places contractors:', error);
-      setPlacesDisabledMessage(null);
+      const isNetwork =
+        error instanceof TypeError &&
+        String(error?.message || '').toLowerCase().includes('network');
+      const log = opts?.silent || isNetwork ? console.warn : console.error;
+      log('Error fetching Google Places contractors:', error);
       setGpsZipMismatchNote(null);
       setGooglePlacesResults([]);
-      Alert.alert(
-        'Search unavailable',
-        typeof error?.message === 'string' && error.message
-          ? error.message
-          : 'Could not load nearby businesses. Check your connection and that the backend has GOOGLE_PLACES_API_KEY set.'
-      );
+      const friendly =
+        isNetwork
+          ? 'Could not reach the server. Start the backend (port 3001) and confirm your phone is on the same Wi‑Fi as your computer.'
+          : typeof error?.message === 'string' && error.message
+            ? error.message
+            : 'Could not load nearby businesses. Check your connection and that the backend has GOOGLE_PLACES_API_KEY set.';
+      setPlacesDisabledMessage(friendly);
+      if (!opts?.silent) {
+        Alert.alert('Search unavailable', friendly);
+      }
     }
   };
 

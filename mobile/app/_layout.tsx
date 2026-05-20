@@ -17,6 +17,7 @@ import { ThemeProvider, useTheme } from '../contexts/ThemeContext';
 import ErrorBoundary from '../components/ErrorBoundary';
 import notificationService from '../services/notificationService';
 import { NotificationProvider } from '../contexts/NotificationContext';
+import ProfileCompletionReminderRouteGuard from '../components/ProfileCompletionReminderRouteGuard';
 import { LanguageProvider } from '../contexts/LanguageContext';
 import { useUserRole } from '../contexts/UserRoleContext';
 import { useAuth, useUser } from '@clerk/clerk-react';
@@ -410,6 +411,7 @@ export default function RootLayout() {
                         <LanguageProvider>
                           <NotificationProvider>
                             <ThemeAwareLayout>
+                              <ProfileCompletionReminderRouteGuard />
                               <AuthGate useClerk={false} />
                             </ThemeAwareLayout>
                           </NotificationProvider>
@@ -447,6 +449,7 @@ export default function RootLayout() {
                             <NotificationProvider>
                               <BetaFeedbackProvider>
                                 <ThemeAwareLayout>
+                                  <ProfileCompletionReminderRouteGuard />
                                   <AuthGate useClerk={true} />
                                 </ThemeAwareLayout>
                               </BetaFeedbackProvider>

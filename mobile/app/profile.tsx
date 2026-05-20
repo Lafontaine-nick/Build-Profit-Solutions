@@ -314,6 +314,27 @@ const SegmentTab: React.FC<SegmentTabProps> = ({ label, icon, isActive, onPress 
   );
 };
 
+function buildEditFormFromUser(user: {
+  name?: string;
+  email: string;
+  phone?: string;
+  company?: string;
+  role?: string;
+  location?: string;
+}): EditFormData {
+  const nameParts = user.name?.split(' ') || [];
+  return {
+    firstName: nameParts[0] || '',
+    lastName: nameParts.slice(1).join(' ') || '',
+    email: user.email,
+    phone: user.phone || '',
+    company: user.company || '',
+    role: user.role || '',
+    city: user.location?.split(', ')[0] || '',
+    state: user.location?.split(', ')[1] || '',
+  };
+}
+
 export default function ProfileScreen() {
   // Require authentication to access this screen
   useRequireAuth();
@@ -904,6 +925,12 @@ export default function ProfileScreen() {
       state: user.location?.split(', ')[1] || '',
     });
     setEditModal(false);
+  }, [user]);
+
+  const openEditProfileModal = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setEditForm(buildEditFormFromUser(user));
+    setEditModal(true);
   }, [user]);
 
   // Settings handlers
@@ -1555,23 +1582,7 @@ export default function ProfileScreen() {
         {/* Edit Button - Top Right (Icon Only) */}
         <TouchableOpacity
           style={styles.editIconButton}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            // Open edit modal
-            const nameParts = user.name?.split(' ') || [];
-            const formData: EditFormData = {
-              firstName: nameParts[0] || '',
-              lastName: nameParts.slice(1).join(' ') || '',
-              email: user.email,
-              phone: user.phone,
-              company: user.company,
-              role: user.role,
-              city: user.location?.split(', ')[0] || '',
-              state: user.location?.split(', ')[1] || '',
-            };
-            setEditForm(formData);
-            setEditModal(true);
-          }}
+          onPress={openEditProfileModal}
         >
           <MaterialIcons name='edit' size={18} color={theme.accent} />
         </TouchableOpacity>
@@ -1581,7 +1592,10 @@ export default function ProfileScreen() {
             <View style={styles.avatarGlowContainer}>
               <Image
                 source={getProfileAvatarImageSource(user.avatar)}
-                style={styles.profileImage}
+                style={[
+                  styles.profileImage,
+                  !profileHasCustomAvatar(user.avatar) && styles.profileImageDefaultLogo,
+                ]}
                 defaultSource={DEFAULT_PROFILE_AVATAR_SOURCE}
                 resizeMode="contain"
                 onError={() => console.log('Profile image failed to load')}
@@ -4169,9 +4183,12 @@ const getStyles = (Colors: any, darkMode: boolean, desktopWeb = false) => {
     borderRadius: 40,
     borderWidth: 2,
     borderColor: '#43cea2',
-    /** Logos are often transparent PNGs; without this the dark card shows through and reads as “black”. */
+    /** User-uploaded photos: light backing if the image has transparency. */
     backgroundColor: '#FFFFFF',
     overflow: 'hidden',
+  },
+  profileImageDefaultLogo: {
+    backgroundColor: '#000000',
   },
   editAvatarButton: {
     position: 'absolute',

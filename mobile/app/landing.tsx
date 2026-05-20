@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import {
   SafeAreaView,
   View,
@@ -17,6 +17,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { useAuth, useUser } from "@clerk/clerk-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
@@ -166,6 +167,99 @@ function DefaultGetStartedCTA({
   );
 }
 
+type LandingTestimonial = { quote: string; attribution: string };
+
+const TESTIMONIAL_ROTATE_MS = 5500;
+const TESTIMONIAL_FADE_MS = 350;
+
+function getLandingTestimonials(t: TFunction): LandingTestimonial[] {
+  const raw = t("landing.testimonials", { returnObjects: true });
+  if (Array.isArray(raw)) {
+    const items = raw.filter(
+      (item): item is LandingTestimonial =>
+        !!item &&
+        typeof item === "object" &&
+        typeof (item as LandingTestimonial).quote === "string" &&
+        typeof (item as LandingTestimonial).attribution === "string"
+    );
+    if (items.length > 0) return items;
+  }
+  return [
+    {
+      quote: t("landing.testimonialQuote"),
+      attribution: t("landing.testimonialAttribution"),
+    },
+  ];
+}
+
+function RotatingTestimonial({
+  testimonials,
+  styles,
+  darkMode,
+}: {
+  testimonials: LandingTestimonial[];
+  styles: ReturnType<typeof getStyles>;
+  darkMode: boolean;
+}) {
+  const [index, setIndex] = useState(0);
+  const opacity = useRef(new Animated.Value(1)).current;
+
+  const advance = useCallback(() => {
+    if (testimonials.length <= 1) return;
+    Animated.timing(opacity, {
+      toValue: 0,
+      duration: TESTIMONIAL_FADE_MS,
+      useNativeDriver: Platform.OS !== "web",
+    }).start(({ finished }) => {
+      if (!finished) return;
+      setIndex((prev) => (prev + 1) % testimonials.length);
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: TESTIMONIAL_FADE_MS,
+        useNativeDriver: Platform.OS !== "web",
+      }).start();
+    });
+  }, [opacity, testimonials.length]);
+
+  useEffect(() => {
+    if (testimonials.length <= 1) return;
+    const timer = setInterval(advance, TESTIMONIAL_ROTATE_MS);
+    return () => clearInterval(timer);
+  }, [advance, testimonials.length]);
+
+  const current = testimonials[index] ?? testimonials[0];
+
+  return (
+    <>
+      <Animated.View style={[styles.testimonialContent, { opacity }]}>
+        <Text style={styles.testimonialQuote}>{current.quote}</Text>
+        <Text style={styles.testimonialAttribution}>{current.attribution}</Text>
+      </Animated.View>
+      {testimonials.length > 1 ? (
+        <View style={styles.testimonialDots}>
+          {testimonials.map((_, i) => (
+            <View
+              key={i}
+              style={[
+                styles.testimonialDot,
+                i === index && styles.testimonialDotActive,
+                {
+                  backgroundColor:
+                    i === index
+                      ? "#22c55e"
+                      : darkMode
+                        ? "rgba(148, 163, 184, 0.45)"
+                        : "rgba(100, 116, 139, 0.35)",
+                },
+              ]}
+            />
+          ))}
+        </View>
+      ) : null}
+    </>
+  );
+}
+
 /** Wide web: centered premium column (not full-bleed mobile layout) */
 const LANDING_WIDE_WEB_MIN_WIDTH = WEB_CENTERED_COLUMN_MIN_WIDTH;
 const LANDING_MAX_CONTENT_WIDTH = WEB_CENTERED_COLUMN_MAX_WIDTH;
@@ -174,7 +268,11 @@ const LANDING_CTA_MAX_WIDTH = 400;
 export default function LandingScreen() {
   const clerkUiEnabled = useClerkUiEnabled();
   const { width: windowWidth } = useWindowDimensions();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const testimonials = useMemo(
+    () => getLandingTestimonials(t),
+    [t, i18n.language]
+  );
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useMemo(
@@ -380,12 +478,11 @@ export default function LandingScreen() {
                     color="#22c55e"
                   />
                 </View>
-                <Text style={styles.testimonialQuote}>
-                  {t("landing.testimonialQuote")}
-                </Text>
-                <Text style={styles.testimonialAttribution}>
-                  {t("landing.testimonialAttribution")}
-                </Text>
+                <RotatingTestimonial
+                  testimonials={testimonials}
+                  styles={styles}
+                  darkMode={darkMode}
+                />
               </View>
             </View>
           </LinearGradient>
@@ -591,6 +688,11 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
     borderWidth: 1,
     borderColor: darkMode ? "rgba(34, 197, 94, 0.35)" : "rgba(34, 197, 94, 0.25)",
   },
+  testimonialContent: {
+    width: "100%",
+    minHeight: 88,
+    justifyContent: "center",
+  },
   testimonialQuote: {
     fontSize: wideWeb ? 15 : 14,
     lineHeight: 22,
@@ -600,6 +702,22 @@ const getStyles = (Colors: any, darkMode: boolean, windowWidth: number) => {
     fontWeight: "500",
     paddingHorizontal: 8,
     marginBottom: 10,
+  },
+  testimonialDots: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 4,
+  },
+  testimonialDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  testimonialDotActive: {
+    width: 18,
+    borderRadius: 3,
   },
   testimonialAttribution: {
     fontSize: 13,

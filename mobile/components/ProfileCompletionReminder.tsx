@@ -1,14 +1,16 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter } from 'expo-router';
+import { useRouter, useSegments } from 'expo-router';
 import { useUser } from '@clerk/clerk-react';
 import { useNotification } from '@/contexts/NotificationContext';
+import { useWalkthroughState } from '@/contexts/WalkthroughStateContext';
 import { isClerkEnabled } from '@/lib/isClerkEnabled';
 import {
   buildProfileCompletionReminderCopy,
   evaluateContractorProfileCompletion,
   type ContractorProfileLike,
 } from '@/lib/profileCompletion';
+import { isPostOnboardingAppRoute } from '@/lib/profileCompletionReminderEligibility';
 import {
   clearProfileCompletionReminderDismissed,
   recordProfileCompletionReminderDismissed,
@@ -19,12 +21,17 @@ const INITIAL_DELAY_MS = 3200;
 
 function ProfileCompletionReminderCore({ userId }: { userId: string }) {
   const router = useRouter();
+  const segments = useSegments();
   const { showNotification } = useNotification();
+  const { hydrated, shouldShowAppOnboarding } = useWalkthroughState();
   const shownThisSessionRef = useRef(false);
   const pendingRef = useRef(false);
 
+  const routeEligible =
+    hydrated && !shouldShowAppOnboarding && isPostOnboardingAppRoute(segments);
+
   const maybeShowReminder = useCallback(async () => {
-    if (pendingRef.current || shownThisSessionRef.current) return;
+    if (!routeEligible || pendingRef.current || shownThisSessionRef.current) return;
     pendingRef.current = true;
     try {
       const raw = await AsyncStorage.getItem('bps.contractorProfile');
@@ -48,6 +55,10 @@ function ProfileCompletionReminderCore({ userId }: { userId: string }) {
       shownThisSessionRef.current = true;
       const copy = buildProfileCompletionReminderCopy(result);
 
+      const openProfile = () => {
+        router.push('/profile');
+      };
+
       showNotification({
         id: 'profile-completion-reminder',
         title: copy.title,
@@ -58,13 +69,9 @@ function ProfileCompletionReminderCore({ userId }: { userId: string }) {
         duration: 10000,
         action: {
           label: 'Open Profile',
-          onPress: () => {
-            router.push('/profile');
-          },
+          onPress: openProfile,
         },
-        onPress: () => {
-          router.push('/profile');
-        },
+        onPress: openProfile,
         onDismiss: () => {
           void recordProfileCompletionReminderDismissed(resolvedUserId);
         },
@@ -76,14 +83,15 @@ function ProfileCompletionReminderCore({ userId }: { userId: string }) {
     } finally {
       pendingRef.current = false;
     }
-  }, [router, showNotification, userId]);
+  }, [routeEligible, router, showNotification, userId]);
 
   useEffect(() => {
+    if (!routeEligible) return;
     const timer = setTimeout(() => {
       void maybeShowReminder();
     }, INITIAL_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [maybeShowReminder]);
+  }, [routeEligible, maybeShowReminder]);
 
   return null;
 }
@@ -99,8 +107,8 @@ function ProfileCompletionReminderWithClerk() {
 }
 
 /**
- * Gentle in-app banner for signed-in users with an incomplete contractor profile.
- * Mount once under the main tab shell (not on auth/onboarding routes).
+ * In-app banner after account creation + app onboarding — only on dashboard/tabs and
+ * other signed-in app screens (not landing or auth).
  */
 export default function ProfileCompletionReminder() {
   if (!isClerkEnabled()) {
