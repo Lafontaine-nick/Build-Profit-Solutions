@@ -1,7 +1,11 @@
 import type { ImageSourcePropType } from 'react-native';
+import { DEFAULT_PROFILE_AVATAR_DATA_URL } from './proposals/defaultProfileAvatarDataUrl';
 
 /** Bundled placeholder shown until the user uploads their own profile photo. */
 export const DEFAULT_PROFILE_AVATAR_SOURCE = require('../assets/images/bps-profile-default-logo.jpg');
+
+/** Same image as DEFAULT_PROFILE_AVATAR_SOURCE, inlined for PDF/HTML (matches Profile screen). */
+export { DEFAULT_PROFILE_AVATAR_DATA_URL };
 
 const OAUTH_OR_STOCK_AVATAR_HOST =
   /(?:clerk\.com|googleusercontent\.com|gravatar\.com|fbcdn\.net|appleid\.apple\.com|licdn\.com|graph\.facebook|via\.placeholder)/i;
@@ -32,8 +36,10 @@ export function isUserUploadedProfileAvatar(
 export function sanitizeStoredProfileAvatar(
   uri: string | null | undefined
 ): string {
-  if (!isUserUploadedProfileAvatar(uri)) return '';
-  return String(uri).trim();
+  const v = String(uri ?? '').trim();
+  if (!v || v === DEFAULT_PROFILE_AVATAR_DATA_URL) return '';
+  if (!isUserUploadedProfileAvatar(v)) return '';
+  return v;
 }
 
 export function getProfileAvatarImageSource(

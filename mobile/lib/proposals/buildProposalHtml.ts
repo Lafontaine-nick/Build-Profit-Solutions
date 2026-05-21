@@ -18,7 +18,7 @@ import {
   sanitizeContractDoc,
   stripEditorListPrefix,
 } from "./contractTemplate";
-import { DEFAULT_CONTRACT_HEADER_LOGO_DATA_URL } from "./defaultContractHeaderLogoDataUrl";
+import { resolveBrandImageUrl, resolveContractCoverImageUrl } from "./contractTemplate";
 
 const money = (n: number | undefined | null) =>
   (Math.round((n ?? 0) * 100) / 100).toLocaleString(undefined, {
@@ -185,11 +185,14 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
   const company = resolvePdfHeaderCompany(options.branding, sanitizedDoc.contractor);
   const contractorName = options.branding.contractorName || sanitizedDoc.contractor.contactName || company;
   const contractorTitle = options.branding.contractorTitle || "Contractor";
-  const userLogoRaw = options.branding.logoUrl || sanitizedDoc.contractor.logoUrl;
-  const userLogo = typeof userLogoRaw === "string" && userLogoRaw.trim() ? userLogoRaw.trim() : "";
-  /** Profile UI can show `defaultSource` while `avatar` was never persisted — match that on the PDF cover. */
-  const coverLogo = userLogo || DEFAULT_CONTRACT_HEADER_LOGO_DATA_URL;
-  const coverLogoIsDefaultMark = !userLogo;
+  const profileForCover = {
+    avatar: options.branding.logoUrl || sanitizedDoc.contractor.logoUrl,
+    logoUrl: options.branding.logoUrl || sanitizedDoc.contractor.logoUrl,
+  };
+  const hasUploadedCoverImage = Boolean(resolveBrandImageUrl(profileForCover));
+  /** Match Profile screen: uploaded photo, or bundled default placeholder (not legacy BPS house logo). */
+  const coverLogo = resolveContractCoverImageUrl(profileForCover);
+  const coverLogoIsDefaultMark = !hasUploadedCoverImage;
   const startDate = formatDate(sanitizedDoc.summary.startDate);
   const validThrough = formatDate(sanitizedDoc.summary.expiresDate);
   const scheduleRail = getScheduleSummaryForContract(sanitizedDoc);

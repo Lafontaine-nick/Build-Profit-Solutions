@@ -1,5 +1,6 @@
 import { ContractDoc } from "../contracts/types";
 import { sanitizeStoredProfileAvatar } from "../profileAvatar";
+import { DEFAULT_PROFILE_AVATAR_DATA_URL } from "./defaultProfileAvatarDataUrl";
 
 /**
  * - `client` — summarized Scope & pricing (no line-item tables).
@@ -39,12 +40,16 @@ export type ContractBranding = {
   accentColorHex?: string;
 };
 
+export type PaymentScheduleVariant = "weekly_progress" | "milestone_based" | "custom";
+
 export type ContractBuildOptions = {
   pdfMode: ContractPdfMode;
   state: ContractTemplateState;
   projectType?: string;
   contractType: ContractType;
   branding: ContractBranding;
+  /** From estimate Step 7 — used for custom-schedule export warnings. */
+  paymentScheduleVariant?: PaymentScheduleVariant | string;
   /** Defaults to `client` when omitted (estimate export). */
   contractAudience?: ContractAudience;
   /**
@@ -113,6 +118,12 @@ export const resolveBrandImageUrl = (profile: any): string | undefined => {
     sanitizeStoredProfileAvatar(profile?.profileImageUrl),
     sanitizeStoredProfileAvatar(profile?.profileImage),
   );
+};
+
+/** Uploaded logo/avatar, or the same default image shown on the Profile screen. */
+export const resolveContractCoverImageUrl = (profile: any): string => {
+  const uploaded = resolveBrandImageUrl(profile);
+  return uploaded || DEFAULT_PROFILE_AVATAR_DATA_URL;
 };
 
 /** Cover header “company” line: prefer saved company, then doc legal name, then person name before app default. */
@@ -348,20 +359,49 @@ export const validateContractPreflight = (
     });
   }
 
-  if (totalBid > 0 && Math.abs(paymentTotal - totalBid) > 1) {
-    warnings.push({
-      id: "payment-total",
-      level: "warning",
-      message: "Payment amounts do not match the contract total. Review milestone math before sending.",
-    });
-  }
+  const paymentRows = doc.milestones || [];
+  const isCustomSchedule = options.paymentScheduleVariant === "custom";
 
-  if ((doc.milestones || []).length > 0 && Math.abs(paymentPct - 100) > 0.25) {
-    warnings.push({
-      id: "payment-percent",
-      level: "warning",
-      message: "Payment percentages do not total 100%. The schedule should be reviewed before client use.",
-    });
+  if (totalBid > 0 && paymentRows.length > 0) {
+    if (isCustomSchedule) {
+      if (paymentPct < 99.75) {
+        warnings.push({
+          id: "custom-schedule-under",
+          level: "warning",
+          message: `Custom payment schedule totals ${paymentPct.toFixed(1)}% of the contract ($${paymentTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} of $${totalBid.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}). Add or adjust payments so the schedule reaches 100% before sending.`,
+        });
+      } else if (paymentPct > 100.25) {
+        warnings.push({
+          id: "custom-schedule-over",
+          level: "warning",
+          message: `Custom payment schedule totals ${paymentPct.toFixed(1)}% of the contract ($${paymentTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}), which exceeds the contract total. Reduce payment amounts before sending.`,
+        });
+      } else if (Math.abs(paymentTotal - totalBid) > 1) {
+        warnings.push({
+          id: "custom-schedule-amount",
+          level: "warning",
+          message:
+            "Custom payment dollar amounts do not match the contract total after rounding. Review each payment row before sending.",
+        });
+      }
+    } else {
+      if (Math.abs(paymentTotal - totalBid) > 1) {
+        warnings.push({
+          id: "payment-total",
+          level: "warning",
+          message: "Payment amounts do not match the contract total. Review milestone math before sending.",
+        });
+      }
+
+      if (Math.abs(paymentPct - 100) > 0.25) {
+        warnings.push({
+          id: "payment-percent",
+          level: "warning",
+          message:
+            "Payment percentages do not total 100%. The schedule should be reviewed before client use.",
+        });
+      }
+    }
   }
 
   if (options.state === "other") {

@@ -64,6 +64,8 @@ export default {
       newArchEnabled: true,
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
+        NSCameraUsageDescription:
+          'Allow camera access to scan product barcodes and QR codes for estimates, budgets, change orders, and purchase orders.',
         NSMicrophoneUsageDescription: 'This app needs access to your microphone to record voice messages for the AI assistant.',
         NSPhotoLibraryUsageDescription:
           'Allow access to your photo library to attach screenshots to beta feedback and upload project images.',
@@ -86,6 +88,7 @@ export default {
       jsEngine: 'hermes',
       newArchEnabled: true,
       permissions: [
+        'android.permission.CAMERA',
         'android.permission.RECORD_AUDIO',
       ],
     },
@@ -102,6 +105,13 @@ export default {
         {
           locationWhenInUsePermission:
             'Allow location access to find subcontractors near your current area.',
+        },
+      ],
+      [
+        'expo-camera',
+        {
+          cameraPermission:
+            'Allow camera access to scan product barcodes and QR codes for estimates, budgets, change orders, and purchase orders.',
         },
       ],
       [

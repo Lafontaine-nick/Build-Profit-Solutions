@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
-import { MaterialIcons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -40,10 +40,13 @@ import ThresholdSettingsSheet from './ThresholdSettingsSheet';
 import CategoryDetailModal from './CategoryDetailModal';
 import AddPurchaseOrderModal from './AddPurchaseOrderModal';
 import EditPurchaseOrderModal from './EditPurchaseOrderModal';
+import ProductScannerModal from './ProductScannerModal';
+import ProductFoundSheet from './ProductFoundSheet';
 import PricingModeSection, { PricingMode } from './PricingModeSection';
 import { decimalMoneyInputToNumber, digitsOnly } from '@/src/lib/keyboardMoney';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import GradientRingBackInner from './GradientRingBackInner';
+import { buildProductNotes } from '../lib/products/productScannerTypes';
 
 /**
  * Build Profit Solutions — Budget Tab (with AI integrations)
@@ -217,6 +220,8 @@ export default function BudgetTab({
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [showChangeOrderModal, setShowChangeOrderModal] = useState(false);
   const [showPOModal, setShowPOModal] = useState(false);
+  const [productScannerVisible, setProductScannerVisible] = useState(false);
+  const [scannedProjectProduct, setScannedProjectProduct] = useState<any>(null);
   const [editingPO, setEditingPO] = useState<any>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [pendingChangeOrderEditId, setPendingChangeOrderEditId] = useState<string | null>(null);
@@ -455,6 +460,86 @@ export default function BudgetTab({
     
     return normalized;
   }, [projectData?.changeOrders]);
+
+  const handleProjectScannedProductSave = useCallback((payload: any) => {
+    const { product, destination, quantity, unitCost, markupPct, description, notes, customerNotes, changeOrderId } = payload;
+    const qty = Math.max(Number(quantity) || 0, 0);
+    const cost = Math.max(Number(unitCost) || 0, 0);
+    const costTotal = Math.round(qty * cost * 100) / 100;
+    const productNotes = buildProductNotes(product, notes);
+    const vendor = product.supplier || 'Scanned supplier';
+    const title = description || product.title || 'Scanned product';
+
+    if (destination === 'project_budget') {
+      addExpense({
+        id: `scan-exp-${Date.now()}`,
+        category: 'Materials/Equipment',
+        vendor,
+        material: title,
+        amount: costTotal,
+        date: new Date().toISOString(),
+        notes: productNotes,
+        sku: product.sku || product.model || product.upc,
+        sourceUrl: product.sourceUrl,
+        quantity: qty,
+        unitCost: cost,
+      } as any);
+      Alert.alert('Added to Project Budget', `${title} was added as an approved-scope material cost.`);
+    } else if (destination === 'purchase_order') {
+      addPurchaseOrder({
+        poNumber: `PO-SCAN-${String(Date.now()).slice(-6)}`,
+        vendor,
+        category: 'Materials',
+        amount: costTotal,
+        description: `${title}${product.sku ? ` • SKU ${product.sku}` : ''}`,
+        orderDate: new Date().toISOString().split('T')[0],
+        expectedDelivery: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        status: 'Pending',
+        notes: productNotes,
+      } as any);
+      Alert.alert(
+        'Purchase Order Created',
+        'This purchase order tracks ordering only. If this is new scope, add it to a Change Order first.',
+      );
+    } else if (destination === 'change_order') {
+      const sellTotal = Math.round(costTotal * (1 + (Number(markupPct) || 0) / 100) * 100) / 100;
+      const existing = changeOrderId
+        ? normalizedChangeOrders.find((co: any) => String(co.id) === String(changeOrderId))
+        : null;
+      const mergedNotes = [existing?.notes, customerNotes, productNotes].filter(Boolean).join('\n\n');
+
+      if (existing) {
+        updateChangeOrder({
+          ...existing,
+          amount: Math.round((Number(existing.amount || 0) + sellTotal) * 100) / 100,
+          materialsAmount: Math.round((Number(existing.materialsAmount || 0) + costTotal) * 100) / 100,
+          laborAmount: Number(existing.laborAmount || 0),
+          notes: mergedNotes,
+          approved: existing.approved || existing.status === 'Approved',
+          status: existing.status || 'Submitted',
+        });
+        Alert.alert('Added to Change Order', `${title} was added to ${existing.title || 'the change order'}.`);
+      } else {
+        addChangeOrder({
+          id: `scan-co-${Date.now()}`,
+          title,
+          amount: sellTotal,
+          materialsAmount: costTotal,
+          laborAmount: 0,
+          approved: false,
+          status: 'Submitted',
+          notes: mergedNotes,
+        });
+        Alert.alert(
+          'Change Order Created',
+          'The scanned product was saved as a submitted change order. It will not count as revenue until approved.',
+        );
+      }
+    }
+
+    setScannedProjectProduct(null);
+    setProductScannerVisible(false);
+  }, [addChangeOrder, addExpense, addPurchaseOrder, normalizedChangeOrders, updateChangeOrder]);
 
   // Calculate Purchase Orders total - includes ONLY PENDING POs (not paid for yet)
   // Logic:
@@ -831,6 +916,29 @@ export default function BudgetTab({
                 >
                   Detailed cost tracking, profitability, and category performance
                 </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setProductScannerVisible(true);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                  style={{
+                    marginTop: 14,
+                    minHeight: 46,
+                    borderRadius: 15,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    backgroundColor: 'rgba(45,255,196,0.1)',
+                    borderWidth: 1,
+                    borderColor: 'rgba(45,255,196,0.32)',
+                  }}
+                >
+                  <Ionicons name="camera-outline" size={18} color="#2DFFC4" />
+                  <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 14, fontWeight: '900' }}>
+                    Scan Product
+                  </Text>
+                </TouchableOpacity>
               </View>
 
               {/* Contract & cost detail */}
@@ -1799,6 +1907,24 @@ export default function BudgetTab({
           setSelectedCategory("Change Orders");
         }}
         theme={theme}
+      />
+
+      <ProductScannerModal
+        visible={productScannerVisible}
+        onClose={() => setProductScannerVisible(false)}
+        onProductFound={(product) => {
+          setScannedProjectProduct(product);
+          setProductScannerVisible(false);
+        }}
+      />
+      <ProductFoundSheet
+        visible={Boolean(scannedProjectProduct)}
+        product={scannedProjectProduct}
+        destinations={['project_budget', 'change_order', 'purchase_order']}
+        defaultDestination="project_budget"
+        existingChangeOrders={normalizedChangeOrders.filter((co) => co.status !== 'Approved' && co.status !== 'Rejected')}
+        onClose={() => setScannedProjectProduct(null)}
+        onSave={handleProjectScannedProductSave}
       />
 
       {/* Add Purchase Order Modal */}

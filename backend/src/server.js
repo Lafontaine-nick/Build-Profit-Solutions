@@ -65,6 +65,7 @@ const aiExpenseValidationRoutes = require('./routes/aiExpenseValidation');
 const aiPredictiveAnalyticsRoutes = require('./routes/aiPredictiveAnalytics');
 const materialsRoutes = require('./routes/materials');
 const skuRoutes = require('./routes/sku');
+const productsRoutes = require('./routes/products');
 const yelpRoutes = require('./routes/yelp');
 const googlePlacesContractorsRoutes = require('./routes/googlePlacesContractors');
 const geocodeRoutes = require('./routes/geocode');
@@ -295,6 +296,9 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/ocr', ocrRoutes);
 app.use('/api/materials', materialsRoutes);
 app.use('/api/sku', skuRoutes);
+app.use('/api/products', productsRoutes);
+// Compatibility for older mobile bundles that built product lookup without the /api prefix.
+app.use('/products', productsRoutes);
 app.use('/api/yelp', yelpRoutes);
 app.use('/api/places', googlePlacesContractorsRoutes);
 app.use('/api/geocode', geocodeRoutes);
