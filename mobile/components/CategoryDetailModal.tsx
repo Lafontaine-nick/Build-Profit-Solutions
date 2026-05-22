@@ -1,15 +1,19 @@
 // @ts-nocheck
-import React, { useState, useMemo, useRef, useEffect } from "react";
+import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { View, Text, Modal, ScrollView, StyleSheet, TouchableOpacity, Alert, Platform, Pressable, useWindowDimensions } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { BRAND_FRAME_GRADIENT_COLORS } from "@/constants/brandFrameGradient";
-import { MaterialIcons } from "@expo/vector-icons";
+import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import * as Haptics from 'expo-haptics';
 import { formatMoneyFull } from "@/src/lib/budgetUtils";
 import { isChangeOrderMirrorExpenseId, parseChangeOrderIdFromMirrorExpenseId } from "../lib/changeOrderMirrorExpenses";
 import AddTransactionModal from "./AddTransactionModal";
 import EditTransactionModal from "./EditTransactionModal";
 import EditPurchaseOrderModal from "./EditPurchaseOrderModal";
+import ProductScannerModal from "./ProductScannerModal";
+import ProductFoundSheet from "./ProductFoundSheet";
+import { buildProductNotes } from "../lib/products/productScannerTypes";
+import type { ProductScannerSavePayload } from "../lib/products/productScannerTypes";
 import { useProjectData } from "../contexts/ProjectDataContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
@@ -88,6 +92,9 @@ function maybeWebConfirmPOCancel(
   ]);
 }
 
+const PROJECT_SCAN_DESTINATIONS = ['project_budget'];
+const MATERIALS_SCAN_SAVE_LABEL = 'Add to Materials & Equipment';
+
 type Props = {
   visible: boolean;
   categoryName: string;
@@ -139,6 +146,8 @@ export default function CategoryDetailModal({
   const [markingPOReceivedId, setMarkingPOReceivedId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [activePOTab, setActivePOTab] = useState<'total' | 'committed' | 'received'>('total');
+  const [productScannerVisible, setProductScannerVisible] = useState(false);
+  const [scannedProjectProduct, setScannedProjectProduct] = useState<any>(null);
   const previousDataRef = useRef<any[]>([]);
   const actionButtonTapRef = useRef(false);
   const { projectData, addExpense, deleteExpense, updateExpense, addChangeOrder, updateChangeOrder, deleteChangeOrder, approveChangeOrder, addPurchaseOrder, updatePurchaseOrder, markPOReceived, cancelPO } = useProjectData();
@@ -146,6 +155,70 @@ export default function CategoryDetailModal({
   // Special handling for Change Orders and Purchase Orders - show actual objects, not expenses
   const isChangeOrdersCategory = categoryName.toLowerCase().includes('change order');
   const isPurchaseOrdersCategory = categoryName.toLowerCase().includes('purchase order');
+  const categoryLower = categoryName.toLowerCase();
+  const isMaterialsEquipmentCategory =
+    !isChangeOrdersCategory &&
+    !isPurchaseOrdersCategory &&
+    (categoryLower.includes('materials') || categoryLower.includes('equipment'));
+
+  const projectLookupZip = useMemo(() => {
+    const raw =
+      projectData?.customerZip ||
+      projectData?.projectZip ||
+      projectData?.zip ||
+      projectData?.location?.zip;
+    const zip = String(raw || '').replace(/\D/g, '').slice(0, 5);
+    return zip || undefined;
+  }, [projectData]);
+
+  const scannerFlowActive = productScannerVisible || Boolean(scannedProjectProduct);
+
+  const handleMaterialsScannedProductSave = useCallback((payload: ProductScannerSavePayload) => {
+    const { product, quantity, unitCost, description, notes } = payload;
+    const qty = Math.max(Number(quantity) || 0, 0);
+    const cost = Math.max(Number(unitCost) || 0, 0);
+    const costTotal = Math.round(qty * cost * 100) / 100;
+    const productNotes = buildProductNotes(product, notes);
+    const vendor = product.supplier || 'Scanned supplier';
+    const title = description || product.title || 'Scanned product';
+    const dateAdded = new Date().toISOString();
+
+    addExpense({
+      id: `scan-exp-${Date.now()}`,
+      category: categoryName,
+      vendor,
+      material: title,
+      amount: costTotal,
+      date: dateAdded,
+      notes: productNotes,
+      sku: product.sku || product.model || product.upc,
+      sourceUrl: product.sourceUrl,
+      vendorName: vendor,
+      productTitle: product.title || title,
+      description: title,
+      modelNumber: product.model || null,
+      upc: product.upc || null,
+      productUrl: product.sourceUrl || null,
+      imageUrl: product.imageUrl || null,
+      quantity: qty,
+      unitCost: cost,
+      lineItemTotal: costTotal,
+      source: 'Home Depot',
+      dateAdded,
+      internalNotes: notes || '',
+    } as any);
+
+    setScannedProjectProduct(null);
+    setProductScannerVisible(false);
+    categoryDetailWebAlert('Added!', `${title} was added to Materials & Equipment.`);
+  }, [addExpense, categoryName]);
+
+  useEffect(() => {
+    if (!visible) {
+      setProductScannerVisible(false);
+      setScannedProjectProduct(null);
+    }
+  }, [visible]);
 
   const changeOrderEditDraft = useMemo(() => {
     if (!editingChangeOrderId || !isChangeOrdersCategory) return null;
@@ -351,6 +424,18 @@ export default function CategoryDetailModal({
           material: exp.material || '',
           amount: exp.amount || 0,
           description: exp.notes || '',
+          productTitle: exp.productTitle || exp.material || '',
+          modelNumber: exp.modelNumber || exp.model || null,
+          upc: exp.upc || null,
+          productUrl: exp.productUrl || exp.sourceUrl || null,
+          imageUrl: exp.imageUrl || null,
+          quantity: Number(exp.quantity) || 0,
+          unitCost: Number(exp.unitCost) || 0,
+          lineItemTotal: Number(exp.lineItemTotal || exp.amount || 0),
+          source: exp.source || undefined,
+          dateAdded: exp.dateAdded || exp.date || undefined,
+          internalNotes: exp.internalNotes || '',
+          isScannedProduct: Boolean(exp.source === 'Home Depot' && (exp.quantity || exp.unitCost || exp.lineItemTotal)),
           po: exp.po || undefined,
           receiptUri: exp.receiptUri || undefined,
           isPlanned: exp.isPlanned !== undefined ? exp.isPlanned : true,
@@ -596,8 +681,9 @@ export default function CategoryDetailModal({
           ? visible &&
               !showAddForm &&
               editingTransaction === null &&
-              editingPurchaseOrder === null
-          : visible
+              editingPurchaseOrder === null &&
+              !scannerFlowActive
+          : visible && !scannerFlowActive
       }
       animationType="slide"
       presentationStyle="fullScreen"
@@ -844,23 +930,65 @@ export default function CategoryDetailModal({
             )}
           </View>
 
-          {/* Add Button */}
-          <TouchableOpacity 
-            style={styles.addButtonWrapper}
-            onPress={() => {
-              setEditingChangeOrderId(null);
-              setShowAddForm(true);
-            }}
-          >
-            <LinearGradient
-              colors={["#22c55e", "#22d3ee"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.addButton}
+          {isMaterialsEquipmentCategory ? (
+            <>
+              <TouchableOpacity
+                style={styles.addButtonWrapper}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setProductScannerVisible(true);
+                }}
+                activeOpacity={0.88}
+              >
+                <LinearGradient
+                  colors={["#22c55e", "#22d3ee"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.addButton}
+                >
+                  <View style={styles.scanPrimaryButtonContent}>
+                    <Ionicons name="camera-outline" size={20} color="#020617" />
+                    <Text style={styles.addButtonText}>Scan Product</Text>
+                  </View>
+                </LinearGradient>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.materialsManualAddButton,
+                  !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line },
+                ]}
+                onPress={() => {
+                  setEditingChangeOrderId(null);
+                  setShowAddForm(true);
+                }}
+                activeOpacity={0.88}
+              >
+                <Text style={[styles.materialsManualAddButtonText, { color: darkMode ? '#F5F7FA' : Colors.text }]}>
+                  + Add Materials/Equipment
+                </Text>
+              </TouchableOpacity>
+              <Text style={[styles.materialsScanHelper, { color: supportSub }]}>
+                Scan a barcode to add Home Depot products faster.
+              </Text>
+            </>
+          ) : (
+            <TouchableOpacity
+              style={styles.addButtonWrapper}
+              onPress={() => {
+                setEditingChangeOrderId(null);
+                setShowAddForm(true);
+              }}
             >
-              <Text style={styles.addButtonText}>+ Add {categoryName}</Text>
-            </LinearGradient>
-          </TouchableOpacity>
+              <LinearGradient
+                colors={["#22c55e", "#22d3ee"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.addButton}
+              >
+                <Text style={styles.addButtonText}>+ Add {categoryName}</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          )}
 
           {isChangeOrdersCategory && (
             <View
@@ -1188,6 +1316,89 @@ export default function CategoryDetailModal({
                           </View>
                         </View>
                       )}
+                    </View>
+                  );
+                }
+
+                if (isMaterialsEquipmentCategory && item.isScannedProduct) {
+                  const scannedLineTotal = Number(item.lineItemTotal || item.amount || 0);
+                  const scannedQuantity = Number(item.quantity || 0);
+                  const scannedUnitCost = Number(item.unitCost || 0);
+                  const scannedMeta =
+                    scannedQuantity > 0 && scannedUnitCost > 0
+                      ? `${scannedQuantity} ea × ${formatMoneyFull(scannedUnitCost, { decimals: 2 })}`
+                      : '';
+                  const scannedDate = new Date(item.dateAdded || item.date).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  });
+                  const cardText = darkMode ? '#FFFFFF' : Colors.text;
+                  const mutedText = darkMode ? 'rgba(226,232,240,0.72)' : Colors.sub;
+
+                  return (
+                    <View key={item.id} style={{ marginBottom: 12 }}>
+                      <TouchableOpacity
+                        style={[
+                          styles.transactionCard,
+                          {
+                            opacity: isItemDeleting ? 0.5 : 1,
+                            backgroundColor: Colors.surface2,
+                            borderWidth: 1,
+                            borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
+                          },
+                        ]}
+                        onPress={() => {
+                          if (!isItemDeleting) setEditingTransaction(item);
+                        }}
+                        activeOpacity={0.7}
+                        disabled={isItemDeleting}
+                      >
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 16 }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: mutedText, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6 }}>
+                              Vendor
+                            </Text>
+                            <Text style={[styles.vendor, { color: cardText, marginTop: 3 }]} numberOfLines={1}>
+                              {item.vendor || 'Home Depot'}
+                            </Text>
+                          </View>
+                          <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={{ color: mutedText, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6 }}>
+                              Amount
+                            </Text>
+                            <Text style={[styles.amount, { marginTop: 3 }]}>
+                              {formatMoneyFull(scannedLineTotal, { decimals: 2 })}
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={{ marginTop: 12 }}>
+                          <Text style={{ color: mutedText, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6 }}>
+                            Description
+                          </Text>
+                          <Text style={[styles.description, { color: mutedText, marginTop: 4 }]} numberOfLines={2} ellipsizeMode="tail">
+                            {item.productTitle || item.material || item.description || 'Scanned product'}
+                          </Text>
+                        </View>
+
+                        {scannedMeta ? (
+                          <Text style={{ color: '#2DFFC4', fontSize: 12, fontWeight: '800', marginTop: 10 }}>
+                            {scannedMeta}
+                          </Text>
+                        ) : null}
+
+                        {item.modelNumber ? (
+                          <Text style={{ color: mutedText, fontSize: 12, fontWeight: '700', marginTop: 6 }}>
+                            Model: {item.modelNumber}
+                          </Text>
+                        ) : null}
+
+                        <View style={[styles.transactionFooter, { marginTop: 12, borderTopColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line }]}>
+                          <Text style={[styles.date, { color: mutedText }]}>Date: {scannedDate}</Text>
+                          <Text style={styles.tapToEdit}>Tap to edit →</Text>
+                        </View>
+                      </TouchableOpacity>
                     </View>
                   );
                 }
@@ -2040,6 +2251,29 @@ export default function CategoryDetailModal({
         />
       </>
     )}
+    {isMaterialsEquipmentCategory ? (
+      <>
+        <ProductScannerModal
+          visible={visible && productScannerVisible}
+          defaultZip={projectLookupZip}
+          onClose={() => setProductScannerVisible(false)}
+          onProductFound={(product) => {
+            setScannedProjectProduct(product);
+            setProductScannerVisible(false);
+          }}
+        />
+        <ProductFoundSheet
+          visible={visible && Boolean(scannedProjectProduct)}
+          product={scannedProjectProduct}
+          destinations={PROJECT_SCAN_DESTINATIONS}
+          defaultDestination="project_budget"
+          lookupZip={projectLookupZip}
+          primaryActionTitle={MATERIALS_SCAN_SAVE_LABEL}
+          onClose={() => setScannedProjectProduct(null)}
+          onSave={handleMaterialsScannedProductSave}
+        />
+      </>
+    ) : null}
     </>
   );
 }
@@ -2211,7 +2445,35 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   addButtonWrapper: {
+    marginBottom: 10,
+  },
+  scanPrimaryButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  materialsManualAddButton: {
+    marginBottom: 8,
+    minHeight: 46,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(34, 197, 94, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.28)',
+  },
+  materialsManualAddButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  materialsScanHelper: {
     marginBottom: 22,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   addButton: {
     paddingVertical: 15,

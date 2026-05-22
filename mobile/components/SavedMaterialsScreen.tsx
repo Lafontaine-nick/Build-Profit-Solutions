@@ -266,7 +266,7 @@ export default function SavedMaterialsScreen({
           />
           <Text style={styles.emptyTitle}>No Saved Materials</Text>
           <Text style={styles.emptyText}>
-            Save materials from the SKU search to view them here
+            Save materials from Material Search to view them here
           </Text>
         </View>
       ) : (

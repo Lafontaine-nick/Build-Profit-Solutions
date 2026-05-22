@@ -29,6 +29,11 @@ export const KEYBOARD_ACCESSORY_IDS = {
    * mount inside the modal itself so iOS does not fall back to the global green `bpsKeyboardDone` bar.
    */
   lineItemModalPlain: 'bps-line-item-modal-plain-keyboard-accessory',
+  /**
+   * Product Found sheet (`ProductFoundSheet`) — empty accessory so qty/cost fields do not pick up
+   * the global green `bpsKeyboardDone` bar above the decimal pad.
+   */
+  productFoundSheetPlain: 'bps-product-found-sheet-plain-keyboard-accessory',
 } as const;
 
 /** Use on `inputAccessoryViewID` so Android does not receive iOS-only IDs. */

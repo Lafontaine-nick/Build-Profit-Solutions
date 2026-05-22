@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -20,6 +20,10 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { useProjectData } from "@/contexts/ProjectDataContext";
 import AddTransactionModal from "./AddTransactionModal";
+import ProductScannerModal from "./ProductScannerModal";
+import ProductFoundSheet from "./ProductFoundSheet";
+import { buildProductNotes } from "../lib/products/productScannerTypes";
+import type { ProductScannerSavePayload } from "../lib/products/productScannerTypes";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, WEB_DESKTOP_EDGE_HORIZONTAL, ScreenLayout, PROJECT_WIDE_CONTAINER_CARD_INSET } from "@/constants/ScreenLayout";
@@ -27,6 +31,8 @@ import { neutralIconPressableWebStyle } from "@/constants/iconPressable";
 
 const BRAND_GREEN = "#22c55e";
 const BRAND_CYAN = "#22d3ee";
+const PROJECT_SCAN_DESTINATIONS = ['project_budget'];
+const MATERIALS_SCAN_SAVE_LABEL = 'Add to Materials & Equipment';
 
 interface MaterialsEquipmentScreenProps {
   navigation: any;
@@ -64,6 +70,8 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
   );
   const { projectData, addExpense, updateExpense } = useProjectData();
   const [showAddModal, setShowAddModal] = useState(false);
+  const [productScannerVisible, setProductScannerVisible] = useState(false);
+  const [scannedProjectProduct, setScannedProjectProduct] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   
@@ -116,6 +124,44 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
     () => transactions.reduce((sum, t) => sum + t.amount, 0),
     [transactions]
   );
+
+  const projectLookupZip = useMemo(() => {
+    const raw =
+      projectData?.customerZip ||
+      projectData?.projectZip ||
+      projectData?.zip ||
+      projectData?.location?.zip;
+    const zip = String(raw || '').replace(/\D/g, '').slice(0, 5);
+    return zip || undefined;
+  }, [projectData]);
+
+  const handleMaterialsScannedProductSave = useCallback((payload: ProductScannerSavePayload) => {
+    const { product, quantity, unitCost, description, notes } = payload;
+    const qty = Math.max(Number(quantity) || 0, 0);
+    const cost = Math.max(Number(unitCost) || 0, 0);
+    const costTotal = Math.round(qty * cost * 100) / 100;
+    const productNotes = buildProductNotes(product, notes);
+    const vendor = product.supplier || 'Scanned supplier';
+    const title = description || product.title || 'Scanned product';
+
+    addExpense({
+      id: `scan-exp-${Date.now()}`,
+      category: 'Materials/Equipment',
+      vendor,
+      material: title,
+      amount: costTotal,
+      date: new Date().toISOString(),
+      notes: productNotes,
+      sku: product.sku || product.model || product.upc,
+      sourceUrl: product.sourceUrl,
+      quantity: qty,
+      unitCost: cost,
+    } as any);
+
+    setScannedProjectProduct(null);
+    setProductScannerVisible(false);
+    Alert.alert('Added!', `${title} added to Materials & Equipment`);
+  }, [addExpense]);
 
   const handleAddTransaction = (transaction: {
     id: string;
@@ -296,7 +342,24 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
             )}
           </View>
 
-          {/* ADD BUTTON */}
+          {/* SCAN + ADD */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.scanButton,
+              !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line },
+              pressed && { opacity: 0.88 },
+            ]}
+            onPress={() => {
+              if (Platform.OS !== "web") {
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              }
+              setProductScannerVisible(true);
+            }}
+          >
+            <Ionicons name="camera-outline" size={18} color={BRAND_GREEN} />
+            <Text style={[styles.scanButtonText, { color: Colors.text }]}>Scan Product</Text>
+          </Pressable>
+
           <Pressable
             style={({ pressed }) => [
               styles.addButtonWrapper,
@@ -419,6 +482,25 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
         categoryName="Materials/Equipment"
         onClose={() => setShowAddModal(false)}
         onSave={handleAddTransaction}
+      />
+      <ProductScannerModal
+        visible={productScannerVisible}
+        defaultZip={projectLookupZip}
+        onClose={() => setProductScannerVisible(false)}
+        onProductFound={(product) => {
+          setScannedProjectProduct(product);
+          setProductScannerVisible(false);
+        }}
+      />
+      <ProductFoundSheet
+        visible={Boolean(scannedProjectProduct)}
+        product={scannedProjectProduct}
+        destinations={PROJECT_SCAN_DESTINATIONS}
+        defaultDestination="project_budget"
+        lookupZip={projectLookupZip}
+        primaryActionTitle={MATERIALS_SCAN_SAVE_LABEL}
+        onClose={() => setScannedProjectProduct(null)}
+        onSave={handleMaterialsScannedProductSave}
       />
     </SafeAreaView>
   );
@@ -732,8 +814,26 @@ const styles = StyleSheet.create({
   },
 
   /* ADD BUTTON */
-  addButtonWrapper: {
+  scanButton: {
     marginTop: 4,
+    marginBottom: 10,
+    minHeight: 46,
+    borderRadius: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "rgba(34, 197, 94, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(34, 197, 94, 0.32)",
+  },
+  scanButtonText: {
+    fontSize: 15,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
+  addButtonWrapper: {
+    marginTop: 0,
     marginBottom: 24,
   },
   addButtonGradient: {

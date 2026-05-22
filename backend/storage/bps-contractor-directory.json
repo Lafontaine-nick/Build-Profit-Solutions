@@ -1,17 +1,17 @@
 [
   {
     "id": "contractor-demo",
-    "companyName": "Build Profit Solutions",
-    "contactName": "Nicholas Lafontaine",
-    "email": "nicholas@buildprofitsolutions.com",
-    "phone": "7028618618",
+    "companyName": "",
+    "contactName": "",
+    "email": "",
+    "phone": "",
     "website": "",
     "trades": [
-      "Owner-Builder"
+      "Owner-Builder · Developer"
     ],
     "zip": "89141",
     "listOnFindSubcontractors": true,
-    "updatedAt": "2026-05-15T03:52:59.136Z"
+    "updatedAt": "2026-05-22T05:38:22.034Z"
   },
   {
     "id": "user_3C199YYNSLjygvWOa0z8TbO1Uuo",
@@ -24,7 +24,21 @@
       "Owner-Builder"
     ],
     "zip": "89141",
+    "listOnFindSubcontractors": false,
+    "updatedAt": "2026-05-22T05:36:47.572Z"
+  },
+  {
+    "id": "user_3DyAi4nBZloO9ZSLl8IOgmMShko",
+    "companyName": "",
+    "contactName": "",
+    "email": "",
+    "phone": "",
+    "website": "",
+    "trades": [
+      "Owner-Builder · Developer"
+    ],
+    "zip": "89141",
     "listOnFindSubcontractors": true,
-    "updatedAt": "2026-05-17T03:39:14.041Z"
+    "updatedAt": "2026-05-22T05:58:22.752Z"
   }
 ]

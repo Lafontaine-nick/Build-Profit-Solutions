@@ -119,6 +119,7 @@ import WebPageShell from '@/components/layout/WebPageShell';
 const BID_STORAGE_KEY = 'bps.currentBid.v2';
 const screenWidth = Dimensions.get('window').width;
 const CART_SCROLL_MAX_HEIGHT = 420;
+const ESTIMATE_SCAN_DESTINATIONS = ['estimate'];
 
 // ============ MATERIALS CATALOG DATA ============
 const VENDORS = [
@@ -12532,14 +12533,14 @@ export default function EstimateGeneratorScreen() {
                         }, 100);
                       }}
                     >
-                      <Ionicons name="barcode-outline" size={20} color={skuModalVisible ? '#fff' : '#2DFFC4'} />
+                      <Ionicons name="search-outline" size={20} color={skuModalVisible ? '#fff' : '#2DFFC4'} />
                       <Text
                         numberOfLines={1}
                         adjustsFontSizeToFit
                         minimumFontScale={0.82}
                         style={{ color: skuModalVisible ? '#fff' : Colors.text, fontSize: 13, fontWeight: '800', textAlign: 'center' }}
                       >
-                        SKU Search
+                        Material Search
                       </Text>
                     </TouchableOpacity>
                     </View>
@@ -12876,8 +12877,9 @@ export default function EstimateGeneratorScreen() {
             <ProductFoundSheet
               visible={Boolean(scannedEstimateProduct)}
               product={scannedEstimateProduct}
-              destinations={['estimate']}
+              destinations={ESTIMATE_SCAN_DESTINATIONS}
               defaultDestination="estimate"
+              lookupZip={bid.customerZip || undefined}
               onClose={() => setScannedEstimateProduct(null)}
               onSave={handleScannedEstimateProductSave}
             />
@@ -20848,7 +20850,7 @@ export default function EstimateGeneratorScreen() {
       : step === 2
         ? 'Project type and location help shape pricing and recommendations.'
         : step === 3
-          ? 'Add the materials needed for the job. Use Add Material for manual entry or SKU Search for faster lookup.'
+          ? 'Add the materials needed for the job. Use Add Material for manual entry or Material Search for faster lookup.'
           : step === 4
             ? 'Add crew labor or subcontractor costs so the estimate reflects the real cost of the job.'
             : step === 5

@@ -378,7 +378,6 @@ export default function ProfileScreen() {
   const [user, setUser] = useState(DEFAULT_CONTRACTOR_USER);
   /** False until first `loadProfile` finishes — blocks autosave from clobbering storage with defaults. */
   const profileReadyRef = useRef(false);
-  const [discoverability, setDiscoverability] = useState({ listOn: false });
 
   // Check notification permission status on mount
   useEffect(() => {
@@ -514,9 +513,6 @@ export default function ProfileScreen() {
               JSON.stringify(profile)
             );
           }
-          setDiscoverability({
-            listOn: !!profile.listOnFindSubcontractors,
-          });
           setUser(prev => ({
             ...prev,
             name: profile.name || prev.name,
@@ -562,9 +558,6 @@ export default function ProfileScreen() {
               JSON.stringify(profile)
             );
           }
-          setDiscoverability({
-            listOn: !!profile.listOnFindSubcontractors,
-          });
           setUser((prev) => ({
             ...prev,
             name: profile.name || prev.name,
@@ -686,9 +679,6 @@ export default function ProfileScreen() {
             JSON.stringify(profile)
           );
         }
-        setDiscoverability({
-          listOn: !!profile.listOnFindSubcontractors,
-        });
         setUser((prev) => ({
           ...prev,
           name: profile.name || prev.name,
@@ -733,12 +723,15 @@ export default function ProfileScreen() {
           if (!profileReadyRef.current) return;
           const listedZip = extractUsZipFromText(user.location);
           let prevServiceZip = '';
+          let listOnFindSubcontractors = false;
           try {
             const existingRaw = await AsyncStorage.getItem('bps.contractorProfile');
             if (existingRaw) {
-              prevServiceZip = String(JSON.parse(existingRaw).serviceZip || '')
+              const existing = JSON.parse(existingRaw);
+              prevServiceZip = String(existing.serviceZip || '')
                 .replace(/\D/g, '')
                 .slice(0, 5);
+              listOnFindSubcontractors = !!existing.listOnFindSubcontractors;
             }
           } catch {
             /* ignore */
@@ -765,7 +758,7 @@ export default function ProfileScreen() {
             licenses: user.licenses,
             companyBio: user.companyBio !== undefined ? user.companyBio : '',
             projectPortfolio: user.projectPortfolio || [],
-            listOnFindSubcontractors: discoverability.listOn,
+            listOnFindSubcontractors,
             serviceZip,
             ...(Platform.OS === 'web' && String(avatarForStorage || '').trim()
               ? { logoUrl: String(avatarForStorage).trim() }
@@ -792,7 +785,7 @@ export default function ProfileScreen() {
             website: user.website,
             trades: user.role ? [user.role] : ['General Contractor'],
             zip: serviceZip,
-            listOnFindSubcontractors: discoverability.listOn && serviceZip.length === 5,
+            listOnFindSubcontractors: listOnFindSubcontractors && serviceZip.length === 5,
           });
         } catch (error) {
           console.error('Failed to save profile:', error);
@@ -803,7 +796,7 @@ export default function ProfileScreen() {
       const timeoutId = setTimeout(saveAllProfileData, 500);
       return () => clearTimeout(timeoutId);
     }
-  }, [user.name, user.company, user.avatar, user.phone, user.email, user.website, user.role, user.location, user.insurance, user.licenses, user.companyBio, user.projectPortfolio, isEditingLicenses, isEditingBio, isEditingPortfolio, discoverability.listOn]);
+  }, [user.name, user.company, user.avatar, user.phone, user.email, user.website, user.role, user.location, user.insurance, user.licenses, user.companyBio, user.projectPortfolio, isEditingLicenses, isEditingBio, isEditingPortfolio]);
 
   const handleSaveProfile = useCallback(async () => {
     try {
@@ -837,12 +830,15 @@ export default function ProfileScreen() {
       // Save to AsyncStorage - include all profile data
       try {
         let prevServiceZip = '';
+        let listOnFindSubcontractors = false;
         try {
           const existingRaw = await AsyncStorage.getItem('bps.contractorProfile');
           if (existingRaw) {
-            prevServiceZip = String(JSON.parse(existingRaw).serviceZip || '')
+            const existing = JSON.parse(existingRaw);
+            prevServiceZip = String(existing.serviceZip || '')
               .replace(/\D/g, '')
               .slice(0, 5);
+            listOnFindSubcontractors = !!existing.listOnFindSubcontractors;
           }
         } catch {
           /* ignore */
@@ -869,7 +865,7 @@ export default function ProfileScreen() {
           licenses: user.licenses,
           companyBio: user.companyBio !== undefined ? user.companyBio : '',
           projectPortfolio: user.projectPortfolio || [],
-          listOnFindSubcontractors: discoverability.listOn,
+          listOnFindSubcontractors,
           serviceZip,
           ...(Platform.OS === 'web' && String(avatarForStorage || '').trim()
             ? { logoUrl: String(avatarForStorage).trim() }
@@ -896,7 +892,7 @@ export default function ProfileScreen() {
           website: user.website,
           trades: editForm.role ? [editForm.role] : ['General Contractor'],
           zip: serviceZip,
-          listOnFindSubcontractors: discoverability.listOn && serviceZip.length === 5,
+          listOnFindSubcontractors: listOnFindSubcontractors && serviceZip.length === 5,
         });
       } catch (error) {
         console.error('Failed to save profile to AsyncStorage:', error);
@@ -910,7 +906,7 @@ export default function ProfileScreen() {
       Alert.alert('Error', 'Failed to save profile. Please try again.');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
-  }, [editForm, user.avatar, user.website, user.companyBio, user.projectPortfolio, user.insurance, user.licenses, discoverability.listOn, updateProfile]);
+  }, [editForm, user.avatar, user.website, user.companyBio, user.projectPortfolio, user.insurance, user.licenses, updateProfile]);
 
   const handleCancelEdit = useCallback(() => {
     const nameParts = user.name?.split(' ') || [];
@@ -2445,59 +2441,6 @@ export default function ProfileScreen() {
             })}
           </>
         ), true)}
-
-        {renderSection('Find Subcontractors', (
-          <>
-            {filterSettings('Build Profit') && (
-              <View style={styles.settingItem}>
-                <View style={styles.settingLeft}>
-                  <View style={[styles.settingIconContainer, { backgroundColor: theme.iconBg }]}>
-                    <MaterialIcons name='location-on' size={20} color={theme.accent} />
-                  </View>
-                  <View style={{ flex: 1, minWidth: 0, maxWidth: Platform.OS !== 'web' ? '62%' : undefined }}>
-                    <Text style={[styles.settingText, { color: theme.text }]}>Show my company in search</Text>
-                    <Text style={{ color: theme.subtext, fontSize: 12, marginTop: 4, lineHeight: 16 }}>
-                      Uses your profile location (include a 5-digit ZIP there). Or enable from Find Subcontractors while searching your area.
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.switchWrapper}>
-                  <Switch
-                    value={discoverability.listOn}
-                    onValueChange={async (v) => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      if (v) {
-                        const fromLoc = extractUsZipFromText(user.location);
-                        let prevZ = '';
-                        try {
-                          const raw = await AsyncStorage.getItem('bps.contractorProfile');
-                          if (raw) {
-                            prevZ = String(JSON.parse(raw).serviceZip || '')
-                              .replace(/\D/g, '')
-                              .slice(0, 5);
-                          }
-                        } catch {
-                          /* ignore */
-                        }
-                        if (!fromLoc && prevZ.length !== 5) {
-                          Alert.alert(
-                            'ZIP needed',
-                            'Add a 5-digit ZIP to your location when editing your profile (e.g. Las Vegas, NV 89141), or turn this on from Find Subcontractors using the ZIP at the top of that screen.'
-                          );
-                          return;
-                        }
-                      }
-                      setDiscoverability({ listOn: v });
-                    }}
-                    trackColor={{ false: theme.border, true: theme.accent }}
-                    thumbColor='#fff'
-                    ios_backgroundColor={theme.border}
-                  />
-                </View>
-              </View>
-            )}
-          </>
-        ))}
 
         {/* Preferences */}
         {renderSection('Preferences', (

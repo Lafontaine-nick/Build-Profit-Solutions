@@ -209,9 +209,23 @@ const buildManualFallback = ({ query, rawCode, store, codeType }) => {
   };
 };
 
+const normalizeBarcodeCode = (raw) => {
+  const trimmed = String(raw || '').trim();
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  const digits = trimmed.replace(/\D/g, '');
+  if (digits.length >= 8 && digits.length <= 14) {
+    if (digits.length === 13 && digits.startsWith('0')) {
+      return digits.slice(1);
+    }
+    return digits;
+  }
+  return trimmed;
+};
+
 router.post('/lookup', async (req, res) => {
   const { code = '', codeType = 'unknown', sourceHint = '', zip = '' } = req.body || {};
-  const rawCode = String(code || '').trim();
+  const rawCode = normalizeBarcodeCode(code);
   if (!rawCode) {
     return res.status(400).json({ error: 'code is required' });
   }

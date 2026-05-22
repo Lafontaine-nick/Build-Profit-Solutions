@@ -1,11 +1,25 @@
-const axios = require('axios');
+import type { ScannedProduct } from '../lib/products/productScannerTypes';
+import {
+  buildHomeDepotProductUrl,
+  getStoreSearchUrl,
+  normalizeScannedBarcode,
+  upcDigitsMatch,
+} from '../lib/products/productScannerTypes';
+
+const parseMoney = (value: unknown): number | null => {
+  const numeric = Number(String(value ?? '').replace(/[^0-9.]/g, ''));
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+};
 
 /**
- * Search Home Depot's permitted federation GraphQL API (same source as SKU search).
- * Returns the best matching product or null.
+ * Home Depot product search from the device (same GraphQL gateway as homedepot.com).
+ * Server-side lookups are often blocked; on-device requests frequently succeed.
  */
-async function searchHomeDepotProduct(query, zip = '') {
-  const keyword = String(query || '').trim();
+export async function lookupHomeDepotDirect(
+  query: string,
+  zip = '',
+): Promise<ScannedProduct | null> {
+  const keyword = normalizeScannedBarcode(String(query || '').trim());
   if (!keyword) return null;
 
   const graphqlQuery = {
@@ -40,57 +54,36 @@ async function searchHomeDepotProduct(query, zip = '') {
   };
 
   try {
-    const response = await axios.post('https://www.homedepot.com/federation-gateway/graphql', graphqlQuery, {
+    const response = await fetch('https://www.homedepot.com/federation-gateway/graphql', {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'User-Agent':
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         Accept: 'application/json',
         Origin: 'https://www.homedepot.com',
         Referer: 'https://www.homedepot.com/',
       },
-      timeout: 8000,
+      body: JSON.stringify(graphqlQuery),
     });
 
-    const products = response.data?.data?.searchModel?.products || [];
-    if (!products.length) return null;
+    if (!response.ok) return null;
 
-    const normalizeUpcDigits = (value) => {
-      const digits = String(value || '').replace(/\D/g, '');
-      if (digits.length === 13 && digits.startsWith('0')) return digits.slice(1);
-      return digits;
-    };
-    const upcDigitsMatch = (a, b) => {
-      const left = normalizeUpcDigits(a);
-      const right = normalizeUpcDigits(b);
-      return Boolean(left && right && left === right);
-    };
-    const buildHomeDepotProductUrl = (productLabel, itemId) => {
-      const slug = String(productLabel || '').trim();
-      const id = String(itemId || '').trim();
-      if (slug && id) return `https://www.homedepot.com/p/${slug}/${id}`;
-      if (id) return `https://www.homedepot.com/p/${id}`;
-      if (slug) return `https://www.homedepot.com/p/${slug}`;
-      return null;
-    };
+    const payload = await response.json();
+    const products = payload?.data?.searchModel?.products || [];
+    if (!products.length) return null;
 
     const isBarcodeQuery = /^\d{8,14}$/.test(keyword);
     const exactUpcMatch = isBarcodeQuery
-      ? products.find((p) => upcDigitsMatch(keyword, p.identifiers?.upcGtin13))
+      ? products.find((entry: any) =>
+          upcDigitsMatch(keyword, String(entry?.identifiers?.upcGtin13 || '')),
+        )
       : null;
-    const selected = exactUpcMatch || (!isBarcodeQuery ? products.find((p) => p.info?.name) : null);
+    const selected = exactUpcMatch || (!isBarcodeQuery ? products.find((entry: any) => entry?.info?.name) : null);
     if (!selected?.info?.name) return null;
 
     const itemId = selected.identifiers?.itemId;
     const productLabel = selected.identifiers?.productLabel;
     const sourceUrl =
-      buildHomeDepotProductUrl(productLabel, itemId) ||
-      `https://www.homedepot.com/s/${encodeURIComponent(keyword).replace(/%20/g, '+')}`;
-
-    const parseMoney = (value) => {
-      const numeric = Number(String(value || '').replace(/[^0-9.]/g, ''));
-      return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
-    };
+      buildHomeDepotProductUrl(productLabel, itemId) || getStoreSearchUrl('hd', keyword);
 
     return {
       title: selected.info.name,
@@ -102,13 +95,12 @@ async function searchHomeDepotProduct(query, zip = '') {
       model: selected.identifiers?.modelNumber || null,
       upc: selected.identifiers?.upcGtin13 || (/^\d{8,14}$/.test(keyword) ? keyword : null),
       sourceUrl,
+      rawCode: keyword,
       lookupStatus: 'found',
-      dataSource: 'homedepot_api',
+      dataSource: 'homedepot_direct',
     };
   } catch (error) {
-    console.warn('Home Depot product search failed:', error.message);
+    console.warn('Direct Home Depot lookup failed:', error);
     return null;
   }
 }
-
-module.exports = { searchHomeDepotProduct };

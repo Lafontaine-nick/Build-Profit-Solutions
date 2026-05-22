@@ -144,11 +144,13 @@ const styles = StyleSheet.create({
   valueDollars: {
     flexShrink: 1,
     minWidth: 0,
+    color: '#FFFFFF',
     fontWeight: '800',
     fontVariant: ['tabular-nums'],
   },
   valueCents: {
     flexShrink: 0,
+    color: '#FFFFFF',
     fontWeight: '800',
     marginLeft: 1,
     fontVariant: ['tabular-nums'],

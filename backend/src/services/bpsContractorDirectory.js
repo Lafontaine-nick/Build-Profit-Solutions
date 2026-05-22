@@ -37,6 +37,30 @@ function saveAll(rows) {
 /**
  * Upsert by id (Clerk user id or stable email-based id).
  */
+function normEmail(email) {
+  return String(email || '')
+    .trim()
+    .toLowerCase();
+}
+
+/** One opt-in listing per email — avoids stale rows when Clerk id changes. */
+function reconcileEmailListings(activeId, email, listOn) {
+  const em = normEmail(email);
+  if (!em) return;
+  const rows = loadAll();
+  let changed = false;
+  for (const r of rows) {
+    if (normEmail(r.email) !== em) continue;
+    const shouldList = listOn && r.id === activeId;
+    if (r.listOnFindSubcontractors !== shouldList) {
+      r.listOnFindSubcontractors = shouldList;
+      r.updatedAt = new Date().toISOString();
+      changed = true;
+    }
+  }
+  if (changed) saveAll(rows);
+}
+
 function upsert(entry) {
   const rows = loadAll();
   const id = String(entry.id || '').trim();
@@ -53,6 +77,7 @@ function upsert(entry) {
   else rows.push(next);
 
   saveAll(rows);
+  reconcileEmailListings(id, next.email, next.listOnFindSubcontractors === true);
   return rows[idx >= 0 ? idx : rows.length - 1];
 }
 

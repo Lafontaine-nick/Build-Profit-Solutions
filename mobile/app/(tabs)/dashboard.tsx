@@ -22,6 +22,8 @@ import { BlurView } from "expo-blur";
 import { Ionicons, Feather, MaterialIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "expo-router";
+import { useNavigation } from "@react-navigation/native";
+import { goToProjectsTab, projectsTabForDisplayStatus, type ProjectsTabParam } from "@/lib/navigation/goToProjectsTab";
 import { useProjectList } from "@/contexts/ProjectListContext";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { useAIManagerMode } from "@/hooks/useAIManagerMode";
@@ -2910,6 +2912,7 @@ function LegacyDashboardGreetingSync({
 const DashboardScreen: React.FC = () => {
   useRequireAuth();
   const router = useRouter();
+  const navigation = useNavigation();
   const { t } = useTranslation();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -3757,12 +3760,12 @@ const DashboardScreen: React.FC = () => {
     return result;
   }, [activeProjects, estimates]);
 
-  const handleProjectPress = useCallback(
-    (project: any) => {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      router.push("/(tabs)/projects");
+  const openProjectsTab = useCallback(
+    (tab: ProjectsTabParam = "active") => {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      void goToProjectsTab(tab, navigation);
     },
-    [router]
+    [navigation],
   );
 
   const handleTabPress = useCallback(
@@ -3814,7 +3817,7 @@ const DashboardScreen: React.FC = () => {
             Platform.OS === "web" && { paddingHorizontal: 0, paddingTop: 0 },
             webScrollContentCap,
           ]}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
         >
         <WebPageShell size="dashboard" scroll={false} contentStyle={{ paddingBottom: 0 }}>
@@ -3936,8 +3939,7 @@ const DashboardScreen: React.FC = () => {
           <OverviewSection
             metrics={metrics}
             projects={projects}
-            onProjectPress={handleProjectPress}
-            onViewAllPress={() => router.push("/(tabs)/projects")}
+            openProjectsTab={openProjectsTab}
             onCreateEstimate={() => router.push("/(tabs)/estimate-generator")}
             aiPmMode={aiPmMode}
             aiData={aiData}
@@ -4438,6 +4440,93 @@ const InsightItem = ({
 
 /* ----------------- OVERVIEW ----------------- */
 
+type DashboardProjectSummaryCardProps = {
+  project: any;
+  aiPmMode: boolean;
+  timelineLatestPlannedMs: Record<string, number>;
+  onPress: () => void;
+};
+
+const DashboardProjectSummaryCard = ({
+  project,
+  aiPmMode,
+  timelineLatestPlannedMs,
+  onPress,
+}: DashboardProjectSummaryCardProps) => {
+  const { theme } = useTheme();
+  const Colors = useMemo(() => getColors(theme), [theme]);
+  const styles = useDashboardStyles(Colors);
+  const timelineMs = resolveTimelineLatestPlannedMsFromMap(project.rawProject, timelineLatestPlannedMs);
+  const op = getDashboardProjectOperationalSignal(project, timelineMs);
+  const signalStyle =
+    op.variant === "risk"
+      ? styles.projectSummarySignalRisk
+      : op.variant === "watch"
+        ? styles.projectSummarySignalWatch
+        : styles.projectSummarySignalMuted;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.projectSummaryPressable,
+        pressed && { opacity: 0.85 },
+      ]}
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${project.name}`}
+    >
+      <View style={styles.projectSummaryRow}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.projectSummaryName} numberOfLines={1} ellipsizeMode="tail">
+            {project.name}
+          </Text>
+          <View style={styles.projectSummaryValueRow}>
+            <Text style={styles.projectSummaryAmount}>{formatMoneyUSD(project.amount)}</Text>
+            {aiPmMode ? (
+              <View style={styles.aiTagChip}>
+                <Ionicons name="sparkles-outline" size={10} color="#22C55E" />
+                <Text style={[styles.aiTagText, { color: "#22C55E" }]}>AI</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+        <View
+          style={[
+            styles.statusPillBase,
+            { backgroundColor: (statusTheme[project.status] ?? statusTheme.Draft).bg },
+          ]}
+        >
+          <Text
+            style={[
+              styles.statusPillTextBase,
+              { color: (statusTheme[project.status] ?? statusTheme.Draft).color },
+            ]}
+          >
+            {project.status}
+          </Text>
+        </View>
+      </View>
+      <View style={styles.projectSummaryProgress}>
+        <View style={styles.progressBarTrack}>
+          <View
+            style={[
+              styles.progressBarFill,
+              {
+                width: `${Math.min(Math.max(project.progress * 100, 0), 100)}%`,
+                backgroundColor: "#22c55e",
+              },
+            ]}
+          />
+        </View>
+        <Text style={styles.progressPercent}>{Math.round(project.progress * 100)}%</Text>
+      </View>
+      <Text style={[styles.projectSummarySignal, signalStyle]} numberOfLines={1}>
+        {op.text}
+      </Text>
+    </Pressable>
+  );
+};
+
 interface OverviewSectionProps {
   metrics: {
     totalBids: string;
@@ -4448,8 +4537,7 @@ interface OverviewSectionProps {
     _rawTotalBids?: number;
   };
   projects: any[];
-  onProjectPress: (project: any) => void;
-  onViewAllPress: () => void;
+  openProjectsTab: (tab?: ProjectsTabParam) => void;
   onCreateEstimate: () => void;
   aiPmMode: boolean;
   aiData: AiDashboardResponse | null;
@@ -4463,8 +4551,7 @@ interface OverviewSectionProps {
 const OverviewSection: React.FC<OverviewSectionProps> = ({
   metrics,
   projects,
-  onProjectPress,
-  onViewAllPress,
+  openProjectsTab,
   onCreateEstimate,
   aiPmMode,
   aiData,
@@ -4765,193 +4852,101 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
       )}
 
       {/* ALL PROJECTS */}
-      {(() => {
-        const totalProjects = projects.length;
-        const activeProjectsCount = projects.filter(
-          (p: any) => p.status === "Active"
-        ).length;
-
-        const ProjectSummaryCard = ({
-          project,
-        }: {
-          project: any;
-        }) => {
-          const timelineMs = resolveTimelineLatestPlannedMsFromMap(project.rawProject, timelineLatestPlannedMs);
-          const op = getDashboardProjectOperationalSignal(project, timelineMs);
-          const signalStyle =
-            op.variant === "risk"
-              ? styles.projectSummarySignalRisk
-              : op.variant === "watch"
-                ? styles.projectSummarySignalWatch
-                : styles.projectSummarySignalMuted;
-          return (
-          <Pressable
-            style={styles.projectSummaryWrapper}
-            onPress={() => onProjectPress(project)}
-          >
-              <View
-                style={[
-                  styles.projectSummaryBorder,
-                  Colors.bg !== '#000000' && { borderWidth: 1, borderColor: Colors.line },
-                ]}
-              >
-                <View style={styles.projectSummaryCard}>
-                <View style={styles.projectSummaryRow}>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text 
-                      style={styles.projectSummaryName}
-                      numberOfLines={1}
-                      ellipsizeMode="tail"
-                    >
-                      {project.name}
-                    </Text>
-                    <View style={styles.projectSummaryValueRow}>
-                      <Text style={styles.projectSummaryAmount}>
-                        {formatMoneyUSD(project.amount)}
-                      </Text>
-                      {aiPmMode && (
-                        <View style={styles.aiTagChip}>
-                          <Ionicons
-                            name="sparkles-outline"
-                            size={10}
-                            color="#22C55E"
-                          />
-                          <Text
-                            style={[
-                              styles.aiTagText,
-                              { color: "#22C55E" },
-                            ]}
-                          >
-                            AI
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                  <View
-                    style={[
-                      styles.statusPillBase,
-                      {
-                        backgroundColor: (statusTheme[project.status] ?? statusTheme.Draft).bg,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.statusPillTextBase,
-                        { color: (statusTheme[project.status] ?? statusTheme.Draft).color },
-                      ]}
-                    >
-                      {project.status}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.projectSummaryProgress}>
-                  <View style={styles.progressBarTrack}>
-                    <LinearGradient
-                      colors={['#22c55e', '#14b8a6', '#0ea5e9']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={[
-                        styles.progressBarFill,
-                        {
-                          width: `${Math.min(Math.max(project.progress * 100, 0), 100)}%`,
-                          opacity: Colors.bg === '#000000' ? 1 : 0.9, // Slightly reduced opacity in light mode
-                        },
-                      ]}
-                    />
-                  </View>
-                  <Text style={styles.progressPercent}>
-                    {Math.round(project.progress * 100)}%
-                  </Text>
-                </View>
-                <Text style={[styles.projectSummarySignal, signalStyle]} numberOfLines={1}>
-                  {op.text}
-                </Text>
-                </View>
-              </View>
-          </Pressable>
-          );
-        };
-
-  return (
-          <View style={styles.allProjectsContainer}>
-            <LinearGradient
-              colors={["#2DFFC4", "#00A6FF"]}
-              start={{ x: 0.05, y: 0.15 }}
-              end={{ x: 0.95, y: 0.85 }}
-              style={{
-                borderRadius: 20,
-                padding: 1,
-                marginBottom: 16,
-              }}
-            >
-              <View style={{
-                /* Light: match page bg (#E8EDF5); dark: unchanged black card */
+      <View style={styles.allProjectsContainer}>
+        <View style={styles.allProjectsFrame}>
+          <LinearGradient
+            pointerEvents="none"
+            colors={["#2DFFC4", "#00A6FF"]}
+            start={{ x: 0.05, y: 0.15 }}
+            end={{ x: 0.95, y: 0.85 }}
+            style={styles.allProjectsFrameGradient}
+          />
+          <View
+            style={[
+              styles.allProjectsInner,
+              {
                 backgroundColor: Colors.bg === '#000000' ? Colors.card : Colors.bg,
-                borderRadius: 18,
-                padding: 12,
-              }}>
-                <View style={styles.cardHeaderRow}>
-                  <View>
-                    <Text style={styles.cardTitle}>{t('dashboard.allProjects')}</Text>
-                    <Text style={styles.cardSubtitle}>
-                      {totalProjects} {t('dashboard.total')} · {activeProjectsCount} {t('dashboard.active')}
-                    </Text>
-                  </View>
-                  <Pressable onPress={onViewAllPress}>
-                    <Text style={styles.linkText}>{t('dashboard.viewAll')}</Text>
-                  </Pressable>
-                </View>
-
-                {projects.length === 0 ? (
-                  <View style={styles.emptyState}>
-                    <View style={styles.emptyStateIconCircle}>
-                      <Ionicons name="document-text-outline" size={32} color="#22c55e" />
-                    </View>
-                    <Text style={styles.emptyStateText}>No projects yet</Text>
-                    <Text style={styles.emptyStateSubtext}>
-                      Create your first estimate to get started
-                    </Text>
-                    <Pressable
-                      onPress={onCreateEstimate}
-                      style={styles.emptyStateCTA}
-                    >
-                      <LinearGradient
-                        colors={["#22c55e", "#22d3ee"]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={styles.emptyStateCTAGradient}
-                      >
-                        <Ionicons name="add" size={18} color="#020617" />
-                        <Text style={styles.emptyStateCTAText}>Create First Estimate</Text>
-                      </LinearGradient>
-                    </Pressable>
-                  </View>
-                ) : projects.length >= 4 ? (
-                  <ScrollView
-                    nestedScrollEnabled
-                    showsVerticalScrollIndicator
-                    style={styles.allProjectsListScroll}
-                    contentContainerStyle={styles.allProjectsListScrollContent}
-                    {...KEYBOARD_SCROLL_DEFAULTS}
-                  >
-                    {projects.map((project) => (
-                      <ProjectSummaryCard key={project.id} project={project} />
-                    ))}
-                  </ScrollView>
-                ) : (
-                  <View style={{ marginTop: 12 }}>
-                    {projects.map((project) => (
-                      <ProjectSummaryCard key={project.id} project={project} />
-                    ))}
-                  </View>
-                )}
+              },
+            ]}
+          >
+            <View style={styles.cardHeaderRow}>
+              <View>
+                <Text style={styles.cardTitle}>{t('dashboard.allProjects')}</Text>
+                <Text style={styles.cardSubtitle}>
+                  {projects.length} {t('dashboard.total')} ·{" "}
+                  {projects.filter((p: any) => p.status === "Active").length} {t('dashboard.active')}
+                </Text>
               </View>
-            </LinearGradient>
+              <Pressable
+                onPress={() => openProjectsTab("active")}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={t('dashboard.viewAll')}
+              >
+                <Text style={styles.linkText}>{t('dashboard.viewAll')}</Text>
+              </Pressable>
+            </View>
+
+            {projects.length === 0 ? (
+              <View style={styles.emptyState}>
+                <View style={styles.emptyStateIconCircle}>
+                  <Ionicons name="document-text-outline" size={32} color="#22c55e" />
+                </View>
+                <Text style={styles.emptyStateText}>No projects yet</Text>
+                <Text style={styles.emptyStateSubtext}>
+                  Create your first estimate to get started
+                </Text>
+                <Pressable onPress={onCreateEstimate} style={styles.emptyStateCTA}>
+                  <LinearGradient
+                    colors={["#22c55e", "#22d3ee"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.emptyStateCTAGradient}
+                  >
+                    <Ionicons name="add" size={18} color="#020617" />
+                    <Text style={styles.emptyStateCTAText}>Create First Estimate</Text>
+                  </LinearGradient>
+                </Pressable>
+              </View>
+            ) : projects.length >= 4 ? (
+              <ScrollView
+                nestedScrollEnabled
+                showsVerticalScrollIndicator
+                style={styles.allProjectsListScroll}
+                contentContainerStyle={styles.allProjectsListScrollContent}
+                keyboardShouldPersistTaps="always"
+                {...KEYBOARD_SCROLL_DEFAULTS}
+              >
+                {projects.map((project) => (
+                  <DashboardProjectSummaryCard
+                    key={project.id}
+                    project={project}
+                    aiPmMode={aiPmMode}
+                    timelineLatestPlannedMs={timelineLatestPlannedMs}
+                    onPress={() =>
+                      openProjectsTab(projectsTabForDisplayStatus(project.status))
+                    }
+                  />
+                ))}
+              </ScrollView>
+            ) : (
+              <View style={styles.allProjectsList}>
+                {projects.map((project) => (
+                  <DashboardProjectSummaryCard
+                    key={project.id}
+                    project={project}
+                    aiPmMode={aiPmMode}
+                    timelineLatestPlannedMs={timelineLatestPlannedMs}
+                    onPress={() =>
+                      openProjectsTab(projectsTabForDisplayStatus(project.status))
+                    }
+                  />
+                ))}
+              </View>
+            )}
           </View>
-        );
-      })()}
+        </View>
+      </View>
 
     </>
   );
@@ -5847,6 +5842,22 @@ const getStyles = (
     paddingHorizontal: 4,
     paddingTop: 16,
   },
+  allProjectsFrame: {
+    position: "relative",
+    borderRadius: 20,
+    marginBottom: 16,
+    padding: 1,
+    overflow: "hidden",
+  },
+  allProjectsFrameGradient: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 20,
+  },
+  allProjectsInner: {
+    borderRadius: 18,
+    padding: 12,
+    zIndex: 1,
+  },
   /** Cap height when 4+ projects so the list scrolls inside the card */
   allProjectsListScroll: {
     marginTop: 12,
@@ -6375,6 +6386,20 @@ const getStyles = (
   },
 
   // PROJECT SUMMARY CARDS
+  projectSummaryPressable: {
+    marginTop: 6,
+    paddingVertical: 11,
+    paddingHorizontal: 11,
+    borderRadius: 14,
+    backgroundColor: Colors.bg === '#000000' ? Colors.surface2 : Colors.surface2,
+    borderWidth: Colors.bg === '#000000' ? 1 : 0,
+    borderColor: Colors.line,
+    zIndex: 2,
+  },
+  allProjectsList: {
+    marginTop: 12,
+    zIndex: 2,
+  },
   projectSummaryWrapper: {
     marginTop: 6,
   },

@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,7 +13,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
-import { lookupScannedProduct } from '../services/productLookupService';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { resolveScannedProductForStoreOpen } from '../services/productLookupService';
+import { getProductPageUrl, normalizeScannedBarcode } from '../lib/products/productScannerTypes';
+import { openStoreProductPage } from '../lib/products/openStoreProductPage';
 import type { ProductSupplierId, ScannedProduct } from '../lib/products/productScannerTypes';
 
 let CameraView = null;
@@ -52,6 +55,8 @@ const BARCODE_TYPES = [
   'upc_a',
 ];
 
+const SCANNER_SCREEN_BG = '#000000';
+
 export default function ProductScannerModal({
   visible,
   onClose,
@@ -65,68 +70,111 @@ export default function ProductScannerModal({
   defaultZip?: string;
   sourceHint?: ProductSupplierId | string;
 }) {
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+      <SafeAreaProvider>
+        <ProductScannerModalContent
+          visible={visible}
+          onClose={onClose}
+          onProductFound={onProductFound}
+          defaultZip={defaultZip}
+          sourceHint={sourceHint}
+        />
+      </SafeAreaProvider>
+    </Modal>
+  );
+}
+
+function ProductScannerModalContent({
+  visible,
+  onClose,
+  onProductFound,
+  defaultZip,
+  sourceHint,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onProductFound: (product: ScannedProduct) => void;
+  defaultZip?: string;
+  sourceHint?: ProductSupplierId | string;
+}) {
+  const insets = useSafeAreaInsets();
   const [isLookingUp, setIsLookingUp] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [manualCode, setManualCode] = useState('');
+  const scanLockRef = useRef(false);
 
   useEffect(() => {
     if (!visible) return;
+    scanLockRef.current = false;
     setIsLocked(false);
     setIsLookingUp(false);
     setManualCode('');
   }, [visible]);
 
-  const resolveCode = useCallback(
+  const openProductFromCode = useCallback(
     async (code: string, codeType = 'manual') => {
-      const trimmed = String(code || '').trim();
-      if (!trimmed || isLookingUp) return;
+      const trimmed = normalizeScannedBarcode(String(code || '').trim());
+      if (!trimmed) {
+        Alert.alert('Search product', 'Enter a UPC, SKU, model number, or product URL to search.');
+        return;
+      }
+      if (scanLockRef.current) return;
+
+      scanLockRef.current = true;
       setIsLocked(true);
       setIsLookingUp(true);
+
+      if (Platform.OS !== 'web') {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      }
+
       try {
-        if (Platform.OS !== 'web') {
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        }
-        const result = await lookupScannedProduct({
+        const product = await resolveScannedProductForStoreOpen({
           code: trimmed,
           codeType,
           sourceHint,
           zip: defaultZip,
         });
-        onProductFound(result.product);
-        setIsLocked(false);
+        const pageUrl = getProductPageUrl(product);
+        if (pageUrl) {
+          await openStoreProductPage(pageUrl);
+        }
+        onProductFound(product);
       } catch (error) {
-        Alert.alert('Product lookup failed', error?.message || 'Try scanning again or enter the code manually.');
+        Alert.alert('Product lookup failed', 'Check your connection and try again.');
+        scanLockRef.current = false;
         setIsLocked(false);
       } finally {
         setIsLookingUp(false);
       }
     },
-    [defaultZip, isLookingUp, onProductFound, sourceHint],
+    [defaultZip, onProductFound, sourceHint],
   );
 
   const handleScanned = useCallback(
     ({ data, type }) => {
-      if (isLocked || isLookingUp) return;
-      resolveCode(data, type || 'barcode');
+      if (scanLockRef.current || isLocked || isLookingUp) return;
+      openProductFromCode(data, type || 'barcode');
     },
-    [isLocked, isLookingUp, resolveCode],
+    [isLocked, isLookingUp, openProductFromCode],
   );
 
   const hasNativeCamera = Boolean(CameraView && useCameraPermissions);
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: '#020617' }}>
-        <View
-          style={{
-            paddingTop: 54,
-            paddingHorizontal: 18,
-            paddingBottom: 14,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
+    <View style={{ flex: 1, backgroundColor: SCANNER_SCREEN_BG }}>
+      <View
+        style={{
+          paddingTop: insets.top + 8,
+          paddingHorizontal: 18,
+          paddingBottom: 14,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          backgroundColor: SCANNER_SCREEN_BG,
+        }}
+      >
           <TouchableOpacity
             onPress={onClose}
             style={{
@@ -144,13 +192,23 @@ export default function ProductScannerModal({
           <View style={{ flex: 1, marginLeft: 14 }}>
             <Text style={{ color: '#FFFFFF', fontSize: 20, fontWeight: '900' }}>Product Scanner</Text>
             <Text style={{ color: 'rgba(226,232,240,0.72)', fontSize: 12, marginTop: 2 }}>
-              Scan a barcode or QR code
+              Scan a barcode or QR code, or enter a UPC, SKU, model number, or product URL manually.
             </Text>
           </View>
           {isLookingUp ? <ActivityIndicator color="#2DFFC4" /> : null}
         </View>
 
-        <View style={{ flex: 1, margin: 18, borderRadius: 24, overflow: 'hidden', backgroundColor: '#111827' }}>
+        <View
+          style={{
+            flex: 1,
+            margin: 18,
+            borderRadius: 24,
+            overflow: 'hidden',
+            backgroundColor: SCANNER_SCREEN_BG,
+            borderWidth: 1,
+            borderColor: 'rgba(255,255,255,0.08)',
+          }}
+        >
           {hasNativeCamera ? (
             <LiveCameraScanner
               isLocked={isLocked}
@@ -162,7 +220,7 @@ export default function ProductScannerModal({
           )}
         </View>
 
-        <View style={{ paddingHorizontal: 18, paddingBottom: 28 }}>
+        <View style={{ paddingHorizontal: 18, paddingBottom: Math.max(insets.bottom, 16) + 12, backgroundColor: SCANNER_SCREEN_BG }}>
           <Text style={{ color: 'rgba(226,232,240,0.72)', fontSize: 12, fontWeight: '700', marginBottom: 8 }}>
             Enter code manually
           </Text>
@@ -185,8 +243,8 @@ export default function ProductScannerModal({
               }}
             />
             <TouchableOpacity
-              onPress={() => resolveCode(manualCode, 'manual')}
-              disabled={!manualCode.trim() || isLookingUp}
+              onPress={() => openProductFromCode(manualCode, 'manual')}
+              disabled={isLookingUp}
               style={{
                 minHeight: 46,
                 borderRadius: 14,
@@ -202,15 +260,17 @@ export default function ProductScannerModal({
           </View>
           {isLocked ? (
             <TouchableOpacity
-              onPress={() => setIsLocked(false)}
+              onPress={() => {
+                scanLockRef.current = false;
+                setIsLocked(false);
+              }}
               style={{ marginTop: 12, alignItems: 'center', paddingVertical: 10 }}
             >
               <Text style={{ color: '#2DFFC4', fontWeight: '800' }}>Scan another code</Text>
             </TouchableOpacity>
           ) : null}
         </View>
-      </View>
-    </Modal>
+    </View>
   );
 }
 
@@ -333,9 +393,10 @@ function LiveCameraScanner({ isLocked, isLookingUp, onScanned }) {
 
   return (
     <CameraView
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: SCANNER_SCREEN_BG }}
       facing="back"
       active
+      barcodeScannerSettings={{ barcodeTypes: BARCODE_TYPES }}
       onBarcodeScanned={isLocked || isLookingUp ? undefined : handleLiveBarcodeScanned}
     >
       <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 28 }}>
@@ -378,23 +439,7 @@ function LiveCameraScanner({ isLocked, isLookingUp, onScanned }) {
           >
             <Text style={{ color: '#001B14', fontWeight: '900' }}>Use dedicated scanner</Text>
           </TouchableOpacity>
-        ) : (
-          <Text
-            style={{
-              marginTop: 10,
-              alignSelf: 'center',
-              color: 'rgba(226,232,240,0.76)',
-              backgroundColor: 'rgba(0,0,0,0.45)',
-              paddingHorizontal: 12,
-              paddingVertical: 8,
-              borderRadius: 10,
-              textAlign: 'center',
-              fontSize: 12,
-            }}
-          >
-            Dedicated scanner unavailable in this build. Live scan is active.
-          </Text>
-        )}
+        ) : null}
         {lastScanHint ? (
           <Text
             style={{

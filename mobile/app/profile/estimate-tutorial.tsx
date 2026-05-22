@@ -109,7 +109,7 @@ export default function EstimateTutorialScreen() {
       number: 4,
       title: 'Add Materials & Supplies',
       description:
-        'Search for materials using the SKU search feature. Add line items with quantities and the system will calculate costs with live pricing.',
+        'Search for materials using Material Search. Add line items with quantities and the system will calculate costs with live pricing.',
       icon: 'inventory',
     },
     {
@@ -272,7 +272,7 @@ export default function EstimateTutorialScreen() {
                         Pro Tips
                       </Text>
                       <Text style={[styles.tipsText, { color: theme.subtext }]}>
-                        • Use SKU search for accurate material pricing{'\n'}
+                        • Use Material Search for accurate material pricing{'\n'}
                         • Save estimates frequently to avoid losing work{'\n'}
                         • Review the Project Analysis before finalizing{'\n'}
                         • Export as PDF for professional proposals

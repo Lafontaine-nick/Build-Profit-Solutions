@@ -288,53 +288,72 @@ function normFindSubsEmail(s: string | undefined | null): string {
     .toLowerCase();
 }
 
-function readFindSubsAuthIdentity(): { id: string; emailNorm: string } {
+function normFindSubsLabel(s: string | undefined | null): string {
+  return String(s || '')
+    .trim()
+    .toLowerCase();
+}
+
+type FindSubsSelfContext = {
+  authIds: string[];
+  authEmailNorm: string;
+  profileEmailNorm: string;
+  profileCompanyNorm: string;
+  profileContactNorm: string;
+};
+
+function readFindSubsSelfContext(
+  profileEmailNorm: string,
+  profileCompanyNorm: string,
+  profileContactNorm: string
+): FindSubsSelfContext {
   try {
     const auth = clerkAuthService.getAuthState();
+    const authId = String(auth?.user?.id || '').trim();
+    const authEmailNorm = normFindSubsEmail(auth?.user?.email ?? null);
+    const fallbackId = authEmailNorm || 'contractor-demo';
+    const authIds = [...new Set([authId, fallbackId].filter(Boolean))];
     return {
-      id: String(auth?.user?.id || '').trim(),
-      emailNorm: normFindSubsEmail(auth?.user?.email ?? null),
+      authIds,
+      authEmailNorm,
+      profileEmailNorm,
+      profileCompanyNorm,
+      profileContactNorm,
     };
   } catch {
-    return { id: '', emailNorm: '' };
+    return {
+      authIds: ['contractor-demo'],
+      authEmailNorm: '',
+      profileEmailNorm,
+      profileCompanyNorm,
+      profileContactNorm,
+    };
   }
 }
 
-/**
- * True when this row is the signed-in user's BPS directory listing.
- * Backend uses `placeId` / `directoryId` like `bps:<register id>` (see googlePlacesContractors.js).
- */
-function isSelfBpsDirectoryCard(
-  sub: any,
-  authId: string,
-  authEmailNorm: string,
-  profileEmailNorm: string
-): boolean {
+/** True when this row is the signed-in user's own company (directory or campaign). */
+function isSelfFindSubsRow(sub: any, ctx: FindSubsSelfContext): boolean {
   const dirId = String(sub.directoryId || '').trim();
-  if (dirId && authId && dirId === authId) return true;
-  const pid = String(sub.placeId || sub.id || '').trim();
-  if (authId && /^bps:/i.test(pid)) {
-    const suffix = pid.replace(/^bps:/i, '').trim();
-    if (suffix && suffix === authId) return true;
-  }
-  const rowEm = normFindSubsEmail(sub.directoryEmail ?? null);
-  if (!rowEm) return false;
-  if (authEmailNorm && rowEm === authEmailNorm) return true;
-  if (profileEmailNorm && rowEm === profileEmailNorm) return true;
-  return false;
-}
+  if (dirId && ctx.authIds.some((id) => id && dirId === id)) return true;
 
-/** Hide your own campaign promo card in this search list (same email as account / profile). */
-function isSelfCampaignSubCard(
-  sub: any,
-  authEmailNorm: string,
-  profileEmailNorm: string
-): boolean {
-  if (!sub?.hasCampaign) return false;
-  const ce = normFindSubsEmail(sub.email ?? null);
-  if (!ce) return false;
-  if (authEmailNorm && ce === authEmailNorm) return true;
-  if (profileEmailNorm && ce === profileEmailNorm) return true;
+  const pid = String(sub.placeId || sub.id || '').trim();
+  if (/^bps:/i.test(pid)) {
+    const suffix = pid.replace(/^bps:/i, '').trim();
+    if (suffix && ctx.authIds.some((id) => id && suffix === id)) return true;
+  }
+
+  const rowEm = normFindSubsEmail(sub.directoryEmail ?? sub.email ?? null);
+  if (rowEm) {
+    if (ctx.authEmailNorm && rowEm === ctx.authEmailNorm) return true;
+    if (ctx.profileEmailNorm && rowEm === ctx.profileEmailNorm) return true;
+  }
+
+  const rowName = normFindSubsLabel(sub.name);
+  if (rowName && ctx.profileCompanyNorm && rowName === ctx.profileCompanyNorm) return true;
+
+  const contactName = normFindSubsLabel(sub.contactName);
+  if (contactName && ctx.profileContactNorm && contactName === ctx.profileContactNorm) return true;
+
   return false;
 }
 
@@ -418,6 +437,8 @@ function SubcontractorSearchModal({
   const [bpsDiscoverListOn, setBpsDiscoverListOn] = useState(false);
   /** Normalized Profile email — used to hide your own directory + campaign cards when hiring subs. */
   const [selfProfileEmailNorm, setSelfProfileEmailNorm] = useState('');
+  const [selfProfileCompanyNorm, setSelfProfileCompanyNorm] = useState('');
+  const [selfProfileContactNorm, setSelfProfileContactNorm] = useState('');
   const [loading, setLoading] = useState(false);
   const [locating, setLocating] = useState(false);
   const [selectedSubcontractor, setSelectedSubcontractor] = useState<any>(null);
@@ -580,8 +601,12 @@ function SubcontractorSearchModal({
           const p = JSON.parse(raw);
           setBpsDiscoverListOn(!!p.listOnFindSubcontractors);
           setSelfProfileEmailNorm(normFindSubsEmail(p.email ?? null));
+          setSelfProfileCompanyNorm(normFindSubsLabel(p.company ?? null));
+          setSelfProfileContactNorm(normFindSubsLabel(p.name ?? null));
         } else {
           setSelfProfileEmailNorm('');
+          setSelfProfileCompanyNorm('');
+          setSelfProfileContactNorm('');
         }
       } catch {
         /* ignore */
@@ -644,24 +669,39 @@ function SubcontractorSearchModal({
     [campaigns]
   );
 
+  const findSubsSelfCtx = useMemo(
+    () =>
+      readFindSubsSelfContext(
+        selfProfileEmailNorm,
+        selfProfileCompanyNorm,
+        selfProfileContactNorm
+      ),
+    [selfProfileEmailNorm, selfProfileCompanyNorm, selfProfileContactNorm]
+  );
+
   const realBpsRows = useMemo(() => {
-    const { emailNorm: authEmailNorm } = readFindSubsAuthIdentity();
     const scoped = campaignSubcontractors.filter((sub) => {
       if (bpsDiscoverListOn) return true;
-      return !isSelfCampaignSubCard(sub, authEmailNorm, selfProfileEmailNorm);
+      return !isSelfFindSubsRow(sub, findSubsSelfCtx);
     });
     return filterByTradeAndQuery(scoped);
-  }, [selectedTrade, searchQuery, campaigns, campaignSubcontractors, selfProfileEmailNorm, bpsDiscoverListOn]);
+  }, [
+    selectedTrade,
+    searchQuery,
+    campaigns,
+    campaignSubcontractors,
+    findSubsSelfCtx,
+    bpsDiscoverListOn,
+  ]);
 
   const apiBpsDirectoryRows = useMemo(() => {
-    const { id: authId, emailNorm: authEmailNorm } = readFindSubsAuthIdentity();
     const rows = googlePlacesResults.filter((s) => {
       if (s.source !== 'bps') return false;
       if (bpsDiscoverListOn) return true;
-      return !isSelfBpsDirectoryCard(s, authId, authEmailNorm, selfProfileEmailNorm);
+      return !isSelfFindSubsRow(s, findSubsSelfCtx);
     });
     return filterByTradeAndQuery(rows);
-  }, [selectedTrade, searchQuery, googlePlacesResults, selfProfileEmailNorm, bpsDiscoverListOn]);
+  }, [selectedTrade, searchQuery, googlePlacesResults, findSubsSelfCtx, bpsDiscoverListOn]);
 
   const combinedBpsRows = useMemo(
     () => [...realBpsRows, ...apiBpsDirectoryRows],
@@ -1693,7 +1733,7 @@ function SubcontractorSearchModal({
                       return;
                     }
                     setBpsDiscoverListOn(v);
-                    void persistBpsDiscoverability(v);
+                    void persistBpsDiscoverability(v).then(() => handleSearch());
                   }}
                   trackColor={{ false: darkMode ? '#334155' : '#cbd5e1', true: '#22c55e' }}
                   thumbColor="#f8fafc"

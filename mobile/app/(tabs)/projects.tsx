@@ -625,6 +625,20 @@ export default function ProjectsScreen() {
               /* ignore */
             }
             setShowSubmitBanner(fromSubmit === 'true');
+          } else if (pendingTab === 'completed') {
+            setActiveTab('completed');
+            try {
+              router.setParams({ tab: 'completed' });
+            } catch {
+              /* ignore */
+            }
+          } else if (pendingTab === 'active') {
+            setActiveTab('active');
+            try {
+              router.setParams({ tab: 'active' });
+            } catch {
+              /* ignore */
+            }
           }
           await AsyncStorage.removeItem('bps.pendingProjectsTab');
           await AsyncStorage.removeItem('bps.fromSubmitBid');
