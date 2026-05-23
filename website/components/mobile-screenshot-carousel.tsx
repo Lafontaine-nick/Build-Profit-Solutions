@@ -1,7 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+
+const SWIPE_THRESHOLD_PX = 48;
 
 type ScreenshotSlide = {
   title: string;
@@ -17,6 +19,7 @@ export function MobileScreenshotCarousel({
   slides: ScreenshotSlide[];
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
   const activeSlide = slides[activeIndex];
 
   const canNavigate = slides.length > 1;
@@ -36,6 +39,33 @@ export function MobileScreenshotCarousel({
     setActiveIndex((current) => (current + 1) % slides.length);
   }
 
+  function handleTouchStart(event: React.TouchEvent<HTMLDivElement>) {
+    if (!canNavigate) return;
+
+    touchStart.current = {
+      x: event.touches[0].clientX,
+      y: event.touches[0].clientY,
+    };
+  }
+
+  function handleTouchEnd(event: React.TouchEvent<HTMLDivElement>) {
+    if (!canNavigate || !touchStart.current) return;
+
+    const touch = event.changedTouches[0];
+    const deltaX = touch.clientX - touchStart.current.x;
+    const deltaY = touch.clientY - touchStart.current.y;
+    touchStart.current = null;
+
+    if (Math.abs(deltaX) < SWIPE_THRESHOLD_PX) return;
+    if (Math.abs(deltaX) <= Math.abs(deltaY)) return;
+
+    if (deltaX < 0) {
+      goToNext();
+    } else {
+      goToPrevious();
+    }
+  }
+
   return (
     <div className="mx-auto max-w-xl rounded-[2rem] bg-gradient-to-br from-emerald-300/25 via-cyan-300/18 to-sky-500/20 p-px shadow-[0_20px_80px_rgba(0,255,200,0.08)] ring-1 ring-white/[0.04]">
       <div className="rounded-[calc(2rem-1px)] bg-slate-900/88 p-5 shadow-2xl shadow-cyan-950/20">
@@ -46,7 +76,9 @@ export function MobileScreenshotCarousel({
         <p className="mt-3 leading-7 text-slate-300">{activeSlide.description}</p>
 
         <div
-          className={`relative mx-auto mt-6 flex w-full items-center justify-center overflow-hidden rounded-[1.75rem] border border-cyan-300/20 bg-black/70 p-3 shadow-[0_20px_70px_rgba(34,211,238,0.10)] ring-1 ring-white/[0.04] ${imageFrameClass}`}
+          className={`relative mx-auto mt-6 flex w-full touch-pan-y select-none items-center justify-center overflow-hidden rounded-[1.75rem] border border-cyan-300/20 bg-black/70 p-3 shadow-[0_20px_70px_rgba(34,211,238,0.10)] ring-1 ring-white/[0.04] ${imageFrameClass}`}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
         >
           <div className="relative h-full w-full overflow-hidden rounded-[1.35rem] bg-slate-950">
             <Image

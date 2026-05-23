@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { LogoLink, SiteNavLinks } from "@/components/site-nav";
+import { LogoLink, MobileSiteNav, SiteNavLinks } from "@/components/site-nav";
 import { siteConfig, siteLaunch, siteLinks } from "@/lib/site";
 
 type ButtonLinkProps = {
@@ -88,22 +88,25 @@ export function Logo() {
 export function SiteHeader() {
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 bg-slate-950/82 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-6 lg:px-8">
+      <div className="relative mx-auto flex max-w-7xl items-center gap-4 px-5 py-4 sm:px-6 lg:px-8">
         <Logo />
         <SiteNavLinks />
-        <div className="hidden items-center gap-3 sm:flex">
-          {siteLaunch.isPrelaunch ? (
-            <ButtonLink href={siteLinks.contact} variant="secondary">
-              Contact
-            </ButtonLink>
-          ) : (
-            <>
-              <ButtonLink href={siteLinks.webApp} variant="secondary">
-                Open Web App
+        <div className="ml-auto flex items-center gap-3">
+          <div className="hidden items-center gap-3 sm:flex">
+            {siteLaunch.isPrelaunch ? (
+              <ButtonLink href={siteLinks.contact} variant="secondary">
+                Contact
               </ButtonLink>
-              <ButtonLink href={siteLinks.signUp}>Sign Up</ButtonLink>
-            </>
-          )}
+            ) : (
+              <>
+                <ButtonLink href={siteLinks.webApp} variant="secondary">
+                  Open Web App
+                </ButtonLink>
+                <ButtonLink href={siteLinks.signUp}>Sign Up</ButtonLink>
+              </>
+            )}
+          </div>
+          <MobileSiteNav />
         </div>
       </div>
     </header>
