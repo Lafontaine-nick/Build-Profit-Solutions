@@ -263,6 +263,8 @@ export function ProductScreenshotCard({
   description,
   image,
   orientation = "mobile",
+  width,
+  height,
   index = 0,
 }: {
   title: string;
@@ -270,20 +272,24 @@ export function ProductScreenshotCard({
   description: string;
   image: string;
   orientation?: string;
+  width?: number;
+  height?: number;
   index?: number;
 }) {
   const desktop = orientation === "desktop";
   const reverse = index % 2 === 1;
+  const imageWidth = width ?? (desktop ? 1024 : 473);
+  const imageHeight = height ?? (desktop ? 870 : 1024);
 
   return (
     <div className="rounded-[2.25rem] bg-gradient-to-br from-emerald-300/25 via-cyan-300/18 to-sky-500/20 p-px shadow-[0_20px_80px_rgba(0,255,200,0.08)] ring-1 ring-white/[0.04]">
       <div className="h-full rounded-[calc(2.25rem-1px)] bg-slate-900/88 p-6 shadow-2xl shadow-cyan-950/20 sm:p-8 lg:p-10">
         <div
-          className={`flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between lg:gap-12 xl:gap-16 ${
-            reverse ? "lg:flex-row-reverse" : ""
-          }`}
+          className={`mx-auto flex w-full max-w-5xl flex-col items-center gap-8 lg:gap-14 ${
+            reverse ? "lg:flex-row-reverse" : "lg:flex-row"
+          } lg:items-center`}
         >
-          <div className="flex-1 lg:max-w-md xl:max-w-lg">
+          <div className="w-full lg:max-w-sm xl:max-w-md">
             {eyebrow ? (
               <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-300">
                 {eyebrow}
@@ -293,33 +299,28 @@ export function ProductScreenshotCard({
             <p className="mt-3 text-base leading-7 text-slate-300 sm:text-lg">{description}</p>
           </div>
 
-          <div className="relative mx-auto shrink-0 lg:mx-0">
+          <div className="relative w-fit shrink-0">
             <div
               aria-hidden="true"
-              className={`absolute inset-0 rounded-[2rem] bg-gradient-to-br from-emerald-400/15 via-cyan-400/10 to-transparent blur-2xl ${
-                desktop ? "scale-105" : "scale-110"
-              }`}
+              className="absolute -inset-4 rounded-[2rem] bg-gradient-to-br from-emerald-400/15 via-cyan-400/10 to-transparent blur-2xl"
             />
-            <div
-              className={`relative flex items-center justify-center overflow-hidden rounded-[1.75rem] border border-cyan-300/20 bg-black/70 p-3 shadow-[0_20px_70px_rgba(34,211,238,0.10)] ring-1 ring-white/[0.04] sm:p-4 ${
-                desktop
-                  ? "aspect-[3/4] w-[min(100%,20rem)] sm:w-[22rem] lg:w-[24rem]"
-                  : "aspect-[9/16] w-[min(100%,17.5rem)] sm:w-[18rem]"
-              }`}
-            >
-              <div className="relative h-full w-full overflow-hidden rounded-[1.35rem] bg-slate-950">
-                <Image
-                  src={image}
-                  alt={`${title} screenshot`}
-                  fill
-                  sizes={
-                    desktop
-                      ? "(min-width: 1024px) 384px, 320px"
-                      : "(min-width: 1024px) 288px, 280px"
-                  }
-                  className="object-contain"
-                />
-              </div>
+            <div className="relative overflow-hidden rounded-[1.75rem] border border-cyan-300/20 bg-black/70 p-2 shadow-[0_20px_70px_rgba(34,211,238,0.10)] ring-1 ring-white/[0.04] sm:p-3">
+              <Image
+                src={image}
+                alt={`${title} screenshot`}
+                width={imageWidth}
+                height={imageHeight}
+                sizes={
+                  desktop
+                    ? "(min-width: 1024px) 520px, 90vw"
+                    : "(min-width: 1024px) 288px, 280px"
+                }
+                className={`block rounded-[1.25rem] bg-slate-950 ${
+                  desktop
+                    ? "h-auto max-h-[18rem] w-auto max-w-[min(100vw-4rem,32rem)] sm:max-h-[20rem]"
+                    : "h-auto max-h-[30rem] w-auto max-w-[min(100vw-4rem,17.5rem)] sm:max-h-[32rem]"
+                }`}
+              />
             </div>
           </div>
         </div>

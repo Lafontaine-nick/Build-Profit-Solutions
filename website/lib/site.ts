@@ -121,6 +121,8 @@ export const primaryScreenshots = [
       "Live project metrics, AI insights, and profit signals at a glance.",
     image: "/screenshots/dashboard-overview.png",
     orientation: "mobile",
+    width: 473,
+    height: 1024,
   },
   {
     title: "Estimate Summary",
@@ -129,6 +131,8 @@ export const primaryScreenshots = [
       "Cost breakdowns, bid totals, markup, and margin checks in one workflow.",
     image: "/screenshots/estimate-summary.png",
     orientation: "mobile",
+    width: 473,
+    height: 1024,
   },
   {
     title: "Project Profit Tracking",
@@ -137,6 +141,8 @@ export const primaryScreenshots = [
       "Project-level budget and profit views help contractors protect margin.",
     image: "/screenshots/project-profit.png",
     orientation: "mobile",
+    width: 473,
+    height: 1024,
   },
   {
     title: "Receipt OCR",
@@ -145,6 +151,8 @@ export const primaryScreenshots = [
       "Scan receipts and auto-fill vendor, amount, and confidence details.",
     image: "/screenshots/ocr-receipt.png",
     orientation: "mobile",
+    width: 473,
+    height: 1024,
   },
   {
     title: "Find Subcontractors",
@@ -153,6 +161,8 @@ export const primaryScreenshots = [
       "Search nearby contractors and verified BPS subcontractors by trade.",
     image: "/screenshots/find-subcontractors.png",
     orientation: "mobile",
+    width: 473,
+    height: 1024,
   },
   {
     title: "Client Proposal PDF",
@@ -161,6 +171,8 @@ export const primaryScreenshots = [
       "Generate professional client-facing agreements, pricing, and schedules.",
     image: "/screenshots/proposal-pdf.png",
     orientation: "desktop",
+    width: 1024,
+    height: 870,
   },
 ];
 
