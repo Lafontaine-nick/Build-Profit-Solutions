@@ -151,15 +151,6 @@ export const primaryScreenshots = [
     orientation: "mobile",
   },
   {
-    title: "Find Subcontractors",
-    eyebrow: "Directory",
-    description:
-      "Search nearby contractors and verified BPS subcontractors by trade.",
-    image: "/screenshots/find-subcontractors.png",
-    secondaryImage: "/screenshots/team-management.png",
-    orientation: "mobile",
-  },
-  {
     title: "Contract PDF & CPA Summary",
     eyebrow: "Documents",
     description:
