@@ -160,12 +160,12 @@ export const primaryScreenshots = [
     orientation: "mobile",
   },
   {
-    title: "Bid Export & CPA Summary",
+    title: "Contract PDF & CPA Summary",
     eyebrow: "Documents",
     description:
-      "Stack client-ready bid exports with CPA-ready tax summaries from the same project data.",
-    image: "/screenshots/proposal-pdf.png",
-    secondaryImage: "/screenshots/tax-ready-report.png",
+      "Generate polished contract exports and CPA-ready financial summaries from the same project data.",
+    image: "/screenshots/generate-contract-pdf.png",
+    secondaryImage: "/screenshots/cpa-summary-pdf.png",
     orientation: "desktop",
   },
 ];

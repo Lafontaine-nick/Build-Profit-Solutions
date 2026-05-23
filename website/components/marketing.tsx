@@ -270,10 +270,10 @@ function ProductScreenshotFrame({
 }) {
   return (
     <div
-      className={`relative flex items-center justify-center overflow-hidden border border-cyan-300/20 bg-black/70 shadow-[0_20px_70px_rgba(34,211,238,0.10)] ring-1 ring-white/[0.04] ${
+      className={`relative flex items-center justify-center overflow-hidden border border-cyan-300/20 bg-black/75 shadow-[0_18px_60px_rgba(34,211,238,0.10)] ring-1 ring-white/[0.04] ${
         desktop
           ? "aspect-[16/10] w-full rounded-[1.35rem] p-2 sm:p-3"
-          : "aspect-[9/16] w-[min(48%,12.5rem)] rounded-[1.5rem] p-2 sm:p-2.5"
+          : "h-[22rem] w-[10.25rem] rounded-[1.5rem] p-2 sm:h-[24rem] sm:w-[11.25rem] sm:p-2.5"
       }`}
     >
       <div
@@ -320,8 +320,8 @@ export function ProductScreenshotCard({
         <div
           className={`relative mx-auto flex rounded-[1.5rem] border border-cyan-300/16 bg-slate-950/55 p-3 shadow-[0_16px_55px_rgba(34,211,238,0.08)] ${
             desktop
-              ? "max-w-3xl flex-col gap-4"
-              : "max-w-xl items-end justify-center gap-4"
+              ? "max-w-4xl flex-col gap-4 sm:p-4"
+              : "max-w-xl items-end justify-center gap-4 sm:gap-5"
           }`}
         >
           <div
@@ -346,14 +346,16 @@ export function ProductScreenshotCard({
             />
           </div>
         </div>
-        <div className={desktop ? "mx-auto max-w-3xl pt-5" : "pt-5"}>
+        <div className={desktop ? "mx-auto max-w-4xl pt-5" : "pt-5"}>
           {eyebrow ? (
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-300">
               {eyebrow}
             </p>
           ) : null}
-          <h3 className="mt-2 text-lg font-black text-white">{title}</h3>
-          <p className="mt-2 text-sm leading-6 text-slate-300">{description}</p>
+          <h3 className="mt-2 text-xl font-black text-white">{title}</h3>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
+            {description}
+          </p>
         </div>
       </div>
     </div>
