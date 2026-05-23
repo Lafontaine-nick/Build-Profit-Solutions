@@ -120,6 +120,7 @@ export const primaryScreenshots = [
     description:
       "Live project metrics, AI insights, and profit signals at a glance.",
     image: "/screenshots/dashboard-overview.png",
+    secondaryImage: "/screenshots/ai-assistant.png",
     orientation: "mobile",
   },
   {
@@ -128,6 +129,7 @@ export const primaryScreenshots = [
     description:
       "Cost breakdowns, bid totals, markup, and margin checks in one workflow.",
     image: "/screenshots/estimate-summary.png",
+    secondaryImage: "/screenshots/payment-schedule.png",
     orientation: "mobile",
   },
   {
@@ -136,6 +138,7 @@ export const primaryScreenshots = [
     description:
       "Project-level budget and profit views help contractors protect margin.",
     image: "/screenshots/project-profit.png",
+    secondaryImage: "/screenshots/tax-center.png",
     orientation: "mobile",
   },
   {
@@ -144,6 +147,7 @@ export const primaryScreenshots = [
     description:
       "Scan receipts and auto-fill vendor, amount, and confidence details.",
     image: "/screenshots/ocr-receipt.png",
+    secondaryImage: "/screenshots/materials-equipment.png",
     orientation: "mobile",
   },
   {
@@ -156,10 +160,10 @@ export const primaryScreenshots = [
     orientation: "mobile",
   },
   {
-    title: "Client Proposal PDF",
+    title: "Proposals & CPA Reports",
     eyebrow: "Documents",
     description:
-      "Generate professional client-facing agreements, pricing, and schedules.",
+      "Generate client-facing proposal PDFs and CPA-ready tax summaries from the same project data.",
     image: "/screenshots/proposal-pdf.png",
     secondaryImage: "/screenshots/tax-ready-report.png",
     orientation: "desktop",

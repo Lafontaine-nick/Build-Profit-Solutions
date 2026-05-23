@@ -262,26 +262,32 @@ function ProductScreenshotFrame({
   title,
   label,
   desktop,
+  stacked = false,
 }: {
   image: string;
   title: string;
   label?: string;
   desktop: boolean;
+  stacked?: boolean;
 }) {
   return (
     <div
-      className={`relative flex items-center justify-center overflow-hidden rounded-[1.75rem] border border-cyan-300/20 bg-black/70 p-3 shadow-[0_20px_70px_rgba(34,211,238,0.10)] ring-1 ring-white/[0.04] sm:p-4 ${
+      className={`relative flex items-center justify-center overflow-hidden rounded-[1.75rem] border border-cyan-300/20 bg-black/70 p-2.5 shadow-[0_20px_70px_rgba(34,211,238,0.10)] ring-1 ring-white/[0.04] sm:p-3 ${
         desktop
-          ? "aspect-[16/10] w-[min(100%,18rem)] sm:w-[20rem]"
-          : "aspect-[9/16] w-[min(100%,15rem)] sm:w-[17.5rem]"
+          ? stacked
+            ? "aspect-[16/10] w-full max-w-[22rem] sm:max-w-[24rem]"
+            : "aspect-[16/10] w-[min(100%,18rem)] sm:w-[20rem]"
+          : stacked
+            ? "aspect-[9/16] w-[min(100%,12.5rem)] sm:w-[13.5rem]"
+            : "aspect-[9/16] w-[min(100%,15rem)] sm:w-[17.5rem]"
       }`}
     >
-      <div className="relative h-full w-full overflow-hidden rounded-[1.35rem] bg-slate-950">
+      <div className="relative h-full w-full overflow-hidden rounded-[1.25rem] bg-slate-950">
         <Image
           src={image}
           alt={`${title}${label ? ` ${label}` : ""} screenshot`}
           fill
-          sizes={desktop ? "320px" : "280px"}
+          sizes={desktop ? "384px" : stacked ? "216px" : "280px"}
           className="object-contain"
         />
       </div>
@@ -302,7 +308,7 @@ export function ProductScreenshotCard({
   eyebrow?: string;
   description: string;
   image: string;
-  secondaryImage?: string;
+  secondaryImage: string;
   orientation?: string;
   index?: number;
 }) {
@@ -334,16 +340,20 @@ export function ProductScreenshotCard({
                 desktop ? "scale-105" : "scale-110"
               }`}
             />
-            <div className="relative flex items-end justify-center gap-4 sm:gap-5">
-              <ProductScreenshotFrame image={image} title={title} desktop={desktop} />
-              {secondaryImage ? (
-                <ProductScreenshotFrame
-                  image={secondaryImage}
-                  title={title}
-                  label="companion"
-                  desktop={desktop}
-                />
-              ) : null}
+            <div className="relative flex flex-col items-center gap-4 sm:gap-5">
+              <ProductScreenshotFrame
+                image={image}
+                title={title}
+                desktop={desktop}
+                stacked
+              />
+              <ProductScreenshotFrame
+                image={secondaryImage}
+                title={title}
+                label="companion"
+                desktop={desktop}
+                stacked
+              />
             </div>
           </div>
         </div>
