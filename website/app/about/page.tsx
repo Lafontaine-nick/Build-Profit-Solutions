@@ -147,7 +147,7 @@ export default function AboutPage() {
               Founder
             </p>
             <h2 className="mt-3 text-3xl font-black text-white sm:text-4xl">
-              {siteConfig.founderName}
+              Nicholas LaFontaine
             </h2>
             <p className="mt-2 text-base font-semibold text-emerald-300">
               {siteConfig.founderTitle}
