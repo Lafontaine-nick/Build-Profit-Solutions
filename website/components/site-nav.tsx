@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { navItems, siteLaunch, siteLinks } from "@/lib/site";
 
 function scrollToTop() {
@@ -95,27 +96,157 @@ function MobileNavLink({
         }
         onNavigate();
       }}
-      className="block rounded-xl px-4 py-3 text-base font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white"
+      className="flex items-center rounded-2xl px-4 py-3.5 text-base font-semibold text-slate-100 transition active:bg-white/10 hover:bg-white/10 hover:text-white"
     >
       {label}
     </Link>
   );
 }
 
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+      <path
+        d="M6 6l12 12M18 6L6 18"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function MenuIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+      <path
+        d="M4 7h16M4 12h16M4 17h16"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export function MobileSiteNav() {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     setOpen(false);
   }, [pathname]);
 
   useEffect(() => {
-    document.body.style.overflow = open ? "hidden" : "";
+    if (!open) {
+      document.body.style.overflow = "";
+      return;
+    }
+
+    document.body.style.overflow = "hidden";
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("keydown", onKeyDown);
     return () => {
       document.body.style.overflow = "";
+      document.removeEventListener("keydown", onKeyDown);
     };
   }, [open]);
+
+  function closeMenu() {
+    setOpen(false);
+  }
+
+  const menuPortal =
+    open && mounted
+      ? createPortal(
+          <>
+            <div
+              role="presentation"
+              aria-hidden="true"
+              className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-[2px]"
+              onClick={closeMenu}
+            />
+            <nav
+              id="mobile-site-nav"
+              aria-label="Mobile navigation"
+              className="fixed inset-y-0 right-0 z-[101] flex w-[min(100vw,20rem)] flex-col border-l border-white/10 bg-slate-950/98 shadow-2xl shadow-cyan-950/40 backdrop-blur-xl"
+              style={{
+                paddingTop: "max(1rem, env(safe-area-inset-top))",
+                paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+              }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+                <p className="text-xs font-bold uppercase tracking-[0.28em] text-emerald-300">
+                  Menu
+                </p>
+                <button
+                  type="button"
+                  aria-label="Close menu"
+                  onClick={closeMenu}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] text-white transition hover:border-emerald-200 hover:bg-white/10"
+                >
+                  <CloseIcon />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-3 py-4">
+                <div className="grid gap-1">
+                  {navItems.map((item) => (
+                    <MobileNavLink
+                      key={item.href}
+                      href={item.href}
+                      label={item.label}
+                      onNavigate={closeMenu}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t border-white/10 px-5 py-4">
+                {siteLaunch.isPrelaunch ? (
+                  <a
+                    href={siteLinks.contact}
+                    onClick={closeMenu}
+                    className="block rounded-full border border-emerald-300/35 bg-white/10 px-4 py-3.5 text-center text-sm font-bold text-white transition hover:border-emerald-200 hover:bg-white/15"
+                  >
+                    Contact
+                  </a>
+                ) : (
+                  <div className="grid gap-2">
+                    <Link
+                      href={siteLinks.webApp}
+                      onClick={closeMenu}
+                      className="block rounded-full border border-emerald-300/35 bg-white/10 px-4 py-3.5 text-center text-sm font-bold text-white transition hover:border-emerald-200 hover:bg-white/15"
+                    >
+                      Open Web App
+                    </Link>
+                    <Link
+                      href={siteLinks.signUp}
+                      onClick={closeMenu}
+                      className="block rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 px-4 py-3.5 text-center text-sm font-black text-slate-950 transition hover:brightness-110"
+                    >
+                      Sign Up
+                    </Link>
+                  </div>
+                )}
+              </div>
+            </nav>
+          </>,
+          document.body,
+        )
+      : null;
 
   return (
     <div className="lg:hidden">
@@ -127,82 +258,9 @@ export function MobileSiteNav() {
         onClick={() => setOpen((current) => !current)}
         className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] text-white transition hover:border-emerald-200 hover:bg-white/10"
       >
-        <span className="sr-only">{open ? "Close menu" : "Open menu"}</span>
-        {open ? (
-          <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
-            <path
-              d="M6 6l12 12M18 6L6 18"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-          </svg>
-        ) : (
-          <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
-            <path
-              d="M4 7h16M4 12h16M4 17h16"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-          </svg>
-        )}
+        {open ? <CloseIcon /> : <MenuIcon />}
       </button>
-
-      {open ? (
-        <>
-          <button
-            type="button"
-            aria-label="Close menu"
-            className="fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-sm"
-            onClick={() => setOpen(false)}
-          />
-          <nav
-            id="mobile-site-nav"
-            aria-label="Mobile navigation"
-            className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-[min(20rem,calc(100vw-2.5rem))] overflow-hidden rounded-2xl border border-white/10 bg-slate-950/95 p-2 shadow-2xl shadow-cyan-950/30 backdrop-blur-xl"
-          >
-            <div className="grid gap-1">
-              {navItems.map((item) => (
-                <MobileNavLink
-                  key={item.href}
-                  href={item.href}
-                  label={item.label}
-                  onNavigate={() => setOpen(false)}
-                />
-              ))}
-            </div>
-            <div className="mt-2 border-t border-white/10 p-2">
-              {siteLaunch.isPrelaunch ? (
-                <a
-                  href={siteLinks.contact}
-                  onClick={() => setOpen(false)}
-                  className="block rounded-full border border-emerald-300/35 bg-white/10 px-4 py-3 text-center text-sm font-bold text-white transition hover:border-emerald-200 hover:bg-white/15"
-                >
-                  Contact
-                </a>
-              ) : (
-                <div className="grid gap-2">
-                  <Link
-                    href={siteLinks.webApp}
-                    onClick={() => setOpen(false)}
-                    className="block rounded-full border border-emerald-300/35 bg-white/10 px-4 py-3 text-center text-sm font-bold text-white transition hover:border-emerald-200 hover:bg-white/15"
-                  >
-                    Open Web App
-                  </Link>
-                  <Link
-                    href={siteLinks.signUp}
-                    onClick={() => setOpen(false)}
-                    className="block rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 px-4 py-3 text-center text-sm font-black text-slate-950 transition hover:brightness-110"
-                  >
-                    Sign Up
-                  </Link>
-                </div>
-              )}
-            </div>
-          </nav>
-        </>
-      ) : null}
+      {menuPortal}
     </div>
   );
 }
