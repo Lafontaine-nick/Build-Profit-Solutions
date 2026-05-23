@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -65,6 +65,8 @@ export default function BetaFeedbackPanel({ preset, onCancel }: BetaFeedbackPane
   const [intendedAction, setIntendedAction] = useState('');
   const [expectedResult, setExpectedResult] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const intendedActionRef = useRef<TextInput>(null);
+  const expectedResultRef = useRef<TextInput>(null);
 
   useEffect(() => {
     if (preset?.feedbackType) setFeedbackType(preset.feedbackType);
@@ -141,7 +143,6 @@ export default function BetaFeedbackPanel({ preset, onCancel }: BetaFeedbackPane
     const chipActiveBg = darkMode ? 'rgba(34,197,94,0.22)' : 'rgba(34,197,94,0.18)';
     const chipActiveBorder = '#22c55e';
     const muted = darkMode ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)';
-    const pageBarBg = darkMode ? '#000000' : Colors.bg;
 
     return StyleSheet.create({
       root: {
@@ -163,7 +164,7 @@ export default function BetaFeedbackPanel({ preset, onCancel }: BetaFeedbackPane
       },
       scrollContent: {
         paddingTop: 16,
-        paddingBottom: 24,
+        paddingBottom: Platform.OS === 'web' ? 40 : 24,
       },
       headerRow: {
         flexDirection: 'row',
@@ -270,43 +271,15 @@ export default function BetaFeedbackPanel({ preset, onCancel }: BetaFeedbackPane
         textAlignVertical: 'center',
         fontSize: 14,
       },
-      actionBar: {
-        borderTopWidth: StyleSheet.hairlineWidth,
-        borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
-        paddingHorizontal: 0,
-        paddingTop: 14,
-        paddingBottom: Platform.OS === 'ios' ? 28 : 18,
-        backgroundColor: pageBarBg,
-      },
-      actions: {
-        flexDirection: 'row',
-        gap: 12,
-        alignItems: 'center',
-      },
-      btnSecondary: {
-        flex: 1,
-        paddingVertical: 15,
-        borderRadius: RADIUS.button,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'transparent',
-        borderWidth: 1,
-        borderColor: darkMode ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.22)',
-      },
-      btnPrimary: {
-        flex: 1,
+      sendButton: {
+        marginTop: 8,
         paddingVertical: 15,
         borderRadius: RADIUS.button,
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: '#22c55e',
       },
-      btnSecondaryText: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: muted,
-      },
-      btnPrimaryText: {
+      sendText: {
         fontSize: 16,
         fontWeight: '700',
         color: '#050B13',
@@ -446,59 +419,56 @@ export default function BetaFeedbackPanel({ preset, onCancel }: BetaFeedbackPane
                     {...placeholderProps}
                     value={description}
                     onChangeText={setDescription}
+                    blurOnSubmit={false}
+                    returnKeyType='default'
                   />
                 </View>
 
                 <View style={styles.sectionBlock}>
                   <Text style={styles.sectionLabel}>What were you trying to do? (optional)</Text>
                   <TextInput
+                    ref={intendedActionRef}
                     style={[styles.field, styles.fieldSecondary]}
                     placeholder='Example: Add a line item, update markup, review project health…'
                     {...placeholderProps}
                     value={intendedAction}
                     onChangeText={setIntendedAction}
+                    returnKeyType='next'
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => expectedResultRef.current?.focus()}
                   />
                 </View>
 
                 <View style={styles.sectionBlock}>
                   <Text style={styles.sectionLabel}>Expected result (optional)</Text>
                   <TextInput
+                    ref={expectedResultRef}
                     style={[styles.field, styles.fieldSecondary]}
                     placeholder='What should have happened instead?'
                     {...placeholderProps}
                     value={expectedResult}
                     onChangeText={setExpectedResult}
+                    returnKeyType={Platform.OS === 'web' ? 'send' : 'done'}
+                    onSubmitEditing={() => void submit()}
                   />
                 </View>
+
+                <TouchableOpacity
+                  style={[styles.sendButton, submitting && { opacity: 0.7 }]}
+                  onPress={() => void submit()}
+                  disabled={submitting}
+                  activeOpacity={0.88}
+                >
+                  {submitting ? (
+                    <ActivityIndicator color='#050B13' />
+                  ) : (
+                    <Text style={styles.sendText}>Send feedback</Text>
+                  )}
+                </TouchableOpacity>
               </View>
             </View>
           </LinearGradient>
         </ScrollView>
-
-        <View style={styles.actionBar}>
-          <View style={styles.actions}>
-            <TouchableOpacity
-              style={styles.btnSecondary}
-              onPress={onCancel}
-              disabled={submitting}
-              activeOpacity={0.65}
-            >
-              <Text style={styles.btnSecondaryText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.btnPrimary}
-              onPress={submit}
-              disabled={submitting}
-              activeOpacity={0.88}
-            >
-              {submitting ? (
-                <ActivityIndicator color='#050B13' />
-              ) : (
-                <Text style={styles.btnPrimaryText}>Send</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
       </View>
     </View>
   );

@@ -13,7 +13,7 @@ const PLAN_DEFINITIONS = [
     id: 'basic',
     envVar: 'STRIPE_PRICE_BASIC',
     stripePriceIdFallback: 'price_1SVnzJAEo74nL2FWW479mvXJ',
-    priceFallback: 39,
+    priceFallback: 45,
     name: 'Basic Plan',
     description: 'Get started with essential tools for solo contractors.',
     tag: 'Starter',

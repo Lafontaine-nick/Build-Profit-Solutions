@@ -4912,6 +4912,7 @@ export default function EstimateGeneratorScreen() {
   const lastEstimateAiUndoRef = useRef(null);
   /** Declared before any hook reads them — avoids temporal-dead-zone crashes when Estimates mounts (web ErrorBoundary). */
   const [materialsCart, setMaterialsCart] = useState([]);
+  const [activeScope, setActiveScope] = useState('kitchen');
   const [materialNeedQty, setMaterialNeedQty] = useState({});
   const [rentalCart, setRentalCart] = useState([]);
   useEffect(() => {
@@ -6636,9 +6637,6 @@ export default function EstimateGeneratorScreen() {
   const [contractLangWorkNotes, setContractLangWorkNotes] = useState([]);
   const contractLangDraftsKeyRef = useRef('');
   
-  // Enhanced materials state
-  const [activeScope, setActiveScope] = useState('kitchen');
-
   const normalizeScope = useCallback((value) => {
     if (!value) return 'other';
     const slug = value
@@ -12544,32 +12542,34 @@ export default function EstimateGeneratorScreen() {
                       </Text>
                     </TouchableOpacity>
                     </View>
-                    <TouchableOpacity
-                      style={{
-                        minHeight: 56,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 9,
-                        backgroundColor: productScannerVisible
-                          ? '#2DFFC4'
-                          : (darkMode ? 'rgba(45, 255, 196, 0.08)' : 'rgba(45, 255, 196, 0.1)'),
-                        borderRadius: 16,
-                        borderWidth: 1,
-                        borderColor: productScannerVisible
-                          ? '#2DFFC4'
-                          : 'rgba(45, 255, 196, 0.28)',
-                        paddingVertical: 13,
-                        paddingHorizontal: 16,
-                      }}
-                      onPress={() => {
-                        setProductScannerVisible(true);
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }}
-                    >
-                      <Ionicons name="camera-outline" size={20} color={productScannerVisible ? '#001B14' : '#2DFFC4'} />
-                      <Text style={{ color: productScannerVisible ? '#001B14' : Colors.text, fontSize: 15, fontWeight: '900' }}>Scan Product</Text>
-                    </TouchableOpacity>
+                    {Platform.OS !== 'web' ? (
+                      <TouchableOpacity
+                        style={{
+                          minHeight: 56,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 9,
+                          backgroundColor: productScannerVisible
+                            ? '#2DFFC4'
+                            : (darkMode ? 'rgba(45, 255, 196, 0.08)' : 'rgba(45, 255, 196, 0.1)'),
+                          borderRadius: 16,
+                          borderWidth: 1,
+                          borderColor: productScannerVisible
+                            ? '#2DFFC4'
+                            : 'rgba(45, 255, 196, 0.28)',
+                          paddingVertical: 13,
+                          paddingHorizontal: 16,
+                        }}
+                        onPress={() => {
+                          setProductScannerVisible(true);
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                      >
+                        <Ionicons name="camera-outline" size={20} color={productScannerVisible ? '#001B14' : '#2DFFC4'} />
+                        <Text style={{ color: productScannerVisible ? '#001B14' : Colors.text, fontSize: 15, fontWeight: '900' }}>Scan Product</Text>
+                      </TouchableOpacity>
+                    ) : null}
                   </View>
                 </GlassBorderCard>
                 </FirstEstimateWalkthroughHighlight>

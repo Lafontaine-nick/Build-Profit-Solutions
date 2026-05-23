@@ -374,7 +374,7 @@ class StripeService {
       {
         id: 'basic',
         name: 'Basic Plan',
-        price: 39,
+        price: 45,
         description: 'Get started with essential tools for solo contractors.',
         tag: 'Starter',
         cta: 'Start with Basic',

@@ -343,22 +343,22 @@ const MaterialsEquipmentScreen: React.FC<MaterialsEquipmentScreenProps> = ({
           </View>
 
           {/* SCAN + ADD */}
-          <Pressable
-            style={({ pressed }) => [
-              styles.scanButton,
-              !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line },
-              pressed && { opacity: 0.88 },
-            ]}
-            onPress={() => {
-              if (Platform.OS !== "web") {
+          {Platform.OS !== "web" ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.scanButton,
+                !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line },
+                pressed && { opacity: 0.88 },
+              ]}
+              onPress={() => {
                 void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-              }
-              setProductScannerVisible(true);
-            }}
-          >
-            <Ionicons name="camera-outline" size={18} color={BRAND_GREEN} />
-            <Text style={[styles.scanButtonText, { color: Colors.text }]}>Scan Product</Text>
-          </Pressable>
+                setProductScannerVisible(true);
+              }}
+            >
+              <Ionicons name="camera-outline" size={18} color={BRAND_GREEN} />
+              <Text style={[styles.scanButtonText, { color: Colors.text }]}>Scan Product</Text>
+            </Pressable>
+          ) : null}
 
           <Pressable
             style={({ pressed }) => [

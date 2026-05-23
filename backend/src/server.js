@@ -450,6 +450,14 @@ server2.listen(PORT2, '0.0.0.0', () => {
   console.log(`\n${'='.repeat(60)}`);
   logServerInfo(PORT2);
   console.log(`${'='.repeat(60)}\n`);
+}).on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.warn(
+      `⚠️  Secondary port ${PORT2} already in use — API remains available on port ${PORT}`
+    );
+    return;
+  }
+  throw err;
 });
 
 module.exports = app; 

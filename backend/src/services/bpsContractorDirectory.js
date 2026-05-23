@@ -61,6 +61,37 @@ function reconcileEmailListings(activeId, email, listOn) {
   if (changed) saveAll(rows);
 }
 
+function pruneOrphanListings(activeId, entry) {
+  const em = normEmail(entry.email);
+  if (!em) return;
+  const zip = String(entry.zip || '')
+    .replace(/\D/g, '')
+    .slice(0, 5);
+  if (zip.length !== 5) return;
+
+  const rows = loadAll();
+  let changed = false;
+  const next = rows.filter((r) => {
+    if (r.id === activeId) return true;
+    if (isDemoDirectoryId(r.id)) {
+      changed = true;
+      return false;
+    }
+    if (normEmail(r.email)) return true;
+    const rZip = String(r.zip || '')
+      .replace(/\D/g, '')
+      .slice(0, 5);
+    const emptyProfile =
+      !String(r.companyName || '').trim() && !String(r.contactName || '').trim();
+    if (emptyProfile && rZip === zip) {
+      changed = true;
+      return false;
+    }
+    return true;
+  });
+  if (changed) saveAll(next);
+}
+
 function upsert(entry) {
   const rows = loadAll();
   const id = String(entry.id || '').trim();
@@ -78,7 +109,8 @@ function upsert(entry) {
 
   saveAll(rows);
   reconcileEmailListings(id, next.email, next.listOnFindSubcontractors === true);
-  return rows[idx >= 0 ? idx : rows.length - 1];
+  pruneOrphanListings(id, next);
+  return loadAll().find((r) => r.id === id) || next;
 }
 
 function isDemoDirectoryId(id) {
@@ -121,7 +153,9 @@ function dedupeDirectoryRows(rows) {
 }
 
 function listPublic() {
-  const listed = loadAll().filter((r) => r.listOnFindSubcontractors === true);
+  const listed = loadAll().filter(
+    (r) => r.listOnFindSubcontractors === true && !isDemoDirectoryId(r.id)
+  );
   return dedupeDirectoryRows(listed);
 }
 

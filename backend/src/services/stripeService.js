@@ -4,7 +4,7 @@ const SUBSCRIPTION_PLANS = {
   basic: {
     id: process.env.STRIPE_PRICE_BASIC || 'price_basic_monthly',
     name: 'Basic Plan',
-    price: 3900, // $39.00 in cents (display / legacy; live checkout uses Stripe Price)
+    price: 4500, // $45.00 in cents (display / legacy; live checkout uses Stripe Price)
     features: ['Lead Management', 'Basic Analytics', 'Email Support']
   },
   premium: {

@@ -932,44 +932,68 @@ export default function CategoryDetailModal({
 
           {isMaterialsEquipmentCategory ? (
             <>
-              <TouchableOpacity
-                style={styles.addButtonWrapper}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setProductScannerVisible(true);
-                }}
-                activeOpacity={0.88}
-              >
-                <LinearGradient
-                  colors={["#22c55e", "#22d3ee"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.addButton}
+              {Platform.OS !== "web" ? (
+                <TouchableOpacity
+                  style={styles.addButtonWrapper}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setProductScannerVisible(true);
+                  }}
+                  activeOpacity={0.88}
                 >
-                  <View style={styles.scanPrimaryButtonContent}>
-                    <Ionicons name="camera-outline" size={20} color="#020617" />
-                    <Text style={styles.addButtonText}>Scan Product</Text>
-                  </View>
-                </LinearGradient>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.materialsManualAddButton,
-                  !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line },
-                ]}
-                onPress={() => {
-                  setEditingChangeOrderId(null);
-                  setShowAddForm(true);
-                }}
-                activeOpacity={0.88}
-              >
-                <Text style={[styles.materialsManualAddButtonText, { color: darkMode ? '#F5F7FA' : Colors.text }]}>
-                  + Add Materials/Equipment
+                  <LinearGradient
+                    colors={["#22c55e", "#22d3ee"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.addButton}
+                  >
+                    <View style={styles.scanPrimaryButtonContent}>
+                      <Ionicons name="camera-outline" size={20} color="#020617" />
+                      <Text style={styles.addButtonText}>Scan Product</Text>
+                    </View>
+                  </LinearGradient>
+                </TouchableOpacity>
+              ) : null}
+              {Platform.OS === "web" ? (
+                <TouchableOpacity
+                  style={styles.addButtonWrapper}
+                  onPress={() => {
+                    setEditingChangeOrderId(null);
+                    setShowAddForm(true);
+                  }}
+                  activeOpacity={0.88}
+                >
+                  <LinearGradient
+                    colors={["#22c55e", "#22d3ee"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.addButton}
+                  >
+                    <Text style={styles.addButtonText}>+ Add Materials/Equipment</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={[
+                    styles.materialsManualAddButton,
+                    !darkMode && { backgroundColor: Colors.surface2, borderColor: Colors.line },
+                  ]}
+                  onPress={() => {
+                    setEditingChangeOrderId(null);
+                    setShowAddForm(true);
+                  }}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.materialsManualAddButtonText, { color: darkMode ? '#F5F7FA' : Colors.text }]}>
+                    + Add Materials/Equipment
+                  </Text>
+                </TouchableOpacity>
+              )}
+              {Platform.OS !== "web" ? (
+                <Text style={[styles.materialsScanHelper, { color: supportSub }]}>
+                  Scan a barcode to add Home Depot products faster.
                 </Text>
-              </TouchableOpacity>
-              <Text style={[styles.materialsScanHelper, { color: supportSub }]}>
-                Scan a barcode to add Home Depot products faster.
-              </Text>
+              ) : null}
             </>
           ) : (
             <TouchableOpacity
