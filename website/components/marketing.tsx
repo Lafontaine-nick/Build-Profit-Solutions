@@ -263,45 +263,63 @@ export function ProductScreenshotCard({
   description,
   image,
   orientation = "mobile",
+  index = 0,
 }: {
   title: string;
   eyebrow?: string;
   description: string;
   image: string;
   orientation?: string;
+  index?: number;
 }) {
   const desktop = orientation === "desktop";
+  const reverse = index % 2 === 1;
 
   return (
-    <div
-      className={`rounded-[2.25rem] bg-gradient-to-br from-emerald-300/25 via-cyan-300/18 to-sky-500/20 p-px shadow-[0_20px_80px_rgba(0,255,200,0.08)] ring-1 ring-white/[0.04] ${
-        desktop ? "lg:col-span-2" : ""
-      }`}
-    >
+    <div className="rounded-[2.25rem] bg-gradient-to-br from-emerald-300/25 via-cyan-300/18 to-sky-500/20 p-px shadow-[0_20px_80px_rgba(0,255,200,0.08)] ring-1 ring-white/[0.04]">
       <div className="h-full rounded-[calc(2.25rem-1px)] bg-slate-900/88 p-6 shadow-2xl shadow-cyan-950/20 sm:p-8 lg:p-10">
-        <div className="grid h-full gap-8 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
-          <div className="self-center">
+        <div
+          className={`flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between lg:gap-12 xl:gap-16 ${
+            reverse ? "lg:flex-row-reverse" : ""
+          }`}
+        >
+          <div className="flex-1 lg:max-w-md xl:max-w-lg">
             {eyebrow ? (
               <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-300">
                 {eyebrow}
               </p>
             ) : null}
-            <h3 className="mt-3 text-2xl font-black text-white">{title}</h3>
-            <p className="mt-3 leading-7 text-slate-300">{description}</p>
+            <h3 className="mt-3 text-2xl font-black text-white sm:text-3xl">{title}</h3>
+            <p className="mt-3 text-base leading-7 text-slate-300 sm:text-lg">{description}</p>
           </div>
-          <div
-            className={`relative mx-auto flex w-full items-center justify-center overflow-hidden rounded-[1.75rem] border border-cyan-300/20 bg-black/70 p-3 shadow-[0_20px_70px_rgba(34,211,238,0.10)] ring-1 ring-white/[0.04] sm:p-4 ${
-              desktop ? "aspect-[16/10] max-w-2xl" : "aspect-[9/16] max-w-[17.5rem]"
-            }`}
-          >
-            <div className="relative h-full w-full overflow-hidden rounded-[1.35rem] bg-slate-950">
-              <Image
-                src={image}
-                alt={`${title} screenshot`}
-                fill
-                sizes={desktop ? "(min-width: 1024px) 520px, 90vw" : "280px"}
-                className="object-contain"
-              />
+
+          <div className="relative mx-auto shrink-0 lg:mx-0">
+            <div
+              aria-hidden="true"
+              className={`absolute inset-0 rounded-[2rem] bg-gradient-to-br from-emerald-400/15 via-cyan-400/10 to-transparent blur-2xl ${
+                desktop ? "scale-105" : "scale-110"
+              }`}
+            />
+            <div
+              className={`relative flex items-center justify-center overflow-hidden rounded-[1.75rem] border border-cyan-300/20 bg-black/70 p-3 shadow-[0_20px_70px_rgba(34,211,238,0.10)] ring-1 ring-white/[0.04] sm:p-4 ${
+                desktop
+                  ? "aspect-[3/4] w-[min(100%,20rem)] sm:w-[22rem] lg:w-[24rem]"
+                  : "aspect-[9/16] w-[min(100%,17.5rem)] sm:w-[18rem]"
+              }`}
+            >
+              <div className="relative h-full w-full overflow-hidden rounded-[1.35rem] bg-slate-950">
+                <Image
+                  src={image}
+                  alt={`${title} screenshot`}
+                  fill
+                  sizes={
+                    desktop
+                      ? "(min-width: 1024px) 384px, 320px"
+                      : "(min-width: 1024px) 288px, 280px"
+                  }
+                  className="object-contain"
+                />
+              </div>
             </div>
           </div>
         </div>

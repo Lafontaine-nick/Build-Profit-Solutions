@@ -126,9 +126,9 @@ export default function HomePage() {
           estimating, profit tracking, automation, subcontractors, and
           client-ready documents.
         </SectionHeading>
-        <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-2">
-          {primaryScreenshots.map((shot) => (
-            <ProductScreenshotCard key={shot.title} {...shot} />
+        <div className="mx-auto flex max-w-6xl flex-col gap-8">
+          {primaryScreenshots.map((shot, index) => (
+            <ProductScreenshotCard key={shot.title} {...shot} index={index} />
           ))}
         </div>
       </section>
