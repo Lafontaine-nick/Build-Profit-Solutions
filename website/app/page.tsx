@@ -38,12 +38,6 @@ export default function HomePage() {
             </p>
             <div className="mt-9 flex flex-col gap-3 sm:flex-row">
               <ButtonLink href={siteLinks.download}>Download App</ButtonLink>
-              <ButtonLink href={siteLinks.signUp} variant="secondary">
-                Start Free / Sign Up
-              </ButtonLink>
-              <ButtonLink href={siteLinks.webApp} variant="ghost">
-                Open Web App
-              </ButtonLink>
             </div>
             <div className="mt-8 grid max-w-2xl grid-cols-3 gap-3 text-center">
               {["AI Estimates", "Profit Tracking", "Team Management"].map((item) => (

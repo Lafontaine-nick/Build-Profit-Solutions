@@ -19,7 +19,7 @@ export function ButtonLink({
       ? "bg-gradient-to-r from-emerald-400 to-cyan-400 text-slate-950 shadow-[0_20px_70px_rgba(34,211,238,0.22)] hover:brightness-110"
       : variant === "secondary"
         ? "border border-emerald-300/35 bg-white/10 text-white hover:border-emerald-200 hover:bg-white/15"
-        : "text-slate-300 hover:text-white";
+        : "border border-white/35 bg-transparent text-white hover:border-emerald-200 hover:bg-white/10";
 
   return (
     <Link
