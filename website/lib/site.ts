@@ -138,7 +138,7 @@ export const primaryScreenshots = [
     description:
       "Project-level budget and profit views help contractors protect margin.",
     image: "/screenshots/project-profit.png",
-    secondaryImage: "/screenshots/tax-center.png",
+    secondaryImage: "/screenshots/project-budget.png",
     orientation: "mobile",
   },
   {
