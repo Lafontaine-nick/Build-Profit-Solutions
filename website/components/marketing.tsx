@@ -270,22 +270,18 @@ function ProductScreenshotFrame({
 }) {
   return (
     <div
-      className={`relative flex items-center justify-center overflow-hidden border border-cyan-300/20 bg-black/75 shadow-[0_18px_60px_rgba(34,211,238,0.10)] ring-1 ring-white/[0.04] ${
+      className={`relative mx-auto shrink-0 overflow-hidden rounded-[1.4rem] border border-cyan-300/16 bg-black/70 p-2 shadow-[0_16px_55px_rgba(34,211,238,0.08)] ${
         desktop
-          ? "aspect-[16/10] w-full rounded-[1.35rem] p-2 sm:p-3"
-          : "h-[22rem] w-[10.25rem] rounded-[1.5rem] p-2 sm:h-[24rem] sm:w-[11.25rem] sm:p-2.5"
+          ? "aspect-[16/10] w-full max-w-3xl"
+          : "aspect-[9/16] w-full max-w-[11.5rem] sm:max-w-[12.5rem]"
       }`}
     >
-      <div
-        className={`relative h-full w-full overflow-hidden bg-slate-950 ${
-          desktop ? "rounded-[1rem]" : "rounded-[1.15rem]"
-        }`}
-      >
+      <div className="relative h-full w-full overflow-hidden rounded-[1.1rem] bg-slate-950">
         <Image
           src={image}
           alt={`${title}${label ? ` ${label}` : ""} screenshot`}
           fill
-          sizes={desktop ? "(min-width: 1024px) 520px, 90vw" : "220px"}
+          sizes={desktop ? "(min-width: 1024px) 768px, 90vw" : "200px"}
           className="object-contain"
         />
       </div>
@@ -316,46 +312,30 @@ export function ProductScreenshotCard({
         desktop ? "lg:col-span-2" : ""
       }`}
     >
-      <div className="h-full overflow-hidden rounded-[calc(1.75rem-1px)] bg-slate-900/78 p-4 sm:p-5">
+      <div className="overflow-hidden rounded-[calc(1.75rem-1px)] bg-slate-900/78 p-4">
         <div
-          className={`relative mx-auto flex rounded-[1.5rem] border border-cyan-300/16 bg-slate-950/55 p-3 shadow-[0_16px_55px_rgba(34,211,238,0.08)] ${
+          className={
             desktop
-              ? "max-w-4xl flex-col gap-4 sm:p-4"
-              : "max-w-xl items-end justify-center gap-4 sm:gap-5"
-          }`}
+              ? "mx-auto grid max-w-3xl gap-4"
+              : "mx-auto grid max-w-xl grid-cols-2 gap-3 sm:gap-4"
+          }
         >
-          <div
-            aria-hidden="true"
-            className="absolute inset-0 rounded-[1.5rem] bg-gradient-to-br from-emerald-400/10 via-cyan-400/8 to-transparent"
+          <ProductScreenshotFrame image={image} title={title} desktop={desktop} />
+          <ProductScreenshotFrame
+            image={secondaryImage}
+            title={title}
+            label={desktop ? "CPA summary" : "companion"}
+            desktop={desktop}
           />
-          <div
-            className={`relative flex ${
-              desktop ? "flex-col gap-4" : "items-end justify-center gap-4"
-            }`}
-          >
-            <ProductScreenshotFrame
-              image={image}
-              title={title}
-              desktop={desktop}
-            />
-            <ProductScreenshotFrame
-              image={secondaryImage}
-              title={title}
-              label={desktop ? "CPA summary" : "companion"}
-              desktop={desktop}
-            />
-          </div>
         </div>
-        <div className={desktop ? "mx-auto max-w-4xl pt-5" : "pt-5"}>
+        <div className="pt-5">
           {eyebrow ? (
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-300">
               {eyebrow}
             </p>
           ) : null}
-          <h3 className="mt-2 text-xl font-black text-white">{title}</h3>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-            {description}
-          </p>
+          <h3 className="mt-2 text-lg font-black text-white">{title}</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-300">{description}</p>
         </div>
       </div>
     </div>
