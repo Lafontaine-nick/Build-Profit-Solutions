@@ -160,10 +160,10 @@ export const primaryScreenshots = [
     orientation: "mobile",
   },
   {
-    title: "Proposals & CPA Reports",
+    title: "Bid Export & CPA Summary",
     eyebrow: "Documents",
     description:
-      "Generate client-facing proposal PDFs and CPA-ready tax summaries from the same project data.",
+      "Stack client-ready bid exports with CPA-ready tax summaries from the same project data.",
     image: "/screenshots/proposal-pdf.png",
     secondaryImage: "/screenshots/tax-ready-report.png",
     orientation: "desktop",

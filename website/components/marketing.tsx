@@ -262,32 +262,30 @@ function ProductScreenshotFrame({
   title,
   label,
   desktop,
-  stacked = false,
 }: {
   image: string;
   title: string;
   label?: string;
   desktop: boolean;
-  stacked?: boolean;
 }) {
   return (
     <div
-      className={`relative flex items-center justify-center overflow-hidden rounded-[1.75rem] border border-cyan-300/20 bg-black/70 p-2.5 shadow-[0_20px_70px_rgba(34,211,238,0.10)] ring-1 ring-white/[0.04] sm:p-3 ${
+      className={`relative flex items-center justify-center overflow-hidden border border-cyan-300/20 bg-black/70 shadow-[0_20px_70px_rgba(34,211,238,0.10)] ring-1 ring-white/[0.04] ${
         desktop
-          ? stacked
-            ? "aspect-[16/10] w-full max-w-[22rem] sm:max-w-[24rem]"
-            : "aspect-[16/10] w-[min(100%,18rem)] sm:w-[20rem]"
-          : stacked
-            ? "aspect-[9/16] w-[min(100%,12.5rem)] sm:w-[13.5rem]"
-            : "aspect-[9/16] w-[min(100%,15rem)] sm:w-[17.5rem]"
+          ? "aspect-[16/10] w-full rounded-[1.35rem] p-2 sm:p-3"
+          : "aspect-[9/16] w-[min(48%,12.5rem)] rounded-[1.5rem] p-2 sm:p-2.5"
       }`}
     >
-      <div className="relative h-full w-full overflow-hidden rounded-[1.25rem] bg-slate-950">
+      <div
+        className={`relative h-full w-full overflow-hidden bg-slate-950 ${
+          desktop ? "rounded-[1rem]" : "rounded-[1.15rem]"
+        }`}
+      >
         <Image
           src={image}
           alt={`${title}${label ? ` ${label}` : ""} screenshot`}
           fill
-          sizes={desktop ? "384px" : stacked ? "216px" : "280px"}
+          sizes={desktop ? "(min-width: 1024px) 520px, 90vw" : "220px"}
           className="object-contain"
         />
       </div>
@@ -302,7 +300,6 @@ export function ProductScreenshotCard({
   image,
   secondaryImage,
   orientation = "mobile",
-  index = 0,
 }: {
   title: string;
   eyebrow?: string;
@@ -310,52 +307,53 @@ export function ProductScreenshotCard({
   image: string;
   secondaryImage: string;
   orientation?: string;
-  index?: number;
 }) {
   const desktop = orientation === "desktop";
-  const reverse = index % 2 === 1;
 
   return (
-    <div className="rounded-[2.25rem] bg-gradient-to-br from-emerald-300/25 via-cyan-300/18 to-sky-500/20 p-px shadow-[0_20px_80px_rgba(0,255,200,0.08)] ring-1 ring-white/[0.04]">
-      <div className="h-full rounded-[calc(2.25rem-1px)] bg-slate-900/88 p-6 shadow-2xl shadow-cyan-950/20 sm:p-8 lg:p-10">
+    <div
+      className={`rounded-[1.75rem] bg-gradient-to-br from-emerald-300/20 via-cyan-300/12 to-sky-500/16 p-px shadow-[0_20px_70px_rgba(0,255,200,0.07)] ring-1 ring-white/[0.04] ${
+        desktop ? "lg:col-span-2" : ""
+      }`}
+    >
+      <div className="h-full overflow-hidden rounded-[calc(1.75rem-1px)] bg-slate-900/78 p-4 sm:p-5">
         <div
-          className={`flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between lg:gap-12 xl:gap-16 ${
-            reverse ? "lg:flex-row-reverse" : ""
+          className={`relative mx-auto flex rounded-[1.5rem] border border-cyan-300/16 bg-slate-950/55 p-3 shadow-[0_16px_55px_rgba(34,211,238,0.08)] ${
+            desktop
+              ? "max-w-3xl flex-col gap-4"
+              : "max-w-xl items-end justify-center gap-4"
           }`}
         >
-          <div className="flex-1 lg:max-w-md xl:max-w-lg">
-            {eyebrow ? (
-              <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-300">
-                {eyebrow}
-              </p>
-            ) : null}
-            <h3 className="mt-3 text-2xl font-black text-white sm:text-3xl">{title}</h3>
-            <p className="mt-3 text-base leading-7 text-slate-300 sm:text-lg">{description}</p>
-          </div>
-
-          <div className="relative mx-auto shrink-0 lg:mx-0">
-            <div
-              aria-hidden="true"
-              className={`absolute inset-0 rounded-[2rem] bg-gradient-to-br from-emerald-400/15 via-cyan-400/10 to-transparent blur-2xl ${
-                desktop ? "scale-105" : "scale-110"
-              }`}
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 rounded-[1.5rem] bg-gradient-to-br from-emerald-400/10 via-cyan-400/8 to-transparent"
+          />
+          <div
+            className={`relative flex ${
+              desktop ? "flex-col gap-4" : "items-end justify-center gap-4"
+            }`}
+          >
+            <ProductScreenshotFrame
+              image={image}
+              title={title}
+              desktop={desktop}
             />
-            <div className="relative flex flex-col items-center gap-4 sm:gap-5">
-              <ProductScreenshotFrame
-                image={image}
-                title={title}
-                desktop={desktop}
-                stacked
-              />
-              <ProductScreenshotFrame
-                image={secondaryImage}
-                title={title}
-                label="companion"
-                desktop={desktop}
-                stacked
-              />
-            </div>
+            <ProductScreenshotFrame
+              image={secondaryImage}
+              title={title}
+              label={desktop ? "CPA summary" : "companion"}
+              desktop={desktop}
+            />
           </div>
+        </div>
+        <div className={desktop ? "mx-auto max-w-3xl pt-5" : "pt-5"}>
+          {eyebrow ? (
+            <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-300">
+              {eyebrow}
+            </p>
+          ) : null}
+          <h3 className="mt-2 text-lg font-black text-white">{title}</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-300">{description}</p>
         </div>
       </div>
     </div>
