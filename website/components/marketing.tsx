@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { LogoLink, SiteNavLinks } from "@/components/site-nav";
-import { siteConfig, siteLinks } from "@/lib/site";
+import { siteConfig, siteLaunch, siteLinks } from "@/lib/site";
 
 type ButtonLinkProps = {
   href: string;
@@ -9,25 +9,75 @@ type ButtonLinkProps = {
   variant?: "primary" | "secondary" | "ghost";
 };
 
+function buttonClassName(variant: ButtonLinkProps["variant"] = "primary") {
+  return variant === "primary"
+    ? "bg-gradient-to-r from-emerald-400 to-cyan-400 text-slate-950 shadow-[0_20px_70px_rgba(34,211,238,0.22)] hover:brightness-110"
+    : variant === "secondary"
+      ? "border border-emerald-300/35 bg-white/10 text-white hover:border-emerald-200 hover:bg-white/15"
+      : "border border-white/35 bg-transparent text-white hover:border-emerald-200 hover:bg-white/10";
+}
+
 export function ButtonLink({
   href,
   children,
   variant = "primary",
 }: ButtonLinkProps) {
-  const className =
-    variant === "primary"
-      ? "bg-gradient-to-r from-emerald-400 to-cyan-400 text-slate-950 shadow-[0_20px_70px_rgba(34,211,238,0.22)] hover:brightness-110"
-      : variant === "secondary"
-        ? "border border-emerald-300/35 bg-white/10 text-white hover:border-emerald-200 hover:bg-white/15"
-        : "border border-white/35 bg-transparent text-white hover:border-emerald-200 hover:bg-white/10";
-
   return (
     <Link
       href={href}
-      className={`inline-flex items-center justify-center rounded-full px-5 py-3 text-sm font-bold transition ${className}`}
+      className={`inline-flex items-center justify-center rounded-full px-5 py-3 text-sm font-bold transition ${buttonClassName(variant)}`}
     >
       {children}
     </Link>
+  );
+}
+
+export function ComingSoonButton({
+  variant = "secondary",
+}: {
+  variant?: ButtonLinkProps["variant"];
+}) {
+  return (
+    <span
+      className={`inline-flex cursor-default items-center justify-center rounded-full px-5 py-3 text-sm font-bold opacity-75 ${buttonClassName(variant)}`}
+      aria-disabled="true"
+    >
+      Coming soon
+    </span>
+  );
+}
+
+export function PrelaunchBanner() {
+  if (!siteLaunch.isPrelaunch) return null;
+
+  return (
+    <div className="border-b border-amber-300/20 bg-amber-400/10 px-5 py-3 text-center text-sm leading-6 text-amber-100">
+      <span className="font-bold text-amber-200">Pre-launch preview.</span> Sign-up,
+      subscriptions, and app downloads are not open yet.{" "}
+      <a href={siteLinks.contact} className="font-bold underline hover:text-white">
+        Contact us
+      </a>{" "}
+      for updates.
+    </div>
+  );
+}
+
+export function PlanCta({ label }: { label: string }) {
+  if (siteLaunch.isPrelaunch) {
+    return (
+      <div className="mt-7 grid gap-2">
+        <ComingSoonButton />
+        <p className="text-center text-xs text-slate-500">
+          {label} — available at public launch
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-7">
+      <ButtonLink href={siteLinks.signUp}>{label}</ButtonLink>
+    </div>
   );
 }
 
@@ -42,12 +92,18 @@ export function SiteHeader() {
         <Logo />
         <SiteNavLinks />
         <div className="hidden items-center gap-3 sm:flex">
-          <ButtonLink href={siteLinks.webApp} variant="secondary">
-            Open Web App
-          </ButtonLink>
-          <ButtonLink href={siteLinks.signUp}>
-            Sign Up
-          </ButtonLink>
+          {siteLaunch.isPrelaunch ? (
+            <ButtonLink href={siteLinks.contact} variant="secondary">
+              Contact
+            </ButtonLink>
+          ) : (
+            <>
+              <ButtonLink href={siteLinks.webApp} variant="secondary">
+                Open Web App
+              </ButtonLink>
+              <ButtonLink href={siteLinks.signUp}>Sign Up</ButtonLink>
+            </>
+          )}
         </div>
       </div>
     </header>
@@ -77,9 +133,11 @@ export function SiteFooter() {
             <Link href="/pricing" className="hover:text-white">
               Pricing
             </Link>
-            <Link href={siteLinks.webApp} className="hover:text-white">
-              Web App
-            </Link>
+            {siteLaunch.isPrelaunch ? null : (
+              <Link href={siteLinks.webApp} className="hover:text-white">
+                Web App
+              </Link>
+            )}
           </div>
         </div>
         <div>
@@ -143,6 +201,7 @@ export function SectionHeading({
 export function PageShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-slate-950 text-white">
+      <PrelaunchBanner />
       <SiteHeader />
       <main>{children}</main>
       <SiteFooter />

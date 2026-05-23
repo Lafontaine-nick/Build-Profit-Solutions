@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { ButtonLink, GradientCard, PageShell, SectionHeading } from "@/components/marketing";
-import { pricingPlans, siteConfig, siteLinks } from "@/lib/site";
+import { ButtonLink, GradientCard, PageShell, PlanCta, SectionHeading } from "@/components/marketing";
+import { pricingPlans, siteConfig, siteLaunch, siteLinks } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "Pricing",
@@ -19,8 +19,9 @@ export default function PricingPage() {
           Plans for solo contractors, growing crews, and construction teams.
         </h1>
         <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-300">
-          Start with the essentials, then scale into AI estimating, live job
-          costing, advanced analytics, team permissions, and integrations.
+          {siteLaunch.isPrelaunch
+            ? "Preview plans below for planning purposes. Subscriptions and billing are not open until public launch."
+            : "Start with the essentials, then scale into AI estimating, live job costing, advanced analytics, team permissions, and integrations."}
         </p>
       </section>
 
@@ -50,9 +51,7 @@ export default function PricingPage() {
                 <span className="text-base font-semibold text-slate-400">/month</span>
               </p>
               <div className="mt-7">
-                <ButtonLink href={siteLinks.signUp}>
-                  {plan.cta}
-                </ButtonLink>
+                <PlanCta label={plan.cta} />
               </div>
               <ul className="mt-8 grid gap-3 text-sm leading-6 text-slate-300">
                 {plan.features.map((feature) => (
@@ -69,10 +68,9 @@ export default function PricingPage() {
 
       <section className="px-5 py-20 sm:px-6 lg:px-8">
         <SectionHeading eyebrow="Need help choosing?" title="Start where you are today.">
-          Most solo operators can begin with Basic. Contractors managing
-          multiple jobs and margin controls should start with Professional.
-          Teams that need permissions, forecasting, and integrations should
-          look at Business.
+          {siteLaunch.isPrelaunch
+            ? "Plans and features may change before launch. Contact us if you want early updates or have questions about which tier may fit your business."
+            : "Most solo operators can begin with Basic. Contractors managing multiple jobs and margin controls should start with Professional. Teams that need permissions, forecasting, and integrations should look at Business."}
         </SectionHeading>
         <div className="text-center">
           <ButtonLink href={`mailto:${siteConfig.contactEmail}`} variant="secondary">

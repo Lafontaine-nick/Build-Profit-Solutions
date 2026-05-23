@@ -24,6 +24,11 @@ function trimTrailingSlash(url: string) {
 
 const webAppBase = trimTrailingSlash(siteConfig.webAppUrl);
 
+/** Set NEXT_PUBLIC_PRELAUNCH=false in Vercel when sign-up and billing are ready. */
+export const siteLaunch = {
+  isPrelaunch: process.env.NEXT_PUBLIC_PRELAUNCH !== "false",
+};
+
 /** Centralized outbound links for CTAs across the marketing site. */
 export const siteLinks = {
   signUp: `${webAppBase}/auth?mode=signup`,
@@ -257,6 +262,11 @@ export const pricingPlans = [
 
 export const faqs = [
   {
+    question: "Is Build Profit Solutions available to sign up for yet?",
+    answer:
+      "Not yet. The product is in pre-launch while we finish the mobile apps, billing, and onboarding. This site is a preview of what is coming. Contact us if you want updates.",
+  },
+  {
     question: "Is Build Profit Solutions only for general contractors?",
     answer:
       "No. The product is built for general contractors, remodelers, subcontractors, developers, and owner-builders who need clearer estimates and project financials.",
@@ -264,16 +274,11 @@ export const faqs = [
   {
     question: "Can I use it from a phone and a computer?",
     answer:
-      "Yes. The app is designed for mobile workflows, and the marketing site links visitors into the web app version for desktop access.",
+      "Yes. The app is being built for mobile-first job-site workflows, with a web version planned for desktop access when public launch opens.",
   },
   {
-    question: "Are App Store and Google Play links live yet?",
+    question: "Are the prices on this site final?",
     answer:
-      "The site is ready for store links. Until those URLs are available, the download calls to action can point visitors to sign up or open the web app.",
-  },
-  {
-    question: "Can I add real screenshots later?",
-    answer:
-      "Yes. The launch site includes named screenshot placeholders so real product screenshots can be dropped in without redesigning the page.",
+      "Pricing shown here is a preview for planning purposes. Subscriptions are not available yet and may change before public launch.",
   },
 ];

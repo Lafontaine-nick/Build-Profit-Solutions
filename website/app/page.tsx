@@ -1,9 +1,11 @@
 import {
   ButtonLink,
+  ComingSoonButton,
   CompactScreenshotCard,
   GradientCard,
   HeroScreenshot,
   PageShell,
+  PlanCta,
   ProductScreenshotCard,
   SectionHeading,
 } from "@/components/marketing";
@@ -15,6 +17,7 @@ import {
   primaryScreenshots,
   pricingPlans,
   secondaryScreenshots,
+  siteLaunch,
   siteLinks,
 } from "@/lib/site";
 
@@ -26,7 +29,9 @@ export default function HomePage() {
         <div className="relative mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[1.05fr_0.95fr]">
           <div>
             <p className="mb-5 inline-flex rounded-full border border-emerald-300/25 bg-emerald-300/10 px-4 py-2 text-sm font-bold text-emerald-200">
-              AI-powered tools built for contractors
+              {siteLaunch.isPrelaunch
+                ? "Pre-launch preview for contractors"
+                : "AI-powered tools built for contractors"}
             </p>
             <h1 className="max-w-4xl text-5xl font-black tracking-tight text-white sm:text-6xl lg:text-7xl">
               Build profitable projects from bid to closeout.
@@ -37,7 +42,16 @@ export default function HomePage() {
               management workspace.
             </p>
             <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-              <ButtonLink href={siteLinks.download}>Download App</ButtonLink>
+              {siteLaunch.isPrelaunch ? (
+                <>
+                  <ComingSoonButton variant="primary" />
+                  <ButtonLink href={siteLinks.contact} variant="secondary">
+                    Contact for updates
+                  </ButtonLink>
+                </>
+              ) : (
+                <ButtonLink href={siteLinks.download}>Download App</ButtonLink>
+              )}
             </div>
             <div className="mt-8 grid max-w-2xl grid-cols-3 gap-3 text-center">
               {["AI Estimates", "Profit Tracking", "Team Management"].map((item) => (
@@ -115,7 +129,9 @@ export default function HomePage() {
 
       <section id="pricing" className="px-5 py-20 sm:px-6 lg:px-8">
         <SectionHeading eyebrow="Pricing" title="Start lean. Scale when the work grows.">
-          Choose the plan that matches your crew, project load, and reporting needs.
+          {siteLaunch.isPrelaunch
+            ? "Preview pricing for planning purposes. Subscriptions are not available yet."
+            : "Choose the plan that matches your crew, project load, and reporting needs."}
         </SectionHeading>
         <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-3">
           {pricingPlans.map((plan) => (
@@ -134,9 +150,7 @@ export default function HomePage() {
                 ${plan.price}
                 <span className="text-base font-semibold text-slate-400">/mo</span>
               </p>
-              <ButtonLink href={siteLinks.signUp}>
-                {plan.cta}
-              </ButtonLink>
+              <PlanCta label={plan.cta} />
             </GradientCard>
           ))}
         </div>
@@ -150,23 +164,37 @@ export default function HomePage() {
       <section id="download" className="px-5 py-20 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-5xl rounded-[2rem] border border-white/10 bg-gradient-to-br from-emerald-300/18 to-cyan-400/18 p-8 text-center sm:p-12">
           <p className="text-sm font-bold uppercase tracking-[0.28em] text-emerald-200">
-            Get Started
+            {siteLaunch.isPrelaunch ? "Coming Soon" : "Get Started"}
           </p>
           <h2 className="mt-4 text-3xl font-black tracking-tight text-white sm:text-5xl">
-            Download the app or open the web version.
+            {siteLaunch.isPrelaunch
+              ? "Mobile and web access opens at public launch."
+              : "Download the app or open the web version."}
           </h2>
           <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-slate-300">
-            Store links are ready to plug in when your iOS and Android listings
-            are live. Until then, visitors can sign up through the web app.
+            {siteLaunch.isPrelaunch
+              ? "We are finishing the iOS, Android, and web experience before opening sign-up. Leave your email through contact if you want launch updates."
+              : "Store links are ready to plug in when your iOS and Android listings are live. Until then, visitors can sign up through the web app."}
           </p>
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-            <ButtonLink href={siteLinks.iosApp}>App Store</ButtonLink>
-            <ButtonLink href={siteLinks.androidApp} variant="secondary">
-              Google Play
-            </ButtonLink>
-            <ButtonLink href={siteLinks.webApp} variant="secondary">
-              Web App
-            </ButtonLink>
+            {siteLaunch.isPrelaunch ? (
+              <>
+                <ComingSoonButton variant="primary" />
+                <ButtonLink href={siteLinks.contact} variant="secondary">
+                  Contact for updates
+                </ButtonLink>
+              </>
+            ) : (
+              <>
+                <ButtonLink href={siteLinks.iosApp}>App Store</ButtonLink>
+                <ButtonLink href={siteLinks.androidApp} variant="secondary">
+                  Google Play
+                </ButtonLink>
+                <ButtonLink href={siteLinks.webApp} variant="secondary">
+                  Web App
+                </ButtonLink>
+              </>
+            )}
           </div>
         </div>
       </section>

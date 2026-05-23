@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { ButtonLink, PageShell, SectionHeading } from "@/components/marketing";
-import { audiences, siteConfig, siteLinks } from "@/lib/site";
+import { ButtonLink, ComingSoonButton, PageShell, SectionHeading } from "@/components/marketing";
+import { audiences, siteConfig, siteLaunch, siteLinks } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "About",
@@ -172,10 +172,21 @@ export default function AboutPage() {
               </p>
             </div>
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-              <ButtonLink href={siteLinks.signUp}>Sign Up</ButtonLink>
-              <ButtonLink href={siteLinks.contact} variant="secondary">
-                Contact Us
-              </ButtonLink>
+              {siteLaunch.isPrelaunch ? (
+                <>
+                  <ComingSoonButton variant="primary" />
+                  <ButtonLink href={siteLinks.contact} variant="secondary">
+                    Contact Us
+                  </ButtonLink>
+                </>
+              ) : (
+                <>
+                  <ButtonLink href={siteLinks.signUp}>Sign Up</ButtonLink>
+                  <ButtonLink href={siteLinks.contact} variant="secondary">
+                    Contact Us
+                  </ButtonLink>
+                </>
+              )}
             </div>
           </div>
 
