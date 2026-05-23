@@ -272,7 +272,7 @@ function ProductScreenshotFrame({
     <div
       className={`relative mx-auto shrink-0 overflow-hidden rounded-[1.4rem] border border-cyan-300/16 bg-black/70 p-2 shadow-[0_16px_55px_rgba(34,211,238,0.08)] ${
         desktop
-          ? "aspect-[16/10] w-full max-w-3xl"
+          ? "aspect-[16/10] w-full max-w-2xl"
           : "aspect-[9/16] w-full max-w-[11.5rem] sm:max-w-[12.5rem]"
       }`}
     >
@@ -281,7 +281,9 @@ function ProductScreenshotFrame({
           src={image}
           alt={`${title}${label ? ` ${label}` : ""} screenshot`}
           fill
-          sizes={desktop ? "(min-width: 1024px) 768px, 90vw" : "200px"}
+          sizes={desktop ? "(min-width: 1024px) 672px, 90vw" : "200px"}
+          quality={desktop ? 100 : 85}
+          unoptimized={desktop}
           className="object-contain"
         />
       </div>
@@ -316,7 +318,7 @@ export function ProductScreenshotCard({
         <div
           className={
             desktop
-              ? "mx-auto grid max-w-3xl gap-4"
+              ? "mx-auto grid max-w-2xl gap-4"
               : "mx-auto grid max-w-xl grid-cols-2 gap-3 sm:gap-4"
           }
         >
