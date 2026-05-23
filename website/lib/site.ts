@@ -10,7 +10,7 @@ export const siteConfig = {
   androidAppUrl: process.env.NEXT_PUBLIC_ANDROID_APP_URL ?? "#download",
   contactEmail:
     process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? "support@buildprofitsolutions.com",
-  founderName: process.env.NEXT_PUBLIC_FOUNDER_NAME ?? "Nicholas Lafontaine",
+  founderName: process.env.NEXT_PUBLIC_FOUNDER_NAME ?? "Nicholas LaFontaine",
   founderTitle: "Founder, Build Profit Solutions",
   mission:
     "Help construction professionals estimate smarter, track every dollar, stay organized, and protect profit on every job.",

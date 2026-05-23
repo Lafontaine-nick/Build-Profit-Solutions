@@ -9,6 +9,7 @@ import {
   ProductScreenshotCard,
   SectionHeading,
 } from "@/components/marketing";
+import { MobileScreenshotCarousel } from "@/components/mobile-screenshot-carousel";
 import {
   audiences,
   faqs,
@@ -102,7 +103,24 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="px-5 py-20 sm:px-6 lg:px-8">
+      <section className="px-5 py-16 sm:px-6 lg:hidden">
+        <SectionHeading eyebrow="Product Tour" title="Swipe through the app without the long scroll.">
+          A quick mobile walkthrough of the strongest Build Profit Solutions
+          workflows.
+        </SectionHeading>
+        <MobileScreenshotCarousel
+          slides={[
+            ...primaryScreenshots,
+            ...secondaryScreenshots.map((shot) => ({
+              ...shot,
+              eyebrow: "Workflow",
+              orientation: "mobile",
+            })),
+          ]}
+        />
+      </section>
+
+      <section className="hidden px-5 py-20 sm:px-6 lg:block lg:px-8">
         <SectionHeading eyebrow="Product Screens" title="Real app workflows that sell the product fast.">
           These screens show the strongest parts of Build Profit Solutions:
           estimating, profit tracking, automation, subcontractors, and
@@ -115,7 +133,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="px-5 py-20 sm:px-6 lg:px-8">
+      <section className="hidden px-5 py-20 sm:px-6 lg:block lg:px-8">
         <SectionHeading eyebrow="More Features" title="Secondary workflows that prove depth.">
           Payment schedules, tax prep, teams, materials, product search, and AI
           project management round out the construction workflow.

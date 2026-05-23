@@ -5,7 +5,7 @@ import { audiences, siteConfig, siteLaunch, siteLinks } from "@/lib/site";
 export const metadata: Metadata = {
   title: "About",
   description:
-    "Learn why Nicholas Lafontaine built Build Profit Solutions for contractors, builders, remodelers, subcontractors, and developers.",
+    "Learn why Nicholas LaFontaine built Build Profit Solutions for contractors, builders, remodelers, subcontractors, and developers.",
 };
 
 const founderHighlights = [
