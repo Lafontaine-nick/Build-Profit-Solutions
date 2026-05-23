@@ -120,7 +120,7 @@ export const primaryScreenshots = [
     description:
       "Live project metrics, AI insights, and profit signals at a glance.",
     image: "/screenshots/dashboard-overview.png",
-    secondaryImage: "/screenshots/ai-assistant.png",
+    secondaryImage: "/screenshots/dashboard-calendar.png",
     orientation: "mobile",
   },
   {
@@ -199,7 +199,7 @@ export const secondaryScreenshots = [
     title: "AI Project Manager",
     description:
       "Ask project-specific questions, review health, and forecast profit.",
-    image: "/screenshots/ai-assistant.png",
+    image: "/screenshots/ai-assistant-command-center.png",
   },
   {
     title: "Product Search",
