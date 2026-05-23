@@ -124,12 +124,12 @@ export const primaryScreenshots = [
     orientation: "mobile",
   },
   {
-    title: "Estimate Summary",
+    title: "Bid Pricing Tools",
     eyebrow: "Bid Builder",
     description:
-      "Cost breakdowns, bid totals, markup, and margin checks in one workflow.",
-    image: "/screenshots/estimate-summary.png",
-    secondaryImage: "/screenshots/payment-schedule.png",
+      "Review bid totals, profit margin, markup, and scenario changes before submitting.",
+    image: "/screenshots/bid-pricing-summary.png",
+    secondaryImage: "/screenshots/scenario-tuning.png",
     orientation: "mobile",
   },
   {
@@ -142,12 +142,12 @@ export const primaryScreenshots = [
     orientation: "mobile",
   },
   {
-    title: "Receipt OCR",
-    eyebrow: "Automation",
+    title: "Product Scanner",
+    eyebrow: "Materials",
     description:
-      "Scan receipts and auto-fill vendor, amount, and confidence details.",
-    image: "/screenshots/ocr-receipt.png",
-    secondaryImage: "/screenshots/materials-equipment.png",
+      "Scan barcodes, find supplier products, and add priced materials directly to an estimate.",
+    image: "/screenshots/product-scanner.png",
+    secondaryImage: "/screenshots/product-found-modal.png",
     orientation: "mobile",
   },
   {
