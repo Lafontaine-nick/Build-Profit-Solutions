@@ -37,6 +37,7 @@
     "web": "EXPO_NO_DOCTOR=1 npx expo start --web",
     "web:desktop": "bash scripts/start-web-desktop.sh",
     "web:desktop:clear": "bash scripts/start-web-desktop.sh --clear",
+    "build:web": "expo export -p web",
     "dev:stop": "pkill -f '[e]xpo start' 2>/dev/null || true; pkill -f '[m]etro' 2>/dev/null || true; echo 'Expo/Metro stop sent (if running).'",
     "metro:clean": "bash scripts/metro-clean.sh"
   },
