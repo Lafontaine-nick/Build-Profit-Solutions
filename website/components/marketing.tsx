@@ -301,7 +301,7 @@ function ProductScreenshotFrame({
   }
 
   return (
-    <div className="relative mx-auto aspect-[9/16] w-full max-w-[11.5rem] shrink-0 overflow-hidden rounded-[1.4rem] border border-cyan-300/16 bg-black/70 p-2 shadow-[0_16px_55px_rgba(34,211,238,0.08)] sm:max-w-[12.5rem]">
+    <div className="relative mx-auto aspect-[9/16] w-full max-w-[12rem] shrink-0 overflow-hidden rounded-[1.625rem] border border-white/12 bg-black/70 p-2.5 shadow-[0_20px_60px_rgba(34,211,238,0.12)] ring-1 ring-white/[0.04] sm:max-w-[13rem]">
       <div className="relative h-full w-full overflow-hidden rounded-[1.1rem] bg-slate-950">
         <Image
           src={image}
@@ -320,6 +320,7 @@ export function ProductScreenshotCard({
   title,
   eyebrow,
   description,
+  bullets,
   image,
   secondaryImage,
   orientation = "mobile",
@@ -327,6 +328,7 @@ export function ProductScreenshotCard({
   title: string;
   eyebrow?: string;
   description: string;
+  bullets?: string[];
   image: string;
   secondaryImage: string;
   orientation?: string;
@@ -335,11 +337,11 @@ export function ProductScreenshotCard({
 
   return (
     <div
-      className={`rounded-[1.75rem] bg-gradient-to-br from-emerald-300/20 via-cyan-300/12 to-sky-500/16 p-px shadow-[0_20px_70px_rgba(0,255,200,0.07)] ring-1 ring-white/[0.04] ${
+      className={`rounded-[1.75rem] bg-gradient-to-br from-emerald-300/20 via-cyan-300/12 to-sky-500/16 p-px shadow-[0_20px_70px_rgba(0,255,200,0.07)] ring-1 ring-white/[0.04] transition hover:shadow-[0_24px_80px_rgba(34,211,238,0.12)] ${
         desktop ? "lg:col-span-2" : ""
       }`}
     >
-      <div className="overflow-hidden rounded-[calc(1.75rem-1px)] bg-slate-900/78 p-4">
+      <div className="overflow-hidden rounded-[calc(1.75rem-1px)] bg-slate-900/82 p-5 sm:p-6">
         <div
           className={
             desktop
@@ -363,6 +365,16 @@ export function ProductScreenshotCard({
           ) : null}
           <h3 className="mt-2 text-lg font-black text-white">{title}</h3>
           <p className="mt-2 text-sm leading-6 text-slate-300">{description}</p>
+          {bullets?.length ? (
+            <ul className="mt-4 grid gap-2 text-sm leading-6 text-slate-400">
+              {bullets.map((bullet) => (
+                <li key={bullet} className="flex gap-3">
+                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-300" />
+                  <span>{bullet}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       </div>
     </div>
@@ -379,9 +391,9 @@ export function CompactScreenshotCard({
   image: string;
 }) {
   return (
-    <div className="rounded-[1.75rem] bg-gradient-to-br from-emerald-300/20 via-cyan-300/12 to-sky-500/16 p-px shadow-[0_20px_70px_rgba(0,255,200,0.07)] ring-1 ring-white/[0.04]">
-      <div className="overflow-hidden rounded-[calc(1.75rem-1px)] bg-slate-900/78 p-4">
-        <div className="relative mx-auto flex aspect-[9/16] max-h-[28rem] w-full max-w-[16rem] items-center justify-center overflow-hidden rounded-[1.4rem] border border-cyan-300/16 bg-black/70 p-2 shadow-[0_16px_55px_rgba(34,211,238,0.08)]">
+    <div className="rounded-[1.75rem] bg-gradient-to-br from-emerald-300/20 via-cyan-300/12 to-sky-500/16 p-px shadow-[0_20px_70px_rgba(0,255,200,0.07)] ring-1 ring-white/[0.04] transition hover:shadow-[0_24px_80px_rgba(34,211,238,0.12)]">
+      <div className="overflow-hidden rounded-[calc(1.75rem-1px)] bg-slate-900/82 p-5">
+        <div className="relative mx-auto flex aspect-[9/16] max-h-[28rem] w-full max-w-[16rem] items-center justify-center overflow-hidden rounded-[1.625rem] border border-white/12 bg-black/70 p-2.5 shadow-[0_20px_60px_rgba(34,211,238,0.12)] ring-1 ring-white/[0.04]">
           <div className="relative h-full w-full overflow-hidden rounded-[1.1rem] bg-slate-950">
             <Image
               src={image}

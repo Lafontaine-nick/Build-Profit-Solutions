@@ -186,12 +186,45 @@ export const trustCards = [
 export const taxDisclaimer =
   "Build Profit Solutions helps organize project costs, receipts, vendors, and CPA-ready summaries. It does not replace a licensed CPA, tax professional, attorney, or financial advisor.";
 
+export const productTourSteps = [
+  {
+    title: "Start with the estimate",
+    description:
+      "Organize costs, markup, scope, assumptions, and expected profit before submitting the bid.",
+  },
+  {
+    title: "Turn awarded bids into active projects",
+    description:
+      "Move from estimate to project management without losing the original budget.",
+  },
+  {
+    title: "Track costs as the job moves",
+    description:
+      "Monitor actual expenses, purchase orders, change orders, and payment progress.",
+  },
+  {
+    title: "Protect profit before closeout",
+    description:
+      "Use project numbers and AI guidance to understand risks before they become losses.",
+  },
+  {
+    title: "Export records when the job is done",
+    description:
+      "Generate proposal documents, project summaries, and CPA-ready records for review.",
+  },
+];
+
 export const primaryScreenshots = [
   {
     title: "Dashboard Overview",
     eyebrow: "Command Center",
     description:
-      "Live project metrics, AI insights, and profit signals at a glance.",
+      "Start from a clear command center for estimates, active projects, profit visibility, reminders, and AI-powered project guidance.",
+    bullets: [
+      "See project status at a glance",
+      "Track active work and key financials",
+      "Jump into estimates, projects, leads, and AI tools",
+    ],
     image: "/screenshots/dashboard-overview.png",
     secondaryImage: "/screenshots/dashboard-calendar.png",
     orientation: "mobile",
@@ -200,7 +233,12 @@ export const primaryScreenshots = [
     title: "Bid Pricing Tools",
     eyebrow: "Bid Builder",
     description:
-      "Review bid totals, profit margin, markup, and scenario changes before submitting.",
+      "Build cleaner estimates with organized costs, markup visibility, profitability checks, and bid-ready pricing tools.",
+    bullets: [
+      "Materials, labor, equipment, overhead, and other costs",
+      "Markup and profit visibility",
+      "Estimate review before proposal output",
+    ],
     image: "/screenshots/bid-pricing-summary.png",
     secondaryImage: "/screenshots/scenario-tuning.png",
     orientation: "mobile",
@@ -209,7 +247,13 @@ export const primaryScreenshots = [
     title: "Project Profit Tracking",
     eyebrow: "Job Costing",
     description:
-      "Project-level budget and profit views help contractors protect margin.",
+      "Track real job performance after the bid is won with budget vs. actual costs, committed costs, projected profit, and margin visibility.",
+    bullets: [
+      "Current margin and projected margin",
+      "Budget vs. actual tracking",
+      "Change orders and purchase orders",
+      "Early profit-risk visibility",
+    ],
     image: "/screenshots/project-profit.png",
     secondaryImage: "/screenshots/project-budget.png",
     orientation: "mobile",
@@ -218,7 +262,13 @@ export const primaryScreenshots = [
     title: "Product Scanner",
     eyebrow: "Materials",
     description:
-      "Scan barcodes, find supplier products, and add priced materials directly to an estimate.",
+      "Scan barcodes, search supplier products, review pricing, and add materials directly into an estimate, active project, purchase order, or change order workflow.",
+    bullets: [
+      "Barcode and product lookup",
+      "Add materials to estimates",
+      "Support for change orders and purchase orders",
+      "Faster field-to-budget material tracking",
+    ],
     image: "/screenshots/product-scanner.png",
     secondaryImage: "/screenshots/product-found-modal.png",
     orientation: "mobile",
@@ -227,7 +277,13 @@ export const primaryScreenshots = [
     title: "Contract PDF & CPA Summary",
     eyebrow: "Documents",
     description:
-      "Generate polished contract exports and CPA-ready financial summaries from the same project data.",
+      "Create professional project documents, proposal outputs, contract-ready PDFs, and accountant-friendly project summaries.",
+    bullets: [
+      "Client-ready documents",
+      "CPA summary exports",
+      "Organized project records",
+      "Closeout and tax-prep support",
+    ],
     image: "/screenshots/generate-contract-pdf.png?v=5",
     secondaryImage: "/screenshots/cpa-summary-pdf.png?v=5",
     orientation: "desktop",
@@ -238,38 +294,38 @@ export const secondaryScreenshots = [
   {
     title: "Payment Schedules",
     description:
-      "Build deposit, weekly progress payment, and holdback schedules.",
+      "Track deposits, weekly progress billing, milestone payments, holdbacks, and final payments.",
     image: "/screenshots/payment-schedule.png",
   },
   {
     title: "Tax Center",
     description:
-      "Prepare CPA-ready summaries, receipt backup, and vendor review exports.",
+      "Organize project costs, receipts, vendors, and summaries to make tax prep and accountant review easier.",
     image: "/screenshots/tax-center.png",
   },
   {
     title: "Team Management",
     description:
-      "Track active team members, roles, trades, and assignments.",
+      "Keep team roles, project access, and job responsibilities connected to active work.",
     image: "/screenshots/team-management.png",
   },
   {
-    title: "Materials & Equipment",
+    title: "Materials & Product Search",
     description:
-      "Monitor transactions, invoices, receipts, and category spending.",
-    image: "/screenshots/materials-equipment.png",
+      "Search products, compare pricing, scan barcodes, and keep material selections connected to estimates and jobs.",
+    image: "/screenshots/product-search.png",
   },
   {
     title: "AI Project Manager",
     description:
-      "Ask project-specific questions, review health, and forecast profit.",
+      "Use AI guidance to surface missing costs, budget pressure, margin risk, and project health insights.",
     image: "/screenshots/ai-assistant-command-center.png",
   },
   {
-    title: "Product Search",
+    title: "Lead & Subcontractor Tools",
     description:
-      "Search suppliers, compare material prices, and add products to bids.",
-    image: "/screenshots/product-search.png",
+      "Support project opportunities, subcontractor discovery, and construction business growth workflows.",
+    image: "/screenshots/find-subcontractors.png",
   },
 ];
 
