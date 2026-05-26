@@ -13,7 +13,7 @@ export const siteConfig = {
   founderName: "Nicholas LaFontaine",
   founderTitle: "Founder, Build Profit Solutions",
   mission:
-    "Help contractors estimate with more confidence, track costs from bid to closeout, and protect project profit with clearer numbers.",
+    "Helping contractors estimate smarter, track every dollar, stay organized, and protect profit from bid to closeout.",
   location:
     "Built for contractors and construction businesses nationwide — wherever you estimate, build, and track jobs.",
 };

@@ -53,11 +53,12 @@ export function PrelaunchBanner() {
   return (
     <div className="border-b border-emerald-300/20 bg-emerald-400/10 px-5 py-3 text-center text-sm leading-6 text-emerald-100">
       <span className="font-bold text-emerald-200">Pre-launch contractor beta.</span>{" "}
-      iOS, Android, and web access are being finalized for early users.{" "}
+      Build Profit Solutions is preparing early access for contractors, builders,
+      remodelers, and small construction teams.{" "}
       <a href={siteLinks.contact} className="font-bold underline hover:text-white">
-        Request early access
+        Request Early Access
       </a>{" "}
-      or join launch updates.
+      or contact us for launch updates.
     </div>
   );
 }
