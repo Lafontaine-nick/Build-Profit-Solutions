@@ -46,7 +46,6 @@ import {
   Image,
   StatusBar,
   StyleSheet,
-  InputAccessoryView,
   useWindowDimensions,
 } from "react-native";
 
@@ -75,7 +74,6 @@ import {
   skuSearchQueryTextKeyboard,
   textInputPhonePadDoneAccessory,
 } from '@/constants/inputKeyboardPresets';
-import { KEYBOARD_ACCESSORY_IDS } from '@/constants/keyboard';
 import {
   getProjectExpenseFormHorizontalPadding,
   isDesktopWebLayoutWidth,
@@ -888,15 +886,6 @@ export default function AttachSkuModal({
       statusBarTranslucent={false}
     >
       <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
-      {/* Empty accessory: Search Query must not use global green Done (`bpsKeyboardDone`) — matches Customer Name. */}
-      {Platform.OS === 'ios' && (
-        <InputAccessoryView
-          nativeID={KEYBOARD_ACCESSORY_IDS.skuSearchQueryPlain}
-          backgroundColor="transparent"
-        >
-          <View style={{ height: 0, width: '100%' }} collapsable={false} />
-        </InputAccessoryView>
-      )}
       <SkuModalRoot
         style={{ flex: 1, backgroundColor: darkMode ? '#000000' : Colors.bg }}
         {...(Platform.OS === 'android'

@@ -7,8 +7,6 @@
  *
  * See `.cursor/rules/mobile-keyboard-presets.mdc` for the project rule.
  */
-import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from './keyboard';
-
 const phonePadDoneBase = {
   keyboardType: 'phone-pad' as const,
   textContentType: 'none' as const,
@@ -17,16 +15,14 @@ const phonePadDoneBase = {
   blurOnSubmit: true as const,
 };
 
-/** Raw `TextInput` (e.g. SKU modal ZIP): phone-pad + same Done bar via native accessory id. */
+/** Raw `TextInput` (e.g. SKU modal ZIP): native phone-pad, no shared iOS Done accessory. */
 export const textInputPhonePadDoneAccessory = {
   ...phonePadDoneBase,
-  inputAccessoryViewID: iosAccessoryId(KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone),
 };
 
 /**
  * SKU Search Query — match Step 1 Customer Name: default keyboard + blue return key only.
- * iOS: `inputAccessoryViewID` points at an empty `InputAccessoryView` in `AttachSkuModal` so the
- * field never shows the global green `bpsKeyboardDone` strip (e.g. after focusing ZIP).
+ * Do not attach the shared green Done accessory here; iOS can reuse it after focusing ZIP.
  */
 export const skuSearchQueryTextKeyboard = {
   returnKeyType: 'done' as const,
@@ -34,5 +30,4 @@ export const skuSearchQueryTextKeyboard = {
   autoCorrect: false,
   autoCapitalize: 'words' as const,
   selectTextOnFocus: false,
-  inputAccessoryViewID: iosAccessoryId(KEYBOARD_ACCESSORY_IDS.skuSearchQueryPlain),
 };

@@ -124,7 +124,7 @@ function buildAssistantProfitLeakBlock({ parsedContext = {}, allProjects = [], p
       const compare = runCompareProjectsPipeline({
         parsedContext,
         allProjects: allProjects || [],
-        opts: { activeOnly: true },
+        args: { activeOnly: true },
       });
       if (compare?.success && compare?.dailyBrief) {
         return buildProfitLeakPromptBlock(compare.dailyBrief);
@@ -3364,7 +3364,7 @@ RULES:
 ${currentStepNumber === 2 ? `→ **Step 2 (Project Information):** Prompt for **project title**, **project type**, and **project description/scope**. Mention **start date** and **end date** if helpful—**dates are optional**. **Do not ask for square footage** unless the user volunteers it or asks for unit-rate / per‑sq‑ft pricing; never block the flow on sq ft.\n` : ''}→ If checklist items are missing, prioritize the most important 1-2 missing items in your answer.
 → If the estimate is not ready, guide the user to the next setup action instead of acting like the bid is final.
 → When totals are needed, prefer the Precomputed totals above over re-deriving from line items.
-${currentStepNumber === 7 ? `→ **Step 7 (Payment schedule):** If you offer payment-structure choices, use: **(1) Deposit + milestone payments**, **(2) Deposit + weekly progress payments** (weekly schedules here include a deposit plus weekly splits of the remainder), **(3) Custom schedule**. When the user states a **deposit as a percentage of the bid total**, use **Precomputed totals → total** to show the **exact dollar deposit**, then ask them to **confirm** before applying. **Never** ask for an expense **vendor** or **category** for estimate payment setup — those belong to job expenses, not the bid payment schedule.\n` : ''}`;
+${currentStepNumber === 7 ? `→ **Step 7 (Payment schedule):** If you offer payment-structure choices, match the estimate UI order: **(1) Weekly Progress Billing** (recommended — deposit + weekly payments + optional holdback), **(2) Milestone-Based** (deposit + milestone payments at project phases), **(3) Custom Schedule** (user-defined amounts, dates, and labels). When the user states a **deposit as a percentage of the bid total**, use **Precomputed totals → total** to show the **exact dollar deposit**, then ask them to **confirm** before applying. **Never** ask for an expense **vendor** or **category** for estimate payment setup — those belong to job expenses, not the bid payment schedule.\n` : ''}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5473,7 +5473,34 @@ function buildWeeklyPaymentScheduleRows({ total, weeks, depositPct, startDate, d
   return { weeklyPayments, safeWeeks, depositPctUsed: dp };
 }
 
-function buildEstimateActionResponse({ message, parsedContext, estimateData, bidTotal, projectName, session }) {
+function lastAssistantAskedForEstimateTitle(history = []) {
+  if (!Array.isArray(history)) return false;
+  const lastAssistant = [...history].reverse().find((m) => m?.role === 'assistant');
+  const s = String(lastAssistant?.content || lastAssistant?.text || '').toLowerCase();
+  if (!s) return false;
+  return (
+    /\bwhat\s+would\s+you\s+like\s+to\s+rename\s+(?:the\s+)?project\s+title\s+to\b/i.test(s) ||
+    /\bwhat\s+(?:should|would)\s+(?:i\s+)?(?:rename|name)\s+(?:this\s+)?(?:project|bid|estimate)(?:\s+title)?\s+(?:to|as)\b/i.test(s) ||
+    /\btell\s+me\s+(?:the\s+)?(?:new\s+)?(?:project\s+)?title\b/i.test(s)
+  );
+}
+
+function parseShortEstimateTitleReply(message) {
+  let title = normalizeEstimateUserMessageText(String(message || '').trim())
+    .replace(/^["“”'‘’]+|["“”'‘’]+$/g, '')
+    .trim();
+  title = sanitizeStep2Title(title);
+  if (!title || title.length > 80) return null;
+  if (/[?]/.test(title)) return null;
+  if (/\b(cancel|nevermind|never mind|no|not now|skip|back)\b/i.test(title)) return null;
+  if (/^(yes|yep|yeah|ok|okay|sure|confirm|confirmed)$/i.test(title)) return null;
+  if (/^(can|could|would|should|what|why|how|when|where|set|change|update|rename|add|delete|remove)\b/i.test(title)) return null;
+  const words = title.split(/\s+/).filter(Boolean);
+  if (words.length < 1 || words.length > 8) return null;
+  return title;
+}
+
+function buildEstimateActionResponse({ message, parsedContext, estimateData, bidTotal, projectName, session, history = [] }) {
   const msg = String(message || '').trim();
   const lower = msg.toLowerCase();
   const brief = getEstimateAssistantBrief(parsedContext);
@@ -5483,6 +5510,26 @@ function buildEstimateActionResponse({ message, parsedContext, estimateData, bid
   const defaultTier = session?.estimatePreferences?.pricingTier || 'standard';
   const followUps = buildEstimateSuggestedFollowUpsFromBrief(parsedContext, []);
   const currentStepNumber = Number(parsedContext?.currentStepNumber ?? 0);
+  const shortTitleReply =
+    lastAssistantAskedForEstimateTitle(history) ? parseShortEstimateTitleReply(msg) : null;
+  if (shortTitleReply) {
+    const action = { type: 'update_project_info', title: shortTitleReply };
+    trackEstimateSessionEvent(session, 'update_project_info', {
+      hasTitle: true,
+      source: 'rename_title_followup',
+    });
+    return {
+      reply: [
+        '**Step 2 — review before saving**',
+        '',
+        `- **Title:** ${shortTitleReply}`,
+        '',
+        'Tap **Confirm** in the dialog to save this to Step 2 (Project information), or **Cancel** to edit.',
+      ].join('\n'),
+      actions: [action],
+      suggestedFollowUps: followUps,
+    };
+  }
   const pendingPay = session?.pendingEstimatePaymentConfirm;
   const pendingWeekCount = extractEstimateWeekCountReply(lower);
   const inPendingPaymentFollowUp =
@@ -6024,18 +6071,21 @@ function buildEstimateActionResponse({ message, parsedContext, estimateData, bid
 
   // Include natural menu replies ("deposit and weekly payments") — without "build/create" the LLM may mis-route to generate_estimate.
   const weeklyScheduleIntent =
-    /\b(build|create|generate|make)\b[\s\S]{0,120}\bweekly\b[\s\S]{0,80}\b(payments?|schedule)\b/i.test(lower) ||
+    /\b(build|create|generate|make)\b[\s\S]{0,120}\bweekly\b[\s\S]{0,80}\b(payments?|schedule|billing)\b/i.test(lower) ||
     (/\b(deposit|down\s*payment)\b/i.test(lower) && /\bweekly\b/i.test(lower)) ||
-    (/^(?:option\s*)?#?\s*2\b/i.test(lower.trim()) && lower.trim().length <= 40);
+    /\bweekly progress billing\b/i.test(lower) ||
+    (/^(?:option\s*)?#?\s*1\b/i.test(lower.trim()) && lower.trim().length <= 40);
   const milestoneScheduleIntent =
     /\b(build|create|generate|make)\b[\s\S]{0,120}\b(milestone|deposit)\b[\s\S]{0,80}\b(payments?|schedule)\b/i.test(lower) ||
-    /\bsafer schedule\b/i.test(lower);
+    /\bmilestone[- ]based\b/i.test(lower) ||
+    /\bsafer schedule\b/i.test(lower) ||
+    (/^(?:option\s*)?#?\s*2\b/i.test(lower.trim()) && lower.trim().length <= 40);
 
   const genericEstimatePaymentScheduleIntent =
     !weeklyScheduleIntent &&
     !milestoneScheduleIntent &&
-    (/\b(add|create|set\s*up|build|generate|start)\b[\s\S]{0,140}\bpayment\s+schedule\b/i.test(lower) ||
-      /\bpayment\s+schedule\b[\s\S]{0,120}\b(add|create|set\s*up|build|help|need)\b/i.test(lower) ||
+    (/\b(add|create|set\s*up|build|generate|start|complete|fill\s*out)\b[\s\S]{0,140}\bpayment\s+schedule\b/i.test(lower) ||
+      /\bpayment\s+schedule\b[\s\S]{0,120}\b(add|create|set\s*up|build|help|need|complete|fill\s*out)\b/i.test(lower) ||
       /\badd\s+payments?\b[\s\S]{0,90}\b(?:my\s+)?(?:payment\s+)?schedule\b/i.test(lower) ||
       /\bhelp\s+(?:me\s+)?(?:with\s+)?(?:my\s+|the\s+)?payment\s+schedule\b/i.test(lower) ||
       /\b(set\s*up|create|build)\s+(?:my\s+|the\s+|a\s+)?payments?\s+for\s+(?:this\s+)?(?:job|estimate|bid)\b/i.test(lower));
@@ -6048,17 +6098,17 @@ function buildEstimateActionResponse({ message, parsedContext, estimateData, bid
         'For this **estimate**, we set up the full **bid payment schedule** (deposit + progress draws)—not a single timeline payment with a custom title.',
         '',
         'Choose a structure:',
-        '1. **Deposit + milestone payments**',
-        '2. **Deposit + weekly progress payments**',
-        '3. **Custom** — describe percentages or timing',
+        '1. **Weekly Progress Billing** (recommended) — deposit + weekly payments + optional holdback',
+        '2. **Milestone-Based** — deposit + milestone payments at project phases',
+        '3. **Custom Schedule** — you define amounts, dates, and labels',
         '',
-        `For example: *“Build a milestone payment schedule,”* *“Build a weekly payment schedule for 6 weeks,”* or *“5% of the bid for the deposit with weekly payments.”*${totalLine}`,
+        `For example: *“Build a weekly payment schedule for 6 weeks,”* *“Build a milestone payment schedule,”* or *“5% of the bid for the deposit with weekly payments.”*${totalLine}`,
       ].join('\n'),
       actions: [],
       suggestedFollowUps: [
-        { label: 'Milestone schedule', prompt: 'Build a milestone payment schedule for this estimate.' },
         { label: 'Weekly (4 weeks)', prompt: 'Build a weekly payment schedule for 4 weeks.' },
         { label: 'Weekly (6 weeks)', prompt: 'Build a weekly payment schedule for 6 weeks.' },
+        { label: 'Milestone schedule', prompt: 'Build a milestone payment schedule for this estimate.' },
         { label: 'Safer schedule', prompt: 'Build a safer payment schedule for this estimate.' },
       ],
     };
@@ -7817,6 +7867,7 @@ router.post('/', async (req, res) => {
         bidTotal,
         projectName,
         session,
+        history,
       });
       if (estimateActionResult) {
         console.log('✅ EARLY estimate action/copilot response — returning immediately');
@@ -14444,7 +14495,7 @@ RULES:
                     ? { success: true, project: { id: match.id, name: match.title || match.name, status: match.status || 'active' } }
                     : { success: false, error: 'No matching project found.' };
                 } else if (name === 'compare_projects') {
-                  const compareOut = runCompareProjectsPipeline({ parsedContext, allProjects: allProjects || [], opts: args || {} });
+                  const compareOut = runCompareProjectsPipeline({ parsedContext, allProjects: allProjects || [], args: args || {} });
                   toolResultPayload = { success: true, ...(compareOut || {}) };
                 } else if (name === 'get_project_health') {
                   const targetId = args?.projectId || projectId;

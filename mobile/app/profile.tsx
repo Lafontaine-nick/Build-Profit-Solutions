@@ -17,7 +17,6 @@ import {
   ActionSheetIOS,
   ActivityIndicator,
   Linking,
-  InputAccessoryView,
   Keyboard,
   useWindowDimensions,
 } from 'react-native';
@@ -47,8 +46,10 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useTranslation } from 'react-i18next';
 import Slider from '@react-native-community/slider';
 import { useApi } from '@/contexts/ApiContext';
+import { useProjectList } from '@/contexts/ProjectListContext';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
 import { clerkAuthService } from '@/services/clerkAuth';
+import { syncClerkTokenToAsyncStorage } from '@/utils/authTokenHelper';
 import {
   clearAllOnboardingCompletionKeys,
   clearOnboardingCompleteForUser,
@@ -372,6 +373,7 @@ export default function ProfileScreen() {
   );
   const styles = useMemo(() => getStyles(Colors, darkMode, desktopWeb), [Colors, darkMode, desktopWeb]);
   const { updateProfile, updatePreferences, logout: apiLogout } = useApi();
+  const { clearProjectsLocal } = useProjectList();
   const { currentLanguage, changeLanguage } = useLanguage();
   const { t } = useTranslation(); // Use directly for reactivity
 
@@ -406,6 +408,7 @@ export default function ProfileScreen() {
   // Get Clerk signOut and user if available
   // Only use Clerk if it's available and we're in a ClerkProvider
   let clerkSignOut: (() => Promise<void>) | null = null;
+  let clerkGetToken: (() => Promise<string | null>) | null = null;
   let clerkUser: any = null;
   const publishableKey = Constants.expoConfig?.extra?.clerkPublishableKey || process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
   const isClerkEnabled = publishableKey && (publishableKey.startsWith('pk_live_') || (publishableKey.startsWith('pk_test_') && publishableKey !== 'pk_test_Y2xlcmsuZGV2LmNsZXJrLmF1dGgudGVzdC5rZXk'));
@@ -414,9 +417,11 @@ export default function ProfileScreen() {
     try {
       const clerkAuth = useClerkAuth();
       clerkSignOut = clerkAuth?.signOut || null;
+      clerkGetToken = clerkAuth?.getToken || null;
     } catch (e) {
       // Not in ClerkProvider - that's okay, we'll use API logout instead
       clerkSignOut = null;
+      clerkGetToken = null;
     }
   }
   
@@ -775,18 +780,20 @@ export default function ProfileScreen() {
             await clearProfileCompletionReminderDismissed(reminderUserId);
           }
           console.log('💾 Saved complete profile to AsyncStorage');
-          const uid = clerkUser?.id || user.email || user.id || 'anonymous';
-          await syncBpsDirectoryListing({
-            id: String(uid),
-            companyName: user.company,
-            contactName: user.name,
-            email: user.email,
-            phone: user.phone?.replace(/\D/g, ''),
-            website: user.website,
-            trades: user.role ? [user.role] : ['General Contractor'],
-            zip: serviceZip,
-            listOnFindSubcontractors: listOnFindSubcontractors && serviceZip.length === 5,
-          });
+          const uid = String(clerkUser?.id || '').trim();
+          if (uid.startsWith('user_')) {
+            await syncBpsDirectoryListing({
+              id: uid,
+              companyName: user.company,
+              contactName: user.name,
+              email: user.email,
+              phone: user.phone?.replace(/\D/g, ''),
+              website: user.website,
+              trades: user.role ? [user.role] : ['General Contractor'],
+              zip: serviceZip,
+              listOnFindSubcontractors: listOnFindSubcontractors && serviceZip.length === 5,
+            });
+          }
         } catch (error) {
           console.error('Failed to save profile:', error);
         }
@@ -882,18 +889,20 @@ export default function ProfileScreen() {
           await clearProfileCompletionReminderDismissed(reminderUserId);
         }
         console.log('💾 Saved complete contractor profile to AsyncStorage');
-        const uid = clerkUser?.id || editForm.email || user.email || user.id || 'anonymous';
-        await syncBpsDirectoryListing({
-          id: String(uid),
-          companyName: editForm.company,
-          contactName: fullName,
-          email: editForm.email,
-          phone: editForm.phone.replace(/\D/g, ''),
-          website: user.website,
-          trades: editForm.role ? [editForm.role] : ['General Contractor'],
-          zip: serviceZip,
-          listOnFindSubcontractors: listOnFindSubcontractors && serviceZip.length === 5,
-        });
+        const uid = String(clerkUser?.id || '').trim();
+        if (uid.startsWith('user_')) {
+          await syncBpsDirectoryListing({
+            id: uid,
+            companyName: editForm.company,
+            contactName: fullName,
+            email: editForm.email,
+            phone: editForm.phone.replace(/\D/g, ''),
+            website: user.website,
+            trades: editForm.role ? [editForm.role] : ['General Contractor'],
+            zip: serviceZip,
+            listOnFindSubcontractors: listOnFindSubcontractors && serviceZip.length === 5,
+          });
+        }
       } catch (error) {
         console.error('Failed to save profile to AsyncStorage:', error);
       }
@@ -1206,11 +1215,18 @@ export default function ProfileScreen() {
                         { cancelable: false }
                       );
 
+                      let deleteApiFailed = false;
                       let deleteApiClerkFailed = false;
                       // Call the delete account API
                       if (apiLogout) {
                         // First try to delete account via API
                         try {
+                          if (clerkGetToken) {
+                            const clerkToken = await clerkGetToken();
+                            if (clerkToken) {
+                              await syncClerkTokenToAsyncStorage(clerkToken);
+                            }
+                          }
                           const apiService = require('@/services/api').apiService;
                           const delResult = await apiService.deleteAccount();
                           if (delResult && delResult.clerkDeleteFailed) {
@@ -1218,7 +1234,7 @@ export default function ProfileScreen() {
                           }
                         } catch (apiError) {
                           console.error('Error calling delete account API:', apiError);
-                          deleteApiClerkFailed = true;
+                          deleteApiFailed = true;
                           // Continue with local cleanup even if API call fails
                         }
                       }
@@ -1227,6 +1243,13 @@ export default function ProfileScreen() {
                         await clearAllOnboardingCompletionKeys();
                       } catch (e) {
                         console.warn('clearAllOnboardingCompletionKeys:', e);
+                      }
+
+                      // Clear project context immediately; AsyncStorage.clear() alone does not reset React state.
+                      try {
+                        await clearProjectsLocal();
+                      } catch (e) {
+                        console.warn('clearProjectsLocal:', e);
                       }
 
                       // Clear all local data
@@ -1278,10 +1301,12 @@ export default function ProfileScreen() {
                       
                       // Show success message and navigate to landing page
                       Alert.alert(
-                        deleteApiClerkFailed
+                        deleteApiFailed || deleteApiClerkFailed
                           ? 'Data removed'
                           : 'Account Deleted',
-                        deleteApiClerkFailed
+                        deleteApiFailed
+                          ? 'Your local app data was cleared and you were signed out, but the server delete did not finish. If you sign back into the same account, server projects may return. Please try Delete Account again when online or contact support.'
+                          : deleteApiClerkFailed
                           ? 'Your app data was cleared and you were signed out. If sign-in still recognizes this email, remove the user in the Clerk Dashboard (Users) or contact support so the email can be reused.'
                           : 'Your account has been successfully deleted. All your data has been permanently removed.',
                         [
@@ -1318,7 +1343,7 @@ export default function ProfileScreen() {
         },
       ]
     );
-  }, [apiLogout, clerkSignOut, router]);
+  }, [apiLogout, clerkGetToken, clerkSignOut, clearProjectsLocal, router]);
 
   // Calculate profile completion percentage
   const calculateProfileCompletion = useCallback(() => {
@@ -2772,26 +2797,6 @@ export default function ProfileScreen() {
 
   return (
     <>
-      {/* Keyboard Toolbar with Done Button - Must be at root level */}
-      {Platform.OS === 'ios' && (
-        <InputAccessoryView nativeID="keyboardToolbar">
-          <View style={[styles.keyboardToolbar, {
-            backgroundColor: darkMode ? '#1a1a1a' : '#f5f5f5',
-            borderTopColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-          }]}>
-            <TouchableOpacity
-              style={styles.keyboardDoneButton}
-              onPress={() => {
-                Keyboard.dismiss();
-              }}
-            >
-              <Text style={[styles.keyboardDoneText, { color: theme.accent }]}>
-                Done
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </InputAccessoryView>
-      )}
       <LinearGradient colors={theme.background} style={styles.container}>
       {/* Header with Back Button and Title */}
       <View style={[styles.headerRow, webProfileHeaderMargins]}>
@@ -3078,7 +3083,7 @@ export default function ProfileScreen() {
                     Email
                   </Text>
                   <TextInput
-                    inputAccessoryViewID="keyboardToolbar"
+
                     style={[
                       styles.modalTextInput,
                       {
@@ -3107,7 +3112,7 @@ export default function ProfileScreen() {
                     Phone
                   </Text>
                   <TextInput
-                    inputAccessoryViewID="keyboardToolbar"
+
                     style={[
                       styles.modalTextInput,
                       {
@@ -3137,7 +3142,7 @@ export default function ProfileScreen() {
                     Company
                   </Text>
                   <TextInput
-                    inputAccessoryViewID="keyboardToolbar"
+
                     style={[
                       styles.modalTextInput,
                       {
@@ -3164,7 +3169,7 @@ export default function ProfileScreen() {
                     Role
                   </Text>
                   <TextInput
-                    inputAccessoryViewID="keyboardToolbar"
+
                     style={[
                       styles.modalTextInput,
                       {
@@ -3200,7 +3205,7 @@ export default function ProfileScreen() {
                   <View style={{ flexDirection: 'row', gap: 12 }}>
                     <TextInput
                       ref={cityInputRef}
-                      inputAccessoryViewID="keyboardToolbar"
+
                       style={[
                         styles.modalTextInput,
                         {
@@ -3225,7 +3230,7 @@ export default function ProfileScreen() {
                     />
                     <TextInput
                       ref={stateInputRef}
-                      inputAccessoryViewID="keyboardToolbar"
+
                       style={[
                         styles.modalTextInput,
                         {

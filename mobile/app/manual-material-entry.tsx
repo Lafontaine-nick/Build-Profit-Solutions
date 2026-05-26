@@ -17,10 +17,6 @@ import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import {
-  KeyboardNumericDoneAccessory,
-  numericKeyboardDoneAccessoryId,
-} from '../components/KeyboardNumericDoneAccessory';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import WebPageShell from '@/components/layout/WebPageShell';
 
@@ -118,7 +114,6 @@ export default function ManualMaterialEntryScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <LinearGradient colors={['#0b1c38', '#1B365D', '#43cea2']} style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
-          <KeyboardNumericDoneAccessory darkMode surfaceColor={Colors.bg} />
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
             <View style={styles.header}>
               <TouchableOpacity
@@ -177,7 +172,6 @@ export default function ManualMaterialEntryScreen() {
                           setQuantity(cleanText);
                         }}
                         keyboardType="decimal-pad"
-                        inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                         placeholder="1"
                         placeholderTextColor="rgba(255, 255, 255, 0.5)"
                       />
@@ -192,7 +186,6 @@ export default function ManualMaterialEntryScreen() {
                           setUnitPrice(cleanText);
                         }}
                         keyboardType="decimal-pad"
-                        inputAccessoryViewID={numericKeyboardDoneAccessoryId}
                         placeholder="0.00"
                         placeholderTextColor="rgba(255, 255, 255, 0.5)"
                       />

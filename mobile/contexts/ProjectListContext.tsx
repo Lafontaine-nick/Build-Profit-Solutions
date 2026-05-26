@@ -101,6 +101,7 @@ interface ProjectListContextType {
   updateProject: (id: string, updates: Partial<UnifiedProject>) => void;
   deleteProject: (id: string) => Promise<void>;
   refreshProjects: () => Promise<void>;
+  clearProjectsLocal: () => Promise<void>;
 }
 
 const ProjectListContext = createContext<ProjectListContextType | undefined>(
@@ -664,6 +665,28 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const clearProjectsLocal = async () => {
+    setProjects([]);
+    try {
+      const keys = await AsyncStorage.getAllKeys();
+      const projectKeys = keys.filter(
+        (key) =>
+          key === STORAGE_KEY ||
+          key.startsWith('bps.project.') ||
+          key.startsWith('bps.timeline.v2.') ||
+          key.startsWith('timeline_') ||
+          key.startsWith('daily_logs_') ||
+          key.startsWith('calendar_events_')
+      );
+      if (projectKeys.length > 0) {
+        await AsyncStorage.multiRemove(projectKeys);
+      }
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+    } catch (error) {
+      console.error('Error clearing local projects:', error);
+    }
+  };
+
   // Filtered lists — must be memoized: fresh [] each render breaks consumers' useEffect deps
   // (e.g. estimate-generator bid autosave) and floods Metro / the integrated terminal.
   const estimates = useMemo(
@@ -1150,6 +1173,7 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
         updateProject,
         deleteProject,
         refreshProjects,
+        clearProjectsLocal,
       }}
     >
       {children}

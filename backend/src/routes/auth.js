@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const { getPool } = require('../services/database');
 const { loadUsers, saveUsers, loadProjects, saveProjects, loadProjectLeads, saveProjectLeads, loadUnifiedLeads, saveUnifiedLeads } = require('../services/leadStorage');
+const bpsDirectory = require('../services/bpsContractorDirectory');
 
 // Initialize Stripe only if configured
 let stripe = null;
@@ -960,7 +961,22 @@ router.delete('/account', authenticateToken, async (req, res) => {
     try {
       let projects = loadProjects();
       const initialCount = projects.length;
-      projects = projects.filter(p => p.userId !== userId && p.ownerId !== userId && p.createdBy !== userId);
+      const normalizedEmail = String(userEmail || '').trim().toLowerCase();
+      projects = projects.filter(p => {
+        const projectUserIds = [p.userId, p.ownerId, p.createdBy, p.createdByUserId]
+          .map((value) => String(value || ''));
+        const projectEmails = [
+          p.userEmail,
+          p.email,
+          p.ownerEmail,
+          p.createdByEmail,
+          p.contractorEmail,
+        ].map((value) => String(value || '').trim().toLowerCase());
+
+        const belongsToUserId = projectUserIds.includes(String(userId));
+        const belongsToEmail = normalizedEmail && projectEmails.includes(normalizedEmail);
+        return !belongsToUserId && !belongsToEmail;
+      });
       const deletedCount = initialCount - projects.length;
       
       if (deletedCount > 0) {
@@ -1012,6 +1028,16 @@ router.delete('/account', authenticateToken, async (req, res) => {
     } catch (unifiedLeadError) {
       console.error('⚠️  Error deleting unified leads:', unifiedLeadError.message);
       // Continue even if unified lead deletion fails
+    }
+
+    // 7. Remove Find Subcontractors directory listings for this account
+    try {
+      const removedListings = bpsDirectory.removeListingsForUser({ userId, email: userEmail });
+      if (removedListings > 0) {
+        console.log(`✅ Removed ${removedListings} Find Subcontractors listing(s) for user ${userId}`);
+      }
+    } catch (directoryError) {
+      console.error('⚠️  Error deleting directory listings:', directoryError.message);
     }
 
     console.log(`✅ Account deletion completed for user: ${userEmail} (${userId})`);

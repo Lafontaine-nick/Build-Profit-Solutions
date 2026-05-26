@@ -752,7 +752,11 @@ function buildDailyCommandCenter(items = [], opts = {}) {
     })
     .slice(0, 5);
 
-  const activeItems = safeItems.filter((item) => !['completed', 'done', 'finished'].includes(String(item?.status || '').toLowerCase()));
+  const isActiveProjectStatus = (status) =>
+    ['won', 'active', 'in_progress', 'in-progress'].includes(
+      String(status || '').toLowerCase()
+    );
+  const activeItems = safeItems.filter((item) => isActiveProjectStatus(item?.status));
   const uniqueKeys = (items) =>
     items
       .map((item) => {
@@ -1560,7 +1564,10 @@ function runCompareProjectsPipeline({ allProjects = [], parsedContext = {}, args
     if (activeOnly) {
       candidates = candidates.filter((p) => {
         const statusLower = String(p?.status || '').toLowerCase();
-        if (statusLower !== 'completed') return true;
+        if (['won', 'active', 'in_progress', 'in-progress'].includes(statusLower)) {
+          return true;
+        }
+        if (statusLower !== 'completed') return false;
 
         const milestonesRaw = getProjectMilestones(p);
         const milestones = Array.isArray(milestonesRaw) ? milestonesRaw : [];

@@ -11,24 +11,18 @@ import {
   TextStyle,
   RefObject,
 } from 'react-native';
-import { iosAccessoryId } from '@/constants/keyboard';
-
 export type AppTextFieldFocusMode = 'none' | 'text' | 'number';
 
 type Props = TextInputProps & {
   label?: string;
   required?: boolean;
-  accessoryID?: string;
   leftIcon?: React.ReactNode;
   /** Override shell (e.g. match estimate `s.input` in light mode). */
   shellStyle?: StyleProp<ViewStyle>;
   labelStyle?: StyleProp<TextStyle>;
   placeholderTextColor?: string;
   wrapperStyle?: StyleProp<ViewStyle>;
-  /**
-   * When set, `inputAccessoryViewID` is not used (floating-Done pattern for numeric fields).
-   * Notifies parent of keyboard mode from `keyboardType` on focus/blur.
-   */
+  /** Notifies parent of keyboard mode from `keyboardType` on focus/blur. */
   onFocusMode?: (mode: AppTextFieldFocusMode) => void;
   /** Ref to the inner `TextInput` (e.g. custom keypad + blur from parent). */
   textInputRef?: RefObject<TextInput | null>;
@@ -37,7 +31,6 @@ type Props = TextInputProps & {
 export default function AppTextField({
   label,
   required,
-  accessoryID,
   leftIcon,
   shellStyle,
   labelStyle,
@@ -57,12 +50,11 @@ export default function AppTextField({
     keyboardType === 'phone-pad' ||
     keyboardType === 'decimal-pad';
 
-  const inputAccessoryViewID = onFocusMode ? undefined : iosAccessoryId(accessoryID);
-
   // Never let spread props override keyboard / accessory (ZIP vs Phone bugs when keys leak into `props`).
   const spreadProps = { ...props } as Record<string, unknown>;
   delete spreadProps.keyboardType;
   delete spreadProps.textContentType;
+  delete spreadProps.inputAccessoryViewID;
 
   return (
     <View style={[styles.wrapper, wrapperStyle]}>
@@ -98,7 +90,6 @@ export default function AppTextField({
             onBlur?.(e);
           }}
           textContentType={textContentType}
-          inputAccessoryViewID={inputAccessoryViewID}
           keyboardType={keyboardType}
         />
       </View>

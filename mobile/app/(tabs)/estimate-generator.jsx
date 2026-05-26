@@ -20,7 +20,6 @@ import {
   Animated,
   AppState,
   BackHandler,
-  InputAccessoryView,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -42,9 +41,7 @@ import { MessagesInbox } from '../../components/MessagesInbox';
 import AIBidOptimization from '../../components/AIBidOptimization';
 import ProjectAnalysis from '../../components/ProjectAnalysis';
 import AIAssistantModal from '../../components/AIAssistantModal';
-import KeyboardDoneAccessory from '@/components/ui/KeyboardDoneAccessory';
 import AppTextField from '@/components/ui/AppTextField';
-import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from '@/constants/keyboard';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import GradientRingBackInner from '../../components/GradientRingBackInner';
 import {
@@ -1903,10 +1900,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
   /** Full-screen add flows: use `laborMode` (not `title`) so i18n / copy changes never fall through to the bottom-sheet layout. */
   const isLaborForm = laborMode === true;
   const isMaterialForm = laborMode !== true;
-  /** Global `bps-keyboard-done` bar (mounted in root `_layout.tsx`). */
-  const bpsKeyboardAccessoryId = iosAccessoryId(KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone);
-  /** Modal-local empty accessory for text fields inside this full-screen modal. */
-  const lineItemModalPlainAccessoryId = iosAccessoryId(KEYBOARD_ACCESSORY_IDS.lineItemModalPlain);
 
   useEffect(() => {
     if (item) {
@@ -2076,14 +2069,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
         : {})}
       onRequestClose={onClose}
     >
-      {Platform.OS === 'ios' && (
-        <InputAccessoryView
-          nativeID={KEYBOARD_ACCESSORY_IDS.lineItemModalPlain}
-          backgroundColor="transparent"
-        >
-          <View style={{ height: 0, width: '100%' }} collapsable={false} />
-        </InputAccessoryView>
-      )}
       <KeyboardAvoidingView
         behavior={Platform.OS === 'android' ? 'padding' : undefined}
         enabled={Platform.OS === 'android'}
@@ -2198,7 +2183,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                           value={name}
                           onChangeText={setName}
-                          inputAccessoryViewID={lineItemModalPlainAccessoryId}
                           returnKeyType="done"
                           onSubmitEditing={() => Keyboard.dismiss()}
                           blurOnSubmit
@@ -2226,7 +2210,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                           value={trade}
                           onChangeText={setTrade}
-                          inputAccessoryViewID={lineItemModalPlainAccessoryId}
                           returnKeyType="done"
                           onSubmitEditing={() => Keyboard.dismiss()}
                           blurOnSubmit
@@ -2369,7 +2352,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             keyboardType="phone-pad"
                             textContentType="none"
                             autoComplete="off"
-                            inputAccessoryViewID={lineItemModalPlainAccessoryId}
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
                           />
@@ -2402,7 +2384,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             selectionColor="#22c55e"
                             cursorColor={Platform.OS === 'ios' ? '#22c55e' : undefined}
                             underlineColorAndroid="transparent"
-                            inputAccessoryViewID={bpsKeyboardAccessoryId}
                           />
                         </View>
                       </View>
@@ -2451,7 +2432,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             blurOnSubmit
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
-                            inputAccessoryViewID={bpsKeyboardAccessoryId}
                           />
                         </View>
                       </View>
@@ -2605,7 +2585,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                     selectionColor="#22c55e"
                                     cursorColor={Platform.OS === 'ios' ? '#22c55e' : undefined}
                                     underlineColorAndroid="transparent"
-                                    inputAccessoryViewID={bpsKeyboardAccessoryId}
                                   />
                                 </View>
                               </View>
@@ -2659,7 +2638,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                     selectionColor="#22c55e"
                                     cursorColor={Platform.OS === 'ios' ? '#22c55e' : undefined}
                                     underlineColorAndroid="transparent"
-                                    inputAccessoryViewID={bpsKeyboardAccessoryId}
                                   />
                                 </View>
                               </View>
@@ -2732,7 +2710,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                 selectionColor="#22c55e"
                                 cursorColor={Platform.OS === 'ios' ? '#22c55e' : undefined}
                                 underlineColorAndroid="transparent"
-                                inputAccessoryViewID={bpsKeyboardAccessoryId}
                               />
                             </View>
                             {decimalMoneyInputToNumber(unitPriceText) > 0 && (
@@ -2937,7 +2914,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             blurOnSubmit={true}
                             placeholderTextColor={Colors.sub}
                             placeholder="0"
-                            inputAccessoryViewID={bpsKeyboardAccessoryId}
                           />
                         </View>
                         <View style={[modalStyles.inputGroup, { flex: 1, marginLeft: 12 }]}>
@@ -2954,7 +2930,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             blurOnSubmit={true}
                             placeholderTextColor={Colors.sub}
                             placeholder="0"
-                            inputAccessoryViewID={bpsKeyboardAccessoryId}
                           />
                         </View>
                       </View>
@@ -2980,7 +2955,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
                             placeholderTextColor={Colors.sub}
-                            inputAccessoryViewID={bpsKeyboardAccessoryId}
                           />
                         </View>
                         <View style={[modalStyles.inputGroup, { flex: 1, marginLeft: 12 }]}>
@@ -2994,7 +2968,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             blurOnSubmit
                             placeholder="lot, sq ft, etc"
                             placeholderTextColor={Colors.sub}
-                            inputAccessoryViewID={bpsKeyboardAccessoryId}
                           />
                         </View>
                       </View>
@@ -3016,7 +2989,6 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                           onSubmitEditing={() => Keyboard.dismiss()}
                           blurOnSubmit={true}
                           placeholderTextColor={Colors.sub}
-                          inputAccessoryViewID={bpsKeyboardAccessoryId}
                         />
                       </View>
                       
@@ -4111,7 +4083,7 @@ const computeTotalFromBidData = (bidData) => {
   const materials = (bidData.materialLineItems || []).reduce((sum, r) => sum + (Number(r.total) || 0), 0);
   const labor = (bidData.laborLineItems || []).reduce((sum, item) => sum + (Number(item.total) || 0), 0);
   const financials = getEstimateStep5Financials(bidData, materials, labor);
-  return Math.round(financials.bidPrice) || 0;
+  return Math.round(financials.bidPrice * 100) / 100 || 0;
 };
 
 // Gradient colors for borders
@@ -8318,8 +8290,15 @@ export default function EstimateGeneratorScreen() {
         return { message: 'I need a name before I can rename this bid.' };
       }
       storeEstimateAiUndoSnapshot('rename estimate');
-      setBid(prev => ({ ...prev, title: nextTitle }));
+      const nextBid = {
+        ...(bidRef.current || bid),
+        _isNewBid: false,
+        title: nextTitle,
+      };
+      bidRef.current = nextBid;
+      setBid(nextBid);
       setForceRefresh(prev => prev + 1);
+      void silentPersistEstimateDraft();
       return resultWithUndo(`Renamed this bid to "${nextTitle}".`);
     }
 
@@ -8491,8 +8470,17 @@ export default function EstimateGeneratorScreen() {
           }
         );
       }
+      const savedFields = [
+        action.title ? 'project title' : null,
+        action.projectType ? 'project type' : null,
+        action.scopeDescription ? 'description' : null,
+        action.sqft != null ? 'square footage' : null,
+      ].filter(Boolean);
+      const fieldSummary = savedFields.length > 0
+        ? savedFields.join(', ').replace(/, ([^,]*)$/, ' and $1')
+        : 'project information';
       return resultWithUndo(
-        `✅ **Step 2 saved** — project title, type, and description are now set on **${t}**${typeLabel ? ` (${typeLabel})` : ''}.\n\n` +
+        `✅ **Step 2 saved** — ${fieldSummary} ${savedFields.length === 1 ? 'is' : 'are'} now set on **${t}**${typeLabel ? ` (${typeLabel})` : ''}.\n\n` +
           'Want to move on to **Step 3 — Materials & Supplies**? You can suggest materials, quantities, or categories you want to include.',
         {
           suggestedFollowUps: [
@@ -9206,11 +9194,11 @@ export default function EstimateGeneratorScreen() {
     
     // For payment updates, calculate current total and recalculate amounts from percentages
     if (key === 'paymentMilestones' || key === 'weeklyPayments') {
-      // Calculate current total from materials, labor, overhead, markup
+      // Calculate current bid total from materials, labor, project costs, and markup.
       const materials = materialsCart.reduce((sum, r) => sum + (r.total || 0), 0);
       const labor = (currentBid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0);
       const financials = getEstimateStep5Financials(currentBid, materials, labor);
-      const grandTotal = Math.round(financials.bidPrice) || calc?.total || calc?.grandTotal || currentBid.grandTotal || currentBid.total || 0;
+      const grandTotal = roundPayment(financials.bidPrice) || calc?.total || calc?.grandTotal || currentBid.grandTotal || currentBid.total || 0;
       
       if (grandTotal > 0 && Array.isArray(value) && value.length > 0) {
         if (key === 'paymentMilestones') {
@@ -9749,7 +9737,7 @@ export default function EstimateGeneratorScreen() {
     const totalOverhead = financials.overheadContextTotal;
 
     const baseSubtotal = financials.totalCostBeforeMarkup;
-    const grandTotal = Math.round(financials.bidPrice);
+    const grandTotal = Math.round(financials.bidPrice * 100) / 100;
     const resolvedStartDate = bidData.startDate || bidData.projectStartDate || undefined;
     const resolvedEndDate =
       bidData.endDate ||
@@ -9779,13 +9767,7 @@ export default function EstimateGeneratorScreen() {
         contractId: formatProposalIdForContract(bidData),
         projectName: bidData.title || 'Untitled Project',
         siteAddress: formattedSiteAddress,
-        unitPrice: bidData.sqft ? (() => {
-          const materials = calcData?.materials || 0;
-          const labor = calcData?.labor || 0;
-          const subtotal = materials + labor + projectCosts.totalProjectCosts;
-          const markup = subtotal * ((bidData.markupPct || 0) / 100);
-          return Math.round(subtotal + markup) / bidData.sqft;
-        })() : undefined,
+        unitPrice: bidData.sqft ? Math.round((grandTotal / bidData.sqft) * 100) / 100 : undefined,
         totalBid: grandTotal,
         durationDays: bidData.projectDuration || 30,
         startDate: resolvedStartDate || 'TBD',
@@ -11471,10 +11453,10 @@ export default function EstimateGeneratorScreen() {
 
   /**
    * Estimates steps 1–7 — keyboard/accessory contract is frozen unless product asks.
-   * Summary: step 1–2 AppTextField patterns (phone/ZIP/sqft → phone-pad + bpsKeyboardDone);
-   * step 3 cart qty → phone-pad + bpsKeyboardDone (cleared when material/labor modal open);
-   * step 5 decimals → decimal-pad + step5EquipmentPlain only; step 7 custom counts → phone-pad + step5EquipmentPlain.
-   * iOS root mounts: grey `number` Done only on steps 3–4; empty `step5EquipmentPlain` on steps 5–8 (search `KeyboardDoneAccessory` / `step5EquipmentPlain` near the main `return`).
+   * Summary: step 1–2 AppTextField patterns (phone/ZIP/sqft → native phone-pad only);
+   * step 3 cart qty → native phone-pad only;
+   * step 5 decimals → native decimal-pad only; step 7 custom counts → native phone-pad only.
+   * No iOS InputAccessoryView mounts on the estimate screen — avoids stale green/grey Done bars.
    * Full table: `.cursor/rules/estimate-generator-keyboards-stable.mdc`
    */
   // Render step content
@@ -11492,10 +11474,20 @@ export default function EstimateGeneratorScreen() {
           : 'Risk detected. Labor-heavy bid and low health score—review before sending.';
         
         const maxBarHeight = 120;
-        const maxValue = Math.max(calc.materials, calc.labor, calc.costContextTotal, calc.profit, 1);
+        const projectCostsAmount = calc.totalProjectCosts ?? 0;
+        const companyOverheadAmount = calc.companyOverhead ?? 0;
+        const netProfitAmount = (calc.profit || 0) - companyOverheadAmount;
+        const netProfitPctOnBid = calc.total > 0 ? (netProfitAmount / calc.total) * 100 : 0;
+        const maxValue = Math.max(
+          calc.materials,
+          calc.labor,
+          projectCostsAmount,
+          calc.profit,
+          1
+        );
         const materialsHeight = (calc.materials / maxValue) * maxBarHeight;
         const laborHeight = (calc.labor / maxValue) * maxBarHeight;
-        const overheadHeight = (calc.costContextTotal / maxValue) * maxBarHeight;
+        const projectCostsHeight = (projectCostsAmount / maxValue) * maxBarHeight;
         const markupHeight = (calc.profit / maxValue) * maxBarHeight;
         const summaryMuted = darkMode ? 'rgba(248, 250, 252, 0.88)' : '#4a5568';
         const summaryMutedSoft = darkMode ? 'rgba(248, 250, 252, 0.7)' : '#5c667a';
@@ -11664,33 +11656,35 @@ export default function EstimateGeneratorScreen() {
                       Labor
                     </Text>
                   </View>
-                  <View style={{ alignItems: 'center', flex: 1, minWidth: 0, paddingHorizontal: 1 }}>
-                    <Text
-                      numberOfLines={1}
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.65}
-                      style={{ color: Colors.text, fontSize: 11, fontWeight: '600', marginBottom: 4, textAlign: 'center', width: '100%' }}
-                    >
-                      {moneyCompactBar(calc.costContextTotal)}
-                    </Text>
-                    <View
-                      style={{
-                        width: '80%',
-                        height: Math.max(overheadHeight, 8),
-                        backgroundColor: '#f59e0b',
-                        borderTopLeftRadius: 8,
-                        borderTopRightRadius: 8,
-                      }}
-                    />
-                    <Text
-                      numberOfLines={2}
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.85}
-                      style={{ color: summaryMuted, fontSize: 10, lineHeight: 13, marginTop: 6, textAlign: 'center', width: '100%' }}
-                    >
-                      Overhead
-                    </Text>
-                  </View>
+                  {projectCostsAmount > 0 ? (
+                    <View style={{ alignItems: 'center', flex: 1, minWidth: 0, paddingHorizontal: 1 }}>
+                      <Text
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.65}
+                        style={{ color: Colors.text, fontSize: 11, fontWeight: '600', marginBottom: 4, textAlign: 'center', width: '100%' }}
+                      >
+                        {moneyCompactBar(projectCostsAmount)}
+                      </Text>
+                      <View
+                        style={{
+                          width: '80%',
+                          height: Math.max(projectCostsHeight, 8),
+                          backgroundColor: '#f59e0b',
+                          borderTopLeftRadius: 8,
+                          borderTopRightRadius: 8,
+                        }}
+                      />
+                      <Text
+                        numberOfLines={2}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.85}
+                        style={{ color: summaryMuted, fontSize: 10, lineHeight: 13, marginTop: 6, textAlign: 'center', width: '100%' }}
+                      >
+                        Project costs
+                      </Text>
+                    </View>
+                  ) : null}
                   <View style={{ alignItems: 'center', flex: 1, minWidth: 0, paddingHorizontal: 1 }}>
                     <Text
                       numberOfLines={1}
@@ -11719,6 +11713,9 @@ export default function EstimateGeneratorScreen() {
                     </Text>
                   </View>
                 </View>
+                <Text style={{ color: summaryMutedSoft, fontSize: 11, lineHeight: 16, textAlign: 'center', marginTop: 8 }}>
+                  Bars show what makes up the bid total. Company overhead is deducted from markup below for net profit.
+                </Text>
               </View>
               </LinearGradient>
               
@@ -11746,7 +11743,7 @@ export default function EstimateGeneratorScreen() {
                       Cost Breakdown
                     </Text>
                     <Text style={{ color: summaryMuted, fontSize: 13, lineHeight: 18 }}>
-                      Materials, labor, overhead & markup
+                      Bid costs, markup, overhead & net profit
                     </Text>
                   </View>
                   {/* Full width cards with grey border and background */}
@@ -11786,24 +11783,26 @@ export default function EstimateGeneratorScreen() {
                       </View>
                       <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700' }}>{money(calc.labor)}</Text>
                     </View>
-                    
-                    <View style={{ 
-                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2, 
-                      borderWidth: 1,
-                      borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
-                      borderRadius: 16, 
-                      paddingVertical: 14,
-                      paddingHorizontal: 14, 
-                      flexDirection: 'row', 
-                      justifyContent: 'space-between', 
-                      alignItems: 'center' 
-                    }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
-                        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#f59e0b', marginRight: 10 }} />
-                        <Text style={{ color: summaryMuted, fontSize: 14, fontWeight: '600' }}>Overhead</Text>
+
+                    {projectCostsAmount > 0 ? (
+                      <View style={{
+                        backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                        borderWidth: 1,
+                        borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
+                        borderRadius: 16,
+                        paddingVertical: 14,
+                        paddingHorizontal: 14,
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
+                          <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#f59e0b', marginRight: 10 }} />
+                          <Text style={{ color: summaryMuted, fontSize: 14, fontWeight: '600' }}>Project costs</Text>
+                        </View>
+                        <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700' }}>{money(projectCostsAmount)}</Text>
                       </View>
-                      <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700' }}>{money(calc.costContextTotal)}</Text>
-                    </View>
+                    ) : null}
                     
                     <View style={{ 
                       backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2, 
@@ -11821,6 +11820,77 @@ export default function EstimateGeneratorScreen() {
                         <Text style={{ color: summaryMuted, fontSize: 14, fontWeight: '600' }}>Markup ({bid.markupPct || 0}%)</Text>
                       </View>
                       <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '700' }}>{money(calc.profit)}</Text>
+                    </View>
+
+                    <View style={{
+                      marginTop: 4,
+                      paddingTop: 14,
+                      borderTopWidth: StyleSheet.hairlineWidth,
+                      borderTopColor: heroDivider,
+                      gap: 10,
+                    }}>
+                      <View>
+                        <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '700', marginBottom: 4 }}>
+                          Your profit
+                        </Text>
+                        <Text style={{ color: summaryMuted, fontSize: 12, lineHeight: 17 }}>
+                          Company overhead from Step 5 reduces profit but is not added to the client bid.
+                        </Text>
+                      </View>
+                      <View style={{
+                        backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                        borderWidth: 1,
+                        borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
+                        borderRadius: 16,
+                        paddingVertical: 14,
+                        paddingHorizontal: 14,
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}>
+                        <Text style={{ color: summaryMuted, fontSize: 14, fontWeight: '600' }}>Gross profit (markup)</Text>
+                        <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '700' }}>{money(calc.profit)}</Text>
+                      </View>
+                      {companyOverheadAmount > 0 ? (
+                        <View style={{
+                          backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                          borderWidth: 1,
+                          borderColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : Colors.line,
+                          borderRadius: 16,
+                          paddingVertical: 14,
+                          paddingHorizontal: 14,
+                          flexDirection: 'row',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
+                            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#f97316', marginRight: 10 }} />
+                            <Text style={{ color: summaryMuted, fontSize: 14, fontWeight: '600' }}>Business overhead</Text>
+                          </View>
+                          <Text style={{ color: '#f97316', fontSize: 18, fontWeight: '700' }}>-{money(companyOverheadAmount)}</Text>
+                        </View>
+                      ) : null}
+                      <View style={{
+                        backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.08)' : 'rgba(34, 197, 94, 0.06)',
+                        borderWidth: 1,
+                        borderColor: darkMode ? 'rgba(34, 197, 94, 0.22)' : 'rgba(34, 197, 94, 0.18)',
+                        borderRadius: 16,
+                        paddingVertical: 14,
+                        paddingHorizontal: 14,
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}>
+                        <View>
+                          <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>Net profit</Text>
+                          <Text style={{ color: netProfitAmount >= 0 ? '#22c55e' : '#f87171', fontSize: 12, marginTop: 3, fontWeight: '600' }}>
+                            {netProfitPctOnBid.toFixed(1)}% margin on bid
+                          </Text>
+                        </View>
+                        <Text style={{ color: netProfitAmount >= 0 ? '#22c55e' : '#f87171', fontSize: 20, fontWeight: '800' }}>
+                          {money(netProfitAmount)}
+                        </Text>
+                      </View>
                     </View>
                   </View>
                 </View>
@@ -12048,7 +12118,6 @@ export default function EstimateGeneratorScreen() {
                 shellStyle={estimateAccessoryShellStyle}
                 placeholder="customer@example.com"
                 placeholderTextColor={estimateStep12PlaceholderColor}
-                accessoryID={KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone}
                 value={localCustomerEmail}
                 onChangeText={(text) => {
                   setLocalCustomerEmail(text);
@@ -12076,7 +12145,6 @@ export default function EstimateGeneratorScreen() {
                   shellStyle={estimateAccessoryShellStyle}
                   placeholder="(555) 123-4567"
                   placeholderTextColor={estimateStep12PlaceholderColor}
-                  accessoryID={KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone}
                   value={localCustomerPhone}
                   onChangeText={(text) => {
                     const formatted = formatPhoneNumber(text);
@@ -12177,7 +12245,6 @@ export default function EstimateGeneratorScreen() {
                 shellStyle={estimateAccessoryShellStyle}
                 placeholder="12345"
                 placeholderTextColor={estimateStep12PlaceholderColor}
-                accessoryID={KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone}
                 value={localCustomerZip}
                 onChangeText={(text) => {
                   const formatted = formatZipInput(text);
@@ -12324,7 +12391,6 @@ export default function EstimateGeneratorScreen() {
                   shellStyle={estimateAccessoryShellStyle}
                   placeholder="1250"
                   placeholderTextColor={estimateStep12PlaceholderColor}
-                  accessoryID={KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone}
                   value={bid.sqft != null && bid.sqft !== 0 ? String(bid.sqft) : ''}
                   onChangeText={(text) => {
                     const digits = String(text).replace(/\D/g, '').slice(0, 9);
@@ -12402,13 +12468,9 @@ export default function EstimateGeneratorScreen() {
                         updateBid('startDate', day.dateString);
                         setShowStartDateCalendar(false);
                       }}
-                      markedDates={{
-                        [bid.startDate || '']: {
-                          selected: true,
-                          selectedColor: '#22c55e',
-                          selectedTextColor: '#000000',
-                        }
-                      }}
+                      rangeStartDate={bid.startDate || null}
+                      rangeEndDate={bid.endDate || null}
+                      activePicker="start"
                       initialDate={bid.startDate}
                     />
                   </View>
@@ -12432,14 +12494,10 @@ export default function EstimateGeneratorScreen() {
                         updateBid('endDate', day.dateString);
                         setShowEndDateCalendar(false);
                       }}
-                      markedDates={{
-                        [bid.endDate || '']: {
-                          selected: true,
-                          selectedColor: '#22c55e',
-                          selectedTextColor: '#000000',
-                        }
-                      }}
-                      initialDate={bid.endDate}
+                      rangeStartDate={bid.startDate || null}
+                      rangeEndDate={bid.endDate || null}
+                      activePicker="end"
+                      initialDate={bid.endDate || bid.startDate}
                     />
                   </View>
                 )}
@@ -12687,7 +12745,6 @@ export default function EstimateGeneratorScreen() {
                                                 keyboardType="phone-pad"
                                                 textContentType="none"
                                                 autoComplete="off"
-                                                inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.bpsKeyboardDone)}
                                                 returnKeyType="done"
                                                 onSubmitEditing={() => Keyboard.dismiss()}
                                                 blurOnSubmit={true}
@@ -12929,7 +12986,6 @@ export default function EstimateGeneratorScreen() {
                     placeholder="Enter percentage"
                     placeholderTextColor={Colors.sub}
                     keyboardType="phone-pad"
-                    inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.number)}
                     style={{
                       backgroundColor: 'rgba(255, 255, 255, 0.05)',
                       borderWidth: 1,
@@ -13084,7 +13140,6 @@ export default function EstimateGeneratorScreen() {
                     placeholder="Enter percentage"
                     placeholderTextColor={Colors.sub}
                     keyboardType="phone-pad"
-                    inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.number)}
                     style={{
                       backgroundColor: 'rgba(255, 255, 255, 0.05)',
                       borderWidth: 1,
@@ -13923,10 +13978,8 @@ export default function EstimateGeneratorScreen() {
           lineHeight: ew(16, 21),
         };
         /**
-         * Step 5 decimal fields: pair with `keyboardType="decimal-pad"` and
-         * `inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}` only.
-         * Do not switch these inputs to `step5Numeric` or ad-hoc Done bars — see `.cursor/rules/estimate-generator-keyboards-stable.mdc`.
-         * iOS: avoid phone-style pad + wrong accessory; Android: disable autofill picking another keyboard.
+         * Step 5 decimal fields: native `decimal-pad` only — no InputAccessoryView (avoids stale Done bars on iOS).
+         * Android: disable autofill picking another keyboard.
          */
         const step5DecimalInputProps =
           Platform.OS === 'ios'
@@ -14261,7 +14314,6 @@ export default function EstimateGeneratorScreen() {
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
                   value={equipmentRentalText}
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onFocus={() => {
                     equipmentRentalInputFocusedRef.current = true;
                     setEquipmentRentalFocused(true);
@@ -14298,7 +14350,6 @@ export default function EstimateGeneratorScreen() {
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.planCost && bid.planCost !== 0 ? formatStep5NumericInput(String(bid.planCost)) : ''}
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
                     const cleaned = sanitizeStep5NumericInput(text);
                     if (cleaned === '' || cleaned === '.') {
@@ -14324,7 +14375,6 @@ export default function EstimateGeneratorScreen() {
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.permitCost && bid.permitCost !== 0 ? formatStep5NumericInput(String(bid.permitCost)) : ''}
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
                     const cleaned = sanitizeStep5NumericInput(text);
                     if (cleaned === '' || cleaned === '.') {
@@ -14350,7 +14400,6 @@ export default function EstimateGeneratorScreen() {
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.engineeringCost && bid.engineeringCost !== 0 ? formatStep5NumericInput(String(bid.engineeringCost)) : ''}
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
                     const cleaned = sanitizeStep5NumericInput(text);
                     if (cleaned === '' || cleaned === '.') {
@@ -14378,7 +14427,6 @@ export default function EstimateGeneratorScreen() {
                       placeholder="0"
                       placeholderTextColor={estimateStepMutedInputColor}
                       value={bid.financingFees && bid.financingFees !== 0 ? formatStep5NumericInput(String(bid.financingFees)) : ''}
-                      inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                       onChangeText={(text) => {
                         const cleaned = sanitizeStep5NumericInput(text);
                         if (cleaned === '' || cleaned === '.') {
@@ -14404,7 +14452,6 @@ export default function EstimateGeneratorScreen() {
                       placeholder="0"
                       placeholderTextColor={estimateStepMutedInputColor}
                       value={bid.interestCost && bid.interestCost !== 0 ? formatStep5NumericInput(String(bid.interestCost)) : ''}
-                      inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                       onChangeText={(text) => {
                         const cleaned = sanitizeStep5NumericInput(text);
                         if (cleaned === '' || cleaned === '.') {
@@ -14430,7 +14477,6 @@ export default function EstimateGeneratorScreen() {
                       placeholder="0"
                       placeholderTextColor={estimateStepMutedInputColor}
                       value={bid.contingencyAllowance && bid.contingencyAllowance !== 0 ? formatStep5NumericInput(String(bid.contingencyAllowance)) : ''}
-                      inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                       onChangeText={(text) => {
                         const cleaned = sanitizeStep5NumericInput(text);
                         if (cleaned === '' || cleaned === '.') {
@@ -14458,7 +14504,6 @@ export default function EstimateGeneratorScreen() {
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.otherDirectCost && bid.otherDirectCost !== 0 ? formatStep5NumericInput(String(bid.otherDirectCost)) : ''}
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
                     const cleaned = sanitizeStep5NumericInput(text);
                     if (cleaned === '' || cleaned === '.') {
@@ -14497,7 +14542,6 @@ export default function EstimateGeneratorScreen() {
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.insuranceOverhead && bid.insuranceOverhead !== 0 ? formatStep5NumericInput(String(bid.insuranceOverhead)) : ''}
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
                     const cleaned = sanitizeStep5NumericInput(text);
                     if (cleaned === '' || cleaned === '.') {
@@ -14523,7 +14567,6 @@ export default function EstimateGeneratorScreen() {
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.equipmentMaintenance && bid.equipmentMaintenance !== 0 ? formatStep5NumericInput(String(bid.equipmentMaintenance)) : ''}
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
                     const cleaned = sanitizeStep5NumericInput(text);
                     if (cleaned === '' || cleaned === '.') {
@@ -14549,7 +14592,6 @@ export default function EstimateGeneratorScreen() {
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.facilities && bid.facilities !== 0 ? formatStep5NumericInput(String(bid.facilities)) : ''}
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
                     const cleaned = sanitizeStep5NumericInput(text);
                     if (cleaned === '' || cleaned === '.') {
@@ -14578,7 +14620,6 @@ export default function EstimateGeneratorScreen() {
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.adminOverhead && bid.adminOverhead !== 0 ? formatStep5NumericInput(String(bid.adminOverhead)) : ''}
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
                     const cleaned = sanitizeStep5NumericInput(text);
                     if (cleaned === '' || cleaned === '.') {
@@ -14604,7 +14645,6 @@ export default function EstimateGeneratorScreen() {
                   placeholder="0"
                   placeholderTextColor={estimateStepMutedInputColor}
                   value={bid.otherOverhead && bid.otherOverhead !== 0 ? formatStep5NumericInput(String(bid.otherOverhead)) : ''}
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onChangeText={(text) => {
                     const cleaned = sanitizeStep5NumericInput(text);
                     if (cleaned === '' || cleaned === '.') {
@@ -14723,7 +14763,6 @@ export default function EstimateGeneratorScreen() {
                   placeholder="20"
                   placeholderTextColor={estimateStepMutedInputColor}
                   value={markupPctText}
-                  inputAccessoryViewID={iosAccessoryId(KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                   onFocus={() => {
                     isMarkupFocused.current = true;
                     setMarkupPctFocused(true);
@@ -16483,7 +16522,6 @@ export default function EstimateGeneratorScreen() {
                               multiline
                               placeholder={`Example: ${index === 0 ? 'Demo and rough-in complete' : index === 1 ? 'Drywall, paint, and trim complete' : 'Final finishes complete'}`}
                               placeholderTextColor={estimateStepMutedInputColor}
-                              inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                               style={{
                                 color: Colors.text,
                                 fontSize: 13,
@@ -17419,13 +17457,9 @@ export default function EstimateGeneratorScreen() {
                                   updateBid('projectStartDate', day.dateString);
                                   setShowStartDateCalendar(false);
                                 }}
-                                markedDates={{
-                                  [(bid.startDate || bid.projectStartDate) || '']: {
-                                    selected: true,
-                                    selectedColor: '#22c55e',
-                                    selectedTextColor: '#000000',
-                                  }
-                                }}
+                                rangeStartDate={bid.startDate || bid.projectStartDate || null}
+                                rangeEndDate={bid.endDate || bid.projectEndDate || null}
+                                activePicker="start"
                                 initialDate={bid.startDate || bid.projectStartDate}
                               />
                             </View>
@@ -17449,14 +17483,10 @@ export default function EstimateGeneratorScreen() {
                                   updateBid('projectEndDate', day.dateString);
                                   setShowEndDateCalendar(false);
                                 }}
-                                markedDates={{
-                                  [(bid.endDate || bid.projectEndDate) || '']: {
-                                    selected: true,
-                                    selectedColor: '#22c55e',
-                                    selectedTextColor: '#000000',
-                                  }
-                                }}
-                                initialDate={bid.endDate || bid.projectEndDate}
+                                rangeStartDate={bid.startDate || bid.projectStartDate || null}
+                                rangeEndDate={bid.endDate || bid.projectEndDate || null}
+                                activePicker="end"
+                                initialDate={bid.endDate || bid.projectEndDate || bid.startDate || bid.projectStartDate}
                               />
                             </View>
                           )}
@@ -17876,7 +17906,6 @@ export default function EstimateGeneratorScreen() {
                                     placeholder="Enter weeks (13-52)"
                                     placeholderTextColor={estimateStepMutedInputColor}
                                     keyboardType="phone-pad"
-                                    inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                                     style={{
                                       backgroundColor: 'rgba(255, 255, 255, 0.05)',
                                       borderWidth: 1,
@@ -18438,13 +18467,9 @@ export default function EstimateGeneratorScreen() {
                                       updateBid('projectStartDate', day.dateString);
                                       setShowStartDateCalendar(false);
                                     }}
-                                    markedDates={{
-                                      [(bid.startDate || bid.projectStartDate) || '']: {
-                                        selected: true,
-                                        selectedColor: '#22c55e',
-                                        selectedTextColor: '#000000',
-                                      }
-                                    }}
+                                    rangeStartDate={bid.startDate || bid.projectStartDate || null}
+                                    rangeEndDate={bid.endDate || bid.projectEndDate || null}
+                                    activePicker="start"
                                     initialDate={bid.startDate || bid.projectStartDate}
                                   />
                                 </View>
@@ -18470,14 +18495,10 @@ export default function EstimateGeneratorScreen() {
                                       updateBid('projectEndDate', day.dateString);
                                       setShowEndDateCalendar(false);
                                     }}
-                                    markedDates={{
-                                      [(bid.endDate || bid.projectEndDate) || '']: {
-                                        selected: true,
-                                        selectedColor: '#22c55e',
-                                        selectedTextColor: '#000000',
-                                      }
-                                    }}
-                                    initialDate={bid.endDate || bid.projectEndDate}
+                                    rangeStartDate={bid.startDate || bid.projectStartDate || null}
+                                    rangeEndDate={bid.endDate || bid.projectEndDate || null}
+                                    activePicker="end"
+                                    initialDate={bid.endDate || bid.projectEndDate || bid.startDate || bid.projectStartDate}
                                   />
                                 </View>
                               )}
@@ -18876,7 +18897,6 @@ export default function EstimateGeneratorScreen() {
                                       placeholder="Enter milestones (9-20)"
                                       placeholderTextColor={estimateStepMutedInputColor}
                                       keyboardType="phone-pad"
-                                      inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                                       style={{
                                         backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : '#CBD5E1',
                                         borderWidth: 1,
@@ -19159,13 +19179,9 @@ export default function EstimateGeneratorScreen() {
                                           updateBid('projectStartDate', day.dateString);
                                           setShowStartDateCalendar(false);
                                         }}
-                                        markedDates={{
-                                          [(bid.startDate || bid.projectStartDate) || '']: {
-                                            selected: true,
-                                            selectedColor: '#22c55e',
-                                            selectedTextColor: '#000000',
-                                          }
-                                        }}
+                                        rangeStartDate={bid.startDate || bid.projectStartDate || null}
+                                        rangeEndDate={bid.endDate || bid.projectEndDate || null}
+                                        activePicker="start"
                                         initialDate={bid.startDate || bid.projectStartDate}
                                       />
                                     </View>
@@ -19191,14 +19207,10 @@ export default function EstimateGeneratorScreen() {
                                           updateBid('projectEndDate', day.dateString);
                                           setShowEndDateCalendar(false);
                                         }}
-                                        markedDates={{
-                                          [(bid.endDate || bid.projectEndDate) || '']: {
-                                            selected: true,
-                                            selectedColor: '#22c55e',
-                                            selectedTextColor: '#000000',
-                                          }
-                                        }}
-                                        initialDate={bid.endDate || bid.projectEndDate}
+                                        rangeStartDate={bid.startDate || bid.projectStartDate || null}
+                                        rangeEndDate={bid.endDate || bid.projectEndDate || null}
+                                        activePicker="end"
+                                        initialDate={bid.endDate || bid.projectEndDate || bid.startDate || bid.projectStartDate}
                                       />
                                     </View>
                                   )}
@@ -19582,7 +19594,6 @@ export default function EstimateGeneratorScreen() {
                                       placeholder="Enter weeks (13-52)"
                                       placeholderTextColor={estimateStepMutedInputColor}
                                       keyboardType="phone-pad"
-                                      inputAccessoryViewID={iosAccessoryId(lineItemModalOpen ? undefined : KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain)}
                                       style={{
                                         backgroundColor: 'rgba(255, 255, 255, 0.05)',
                                         borderWidth: 1,
@@ -20949,31 +20960,6 @@ export default function EstimateGeneratorScreen() {
       edges={['top']}
     >
       <StatusBar barStyle="light-content" />
-      {/* Estimates steps 1–7 keyboard mounts: keep in sync with `renderStepContent` + `.cursor/rules/estimate-generator-keyboards-stable.mdc`. */}
-      {/* Grey text/number Done strips: hidden on steps 1–2 (same as step 1 — dismiss via scroll / tap outside). */}
-      {step === 1 || step === 2 || materialModal.visible || laborModal.visible ? null : (
-        <>
-          {/*
-            Grey Done strip: only mount for steps 3–4 cart qty fields (`KEYBOARD_ACCESSORY_IDS.number`).
-            Do NOT mount on 5–8 — those steps use `step5EquipmentPlain` (empty) or no accessory; an extra
-            `number` InputAccessoryView here caused iOS to show the old grey Done on payment/decimals.
-          */}
-          {(step === 3 || step === 4) && (
-            <KeyboardDoneAccessory
-              nativeID={KEYBOARD_ACCESSORY_IDS.number}
-              backgroundColor={theme.bg}
-            />
-          )}
-          {step >= 5 && step <= 8 && Platform.OS === 'ios' && (
-            <InputAccessoryView
-              nativeID={KEYBOARD_ACCESSORY_IDS.step5EquipmentPlain}
-              backgroundColor="transparent"
-            >
-              <View style={{ height: 0, width: '100%' }} collapsable={false} />
-            </InputAccessoryView>
-          )}
-        </>
-      )}
       <EstimatesMainKeyboardWrapper {...estimatesMainKeyboardWrapperProps}>
         <ScrollView
           ref={mainScrollRef}

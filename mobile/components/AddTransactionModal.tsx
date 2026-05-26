@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { View, Text, Modal, TextInput, TouchableOpacity, Pressable, StyleSheet, ScrollView, Alert, Keyboard, Platform, Image, KeyboardAvoidingView, InputAccessoryView, useWindowDimensions } from "react-native";
+import { View, Text, Modal, TextInput, TouchableOpacity, Pressable, StyleSheet, ScrollView, Alert, Keyboard, Platform, Image, KeyboardAvoidingView, useWindowDimensions } from "react-native";
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import GreyCalendar from './GreyCalendar';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -21,7 +21,6 @@ import {
   dollarsToCentsDigits,
   sanitizeDecimalMoneyInput,
 } from "@/src/lib/keyboardMoney";
-import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from "@/constants/keyboard";
 import GradientRingBackInner from "./GradientRingBackInner";
 import { isDesktopWebLayoutWidth, getProjectExpenseFormHorizontalPadding } from "@/constants/ScreenLayout";
 
@@ -691,9 +690,6 @@ export default function AddTransactionModal({
 
   const scrollViewRef = useRef<ScrollView>(null);
 
-  /** iOS: block global green `bpsKeyboardDone` on this modal (vendor + phone-pad amount/rate/sqft). */
-  const projectExpensePlainAccessoryId = iosAccessoryId(KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain);
-
   // Format category name for display
   const displayCategoryName = categoryName.replace('/', ' & ');
 
@@ -912,14 +908,6 @@ export default function AddTransactionModal({
       animationType="slide"
       {...(webBudgetExpenseShell ? {} : { presentationStyle: "fullScreen" as const, statusBarTranslucent: true })}
     >
-      {Platform.OS === 'ios' && (
-        <InputAccessoryView
-          nativeID={KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain}
-          backgroundColor="transparent"
-        >
-          <View style={{ height: 0, width: '100%' }} collapsable={false} />
-        </InputAccessoryView>
-      )}
       <KeyboardAvoidingView
         style={[styles.keyboardAvoid, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
         behavior={webBudgetExpenseShell ? undefined : (Platform.OS === 'ios' ? 'padding' : undefined)}
@@ -1052,7 +1040,6 @@ export default function AddTransactionModal({
                         value={laborDescription}
                         onChangeText={setLaborDescription}
                         autoCapitalize="sentences"
-                        inputAccessoryViewID={projectExpensePlainAccessoryId}
                         returnKeyType="next"
                         onSubmitEditing={() => tradeRef.current?.focus()}
                         blurOnSubmit={false}
@@ -1078,7 +1065,6 @@ export default function AddTransactionModal({
                       value={laborDescription}
                       onChangeText={setLaborDescription}
                       autoCapitalize="sentences"
-                      inputAccessoryViewID={projectExpensePlainAccessoryId}
                       returnKeyType="next"
                       onSubmitEditing={() => tradeRef.current?.focus()}
                       blurOnSubmit={false}
@@ -1098,7 +1084,6 @@ export default function AddTransactionModal({
                         value={trade}
                         onChangeText={setTrade}
                         autoCapitalize="words"
-                        inputAccessoryViewID={projectExpensePlainAccessoryId}
                         returnKeyType="next"
                         onSubmitEditing={focusIntoPricingOrAmount}
                         blurOnSubmit={false}
@@ -1124,7 +1109,6 @@ export default function AddTransactionModal({
                       value={trade}
                       onChangeText={setTrade}
                       autoCapitalize="words"
-                      inputAccessoryViewID={projectExpensePlainAccessoryId}
                       returnKeyType="next"
                       onSubmitEditing={focusIntoPricingOrAmount}
                       blurOnSubmit={false}
@@ -1146,7 +1130,6 @@ export default function AddTransactionModal({
                     value={vendor}
                     onChangeText={setVendor}
                     autoCapitalize="words"
-                    inputAccessoryViewID={projectExpensePlainAccessoryId}
                     returnKeyType="next"
                     onSubmitEditing={focusNextAfterVendorField}
                     blurOnSubmit={false}
@@ -1172,7 +1155,6 @@ export default function AddTransactionModal({
                 value={vendor}
                 onChangeText={setVendor}
                 autoCapitalize="words"
-                inputAccessoryViewID={projectExpensePlainAccessoryId}
                 returnKeyType="next"
                 onSubmitEditing={focusNextAfterVendorField}
                 blurOnSubmit={false}
@@ -1195,7 +1177,6 @@ export default function AddTransactionModal({
                       value={material}
                       onChangeText={setMaterial}
                       autoCapitalize="sentences"
-                      inputAccessoryViewID={projectExpensePlainAccessoryId}
                       returnKeyType="next"
                       onSubmitEditing={focusIntoPricingOrAmount}
                       blurOnSubmit={false}
@@ -1221,7 +1202,6 @@ export default function AddTransactionModal({
                     value={material}
                     onChangeText={setMaterial}
                     autoCapitalize="sentences"
-                    inputAccessoryViewID={projectExpensePlainAccessoryId}
                     returnKeyType="next"
                     onSubmitEditing={focusIntoPricingOrAmount}
                     blurOnSubmit={false}
@@ -1361,7 +1341,6 @@ export default function AddTransactionModal({
                           setMaterialsAmountInput(sanitizeDecimalMoneyInput(text))
                         }
                         keyboardType="decimal-pad"
-                        inputAccessoryViewID={projectExpensePlainAccessoryId}
                         returnKeyType="next"
                         onSubmitEditing={() => laborAmountRef.current?.focus()}
                         blurOnSubmit={false}
@@ -1400,7 +1379,6 @@ export default function AddTransactionModal({
                           setLaborAmountInput(sanitizeDecimalMoneyInput(text))
                         }
                         keyboardType="decimal-pad"
-                        inputAccessoryViewID={projectExpensePlainAccessoryId}
                         returnKeyType="next"
                         onSubmitEditing={() => descriptionRef.current?.focus()}
                         blurOnSubmit={false}
@@ -1518,7 +1496,6 @@ export default function AddTransactionModal({
                                 value={materialSqftInput}
                                 onChangeText={(text) => setMaterialSqftInput(digitsOnly(text))}
                                 keyboardType="decimal-pad"
-                                inputAccessoryViewID={projectExpensePlainAccessoryId}
                                 returnKeyType="next"
                                 onSubmitEditing={() => materialRatePerSqftRef.current?.focus()}
                                 blurOnSubmit={false}
@@ -1566,7 +1543,6 @@ export default function AddTransactionModal({
                                   setMaterialRatePerSqftInput(sanitizeDecimalMoneyInput(text))
                                 }
                                 keyboardType="decimal-pad"
-                                inputAccessoryViewID={projectExpensePlainAccessoryId}
                                 returnKeyType="next"
                                 onSubmitEditing={() => laborSqftRef.current?.focus()}
                                 blurOnSubmit={false}
@@ -1624,7 +1600,6 @@ export default function AddTransactionModal({
                                 value={laborSqftInput}
                                 onChangeText={(text) => setLaborSqftInput(digitsOnly(text))}
                                 keyboardType="decimal-pad"
-                                inputAccessoryViewID={projectExpensePlainAccessoryId}
                                 returnKeyType="next"
                                 onSubmitEditing={() => laborRatePerSqftRef.current?.focus()}
                                 blurOnSubmit={false}
@@ -1672,7 +1647,6 @@ export default function AddTransactionModal({
                                   setLaborRatePerSqftInput(sanitizeDecimalMoneyInput(text))
                                 }
                                 keyboardType="decimal-pad"
-                                inputAccessoryViewID={projectExpensePlainAccessoryId}
                                 returnKeyType="done"
                                 onSubmitEditing={() => descriptionRef.current?.focus()}
                                 blurOnSubmit={false}
@@ -1785,7 +1759,6 @@ export default function AddTransactionModal({
                             value={sqftInput}
                             onChangeText={onSqftChange}
                             keyboardType="decimal-pad"
-                            inputAccessoryViewID={projectExpensePlainAccessoryId}
                             returnKeyType="done"
                             onSubmitEditing={() => ratePerSqftRef.current?.focus()}
                             blurOnSubmit={false}
@@ -1834,7 +1807,6 @@ export default function AddTransactionModal({
                             value={ratePerSqftInput}
                             onChangeText={onRatePerSqftChange}
                             keyboardType="decimal-pad"
-                            inputAccessoryViewID={projectExpensePlainAccessoryId}
                             returnKeyType="done"
                             onSubmitEditing={() => descriptionRef.current?.focus()}
                             blurOnSubmit={false}
@@ -1910,7 +1882,6 @@ export default function AddTransactionModal({
                     value={amount}
                     onChangeText={applyFlatAmountTextChange}
                     keyboardType={pricingMode === "flat" ? "decimal-pad" : "phone-pad"}
-                    inputAccessoryViewID={projectExpensePlainAccessoryId}
                     editable={!(isChangeOrdersCategory && pricingMode !== "sqft")}
                     selectTextOnFocus={!(isChangeOrdersCategory && pricingMode !== "sqft")}
                     returnKeyType="done"
@@ -2172,7 +2143,6 @@ export default function AddTransactionModal({
                 placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                 value={scope}
                 onChangeText={setScope}
-                inputAccessoryViewID={projectExpensePlainAccessoryId}
                 returnKeyType="next"
                 autoCapitalize="words"
               />
@@ -2197,7 +2167,6 @@ export default function AddTransactionModal({
                 placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                 value={description}
                 onChangeText={setDescription}
-                inputAccessoryViewID={projectExpensePlainAccessoryId}
                 multiline
                 numberOfLines={2}
                 textAlignVertical="top"
@@ -2229,7 +2198,6 @@ export default function AddTransactionModal({
                 placeholderTextColor={darkMode ? "rgba(255,255,255,0.4)" : Colors.sub}
                 value={po}
                 onChangeText={setPo}
-                inputAccessoryViewID={projectExpensePlainAccessoryId}
                 autoCapitalize="characters"
                 returnKeyType="done"
                 onSubmitEditing={() => {

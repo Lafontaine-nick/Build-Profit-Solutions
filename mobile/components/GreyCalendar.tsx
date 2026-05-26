@@ -19,6 +19,11 @@ interface GreyCalendarProps {
   initialDate?: string;
   /** Highlighted day (YYYY-MM-DD); stronger ring + label connection in parent */
   selectedDateString?: string | null;
+  /** Project schedule range — highlights start/end and days in between */
+  rangeStartDate?: string | null;
+  rangeEndDate?: string | null;
+  /** Which schedule field is open — styles that endpoint as primary selection */
+  activePicker?: 'start' | 'end' | null;
   events?: Array<{
     date: string;
     type?: string;
@@ -31,6 +36,9 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
   markedDates = {},
   initialDate,
   selectedDateString = null,
+  rangeStartDate = null,
+  rangeEndDate = null,
+  activePicker = null,
   events = [],
 }) => {
   const { theme, darkMode } = useTheme();
@@ -67,6 +75,21 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
     setCurrentDate(new Date());
   };
 
+  const parseDateKey = (dateKey: string) =>
+    new Date(`${dateKey}T00:00:00`).getTime();
+
+  const rangeBounds = useMemo(() => {
+    const startTs = rangeStartDate ? parseDateKey(rangeStartDate) : null;
+    const endTs = rangeEndDate ? parseDateKey(rangeEndDate) : null;
+    if (startTs == null || endTs == null) {
+      return { min: null as number | null, max: null as number | null };
+    }
+    return {
+      min: Math.min(startTs, endTs),
+      max: Math.max(startTs, endTs),
+    };
+  }, [rangeStartDate, rangeEndDate]);
+
   const handleDayPress = (day: number) => {
     const dateString = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     onDayPress({ dateString });
@@ -88,10 +111,22 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
       today.setHours(0, 0, 0, 0);
       const dayDate = new Date(year, month, day);
       dayDate.setHours(0, 0, 0, 0);
-      const isToday = dayDate.getTime() === today.getTime();
+      const dayTimestamp = dayDate.getTime();
+      const isToday = dayTimestamp === today.getTime();
+      const isRangeStart = Boolean(rangeStartDate && dateString === rangeStartDate);
+      const isRangeEnd = Boolean(rangeEndDate && dateString === rangeEndDate);
+      const isActiveEndpoint =
+        activePicker === 'start' ? isRangeStart : activePicker === 'end' ? isRangeEnd : false;
+      const isOtherEndpoint =
+        activePicker === 'start' ? isRangeEnd : activePicker === 'end' ? isRangeStart : false;
+      const isInRange =
+        rangeBounds.min != null &&
+        rangeBounds.max != null &&
+        dayTimestamp > rangeBounds.min &&
+        dayTimestamp < rangeBounds.max;
       const isSelected = selectedDateString
         ? dateString === selectedDateString
-        : Boolean(markedConfig.selected);
+        : isActiveEndpoint || Boolean(markedConfig.selected);
       const isMarked = Boolean(markedConfig.marked || (markedConfig.selected && !isSelected));
 
       // Get events for this date
@@ -100,6 +135,8 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
 
       const dayNumberStyle = isSelected
         ? styles.dayTextSelected
+        : isOtherEndpoint
+          ? styles.dayTextRangeEndpoint
         : isToday
           ? styles.dayTextToday
           : styles.dayText;
@@ -107,7 +144,12 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
       days.push(
         <TouchableOpacity
           key={day}
-          style={styles.dayCell}
+          style={[
+            styles.dayCell,
+            isInRange && styles.dayCellInRange,
+            isRangeStart && isInRange && styles.dayCellRangeStart,
+            isRangeEnd && isInRange && styles.dayCellRangeEnd,
+          ]}
           onPress={() => handleDayPress(day)}
           activeOpacity={0.7}
         >
@@ -115,7 +157,8 @@ const GreyCalendar: React.FC<GreyCalendarProps> = ({
             style={[
               styles.dayInner,
               isSelected && styles.dayInnerSelected,
-              isToday && !isSelected && styles.dayInnerTodayHint,
+              !isSelected && isOtherEndpoint && styles.dayInnerRangeEndpoint,
+              isToday && !isSelected && !isOtherEndpoint && styles.dayInnerTodayHint,
             ]}
           >
             <Text style={dayNumberStyle}>{day}</Text>
@@ -302,6 +345,22 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     borderWidth: 2,
     borderColor: '#2DFFC4',
   },
+  dayInnerRangeEndpoint: {
+    backgroundColor: darkMode ? 'rgba(34, 211, 238, 0.2)' : 'rgba(6, 182, 212, 0.16)',
+    borderWidth: 2,
+    borderColor: '#22d3ee',
+  },
+  dayCellInRange: {
+    backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.08)' : 'rgba(13, 148, 136, 0.1)',
+  },
+  dayCellRangeStart: {
+    borderTopLeftRadius: 12,
+    borderBottomLeftRadius: 12,
+  },
+  dayCellRangeEnd: {
+    borderTopRightRadius: 12,
+    borderBottomRightRadius: 12,
+  },
   dayInnerTodayHint: {
     borderWidth: 1,
     borderColor: darkMode ? 'rgba(45, 255, 196, 0.35)' : 'rgba(13, 148, 136, 0.4)',
@@ -335,6 +394,11 @@ const getStyles = (Colors: any, darkMode: boolean) => StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: darkMode ? '#FFFFFF' : '#0f172a',
+  },
+  dayTextRangeEndpoint: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: darkMode ? '#67e8f9' : '#0e7490',
   },
   dayTextHighlighted: {
     fontSize: 15,

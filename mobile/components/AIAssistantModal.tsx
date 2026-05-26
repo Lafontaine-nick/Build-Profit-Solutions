@@ -749,8 +749,11 @@ function streamSSE(opts: {
 
 function computeAssistantDomain(screen?: string, status?: string): 'estimate' | 'project' | 'general' {
   const s = (screen || '').toLowerCase();
-  const st = (status || '').toLowerCase();
+  const st = (status || '').toLowerCase().replace(/\s+/g, '_').replace(/-/g, '_');
 
+  if (['won', 'active', 'in_progress', 'completed', 'complete'].includes(st)) {
+    return 'project';
+  }
   if (s.includes('estimate') || st === 'estimate' || st === 'draft' || st === 'submitted' || st === 'bid_submitted') {
     return 'estimate';
   }
@@ -1415,8 +1418,15 @@ const AIAssistantModal: React.FC<Props> = ({
       // Prefer Overview's projected margin when in Project Detail — matches Financial Health (e.g. 75%)
       const fromOverview = typeof parsedContext.projectedMarginPct === 'number' && Number.isFinite(parsedContext.projectedMarginPct) ? parsedContext.projectedMarginPct : undefined;
       const bidMarginPct = fromOverview ?? fromEstimate ?? fromContext ?? parsedContext.bidMarginPct;
-      // When job has live actuals or linked project, show Project context — not Estimate phase
+      // When job has a live project status or actuals, show Project context — not Estimate phase.
+      // A just-won/active job may have $0 spent, but it is still no longer an estimate.
+      const statusForPhase = String(parsedContext.status || '')
+        .toLowerCase()
+        .replace(/\s+/g, '_')
+        .replace(/-/g, '_');
+      const hasLiveProjectStatus = ['won', 'active', 'in_progress', 'completed', 'complete'].includes(statusForPhase);
       const hasLiveProject = parsedContext.hasLiveProjectContext === true ||
+        hasLiveProjectStatus ||
         (typeof parsedContext.actualCost === 'number' && parsedContext.actualCost > 0);
       const isEstimateScreen = parsedContext.screen === 'Estimate Generator';
       const estimateNameRaw = String(
@@ -1626,10 +1636,12 @@ const AIAssistantModal: React.FC<Props> = ({
       const baseContext = parsedContext || {};
       const hasUsableAllProjects =
         Array.isArray(baseContext.allProjects) && baseContext.allProjects.length > 0;
+      const liveProjects = [...activeProjects, ...estimates];
+      const hasLiveProjectList = liveProjects.length > 0;
 
       // Ensure allProjects is included with budget and expense data (treat [] like missing)
       if (!hasUsableAllProjects) {
-        const allProjects: RecentProject[] = [...activeProjects, ...estimates].map(p => {
+        const allProjects: RecentProject[] = liveProjects.map(p => {
           const ed = p.estimateData || p.projectData?.estimateData || null;
           const rawExpensesA = Array.isArray(p.expenses) ? p.expenses : [];
           const rawExpensesB = Array.isArray(p.projectData?.expenses) ? p.projectData.expenses : [];
@@ -1643,7 +1655,7 @@ const AIAssistantModal: React.FC<Props> = ({
           title: p.title || p.name || 'Untitled Project',
           status: p.status || 'unknown',
           lastOpened: (p as any).lastOpened || (p as any).updatedAt || (p as any).createdAt,
-          isActive: ['active', 'won', 'in_progress', 'submitted'].includes(
+          isActive: ['active', 'won', 'in_progress', 'in-progress'].includes(
             ((p.status || '') as string).toLowerCase()
           ),
             // Include budget and expense data for AI to use — estimatedCost = materials + labor + overhead (incl. plans & permits)
@@ -1689,10 +1701,11 @@ const AIAssistantModal: React.FC<Props> = ({
         }
         baseContext.allProjects = allProjects;
       } else {
-        // Update existing allProjects with latest budget/expense data
+        // Reconcile existing allProjects with the live ProjectListContext.
+        // If a project was deleted, do not keep the stale context row in chat.
         const existingProjects = baseContext.allProjects || [];
         const updatedProjects = existingProjects.map((existing: any) => {
-          const fullProject = [...activeProjects, ...estimates].find(p => p.id === existing.id);
+          const fullProject = liveProjects.find(p => p.id === existing.id);
           if (fullProject) {
             const ed = fullProject.estimateData || fullProject.projectData?.estimateData || null;
             const rawExpensesA = Array.isArray(fullProject.expenses) ? fullProject.expenses : [];
@@ -1705,6 +1718,10 @@ const AIAssistantModal: React.FC<Props> = ({
             const computedActualCost = expenses.reduce((s: number, e: any) => s + Number(e.amount || 0), 0);
             return {
               ...existing,
+              id: fullProject.id || existing.id,
+              title: fullProject.title || fullProject.name || existing.title || existing.name,
+              name: fullProject.name || fullProject.title || existing.name || existing.title,
+              status: fullProject.status || existing.status,
               bidPrice: fullProject.bidPrice || ed?.totalBid || existing.bidPrice || 0,
               estimatedCost: getEstimatedCostBaseline(fullProject, ed) || existing.estimatedCost || 0,
               actualCost: fullProject.actualCost || fullProject.totalSpent || computedActualCost || (fullProject.projectData?.actualCost || fullProject.projectData?.spent || existing.actualCost || 0),
@@ -1727,8 +1744,8 @@ const AIAssistantModal: React.FC<Props> = ({
               progress: existing.progress ?? fullProject.progress ?? fullProject.overallProgressPct ?? 0,
             };
           }
-          return existing;
-        });
+          return hasLiveProjectList ? null : existing;
+        }).filter(Boolean);
         // When from Project Detail, inject Overview's projected margin/profit, spend-to-date margin, and actual cost into current project
         if (baseContext.projectId) {
           const idx = updatedProjects.findIndex((p: any) => String(p?.id) === String(baseContext.projectId));
@@ -2971,7 +2988,7 @@ const AIAssistantModal: React.FC<Props> = ({
               title: p.title || p.name || 'Untitled Project',
               status: p.status || 'unknown',
               lastOpened: (p as any).lastOpened || (p as any).updatedAt || (p as any).createdAt,
-              isActive: ['active', 'won', 'in_progress', 'in-progress', 'submitted', 'bid_submitted'].includes(status),
+              isActive: ['active', 'won', 'in_progress', 'in-progress'].includes(status),
             };
           });
 
@@ -3937,6 +3954,8 @@ const AIAssistantModal: React.FC<Props> = ({
                 })()
               : action.type === 'update_customer_info'
               ? `${action.type}-${action.customerName || ''}-${action.phone || ''}-${action.address || ''}-${action.zip || ''}`
+              : action.type === 'rename_estimate'
+                ? `${action.type}-${action.title || action.estimateName || ''}`
               : action.type === 'update_project_info'
                 ? `${action.type}-${action.title || ''}-${action.projectType || ''}-${action.scopeDescription || ''}-${action.sqft ?? ''}`
                 : `${action.type}-${action.projectName || action.projectId || ''}-${action.itemDescription || action.newDescription || ''}-${action.newAmount || action.amount || ''}`;

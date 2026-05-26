@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Dimensions,
   Platform,
+  PanResponder,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
@@ -51,9 +52,68 @@ export default function InAppNotification({
   const slideAnim = useRef(new Animated.Value(-NOTIFICATION_HEIGHT - NOTIFICATION_MARGIN)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const dismissTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const panStartY = useRef(0);
+  const isDismissingRef = useRef(false);
+
+  const dismiss = useCallback(() => {
+    if (isDismissingRef.current) return;
+    isDismissingRef.current = true;
+    if (dismissTimeoutRef.current) {
+      clearTimeout(dismissTimeoutRef.current);
+      dismissTimeoutRef.current = null;
+    }
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: -NOTIFICATION_HEIGHT - NOTIFICATION_MARGIN,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      isDismissingRef.current = false;
+      onDismiss();
+    });
+  }, [onDismiss, opacityAnim, slideAnim]);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_, g) =>
+          Math.abs(g.dy) > Math.abs(g.dx) && g.dy < -8,
+        onPanResponderGrant: () => {
+          slideAnim.stopAnimation((value) => {
+            panStartY.current = value;
+          });
+        },
+        onPanResponderMove: (_, g) => {
+          const next = Math.min(0, panStartY.current + g.dy);
+          slideAnim.setValue(next);
+        },
+        onPanResponderRelease: (_, g) => {
+          if (g.dy < -36 || g.vy < -0.55) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            dismiss();
+          } else {
+            Animated.spring(slideAnim, {
+              toValue: 0,
+              useNativeDriver: true,
+              tension: 78,
+              friction: 11,
+            }).start();
+          }
+        },
+      }),
+    [dismiss, slideAnim]
+  );
 
   useEffect(() => {
     if (notification) {
+      isDismissingRef.current = false;
       // Trigger haptic feedback
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
@@ -78,7 +138,8 @@ export default function InAppNotification({
         dismiss();
       }, duration);
     } else {
-      dismiss();
+      slideAnim.setValue(-NOTIFICATION_HEIGHT - NOTIFICATION_MARGIN);
+      opacityAnim.setValue(0);
     }
 
     return () => {
@@ -86,24 +147,7 @@ export default function InAppNotification({
         clearTimeout(dismissTimeoutRef.current);
       }
     };
-  }, [notification]);
-
-  const dismiss = () => {
-    Animated.parallel([
-      Animated.timing(slideAnim, {
-        toValue: -NOTIFICATION_HEIGHT - NOTIFICATION_MARGIN,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacityAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      onDismiss();
-    });
-  };
+  }, [notification, dismiss, opacityAnim, slideAnim]);
 
   if (!notification) return null;
 
@@ -175,6 +219,7 @@ export default function InAppNotification({
 
   return (
     <Animated.View
+      {...panResponder.panHandlers}
       style={[
         styles.container,
         {

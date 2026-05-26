@@ -3,7 +3,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AppState,
   Image,
-  InputAccessoryView,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -34,7 +33,6 @@ import {
 import { lookupScannedProduct } from '../services/productLookupService';
 import { openStoreProductPage } from '../lib/products/openStoreProductPage';
 import { PROJECT_WIDE_CONTAINER_CARD_INSET } from '../constants/ScreenLayout';
-import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from '../constants/keyboard';
 
 const SHEET_HEIGHT_RATIO = 0.88;
 const IOS_MODAL_BOTTOM_INSET = 34;
@@ -367,7 +365,6 @@ export default function ProductFoundSheet({
   const selectedMeta = DESTINATION_LABELS[destination];
   const sheetHorizontalInset = PROJECT_WIDE_CONTAINER_CARD_INSET;
   const sheetFooterBottomInset = 14;
-  const keyboardAccessoryId = iosAccessoryId(KEYBOARD_ACCESSORY_IDS.productFoundSheetPlain);
   const metaChips = [
     displayProduct.model ? `Model ${displayProduct.model}` : '',
     displayProduct.upc ? `UPC ${displayProduct.upc}` : '',
@@ -395,14 +392,6 @@ export default function ProductFoundSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      {Platform.OS === 'ios' ? (
-        <InputAccessoryView
-          nativeID={KEYBOARD_ACCESSORY_IDS.productFoundSheetPlain}
-          backgroundColor="transparent"
-        >
-          <View style={{ height: 0, width: '100%' }} collapsable={false} />
-        </InputAccessoryView>
-      ) : null}
       <SafeAreaProvider>
         <KeyboardAvoidingView
           style={{ flex: 1 }}
@@ -613,7 +602,6 @@ export default function ProductFoundSheet({
                   setQuantity(value);
                 }}
                 keyboardType="decimal-pad"
-                inputAccessoryViewID={keyboardAccessoryId}
               />
               <Field
                 label="Unit cost"
@@ -623,7 +611,6 @@ export default function ProductFoundSheet({
                   setUnitCost(value);
                 }}
                 keyboardType="decimal-pad"
-                inputAccessoryViewID={keyboardAccessoryId}
               />
             </View>
             <Text style={{ color: '#2DFFC4', fontSize: 12, fontWeight: '900', marginBottom: 12 }}>
@@ -637,7 +624,6 @@ export default function ProductFoundSheet({
                 setDescription(value);
               }}
               multiline
-              inputAccessoryViewID={keyboardAccessoryId}
             />
 
             {destination === 'change_order' ? (
@@ -684,12 +670,12 @@ export default function ProductFoundSheet({
                   </View>
                 ) : null}
                 <View style={{ height: 12 }} />
-                <Field label="Markup %" value={markupPct} onChangeText={setMarkupPct} keyboardType="decimal-pad" inputAccessoryViewID={keyboardAccessoryId} />
+                <Field label="Markup %" value={markupPct} onChangeText={setMarkupPct} keyboardType="decimal-pad" />
                 <Text style={{ color: '#2DFFC4', fontSize: 12, fontWeight: '900', marginTop: 8 }}>
                   Change order customer price: {money(changeOrderSellTotal)}
                 </Text>
                 <View style={{ height: 12 }} />
-                <Field label="Customer-facing notes" value={customerNotes} onChangeText={setCustomerNotes} multiline inputAccessoryViewID={keyboardAccessoryId} />
+                <Field label="Customer-facing notes" value={customerNotes} onChangeText={setCustomerNotes} multiline />
               </>
             ) : null}
 
@@ -712,7 +698,7 @@ export default function ProductFoundSheet({
 
             <View style={{ marginTop: 12 }}>
               {internalNotesOpen || notes.trim() ? (
-                <Field label="Internal notes" value={notes} onChangeText={setNotes} multiline inputAccessoryViewID={keyboardAccessoryId} />
+                <Field label="Internal notes" value={notes} onChangeText={setNotes} multiline />
               ) : (
                 <TouchableOpacity
                   onPress={() => setInternalNotesOpen(true)}
@@ -796,7 +782,7 @@ function MetaChip({ label }: { label: string }) {
   );
 }
 
-function Field({ label, value, onChangeText, keyboardType = 'default', multiline = false, compact = false, inputAccessoryViewID }) {
+function Field({ label, value, onChangeText, keyboardType = 'default', multiline = false, compact = false }) {
   return (
     <View style={{ flex: 1 }}>
       <Text style={{ color: 'rgba(226,232,240,0.72)', fontSize: 11, fontWeight: '800', marginBottom: 6 }}>
@@ -807,7 +793,6 @@ function Field({ label, value, onChangeText, keyboardType = 'default', multiline
         onChangeText={onChangeText}
         editable
         keyboardType={keyboardType}
-        inputAccessoryViewID={inputAccessoryViewID}
         multiline={multiline || compact}
         numberOfLines={multiline ? 3 : compact ? 2 : 1}
         placeholderTextColor="rgba(226,232,240,0.45)"

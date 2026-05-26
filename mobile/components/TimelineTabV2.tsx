@@ -10,6 +10,7 @@ import * as Haptics from "expo-haptics";
 import { Colors, COLORS } from "../src/theme/colors";
 import ProgressBar from "./timeline/ProgressBar";
 import EditMilestoneModal from "./EditMilestoneModal";
+import AddDailyLogModal, { type DailyLogEntry } from "./AddDailyLogModal";
 import { useProjectData } from "../contexts/ProjectDataContext";
 import { useProjectList } from "../contexts/ProjectListContext";
 import type { Milestone } from "../src/types/timeline";
@@ -668,6 +669,23 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
   
   // Daily logs state
   const [dailyLogs, setDailyLogs] = useState<any[]>([]);
+  const [showAddDailyLog, setShowAddDailyLog] = useState(false);
+  const [editingDailyLog, setEditingDailyLog] = useState<DailyLogEntry | null>(null);
+
+  const openAddDailyLog = useCallback(() => {
+    setEditingDailyLog(null);
+    setShowAddDailyLog(true);
+  }, []);
+
+  const openEditDailyLog = useCallback((log: DailyLogEntry) => {
+    setEditingDailyLog(log);
+    setShowAddDailyLog(true);
+  }, []);
+
+  const closeDailyLogModal = useCallback(() => {
+    setShowAddDailyLog(false);
+    setEditingDailyLog(null);
+  }, []);
   
   // Load daily logs from AsyncStorage
   const loadDailyLogs = useCallback(async () => {
@@ -1261,10 +1279,23 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                     Daily Logs
                   </Text>
                   {dailyLogs.length > 0 && (
-                    <Text style={[styles.sectionTitle, { color: muted, marginLeft: "auto", fontSize: 14, fontWeight: "600" }]}>
+                    <Text style={[styles.sectionTitle, { color: muted, marginLeft: "auto", fontSize: 14, fontWeight: "600", marginRight: 10 }]}>
                       {dailyLogs.length} {dailyLogs.length === 1 ? 'entry' : 'entries'}
                     </Text>
                   )}
+                  <TouchableOpacity
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      openAddDailyLog();
+                    }}
+                    style={[
+                      styles.addLogButton,
+                      dailyLogs.length === 0 ? { marginLeft: "auto" } : null,
+                    ]}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <MaterialIcons name="add" size={22} color="#22d3ee" />
+                  </TouchableOpacity>
                 </View>
                 {dailyLogs.length > 0 ? (
                   <ScrollView 
@@ -1274,8 +1305,13 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                     contentContainerStyle={dailyLogs.length > 3 ? { paddingBottom: 8 } : {}}
                   >
                     {dailyLogs.map((log) => (
-                      <View
+                      <TouchableOpacity
                         key={log.id}
+                        activeOpacity={0.85}
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          openEditDailyLog(log);
+                        }}
                         style={[
                           styles.logCard,
                           styles.logCardIOS,
@@ -1347,7 +1383,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                             )}
                           </View>
                         )}
-                      </View>
+                      </TouchableOpacity>
                     ))}
                   </ScrollView>
                 ) : (
@@ -1359,8 +1395,28 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                       No site logs yet
                     </Text>
                     <Text style={[styles.emptyLogsBody, { color: muted }]}>
-                      Record daily notes, crew size, and weather tied to this job. Use Ask PM to add an entry anytime.
+                      Record daily notes and weather tied to this job.
                     </Text>
+                    <TouchableOpacity
+                      style={[
+                        styles.starterButton,
+                        {
+                          marginTop: 18,
+                          flexDirection: "row",
+                          backgroundColor: darkMode ? Colors.surface2 : '#F1F5F9',
+                          borderColor: darkMode ? Colors.line : '#E2E8F0',
+                        },
+                      ]}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        openAddDailyLog();
+                      }}
+                    >
+                      <MaterialIcons name="add" size={20} color="#22d3ee" />
+                      <Text style={[styles.starterButtonText, { color: darkMode ? Colors.text : Colors.text, marginLeft: 8 }]}>
+                        Add daily log
+                      </Text>
+                    </TouchableOpacity>
                   </View>
                 )}
               </View>
@@ -1528,6 +1584,14 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
           </View>
         </View>
       </ScrollView>
+
+      <AddDailyLogModal
+        visible={showAddDailyLog}
+        projectId={project?.id || ""}
+        existingLog={editingDailyLog}
+        onClose={closeDailyLogModal}
+        onSaved={() => setReloadTrigger((prev) => prev + 1)}
+      />
 
       <EditMilestoneModal
         visible={editingMilestone !== null}
@@ -2034,6 +2098,16 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontWeight: "500",
     maxWidth: 300,
+  },
+  addLogButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(34, 211, 238, 0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(34, 211, 238, 0.28)",
   },
   logCard: {
     paddingHorizontal: 16,

@@ -15,6 +15,7 @@ describe('aiAssistantCore', () => {
     const analyzed = deepClone(dashboardProjects).map((project) =>
       analyzePortfolioProject(project, {
         compareItem: { margin: project.margin },
+        now: new Date('2026-04-10T00:00:00.000Z'),
       })
     );
 
@@ -23,7 +24,7 @@ describe('aiAssistantCore', () => {
     expect(dailyBrief.topProfitRisks[0].headline).toContain('Copper Valley Rehab');
     expect(dailyBrief.topActions[0].label).toContain('Copper Valley Rehab');
     expect(dailyBrief.upcomingPayments[0].name).toBe('Final Draw');
-    expect(dailyBrief.portfolioSummary.activeProjectCount).toBe(3);
+    expect(dailyBrief.portfolioSummary.activeProjectCount).toBe(2);
     expect(dailyBrief.portfolioSummary.highestRiskProject).toBe('Copper Valley Rehab');
   });
 

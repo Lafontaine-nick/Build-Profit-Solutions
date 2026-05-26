@@ -110,6 +110,21 @@ function upsert(entry) {
   saveAll(rows);
   reconcileEmailListings(id, next.email, next.listOnFindSubcontractors === true);
   pruneOrphanListings(id, next);
+
+  // Drop stale rows that used email/demo ids before Clerk id was available.
+  const em = normEmail(next.email);
+  if (em) {
+    const current = loadAll();
+    const cleaned = current.filter((r) => {
+      if (r.id === id) return true;
+      if (normEmail(r.email) === em && r.id !== id) return false;
+      if (r.id === em) return false;
+      if (isDemoDirectoryId(r.id) && normEmail(r.email) === em) return false;
+      return true;
+    });
+    if (cleaned.length !== current.length) saveAll(cleaned);
+  }
+
   return loadAll().find((r) => r.id === id) || next;
 }
 
@@ -118,18 +133,25 @@ function isDemoDirectoryId(id) {
   return s === 'contractor-demo' || s === 'anonymous' || s.startsWith('demo-');
 }
 
+function hasCompanyName(row) {
+  return Boolean(String(row?.companyName || '').trim());
+}
+
 /** When the same contractor registered twice (e.g. legacy `contractor-demo` + Clerk `user_…`), keep one row. */
 function dedupeDirectoryRows(rows) {
   const keyFor = (r) => {
-    const email = String(r.email || '')
-      .trim()
-      .toLowerCase();
+    const email = normEmail(r.email);
     if (email) return `email:${email}`;
     const phone = String(r.phone || '').replace(/\D/g, '');
+    const zip = String(r.zip || '')
+      .replace(/\D/g, '')
+      .slice(0, 5);
     const co = String(r.companyName || '')
       .trim()
       .toLowerCase();
+    if (phone.length >= 10 && zip.length === 5) return `phonezip:${phone}|${zip}`;
     if (phone && co) return `pc:${phone}|${co}`;
+    if (co && zip.length === 5) return `cozip:${co}|${zip}`;
     return `id:${String(r.id || '').trim()}`;
   };
 
@@ -138,6 +160,10 @@ function dedupeDirectoryRows(rows) {
     const bDemo = isDemoDirectoryId(b.id);
     if (aDemo && !bDemo) return b;
     if (!aDemo && bDemo) return a;
+    const aHasCo = hasCompanyName(a);
+    const bHasCo = hasCompanyName(b);
+    if (aHasCo && !bHasCo) return a;
+    if (!aHasCo && bHasCo) return b;
     const ta = new Date(a.updatedAt || 0).getTime();
     const tb = new Date(b.updatedAt || 0).getTime();
     return tb >= ta ? b : a;
@@ -152,6 +178,23 @@ function dedupeDirectoryRows(rows) {
   return [...map.values()];
 }
 
+/** Remove directory rows for a deleted account (Clerk id, email-as-id, or matching email). */
+function removeListingsForUser({ userId, email } = {}) {
+  const uid = String(userId || '').trim();
+  const em = normEmail(email);
+  const rows = loadAll();
+  const next = rows.filter((r) => {
+    const rid = String(r.id || '').trim();
+    if (uid && rid === uid) return false;
+    if (em && normEmail(r.email) === em) return false;
+    if (em && rid === em) return false;
+    return true;
+  });
+  const removed = rows.length - next.length;
+  if (removed > 0) saveAll(next);
+  return removed;
+}
+
 function listPublic() {
   const listed = loadAll().filter(
     (r) => r.listOnFindSubcontractors === true && !isDemoDirectoryId(r.id)
@@ -163,4 +206,5 @@ module.exports = {
   loadAll,
   upsert,
   listPublic,
+  removeListingsForUser,
 };

@@ -15,7 +15,6 @@ import {
   Image,
   Modal,
   ActivityIndicator,
-  InputAccessoryView,
   useWindowDimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -41,7 +40,6 @@ import {
   clampCentsDigitsInput,
   dollarsToCentsDigits,
 } from "@/src/lib/keyboardMoney";
-import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from "@/constants/keyboard";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import GradientRingBackInner from "@/components/GradientRingBackInner";
 import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH } from "@/constants/ScreenLayout";
@@ -353,22 +351,9 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
     }
   };
 
-  /** iOS: empty accessory so vendor + phone-pad amount do not use the global green `bpsKeyboardDone` bar. */
-  const projectExpensePlainAccessoryId = iosAccessoryId(
-    KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain
-  );
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
-      {Platform.OS === "ios" && (
-        <InputAccessoryView
-          nativeID={KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain}
-          backgroundColor="transparent"
-        >
-          <View style={{ height: 0, width: "100%" }} collapsable={false} />
-        </InputAccessoryView>
-      )}
 
       <View
         style={[
@@ -454,7 +439,6 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                     placeholderTextColor={placeholderTint}
                     value={vendor}
                     onChangeText={setVendor}
-                    inputAccessoryViewID={projectExpensePlainAccessoryId}
                     returnKeyType="done"
                     onSubmitEditing={() => Keyboard.dismiss()}
                     blurOnSubmit
@@ -478,7 +462,6 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                     placeholderTextColor={placeholderTint}
                     value={material}
                     onChangeText={setMaterial}
-                    inputAccessoryViewID={projectExpensePlainAccessoryId}
                     returnKeyType="done"
                     onSubmitEditing={() => Keyboard.dismiss()}
                     blurOnSubmit
@@ -506,7 +489,6 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                       if (selectedPreset) setSelectedPreset(null);
                     }}
                     keyboardType="phone-pad"
-                    inputAccessoryViewID={projectExpensePlainAccessoryId}
                     textContentType="none"
                     autoComplete="off"
                     returnKeyType="done"
@@ -559,7 +541,6 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                     placeholderTextColor={placeholderTint}
                     value={scope}
                     onChangeText={setScope}
-                    inputAccessoryViewID={projectExpensePlainAccessoryId}
                     returnKeyType="done"
                     onSubmitEditing={() => Keyboard.dismiss()}
                     blurOnSubmit
@@ -583,7 +564,6 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                     placeholderTextColor={placeholderTint}
                     value={description}
                     onChangeText={setDescription}
-                    inputAccessoryViewID={projectExpensePlainAccessoryId}
                     multiline
                   />
                 </View>
@@ -605,7 +585,6 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                     placeholderTextColor={placeholderTint}
                     value={poNumber}
                     onChangeText={setPoNumber}
-                    inputAccessoryViewID={projectExpensePlainAccessoryId}
                     returnKeyType="done"
                     onSubmitEditing={() => Keyboard.dismiss()}
                     blurOnSubmit
