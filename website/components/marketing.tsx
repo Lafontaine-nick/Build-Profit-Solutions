@@ -257,6 +257,17 @@ export function ScreenshotPlaceholder({
   );
 }
 
+function documentImageSources(src: string) {
+  const [path, query = ""] = src.split("?");
+  const suffix = query ? `?${query}` : "";
+  const at2x = path.replace(/\.png$/i, "@2x.png");
+
+  return {
+    src: `${at2x}${suffix}`,
+    srcSet: `${path}${suffix} 1x, ${at2x}${suffix} 2x`,
+  };
+}
+
 function ProductScreenshotFrame({
   image,
   title,
@@ -268,22 +279,35 @@ function ProductScreenshotFrame({
   label?: string;
   desktop: boolean;
 }) {
+  if (desktop) {
+    const { src, srcSet } = documentImageSources(image);
+
+    return (
+      <div className="mx-auto w-full max-w-3xl overflow-hidden rounded-xl border border-white/15 bg-white shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={src}
+          srcSet={srcSet}
+          alt={`${title}${label ? ` ${label}` : ""} screenshot`}
+          width={1024}
+          height={665}
+          className="block h-auto w-full"
+          loading="lazy"
+          decoding="async"
+        />
+      </div>
+    );
+  }
+
   return (
-    <div
-      className={`relative mx-auto shrink-0 overflow-hidden rounded-[1.4rem] border border-cyan-300/16 bg-black/70 p-2 shadow-[0_16px_55px_rgba(34,211,238,0.08)] ${
-        desktop
-          ? "aspect-[16/10] w-full max-w-2xl"
-          : "aspect-[9/16] w-full max-w-[11.5rem] sm:max-w-[12.5rem]"
-      }`}
-    >
+    <div className="relative mx-auto aspect-[9/16] w-full max-w-[11.5rem] shrink-0 overflow-hidden rounded-[1.4rem] border border-cyan-300/16 bg-black/70 p-2 shadow-[0_16px_55px_rgba(34,211,238,0.08)] sm:max-w-[12.5rem]">
       <div className="relative h-full w-full overflow-hidden rounded-[1.1rem] bg-slate-950">
         <Image
           src={image}
           alt={`${title}${label ? ` ${label}` : ""} screenshot`}
           fill
-          sizes={desktop ? "(min-width: 1024px) 672px, 90vw" : "200px"}
-          quality={desktop ? 100 : 85}
-          unoptimized={desktop}
+          sizes="200px"
+          quality={85}
           className="object-contain"
         />
       </div>
@@ -318,7 +342,7 @@ export function ProductScreenshotCard({
         <div
           className={
             desktop
-              ? "mx-auto grid max-w-2xl gap-4"
+              ? "mx-auto grid max-w-4xl gap-5"
               : "mx-auto grid max-w-xl grid-cols-2 gap-3 sm:gap-4"
           }
         >

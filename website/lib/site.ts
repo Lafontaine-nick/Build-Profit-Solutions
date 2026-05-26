@@ -155,8 +155,8 @@ export const primaryScreenshots = [
     eyebrow: "Documents",
     description:
       "Generate polished contract exports and CPA-ready financial summaries from the same project data.",
-    image: "/screenshots/generate-contract-pdf.png",
-    secondaryImage: "/screenshots/cpa-summary-pdf.png",
+    image: "/screenshots/generate-contract-pdf.png?v=5",
+    secondaryImage: "/screenshots/cpa-summary-pdf.png?v=5",
     orientation: "desktop",
   },
 ];
