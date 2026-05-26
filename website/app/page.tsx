@@ -1,6 +1,5 @@
 import {
   ButtonLink,
-  ComingSoonButton,
   CompactScreenshotCard,
   GradientCard,
   HeroScreenshot,
@@ -11,6 +10,7 @@ import {
 } from "@/components/marketing";
 import { MobileScreenshotCarousel } from "@/components/mobile-screenshot-carousel";
 import {
+  aiFeatures,
   audiences,
   faqs,
   features,
@@ -20,43 +20,55 @@ import {
   secondaryScreenshots,
   siteLaunch,
   siteLinks,
+  taxDisclaimer,
+  trustCards,
 } from "@/lib/site";
 
 export default function HomePage() {
   return (
     <PageShell>
       <section className="relative overflow-hidden px-5 py-20 sm:px-6 lg:px-8 lg:py-28">
-        <div className="absolute left-1/2 top-0 h-[32rem] w-[32rem] -translate-x-1/2 rounded-full bg-cyan-400/10 blur-3xl" />
+        <div className="absolute left-1/2 top-0 h-[36rem] w-[36rem] -translate-x-1/2 rounded-full bg-cyan-400/10 blur-3xl" />
+        <div className="absolute -left-24 top-24 h-80 w-80 rounded-full bg-emerald-400/10 blur-3xl" />
         <div className="relative mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[1.05fr_0.95fr]">
           <div>
             <p className="mb-5 inline-flex rounded-full border border-emerald-300/25 bg-emerald-300/10 px-4 py-2 text-sm font-bold text-emerald-200">
               {siteLaunch.isPrelaunch
-                ? "Pre-launch preview for contractors"
+                ? "Pre-launch contractor beta"
                 : "AI-powered tools built for contractors"}
             </p>
             <h1 className="max-w-4xl text-5xl font-black tracking-tight text-white sm:text-6xl lg:text-7xl">
               Build profitable projects from bid to closeout.
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
-              Build Profit Solutions brings estimating, job costing, project
-              tracking, leads, proposals, and AI guidance into one construction
-              management workspace.
+              Build Profit Solutions helps contractors estimate faster, track
+              job costs, manage projects, organize materials, create proposals,
+              and protect profit with AI-powered construction tools.
+            </p>
+            <p className="mt-4 max-w-2xl text-base leading-7 text-emerald-100/85">
+              Currently finalizing iOS, Android, and web access for contractor
+              testing and early launch users.
             </p>
             <div className="mt-9 flex flex-col gap-3 sm:flex-row">
               {siteLaunch.isPrelaunch ? (
                 <>
-                  <ComingSoonButton variant="primary" />
-                  <ButtonLink href={siteLinks.contact} variant="secondary">
-                    Contact for updates
+                  <ButtonLink href={siteLinks.contact}>Request Early Access</ButtonLink>
+                  <ButtonLink href="#product-screens" variant="secondary">
+                    View Product Screens
                   </ButtonLink>
                 </>
               ) : (
                 <ButtonLink href={siteLinks.download}>Download App</ButtonLink>
               )}
             </div>
-            <div className="mt-8 grid max-w-2xl grid-cols-3 gap-3 text-center">
-              {["AI Estimates", "Profit Tracking", "Team Management"].map((item) => (
-                <div key={item} className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-4">
+            <p className="mt-5 max-w-2xl text-sm leading-6 text-slate-400">
+              Built for contractors, builders, remodelers, subcontractors, and
+              small construction teams that want clearer numbers from estimate
+              to final payment.
+            </p>
+            <div className="mt-8 grid max-w-2xl grid-cols-2 gap-3 text-center sm:grid-cols-4">
+              {["Bid smarter", "Track the job", "Protect profit", "Stay organized"].map((item) => (
+                <div key={item} className="rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-4 shadow-lg shadow-cyan-950/20">
                   <p className="text-sm font-bold text-white">{item}</p>
                 </div>
               ))}
@@ -67,15 +79,16 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section id="features" className="px-5 py-20 sm:px-6 lg:px-8">
+      <section id="features" className="px-5 py-24 sm:px-6 lg:px-8">
         <SectionHeading
           eyebrow="Features"
-          title="Everything contractors need to protect profit."
+          title="One workspace for the full construction profit cycle."
         >
-          Plan the bid, manage the work, and understand the money without
-          stitching together disconnected tools.
+          From the first estimate to the final payment, Build Profit Solutions
+          helps keep bids, budgets, change orders, receipts, payments, and
+          project performance connected.
         </SectionHeading>
-        <div className="mx-auto grid max-w-7xl gap-5 md:grid-cols-2 lg:grid-cols-3">
+        <div className="mx-auto grid max-w-7xl gap-6 md:grid-cols-2">
           {features.map((feature) => (
             <GradientCard key={feature.title}>
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-300/15 text-xl font-black text-emerald-200">
@@ -83,12 +96,20 @@ export default function HomePage() {
               </div>
               <h3 className="mt-6 text-xl font-black text-white">{feature.title}</h3>
               <p className="mt-3 leading-7 text-slate-300">{feature.description}</p>
+              <ul className="mt-5 grid gap-2 text-sm leading-6 text-slate-300">
+                {feature.bullets.map((bullet) => (
+                  <li key={bullet} className="flex gap-3">
+                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-300" />
+                    <span>{bullet}</span>
+                  </li>
+                ))}
+              </ul>
             </GradientCard>
           ))}
         </div>
       </section>
 
-      <section id="audiences" className="px-5 py-20 sm:px-6 lg:px-8">
+      <section id="audiences" className="px-5 py-24 sm:px-6 lg:px-8">
         <SectionHeading eyebrow="Who It Helps" title="Built for the whole construction workflow.">
           Whether you run crews, manage remodels, develop projects, or owner-build,
           the app keeps cost and scope decisions connected.
@@ -98,6 +119,30 @@ export default function HomePage() {
             <div key={audience.title} className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
               <h3 className="text-lg font-black text-white">{audience.title}</h3>
               <p className="mt-3 text-sm leading-6 text-slate-300">{audience.description}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="px-5 py-24 sm:px-6 lg:px-8">
+        <SectionHeading
+          eyebrow="AI Tools"
+          title="AI built around real construction decisions."
+        >
+          Build Profit Solutions is not just a chatbot. The AI assistant is
+          designed to help contractors understand estimates, project costs,
+          change orders, payments, materials, and profit risk.
+        </SectionHeading>
+        <div className="mx-auto grid max-w-7xl gap-5 md:grid-cols-2 lg:grid-cols-4">
+          {aiFeatures.map((feature) => (
+            <div
+              key={feature.title}
+              className="rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-6 shadow-xl shadow-cyan-950/20"
+            >
+              <h3 className="text-lg font-black text-white">{feature.title}</h3>
+              <p className="mt-3 text-sm leading-6 text-slate-300">
+                {feature.description}
+              </p>
             </div>
           ))}
         </div>
@@ -120,11 +165,11 @@ export default function HomePage() {
         />
       </section>
 
-      <section className="hidden px-5 py-20 sm:px-6 lg:block lg:px-8">
+      <section id="product-screens" className="hidden px-5 py-24 sm:px-6 lg:block lg:px-8">
         <SectionHeading eyebrow="Product Screens" title="Real app workflows that sell the product fast.">
           These screens show the strongest parts of Build Profit Solutions:
-          estimating, profit tracking, automation, subcontractors, and
-          client-ready documents.
+          estimating, profit tracking, automation, materials, and client-ready
+          documents.
         </SectionHeading>
         <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-2">
           {primaryScreenshots.map((shot) => (
@@ -133,7 +178,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="hidden px-5 py-20 sm:px-6 lg:block lg:px-8">
+      <section className="hidden px-5 py-24 sm:px-6 lg:block lg:px-8">
         <SectionHeading eyebrow="More Features" title="Secondary workflows that prove depth.">
           Payment schedules, tax prep, teams, materials, product search, and AI
           project management round out the construction workflow.
@@ -143,12 +188,15 @@ export default function HomePage() {
             <CompactScreenshotCard key={shot.title} {...shot} />
           ))}
         </div>
+        <p className="mx-auto mt-8 max-w-4xl text-center text-xs leading-6 text-slate-500">
+          {taxDisclaimer}
+        </p>
       </section>
 
-      <section id="pricing" className="px-5 py-20 sm:px-6 lg:px-8">
+      <section id="pricing" className="px-5 py-24 sm:px-6 lg:px-8">
         <SectionHeading eyebrow="Pricing" title="Start lean. Scale when the work grows.">
           {siteLaunch.isPrelaunch
-            ? "Preview pricing for planning purposes. Subscriptions are not available yet."
+            ? "Pricing is shown for launch planning and may be finalized before subscriptions open."
             : "Choose the plan that matches your crew, project load, and reporting needs."}
         </SectionHeading>
         <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-3">
@@ -164,6 +212,9 @@ export default function HomePage() {
                 </span>
               </div>
               <p className="mt-4 text-slate-300">{plan.description}</p>
+              <p className="mt-3 text-sm font-semibold text-emerald-200">
+                {plan.bestFor}
+              </p>
               <p className="mt-6 text-5xl font-black text-white">
                 ${plan.price}
                 <span className="text-base font-semibold text-slate-400">/mo</span>
@@ -179,27 +230,27 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section id="download" className="px-5 py-20 sm:px-6 lg:px-8">
+      <section id="download" className="px-5 py-24 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-5xl rounded-[2rem] border border-white/10 bg-gradient-to-br from-emerald-300/18 to-cyan-400/18 p-8 text-center sm:p-12">
           <p className="text-sm font-bold uppercase tracking-[0.28em] text-emerald-200">
-            {siteLaunch.isPrelaunch ? "Coming Soon" : "Get Started"}
+            Contractor Beta
           </p>
           <h2 className="mt-4 text-3xl font-black tracking-tight text-white sm:text-5xl">
             {siteLaunch.isPrelaunch
-              ? "Mobile and web access opens at public launch."
+              ? "Currently in pre-launch contractor testing."
               : "Download the app or open the web version."}
           </h2>
           <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-slate-300">
             {siteLaunch.isPrelaunch
-              ? "We are finishing the iOS, Android, and web experience before opening sign-up. Leave your email through contact if you want launch updates."
+              ? "Build Profit Solutions is being finalized for iOS, Android, and web access. We are currently preparing contractor beta testing, refining the product experience, and improving the workflows that help contractors estimate, manage, and protect project profit."
               : "Store links are ready to plug in when your iOS and Android listings are live. Until then, visitors can sign up through the web app."}
           </p>
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
             {siteLaunch.isPrelaunch ? (
               <>
-                <ComingSoonButton variant="primary" />
+                <ButtonLink href={siteLinks.contact}>Request Early Access</ButtonLink>
                 <ButtonLink href={siteLinks.contact} variant="secondary">
-                  Contact for updates
+                  Get Launch Updates
                 </ButtonLink>
               </>
             ) : (
@@ -214,10 +265,39 @@ export default function HomePage() {
               </>
             )}
           </div>
+          <p className="mx-auto mt-5 max-w-xl text-sm leading-6 text-slate-400">
+            Early access may be limited while the product is being tested and
+            refined.
+          </p>
         </div>
       </section>
 
-      <section className="px-5 py-20 sm:px-6 lg:px-8">
+      <section className="px-5 py-24 sm:px-6 lg:px-8">
+        <SectionHeading
+          eyebrow="Trust"
+          title="Built for real contractor pain points."
+        >
+          Construction profit is not lost in one place. It gets lost through
+          missed costs, unclear change orders, poor payment tracking, scattered
+          receipts, material price changes, and not knowing where the job stands
+          until it is too late.
+        </SectionHeading>
+        <div className="mx-auto grid max-w-7xl gap-5 md:grid-cols-2 lg:grid-cols-3">
+          {trustCards.map((card) => (
+            <div
+              key={card.title}
+              className="rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-6 shadow-xl shadow-cyan-950/20"
+            >
+              <h3 className="text-lg font-black text-white">{card.title}</h3>
+              <p className="mt-3 text-sm leading-6 text-slate-300">
+                {card.description}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="px-5 py-24 sm:px-6 lg:px-8">
         <SectionHeading eyebrow="FAQ" title="Quick answers before launch." />
         <div className="mx-auto grid max-w-5xl gap-4">
           {faqs.map((faq) => (
@@ -226,6 +306,28 @@ export default function HomePage() {
               <p className="mt-3 leading-7 text-slate-300">{faq.answer}</p>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="px-5 pb-24 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-5xl rounded-[2rem] border border-emerald-300/20 bg-[radial-gradient(circle_at_top_left,rgba(45,255,196,0.18),transparent_35%),linear-gradient(135deg,rgba(15,23,42,0.95),rgba(8,47,73,0.62))] p-8 text-center shadow-[0_24px_90px_rgba(34,211,238,0.12)] sm:p-12">
+          <h2 className="text-3xl font-black tracking-tight text-white sm:text-5xl">
+            Ready to build with better numbers?
+          </h2>
+          <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-slate-300">
+            Request early access to Build Profit Solutions and follow the launch
+            as contractor testing continues.
+          </p>
+          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+            <ButtonLink href={siteLinks.contact}>Request Early Access</ButtonLink>
+            <ButtonLink href="/pricing" variant="secondary">
+              View Pricing
+            </ButtonLink>
+          </div>
+          <p className="mt-5 text-sm text-slate-500">
+            Pre-launch access may be limited while the product is being tested
+            and refined.
+          </p>
         </div>
       </section>
     </PageShell>

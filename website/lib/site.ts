@@ -2,7 +2,7 @@ export const siteConfig = {
   name: "Build Profit Solutions",
   shortName: "BPS",
   description:
-    "AI-powered estimating, job costing, and project insights built for contractors.",
+    "AI-powered construction estimating, project management, job costing, and profit tracking tools for contractors.",
   url: process.env.NEXT_PUBLIC_SITE_URL ?? "https://buildprofitsolutions.com",
   webAppUrl:
     process.env.NEXT_PUBLIC_WEB_APP_URL ?? "https://app.buildprofitsolutions.com",
@@ -13,7 +13,7 @@ export const siteConfig = {
   founderName: "Nicholas LaFontaine",
   founderTitle: "Founder, Build Profit Solutions",
   mission:
-    "Help construction professionals estimate smarter, track every dollar, stay organized, and protect profit on every job.",
+    "Help contractors estimate with more confidence, track costs from bid to closeout, and protect project profit with clearer numbers.",
   location:
     "Built for contractors and construction businesses nationwide — wherever you estimate, build, and track jobs.",
 };
@@ -47,9 +47,9 @@ export const heroScreenshot = {
 export const navItems = [
   { label: "Home", href: "/" },
   { label: "Features", href: "/#features" },
-  { label: "Who It Helps", href: "/#audiences" },
   { label: "Pricing", href: "/pricing" },
   { label: "About", href: "/about" },
+  { label: "Contact", href: siteLinks.contact },
 ];
 
 export const audiences = [
@@ -82,36 +82,109 @@ export const audiences = [
 
 export const features = [
   {
-    title: "AI Estimate Assistant",
+    title: "Estimate & Bid",
     description:
-      "Build bids from project details, labor, materials, markup, and local cost assumptions.",
+      "Create cleaner estimates, organize direct costs, apply markup, review profitability, and generate professional proposal PDFs.",
+    bullets: [
+      "AI estimate assistant",
+      "Labor, material, equipment, and overhead tracking",
+      "Markup and profit visibility",
+      "Branded proposal and estimate PDFs",
+    ],
   },
   {
-    title: "Live Job Costing",
+    title: "Manage Active Jobs",
     description:
-      "Compare budget versus actuals as work happens so margin issues show up early.",
+      "Turn awarded bids into active projects and keep budgets, schedules, purchase orders, change orders, and payments organized in one place.",
+    bullets: [
+      "Project budgets and actual costs",
+      "Purchase orders and change orders",
+      "Progress billing and payment schedules",
+      "Project timeline and team tracking",
+    ],
   },
   {
-    title: "Project Tracking",
+    title: "Protect Profit",
     description:
-      "Keep timelines, scope, budgets, invoices, and project notes connected.",
+      "See where profit is being protected or lost before the job is over. Track current margin, projected margin, budget usage, and job health.",
+    bullets: [
+      "Live job costing",
+      "Budget vs. actual tracking",
+      "Profitability forecasting",
+      "AI project manager insights",
+    ],
   },
   {
-    title: "Lead Management",
+    title: "Closeout & Tax Prep",
     description:
-      "Capture opportunities, score leads, and move prospects through a simple pipeline.",
-  },
-  {
-    title: "Materials & Pricing",
-    description:
-      "Search materials, monitor pricing, and keep bids grounded in current costs.",
-  },
-  {
-    title: "Proposals & Invoices",
-    description:
-      "Generate polished estimates, proposals, and invoices without rebuilding templates.",
+      "Keep receipts, vendors, project costs, and CPA-ready summaries organized so closeout and tax preparation are less painful.",
+    bullets: [
+      "Tax center",
+      "Receipt and vendor organization",
+      "CPA summary exports",
+      "Project financial history",
+    ],
   },
 ];
+
+export const aiFeatures = [
+  {
+    title: "AI Estimate Assistant",
+    description:
+      "Helps organize estimate inputs, review missing costs, and explain how labor, materials, overhead, markup, and profit affect the final bid.",
+  },
+  {
+    title: "AI Project Manager",
+    description:
+      "Watches active project data and helps surface budget risk, margin pressure, missing costs, payment issues, and project health insights.",
+  },
+  {
+    title: "Profit Forecasting",
+    description:
+      "Helps compare actual costs, committed costs, progress, and projected final cost so contractors can make better decisions before profit disappears.",
+  },
+  {
+    title: "Smart Project Guidance",
+    description:
+      "Gives project-specific guidance based on the current job, not generic advice.",
+  },
+];
+
+export const trustCards = [
+  {
+    title: "Missed Costs",
+    description:
+      "Track materials, labor, equipment, permits, overhead, and other project costs before they disappear from the budget.",
+  },
+  {
+    title: "Change Orders",
+    description:
+      "Keep added work connected to the active project so extra costs and revenue do not get lost.",
+  },
+  {
+    title: "Payment Tracking",
+    description:
+      "Organize deposits, progress payments, milestone payments, weekly billing, and holdbacks.",
+  },
+  {
+    title: "Profit Visibility",
+    description:
+      "Compare bid numbers, actual costs, committed costs, and projected job performance.",
+  },
+  {
+    title: "Closeout Records",
+    description:
+      "Keep receipts, vendors, and project financial records easier to review when the job is done.",
+  },
+  {
+    title: "AI Guidance",
+    description:
+      "Use AI to help flag risks, explain numbers, and guide better project decisions.",
+  },
+];
+
+export const taxDisclaimer =
+  "Build Profit Solutions helps organize project costs, receipts, vendors, and CPA-ready summaries. It does not replace a licensed CPA, tax professional, attorney, or financial advisor.";
 
 export const primaryScreenshots = [
   {
@@ -207,7 +280,8 @@ export const pricingPlans = [
     price: 45,
     tag: "Starter",
     description: "Essential tools for solo contractors getting organized.",
-    cta: "Start with Basic",
+    bestFor: "Best for solo contractors getting organized.",
+    cta: "Request Early Access",
     features: [
       "3-5 active projects",
       "Basic project dashboard",
@@ -225,7 +299,9 @@ export const pricingPlans = [
     tag: "Most Popular",
     recommended: true,
     description: "Built to protect margins and scale profitably.",
-    cta: "Start Professional",
+    bestFor:
+      "Best for contractors who want estimating, job costing, AI tools, and profit tracking.",
+    cta: "Request Early Access",
     features: [
       "Unlimited projects",
       "Full AI Estimator",
@@ -243,7 +319,9 @@ export const pricingPlans = [
     price: 179,
     tag: "Teams",
     description: "For teams that need forecasting, optimization, and integrations.",
-    cta: "Scale with Business",
+    bestFor:
+      "Best for teams that need permissions, forecasting, analytics, and advanced workflows.",
+    cta: "Contact for Team Access",
     features: [
       "Everything in Professional",
       "5-10 team members",
@@ -261,7 +339,7 @@ export const faqs = [
   {
     question: "Is Build Profit Solutions available to sign up for yet?",
     answer:
-      "Not yet. The product is in pre-launch while we finish the mobile apps, billing, and onboarding. This site is a preview of what is coming. Contact us if you want updates.",
+      "Build Profit Solutions is currently in pre-launch testing. Contractors can request early access or join launch updates while iOS, Android, and web access are finalized.",
   },
   {
     question: "Is Build Profit Solutions only for general contractors?",
@@ -276,6 +354,6 @@ export const faqs = [
   {
     question: "Are the prices on this site final?",
     answer:
-      "Pricing shown here is a preview for planning purposes. Subscriptions are not available yet and may change before public launch.",
+      "Pricing is shown for launch planning and may be finalized before subscriptions open. Contractors can request early access before public release.",
   },
 ];

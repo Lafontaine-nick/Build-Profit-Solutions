@@ -20,9 +20,15 @@ export default function PricingPage() {
         </h1>
         <p className="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-300">
           {siteLaunch.isPrelaunch
-            ? "Preview plans below for planning purposes. Subscriptions and billing are not open until public launch."
+            ? "Pricing is shown for launch planning and may be finalized before subscriptions open."
             : "Start with the essentials, then scale into AI estimating, live job costing, advanced analytics, team permissions, and integrations."}
         </p>
+        {siteLaunch.isPrelaunch ? (
+          <p className="mx-auto mt-4 max-w-3xl text-base leading-7 text-emerald-100/85">
+            Subscriptions are not open yet. Contractors can request early access
+            or join the launch update list before public release.
+          </p>
+        ) : null}
       </section>
 
       <section className="px-5 pb-20 sm:px-6 lg:px-8">
@@ -46,6 +52,9 @@ export default function PricingPage() {
                 ) : null}
               </div>
               <p className="mt-5 min-h-14 leading-7 text-slate-300">{plan.description}</p>
+              <p className="mt-3 text-sm font-semibold leading-6 text-emerald-200">
+                {plan.bestFor}
+              </p>
               <p className="mt-7 text-5xl font-black text-white">
                 ${plan.price}
                 <span className="text-base font-semibold text-slate-400">/month</span>
@@ -69,12 +78,13 @@ export default function PricingPage() {
       <section className="px-5 py-20 sm:px-6 lg:px-8">
         <SectionHeading eyebrow="Need help choosing?" title="Start where you are today.">
           {siteLaunch.isPrelaunch
-            ? "Plans and features may change before launch. Contact us if you want early updates or have questions about which tier may fit your business."
+            ? "Request early access if you want to follow the launch, ask which plan fits your business, or get updates before subscriptions open."
             : "Most solo operators can begin with Basic. Contractors managing multiple jobs and margin controls should start with Professional. Teams that need permissions, forecasting, and integrations should look at Business."}
         </SectionHeading>
-        <div className="text-center">
+        <div className="flex flex-col justify-center gap-3 text-center sm:flex-row">
+          <ButtonLink href={siteLinks.contact}>Request Early Access</ButtonLink>
           <ButtonLink href={`mailto:${siteConfig.contactEmail}`} variant="secondary">
-            Ask a pricing question
+            Ask a Pricing Question
           </ButtonLink>
         </div>
       </section>

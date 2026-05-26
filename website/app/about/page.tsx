@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { ButtonLink, ComingSoonButton, PageShell, SectionHeading } from "@/components/marketing";
-import { audiences, siteConfig, siteLaunch, siteLinks } from "@/lib/site";
+import { ButtonLink, PageShell, SectionHeading } from "@/components/marketing";
+import { audiences, siteConfig, siteLaunch, siteLinks, taxDisclaimer } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "About",
@@ -12,6 +12,15 @@ const founderHighlights = [
   "Hands-on construction experience",
   "Estimating & job costing",
   "Profit-first project tracking",
+];
+
+const founderCredibility = [
+  "Construction project management",
+  "Estimating and job costing",
+  "Real estate development",
+  "Hands-on labor experience",
+  "Budget and profitability tracking",
+  "Contractor workflow planning",
 ];
 
 const missionCards = [
@@ -75,14 +84,15 @@ export default function AboutPage() {
         </SectionHeading>
         <div className="mx-auto max-w-4xl rounded-[1.75rem] border border-cyan-300/15 bg-slate-900/70 p-7 text-base leading-7 text-slate-400 sm:p-8 sm:text-lg sm:leading-8">
           <p>
-            I started Build Profit Solutions because I saw how easy it is for
-            contractors, builders, and small construction companies to lose
-            profit between the original estimate and the final job cost.
+            I built Build Profit Solutions because I kept seeing the same problem
+            in construction: the bid might look good on paper, but real profit
+            can get unclear once materials, labor, change orders, receipts,
+            payments, delays, and unexpected costs start moving.
           </p>
           <p className="mt-5">
-            I wanted to build a tool that helps contractors estimate smarter,
-            track every dollar, monitor net profit, and protect margin while the
-            project is active — not after the numbers are already settled.
+            Build Profit Solutions was created to give contractors a clearer way
+            to estimate, manage active jobs, track real costs, organize tax
+            records, and protect profit from the first bid to final closeout.
           </p>
         </div>
       </section>
@@ -132,11 +142,7 @@ export default function AboutPage() {
           ))}
         </div>
         <p className="mx-auto mt-8 max-w-3xl text-center text-sm leading-7 text-slate-500 sm:text-base">
-          The app includes tools for estimating, project budget tracking,
-          materials and equipment costs, payment schedules, AI project
-          management, and a Tax Center designed to help users stay organized and
-          tax-ready from bid to final payment. Build Profit Solutions does not
-          provide tax, legal, or financial advice.
+          {taxDisclaimer}
         </p>
       </section>
 
@@ -174,9 +180,9 @@ export default function AboutPage() {
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
               {siteLaunch.isPrelaunch ? (
                 <>
-                  <ComingSoonButton variant="primary" />
+                  <ButtonLink href={siteLinks.contact}>Request Early Access</ButtonLink>
                   <ButtonLink href={siteLinks.contact} variant="secondary">
-                    Contact Us
+                    Get Launch Updates
                   </ButtonLink>
                 </>
               ) : (
@@ -204,33 +210,42 @@ export default function AboutPage() {
             <div className="space-y-5 text-base leading-7 text-slate-400 sm:text-lg sm:leading-8">
               <p>
                 My background is in construction project management, estimating,
-                job costing, real estate development, and hands-on construction
-                labor. I have spent time not only managing projects and reviewing
-                numbers, but also doing actual labor myself — which gave me a real
-                respect for how hard these trades are and how much effort goes into
-                every job.
+                job costing, and real estate development. I have worked around
+                real construction projects where budgets, bids, material costs,
+                subcontractor pricing, and project timelines all affect whether a
+                job actually makes money.
               </p>
               <p>
-                I have worked around real construction projects where budgets,
-                bids, material costs, labor, payment schedules, subcontractors,
-                and timelines all have to be managed carefully. Through that
-                experience, I saw that many contractors are still using
-                spreadsheets, notes, texts, receipts, and disconnected tools to
-                run jobs.
+                I have also spent a lot of time doing actual labor myself, so I
+                understand how hard the trades are — not just from the office
+                side, but from the jobsite side too.
               </p>
               <p>
-                Build Profit Solutions was created from that real-world problem:
-                helping contractors connect the estimate, active project costs,
-                payments, tax organization, and profit tracking in one practical
-                workspace.
+                Build Profit Solutions was created to give contractors a clearer
+                way to estimate, manage active jobs, track real costs, organize
+                tax records, and protect profit from the first bid to final
+                closeout.
               </p>
               <p className="text-sm leading-7 text-slate-500 sm:text-base">
-                Built for contractors, builders, subcontractors, remodelers, real
-                estate developers, owner-builders, and small construction
-                businesses that need a simpler way to estimate projects, manage
-                active jobs, track actual costs, monitor net profit, organize
-                payments, and stay tax-ready from bid to final payment.
+                This app is being built for contractors, builders, remodelers,
+                subcontractors, and construction business owners who want better
+                visibility into their numbers without needing enterprise software
+                that feels too expensive, too complicated, or too disconnected
+                from the field.
               </p>
+            </div>
+            <div className="mt-8 rounded-[1.5rem] border border-cyan-300/15 bg-white/[0.03] p-6">
+              <h3 className="text-lg font-black text-white">
+                Built from real construction experience:
+              </h3>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                {founderCredibility.map((item) => (
+                  <div key={item} className="flex gap-3 text-sm text-slate-300">
+                    <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-emerald-300" />
+                    <span>{item}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>

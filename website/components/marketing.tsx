@@ -42,7 +42,7 @@ export function ComingSoonButton({
       className={`inline-flex cursor-default items-center justify-center rounded-full px-5 py-3 text-sm font-bold opacity-75 ${buttonClassName(variant)}`}
       aria-disabled="true"
     >
-      Coming soon
+      Request Early Access
     </span>
   );
 }
@@ -51,13 +51,13 @@ export function PrelaunchBanner() {
   if (!siteLaunch.isPrelaunch) return null;
 
   return (
-    <div className="border-b border-amber-300/20 bg-amber-400/10 px-5 py-3 text-center text-sm leading-6 text-amber-100">
-      <span className="font-bold text-amber-200">Pre-launch preview.</span> Sign-up,
-      subscriptions, and app downloads are not open yet.{" "}
+    <div className="border-b border-emerald-300/20 bg-emerald-400/10 px-5 py-3 text-center text-sm leading-6 text-emerald-100">
+      <span className="font-bold text-emerald-200">Pre-launch contractor beta.</span>{" "}
+      iOS, Android, and web access are being finalized for early users.{" "}
       <a href={siteLinks.contact} className="font-bold underline hover:text-white">
-        Contact us
+        Request early access
       </a>{" "}
-      for updates.
+      or join launch updates.
     </div>
   );
 }
@@ -66,9 +66,9 @@ export function PlanCta({ label }: { label: string }) {
   if (siteLaunch.isPrelaunch) {
     return (
       <div className="mt-7 grid gap-2">
-        <ComingSoonButton />
+        <ButtonLink href={siteLinks.contact}>{label}</ButtonLink>
         <p className="text-center text-xs text-slate-500">
-          {label} — available at public launch
+          Pre-launch access may be limited while testing continues.
         </p>
       </div>
     );
@@ -94,8 +94,8 @@ export function SiteHeader() {
         <div className="ml-auto flex items-center gap-3">
           <div className="hidden items-center gap-3 sm:flex">
             {siteLaunch.isPrelaunch ? (
-              <ButtonLink href={siteLinks.contact} variant="secondary">
-                Contact
+              <ButtonLink href={siteLinks.contact}>
+                Request Early Access
               </ButtonLink>
             ) : (
               <>
@@ -167,7 +167,7 @@ export function SiteFooter() {
         </div>
       </div>
       <div className="border-t border-white/10 px-5 py-5 text-center text-xs text-slate-500">
-        © 2026 Build Profit Solutions. All rights reserved.
+        © Build Profit Solutions. All rights reserved.
       </div>
     </footer>
   );
@@ -220,8 +220,8 @@ export function GradientCard({
   className?: string;
 }) {
   return (
-    <div className={`rounded-[2rem] bg-gradient-to-br from-emerald-300 to-cyan-400 p-px ${className}`}>
-      <div className="h-full rounded-[calc(2rem-1px)] bg-slate-900/96 p-6 shadow-2xl shadow-cyan-950/30">
+    <div className={`rounded-[1.75rem] bg-gradient-to-br from-emerald-300/55 via-cyan-300/35 to-white/10 p-px shadow-[0_20px_70px_rgba(34,211,238,0.08)] ${className}`}>
+      <div className="h-full rounded-[calc(1.75rem-1px)] border border-white/[0.04] bg-slate-900/92 p-7 shadow-2xl shadow-cyan-950/30">
         {children}
       </div>
     </div>

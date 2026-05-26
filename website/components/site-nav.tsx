@@ -131,16 +131,6 @@ function MenuIcon() {
 
 export function MobileSiteNav() {
   const [open, setOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const pathname = usePathname();
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    setOpen(false);
-  }, [pathname]);
 
   useEffect(() => {
     if (!open) {
@@ -168,7 +158,7 @@ export function MobileSiteNav() {
   }
 
   const menuPortal =
-    open && mounted
+    open
       ? createPortal(
           <>
             <div
@@ -219,9 +209,9 @@ export function MobileSiteNav() {
                   <a
                     href={siteLinks.contact}
                     onClick={closeMenu}
-                    className="block rounded-full border border-emerald-300/35 bg-white/10 px-4 py-3.5 text-center text-sm font-bold text-white transition hover:border-emerald-200 hover:bg-white/15"
+                    className="block rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 px-4 py-3.5 text-center text-sm font-black text-slate-950 transition hover:brightness-110"
                   >
-                    Contact
+                    Request Early Access
                   </a>
                 ) : (
                   <div className="grid gap-2">
