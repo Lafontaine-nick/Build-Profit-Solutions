@@ -130,7 +130,7 @@ export default function HomePage() {
           eyebrow="AI Tools"
           title="AI built around real construction decisions."
         >
-          Build Profit Solutions is not just a chatbot. The AI assistant is
+          Build Profit Solutions is not just generic AI chat. The assistant is
           designed to help contractors understand estimates, project costs,
           change orders, payments, materials, and profit risk.
         </SectionHeading>
@@ -182,19 +182,23 @@ export default function HomePage() {
           work — estimating the job, winning the bid, tracking the project,
           managing changes, collecting payments, and reviewing final numbers.
         </SectionHeading>
-        <MobileScreenshotCarousel
-          slides={[
-            ...primaryScreenshots,
-            ...secondaryScreenshots.map((shot) => ({
-              ...shot,
-              eyebrow: "Workflow",
-              orientation: "mobile",
-            })),
-          ]}
-        />
+        <div className="mx-auto grid max-w-xl gap-3">
+          {productTourSteps.map((step, index) => (
+            <div
+              key={step.title}
+              className="rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-4 shadow-lg shadow-cyan-950/20"
+            >
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-emerald-300">
+                Step {index + 1}
+              </p>
+              <h3 className="mt-2 text-base font-black text-white">{step.title}</h3>
+              <p className="mt-1 text-sm leading-6 text-slate-400">{step.description}</p>
+            </div>
+          ))}
+        </div>
       </section>
 
-      <section id="product-screens" className="hidden px-5 py-24 sm:px-6 lg:block lg:px-8">
+      <section id="product-screens" className="scroll-mt-28 px-5 py-16 sm:px-6 lg:px-8 lg:py-24">
         <SectionHeading
           eyebrow="Product Screens"
           title="Real app workflows built around contractor profit."
@@ -203,22 +207,34 @@ export default function HomePage() {
           costing, product scanning, project records, AI guidance, and
           client-ready documents into one profit-focused workflow.
         </SectionHeading>
-        <p className="mx-auto -mt-6 mb-12 max-w-3xl text-center text-sm leading-6 text-slate-500">
+        <p className="mx-auto -mt-6 mb-10 max-w-3xl text-center text-sm leading-6 text-slate-500 lg:mb-12">
           From the first bid to the final closeout, the app is designed to help
           contractors see the numbers that matter before profit disappears.
         </p>
-        <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-2">
+        <div className="lg:hidden">
+          <MobileScreenshotCarousel
+            slides={[
+              ...primaryScreenshots,
+              ...secondaryScreenshots.map((shot) => ({
+                ...shot,
+                eyebrow: "Product Screen",
+                orientation: "mobile",
+              })),
+            ]}
+          />
+        </div>
+        <div className="mx-auto hidden max-w-7xl gap-6 lg:grid lg:grid-cols-2">
           {primaryScreenshots.map((shot) => (
             <ProductScreenshotCard key={shot.title} {...shot} />
           ))}
         </div>
-        <div className="mx-auto mt-14 max-w-3xl rounded-[1.75rem] border border-emerald-300/20 bg-white/[0.04] p-8 text-center shadow-xl shadow-cyan-950/20">
+        <div className="mx-auto mt-10 max-w-3xl rounded-[1.75rem] border border-emerald-300/20 bg-white/[0.04] p-8 text-center shadow-xl shadow-cyan-950/20 lg:mt-14">
           <h3 className="text-2xl font-black text-white">
             Want early access to these workflows?
           </h3>
           <p className="mt-4 text-base leading-7 text-slate-400">
             Join the contractor beta list and follow the launch as Build Profit
-            Solutions prepares for iOS, Android, and web access.
+            Solutions prepares contractor beta access for iOS, Android, and web.
           </p>
           <div className="mt-6">
             <ButtonLink href={siteLinks.contact}>Request Early Access</ButtonLink>
@@ -295,7 +311,7 @@ export default function HomePage() {
           </p>
           <h2 className="mt-4 text-3xl font-black tracking-tight text-white sm:text-5xl">
             {siteLaunch.isPrelaunch
-              ? "Currently in pre-launch contractor testing."
+              ? "Preparing contractor beta access for iOS, Android, and web."
               : "Download the app or open the web version."}
           </h2>
           <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-slate-300">
@@ -356,7 +372,7 @@ export default function HomePage() {
       </section>
 
       <section className="px-5 py-24 sm:px-6 lg:px-8">
-        <SectionHeading eyebrow="FAQ" title="Quick answers before launch." />
+        <SectionHeading eyebrow="FAQ" title="Questions about early access." />
         <div className="mx-auto grid max-w-5xl gap-4">
           {faqs.map((faq) => (
             <div key={faq.question} className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
@@ -374,7 +390,7 @@ export default function HomePage() {
           </h2>
           <p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-slate-300">
             Request early access to Build Profit Solutions and follow the launch
-            as contractor testing continues.
+            as contractor beta testing continues.
           </p>
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
             <ButtonLink href={siteLinks.contact}>Request Early Access</ButtonLink>
@@ -383,8 +399,8 @@ export default function HomePage() {
             </ButtonLink>
           </div>
           <p className="mt-5 text-sm text-slate-500">
-            Pre-launch access may be limited while the product is being tested
-            and refined.
+            Early access may be limited while the product is being tested and
+            refined.
           </p>
         </div>
       </section>

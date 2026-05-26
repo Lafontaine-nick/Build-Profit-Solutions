@@ -69,7 +69,8 @@ export function PlanCta({ label }: { label: string }) {
       <div className="mt-7 grid gap-2">
         <ButtonLink href={siteLinks.contact}>{label}</ButtonLink>
         <p className="text-center text-xs text-slate-500">
-          Pre-launch access may be limited while testing continues.
+          Early access may be limited while the product is being tested and
+          refined.
         </p>
       </div>
     );
