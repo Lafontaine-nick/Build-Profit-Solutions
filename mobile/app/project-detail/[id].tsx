@@ -72,6 +72,9 @@ import {
 } from '@/constants/ScreenLayout';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import WebPageShell from '@/components/layout/WebPageShell';
+import SubscriptionPlansModal from '@/components/SubscriptionPlansModal';
+import { useBusinessEntitlement } from '@/hooks/useBusinessEntitlement';
+import { useClerkProfileGreeting } from '@/hooks/useProfileGreeting';
 import {
   FirstEstimateWalkthroughSheetShell,
   FirstEstimateWalkthroughStepSheetContent,
@@ -294,16 +297,21 @@ function ProjectDetailContent() {
   const styles = useMemo(() => getStyles(Colors, darkMode, desktopWeb), [Colors, darkMode, desktopWeb]);
   const { t } = useTranslation();
   const { getToken } = useAuth();
+  const businessEntitlement = useBusinessEntitlement();
+
+  useFocusEffect(
+    useCallback(() => {
+      void businessEntitlement.refresh();
+    }, [businessEntitlement.refresh])
+  );
+
   const {
     hydrated: wtHydrated,
     shouldShowFirstProject,
     markCompleted: markFirstProjectWalkthroughCompleted,
   } = useWalkthroughState();
   
-  const user = {
-    name: "Nick Lafontaine",
-    initials: "NL",
-  };
+  const profileGreeting = useClerkProfileGreeting();
   
   // Track current date to trigger recalculation when date changes
   const [currentDate, setCurrentDate] = useState(() => {
@@ -354,6 +362,7 @@ function ProjectDetailContent() {
   /** When there are no leak cards, section starts collapsed; tap header to expand details. */
   const [profitLeakEmptyExpanded, setProfitLeakEmptyExpanded] = useState(false);
   const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const [showTeamUpgradePlans, setShowTeamUpgradePlans] = useState(false);
   const [showActivationFlow, setShowActivationFlow] = useState(false);
   const [activationChecklist, setActivationChecklist] = useState({
     timelineConfirmed: false,
@@ -2302,7 +2311,7 @@ function ProjectDetailContent() {
                 accessibilityRole="button"
                 accessibilityLabel="Profile"
               >
-                <Text style={styles.profileInitials}>{user.initials}</Text>
+                <Text style={styles.profileInitials}>{profileGreeting.initials}</Text>
               </Pressable>
             </LinearGradient>
           </View>
@@ -3634,6 +3643,20 @@ function ProjectDetailContent() {
                 });
               }
             }
+          }}
+        />
+
+        <SubscriptionPlansModal
+          visible={showTeamUpgradePlans}
+          returnToProjectId={id}
+          returnTab="Team"
+          onUpgradeComplete={() => {
+            setActiveTab('Team');
+          }}
+          onClose={() => {
+            setShowTeamUpgradePlans(false);
+            setActiveTab('Team');
+            void businessEntitlement.refresh();
           }}
         />
       </SafeAreaView>

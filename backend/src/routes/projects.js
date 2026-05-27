@@ -129,6 +129,84 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
+// Bulk upsert unified project rows for cross-device sync (Clerk-scoped).
+router.post('/sync', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const incoming = req.body?.projects;
+
+    if (!Array.isArray(incoming)) {
+      return res.status(400).json({
+        success: false,
+        error: 'projects array is required',
+      });
+    }
+
+    projects = loadProjects();
+
+    for (const inc of incoming) {
+      if (!inc || typeof inc !== 'object') continue;
+      const id = String(inc.id || '').trim();
+      if (!id) continue;
+
+      const idx = projects.findIndex((p) => p.id === id && p.userId === userId);
+      const nowIso = new Date().toISOString();
+      const title = inc.title || inc.name || 'Untitled Project';
+      const bidPrice =
+        inc.bidPrice ??
+        inc.totalBudget ??
+        inc.estimateData?.bidPrice ??
+        inc.projectData?.bidPrice ??
+        0;
+
+      const record = {
+        ...(idx >= 0 ? projects[idx] : {}),
+        ...inc,
+        id,
+        userId,
+        name: title,
+        title,
+        client: inc.client || inc.projectData?.client || 'Unknown Client',
+        location: inc.location || inc.projectData?.location || 'Unspecified',
+        startDate: inc.startDate || inc.estimateData?.projectStartDate || nowIso,
+        endDate:
+          inc.endDate ||
+          inc.estimateData?.projectEndDate ||
+          inc.estimateData?.endDate ||
+          nowIso,
+        totalBudget: Number(bidPrice) || 0,
+        updatedAt: inc.updatedAt || nowIso,
+        createdAt: inc.createdAt || (idx >= 0 ? projects[idx].createdAt : nowIso),
+      };
+
+      if (idx >= 0) {
+        const existingUpdated = new Date(projects[idx].updatedAt || 0).getTime();
+        const incomingUpdated = new Date(record.updatedAt || 0).getTime();
+        if (incomingUpdated >= existingUpdated) {
+          projects[idx] = record;
+        }
+      } else {
+        projects.push(record);
+      }
+    }
+
+    saveProjects(projects);
+
+    const userProjects = projects.filter((p) => p.userId === userId);
+    res.json({
+      success: true,
+      data: userProjects,
+      total: userProjects.length,
+    });
+  } catch (error) {
+    console.error('Error syncing projects:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to sync projects',
+    });
+  }
+});
+
 // Get project by ID (must belong to user)
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
@@ -193,8 +271,16 @@ router.post('/', authenticateToken, [
     // Reload projects from disk
     projects = loadProjects();
     
+    const requestedId = req.body?.id ? String(req.body.id).trim() : '';
+    const idTaken =
+      requestedId && projects.some((p) => p.id === requestedId && p.userId !== userId);
+    const newId =
+      requestedId && !idTaken && !projects.some((p) => p.id === requestedId)
+        ? requestedId
+        : Date.now().toString();
+
     const newProject = {
-      id: Date.now().toString(),
+      id: newId,
       userId, // Associate with user
       name,
       client,

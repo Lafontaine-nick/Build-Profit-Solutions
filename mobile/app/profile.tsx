@@ -1175,14 +1175,194 @@ export default function ProfileScreen() {
     }
   }, []);
 
-  const handleDeleteAccount = useCallback(async () => {
+  const performDeleteAccount = useCallback(async (): Promise<{
+    deleteApiFailed: boolean;
+    deleteApiClerkFailed: boolean;
+    error?: unknown;
+  }> => {
+    let deleteApiFailed = false;
+    let deleteApiClerkFailed = false;
+
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+
+      if (apiLogout) {
+        try {
+          if (clerkGetToken) {
+            const clerkToken = await clerkGetToken();
+            if (clerkToken) {
+              await syncClerkTokenToAsyncStorage(clerkToken);
+            }
+          }
+          const apiService = require('@/services/api').apiService;
+          const delResult = await apiService.deleteAccount();
+          if (delResult && delResult.clerkDeleteFailed) {
+            deleteApiClerkFailed = true;
+          }
+        } catch (apiError) {
+          console.error('Error calling delete account API:', apiError);
+          deleteApiFailed = true;
+        }
+      }
+
+      try {
+        await clearAllOnboardingCompletionKeys();
+      } catch (e) {
+        console.warn('clearAllOnboardingCompletionKeys:', e);
+      }
+
+      try {
+        await clearProjectsLocal();
+      } catch (e) {
+        console.warn('clearProjectsLocal:', e);
+      }
+
+      const authKeysToRemove = [
+        'auth_token',
+        'user_data',
+        'authToken',
+        'clerk-session',
+        'clerk-token',
+      ];
+
+      for (const key of authKeysToRemove) {
+        try {
+          await AsyncStorage.removeItem(key);
+        } catch (e) {
+          // Key might not exist, that's okay
+        }
+      }
+
+      try {
+        await AsyncStorage.clear();
+      } catch (clearError) {
+        console.error('Error clearing AsyncStorage:', clearError);
+      }
+
+      if (clerkSignOut) {
+        try {
+          await clerkSignOut();
+        } catch (e) {
+          console.log('Clerk signOut not available, continuing');
+        }
+      }
+
+      try {
+        await clerkAuthService.signOut();
+      } catch (e) {
+        console.error('Error signing out from clerkAuthService:', e);
+      }
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      return { deleteApiFailed, deleteApiClerkFailed };
+    } catch (error) {
+      console.error('Account deletion error:', error);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return { deleteApiFailed: true, deleteApiClerkFailed: false, error };
+    }
+  }, [apiLogout, clerkGetToken, clerkSignOut, clearProjectsLocal]);
+
+  const finishDeleteAccountFlow = useCallback(
+    (deleteApiFailed: boolean, deleteApiClerkFailed: boolean, hadError: boolean) => {
+      if (hadError) {
+        const errorTitle = 'Error';
+        const errorMessage =
+          'There was an error deleting your account. Please try again or contact support.';
+
+        if (
+          Platform.OS === 'web' &&
+          typeof window !== 'undefined' &&
+          typeof window.alert === 'function'
+        ) {
+          window.alert(`${errorTitle}\n\n${errorMessage}`);
+          router.replace('/');
+          return;
+        }
+
+        Alert.alert(errorTitle, errorMessage, [
+          {
+            text: 'OK',
+            onPress: () => {
+              router.replace('/');
+            },
+          },
+        ]);
+        return;
+      }
+
+      const title =
+        deleteApiFailed || deleteApiClerkFailed ? 'Data removed' : 'Account Deleted';
+      const message = deleteApiFailed
+        ? 'Your local app data was cleared and you were signed out, but the server delete did not finish. If you sign back into the same account, server projects may return. Please try Delete Account again when online or contact support.'
+        : deleteApiClerkFailed
+          ? 'Your app data was cleared and you were signed out. If sign-in still recognizes this email, remove the user in the Clerk Dashboard (Users) or contact support so the email can be reused.'
+          : 'Your account has been successfully deleted. All your data has been permanently removed.';
+
+      if (
+        Platform.OS === 'web' &&
+        typeof window !== 'undefined' &&
+        typeof window.alert === 'function'
+      ) {
+        window.alert(`${title}\n\n${message}`);
+        router.replace('/');
+        return;
+      }
+
+      Alert.alert(title, message, [
+        {
+          text: 'OK',
+          onPress: () => {
+            router.replace('/');
+          },
+        },
+      ]);
+    },
+    [router]
+  );
+
+  const runDeleteAccount = useCallback(async () => {
+    const result = await performDeleteAccount();
+    finishDeleteAccountFlow(
+      result.deleteApiFailed,
+      result.deleteApiClerkFailed,
+      Boolean(result.error)
+    );
+  }, [performDeleteAccount, finishDeleteAccountFlow]);
+
+  const handleDeleteAccount = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+
+    if (
+      Platform.OS === 'web' &&
+      typeof window !== 'undefined' &&
+      typeof window.confirm === 'function'
+    ) {
+      const firstOk = window.confirm(
+        'Delete Account\n\nThis action cannot be undone. All your data will be permanently deleted. Are you absolutely sure?'
+      );
+      if (!firstOk) {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        return;
+      }
+
+      const finalOk = window.confirm(
+        'Final Confirmation\n\nThis will permanently delete your account and all associated data. This action cannot be undone.\n\nDelete your account?'
+      );
+      if (!finalOk) {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        return;
+      }
+
+      void runDeleteAccount();
+      return;
+    }
+
     Alert.alert(
       'Delete Account',
       'This action cannot be undone. All your data will be permanently deleted. Are you absolutely sure?',
       [
-        { 
-          text: 'Cancel', 
+        {
+          text: 'Cancel',
           style: 'cancel',
           onPress: () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light),
         },
@@ -1195,146 +1375,16 @@ export default function ProfileScreen() {
               'Final Confirmation',
               'This will permanently delete your account and all associated data. This action cannot be undone.',
               [
-                { 
-                  text: 'Cancel', 
+                {
+                  text: 'Cancel',
                   style: 'cancel',
                   onPress: () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light),
                 },
                 {
                   text: 'Delete Account',
                   style: 'destructive',
-                  onPress: async () => {
-                    try {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-                      
-                      // Show loading indicator
-                      const loadingAlert = Alert.alert(
-                        'Deleting Account',
-                        'Please wait while we delete your account...',
-                        [],
-                        { cancelable: false }
-                      );
-
-                      let deleteApiFailed = false;
-                      let deleteApiClerkFailed = false;
-                      // Call the delete account API
-                      if (apiLogout) {
-                        // First try to delete account via API
-                        try {
-                          if (clerkGetToken) {
-                            const clerkToken = await clerkGetToken();
-                            if (clerkToken) {
-                              await syncClerkTokenToAsyncStorage(clerkToken);
-                            }
-                          }
-                          const apiService = require('@/services/api').apiService;
-                          const delResult = await apiService.deleteAccount();
-                          if (delResult && delResult.clerkDeleteFailed) {
-                            deleteApiClerkFailed = true;
-                          }
-                        } catch (apiError) {
-                          console.error('Error calling delete account API:', apiError);
-                          deleteApiFailed = true;
-                          // Continue with local cleanup even if API call fails
-                        }
-                      }
-
-                      try {
-                        await clearAllOnboardingCompletionKeys();
-                      } catch (e) {
-                        console.warn('clearAllOnboardingCompletionKeys:', e);
-                      }
-
-                      // Clear project context immediately; AsyncStorage.clear() alone does not reset React state.
-                      try {
-                        await clearProjectsLocal();
-                      } catch (e) {
-                        console.warn('clearProjectsLocal:', e);
-                      }
-
-                      // Clear all local data
-                      const authKeysToRemove = [
-                        'auth_token',
-                        'user_data',
-                        'authToken',
-                        'clerk-session',
-                        'clerk-token',
-                      ];
-                      
-                      for (const key of authKeysToRemove) {
-                        try {
-                          await AsyncStorage.removeItem(key);
-                        } catch (e) {
-                          // Key might not exist, that's okay
-                        }
-                      }
-
-                      // Clear all AsyncStorage
-                      try {
-                        await AsyncStorage.clear();
-                      } catch (clearError) {
-                        console.error('Error clearing AsyncStorage:', clearError);
-                      }
-
-                      // Sign out from Clerk if available
-                      if (clerkSignOut) {
-                        try {
-                          await clerkSignOut();
-                        } catch (e) {
-                          console.log('Clerk signOut not available, continuing');
-                        }
-                      }
-
-                      // Sign out from clerkAuthService
-                      try {
-                        await clerkAuthService.signOut();
-                      } catch (e) {
-                        console.error('Error signing out from clerkAuthService:', e);
-                      }
-
-                      // Dismiss loading alert
-                      if (loadingAlert) {
-                        // Alert doesn't have dismiss method, so we'll show success then navigate
-                      }
-
-                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                      
-                      // Show success message and navigate to landing page
-                      Alert.alert(
-                        deleteApiFailed || deleteApiClerkFailed
-                          ? 'Data removed'
-                          : 'Account Deleted',
-                        deleteApiFailed
-                          ? 'Your local app data was cleared and you were signed out, but the server delete did not finish. If you sign back into the same account, server projects may return. Please try Delete Account again when online or contact support.'
-                          : deleteApiClerkFailed
-                          ? 'Your app data was cleared and you were signed out. If sign-in still recognizes this email, remove the user in the Clerk Dashboard (Users) or contact support so the email can be reused.'
-                          : 'Your account has been successfully deleted. All your data has been permanently removed.',
-                        [
-                          {
-                            text: 'OK',
-                            onPress: () => {
-                              router.replace('/');
-                            },
-                          },
-                        ]
-                      );
-                    } catch (error) {
-                      console.error('Account deletion error:', error);
-                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-                      Alert.alert(
-                        'Error',
-                        'There was an error deleting your account. Please try again or contact support.',
-                        [
-                          {
-                            text: 'OK',
-                            onPress: () => {
-                              // Still navigate to landing page
-                              router.replace('/');
-                            },
-                          },
-                        ]
-                      );
-                    }
+                  onPress: () => {
+                    void runDeleteAccount();
                   },
                 },
               ]
@@ -1343,7 +1393,7 @@ export default function ProfileScreen() {
         },
       ]
     );
-  }, [apiLogout, clerkGetToken, clerkSignOut, clearProjectsLocal, router]);
+  }, [runDeleteAccount]);
 
   // Calculate profile completion percentage
   const calculateProfileCompletion = useCallback(() => {
@@ -1369,74 +1419,84 @@ export default function ProfileScreen() {
     return settingText.toLowerCase().includes(searchLower);
   }, [settingsSearch]);
 
-  const handleLogout = useCallback(async () => {
-    Alert.alert('Logout', 'Are you sure you want to logout?', [
+  const performLogout = useCallback(async () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+      const authKeysToRemove = [
+        'auth_token',
+        'user_data',
+        'authToken',
+        'clerk-session',
+        'clerk-token',
+      ];
+
+      for (const key of authKeysToRemove) {
+        try {
+          await AsyncStorage.removeItem(key);
+        } catch (e) {
+          // Key might not exist, that's okay
+        }
+      }
+
+      if (clerkSignOut) {
+        try {
+          await clerkSignOut();
+        } catch (e) {
+          console.log('Clerk signOut not available, continuing with logout');
+        }
+      }
+
+      if (apiLogout) {
+        try {
+          await apiLogout();
+        } catch (e) {
+          console.log('API logout not available, continuing with logout');
+        }
+      }
+
+      try {
+        await clerkAuthService.signOut();
+        console.log('✅ Signed out from clerkAuthService');
+      } catch (e) {
+        console.error('Error signing out from clerkAuthService:', e);
+      }
+
+      router.replace('/');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('Logout error:', error);
+      router.replace('/');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  }, [clerkSignOut, apiLogout, router]);
+
+  const handleLogout = useCallback(() => {
+    const title = 'Logout';
+    const message = 'Are you sure you want to logout?';
+
+    if (
+      Platform.OS === 'web' &&
+      typeof window !== 'undefined' &&
+      typeof window.confirm === 'function'
+    ) {
+      const ok = window.confirm(`${title}\n\n${message}`);
+      if (!ok) return;
+      void performLogout();
+      return;
+    }
+
+    Alert.alert(title, message, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Logout',
         style: 'destructive',
-        onPress: async () => {
-          try {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            
-            // Only clear authentication-related data, preserve user data
-            const authKeysToRemove = [
-              'auth_token',
-              'user_data',
-              'authToken',
-              'clerk-session',
-              'clerk-token',
-            ];
-            
-            // Remove auth-related keys
-            for (const key of authKeysToRemove) {
-              try {
-                await AsyncStorage.removeItem(key);
-              } catch (e) {
-                // Key might not exist, that's okay
-              }
-            }
-            
-            // Sign out from Clerk if available
-            if (clerkSignOut) {
-              try {
-                await clerkSignOut();
-              } catch (e) {
-                console.log('Clerk signOut not available, continuing with logout');
-              }
-            }
-            
-            // Use API logout if available
-            if (apiLogout) {
-              try {
-                await apiLogout();
-              } catch (e) {
-                console.log('API logout not available, continuing with logout');
-              }
-            }
-            
-            // Sign out from clerkAuthService (this updates auth state and notifies listeners)
-            try {
-              await clerkAuthService.signOut();
-              console.log('✅ Signed out from clerkAuthService');
-            } catch (e) {
-              console.error('Error signing out from clerkAuthService:', e);
-            }
-            
-            // Navigate to landing page (home page with "GET STARTED" button)
-            router.replace('/');
-            
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          } catch (error) {
-            console.error('Logout error:', error);
-            // Still navigate to landing page even if there's an error
-            router.replace('/');
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-          }
+        onPress: () => {
+          void performLogout();
         },
       },
     ]);
-  }, [clerkSignOut, apiLogout, router]);
+  }, [performLogout]);
 
   const handleImageUpload = useCallback(async () => {
     try {

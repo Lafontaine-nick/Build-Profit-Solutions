@@ -8,7 +8,7 @@ interface Props {
   initials?: string; // e.g. "NL"
 }
 
-const ProfileAvatarButton: React.FC<Props> = ({ style, initials = "NL" }) => {
+const ProfileAvatarButton: React.FC<Props> = ({ style, initials = "?" }) => {
   const router = useRouter();
 
   const handlePress = () => {

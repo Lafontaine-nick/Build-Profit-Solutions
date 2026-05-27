@@ -25,6 +25,11 @@ export const KEYBOARD_ACCESSORY_IDS = {
    */
   projectAddExpensePlain: 'bps-project-add-expense-plain-keyboard-accessory',
   /**
+   * Estimates steps 1–2 customer / project numeric fields (phone, ZIP, square footage):
+   * empty accessory so phone-pad fields do not pick up a stale Done bar from Budget or elsewhere.
+   */
+  estimateStep12Plain: 'bps-estimate-step12-plain-keyboard-accessory',
+  /**
    * Estimates line-item full-screen modal (`LineItemModal`) text fields:
    * mount inside the modal itself so iOS does not fall back to the global green `bpsKeyboardDone` bar.
    */

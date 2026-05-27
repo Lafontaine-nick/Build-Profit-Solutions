@@ -22,6 +22,8 @@ import {
   formatChangeOrderPaymentRowTitle,
   isChangeOrderTimelineMilestone,
 } from "@/src/lib/projectFinancials";
+import { businessWorkspaceService } from "@/services/businessWorkspaceService";
+import { mergeArrayResource } from "@/utils/workspaceResourceMerge";
 
 /** Merge list + live ProjectData so change orders match Budget tab. */
 function mergeProjectRecordForTimelineCo(project: any, projectFromList: any, projectData: any) {
@@ -686,7 +688,27 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
     setShowAddDailyLog(false);
     setEditingDailyLog(null);
   }, []);
-  
+
+  const pushDailyLogsToBusinessWorkspace = useCallback(
+    (logs: any[]) => {
+      if (!project?.id) return;
+      businessWorkspaceService
+        .pushProjectResource(project.id, "dailyLogs", logs)
+        .catch((error) => console.warn("Business workspace daily log sync failed:", error));
+    },
+    [project?.id]
+  );
+
+  const pushTimelineToBusinessWorkspace = useCallback(
+    (items: any[]) => {
+      if (!project?.id) return;
+      businessWorkspaceService
+        .pushProjectResource(project.id, "timeline", items)
+        .catch((error) => console.warn("Business workspace timeline sync failed:", error));
+    },
+    [project?.id]
+  );
+
   // Load daily logs from AsyncStorage
   const loadDailyLogs = useCallback(async () => {
     if (!project?.id) {
@@ -697,21 +719,32 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
       const logKey = `daily_logs_${project.id}`;
       console.log('📝 Loading daily logs with key:', logKey);
       const raw = await AsyncStorage.getItem(logKey);
-      if (raw) {
-        const logs = JSON.parse(raw);
-        console.log('📝 Found logs:', logs.length);
-        // Sort by date (newest first)
-        const sorted = Array.isArray(logs) ? logs.sort((a, b) => {
-          const dateA = new Date(a.date || a.createdAt || 0).getTime();
-          const dateB = new Date(b.date || b.createdAt || 0).getTime();
-          return dateB - dateA;
-        }) : [];
-        console.log('📝 Sorted logs:', sorted.length);
-        setDailyLogs(sorted);
-      } else {
-        console.log('📝 No logs found in AsyncStorage');
-        setDailyLogs([]);
+      const parsedLogs = raw ? JSON.parse(raw) : [];
+      const localLogs = Array.isArray(parsedLogs) ? parsedLogs : [];
+      const sharedResult = await businessWorkspaceService.getProjectResources(project.id).catch(() => null);
+      const sharedResource = sharedResult?.success ? sharedResult.data?.resources?.dailyLogs : undefined;
+      const sharedLogs = Array.isArray(sharedResource?.payload)
+        ? (sharedResource.payload as DailyLogEntry[])
+        : [];
+      const logs = await mergeArrayResource(
+        project.id,
+        'dailyLogs',
+        localLogs,
+        sharedLogs,
+        sharedResource?.updatedAt,
+        ['id']
+      );
+      if (sharedLogs.length > 0) {
+        await AsyncStorage.setItem(logKey, JSON.stringify(logs));
       }
+      console.log('📝 Found logs:', logs.length);
+      const sorted = logs.sort((a, b) => {
+        const dateA = new Date(a.date || a.createdAt || 0).getTime();
+        const dateB = new Date(b.date || b.createdAt || 0).getTime();
+        return dateB - dateA;
+      });
+      console.log('📝 Sorted logs:', sorted.length);
+      setDailyLogs(sorted);
     } catch (error) {
       console.error('❌ Error loading daily logs:', error);
       setDailyLogs([]);
@@ -731,6 +764,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
         const logs = JSON.parse(raw);
         const filtered = Array.isArray(logs) ? logs.filter((log: any) => log.id !== logId) : [];
         await AsyncStorage.setItem(logKey, JSON.stringify(filtered));
+        pushDailyLogsToBusinessWorkspace(filtered);
         console.log('🗑️ Deleted daily log:', logId);
         // Reload logs
         setReloadTrigger(prev => prev + 1);
@@ -743,7 +777,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
       console.error('❌ Error deleting daily log:', error);
       Alert.alert('Error', 'Failed to delete daily log');
     }
-  }, [project?.id]);
+  }, [project?.id, pushDailyLogsToBusinessWorkspace]);
   
   // Load daily logs on mount and when reloadTrigger changes
   useEffect(() => {
@@ -781,19 +815,36 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
       try {
         const key = getStorageKey(project.id);
         const saved = await AsyncStorage.getItem(key);
+        const sharedResult = await businessWorkspaceService.getProjectResources(project.id).catch(() => null);
+        const sharedResource = sharedResult?.success ? sharedResult.data?.resources?.timeline : undefined;
+        const sharedTimeline = Array.isArray(sharedResource?.payload)
+          ? (sharedResource.payload as Milestone[])
+          : [];
 
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length) {
+        const parsed = saved ? JSON.parse(saved) : [];
+        const savedTimeline = Array.isArray(parsed) ? parsed : [];
+        const storedTimeline = await mergeArrayResource(
+          project.id,
+          'timeline',
+          savedTimeline,
+          sharedTimeline,
+          sharedResource?.updatedAt,
+          ['id']
+        );
+        if (sharedTimeline.length > 0) {
+          await AsyncStorage.setItem(key, JSON.stringify(storedTimeline));
+        }
+
+        if (storedTimeline.length) {
             // Start with estimate data as source of truth, merge saved status/progress
             if (paymentMilestones?.length) {
               const converted = convertPaymentMilestonesToTimeline(paymentMilestones);
               const norm = (s: string) => (s || "").toLowerCase().trim().replace(/\s+/g, " ");
               // Merge saved data (status, progress, etc.) into converted milestones
               const merged = converted.map((newM: Milestone) => {
-                let savedM = parsed.find((m: Milestone) => m.id === newM.id);
+                let savedM = storedTimeline.find((m: Milestone) => m.id === newM.id);
                 if (!savedM) {
-                  savedM = parsed.find(
+                  savedM = storedTimeline.find(
                     (m: Milestone) => norm(m.title || "") === norm(newM.title || "")
                   );
                 }
@@ -815,11 +866,8 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
               });
               setMilestones(merged);
             } else {
-              setMilestones(parsed);
+              setMilestones(storedTimeline);
             }
-          } else {
-            setMilestones(paymentMilestones?.length ? convertPaymentMilestonesToTimeline(paymentMilestones) : []);
-          }
         } else {
           setMilestones(paymentMilestones?.length ? convertPaymentMilestonesToTimeline(paymentMilestones) : []);
         }
@@ -902,7 +950,8 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
   useEffect(() => {
     if (!isLoaded || !project?.id) return;
     AsyncStorage.setItem(getStorageKey(project.id), JSON.stringify(milestones)).catch(() => {});
-  }, [milestones, isLoaded, project?.id]);
+    pushTimelineToBusinessWorkspace(milestones);
+  }, [milestones, isLoaded, project?.id, pushTimelineToBusinessWorkspace]);
 
   /* ---------- sync milestones + progress to ProjectList (deposit excluded) ---------- */
 
@@ -925,6 +974,9 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
         milestones: projectMilestones,
         progress: overallPct,
         overallProgressPct: overallPct,
+        projectData: {
+          timelineV2Milestones: milestones,
+        },
       });
       // Also write to bps.project.${id}.progress so ProjectListContext hydration gets it
       AsyncStorage.setItem(
@@ -1590,7 +1642,18 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
         projectId={project?.id || ""}
         existingLog={editingDailyLog}
         onClose={closeDailyLogModal}
-        onSaved={() => setReloadTrigger((prev) => prev + 1)}
+        onSaved={async () => {
+          if (project?.id) {
+            try {
+              const raw = await AsyncStorage.getItem(`daily_logs_${project.id}`);
+              const logs = raw ? JSON.parse(raw) : [];
+              pushDailyLogsToBusinessWorkspace(Array.isArray(logs) ? logs : []);
+            } catch {
+              pushDailyLogsToBusinessWorkspace([]);
+            }
+          }
+          setReloadTrigger((prev) => prev + 1);
+        }}
       />
 
       <EditMilestoneModal

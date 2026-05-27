@@ -23,6 +23,9 @@ import {
 } from "@/src/lib/keyboardMoney";
 import GradientRingBackInner from "./GradientRingBackInner";
 import { isDesktopWebLayoutWidth, getProjectExpenseFormHorizontalPadding } from "@/constants/ScreenLayout";
+import KeyboardPlainAccessory from "./ui/KeyboardPlainAccessory";
+import { KEYBOARD_ACCESSORY_IDS } from "@/constants/keyboard";
+import { projectAddExpenseNumericKeyboardProps } from "@/constants/inputKeyboardPresets";
 
 /** RN Web: validation `Alert.alert` is easy to miss in Safari; sync dialog is obvious. */
 function alertAddTxnValidation(title: string, message: string) {
@@ -908,6 +911,10 @@ export default function AddTransactionModal({
       animationType="slide"
       {...(webBudgetExpenseShell ? {} : { presentationStyle: "fullScreen" as const, statusBarTranslucent: true })}
     >
+      <KeyboardPlainAccessory
+        nativeID={KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain}
+        backgroundColor={darkMode ? '#000000' : Colors.bg}
+      />
       <KeyboardAvoidingView
         style={[styles.keyboardAvoid, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
         behavior={webBudgetExpenseShell ? undefined : (Platform.OS === 'ios' ? 'padding' : undefined)}
@@ -1340,6 +1347,7 @@ export default function AddTransactionModal({
                         onChangeText={(text) =>
                           setMaterialsAmountInput(sanitizeDecimalMoneyInput(text))
                         }
+                        {...projectAddExpenseNumericKeyboardProps}
                         keyboardType="decimal-pad"
                         returnKeyType="next"
                         onSubmitEditing={() => laborAmountRef.current?.focus()}
@@ -1378,6 +1386,7 @@ export default function AddTransactionModal({
                         onChangeText={(text) =>
                           setLaborAmountInput(sanitizeDecimalMoneyInput(text))
                         }
+                        {...projectAddExpenseNumericKeyboardProps}
                         keyboardType="decimal-pad"
                         returnKeyType="next"
                         onSubmitEditing={() => descriptionRef.current?.focus()}
@@ -1495,7 +1504,8 @@ export default function AddTransactionModal({
                                 }
                                 value={materialSqftInput}
                                 onChangeText={(text) => setMaterialSqftInput(digitsOnly(text))}
-                                keyboardType="decimal-pad"
+                                {...projectAddExpenseNumericKeyboardProps}
+                        keyboardType="decimal-pad"
                                 returnKeyType="next"
                                 onSubmitEditing={() => materialRatePerSqftRef.current?.focus()}
                                 blurOnSubmit={false}
@@ -1542,7 +1552,8 @@ export default function AddTransactionModal({
                                 onChangeText={(text) =>
                                   setMaterialRatePerSqftInput(sanitizeDecimalMoneyInput(text))
                                 }
-                                keyboardType="decimal-pad"
+                                {...projectAddExpenseNumericKeyboardProps}
+                        keyboardType="decimal-pad"
                                 returnKeyType="next"
                                 onSubmitEditing={() => laborSqftRef.current?.focus()}
                                 blurOnSubmit={false}
@@ -1599,7 +1610,8 @@ export default function AddTransactionModal({
                                 }
                                 value={laborSqftInput}
                                 onChangeText={(text) => setLaborSqftInput(digitsOnly(text))}
-                                keyboardType="decimal-pad"
+                                {...projectAddExpenseNumericKeyboardProps}
+                        keyboardType="decimal-pad"
                                 returnKeyType="next"
                                 onSubmitEditing={() => laborRatePerSqftRef.current?.focus()}
                                 blurOnSubmit={false}
@@ -1646,7 +1658,8 @@ export default function AddTransactionModal({
                                 onChangeText={(text) =>
                                   setLaborRatePerSqftInput(sanitizeDecimalMoneyInput(text))
                                 }
-                                keyboardType="decimal-pad"
+                                {...projectAddExpenseNumericKeyboardProps}
+                        keyboardType="decimal-pad"
                                 returnKeyType="done"
                                 onSubmitEditing={() => descriptionRef.current?.focus()}
                                 blurOnSubmit={false}
@@ -1758,7 +1771,8 @@ export default function AddTransactionModal({
                             }
                             value={sqftInput}
                             onChangeText={onSqftChange}
-                            keyboardType="decimal-pad"
+                            {...projectAddExpenseNumericKeyboardProps}
+                        keyboardType="decimal-pad"
                             returnKeyType="done"
                             onSubmitEditing={() => ratePerSqftRef.current?.focus()}
                             blurOnSubmit={false}
@@ -1806,7 +1820,8 @@ export default function AddTransactionModal({
                             }
                             value={ratePerSqftInput}
                             onChangeText={onRatePerSqftChange}
-                            keyboardType="decimal-pad"
+                            {...projectAddExpenseNumericKeyboardProps}
+                        keyboardType="decimal-pad"
                             returnKeyType="done"
                             onSubmitEditing={() => descriptionRef.current?.focus()}
                             blurOnSubmit={false}
@@ -1881,6 +1896,7 @@ export default function AddTransactionModal({
                     }
                     value={amount}
                     onChangeText={applyFlatAmountTextChange}
+                    {...projectAddExpenseNumericKeyboardProps}
                     keyboardType={pricingMode === "flat" ? "decimal-pad" : "phone-pad"}
                     editable={!(isChangeOrdersCategory && pricingMode !== "sqft")}
                     selectTextOnFocus={!(isChangeOrdersCategory && pricingMode !== "sqft")}

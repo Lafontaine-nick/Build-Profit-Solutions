@@ -128,6 +128,140 @@ router.post('/customer', async (req, res) => {
   }
 });
 
+// Change an existing active subscription to a new Stripe price (upgrade/downgrade).
+router.post('/change-plan', async (req, res) => {
+  try {
+    if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY.includes('your_stripe_secret_key')) {
+      return res.status(503).json({
+        success: false,
+        error: 'Stripe is not configured on this server.',
+      });
+    }
+
+    const { email, priceId } = req.body;
+    if (!email || !priceId) {
+      return res.status(400).json({
+        success: false,
+        error: 'email and priceId are required',
+      });
+    }
+
+    const customers = await stripe.customers.list({ email: String(email).trim(), limit: 1 });
+    if (!customers.data.length) {
+      return res.status(404).json({
+        success: false,
+        error: 'No Stripe customer found for this account.',
+      });
+    }
+
+    const customerId = customers.data[0].id;
+    const subscriptions = await stripe.subscriptions.list({
+      customer: customerId,
+      status: 'active',
+      limit: 10,
+    });
+    const trialing = await stripe.subscriptions.list({
+      customer: customerId,
+      status: 'trialing',
+      limit: 10,
+    });
+
+    const activePool = [...subscriptions.data, ...trialing.data].filter(
+      (sub) =>
+        (sub.status === 'active' || sub.status === 'trialing') && !sub.cancel_at_period_end
+    );
+
+    const activeSubscription = activePool.sort((a, b) => {
+      const aAmt = a.items?.data?.[0]?.price?.unit_amount || 0;
+      const bAmt = b.items?.data?.[0]?.price?.unit_amount || 0;
+      return bAmt - aAmt;
+    })[0];
+
+    if (!activeSubscription) {
+      return res.status(404).json({
+        success: false,
+        error: 'No active subscription found. Use checkout to start a new plan.',
+      });
+    }
+
+    const subscriptionItemId = activeSubscription.items?.data?.[0]?.id;
+    if (!subscriptionItemId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Could not locate subscription item to update.',
+      });
+    }
+
+    let targetPriceId = String(priceId).trim();
+    try {
+      const targetPrice = await stripe.prices.retrieve(targetPriceId);
+      if (!targetPrice.active && targetPrice.product) {
+        const productId =
+          typeof targetPrice.product === 'string'
+            ? targetPrice.product
+            : targetPrice.product.id;
+        const activePrices = await stripe.prices.list({
+          product: productId,
+          active: true,
+          limit: 20,
+        });
+        const replacement = activePrices.data.find(
+          (p) => p.recurring?.interval === targetPrice.recurring?.interval,
+        );
+        if (replacement?.id) {
+          console.log(
+            `[change-plan] Replacing inactive price ${targetPriceId} → active ${replacement.id}`,
+          );
+          targetPriceId = replacement.id;
+        } else {
+          return res.status(400).json({
+            success: false,
+            error:
+              'The selected plan price is inactive in Stripe. Update STRIPE_PRICE_* env vars or activate the price in Stripe Dashboard.',
+          });
+        }
+      }
+    } catch (priceErr) {
+      return res.status(400).json({
+        success: false,
+        error: priceErr?.message || 'Invalid target price for plan change.',
+      });
+    }
+
+    const updated = await stripe.subscriptions.update(activeSubscription.id, {
+      items: [{ id: subscriptionItemId, price: targetPriceId }],
+      proration_behavior: 'create_prorations',
+      cancel_at_period_end: false,
+    });
+
+    const price = updated.items?.data?.[0]?.price;
+    let planName = 'Updated plan';
+    if (price?.nickname) {
+      planName = price.nickname;
+    } else if (price?.product && typeof price.product === 'string') {
+      try {
+        const product = await stripe.products.retrieve(price.product);
+        planName = product.name || planName;
+      } catch {
+        /* keep default */
+      }
+    }
+
+    res.json({
+      success: true,
+      subscriptionId: updated.id,
+      planName,
+      status: updated.status,
+    });
+  } catch (error) {
+    console.error('Error changing subscription plan:', error);
+    res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to change subscription plan',
+    });
+  }
+});
+
 // Create checkout session using plan key (basic|premium) and email/name
 router.post('/subscribe', async (req, res) => {
   try {
@@ -142,7 +276,6 @@ router.post('/subscribe', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid plan' });
     }
 
-    // Find or create customer
     let customerId;
     const existing = await stripe.customers.list({ email, limit: 1 });
     if (existing && existing.data && existing.data.length > 0) {

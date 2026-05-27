@@ -1,5 +1,6 @@
 // API Service for connecting to Python backend
 import { safeAsyncStorage } from '../utils/asyncStorage';
+import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
@@ -117,124 +118,9 @@ function profileBodyToUser(body: any): User {
 }
 
 class ApiService {
-  // ROOT CAUSE FIX: Production URL is hardcoded as default
-  // This ensures the app ALWAYS works, even if config/env is wrong
-  private readonly PRODUCTION_URL = 'https://build-profit-solutions-backend.onrender.com';
-
-  // Use getter to always get current base URL
+  /** Same host as workspace/Stripe REST — avoids syncing projects to Render while workspace uses LAN. */
   private get baseUrl(): string {
-    // Production URL is the default - ensures app works without local backend
-    const PRODUCTION_URL = this.PRODUCTION_URL;
-    
-    // For iOS Simulator, check if explicitly configured to use localhost
-    // Otherwise, fall through to production (same as physical devices)
-    if (Platform.OS === 'ios' && !Constants.isDevice) {
-      const useLocalhost = process.env.EXPO_PUBLIC_USE_LOCALHOST === 'true' || 
-                          process.env.EXPO_PUBLIC_SIMULATOR_USE_LOCAL === 'true';
-      if (useLocalhost) {
-        if (!(this as any)._simulatorUrlLogged) {
-          console.log('📱 iOS Simulator detected - using localhost:3001 (explicitly configured)');
-          (this as any)._simulatorUrlLogged = true;
-        }
-        return 'http://localhost:3001';
-      }
-      // Fall through to production/default logic below
-    }
-    
-    // For Android Emulator, check if explicitly configured to use localhost
-    if (Platform.OS === 'android' && !Constants.isDevice) {
-      const useLocalhost = process.env.EXPO_PUBLIC_USE_LOCALHOST === 'true' || 
-                          process.env.EXPO_PUBLIC_EMULATOR_USE_LOCAL === 'true';
-      if (useLocalhost) {
-        if (!(this as any)._emulatorUrlLogged) {
-          console.log('🤖 Android Emulator detected - using 10.0.2.2:3001 (explicitly configured)');
-          (this as any)._emulatorUrlLogged = true;
-        }
-        return 'http://10.0.2.2:3001';
-      }
-      // Fall through to production/default logic below
-    }
-    
-    // Log when simulator/emulator uses production (for debugging)
-    if ((Platform.OS === 'ios' || Platform.OS === 'android') && !Constants.isDevice) {
-      if (!(this as any)._simulatorProductionLogged) {
-        console.log(`📱 ${Platform.OS === 'ios' ? 'iOS Simulator' : 'Android Emulator'} detected - using production backend (same as physical device)`);
-        (this as any)._simulatorProductionLogged = true;
-      }
-    }
-    
-    const allowLocalBackend =
-      process.env.EXPO_PUBLIC_USE_LOCALHOST === 'true' ||
-      process.env.EXPO_PUBLIC_SIMULATOR_USE_LOCAL === 'true' ||
-      process.env.EXPO_PUBLIC_EMULATOR_USE_LOCAL === 'true';
-
-    // Check env URL, but only honor local IP URLs when explicitly enabled.
-    const envUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
-    if (envUrl) {
-      const url = envUrl.replace(/\/api$/, '');
-      // Local env URLs can accidentally leak across devices/simulators.
-      // Only use them when explicit local mode is enabled.
-      if (
-        url.includes('localhost') ||
-        url.includes('127.0.0.1') ||
-        url.includes('192.168') ||
-        url.includes('10.0.2.2')
-      ) {
-        if (allowLocalBackend) {
-          if (!(this as any)._localUrlWarned) {
-            console.log('⚠️  Using LOCAL backend URL from env:', url);
-            console.log('💡 Make sure backend is running: cd backend && npm start');
-            (this as any)._localUrlWarned = true;
-          }
-          return url;
-        }
-        if (!(this as any)._localEnvIgnoredWarned) {
-          console.log('⚠️  Ignoring LOCAL env backend URL because local mode is disabled:', url);
-          console.log('✅ Falling back to production backend');
-          (this as any)._localEnvIgnoredWarned = true;
-        }
-        return PRODUCTION_URL;
-      }
-      // If env URL is production, use it
-      if (!(this as any)._envUrlLogged) {
-        console.log('✅ Using backend URL from env:', url);
-        (this as any)._envUrlLogged = true;
-      }
-      return url;
-    }
-    
-    // Check Constants config (may be cached, so verify it's not local)
-    const configUrl = Constants.expoConfig?.extra?.apiBaseUrl;
-    if (configUrl) {
-      const url = configUrl.replace(/\/api$/, '');
-      // If config has local URL, ignore it and use production instead
-      if (
-        url.includes('localhost') ||
-        url.includes('127.0.0.1') ||
-        url.includes('192.168') ||
-        url.includes('10.0.2.2')
-      ) {
-        if (!(this as any)._configLocalIgnored) {
-          console.log('⚠️  Config has local URL, but using production instead:', url);
-          console.log('✅ Defaulting to production backend for reliability');
-          (this as any)._configLocalIgnored = true;
-        }
-        return PRODUCTION_URL;
-      }
-      // Config has production URL, use it
-      if (!(this as any)._configUrlLogged) {
-        console.log('✅ Using backend URL from config:', url);
-        (this as any)._configUrlLogged = true;
-      }
-      return url;
-    }
-    
-    // Default to production - this is the root cause fix
-    if (!(this as any)._defaultUrlLogged) {
-      console.log('✅ Using PRODUCTION backend (default):', PRODUCTION_URL);
-      (this as any)._defaultUrlLogged = true;
-    }
-    return PRODUCTION_URL;
+    return resolveBackendRestApiBaseUrl().replace(/\/api$/, '');
   }
 
   private cache: Map<string, CacheItem> = new Map();
@@ -440,6 +326,17 @@ class ApiService {
       body: JSON.stringify(project),
     });
     return response.data;
+  }
+
+  async syncProjects(projects: Record<string, unknown>[]): Promise<Project[]> {
+    const response = await this.makeRequest('/api/projects/sync', {
+      method: 'POST',
+      body: JSON.stringify({ projects }),
+    });
+    const body = response.data;
+    if (Array.isArray(body)) return body;
+    if (body?.data && Array.isArray(body.data)) return body.data;
+    return [];
   }
 
   async updateProject(id: string, project: Partial<Project>): Promise<Project> {
@@ -756,11 +653,13 @@ class ApiService {
   private async makeRequest(endpoint: string, options: any = {}): Promise<any> {
     const url = `${this.baseUrl}${endpoint}`;
     const token = await this.getAuthToken();
+    const authEmail = (await safeAsyncStorage.getItem('auth_email'))?.trim().toLowerCase();
 
     const defaultOptions = {
       headers: {
         'Content-Type': 'application/json',
         ...(token && { Authorization: `Bearer ${token}` }),
+        ...(authEmail ? { 'X-BPS-User-Email': authEmail } : {}),
         ...options.headers,
       },
     };

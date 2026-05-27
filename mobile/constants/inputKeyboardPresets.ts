@@ -1,3 +1,5 @@
+import { KEYBOARD_ACCESSORY_IDS, iosAccessoryId } from './keyboard';
+
 /**
  * Presets for `AttachSkuModal` (ZIP + search query) and similar raw `TextInput`s.
  *
@@ -30,4 +32,21 @@ export const skuSearchQueryTextKeyboard = {
   autoCorrect: false,
   autoCapitalize: 'words' as const,
   selectTextOnFocus: false,
+};
+
+/**
+ * Budget expense modals (`AddTransactionModal`, `PricingModeSection`, add-materials):
+ * pair with `KeyboardPlainAccessory` mounted using `KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain`.
+ */
+export const projectAddExpenseNumericKeyboardProps = {
+  inputAccessoryViewID: iosAccessoryId(KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain),
+  textContentType: 'none' as const,
+  autoComplete: 'off' as const,
+};
+
+/** Estimates step 1–2 phone / ZIP / sqft — pair with `KeyboardPlainAccessory` on the estimate screen. */
+export const estimateStep12NumericKeyboardProps = {
+  inputAccessoryViewID: iosAccessoryId(KEYBOARD_ACCESSORY_IDS.estimateStep12Plain),
+  textContentType: 'none' as const,
+  autoComplete: 'off' as const,
 };

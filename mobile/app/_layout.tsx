@@ -23,6 +23,7 @@ import ClerkWebBootstrap from '../components/ClerkWebBootstrap';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { clerkAuthService } from '../services/clerkAuth';
 import { syncClerkTokenToAsyncStorage } from '../utils/authTokenHelper';
+import { setWorkspaceClerkTokenGetter } from '../utils/workspaceAuthBridge';
 import {
   WalkthroughStateProvider,
   WalkthroughStateProviderLegacy,
@@ -169,13 +170,22 @@ function AuthGateWithClerk() {
 
   // Keep API token storage in sync with active Clerk session.
   useEffect(() => {
+    setWorkspaceClerkTokenGetter(isSignedIn ? () => getToken() : null);
+    return () => setWorkspaceClerkTokenGetter(null);
+  }, [isSignedIn, getToken]);
+
+  useEffect(() => {
     if (!isLoaded || !isSignedIn) return;
     let cancelled = false;
     void (async () => {
       try {
         const token = await getToken();
         if (!token || cancelled) return;
-        await syncClerkTokenToAsyncStorage(token);
+        const email =
+          user?.primaryEmailAddress?.emailAddress ||
+          user?.emailAddresses?.[0]?.emailAddress ||
+          null;
+        await syncClerkTokenToAsyncStorage(token, email);
       } catch (error) {
         console.warn('AuthGate - token sync failed:', error);
       }

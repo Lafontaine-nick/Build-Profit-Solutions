@@ -1,0 +1,69 @@
+[
+  {
+    "id": "4aa81a50-1388-4f9d-9f91-41560f605430",
+    "name": "Build Profit Workspace",
+    "ownerUserId": "user_3EFCxmNL62epVxflckc8K5DC8nY",
+    "ownerEmail": null,
+    "billingPlan": "business",
+    "billingStatus": "inactive",
+    "seatLimit": 5,
+    "members": [
+      {
+        "id": "12fe7bf7-895a-4a38-8ef9-ffc743ca957b",
+        "userId": "user_3EFCxmNL62epVxflckc8K5DC8nY",
+        "email": "",
+        "displayName": "Nicholas LaFontaine",
+        "role": "owner",
+        "status": "active",
+        "joinedAt": "2026-05-27T04:11:43.534Z",
+        "createdAt": "2026-05-27T04:11:43.534Z",
+        "updatedAt": "2026-05-27T04:54:59.020Z"
+      },
+      {
+        "id": "bf4396ee-1830-4f87-b793-1c2aebc6c1ec",
+        "userId": "user_3EIIILQr82PWL1TaheakroqHr3R",
+        "email": "nicholas@buildprofitsolutions.com",
+        "displayName": "Nicholas",
+        "phone": "325-555-5555",
+        "role": "field",
+        "tradeRole": "General Labor",
+        "status": "active",
+        "projectStatus": "active",
+        "skills": [],
+        "invitedByUserId": "user_3EFCxmNL62epVxflckc8K5DC8nY",
+        "invitedAt": "2026-05-27T05:24:50.283Z",
+        "joinedAt": "2026-05-27T05:33:09.014Z",
+        "createdAt": "2026-05-27T05:24:50.283Z",
+        "updatedAt": "2026-05-27T05:33:09.014Z"
+      }
+    ],
+    "createdAt": "2026-05-27T04:11:43.534Z",
+    "updatedAt": "2026-05-27T05:33:09.014Z"
+  },
+  {
+    "id": "9c1e7f8e-5c6e-4cfb-b642-39aaceca72df",
+    "name": "Build Profit Workspace",
+    "ownerUserId": "user_3EIFRgmA4upZf4t6huWa9jFIc0w",
+    "ownerEmail": null,
+    "billingPlan": "business",
+    "billingStatus": "inactive",
+    "seatLimit": 5,
+    "members": [
+      {
+        "id": "3d8fdfc7-b77b-4c4e-8c92-20f866f1d115",
+        "userId": "user_3EIFRgmA4upZf4t6huWa9jFIc0w",
+        "email": "",
+        "displayName": "Steven josh",
+        "role": "owner",
+        "tradeRole": "Project Manager",
+        "status": "active",
+        "projectStatus": "active",
+        "joinedAt": "2026-05-27T05:06:04.731Z",
+        "createdAt": "2026-05-27T05:06:04.731Z",
+        "updatedAt": "2026-05-27T05:06:06.119Z"
+      }
+    ],
+    "createdAt": "2026-05-27T05:06:04.731Z",
+    "updatedAt": "2026-05-27T05:06:06.119Z"
+  }
+]

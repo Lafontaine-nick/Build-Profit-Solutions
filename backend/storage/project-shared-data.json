@@ -1,0 +1,118 @@
+[
+  {
+    "id": "81c6478f-240d-4f88-8342-e4d13b92a547",
+    "workspaceId": "4aa81a50-1388-4f9d-9f91-41560f605430",
+    "projectId": "1779765189376",
+    "resourceType": "timeline",
+    "payload": [],
+    "updatedByUserId": "user_3EFCxmNL62epVxflckc8K5DC8nY",
+    "updatedAt": "2026-05-27T04:21:10.070Z",
+    "createdAt": "2026-05-27T04:21:09.513Z"
+  },
+  {
+    "id": "3b3c0fd3-cbc0-46de-a72e-1111a646406f",
+    "workspaceId": "4aa81a50-1388-4f9d-9f91-41560f605430",
+    "projectId": "1779244189475",
+    "resourceType": "timeline",
+    "payload": [
+      {
+        "id": "weekly-progress-deposit-1779331655437",
+        "title": "Deposit",
+        "plannedDate": "2026-06-21",
+        "progressPct": 100,
+        "status": "completed",
+        "assignee": "Client",
+        "amount": 7319,
+        "collectedAt": "2026-05-26T19:00:00.000Z",
+        "actualDate": "2026-05-26"
+      },
+      {
+        "id": "weekly-progress-week-1779331655437-1",
+        "title": "Week 1 Progress Payment",
+        "plannedDate": "2026-06-29",
+        "progressPct": 100,
+        "status": "completed",
+        "assignee": "Client",
+        "dependsOnId": "weekly-progress-deposit-1779331655437",
+        "amount": 5123.3,
+        "collectedAt": "2026-05-26T19:00:00.000Z",
+        "actualDate": "2026-05-26"
+      },
+      {
+        "id": "weekly-progress-week-1779331655437-2",
+        "title": "Week 2 Progress Payment",
+        "plannedDate": "2026-07-07",
+        "progressPct": 0,
+        "status": "pending",
+        "assignee": "Client",
+        "costDelta": 0,
+        "costCategory": "materials",
+        "dependsOnId": "weekly-progress-week-1779331655437-1",
+        "amount": 5123.3
+      },
+      {
+        "id": "weekly-progress-week-1779331655437-3",
+        "title": "Week 3 Progress Payment",
+        "plannedDate": "2026-07-14",
+        "progressPct": 0,
+        "status": "pending",
+        "assignee": "Client",
+        "costDelta": 0,
+        "costCategory": "materials",
+        "dependsOnId": "weekly-progress-week-1779331655437-2",
+        "amount": 5123.3
+      },
+      {
+        "id": "weekly-progress-week-1779331655437-4",
+        "title": "Week 4 Progress Payment",
+        "plannedDate": "2026-07-21",
+        "progressPct": 0,
+        "status": "pending",
+        "assignee": "Client",
+        "costDelta": 0,
+        "costCategory": "materials",
+        "dependsOnId": "weekly-progress-week-1779331655437-3",
+        "amount": 5123.3
+      },
+      {
+        "id": "weekly-progress-holdback-1779331655437",
+        "title": "Final Holdback",
+        "plannedDate": "2026-07-26",
+        "progressPct": 0,
+        "status": "pending",
+        "assignee": "Client",
+        "costDelta": 0,
+        "costCategory": "materials",
+        "dependsOnId": "weekly-progress-week-1779331655437-4",
+        "amount": 1463.8
+      }
+    ],
+    "updatedByUserId": "user_3EFCxmNL62epVxflckc8K5DC8nY",
+    "updatedAt": "2026-05-27T05:54:50.140Z",
+    "createdAt": "2026-05-27T04:27:09.437Z"
+  },
+  {
+    "id": "ec26bed4-fcdb-495c-b13c-ccb80f3caeb2",
+    "workspaceId": "4aa81a50-1388-4f9d-9f91-41560f605430",
+    "projectId": "1779244189475",
+    "resourceType": "team",
+    "payload": [
+      {
+        "id": "12fe7bf7-895a-4a38-8ef9-ffc743ca957b",
+        "name": "Nicholas LaFontaine",
+        "role": "Project Manager",
+        "status": "active",
+        "inviteStatus": "active",
+        "accessRole": "owner",
+        "isWorkspaceMember": true,
+        "tasksOpen": 0,
+        "tasksTotal": 0,
+        "skills": [],
+        "licenseVerified": false
+      }
+    ],
+    "updatedByUserId": "user_3EFCxmNL62epVxflckc8K5DC8nY",
+    "updatedAt": "2026-05-27T05:24:28.868Z",
+    "createdAt": "2026-05-27T05:24:13.331Z"
+  }
+]

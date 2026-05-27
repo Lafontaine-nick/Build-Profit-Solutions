@@ -6,13 +6,30 @@ import React, {
   useEffect,
   useRef,
   useMemo,
+  useCallback,
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import { apiService } from '../services/api';
-import { UNIFIED_PROJECTS_STORAGE_KEY } from '../lib/projectListCache';
+import {
+  UNIFIED_PROJECTS_STORAGE_KEY,
+  ACTIVE_PROJECT_USER_ID_KEY,
+  getUnifiedProjectsStorageKey,
+  getWorkspaceProjectsStorageKey,
+  getActiveProjectUserId,
+  setActiveProjectUserId,
+} from '../lib/projectListCache';
+import businessWorkspaceService from '../services/businessWorkspaceService';
+import { useClerkUiEnabled } from './ClerkUiContext';
+import {
+  useClerkAccountUserId,
+  useLegacyAccountUserId,
+} from '../hooks/useAccountUserId';
+import { useAuth, useUser } from '@clerk/clerk-react';
+import { syncClerkTokenToAsyncStorage } from '../utils/authTokenHelper';
+import { setBusinessEntitlementSnapshot } from '../utils/businessEntitlementCache';
+import { setWorkspaceClerkTokenGetter } from '../utils/workspaceAuthBridge';
 import { recordDeletedProject } from '../utils/aiDashboardPortfolioFilter';
-
-const STORAGE_KEY = UNIFIED_PROJECTS_STORAGE_KEY;
 
 // Unified Project interface that combines Estimates, Projects, and Dashboard data
 export interface UnifiedProject {
@@ -101,6 +118,8 @@ interface ProjectListContextType {
   updateProject: (id: string, updates: Partial<UnifiedProject>) => void;
   deleteProject: (id: string) => Promise<void>;
   refreshProjects: () => Promise<void>;
+  /** Re-merge timeline, projectData, and progress from AsyncStorage without a backend round-trip. */
+  rehydrateProjectsFromStorage: () => Promise<void>;
   clearProjectsLocal: () => Promise<void>;
 }
 
@@ -524,6 +543,17 @@ const mapBackendProjectToUnified = (project: any): UnifiedProject => {
   };
 };
 
+const WORKSPACE_ACCESS_CACHE_KEY = 'bps.cachedWorkspaceAccess';
+
+async function persistWorkspaceAccessGranted(): Promise<void> {
+  try {
+    await AsyncStorage.setItem(WORKSPACE_ACCESS_CACHE_KEY, '1');
+    setBusinessEntitlementSnapshot({ hasBusiness: false, hasWorkspaceAccess: true });
+  } catch {
+    /* optional */
+  }
+}
+
 const listBackendProjects = async (): Promise<any[]> => {
   const projectsResponse: any = await apiService.getProjects();
   const backendProjects = Array.isArray(projectsResponse)
@@ -532,6 +562,32 @@ const listBackendProjects = async (): Promise<any[]> => {
       ? projectsResponse.data
       : [];
   return backendProjects;
+};
+
+const listWorkspaceSharedProjects = async (): Promise<any[] | null> => {
+  const access = await businessWorkspaceService.getWorkspaceAccess();
+  const wsAccess = access.success ? access.data : null;
+  if (
+    !wsAccess?.hasWorkspaceAccess ||
+    !wsAccess.workspaceId ||
+    wsAccess.isOwner
+  ) {
+    return null;
+  }
+
+  const response = await businessWorkspaceService.getWorkspaceProjects();
+  if (!response.success) {
+    throw new Error(response.error || 'Failed to load workspace projects');
+  }
+  const rows = Array.isArray(response.data) ? response.data : [];
+  return rows;
+};
+
+const hydrateProjectsList = async (
+  rows: UnifiedProject[]
+): Promise<UnifiedProject[]> => {
+  const withKeys = await hydrateProjectDataFromStorageKeys(rows);
+  return dedupeProjectsById(await applyProgressAndDatesFromStorage(withKeys));
 };
 
 /** DELETE could not reach the API — allow local-only removal (same spirit as 404). */
@@ -557,101 +613,323 @@ const toBackendCreatePayload = (project: UnifiedProject) => {
   };
 };
 
-export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
+const pushProjectsToBackend = async (list: UnifiedProject[]): Promise<any[]> => {
+  if (!list.length) return [];
+  try {
+    const synced = await apiService.syncProjects(list as Record<string, unknown>[]);
+    if (__DEV__ && synced.length === 0 && list.length > 0) {
+      console.warn(
+        `⚠️ Project sync returned 0 rows but ${list.length} local project(s) were sent — check backend URL/auth`
+      );
+    }
+    return synced;
+  } catch (error) {
+    if (__DEV__) {
+      console.warn(
+        'ℹ️ Backend project sync skipped (auth/network/backend not ready):',
+        error instanceof Error ? error.message : error
+      );
+    }
+    return [];
+  }
+};
+
+/** Merge server rows with local-only drafts and preserve completed status from the app. */
+const mergeLocalAndBackend = (
+  local: UnifiedProject[],
+  fromServer: UnifiedProject[]
+): UnifiedProject[] => {
+  const backendIds = new Set(
+    fromServer.map((p) => normalizeProjectId(p.id)).filter(Boolean)
+  );
+
+  const mergedFromServer = fromServer.map((serverP) => {
+    const id = normalizeProjectId(serverP.id);
+    if (!id) return serverP;
+    const localP = local.find((p) => normalizeProjectId(p.id) === id);
+    if (!localP) return serverP;
+
+    const localSt = normalizeStatus(localP.status);
+    const serverSt = normalizeStatus(serverP.status);
+    if (
+      localSt === 'completed' &&
+      serverSt !== 'completed' &&
+      serverSt !== 'lost'
+    ) {
+      return {
+        ...serverP,
+        status: 'completed' as const,
+        progress: 100,
+        overallProgressPct: Math.max(
+          Number(localP.overallProgressPct) || 0,
+          Number(serverP.overallProgressPct) || 0,
+          Number(localP.progress) || 0,
+          Number(serverP.progress) || 0,
+          100
+        ),
+        updatedAt: new Date().toISOString(),
+        completedAt:
+          localP.completedAt ||
+          localP.projectData?.completedAt ||
+          serverP.completedAt ||
+          serverP.projectData?.completedAt,
+        estimateData: localP.estimateData || serverP.estimateData,
+        projectData: { ...(serverP.projectData || {}), ...(localP.projectData || {}) },
+      };
+    }
+
+    const localTime = new Date(localP.updatedAt || 0).getTime();
+    const serverTime = new Date(serverP.updatedAt || 0).getTime();
+    if (localTime > serverTime) {
+      return {
+        ...serverP,
+        ...localP,
+        id: serverP.id,
+      };
+    }
+    return serverP;
+  });
+
+  const localDrafts = local.filter((p) => {
+    const id = normalizeProjectId(p.id);
+    if (!id || backendIds.has(id)) return false;
+    const st = normalizeStatus(p.status);
+    return (
+      st === 'estimate' ||
+      st === 'draft' ||
+      st === 'bid_submitted' ||
+      st === 'submitted' ||
+      st === 'won' ||
+      st === 'in_progress' ||
+      st === 'in-progress' ||
+      st === 'active' ||
+      st === 'completed'
+    );
+  });
+
+  return dedupeProjectsById([...mergedFromServer, ...localDrafts]);
+};
+
+type ProjectListProviderCoreProps = {
+  children: ReactNode;
+  accountUserId: string | null;
+  accountReady: boolean;
+};
+
+const ProjectListProviderCore = ({
+  children,
+  accountUserId,
+  accountReady,
+}: ProjectListProviderCoreProps) => {
   const [projects, setProjects] = useState<UnifiedProject[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const hasAttemptedBackendSeedRef = useRef(false);
   /** After GET /api/projects returns 429, skip refresh for a while so tab focus / dev reload does not spam the server. */
   const projectsRefreshCooldownUntilRef = useRef(0);
+  const projectsRef = useRef<UnifiedProject[]>([]);
+  const rehydrateInFlightRef = useRef(false);
+  const storageKeyRef = useRef(UNIFIED_PROJECTS_STORAGE_KEY);
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const workspaceMemberModeRef = useRef(false);
 
-  // Load from AsyncStorage on mount
+  const resolveListStorageKey = useCallback(
+    () => getUnifiedProjectsStorageKey(accountUserId),
+    [accountUserId]
+  );
+
   useEffect(() => {
-    loadProjects();
-  }, []);
+    projectsRef.current = projects;
+  }, [projects]);
 
-  // Save to AsyncStorage whenever projects change (but only after initial load)
+  useEffect(() => {
+    storageKeyRef.current = resolveListStorageKey();
+  }, [resolveListStorageKey]);
+
+  // Load when account identity is known (or legacy signed-out mode).
+  useEffect(() => {
+    if (!accountReady) return;
+    hasAttemptedBackendSeedRef.current = false;
+    void loadProjects();
+  }, [accountUserId, accountReady]);
+
+  // Save locally and debounce backend sync for signed-in accounts.
   useEffect(() => {
     if (!isHydrated || !hasLoadedOnce) return;
-    // Only save if we have projects OR if we're explicitly updating (not initial empty state)
-    saveProjects();
-  }, [projects, isHydrated, hasLoadedOnce]);
+    void saveProjects();
+    if (!accountUserId) return;
+    if (workspaceMemberModeRef.current) return;
+
+    if (syncTimerRef.current) {
+      clearTimeout(syncTimerRef.current);
+    }
+    syncTimerRef.current = setTimeout(() => {
+      void pushProjectsToBackend(projectsRef.current);
+    }, 2500);
+
+    return () => {
+      if (syncTimerRef.current) {
+        clearTimeout(syncTimerRef.current);
+      }
+    };
+  }, [projects, isHydrated, hasLoadedOnce, accountUserId]);
 
   const loadProjects = async () => {
     try {
-      const saved = await AsyncStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed: UnifiedProject[] = JSON.parse(saved);
+      await businessWorkspaceService.acceptPendingInvites().catch(() => {});
+      const access = await businessWorkspaceService.getWorkspaceAccess();
+      const wsAccess = access.success ? access.data : null;
+      if (wsAccess?.hasWorkspaceAccess) {
+        await persistWorkspaceAccessGranted();
+      }
+      const isWorkspaceMember = Boolean(
+        wsAccess?.hasWorkspaceAccess && wsAccess.workspaceId && !wsAccess.isOwner
+      );
 
-        const hydratedProjects = await hydrateProjectDataFromStorageKeys(parsed);
+      if (isWorkspaceMember && wsAccess?.workspaceId) {
+        workspaceMemberModeRef.current = true;
+        const listKey = getWorkspaceProjectsStorageKey(wsAccess.workspaceId);
+        storageKeyRef.current = listKey;
+
+        let localParsed: UnifiedProject[] = [];
+        const saved = await AsyncStorage.getItem(listKey);
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) localParsed = parsed;
+          } catch {
+            localParsed = [];
+          }
+        }
+
+        const sharedRows = await listWorkspaceSharedProjects();
+        const fromWorkspace = (sharedRows || []).map(mapBackendProjectToUnified);
+        const merged = mergeLocalAndBackend(localParsed, fromWorkspace);
+        const normalized = await hydrateProjectsList(merged);
+
+        setProjects(normalized);
+        await AsyncStorage.setItem(listKey, JSON.stringify(normalized));
+        setIsHydrated(true);
+        setHasLoadedOnce(true);
+        if (__DEV__) {
+          console.log(`✅ Loaded ${normalized.length} workspace projects for member`);
+        }
+        return;
+      }
+
+      workspaceMemberModeRef.current = false;
+    } catch (workspaceError) {
+      if (__DEV__) {
+        console.warn('Workspace project load failed', workspaceError);
+      }
+      // Invited members must not fall back to an empty personal project list when
+      // workspace fetch fails (missing token, network, etc.).
+      if (workspaceMemberModeRef.current) {
+        setIsHydrated(true);
+        setHasLoadedOnce(true);
+        return;
+      }
+      workspaceMemberModeRef.current = false;
+    }
+
+    const listKey = resolveListStorageKey();
+    storageKeyRef.current = listKey;
+
+    try {
+      let localParsed: UnifiedProject[] = [];
+      const saved = await AsyncStorage.getItem(listKey);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) localParsed = parsed;
+        } catch {
+          localParsed = [];
+        }
+      } else if (accountUserId) {
+        const activeUserId = await getActiveProjectUserId();
+        const legacyRaw = await AsyncStorage.getItem(UNIFIED_PROJECTS_STORAGE_KEY);
+        const mayUseLegacy =
+          !!legacyRaw &&
+          (activeUserId === accountUserId ||
+            (Platform.OS !== 'web' && !activeUserId));
+        if (mayUseLegacy && legacyRaw) {
+          try {
+            const legacyParsed = JSON.parse(legacyRaw);
+            if (Array.isArray(legacyParsed) && legacyParsed.length > 0) {
+              localParsed = legacyParsed;
+              await AsyncStorage.setItem(listKey, legacyRaw);
+              await setActiveProjectUserId(accountUserId);
+            }
+          } catch {
+            localParsed = [];
+          }
+        }
+      }
+
+      if (accountUserId) {
+        try {
+          const backendProjects = await listBackendProjects();
+          const fromServer = backendProjects.map(mapBackendProjectToUnified);
+          const merged = mergeLocalAndBackend(localParsed, fromServer);
+
+          let syncedRows = fromServer;
+          if (merged.length > 0) {
+            const synced = await pushProjectsToBackend(merged);
+            if (Array.isArray(synced) && synced.length > 0) {
+              syncedRows = synced;
+            } else if (fromServer.length === 0 && !hasAttemptedBackendSeedRef.current) {
+              hasAttemptedBackendSeedRef.current = true;
+              for (const localProject of merged) {
+                const payload = toBackendCreatePayload(localProject);
+                if (!payload.name || !payload.client) continue;
+                try {
+                  await apiService.createProject({ ...payload, id: localProject.id } as any);
+                } catch {
+                  /* ignore individual seed failures */
+                }
+              }
+              syncedRows = (await listBackendProjects()).map((p) => p);
+            }
+          }
+
+          const mapped = (Array.isArray(syncedRows) ? syncedRows : backendProjects).map(
+            mapBackendProjectToUnified
+          );
+          const reconciled = mergeLocalAndBackend(localParsed, mapped);
+          const withKeys = await hydrateProjectDataFromStorageKeys(reconciled);
+          const normalized = dedupeProjectsById(
+            await applyProgressAndDatesFromStorage(withKeys)
+          );
+
+          setProjects(normalized);
+          await AsyncStorage.setItem(listKey, JSON.stringify(normalized));
+          await setActiveProjectUserId(accountUserId);
+          setIsHydrated(true);
+          setHasLoadedOnce(true);
+          return;
+        } catch (backendError) {
+          if (__DEV__) {
+            console.warn('loadProjects: backend merge failed, using local cache', backendError);
+          }
+        }
+      }
+
+      if (localParsed.length > 0) {
+        const hydratedProjects = await hydrateProjectDataFromStorageKeys(localParsed);
         const normalized = dedupeProjectsById(
           await applyProgressAndDatesFromStorage(hydratedProjects)
         );
-
-        // If we already have local projects, trust local first for offline reliability.
-        if (normalized.length > 0) {
-          setProjects(normalized);
-          setIsHydrated(true);
-          setHasLoadedOnce(true);
-
-          // One-way seed: if backend is empty but local device has real data,
-          // push local projects so other devices/simulators can hydrate the same dataset.
-          if (!hasAttemptedBackendSeedRef.current) {
-            hasAttemptedBackendSeedRef.current = true;
-            void (async () => {
-              try {
-                const backendProjects = await listBackendProjects();
-                if (backendProjects.length > 0) return;
-
-                let created = 0;
-                for (const localProject of normalized) {
-                  const payload = toBackendCreatePayload(localProject);
-                  if (!payload.name || !payload.client) continue;
-                  await apiService.createProject(payload);
-                  created += 1;
-                }
-
-                if (__DEV__) {
-                  console.log(`✅ Seeded backend with ${created} local projects`);
-                }
-              } catch (seedError) {
-                if (__DEV__) {
-                  console.log('ℹ️ Backend seed skipped (auth/network/backend not ready)');
-                }
-              }
-            })();
-          }
-          return;
-        }
-      } else {
-        if (__DEV__) {
-          console.log('ℹ️ No local project cache found, attempting backend hydration');
-        }
+        setProjects(normalized);
+        setIsHydrated(true);
+        setHasLoadedOnce(true);
+        return;
       }
 
-      // Local storage is empty (or empty array) - try to hydrate from backend so
-      // simulator and physical device can converge on shared server data.
-      try {
-        const backendProjects = await listBackendProjects();
-        const mapped = backendProjects.map(mapBackendProjectToUnified);
-        const withKeys = await hydrateProjectDataFromStorageKeys(mapped);
-        const deduped = dedupeProjectsById(await applyProgressAndDatesFromStorage(withKeys));
-        setProjects(deduped);
-        if (__DEV__) {
-          console.log(`✅ Hydrated ${deduped.length} projects from backend`);
-        }
-      } catch (backendError) {
-        if (__DEV__) {
-          console.log('ℹ️ Backend hydration unavailable, using local empty state');
-        }
-        setProjects([]);
-      }
-
+      setProjects([]);
       setIsHydrated(true);
       setHasLoadedOnce(true);
     } catch (error) {
       console.error('Error loading projects:', error);
-      // On error, keep existing projects if any, but mark as hydrated
       setIsHydrated(true);
       setHasLoadedOnce(true);
     }
@@ -659,7 +937,10 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
 
   const saveProjects = async () => {
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+      await AsyncStorage.setItem(storageKeyRef.current, JSON.stringify(projects));
+      if (accountUserId) {
+        await setActiveProjectUserId(accountUserId);
+      }
     } catch (error) {
       console.error('Error saving projects:', error);
     }
@@ -671,7 +952,9 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
       const keys = await AsyncStorage.getAllKeys();
       const projectKeys = keys.filter(
         (key) =>
-          key === STORAGE_KEY ||
+          key === UNIFIED_PROJECTS_STORAGE_KEY ||
+          key.startsWith(`${UNIFIED_PROJECTS_STORAGE_KEY}.`) ||
+          key === ACTIVE_PROJECT_USER_ID_KEY ||
           key.startsWith('bps.project.') ||
           key.startsWith('bps.timeline.v2.') ||
           key.startsWith('timeline_') ||
@@ -681,7 +964,7 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
       if (projectKeys.length > 0) {
         await AsyncStorage.multiRemove(projectKeys);
       }
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+      await AsyncStorage.setItem(storageKeyRef.current, JSON.stringify([]));
     } catch (error) {
       console.error('Error clearing local projects:', error);
     }
@@ -757,7 +1040,7 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
     });
     // Await save so Projects tab refreshProjects won't overwrite with stale AsyncStorage
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nextProjects));
+      await AsyncStorage.setItem(storageKeyRef.current, JSON.stringify(nextProjects));
       if (__DEV__) console.log(`💾 Saved estimate to AsyncStorage`);
     } catch (error) {
       console.error('Error saving estimate:', error);
@@ -851,7 +1134,7 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
       return filtered;
     });
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+      await AsyncStorage.setItem(storageKeyRef.current, JSON.stringify(filtered));
       if (__DEV__) console.log(`💾 Saved deleted project state to AsyncStorage`);
     } catch (error) {
       console.error('Error saving deleted project:', error);
@@ -1065,6 +1348,34 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
     );
   };
 
+  const rehydrateProjectsFromStorage = async () => {
+    if (rehydrateInFlightRef.current) return;
+    rehydrateInFlightRef.current = true;
+    try {
+      let base = projectsRef.current;
+      if (!base.length) {
+        const saved = await AsyncStorage.getItem(storageKeyRef.current);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) base = parsed;
+        }
+      }
+      if (!Array.isArray(base) || base.length === 0) return;
+
+      const hydrated = await hydrateProjectDataFromStorageKeys(base);
+      const normalized = dedupeProjectsById(
+        await applyProgressAndDatesFromStorage(hydrated)
+      );
+      setProjects(normalized);
+    } catch (e) {
+      if (__DEV__) {
+        console.warn('rehydrateProjectsFromStorage failed', e);
+      }
+    } finally {
+      rehydrateInFlightRef.current = false;
+    }
+  };
+
   const refreshProjects = async () => {
     const now = Date.now();
     if (now < projectsRefreshCooldownUntilRef.current) {
@@ -1073,76 +1384,88 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
           "refreshProjects: skipped (cooldown after HTTP 429 — wait before retrying /api/projects)"
         );
       }
+      await rehydrateProjectsFromStorage();
       return;
     }
     try {
+      await businessWorkspaceService.acceptPendingInvites().catch(() => {});
+      const access = await businessWorkspaceService.getWorkspaceAccess();
+      const wsAccess = access.success ? access.data : null;
+      if (wsAccess?.hasWorkspaceAccess) {
+        await persistWorkspaceAccessGranted();
+      }
+      const isWorkspaceMember = Boolean(
+        wsAccess?.hasWorkspaceAccess && wsAccess.workspaceId && !wsAccess.isOwner
+      );
+
+      if (isWorkspaceMember && wsAccess?.workspaceId) {
+        workspaceMemberModeRef.current = true;
+        storageKeyRef.current = getWorkspaceProjectsStorageKey(wsAccess.workspaceId);
+
+        let localBase = projectsRef.current;
+        if (!localBase.length) {
+          const saved = await AsyncStorage.getItem(storageKeyRef.current);
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed)) localBase = parsed;
+            } catch {
+              localBase = [];
+            }
+          }
+        }
+
+        const sharedRows = await listWorkspaceSharedProjects();
+        const fromWorkspace = (sharedRows || []).map(mapBackendProjectToUnified);
+        const merged = mergeLocalAndBackend(localBase, fromWorkspace);
+        const normalized = await hydrateProjectsList(merged);
+
+        setProjects(normalized);
+        await AsyncStorage.setItem(storageKeyRef.current, JSON.stringify(normalized));
+        setIsHydrated(true);
+        setHasLoadedOnce(true);
+        projectsRefreshCooldownUntilRef.current = 0;
+        return;
+      }
+
+      workspaceMemberModeRef.current = false;
+
       const backendProjects = await listBackendProjects();
-      const mapped = backendProjects.map(mapBackendProjectToUnified);
-      const withKeys = await hydrateProjectDataFromStorageKeys(mapped);
-      const fromServer = dedupeProjectsById(
+      const fromServer = backendProjects.map(mapBackendProjectToUnified);
+
+      let localBase = projectsRef.current;
+      if (!localBase.length) {
+        const saved = await AsyncStorage.getItem(storageKeyRef.current);
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) localBase = parsed;
+          } catch {
+            localBase = [];
+          }
+        }
+      }
+
+      const merged = mergeLocalAndBackend(localBase, fromServer);
+      if (accountUserId && merged.length > 0) {
+        await pushProjectsToBackend(merged);
+      }
+
+      const refreshedBackend = accountUserId
+        ? await listBackendProjects()
+        : backendProjects;
+      const remapped = refreshedBackend.map(mapBackendProjectToUnified);
+      const reconciled = mergeLocalAndBackend(localBase, remapped);
+      const withKeys = await hydrateProjectDataFromStorageKeys(reconciled);
+      const normalized = dedupeProjectsById(
         await applyProgressAndDatesFromStorage(withKeys)
       );
 
-      setProjects((prev) => {
-        const backendIds = new Set(
-          fromServer.map((p) => normalizeProjectId(p.id)).filter(Boolean)
-        );
-
-        // Server rows often stay won/in_progress after the user finishes payments in-app (timeline-only).
-        // Without this, refresh overwrites local status: 'completed' and the project vanishes from Completed.
-        const mergedFromServer = fromServer.map((serverP) => {
-          const id = normalizeProjectId(serverP.id);
-          if (!id) return serverP;
-          const localP = prev.find((p) => normalizeProjectId(p.id) === id);
-          if (!localP) return serverP;
-          const localSt = normalizeStatus(localP.status);
-          const serverSt = normalizeStatus(serverP.status);
-          if (
-            localSt === 'completed' &&
-            serverSt !== 'completed' &&
-            serverSt !== 'lost'
-          ) {
-            return {
-              ...serverP,
-              status: 'completed' as const,
-              progress: 100,
-              overallProgressPct: Math.max(
-                Number(localP.overallProgressPct) || 0,
-                Number(serverP.overallProgressPct) || 0,
-                Number(localP.progress) || 0,
-                Number(serverP.progress) || 0,
-                100
-              ),
-              updatedAt: new Date().toISOString(),
-              completedAt:
-                localP.completedAt ||
-                localP.projectData?.completedAt ||
-                serverP.completedAt ||
-                serverP.projectData?.completedAt,
-            };
-          }
-          return serverP;
-        });
-
-        const localDrafts = prev.filter((p) => {
-          const id = normalizeProjectId(p.id);
-          if (!id || backendIds.has(id)) return false;
-          const st = normalizeStatus(p.status);
-          // Keep drafts/estimates, submitted bids, active/won work, and completed jobs not on the server yet.
-          return (
-            st === 'estimate' ||
-            st === 'draft' ||
-            st === 'bid_submitted' ||
-            st === 'submitted' ||
-            st === 'won' ||
-            st === 'in_progress' ||
-            st === 'in-progress' ||
-            st === 'active' ||
-            st === 'completed'
-          );
-        });
-        return dedupeProjectsById([...mergedFromServer, ...localDrafts]);
-      });
+      setProjects(normalized);
+      await AsyncStorage.setItem(storageKeyRef.current, JSON.stringify(normalized));
+      if (accountUserId) {
+        await setActiveProjectUserId(accountUserId);
+      }
 
       setIsHydrated(true);
       setHasLoadedOnce(true);
@@ -1173,12 +1496,93 @@ export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
         updateProject,
         deleteProject,
         refreshProjects,
+        rehydrateProjectsFromStorage,
         clearProjectsLocal,
       }}
     >
       {children}
     </ProjectListContext.Provider>
   );
+};
+
+function ProjectListProviderClerk({ children }: { children: ReactNode }) {
+  const { userId, isReady: clerkUserReady } = useClerkAccountUserId();
+  const { isSignedIn, isLoaded, getToken } = useAuth();
+  const { user } = useUser();
+  const [sessionReady, setSessionReady] = useState(false);
+
+  // ProjectListProvider mounts above AuthGate — wait for Clerk JWT in storage before
+  // workspace/member API calls, or web loads an empty personal list and never retries.
+  useEffect(() => {
+    setWorkspaceClerkTokenGetter(isSignedIn ? () => getToken() : null);
+    return () => setWorkspaceClerkTokenGetter(null);
+  }, [isSignedIn, getToken]);
+
+  useEffect(() => {
+    if (!isLoaded) {
+      setSessionReady(false);
+      return;
+    }
+    if (!isSignedIn) {
+      setSessionReady(true);
+      return;
+    }
+    if (!userId) {
+      setSessionReady(false);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      for (let attempt = 0; attempt < 30; attempt++) {
+        try {
+          const token = await getToken();
+          if (token) {
+            const email =
+              user?.primaryEmailAddress?.emailAddress ||
+              user?.emailAddresses?.[0]?.emailAddress ||
+              null;
+            await syncClerkTokenToAsyncStorage(token, email);
+            if (!cancelled) setSessionReady(true);
+            return;
+          }
+        } catch {
+          /* retry until Clerk session token is ready */
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!cancelled) setSessionReady(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoaded, isSignedIn, userId, getToken, user]);
+
+  const accountReady = clerkUserReady && sessionReady;
+
+  return (
+    <ProjectListProviderCore accountUserId={userId} accountReady={accountReady}>
+      {children}
+    </ProjectListProviderCore>
+  );
+}
+
+function ProjectListProviderLegacy({ children }: { children: ReactNode }) {
+  const { userId, isReady } = useLegacyAccountUserId();
+  return (
+    <ProjectListProviderCore accountUserId={userId} accountReady={isReady}>
+      {children}
+    </ProjectListProviderCore>
+  );
+}
+
+export const ProjectListProvider = ({ children }: { children: ReactNode }) => {
+  const clerkEnabled = useClerkUiEnabled();
+  if (clerkEnabled) {
+    return <ProjectListProviderClerk>{children}</ProjectListProviderClerk>;
+  }
+  return <ProjectListProviderLegacy>{children}</ProjectListProviderLegacy>;
 };
 
 export const useProjectList = () => {

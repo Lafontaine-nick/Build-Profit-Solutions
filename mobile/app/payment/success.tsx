@@ -1,13 +1,22 @@
-import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  buildProjectDetailHref,
+  consumePostCheckoutReturn,
+  type PostCheckoutReturn,
+} from '@/utils/postCheckoutReturn';
+import { setBusinessEntitlementSnapshot } from '@/utils/businessEntitlementCache';
 
 export default function PaymentSuccess() {
   const { darkMode } = useTheme();
   const router = useRouter();
+  const [redirectLabel, setRedirectLabel] = useState('Opening your Team workspace…');
+  const [returnTarget, setReturnTarget] = useState<PostCheckoutReturn | null>(null);
 
   const theme = darkMode
     ? {
@@ -28,12 +37,43 @@ export default function PaymentSuccess() {
       };
 
   useEffect(() => {
-    // Auto-redirect to dashboard after 3 seconds
-    const timer = setTimeout(() => {
-      router.replace('/(tabs)/dashboard');
-    }, 3000);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    return () => clearTimeout(timer);
+    const finish = async () => {
+      try {
+        await AsyncStorage.setItem('bps.cachedPlanId', 'business');
+        setBusinessEntitlementSnapshot({ hasBusiness: true });
+      } catch {
+        // non-blocking
+      }
+
+      const target = await consumePostCheckoutReturn();
+      if (cancelled) return;
+
+      setReturnTarget(target);
+
+      if (target?.projectId) {
+        const tab = target.tab || 'Team';
+        setRedirectLabel(`Returning to ${tab}…`);
+        router.replace(buildProjectDetailHref(target.projectId, tab) as never);
+        return;
+      }
+
+      setRedirectLabel('Redirecting to dashboard…');
+      timer = setTimeout(() => {
+        if (!cancelled) {
+          router.replace('/(tabs)/dashboard');
+        }
+      }, 2500);
+    };
+
+    void finish();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [router]);
 
   return (
@@ -50,44 +90,33 @@ export default function PaymentSuccess() {
         </Text>
 
         <Text style={[styles.subtitle, { color: theme.subtext }]}>
-          Your subscription has been activated successfully. Welcome to Build
-          Profit Solutions!
+          Your Business plan is active. We&apos;re taking you back to your project
+          Team workspace.
         </Text>
 
-        <View style={styles.featuresContainer}>
-          <Text style={[styles.featuresTitle, { color: theme.text }]}>
-            What's Next?
-          </Text>
-          <View style={styles.featureRow}>
-            <MaterialIcons name='check' size={20} color={theme.success} />
-            <Text style={[styles.featureText, { color: theme.subtext }]}>
-              Access to all premium features
-            </Text>
-          </View>
-          <View style={styles.featureRow}>
-            <MaterialIcons name='check' size={20} color={theme.success} />
-            <Text style={[styles.featureText, { color: theme.subtext }]}>
-              Advanced lead management
-            </Text>
-          </View>
-          <View style={styles.featureRow}>
-            <MaterialIcons name='check' size={20} color={theme.success} />
-            <Text style={[styles.featureText, { color: theme.subtext }]}>
-              AI-powered analytics
-            </Text>
-          </View>
-        </View>
+        <ActivityIndicator size="large" color={theme.accent} style={{ marginVertical: 20 }} />
+
+        <Text style={[styles.redirectText, { color: theme.subtext }]}>
+          {redirectLabel}
+        </Text>
 
         <TouchableOpacity
           style={[styles.button, { backgroundColor: theme.accent }]}
-          onPress={() => router.replace('/(tabs)/dashboard')}
+          onPress={() => {
+            if (returnTarget?.projectId) {
+              router.replace(
+                buildProjectDetailHref(
+                  returnTarget.projectId,
+                  returnTarget.tab || 'Team'
+                ) as never
+              );
+              return;
+            }
+            router.replace('/(tabs)/dashboard');
+          }}
         >
-          <Text style={styles.buttonText}>Go to Dashboard</Text>
+          <Text style={styles.buttonText}>Continue</Text>
         </TouchableOpacity>
-
-        <Text style={[styles.redirectText, { color: theme.subtext }]}>
-          Redirecting automatically in 3 seconds...
-        </Text>
       </View>
     </LinearGradient>
   );
@@ -127,33 +156,14 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 16,
     textAlign: 'center',
-    marginBottom: 30,
-    lineHeight: 24,
-  },
-  featuresContainer: {
-    width: '100%',
-    marginBottom: 30,
-  },
-  featuresTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 15,
-    textAlign: 'center',
-  },
-  featureRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     marginBottom: 10,
-  },
-  featureText: {
-    fontSize: 14,
-    marginLeft: 10,
+    lineHeight: 24,
   },
   button: {
     paddingHorizontal: 30,
     paddingVertical: 15,
     borderRadius: 25,
-    marginBottom: 20,
+    marginTop: 12,
   },
   buttonText: {
     color: '#fff',
@@ -161,7 +171,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   redirectText: {
-    fontSize: 12,
+    fontSize: 13,
     textAlign: 'center',
   },
 });

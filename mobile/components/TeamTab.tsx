@@ -1,6 +1,6 @@
 // Expo/React Native screen: iOS-grade Team tab (same theme, better hierarchy)
 
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -15,8 +15,10 @@ import {
   Platform,
   SafeAreaView,
   StatusBar,
+  Share,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import * as Clipboard from "expo-clipboard";
 import {
   BRAND_FRAME_GRADIENT_COLORS,
   BRAND_FRAME_GRADIENT_END,
@@ -30,6 +32,17 @@ import { getColors } from "@/theme/getColors";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import { useProjectData } from "@/contexts/ProjectDataContext";
 import GradientRingBackInner from "@/components/GradientRingBackInner";
+import { useUser, useAuth } from "@clerk/clerk-react";
+import {
+  businessWorkspaceService,
+  type BusinessWorkspaceAccess,
+  type BusinessWorkspaceMember,
+} from "@/services/businessWorkspaceService";
+import { readWorkspaceAccessSnapshot, persistWorkspaceAccessSnapshot } from "@/utils/workspaceAccessCache";
+import { useBusinessEntitlement } from "@/hooks/useBusinessEntitlement";
+import { useProjectList } from "@/contexts/ProjectListContext";
+import { syncClerkTokenToAsyncStorage } from "@/utils/authTokenHelper";
+import { setBusinessEntitlementSnapshot } from "@/utils/businessEntitlementCache";
 
 const Colors = {
   bg: "#020617",
@@ -52,6 +65,8 @@ const CARD_BORDER = "rgba(34, 197, 94, 0.3)";
 
 // ---------- Types ----------
 type Status = "active" | "off_duty";
+type InviteStatus = "pending" | "active" | "suspended";
+type AccessRole = "owner" | "manager" | "field";
 type Trade =
   | "Project Manager"
   | "Foreman"
@@ -72,6 +87,9 @@ interface Member {
   email?: string;
   role: Trade;
   status: Status;
+  inviteStatus?: InviteStatus;
+  accessRole?: AccessRole;
+  isWorkspaceMember?: boolean;
   tasksOpen: number;
   tasksTotal: number;
   skills: string[];
@@ -149,10 +167,36 @@ const TEAM: Member[] = [
   },
 ];
 
-// ---------- Helpers ----------
+const TEAM_STORAGE_KEY = "bps.team.members";
+
+function isDemoTeamRoster(members: unknown): boolean {
+  if (!Array.isArray(members) || members.length === 0) return false;
+  return members.some((row) => {
+    const m = row as Member;
+    const email = String(m?.email || "").toLowerCase();
+    return email.endsWith("@bps.app") || (m?.id === "1" && m?.name === "John Smith");
+  });
+}
+
+function getTeamStorageKey(workspaceId?: string | null): string {
+  const id = String(workspaceId || "").trim();
+  return id ? `${TEAM_STORAGE_KEY}.${id}` : TEAM_STORAGE_KEY;
+}
 const statusLabel: Record<Status, string> = {
   active: "Active",
   off_duty: "Off Duty",
+};
+
+const inviteStatusLabel: Record<InviteStatus, string> = {
+  pending: "Pending invite",
+  active: "Active member",
+  suspended: "Suspended",
+};
+
+const accessRoleLabel: Record<AccessRole, string> = {
+  owner: "Owner",
+  manager: "Manager",
+  field: "Field",
 };
 
 function statusColor(s: Status) {
@@ -184,6 +228,24 @@ function emailTo(addr?: string) {
   Linking.openURL(`mailto:${addr}`);
 }
 
+function buildWorkspaceInviteMessage(member: Pick<Member, "name" | "email">) {
+  const email = member.email?.trim() || "the email this invite was sent to";
+  return [
+    `You're invited to join our Build Profit workspace${member.name ? `, ${member.name}` : ""}.`,
+    "",
+    `Open Build Profit Solutions and sign up or sign in with ${email}.`,
+    "Once you're signed in, open the project Team tab and your workspace access will activate automatically.",
+  ].join("\n");
+}
+
+/** Ten digits max, formatted as XXX-XXX-XXXX */
+function formatTeamPhoneInput(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 10);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
 function initials(name: string) {
   return name
     .split(" ")
@@ -191,6 +253,104 @@ function initials(name: string) {
     .slice(0, 2)
     .join("")
     .toUpperCase();
+}
+
+function isTrade(value: unknown): value is Trade {
+  return [
+    "Project Manager",
+    "Foreman",
+    "Electrician",
+    "Plumber",
+    "Carpenter",
+    "General Labor",
+    "Tile Setter",
+    "Concrete",
+    "Drywall Installer",
+    "Painter",
+    "General",
+  ].includes(String(value));
+}
+
+function memberFromWorkspace(member: BusinessWorkspaceMember): Member {
+  const tradeRole = isTrade(member.tradeRole)
+    ? member.tradeRole
+    : member.role === "owner" || member.role === "manager"
+      ? "Project Manager"
+      : "General Labor";
+  const projectStatus = member.projectStatus === "off_duty" ? "off_duty" : "active";
+  const inviteStatus = (member.status as InviteStatus) || "active";
+  const accessRole = (member.role as AccessRole) || "field";
+
+  return {
+    id: member.id,
+    name: member.displayName || member.email || "Team Member",
+    phone: member.phone || undefined,
+    email: member.email || undefined,
+    role: tradeRole,
+    status: projectStatus,
+    inviteStatus,
+    accessRole,
+    isWorkspaceMember: true,
+    tasksOpen: 0,
+    tasksTotal: 0,
+    skills: Array.isArray(member.skills) ? member.skills : [],
+    licenseVerified: false,
+  };
+}
+
+function teamRowsFromWorkspaceAccess(
+  accessData: BusinessWorkspaceAccess | null | undefined
+): Member[] {
+  if (!accessData?.hasWorkspaceAccess) return [];
+  const rows: Member[] = [];
+  if (accessData.ownerMember) {
+    rows.push(memberFromWorkspace(accessData.ownerMember));
+  }
+  if (accessData.member) {
+    const self = memberFromWorkspace(accessData.member);
+    if (!rows.some((row) => row.id === self.id)) {
+      rows.push(self);
+    }
+  }
+  return rows;
+}
+
+async function readCachedTeamRoster(workspaceId: string | null): Promise<Member[] | null> {
+  const scopedKey = getTeamStorageKey(workspaceId);
+  const saved =
+    (await AsyncStorage.getItem(scopedKey)) ||
+    (scopedKey !== TEAM_STORAGE_KEY ? await AsyncStorage.getItem(TEAM_STORAGE_KEY) : null);
+  if (!saved) return null;
+  try {
+    const parsed = JSON.parse(saved);
+    if (Array.isArray(parsed) && !isDemoTeamRoster(parsed)) {
+      return parsed as Member[];
+    }
+  } catch {
+    /* ignore corrupt cache */
+  }
+  return null;
+}
+
+function countTeamSeatsUsed(members: Member[]): number {
+  return members.filter(
+    (member) =>
+      member.accessRole !== "owner" &&
+      member.inviteStatus !== "suspended"
+  ).length;
+}
+
+function memberToWorkspacePayload(member: Member): Partial<BusinessWorkspaceMember> {
+  return {
+    displayName: member.name,
+    email: member.email,
+    phone: member.phone,
+    tradeRole: member.role,
+    projectStatus: member.status,
+    accessRole: member.accessRole,
+    inviteStatus: member.inviteStatus,
+    skills: member.skills,
+  };
 }
 
 // ---------- Tiny UI Bits ----------
@@ -264,16 +424,145 @@ const StatusPill = ({ s }: { s: Status }) => {
   );
 };
 
+const InvitePill = ({ status }: { status: InviteStatus }) => {
+  const tone =
+    status === "pending"
+      ? { bg: "rgba(255,209,102,0.18)", border: "rgba(255,209,102,0.45)", text: "#ffd166" }
+      : status === "suspended"
+        ? { bg: "rgba(239,68,68,0.15)", border: "rgba(239,68,68,0.35)", text: "#fca5a5" }
+        : null;
+  if (!tone) return null;
+  return (
+    <View style={[styles.pillStatus, { backgroundColor: tone.bg, borderColor: tone.border, borderWidth: 1 }]}>
+      <Text style={[styles.pillTextOffDuty, { color: tone.text }]}>{inviteStatusLabel[status]}</Text>
+    </View>
+  );
+};
+
+const WorkspaceOwnerCard = ({
+  owner,
+  onEdit,
+}: {
+  owner: Member;
+  onEdit: (m: Member) => void;
+  supportSubColor?: string;
+}) => {
+  const { theme } = useTheme();
+  const Colors = useMemo(() => getColors(theme), [theme]);
+  const darkMode = theme.bg === "#000000";
+  const mutedSoft = darkMode ? "rgba(186, 204, 224, 0.82)" : Colors.sub;
+  const footerBorderColor = "rgba(45, 255, 196, 0.2)";
+  const ownerSubtitle = owner.email?.trim() || "Workspace owner";
+
+  return (
+    <View style={styles.workspaceOwnerSection}>
+      <TouchableOpacity onPress={() => onEdit(owner)} activeOpacity={0.86}>
+        <View style={styles.workspaceOwnerCard}>
+          <View style={styles.workspaceOwnerHeaderRow}>
+            <MaterialIcons name="check-circle" size={18} color="#22c55e" />
+            <Text style={styles.workspaceOwnerHeaderTitle}>Business workspace connected</Text>
+          </View>
+
+          <View style={styles.workspaceOwnerBodyRow}>
+            <View style={styles.workspaceOwnerBodyCopy}>
+              <Text style={[styles.workspaceOwnerName, { color: Colors.text }]} numberOfLines={1}>
+                {owner.name}
+              </Text>
+              <Text style={[styles.workspaceOwnerMeta, { color: mutedSoft }]} numberOfLines={1}>
+                {ownerSubtitle}
+              </Text>
+            </View>
+            <View style={styles.workspaceOwnerRightCol}>
+              <Text style={[styles.workspaceOwnerRightLabel, { color: Colors.text }]}>Active</Text>
+              <Text style={[styles.workspaceOwnerRightSub, { color: mutedSoft }]}>Included</Text>
+            </View>
+          </View>
+
+          <View style={[styles.workspaceOwnerFooterRow, { borderTopColor: footerBorderColor }]}>
+            <Text style={[styles.workspaceOwnerFooterLabel, { color: Colors.text }]}>Account type</Text>
+            <View style={styles.workspaceOwnerFooterValueCol}>
+              <Text style={styles.workspaceOwnerFooterValue}>Business</Text>
+              <Text style={styles.workspaceOwnerFooterSub}>Full access</Text>
+            </View>
+          </View>
+        </View>
+      </TouchableOpacity>
+    </View>
+  );
+};
+
+const WorkspaceMemberAccessCard = ({
+  ownerName,
+  role,
+  tradeRole,
+  status,
+}: {
+  ownerName: string;
+  role: AccessRole | string | null;
+  tradeRole?: string;
+  status?: InviteStatus | string | null;
+}) => {
+  const { theme } = useTheme();
+  const Colors = useMemo(() => getColors(theme), [theme]);
+  const darkMode = theme.bg === "#000000";
+  const mutedSoft = darkMode ? "rgba(186, 204, 224, 0.82)" : Colors.sub;
+  const roleKey = String(role || "field").toLowerCase() as AccessRole;
+  const roleLabel = accessRoleLabel[roleKey] || "Team member";
+  const tradeLabel = tradeRole?.trim() || "General Labor";
+  const statusLabel =
+    status === "active" || !status ? "Active" : String(status).replace(/_/g, " ");
+
+  return (
+    <View style={styles.workspaceOwnerSection}>
+      <View style={styles.workspaceOwnerCard}>
+        <View style={styles.workspaceOwnerHeaderRow}>
+          <MaterialIcons name="verified-user" size={18} color="#22d3ee" />
+          <Text style={styles.workspaceOwnerHeaderTitle}>You're on the team</Text>
+        </View>
+
+        <View style={styles.workspaceOwnerBodyRow}>
+          <View style={styles.workspaceOwnerBodyCopy}>
+            <Text style={[styles.workspaceOwnerMeta, { color: mutedSoft }]} numberOfLines={1}>
+              Workspace owner
+            </Text>
+            <Text style={[styles.workspaceOwnerName, { color: Colors.text }]} numberOfLines={1}>
+              {ownerName}
+            </Text>
+          </View>
+          <View style={styles.workspaceOwnerRightCol}>
+            <Text style={[styles.workspaceOwnerRightLabel, { color: Colors.text }]}>
+              {statusLabel}
+            </Text>
+            <Text style={[styles.workspaceOwnerRightSub, { color: mutedSoft }]}>Included seat</Text>
+          </View>
+        </View>
+
+        <View style={[styles.workspaceOwnerFooterRow, { borderTopColor: "rgba(45, 255, 196, 0.2)" }]}>
+          <Text style={[styles.workspaceOwnerFooterLabel, { color: Colors.text }]}>Your role</Text>
+          <View style={styles.workspaceOwnerFooterValueCol}>
+            <Text style={styles.workspaceOwnerFooterValue}>{roleLabel}</Text>
+            <Text style={styles.workspaceOwnerFooterSub}>{tradeLabel}</Text>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+};
+
 // ---------- Member Row (iOS denser) ----------
 const MemberRowCompact = ({
   m,
   onEdit,
+  onRequestRemove,
   onStatusToggle,
+  canManageWorkspace,
   supportSubColor,
 }: {
   m: Member;
   onEdit: (m: Member) => void;
+  onRequestRemove?: (m: Member) => void;
   onStatusToggle?: (m: Member) => void;
+  canManageWorkspace?: boolean;
   supportSubColor: string;
 }) => {
   const { theme } = useTheme();
@@ -285,6 +574,13 @@ const MemberRowCompact = ({
     if (onStatusToggle) {
       onStatusToggle(m);
     }
+  };
+
+  const handleDeletePress = (e?: { stopPropagation?: () => void }) => {
+    e?.stopPropagation?.();
+    if (!onRequestRemove || !canManageWorkspace || m.accessRole === "owner") return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    onRequestRemove(m);
   };
 
   const subtitle = [m.role, m.phone].filter(Boolean).join(' • ');
@@ -313,30 +609,56 @@ const MemberRowCompact = ({
                 {subtitle || m.role}
               </Text>
               <TouchableOpacity onPress={handleStatusToggle} activeOpacity={0.7} style={styles.statusRow}>
-                <StatusPill s={m.status} />
+                {m.inviteStatus === "pending" || m.inviteStatus === "suspended" ? (
+                  <InvitePill status={m.inviteStatus} />
+                ) : (
+                  <StatusPill s={m.status} />
+                )}
               </TouchableOpacity>
               <View style={styles.memberMetaRow}>
                 <Chip text={m.role} tone="outline" compact />
+                {m.isWorkspaceMember && m.accessRole ? (
+                  <Chip text={accessRoleLabel[m.accessRole]} tone="outline" compact />
+                ) : null}
               </View>
             </View>
 
             <View style={styles.memberActionsCol}>
+              {canManageWorkspace && m.accessRole !== "owner" && onRequestRemove ? (
+                <TouchableOpacity
+                  onPress={handleDeletePress}
+                  style={[styles.iconBtn, styles.iconBtnDanger]}
+                  activeOpacity={0.8}
+                  accessibilityLabel={`Remove ${m.name} from team`}
+                >
+                  <MaterialIcons name="delete-outline" size={16} color="rgba(248, 113, 113, 0.95)" />
+                </TouchableOpacity>
+              ) : null}
               <TouchableOpacity
-                onPress={() => callNumber(m.phone)}
+                onPress={(e) => {
+                  e?.stopPropagation?.();
+                  callNumber(m.phone);
+                }}
                 style={styles.iconBtn}
                 activeOpacity={0.8}
               >
                 <MaterialIcons name="call" size={16} color="rgba(34, 197, 94, 0.85)" />
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => smsNumber(m.phone)}
+                onPress={(e) => {
+                  e?.stopPropagation?.();
+                  smsNumber(m.phone);
+                }}
                 style={styles.iconBtn}
                 activeOpacity={0.8}
               >
                 <MaterialIcons name="chat-bubble" size={16} color="rgba(255, 255, 255, 0.65)" />
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => emailTo(m.email)}
+                onPress={(e) => {
+                  e?.stopPropagation?.();
+                  emailTo(m.email);
+                }}
                 style={styles.iconBtn}
                 activeOpacity={0.8}
               >
@@ -351,11 +673,13 @@ const MemberRowCompact = ({
 };
 
 // ---------- Edit Member Modal ----------
-const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
+const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, canManageWorkspace }: {
   member: Member;
   onClose: () => void;
   onSave: (m: Member) => void;
   onDelete: (id: string) => void;
+  onResendInvite?: (member: Member) => void;
+  canManageWorkspace?: boolean;
 }) => {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -371,10 +695,11 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
   const isWeb = Platform.OS === "web";
 
   const [name, setName] = useState(member.name);
-  const [phone, setPhone] = useState(member.phone || "");
+  const [phone, setPhone] = useState(formatTeamPhoneInput(member.phone || ""));
   const [email, setEmail] = useState(member.email || "");
   const [role, setRole] = useState(member.role);
   const [status, setStatus] = useState(member.status);
+  const [accessRole, setAccessRole] = useState<AccessRole>(member.accessRole || "field");
 
   const handleSave = () => {
     if (!name.trim()) {
@@ -396,6 +721,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
       email: email.trim() || undefined,
       role,
       status,
+      accessRole: member.accessRole === "owner" ? "owner" : accessRole,
     });
   };
 
@@ -423,6 +749,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
   };
 
   const trades: Trade[] = ["Project Manager", "Foreman", "Electrician", "Plumber", "Carpenter", "General Labor", "Tile Setter", "Concrete", "Drywall Installer", "Painter", "General"];
+  const accessRoles: AccessRole[] = member.accessRole === "owner" ? ["owner"] : ["manager", "field"];
 
   const inputStyle = [
     styles.addMemberInput,
@@ -516,10 +843,11 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
                 <TextInput
                   style={inputStyle}
                   value={phone}
-                  onChangeText={setPhone}
-                  placeholder="(555) 123-4567"
+                  onChangeText={(text) => setPhone(formatTeamPhoneInput(text))}
+                  placeholder="555-123-4567"
                   placeholderTextColor={placeholderTint}
                   keyboardType="phone-pad"
+                  maxLength={12}
                 />
               </View>
 
@@ -576,6 +904,46 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
                 </View>
               </View>
 
+              {member.isWorkspaceMember && member.accessRole !== "owner" ? (
+                <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
+                  <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Workspace access</Text>
+                  <View style={styles.addMemberChipWrap}>
+                    {accessRoles.map((r) =>
+                      accessRole === r ? (
+                        <TouchableOpacity key={r} onPress={() => setAccessRole(r)} activeOpacity={0.9}>
+                          <View style={styles.addMemberChipSelectedSolid}>
+                            <Text style={styles.addMemberChipTextOnGreen}>{accessRoleLabel[r]}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ) : (
+                        <TouchableOpacity
+                          key={r}
+                          onPress={() => setAccessRole(r)}
+                          activeOpacity={0.85}
+                          style={[styles.addMemberChipIdle, { backgroundColor: chipIdleBg, borderColor: chipIdleBorder }]}
+                        >
+                          <Text style={[styles.addMemberChipTextIdle, { color: supportSub }]}>{accessRoleLabel[r]}</Text>
+                        </TouchableOpacity>
+                      )
+                    )}
+                  </View>
+                </View>
+              ) : null}
+
+              {member.inviteStatus === "pending" && onResendInvite && canManageWorkspace ? (
+                <TouchableOpacity
+                  onPress={() => onResendInvite(member)}
+                  style={[styles.addMemberField, { paddingVertical: 4 }]}
+                  activeOpacity={0.85}
+                >
+                  <Text style={{ color: "#22d3ee", fontWeight: "700" }}>Email workspace invite</Text>
+                  <Text style={{ color: supportSub, marginTop: 4, fontSize: 13 }}>
+                    Send or resend instructions for signing in with {member.email || "their invited email"}.
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+
+              {member.inviteStatus !== "pending" ? (
               <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
                 <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Status</Text>
                 <View style={styles.addMemberChipWrap}>
@@ -631,6 +999,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
                   )}
                 </View>
               </View>
+              ) : null}
 
               <Text
                 style={[
@@ -638,7 +1007,9 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
                   { color: darkMode ? "rgba(255,255,255,0.48)" : Colors.sub },
                 ]}
               >
-                Active team members appear in project assignments and AI scheduling.
+                {member.inviteStatus === "pending"
+                  ? "Pending invites become active when the member signs in with the invited email."
+                  : "Active team members appear in project assignments and AI scheduling."}
               </Text>
               </View>
             </LinearGradient>
@@ -654,6 +1025,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
                 },
               ]}
             >
+              {canManageWorkspace && member.accessRole !== "owner" ? (
               <TouchableOpacity
                 onPress={confirmRemoveMember}
                 style={[
@@ -673,6 +1045,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
                   Remove from Team
                 </Text>
               </TouchableOpacity>
+              ) : null}
 
               <TouchableOpacity
                 onPress={handleSave}
@@ -761,10 +1134,11 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
               <TextInput
                 style={inputStyle}
                 value={phone}
-                onChangeText={setPhone}
-                placeholder="(555) 123-4567"
+                onChangeText={(text) => setPhone(formatTeamPhoneInput(text))}
+                placeholder="555-123-4567"
                 placeholderTextColor={placeholderTint}
                 keyboardType="phone-pad"
+                maxLength={12}
               />
             </View>
 
@@ -898,6 +1272,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
             },
           ]}
         >
+          {canManageWorkspace && member.accessRole !== "owner" ? (
           <TouchableOpacity
             onPress={confirmRemoveMember}
             style={[
@@ -917,6 +1292,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete }: {
               Remove from Team
             </Text>
           </TouchableOpacity>
+          ) : null}
 
           <TouchableOpacity
             onPress={handleSave}
@@ -969,19 +1345,27 @@ const AddMemberModal = ({ onClose, onAdd }: {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Trade>("General Labor");
   const [status, setStatus] = useState<Status>("active");
+  const [accessRole, setAccessRole] = useState<AccessRole>("field");
 
   const handleAdd = () => {
     if (!name.trim()) {
       Alert.alert("Error", "Name is required");
       return;
     }
+    if (!email.trim()) {
+      Alert.alert("Email required", "Enter an email to invite this person to your Business workspace.");
+      return;
+    }
     const newMember: Member = {
       id: `member-${Date.now()}`,
       name: name.trim(),
       phone: phone.trim() || undefined,
-      email: email.trim() || undefined,
+      email: email.trim().toLowerCase(),
       role,
       status,
+      inviteStatus: "pending",
+      accessRole,
+      isWorkspaceMember: true,
       tasksOpen: 0,
       tasksTotal: 0,
       skills: [],
@@ -991,6 +1375,7 @@ const AddMemberModal = ({ onClose, onAdd }: {
   };
 
   const trades: Trade[] = ["Project Manager", "Foreman", "Electrician", "Plumber", "Carpenter", "General Labor", "Tile Setter", "Concrete", "Drywall Installer", "Painter", "General"];
+  const accessRoles: AccessRole[] = ["manager", "field"];
 
   const inputStyle = [
     styles.addMemberInput,
@@ -1041,8 +1426,10 @@ const AddMemberModal = ({ onClose, onAdd }: {
                 </LinearGradient>
               </View>
               <View style={styles.addMemberTitleBlock}>
-                <Text style={[styles.addMemberTitle, { color: Colors.text }]}>Add Team Member</Text>
-                <Text style={[styles.addMemberSubtitle, { color: supportSub }]}>Add a new team member</Text>
+                <Text style={[styles.addMemberTitle, { color: Colors.text }]}>Invite Team Member</Text>
+                <Text style={[styles.addMemberSubtitle, { color: supportSub }]}>
+                  Send a workspace invite by email (uses one Business seat)
+                </Text>
               </View>
             </View>
 
@@ -1080,15 +1467,18 @@ const AddMemberModal = ({ onClose, onAdd }: {
                     <TextInput
                       style={inputStyle}
                       value={phone}
-                      onChangeText={setPhone}
-                      placeholder="(555) 123-4567"
+                      onChangeText={(text) => setPhone(formatTeamPhoneInput(text))}
+                      placeholder="555-123-4567"
                       placeholderTextColor={placeholderTint}
                       keyboardType="phone-pad"
+                      maxLength={12}
                     />
                   </View>
 
                   <View style={styles.addMemberField}>
-                    <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Email</Text>
+                    <Text style={[styles.addMemberLabel, { color: Colors.text }]}>
+                      Email <Text style={styles.addMemberRequired}>*</Text>
+                    </Text>
                     <TextInput
                       style={inputStyle}
                       value={email}
@@ -1134,6 +1524,30 @@ const AddMemberModal = ({ onClose, onAdd }: {
                             ]}
                           >
                             <Text style={[styles.addMemberChipTextIdle, { color: supportSub }]}>{t}</Text>
+                          </TouchableOpacity>
+                        )
+                      )}
+                    </View>
+                  </View>
+
+                  <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
+                    <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Workspace access</Text>
+                    <View style={styles.addMemberChipWrap}>
+                      {accessRoles.map((r) =>
+                        accessRole === r ? (
+                          <TouchableOpacity key={r} onPress={() => setAccessRole(r)} activeOpacity={0.9}>
+                            <View style={styles.addMemberChipSelectedSolid}>
+                              <Text style={styles.addMemberChipTextOnGreen}>{accessRoleLabel[r]}</Text>
+                            </View>
+                          </TouchableOpacity>
+                        ) : (
+                          <TouchableOpacity
+                            key={r}
+                            onPress={() => setAccessRole(r)}
+                            activeOpacity={0.85}
+                            style={[styles.addMemberChipIdle, { backgroundColor: chipIdleBg, borderColor: chipIdleBorder }]}
+                          >
+                            <Text style={[styles.addMemberChipTextIdle, { color: supportSub }]}>{accessRoleLabel[r]}</Text>
                           </TouchableOpacity>
                         )
                       )}
@@ -1217,8 +1631,10 @@ const AddMemberModal = ({ onClose, onAdd }: {
             </LinearGradient>
           </View>
           <View style={styles.addMemberTitleBlock}>
-            <Text style={[styles.addMemberTitle, { color: Colors.text }]}>Add Team Member</Text>
-            <Text style={[styles.addMemberSubtitle, { color: supportSub }]}>Add a new team member</Text>
+            <Text style={[styles.addMemberTitle, { color: Colors.text }]}>Invite Team Member</Text>
+            <Text style={[styles.addMemberSubtitle, { color: supportSub }]}>
+              Send a workspace invite by email (uses one Business seat)
+            </Text>
           </View>
         </View>
 
@@ -1248,15 +1664,18 @@ const AddMemberModal = ({ onClose, onAdd }: {
               <TextInput
                 style={inputStyle}
                 value={phone}
-                onChangeText={setPhone}
-                placeholder="(555) 123-4567"
+                onChangeText={(text) => setPhone(formatTeamPhoneInput(text))}
+                placeholder="555-123-4567"
                 placeholderTextColor={placeholderTint}
                 keyboardType="phone-pad"
+                maxLength={12}
               />
             </View>
 
             <View style={styles.addMemberField}>
-              <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Email</Text>
+              <Text style={[styles.addMemberLabel, { color: Colors.text }]}>
+                Email <Text style={styles.addMemberRequired}>*</Text>
+              </Text>
               <TextInput
                 style={inputStyle}
                 value={email}
@@ -1302,6 +1721,30 @@ const AddMemberModal = ({ onClose, onAdd }: {
                       ]}
                     >
                       <Text style={[styles.addMemberChipTextIdle, { color: supportSub }]}>{t}</Text>
+                    </TouchableOpacity>
+                  )
+                )}
+              </View>
+            </View>
+
+            <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
+              <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Workspace access</Text>
+              <View style={styles.addMemberChipWrap}>
+                {accessRoles.map((r) =>
+                  accessRole === r ? (
+                    <TouchableOpacity key={r} onPress={() => setAccessRole(r)} activeOpacity={0.9}>
+                      <View style={styles.addMemberChipSelectedSolid}>
+                        <Text style={styles.addMemberChipTextOnGreen}>{accessRoleLabel[r]}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      key={r}
+                      onPress={() => setAccessRole(r)}
+                      activeOpacity={0.85}
+                      style={[styles.addMemberChipIdle, { backgroundColor: chipIdleBg, borderColor: chipIdleBorder }]}
+                    >
+                      <Text style={[styles.addMemberChipTextIdle, { color: supportSub }]}>{accessRoleLabel[r]}</Text>
                     </TouchableOpacity>
                   )
                 )}
@@ -1897,8 +2340,6 @@ const NotifyTeamModal = ({ members, onClose }: {
 };
 
 // ---------- Screen ----------
-const TEAM_STORAGE_KEY = "bps.team.members";
-
 export default function TeamTab({
   refreshTrigger = 0,
   embedded = false,
@@ -1911,33 +2352,303 @@ export default function TeamTab({
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
   const { projectData, updateTeam } = useProjectData();
-  const [team, setTeam] = useState<Member[]>(TEAM);
+  const { user: clerkUser } = useUser();
+  const { getToken } = useAuth();
+  const {
+    hasBusiness,
+    workspaceAccess,
+    refresh: refreshWorkspaceEntitlement,
+    initialized: entitlementInitialized,
+  } = useBusinessEntitlement();
+  const { refreshProjects } = useProjectList();
+  const ownerDisplayName =
+    clerkUser?.fullName?.trim() ||
+    clerkUser?.primaryEmailAddress?.emailAddress?.trim() ||
+    undefined;
+  const [team, setTeam] = useState<Member[]>([]);
+  const [workspaceMemberIds, setWorkspaceMemberIds] = useState<Set<string>>(new Set());
+  const [seatLimit, setSeatLimit] = useState(5);
+  const [seatsUsed, setSeatsUsed] = useState(0);
   const [q, setQ] = useState("");
   const [tradeFilter, setTradeFilter] = useState<Trade | "All">("All");
   const [sortBy, setSortBy] = useState<"alpha" | "status">("status");
+  const [showFilterOptions, setShowFilterOptions] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
+  const [workspaceRosterLoaded, setWorkspaceRosterLoaded] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showNotifyModal, setShowNotifyModal] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [canManageWorkspace, setCanManageWorkspace] = useState(false);
+  const [workspaceRole, setWorkspaceRole] = useState<AccessRole | null>(null);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
+  const [cachedAccessSnapshot, setCachedAccessSnapshot] = useState<BusinessWorkspaceAccess | null>(
+    null
+  );
 
-  // Load team from storage (also when refreshTrigger changes, e.g. after AI updates status)
+  const effectiveWorkspaceAccess = workspaceAccess || cachedAccessSnapshot;
+
+  const applyAccessContext = useCallback((access: BusinessWorkspaceAccess | null | undefined) => {
+    if (!access) return;
+    setCanManageWorkspace(Boolean(access.isOwner || access.role === "owner"));
+    setWorkspaceRole((access.role as AccessRole) || null);
+    if (access.workspaceId) {
+      setActiveWorkspaceId(access.workspaceId);
+    }
+  }, []);
+
+  const applyTeamRows = useCallback(
+    async (rows: Member[], workspaceId: string | null, persist = true) => {
+      if (!rows.length) return false;
+      setWorkspaceMemberIds(new Set(rows.map((row) => row.id)));
+      setTeam(rows);
+      setWorkspaceRosterLoaded(true);
+      if (persist) {
+        await AsyncStorage.setItem(getTeamStorageKey(workspaceId), JSON.stringify(rows));
+      }
+      return true;
+    },
+    []
+  );
+
+  const pushTeamRosterToBusinessWorkspace = (members: Member[]) => {
+    if (!projectData?.id) return;
+    businessWorkspaceService
+      .pushProjectResource(projectData.id, "team", members)
+      .catch((error) => console.warn("Business workspace team sync failed:", error));
+  };
+
+  const loadWorkspaceRoster = async () => {
+    try {
+      const clerkEmail =
+        clerkUser?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
+
+      for (let attempt = 0; attempt < 30; attempt++) {
+        try {
+          const token = await getToken();
+          if (token) {
+            await syncClerkTokenToAsyncStorage(token, clerkEmail || null);
+            break;
+          }
+        } catch {
+          /* retry */
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+
+      await businessWorkspaceService.acceptPendingInvites().catch(() => null);
+      const access = await businessWorkspaceService.getWorkspaceAccess().catch(() => null);
+      const workspaceId = access?.data?.workspaceId || null;
+      if (workspaceId) {
+        setActiveWorkspaceId(workspaceId);
+      }
+      const rosterStorageKey = getTeamStorageKey(workspaceId);
+
+      if (access?.success && access.data) {
+        setCanManageWorkspace(
+          Boolean(access.data.isOwner || access.data.role === "owner")
+        );
+        setWorkspaceRole((access.data.role as AccessRole) || null);
+
+        if (access.data.hasWorkspaceAccess) {
+          await persistWorkspaceAccessSnapshot(access.data);
+          await AsyncStorage.setItem("bps.cachedWorkspaceAccess", "1");
+          setCachedAccessSnapshot(access.data);
+          setBusinessEntitlementSnapshot({
+            hasBusiness: false,
+            hasWorkspaceAccess: true,
+          });
+          try {
+            const legacyRaw = await AsyncStorage.getItem(TEAM_STORAGE_KEY);
+            if (legacyRaw) {
+              const legacyParsed = JSON.parse(legacyRaw);
+              if (isDemoTeamRoster(legacyParsed)) {
+                await AsyncStorage.removeItem(TEAM_STORAGE_KEY);
+              }
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+
+      if (access?.data?.isOwner) {
+        await businessWorkspaceService.ensureWorkspace(ownerDisplayName);
+        void refreshProjects();
+      }
+
+      const roster = await businessWorkspaceService.getWorkspaceMembers();
+      if (roster.success && roster.data) {
+        let workspaceMembers = roster.data.members || [];
+        if (workspaceMembers.length === 0 && access?.data?.hasWorkspaceAccess) {
+          const fallbackMembers = teamRowsFromWorkspaceAccess(access.data);
+          if (await applyTeamRows(fallbackMembers, workspaceId)) {
+            return true;
+          }
+        }
+
+        const ownerInRoster = workspaceMembers.some(
+          (member) =>
+            member.role === "owner" &&
+            String(member.email || "").trim().toLowerCase() === clerkEmail
+        );
+        if (ownerInRoster) {
+          setCanManageWorkspace(true);
+          setWorkspaceRole("owner");
+        }
+        setSeatLimit(roster.data.seatLimit || 5);
+        setSeatsUsed(
+          typeof roster.data.seatsUsed === "number"
+            ? roster.data.seatsUsed
+            : countTeamSeatsUsed(workspaceMembers.map(memberFromWorkspace))
+        );
+        setWorkspaceMemberIds(new Set(workspaceMembers.map((member) => member.id)));
+        setTeam(workspaceMembers.map(memberFromWorkspace));
+        setWorkspaceRosterLoaded(true);
+        await AsyncStorage.setItem(
+          rosterStorageKey,
+          JSON.stringify(workspaceMembers.map(memberFromWorkspace))
+        );
+        return true;
+      }
+
+      // Invited members: show owner + self even if full roster fetch fails.
+      if (
+        access?.success &&
+        access.data?.hasWorkspaceAccess &&
+        !access.data.isOwner
+      ) {
+        const rows = teamRowsFromWorkspaceAccess(access.data);
+        if (await applyTeamRows(rows, workspaceId)) {
+          return true;
+        }
+      }
+
+      // Workspace access confirmed but roster unavailable — use access snapshot, not demo crew.
+      if (access?.success && access.data?.hasWorkspaceAccess) {
+        const rows = teamRowsFromWorkspaceAccess(access.data);
+        if (await applyTeamRows(rows, workspaceId)) {
+          return true;
+        }
+      }
+
+      if (roster.error) {
+        console.warn("Workspace roster unavailable:", roster.error);
+      }
+    } catch (error) {
+      console.error("Failed to load workspace roster:", error);
+    }
+    return false;
+  };
+
+  // Load team from workspace first — never fall back to demo seed data on web.
   useEffect(() => {
     const loadTeam = async () => {
       try {
-        const saved = await AsyncStorage.getItem(TEAM_STORAGE_KEY);
-        if (saved) setTeam(JSON.parse(saved));
+        if (entitlementInitialized && !workspaceAccess?.hasWorkspaceAccess) {
+          await refreshWorkspaceEntitlement().catch(() => null);
+        }
+
+        const loadedFromWorkspace = await loadWorkspaceRoster();
+        if (loadedFromWorkspace) return;
+
+        const accessResponse = await businessWorkspaceService
+          .getWorkspaceAccess()
+          .catch(() => null);
+        const snapshot =
+          accessResponse?.data ??
+          workspaceAccess ??
+          cachedAccessSnapshot ??
+          (await readWorkspaceAccessSnapshot());
+        if (snapshot?.hasWorkspaceAccess) {
+          setCachedAccessSnapshot(snapshot);
+          applyAccessContext(snapshot);
+        }
+
+        const wsId = snapshot?.workspaceId || null;
+        const cachedWorkspaceAccess = await AsyncStorage.getItem(
+          "bps.cachedWorkspaceAccess"
+        );
+        if (cachedWorkspaceAccess === "1" || snapshot?.hasWorkspaceAccess) {
+          const cachedRoster = await readCachedTeamRoster(wsId);
+          if (cachedRoster && cachedRoster.length > 0) {
+            await applyTeamRows(cachedRoster, wsId, false);
+            return;
+          }
+
+          const fallbackRows = teamRowsFromWorkspaceAccess(snapshot);
+          if (await applyTeamRows(fallbackRows, wsId)) {
+            return;
+          }
+        }
+
+        const cachedRoster = await readCachedTeamRoster(wsId);
+        if (cachedRoster && cachedRoster.length > 0) {
+          setTeam(cachedRoster);
+          return;
+        }
+
+        const scopedKey = getTeamStorageKey(wsId);
+        const saved =
+          (await AsyncStorage.getItem(scopedKey)) ||
+          (scopedKey !== TEAM_STORAGE_KEY
+            ? await AsyncStorage.getItem(TEAM_STORAGE_KEY)
+            : null);
+
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed) && !isDemoTeamRoster(parsed)) {
+              setTeam(parsed);
+              return;
+            }
+          } catch {
+            /* ignore corrupt cache */
+          }
+        }
+
+        if (snapshot?.hasWorkspaceAccess) {
+          await applyTeamRows(teamRowsFromWorkspaceAccess(snapshot), wsId, false);
+          return;
+        }
+
+        setTeam([]);
       } catch (error) {
         console.error("Failed to load team:", error);
+        setTeam([]);
       } finally {
         setIsLoaded(true);
       }
     };
     loadTeam();
-  }, [refreshTrigger]);
+  }, [refreshTrigger, clerkUser?.id, entitlementInitialized]);
 
-  // Merge PM and crew from ProjectDataContext into team list
   useEffect(() => {
-    if (!projectData || !isLoaded) return;
+    void readWorkspaceAccessSnapshot().then((snapshot) => {
+      if (snapshot?.hasWorkspaceAccess) {
+        setCachedAccessSnapshot(snapshot);
+        applyAccessContext(snapshot);
+      }
+    });
+  }, [applyAccessContext]);
+
+  useEffect(() => {
+    if (team.length > 0 || !effectiveWorkspaceAccess?.hasWorkspaceAccess) return;
+    applyAccessContext(effectiveWorkspaceAccess);
+    void applyTeamRows(
+      teamRowsFromWorkspaceAccess(effectiveWorkspaceAccess),
+      effectiveWorkspaceAccess.workspaceId,
+      false
+    );
+  }, [
+    team.length,
+    effectiveWorkspaceAccess,
+    applyAccessContext,
+    applyTeamRows,
+  ]);
+
+  // Merge PM and crew from ProjectDataContext when not using workspace roster
+  useEffect(() => {
+    if (!projectData || !isLoaded || workspaceRosterLoaded) return;
     
     const pmName = projectData.team?.pmName;
     const crewMembers = (projectData.team as any)?.crewMembers || [];
@@ -2030,14 +2741,17 @@ export default function TeamTab({
       
       return updatedTeam;
     });
-  }, [projectData?.team?.pmName, (projectData?.team as any)?.crewMembers, (projectData?.team as any)?.crewMemberPhones, isLoaded]);
+  }, [projectData?.team?.pmName, (projectData?.team as any)?.crewMembers, (projectData?.team as any)?.crewMemberPhones, isLoaded, workspaceRosterLoaded]);
 
   // Save team whenever it changes
   useEffect(() => {
     if (!isLoaded) return;
     const saveTeam = async () => {
       try {
-        await AsyncStorage.setItem(TEAM_STORAGE_KEY, JSON.stringify(team));
+        await AsyncStorage.setItem(
+          getTeamStorageKey(activeWorkspaceId),
+          JSON.stringify(team)
+        );
       } catch (error) {
         console.error("Failed to save team:", error);
       }
@@ -2051,11 +2765,28 @@ export default function TeamTab({
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
+  const effectiveTeam = useMemo(() => {
+    if (team.length > 0) return team;
+    return teamRowsFromWorkspaceAccess(effectiveWorkspaceAccess);
+  }, [team, effectiveWorkspaceAccess]);
+
+  const resolvedCanManageWorkspace = useMemo(() => {
+    if (effectiveWorkspaceAccess?.hasWorkspaceAccess) {
+      return Boolean(
+        effectiveWorkspaceAccess.isOwner || effectiveWorkspaceAccess.role === "owner"
+      );
+    }
+    return canManageWorkspace;
+  }, [canManageWorkspace, effectiveWorkspaceAccess]);
+
   const stats = useMemo(() => {
-    const active = team.filter((m) => m.status === "active").length;
-    const offDuty = team.filter((m) => m.status === "off_duty").length;
-    return { active, offDuty, total: team.length };
-  }, [team]);
+    const rosterMembers = effectiveTeam.filter((m) => m.accessRole !== "owner");
+    const active = rosterMembers.filter((m) => m.status === "active" && m.inviteStatus !== "pending").length;
+    const offDuty = rosterMembers.filter((m) => m.status === "off_duty" && m.inviteStatus !== "pending").length;
+    const pending = rosterMembers.filter((m) => m.inviteStatus === "pending").length;
+    const usedSeats = countTeamSeatsUsed(effectiveTeam);
+    return { active, offDuty, pending, total: rosterMembers.length, usedSeats };
+  }, [effectiveTeam]);
 
   const allTrades: Trade[] = [
     "Project Manager",
@@ -2072,9 +2803,42 @@ export default function TeamTab({
   ];
   const trades: (Trade | "All")[] = ["All", ...allTrades];
 
+  const ownerMember = useMemo(() => {
+    const fromTeam = effectiveTeam.find((member) => member.accessRole === "owner");
+    if (fromTeam) return fromTeam;
+    if (effectiveWorkspaceAccess?.ownerMember) {
+      return memberFromWorkspace(effectiveWorkspaceAccess.ownerMember);
+    }
+    return null;
+  }, [effectiveTeam, effectiveWorkspaceAccess]);
+
+  const selfMember = useMemo(() => {
+    const email =
+      clerkUser?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
+    const clerkId = clerkUser?.id || "";
+    const fromTeam = effectiveTeam.find((member) => {
+      if (email && member.email?.trim().toLowerCase() === email) return true;
+      return false;
+    });
+    if (fromTeam) return fromTeam;
+    if (
+      effectiveWorkspaceAccess?.member &&
+      !effectiveWorkspaceAccess.isOwner &&
+      (effectiveWorkspaceAccess.member.userId === clerkId ||
+        (email &&
+          effectiveWorkspaceAccess.member.email?.trim().toLowerCase() === email))
+    ) {
+      return memberFromWorkspace(effectiveWorkspaceAccess.member);
+    }
+    return null;
+  }, [effectiveTeam, effectiveWorkspaceAccess, clerkUser]);
+
+  const showInviteButton = resolvedCanManageWorkspace || hasBusiness;
+
   const data = useMemo(() => {
-    let arr = team.filter(
+    let arr = effectiveTeam.filter(
       (m) =>
+        m.accessRole !== "owner" &&
         (tradeFilter === "All" || m.role === tradeFilter) &&
         (q.trim() === "" ||
           `${m.name} ${m.role} ${m.skills.join(" ")}`
@@ -2089,69 +2853,208 @@ export default function TeamTab({
       });
     }
     if (sortBy === "status") {
-      const order: Status[] = ["active", "off_duty"];
-      arr = arr.sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
+      arr = arr.sort((a, b) => {
+        const aPending = a.inviteStatus === "pending" ? 0 : 1;
+        const bPending = b.inviteStatus === "pending" ? 0 : 1;
+        if (aPending !== bPending) return aPending - bPending;
+        const order: Status[] = ["active", "off_duty"];
+        return order.indexOf(a.status) - order.indexOf(b.status);
+      });
     }
     return arr;
-  }, [q, tradeFilter, sortBy, team]);
+  }, [q, tradeFilter, sortBy, effectiveTeam]);
 
-  const updateMember = (updated: Member) => {
-    setTeam((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+  const updateMember = async (updated: Member) => {
+    if (workspaceMemberIds.has(updated.id)) {
+      const result = await businessWorkspaceService.updateWorkspaceMember(
+        updated.id,
+        memberToWorkspacePayload(updated)
+      );
+      if (!result.success) {
+        Alert.alert("Could not update member", result.error || "Try again.");
+        return;
+      }
+    }
+
+    setTeam((prev) => {
+      const next = prev.map((m) => (m.id === updated.id ? updated : m));
+      pushTeamRosterToBusinessWorkspace(next);
+      return next;
+    });
     setEditingMember(null);
   };
 
-  const addMember = (newMember: Member) => {
-    setTeam((prev) => [...prev, newMember]);
-    setShowAddModal(false);
-  };
-
-  const deleteMember = (id: string) => {
-    const member = team.find((m) => m.id === id);
-    const performRemove = () => {
-      setTeam((prev) => prev.filter((m) => m.id !== id));
-      setEditingMember(null);
-      // Sync deletion to ProjectDataContext so the AI gets updated team
-      if (member && updateTeam) {
-        const pmName = projectData?.team?.pmName;
-        const crewMembers = (projectData?.team as any)?.crewMembers || [];
-        const crewPhones = (projectData?.team as any)?.crewMemberPhones || {};
-        const name = member.name?.trim() || "";
-        const nameLower = name.toLowerCase();
-        if (member.role === "Project Manager" && pmName && pmName.trim().toLowerCase() === nameLower) {
-          // Remove PM
-          const newCrew = (crewMembers as string[]).filter((n) => n.trim().toLowerCase() !== nameLower);
-          updateTeam(false, "", newCrew.length, newCrew, crewPhones);
-        } else if (id.startsWith("crew-") || (crewMembers as string[]).some((n) => n.trim().toLowerCase() === nameLower)) {
-          // Remove from crew
-          const newCrew = (crewMembers as string[]).filter((n) => n.trim().toLowerCase() !== nameLower);
-          const newPhones = { ...crewPhones };
-          delete newPhones[name];
-          Object.keys(newPhones).forEach((k) => {
-            if (k.trim().toLowerCase() === nameLower) delete newPhones[k];
-          });
-          updateTeam(Boolean(pmName), pmName || "", newCrew.length, newCrew, newPhones);
-        }
-      }
-    };
-
-    // Web: EditMemberModal already confirmed; RN Web Alert for a second prompt often fails.
-    if (Platform.OS === "web") {
-      performRemove();
+  const addMember = async (newMember: Member) => {
+    if (!newMember.email?.trim()) {
+      Alert.alert("Email required", "Enter an email to invite this person to your workspace.");
       return;
     }
 
-    Alert.alert("Remove Team Member", "Remove this team member?", [
+    const ensured = await businessWorkspaceService.ensureWorkspace(ownerDisplayName);
+    if (!ensured.success) {
+      Alert.alert(
+        "Could not add member",
+        ensured.error || "Sign in again and make sure the backend is running."
+      );
+      return;
+    }
+
+    const result = await businessWorkspaceService.addWorkspaceMember(
+      memberToWorkspacePayload(newMember)
+    );
+    if (!result.success) {
+      Alert.alert("Could not add member", result.error || "Try again.");
+      return;
+    }
+
+    await loadWorkspaceRoster();
+
+    setShowAddModal(false);
+    const emailWasSent = result.emailDelivery?.sent;
+    Alert.alert(
+      emailWasSent ? "Invite emailed" : "Invite ready",
+      emailWasSent
+        ? `${newMember.name} was emailed a workspace invite. They become active when they sign in with ${newMember.email}.`
+        : `${newMember.name} was added as pending. Share these sign-in instructions so they can activate workspace access.`,
+      [
+        { text: "Not now", style: "cancel" },
+        {
+          text: emailWasSent ? "Share backup" : "Share invite",
+          onPress: () => {
+            void shareWorkspaceInvite(newMember);
+          },
+        },
+      ]
+    );
+  };
+
+  const resendInvite = async (member: Member) => {
+    const result = await businessWorkspaceService.resendWorkspaceInvite(member.id);
+    if (!result.success) {
+      Alert.alert("Could not resend invite", result.error || "Try again.");
+      return;
+    }
+    if (result.emailDelivery?.sent) {
+      Alert.alert(
+        "Invite emailed",
+        `${member.name} was emailed another workspace invite.`,
+        [
+          { text: "Done", style: "cancel" },
+          {
+            text: "Share backup",
+            onPress: () => {
+              void shareWorkspaceInvite(member);
+            },
+          },
+        ]
+      );
+      return;
+    }
+    await shareWorkspaceInvite(member);
+  };
+
+  const removeMemberById = async (id: string) => {
+    const member = team.find((m) => m.id === id);
+    if (workspaceMemberIds.has(id)) {
+      const result = await businessWorkspaceService.removeWorkspaceMember(id);
+      if (!result.success) {
+        const errMsg = result.error || "Try again.";
+        if (
+          Platform.OS === "web" &&
+          typeof window !== "undefined" &&
+          typeof window.alert === "function"
+        ) {
+          window.alert(`Could not remove member\n\n${errMsg}`);
+        } else {
+          Alert.alert("Could not remove member", errMsg);
+        }
+        return;
+      }
+      setWorkspaceMemberIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+
+    setTeam((prev) => {
+      const next = prev.filter((m) => m.id !== id);
+      pushTeamRosterToBusinessWorkspace(next);
+      return next;
+    });
+    setEditingMember(null);
+    if (member && updateTeam) {
+      const pmName = projectData?.team?.pmName;
+      const crewMembers = (projectData?.team as any)?.crewMembers || [];
+      const crewPhones = (projectData?.team as any)?.crewMemberPhones || {};
+      const name = member.name?.trim() || "";
+      const nameLower = name.toLowerCase();
+      if (member.role === "Project Manager" && pmName && pmName.trim().toLowerCase() === nameLower) {
+        const newCrew = (crewMembers as string[]).filter((n) => n.trim().toLowerCase() !== nameLower);
+        updateTeam(false, "", newCrew.length, newCrew, crewPhones);
+      } else if (id.startsWith("crew-") || (crewMembers as string[]).some((n) => n.trim().toLowerCase() === nameLower)) {
+        const newCrew = (crewMembers as string[]).filter((n) => n.trim().toLowerCase() !== nameLower);
+        const newPhones = { ...crewPhones };
+        delete newPhones[name];
+        Object.keys(newPhones).forEach((k) => {
+          if (k.trim().toLowerCase() === nameLower) delete newPhones[k];
+        });
+        updateTeam(Boolean(pmName), pmName || "", newCrew.length, newCrew, newPhones);
+      }
+    }
+  };
+
+  const requestRemoveMember = (member: Member) => {
+    if (!resolvedCanManageWorkspace || member.accessRole === "owner") return;
+
+    const msg = `Are you sure you want to remove ${member.name} from the team?`;
+    if (
+      Platform.OS === "web" &&
+      typeof window !== "undefined" &&
+      typeof window.confirm === "function"
+    ) {
+      if (window.confirm(`Remove Team Member\n\n${msg}`)) {
+        void removeMemberById(member.id);
+      }
+      return;
+    }
+
+    Alert.alert("Remove Team Member", msg, [
       { text: "Cancel", style: "cancel" },
       {
         text: "Remove",
         style: "destructive",
-        onPress: performRemove,
+        onPress: () => {
+          void removeMemberById(member.id);
+        },
       },
     ]);
   };
 
   const supportSub = darkMode ? 'rgba(226, 232, 240, 0.78)' : Colors.sub;
   const supportMuted = darkMode ? 'rgba(226, 232, 240, 0.62)' : Colors.sub;
+
+  const shareWorkspaceInvite = async (member: Member) => {
+    const message = buildWorkspaceInviteMessage(member);
+    try {
+      if (Platform.OS === "web") {
+        await Clipboard.setStringAsync(message);
+        Alert.alert("Invite copied", "Paste it into a text or email to send this workspace invite.");
+        return;
+      }
+      await Share.share({
+        title: "Build Profit workspace invite",
+        message,
+      });
+    } catch (error) {
+      try {
+        await Clipboard.setStringAsync(message);
+        Alert.alert("Invite copied", "Sharing was unavailable, so the invite text was copied.");
+      } catch {
+        Alert.alert("Could not share invite", "Try again, or ask them to sign in with the invited email.");
+      }
+    }
+  };
 
   return (
     <View style={[styles.screen, embedded && styles.screenEmbedded, { backgroundColor: Colors.bg }]}>
@@ -2163,7 +3066,7 @@ export default function TeamTab({
           !darkMode && { backgroundColor: Colors.bg },
         ]}
       >
-        {/* Outer green-to-blue border wrapping Team Details header, Team card, and Search card */}
+        {/* Outer green-to-blue border wrapping Team workspace controls */}
         <LinearGradient
           colors={BRAND_FRAME_GRADIENT_COLORS}
           start={{ x: 0.05, y: 0.15 }}
@@ -2175,8 +3078,9 @@ export default function TeamTab({
             <View style={styles.teamHeaderRow}>
               <View style={{ flex: 1 }}>
                 <View style={styles.teamHeaderTopRow}>
-                  <Text style={[styles.teamHeaderTitle, { color: Colors.text }]}>Team Details</Text>
+                  <Text style={[styles.teamHeaderTitle, { color: Colors.text }]}>Team</Text>
                   <View style={styles.headerQuickActions}>
+                    {resolvedCanManageWorkspace ? (
                     <TouchableOpacity
                       onPress={() => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -2194,6 +3098,8 @@ export default function TeamTab({
                     >
                       <MaterialIcons name="campaign" size={19} color="#22c55e" />
                     </TouchableOpacity>
+                    ) : null}
+                    {showInviteButton ? (
                     <TouchableOpacity
                       onPress={() => {
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -2211,58 +3117,37 @@ export default function TeamTab({
                     >
                       <MaterialIcons name="person-add" size={19} color="#22c55e" />
                     </TouchableOpacity>
+                    ) : null}
                   </View>
                 </View>
                 <Text style={[styles.teamHeaderSubtitle, { color: supportSub }]}>
-                  Manage your team members and assignments
+                  {stats.active} active · {stats.offDuty} off duty
+                  {stats.pending > 0 ? ` · ${stats.pending} pending` : ""} · {stats.total} total
+                  {resolvedCanManageWorkspace && workspaceRole && workspaceRole !== "owner"
+                    ? ` · ${accessRoleLabel[workspaceRole]} access`
+                    : ""}
                 </Text>
               </View>
             </View>
 
-            {/* Team Stats Section */}
-            <View style={[styles.sectionCardContainer, { marginTop: 12 }]}>
-              <View
-                style={[
-                  styles.sectionCard,
-                  { backgroundColor: Colors.surface2, borderWidth: darkMode ? 1 : 1, borderColor: Colors.line, borderRadius: 14 },
-                ]}
-              >
-              <View style={[styles.sectionHeader, !darkMode && { borderBottomColor: Colors.line }]}>
-                <MaterialIcons name='people' size={22} color='#22c55e' />
-              <Text style={[styles.sectionTitle, { marginLeft: 12, color: Colors.text }]}>Team</Text>
+            {resolvedCanManageWorkspace ? (
+            <View style={styles.workspaceSummaryRow}>
+              <View style={[styles.workspaceSummaryPill, { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+                <MaterialIcons name="business-center" size={15} color="#22c55e" />
+                <Text style={[styles.workspaceSummaryText, { color: Colors.text }]}>Business workspace</Text>
               </View>
-              <View
-                style={[
-                  styles.statsUnified,
-                  {
-                    backgroundColor: darkMode ? 'rgba(15, 23, 42, 0.42)' : Colors.surface2,
-                    borderColor: darkMode ? 'rgba(148, 163, 184, 0.1)' : Colors.line,
-                  },
-                ]}
-              >
-                <View style={styles.statCell}>
-                  <Text style={[styles.statVal, { color: '#22c55e' }]}>{stats.active}</Text>
-                  <Text style={[styles.statLabel, { color: supportSub }]} numberOfLines={1}>
-                    Active
-                  </Text>
-                </View>
-                <View style={[styles.statDivider, { backgroundColor: darkMode ? 'rgba(148,163,184,0.08)' : Colors.line }]} />
-                <View style={styles.statCell}>
-                  <Text style={[styles.statVal, { color: '#ffd166' }]}>{stats.offDuty}</Text>
-                  <Text style={[styles.statLabel, { color: supportSub }]} numberOfLines={1}>
-                    Off Duty
-                  </Text>
-                </View>
-                <View style={[styles.statDivider, { backgroundColor: darkMode ? 'rgba(148,163,184,0.08)' : Colors.line }]} />
-                <View style={styles.statCell}>
-                  <Text style={[styles.statVal, { color: '#22d3ee' }]}>{stats.total}</Text>
-                  <Text style={[styles.statLabel, { color: supportSub }]} numberOfLines={1}>
-                    Total
-                  </Text>
-                </View>
+              <View style={[styles.workspaceSummaryPill, { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+                <MaterialIcons name="verified-user" size={15} color="#22d3ee" />
+                <Text style={[styles.workspaceSummaryText, { color: Colors.text }]}>Role access</Text>
+              </View>
+              <View style={[styles.workspaceSummaryPill, { backgroundColor: Colors.surface2, borderColor: Colors.line }]}>
+                <MaterialIcons name="event-seat" size={15} color="#22c55e" />
+                <Text style={[styles.workspaceSummaryText, { color: Colors.text }]}>
+                  {stats.usedSeats}/{seatLimit} seats
+                </Text>
               </View>
             </View>
-            </View>
+            ) : null}
 
             {/* Search & Filters Section - iOS Refined */}
             <View style={styles.filterCardContainer}>
@@ -2343,8 +3228,10 @@ export default function TeamTab({
                 onPress={() => {
                   if (tradeFilter !== "All") {
                     setTradeFilter("All");
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  } else {
+                    setShowFilterOptions((prev) => !prev);
                   }
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 }}
                 style={[
                   styles.filterChip,
@@ -2370,8 +3257,8 @@ export default function TeamTab({
               </TouchableOpacity>
             </View>
 
-            {/* Trade Filter Pills - Horizontal Scrollable (only show when All is selected) */}
-            {tradeFilter === "All" && (
+            {/* Trade Filter Pills - collapsed until Filter is opened */}
+            {tradeFilter === "All" && showFilterOptions && (
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -2383,6 +3270,7 @@ export default function TeamTab({
                     key={t}
                     onPress={() => {
                       setTradeFilter(t);
+                      setShowFilterOptions(false);
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     }}
                     style={[
@@ -2418,9 +3306,40 @@ export default function TeamTab({
                 { backgroundColor: darkMode ? "#000000" : Colors.bg },
               ]}
             >
+              <View style={styles.teamMembersListPad}>
+                {!resolvedCanManageWorkspace && ownerMember ? (
+                  <WorkspaceMemberAccessCard
+                    ownerName={ownerMember.name}
+                    role={
+                      workspaceRole ||
+                      selfMember?.accessRole ||
+                      effectiveWorkspaceAccess?.role ||
+                      "field"
+                    }
+                    tradeRole={
+                      selfMember?.role ||
+                      effectiveWorkspaceAccess?.member?.tradeRole ||
+                      undefined
+                    }
+                    status={selfMember?.inviteStatus || effectiveWorkspaceAccess?.status || "active"}
+                  />
+                ) : ownerMember ? (
+                  <WorkspaceOwnerCard
+                    owner={ownerMember}
+                    onEdit={setEditingMember}
+                    supportSubColor={supportSub}
+                  />
+                ) : null}
+              </View>
               <View style={[styles.sectionHeader, styles.teamMembersSectionHeader, !darkMode && { borderBottomColor: Colors.line }]}>
-                <MaterialIcons name='list' size={22} color='#22c55e' />
-                <Text style={[styles.sectionTitle, { marginLeft: 12, color: Colors.text }]}>Team Members</Text>
+                <MaterialIcons name='groups' size={22} color='#22d3ee' />
+                <Text style={[styles.sectionTitle, { marginLeft: 12, color: Colors.text }]}>
+                  {resolvedCanManageWorkspace
+                    ? ownerMember
+                      ? "Invites & team"
+                      : "Team Members"
+                    : "Team roster"}
+                </Text>
               </View>
               <View style={styles.teamMembersListPad}>
                 {data.length > 0 ? (
@@ -2429,10 +3348,18 @@ export default function TeamTab({
                       key={item.id}
                       m={item}
                       onEdit={setEditingMember}
+                      onRequestRemove={requestRemoveMember}
+                      canManageWorkspace={resolvedCanManageWorkspace}
                       onStatusToggle={handleStatusToggle}
                       supportSubColor={supportSub}
                     />
                   ))
+                ) : resolvedCanManageWorkspace && ownerMember ? (
+                  <View style={styles.emptyTeamWrap}>
+                    <Text style={{ color: supportSub, fontSize: 15, fontWeight: '500', textAlign: 'center' }}>
+                      No invited members yet. Tap + to send a workspace invite.
+                    </Text>
+                  </View>
                 ) : (
                   <View style={styles.emptyTeamWrap}>
                     <Text style={{ color: supportSub, fontSize: 15, fontWeight: '500' }}>No team members found</Text>
@@ -2451,7 +3378,11 @@ export default function TeamTab({
           member={editingMember}
           onClose={() => setEditingMember(null)}
           onSave={updateMember}
-          onDelete={deleteMember}
+          onDelete={(id) => {
+            void removeMemberById(id);
+          }}
+          onResendInvite={resendInvite}
+          canManageWorkspace={resolvedCanManageWorkspace}
         />
       )}
 
@@ -2536,6 +3467,26 @@ const styles = StyleSheet.create({
     marginTop: 2,
     lineHeight: 20,
     color: "#8DA0B8",
+  },
+  workspaceSummaryRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 12,
+    marginBottom: 12,
+  },
+  workspaceSummaryPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+  },
+  workspaceSummaryText: {
+    fontSize: 12,
+    fontWeight: "800",
   },
   headerIconBtn: {
     width: 40,
@@ -2785,6 +3736,84 @@ const styles = StyleSheet.create({
     paddingVertical: 36,
     paddingHorizontal: 20,
   },
+  workspaceOwnerSection: {
+    marginBottom: 18,
+  },
+  workspaceOwnerCard: {
+    borderRadius: 15,
+    padding: 13,
+    backgroundColor: "rgba(34, 197, 94, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(45, 255, 196, 0.32)",
+    gap: 10,
+  },
+  workspaceOwnerHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  workspaceOwnerHeaderTitle: {
+    color: "#2DFFC4",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  workspaceOwnerBodyRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 10,
+    paddingBottom: 8,
+  },
+  workspaceOwnerBodyCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  workspaceOwnerName: {
+    fontSize: 12.5,
+    fontWeight: "700",
+  },
+  workspaceOwnerMeta: {
+    fontSize: 11,
+    marginTop: 2,
+    lineHeight: 15,
+  },
+  workspaceOwnerRightCol: {
+    alignItems: "flex-end",
+  },
+  workspaceOwnerRightLabel: {
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  workspaceOwnerRightSub: {
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  workspaceOwnerFooterRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingTop: 8,
+    borderTopWidth: 1,
+  },
+  workspaceOwnerFooterLabel: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  workspaceOwnerFooterValueCol: {
+    alignItems: "flex-end",
+  },
+  workspaceOwnerFooterValue: {
+    color: "#2DFFC4",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  workspaceOwnerFooterSub: {
+    color: "#22c55e",
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 2,
+  },
   memberRowWrapper: {
     marginBottom: 12,
   },
@@ -2850,6 +3879,10 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 255, 255, 0.04)",
     borderWidth: 1,
     borderColor: "rgba(148, 163, 184, 0.12)",
+  },
+  iconBtnDanger: {
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    borderColor: "rgba(248, 113, 113, 0.35)",
   },
 
   // Pills & Chips

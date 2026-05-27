@@ -54,10 +54,16 @@ export async function checkAuthTokenStatus(): Promise<TokenStatus> {
  * Sync Clerk token to AsyncStorage for BackendAPI compatibility
  * Call this after Clerk authentication succeeds
  */
-export async function syncClerkTokenToAsyncStorage(clerkToken: string): Promise<boolean> {
+export async function syncClerkTokenToAsyncStorage(
+  clerkToken: string,
+  email?: string | null
+): Promise<boolean> {
   try {
     await AsyncStorage.setItem('auth_token', clerkToken);
     await AsyncStorage.setItem('authToken', clerkToken);
+    if (email && email.trim()) {
+      await AsyncStorage.setItem('auth_email', email.trim().toLowerCase());
+    }
     console.log('✅ Synced Clerk token to AsyncStorage (auth_token + authToken)');
     return true;
   } catch (error) {
@@ -84,8 +90,9 @@ export async function clearAuthToken(): Promise<void> {
  * This is a helper that can be used in components
  */
 export async function getAuthTokenWithFallback(getClerkToken?: () => Promise<string | null>): Promise<string | null> {
-  // First try AsyncStorage
-  const token = await AsyncStorage.getItem('auth_token');
+  const token =
+    (await AsyncStorage.getItem('auth_token')) ||
+    (await AsyncStorage.getItem('authToken'));
   if (token) {
     return token;
   }

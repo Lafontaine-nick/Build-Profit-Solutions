@@ -43,6 +43,9 @@ import ProjectAnalysis from '../../components/ProjectAnalysis';
 import AIAssistantModal from '../../components/AIAssistantModal';
 import AppTextField from '@/components/ui/AppTextField';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import KeyboardPlainAccessory from '@/components/ui/KeyboardPlainAccessory';
+import { KEYBOARD_ACCESSORY_IDS } from '@/constants/keyboard';
+import { estimateStep12NumericKeyboardProps } from '@/constants/inputKeyboardPresets';
 import GradientRingBackInner from '../../components/GradientRingBackInner';
 import {
   centsDigitsToNumber,
@@ -12160,6 +12163,7 @@ export default function EstimateGeneratorScreen() {
                   keyboardType="phone-pad"
                   textContentType="none"
                   autoComplete="off"
+                  {...estimateStep12NumericKeyboardProps}
                   returnKeyType="done"
                   blurOnSubmit={true}
                   style={{
@@ -12258,6 +12262,7 @@ export default function EstimateGeneratorScreen() {
                 keyboardType="phone-pad"
                 textContentType="none"
                 autoComplete="off"
+                {...estimateStep12NumericKeyboardProps}
                 returnKeyType="done"
                 blurOnSubmit={true}
                 style={{
@@ -12409,6 +12414,7 @@ export default function EstimateGeneratorScreen() {
                   keyboardType="phone-pad"
                   textContentType="none"
                   autoComplete="off"
+                  {...estimateStep12NumericKeyboardProps}
                   returnKeyType="done"
                   blurOnSubmit={true}
                   style={{
@@ -20960,6 +20966,12 @@ export default function EstimateGeneratorScreen() {
       edges={['top']}
     >
       <StatusBar barStyle="light-content" />
+      {(step === 1 || step === 2) && (
+        <KeyboardPlainAccessory
+          nativeID={KEYBOARD_ACCESSORY_IDS.estimateStep12Plain}
+          backgroundColor={darkMode ? '#000000' : Colors.bg}
+        />
+      )}
       <EstimatesMainKeyboardWrapper {...estimatesMainKeyboardWrapperProps}>
         <ScrollView
           ref={mainScrollRef}

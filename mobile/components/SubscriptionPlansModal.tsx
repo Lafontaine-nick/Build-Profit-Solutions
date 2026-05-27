@@ -13,7 +13,9 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { stripeService } from '@/services/stripeService';
+import { stripeService, resolveLiveStripePriceId } from '@/services/stripeService';
+import { resolveBestPlanIdFromSubscriptions } from '@/utils/resolveSubscriptionPlan';
+import { savePostCheckoutReturn } from '@/utils/postCheckoutReturn';
 import { clerkAuthService } from '@/services/clerkAuth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as WebBrowser from 'expo-web-browser';
@@ -58,12 +60,19 @@ interface SubscriptionPlansModalProps {
   visible?: boolean;
   onClose?: () => void;
   mode?: 'modal' | 'screen';
+  /** After Business checkout, return user to this project tab (e.g. Team upgrade from project detail). */
+  returnToProjectId?: string;
+  returnTab?: string;
+  onUpgradeComplete?: () => void;
 }
 
 export default function SubscriptionPlansModal({
   visible = false,
   onClose,
   mode = 'modal',
+  returnToProjectId,
+  returnTab = 'Team',
+  onUpgradeComplete,
 }: SubscriptionPlansModalProps) {
   const router = useRouter();
   const { darkMode, theme: themeContext } = useTheme();
@@ -119,6 +128,19 @@ export default function SubscriptionPlansModal({
   }, []);
 
   useEffect(() => {
+    if (!visible && mode !== 'screen') return;
+    let cancelled = false;
+    stripeService.fetchSubscriptionPlans().then((next) => {
+      if (!cancelled && next.length > 0) {
+        setPlans(next);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, mode]);
+
+  useEffect(() => {
     const fetchCurrentPlan = async () => {
       try {
         const emailToUse = userEmail || storedEmail;
@@ -129,20 +151,12 @@ export default function SubscriptionPlansModal({
 
         console.log('📋 Fetching current plan for plans modal, email:', emailToUse);
         const subscriptions = await stripeService.getCustomerSubscriptions(emailToUse);
-        const activeSubscription =
-          subscriptions.find(
-            (sub: any) => (sub.status === 'active' || sub.status === 'trialing') && !sub.cancel_at_period_end
-          ) || subscriptions.find((sub: any) => sub.status === 'active' || sub.status === 'trialing');
+        const bestPlanId = resolveBestPlanIdFromSubscriptions(subscriptions, plans);
 
-        if (activeSubscription && activeSubscription.plan) {
-          const priceId = activeSubscription.plan.id;
-          const match = plans.find((p) => p.stripePriceId === priceId);
-          if (match) {
-            console.log('✅ Found current plan:', match.name);
-            setCurrentPlanId(match.id);
-          } else {
-            console.log('⚠️ No matching plan found for price ID:', priceId);
-          }
+        if (bestPlanId) {
+          const match = plans.find((p) => p.id === bestPlanId);
+          console.log('✅ Found current plan:', match?.name || bestPlanId);
+          setCurrentPlanId(bestPlanId);
         }
       } catch (error: any) {
         console.error('❌ Could not fetch current plan:', error);
@@ -230,8 +244,10 @@ export default function SubscriptionPlansModal({
         console.log('📧 Using email for checkout:', emailToUse || 'will try to get from service');
         console.log('💳 Creating checkout for plan:', plan.name, 'Price ID:', plan.stripePriceId);
         
+        const livePriceId = resolveLiveStripePriceId(plan.id, plan.stripePriceId);
+
         // Validate price ID format
-        if (!plan.stripePriceId || !plan.stripePriceId.startsWith('price_')) {
+        if (!livePriceId || !livePriceId.startsWith('price_')) {
           Alert.alert(
             'Invalid Plan Configuration',
             `The ${plan.name} plan has an invalid price ID. Please contact support.`,
@@ -241,10 +257,113 @@ export default function SubscriptionPlansModal({
           setSelectedPlan(null);
           return;
         }
+
+        const currentPlan = currentPlanId ? plans.find((p) => p.id === currentPlanId) : null;
+        const isDowngrade =
+          !!currentPlan && !!plan && plan.price < currentPlan.price;
+        const isPlanChange =
+          !!currentPlanId &&
+          !!currentPlan &&
+          currentPlan.id !== plan.id &&
+          currentPlan.price !== plan.price;
+
+        if (isPlanChange) {
+          const changeResult = await stripeService.changeSubscriptionPlan(
+            livePriceId,
+            emailToUse
+          );
+
+          if (changeResult.success) {
+            setCurrentPlanId(plan.id);
+            try {
+              await AsyncStorage.setItem('bps.cachedPlanId', plan.id);
+              const { setBusinessEntitlementSnapshot } = await import(
+                '@/utils/businessEntitlementCache'
+              );
+              setBusinessEntitlementSnapshot({ hasBusiness: plan.id === 'business' });
+            } catch {
+              // non-blocking
+            }
+            if (plan.id === 'business') {
+              onUpgradeComplete?.();
+            }
+            Alert.alert(
+              'Plan updated',
+              isDowngrade
+                ? `You're now on ${changeResult.planName || plan.name}. Team workspace access will update accordingly.`
+                : `You're now on ${changeResult.planName || plan.name}. Team access will refresh automatically.`,
+              [
+                {
+                  text: 'OK',
+                  onPress: () => {
+                    handleClose();
+                  },
+                },
+              ]
+            );
+            return;
+          }
+
+          const changeError = changeResult.error || '';
+
+          if (isDowngrade) {
+            const isInactivePrice =
+              /inactive|only accepts active prices/i.test(changeError);
+            const isRouteMissing =
+              /not found|404|change-plan/i.test(changeError);
+            const isNetwork =
+              changeError.includes('Network request failed') ||
+              changeError.includes('Failed to connect') ||
+              changeError.includes('timed out');
+
+            if (isInactivePrice) {
+              throw new Error(
+                'PLAN_PRICE_INACTIVE: That plan price is inactive in Stripe. Reload the app and try again — if it persists, contact support.'
+              );
+            }
+            if (isRouteMissing) {
+              throw new Error(
+                'PLAN_CHANGE_NOT_DEPLOYED: Plan downgrades need the latest backend on Render (includes /stripe/change-plan). Deploy backend, then try again.'
+              );
+            }
+            if (isNetwork) {
+              throw new Error(
+                'PLAN_CHANGE_OFFLINE: Could not reach your Mac backend. Start the backend (port 3001) on the same Wi‑Fi as your phone, or deploy the latest backend to Render.'
+              );
+            }
+            throw new Error(
+              changeError ||
+                'Could not downgrade your plan. Try again or contact support if this continues.'
+            );
+          }
+
+          const shouldTryCheckout =
+            changeError.includes('No active subscription') ||
+            changeError.includes('No Stripe customer') ||
+            changeError.includes('Not Found') ||
+            changeError.includes('Route') ||
+            changeError.includes('change-plan') ||
+            /404/.test(changeError);
+
+          if (!shouldTryCheckout) {
+            throw new Error(
+              changeError ||
+                'Could not change your plan. Try again or contact support if this continues.'
+            );
+          }
+        }
         
-        // Create checkout session
+        if (returnToProjectId) {
+          await savePostCheckoutReturn({
+            projectId: returnToProjectId,
+            tab: returnTab,
+            targetPlanId: plan.id,
+          });
+        }
+
+        // Create checkout session (new subscription or fallback when no active sub exists)
         const session = await stripeService.createCheckoutSession(
-          plan.stripePriceId,
+          livePriceId,
           successUrl,
           cancelUrl,
           emailToUse
@@ -261,8 +380,49 @@ export default function SubscriptionPlansModal({
             setSelectedPlan(null);
             const result = await WebBrowser.openBrowserAsync(session.url);
 
+            let resolvedPlanId: string | null = null;
+            try {
+              const emailToRefresh = userEmail || storedEmail;
+              if (emailToRefresh) {
+                const subscriptions = await stripeService.getCustomerSubscriptions(emailToRefresh);
+                resolvedPlanId = resolveBestPlanIdFromSubscriptions(subscriptions, plans);
+                if (resolvedPlanId) {
+                  await AsyncStorage.setItem('bps.cachedPlanId', resolvedPlanId);
+                  const { setBusinessEntitlementSnapshot } = await import(
+                    '@/utils/businessEntitlementCache'
+                  );
+                  setBusinessEntitlementSnapshot({ hasBusiness: resolvedPlanId === 'business' });
+                  setCurrentPlanId(resolvedPlanId);
+                } else if (plan.id === 'business') {
+                  resolvedPlanId = plan.id;
+                  await AsyncStorage.setItem('bps.cachedPlanId', plan.id);
+                  const { setBusinessEntitlementSnapshot } = await import(
+                    '@/utils/businessEntitlementCache'
+                  );
+                  setBusinessEntitlementSnapshot({ hasBusiness: true });
+                  setCurrentPlanId(plan.id);
+                }
+              }
+            } catch {
+              // non-blocking — entitlement refresh on modal close still runs
+            }
+
+            const businessUnlocked =
+              resolvedPlanId === 'business' ||
+              (plan.id === 'business' && result.type !== 'dismiss');
+
+            if (returnToProjectId && businessUnlocked) {
+              onUpgradeComplete?.();
+              handleClose();
+              return;
+            }
+
             if (result.type === 'dismiss') {
-              Alert.alert('Cancelled', 'Subscription was cancelled.');
+              Alert.alert(
+                'Checkout closed',
+                'If you completed payment, tap Refresh on the Team tab to unlock Business workspace access.',
+                [{ text: 'OK', onPress: () => handleClose() }]
+              );
             } else {
               setTimeout(() => {
                 Alert.alert(
@@ -289,10 +449,14 @@ export default function SubscriptionPlansModal({
         const errorMessage = error?.message || error?.toString() || '';
         
         // Check if it's a price not found error
-        if (errorMessage.includes('No such price') || errorMessage.includes('not been created in Stripe')) {
+        if (
+          errorMessage.includes('No such price') ||
+          errorMessage.includes('not been created in Stripe') ||
+          errorMessage.includes('inactive')
+        ) {
           Alert.alert(
             'Plan Not Available',
-            errorMessage || `The ${plan.name} plan needs to be created in Stripe. Please contact support or create the plan in your Stripe Dashboard.`,
+            `The ${plan.name} plan is not configured in Stripe yet. If you're testing locally, use the hosted backend or run backend/setup-stripe.js and set STRIPE_PRICE_BUSINESS in backend/.env.`,
             [{ text: 'OK' }]
           );
           setLoading(false);
@@ -300,48 +464,38 @@ export default function SubscriptionPlansModal({
           return;
         }
         
-        // Check for network errors in multiple ways
-        const isNetworkError = 
+        const isNetworkError =
           errorMessage.includes('Network request failed') ||
-          errorMessage.includes('fetch') ||
+          errorMessage.includes('Failed to connect') ||
           errorMessage.includes('NetworkError') ||
-          error?.name === 'TypeError' && errorMessage.includes('Network');
-        
-        // If network error, show demo mode option
-        if (isNetworkError) {
+          (error?.name === 'TypeError' && errorMessage.includes('Network')) ||
+          errorMessage.includes('timed out') ||
+          errorMessage.startsWith('PLAN_CHANGE_OFFLINE:');
+
+        if (errorMessage.startsWith('PLAN_CHANGE_NOT_DEPLOYED:')) {
           Alert.alert(
-            'Demo Mode',
-            `In demo mode, we'll simulate subscribing to ${plan.name} ($${plan.price}/month). In production, this would redirect to Stripe checkout.`,
-            [
-              {
-                text: 'Cancel',
-                style: 'cancel',
-              },
-              {
-                text: 'Continue Demo',
-                onPress: () => {
-                  // Simulate successful subscription
-                  Alert.alert(
-                    'Demo Subscription',
-                    `You've successfully subscribed to ${plan.name}!\n\nPrice: $${plan.price}/month\n\nIn production, you would be redirected to Stripe to complete payment.`,
-                    [
-                      {
-                        text: 'OK',
-                        onPress: () => {
-                          handleClose();
-                        },
-                      },
-                    ]
-                  );
-                },
-              },
-            ]
+            'Plan change unavailable',
+            errorMessage.replace(/^PLAN_CHANGE_NOT_DEPLOYED:\s*/, ''),
+            [{ text: 'OK' }]
+          );
+        } else if (errorMessage.startsWith('PLAN_PRICE_INACTIVE:')) {
+          Alert.alert(
+            'Plan not available',
+            errorMessage.replace(/^PLAN_PRICE_INACTIVE:\s*/, ''),
+            [{ text: 'OK' }]
+          );
+        } else if (isNetworkError) {
+          Alert.alert(
+            'Connection issue',
+            errorMessage.startsWith('PLAN_CHANGE_OFFLINE:')
+              ? errorMessage.replace(/^PLAN_CHANGE_OFFLINE:\s*/, '')
+              : 'Could not reach the billing server to update your plan. Check that you are online and try again.\n\nIf you are testing on a phone, make sure your Mac backend is running on the same Wi‑Fi (port 3001), or deploy the latest backend to Render.',
+            [{ text: 'OK' }]
           );
         } else {
-          // Other errors
           Alert.alert(
-            'Error',
-            'Failed to initiate subscription. Please try again.',
+            'Could not update plan',
+            errorMessage || 'Something went wrong while updating your subscription. Please try again.',
             [{ text: 'OK' }]
           );
         }

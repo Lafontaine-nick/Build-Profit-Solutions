@@ -12,7 +12,7 @@ const PLAN_DEFINITIONS = [
   {
     id: 'basic',
     envVar: 'STRIPE_PRICE_BASIC',
-    stripePriceIdFallback: 'price_1SVnzJAEo74nL2FWW479mvXJ',
+    stripePriceIdFallback: 'price_1THzBgAEo74nL2FWYjwMWqcX',
     priceFallback: 45,
     name: 'Basic Plan',
     description: 'Get started with essential tools for solo contractors.',
@@ -33,7 +33,7 @@ const PLAN_DEFINITIONS = [
   {
     id: 'premium',
     envVar: 'STRIPE_PRICE_PREMIUM',
-    stripePriceIdFallback: 'price_1SVnzKAEo74nL2FWI9JR5mW7',
+    stripePriceIdFallback: 'price_1THzkTAEo74nL2FWxRsZvwXL',
     priceFallback: 89,
     name: 'Professional Plan',
     description: 'Built to protect margins and scale profitably.',
@@ -57,23 +57,22 @@ const PLAN_DEFINITIONS = [
   {
     id: 'business',
     envVar: 'STRIPE_PRICE_BUSINESS',
-    stripePriceIdFallback: 'price_1SwOqmAEo74nL2FW6vCf983W',
+    stripePriceIdFallback: 'price_1THzFnAEo74nL2FWaVZo8JXA',
     priceFallback: 179,
     name: 'Business Plan',
-    description: 'For teams that need forecasting, AI optimization, and integrations.',
-    tag: 'Teams',
-    cta: 'Scale with Business',
+    description:
+      'One company workspace with up to 5 team seats, individual logins, shared project records, and role-based access for growing construction teams.',
+    tag: 'Business Team Workspace',
+    cta: 'Upgrade to Business',
     recommended: false,
     features: [
-      'Everything in Professional',
-      '5–10 team members',
-      'Role-based permissions',
-      'Advanced analytics & forecasting',
-      'Profit simulation tools',
-      'AI Bid Optimization (premium)',
-      'Invoice generation & payment tracking',
-      'Custom integrations (QuickBooks, Zapier, Gmail)',
-      'Dedicated account support',
+      'Company workspace',
+      'Up to 5 team seats',
+      'Individual team logins',
+      'Shared project records',
+      'Notes, expenses, logs, and calendar events',
+      'Role-based access foundation',
+      'Activity tracking foundation',
     ],
   },
 ];
@@ -175,6 +174,9 @@ async function getMobilePlansCatalog(stripeClient) {
 
     try {
       const p = await stripeClient.prices.retrieve(stripePriceId);
+      if (p.active === false) {
+        throw new Error(`Stripe price ${stripePriceId} is inactive`);
+      }
       if (p.unit_amount != null) {
         price = p.unit_amount / 100;
         unitAmountCents = p.unit_amount;
@@ -187,6 +189,28 @@ async function getMobilePlansCatalog(stripeClient) {
         `[mobile-plan-catalog] Could not load Stripe price ${stripePriceId} (${def.id}):`,
         e?.message || e
       );
+      const fallback = def.stripePriceIdFallback;
+      if (fallback && fallback !== stripePriceId) {
+        try {
+          const p2 = await stripeClient.prices.retrieve(fallback);
+          if (p2.active === false) {
+            throw new Error(`Fallback price ${fallback} is inactive`);
+          }
+          stripePriceId = fallback;
+          if (p2.unit_amount != null) {
+            price = p2.unit_amount / 100;
+            unitAmountCents = p2.unit_amount;
+          }
+          console.log(
+            `[mobile-plan-catalog] ${def.id} → using fallback Stripe price ${fallback} (${price})`
+          );
+        } catch (e2) {
+          console.warn(
+            `[mobile-plan-catalog] Fallback price ${fallback} also invalid for ${def.id}:`,
+            e2?.message || e2
+          );
+        }
+      }
     }
     out.push({
       id: def.id,

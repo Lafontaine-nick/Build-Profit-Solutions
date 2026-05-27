@@ -24,6 +24,7 @@ import { distanceMi, geocodeCity, getStateCenter } from '@/lib/geo';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
 import { clerkAuthService } from '@/services/clerkAuth';
 import { useUser } from '@clerk/clerk-react';
+import { useClerkProfileGreeting } from '@/hooks/useProfileGreeting';
 import { useRouter } from 'expo-router';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
@@ -1134,10 +1135,7 @@ export default function LeadsScreen() {
     [Colors, tabScrollBottomInset]
   );
   
-  const user = {
-    name: 'Nick Lafontaine',
-    initials: 'NL',
-  };
+  const profileGreeting = useClerkProfileGreeting();
 
   const authState = clerkAuthService.getAuthState();
   /** Clerk is source of truth when enabled; `clerkAuthService.user` is often empty in Clerk-only sessions. */
@@ -3279,7 +3277,7 @@ export default function LeadsScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Profile"
               >
-                <Text style={styles.profileInitials}>{user.initials}</Text>
+                <Text style={styles.profileInitials}>{profileGreeting.initials}</Text>
               </Pressable>
             </LinearGradient>
           </View>

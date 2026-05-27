@@ -21,8 +21,77 @@ interface SubscriptionPlan {
 
 /** Render cold start + Stripe can exceed 30s; align with checkout timeout expectations. */
 const SUBSCRIPTION_FETCH_TIMEOUT_MS = 60000;
+/** Plan verification reads should fail fast instead of waiting on a stale LAN backend. */
+const SUBSCRIPTION_READ_TIMEOUT_MS = 12000;
 /** Customer + checkout-session are two sequential fetches — abort if either hangs (wrong API URL / offline). */
 const CHECKOUT_FETCH_TIMEOUT_MS = 60000;
+const RENDER_API_BASE = 'https://build-profit-solutions-backend.onrender.com/api';
+
+/** Invalid legacy/env Business price on Render — live Stripe price that works for checkout/upgrades. */
+const LIVE_BUSINESS_STRIPE_PRICE_ID = 'price_1THzFnAEo74nL2FWaVZo8JXA';
+const LIVE_PREMIUM_STRIPE_PRICE_ID = 'price_1THzkTAEo74nL2FWxRsZvwXL';
+const INVALID_BUSINESS_STRIPE_PRICE_IDS = new Set([
+  'price_1SwOqmAEo74nL2FW6vCf983W',
+  'price_business_monthly',
+]);
+const INVALID_PREMIUM_STRIPE_PRICE_IDS = new Set([
+  'price_1SVnzKAEo74nL2FWI9JR5mW7',
+  'price_premium_monthly',
+]);
+
+export function resolveLiveStripePriceId(planId: string, stripePriceId: string): string {
+  if (
+    planId === 'business' &&
+    (!stripePriceId || INVALID_BUSINESS_STRIPE_PRICE_IDS.has(stripePriceId))
+  ) {
+    return LIVE_BUSINESS_STRIPE_PRICE_ID;
+  }
+  if (
+    planId === 'premium' &&
+    (!stripePriceId || INVALID_PREMIUM_STRIPE_PRICE_IDS.has(stripePriceId))
+  ) {
+    return LIVE_PREMIUM_STRIPE_PRICE_ID;
+  }
+  return stripePriceId;
+}
+
+function normalizeSubscriptionPlans(plans: SubscriptionPlan[]): SubscriptionPlan[] {
+  return plans.map((plan) => ({
+    ...plan,
+    stripePriceId: resolveLiveStripePriceId(plan.id, plan.stripePriceId),
+  }));
+}
+
+function isPrivateOrLocalApiUrl(url: string): boolean {
+  return /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(
+    url.trim()
+  );
+}
+
+function isLiveStripePriceId(priceId: unknown): boolean {
+  if (typeof priceId !== 'string') return false;
+  const id = priceId.trim();
+  return id.startsWith('price_') && !/_monthly$/i.test(id) && id.length > 12;
+}
+
+function catalogHasLivePriceIds(plans: SubscriptionPlan[]): boolean {
+  return (
+    plans.length > 0 &&
+    plans.every((plan) => isLiveStripePriceId(plan.stripePriceId))
+  );
+}
+
+function isNetworkFetchError(error: unknown): boolean {
+  const message = String((error as { message?: string })?.message || error || '');
+  return (
+    message.includes('Network') ||
+    message.includes('Failed to connect') ||
+    message.includes('Network request failed') ||
+    (error as { name?: string })?.name === 'AbortError' ||
+    message.includes('aborted') ||
+    message.includes('timed out')
+  );
+}
 
 async function fetchWithTimeout(
   url: string,
@@ -60,220 +129,318 @@ class StripeService {
     cancelUrl: string,
     userEmail?: string | null
   ): Promise<CheckoutSession> {
-    try {
-      console.log('🔑 Creating checkout session with:', {
-        priceId,
-        successUrl,
-        cancelUrl,
-      });
-      // Use provided email, or try to get from auth service
-      let email = userEmail || 'test@example.com';
-      let name = 'Test User';
-      let token = null;
+    console.log('🔑 Creating checkout session with:', { priceId, successUrl, cancelUrl });
+    return this.createCheckoutSessionWithFallback(priceId, successUrl, cancelUrl, userEmail);
+  }
 
+  private async postJsonWithFallback<T>(
+    path: string,
+    body: unknown,
+    token: string | null,
+    label: string,
+    timeoutMs: number,
+    basesToTry: string[],
+    retryOnApiError = false,
+  ): Promise<{ data: T; baseUrl: string }> {
+    const primaryBase = this.baseUrl;
+    let lastError: unknown = null;
+    let lastLocalNetworkError: unknown = null;
+
+    for (let i = 0; i < basesToTry.length; i += 1) {
+      const baseUrl = basesToTry[i];
       try {
-        token = clerkAuthService.getToken();
-        
-        // If not found, try to get from Clerk's SecureStore
-        if (!token) {
-          try {
-            const clerkToken = await SecureStore.getItemAsync('__clerk_client_jwt');
-            if (clerkToken) {
-              token = clerkToken;
-            }
-          } catch (e) {
-            // Could not get token
-          }
+        const response = await fetchWithTimeout(
+          `${baseUrl.replace(/\/$/, '')}${path}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify(body),
+          },
+          timeoutMs,
+          label,
+        );
+        const json = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const message =
+            (json as { error?: string; message?: string }).error ||
+            (json as { message?: string }).message ||
+            `${label} failed: HTTP ${response.status}`;
+          const err = new Error(message) as Error & { status?: number };
+          err.status = response.status;
+          throw err;
         }
-        
-        // If email not provided, try to get from auth state
-        if (!email || email === 'test@example.com') {
-          const authState = clerkAuthService.getAuthState();
-          if (authState?.user) {
-            email = authState.user.email || email;
-            name = `${authState.user.firstName || ''} ${authState.user.lastName || ''}`.trim() || name;
-          }
+        if (baseUrl !== primaryBase) {
+          console.warn(`⚠️ ${label} succeeded via alternate backend (${baseUrl}).`);
         }
-        
-        console.log('📧 Using email for checkout:', email);
+        return { data: json as T, baseUrl };
       } catch (error) {
-        console.log('Using provided email or fallback:', email);
-      }
-
-      // First, create or get Stripe customer
-      const customerResponse = await fetchWithTimeout(
-        `${this.baseUrl}/stripe/customer`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token && { Authorization: `Bearer ${token}` }),
-          },
-          body: JSON.stringify({ email, name }),
-        },
-        CHECKOUT_FETCH_TIMEOUT_MS,
-        'Stripe customer request',
-      );
-
-      if (!customerResponse.ok) {
-        const error = await customerResponse.json().catch(() => ({}));
-        throw new Error(error.error || 'Failed to create customer');
-      }
-
-      const { customerId } = await customerResponse.json();
-
-      // Then create checkout session
-      const sessionResponse = await fetchWithTimeout(
-        `${this.baseUrl}/stripe/create-checkout-session`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token && { Authorization: `Bearer ${token}` }),
-          },
-          body: JSON.stringify({
-            customerId,
-            priceId,
-            successUrl,
-            cancelUrl,
-          }),
-        },
-        CHECKOUT_FETCH_TIMEOUT_MS,
-        'Stripe checkout session',
-      );
-
-      if (!sessionResponse.ok) {
-        const error = await sessionResponse.json().catch(() => ({}));
-        const errorMessage = (error as { error?: string }).error || 'Failed to create checkout session';
-        console.error('❌ Checkout session error:', errorMessage);
-        
-        // Check if it's a price not found error
-        if (errorMessage.includes('No such price') || errorMessage.includes('resource_missing')) {
-          throw new Error(`The ${priceId.includes('Business') ? 'Business' : priceId.includes('Professional') ? 'Professional' : 'plan'} plan has not been created in Stripe yet. Please create it in your Stripe Dashboard or contact support.`);
+        lastError = error;
+        if (isNetworkFetchError(error) && isPrivateOrLocalApiUrl(baseUrl)) {
+          lastLocalNetworkError = error;
         }
-        
-        throw new Error(errorMessage);
+        const message = String((error as Error)?.message || '');
+        const status = (error as Error & { status?: number })?.status;
+        const hasMore = i < basesToTry.length - 1;
+        const canRetry =
+          hasMore &&
+          (isNetworkFetchError(error) ||
+            status === 404 ||
+            message.includes('Not Found') ||
+            (retryOnApiError &&
+              message.match(/No such price|inactive|not configured|Invalid API Key/i)));
+        if (canRetry) {
+          console.warn(`⚠️ ${label} failed on ${baseUrl}. Trying next backend…`);
+          continue;
+        }
+        break;
       }
+    }
+    if (
+      lastLocalNetworkError &&
+      lastError instanceof Error &&
+      /not found|404/i.test(lastError.message)
+    ) {
+      throw lastLocalNetworkError instanceof Error
+        ? lastLocalNetworkError
+        : new Error(String(lastLocalNetworkError));
+    }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError || label));
+  }
 
-      const { sessionId, url } = await sessionResponse.json();
-      return { sessionId, url };
-    } catch (error) {
-      console.error('Error creating checkout session:', error);
-      throw error;
+  private getHostedFirstBillingBases(): string[] {
+    const primaryBase = this.baseUrl.replace(/\/$/, '');
+    if (isPrivateOrLocalApiUrl(primaryBase)) {
+      return [RENDER_API_BASE, primaryBase];
+    }
+    return [primaryBase];
+  }
+
+  /** Plan changes: local dev backend first (change-plan may not be on Render yet), then hosted. */
+  private getChangePlanBillingBases(): string[] {
+    const primaryBase = this.baseUrl.replace(/\/$/, '');
+    if (isPrivateOrLocalApiUrl(primaryBase)) {
+      return [primaryBase, RENDER_API_BASE];
+    }
+    return [primaryBase];
+  }
+
+  async changeSubscriptionPlan(
+    priceId: string,
+    userEmail?: string | null,
+  ): Promise<{ success: boolean; planName?: string; error?: string }> {
+    if (!priceId?.startsWith('price_')) {
+      return { success: false, error: 'Invalid plan price configuration' };
+    }
+
+    let email = userEmail?.trim() || '';
+    let token: string | null = null;
+    try {
+      token = clerkAuthService.getToken();
+      if (!token) {
+        const clerkToken = await SecureStore.getItemAsync('__clerk_client_jwt');
+        if (clerkToken) token = clerkToken;
+      }
+      if (!email) {
+        const authState = clerkAuthService.getAuthState();
+        email = authState?.user?.email || '';
+      }
+    } catch {
+      // optional
+    }
+
+    if (!email) {
+      return { success: false, error: 'Could not determine account email for plan change.' };
+    }
+
+    try {
+      const livePriceId = INVALID_BUSINESS_STRIPE_PRICE_IDS.has(priceId)
+        ? LIVE_BUSINESS_STRIPE_PRICE_ID
+        : priceId;
+      const { data } = await this.postJsonWithFallback<{
+        success?: boolean;
+        planName?: string;
+        error?: string;
+      }>(
+        '/stripe/change-plan',
+        { email, priceId: livePriceId },
+        token,
+        'Subscription plan change',
+        CHECKOUT_FETCH_TIMEOUT_MS,
+        this.getChangePlanBillingBases(),
+        true,
+      );
+      if (data.success) {
+        return { success: true, planName: data.planName };
+      }
+      return { success: false, error: data.error || 'Plan change failed' };
+    } catch (error: any) {
+      return { success: false, error: error?.message || 'Plan change failed' };
     }
   }
 
-  async getCustomerSubscriptions(email?: string | null): Promise<any[]> {
+  async createCheckoutSessionWithFallback(
+    priceId: string,
+    successUrl: string,
+    cancelUrl: string,
+    userEmail?: string | null,
+  ): Promise<CheckoutSession> {
+    let email = userEmail || 'test@example.com';
+    let name = 'Test User';
+    let token: string | null = null;
+
     try {
-      // Try to get Clerk JWT token from SecureStore (optional - backend doesn't require it)
-      let token = clerkAuthService.getToken();
-      
-      // If not found, try to get from Clerk's SecureStore
+      token = clerkAuthService.getToken();
       if (!token) {
-        try {
-          // Clerk stores tokens with keys like __clerk_client_jwt
-          const clerkToken = await SecureStore.getItemAsync('__clerk_client_jwt');
-          if (clerkToken) {
-            token = clerkToken;
-            console.log('✅ Got Clerk token from SecureStore');
-          }
-        } catch (e) {
-          console.log('Could not get Clerk token from SecureStore');
+        const clerkToken = await SecureStore.getItemAsync('__clerk_client_jwt');
+        if (clerkToken) token = clerkToken;
+      }
+      if (!email || email === 'test@example.com') {
+        const authState = clerkAuthService.getAuthState();
+        if (authState?.user) {
+          email = authState.user.email || email;
+          name = `${authState.user.firstName || ''} ${authState.user.lastName || ''}`.trim() || name;
         }
       }
-      
-      // Note: Token is optional - backend uses email from query param
-      if (!email) {
-        console.log('⚠️ No email provided for subscription fetch');
-        return [];
-      }
-
-      // Use provided email, or try to get from Clerk
-      let userEmail = email;
-      if (!userEmail) {
-        try {
-          const authState = clerkAuthService.getAuthState();
-          if (authState?.user) {
-            userEmail = authState.user.email;
-          }
-        } catch (error) {
-          console.log('Could not get user email from clerkAuthService');
-        }
-      }
-
-      // Build URL with email query param if available
-      let url = `${this.baseUrl}/stripe/subscriptions`;
-      if (userEmail) {
-        url += `?email=${encodeURIComponent(userEmail)}`;
-      }
-
-      console.log('🔍 Fetching subscriptions from:', url);
-      console.log('🔍 Base URL being used:', this.baseUrl);
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        console.error(
-          `⏱️ Subscription fetch timeout after ${SUBSCRIPTION_FETCH_TIMEOUT_MS / 1000}s — aborting (host may be cold-starting or unreachable)`,
-        );
-        controller.abort();
-      }, SUBSCRIPTION_FETCH_TIMEOUT_MS);
-
-      try {
-        console.log('📡 Making fetch request...');
-        const response = await fetch(url, {
-          method: 'GET',
-          headers,
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-        console.log('📡 Response received - status:', response.status);
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          console.error('❌ Failed to fetch subscriptions:', response.status, errorData);
-          throw new Error(errorData.error || `Failed to fetch subscriptions: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log('✅ Subscriptions fetched successfully:', data.subscriptions?.length || 0);
-        return data.subscriptions || [];
-      } catch (fetchError: any) {
-        clearTimeout(timeoutId);
-        
-        if (fetchError.name === 'AbortError' || fetchError.message?.includes('aborted')) {
-          console.error('⏱️ Subscription fetch was aborted/timed out');
-          throw new Error(
-            `Request timed out after ${SUBSCRIPTION_FETCH_TIMEOUT_MS / 1000}s. If you use a local backend from a phone, set EXPO_PUBLIC_API_BASE_URL to your Mac’s LAN URL (same as the AI API). Hosted APIs may need a moment to wake up — try again.`,
-          );
-        }
-
-        if (fetchError.message?.includes('Network') || fetchError.message?.includes('Failed to connect')) {
-          console.error('🌐 Network connection error:', fetchError.message);
-          throw new Error(
-            `Cannot connect to backend at ${this.baseUrl}. Check the server is running, firewall/VPN, and on a real device use your LAN IP (not localhost).`,
-          );
-        }
-        
-        console.error('❌ Fetch error details:', {
-          name: fetchError.name,
-          message: fetchError.message,
-          stack: fetchError.stack?.substring(0, 200),
-        });
-        // Re-throw the error instead of silently returning empty array
-        throw fetchError;
-      }
-    } catch (error: any) {
-      console.error('❌ Error fetching subscriptions:', error);
-      // Re-throw so the caller can handle it properly
-      throw error;
+    } catch {
+      // optional
     }
+
+    const { data: customerData } = await this.postJsonWithFallback<{ customerId: string }>(
+      '/stripe/customer',
+      { email, name },
+      token,
+      'Stripe customer request',
+      CHECKOUT_FETCH_TIMEOUT_MS,
+      this.getHostedFirstBillingBases(),
+      true,
+    );
+
+    const { data: sessionData } = await this.postJsonWithFallback<{
+      sessionId: string;
+      url: string;
+    }>(
+      '/stripe/create-checkout-session',
+      {
+        customerId: customerData.customerId,
+        priceId: INVALID_BUSINESS_STRIPE_PRICE_IDS.has(priceId)
+          ? LIVE_BUSINESS_STRIPE_PRICE_ID
+          : priceId,
+        successUrl,
+        cancelUrl,
+      },
+      token,
+      'Stripe checkout session',
+      CHECKOUT_FETCH_TIMEOUT_MS,
+      this.getHostedFirstBillingBases(),
+      true,
+    );
+
+    return { sessionId: sessionData.sessionId, url: sessionData.url };
+  }
+
+  async getCustomerSubscriptions(
+    email?: string | null,
+    options?: { preferHosted?: boolean; timeoutMs?: number },
+  ): Promise<any[]> {
+    if (!email?.trim()) {
+      return [];
+    }
+
+    let token: string | null = null;
+    try {
+      token = clerkAuthService.getToken();
+      if (!token) {
+        const clerkToken = await SecureStore.getItemAsync('__clerk_client_jwt');
+        if (clerkToken) token = clerkToken;
+      }
+    } catch {
+      // Token optional for subscription lookup by email.
+    }
+
+    const userEmail = email.trim();
+    const primaryBase = this.baseUrl;
+    const preferHosted = options?.preferHosted !== false;
+    const timeoutMs = options?.timeoutMs ?? SUBSCRIPTION_READ_TIMEOUT_MS;
+
+    let basesToTry: string[];
+    if (options?.preferHosted === false) {
+      basesToTry = isPrivateOrLocalApiUrl(primaryBase)
+        ? [primaryBase, RENDER_API_BASE]
+        : [primaryBase];
+    } else if (isPrivateOrLocalApiUrl(primaryBase)) {
+      basesToTry = [RENDER_API_BASE, primaryBase];
+    } else {
+      basesToTry = [primaryBase];
+    }
+
+    let lastError: unknown = null;
+    for (const baseUrl of basesToTry) {
+      try {
+        const subscriptions = await this.fetchSubscriptionsFromBase(
+          baseUrl,
+          userEmail,
+          token,
+          timeoutMs,
+        );
+        if (baseUrl !== primaryBase && preferHosted) {
+          console.warn('⚠️ Subscriptions loaded from hosted backend.');
+        }
+        return subscriptions;
+      } catch (error) {
+        lastError = error;
+        const hasMore = basesToTry.indexOf(baseUrl) < basesToTry.length - 1;
+        if (hasMore && isNetworkFetchError(error)) {
+          console.warn(`⚠️ Subscription fetch failed on ${baseUrl}. Trying next backend…`);
+          continue;
+        }
+        break;
+      }
+    }
+
+    if (isNetworkFetchError(lastError)) {
+      console.warn(
+        '⚠️ Could not verify subscription (backend offline). Using cached plan if available.',
+      );
+    } else {
+      console.warn('⚠️ Could not fetch subscriptions:', (lastError as Error)?.message || lastError);
+    }
+    return [];
+  }
+
+  private async fetchSubscriptionsFromBase(
+    baseUrl: string,
+    userEmail: string,
+    token: string | null,
+    timeoutMs: number = SUBSCRIPTION_READ_TIMEOUT_MS,
+  ): Promise<any[]> {
+    const url = `${baseUrl.replace(/\/$/, '')}/stripe/subscriptions?email=${encodeURIComponent(userEmail)}`;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const response = await fetchWithTimeout(
+      url,
+      { method: 'GET', headers },
+      timeoutMs,
+      'Subscription fetch',
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(
+        (errorData as { error?: string }).error ||
+          `Failed to fetch subscriptions: ${response.status}`,
+      );
+    }
+
+    const data = (await response.json()) as { subscriptions?: unknown[] };
+    return Array.isArray(data.subscriptions) ? data.subscriptions : [];
   }
 
   async cancelSubscription(subscriptionId: string): Promise<boolean> {
@@ -338,27 +505,48 @@ class StripeService {
    * Falls back to getMockSubscriptionPlans() if the API is unreachable or misconfigured.
    */
   async fetchSubscriptionPlans(): Promise<SubscriptionPlan[]> {
-    const url = `${this.baseUrl}/stripe/mobile-plans`;
-    try {
-      const response = await fetchWithTimeout(
-        url,
-        { method: 'GET', headers: { 'Content-Type': 'application/json' } },
-        SUBSCRIPTION_FETCH_TIMEOUT_MS,
-        'Subscription plans catalog',
-      );
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        console.warn('⚠️ mobile-plans HTTP', response.status, err);
-        return this.getMockSubscriptionPlans();
+    const primaryBase = this.baseUrl;
+    // Billing catalog should prefer hosted Stripe env when developing against a local API.
+    const basesToTry = isPrivateOrLocalApiUrl(primaryBase)
+      ? [RENDER_API_BASE, primaryBase]
+      : [primaryBase];
+
+    for (const baseUrl of basesToTry) {
+      const url = `${baseUrl.replace(/\/$/, '')}/stripe/mobile-plans`;
+      try {
+        const response = await fetchWithTimeout(
+          url,
+          { method: 'GET', headers: { 'Content-Type': 'application/json' } },
+          SUBSCRIPTION_FETCH_TIMEOUT_MS,
+          'Subscription plans catalog',
+        );
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          console.warn('⚠️ mobile-plans HTTP', response.status, err);
+          continue;
+        }
+        const data = (await response.json()) as { success?: boolean; plans?: SubscriptionPlan[] };
+        if (data.success && Array.isArray(data.plans) && data.plans.length > 0) {
+          if (!catalogHasLivePriceIds(data.plans)) {
+            if (baseUrl === primaryBase && basesToTry.length > 1) {
+              console.warn('⚠️ Plan catalog has placeholder Stripe price IDs. Trying hosted backend…');
+              continue;
+            }
+          }
+          if (baseUrl !== primaryBase) {
+            console.warn('⚠️ Plan catalog loaded from hosted backend.');
+          }
+          return normalizeSubscriptionPlans(data.plans);
+        }
+      } catch (e) {
+        if (baseUrl !== basesToTry[basesToTry.length - 1] && isNetworkFetchError(e)) {
+          console.warn('⚠️ Plan catalog fetch failed, trying next backend…');
+          continue;
+        }
+        console.warn('⚠️ fetchSubscriptionPlans failed, using embedded catalog:', e);
       }
-      const data = (await response.json()) as { success?: boolean; plans?: SubscriptionPlan[] };
-      if (data.success && Array.isArray(data.plans) && data.plans.length > 0) {
-        return data.plans;
-      }
-    } catch (e) {
-      console.warn('⚠️ fetchSubscriptionPlans failed, using embedded catalog:', e);
     }
-    return this.getMockSubscriptionPlans();
+    return normalizeSubscriptionPlans(this.getMockSubscriptionPlans());
   }
 
   /** Same as getCheckoutRedirectUrls but for payment-method setup flows (manage-cards screen). */
@@ -388,7 +576,7 @@ class StripeService {
           'Simple customer CRM',
           'Email support',
         ],
-        stripePriceId: 'price_1SVnzJAEo74nL2FWW479mvXJ',
+        stripePriceId: 'price_1THzBgAEo74nL2FWYjwMWqcX',
       },
       {
         id: 'premium',
@@ -411,27 +599,26 @@ class StripeService {
           'Supplier integrations',
           'Priority support',
         ],
-        stripePriceId: 'price_1SVnzKAEo74nL2FWI9JR5mW7',
+        stripePriceId: 'price_1THzkTAEo74nL2FWxRsZvwXL',
       },
       {
         id: 'business',
         name: 'Business Plan',
         price: 179,
-        description: 'For teams that need forecasting, AI optimization, and integrations.',
-        tag: 'Teams',
-        cta: 'Scale with Business',
+        description:
+          'One company workspace with up to 5 team seats, individual logins, shared project records, and role-based access for growing construction teams.',
+        tag: 'Business Team Workspace',
+        cta: 'Upgrade to Business',
         features: [
-          'Everything in Professional',
-          '5–10 team members',
-          'Role-based permissions',
-          'Advanced analytics & forecasting',
-          'Profit simulation tools',
-          'AI Bid Optimization (premium)',
-          'Invoice generation & payment tracking',
-          'Custom integrations (QuickBooks, Zapier, Gmail)',
-          'Dedicated account support',
+          'Company workspace',
+          'Up to 5 team seats',
+          'Individual team logins',
+          'Shared project records',
+          'Notes, expenses, logs, and calendar events',
+          'Role-based access foundation',
+          'Activity tracking foundation',
         ],
-        stripePriceId: 'price_1SwOqmAEo74nL2FW6vCf983W',
+        stripePriceId: 'price_1THzFnAEo74nL2FWaVZo8JXA',
       },
     ];
   }

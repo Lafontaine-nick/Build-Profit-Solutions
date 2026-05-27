@@ -95,6 +95,20 @@ export function resolveBackendRestApiBaseUrl(): string {
   /** If set in `.env`, user chose REST host explicitly — do not override with `EXPO_PUBLIC_AI_API_URL`. */
   const restHostChosenInEnv = !!(envApi || envDevOnly);
 
+  /** Expo web dev on this machine — always use loopback so browser hits the same local API as `npm start`. */
+  if (
+    Platform.OS === 'web' &&
+    typeof window !== 'undefined' &&
+    __DEV__
+  ) {
+    const browserHost = window.location.hostname.toLowerCase();
+    if (browserHost === 'localhost' || browserHost === '127.0.0.1') {
+      const u = ensureApiSuffix('http://localhost:3001');
+      console.log('🔧 Backend REST API: web dev browser on localhost →', u);
+      return u;
+    }
+  }
+
   /**
    * Web @ localhost:48000 / :8081 historically returned early with Metro's `__bps_render_api__`
    * → Render, so **local `node src/server.js` was never used** for Places/geocode. Prefer an

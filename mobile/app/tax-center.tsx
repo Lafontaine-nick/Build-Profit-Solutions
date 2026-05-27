@@ -1,6 +1,7 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  AppState,
   Platform,
   Pressable,
   ScrollView,
@@ -206,16 +207,32 @@ export default function TaxCenterScreen() {
   const insets = useSafeAreaInsets();
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
-  const { projects, refreshProjects } = useProjectList();
+  const { projects, refreshProjects, rehydrateProjectsFromStorage } = useProjectList();
   const refreshProjectsRef = useRef(refreshProjects);
+  const rehydrateProjectsRef = useRef(rehydrateProjectsFromStorage);
   refreshProjectsRef.current = refreshProjects;
+  rehydrateProjectsRef.current = rehydrateProjectsFromStorage;
 
-  /** Re-merge `bps.timeline.v2.*` (payment milestones marked collected) before tax math — same session as Project detail. */
+  const refreshTaxCenterData = useCallback(() => {
+    void rehydrateProjectsRef.current();
+    void refreshProjectsRef.current();
+  }, []);
+
+  /** Re-merge timeline + projectData from device storage first (instant), then sync backend. */
   useFocusEffect(
     useCallback(() => {
-      void refreshProjectsRef.current();
-    }, [])
+      refreshTaxCenterData();
+    }, [refreshTaxCenterData])
   );
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        refreshTaxCenterData();
+      }
+    });
+    return () => sub.remove();
+  }, [refreshTaxCenterData]);
 
   useFocusEffect(
     useCallback(() => {

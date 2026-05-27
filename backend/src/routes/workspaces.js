@@ -1,0 +1,401 @@
+const express = require('express');
+const router = express.Router();
+const { authenticateToken } = require('../middleware/authenticateToken');
+const {
+  acceptWorkspaceInvitesForUser,
+  addWorkspaceMember,
+  ensureOwnerWorkspace,
+  findWorkspaceForUser,
+  getSharedProjectResources,
+  listWorkspaceMembers,
+  countBillableSeats,
+  listWorkspaceOwnerProjects,
+  removeWorkspaceMember,
+  resendWorkspaceInvite,
+  updateWorkspaceMember,
+  upsertSharedProjectResource,
+} = require('../services/workspaceStorage');
+const { sendWorkspaceInviteEmail } = require('../services/emailDelivery');
+const {
+  canManageWorkspaceMembers,
+  canReadSharedResources,
+  canWriteSharedResource,
+  getActiveWorkspaceMember,
+} = require('../services/workspacePermissions');
+
+const ALLOWED_RESOURCE_TYPES = new Set([
+  'expenses',
+  'purchaseOrders',
+  'dailyLogs',
+  'calendarEvents',
+  'timeline',
+  'team',
+]);
+
+function currentUser(req) {
+  const userId = String(req.user?.userId || req.user?.id || req.user?.sub || '');
+  const email = req.user?.email || null;
+  return { userId, email };
+}
+
+/** Find workspace for invited members; create one for new Business owners. */
+function getOrEnsureWorkspace(req) {
+  const { userId, email } = currentUser(req);
+  if (!userId) return null;
+  return ensureOwnerWorkspace({
+    userId,
+    email,
+    name: 'Build Profit Workspace',
+  });
+}
+
+function getAccessibleWorkspace(req) {
+  const { userId, email } = currentUser(req);
+  return findWorkspaceForUser(userId, email);
+}
+
+function resolveWorkspace(req, { createIfMissing = false } = {}) {
+  const user = currentUser(req);
+  let workspace = getAccessibleWorkspace(req);
+  if (!workspace && createIfMissing) {
+    workspace = getOrEnsureWorkspace(req);
+  }
+  return { workspace, user };
+}
+
+function requireActiveMember(req, res, workspace) {
+  const member = getActiveWorkspaceMember(workspace, currentUser(req));
+  if (!member) {
+    res.status(403).json({
+      success: false,
+      error: 'Active workspace membership is required.',
+    });
+    return null;
+  }
+  return member;
+}
+
+router.get('/access', authenticateToken, async (req, res) => {
+  const { userId, email } = currentUser(req);
+  acceptWorkspaceInvitesForUser({ userId, email });
+
+  const workspace = getAccessibleWorkspace(req);
+  const member = workspace
+    ? getActiveWorkspaceMember(workspace, { userId, email }) ||
+      (workspace.members || []).find(
+        (row) => normalizePendingMemberEmail(row, email) && row.status === 'pending'
+      )
+    : null;
+  const isActive = member?.status === 'active';
+
+  const isOwner = Boolean(
+    workspace &&
+      (workspace.ownerUserId === userId ||
+        (member?.role === 'owner' && member?.status === 'active'))
+  );
+
+  const ownerMember = workspace
+    ? (workspace.members || []).find(
+        (row) =>
+          row.role === 'owner' || row.userId === workspace.ownerUserId
+      ) || null
+    : null;
+
+  res.json({
+    success: true,
+    data: {
+      hasWorkspaceAccess: Boolean(workspace && member && isActive),
+      workspaceId: workspace?.id || null,
+      ownerUserId: workspace?.ownerUserId || null,
+      ownerMember,
+      role: member?.role || null,
+      status: member?.status || null,
+      isOwner,
+      member: member || null,
+    },
+  });
+});
+
+function normalizePendingMemberEmail(member, email) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  return normalizedEmail && String(member?.email || '').trim().toLowerCase() === normalizedEmail;
+}
+
+router.get('/me', authenticateToken, async (req, res) => {
+  const { userId, email } = currentUser(req);
+  acceptWorkspaceInvitesForUser({ userId, email });
+  let workspace = getAccessibleWorkspace(req);
+  if (!workspace) {
+    workspace = ensureOwnerWorkspace({
+      userId,
+      email,
+      name: req.query.name || 'Build Profit Workspace',
+    });
+  }
+  res.json({ success: true, data: workspace });
+});
+
+router.post('/me', authenticateToken, async (req, res) => {
+  const { userId, email } = currentUser(req);
+  acceptWorkspaceInvitesForUser({ userId, email });
+  let workspace = getAccessibleWorkspace(req);
+  if (!workspace) {
+    workspace = ensureOwnerWorkspace({
+      userId,
+      email,
+      name: req.body?.name || 'Build Profit Workspace',
+    });
+  }
+  res.status(201).json({ success: true, data: workspace });
+});
+
+router.get('/members', authenticateToken, async (req, res) => {
+  const { workspace } = resolveWorkspace(req, { createIfMissing: false });
+  if (!workspace) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+
+  const member = requireActiveMember(req, res, workspace);
+  if (!member) return;
+
+  res.json({
+    success: true,
+    data: {
+      workspaceId: workspace.id,
+      seatLimit: workspace.seatLimit || 5,
+      seatsUsed: countBillableSeats(listWorkspaceMembers(workspace.id)),
+      members: listWorkspaceMembers(workspace.id),
+    },
+  });
+});
+
+router.post('/members', authenticateToken, async (req, res) => {
+  const { workspace } = resolveWorkspace(req, { createIfMissing: true });
+  if (!workspace) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+
+  const member = requireActiveMember(req, res, workspace);
+  if (!member) return;
+  if (!canManageWorkspaceMembers(member)) {
+    return res.status(403).json({
+      success: false,
+      error: 'Only the workspace owner can invite members.',
+    });
+  }
+
+  const result = addWorkspaceMember({
+    workspaceId: workspace.id,
+    member: {
+      ...req.body,
+      displayName: req.body?.displayName || req.body?.name,
+      email: req.body?.email,
+      accessRole: req.body?.accessRole || req.body?.workspaceRole,
+      tradeRole: req.body?.tradeRole || req.body?.role,
+    },
+    invitedByUserId: currentUser(req).userId,
+  });
+  if (!result.success) {
+    return res.status(result.code === 'SEAT_LIMIT_REACHED' ? 409 : 400).json(result);
+  }
+
+  const emailDelivery = await sendWorkspaceInviteEmail({
+    workspace,
+    member: result.member,
+    invitedByEmail: currentUser(req).email,
+  }).catch((error) => ({
+    sent: false,
+    error: error?.response?.data?.message || error?.message || 'Email delivery failed',
+  }));
+
+  res.status(201).json({ success: true, data: result.member, emailDelivery });
+});
+
+router.patch('/members/:memberId', authenticateToken, async (req, res) => {
+  const { workspace } = resolveWorkspace(req, { createIfMissing: true });
+  if (!workspace) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+
+  const member = requireActiveMember(req, res, workspace);
+  if (!member) return;
+  if (!canManageWorkspaceMembers(member)) {
+    return res.status(403).json({
+      success: false,
+      error: 'Only the workspace owner can update members.',
+    });
+  }
+
+  const result = updateWorkspaceMember({
+    workspaceId: workspace.id,
+    memberId: req.params.memberId,
+    patch: req.body || {},
+  });
+  if (!result.success) {
+    return res.status(400).json(result);
+  }
+
+  res.json({ success: true, data: result.member });
+});
+
+router.delete('/members/:memberId', authenticateToken, async (req, res) => {
+  const { workspace } = resolveWorkspace(req, { createIfMissing: true });
+  if (!workspace) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+
+  const member = requireActiveMember(req, res, workspace);
+  if (!member) return;
+  if (!canManageWorkspaceMembers(member)) {
+    return res.status(403).json({
+      success: false,
+      error: 'Only the workspace owner can remove members.',
+    });
+  }
+
+  const result = removeWorkspaceMember({
+    workspaceId: workspace.id,
+    memberId: req.params.memberId,
+  });
+  if (!result.success) {
+    return res.status(400).json(result);
+  }
+
+  res.json({ success: true, data: result.member });
+});
+
+router.post('/members/accept-invite', authenticateToken, async (req, res) => {
+  const { userId, email } = currentUser(req);
+  const result = acceptWorkspaceInvitesForUser({ userId, email });
+  res.json({
+    success: true,
+    data: {
+      accepted: result.accepted || [],
+      workspace: getAccessibleWorkspace(req),
+    },
+  });
+});
+
+router.post('/members/:memberId/resend-invite', authenticateToken, async (req, res) => {
+  const { workspace } = resolveWorkspace(req, { createIfMissing: true });
+  if (!workspace) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+
+  const member = requireActiveMember(req, res, workspace);
+  if (!member) return;
+  if (!canManageWorkspaceMembers(member)) {
+    return res.status(403).json({
+      success: false,
+      error: 'Only the workspace owner can resend invites.',
+    });
+  }
+
+  const result = resendWorkspaceInvite({
+    workspaceId: workspace.id,
+    memberId: req.params.memberId,
+  });
+  if (!result.success) {
+    return res.status(400).json(result);
+  }
+
+  const emailDelivery = await sendWorkspaceInviteEmail({
+    workspace,
+    member: result.member,
+    invitedByEmail: currentUser(req).email,
+  }).catch((error) => ({
+    sent: false,
+    error: error?.response?.data?.message || error?.message || 'Email delivery failed',
+  }));
+
+  res.json({ success: true, data: result.member, emailDelivery });
+});
+
+router.get('/projects', authenticateToken, async (req, res) => {
+  const { userId, email } = currentUser(req);
+  acceptWorkspaceInvitesForUser({ userId, email });
+
+  const workspace = getAccessibleWorkspace(req);
+  if (!workspace) {
+    return res.json({ success: true, data: [], total: 0, workspaceId: null, ownerUserId: null });
+  }
+
+  const member = requireActiveMember(req, res, workspace);
+  if (!member) return;
+
+  const projects = listWorkspaceOwnerProjects(workspace);
+  res.json({
+    success: true,
+    data: projects,
+    total: projects.length,
+    workspaceId: workspace.id,
+    ownerUserId: workspace.ownerUserId,
+  });
+});
+
+router.get('/projects/:projectId/resources', authenticateToken, async (req, res) => {
+  const { workspace } = resolveWorkspace(req, { createIfMissing: true });
+  if (!workspace) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+
+  const member = requireActiveMember(req, res, workspace);
+  if (!member) return;
+  if (!canReadSharedResources(member)) {
+    return res.status(403).json({ success: false, error: 'Workspace access required.' });
+  }
+
+  const rows = getSharedProjectResources({
+    workspaceId: workspace.id,
+    projectId: req.params.projectId,
+  });
+  const resources = rows.reduce((acc, row) => {
+    acc[row.resourceType] = {
+      payload: row.payload,
+      updatedAt: row.updatedAt,
+      updatedByUserId: row.updatedByUserId,
+    };
+    return acc;
+  }, {});
+
+  res.json({ success: true, data: { workspaceId: workspace.id, resources } });
+});
+
+router.put('/projects/:projectId/resources/:resourceType', authenticateToken, async (req, res) => {
+  const { resourceType } = req.params;
+  if (!ALLOWED_RESOURCE_TYPES.has(resourceType)) {
+    return res.status(400).json({
+      success: false,
+      error: `Unsupported resource type: ${resourceType}`,
+    });
+  }
+
+  const { workspace, user } = resolveWorkspace(req, { createIfMissing: true });
+  if (!workspace) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+
+  const member = requireActiveMember(req, res, workspace);
+  if (!member) return;
+  if (!canWriteSharedResource(member, resourceType)) {
+    return res.status(403).json({
+      success: false,
+      error:
+        member.role === 'field'
+          ? 'Field users can only update daily logs and timeline in the workspace.'
+          : 'You do not have permission to update this workspace resource.',
+    });
+  }
+
+  const row = upsertSharedProjectResource({
+    workspaceId: workspace.id,
+    projectId: req.params.projectId,
+    resourceType,
+    payload: req.body?.payload ?? req.body ?? [],
+    userId: user.userId,
+  });
+
+  res.json({ success: true, data: row });
+});
+
+module.exports = router;

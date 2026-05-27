@@ -7,6 +7,11 @@ import {
   isChangeOrderMirrorExpenseId,
   reconcileChangeOrderMirrorExpenses,
 } from '../lib/changeOrderMirrorExpenses';
+import { businessWorkspaceService } from '@/services/businessWorkspaceService';
+import {
+  mergeArrayResource,
+  mergeObjectResource,
+} from '@/utils/workspaceResourceMerge';
 
 export type PurchaseOrder = {
   id: string;
@@ -225,6 +230,19 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
   /** Ids just deleted — `mergeProjectExpensesFromSources` must not re-inject them from a stale ProjectList snapshot. */
   const suppressedListExpenseIdsRef = useRef<Set<string>>(new Set());
 
+  const pushBusinessResource = useCallback(
+    (resourceType: 'expenses' | 'purchaseOrders' | 'team', payload: unknown) => {
+      const targetProjectId = projectId || projectData.id;
+      if (!targetProjectId) return;
+      businessWorkspaceService
+        .pushProjectResource(targetProjectId, resourceType, payload)
+        .catch((error) => {
+          console.warn(`Business workspace ${resourceType} sync failed:`, error);
+        });
+    },
+    [projectData.id, projectId]
+  );
+
   const syncProjectList = useCallback(
     (next: ProjectOverview) => {
       if (!next?.id) return;
@@ -354,6 +372,56 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     [syncProjectList]
   );
 
+  const mergeBusinessWorkspaceResources = useCallback(
+    async (base: ProjectOverview): Promise<ProjectOverview> => {
+      const targetProjectId = projectId || base.id;
+      if (!targetProjectId) return base;
+
+      const result = await businessWorkspaceService.getProjectResources(targetProjectId).catch(() => null);
+      if (!result?.success || !result.data?.resources) return base;
+
+      const resources = result.data.resources;
+      const sharedExpenses = resources.expenses?.payload;
+      const sharedPurchaseOrders = resources.purchaseOrders?.payload;
+      const sharedTeam = resources.team?.payload;
+
+      const [expenses, purchaseOrders, team] = await Promise.all([
+        mergeArrayResource(
+          targetProjectId,
+          'expenses',
+          base.expenses || [],
+          Array.isArray(sharedExpenses) ? sharedExpenses : undefined,
+          resources.expenses?.updatedAt
+        ),
+        mergeArrayResource(
+          targetProjectId,
+          'purchaseOrders',
+          base.purchaseOrders || [],
+          Array.isArray(sharedPurchaseOrders) ? sharedPurchaseOrders : undefined,
+          resources.purchaseOrders?.updatedAt
+        ),
+        mergeObjectResource(
+          targetProjectId,
+          'team',
+          (base.team as Record<string, any>) || {},
+          sharedTeam && typeof sharedTeam === 'object' && !Array.isArray(sharedTeam)
+            ? (sharedTeam as Record<string, any>)
+            : undefined,
+          resources.team?.updatedAt
+        ),
+      ]);
+
+      return reconcileChangeOrderMirrorExpenses({
+        ...base,
+        expenses,
+        purchaseOrders,
+        team: team || base.team,
+        lastUpdated: new Date().toISOString(),
+      }) as ProjectOverview;
+    },
+    [projectId]
+  );
+
   // Load saved data from AsyncStorage on mount
   useEffect(() => {
     const loadSavedData = async () => {
@@ -379,11 +447,11 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
             });
           }
           
-          replaceProjectDataState(parsedData);
+          replaceProjectDataState(await mergeBusinessWorkspaceResources(parsedData));
         } else {
           // No saved data, use initial
           const initial = getInitialProjectData(projectId);
-          replaceProjectDataState(initial);
+          replaceProjectDataState(await mergeBusinessWorkspaceResources(initial));
         }
       } catch (error) {
         console.error('Error loading project data:', error);
@@ -528,14 +596,16 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
       const nextCrewPhones = crewMemberPhones !== undefined
         ? crewMemberPhones
         : { ...(prevTeam?.crewMemberPhones ?? {}) };
+      const nextTeam = {
+        pmAssigned,
+        pmName: pmName ?? prevTeam?.pmName ?? '',
+        crewMembers: nextCrewMembers,
+        crewMemberPhones: nextCrewPhones,
+      };
+      pushBusinessResource('team', nextTeam);
       return {
         ...prev,
-        team: {
-          pmAssigned,
-          pmName: pmName ?? prevTeam?.pmName ?? '',
-          crewMembers: nextCrewMembers,
-          crewMemberPhones: nextCrewPhones,
-        },
+        team: nextTeam,
         crewCount: crewCount !== undefined ? crewCount : nextCrewMembers.length,
         lastUpdated: new Date().toISOString(),
       };
@@ -703,13 +773,15 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
         });
       }
 
-      return {
+      const updated = {
         ...prev,
         expenses: [...(prev.expenses || []), expense],
         buckets: finalBuckets,
         spent: prev.spent + expense.amount,
         lastUpdated: new Date().toISOString(),
       };
+      pushBusinessResource('expenses', updated.expenses || []);
+      return updated;
     });
   };
 
@@ -779,6 +851,7 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
         spent: Math.max(0, prev.spent - expenseToDelete.amount),
         lastUpdated: new Date().toISOString(),
       };
+      pushBusinessResource('expenses', updated.expenses || []);
       
       // CRITICAL: Immediately save to AsyncStorage to prevent reloadFromStorage from overwriting
       // Do this asynchronously so it doesn't block the state update
@@ -806,6 +879,7 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
         spent: 0,
         lastUpdated: new Date().toISOString(),
       };
+      pushBusinessResource('expenses', []);
       
       // Save to AsyncStorage immediately
       const key = `bps.project.${prev.id}`;
@@ -853,13 +927,15 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
         return bucket;
       });
 
-      return {
+      const updated = {
         ...prev,
         expenses: updatedExpenses,
         buckets: updatedBuckets,
         spent: Math.max(0, prev.spent + amountDiff),
         lastUpdated: new Date().toISOString(),
       };
+      pushBusinessResource('expenses', updated.expenses || []);
+      return updated;
     });
   };
 
@@ -904,6 +980,7 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
         committedPOs: newCommittedPOs,
         lastUpdated: new Date().toISOString(),
       };
+      pushBusinessResource('purchaseOrders', updatedPOs);
       
       console.log('📦 Purchase order state updated:', {
         poId: newPO.id,
@@ -995,7 +1072,7 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
         .filter(p => p.status === 'Pending')
         .reduce((sum, p) => sum + p.amount, 0);
 
-      return {
+      const updated = {
         ...prev,
         purchaseOrders: updatedPOs,
         buckets: updatedBuckets,
@@ -1003,6 +1080,8 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
         committedPOs: newCommittedPOs,
         lastUpdated: new Date().toISOString(),
       };
+      pushBusinessResource('purchaseOrders', updatedPOs);
+      return updated;
     });
   };
 
@@ -1031,6 +1110,7 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
         committedPOs: newCommittedPOs,
         lastUpdated: new Date().toISOString(),
       };
+      pushBusinessResource('purchaseOrders', updatedPOs);
       
       console.log('🚫 PO cancelled:', {
         poId,
@@ -1070,12 +1150,14 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
         .filter(p => p.status === 'Pending')
         .reduce((sum, p) => sum + p.amount, 0);
 
-      return {
+      const updated = {
         ...prev,
         purchaseOrders: updatedPOs,
         committedPOs: newCommittedPOs,
         lastUpdated: new Date().toISOString(),
       };
+      pushBusinessResource('purchaseOrders', updatedPOs);
+      return updated;
     });
   };
 
@@ -1089,12 +1171,14 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
         .filter(p => p.status === 'Pending')
         .reduce((sum, p) => sum + p.amount, 0);
 
-      return {
+      const updated = {
         ...prev,
         purchaseOrders: updatedPOs,
         committedPOs: newCommittedPOs,
         lastUpdated: new Date().toISOString(),
       };
+      pushBusinessResource('purchaseOrders', updatedPOs);
+      return updated;
     });
   };
 
@@ -1415,7 +1499,7 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
             committedPOsChanged ||
             listHasNewerPOs
           ) {
-            replaceProjectDataState(dataToUse);
+            replaceProjectDataState(await mergeBusinessWorkspaceResources(dataToUse));
             
             // After reloading, sync back to ProjectListContext to ensure consistency
             // BUT: Don't sync if we're already syncing (prevent infinite loop)
@@ -1439,11 +1523,11 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
             suppressedListExpenseIdsRef.current
           ),
         };
-        replaceProjectDataState(dataToUse);
+        replaceProjectDataState(await mergeBusinessWorkspaceResources(dataToUse));
       } else {
         // No saved data, use initial
         const initial = getInitialProjectData(projectId);
-        replaceProjectDataState(initial);
+        replaceProjectDataState(await mergeBusinessWorkspaceResources(initial));
       }
     } catch (error) {
       console.error('Error reloading project data:', error);

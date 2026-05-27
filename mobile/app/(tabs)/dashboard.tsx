@@ -92,6 +92,10 @@ import {
   reconcileDeletedProjectsFromInsights,
   type DeletedProjectRecord,
 } from "@/utils/aiDashboardPortfolioFilter";
+import {
+  applyWorkspaceTimelineProgressToMaps,
+  loadWorkspaceTimelineProgressByProjectId,
+} from "@/utils/workspaceTimelineProgress";
 
 const AI_DASHBOARD_FETCH_TIMEOUT_MS = 60_000;
 
@@ -2933,7 +2937,19 @@ const DashboardScreen: React.FC = () => {
             alignSelf: "center" as const,
           }
         : undefined;
-  const { activeProjects, estimates } = useProjectList();
+  const { activeProjects, estimates, refreshProjects } = useProjectList();
+  const refreshProjectsRef = useRef(refreshProjects);
+  refreshProjectsRef.current = refreshProjects;
+
+  useFocusEffect(
+    useCallback(() => {
+      const task = InteractionManager.runAfterInteractions(() => {
+        void refreshProjectsRef.current();
+      });
+      return () => task.cancel?.();
+    }, [])
+  );
+
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [showAIAssistant, setShowAIAssistant] = useState(false);
   const [aiPmMode, setAiPmMode] = useState<boolean>(true);
@@ -3069,6 +3085,11 @@ const DashboardScreen: React.FC = () => {
         const override = byId[pid] || (titleRaw ? byTitle[titleRaw] : undefined);
         if (override) nextOverrides[pid] = override;
       }
+
+      const workspaceProgress = await loadWorkspaceTimelineProgressByProjectId(
+        all.map((p) => String(p?.id ?? '')).filter(Boolean)
+      );
+      applyWorkspaceTimelineProgressToMaps(all, workspaceProgress, progressMap);
     } catch {
       // Keep UI responsive if storage read fails
     }

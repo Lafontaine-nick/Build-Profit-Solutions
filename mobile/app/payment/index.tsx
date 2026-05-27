@@ -19,11 +19,17 @@ import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import { useMemo } from 'react';
-import { stripeService } from '@/services/stripeService';
+import { stripeService, resolveLiveStripePriceId } from '@/services/stripeService';
 import { clerkAuthService } from '@/services/clerkAuth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useUser } from '@clerk/clerk-react';
 import GradientRingBackInner from '@/components/GradientRingBackInner';
+import {
+  priceIdToPlanId,
+  resolveBestPlanIdFromSubscriptions,
+} from '@/utils/resolveSubscriptionPlan';
+
+const CACHED_PLAN_KEY = 'bps.cachedPlanId';
 
 export default function PaymentScreen() {
   const { darkMode, theme: themeContext } = useTheme();
@@ -127,13 +133,40 @@ export default function PaymentScreen() {
   const getPlanInfo = (priceId: string) => {
     const plan = planCatalog.find((p) => p.stripePriceId === priceId);
     if (plan) {
-      console.log('✅ Plan mapped successfully:', plan.name, 'for price ID:', priceId);
       return { name: plan.name, features: plan.features };
     }
-    console.log('⚠️ No plan found for price ID:', priceId);
-    console.log('Available price IDs:', planCatalog.map((p) => `${p.name}: ${p.stripePriceId}`));
+    for (const entry of planCatalog) {
+      if (resolveLiveStripePriceId(entry.id, entry.stripePriceId) === priceId) {
+        return { name: entry.name, features: entry.features };
+      }
+    }
+    const planId = priceIdToPlanId(priceId, planCatalog);
+    if (planId) {
+      const matched = planCatalog.find((p) => p.id === planId);
+      if (matched) {
+        return { name: matched.name, features: matched.features };
+      }
+    }
     return null;
   };
+
+  const applyPlanFromCatalogId = (planId: string | null) => {
+    if (!planId) return false;
+    const plan = planCatalog.find((p) => p.id === planId);
+    if (!plan) return false;
+    setCurrentPlan({ name: plan.name, features: plan.features });
+    return true;
+  };
+
+  useEffect(() => {
+    AsyncStorage.getItem(CACHED_PLAN_KEY)
+      .then((cached) => {
+        if (applyPlanFromCatalogId(cached)) {
+          setLoading(false);
+        }
+      })
+      .catch(() => {});
+  }, [planCatalog]);
 
   const fetchCurrentPlan = async () => {
     try {
@@ -155,6 +188,24 @@ export default function PaymentScreen() {
       console.log('📡 Calling stripeService.getCustomerSubscriptions with email:', emailToUse);
       const subscriptions = await stripeService.getCustomerSubscriptions(emailToUse);
       console.log('📋 Subscriptions received:', subscriptions.length);
+
+      const bestPlanId = resolveBestPlanIdFromSubscriptions(subscriptions, planCatalog);
+      if (bestPlanId && applyPlanFromCatalogId(bestPlanId)) {
+        await AsyncStorage.setItem(CACHED_PLAN_KEY, bestPlanId);
+        const bestSub =
+          subscriptions.find(
+            (sub: any) =>
+              priceIdToPlanId(sub.plan?.id, planCatalog) === bestPlanId &&
+              (sub.status === 'active' || sub.status === 'trialing' || sub.status === 'past_due')
+          ) || subscriptions[0];
+        setSubscriptionStatus(bestSub?.status || 'active');
+        setError(
+          bestSub?.status === 'past_due'
+            ? 'Your subscription payment is past due. Please update your payment method to continue service.'
+            : null
+        );
+        return;
+      }
       
       // Log all subscriptions for debugging
       if (subscriptions.length > 0) {
@@ -261,8 +312,13 @@ export default function PaymentScreen() {
       // Show error message but don't crash
       const errorMessage = error?.message || 'Failed to load subscription';
       if (errorMessage.includes('timed out') || errorMessage.includes('Network')) {
-        console.error('⚠️ Network error - check backend connection');
-        setError('Connection timeout. Please check your network and ensure the backend is running.');
+        console.warn('⚠️ Plan fetch slow or offline — using cache if available');
+        const cached = await AsyncStorage.getItem(CACHED_PLAN_KEY);
+        if (cached && applyPlanFromCatalogId(cached)) {
+          setError('Showing your last known plan. Pull down to refresh when back online.');
+        } else {
+          setError('Connection timeout. Pull down to refresh or check that the backend is running.');
+        }
       } else {
         setError(errorMessage);
       }
@@ -362,14 +418,14 @@ export default function PaymentScreen() {
             <View style={styles.content}>
         {/* Current Plan Card */}
         <View style={[styles.currentPlanCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          {loading ? (
+          {loading && !currentPlan ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="small" color={theme.accent} />
               <Text style={[styles.loadingText, { color: theme.subtext, opacity: darkMode ? 0.85 : 0.85 }]}>
                 Loading plan...
               </Text>
             </View>
-          ) : error ? (
+          ) : error && !currentPlan ? (
             <View style={styles.loadingContainer}>
               <MaterialIcons name='error-outline' size={24} color={theme.error} />
               <Text style={[styles.loadingText, { color: theme.error, marginLeft: 8 }]}>
@@ -378,6 +434,16 @@ export default function PaymentScreen() {
             </View>
           ) : currentPlan ? (
             <>
+              {loading ? (
+                <Text style={[styles.loadingText, { color: theme.subtext, marginBottom: 8 }]}>
+                  Updating plan…
+                </Text>
+              ) : null}
+              {error ? (
+                <Text style={[styles.loadingText, { color: theme.warning, marginBottom: 8 }]}>
+                  {error}
+                </Text>
+              ) : null}
               <View style={styles.currentPlanHeader}>
                 <View style={[styles.iconContainer, { backgroundColor: darkMode ? theme.iconBg : 'rgba(67, 206, 162, 0.25)' }]}>
                   <MaterialIcons name='workspace-premium' size={24} color={theme.accent} />

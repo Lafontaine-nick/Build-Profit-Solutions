@@ -40,6 +40,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { computeProjectListRowFinancials } from '@/lib/projectListRowMetrics';
 import { pickCompletedDisplayDateRaw } from '@/lib/projectCompletedDisplayDate';
 import { isChangeOrderTimelineMilestone } from '@/src/lib/projectFinancials';
+import {
+  applyWorkspaceTimelineProgressToMaps,
+  loadWorkspaceTimelineProgressByProjectId,
+} from '@/utils/workspaceTimelineProgress';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenLayout, isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, WEB_DESKTOP_EDGE_HORIZONTAL } from '@/constants/ScreenLayout';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
@@ -56,6 +60,7 @@ import {
   clearPendingActiveProjectWalkthroughProjectId,
 } from '@/lib/activeProjectWalkthroughStorage';
 import { useUser } from '@clerk/clerk-react';
+import { useClerkProfileGreeting } from '@/hooks/useProfileGreeting';
 import { useWalkthroughState } from '@/contexts/WalkthroughStateContext';
 import { TabScreenHeader } from '@/components/ui/TabScreenHeader';
 import WebPageShell from '@/components/layout/WebPageShell';
@@ -592,6 +597,30 @@ export default function ProjectsScreen() {
         const override = byId[pid] || (titleKey ? byTitle[titleKey] : undefined);
         if (override) next[pid] = override;
       }
+
+      const workspaceProgress = await loadWorkspaceTimelineProgressByProjectId(
+        all.map((p) => String(p?.id ?? '')).filter(Boolean)
+      );
+      applyWorkspaceTimelineProgressToMaps(all, workspaceProgress, progressMap);
+
+      for (const project of all) {
+        const pid = String(project?.id ?? '');
+        const pct = progressMap[pid];
+        if (pid && pct !== undefined) {
+          try {
+            AsyncStorage.setItem(
+              `bps.project.${pid}.progress`,
+              JSON.stringify({
+                progress: pct,
+                overallProgressPct: pct,
+                updatedAt: new Date().toISOString(),
+              })
+            );
+          } catch {
+            /* ignore */
+          }
+        }
+      }
     } catch {
       // Keep UI responsive if storage read fails.
     }
@@ -669,10 +698,8 @@ export default function ProjectsScreen() {
     }
   }, [params.tab, params.fromSubmit]);
 
-  const user = {
-    name: 'Nick Lafontaine',
-    initials: 'NL',
-  };
+  const { user: clerkUser } = useUser();
+  const profileGreeting = useClerkProfileGreeting();
 
   // Transform projects data - separate submitted and active
   const allProjects = useMemo(() => {
@@ -862,7 +889,6 @@ export default function ProjectsScreen() {
     };
   }, [showSuccessBanner, dismissSuccessBannerAnimated, successBannerTranslateY, successBannerOpacity]);
 
-  const { user: clerkUser } = useUser();
   const {
     hydrated: wtHydrated,
     shouldShowFirstProject,
@@ -1152,7 +1178,7 @@ export default function ProjectsScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Profile"
               >
-                <Text style={styles.profileInitials}>{user.initials}</Text>
+                <Text style={styles.profileInitials}>{profileGreeting.initials}</Text>
               </Pressable>
             </LinearGradient>
           }

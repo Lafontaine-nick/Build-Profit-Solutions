@@ -43,6 +43,9 @@ import {
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import GradientRingBackInner from "@/components/GradientRingBackInner";
 import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH } from "@/constants/ScreenLayout";
+import KeyboardPlainAccessory from "./ui/KeyboardPlainAccessory";
+import { KEYBOARD_ACCESSORY_IDS } from "@/constants/keyboard";
+import { projectAddExpenseNumericKeyboardProps } from "@/constants/inputKeyboardPresets";
 import WebFormGradientFrame from "@/components/layout/WebFormGradientFrame";
 
 const BRAND_GREEN = "#22c55e";
@@ -353,6 +356,10 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <KeyboardPlainAccessory
+        nativeID={KEYBOARD_ACCESSORY_IDS.projectAddExpensePlain}
+        backgroundColor={darkMode ? '#000000' : Colors.bg}
+      />
       <StatusBar barStyle="light-content" backgroundColor="#000000" />
 
       <View
@@ -488,6 +495,7 @@ const AddMaterialScreen: React.FC<AddMaterialScreenProps> = ({
                       setAmount(clampCentsDigitsInput(text));
                       if (selectedPreset) setSelectedPreset(null);
                     }}
+                    {...projectAddExpenseNumericKeyboardProps}
                     keyboardType="phone-pad"
                     textContentType="none"
                     autoComplete="off"

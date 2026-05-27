@@ -1,5 +1,7 @@
 -- Database schema for Build Profit Solutions
 
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
@@ -109,4 +111,77 @@ CREATE TABLE IF NOT EXISTS user_walkthrough_state (
     user_id VARCHAR(255) PRIMARY KEY,
     walkthroughs JSONB NOT NULL DEFAULT '{}'::jsonb,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-); 
+);
+
+-- Business workspaces: one paid company account can have many member profiles.
+-- user_id values are Clerk ids (`user_*`) or legacy string user ids.
+CREATE TABLE IF NOT EXISTS workspaces (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    owner_user_id VARCHAR(255) NOT NULL,
+    owner_email VARCHAR(255),
+    stripe_customer_id VARCHAR(255),
+    stripe_subscription_id VARCHAR(255),
+    billing_plan VARCHAR(50) DEFAULT 'business',
+    billing_status VARCHAR(50) DEFAULT 'inactive',
+    seat_limit INTEGER DEFAULT 5,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS workspace_members (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    user_id VARCHAR(255),
+    email VARCHAR(255) NOT NULL,
+    display_name VARCHAR(255),
+    role VARCHAR(50) NOT NULL DEFAULT 'field',
+    status VARCHAR(50) NOT NULL DEFAULT 'pending',
+    invited_by_user_id VARCHAR(255),
+    invited_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    joined_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(workspace_id, email)
+);
+
+CREATE TABLE IF NOT EXISTS project_members (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    project_id VARCHAR(255) NOT NULL,
+    workspace_member_id UUID NOT NULL REFERENCES workspace_members(id) ON DELETE CASCADE,
+    project_role VARCHAR(50) NOT NULL DEFAULT 'field',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(project_id, workspace_member_id)
+);
+
+CREATE TABLE IF NOT EXISTS project_shared_resources (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    project_id VARCHAR(255) NOT NULL,
+    resource_type VARCHAR(50) NOT NULL,
+    resource_payload JSONB NOT NULL DEFAULT '[]'::jsonb,
+    updated_by_user_id VARCHAR(255),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(workspace_id, project_id, resource_type)
+);
+
+CREATE TABLE IF NOT EXISTS workspace_activity_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    project_id VARCHAR(255),
+    actor_user_id VARCHAR(255),
+    action VARCHAR(100) NOT NULL,
+    resource_type VARCHAR(50),
+    resource_id VARCHAR(255),
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspaces_owner_user_id ON workspaces(owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_workspace_members_workspace_id ON workspace_members(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_workspace_members_user_id ON workspace_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_project_members_project_id ON project_members(project_id);
+CREATE INDEX IF NOT EXISTS idx_project_shared_resources_project ON project_shared_resources(workspace_id, project_id);
+CREATE INDEX IF NOT EXISTS idx_workspace_activity_log_workspace_project ON workspace_activity_log(workspace_id, project_id);

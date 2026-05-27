@@ -43,7 +43,7 @@ export default function AppTextField({
   onBlur,
   keyboardType,
   textContentType,
-  inputAccessoryViewID: _inputAccessoryViewIDFromProps,
+  inputAccessoryViewID,
   ...props
 }: Props) {
   const isNumericKeyboard =
@@ -91,6 +91,7 @@ export default function AppTextField({
           }}
           textContentType={textContentType}
           keyboardType={keyboardType}
+          inputAccessoryViewID={inputAccessoryViewID}
         />
       </View>
     </View>

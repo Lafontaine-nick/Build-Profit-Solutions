@@ -27,6 +27,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import GreyCalendar from './GreyCalendar';
 import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
+import { businessWorkspaceService } from '@/services/businessWorkspaceService';
+import { mergeArrayResource } from '@/utils/workspaceResourceMerge';
 
 export type CalendarEvent = {
   id: string;
@@ -263,12 +265,25 @@ export default function ProjectCalendar({
       setLoading(true);
       const key = `calendar_events_${projectId}`;
       const saved = await AsyncStorage.getItem(key);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        setEvents(Array.isArray(parsed) ? parsed : []);
-      } else {
-        setEvents([]);
+      const parsed = saved ? JSON.parse(saved) : [];
+      const localEvents = Array.isArray(parsed) ? parsed : [];
+      const sharedResult = await businessWorkspaceService.getProjectResources(projectId).catch(() => null);
+      const sharedResource = sharedResult?.success ? sharedResult.data?.resources?.calendarEvents : undefined;
+      const sharedEvents = Array.isArray(sharedResource?.payload)
+        ? (sharedResource.payload as CalendarEvent[])
+        : [];
+      const mergedEvents = await mergeArrayResource(
+        projectId,
+        'calendarEvents',
+        localEvents,
+        sharedEvents,
+        sharedResource?.updatedAt,
+        ['id']
+      );
+      if (sharedEvents.length > 0) {
+        await AsyncStorage.setItem(key, JSON.stringify(mergedEvents));
       }
+      setEvents(mergedEvents);
     } catch (error) {
       console.error('❌ Error loading calendar events:', error);
       setEvents([]);
@@ -283,6 +298,9 @@ export default function ProjectCalendar({
     try {
       const key = `calendar_events_${projectId}`;
       await AsyncStorage.setItem(key, JSON.stringify(newEvents));
+      businessWorkspaceService
+        .pushProjectResource(projectId, 'calendarEvents', newEvents)
+        .catch((error) => console.warn('Business workspace calendar sync failed:', error));
       setEvents(newEvents);
     } catch (error) {
       console.error('❌ Error saving calendar events:', error);

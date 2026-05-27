@@ -90,6 +90,7 @@ const userWalkthroughsRoutes = require('./routes/userWalkthroughs');
 const teamMessagingRoutes = require('./routes/teamMessaging');
 const betaFeedbackRoutes = require('./routes/betaFeedback');
 const telemetryRoutes = require('./routes/telemetry');
+const workspaceRoutes = require('./routes/workspaces');
 const { initializeDatabase } = require('./services/database');
 
 const app = express();
@@ -337,6 +338,7 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/user-settings', userSettingsRoutes);
 app.use('/api/walkthrough-state', userWalkthroughsRoutes);
 app.use('/api/team', teamMessagingRoutes);
+app.use('/api/workspaces', workspaceRoutes);
 app.use('/api/beta-feedback', betaFeedbackRoutes);
 app.use('/api/telemetry', telemetryRoutes);
 // Error handling middleware
