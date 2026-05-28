@@ -438,6 +438,11 @@ export function computeProjectFinancials(
     plannedCostBudget = bucketSumOpt;
   }
 
+  const approvedCostBudget = safeNum(project?.approvedCostBudget);
+  if (plannedCostBudget <= 0 && approvedCostBudget > 0) {
+    plannedCostBudget = approvedCostBudget;
+  }
+
   if (plannedCostBudget <= 0 && bidForMarkup > 0) {
     const marginPct = Number(project?.margin ?? ed?.marginPct ?? ed?.margin ?? 0);
     if (marginPct > 0 && marginPct < 100) {

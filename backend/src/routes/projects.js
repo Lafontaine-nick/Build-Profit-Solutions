@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const { loadProjects, saveProjects } = require('../services/leadStorage');
+const { purgeWorkspaceProjectReferences } = require('../services/workspaceStorage');
 
 // Middleware to verify JWT token or Clerk token
 const authenticateToken = async (req, res, next) => {
@@ -400,6 +401,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     
     projects.splice(projectIndex, 1);
     saveProjects(projects); // Persist to disk
+    purgeWorkspaceProjectReferences(userId, id);
     
     res.json({
       success: true,

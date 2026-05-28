@@ -5,8 +5,8 @@
     "projectId": "1779765189376",
     "resourceType": "timeline",
     "payload": [],
-    "updatedByUserId": "user_3EFCxmNL62epVxflckc8K5DC8nY",
-    "updatedAt": "2026-05-27T04:21:10.070Z",
+    "updatedByUserId": "user_3EKvR6kNHuT0e7ZGOODGFJa9Sqx",
+    "updatedAt": "2026-05-28T04:58:18.290Z",
     "createdAt": "2026-05-27T04:21:09.513Z"
   },
   {
@@ -18,65 +18,66 @@
       {
         "id": "weekly-progress-deposit-1779331655437",
         "title": "Deposit",
-        "plannedDate": "2026-05-28",
+        "plannedDate": "2026-06-21",
         "progressPct": 100,
         "status": "completed",
         "assignee": "Client",
-        "amount": 0
+        "amount": 7319
       },
       {
         "id": "weekly-progress-week-1779331655437-1",
         "title": "Week 1 Progress Payment",
-        "plannedDate": "2026-05-28",
+        "plannedDate": "2026-06-29",
         "progressPct": 100,
         "status": "completed",
         "assignee": "Client",
         "dependsOnId": "weekly-progress-deposit-1779331655437",
-        "amount": 0
+        "amount": 5123.3
       },
       {
         "id": "weekly-progress-week-1779331655437-2",
         "title": "Week 2 Progress Payment",
-        "plannedDate": "2026-05-28",
-        "progressPct": 0,
-        "status": "pending",
+        "plannedDate": "2026-07-07",
+        "progressPct": 100,
+        "status": "completed",
         "assignee": "Client",
         "dependsOnId": "weekly-progress-week-1779331655437-1",
-        "amount": 0
+        "amount": 5123.3,
+        "collectedAt": "2026-05-28T03:09:18.618Z"
       },
       {
         "id": "weekly-progress-week-1779331655437-3",
         "title": "Week 3 Progress Payment",
-        "plannedDate": "2026-05-28",
+        "plannedDate": "2026-07-14",
         "progressPct": 0,
         "status": "pending",
         "assignee": "Client",
         "dependsOnId": "weekly-progress-week-1779331655437-2",
-        "amount": 0
+        "amount": 5123.3
       },
       {
         "id": "weekly-progress-week-1779331655437-4",
         "title": "Week 4 Progress Payment",
-        "plannedDate": "2026-05-28",
+        "plannedDate": "2026-07-21",
         "progressPct": 0,
         "status": "pending",
         "assignee": "Client",
         "dependsOnId": "weekly-progress-week-1779331655437-3",
-        "amount": 0
+        "amount": 5123.3
       },
       {
         "id": "weekly-progress-holdback-1779331655437",
         "title": "Final Holdback",
-        "plannedDate": "2026-05-28",
+        "plannedDate": "2026-07-26",
         "progressPct": 0,
         "status": "pending",
         "assignee": "Client",
         "dependsOnId": "weekly-progress-week-1779331655437-4",
-        "amount": 0
+        "amount": 1463.8
       }
     ],
-    "updatedByUserId": "user_3EIIILQr82PWL1TaheakroqHr3R",
-    "updatedAt": "2026-05-28T02:35:55.706Z",
+    "updatedByUserId": "user_3EFCxmNL62epVxflckc8K5DC8nY",
+    "updatedAt": "2026-05-28T05:34:51.613Z",
     "createdAt": "2026-05-27T04:27:09.437Z"
   },
   {
@@ -102,17 +103,19 @@
         "licenseVerified": false
       },
       {
-        "id": "bf4396ee-1830-4f87-b793-1c2aebc6c1ec",
-        "name": "Nicholas",
-        "phone": "325-555-5555",
+        "id": "7ee09de2-c859-4116-b51e-9f2867d3214a",
+        "name": "Jack",
+        "phone": "445-031-2258",
         "email": "nicholas@buildprofitsolutions.com",
-        "userId": "user_3EIIILQr82PWL1TaheakroqHr3R",
-        "role": "Project Manager",
+        "userId": "user_3EKvR6kNHuT0e7ZGOODGFJa9Sqx",
+        "role": "Crew Member",
         "status": "active",
         "inviteStatus": "active",
         "accessRole": "field",
         "projectAccess": "all_active",
-        "assignedProjectIds": [],
+        "assignedProjectIds": [
+          "1779765189376"
+        ],
         "isWorkspaceMember": true,
         "tasksOpen": 0,
         "tasksTotal": 0,
@@ -123,7 +126,139 @@
       }
     ],
     "updatedByUserId": "user_3EFCxmNL62epVxflckc8K5DC8nY",
-    "updatedAt": "2026-05-28T02:36:30.872Z",
+    "updatedAt": "2026-05-28T05:29:26.949Z",
     "createdAt": "2026-05-27T05:24:13.331Z"
+  },
+  {
+    "id": "1c4a65b3-fa25-4966-857f-3532403ae1da",
+    "workspaceId": "4aa81a50-1388-4f9d-9f91-41560f605430",
+    "projectId": "1779944340095",
+    "resourceType": "timeline",
+    "payload": [
+      {
+        "id": "weekly-progress-deposit-1779944639226",
+        "title": "Deposit",
+        "plannedDate": "2026-06-09",
+        "progressPct": 0,
+        "status": "pending",
+        "assignee": "Client",
+        "amount": 0
+      },
+      {
+        "id": "weekly-progress-week-1779944639226-1",
+        "title": "Week 1 Progress Payment",
+        "plannedDate": "2026-06-17",
+        "progressPct": 0,
+        "status": "pending",
+        "assignee": "Client",
+        "dependsOnId": "weekly-progress-deposit-1779944639226",
+        "amount": 0
+      },
+      {
+        "id": "weekly-progress-week-1779944639226-2",
+        "title": "Week 2 Progress Payment",
+        "plannedDate": "2026-06-24",
+        "progressPct": 0,
+        "status": "pending",
+        "assignee": "Client",
+        "dependsOnId": "weekly-progress-week-1779944639226-1",
+        "amount": 0
+      },
+      {
+        "id": "weekly-progress-week-1779944639226-3",
+        "title": "Week 3 Progress Payment",
+        "plannedDate": "2026-07-01",
+        "progressPct": 0,
+        "status": "pending",
+        "assignee": "Client",
+        "dependsOnId": "weekly-progress-week-1779944639226-2",
+        "amount": 0
+      },
+      {
+        "id": "weekly-progress-holdback-1779944639226",
+        "title": "Final Holdback",
+        "plannedDate": "2026-07-08",
+        "progressPct": 0,
+        "status": "pending",
+        "assignee": "Client",
+        "dependsOnId": "weekly-progress-week-1779944639226-3",
+        "amount": 0
+      }
+    ],
+    "updatedByUserId": "user_3EKvR6kNHuT0e7ZGOODGFJa9Sqx",
+    "updatedAt": "2026-05-28T05:41:12.732Z",
+    "createdAt": "2026-05-28T05:07:24.289Z"
+  },
+  {
+    "id": "856111fa-fe46-4d8b-a7ed-35712125f74b",
+    "workspaceId": "4aa81a50-1388-4f9d-9f91-41560f605430",
+    "projectId": "1779944340095",
+    "resourceType": "team",
+    "payload": [
+      {
+        "id": "12fe7bf7-895a-4a38-8ef9-ffc743ca957b",
+        "name": "Nicholas LaFontaine",
+        "userId": "user_3EFCxmNL62epVxflckc8K5DC8nY",
+        "role": "Project Manager",
+        "status": "active",
+        "inviteStatus": "active",
+        "accessRole": "owner",
+        "projectAccess": "all_active",
+        "assignedProjectIds": [],
+        "isWorkspaceMember": true,
+        "tasksOpen": 0,
+        "tasksTotal": 0,
+        "skills": [],
+        "licenseVerified": false
+      },
+      {
+        "id": "7ee09de2-c859-4116-b51e-9f2867d3214a",
+        "name": "Jack",
+        "phone": "445-031-2258",
+        "email": "nicholas@buildprofitsolutions.com",
+        "userId": "user_3EKvR6kNHuT0e7ZGOODGFJa9Sqx",
+        "role": "Project Manager",
+        "status": "active",
+        "inviteStatus": "active",
+        "accessRole": "manager",
+        "projectAccess": "all_active",
+        "assignedProjectIds": [
+          "1779765189376"
+        ],
+        "isWorkspaceMember": true,
+        "tasksOpen": 0,
+        "tasksTotal": 0,
+        "skills": [
+          "Other"
+        ],
+        "licenseVerified": false
+      }
+    ],
+    "updatedByUserId": "user_3EFCxmNL62epVxflckc8K5DC8nY",
+    "updatedAt": "2026-05-28T05:37:27.737Z",
+    "createdAt": "2026-05-28T05:08:29.073Z"
+  },
+  {
+    "id": "86dd27e7-437a-4b1a-826d-e9dfade13a15",
+    "workspaceId": "4aa81a50-1388-4f9d-9f91-41560f605430",
+    "projectId": "1779944340095",
+    "resourceType": "expenses",
+    "payload": [
+      {
+        "id": "txn-1779946839375",
+        "category": "Materials/Equipment",
+        "vendor": "home depot",
+        "material": "tile",
+        "amount": 4400,
+        "date": "2026-05-28T05:40:39.375Z",
+        "notes": "📐 2,200 sq ft × $2.00/sq ft",
+        "receiptUri": null,
+        "isPlanned": true,
+        "priceReasonableness": "outlier"
+      }
+    ],
+    "updatedByUserId": "user_3EKvR6kNHuT0e7ZGOODGFJa9Sqx",
+    "updatedAt": "2026-05-28T05:40:43.485Z",
+    "createdAt": "2026-05-28T05:40:43.485Z"
   }
 ]

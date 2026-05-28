@@ -1,15 +1,17 @@
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
 import { getColors } from '@/theme/getColors';
 
 type FinancialAccessLockedProps = {
   colors: ReturnType<typeof getColors>;
   compact?: boolean;
+  onBackToProject?: () => void;
 };
 
 export default function FinancialAccessLocked({
   colors,
   compact = false,
+  onBackToProject,
 }: FinancialAccessLockedProps) {
   return (
     <View style={{ padding: compact ? 12 : 20, alignItems: 'center' }}>
@@ -32,13 +34,28 @@ export default function FinancialAccessLocked({
             marginBottom: 8,
           }}
         >
-          Financial details are restricted.
+          Financial details are restricted
         </Text>
         <Text style={{ color: colors.sub, fontSize: 14, lineHeight: 20 }}>
-          Your workspace role does not include owner-level financials like markup, overhead, profit,
-          estimate breakdowns, payment pricing, or tax records. You can still work with the project
-          areas allowed by your role.
+          Your role does not include access to owner-level financials such as markup, overhead,
+          profit, margin, or estimate breakdowns. You can still add updates, receipts, logs, photos,
+          tasks, and project notes based on your permissions.
         </Text>
+        {onBackToProject ? (
+          <Pressable
+            onPress={onBackToProject}
+            style={{
+              marginTop: 16,
+              alignSelf: 'flex-start',
+              paddingVertical: 10,
+              paddingHorizontal: 16,
+              borderRadius: 10,
+              backgroundColor: 'rgba(34, 197, 94, 0.14)',
+            }}
+          >
+            <Text style={{ color: '#22c55e', fontWeight: '700', fontSize: 14 }}>Back to Project</Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );

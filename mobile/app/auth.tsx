@@ -41,6 +41,7 @@ import {
   WEB_CENTERED_COLUMN_MAX_WIDTH,
   WEB_CENTERED_COLUMN_MIN_WIDTH,
 } from '@/constants/ScreenLayout';
+import { showAuthFeedback } from '@/utils/authFeedback';
 
 // Complete OAuth sessions properly
 WebBrowser.maybeCompleteAuthSession();
@@ -160,6 +161,7 @@ const AuthScreen: React.FC = () => {
   const [needsSignupEmailCode, setNeedsSignupEmailCode] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
   const [staySignedIn, setStaySignedIn] = useState(false);
+  const [formBanner, setFormBanner] = useState<string | null>(null);
 
   const isSignup = mode === 'signup';
   const passwordStrength = isSignup && password ? getPasswordStrength(password) : null;
@@ -1007,23 +1009,27 @@ const AuthScreen: React.FC = () => {
     const isValid = validateAllForSubmit();
 
     if (!isValid) {
+      const banner = 'Please check the highlighted fields above.';
+      setFormBanner(banner);
+      showAuthFeedback('Missing information', banner);
       return;
     }
+
+    setFormBanner(null);
 
     /** Avoid falling through to `clerkAuthService` — Clerk-only accounts would always “fail” to sign in. */
     if (isClerkEnabled) {
       if (!signInHook || !signUpHook) {
-        Alert.alert(
-          'Sign-in unavailable',
-          'Authentication is still initializing. Wait a few seconds and try again, or refresh the page.'
-        );
+        const msg =
+          'Authentication is still initializing. Wait a few seconds and try again, or refresh the page.';
+        setFormBanner(msg);
+        showAuthFeedback('Sign-in unavailable', msg);
         return;
       }
       if (!signInHook.isLoaded || !signUpHook.isLoaded) {
-        Alert.alert(
-          'Please wait',
-          'Sign-in is still loading. Try again in a moment.'
-        );
+        const msg = 'Sign-in is still loading. Try again in a moment.';
+        setFormBanner(msg);
+        showAuthFeedback('Please wait', msg);
         return;
       }
     }
@@ -1060,12 +1066,10 @@ const AuthScreen: React.FC = () => {
                 staySignedIn: true,
               });
             } else {
-              Alert.alert('Success', 'Account created successfully! Please check your email to verify your account.', [
-                {
-                  text: 'OK',
-                  onPress: () => router.replace('/auth?mode=signin'),
-                },
-              ]);
+              const msg =
+                'Account created successfully! Please check your email to verify your account.';
+              showAuthFeedback('Success', msg);
+              router.replace('/auth?mode=signin');
             }
           } else {
             // Email verification (or other requirements) — must prepare so Clerk sends the code
@@ -1076,6 +1080,7 @@ const AuthScreen: React.FC = () => {
               }
               setVerificationCode('');
               setNeedsSignupEmailCode(true);
+              setFormBanner('Enter the verification code we emailed you.');
             } catch (prepErr: any) {
               console.error('Sign-up email verification prepare:', prepErr);
               const prepMsg =
@@ -1083,7 +1088,8 @@ const AuthScreen: React.FC = () => {
                 prepErr?.errors?.[0]?.message ||
                 prepErr?.message ||
                 'Could not start email verification. Check Clerk sign-up settings or try again.';
-              Alert.alert('Verify Email', prepMsg);
+              setFormBanner(prepMsg);
+              showAuthFeedback('Verify Email', prepMsg);
             }
           }
         } else {
@@ -1191,14 +1197,11 @@ const AuthScreen: React.FC = () => {
 
       const clerkErrCode = error?.errors?.[0]?.code;
       if (clerkErrCode === 'session_exists') {
-        Alert.alert('Already signed in', 'Your session is still active. Continuing to the app.', [
-          {
-            text: 'OK',
-            onPress: () => {
-              void navigateAfterClerkSession({});
-            },
-          },
-        ]);
+        showAuthFeedback(
+          'Already signed in',
+          'Your session is still active. Continuing to the app.'
+        );
+        void navigateAfterClerkSession({});
         return;
       }
 
@@ -1240,7 +1243,8 @@ const AuthScreen: React.FC = () => {
         }
       }
       
-      Alert.alert('Error', errorMessage);
+      setFormBanner(errorMessage);
+      showAuthFeedback('Error', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -1405,6 +1409,7 @@ const AuthScreen: React.FC = () => {
                       setMode('signup');
                       setErrors({});
                       setTouched({});
+                      setFormBanner(null);
                       setNeedsSignupEmailCode(false);
                       setNeedsVerificationCode(false);
                       setVerificationCode('');
@@ -1434,6 +1439,7 @@ const AuthScreen: React.FC = () => {
                       setMode('signin');
                       setErrors({});
                       setTouched({});
+                      setFormBanner(null);
                       setNeedsSignupEmailCode(false);
                       setNeedsVerificationCode(false);
                       setVerificationCode('');
@@ -1731,12 +1737,19 @@ const AuthScreen: React.FC = () => {
                 </View>
               )}
 
+              {formBanner ? (
+                <View style={styles.formBanner}>
+                  <Text style={styles.formBannerText}>{formBanner}</Text>
+                </View>
+              ) : null}
+
               {/* Primary CTA */}
               <TouchableOpacity
                 activeOpacity={0.9}
                 style={[
                   styles.primaryBtnWrapper,
-                  (loading || (awaitingCode && codeTooShort)) && styles.primaryBtnWrapperDisabled
+                  (loading || (awaitingCode && codeTooShort)) && styles.primaryBtnWrapperDisabled,
+                  Platform.OS === 'web' && styles.primaryBtnWrapperWeb,
                 ]}
                 onPress={
                   awaitingCode
@@ -1746,8 +1759,10 @@ const AuthScreen: React.FC = () => {
                     : handleSubmit
                 }
                 disabled={loading || (awaitingCode && codeTooShort)}
+                accessibilityRole="button"
               >
                 <LinearGradient
+                  pointerEvents="none"
                   colors={["#19E180", "#22c55e"]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
@@ -2057,10 +2072,29 @@ const getStyles = (Colors: any, isDark: boolean, windowWidth: number) => {
     fontSize: 13,
     color: isDark ? '#F3F4F6' : '#475569',
   },
+  formBanner: {
+    marginTop: 8,
+    marginBottom: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+  },
+  formBannerText: {
+    color: isDark ? '#FCA5A5' : '#B91C1C',
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
   primaryBtnWrapper: {
     borderRadius: 999,
     overflow: "hidden",
     marginTop: 6,
+  },
+  primaryBtnWrapperWeb: {
+    cursor: 'pointer' as const,
   },
   primaryBtnWrapperDisabled: {
     opacity: 0.6,

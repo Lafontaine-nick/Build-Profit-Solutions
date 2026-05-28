@@ -24,6 +24,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { getColors } from '../theme/getColors';
 import { useProjectData } from '../contexts/ProjectDataContext';
 import { useProjectList } from '../contexts/ProjectListContext';
+import { mapApprovedCostBucketsToProjectBuckets } from '../utils/approvedCostBuckets';
 import { useBudgetAlerts } from '../src/hooks/useBudgetAlerts';
 import { loadThresholds, Thresholds } from '../src/lib/thresholds';
 import {
@@ -203,12 +204,15 @@ export default function BudgetTab({
   onRefetch,
   embedded = false,
   profitForecastOverride,
+  budgetAccessMode = 'owner',
 }: {
   data?: BudgetData;
   onRefetch?: () => void;
   embedded?: boolean;
   /** When provided (e.g. from project-detail), use this instead of computing — ensures Overview and Budget match */
   profitForecastOverride?: ProfitForecastOutput;
+  /** Owner sees contract + profit framing; manager sees cost control only */
+  budgetAccessMode?: 'owner' | 'cost_control';
 }) {
   const { darkMode, theme: themeTokens } = useTheme();
   const Colors = useMemo(() => getColors(themeTokens), [themeTokens]);
@@ -295,6 +299,20 @@ export default function BudgetTab({
   //   // Only log count, not full array
   // }, [contextProjectData?.purchaseOrders, contextProjectData?.committedPOs]);
   
+  // Resolve list project early — cost-control bucket fallback needs approvedCostBuckets.
+  const projectId = useMemo(
+    () => normalizeProjectId((contextProjectData as any)?.id || data?.projectId),
+    [contextProjectData, data?.projectId]
+  );
+  const projectFromList = useMemo(() => {
+    if (!projectId) return null;
+    try {
+      return getProjectById?.(projectId) ?? projects.find((p: any) => normalizeProjectId(p?.id) === projectId) ?? null;
+    } catch {
+      return null;
+    }
+  }, [projectId, getProjectById, projects]);
+
   // Use data prop if provided, otherwise fall back to context
   // CRITICAL: If buckets exist in contextProjectData, use those (source of truth after estimate is saved)
   // Otherwise, calculate from data.lines
@@ -306,16 +324,11 @@ export default function BudgetTab({
       (contextProjectData as any)?.bidPrice
     ) ?? contextProjectData?.budgeted,
     buckets: (() => {
-      // CRITICAL: Always use data.lines as the source of truth (it comes from convertToBudgetData which uses materialsCart and estimate.laborLineItems)
-      // The buckets in contextProjectData might be stale, but data.lines is calculated fresh from the estimate data
-      // This ensures the Budget tab matches what's shown in the Overview tab
-      return data.lines.map(line => {
+      const fromLines = (data.lines || []).map(line => {
         const quantity = safe(line.qty);
         const unitCost = safe(line.unitCost);
-        const baseCost = quantity * unitCost; // This is the budget amount (matches Overview tab)
+        const baseCost = quantity * unitCost;
 
-        // Calculate actual spent amount from expenses for this category
-        // Match both "Materials/Equipment" and "Materials" categories
         const categoryExpenses = (contextProjectData?.expenses || []).filter(exp => {
           const expCategory = String(exp.category || '').trim().toLowerCase();
           const lineCategory = String(line.category || '').trim().toLowerCase();
@@ -332,17 +345,23 @@ export default function BudgetTab({
           );
         });
         const actualSpent = categoryExpenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
-        
-        // CRITICAL: Use baseCost (unitCost * qty) which comes from materialsCart/estimate.laborLineItems
-        // This ensures the Budget tab shows the same values as the Overview tab
+
         return {
           id: line.id,
           name: line.category,
-          budget: baseCost, // Use baseCost - this matches Overview tab exactly
+          budget: baseCost,
           spent: actualSpent,
-          bidBudget: baseCost, // Use baseCost for bidBudget too
+          bidBudget: baseCost,
         };
       });
+      if (fromLines.length > 0) return fromLines;
+
+      const fromApproved = mapApprovedCostBucketsToProjectBuckets(
+        (projectFromList as any)?.approvedCostBuckets
+      );
+      if (fromApproved.length > 0) return fromApproved;
+
+      return contextProjectData?.buckets || [];
     })(),
     expenses: contextProjectData?.expenses || data.expenses || [],
     changeOrders: contextProjectData?.changeOrders || data.changeOrders || [],
@@ -351,19 +370,6 @@ export default function BudgetTab({
     currency: data.currency || 'USD',
   } : contextProjectData;
 
-  const projectId = useMemo(
-    () => normalizeProjectId((projectData as any)?.id || data?.projectId),
-    [projectData, data?.projectId]
-  );
-  const projectFromList = useMemo(() => {
-    if (!projectId) return null;
-    try {
-      return getProjectById?.(projectId) ?? projects.find((p: any) => normalizeProjectId(p?.id) === projectId) ?? null;
-    } catch {
-      return null;
-    }
-  }, [projectId, getProjectById, projects]);
-  
   const currency = projectData?.currency ?? 'USD';
 
   // Budget Alerts & Thresholds
@@ -383,13 +389,16 @@ export default function BudgetTab({
   const [isGenerating, setIsGenerating] = useState(false);
   const plannedFromBuckets = useMemo(() => {
     const buckets = projectData?.buckets || [];
-    // Only include Materials/Equipment and Labor for BudgetTab (Overhead and Markup removed from budget cards)
-    const relevantBuckets = buckets.filter(bucket =>
-      bucket.name === 'Materials/Equipment' || bucket.name === 'Labor'
-    );
-    const total = relevantBuckets.reduce((s, l) => s + safe(l.budget), 0);
-    // Reduced logging to prevent terminal glitching
-    return total;
+    const relevantBuckets = buckets.filter((bucket) => {
+      const n = String(bucket?.name || '').toLowerCase();
+      return (
+        n.includes('material') ||
+        n.includes('equip') ||
+        n.includes('labor') ||
+        n.includes('overhead')
+      );
+    });
+    return relevantBuckets.reduce((s, l) => s + safe(l.budget), 0);
   }, [projectData?.buckets]);
 
   const mergedProjectForFinancials = useMemo(
@@ -792,6 +801,12 @@ export default function BudgetTab({
   };
 
   const totalSpent = actual;
+  const isCostControl = budgetAccessMode === 'cost_control';
+  const pageTitle = isCostControl ? 'Cost Control' : 'Budget';
+  const pageSubtitle = isCostControl
+    ? 'Approved cost budget, actuals, POs, and category usage'
+    : 'Detailed cost tracking, profitability, and category performance';
+  const costSectionTitle = isCostControl ? 'Cost Control' : 'Contract & Cost';
 
   return (
     <View style={[styles.container, embedded && styles.containerEmbedded]}>
@@ -821,7 +836,7 @@ export default function BudgetTab({
               {/* Budget page header — matches Project Overview (overviewPageHeader / title / subtitle) */}
               <View style={styles.budgetPageHeader}>
                 <Text style={[styles.budgetPageTitle, { color: darkMode ? '#F5F7FA' : Colors.text }]}>
-                  Budget
+                  {pageTitle}
                 </Text>
                 <Text
                   style={[
@@ -829,7 +844,7 @@ export default function BudgetTab({
                     { color: darkMode ? 'rgba(255,255,255,0.62)' : '#64748b' },
                   ]}
                 >
-                  Detailed cost tracking, profitability, and category performance
+                  {pageSubtitle}
                 </Text>
               </View>
 
@@ -851,36 +866,42 @@ export default function BudgetTab({
                       <View style={styles.budgetOverviewIconBadge}>
                         <MaterialIcons name="account-balance-wallet" size={16} color="#22c55e" />
                       </View>
-                      <Text style={[styles.budgetSectionTitleMatch, { color: darkMode ? '#F5F7FA' : theme.text }]}>Contract &amp; Cost</Text>
+                      <Text style={[styles.budgetSectionTitleMatch, { color: darkMode ? '#F5F7FA' : theme.text }]}>
+                        {costSectionTitle}
+                      </Text>
                     </View>
                   </View>
                   <View style={styles.totalsContent}>
+                    {!isCostControl ? (
+                      <>
+                        <Row
+                          label="Contract Value"
+                          value={money(financials.contractValueBase, currency)}
+                          theme={budgetTotalsTheme}
+                          variant="book"
+                          metricLabel
+                        />
+                        {financials.approvedChangeOrderRevenue > 0 && (
+                          <Row
+                            label="Approved Change Orders"
+                            value={`+ ${money(financials.approvedChangeOrderRevenue, currency)}`}
+                            theme={budgetTotalsTheme}
+                            variant="book"
+                            metricLabel
+                          />
+                        )}
+                        <Row
+                          label="Adjusted Contract Value"
+                          value={money(financials.adjustedContractValue, currency)}
+                          theme={budgetTotalsTheme}
+                          variant="book"
+                          metricLabel
+                        />
+                        <View style={[styles.totalsDivider, { backgroundColor: darkMode ? 'rgba(255,255,255,0.10)' : 'rgba(15, 23, 42, 0.10)' }]} />
+                      </>
+                    ) : null}
                     <Row
-                      label="Contract Value"
-                      value={money(financials.contractValueBase, currency)}
-                      theme={budgetTotalsTheme}
-                      variant="book"
-                      metricLabel
-                    />
-                    {financials.approvedChangeOrderRevenue > 0 && (
-                      <Row
-                        label="Approved Change Orders"
-                        value={`+ ${money(financials.approvedChangeOrderRevenue, currency)}`}
-                        theme={budgetTotalsTheme}
-                        variant="book"
-                        metricLabel
-                      />
-                    )}
-                    <Row
-                      label="Adjusted Contract Value"
-                      value={money(financials.adjustedContractValue, currency)}
-                      theme={budgetTotalsTheme}
-                      variant="book"
-                      metricLabel
-                    />
-                    <View style={[styles.totalsDivider, { backgroundColor: darkMode ? 'rgba(255,255,255,0.10)' : 'rgba(15, 23, 42, 0.10)' }]} />
-                    <Row
-                      label="Planned Cost Budget"
+                      label={isCostControl ? 'Approved cost budget' : 'Planned Cost Budget'}
                       value={money(financials.adjustedCostBudget, currency)}
                       theme={budgetTotalsTheme}
                       variant="book"

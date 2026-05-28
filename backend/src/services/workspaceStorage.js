@@ -416,6 +416,32 @@ function acceptWorkspaceInvitesForUser({ userId, email }) {
   return { success: true, accepted };
 }
 
+/** Keep active member userId in sync when they sign in with a new Clerk account (same email). */
+function linkWorkspaceMemberIdentity(workspace, { userId, email }) {
+  if (!workspace || !userId) return workspace;
+  const normalizedEmail = normalizeEmail(email);
+  const members = workspace.members || [];
+  let workspaceChanged = false;
+  const nextMembers = members.map((member) => {
+    if (member.role === 'owner') return member;
+    const emailMatch =
+      normalizedEmail && normalizeEmail(member.email) === normalizedEmail;
+    const userMatch = member.userId && member.userId === userId;
+    if (!emailMatch && !userMatch) return member;
+    if (member.userId !== userId) {
+      workspaceChanged = true;
+      return {
+        ...member,
+        userId,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+    return member;
+  });
+  if (!workspaceChanged) return workspace;
+  return saveWorkspace({ ...workspace, members: nextMembers });
+}
+
 function resendWorkspaceInvite({ workspaceId, memberId }) {
   const workspace = loadWorkspaces().find((row) => row.id === workspaceId);
   if (!workspace) return { success: false, error: 'Workspace not found' };
@@ -497,6 +523,155 @@ function listWorkspaceOwnerProjects(workspace) {
   return loadProjects().filter((project) => project.userId === ownerUserId);
 }
 
+function resolveApprovedCostBudget(project) {
+  const buckets = resolveApprovedCostBuckets(project);
+  if (buckets.length > 0) {
+    const sum = buckets.reduce((total, bucket) => total + (Number(bucket?.budget) || 0), 0);
+    if (sum > 0) return sum;
+  }
+
+  const pd = project?.projectData || {};
+  const rawBuckets = pd.buckets || project?.buckets || [];
+  if (Array.isArray(rawBuckets) && rawBuckets.length > 0) {
+    const sum = rawBuckets.reduce((total, bucket) => {
+      const value = Number(bucket?.budget ?? bucket?.planned ?? 0);
+      return total + (Number.isFinite(value) && value > 0 ? value : 0);
+    }, 0);
+    if (sum > 0) return sum;
+  }
+
+  const candidates = [pd.budgeted, project?.totalBudget, project?.estimatedCost];
+  for (const candidate of candidates) {
+    const value = Number(candidate);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return 0;
+}
+
+function sumEstimateLineItems(items) {
+  if (!Array.isArray(items)) return 0;
+  return items.reduce((sum, item) => {
+    const value = Number(item?.total ?? item?.cost ?? item?.amount ?? 0);
+    return sum + (Number.isFinite(value) && value > 0 ? value : 0);
+  }, 0);
+}
+
+function bucketNameIsMarkup(name) {
+  const n = String(name || '').toLowerCase();
+  return n.includes('markup') || n.includes('profit') || n.includes('margin');
+}
+
+function bucketNameIsCostCategory(name) {
+  const n = String(name || '').toLowerCase();
+  if (bucketNameIsMarkup(n)) return false;
+  return (
+    n.includes('material') ||
+    n.includes('equip') ||
+    n.includes('labor') ||
+    n.includes('labour') ||
+    n.includes('subcontract') ||
+    n.includes('permit') ||
+    n.includes('overhead') ||
+    n.includes('direct')
+  );
+}
+
+/** Cost-side category budgets for managers — no contract value, markup, or profit buckets. */
+function resolveApprovedCostBuckets(project) {
+  const pd = project?.projectData || {};
+  const ed = project?.estimateData || pd?.estimateData || {};
+  const rawBuckets = pd.buckets || project?.buckets || [];
+
+  const spentFor = (keywords) => {
+    const bucket = rawBuckets.find((x) => {
+      const n = String(x?.name || '').toLowerCase();
+      return keywords.some((k) => n.includes(k));
+    });
+    return Number(bucket?.spent ?? 0) || 0;
+  };
+
+  const bucketBudgetFor = (keywords) => {
+    const bucket = rawBuckets.find((x) => {
+      const n = String(x?.name || '').toLowerCase();
+      return keywords.some((k) => n.includes(k));
+    });
+    if (!bucket) return 0;
+    return (
+      Number(bucket?.budget ?? bucket?.planned ?? bucket?.bidBudget ?? 0) || 0
+    );
+  };
+
+  // Line items are source of truth — bucket rows can be stale template defaults.
+  const materialsFromLines =
+    sumEstimateLineItems(ed.materialLineItems) ||
+    sumEstimateLineItems(ed.materialsCart) ||
+    Number(ed.materialTotal ?? ed.materials ?? 0) ||
+    0;
+  const laborFromLines =
+    sumEstimateLineItems(ed.laborLineItems) ||
+    Number(ed.laborTotal ?? ed.labor ?? 0) ||
+    0;
+  const overheadFromEstimate =
+    Number(ed.equipment ?? 0) +
+    Number(ed.planCost ?? 0) +
+    Number(ed.permitCost ?? 0) +
+    Number(ed.otherDirectCost ?? 0) +
+    Number(ed.equipmentMaintenance ?? 0) +
+    Number(ed.facilities ?? 0) +
+    Number(ed.insuranceOverhead ?? 0) +
+    Number(ed.otherOverhead ?? 0);
+
+  const materialsBudget =
+    materialsFromLines > 0 ? materialsFromLines : bucketBudgetFor(['material', 'equip']);
+  const laborBudget =
+    laborFromLines > 0 ? laborFromLines : bucketBudgetFor(['labor', 'labour']);
+  const overheadBudget =
+    overheadFromEstimate > 0 ? overheadFromEstimate : bucketBudgetFor(['overhead', 'permit']);
+
+  const derived = [];
+  if (materialsBudget > 0 || spentFor(['material', 'equip']) > 0) {
+    derived.push({
+      id: 'materials',
+      name: 'Materials/Equipment',
+      budget: materialsBudget,
+      spent: spentFor(['material', 'equip']),
+    });
+  }
+  if (laborBudget > 0 || spentFor(['labor', 'labour']) > 0) {
+    derived.push({
+      id: 'labor',
+      name: 'Labor',
+      budget: laborBudget,
+      spent: spentFor(['labor', 'labour']),
+    });
+  }
+  if (overheadBudget > 0) {
+    derived.push({
+      id: 'overhead',
+      name: 'Overhead & Direct',
+      budget: overheadBudget,
+      spent: spentFor(['overhead', 'permit']),
+    });
+  }
+
+  if (derived.length > 0) return derived;
+
+  if (Array.isArray(rawBuckets) && rawBuckets.length > 0) {
+    const fromBuckets = rawBuckets
+      .filter((b) => bucketNameIsCostCategory(b?.name))
+      .map((b, index) => ({
+        id: String(b?.id ?? index + 1),
+        name: String(b?.name || 'Category'),
+        budget: Number(b?.budget ?? b?.planned ?? b?.bidBudget ?? 0) || 0,
+        spent: Number(b?.spent ?? 0) || 0,
+      }))
+      .filter((b) => b.budget > 0 || b.spent > 0);
+    if (fromBuckets.length > 0) return fromBuckets;
+  }
+
+  return [];
+}
+
 function sanitizeTimelineItems(items = []) {
   if (!Array.isArray(items)) return [];
   return items.map((item) => ({
@@ -538,6 +713,12 @@ function sanitizeProjectForWorkspaceMember(project, member) {
     updatedAt: project.updatedAt || now,
     completedAt: project.completedAt || project.projectData?.completedAt,
     projectType: project.projectType || project.projectData?.projectType || project.title || project.name,
+    ...(member?.role === 'manager'
+      ? {
+          approvedCostBudget: resolveApprovedCostBudget(project),
+          approvedCostBuckets: resolveApprovedCostBuckets(project),
+        }
+      : {}),
     workspacePrivacy: {
       role: member?.role || 'field',
       restrictedFinancials: true,
@@ -555,6 +736,45 @@ function listWorkspaceProjectsForMember(workspace, member) {
     .map((project) => sanitizeProjectForWorkspaceMember(project, member));
 }
 
+/** When owner deletes a project, drop member assignments and shared field data. */
+function purgeWorkspaceProjectReferences(ownerUserId, projectId) {
+  if (!ownerUserId || projectId == null) return;
+
+  const projectKey = String(projectId);
+  const workspaces = loadWorkspaces();
+  let workspacesChanged = false;
+
+  for (const workspace of workspaces) {
+    if (workspace.ownerUserId !== ownerUserId) continue;
+    for (const member of workspace.members || []) {
+      if (!Array.isArray(member.assignedProjectIds)) continue;
+      const next = member.assignedProjectIds.filter((id) => String(id) !== projectKey);
+      if (next.length !== member.assignedProjectIds.length) {
+        member.assignedProjectIds = next;
+        workspacesChanged = true;
+      }
+    }
+  }
+
+  if (workspacesChanged) {
+    saveWorkspaces(workspaces);
+  }
+
+  const ownerWorkspaceIds = new Set(
+    workspaces.filter((w) => w.ownerUserId === ownerUserId).map((w) => w.id)
+  );
+  if (ownerWorkspaceIds.size === 0) return;
+
+  const shared = loadSharedProjectData();
+  const filtered = shared.filter(
+    (row) =>
+      !ownerWorkspaceIds.has(row.workspaceId) || String(row.projectId) !== projectKey
+  );
+  if (filtered.length !== shared.length) {
+    saveSharedProjectData(filtered);
+  }
+}
+
 module.exports = {
   acceptWorkspaceInvitesForUser,
   addWorkspaceMember,
@@ -563,9 +783,11 @@ module.exports = {
   findInvitedWorkspaceForUser,
   findWorkspaceForUser,
   getSharedProjectResources,
+  linkWorkspaceMemberIdentity,
   listWorkspaceMembers,
   listWorkspaceOwnerProjects,
   listWorkspaceProjectsForMember,
+  purgeWorkspaceProjectReferences,
   removeWorkspaceMember,
   resendWorkspaceInvite,
   updateWorkspaceMember,

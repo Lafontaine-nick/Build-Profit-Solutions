@@ -1210,6 +1210,16 @@ export default function ProfileScreen() {
         }
       }
 
+      // Delete Clerk login so the email can be reused (does not require backend CLERK_SECRET_KEY).
+      if (isClerkEnabled && clerkUser && typeof clerkUser.delete === 'function') {
+        try {
+          await clerkUser.delete();
+        } catch (clerkDeleteError) {
+          console.error('Clerk user.delete failed:', clerkDeleteError);
+          deleteApiClerkFailed = true;
+        }
+      }
+
       try {
         await clearAllOnboardingCompletionKeys();
       } catch (e) {
@@ -1265,7 +1275,7 @@ export default function ProfileScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return { deleteApiFailed: true, deleteApiClerkFailed: false, error };
     }
-  }, [apiLogout, clerkGetToken, clerkSignOut, clearProjectsLocal]);
+  }, [apiLogout, clerkGetToken, clerkSignOut, clearProjectsLocal, isClerkEnabled, clerkUser]);
 
   const finishDeleteAccountFlow = useCallback(
     (deleteApiFailed: boolean, deleteApiClerkFailed: boolean, hadError: boolean) => {
@@ -1300,7 +1310,7 @@ export default function ProfileScreen() {
       const message = deleteApiFailed
         ? 'Your local app data was cleared and you were signed out, but the server delete did not finish. If you sign back into the same account, server projects may return. Please try Delete Account again when online or contact support.'
         : deleteApiClerkFailed
-          ? 'Your app data was cleared and you were signed out. If sign-in still recognizes this email, remove the user in the Clerk Dashboard (Users) or contact support so the email can be reused.'
+          ? 'Your app data was cleared and you were signed out, but your sign-in account may still exist. Try Delete Account again, remove the user in the Clerk Dashboard (Users), or contact support to reuse this email.'
           : 'Your account has been successfully deleted. All your data has been permanently removed.';
 
       if (

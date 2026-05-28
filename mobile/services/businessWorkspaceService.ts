@@ -90,7 +90,38 @@ async function resolveAuthToken(): Promise<string | null> {
   return null;
 }
 
+async function decodeClerkEmailFromToken(token: string): Promise<string | null> {
+  try {
+    const segment = token.split('.')[1];
+    if (!segment) return null;
+    const json =
+      typeof atob === 'function'
+        ? atob(segment.replace(/-/g, '+').replace(/_/g, '/'))
+        : Buffer.from(segment, 'base64').toString('utf8');
+    const payload = JSON.parse(json);
+    const fromToken =
+      payload?.email ||
+      payload?.primary_email_address ||
+      payload?.email_addresses?.[0]?.email_address;
+    return typeof fromToken === 'string' && fromToken.trim()
+      ? fromToken.trim().toLowerCase()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 async function resolveAuthEmail(): Promise<string | null> {
+  try {
+    const clerkToken = await fetchWorkspaceClerkToken();
+    if (clerkToken) {
+      const fromToken = await decodeClerkEmailFromToken(clerkToken);
+      if (fromToken) return fromToken;
+    }
+  } catch {
+    /* optional */
+  }
+
   try {
     const stored = await AsyncStorage.getItem('auth_email');
     if (stored?.trim()) return stored.trim().toLowerCase();

@@ -13,6 +13,9 @@ import {
   mergeObjectResource,
 } from '@/utils/workspaceResourceMerge';
 import { computeOverallPctFromTimelineItems } from '@/utils/workspaceTimelineProgress';
+import { isWorkspaceRestrictedFinancialsProject } from '@/utils/workspacePermissions';
+import { mapApprovedCostBucketsToProjectBuckets } from '@/utils/approvedCostBuckets';
+import type { UnifiedProject } from '@/contexts/ProjectListContext';
 
 export type PurchaseOrder = {
   id: string;
@@ -175,6 +178,48 @@ function mergeProjectExpensesFromSources(
     byId.set(id, e);
   }
   return Array.from(byId.values());
+}
+
+function mapUnifiedStatusLabel(status?: string): string {
+  const slug = String(status || '').toLowerCase().replace(/\s+/g, '_');
+  if (slug === 'completed') return 'Completed';
+  if (slug === 'won' || slug === 'in_progress' || slug === 'in-progress' || slug === 'active') {
+    return 'In Progress';
+  }
+  if (slug === 'bid_submitted' || slug === 'submitted') return 'Submitted';
+  return 'In Progress';
+}
+
+function buildWorkspaceMemberProjectOverview(unified: UnifiedProject): ProjectOverview {
+  const costBudget = Number(unified.approvedCostBudget || unified.estimatedCost || 0) || 0;
+  const memberBuckets = mapApprovedCostBucketsToProjectBuckets(unified.approvedCostBuckets);
+  return {
+    id: unified.id,
+    title: unified.title || unified.name || 'Project',
+    status: mapUnifiedStatusLabel(unified.status),
+    priority: 'Medium',
+    risk: 'Medium Risk',
+    overallProgressPct: Number(unified.overallProgressPct ?? unified.progress ?? 0) || 0,
+    budgeted: costBudget,
+    spent: Number(unified.actualCost || unified.totalSpent || 0) || 0,
+    startISO: unified.startDate || new Date().toISOString(),
+    endISO: unified.endDate || unified.startDate || new Date().toISOString(),
+    crewCount: 0,
+    lastUpdated: new Date().toISOString(),
+    buckets: memberBuckets,
+    milestones: Array.isArray(unified.milestones) ? unified.milestones : [],
+    team: {},
+    expenses: [],
+    changeOrders: [],
+    purchaseOrders: [],
+    committedPOs: 0,
+    currency: 'USD',
+    health: {
+      costEfficiency: 'good',
+      scheduleEfficiency: 'fair',
+      projectStatus: 'on track',
+    },
+  };
 }
 
 export function ProjectDataProvider({ children, projectId }: ProjectDataProviderProps) {
@@ -451,6 +496,14 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
   useEffect(() => {
     const loadSavedData = async () => {
       try {
+        const unified = getProjectById(projectId || '1');
+        if (unified && isWorkspaceRestrictedFinancialsProject(unified)) {
+          const base = buildWorkspaceMemberProjectOverview(unified);
+          replaceProjectDataState(await mergeBusinessWorkspaceResources(base));
+          setIsLoaded(true);
+          return;
+        }
+
         const key = `bps.project.${projectId || '1'}`;
         const saved = await AsyncStorage.getItem(key);
         
@@ -490,10 +543,36 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
+  const unifiedListProject = getProjectById(projectId || '1');
+  useEffect(() => {
+    if (!projectId || !isLoaded) return;
+    if (!unifiedListProject || !isWorkspaceRestrictedFinancialsProject(unifiedListProject)) return;
+
+    let cancelled = false;
+    void (async () => {
+      const base = buildWorkspaceMemberProjectOverview(unifiedListProject);
+      const merged = await mergeBusinessWorkspaceResources(base);
+      if (!cancelled) replaceProjectDataState(merged);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    projectId,
+    isLoaded,
+    unifiedListProject?.workspacePrivacy?.restrictedFinancials,
+    unifiedListProject?.approvedCostBudget,
+    mergeBusinessWorkspaceResources,
+    replaceProjectDataState,
+  ]);
+
   // Save to AsyncStorage whenever projectData changes (after initial load)
   // BUT: Skip if purchaseOrders just changed (addPurchaseOrder already saved it)
   useEffect(() => {
     if (!isLoaded) return; // Don't save during initial load
+    const unified = getProjectById(projectData.id);
+    if (isWorkspaceRestrictedFinancialsProject(unified)) return;
     
     const currentPOCount = (projectData.purchaseOrders || []).length;
     const lastPOCount = lastSaveRef.current.purchaseOrdersCount;
@@ -1433,6 +1512,13 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
 
   const reloadFromStorage = async () => {
     try {
+      const unified = getProjectById(projectId || '1');
+      if (unified && isWorkspaceRestrictedFinancialsProject(unified)) {
+        const base = buildWorkspaceMemberProjectOverview(unified);
+        replaceProjectDataState(await mergeBusinessWorkspaceResources(base));
+        return;
+      }
+
       const key = `bps.project.${projectId || '1'}`;
       const saved = await AsyncStorage.getItem(key);
       

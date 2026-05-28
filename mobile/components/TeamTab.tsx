@@ -76,29 +76,12 @@ type Status = "active" | "off_duty";
 type InviteStatus = "pending" | "active" | "suspended";
 type AccessRole = "owner" | "manager" | "foreman" | "field" | "view_only";
 type ProjectAccess = "all_active" | "assigned";
-type JobTitle =
-  | "Project Manager"
-  | "Foreman"
-  | "Field Lead"
-  | "Crew Member"
-  | "General Laborer"
-  | "Office/Admin"
-  | "Estimator"
-  | "Bookkeeper"
-  | "Subcontractor"
-  | "Other";
+type JobTitle = "Project Manager" | "Foreman" | "Crew Member";
 
 const JOB_TITLE_OPTIONS: JobTitle[] = [
   "Project Manager",
   "Foreman",
-  "Field Lead",
   "Crew Member",
-  "General Laborer",
-  "Office/Admin",
-  "Estimator",
-  "Bookkeeper",
-  "Subcontractor",
-  "Other",
 ];
 
 const TRADE_SKILL_TAGS = [
@@ -174,7 +157,7 @@ const TEAM: Member[] = [
     name: "Sarah Wilson",
     phone: "(555) 345-6789",
     email: "sarah@bps.app",
-    role: "Subcontractor",
+    role: "Crew Member",
     status: "active",
     tasksOpen: 3,
     tasksTotal: 9,
@@ -187,7 +170,7 @@ const TEAM: Member[] = [
     name: "Tom Brown",
     phone: "(555) 456-7890",
     email: "tom@bps.app",
-    role: "Subcontractor",
+    role: "Crew Member",
     status: "off_duty",
     tasksOpen: 0,
     tasksTotal: 3,
@@ -237,10 +220,18 @@ const inviteStatusLabel: Record<InviteStatus, string> = {
 
 const accessRoleLabel: Record<AccessRole, string> = {
   owner: "Owner",
-  manager: "Manager / Project Manager",
-  foreman: "Foreman / Field Lead",
-  field: "Field Team Member",
-  view_only: "View Only",
+  manager: "Project Manager",
+  foreman: "Foreman",
+  field: "Crew Member",
+  view_only: "Crew Member",
+};
+
+/** Roles shown in invite/edit UI (view_only kept internal for legacy records). */
+const INVITE_ACCESS_ROLES: AccessRole[] = ["manager", "foreman", "field"];
+
+const normalizeInviteAccessRole = (role: AccessRole | undefined): AccessRole => {
+  if (!role || role === "view_only") return "field";
+  return role;
 };
 
 function statusColor(s: Status) {
@@ -303,11 +294,33 @@ function isJobTitle(value: unknown): value is JobTitle {
   return JOB_TITLE_OPTIONS.includes(String(value) as JobTitle);
 }
 
+/** Map stored / legacy titles to the three supported job titles. */
+function normalizeJobTitle(
+  value: unknown,
+  accessRole?: AccessRole | string | null
+): JobTitle {
+  const raw = String(value || "").trim();
+  if (raw === "Project Manager") return "Project Manager";
+  if (raw === "Foreman" || raw === "Field Lead") return "Foreman";
+  if (isJobTitle(raw)) return raw;
+  if (
+    raw === "Crew Member" ||
+    raw === "General Laborer" ||
+    raw === "Office/Admin" ||
+    raw === "Estimator" ||
+    raw === "Bookkeeper" ||
+    raw === "Subcontractor" ||
+    raw === "Other"
+  ) {
+    return "Crew Member";
+  }
+  return defaultJobTitleForAccessRole(accessRole);
+}
+
 function defaultJobTitleForAccessRole(role: AccessRole | string | null | undefined): JobTitle {
   if (role === "owner" || role === "manager") return "Project Manager";
   if (role === "foreman") return "Foreman";
-  if (role === "view_only") return "Other";
-  return "General Laborer";
+  return "Crew Member";
 }
 
 function legacyTradeToSkillTag(value: unknown): string | null {
@@ -331,9 +344,7 @@ function memberFromWorkspace(member: BusinessWorkspaceMember): Member {
   const accessRole = normalizeWorkspaceRole(member.role) as AccessRole;
   const projectAccess = member.projectAccess === "assigned" ? "assigned" : "all_active";
   const rawJobTitle = member.jobTitle || member.tradeRole;
-  const jobTitle = isJobTitle(rawJobTitle)
-    ? rawJobTitle
-    : defaultJobTitleForAccessRole(accessRole);
+  const jobTitle = normalizeJobTitle(rawJobTitle, accessRole);
   const legacySkillTag = isJobTitle(rawJobTitle) ? null : legacyTradeToSkillTag(rawJobTitle);
   const skills = Array.isArray(member.skills) ? member.skills : [];
 
@@ -625,7 +636,7 @@ const WorkspaceMemberAccessCard = ({
   const mutedSoft = darkMode ? "rgba(186, 204, 224, 0.82)" : Colors.sub;
   const roleKey = String(role || "field").toLowerCase() as AccessRole;
   const roleLabel = accessRoleLabel[roleKey] || "Team member";
-  const tradeLabel = tradeRole?.trim() || "General Laborer";
+  const tradeLabel = normalizeJobTitle(tradeRole, roleKey);
   const statusLabel =
     status === "active" || !status ? "Active" : String(status).replace(/_/g, " ");
 
@@ -944,9 +955,13 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
   const [name, setName] = useState(member.name);
   const [phone, setPhone] = useState(formatTeamPhoneInput(member.phone || ""));
   const [email, setEmail] = useState(member.email || "");
-  const [role, setRole] = useState(member.role);
+  const [role, setRole] = useState<JobTitle>(
+    normalizeJobTitle(member.role, member.accessRole)
+  );
   const [status, setStatus] = useState(member.status);
-  const [accessRole, setAccessRole] = useState<AccessRole>(member.accessRole || "field");
+  const [accessRole, setAccessRole] = useState<AccessRole>(
+    normalizeInviteAccessRole(member.accessRole || "field")
+  );
   const [skillTags, setSkillTags] = useState<string[]>(member.skills || []);
   const [projectAccess, setProjectAccess] = useState<ProjectAccess>(
     member.projectAccess || "all_active"
@@ -1011,7 +1026,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
       email: email.trim() || undefined,
       role,
       status,
-      accessRole: member.accessRole === "owner" ? "owner" : accessRole,
+      accessRole: member.accessRole === "owner" ? "owner" : normalizeInviteAccessRole(accessRole),
       skills: skillTags,
       projectAccess: isEditableWorkspaceMember ? projectAccess : member.projectAccess,
       assignedProjectIds:
@@ -1044,7 +1059,8 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
     ]);
   };
 
-  const accessRoles: AccessRole[] = member.accessRole === "owner" ? ["owner"] : ["manager", "foreman", "field", "view_only"];
+  const accessRoles: AccessRole[] =
+    member.accessRole === "owner" ? ["owner"] : INVITE_ACCESS_ROLES;
 
   const inputStyle = [
     styles.addMemberInput,
@@ -1765,7 +1781,7 @@ const AddMemberModal = ({ onClose, onAdd, availableProjects }: {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<JobTitle>("General Laborer");
+  const [role, setRole] = useState<JobTitle>("Crew Member");
   const [status, setStatus] = useState<Status>("active");
   const [accessRole, setAccessRole] = useState<AccessRole>("field");
   const [projectAccess, setProjectAccess] = useState<ProjectAccess>(
@@ -1795,7 +1811,7 @@ const AddMemberModal = ({ onClose, onAdd, availableProjects }: {
       role,
       status,
       inviteStatus: "pending",
-      accessRole,
+      accessRole: normalizeInviteAccessRole(accessRole),
       projectAccess,
       assignedProjectIds: projectAccess === "assigned" ? selectedProjectIds : [],
       isWorkspaceMember: true,
@@ -1807,7 +1823,7 @@ const AddMemberModal = ({ onClose, onAdd, availableProjects }: {
     onAdd(newMember);
   };
 
-  const accessRoles: AccessRole[] = ["manager", "foreman", "field", "view_only"];
+  const accessRoles: AccessRole[] = INVITE_ACCESS_ROLES;
 
   const inputStyle = [
     styles.addMemberInput,
@@ -3319,7 +3335,7 @@ export default function TeamTab({
           const crewMember: Member = {
             id: `crew-${crewName}-${Date.now()}`,
             name: crewName,
-            role: 'General Laborer',
+            role: 'Crew Member',
             status: 'active',
             phone,
             email: '',

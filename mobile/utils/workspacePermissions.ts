@@ -54,7 +54,7 @@ export const WORKSPACE_PERMISSION_PRESETS: Record<
     viewAssignedProjects: true,
     viewOwnerFinancials: false,
     viewEstimateBreakdown: false,
-    viewBudgetDetails: false,
+    viewBudgetDetails: true,
     viewProfitMargin: false,
     viewPayments: false,
     viewTaxCenter: false,
@@ -153,8 +153,140 @@ export function normalizeWorkspaceRole(role: unknown): WorkspaceAccessRole {
   return 'field';
 }
 
+/** Map legacy view_only to field for UI and permission checks. */
+export function effectiveWorkspaceRole(role: unknown): WorkspaceAccessRole {
+  const normalized = normalizeWorkspaceRole(role);
+  return normalized === 'view_only' ? 'field' : normalized;
+}
+
+export type ProjectDetailTab = 'Overview' | 'Budget' | 'Timeline' | 'Calendar' | 'Team';
+
+export function getVisibleProjectTabs(
+  role: unknown,
+  isOwner: boolean
+): ProjectDetailTab[] {
+  if (isOwner) {
+    return ['Overview', 'Budget', 'Timeline', 'Calendar', 'Team'];
+  }
+  switch (effectiveWorkspaceRole(role)) {
+    case 'manager':
+      return ['Overview', 'Budget', 'Timeline', 'Calendar', 'Team'];
+    case 'foreman':
+      return ['Overview', 'Timeline', 'Calendar', 'Team'];
+    case 'field':
+    default:
+      return ['Overview', 'Timeline', 'Calendar'];
+  }
+}
+
+export function getBudgetTabLabel(role: unknown, isOwner: boolean): string {
+  if (isOwner || canViewOwnerFinancials(role)) return 'Budget';
+  if (canViewCostControl(role)) return 'Cost Control';
+  return 'Budget';
+}
+
+export function canViewCostControl(role: unknown): boolean {
+  return effectiveWorkspaceRole(role) === 'manager';
+}
+
+export function canViewContractValue(role: unknown): boolean {
+  return getRolePermissions(role).viewOwnerFinancials;
+}
+
+export function canViewProjectTeamAdmin(role: unknown): boolean {
+  return getRolePermissions(role).manageTeam;
+}
+
+export function canEditTimeline(role: unknown): boolean {
+  const r = effectiveWorkspaceRole(role);
+  return r === 'owner' || r === 'manager' || r === 'foreman' || r === 'field';
+}
+
+export function canEditCalendar(role: unknown): boolean {
+  return getRolePermissions(role).editCalendar;
+}
+
+export function canAddDailyLog(role: unknown): boolean {
+  return getRolePermissions(role).addDailyLog;
+}
+
+export function canUploadPhoto(role: unknown): boolean {
+  return getRolePermissions(role).uploadPhoto;
+}
+
+export function canSubmitExpense(role: unknown): boolean {
+  return getRolePermissions(role).createExpense;
+}
+
+export function canCreateTask(role: unknown): boolean {
+  const r = effectiveWorkspaceRole(role);
+  return r === 'owner' || r === 'manager' || r === 'foreman';
+}
+
+export function canAssignTask(role: unknown): boolean {
+  const r = effectiveWorkspaceRole(role);
+  return r === 'owner' || r === 'manager';
+}
+
 export function getRolePermissions(role: unknown): WorkspacePermissionPreset {
-  return WORKSPACE_PERMISSION_PRESETS[normalizeWorkspaceRole(role)];
+  return WORKSPACE_PERMISSION_PRESETS[effectiveWorkspaceRole(role)];
+}
+
+export function filterProjectAIContext<T extends Record<string, unknown>>(
+  context: T,
+  budgetAccessMode: 'owner' | 'cost_control' | 'hidden',
+  role: WorkspaceAccessRole
+): T & Record<string, unknown> {
+  if (budgetAccessMode === 'owner') return context;
+  const filtered = { ...context } as T & Record<string, unknown>;
+  const sensitiveKeys = [
+    'bidPrice',
+    'bidTotal',
+    'total',
+    'contractValue',
+    'approvedChangeOrdersTotal',
+    'forecastFinalCost',
+    'projectedProfit',
+    'projectedMarginPct',
+    'spendToDateMarginPct',
+    'profitStatus',
+    'margin',
+    'markup',
+    'overheadPct',
+    'profit',
+    'estimateData',
+    'estimateLineItems',
+    'materialTotal',
+    'laborTotal',
+    'overheadTotal',
+  ];
+  for (const key of sensitiveKeys) {
+    delete filtered[key];
+  }
+  filtered.aiFinancialAccess =
+    budgetAccessMode === 'cost_control' ? 'operations_only' : 'field_only';
+  filtered.workspaceRole = role;
+  if (budgetAccessMode === 'hidden') {
+    delete filtered.buckets;
+    delete filtered.materialBudgetDirect;
+    delete filtered.materialSpentDirect;
+    filtered.financialAccessNote =
+      'You do not have permission to view project profitability or owner-level financial details. I can help with assigned tasks, schedule, field notes, material requests, receipts, photos, or daily logs for this project.';
+  }
+  return filtered;
+}
+
+export type WorkspaceProjectPrivacy = {
+  role?: string;
+  restrictedFinancials?: boolean;
+  message?: string;
+};
+
+/** Server-sanitized workspace projects carry this flag — never show owner financials locally. */
+export function isWorkspaceRestrictedFinancialsProject(
+  project: { workspacePrivacy?: WorkspaceProjectPrivacy | null } | null | undefined
+): boolean {
+  return Boolean(project?.workspacePrivacy?.restrictedFinancials);
 }
 
 export const canViewOwnerFinancials = (role: unknown) =>
@@ -167,6 +299,19 @@ export const canViewProfitMargin = (role: unknown) =>
   getRolePermissions(role).viewProfitMargin;
 export const canViewPayments = (role: unknown) =>
   getRolePermissions(role).viewPayments;
+
+/** Owner + manager see payment schedule on Timeline. Foreman/field do not. */
+export function canViewPaymentSchedule(role: unknown, isOwner: boolean): boolean {
+  if (isOwner) return true;
+  return effectiveWorkspaceRole(role) === 'manager';
+}
+
+/** Mark payments collected / complete — workspace owner only (solo users always allowed). */
+export function canCollectPayments(hasWorkspace: boolean, isOwner: boolean): boolean {
+  if (!hasWorkspace) return true;
+  return isOwner;
+}
+
 export const canViewTaxCenter = (role: unknown) =>
   getRolePermissions(role).viewTaxCenter;
 export const canManageTeam = (role: unknown) => getRolePermissions(role).manageTeam;
@@ -176,16 +321,16 @@ export const canUseAIFinancialInsights = (role: unknown) =>
   getRolePermissions(role).useAIFinancialInsights;
 
 export function workspacePermissionSummary(role: unknown): string {
-  const normalized = normalizeWorkspaceRole(role);
+  const normalized = effectiveWorkspaceRole(role);
   if (normalized === 'owner') return 'Full company access';
   if (normalized === 'manager') {
-    return 'Can run assigned projects. Financial access hidden.';
+    return 'Runs assigned projects with cost control. Owner profit and contract pricing stay hidden.';
   }
   if (normalized === 'foreman') {
-    return 'Can lead field work, update schedule, logs, photos, and progress. Financial access hidden.';
+    return 'Leads field work — schedule, logs, photos, and crew updates. No owner financials.';
   }
   if (normalized === 'field') {
-    return 'Can add field updates, logs, photos, and receipts. Financial access hidden.';
+    return 'Assigned tasks, schedule, notes, photos, and receipts. No budget or team admin.';
   }
-  return 'Read-only project visibility. Financial access hidden.';
+  return 'Shared project access. Owner financials stay hidden.';
 }

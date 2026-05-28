@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useBusinessEntitlement } from '@/hooks/useBusinessEntitlement';
+import { useResolvedWorkspaceAccess } from '@/hooks/useResolvedWorkspaceAccess';
 import {
   canViewOwnerFinancials,
   canViewTaxCenter,
@@ -9,19 +10,21 @@ import {
 
 export function useRestrictedWorkspaceFinancials() {
   const entitlement = useBusinessEntitlement();
-  const role = normalizeWorkspaceRole(entitlement.workspaceAccess?.role);
-  const hasWorkspace = Boolean(entitlement.workspaceAccess?.hasWorkspaceAccess);
-  const isOwner = Boolean(entitlement.workspaceAccess?.isOwner);
+  const access = useResolvedWorkspaceAccess();
+  const role = normalizeWorkspaceRole(access?.role);
+  const hasWorkspace = Boolean(access?.hasWorkspaceAccess);
+  const isOwner = access?.isOwner === true;
 
-  const restricted = useMemo(
-    () => hasWorkspace && !isOwner && !canViewOwnerFinancials(role),
-    [hasWorkspace, isOwner, role]
-  );
+  const restricted = useMemo(() => {
+    if (!hasWorkspace) return false;
+    if (isOwner) return false;
+    return !canViewOwnerFinancials(role);
+  }, [hasWorkspace, isOwner, role]);
 
   return {
     restricted,
     role,
-    workspaceAccess: entitlement.workspaceAccess,
+    workspaceAccess: access,
     canViewTaxCenter: !hasWorkspace || isOwner || canViewTaxCenter(role),
     canUseAIFinancialInsights: !hasWorkspace || isOwner || canUseAIFinancialInsights(role),
     refresh: entitlement.refresh,

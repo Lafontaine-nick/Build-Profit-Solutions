@@ -48,6 +48,8 @@ import {
 } from "@/constants/ScreenLayout";
 import { useTabScrollBottomInset } from "@/hooks/useTabScrollBottomInset";
 import { useRestrictedWorkspaceFinancials } from "@/hooks/useRestrictedWorkspaceFinancials";
+import { useWorkspaceProjectPermissions } from "@/hooks/useWorkspaceProjectPermissions";
+import { isWorkspaceRestrictedFinancialsProject } from "@/utils/workspacePermissions";
 import FinancialAccessLocked from "@/components/FinancialAccessLocked";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import WebPageShell from "@/components/layout/WebPageShell";
@@ -148,40 +150,38 @@ const progressFromItems = (items: any[]): number => {
   return Math.round(total / workItems.length);
 };
 
+const isPreActiveProjectStatus = (status: unknown): boolean => {
+  const slug = String(status || 'draft').toLowerCase().replace(/\s+/g, '_');
+  return (
+    slug === 'estimate' ||
+    slug === 'draft' ||
+    slug === 'bid_submitted' ||
+    slug === 'submitted'
+  );
+};
+
 const deriveUnifiedProgressPct = (project: any, projectId: string, timelineProgressMap: Record<string, number>): number => {
-  // Timeline is source of truth (deposit excluded) — try pid, then title
-  if (timelineProgressMap[projectId] !== undefined) {
+  if (isPreActiveProjectStatus(project?.status)) {
+    return 0;
+  }
+
+  // Timeline progress is keyed by project id only — never match by title (duplicate names share stale %).
+  if (projectId && timelineProgressMap[projectId] !== undefined) {
     return timelineProgressMap[projectId];
   }
-  const titleLower = String(project?.title || project?.name || '').trim().toLowerCase();
-  const titleSlug = titleLower.replace(/\s+/g, '-');
-  if (titleLower && timelineProgressMap[titleLower] !== undefined) return timelineProgressMap[titleLower];
-  if (titleSlug && timelineProgressMap[titleSlug] !== undefined) return timelineProgressMap[titleSlug];
 
-  // Fallback to direct progress fields
   const directProgress = Math.max(
     toFiniteNumber(project?.overallProgressPct),
     toFiniteNumber(project?.progress)
   );
+  if (directProgress > 0) return directProgress;
 
-  // Fallback to calculating from project's milestone/weeklyPayment arrays
-  const milestonesCandidates = [
-    project?.milestones,
-    project?.projectData?.milestones,
-    project?.estimateData?.milestones,
-    project?.estimateData?.paymentMilestones,
-  ];
-  const weeklyCandidates = [
-    project?.weeklyPayments,
-    project?.projectData?.weeklyPayments,
-    project?.estimateData?.weeklyPayments,
-  ];
+  const opsTimeline = project?.projectData?.timelineV2Milestones;
+  if (Array.isArray(opsTimeline) && opsTimeline.length > 0) {
+    return computeOverallPctFromItems(opsTimeline);
+  }
 
-  const derivedFromMilestones = Math.max(...milestonesCandidates.map((items) => progressFromItems(items)));
-  const derivedFromWeekly = Math.max(...weeklyCandidates.map((items) => progressFromItems(items)));
-
-  // Use the strongest available signal so weekly and milestone schedules are treated equally.
-  return Math.max(directProgress, derivedFromMilestones, derivedFromWeekly, 0);
+  return 0;
 };
 
 type TabKey = "overview" | "analytics" | "calendar" | "insights";
@@ -1229,6 +1229,7 @@ const matchesUpcomingFilter = (e: MasterCalendarEvent, f: UpcomingFilterKey): bo
 
 const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects, estimates }) => {
   const { theme, darkMode } = useTheme();
+  const { canEditCalendar } = useWorkspaceProjectPermissions();
   const Colors = React.useMemo(() => getColors(theme), [theme]);
   const insets = useSafeAreaInsets();
   const { width: masterCalendarModalWidth } = useWindowDimensions();
@@ -1818,7 +1819,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
             const eventsOnDate = getEventsForDate(dateString);
             if (eventsOnDate.length > 0) {
               setShowDateEventsModal(true);
-            } else {
+            } else if (canEditCalendar) {
               resetForm();
               const first = activeProjects.find(
                 (p) => p?.id && (p.status || "").toString().toLowerCase() !== "completed"
@@ -1982,7 +1983,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
               <Pressable
                 style={{ flexDirection: 'row', flex: 1, paddingVertical: 10, paddingHorizontal: 11 }}
                 onPress={() => {
-                  if ((event as MasterCalendarEvent).isUserCreated) {
+                  if ((event as MasterCalendarEvent).isUserCreated && canEditCalendar) {
                     setEditingEvent(event as MasterCalendarEvent);
                     setEventTitle(event.title);
                     setEventDate(event.date);
@@ -2183,28 +2184,30 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                       <Text style={{ fontSize: 18, fontWeight: "600", marginTop: 16, color: COLORS.text }}>
                         No events on this date
                       </Text>
-                      <Pressable
-                        style={{
-                          marginTop: 20,
-                          paddingHorizontal: 24,
-                          paddingVertical: 12,
-                          borderRadius: 12,
-                          backgroundColor: ACCENT_GREEN,
-                        }}
-                        onPress={() => {
-                          setShowDateEventsModal(false);
-                          resetForm();
-                          setEventDate(selectedDate || "");
-                          const first = activeProjects.find(
-                            (p) => p?.id && (p.status || "").toString().toLowerCase() !== "completed"
-                          );
-                          if (first) setSelectedProjectId(String(first.id));
-                          setShowEventModal(true);
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        }}
-                      >
-                        <Text style={{ color: "#fff", fontSize: 16, fontWeight: "600" }}>New Event</Text>
-                      </Pressable>
+                      {canEditCalendar ? (
+                        <Pressable
+                          style={{
+                            marginTop: 20,
+                            paddingHorizontal: 24,
+                            paddingVertical: 12,
+                            borderRadius: 12,
+                            backgroundColor: ACCENT_GREEN,
+                          }}
+                          onPress={() => {
+                            setShowDateEventsModal(false);
+                            resetForm();
+                            setEventDate(selectedDate || "");
+                            const first = activeProjects.find(
+                              (p) => p?.id && (p.status || "").toString().toLowerCase() !== "completed"
+                            );
+                            if (first) setSelectedProjectId(String(first.id));
+                            setShowEventModal(true);
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          }}
+                        >
+                          <Text style={{ color: "#fff", fontSize: 16, fontWeight: "600" }}>New Event</Text>
+                        </Pressable>
+                      ) : null}
                     </View>
                   );
                 }
@@ -2239,7 +2242,7 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
                       <Pressable
                         key={event.id}
                         onPress={() => {
-                          if (me.isUserCreated) {
+                          if (me.isUserCreated && canEditCalendar) {
                             setShowDateEventsModal(false);
                             setEditingEvent(me);
                             setEventTitle(event.title);
@@ -2509,28 +2512,30 @@ const MasterCalendarView: React.FC<MasterCalendarViewProps> = ({ activeProjects,
               >
                 <Text style={{ color: COLORS.text, fontSize: 16, fontWeight: "700" }}>Close</Text>
               </Pressable>
-              <Pressable
-                style={{
-                  flex: 1,
-                  padding: 14,
-                  borderRadius: 12,
-                  alignItems: "center",
-                  backgroundColor: ACCENT_GREEN,
-                }}
-                onPress={() => {
-                  setShowDateEventsModal(false);
-                  resetForm();
-                  setEventDate(selectedDate || "");
-                  const first = activeProjects.find(
-                    (p) => p?.id && (p.status || "").toString().toLowerCase() !== "completed"
-                  );
-                  if (first) setSelectedProjectId(String(first.id));
-                  setShowEventModal(true);
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }}
-              >
-                <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>New Event</Text>
-              </Pressable>
+              {canEditCalendar ? (
+                <Pressable
+                  style={{
+                    flex: 1,
+                    padding: 14,
+                    borderRadius: 12,
+                    alignItems: "center",
+                    backgroundColor: ACCENT_GREEN,
+                  }}
+                  onPress={() => {
+                    setShowDateEventsModal(false);
+                    resetForm();
+                    setEventDate(selectedDate || "");
+                    const first = activeProjects.find(
+                      (p) => p?.id && (p.status || "").toString().toLowerCase() !== "completed"
+                    );
+                    if (first) setSelectedProjectId(String(first.id));
+                    setShowEventModal(true);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>New Event</Text>
+                </Pressable>
+              ) : null}
             </View>
           </View>
         </View>
@@ -3076,20 +3081,39 @@ const DashboardScreen: React.FC = () => {
         const titleRaw = String(project?.title ?? project?.name ?? '').trim().toLowerCase();
         const titleSlug = normalizeKey(titleRaw);
         const titleCompact = titleRaw.replace(/\s+/g, '');
-        const candidates = [pid, titleRaw, titleSlug, titleCompact, pid.toLowerCase()].filter(Boolean);
+        const timelineCandidates = [pid, pid.toLowerCase()].filter(Boolean);
+        const scheduleCandidates = [pid, titleRaw, titleSlug, titleCompact, pid.toLowerCase()].filter(Boolean);
         let foundProgress: number | undefined;
-        for (const c of candidates) {
+        for (const c of timelineCandidates) {
           foundProgress = suffixToProgress[c] ?? suffixToProgress[normalizeKey(c)];
           if (foundProgress !== undefined) break;
         }
+
+        let explicitProgress: number | undefined;
+        try {
+          const progressRaw = await AsyncStorage.getItem(`bps.project.${pid}.progress`);
+          if (progressRaw) {
+            const parsed = JSON.parse(progressRaw);
+            explicitProgress = Math.max(
+              toFiniteNumber(parsed?.overallProgressPct),
+              toFiniteNumber(parsed?.progress)
+            );
+          }
+        } catch {
+          /* ignore */
+        }
+        if (explicitProgress === 0 && foundProgress !== undefined && foundProgress > 0) {
+          foundProgress = 0;
+        } else if (explicitProgress !== undefined && explicitProgress > 0) {
+          foundProgress = Math.max(explicitProgress, foundProgress ?? 0);
+        }
+
         if (foundProgress !== undefined) {
           progressMap[pid] = foundProgress;
-          if (titleRaw) progressMap[titleRaw] = foundProgress;
-          if (titleSlug) progressMap[titleSlug] = foundProgress;
         }
 
         let foundLatestMs: number | undefined;
-        for (const c of candidates) {
+        for (const c of scheduleCandidates) {
           const ms = suffixToLatestPlanned[c] ?? suffixToLatestPlanned[normalizeKey(c)];
           if (ms != null && Number.isFinite(ms)) {
             foundLatestMs = foundLatestMs == null ? ms : Math.max(foundLatestMs, ms);
@@ -3690,8 +3714,10 @@ const DashboardScreen: React.FC = () => {
                 status === 'completed');
       })
       .map((p) => {
-        const pid = String(p?.id ?? '');
-        const override = projectDataOverrides[pid];
+        const pid = String(p?.id ?? "");
+        const hideFinancials =
+          restrictedWorkspaceFinancials || isWorkspaceRestrictedFinancialsProject(p);
+        const override = hideFinancials ? undefined : projectDataOverrides[pid];
         const mergedProject = override
           ? {
               ...p,
@@ -3715,11 +3741,28 @@ const DashboardScreen: React.FC = () => {
           : p;
 
         const progressPct = deriveUnifiedProgressPct(mergedProject, pid, timelineProgress);
-        const fin = computeProjectListRowFinancials({
-          mergedProject,
-          originalRow: p,
-          progressPct,
-        });
+        const rawStatus = (p.status || "draft").toString().toLowerCase().replace(/\s+/g, "_");
+        const fin = hideFinancials
+          ? {
+              slugForUi: rawStatus,
+              displayStatus:
+                rawStatus === "completed"
+                  ? "Completed"
+                  : ["won", "in_progress", "in-progress", "active"].includes(rawStatus)
+                    ? "Active"
+                    : "Submitted",
+              finalProgress: progressPct / 100,
+              displayAmount: 0,
+              margin: 0,
+              marginDisplay: "",
+              projectedProfit: null,
+              rawStatus: (p.status || "draft").toString(),
+            }
+          : computeProjectListRowFinancials({
+              mergedProject,
+              originalRow: p,
+              progressPct,
+            });
         const timelineMs = resolveTimelineLatestPlannedMsFromMap(mergedProject, timelineLatestPlannedMs);
         const scheduleEndPick = getEffectiveScheduleEndPick(mergedProject, timelineMs);
         const scheduleEnd = scheduleEndPick?.raw;
@@ -3734,6 +3777,8 @@ const DashboardScreen: React.FC = () => {
           status: fin.displayStatus,
           location: mergedProject.location || "Unknown, Unknown",
           progress: fin.finalProgress,
+          progressPct,
+          hideFinancials,
           amount: fin.displayAmount,
           margin: fin.margin,
           marginDisplay: fin.marginDisplay,
@@ -3747,11 +3792,28 @@ const DashboardScreen: React.FC = () => {
           rawStatus: fin.rawStatus,
         };
       });
-  }, [activeProjects, estimates, projectDataOverrides, timelineProgress, timelineLatestPlannedMs]);
+  }, [activeProjects, estimates, projectDataOverrides, timelineProgress, timelineLatestPlannedMs, restrictedWorkspaceFinancials]);
+
+  const activeProjectCount = useMemo(() => {
+    return projects.filter((p) => p.status === "Active").length;
+  }, [projects]);
 
   // Calculate metrics
   // NOTE: This recalculates whenever activeProjects or estimates change
   const metrics = useMemo(() => {
+    if (restrictedWorkspaceFinancials) {
+      return {
+        totalBids: "—",
+        activeProjects: String(activeProjectCount),
+        avgMargin: "—",
+        completedProfit: "—",
+        rawCompletedProfit: 0,
+        projectTypeStats: [],
+        _rawTotalBids: 0,
+        _rawActiveProjects: 0,
+      };
+    }
+
     // Deduplicate projects by ID to avoid double-counting
     const allProjectsMap = new Map<string, any>();
     [...activeProjects, ...estimates].forEach((p) => {
@@ -3805,7 +3867,7 @@ const DashboardScreen: React.FC = () => {
     };
     
     return result;
-  }, [activeProjects, estimates]);
+  }, [activeProjects, estimates, restrictedWorkspaceFinancials, activeProjectCount]);
 
   const openProjectsTab = useCallback(
     (tab: ProjectsTabParam = "active") => {
@@ -3996,6 +4058,7 @@ const DashboardScreen: React.FC = () => {
             filteredNextSteps={filteredNextSteps}
             timelineLatestPlannedMs={timelineLatestPlannedMs}
             hideFinancialMetrics={restrictedWorkspaceFinancials}
+            activeProjectCount={activeProjectCount}
           />
         )}
         {activeTab === "analytics" &&
@@ -4515,7 +4578,8 @@ const DashboardProjectSummaryCard = ({
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useDashboardStyles(Colors);
   const timelineMs = resolveTimelineLatestPlannedMsFromMap(project.rawProject, timelineLatestPlannedMs);
-  const op = hideFinancialMetrics
+  const hideFinancials = hideFinancialMetrics || Boolean(project.hideFinancials);
+  const op = hideFinancials
     ? getDashboardProjectProgressSignal(project)
     : getDashboardProjectOperationalSignal(project, timelineMs);
   const signalStyle =
@@ -4540,7 +4604,7 @@ const DashboardProjectSummaryCard = ({
           <Text style={styles.projectSummaryName} numberOfLines={1} ellipsizeMode="tail">
             {project.name}
           </Text>
-          {!hideFinancialMetrics ? (
+          {!hideFinancials ? (
           <View style={styles.projectSummaryValueRow}>
             <Text style={styles.projectSummaryAmount}>{formatMoneyUSD(project.amount)}</Text>
             {aiPmMode ? (
@@ -4609,6 +4673,7 @@ interface OverviewSectionProps {
   filteredNextSteps: any[];
   timelineLatestPlannedMs: Record<string, number>;
   hideFinancialMetrics?: boolean;
+  activeProjectCount?: number;
 }
 
 const OverviewSection: React.FC<OverviewSectionProps> = ({
@@ -4624,6 +4689,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   filteredNextSteps,
   timelineLatestPlannedMs,
   hideFinancialMetrics = false,
+  activeProjectCount = 0,
 }) => {
   const { width: windowWidth } = useWindowDimensions();
   const desktopWideWeb = isDesktopWebLayoutWidth(windowWidth);
@@ -4722,11 +4788,11 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
               <EnhancedMetricCard
                 desktopEqualColumns
                 label="Projects"
-                value={metrics.activeProjects}
+                value={hideFinancialMetrics ? String(activeProjectCount) : metrics.activeProjects}
                 timeframe="In Progress"
-                trend="+4.1%"
+                trend={hideFinancialMetrics ? "—" : "+4.1%"}
                 trendDirection="up"
-                context="3 jobs flagged for review"
+                context={hideFinancialMetrics ? "Assigned active jobs" : "3 jobs flagged for review"}
               />
               {!hideFinancialMetrics ? (
               <EnhancedMetricCard
@@ -4759,11 +4825,11 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
           ) : null}
           <EnhancedMetricCard
             label="Projects"
-            value={metrics.activeProjects}
+            value={hideFinancialMetrics ? String(activeProjectCount) : metrics.activeProjects}
             timeframe="In Progress"
-            trend="+4.1%"
+            trend={hideFinancialMetrics ? "—" : "+4.1%"}
             trendDirection="up"
-            context="3 jobs flagged for review"
+            context={hideFinancialMetrics ? "Assigned active jobs" : "3 jobs flagged for review"}
           />
           {!hideFinancialMetrics ? (
           <EnhancedMetricCard

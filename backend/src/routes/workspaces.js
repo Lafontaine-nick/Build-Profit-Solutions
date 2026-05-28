@@ -15,6 +15,7 @@ const {
   resendWorkspaceInvite,
   updateWorkspaceMember,
   upsertSharedProjectResource,
+  linkWorkspaceMemberIdentity,
 } = require('../services/workspaceStorage');
 const { sendWorkspaceInviteEmail } = require('../services/emailDelivery');
 const {
@@ -51,9 +52,14 @@ function getOrEnsureWorkspace(req) {
   });
 }
 
-function getAccessibleWorkspace(req) {
+function getAccessibleWorkspace(req, { linkIdentity = false } = {}) {
   const { userId, email } = currentUser(req);
-  return findWorkspaceForUser(userId, email);
+  acceptWorkspaceInvitesForUser({ userId, email });
+  let workspace = findWorkspaceForUser(userId, email);
+  if (workspace && linkIdentity) {
+    workspace = linkWorkspaceMemberIdentity(workspace, { userId, email }) || workspace;
+  }
+  return workspace;
 }
 
 function resolveWorkspace(req, { createIfMissing = false } = {}) {
@@ -124,6 +130,7 @@ function buildWorkspaceAccessPayload(req) {
 router.get('/access', authenticateToken, async (req, res) => {
   const { userId, email } = currentUser(req);
   acceptWorkspaceInvitesForUser({ userId, email });
+  getAccessibleWorkspace(req, { linkIdentity: true });
 
   res.json({
     success: true,
@@ -136,6 +143,7 @@ router.get('/bootstrap', authenticateToken, async (req, res) => {
   const { userId, email } = currentUser(req);
   acceptWorkspaceInvitesForUser({ userId, email });
 
+  const workspace = getAccessibleWorkspace(req, { linkIdentity: true });
   const access = buildWorkspaceAccessPayload(req);
   const data = { access };
 
@@ -143,7 +151,6 @@ router.get('/bootstrap', authenticateToken, async (req, res) => {
     return res.json({ success: true, data });
   }
 
-  const workspace = getAccessibleWorkspace(req);
   const member = requireActiveMember(req, res, workspace);
   if (!member) return;
 
@@ -160,7 +167,7 @@ router.get('/bootstrap', authenticateToken, async (req, res) => {
 });
 
 function sanitizeSharedResourcePayload(resourceType, payload, member) {
-  if (member?.role === 'owner') return payload;
+  if (member?.role === 'owner' || member?.role === 'manager') return payload;
   if (resourceType === 'expenses' || resourceType === 'purchaseOrders') return [];
   if (resourceType !== 'timeline' || !Array.isArray(payload)) return payload;
 
@@ -382,7 +389,7 @@ router.get('/projects', authenticateToken, async (req, res) => {
   const { userId, email } = currentUser(req);
   acceptWorkspaceInvitesForUser({ userId, email });
 
-  const workspace = getAccessibleWorkspace(req);
+  const workspace = getAccessibleWorkspace(req, { linkIdentity: true });
   if (!workspace) {
     return res.json({ success: true, data: [], total: 0, workspaceId: null, ownerUserId: null });
   }

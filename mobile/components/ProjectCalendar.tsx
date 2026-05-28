@@ -29,6 +29,7 @@ import GreyCalendar from './GreyCalendar';
 import { isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH } from '@/constants/ScreenLayout';
 import { businessWorkspaceService } from '@/services/businessWorkspaceService';
 import { mergeArrayResource } from '@/utils/workspaceResourceMerge';
+import { useWorkspaceProjectPermissions } from '@/hooks/useWorkspaceProjectPermissions';
 
 export type CalendarEvent = {
   id: string;
@@ -201,6 +202,7 @@ export default function ProjectCalendar({
   embedded = false,
 }: ProjectCalendarProps) {
   const { theme, darkMode } = useTheme();
+  const { canEditCalendar } = useWorkspaceProjectPermissions();
   const TC = useMemo(() => getColors(theme), [theme]);
   const insets = useSafeAreaInsets();
   const { width: layoutWidth } = useWindowDimensions();
@@ -624,7 +626,7 @@ export default function ProjectCalendar({
     if (eventsOnDate.length > 0) {
       // Show events modal if there are events
       setShowDateEventsModal(true);
-    } else {
+    } else if (canEditCalendar) {
       // Show new event modal if no events
       setShowEventModal(true);
       setEditingEvent(null);
@@ -636,6 +638,13 @@ export default function ProjectCalendar({
 
   // Handle event press
   const handleEventPress = (event: CalendarEvent) => {
+    if (!canEditCalendar) {
+      setSelectedDate(event.date);
+      setShowDateEventsModal(true);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      return;
+    }
+
     setEditingEvent(event);
     setEventTitle(event.title);
     setEventDate(event.date);
@@ -1456,11 +1465,12 @@ export default function ProjectCalendar({
                           <TouchableOpacity
                             style={styles.eventCardTouchable}
                             onPress={() => {
+                              if (!canEditCalendar) return;
                               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                               setShowDateEventsModal(false);
                               handleEventPress(event);
                             }}
-                            activeOpacity={0.7}
+                            activeOpacity={canEditCalendar ? 0.7 : 1}
                           >
                             <View style={[styles.eventTypeIndicator, { backgroundColor: getEventColor(event) }]} />
                             <View style={styles.eventContent}>
@@ -1615,7 +1625,7 @@ export default function ProjectCalendar({
                               </View>
                             ) : null}
                           </TouchableOpacity>
-                          {isInspection && !hasInspectionResult && (
+                          {isInspection && !hasInspectionResult && canEditCalendar && (
                             <View style={styles.inspectionActions}>
                               <TouchableOpacity
                                 style={[styles.inspectionButton, styles.inspectionButtonPassed]}
@@ -1635,7 +1645,7 @@ export default function ProjectCalendar({
                               </TouchableOpacity>
                             </View>
                           )}
-                          {isDeliveryEvent(event) && !isDeliveryReceived(event) && (
+                          {isDeliveryEvent(event) && !isDeliveryReceived(event) && canEditCalendar && (
                             <View style={styles.inspectionActions}>
                               <TouchableOpacity
                                 style={[styles.inspectionButton, styles.inspectionButtonPassed]}
@@ -1656,21 +1666,27 @@ export default function ProjectCalendar({
             </ScrollView>
 
             <View style={styles.modalActions}>
+              {canEditCalendar ? (
+                <TouchableOpacity
+                  style={[styles.addEventButton, { backgroundColor: COLORS.green }]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    setShowDateEventsModal(false);
+                    setShowEventModal(true);
+                    setEditingEvent(null);
+                    resetForm();
+                  }}
+                >
+                  <Ionicons name="add" size={20} color="#fff" />
+                  <Text style={styles.addEventButtonText}>New Event</Text>
+                </TouchableOpacity>
+              ) : null}
               <TouchableOpacity
-                style={[styles.addEventButton, { backgroundColor: COLORS.green }]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  setShowDateEventsModal(false);
-                  setShowEventModal(true);
-                  setEditingEvent(null);
-                  resetForm();
-                }}
-              >
-                <Ionicons name="add" size={20} color="#fff" />
-                <Text style={styles.addEventButtonText}>New Event</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.closeButton, { backgroundColor: COLORS.border }]}
+                style={[
+                  styles.closeButton,
+                  { backgroundColor: COLORS.border },
+                  !canEditCalendar && { flex: 1 },
+                ]}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setShowDateEventsModal(false);

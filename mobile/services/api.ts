@@ -1,6 +1,8 @@
 // API Service for connecting to Python backend
 import { safeAsyncStorage } from '../utils/asyncStorage';
+import { syncClerkTokenToAsyncStorage } from '@/utils/authTokenHelper';
 import { resolveBackendRestApiBaseUrl } from '@/utils/resolveBackendRestApiUrl';
+import { fetchWorkspaceClerkToken } from '@/utils/workspaceAuthBridge';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
@@ -133,7 +135,15 @@ class ApiService {
     const token =
       (await safeAsyncStorage.getItem('authToken')) ||
       (await safeAsyncStorage.getItem('auth_token'));
-    return token;
+    if (token) return token;
+
+    // AsyncStorage can lag behind Clerk on web after sign-in; match workspace API auth.
+    const clerkToken = await fetchWorkspaceClerkToken();
+    if (clerkToken) {
+      await syncClerkTokenToAsyncStorage(clerkToken);
+      return clerkToken;
+    }
+    return null;
   }
 
   constructor() {

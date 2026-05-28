@@ -90,6 +90,7 @@ import { computeProfitForecast } from '../../src/lib/profitForecast';
 import { unifiedLeadService } from '../../services/unifiedLeadService';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useRequireAuth } from '../../hooks/useRequireAuth';
+import { useWorkspaceProjectPermissions } from '../../hooks/useWorkspaceProjectPermissions';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getColors } from '../../theme/getColors';
@@ -3367,6 +3368,9 @@ const blankState = () => ({
   
   // Payment Schedule
   paymentSchedule: 'weekly',
+  paymentScheduleVariant: undefined,
+  weeklyProgressSettings: undefined,
+  milestoneBasedSettings: undefined,
   paymentMilestones: [],
   weeklyPayments: [],
   customPayments: [],
@@ -4823,6 +4827,7 @@ export default function EstimateGeneratorScreen() {
   // Require authentication to access this screen
   useRequireAuth();
   const router = useRouter();
+  const { canAccessEstimateAndLeads } = useWorkspaceProjectPermissions();
   const insets = useSafeAreaInsets();
   const tabScrollBottomInset = useTabScrollBottomInset();
   const { keyboardHeight, isKeyboardVisible } = useKeyboard();
@@ -6535,6 +6540,8 @@ export default function EstimateGeneratorScreen() {
           weeks: Array.isArray(settings.paymentDates.weeks) ? settings.paymentDates.weeks : [],
           holdback: settings.paymentDates.holdback || '',
         });
+      } else {
+        setWeeklyPaymentDateDrafts({ deposit: '', weeks: [], holdback: '' });
       }
     } else if (Array.isArray(bid.weeklyPayments) && bid.weeklyPayments.length > 0) {
       const deposit = bid.weeklyPayments.find((p) => p.type === 'deposit' || p.weekNumber === 0);
@@ -6550,8 +6557,17 @@ export default function EstimateGeneratorScreen() {
         setWeeklyHoldbackPercentText(String(Math.round(holdback.percentage)));
       }
       setWeeklyPaymentDateDrafts(extractWeeklyPaymentDateDrafts(bid.weeklyPayments));
+    } else {
+      setWeeklyPaymentDateDrafts({ deposit: '', weeks: [], holdback: '' });
     }
   }, [bid.id, bid.paymentScheduleVariant, bid.weeklyProgressSettings, bid.weeklyPayments]);
+  useEffect(() => {
+    if (!bid?.id) return;
+    if (bid.paymentScheduleVariant === 'weekly_progress') return;
+    if (weeklyProgressSettingsHydratedBidRef.current === bid.id) return;
+    weeklyProgressSettingsHydratedBidRef.current = bid.id;
+    setWeeklyPaymentDateDrafts({ deposit: '', weeks: [], holdback: '' });
+  }, [bid.id, bid.paymentScheduleVariant]);
   useEffect(() => {
     if (!bid?.id || bid.paymentScheduleVariant !== 'milestone_based') return;
     if (milestoneBasedSettingsHydratedBidRef.current === bid.id) return;
@@ -6579,6 +6595,8 @@ export default function EstimateGeneratorScreen() {
             : [],
           final: settings.paymentDates.final || '',
         });
+      } else {
+        setMilestonePaymentDateDrafts({ deposit: '', milestones: [], final: '' });
       }
     } else if (Array.isArray(bid.paymentMilestones) && bid.paymentMilestones.length > 0) {
       const deposit = bid.paymentMilestones.find(
@@ -6601,8 +6619,17 @@ export default function EstimateGeneratorScreen() {
         setMilestoneFinalPercentText(String(Math.round(final.percentage)));
       }
       setMilestonePaymentDateDrafts(extractMilestonePaymentDateDrafts(bid.paymentMilestones));
+    } else {
+      setMilestonePaymentDateDrafts({ deposit: '', milestones: [], final: '' });
     }
   }, [bid.id, bid.paymentScheduleVariant, bid.milestoneBasedSettings, bid.paymentMilestones]);
+  useEffect(() => {
+    if (!bid?.id) return;
+    if (bid.paymentScheduleVariant === 'milestone_based') return;
+    if (milestoneBasedSettingsHydratedBidRef.current === bid.id) return;
+    milestoneBasedSettingsHydratedBidRef.current = bid.id;
+    setMilestonePaymentDateDrafts({ deposit: '', milestones: [], final: '' });
+  }, [bid.id, bid.paymentScheduleVariant]);
   // For first-time users, collapse health score by default
   const [healthScoreBreakdownExpanded, setHealthScoreBreakdownExpanded] = useState(false);
   const [finalStepLegalExpanded, setFinalStepLegalExpanded] = useState(false);
@@ -11357,6 +11384,9 @@ export default function EstimateGeneratorScreen() {
       paymentMilestones: [],
       weeklyPayments: [],
       customPayments: [],
+      paymentScheduleVariant: undefined,
+      weeklyProgressSettings: undefined,
+      milestoneBasedSettings: undefined,
       // Clear all customer/client info
       customerName: '',
       customerEmail: '',
@@ -11389,6 +11419,29 @@ export default function EstimateGeneratorScreen() {
     setHasReviewedTotal(false);
     setMaterialsAddedFlag(false);
     setActiveNavButton(null); // Clear active nav button
+    setWeeklyPaymentDateDrafts({ deposit: '', weeks: [], holdback: '' });
+    setMilestonePaymentDateDrafts({ deposit: '', milestones: [], final: '' });
+    setWeeklyDepositPercentText('20');
+    setWeeklyProjectWeeksText('20');
+    setWeeklyHoldbackPercentText('5');
+    setWeeklyHoldbackDue('final_walkthrough_punch_list');
+    setMilestoneDepositPercentText('20');
+    setMilestoneCountText('3');
+    setMilestoneFinalPercentText('5');
+    setMilestoneDescriptionTexts(['', '', '']);
+    setCustomPaymentFormVisible(false);
+    setCustomPaymentCalendarOpen(false);
+    setCustomPaymentDraft({
+      id: null,
+      description: '',
+      amount: '',
+      percentage: '',
+      scheduledDate: '',
+      paymentTerms: '',
+      weekNumber: '',
+    });
+    weeklyProgressSettingsHydratedBidRef.current = null;
+    milestoneBasedSettingsHydratedBidRef.current = null;
 
     // Save the blank bid to storage
     try {
@@ -20959,6 +21012,16 @@ export default function EstimateGeneratorScreen() {
           contentInsetAdjustmentBehavior: 'never',
         }
       : {};
+
+  useEffect(() => {
+    if (!canAccessEstimateAndLeads) {
+      router.replace('/(tabs)/projects');
+    }
+  }, [canAccessEstimateAndLeads, router]);
+
+  if (!canAccessEstimateAndLeads) {
+    return null;
+  }
 
   return (
     <SafeAreaView

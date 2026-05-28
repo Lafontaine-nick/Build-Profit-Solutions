@@ -7,7 +7,7 @@ import businessWorkspaceService, {
   type BusinessWorkspaceAccess,
 } from '@/services/businessWorkspaceService';
 import { setBusinessEntitlementSnapshot } from '@/utils/businessEntitlementCache';
-import { persistWorkspaceAccessSnapshot } from '@/utils/workspaceAccessCache';
+import { persistWorkspaceAccessSnapshot, readWorkspaceAccessSnapshot } from '@/utils/workspaceAccessCache';
 import { syncClerkTokenToAsyncStorage } from '@/utils/authTokenHelper';
 import { fetchWorkspaceBootstrap } from '@/utils/workspaceBootstrapCache';
 import {
@@ -166,14 +166,18 @@ export function useBusinessEntitlement(): EntitlementState {
     Promise.all([
       AsyncStorage.getItem(CACHED_PLAN_KEY),
       AsyncStorage.getItem(CACHED_WORKSPACE_ACCESS_KEY),
+      readWorkspaceAccessSnapshot(),
     ])
-      .then(([cached, cachedWorkspaceAccess]) => {
+      .then(([cached, cachedWorkspaceAccess, workspaceSnapshot]) => {
         if (cancelled) return;
         const planId = normalizeSubscriptionPlanId(cached);
         if (planId) {
           setCurrentPlanId(planId);
         }
         setHasWorkspaceAccess(cachedWorkspaceAccess === '1');
+        if (workspaceSnapshot?.hasWorkspaceAccess) {
+          setWorkspaceAccess(workspaceSnapshot);
+        }
       })
       .catch(() => {});
     return () => {

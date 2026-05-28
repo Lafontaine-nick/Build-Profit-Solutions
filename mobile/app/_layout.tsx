@@ -35,6 +35,7 @@ import ClerkVendorDirectoryWrapper from '../components/ClerkVendorDirectoryWrapp
 import { VendorDirectoryProviderLocal } from '../contexts/VendorDirectoryContext';
 import { ClerkUiProvider } from '../contexts/ClerkUiContext';
 import { getClerkPublishableKey } from '../lib/clerkPublishableKey';
+import { applyWorkspaceMemberFirstRunIfNeeded } from '../lib/workspaceMemberOnboarding';
 
 // Web + Safari: native screen containers from react-native-screens can swallow pointer events
 // with Expo Router + bottom tabs. JS screens restore reliable Pressable / tab hit testing.
@@ -81,6 +82,7 @@ function AuthGateWithClerk() {
   const {
     hydrated: wtHydrated,
     shouldShowAppOnboarding,
+    refresh: refreshWalkthroughState,
   } = useWalkthroughState();
 
   // IMPORTANT: All hooks must be declared BEFORE any conditional returns
@@ -118,6 +120,23 @@ function AuthGateWithClerk() {
       }, 3000); // 3 second timeout
 
       try {
+        if (user?.id) {
+          const memberFirstRun = await applyWorkspaceMemberFirstRunIfNeeded(user.id, {
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email:
+              user.primaryEmailAddress?.emailAddress ||
+              user.emailAddresses?.[0]?.emailAddress ||
+              null,
+          });
+          if (memberFirstRun.applied) {
+            clearTimeout(timeoutId);
+            await refreshWalkthroughState();
+            setNeedsProfileSetup(false);
+            return;
+          }
+        }
+
         // Check Clerk user data
         const hasClerkName = !!(user?.firstName && user?.lastName);
         
@@ -166,7 +185,7 @@ function AuthGateWithClerk() {
       // Reset when not signed in
       setNeedsProfileSetup(null);
     }
-  }, [isSignedIn, user, user?.firstName, user?.lastName]);
+  }, [isSignedIn, user, user?.firstName, user?.lastName, user?.id, refreshWalkthroughState]);
 
   // Keep API token storage in sync with active Clerk session.
   useEffect(() => {

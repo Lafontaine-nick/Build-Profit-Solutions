@@ -22,6 +22,7 @@ import { usePrefsStore } from '@/store/prefs';
 import { normalizeTrade, tradesMatch } from '@/lib/trades';
 import { distanceMi, geocodeCity, getStateCenter } from '@/lib/geo';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
+import { useWorkspaceProjectPermissions } from '@/hooks/useWorkspaceProjectPermissions';
 import { clerkAuthService } from '@/services/clerkAuth';
 import { useUser } from '@clerk/clerk-react';
 import { useClerkProfileGreeting } from '@/hooks/useProfileGreeting';
@@ -1124,6 +1125,7 @@ function convertToLeadRaw(lead: Lead): LeadRaw {
 export default function LeadsScreen() {
   // Require authentication to access this screen
   useRequireAuth();
+  const { canAccessEstimateAndLeads } = useWorkspaceProjectPermissions();
   const { user: clerkUser, isLoaded: clerkUserLoaded } = useUser();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -3218,6 +3220,16 @@ export default function LeadsScreen() {
       Alert.alert('Error', 'Failed to save note. Please try again.');
     }
   };
+
+  useEffect(() => {
+    if (!canAccessEstimateAndLeads) {
+      router.replace('/(tabs)/projects');
+    }
+  }, [canAccessEstimateAndLeads, router]);
+
+  if (!canAccessEstimateAndLeads) {
+    return null;
+  }
 
   return (
     <View style={styles.container}>

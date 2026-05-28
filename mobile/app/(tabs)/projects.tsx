@@ -48,6 +48,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenLayout, isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, WEB_DESKTOP_EDGE_HORIZONTAL } from '@/constants/ScreenLayout';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
 import { useRestrictedWorkspaceFinancials } from '@/hooks/useRestrictedWorkspaceFinancials';
+import { isWorkspaceRestrictedFinancialsProject } from '@/utils/workspacePermissions';
 import {
   FirstEstimateWalkthroughSheetShell,
   FirstEstimateWalkthroughIntroSheetContent,
@@ -140,41 +141,39 @@ const progressFromItems = (items: any[]): number => {
   return Math.round(total / workItems.length);
 };
 
+/** Bids awaiting client decision have not started — no job progress yet. */
+const isPreActiveProjectStatus = (status: unknown): boolean => {
+  const slug = String(status || 'draft').toLowerCase().replace(/\s+/g, '_');
+  return (
+    slug === 'estimate' ||
+    slug === 'draft' ||
+    slug === 'bid_submitted' ||
+    slug === 'submitted'
+  );
+};
+
 const deriveUnifiedProgressPct = (project: any, projectId: string, timelineProgressMap: Record<string, number>): number => {
-  // Timeline is source of truth (deposit excluded) — try pid, then title
-  if (timelineProgressMap[projectId] !== undefined) {
+  if (isPreActiveProjectStatus(project?.status)) {
+    return 0;
+  }
+
+  // Timeline progress is keyed by project id only — never match by title (duplicate names share stale %).
+  if (projectId && timelineProgressMap[projectId] !== undefined) {
     return timelineProgressMap[projectId];
   }
-  const titleLower = String(project?.title || project?.name || '').trim().toLowerCase();
-  const titleSlug = titleLower.replace(/\s+/g, '-');
-  if (titleLower && timelineProgressMap[titleLower] !== undefined) return timelineProgressMap[titleLower];
-  if (titleSlug && timelineProgressMap[titleSlug] !== undefined) return timelineProgressMap[titleSlug];
 
-  // Fallback to direct progress fields
   const directProgress = Math.max(
     toFiniteNumber(project?.overallProgressPct),
     toFiniteNumber(project?.progress)
   );
+  if (directProgress > 0) return directProgress;
 
-  // Fallback to calculating from project's milestone/weeklyPayment arrays
-  const milestonesCandidates = [
-    project?.milestones,
-    project?.projectData?.milestones,
-    project?.estimateData?.milestones,
-    project?.estimateData?.paymentMilestones,
-  ];
-  const weeklyCandidates = [
-    project?.weeklyPayments,
-    project?.projectData?.weeklyPayments,
-    project?.estimateData?.weeklyPayments,
-  ];
+  const opsTimeline = project?.projectData?.timelineV2Milestones;
+  if (Array.isArray(opsTimeline) && opsTimeline.length > 0) {
+    return computeOverallPctFromItems(opsTimeline);
+  }
 
-  const derivedFromMilestones = Math.max(...milestonesCandidates.map((items) => progressFromItems(items)));
-  const derivedFromWeekly = Math.max(...weeklyCandidates.map((items) => progressFromItems(items)));
-
-  // Use the strongest available signal so weekly and milestone schedules are treated equally.
-  const final = Math.max(directProgress, derivedFromMilestones, derivedFromWeekly, 0);
-  return final;
+  return 0;
 };
 
 function milestoneRowLooksComplete(m: any): boolean {
@@ -558,17 +557,35 @@ export default function ProjectsScreen() {
         const titleRaw = String(project?.title ?? project?.name ?? '').trim().toLowerCase();
         const titleSlug = normalizeKey(titleRaw);
         const titleCompact = titleRaw.replace(/\s+/g, '');
-        const candidates = [pid, titleRaw, titleSlug, titleCompact, pid.toLowerCase()].filter(Boolean);
+        const timelineCandidates = [pid, pid.toLowerCase()].filter(Boolean);
+        const scheduleCandidates = [pid, titleRaw, titleSlug, titleCompact, pid.toLowerCase()].filter(Boolean);
         let foundProgress: number | undefined;
-        for (const c of candidates) {
+        for (const c of timelineCandidates) {
           foundProgress = suffixToProgress[c] ?? suffixToProgress[normalizeKey(c)];
           if (foundProgress !== undefined) break;
         }
 
+        let explicitProgress: number | undefined;
+        try {
+          const progressRaw = await AsyncStorage.getItem(`bps.project.${pid}.progress`);
+          if (progressRaw) {
+            const parsed = JSON.parse(progressRaw);
+            explicitProgress = Math.max(
+              toFiniteNumber(parsed?.overallProgressPct),
+              toFiniteNumber(parsed?.progress)
+            );
+          }
+        } catch {
+          /* ignore */
+        }
+        if (explicitProgress === 0 && foundProgress !== undefined && foundProgress > 0) {
+          foundProgress = 0;
+        } else if (explicitProgress !== undefined && explicitProgress > 0) {
+          foundProgress = Math.max(explicitProgress, foundProgress ?? 0);
+        }
+
         if (foundProgress !== undefined) {
           progressMap[pid] = foundProgress;
-          if (titleRaw) progressMap[titleRaw] = foundProgress;
-          if (titleSlug) progressMap[titleSlug] = foundProgress;
           // Sync to bps.project.${pid}.progress so ProjectListContext/AI use correct value
           try {
             AsyncStorage.setItem(`bps.project.${pid}.progress`, JSON.stringify({
@@ -582,7 +599,7 @@ export default function ProjectsScreen() {
         }
 
         let foundLatestMs: number | undefined;
-        for (const c of candidates) {
+        for (const c of scheduleCandidates) {
           const ms = suffixToLatestPlanned[c] ?? suffixToLatestPlanned[normalizeKey(c)];
           if (ms != null && Number.isFinite(ms)) {
             foundLatestMs = foundLatestMs == null ? ms : Math.max(foundLatestMs, ms);
@@ -594,10 +611,12 @@ export default function ProjectsScreen() {
           if (titleSlug) latestPlannedMap[titleSlug] = foundLatestMs;
         }
 
-        // Load project data override
-        const titleKey = String(project?.title ?? '').trim().toLowerCase();
-        const override = byId[pid] || (titleKey ? byTitle[titleKey] : undefined);
-        if (override) next[pid] = override;
+        // Load project data override (skip owner financial blobs for workspace-shared projects)
+        if (!isWorkspaceRestrictedFinancialsProject(project)) {
+          const titleKey = String(project?.title ?? '').trim().toLowerCase();
+          const override = byId[pid] || (titleKey ? byTitle[titleKey] : undefined);
+          if (override) next[pid] = override;
+        }
       }
 
       const workspaceProgress = await loadWorkspaceTimelineProgressByProjectId(
@@ -720,7 +739,9 @@ export default function ProjectsScreen() {
       })
       .map((p) => {
         const pid = String(p?.id ?? '');
-        const override = projectDataOverrides[pid];
+        const hideFinancials =
+          restrictedWorkspaceFinancials || isWorkspaceRestrictedFinancialsProject(p);
+        const override = hideFinancials ? undefined : projectDataOverrides[pid];
 
         const mergedProject = override
           ? {
@@ -740,11 +761,28 @@ export default function ProjectsScreen() {
           : p;
 
         const progressPct = deriveUnifiedProgressPct(mergedProject, pid, timelineProgress);
-        const fin = computeProjectListRowFinancials({
-          mergedProject,
-          originalRow: p,
-          progressPct,
-        });
+        const rawStatus = (p.status || 'draft').toString().toLowerCase().replace(/\s+/g, '_');
+        const fin = hideFinancials
+          ? {
+              slugForUi: rawStatus,
+              displayStatus:
+                rawStatus === 'completed'
+                  ? 'Completed'
+                  : ['won', 'in_progress', 'in-progress', 'active'].includes(rawStatus)
+                    ? 'Active'
+                    : 'Submitted',
+              finalProgress: progressPct / 100,
+              displayAmount: 0,
+              margin: 0,
+              marginDisplay: '',
+              projectedProfit: null,
+              rawStatus: (p.status || 'draft').toString(),
+            }
+          : computeProjectListRowFinancials({
+              mergedProject,
+              originalRow: p,
+              progressPct,
+            });
         const scheduleTimelineMs = resolveTimelineLatestPlannedMsFromMap(mergedProject, timelineLatestPlannedMs);
         const scheduleEndPick = getEffectiveScheduleEndPick(mergedProject, scheduleTimelineMs);
         const scheduleEnd = scheduleEndPick?.raw;
@@ -759,6 +797,8 @@ export default function ProjectsScreen() {
           status: fin.displayStatus,
           location: p.location || 'Unknown, Unknown',
           progress: fin.finalProgress,
+          progressPct,
+          hideFinancials,
           amount: fin.displayAmount,
           margin: fin.margin,
           marginDisplay: fin.marginDisplay,
@@ -772,7 +812,7 @@ export default function ProjectsScreen() {
           rawStatus: fin.rawStatus,
         };
     });
-  }, [activeProjects, estimates, projectDataOverrides, timelineLatestPlannedMs, timelineProgress]);
+  }, [activeProjects, estimates, projectDataOverrides, timelineLatestPlannedMs, timelineProgress, restrictedWorkspaceFinancials]);
 
   // Filter projects by active tab
   const projects = useMemo(() => {
@@ -1130,6 +1170,20 @@ export default function ProjectsScreen() {
         /* ignore */
       }
       convertBidToProject(projectId);
+      updateProject(projectId, { progress: 0, overallProgressPct: 0 });
+      setTimelineProgress((prev) => ({ ...prev, [projectId]: 0 }));
+      try {
+        await AsyncStorage.setItem(
+          `bps.project.${projectId}.progress`,
+          JSON.stringify({
+            progress: 0,
+            overallProgressPct: 0,
+            updatedAt: new Date().toISOString(),
+          })
+        );
+      } catch {
+        /* ignore */
+      }
 
       setSuccessProjectName(projectName);
       setShowSuccessBanner(true);
@@ -1370,13 +1424,13 @@ export default function ProjectsScreen() {
                   </View>
 
                   <View style={styles.projectFinancialBlock}>
-                    {restrictedWorkspaceFinancials ? (
+                    {project.hideFinancials ? (
                       <>
                         <View style={styles.projectAmountRow}>
                           <View style={styles.projectAmountLeft}>
                             <Text style={styles.projectMetaLabel}>Progress</Text>
                             <Text style={styles.projectAmount}>
-                              {Math.round(Number(project.progress || 0) * 100)}%
+                              {Math.round(Number(project.progressPct || 0))}%
                             </Text>
                           </View>
                           <View style={styles.projectDateBlock}>

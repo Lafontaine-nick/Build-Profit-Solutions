@@ -44,7 +44,12 @@ export function computeProjectListRowFinancials(params: {
 
   const statusSlug = (p.status || 'draft').toString().toLowerCase().replace(/\s+/g, '_');
   const revenue = getProjectRevenue(mergedProject);
-  const rawProgress = progressPct / 100;
+  const isPreActive =
+    statusSlug === 'estimate' ||
+    statusSlug === 'draft' ||
+    statusSlug === 'bid_submitted' ||
+    statusSlug === 'submitted';
+  const rawProgress = isPreActive ? 0 : progressPct / 100;
   const activeLike =
     statusSlug === 'won' ||
     statusSlug === 'in_progress' ||

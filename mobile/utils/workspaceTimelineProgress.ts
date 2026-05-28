@@ -179,8 +179,6 @@ export function applyWorkspaceTimelineProgressToMaps(
     const titleSlug = normalizeKey(titleRaw);
 
     progressMap[pid] = pct;
-    if (titleRaw) progressMap[titleRaw] = pct;
-    if (titleSlug) progressMap[titleSlug] = pct;
   }
 }
 

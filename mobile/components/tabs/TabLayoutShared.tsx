@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/TabBarPillIcons';
 import { isDesktopWebLayoutWidth } from '@/constants/ScreenLayout';
 import ProfileCompletionReminder from '@/components/ProfileCompletionReminder';
+import { useWorkspaceProjectPermissions } from '@/hooks/useWorkspaceProjectPermissions';
 
 const ASSISTANT_LABEL_COLOR = '#5eead4';
 
@@ -33,6 +34,7 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
   const tabInactiveColor = darkMode ? '#757575' : '#64748B';
   const sidebarBorder = darkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(15, 23, 42, 0.12)';
   const sidebarBg = darkMode ? theme.bg : '#f8fafc';
+  const { canAccessEstimateAndLeads } = useWorkspaceProjectPermissions();
 
   const screenOptions = useMemo(
     () =>
@@ -189,12 +191,14 @@ export default function TabLayoutShared({ PillTabBarBackground }: TabLayoutShare
         name="estimate-generator"
         options={{
           title: t('tabs.estimate'),
+          href: canAccessEstimateAndLeads ? undefined : null,
         }}
       />
       <Tabs.Screen
         name="leads"
         options={{
           title: t('tabs.leads'),
+          href: canAccessEstimateAndLeads ? undefined : null,
         }}
       />
     </Tabs>

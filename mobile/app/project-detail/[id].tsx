@@ -74,6 +74,16 @@ import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import WebPageShell from '@/components/layout/WebPageShell';
 import SubscriptionPlansModal from '@/components/SubscriptionPlansModal';
 import { useBusinessEntitlement } from '@/hooks/useBusinessEntitlement';
+import { useWorkspaceProjectPermissions } from '@/hooks/useWorkspaceProjectPermissions';
+import FinancialAccessLocked from '@/components/FinancialAccessLocked';
+import {
+  ManagerOperationsSnapshot,
+  ProjectRiskCheckCard,
+  ProjectHealthOperationalCard,
+  FieldProjectOverview,
+  MemberProjectStatusCard,
+  buildOperationalRiskCards,
+} from '@/components/project/WorkspaceProjectViews';
 import { useClerkProfileGreeting } from '@/hooks/useProfileGreeting';
 import {
   FirstEstimateWalkthroughSheetShell,
@@ -88,10 +98,13 @@ import {
   applyMarkPaymentCollectedFromAction,
   computeOverallProgressExcludingDeposit,
 } from '@/lib/markPaymentCollected';
+import { filterProjectAIContext, isWorkspaceRestrictedFinancialsProject } from '@/utils/workspacePermissions';
 import {
-  canViewOwnerFinancials,
-  normalizeWorkspaceRole,
-} from '@/utils/workspacePermissions';
+  mapApprovedCostBucketsToBudgetLines,
+  mapApprovedCostBucketsToProjectBuckets,
+} from '@/utils/approvedCostBuckets';
+
+type TabKey = "Overview" | "Budget" | "Timeline" | "Calendar" | "Team";
 
 const toPositiveNumber = (value: any): number | null => {
   if (value == null) return null;
@@ -111,32 +124,6 @@ const firstPositiveNumber = (...values: any[]): number | null => {
   }
   return null;
 };
-
-type TabKey = "Overview" | "Budget" | "Timeline" | "Calendar" | "Team";
-
-const FinancialAccessLocked = ({ colors }: { colors: ReturnType<typeof getColors> }) => (
-  <View style={{ padding: 20, alignItems: 'center' }}>
-    <View
-      style={{
-        borderRadius: 18,
-        borderWidth: 1,
-        borderColor: 'rgba(148, 163, 184, 0.22)',
-        backgroundColor: colors.surface2 || 'rgba(15, 23, 42, 0.84)',
-        padding: 20,
-        maxWidth: 520,
-      }}
-    >
-      <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800', marginBottom: 8 }}>
-        Financial details are restricted.
-      </Text>
-      <Text style={{ color: colors.sub, fontSize: 14, lineHeight: 20 }}>
-        Your workspace role does not include owner-level financials like markup, overhead, profit,
-        estimate breakdowns, payment pricing, or tax records. You can still work with the project
-        areas allowed by your role.
-      </Text>
-    </View>
-  </View>
-);
 
 const AP_WT_STEPS: { tab: TabKey; title: string; body: string }[] = [
   {
@@ -326,12 +313,7 @@ function ProjectDetailContent() {
   const { t } = useTranslation();
   const { getToken } = useAuth();
   const businessEntitlement = useBusinessEntitlement();
-  const workspaceRole = normalizeWorkspaceRole(businessEntitlement.workspaceAccess?.role);
-  const restrictedWorkspaceFinancials = Boolean(
-    businessEntitlement.workspaceAccess?.hasWorkspaceAccess &&
-      !businessEntitlement.workspaceAccess?.isOwner &&
-      !canViewOwnerFinancials(workspaceRole)
-  );
+  const projectPerms = useWorkspaceProjectPermissions();
 
   useFocusEffect(
     useCallback(() => {
@@ -389,14 +371,18 @@ function ProjectDetailContent() {
   }, []);
   const { getProjectById, updateProject, activeProjects, projects: allProjects } = useProjectList();
   const realProjectData = getProjectById(id as string);
+  const isRestrictedWorkspaceProject = isWorkspaceRestrictedFinancialsProject(realProjectData);
+  const approvedCostBucketsForMember = isRestrictedWorkspaceProject
+    ? mapApprovedCostBucketsToProjectBuckets((realProjectData as any)?.approvedCostBuckets)
+    : [];
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
   const [teamRefreshTrigger, setTeamRefreshTrigger] = useState(0);
 
   useEffect(() => {
-    if (restrictedWorkspaceFinancials && activeTab === 'Budget') {
+    if (!projectPerms.visibleTabs.includes(activeTab)) {
       setActiveTab('Overview');
     }
-  }, [activeTab, restrictedWorkspaceFinancials]);
+  }, [activeTab, projectPerms.visibleTabs]);
 
   const [materialsCart, setMaterialsCart] = useState<any[]>([]);
   /** When there are no leak cards, section starts collapsed; tap header to expand details. */
@@ -864,17 +850,16 @@ function ProjectDetailContent() {
     clientEmail: String(realProjectData.clientEmail || ''),
     clientPhone: String(realProjectData.clientPhone || ''),
     status: String(realProjectData.status || 'In Progress'),
-    // Add estimate data if available
-    estimateData: realProjectData.estimateData || null,
-    // CRITICAL: Use originalBudget (without change orders) for OverviewScreen
-    // OverviewScreen will add change orders separately to get adjusted budget
-    // budgetedValue includes change orders, which would cause double-counting
-    budgeted: firstPositiveNumber(
-      (realProjectData as any)?.estimateData?.grandTotal,
-      (realProjectData as any)?.estimateData?.total,
-      (realProjectData as any)?.bidPrice,
-      (realProjectData as any)?.estimatedCost,
-    ),
+    // Managers never receive owner estimate payloads — use approved cost buckets only.
+    estimateData: isRestrictedWorkspaceProject ? null : realProjectData.estimateData || null,
+    budgeted: isRestrictedWorkspaceProject
+      ? Number((realProjectData as any)?.approvedCostBudget ?? contextProjectData?.budgeted ?? 0)
+      : firstPositiveNumber(
+          (realProjectData as any)?.estimateData?.grandTotal,
+          (realProjectData as any)?.estimateData?.total,
+          (realProjectData as any)?.bidPrice,
+          (realProjectData as any)?.estimatedCost,
+        ),
     spent: Number(realProjectData.actualCost) || contextProjectData?.spent || 0,
     overallProgressPct: Number(realProjectData.progress) || 0,
     startISO: realProjectData.estimateData?.projectStartDate || realProjectData.startDate || new Date().toISOString().split('T')[0],
@@ -882,7 +867,11 @@ function ProjectDetailContent() {
     lastUpdated: realProjectData.updatedAt || new Date().toISOString().split('T')[0],
     crewCount: 1,
     // omit priority/risk not in type
-    buckets: realProjectData.estimateData ? [
+    buckets:
+      isRestrictedWorkspaceProject && approvedCostBucketsForMember.length > 0
+        ? approvedCostBucketsForMember
+        : realProjectData.estimateData
+          ? [
       { 
         id: '1', 
         name: 'Labor', 
@@ -1196,8 +1185,12 @@ function ProjectDetailContent() {
 
     if (!project?.estimateData) {
       console.log('⚠️ No estimate data — building budget category lines from buckets / spend');
-      const lines: any[] = [];
-      appendBucketFallbackLines(lines);
+      const lines: any[] = mapApprovedCostBucketsToBudgetLines(
+        (realProjectData as any)?.approvedCostBuckets
+      );
+      if (lines.length === 0) {
+        appendBucketFallbackLines(lines);
+      }
       return {
         projectId: project?.id || id as string,
         currency: 'USD',
@@ -1399,16 +1392,30 @@ function ProjectDetailContent() {
   // CRITICAL: Calculate original budget WITHOUT change orders for BudgetTab
   // budgetedValue includes change orders, but plannedBudget should be the original estimate amount
   const originalBudget = React.useMemo(() => {
+    if (isRestrictedWorkspaceProject) {
+      const fromBuckets = approvedCostBucketsForMember.reduce(
+        (sum, b) => sum + (Number(b.budget) || 0),
+        0
+      );
+      return (
+        fromBuckets ||
+        Number((realProjectData as any)?.approvedCostBudget ?? 0) ||
+        0
+      );
+    }
     // Priority: estimate's grandTotal (what user saw in estimate), then bidPrice, then estimatedCost
     return firstPositiveNumber(
-      realProjectData?.estimateData?.grandTotal,  // PRIMARY: estimate's grandTotal ($7,200)
-      realProjectData?.estimateData?.bidPrice,    // Secondary: estimate's bidPrice
-      realProjectData?.estimateData?.total,       // Tertiary: estimate's total
-      realProjectData?.bidPrice,                   // Fallback: project bidPrice
-      realProjectData?.estimatedCost,              // Fallback: estimatedCost
-      resolvedBidPrice ?? 0,                       // Last resort: resolved bid price
+      realProjectData?.estimateData?.grandTotal,
+      realProjectData?.estimateData?.bidPrice,
+      realProjectData?.estimateData?.total,
+      realProjectData?.bidPrice,
+      realProjectData?.estimatedCost,
+      resolvedBidPrice ?? 0,
     ) ?? 0;
   }, [
+    isRestrictedWorkspaceProject,
+    approvedCostBucketsForMember,
+    realProjectData?.approvedCostBudget,
     realProjectData?.estimateData?.grandTotal,
     realProjectData?.estimateData?.bidPrice,
     realProjectData?.estimateData?.total,
@@ -1476,17 +1483,23 @@ function ProjectDetailContent() {
   };
   
   // Ensure all critical properties are defined
-  // CRITICAL: Use originalBudget (without change orders) for safeProjectData
   // This ensures OverviewScreen and other components see the correct original budget
   const safeProjectData: any = {
     ...projectDataBase,
     title: String(projectDataBase.title || 'Untitled Project'),
     status: String(projectDataBase.status || 'In Progress'),
-    budgeted: originalBudget, // Use originalBudget (without COs), not projectData.budgeted (may include COs)
-    // Ensure bid/estimate available for profit forecast (contextProjectData may not have these)
-    bidPrice: (realProjectData as any)?.bidPrice ?? projectDataBase?.bidPrice,
-    estimateData: (realProjectData as any)?.estimateData ?? projectDataBase?.estimateData,
-    margin: (realProjectData as any)?.margin ?? projectDataBase?.margin,
+    budgeted: isRestrictedWorkspaceProject
+      ? Number(realProjectData?.approvedCostBudget ?? projectDataBase.budgeted ?? 0)
+      : originalBudget,
+    bidPrice: isRestrictedWorkspaceProject
+      ? undefined
+      : (realProjectData as any)?.bidPrice ?? projectDataBase?.bidPrice,
+    estimateData: isRestrictedWorkspaceProject
+      ? undefined
+      : (realProjectData as any)?.estimateData ?? projectDataBase?.estimateData,
+    margin: isRestrictedWorkspaceProject
+      ? undefined
+      : (realProjectData as any)?.margin ?? projectDataBase?.margin,
     spent: Number(projectDataBase.spent || 0),
     // Ensure all nested objects are defined
     health: {
@@ -1499,7 +1512,15 @@ function ProjectDetailContent() {
       pmName: String((projectDataBase as any).team?.pmName || ''),
     },
     // Ensure all arrays are defined
-    buckets: projectDataBase.buckets || [],
+    buckets: isRestrictedWorkspaceProject && Array.isArray((realProjectData as any)?.approvedCostBuckets)
+      ? (realProjectData as any).approvedCostBuckets.map((b: any, index: number) => ({
+          id: String(b?.id ?? index + 1),
+          name: String(b?.name || 'Category'),
+          budget: Number(b?.budget ?? 0) || 0,
+          bidBudget: Number(b?.budget ?? 0) || 0,
+          spent: Number(b?.spent ?? 0) || 0,
+        }))
+      : projectDataBase.buckets || [],
     milestones: projectDataBase.milestones || [],
     expenses: projectDataBase.expenses || [],
     changeOrders: projectDataBase.changeOrders || [],
@@ -1550,8 +1571,14 @@ function ProjectDetailContent() {
 
     const plannedFromBucketsForFinancials = (safeProjectData?.buckets || []).reduce(
       (sum: number, bucket: any) => {
-        const n = String(bucket?.name || '');
-        if (n === 'Materials/Equipment' || n === 'Labor') {
+        const n = String(bucket?.name || '').toLowerCase();
+        if (
+          n.includes('material') ||
+          n.includes('equip') ||
+          n.includes('labor') ||
+          n.includes('overhead') ||
+          n.includes('permit')
+        ) {
           return sum + Number(bucket?.budget || 0);
         }
         return sum;
@@ -1735,6 +1762,16 @@ function ProjectDetailContent() {
     [safeProjectData, overviewMetrics, liveTimelineMilestones]
   );
 
+  const operationalRiskCards = useMemo(
+    () =>
+      buildOperationalRiskCards({
+        project: safeProjectData,
+        metrics: overviewMetrics,
+        liveTimelineMilestones,
+      }),
+    [safeProjectData, overviewMetrics, liveTimelineMilestones]
+  );
+
   const renderTabContent = () => {
     try {
       console.log('🔍 Rendering tab:', activeTab);
@@ -1772,13 +1809,15 @@ function ProjectDetailContent() {
                   <View style={styles.overviewPageHeader}>
                     <Text style={styles.overviewPageTitle}>Project Overview</Text>
                     <Text style={styles.overviewPageSubtitle}>
-                      {restrictedWorkspaceFinancials
-                        ? 'Project operations, timeline, calendar, and team access'
-                        : 'Executive snapshot of contract, cost, and margin'}
+                      {projectPerms.canViewOwnerFinancials
+                        ? 'Executive snapshot of contract, cost, and margin'
+                        : projectPerms.isManager
+                          ? 'Operations snapshot — cost control without owner profit'
+                          : 'Field view — schedule, tasks, and jobsite updates'}
                     </Text>
                   </View>
 
-                  {!restrictedWorkspaceFinancials ? (
+                  {projectPerms.canViewOwnerFinancials ? (
                     <BudgetProfitMixCard
                       currency={(safeProjectData as { currency?: string }).currency ?? 'USD'}
                       adjustedContractValue={metrics.financials.adjustedContractValue}
@@ -1806,12 +1845,29 @@ function ProjectDetailContent() {
                       }}
                       marginTop={0}
                     />
+                  ) : projectPerms.isManager ? (
+                    <ManagerOperationsSnapshot
+                      metrics={metrics}
+                      colors={Colors}
+                      darkMode={darkMode}
+                      styles={styles}
+                      onOpenBudget={() => {
+                        void Haptics.selectionAsync();
+                        setActiveTab('Budget');
+                      }}
+                    />
                   ) : (
-                    <FinancialAccessLocked colors={Colors} />
+                    <FieldProjectOverview
+                      project={safeProjectData}
+                      metrics={metrics}
+                      colors={Colors}
+                      darkMode={darkMode}
+                      styles={styles}
+                      role={projectPerms.isForeman ? 'foreman' : 'field'}
+                    />
                   )}
 
-                  {/* Project Status — cost/schedule progress */}
-                  {!restrictedWorkspaceFinancials ? (
+                  {projectPerms.canViewOwnerFinancials ? (
                   <>
                   <View style={styles.innerCardContainer}>
                     <View style={styles.innerCard}>
@@ -2072,7 +2128,35 @@ function ProjectDetailContent() {
                     </View>
                   </View>
                   </>
-                  ) : null}
+                  ) : projectPerms.isManager ? (
+                  <>
+                    <MemberProjectStatusCard
+                      metrics={metrics}
+                      styles={styles}
+                      showCostBudget
+                    />
+                    <ProjectRiskCheckCard
+                      cards={operationalRiskCards}
+                      colors={Colors}
+                      darkMode={darkMode}
+                      styles={styles}
+                    />
+                    <ProjectHealthOperationalCard
+                      metrics={metrics}
+                      colors={Colors}
+                      darkMode={darkMode}
+                      styles={styles}
+                    />
+                  </>
+                  ) : (
+                  <>
+                    <MemberProjectStatusCard
+                      metrics={metrics}
+                      styles={styles}
+                      showCostBudget={false}
+                    />
+                  </>
+                  )}
                 </View>
               </LinearGradient>
             </View>
@@ -2081,10 +2165,20 @@ function ProjectDetailContent() {
         case 'Budget':
           return (
             <View style={styles.wideContainer}>
-              {restrictedWorkspaceFinancials ? (
-                <FinancialAccessLocked colors={Colors} />
+              {projectPerms.budgetAccessMode === 'hidden' ? (
+                <FinancialAccessLocked
+                  colors={Colors}
+                  onBackToProject={() => setActiveTab('Overview')}
+                />
               ) : (
-                <BudgetTab data={budgetData} embedded profitForecastOverride={overviewMetrics.profitForecast} />
+                <BudgetTab
+                  data={budgetData}
+                  embedded
+                  profitForecastOverride={overviewMetrics.profitForecast}
+                  budgetAccessMode={
+                    projectPerms.budgetAccessMode === 'cost_control' ? 'cost_control' : 'owner'
+                  }
+                />
               )}
             </View>
           );
@@ -2209,45 +2303,30 @@ function ProjectDetailContent() {
   }, [safeProjectData?.status, showJustActivated, justActivatedDismissed]);
 
   const projectSegmentScroll = useMemo(() => {
+    const tabDefs: { key: TabKey; label: string; icon: string }[] = [
+      { key: 'Overview', label: 'Overview', icon: 'grid-outline' },
+      ...(projectPerms.visibleTabs.includes('Budget')
+        ? [{ key: 'Budget' as TabKey, label: projectPerms.budgetTabLabel, icon: 'wallet-outline' }]
+        : []),
+      { key: 'Timeline', label: 'Timeline', icon: 'calendar-outline' },
+      { key: 'Calendar', label: 'Calendar', icon: 'calendar' },
+      ...(projectPerms.visibleTabs.includes('Team')
+        ? [{ key: 'Team' as TabKey, label: 'Team', icon: 'people-outline' }]
+        : []),
+    ];
+
     const tabs = (
       <>
-        <SegmentTab
-          label="Overview"
-          icon="grid-outline"
-          isActive={activeTab === 'Overview'}
-          onPress={() => handleTabPress('Overview')}
-          styles={styles}
-        />
-        {!restrictedWorkspaceFinancials ? (
+        {tabDefs.map(({ key, label, icon }) => (
           <SegmentTab
-            label="Budget"
-            icon="wallet-outline"
-            isActive={activeTab === 'Budget'}
-            onPress={() => handleTabPress('Budget')}
+            key={key}
+            label={label}
+            icon={icon}
+            isActive={activeTab === key}
+            onPress={() => handleTabPress(key)}
             styles={styles}
           />
-        ) : null}
-        <SegmentTab
-          label="Timeline"
-          icon="calendar-outline"
-          isActive={activeTab === 'Timeline'}
-          onPress={() => handleTabPress('Timeline')}
-          styles={styles}
-        />
-        <SegmentTab
-          label="Calendar"
-          icon="calendar"
-          isActive={activeTab === 'Calendar'}
-          onPress={() => handleTabPress('Calendar')}
-          styles={styles}
-        />
-        <SegmentTab
-          label="Team"
-          icon="people-outline"
-          isActive={activeTab === 'Team'}
-          onPress={() => handleTabPress('Team')}
-          styles={styles}
-        />
+        ))}
       </>
     );
 
@@ -2269,7 +2348,7 @@ function ProjectDetailContent() {
         {tabs}
       </ScrollView>
     );
-  }, [activeTab, styles, handleTabPress, restrictedWorkspaceFinancials]);
+  }, [activeTab, styles, handleTabPress, projectPerms.visibleTabs, projectPerms.budgetTabLabel]);
 
   if (missingProjectData) {
     console.error('❌ Project data is undefined!');
@@ -2456,7 +2535,7 @@ function ProjectDetailContent() {
             )}
           </View>
 
-          {!restrictedWorkspaceFinancials ? (
+          {projectPerms.showProjectAI ? (
             <>
               {/* AI PM — single stable slot under tabs (not floating over cards) */}
               <View style={[styles.wideContainer, styles.aiPmUnderTabs]}>
@@ -2564,7 +2643,7 @@ function ProjectDetailContent() {
 
         {/* AI Assistant Modal with Project Context */}
         <AIAssistantModal
-          visible={showAIAssistant && !restrictedWorkspaceFinancials}
+          visible={showAIAssistant && projectPerms.showProjectAI}
           onClose={() => {
             setShowAIAssistant(false);
             setInitialAIQuestion(undefined); // Reset when closing
@@ -2604,7 +2683,7 @@ function ProjectDetailContent() {
             }
             // Pre-computed profit forecast — same as Financial Health / Budget Totals UI. AI should use these.
             const pf = overviewMetrics?.profitForecast;
-            return {
+            const ctx = {
             screen: 'Project Detail',
             aiScope: 'project',
             currentProject: safeProjectData?.title || safeProjectData?.name || 'Current Project',
@@ -2794,7 +2873,13 @@ function ProjectDetailContent() {
                 }));
               } catch { return []; }
             })(),
-          };})())}
+          };
+            return filterProjectAIContext(
+              ctx,
+              projectPerms.budgetAccessMode,
+              projectPerms.role
+            );
+          })())}
           onAction={async (action) => {
             console.log('📥 project-detail: Received action from AIAssistantModal:', {
               type: action.type,

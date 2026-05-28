@@ -20,30 +20,32 @@
         "updatedAt": "2026-05-27T04:54:59.020Z"
       },
       {
-        "id": "bf4396ee-1830-4f87-b793-1c2aebc6c1ec",
-        "userId": "user_3EIIILQr82PWL1TaheakroqHr3R",
+        "id": "7ee09de2-c859-4116-b51e-9f2867d3214a",
+        "userId": "user_3EKvR6kNHuT0e7ZGOODGFJa9Sqx",
         "email": "nicholas@buildprofitsolutions.com",
-        "displayName": "Nicholas",
-        "phone": "325-555-5555",
-        "role": "field",
+        "displayName": "Jack",
+        "phone": "445-031-2258",
+        "role": "manager",
+        "jobTitle": "Project Manager",
         "tradeRole": "Project Manager",
         "status": "active",
         "projectStatus": "active",
+        "projectAccess": "all_active",
+        "assignedProjectIds": [
+          "1779765189376"
+        ],
         "skills": [
           "Other"
         ],
         "invitedByUserId": "user_3EFCxmNL62epVxflckc8K5DC8nY",
-        "invitedAt": "2026-05-27T05:24:50.283Z",
-        "joinedAt": "2026-05-27T05:33:09.014Z",
-        "createdAt": "2026-05-27T05:24:50.283Z",
-        "updatedAt": "2026-05-28T02:36:30.786Z",
-        "jobTitle": "Project Manager",
-        "projectAccess": "all_active",
-        "assignedProjectIds": []
+        "invitedAt": "2026-05-28T03:31:54.308Z",
+        "joinedAt": "2026-05-28T03:38:16.321Z",
+        "createdAt": "2026-05-28T03:31:54.308Z",
+        "updatedAt": "2026-05-28T05:37:27.274Z"
       }
     ],
     "createdAt": "2026-05-27T04:11:43.534Z",
-    "updatedAt": "2026-05-28T02:36:30.787Z"
+    "updatedAt": "2026-05-28T05:37:27.274Z"
   },
   {
     "id": "9c1e7f8e-5c6e-4cfb-b642-39aaceca72df",

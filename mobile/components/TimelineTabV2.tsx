@@ -25,6 +25,7 @@ import {
 import { businessWorkspaceService } from "@/services/businessWorkspaceService";
 import { mergeArrayResource } from "@/utils/workspaceResourceMerge";
 import { invalidateWorkspaceTimelineProgressCache } from "@/utils/workspaceTimelineProgress";
+import { useWorkspaceProjectPermissions } from "@/hooks/useWorkspaceProjectPermissions";
 
 /** Merge list + live ProjectData so change orders match Budget tab. */
 function mergeProjectRecordForTimelineCo(project: any, projectFromList: any, projectData: any) {
@@ -131,6 +132,32 @@ function clampPct(n: number) {
 function isDepositMilestone(m: Milestone): boolean {
   const t = (m.title || (m as any).name || "").toLowerCase();
   return t.includes("deposit") || (m as any).type === "deposit";
+}
+
+/** Payment / billing rows — hidden from foreman & field on Timeline. */
+function isPaymentTimelineMilestone(m: Milestone): boolean {
+  if (isDepositMilestone(m)) return true;
+  if (isChangeOrderTimelineMilestone(m)) return true;
+  const type = String((m as any).type || '').toLowerCase();
+  if (type === 'payment' || type === 'holdback' || type === 'deposit' || type === 'weekly') {
+    return true;
+  }
+  const t = (m.title || (m as any).name || '').toLowerCase();
+  if (typeof m.amount === 'number' && m.amount > 0) return true;
+  if (
+    t.includes('payment') ||
+    t.includes('deposit') ||
+    t.includes('holdback') ||
+    t.includes('retainage') ||
+    t.includes('invoice') ||
+    t.includes('billing') ||
+    t.includes('collect') ||
+    /\bprogress\s+pay/i.test(t)
+  ) {
+    return true;
+  }
+  if (/week\s*\d/i.test(t) && (t.includes('pay') || t.includes('progress'))) return true;
+  return false;
 }
 
 function computeOverallPct(items: Milestone[]) {
@@ -308,6 +335,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
 
   const { addExpense, updateExpense, deleteExpense, projectData, updateTimeline } = useProjectData();
   const { updateProject, getProjectById } = useProjectList();
+  const { canViewPaymentSchedule, canCollectPayments } = useWorkspaceProjectPermissions();
 
   const projectFromList = useMemo(() => {
     if (!project?.id || !getProjectById) return null;
@@ -1037,9 +1065,33 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
     });
   }, [milestones, isLoaded, projectData?.expenses]);
 
+  /* ---------- computed ---------- */
+
+  const byId = useMemo(() => Object.fromEntries(milestones.map((m) => [m.id, m])), [milestones]);
+
+  const visibleMilestones = useMemo(() => {
+    if (canViewPaymentSchedule) return milestones;
+    return milestones.filter((m) => !isPaymentTimelineMilestone(m));
+  }, [milestones, canViewPaymentSchedule]);
+
+  const paymentScheduleMilestones = useMemo(
+    () => (canViewPaymentSchedule ? milestones.filter(isPaymentTimelineMilestone) : []),
+    [milestones, canViewPaymentSchedule]
+  );
+
+  const upcoming = useMemo(() => {
+    return [...visibleMilestones]
+      .filter((m) => m.status !== "completed")
+      .sort((a, b) => new Date(safeISODate(a.plannedDate)).getTime() - new Date(safeISODate(b.plannedDate)).getTime())
+      .slice(0, 3);
+  }, [visibleMilestones]);
+
   /* ---------- sync overall progress ---------- */
 
-  const overall = computeOverallPct(milestones);
+  const overall = useMemo(
+    () => computeOverallPct(canViewPaymentSchedule ? milestones : visibleMilestones),
+    [milestones, visibleMilestones, canViewPaymentSchedule]
+  );
 
   useEffect(() => {
     if (isUpdatingRef.current || isLoadingRef.current) return;
@@ -1074,20 +1126,16 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
     return () => clearTimeout(t);
   }, [overall, isLoaded, milestones.length]);
 
-  /* ---------- computed ---------- */
-
-  const byId = useMemo(() => Object.fromEntries(milestones.map((m) => [m.id, m])), [milestones]);
-
-  const upcoming = useMemo(() => {
-    return [...milestones]
-      .filter((m) => m.status !== "completed")
-      .sort((a, b) => new Date(safeISODate(a.plannedDate)).getTime() - new Date(safeISODate(b.plannedDate)).getTime())
-      .slice(0, 3);
-  }, [milestones]);
-
   /* ---------- actions ---------- */
 
   const onOpenMilestone = (m: Milestone) => {
+    if (isPaymentTimelineMilestone(m) && !canCollectPayments) {
+      Alert.alert(
+        'Payment updates',
+        'Only the project owner can view payment details or mark payments as collected.'
+      );
+      return;
+    }
     if (Platform.OS === 'ios') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
@@ -1481,7 +1529,8 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
             </LinearGradient>
           </View>
 
-          {/* Upcoming Milestones Section */}
+          {/* Upcoming work milestones — hide for field roles when only payments remain */}
+          {(canViewPaymentSchedule || upcoming.length > 0) ? (
           <View style={{ marginTop: 12 }}>
             <LinearGradient
               colors={BRAND_FRAME_GRADIENT_COLORS}
@@ -1522,7 +1571,9 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                         ))
                       ) : (
                         <Text style={[styles.emptyText, { color: muted }]}>
-                          No upcoming milestones
+                          {canViewPaymentSchedule
+                            ? 'No upcoming milestones'
+                            : 'No upcoming work milestones — payment schedule is managed by the owner.'}
                         </Text>
                       )}
                     </View>
@@ -1531,8 +1582,10 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
               </View>
             </LinearGradient>
           </View>
+          ) : null}
 
-          {/* All Payments Section */}
+          {/* All Payments Section — owner & manager only */}
+          {canViewPaymentSchedule ? (
           <View style={{ marginTop: 12 }}>
             {/* Outer green-to-blue border wrapping All Payments header and all milestone cards */}
             <LinearGradient
@@ -1550,8 +1603,8 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                   </Text>
                 </View>
                 <View style={styles.milestonesList}>
-                  {milestones.length > 0 ? (
-                    milestones.map((item) => (
+                  {paymentScheduleMilestones.length > 0 ? (
+                    paymentScheduleMilestones.map((item) => (
                       <MilestoneCardV2
                         key={item.id}
                         item={item}
@@ -1640,6 +1693,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
               </View>
             </LinearGradient>
           </View>
+          ) : null}
         </View>
       </ScrollView>
 
@@ -1674,16 +1728,19 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
         onSave={(updated) => {
           console.log('💾 Saving milestone:', updated.id, updated.title, 'status:', updated.status);
           
-          // Check if this is a payment milestone being marked as completed
           const titleLower = (updated.title || '').toLowerCase();
-          const isPayment = (updated.amount && updated.amount > 0) || 
-                           titleLower.includes('payment') || 
-                           titleLower.includes('week') ||
-                           titleLower.includes('deposit');
+          const isPayment = isPaymentTimelineMilestone(updated);
           const isBeingCompleted = updated.status === 'completed';
+
+          if (isPayment && isBeingCompleted && !canCollectPayments) {
+            Alert.alert(
+              'Payment updates',
+              'Only the project owner can mark payments as collected.'
+            );
+            return false;
+          }
           
-          console.log('🔍 Payment check:', { isPayment, isBeingCompleted, amount: updated.amount, title: updated.title });
-          
+          // Check if this is a payment milestone being marked as completed
           if (isPayment && isBeingCompleted) {
             // Get all payment milestones from current state (before update)
             // Include the updated milestone in the list for sorting

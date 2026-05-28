@@ -25,6 +25,7 @@ import {
 import { mergeOnboardingRoleIntoContractorProfile } from '../lib/onboardingRoleMapping';
 import { clearUnifiedProjectsListCache } from '../lib/projectListCache';
 import { useProjectList } from '../contexts/ProjectListContext';
+import { applyWorkspaceMemberFirstRunIfNeeded } from '../lib/workspaceMemberOnboarding';
 
 interface OnboardingFlowProps {
   onComplete: () => void;
@@ -610,7 +611,43 @@ function OnboardingFlowCore({
 function OnboardingFlowWithClerk({ onComplete }: OnboardingFlowProps) {
   const { user } = useUser();
   const userId = user?.id;
+  const [checkingWorkspaceMember, setCheckingWorkspaceMember] = useState(true);
+
+  useEffect(() => {
+    if (!userId) {
+      setCheckingWorkspaceMember(false);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await applyWorkspaceMemberFirstRunIfNeeded(userId, {
+          firstName: user?.firstName,
+          lastName: user?.lastName,
+          email:
+            user?.primaryEmailAddress?.emailAddress ||
+            user?.emailAddresses?.[0]?.emailAddress ||
+            null,
+        });
+        if (!cancelled && result.applied) {
+          onComplete();
+          return;
+        }
+      } finally {
+        if (!cancelled) {
+          setCheckingWorkspaceMember(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, user?.firstName, user?.lastName, user?.primaryEmailAddress, user?.emailAddresses, onComplete]);
+
   if (!userId) return null;
+  if (checkingWorkspaceMember) return null;
   return <OnboardingFlowCore userId={userId} onComplete={onComplete} />;
 }
 
