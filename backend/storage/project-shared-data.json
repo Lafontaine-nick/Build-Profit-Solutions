@@ -18,77 +18,65 @@
       {
         "id": "weekly-progress-deposit-1779331655437",
         "title": "Deposit",
-        "plannedDate": "2026-06-21",
+        "plannedDate": "2026-05-28",
         "progressPct": 100,
         "status": "completed",
         "assignee": "Client",
-        "amount": 7319,
-        "collectedAt": "2026-05-26T19:00:00.000Z",
-        "actualDate": "2026-05-26"
+        "amount": 0
       },
       {
         "id": "weekly-progress-week-1779331655437-1",
         "title": "Week 1 Progress Payment",
-        "plannedDate": "2026-06-29",
+        "plannedDate": "2026-05-28",
         "progressPct": 100,
         "status": "completed",
         "assignee": "Client",
         "dependsOnId": "weekly-progress-deposit-1779331655437",
-        "amount": 5123.3,
-        "collectedAt": "2026-05-26T19:00:00.000Z",
-        "actualDate": "2026-05-26"
+        "amount": 0
       },
       {
         "id": "weekly-progress-week-1779331655437-2",
         "title": "Week 2 Progress Payment",
-        "plannedDate": "2026-07-07",
+        "plannedDate": "2026-05-28",
         "progressPct": 0,
         "status": "pending",
         "assignee": "Client",
-        "costDelta": 0,
-        "costCategory": "materials",
         "dependsOnId": "weekly-progress-week-1779331655437-1",
-        "amount": 5123.3
+        "amount": 0
       },
       {
         "id": "weekly-progress-week-1779331655437-3",
         "title": "Week 3 Progress Payment",
-        "plannedDate": "2026-07-14",
+        "plannedDate": "2026-05-28",
         "progressPct": 0,
         "status": "pending",
         "assignee": "Client",
-        "costDelta": 0,
-        "costCategory": "materials",
         "dependsOnId": "weekly-progress-week-1779331655437-2",
-        "amount": 5123.3
+        "amount": 0
       },
       {
         "id": "weekly-progress-week-1779331655437-4",
         "title": "Week 4 Progress Payment",
-        "plannedDate": "2026-07-21",
+        "plannedDate": "2026-05-28",
         "progressPct": 0,
         "status": "pending",
         "assignee": "Client",
-        "costDelta": 0,
-        "costCategory": "materials",
         "dependsOnId": "weekly-progress-week-1779331655437-3",
-        "amount": 5123.3
+        "amount": 0
       },
       {
         "id": "weekly-progress-holdback-1779331655437",
         "title": "Final Holdback",
-        "plannedDate": "2026-07-26",
+        "plannedDate": "2026-05-28",
         "progressPct": 0,
         "status": "pending",
         "assignee": "Client",
-        "costDelta": 0,
-        "costCategory": "materials",
         "dependsOnId": "weekly-progress-week-1779331655437-4",
-        "amount": 1463.8
+        "amount": 0
       }
     ],
-    "updatedByUserId": "user_3EFCxmNL62epVxflckc8K5DC8nY",
-    "updatedAt": "2026-05-27T05:54:50.140Z",
+    "updatedByUserId": "user_3EIIILQr82PWL1TaheakroqHr3R",
+    "updatedAt": "2026-05-28T02:35:55.706Z",
     "createdAt": "2026-05-27T04:27:09.437Z"
   },
   {
@@ -100,19 +88,42 @@
       {
         "id": "12fe7bf7-895a-4a38-8ef9-ffc743ca957b",
         "name": "Nicholas LaFontaine",
+        "userId": "user_3EFCxmNL62epVxflckc8K5DC8nY",
         "role": "Project Manager",
         "status": "active",
         "inviteStatus": "active",
         "accessRole": "owner",
+        "projectAccess": "all_active",
+        "assignedProjectIds": [],
         "isWorkspaceMember": true,
         "tasksOpen": 0,
         "tasksTotal": 0,
         "skills": [],
         "licenseVerified": false
+      },
+      {
+        "id": "bf4396ee-1830-4f87-b793-1c2aebc6c1ec",
+        "name": "Nicholas",
+        "phone": "325-555-5555",
+        "email": "nicholas@buildprofitsolutions.com",
+        "userId": "user_3EIIILQr82PWL1TaheakroqHr3R",
+        "role": "Project Manager",
+        "status": "active",
+        "inviteStatus": "active",
+        "accessRole": "field",
+        "projectAccess": "all_active",
+        "assignedProjectIds": [],
+        "isWorkspaceMember": true,
+        "tasksOpen": 0,
+        "tasksTotal": 0,
+        "skills": [
+          "Other"
+        ],
+        "licenseVerified": false
       }
     ],
     "updatedByUserId": "user_3EFCxmNL62epVxflckc8K5DC8nY",
-    "updatedAt": "2026-05-27T05:24:28.868Z",
+    "updatedAt": "2026-05-28T02:36:30.872Z",
     "createdAt": "2026-05-27T05:24:13.331Z"
   }
 ]

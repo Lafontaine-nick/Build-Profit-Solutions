@@ -814,13 +814,115 @@ const MemberRowCompact = ({
 };
 
 // ---------- Edit Member Modal ----------
-const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, canManageWorkspace }: {
+
+type AssignableProjectRow = { id: string; title: string };
+
+function ProjectAccessControls({
+  availableProjects,
+  projectAccess,
+  onProjectAccessChange,
+  selectedProjectIds,
+  onToggleProject,
+  supportSub,
+  chipIdleBg,
+  chipIdleBorder,
+  textColor,
+}: {
+  availableProjects: AssignableProjectRow[];
+  projectAccess: ProjectAccess;
+  onProjectAccessChange: (value: ProjectAccess) => void;
+  selectedProjectIds: string[];
+  onToggleProject: (projectId: string) => void;
+  supportSub: string;
+  chipIdleBg: string;
+  chipIdleBorder: string;
+  textColor: string;
+}) {
+  return (
+    <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
+      <Text style={[styles.addMemberLabel, { color: textColor }]}>Assigned projects</Text>
+      <Text style={[styles.addMemberHelperText, { color: supportSub }]}>
+        Team members only receive projects allowed here. Owner financials stay hidden for every non-owner role.
+      </Text>
+      <View style={styles.addMemberChipWrap}>
+        {projectAccess === "all_active" ? (
+          <TouchableOpacity onPress={() => onProjectAccessChange("all_active")} activeOpacity={0.9}>
+            <View style={styles.addMemberChipSelectedSolid}>
+              <Text style={styles.addMemberChipTextOnGreen}>All active projects</Text>
+            </View>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            onPress={() => onProjectAccessChange("all_active")}
+            activeOpacity={0.85}
+            style={[styles.addMemberChipIdle, { backgroundColor: chipIdleBg, borderColor: chipIdleBorder }]}
+          >
+            <Text style={[styles.addMemberChipTextIdle, { color: supportSub }]}>All active projects</Text>
+          </TouchableOpacity>
+        )}
+        {availableProjects.length > 0 ? (
+          <TouchableOpacity
+            onPress={() => onProjectAccessChange("assigned")}
+            activeOpacity={0.85}
+            style={[
+              projectAccess === "assigned"
+                ? styles.addMemberChipSelectedSolid
+                : styles.addMemberChipIdle,
+              projectAccess !== "assigned" && { backgroundColor: chipIdleBg, borderColor: chipIdleBorder },
+            ]}
+          >
+            <Text
+              style={
+                projectAccess === "assigned"
+                  ? styles.addMemberChipTextOnGreen
+                  : [styles.addMemberChipTextIdle, { color: supportSub }]
+              }
+            >
+              Selected projects
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+      {projectAccess === "assigned" ? (
+        <View style={[styles.addMemberChipWrap, { marginTop: 10 }]}>
+          {availableProjects.map((project) => {
+            const selected = selectedProjectIds.includes(project.id);
+            return (
+              <TouchableOpacity
+                key={project.id}
+                onPress={() => onToggleProject(project.id)}
+                activeOpacity={0.85}
+                style={[
+                  selected ? styles.addMemberChipSelectedSolid : styles.addMemberChipIdle,
+                  !selected && { backgroundColor: chipIdleBg, borderColor: chipIdleBorder },
+                ]}
+              >
+                <Text
+                  style={
+                    selected
+                      ? styles.addMemberChipTextOnGreen
+                      : [styles.addMemberChipTextIdle, { color: supportSub }]
+                  }
+                >
+                  {project.title}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, canManageWorkspace, availableProjects }: {
   member: Member;
   onClose: () => void;
   onSave: (m: Member) => void;
   onDelete: (id: string) => void;
   onResendInvite?: (member: Member) => void;
   canManageWorkspace?: boolean;
+  availableProjects: AssignableProjectRow[];
 }) => {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -842,6 +944,18 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
   const [status, setStatus] = useState(member.status);
   const [accessRole, setAccessRole] = useState<AccessRole>(member.accessRole || "field");
   const [skillTags, setSkillTags] = useState<string[]>(member.skills || []);
+  const [projectAccess, setProjectAccess] = useState<ProjectAccess>(
+    member.projectAccess || "all_active"
+  );
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>(
+    member.assignedProjectIds || []
+  );
+
+  const toggleProject = (projectId: string) => {
+    setSelectedProjectIds((prev) =>
+      prev.includes(projectId) ? prev.filter((id) => id !== projectId) : [...prev, projectId]
+    );
+  };
 
   const toggleSkillTag = (tag: string) => {
     setSkillTags((prev) =>
@@ -867,6 +981,25 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
       }
       return;
     }
+    const isEditableWorkspaceMember =
+      member.isWorkspaceMember && member.accessRole !== "owner";
+    if (
+      isEditableWorkspaceMember &&
+      projectAccess === "assigned" &&
+      selectedProjectIds.length === 0
+    ) {
+      const msg = "Choose at least one project or switch to All active projects.";
+      if (
+        Platform.OS === "web" &&
+        typeof window !== "undefined" &&
+        typeof window.alert === "function"
+      ) {
+        window.alert(`Select projects\n\n${msg}`);
+      } else {
+        Alert.alert("Select projects", msg);
+      }
+      return;
+    }
     onSave({
       ...member,
       name: name.trim(),
@@ -876,6 +1009,11 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
       status,
       accessRole: member.accessRole === "owner" ? "owner" : accessRole,
       skills: skillTags,
+      projectAccess: isEditableWorkspaceMember ? projectAccess : member.projectAccess,
+      assignedProjectIds:
+        isEditableWorkspaceMember && projectAccess === "assigned"
+          ? selectedProjectIds
+          : member.assignedProjectIds || [],
     });
   };
 
@@ -1113,7 +1251,24 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
                       )
                     )}
                   </View>
+                  <Text style={[styles.addMemberHelperText, { color: supportSub }]}>
+                    {workspacePermissionSummary(accessRole)}
+                  </Text>
                 </View>
+              ) : null}
+
+              {member.isWorkspaceMember && member.accessRole !== "owner" ? (
+                <ProjectAccessControls
+                  availableProjects={availableProjects}
+                  projectAccess={projectAccess}
+                  onProjectAccessChange={setProjectAccess}
+                  selectedProjectIds={selectedProjectIds}
+                  onToggleProject={toggleProject}
+                  supportSub={supportSub}
+                  chipIdleBg={chipIdleBg}
+                  chipIdleBorder={chipIdleBorder}
+                  textColor={Colors.text}
+                />
               ) : null}
 
               {member.inviteStatus === "pending" && onResendInvite && canManageWorkspace ? (
@@ -1414,6 +1569,49 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
               </View>
             </View>
 
+            {member.isWorkspaceMember && member.accessRole !== "owner" ? (
+              <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
+                <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Workspace access</Text>
+                <View style={styles.addMemberChipWrap}>
+                  {accessRoles.map((r) =>
+                    accessRole === r ? (
+                      <TouchableOpacity key={r} onPress={() => selectAccessRole(r)} activeOpacity={0.9}>
+                        <View style={styles.addMemberChipSelectedSolid}>
+                          <Text style={styles.addMemberChipTextOnGreen}>{accessRoleLabel[r]}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        key={r}
+                        onPress={() => selectAccessRole(r)}
+                        activeOpacity={0.85}
+                        style={[styles.addMemberChipIdle, { backgroundColor: chipIdleBg, borderColor: chipIdleBorder }]}
+                      >
+                        <Text style={[styles.addMemberChipTextIdle, { color: supportSub }]}>{accessRoleLabel[r]}</Text>
+                      </TouchableOpacity>
+                    )
+                  )}
+                </View>
+                <Text style={[styles.addMemberHelperText, { color: supportSub }]}>
+                  {workspacePermissionSummary(accessRole)}
+                </Text>
+              </View>
+            ) : null}
+
+            {member.isWorkspaceMember && member.accessRole !== "owner" ? (
+              <ProjectAccessControls
+                availableProjects={availableProjects}
+                projectAccess={projectAccess}
+                onProjectAccessChange={setProjectAccess}
+                selectedProjectIds={selectedProjectIds}
+                onToggleProject={toggleProject}
+                supportSub={supportSub}
+                chipIdleBg={chipIdleBg}
+                chipIdleBorder={chipIdleBorder}
+                textColor={Colors.text}
+              />
+            ) : null}
+
             <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
               <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Status</Text>
               <View style={styles.addMemberChipWrap}>
@@ -1635,82 +1833,6 @@ const AddMemberModal = ({ onClose, onAdd, availableProjects }: {
     setRole(defaultJobTitleForAccessRole(nextRole));
   };
 
-  const renderProjectAccessControls = () => (
-    <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
-      <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Assigned projects</Text>
-      <Text style={[styles.addMemberHelperText, { color: supportSub }]}>
-        Team members only receive projects allowed here. Owner financials stay hidden for every non-owner role.
-      </Text>
-      <View style={styles.addMemberChipWrap}>
-        {projectAccess === "all_active" ? (
-          <TouchableOpacity onPress={() => setProjectAccess("all_active")} activeOpacity={0.9}>
-            <View style={styles.addMemberChipSelectedSolid}>
-              <Text style={styles.addMemberChipTextOnGreen}>All active projects</Text>
-            </View>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            onPress={() => setProjectAccess("all_active")}
-            activeOpacity={0.85}
-            style={[styles.addMemberChipIdle, { backgroundColor: chipIdleBg, borderColor: chipIdleBorder }]}
-          >
-            <Text style={[styles.addMemberChipTextIdle, { color: supportSub }]}>All active projects</Text>
-          </TouchableOpacity>
-        )}
-        {availableProjects.length > 0 ? (
-          <TouchableOpacity
-            onPress={() => setProjectAccess("assigned")}
-            activeOpacity={0.85}
-            style={[
-              projectAccess === "assigned"
-                ? styles.addMemberChipSelectedSolid
-                : styles.addMemberChipIdle,
-              projectAccess !== "assigned" && { backgroundColor: chipIdleBg, borderColor: chipIdleBorder },
-            ]}
-          >
-            <Text
-              style={
-                projectAccess === "assigned"
-                  ? styles.addMemberChipTextOnGreen
-                  : [styles.addMemberChipTextIdle, { color: supportSub }]
-              }
-            >
-              Selected projects
-            </Text>
-          </TouchableOpacity>
-        ) : null}
-      </View>
-      {projectAccess === "assigned" ? (
-        <View style={[styles.addMemberChipWrap, { marginTop: 10 }]}>
-          {availableProjects.map((project) => {
-            const selected = selectedProjectIds.includes(project.id);
-            return (
-              <TouchableOpacity
-                key={project.id}
-                onPress={() => toggleProject(project.id)}
-                activeOpacity={0.85}
-                style={[
-                  selected ? styles.addMemberChipSelectedSolid : styles.addMemberChipIdle,
-                  !selected && { backgroundColor: chipIdleBg, borderColor: chipIdleBorder },
-                ]}
-              >
-                <Text
-                  style={
-                    selected
-                      ? styles.addMemberChipTextOnGreen
-                      : [styles.addMemberChipTextIdle, { color: supportSub }]
-                  }
-                >
-                  {project.title}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      ) : null}
-    </View>
-  );
-
   return (
     <Modal visible animationType="slide" presentationStyle="fullScreen">
       <SafeAreaView style={[styles.addMemberSafe, { backgroundColor: Colors.bg }]}>
@@ -1914,7 +2036,17 @@ const AddMemberModal = ({ onClose, onAdd, availableProjects }: {
                       {workspacePermissionSummary(accessRole)}
                     </Text>
                   </View>
-                  {renderProjectAccessControls()}
+                  <ProjectAccessControls
+                    availableProjects={availableProjects}
+                    projectAccess={projectAccess}
+                    onProjectAccessChange={setProjectAccess}
+                    selectedProjectIds={selectedProjectIds}
+                    onToggleProject={toggleProject}
+                    supportSub={supportSub}
+                    chipIdleBg={chipIdleBg}
+                    chipIdleBorder={chipIdleBorder}
+                    textColor={Colors.text}
+                  />
                 </View>
               </View>
             </LinearGradient>
@@ -2148,7 +2280,17 @@ const AddMemberModal = ({ onClose, onAdd, availableProjects }: {
                 {workspacePermissionSummary(accessRole)}
               </Text>
             </View>
-            {renderProjectAccessControls()}
+            <ProjectAccessControls
+              availableProjects={availableProjects}
+              projectAccess={projectAccess}
+              onProjectAccessChange={setProjectAccess}
+              selectedProjectIds={selectedProjectIds}
+              onToggleProject={toggleProject}
+              supportSub={supportSub}
+              chipIdleBg={chipIdleBg}
+              chipIdleBorder={chipIdleBorder}
+              textColor={Colors.text}
+            />
           </View>
         </ScrollView>
 
@@ -3276,6 +3418,7 @@ export default function TeamTab({
         Alert.alert("Could not update member", result.error || "Try again.");
         return;
       }
+      await loadWorkspaceRoster();
     }
 
     setTeam((prev) => {
@@ -3816,6 +3959,7 @@ export default function TeamTab({
           }}
           onResendInvite={resendInvite}
           canManageWorkspace={resolvedCanManageWorkspace}
+          availableProjects={assignableProjects}
         />
       )}
 

@@ -26,19 +26,24 @@
         "displayName": "Nicholas",
         "phone": "325-555-5555",
         "role": "field",
-        "tradeRole": "General Labor",
+        "tradeRole": "Project Manager",
         "status": "active",
         "projectStatus": "active",
-        "skills": [],
+        "skills": [
+          "Other"
+        ],
         "invitedByUserId": "user_3EFCxmNL62epVxflckc8K5DC8nY",
         "invitedAt": "2026-05-27T05:24:50.283Z",
         "joinedAt": "2026-05-27T05:33:09.014Z",
         "createdAt": "2026-05-27T05:24:50.283Z",
-        "updatedAt": "2026-05-27T05:33:09.014Z"
+        "updatedAt": "2026-05-28T02:36:30.786Z",
+        "jobTitle": "Project Manager",
+        "projectAccess": "all_active",
+        "assignedProjectIds": []
       }
     ],
     "createdAt": "2026-05-27T04:11:43.534Z",
-    "updatedAt": "2026-05-27T05:33:09.014Z"
+    "updatedAt": "2026-05-28T02:36:30.787Z"
   },
   {
     "id": "9c1e7f8e-5c6e-4cfb-b642-39aaceca72df",
