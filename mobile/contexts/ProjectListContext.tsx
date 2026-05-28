@@ -948,6 +948,7 @@ const ProjectListProviderCore = ({
 
   const clearProjectsLocal = async () => {
     setProjects([]);
+    workspaceMemberModeRef.current = false;
     try {
       const keys = await AsyncStorage.getAllKeys();
       const projectKeys = keys.filter(
@@ -955,11 +956,15 @@ const ProjectListProviderCore = ({
           key === UNIFIED_PROJECTS_STORAGE_KEY ||
           key.startsWith(`${UNIFIED_PROJECTS_STORAGE_KEY}.`) ||
           key === ACTIVE_PROJECT_USER_ID_KEY ||
+          key === WORKSPACE_ACCESS_CACHE_KEY ||
+          key === 'bps.cachedWorkspaceAccessSnapshot' ||
+          key.startsWith('bps.team.members') ||
           key.startsWith('bps.project.') ||
           key.startsWith('bps.timeline.v2.') ||
           key.startsWith('timeline_') ||
           key.startsWith('daily_logs_') ||
-          key.startsWith('calendar_events_')
+          key.startsWith('calendar_events_') ||
+          key.startsWith('bps.workspaceSync.')
       );
       if (projectKeys.length > 0) {
         await AsyncStorage.multiRemove(projectKeys);

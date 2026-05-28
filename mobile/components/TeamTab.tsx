@@ -43,6 +43,10 @@ import { useBusinessEntitlement } from "@/hooks/useBusinessEntitlement";
 import { useProjectList } from "@/contexts/ProjectListContext";
 import { syncClerkTokenToAsyncStorage } from "@/utils/authTokenHelper";
 import { setBusinessEntitlementSnapshot } from "@/utils/businessEntitlementCache";
+import {
+  normalizeWorkspaceRole,
+  workspacePermissionSummary,
+} from "@/utils/workspacePermissions";
 
 const Colors = {
   bg: "#020617",
@@ -66,29 +70,63 @@ const CARD_BORDER = "rgba(34, 197, 94, 0.3)";
 // ---------- Types ----------
 type Status = "active" | "off_duty";
 type InviteStatus = "pending" | "active" | "suspended";
-type AccessRole = "owner" | "manager" | "field";
-type Trade =
+type AccessRole = "owner" | "manager" | "foreman" | "field" | "view_only";
+type ProjectAccess = "all_active" | "assigned";
+type JobTitle =
   | "Project Manager"
   | "Foreman"
-  | "Electrician"
-  | "Plumber"
-  | "Carpenter"
-  | "General Labor"
-  | "Tile Setter"
-  | "Concrete"
-  | "Drywall Installer"
-  | "Painter"
-  | "General";
+  | "Field Lead"
+  | "Crew Member"
+  | "General Laborer"
+  | "Office/Admin"
+  | "Estimator"
+  | "Bookkeeper"
+  | "Subcontractor"
+  | "Other";
+
+const JOB_TITLE_OPTIONS: JobTitle[] = [
+  "Project Manager",
+  "Foreman",
+  "Field Lead",
+  "Crew Member",
+  "General Laborer",
+  "Office/Admin",
+  "Estimator",
+  "Bookkeeper",
+  "Subcontractor",
+  "Other",
+];
+
+const TRADE_SKILL_TAGS = [
+  "Demo",
+  "Framing",
+  "Finish Carpentry",
+  "Drywall",
+  "Paint",
+  "Tile",
+  "Flooring",
+  "Concrete",
+  "Roofing",
+  "Electrical",
+  "Plumbing",
+  "HVAC",
+  "Landscaping",
+  "Cleanup",
+  "Other",
+];
 
 interface Member {
   id: string;
   name: string;
   phone?: string;
   email?: string;
-  role: Trade;
+  userId?: string;
+  role: JobTitle;
   status: Status;
   inviteStatus?: InviteStatus;
   accessRole?: AccessRole;
+  projectAccess?: ProjectAccess;
+  assignedProjectIds?: string[];
   isWorkspaceMember?: boolean;
   tasksOpen: number;
   tasksTotal: number;
@@ -110,7 +148,7 @@ const TEAM: Member[] = [
     status: "active",
     tasksOpen: 2,
     tasksTotal: 14,
-    skills: ["Scheduling", "Budget", "Client Comms"],
+    skills: [],
     licenseVerified: true,
     licenseExpiryISO: "2026-01-01",
   },
@@ -123,7 +161,7 @@ const TEAM: Member[] = [
     status: "active",
     tasksOpen: 4,
     tasksTotal: 21,
-    skills: ["Crew Lead", "Safety"],
+    skills: ["Demo", "Framing"],
     licenseVerified: true,
     licenseExpiryISO: "2025-11-30",
   },
@@ -132,11 +170,11 @@ const TEAM: Member[] = [
     name: "Sarah Wilson",
     phone: "(555) 345-6789",
     email: "sarah@bps.app",
-    role: "Electrician",
+    role: "Subcontractor",
     status: "active",
     tasksOpen: 3,
     tasksTotal: 9,
-    skills: ["Panel", "Rough-in", "Troubleshoot"],
+    skills: ["Electrical"],
     licenseVerified: true,
     licenseExpiryISO: "2025-10-20",
   },
@@ -145,11 +183,11 @@ const TEAM: Member[] = [
     name: "Tom Brown",
     phone: "(555) 456-7890",
     email: "tom@bps.app",
-    role: "Plumber",
+    role: "Subcontractor",
     status: "off_duty",
     tasksOpen: 0,
     tasksTotal: 3,
-    skills: ["PEX", "Fixtures"],
+    skills: ["Plumbing"],
     licenseVerified: false,
   },
   {
@@ -157,11 +195,11 @@ const TEAM: Member[] = [
     name: "Lisa Garcia",
     phone: "(555) 567-8901",
     email: "lisa@bps.app",
-    role: "Carpenter",
+    role: "Crew Member",
     status: "active",
     tasksOpen: 5,
     tasksTotal: 12,
-    skills: ["Framing", "Finish", "Custom"],
+    skills: ["Framing", "Finish Carpentry"],
     licenseVerified: true,
     licenseExpiryISO: "2026-03-15",
   },
@@ -195,8 +233,10 @@ const inviteStatusLabel: Record<InviteStatus, string> = {
 
 const accessRoleLabel: Record<AccessRole, string> = {
   owner: "Owner",
-  manager: "Manager",
-  field: "Field",
+  manager: "Manager / Project Manager",
+  foreman: "Foreman / Field Lead",
+  field: "Field Team Member",
+  view_only: "View Only",
 };
 
 function statusColor(s: Status) {
@@ -255,45 +295,62 @@ function initials(name: string) {
     .toUpperCase();
 }
 
-function isTrade(value: unknown): value is Trade {
-  return [
-    "Project Manager",
-    "Foreman",
-    "Electrician",
-    "Plumber",
-    "Carpenter",
-    "General Labor",
-    "Tile Setter",
-    "Concrete",
-    "Drywall Installer",
-    "Painter",
-    "General",
-  ].includes(String(value));
+function isJobTitle(value: unknown): value is JobTitle {
+  return JOB_TITLE_OPTIONS.includes(String(value) as JobTitle);
+}
+
+function defaultJobTitleForAccessRole(role: AccessRole | string | null | undefined): JobTitle {
+  if (role === "owner" || role === "manager") return "Project Manager";
+  if (role === "foreman") return "Foreman";
+  if (role === "view_only") return "Other";
+  return "General Laborer";
+}
+
+function legacyTradeToSkillTag(value: unknown): string | null {
+  const raw = String(value || "").trim();
+  const map: Record<string, string> = {
+    Electrician: "Electrical",
+    Plumber: "Plumbing",
+    Carpenter: "Finish Carpentry",
+    "Tile Setter": "Tile",
+    Concrete: "Concrete",
+    "Drywall Installer": "Drywall",
+    Painter: "Paint",
+    "General Labor": "Other",
+  };
+  return TRADE_SKILL_TAGS.includes(map[raw] || raw) ? map[raw] || raw : null;
 }
 
 function memberFromWorkspace(member: BusinessWorkspaceMember): Member {
-  const tradeRole = isTrade(member.tradeRole)
-    ? member.tradeRole
-    : member.role === "owner" || member.role === "manager"
-      ? "Project Manager"
-      : "General Labor";
   const projectStatus = member.projectStatus === "off_duty" ? "off_duty" : "active";
   const inviteStatus = (member.status as InviteStatus) || "active";
-  const accessRole = (member.role as AccessRole) || "field";
+  const accessRole = normalizeWorkspaceRole(member.role) as AccessRole;
+  const projectAccess = member.projectAccess === "assigned" ? "assigned" : "all_active";
+  const rawJobTitle = member.jobTitle || member.tradeRole;
+  const jobTitle = isJobTitle(rawJobTitle)
+    ? rawJobTitle
+    : defaultJobTitleForAccessRole(accessRole);
+  const legacySkillTag = isJobTitle(rawJobTitle) ? null : legacyTradeToSkillTag(rawJobTitle);
+  const skills = Array.isArray(member.skills) ? member.skills : [];
 
   return {
     id: member.id,
     name: member.displayName || member.email || "Team Member",
     phone: member.phone || undefined,
     email: member.email || undefined,
-    role: tradeRole,
+    userId: member.userId || undefined,
+    role: jobTitle,
     status: projectStatus,
     inviteStatus,
     accessRole,
+    projectAccess,
+    assignedProjectIds: Array.isArray(member.assignedProjectIds)
+      ? member.assignedProjectIds.map(String)
+      : [],
     isWorkspaceMember: true,
     tasksOpen: 0,
     tasksTotal: 0,
-    skills: Array.isArray(member.skills) ? member.skills : [],
+    skills: legacySkillTag && !skills.includes(legacySkillTag) ? [...skills, legacySkillTag] : skills,
     licenseVerified: false,
   };
 }
@@ -313,6 +370,56 @@ function teamRowsFromWorkspaceAccess(
     }
   }
   return rows;
+}
+
+type ClerkUserLike = {
+  id?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  fullName?: string | null;
+  primaryEmailAddress?: { emailAddress?: string | null } | null;
+  emailAddresses?: { emailAddress?: string }[];
+};
+
+function clerkProfileName(clerkUser: ClerkUserLike | null | undefined): string | null {
+  if (!clerkUser) return null;
+  const first = String(clerkUser.firstName ?? "").trim();
+  const last = String(clerkUser.lastName ?? "").trim();
+  if (first || last) return [first, last].filter(Boolean).join(" ");
+  const full = String(clerkUser.fullName ?? "").trim();
+  if (full) return full;
+  const email =
+    clerkUser.primaryEmailAddress?.emailAddress?.trim() ||
+    clerkUser.emailAddresses?.[0]?.emailAddress?.trim() ||
+    "";
+  return email || null;
+}
+
+function memberMatchesClerkUser(
+  member: Member,
+  clerkUser: ClerkUserLike | null | undefined
+): boolean {
+  if (!clerkUser) return false;
+  const clerkId = String(clerkUser.id || "").trim();
+  const clerkEmail = (
+    clerkUser.primaryEmailAddress?.emailAddress ||
+    clerkUser.emailAddresses?.[0]?.emailAddress ||
+    ""
+  )
+    .trim()
+    .toLowerCase();
+  if (clerkId && member.userId && member.userId === clerkId) return true;
+  if (clerkEmail && member.email?.trim().toLowerCase() === clerkEmail) return true;
+  return false;
+}
+
+function applyClerkNameToMember(
+  member: Member,
+  clerkUser: ClerkUserLike | null | undefined
+): Member {
+  if (!memberMatchesClerkUser(member, clerkUser)) return member;
+  const name = clerkProfileName(clerkUser);
+  return name ? { ...member, name } : member;
 }
 
 async function readCachedTeamRoster(workspaceId: string | null): Promise<Member[] | null> {
@@ -345,9 +452,13 @@ function memberToWorkspacePayload(member: Member): Partial<BusinessWorkspaceMemb
     displayName: member.name,
     email: member.email,
     phone: member.phone,
+    jobTitle: member.role,
+    // Backward-compatible alias for older backend/mobile versions.
     tradeRole: member.role,
     projectStatus: member.status,
     accessRole: member.accessRole,
+    projectAccess: member.projectAccess || "all_active",
+    assignedProjectIds: member.assignedProjectIds || [],
     inviteStatus: member.inviteStatus,
     skills: member.skills,
   };
@@ -493,11 +604,13 @@ const WorkspaceOwnerCard = ({
 
 const WorkspaceMemberAccessCard = ({
   ownerName,
+  memberName,
   role,
   tradeRole,
   status,
 }: {
   ownerName: string;
+  memberName?: string;
   role: AccessRole | string | null;
   tradeRole?: string;
   status?: InviteStatus | string | null;
@@ -508,7 +621,7 @@ const WorkspaceMemberAccessCard = ({
   const mutedSoft = darkMode ? "rgba(186, 204, 224, 0.82)" : Colors.sub;
   const roleKey = String(role || "field").toLowerCase() as AccessRole;
   const roleLabel = accessRoleLabel[roleKey] || "Team member";
-  const tradeLabel = tradeRole?.trim() || "General Labor";
+  const tradeLabel = tradeRole?.trim() || "General Laborer";
   const statusLabel =
     status === "active" || !status ? "Active" : String(status).replace(/_/g, " ");
 
@@ -540,6 +653,11 @@ const WorkspaceMemberAccessCard = ({
         <View style={[styles.workspaceOwnerFooterRow, { borderTopColor: "rgba(45, 255, 196, 0.2)" }]}>
           <Text style={[styles.workspaceOwnerFooterLabel, { color: Colors.text }]}>Your role</Text>
           <View style={styles.workspaceOwnerFooterValueCol}>
+            {memberName ? (
+              <Text style={[styles.workspaceOwnerMeta, { color: mutedSoft, marginBottom: 4 }]} numberOfLines={1}>
+                {memberName}
+              </Text>
+            ) : null}
             <Text style={styles.workspaceOwnerFooterValue}>{roleLabel}</Text>
             <Text style={styles.workspaceOwnerFooterSub}>{tradeLabel}</Text>
           </View>
@@ -556,6 +674,8 @@ const MemberRowCompact = ({
   onRequestRemove,
   onStatusToggle,
   canManageWorkspace,
+  memberViewOnly = false,
+  isCurrentUser = false,
   supportSubColor,
 }: {
   m: Member;
@@ -563,6 +683,8 @@ const MemberRowCompact = ({
   onRequestRemove?: (m: Member) => void;
   onStatusToggle?: (m: Member) => void;
   canManageWorkspace?: boolean;
+  memberViewOnly?: boolean;
+  isCurrentUser?: boolean;
   supportSubColor: string;
 }) => {
   const { theme } = useTheme();
@@ -588,8 +710,11 @@ const MemberRowCompact = ({
   return (
     <View style={styles.memberRowWrapper}>
       <TouchableOpacity
-        onPress={() => onEdit(m)}
-        activeOpacity={0.85}
+        onPress={() => {
+          if (!memberViewOnly) onEdit(m);
+        }}
+        activeOpacity={memberViewOnly ? 1 : 0.85}
+        disabled={memberViewOnly}
       >
         <View style={[styles.memberRow, { backgroundColor: Colors.surface2, borderColor: Colors.line, borderWidth: 1, borderRadius: 16 }]}>
           <View style={styles.memberRowInner}>
@@ -608,7 +733,12 @@ const MemberRowCompact = ({
               >
                 {subtitle || m.role}
               </Text>
-              <TouchableOpacity onPress={handleStatusToggle} activeOpacity={0.7} style={styles.statusRow}>
+              <TouchableOpacity
+                onPress={memberViewOnly ? undefined : handleStatusToggle}
+                activeOpacity={memberViewOnly ? 1 : 0.7}
+                style={styles.statusRow}
+                disabled={memberViewOnly}
+              >
                 {m.inviteStatus === "pending" || m.inviteStatus === "suspended" ? (
                   <InvitePill status={m.inviteStatus} />
                 ) : (
@@ -620,11 +750,22 @@ const MemberRowCompact = ({
                 {m.isWorkspaceMember && m.accessRole ? (
                   <Chip text={accessRoleLabel[m.accessRole]} tone="outline" compact />
                 ) : null}
+                {m.skills.slice(0, 3).map((skill) => (
+                  <Chip key={skill} text={skill} tone="outline" compact />
+                ))}
               </View>
+              {m.isWorkspaceMember && m.accessRole ? (
+                <Text style={[styles.memberPermissionSummary, { color: supportSubColor }]} numberOfLines={2}>
+                  {workspacePermissionSummary(m.accessRole)}
+                  {m.projectAccess === "assigned"
+                    ? ` Assigned to ${m.assignedProjectIds?.length || 0} project${(m.assignedProjectIds?.length || 0) === 1 ? "" : "s"}.`
+                    : " Assigned to all active projects."}
+                </Text>
+              ) : null}
             </View>
 
             <View style={styles.memberActionsCol}>
-              {canManageWorkspace && m.accessRole !== "owner" && onRequestRemove ? (
+              {canManageWorkspace && m.accessRole !== "owner" && !isCurrentUser && onRequestRemove ? (
                 <TouchableOpacity
                   onPress={handleDeletePress}
                   style={[styles.iconBtn, styles.iconBtnDanger]}
@@ -700,6 +841,18 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
   const [role, setRole] = useState(member.role);
   const [status, setStatus] = useState(member.status);
   const [accessRole, setAccessRole] = useState<AccessRole>(member.accessRole || "field");
+  const [skillTags, setSkillTags] = useState<string[]>(member.skills || []);
+
+  const toggleSkillTag = (tag: string) => {
+    setSkillTags((prev) =>
+      prev.includes(tag) ? prev.filter((item) => item !== tag) : [...prev, tag]
+    );
+  };
+
+  const selectAccessRole = (nextRole: AccessRole) => {
+    setAccessRole(nextRole);
+    setRole(defaultJobTitleForAccessRole(nextRole));
+  };
 
   const handleSave = () => {
     if (!name.trim()) {
@@ -722,6 +875,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
       role,
       status,
       accessRole: member.accessRole === "owner" ? "owner" : accessRole,
+      skills: skillTags,
     });
   };
 
@@ -748,8 +902,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
     ]);
   };
 
-  const trades: Trade[] = ["Project Manager", "Foreman", "Electrician", "Plumber", "Carpenter", "General Labor", "Tile Setter", "Concrete", "Drywall Installer", "Painter", "General"];
-  const accessRoles: AccessRole[] = member.accessRole === "owner" ? ["owner"] : ["manager", "field"];
+  const accessRoles: AccessRole[] = member.accessRole === "owner" ? ["owner"] : ["manager", "foreman", "field", "view_only"];
 
   const inputStyle = [
     styles.addMemberInput,
@@ -865,9 +1018,9 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
               </View>
 
               <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
-                <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Trade/Role</Text>
+                <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Job title</Text>
                 <View style={styles.addMemberChipWrap}>
-                  {trades.map((t) =>
+                  {JOB_TITLE_OPTIONS.map((t) =>
                     role === t ? (
                       <TouchableOpacity
                         key={t}
@@ -904,13 +1057,46 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
                 </View>
               </View>
 
+              <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
+                <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Trade / skill tags</Text>
+                <Text style={[styles.addMemberHelperText, { color: supportSub }]}>
+                  Optional tags for filtering and organization. These do not control financial permissions.
+                </Text>
+                <View style={styles.addMemberChipWrap}>
+                  {TRADE_SKILL_TAGS.map((tag) => {
+                    const selected = skillTags.includes(tag);
+                    return (
+                      <TouchableOpacity
+                        key={tag}
+                        onPress={() => toggleSkillTag(tag)}
+                        activeOpacity={0.85}
+                        style={[
+                          selected ? styles.addMemberChipSelectedSolid : styles.addMemberChipIdle,
+                          !selected && { backgroundColor: chipIdleBg, borderColor: chipIdleBorder },
+                        ]}
+                      >
+                        <Text
+                          style={
+                            selected
+                              ? styles.addMemberChipTextOnGreen
+                              : [styles.addMemberChipTextIdle, { color: supportSub }]
+                          }
+                        >
+                          {tag}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
               {member.isWorkspaceMember && member.accessRole !== "owner" ? (
                 <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
                   <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Workspace access</Text>
                   <View style={styles.addMemberChipWrap}>
                     {accessRoles.map((r) =>
                       accessRole === r ? (
-                        <TouchableOpacity key={r} onPress={() => setAccessRole(r)} activeOpacity={0.9}>
+                        <TouchableOpacity key={r} onPress={() => selectAccessRole(r)} activeOpacity={0.9}>
                           <View style={styles.addMemberChipSelectedSolid}>
                             <Text style={styles.addMemberChipTextOnGreen}>{accessRoleLabel[r]}</Text>
                           </View>
@@ -918,7 +1104,7 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
                       ) : (
                         <TouchableOpacity
                           key={r}
-                          onPress={() => setAccessRole(r)}
+                          onPress={() => selectAccessRole(r)}
                           activeOpacity={0.85}
                           style={[styles.addMemberChipIdle, { backgroundColor: chipIdleBg, borderColor: chipIdleBorder }]}
                         >
@@ -1156,9 +1342,9 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
             </View>
 
             <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
-              <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Trade/Role</Text>
+              <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Job title</Text>
               <View style={styles.addMemberChipWrap}>
-                {trades.map((t) =>
+                {JOB_TITLE_OPTIONS.map((t) =>
                   role === t ? (
                     <TouchableOpacity
                       key={t}
@@ -1192,6 +1378,39 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
                     </TouchableOpacity>
                   )
                 )}
+              </View>
+            </View>
+
+            <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
+              <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Trade / skill tags</Text>
+              <Text style={[styles.addMemberHelperText, { color: supportSub }]}>
+                Optional tags for filtering and organization. These do not control financial permissions.
+              </Text>
+              <View style={styles.addMemberChipWrap}>
+                {TRADE_SKILL_TAGS.map((tag) => {
+                  const selected = skillTags.includes(tag);
+                  return (
+                    <TouchableOpacity
+                      key={tag}
+                      onPress={() => toggleSkillTag(tag)}
+                      activeOpacity={0.85}
+                      style={[
+                        selected ? styles.addMemberChipSelectedSolid : styles.addMemberChipIdle,
+                        !selected && { backgroundColor: chipIdleBg, borderColor: chipIdleBorder },
+                      ]}
+                    >
+                      <Text
+                        style={
+                          selected
+                            ? styles.addMemberChipTextOnGreen
+                            : [styles.addMemberChipTextIdle, { color: supportSub }]
+                        }
+                      >
+                        {tag}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             </View>
 
@@ -1323,9 +1542,10 @@ const EditMemberModal = ({ member, onClose, onSave, onDelete, onResendInvite, ca
 };
 
 // ---------- Add Member Modal ----------
-const AddMemberModal = ({ onClose, onAdd }: {
+const AddMemberModal = ({ onClose, onAdd, availableProjects }: {
   onClose: () => void;
   onAdd: (m: Member) => void;
+  availableProjects: { id: string; title: string }[];
 }) => {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -1343,9 +1563,14 @@ const AddMemberModal = ({ onClose, onAdd }: {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<Trade>("General Labor");
+  const [role, setRole] = useState<JobTitle>("General Laborer");
   const [status, setStatus] = useState<Status>("active");
   const [accessRole, setAccessRole] = useState<AccessRole>("field");
+  const [projectAccess, setProjectAccess] = useState<ProjectAccess>(
+    availableProjects.length > 0 ? "assigned" : "all_active"
+  );
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+  const [skillTags, setSkillTags] = useState<string[]>([]);
 
   const handleAdd = () => {
     if (!name.trim()) {
@@ -1354,6 +1579,10 @@ const AddMemberModal = ({ onClose, onAdd }: {
     }
     if (!email.trim()) {
       Alert.alert("Email required", "Enter an email to invite this person to your Business workspace.");
+      return;
+    }
+    if (projectAccess === "assigned" && selectedProjectIds.length === 0) {
+      Alert.alert("Select projects", "Choose at least one project or switch to All active projects.");
       return;
     }
     const newMember: Member = {
@@ -1365,17 +1594,18 @@ const AddMemberModal = ({ onClose, onAdd }: {
       status,
       inviteStatus: "pending",
       accessRole,
+      projectAccess,
+      assignedProjectIds: projectAccess === "assigned" ? selectedProjectIds : [],
       isWorkspaceMember: true,
       tasksOpen: 0,
       tasksTotal: 0,
-      skills: [],
+      skills: skillTags,
       licenseVerified: false,
     };
     onAdd(newMember);
   };
 
-  const trades: Trade[] = ["Project Manager", "Foreman", "Electrician", "Plumber", "Carpenter", "General Labor", "Tile Setter", "Concrete", "Drywall Installer", "Painter", "General"];
-  const accessRoles: AccessRole[] = ["manager", "field"];
+  const accessRoles: AccessRole[] = ["manager", "foreman", "field", "view_only"];
 
   const inputStyle = [
     styles.addMemberInput,
@@ -1385,6 +1615,101 @@ const AddMemberModal = ({ onClose, onAdd }: {
       color: Colors.text,
     },
   ];
+
+  const toggleProject = (projectId: string) => {
+    setSelectedProjectIds((prev) =>
+      prev.includes(projectId)
+        ? prev.filter((id) => id !== projectId)
+        : [...prev, projectId]
+    );
+  };
+
+  const toggleSkillTag = (tag: string) => {
+    setSkillTags((prev) =>
+      prev.includes(tag) ? prev.filter((item) => item !== tag) : [...prev, tag]
+    );
+  };
+
+  const selectAccessRole = (nextRole: AccessRole) => {
+    setAccessRole(nextRole);
+    setRole(defaultJobTitleForAccessRole(nextRole));
+  };
+
+  const renderProjectAccessControls = () => (
+    <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
+      <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Assigned projects</Text>
+      <Text style={[styles.addMemberHelperText, { color: supportSub }]}>
+        Team members only receive projects allowed here. Owner financials stay hidden for every non-owner role.
+      </Text>
+      <View style={styles.addMemberChipWrap}>
+        {projectAccess === "all_active" ? (
+          <TouchableOpacity onPress={() => setProjectAccess("all_active")} activeOpacity={0.9}>
+            <View style={styles.addMemberChipSelectedSolid}>
+              <Text style={styles.addMemberChipTextOnGreen}>All active projects</Text>
+            </View>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            onPress={() => setProjectAccess("all_active")}
+            activeOpacity={0.85}
+            style={[styles.addMemberChipIdle, { backgroundColor: chipIdleBg, borderColor: chipIdleBorder }]}
+          >
+            <Text style={[styles.addMemberChipTextIdle, { color: supportSub }]}>All active projects</Text>
+          </TouchableOpacity>
+        )}
+        {availableProjects.length > 0 ? (
+          <TouchableOpacity
+            onPress={() => setProjectAccess("assigned")}
+            activeOpacity={0.85}
+            style={[
+              projectAccess === "assigned"
+                ? styles.addMemberChipSelectedSolid
+                : styles.addMemberChipIdle,
+              projectAccess !== "assigned" && { backgroundColor: chipIdleBg, borderColor: chipIdleBorder },
+            ]}
+          >
+            <Text
+              style={
+                projectAccess === "assigned"
+                  ? styles.addMemberChipTextOnGreen
+                  : [styles.addMemberChipTextIdle, { color: supportSub }]
+              }
+            >
+              Selected projects
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+      {projectAccess === "assigned" ? (
+        <View style={[styles.addMemberChipWrap, { marginTop: 10 }]}>
+          {availableProjects.map((project) => {
+            const selected = selectedProjectIds.includes(project.id);
+            return (
+              <TouchableOpacity
+                key={project.id}
+                onPress={() => toggleProject(project.id)}
+                activeOpacity={0.85}
+                style={[
+                  selected ? styles.addMemberChipSelectedSolid : styles.addMemberChipIdle,
+                  !selected && { backgroundColor: chipIdleBg, borderColor: chipIdleBorder },
+                ]}
+              >
+                <Text
+                  style={
+                    selected
+                      ? styles.addMemberChipTextOnGreen
+                      : [styles.addMemberChipTextIdle, { color: supportSub }]
+                  }
+                >
+                  {project.title}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ) : null}
+    </View>
+  );
 
   return (
     <Modal visible animationType="slide" presentationStyle="fullScreen">
@@ -1491,9 +1816,9 @@ const AddMemberModal = ({ onClose, onAdd }: {
                   </View>
 
                   <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
-                    <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Trade/Role</Text>
+                    <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Job title</Text>
                     <View style={styles.addMemberChipWrap}>
-                      {trades.map((t) =>
+                      {JOB_TITLE_OPTIONS.map((t) =>
                         role === t ? (
                           <TouchableOpacity
                             key={t}
@@ -1531,11 +1856,44 @@ const AddMemberModal = ({ onClose, onAdd }: {
                   </View>
 
                   <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
+                    <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Trade / skill tags</Text>
+                    <Text style={[styles.addMemberHelperText, { color: supportSub }]}>
+                      Optional tags for filtering and organization. These do not control financial permissions.
+                    </Text>
+                    <View style={styles.addMemberChipWrap}>
+                      {TRADE_SKILL_TAGS.map((tag) => {
+                        const selected = skillTags.includes(tag);
+                        return (
+                          <TouchableOpacity
+                            key={tag}
+                            onPress={() => toggleSkillTag(tag)}
+                            activeOpacity={0.85}
+                            style={[
+                              selected ? styles.addMemberChipSelectedSolid : styles.addMemberChipIdle,
+                              !selected && { backgroundColor: chipIdleBg, borderColor: chipIdleBorder },
+                            ]}
+                          >
+                            <Text
+                              style={
+                                selected
+                                  ? styles.addMemberChipTextOnGreen
+                                  : [styles.addMemberChipTextIdle, { color: supportSub }]
+                              }
+                            >
+                              {tag}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+
+                  <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
                     <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Workspace access</Text>
                     <View style={styles.addMemberChipWrap}>
                       {accessRoles.map((r) =>
                         accessRole === r ? (
-                          <TouchableOpacity key={r} onPress={() => setAccessRole(r)} activeOpacity={0.9}>
+                          <TouchableOpacity key={r} onPress={() => selectAccessRole(r)} activeOpacity={0.9}>
                             <View style={styles.addMemberChipSelectedSolid}>
                               <Text style={styles.addMemberChipTextOnGreen}>{accessRoleLabel[r]}</Text>
                             </View>
@@ -1543,7 +1901,7 @@ const AddMemberModal = ({ onClose, onAdd }: {
                         ) : (
                           <TouchableOpacity
                             key={r}
-                            onPress={() => setAccessRole(r)}
+                            onPress={() => selectAccessRole(r)}
                             activeOpacity={0.85}
                             style={[styles.addMemberChipIdle, { backgroundColor: chipIdleBg, borderColor: chipIdleBorder }]}
                           >
@@ -1552,7 +1910,11 @@ const AddMemberModal = ({ onClose, onAdd }: {
                         )
                       )}
                     </View>
+                    <Text style={[styles.addMemberHelperText, { color: supportSub }]}>
+                      {workspacePermissionSummary(accessRole)}
+                    </Text>
                   </View>
+                  {renderProjectAccessControls()}
                 </View>
               </View>
             </LinearGradient>
@@ -1688,9 +2050,9 @@ const AddMemberModal = ({ onClose, onAdd }: {
             </View>
 
             <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
-              <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Trade/Role</Text>
+              <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Job title</Text>
               <View style={styles.addMemberChipWrap}>
-                {trades.map((t) =>
+                {JOB_TITLE_OPTIONS.map((t) =>
                   role === t ? (
                     <TouchableOpacity
                       key={t}
@@ -1728,11 +2090,44 @@ const AddMemberModal = ({ onClose, onAdd }: {
             </View>
 
             <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
+              <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Trade / skill tags</Text>
+              <Text style={[styles.addMemberHelperText, { color: supportSub }]}>
+                Optional tags for filtering and organization. These do not control financial permissions.
+              </Text>
+              <View style={styles.addMemberChipWrap}>
+                {TRADE_SKILL_TAGS.map((tag) => {
+                  const selected = skillTags.includes(tag);
+                  return (
+                    <TouchableOpacity
+                      key={tag}
+                      onPress={() => toggleSkillTag(tag)}
+                      activeOpacity={0.85}
+                      style={[
+                        selected ? styles.addMemberChipSelectedSolid : styles.addMemberChipIdle,
+                        !selected && { backgroundColor: chipIdleBg, borderColor: chipIdleBorder },
+                      ]}
+                    >
+                      <Text
+                        style={
+                          selected
+                            ? styles.addMemberChipTextOnGreen
+                            : [styles.addMemberChipTextIdle, { color: supportSub }]
+                        }
+                      >
+                        {tag}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
               <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Workspace access</Text>
               <View style={styles.addMemberChipWrap}>
                 {accessRoles.map((r) =>
                   accessRole === r ? (
-                    <TouchableOpacity key={r} onPress={() => setAccessRole(r)} activeOpacity={0.9}>
+                    <TouchableOpacity key={r} onPress={() => selectAccessRole(r)} activeOpacity={0.9}>
                       <View style={styles.addMemberChipSelectedSolid}>
                         <Text style={styles.addMemberChipTextOnGreen}>{accessRoleLabel[r]}</Text>
                       </View>
@@ -1740,7 +2135,7 @@ const AddMemberModal = ({ onClose, onAdd }: {
                   ) : (
                     <TouchableOpacity
                       key={r}
-                      onPress={() => setAccessRole(r)}
+                      onPress={() => selectAccessRole(r)}
                       activeOpacity={0.85}
                       style={[styles.addMemberChipIdle, { backgroundColor: chipIdleBg, borderColor: chipIdleBorder }]}
                     >
@@ -1749,7 +2144,11 @@ const AddMemberModal = ({ onClose, onAdd }: {
                   )
                 )}
               </View>
+              <Text style={[styles.addMemberHelperText, { color: supportSub }]}>
+                {workspacePermissionSummary(accessRole)}
+              </Text>
             </View>
+            {renderProjectAccessControls()}
           </View>
         </ScrollView>
 
@@ -2355,12 +2754,11 @@ export default function TeamTab({
   const { user: clerkUser } = useUser();
   const { getToken } = useAuth();
   const {
-    hasBusiness,
     workspaceAccess,
     refresh: refreshWorkspaceEntitlement,
     initialized: entitlementInitialized,
   } = useBusinessEntitlement();
-  const { refreshProjects } = useProjectList();
+  const { refreshProjects, activeProjects } = useProjectList();
   const ownerDisplayName =
     clerkUser?.fullName?.trim() ||
     clerkUser?.primaryEmailAddress?.emailAddress?.trim() ||
@@ -2370,7 +2768,7 @@ export default function TeamTab({
   const [seatLimit, setSeatLimit] = useState(5);
   const [seatsUsed, setSeatsUsed] = useState(0);
   const [q, setQ] = useState("");
-  const [tradeFilter, setTradeFilter] = useState<Trade | "All">("All");
+  const [tradeFilter, setTradeFilter] = useState<JobTitle | "All">("All");
   const [sortBy, setSortBy] = useState<"alpha" | "status">("status");
   const [showFilterOptions, setShowFilterOptions] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
@@ -2386,6 +2784,14 @@ export default function TeamTab({
   );
 
   const effectiveWorkspaceAccess = workspaceAccess || cachedAccessSnapshot;
+  const assignableProjects = useMemo(
+    () =>
+      activeProjects.map((project) => ({
+        id: String(project.id),
+        title: project.title || project.name || "Untitled Project",
+      })),
+    [activeProjects]
+  );
 
   const applyAccessContext = useCallback((access: BusinessWorkspaceAccess | null | undefined) => {
     if (!access) return;
@@ -2724,7 +3130,7 @@ export default function TeamTab({
           const crewMember: Member = {
             id: `crew-${crewName}-${Date.now()}`,
             name: crewName,
-            role: 'General Labor',
+            role: 'General Laborer',
             status: 'active',
             phone,
             email: '',
@@ -2766,9 +3172,10 @@ export default function TeamTab({
   };
 
   const effectiveTeam = useMemo(() => {
-    if (team.length > 0) return team;
-    return teamRowsFromWorkspaceAccess(effectiveWorkspaceAccess);
-  }, [team, effectiveWorkspaceAccess]);
+    const base =
+      team.length > 0 ? team : teamRowsFromWorkspaceAccess(effectiveWorkspaceAccess);
+    return base.map((member) => applyClerkNameToMember(member, clerkUser));
+  }, [team, effectiveWorkspaceAccess, clerkUser]);
 
   const resolvedCanManageWorkspace = useMemo(() => {
     if (effectiveWorkspaceAccess?.hasWorkspaceAccess) {
@@ -2778,30 +3185,6 @@ export default function TeamTab({
     }
     return canManageWorkspace;
   }, [canManageWorkspace, effectiveWorkspaceAccess]);
-
-  const stats = useMemo(() => {
-    const rosterMembers = effectiveTeam.filter((m) => m.accessRole !== "owner");
-    const active = rosterMembers.filter((m) => m.status === "active" && m.inviteStatus !== "pending").length;
-    const offDuty = rosterMembers.filter((m) => m.status === "off_duty" && m.inviteStatus !== "pending").length;
-    const pending = rosterMembers.filter((m) => m.inviteStatus === "pending").length;
-    const usedSeats = countTeamSeatsUsed(effectiveTeam);
-    return { active, offDuty, pending, total: rosterMembers.length, usedSeats };
-  }, [effectiveTeam]);
-
-  const allTrades: Trade[] = [
-    "Project Manager",
-    "Foreman",
-    "Electrician",
-    "Plumber",
-    "Carpenter",
-    "General Labor",
-    "Tile Setter",
-    "Concrete",
-    "Drywall Installer",
-    "Painter",
-    "General",
-  ];
-  const trades: (Trade | "All")[] = ["All", ...allTrades];
 
   const ownerMember = useMemo(() => {
     const fromTeam = effectiveTeam.find((member) => member.accessRole === "owner");
@@ -2816,11 +3199,8 @@ export default function TeamTab({
     const email =
       clerkUser?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
     const clerkId = clerkUser?.id || "";
-    const fromTeam = effectiveTeam.find((member) => {
-      if (email && member.email?.trim().toLowerCase() === email) return true;
-      return false;
-    });
-    if (fromTeam) return fromTeam;
+    const fromTeam = effectiveTeam.find((member) => memberMatchesClerkUser(member, clerkUser));
+    if (fromTeam) return applyClerkNameToMember(fromTeam, clerkUser);
     if (
       effectiveWorkspaceAccess?.member &&
       !effectiveWorkspaceAccess.isOwner &&
@@ -2828,17 +3208,39 @@ export default function TeamTab({
         (email &&
           effectiveWorkspaceAccess.member.email?.trim().toLowerCase() === email))
     ) {
-      return memberFromWorkspace(effectiveWorkspaceAccess.member);
+      return applyClerkNameToMember(
+        memberFromWorkspace(effectiveWorkspaceAccess.member),
+        clerkUser
+      );
     }
     return null;
   }, [effectiveTeam, effectiveWorkspaceAccess, clerkUser]);
 
-  const showInviteButton = resolvedCanManageWorkspace || hasBusiness;
+  const stats = useMemo(() => {
+    const rosterMembers = effectiveTeam.filter((m) => m.accessRole !== "owner");
+    const visibleMembers = resolvedCanManageWorkspace
+      ? rosterMembers
+      : rosterMembers.filter((m) => !selfMember || m.id !== selfMember.id);
+    const active = visibleMembers.filter(
+      (m) => m.status === "active" && m.inviteStatus !== "pending"
+    ).length;
+    const offDuty = visibleMembers.filter(
+      (m) => m.status === "off_duty" && m.inviteStatus !== "pending"
+    ).length;
+    const pending = visibleMembers.filter((m) => m.inviteStatus === "pending").length;
+    const usedSeats = countTeamSeatsUsed(effectiveTeam);
+    return { active, offDuty, pending, total: visibleMembers.length, usedSeats };
+  }, [effectiveTeam, resolvedCanManageWorkspace, selfMember]);
+
+  const jobTitles: (JobTitle | "All")[] = ["All", ...JOB_TITLE_OPTIONS];
+
+  const showInviteButton = resolvedCanManageWorkspace;
 
   const data = useMemo(() => {
     let arr = effectiveTeam.filter(
       (m) =>
         m.accessRole !== "owner" &&
+        (!selfMember || resolvedCanManageWorkspace || m.id !== selfMember.id) &&
         (tradeFilter === "All" || m.role === tradeFilter) &&
         (q.trim() === "" ||
           `${m.name} ${m.role} ${m.skills.join(" ")}`
@@ -2862,7 +3264,7 @@ export default function TeamTab({
       });
     }
     return arr;
-  }, [q, tradeFilter, sortBy, effectiveTeam]);
+  }, [q, tradeFilter, sortBy, effectiveTeam, resolvedCanManageWorkspace, selfMember]);
 
   const updateMember = async (updated: Member) => {
     if (workspaceMemberIds.has(updated.id)) {
@@ -2975,6 +3377,28 @@ export default function TeamTab({
         next.delete(id);
         return next;
       });
+      await loadWorkspaceRoster();
+      setEditingMember(null);
+      if (member && updateTeam) {
+        const pmName = projectData?.team?.pmName;
+        const crewMembers = (projectData?.team as any)?.crewMembers || [];
+        const crewPhones = (projectData?.team as any)?.crewMemberPhones || {};
+        const name = member.name?.trim() || "";
+        const nameLower = name.toLowerCase();
+        if (member.role === "Project Manager" && pmName && pmName.trim().toLowerCase() === nameLower) {
+          const newCrew = (crewMembers as string[]).filter((n) => n.trim().toLowerCase() !== nameLower);
+          updateTeam(false, "", newCrew.length, newCrew, crewPhones);
+        } else if (id.startsWith("crew-") || (crewMembers as string[]).some((n) => n.trim().toLowerCase() === nameLower)) {
+          const newCrew = (crewMembers as string[]).filter((n) => n.trim().toLowerCase() !== nameLower);
+          const newPhones = { ...crewPhones };
+          delete newPhones[name];
+          Object.keys(newPhones).forEach((k) => {
+            if (k.trim().toLowerCase() === nameLower) delete newPhones[k];
+          });
+          updateTeam(Boolean(pmName), pmName || "", newCrew.length, newCrew, newPhones);
+        }
+      }
+      return;
     }
 
     setTeam((prev) => {
@@ -3240,7 +3664,7 @@ export default function TeamTab({
                 ]}
               >
                 <Text style={[styles.filterChipText, tradeFilter === "All" && styles.filterChipTextActive, tradeFilter !== "All" && { color: supportMuted }]}>
-                  {tradeFilter === "All" ? "All Trades" : tradeFilter}
+                  {tradeFilter === "All" ? "All Job Titles" : tradeFilter}
                 </Text>
                 {tradeFilter !== "All" && (
                   <TouchableOpacity
@@ -3257,7 +3681,7 @@ export default function TeamTab({
               </TouchableOpacity>
             </View>
 
-            {/* Trade Filter Pills - collapsed until Filter is opened */}
+            {/* Job title filter pills - collapsed until Filter is opened */}
             {tradeFilter === "All" && showFilterOptions && (
               <ScrollView
                 horizontal
@@ -3265,7 +3689,7 @@ export default function TeamTab({
                 style={styles.filterScrollContainer}
                 contentContainerStyle={styles.filterScrollContent}
               >
-                {trades.slice(1).map((t) => (
+                {jobTitles.slice(1).map((t) => (
                   <TouchableOpacity
                     key={t}
                     onPress={() => {
@@ -3310,6 +3734,7 @@ export default function TeamTab({
                 {!resolvedCanManageWorkspace && ownerMember ? (
                   <WorkspaceMemberAccessCard
                     ownerName={ownerMember.name}
+                    memberName={selfMember?.name || clerkProfileName(clerkUser) || undefined}
                     role={
                       workspaceRole ||
                       selfMember?.accessRole ||
@@ -3350,10 +3775,18 @@ export default function TeamTab({
                       onEdit={setEditingMember}
                       onRequestRemove={requestRemoveMember}
                       canManageWorkspace={resolvedCanManageWorkspace}
+                      memberViewOnly={!resolvedCanManageWorkspace}
+                      isCurrentUser={Boolean(selfMember && item.id === selfMember.id)}
                       onStatusToggle={handleStatusToggle}
                       supportSubColor={supportSub}
                     />
                   ))
+                ) : !resolvedCanManageWorkspace && ownerMember ? (
+                  <View style={styles.emptyTeamWrap}>
+                    <Text style={{ color: supportSub, fontSize: 15, fontWeight: '500', textAlign: 'center' }}>
+                      You're the only team member on this workspace right now.
+                    </Text>
+                  </View>
                 ) : resolvedCanManageWorkspace && ownerMember ? (
                   <View style={styles.emptyTeamWrap}>
                     <Text style={{ color: supportSub, fontSize: 15, fontWeight: '500', textAlign: 'center' }}>
@@ -3390,6 +3823,7 @@ export default function TeamTab({
         <AddMemberModal
           onClose={() => setShowAddModal(false)}
           onAdd={addMember}
+          availableProjects={assignableProjects}
         />
       )}
 
@@ -3862,6 +4296,12 @@ const styles = StyleSheet.create({
   name: { color: Colors.text, fontSize: 16, fontWeight: "800", letterSpacing: -0.2 },
 
   memberMetaRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
+  memberPermissionSummary: {
+    fontSize: 11.5,
+    lineHeight: 16,
+    marginTop: 8,
+    fontWeight: "600",
+  },
 
   memberActionsCol: {
     gap: 8,
@@ -4034,6 +4474,12 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 2,
   },
+  addMemberHelperText: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 8,
+    fontWeight: "500",
+  },
   addMemberChipIdle: {
     paddingHorizontal: 14,
     paddingVertical: 10,
@@ -4044,7 +4490,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
-  /** Selected Trade/Role + Active status — solid brand green (not save-button gradient). */
+  /** Selected job title, skill tag, and active status — solid brand green. */
   addMemberChipSelectedSolid: {
     paddingHorizontal: 14,
     paddingVertical: 10,

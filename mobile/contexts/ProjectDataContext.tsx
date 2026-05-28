@@ -12,6 +12,7 @@ import {
   mergeArrayResource,
   mergeObjectResource,
 } from '@/utils/workspaceResourceMerge';
+import { computeOverallPctFromTimelineItems } from '@/utils/workspaceTimelineProgress';
 
 export type PurchaseOrder = {
   id: string;
@@ -384,8 +385,13 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
       const sharedExpenses = resources.expenses?.payload;
       const sharedPurchaseOrders = resources.purchaseOrders?.payload;
       const sharedTeam = resources.team?.payload;
+      const sharedTimeline = resources.timeline?.payload;
 
-      const [expenses, purchaseOrders, team] = await Promise.all([
+      const timelineStorageKey = `bps.timeline.v2.${targetProjectId}`;
+      const savedTimelineRaw = await AsyncStorage.getItem(timelineStorageKey).catch(() => null);
+      const savedTimeline = savedTimelineRaw ? JSON.parse(savedTimelineRaw) : [];
+
+      const [expenses, purchaseOrders, team, mergedTimeline] = await Promise.all([
         mergeArrayResource(
           targetProjectId,
           'expenses',
@@ -409,13 +415,32 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
             : undefined,
           resources.team?.updatedAt
         ),
+        mergeArrayResource(
+          targetProjectId,
+          'timeline',
+          Array.isArray(savedTimeline) ? savedTimeline : [],
+          Array.isArray(sharedTimeline) ? sharedTimeline : undefined,
+          resources.timeline?.updatedAt,
+          ['id']
+        ),
       ]);
+
+      if (Array.isArray(mergedTimeline) && mergedTimeline.length > 0) {
+        await AsyncStorage.setItem(timelineStorageKey, JSON.stringify(mergedTimeline));
+      }
+
+      const progressPct = Array.isArray(mergedTimeline)
+        ? computeOverallPctFromTimelineItems(mergedTimeline)
+        : undefined;
 
       return reconcileChangeOrderMirrorExpenses({
         ...base,
         expenses,
         purchaseOrders,
         team: team || base.team,
+        ...(progressPct != null
+          ? { progress: progressPct, overallProgressPct: progressPct }
+          : {}),
         lastUpdated: new Date().toISOString(),
       }) as ProjectOverview;
     },

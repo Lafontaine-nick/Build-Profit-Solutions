@@ -9,7 +9,7 @@ const {
   getSharedProjectResources,
   listWorkspaceMembers,
   countBillableSeats,
-  listWorkspaceOwnerProjects,
+  listWorkspaceProjectsForMember,
   removeWorkspaceMember,
   resendWorkspaceInvite,
   updateWorkspaceMember,
@@ -21,6 +21,7 @@ const {
   canReadSharedResources,
   canWriteSharedResource,
   getActiveWorkspaceMember,
+  memberCanAccessProject,
 } = require('../services/workspacePermissions');
 
 const ALLOWED_RESOURCE_TYPES = new Set([
@@ -119,6 +120,25 @@ router.get('/access', authenticateToken, async (req, res) => {
 function normalizePendingMemberEmail(member, email) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   return normalizedEmail && String(member?.email || '').trim().toLowerCase() === normalizedEmail;
+}
+
+function sanitizeSharedResourcePayload(resourceType, payload, member) {
+  if (member?.role === 'owner') return payload;
+  if (resourceType === 'expenses' || resourceType === 'purchaseOrders') return [];
+  if (resourceType !== 'timeline' || !Array.isArray(payload)) return payload;
+
+  return payload.map((item) => ({
+    id: item?.id,
+    title: item?.title || item?.name || item?.description || 'Milestone',
+    name: item?.name || item?.title,
+    description: item?.description || '',
+    dueDate: item?.dueDate || item?.scheduledDate || item?.date,
+    scheduledDate: item?.scheduledDate || item?.dueDate || item?.date,
+    status: item?.status,
+    progressPct: item?.progressPct,
+    completedAt: item?.completedAt,
+    type: item?.type === 'payment' || item?.type === 'deposit' ? 'milestone' : item?.type,
+  }));
 }
 
 router.get('/me', authenticateToken, async (req, res) => {
@@ -323,7 +343,7 @@ router.get('/projects', authenticateToken, async (req, res) => {
   const member = requireActiveMember(req, res, workspace);
   if (!member) return;
 
-  const projects = listWorkspaceOwnerProjects(workspace);
+  const projects = listWorkspaceProjectsForMember(workspace, member);
   res.json({
     success: true,
     data: projects,
@@ -344,6 +364,9 @@ router.get('/projects/:projectId/resources', authenticateToken, async (req, res)
   if (!canReadSharedResources(member)) {
     return res.status(403).json({ success: false, error: 'Workspace access required.' });
   }
+  if (!memberCanAccessProject(member, req.params.projectId)) {
+    return res.status(403).json({ success: false, error: 'Project access is restricted for this workspace role.' });
+  }
 
   const rows = getSharedProjectResources({
     workspaceId: workspace.id,
@@ -351,7 +374,7 @@ router.get('/projects/:projectId/resources', authenticateToken, async (req, res)
   });
   const resources = rows.reduce((acc, row) => {
     acc[row.resourceType] = {
-      payload: row.payload,
+      payload: sanitizeSharedResourcePayload(row.resourceType, row.payload, member),
       updatedAt: row.updatedAt,
       updatedByUserId: row.updatedByUserId,
     };
@@ -381,10 +404,13 @@ router.put('/projects/:projectId/resources/:resourceType', authenticateToken, as
     return res.status(403).json({
       success: false,
       error:
-        member.role === 'field'
-          ? 'Field users can only update daily logs and timeline in the workspace.'
+        member.role === 'field' || member.role === 'foreman'
+          ? 'Field users can only update allowed field resources in the workspace.'
           : 'You do not have permission to update this workspace resource.',
     });
+  }
+  if (!memberCanAccessProject(member, req.params.projectId)) {
+    return res.status(403).json({ success: false, error: 'Project access is restricted for this workspace role.' });
   }
 
   const row = upsertSharedProjectResource({

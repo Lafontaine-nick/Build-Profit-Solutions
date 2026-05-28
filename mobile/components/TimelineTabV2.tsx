@@ -24,6 +24,7 @@ import {
 } from "@/src/lib/projectFinancials";
 import { businessWorkspaceService } from "@/services/businessWorkspaceService";
 import { mergeArrayResource } from "@/utils/workspaceResourceMerge";
+import { invalidateWorkspaceTimelineProgressCache } from "@/utils/workspaceTimelineProgress";
 
 /** Merge list + live ProjectData so change orders match Budget tab. */
 function mergeProjectRecordForTimelineCo(project: any, projectFromList: any, projectData: any) {
@@ -704,6 +705,11 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
       if (!project?.id) return;
       businessWorkspaceService
         .pushProjectResource(project.id, "timeline", items)
+        .then((result) => {
+          if (result?.success) {
+            invalidateWorkspaceTimelineProgressCache(project.id);
+          }
+        })
         .catch((error) => console.warn("Business workspace timeline sync failed:", error));
     },
     [project?.id]

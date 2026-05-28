@@ -197,8 +197,21 @@ function listWorkspaceMembers(workspaceId) {
   return workspace?.members || [];
 }
 
-const ALLOWED_ACCESS_ROLES = new Set(['owner', 'manager', 'field']);
+const ALLOWED_ACCESS_ROLES = new Set(['owner', 'manager', 'foreman', 'field', 'view_only']);
 const ALLOWED_INVITE_STATUSES = new Set(['pending', 'active', 'suspended']);
+const ALLOWED_PROJECT_ACCESS = new Set(['all_active', 'assigned']);
+const ALLOWED_JOB_TITLES = new Set([
+  'Project Manager',
+  'Foreman',
+  'Field Lead',
+  'Crew Member',
+  'General Laborer',
+  'Office/Admin',
+  'Estimator',
+  'Bookkeeper',
+  'Subcontractor',
+  'Other',
+]);
 
 function normalizeAccessRole(value, fallback = 'field') {
   const role = String(value || fallback).trim().toLowerCase();
@@ -214,17 +227,53 @@ function normalizeProjectStatus(value, fallback = 'active') {
   return value === 'off_duty' ? 'off_duty' : fallback === 'off_duty' ? 'off_duty' : 'active';
 }
 
+function normalizeProjectAccess(value, fallback = 'all_active') {
+  const access = String(value || fallback).trim().toLowerCase();
+  return ALLOWED_PROJECT_ACCESS.has(access) ? access : fallback;
+}
+
+function normalizeAssignedProjectIds(value) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .map((id) => String(id || '').trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function defaultJobTitleForRole(role) {
+  if (role === 'manager') return 'Project Manager';
+  if (role === 'foreman') return 'Foreman';
+  if (role === 'view_only') return 'Other';
+  return 'General Laborer';
+}
+
+function normalizeJobTitle(value, role) {
+  const title = String(value || '').trim();
+  if (ALLOWED_JOB_TITLES.has(title)) return title;
+  if (title === 'General Labor') return 'General Laborer';
+  if (['Electrician', 'Plumber', 'Carpenter', 'Tile Setter', 'Concrete', 'Drywall Installer', 'Painter'].includes(title)) {
+    return 'Subcontractor';
+  }
+  return defaultJobTitleForRole(role);
+}
+
 function normalizeWorkspaceMember(input = {}, existing = {}) {
   const now = new Date().toISOString();
   const email = normalizeEmail(input.email ?? existing.email);
   const displayName = String(
     input.displayName || input.name || existing.displayName || email || 'Team Member'
   ).trim();
-  const tradeRole =
-    input.tradeRole ||
-    (existing.tradeRole && !ALLOWED_ACCESS_ROLES.has(String(existing.tradeRole).toLowerCase())
-      ? existing.tradeRole
-      : 'General Labor');
+  const accessRole = normalizeAccessRole(
+    input.accessRole || input.workspaceRole || existing.role,
+    existing.role || 'field'
+  );
+  const jobTitle = normalizeJobTitle(
+    input.jobTitle || input.tradeRole || existing.jobTitle || existing.tradeRole,
+    accessRole
+  );
 
   const inviteStatus = normalizeInviteStatus(
     input.inviteStatus ?? input.status ?? existing.status,
@@ -242,13 +291,19 @@ function normalizeWorkspaceMember(input = {}, existing = {}) {
     email,
     displayName,
     phone: input.phone ?? existing.phone ?? '',
-    role: normalizeAccessRole(
-      input.accessRole || input.workspaceRole || existing.role,
-      existing.role || 'field'
-    ),
-    tradeRole,
+    role: accessRole,
+    jobTitle,
+    // Backward-compatible alias for older mobile clients. This is job title, not permissions.
+    tradeRole: jobTitle,
     status: inviteStatus,
     projectStatus,
+    projectAccess: normalizeProjectAccess(
+      input.projectAccess ?? existing.projectAccess,
+      existing.projectAccess || 'all_active'
+    ),
+    assignedProjectIds: normalizeAssignedProjectIds(
+      input.assignedProjectIds ?? existing.assignedProjectIds
+    ),
     skills: Array.isArray(input.skills) ? input.skills : existing.skills || [],
     invitedByUserId: input.invitedByUserId ?? existing.invitedByUserId ?? null,
     invitedAt: existing.invitedAt || now,
@@ -442,6 +497,64 @@ function listWorkspaceOwnerProjects(workspace) {
   return loadProjects().filter((project) => project.userId === ownerUserId);
 }
 
+function sanitizeTimelineItems(items = []) {
+  if (!Array.isArray(items)) return [];
+  return items.map((item) => ({
+    id: item?.id,
+    title: item?.title || item?.name || item?.description || 'Milestone',
+    name: item?.name || item?.title,
+    description: item?.description || '',
+    dueDate: item?.dueDate || item?.scheduledDate || item?.date,
+    scheduledDate: item?.scheduledDate || item?.dueDate || item?.date,
+    status: item?.status,
+    progressPct: item?.progressPct,
+    completedAt: item?.completedAt,
+    type: item?.type === 'payment' || item?.type === 'deposit' ? 'milestone' : item?.type,
+  }));
+}
+
+function sanitizeProjectForWorkspaceMember(project, member) {
+  if (!project || member?.role === 'owner') return project;
+
+  const now = new Date().toISOString();
+  return {
+    id: project.id,
+    title: project.title || project.name || 'Untitled Project',
+    name: project.name || project.title || 'Untitled Project',
+    status: project.status || 'in_progress',
+    location: project.location || project.projectData?.location || '',
+    city: project.city,
+    state: project.state,
+    zip: project.zip,
+    startDate: project.startDate || project.estimateData?.projectStartDate || now,
+    endDate: project.endDate || project.estimateData?.projectEndDate || project.estimateData?.endDate || now,
+    progress: Number(project.progress ?? project.overallProgressPct ?? 0) || 0,
+    overallProgressPct: Number(project.overallProgressPct ?? project.progress ?? 0) || 0,
+    milestones: sanitizeTimelineItems(project.milestones || project.projectData?.milestones || []),
+    client: project.client || project.projectData?.client || 'Client',
+    clientEmail: project.clientEmail,
+    clientPhone: project.clientPhone,
+    createdAt: project.createdAt || now,
+    updatedAt: project.updatedAt || now,
+    completedAt: project.completedAt || project.projectData?.completedAt,
+    projectType: project.projectType || project.projectData?.projectType || project.title || project.name,
+    workspacePrivacy: {
+      role: member?.role || 'field',
+      restrictedFinancials: true,
+      message:
+        'Owner financials are hidden for this workspace role.',
+    },
+  };
+}
+
+function listWorkspaceProjectsForMember(workspace, member) {
+  const { memberCanAccessProject } = require('./workspacePermissions');
+  const projects = listWorkspaceOwnerProjects(workspace);
+  return projects
+    .filter((project) => memberCanAccessProject(member, project.id))
+    .map((project) => sanitizeProjectForWorkspaceMember(project, member));
+}
+
 module.exports = {
   acceptWorkspaceInvitesForUser,
   addWorkspaceMember,
@@ -452,6 +565,7 @@ module.exports = {
   getSharedProjectResources,
   listWorkspaceMembers,
   listWorkspaceOwnerProjects,
+  listWorkspaceProjectsForMember,
   removeWorkspaceMember,
   resendWorkspaceInvite,
   updateWorkspaceMember,

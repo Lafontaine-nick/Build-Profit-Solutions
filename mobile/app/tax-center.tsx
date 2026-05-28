@@ -30,6 +30,8 @@ import TaxCenterSummaryDetailModal, {
   type TaxCenterDetailKind,
 } from '@/src/components/tax/TaxCenterSummaryDetailModal';
 import { useProjectList } from '@/contexts/ProjectListContext';
+import { useRestrictedWorkspaceFinancials } from '@/hooks/useRestrictedWorkspaceFinancials';
+import FinancialAccessLocked from '@/components/FinancialAccessLocked';
 import {
   buildProjectTaxSummaries,
   buildRuleBasedTaxInsights,
@@ -207,6 +209,7 @@ export default function TaxCenterScreen() {
   const insets = useSafeAreaInsets();
   const { darkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
+  const { canViewTaxCenter } = useRestrictedWorkspaceFinancials();
   const { projects, refreshProjects, rehydrateProjectsFromStorage } = useProjectList();
   const refreshProjectsRef = useRef(refreshProjects);
   const rehydrateProjectsRef = useRef(rehydrateProjectsFromStorage);
@@ -525,6 +528,25 @@ export default function TaxCenterScreen() {
       setExportingType(null);
     }
   };
+
+  if (!canViewTaxCenter) {
+    return (
+      <View style={styles.screenRoot}>
+        <StatusBar barStyle="light-content" />
+        <SafeAreaView style={styles.safeArea}>
+          <View style={[styles.pageShell, { paddingTop: Math.max(insets.top, 12) + 14 }]}>
+            <Pressable
+              onPress={() => router.back()}
+              style={{ marginBottom: 16, alignSelf: 'flex-start' }}
+            >
+              <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
+            </Pressable>
+            <FinancialAccessLocked colors={Colors} />
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.screenRoot}>

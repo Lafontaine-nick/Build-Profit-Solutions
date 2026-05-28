@@ -88,6 +88,10 @@ import {
   applyMarkPaymentCollectedFromAction,
   computeOverallProgressExcludingDeposit,
 } from '@/lib/markPaymentCollected';
+import {
+  canViewOwnerFinancials,
+  normalizeWorkspaceRole,
+} from '@/utils/workspacePermissions';
 
 const toPositiveNumber = (value: any): number | null => {
   if (value == null) return null;
@@ -109,6 +113,30 @@ const firstPositiveNumber = (...values: any[]): number | null => {
 };
 
 type TabKey = "Overview" | "Budget" | "Timeline" | "Calendar" | "Team";
+
+const FinancialAccessLocked = ({ colors }: { colors: ReturnType<typeof getColors> }) => (
+  <View style={{ padding: 20, alignItems: 'center' }}>
+    <View
+      style={{
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: 'rgba(148, 163, 184, 0.22)',
+        backgroundColor: colors.surface2 || 'rgba(15, 23, 42, 0.84)',
+        padding: 20,
+        maxWidth: 520,
+      }}
+    >
+      <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800', marginBottom: 8 }}>
+        Financial details are restricted.
+      </Text>
+      <Text style={{ color: colors.sub, fontSize: 14, lineHeight: 20 }}>
+        Your workspace role does not include owner-level financials like markup, overhead, profit,
+        estimate breakdowns, payment pricing, or tax records. You can still work with the project
+        areas allowed by your role.
+      </Text>
+    </View>
+  </View>
+);
 
 const AP_WT_STEPS: { tab: TabKey; title: string; body: string }[] = [
   {
@@ -298,6 +326,12 @@ function ProjectDetailContent() {
   const { t } = useTranslation();
   const { getToken } = useAuth();
   const businessEntitlement = useBusinessEntitlement();
+  const workspaceRole = normalizeWorkspaceRole(businessEntitlement.workspaceAccess?.role);
+  const restrictedWorkspaceFinancials = Boolean(
+    businessEntitlement.workspaceAccess?.hasWorkspaceAccess &&
+      !businessEntitlement.workspaceAccess?.isOwner &&
+      !canViewOwnerFinancials(workspaceRole)
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -357,6 +391,12 @@ function ProjectDetailContent() {
   const realProjectData = getProjectById(id as string);
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
   const [teamRefreshTrigger, setTeamRefreshTrigger] = useState(0);
+
+  useEffect(() => {
+    if (restrictedWorkspaceFinancials && activeTab === 'Budget') {
+      setActiveTab('Overview');
+    }
+  }, [activeTab, restrictedWorkspaceFinancials]);
 
   const [materialsCart, setMaterialsCart] = useState<any[]>([]);
   /** When there are no leak cards, section starts collapsed; tap header to expand details. */
@@ -1732,40 +1772,47 @@ function ProjectDetailContent() {
                   <View style={styles.overviewPageHeader}>
                     <Text style={styles.overviewPageTitle}>Project Overview</Text>
                     <Text style={styles.overviewPageSubtitle}>
-                      Executive snapshot of contract, cost, and margin
+                      {restrictedWorkspaceFinancials
+                        ? 'Project operations, timeline, calendar, and team access'
+                        : 'Executive snapshot of contract, cost, and margin'}
                     </Text>
                   </View>
 
-                  <BudgetProfitMixCard
-                    currency={(safeProjectData as { currency?: string }).currency ?? 'USD'}
-                    adjustedContractValue={metrics.financials.adjustedContractValue}
-                    spentToDate={metrics.totalSpent}
-                    committedPOsTotal={metrics.committedPOsTotal}
-                    adjustedCostBudget={metrics.financials.adjustedCostBudget}
-                    profitForecast={metrics.profitForecast}
-                    jobCompleted={metrics.isProjectCompleted}
-                    originalEstimateMarginPct={Number(
-                      (realProjectData as any)?.estimateData?.marginPercent ??
-                      (realProjectData as any)?.estimateData?.margin ??
-                      (realProjectData as any)?.estimateData?.marginPct ??
-                      (safeProjectData as any)?.estimateData?.marginPercent ??
-                      (safeProjectData as any)?.estimateData?.margin ??
-                      (safeProjectData as any)?.estimateData?.marginPct ??
-                      0
-                    )}
-                    originalEstimateProfit={Number(
-                      (realProjectData as any)?.estimateData?.profit ??
-                      (safeProjectData as any)?.estimateData?.profit ??
-                      0
-                    )}
-                    onChipsPress={() => {
-                      void Haptics.selectionAsync();
-                      setActiveTab('Budget');
-                    }}
-                    marginTop={0}
-                  />
+                  {!restrictedWorkspaceFinancials ? (
+                    <BudgetProfitMixCard
+                      currency={(safeProjectData as { currency?: string }).currency ?? 'USD'}
+                      adjustedContractValue={metrics.financials.adjustedContractValue}
+                      spentToDate={metrics.totalSpent}
+                      committedPOsTotal={metrics.committedPOsTotal}
+                      adjustedCostBudget={metrics.financials.adjustedCostBudget}
+                      profitForecast={metrics.profitForecast}
+                      jobCompleted={metrics.isProjectCompleted}
+                      originalEstimateMarginPct={Number(
+                        (realProjectData as any)?.estimateData?.marginPercent ??
+                        (realProjectData as any)?.estimateData?.margin ??
+                        (realProjectData as any)?.estimateData?.marginPct ??
+                        (safeProjectData as any)?.estimateData?.marginPercent ??
+                        (safeProjectData as any)?.estimateData?.marginPct ??
+                        0
+                      )}
+                      originalEstimateProfit={Number(
+                        (realProjectData as any)?.estimateData?.profit ??
+                        (safeProjectData as any)?.estimateData?.profit ??
+                        0
+                      )}
+                      onChipsPress={() => {
+                        void Haptics.selectionAsync();
+                        setActiveTab('Budget');
+                      }}
+                      marginTop={0}
+                    />
+                  ) : (
+                    <FinancialAccessLocked colors={Colors} />
+                  )}
 
                   {/* Project Status — cost/schedule progress */}
+                  {!restrictedWorkspaceFinancials ? (
+                  <>
                   <View style={styles.innerCardContainer}>
                     <View style={styles.innerCard}>
                       <View style={styles.overviewCardHeaderRow}>
@@ -2024,6 +2071,8 @@ function ProjectDetailContent() {
                       </Text>
                     </View>
                   </View>
+                  </>
+                  ) : null}
                 </View>
               </LinearGradient>
             </View>
@@ -2032,7 +2081,11 @@ function ProjectDetailContent() {
         case 'Budget':
           return (
             <View style={styles.wideContainer}>
-              <BudgetTab data={budgetData} embedded profitForecastOverride={overviewMetrics.profitForecast} />
+              {restrictedWorkspaceFinancials ? (
+                <FinancialAccessLocked colors={Colors} />
+              ) : (
+                <BudgetTab data={budgetData} embedded profitForecastOverride={overviewMetrics.profitForecast} />
+              )}
             </View>
           );
         case 'Timeline':
@@ -2165,13 +2218,15 @@ function ProjectDetailContent() {
           onPress={() => handleTabPress('Overview')}
           styles={styles}
         />
-        <SegmentTab
-          label="Budget"
-          icon="wallet-outline"
-          isActive={activeTab === 'Budget'}
-          onPress={() => handleTabPress('Budget')}
-          styles={styles}
-        />
+        {!restrictedWorkspaceFinancials ? (
+          <SegmentTab
+            label="Budget"
+            icon="wallet-outline"
+            isActive={activeTab === 'Budget'}
+            onPress={() => handleTabPress('Budget')}
+            styles={styles}
+          />
+        ) : null}
         <SegmentTab
           label="Timeline"
           icon="calendar-outline"
@@ -2214,7 +2269,7 @@ function ProjectDetailContent() {
         {tabs}
       </ScrollView>
     );
-  }, [activeTab, styles, handleTabPress]);
+  }, [activeTab, styles, handleTabPress, restrictedWorkspaceFinancials]);
 
   if (missingProjectData) {
     console.error('❌ Project data is undefined!');
@@ -2401,23 +2456,27 @@ function ProjectDetailContent() {
             )}
           </View>
 
-          {/* AI PM — single stable slot under tabs (not floating over cards) */}
-          <View style={[styles.wideContainer, styles.aiPmUnderTabs]}>
-            <Pressable
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setShowAIAssistant(true);
-              }}
-              style={styles.aiFloatingInline}
-              accessibilityRole="button"
-              accessibilityLabel={t('dashboard.aiPmModeOn')}
-            >
-              <Ionicons name="sparkles" size={15} color="#34D399" />
-              <Text style={[styles.aiFloatingText, styles.aiFloatingTextOn]} numberOfLines={1}>
-                {t('dashboard.aiPmModeOn')}
-              </Text>
-            </Pressable>
-          </View>
+          {!restrictedWorkspaceFinancials ? (
+            <>
+              {/* AI PM — single stable slot under tabs (not floating over cards) */}
+              <View style={[styles.wideContainer, styles.aiPmUnderTabs]}>
+                <Pressable
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setShowAIAssistant(true);
+                  }}
+                  style={styles.aiFloatingInline}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('dashboard.aiPmModeOn')}
+                >
+                  <Ionicons name="sparkles" size={15} color="#34D399" />
+                  <Text style={[styles.aiFloatingText, styles.aiFloatingTextOn]} numberOfLines={1}>
+                    {t('dashboard.aiPmModeOn')}
+                  </Text>
+                </Pressable>
+              </View>
+            </>
+          ) : null}
 
           {/* CONTENT */}
           <View style={styles.tabContent}>
@@ -2505,7 +2564,7 @@ function ProjectDetailContent() {
 
         {/* AI Assistant Modal with Project Context */}
         <AIAssistantModal
-          visible={showAIAssistant}
+          visible={showAIAssistant && !restrictedWorkspaceFinancials}
           onClose={() => {
             setShowAIAssistant(false);
             setInitialAIQuestion(undefined); // Reset when closing

@@ -47,7 +47,10 @@ import { useTranslation } from 'react-i18next';
 import Slider from '@react-native-community/slider';
 import { useApi } from '@/contexts/ApiContext';
 import { useProjectList } from '@/contexts/ProjectListContext';
+import { resetBusinessEntitlementCache } from '@/utils/businessEntitlementCache';
+import { invalidateWorkspaceTimelineProgressCache } from '@/utils/workspaceTimelineProgress';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
+import { useRestrictedWorkspaceFinancials } from '@/hooks/useRestrictedWorkspaceFinancials';
 import { clerkAuthService } from '@/services/clerkAuth';
 import { syncClerkTokenToAsyncStorage } from '@/utils/authTokenHelper';
 import {
@@ -339,6 +342,7 @@ function buildEditFormFromUser(user: {
 export default function ProfileScreen() {
   // Require authentication to access this screen
   useRequireAuth();
+  const { canViewTaxCenter } = useRestrictedWorkspaceFinancials();
 
   const { darkMode, setDarkMode, theme: themeContext } = useTheme();
   const Colors = useMemo(() => getColors(themeContext), [themeContext]);
@@ -1423,6 +1427,15 @@ export default function ProfileScreen() {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
+      try {
+        await clearProjectsLocal();
+      } catch (e) {
+        console.warn('clearProjectsLocal on logout:', e);
+      }
+
+      resetBusinessEntitlementCache();
+      invalidateWorkspaceTimelineProgressCache();
+
       const authKeysToRemove = [
         'auth_token',
         'user_data',
@@ -1469,7 +1482,7 @@ export default function ProfileScreen() {
       router.replace('/');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
-  }, [clerkSignOut, apiLogout, router]);
+  }, [clerkSignOut, apiLogout, router, clearProjectsLocal]);
 
   const handleLogout = useCallback(() => {
     const title = 'Logout';
@@ -2718,7 +2731,8 @@ export default function ProfileScreen() {
         {/* Business */}
         {renderSection('Business', (
           <>
-            {renderSettingItem('tax-center', 'request-quote', 'Tax Center', () => {
+            {canViewTaxCenter &&
+              renderSettingItem('tax-center', 'request-quote', 'Tax Center', () => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               router.push('/tax-center');
             })}

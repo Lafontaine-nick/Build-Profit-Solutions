@@ -47,6 +47,8 @@ import {
   WEB_DESKTOP_EDGE_HORIZONTAL,
 } from "@/constants/ScreenLayout";
 import { useTabScrollBottomInset } from "@/hooks/useTabScrollBottomInset";
+import { useRestrictedWorkspaceFinancials } from "@/hooks/useRestrictedWorkspaceFinancials";
+import FinancialAccessLocked from "@/components/FinancialAccessLocked";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import WebPageShell from "@/components/layout/WebPageShell";
 import { TabScreenHeader } from "@/components/ui/TabScreenHeader";
@@ -588,6 +590,18 @@ const getDashboardProjectOperationalSignal = (
   if (project.progress >= 0.92) {
     return { text: "Nearing completion", variant: "muted" };
   }
+  return { text: "On track", variant: "muted" };
+};
+
+const getDashboardProjectProgressSignal = (project: {
+  status?: string;
+  progress?: number;
+}): { text: string; variant: "risk" | "watch" | "muted" } => {
+  const isCompleted = project.status === "Completed";
+  if (isCompleted) return { text: "Closed out", variant: "muted" };
+  const progress = Number(project.progress || 0);
+  if (progress >= 0.92) return { text: "Nearing completion", variant: "muted" };
+  if (progress > 0 && progress < 0.15) return { text: "Getting started", variant: "muted" };
   return { text: "On track", variant: "muted" };
 };
 
@@ -2915,6 +2929,10 @@ function LegacyDashboardGreetingSync({
 
 const DashboardScreen: React.FC = () => {
   useRequireAuth();
+  const {
+    restricted: restrictedWorkspaceFinancials,
+    refresh: refreshWorkspaceEntitlement,
+  } = useRestrictedWorkspaceFinancials();
   const router = useRouter();
   const navigation = useNavigation();
   const { t } = useTranslation();
@@ -2943,11 +2961,12 @@ const DashboardScreen: React.FC = () => {
 
   useFocusEffect(
     useCallback(() => {
+      void refreshWorkspaceEntitlement();
       const task = InteractionManager.runAfterInteractions(() => {
         void refreshProjectsRef.current();
       });
       return () => task.cancel?.();
-    }, [])
+    }, [refreshWorkspaceEntitlement])
   );
 
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
@@ -3170,6 +3189,12 @@ const DashboardScreen: React.FC = () => {
 
   // Fetch AI insights function (reusable for manual refresh)
   const fetchAiData = useCallback(async (forceRefresh = false) => {
+    if (restrictedWorkspaceFinancials) {
+      setAiData(null);
+      setAiError(null);
+      setAiLoading(false);
+      return;
+    }
     if (!aiPmMode && !forceRefresh) {
       setAiData(null);
       setAiError(null);
@@ -3480,11 +3505,11 @@ const DashboardScreen: React.FC = () => {
         setAiLoading(false);
       }
     }
-  }, [aiPmMode, activeProjects, estimates, timelineProgress, deletedProjectRecords]);
+  }, [aiPmMode, activeProjects, estimates, timelineProgress, deletedProjectRecords, restrictedWorkspaceFinancials]);
 
   // Drop stale insight cards immediately when projects are deleted/completed (don't wait on API).
   useEffect(() => {
-    if (!aiPmMode || !aiData) return;
+    if (!aiPmMode || !aiData || restrictedWorkspaceFinancials) return;
     const pruned = filterAiDashboardResponse(
       aiData,
       activeProjects,
@@ -3495,11 +3520,11 @@ const DashboardScreen: React.FC = () => {
     if (pruned && aiDashboardResponsesDiffer(aiData, pruned)) {
       setAiData(pruned);
     }
-  }, [aiPmMode, aiData, activeProjects, estimates, timelineProgress, deletedProjectRecords]);
+  }, [aiPmMode, aiData, activeProjects, estimates, timelineProgress, deletedProjectRecords, restrictedWorkspaceFinancials]);
 
   // Debounced refetch when portfolio fingerprint changes
   useEffect(() => {
-    if (!aiPmMode) {
+    if (!aiPmMode || restrictedWorkspaceFinancials) {
       setAiData(null);
       setAiError(null);
       if (debounceTimerRef.current) {
@@ -3534,20 +3559,21 @@ const DashboardScreen: React.FC = () => {
         clearTimeout(debounceTimerRef.current);
       }
     };
-  }, [aiPmMode, activeProjects, estimates, timelineProgress, computeAiRefreshHash, fetchAiData]);
+  }, [aiPmMode, activeProjects, estimates, timelineProgress, computeAiRefreshHash, fetchAiData, restrictedWorkspaceFinancials]);
 
   // Initial fetch when AI PM mode is toggled ON (no debounce)
   useEffect(() => {
+    if (restrictedWorkspaceFinancials) return;
     if (aiPmMode && !aiData && !aiLoading) {
       lastProjectsHashRef.current = computeAiRefreshHash();
       fetchAiData(false);
     }
-  }, [aiPmMode, aiData, aiLoading, computeAiRefreshHash, fetchAiData]);
+  }, [aiPmMode, aiData, aiLoading, computeAiRefreshHash, fetchAiData, restrictedWorkspaceFinancials]);
 
   // Periodic refresh: every 5 minutes, but only refresh rule-based checks
   // (AI layer is cached, so we don't need to call OpenAI every 5 min)
   useEffect(() => {
-    if (!aiPmMode) return;
+    if (!aiPmMode || restrictedWorkspaceFinancials) return;
 
     const interval = setInterval(() => {
       // Only refresh if we have data (don't spam on initial load)
@@ -3557,7 +3583,7 @@ const DashboardScreen: React.FC = () => {
     }, 5 * 60 * 1000); // 5 minutes
 
     return () => clearInterval(interval);
-  }, [aiPmMode, aiData, fetchAiData]);
+  }, [aiPmMode, aiData, fetchAiData, restrictedWorkspaceFinancials]);
 
   // Manual refresh function (bypasses cache)
   const handleManualRefresh = useCallback(() => {
@@ -3969,9 +3995,13 @@ const DashboardScreen: React.FC = () => {
             filteredInsights={filteredInsights}
             filteredNextSteps={filteredNextSteps}
             timelineLatestPlannedMs={timelineLatestPlannedMs}
+            hideFinancialMetrics={restrictedWorkspaceFinancials}
           />
         )}
-        {activeTab === "analytics" && (
+        {activeTab === "analytics" &&
+          (restrictedWorkspaceFinancials ? (
+            <FinancialAccessLocked colors={Colors} />
+          ) : (
           <AnalyticsSection
             metrics={metrics}
             activeCount={activeCount}
@@ -3981,14 +4011,17 @@ const DashboardScreen: React.FC = () => {
             estimates={estimates}
             timelineProgress={timelineProgress}
           />
-        )}
+        ))}
         {activeTab === "calendar" && (
           <MasterCalendarView
             activeProjects={activeProjects}
             estimates={estimates}
           />
         )}
-        {activeTab === "insights" && (
+        {activeTab === "insights" &&
+          (restrictedWorkspaceFinancials ? (
+            <FinancialAccessLocked colors={Colors} />
+          ) : (
           <InsightsSection
             projects={projects}
             filteredNextSteps={filteredNextSteps}
@@ -3998,13 +4031,14 @@ const DashboardScreen: React.FC = () => {
             aiError={aiError}
             aiData={aiData}
           />
-        )}
+        ))}
 
         <View style={{ height: desktopWeb ? 20 : 32 }} />
         </WebPageShell>
       </ScrollView>
 
       {/* FLOATING AI PROJECT MANAGER MODE BADGE */}
+      {!restrictedWorkspaceFinancials ? (
       <Pressable
         style={[
           styles.aiFloatingWrapper,
@@ -4043,10 +4077,11 @@ const DashboardScreen: React.FC = () => {
           </Text>
         </LinearGradient>
       </Pressable>
+      ) : null}
 
       {/* AI Assistant Modal */}
       <AIAssistantModal
-        visible={showAIAssistant}
+        visible={showAIAssistant && !restrictedWorkspaceFinancials}
         onClose={() => setShowAIAssistant(false)}
         context={JSON.stringify({
           screen: "Dashboard",
@@ -4466,6 +4501,7 @@ type DashboardProjectSummaryCardProps = {
   aiPmMode: boolean;
   timelineLatestPlannedMs: Record<string, number>;
   onPress: () => void;
+  hideFinancialMetrics?: boolean;
 };
 
 const DashboardProjectSummaryCard = ({
@@ -4473,12 +4509,15 @@ const DashboardProjectSummaryCard = ({
   aiPmMode,
   timelineLatestPlannedMs,
   onPress,
+  hideFinancialMetrics = false,
 }: DashboardProjectSummaryCardProps) => {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const styles = useDashboardStyles(Colors);
   const timelineMs = resolveTimelineLatestPlannedMsFromMap(project.rawProject, timelineLatestPlannedMs);
-  const op = getDashboardProjectOperationalSignal(project, timelineMs);
+  const op = hideFinancialMetrics
+    ? getDashboardProjectProgressSignal(project)
+    : getDashboardProjectOperationalSignal(project, timelineMs);
   const signalStyle =
     op.variant === "risk"
       ? styles.projectSummarySignalRisk
@@ -4501,6 +4540,7 @@ const DashboardProjectSummaryCard = ({
           <Text style={styles.projectSummaryName} numberOfLines={1} ellipsizeMode="tail">
             {project.name}
           </Text>
+          {!hideFinancialMetrics ? (
           <View style={styles.projectSummaryValueRow}>
             <Text style={styles.projectSummaryAmount}>{formatMoneyUSD(project.amount)}</Text>
             {aiPmMode ? (
@@ -4510,6 +4550,7 @@ const DashboardProjectSummaryCard = ({
               </View>
             ) : null}
           </View>
+          ) : null}
         </View>
         <View
           style={[
@@ -4567,6 +4608,7 @@ interface OverviewSectionProps {
   filteredInsights: any[];
   filteredNextSteps: any[];
   timelineLatestPlannedMs: Record<string, number>;
+  hideFinancialMetrics?: boolean;
 }
 
 const OverviewSection: React.FC<OverviewSectionProps> = ({
@@ -4581,6 +4623,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
   filteredInsights,
   filteredNextSteps,
   timelineLatestPlannedMs,
+  hideFinancialMetrics = false,
 }) => {
   const { width: windowWidth } = useWindowDimensions();
   const desktopWideWeb = isDesktopWebLayoutWidth(windowWidth);
@@ -4664,6 +4707,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
         >
           {desktopWideWeb ? (
             <View style={styles.metricsRowEqualDesktop}>
+              {!hideFinancialMetrics ? (
               <EnhancedMetricCard
                 desktopEqualColumns
                 gradient
@@ -4674,6 +4718,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                 trendDirection="up"
                 context="12% under expected at this phase"
               />
+              ) : null}
               <EnhancedMetricCard
                 desktopEqualColumns
                 label="Projects"
@@ -4683,6 +4728,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                 trendDirection="up"
                 context="3 jobs flagged for review"
               />
+              {!hideFinancialMetrics ? (
               <EnhancedMetricCard
                 desktopEqualColumns
                 label="Avg Net Profit"
@@ -4692,6 +4738,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                 trendDirection="down"
                 context="Net profit ÷ contract on closed work (realized)"
               />
+              ) : null}
             </View>
           ) : (
           <ScrollView
@@ -4699,6 +4746,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ paddingRight: 28, paddingLeft: 2 }}
           >
+          {!hideFinancialMetrics ? (
           <EnhancedMetricCard
             gradient
             label="Total Bids"
@@ -4708,6 +4756,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
             trendDirection="up"
             context="12% under expected at this phase"
           />
+          ) : null}
           <EnhancedMetricCard
             label="Projects"
             value={metrics.activeProjects}
@@ -4716,6 +4765,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
             trendDirection="up"
             context="3 jobs flagged for review"
           />
+          {!hideFinancialMetrics ? (
           <EnhancedMetricCard
             label="Avg Net Profit"
             value={metrics.avgMargin}
@@ -4724,11 +4774,14 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
             trendDirection="down"
             context="Net profit ÷ contract on closed work (realized)"
           />
+          ) : null}
         </ScrollView>
           )}
                   </View>
       </View>
 
+      {!hideFinancialMetrics ? (
+      <>
       {/* AI INSIGHTS PANEL */}
       <Pressable
         onPress={toggleAiInsights}
@@ -4872,6 +4925,9 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
       </View>
       )}
 
+      </>
+      ) : null}
+
       {/* ALL PROJECTS */}
       <View style={styles.allProjectsContainer}>
         <View style={styles.allProjectsFrame}>
@@ -4944,6 +5000,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                     project={project}
                     aiPmMode={aiPmMode}
                     timelineLatestPlannedMs={timelineLatestPlannedMs}
+                    hideFinancialMetrics={hideFinancialMetrics}
                     onPress={() =>
                       openProjectsTab(projectsTabForDisplayStatus(project.status))
                     }
@@ -4958,6 +5015,7 @@ const OverviewSection: React.FC<OverviewSectionProps> = ({
                     project={project}
                     aiPmMode={aiPmMode}
                     timelineLatestPlannedMs={timelineLatestPlannedMs}
+                    hideFinancialMetrics={hideFinancialMetrics}
                     onPress={() =>
                       openProjectsTab(projectsTabForDisplayStatus(project.status))
                     }

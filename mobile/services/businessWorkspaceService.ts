@@ -15,18 +15,26 @@ export type BusinessSharedResourceType =
   | 'timeline'
   | 'team';
 
-export type WorkspaceAccessRole = 'owner' | 'manager' | 'field';
+export type WorkspaceAccessRole = 'owner' | 'manager' | 'foreman' | 'field' | 'view_only';
 export type WorkspaceInviteStatus = 'pending' | 'active' | 'suspended';
+export type WorkspaceProjectAccess = 'all_active' | 'assigned';
 
 export type BusinessWorkspaceMember = {
   id: string;
   displayName: string;
   email?: string;
   phone?: string;
+  accessRole?: WorkspaceAccessRole | string;
+  workspaceRole?: WorkspaceAccessRole | string;
   role?: WorkspaceAccessRole | string;
+  jobTitle?: string;
+  /** Backward-compatible alias; now stores job title, not permission role. */
   tradeRole?: string;
   status?: WorkspaceInviteStatus | string;
+  inviteStatus?: WorkspaceInviteStatus | string;
   projectStatus?: 'active' | 'off_duty';
+  projectAccess?: WorkspaceProjectAccess | string;
+  assignedProjectIds?: string[];
   skills?: string[];
   invitedAt?: string;
   joinedAt?: string | null;

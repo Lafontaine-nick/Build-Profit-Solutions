@@ -47,6 +47,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenLayout, isDesktopWebLayoutWidth, DASHBOARD_WEB_MAX_CONTENT_WIDTH, WEB_DESKTOP_EDGE_HORIZONTAL } from '@/constants/ScreenLayout';
 import { useTabScrollBottomInset } from '@/hooks/useTabScrollBottomInset';
+import { useRestrictedWorkspaceFinancials } from '@/hooks/useRestrictedWorkspaceFinancials';
 import {
   FirstEstimateWalkthroughSheetShell,
   FirstEstimateWalkthroughIntroSheetContent,
@@ -350,6 +351,7 @@ function tabFromRouteParam(tab: string | string[] | undefined): 'active' | 'subm
 export default function ProjectsScreen() {
   const router = useRouter();
   useRequireAuth();
+  const { restricted: restrictedWorkspaceFinancials } = useRestrictedWorkspaceFinancials();
   const { t } = useTranslation();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -1368,6 +1370,37 @@ export default function ProjectsScreen() {
                   </View>
 
                   <View style={styles.projectFinancialBlock}>
+                    {restrictedWorkspaceFinancials ? (
+                      <>
+                        <View style={styles.projectAmountRow}>
+                          <View style={styles.projectAmountLeft}>
+                            <Text style={styles.projectMetaLabel}>Progress</Text>
+                            <Text style={styles.projectAmount}>
+                              {Math.round(Number(project.progress || 0) * 100)}%
+                            </Text>
+                          </View>
+                          <View style={styles.projectDateBlock}>
+                            <Text style={styles.projectMetaLabel}>
+                              {project.dateLabel.startsWith('Completed ')
+                                ? 'Completed'
+                                : project.dateLabel.startsWith('Schedule ')
+                                  ? 'Schedule'
+                                  : ''}
+                            </Text>
+                            <Text style={styles.projectMetaText} numberOfLines={1}>
+                              {project.dateLabel.startsWith('Completed ')
+                                ? project.dateLabel.slice('Completed '.length)
+                                : project.dateLabel.startsWith('Schedule ')
+                                  ? project.dateLabel.slice('Schedule '.length)
+                                  : project.dateLabel === 'No schedule'
+                                    ? '—'
+                                    : project.dateLabel}
+                            </Text>
+                          </View>
+                        </View>
+                      </>
+                    ) : (
+                      <>
                     <View style={styles.projectAmountRow}>
                       <View style={styles.projectAmountLeft}>
                         <Text style={styles.projectAmount}>
@@ -1414,6 +1447,8 @@ export default function ProjectsScreen() {
                     <Text style={styles.projectMarginLine}>
                       {isCompletedProject ? 'Net margin' : 'Est. margin'}: {Number(project.margin).toFixed(1)}%
                     </Text>
+                      </>
+                    )}
                   </View>
 
                   <View style={styles.projectMetaSection}>

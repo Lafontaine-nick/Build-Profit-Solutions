@@ -82,7 +82,18 @@ function extractLanIpv4(src: string): string | null {
  * **Optional:** `EXPO_PUBLIC_REST_USE_RENDER=true` on web forces REST back through Metro → Render
  * while `EXPO_PUBLIC_AI_API_URL` can still point at a local backend (AI only).
  */
+let cachedBackendRestApiBaseUrl: string | null = null;
+
+/** Resolved once per Metro session — avoids console spam on every fetch. */
 export function resolveBackendRestApiBaseUrl(): string {
+  if (cachedBackendRestApiBaseUrl) {
+    return cachedBackendRestApiBaseUrl;
+  }
+  cachedBackendRestApiBaseUrl = resolveBackendRestApiBaseUrlUncached();
+  return cachedBackendRestApiBaseUrl;
+}
+
+function resolveBackendRestApiBaseUrlUncached(): string {
   const envApi = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
   const envDevOnly = process.env.EXPO_PUBLIC_DEV_API_BASE_URL?.trim();
   const extraApi = readExtraString('apiBaseUrl');
