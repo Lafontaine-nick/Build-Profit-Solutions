@@ -739,6 +739,7 @@ const ProjectListProviderCore = ({
   const storageKeyRef = useRef(UNIFIED_PROJECTS_STORAGE_KEY);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const workspaceMemberModeRef = useRef(false);
+  const suppressBackendSyncRef = useRef(false);
   const lastProjectsRefreshAtRef = useRef(0);
   const PROJECTS_REFRESH_DEBOUNCE_MS = 5000;
 
@@ -769,14 +770,18 @@ const ProjectListProviderCore = ({
   // Save locally and debounce backend sync for signed-in accounts.
   useEffect(() => {
     if (!isHydrated || !hasLoadedOnce) return;
+    if (suppressBackendSyncRef.current) return;
     void saveProjects();
     if (!accountUserId) return;
     if (workspaceMemberModeRef.current) return;
+    if (projects.length === 0) return;
 
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
     }
     syncTimerRef.current = setTimeout(() => {
+      if (suppressBackendSyncRef.current) return;
+      if (projectsRef.current.length === 0) return;
       void pushProjectsToBackend(projectsRef.current);
     }, 2500);
 
@@ -788,8 +793,11 @@ const ProjectListProviderCore = ({
   }, [projects, isHydrated, hasLoadedOnce, accountUserId]);
 
   const loadProjects = async () => {
+    const forceBootstrap = projectsRef.current.length === 0;
     try {
-      const bootstrap = await fetchWorkspaceBootstrap();
+      const bootstrap = await fetchWorkspaceBootstrap(
+        forceBootstrap ? { force: true } : undefined
+      );
       const wsAccess = bootstrap?.access ?? null;
       if (wsAccess?.hasWorkspaceAccess) {
         await persistWorkspaceAccessGranted();
@@ -825,6 +833,7 @@ const ProjectListProviderCore = ({
         await AsyncStorage.setItem(listKey, JSON.stringify(normalized));
         setIsHydrated(true);
         setHasLoadedOnce(true);
+        suppressBackendSyncRef.current = false;
         lastProjectsRefreshAtRef.current = Date.now();
         if (__DEV__) {
           console.log(`✅ Loaded ${normalized.length} workspace projects for member`);
@@ -921,6 +930,8 @@ const ProjectListProviderCore = ({
           await setActiveProjectUserId(accountUserId);
           setIsHydrated(true);
           setHasLoadedOnce(true);
+          suppressBackendSyncRef.current = false;
+          lastProjectsRefreshAtRef.current = Date.now();
           return;
         } catch (backendError) {
           if (__DEV__) {
@@ -937,16 +948,19 @@ const ProjectListProviderCore = ({
         setProjects(normalized);
         setIsHydrated(true);
         setHasLoadedOnce(true);
+        suppressBackendSyncRef.current = false;
         return;
       }
 
       setProjects([]);
       setIsHydrated(true);
       setHasLoadedOnce(true);
+      suppressBackendSyncRef.current = false;
     } catch (error) {
       console.error('Error loading projects:', error);
       setIsHydrated(true);
       setHasLoadedOnce(true);
+      suppressBackendSyncRef.current = false;
     }
   };
 
@@ -962,30 +976,32 @@ const ProjectListProviderCore = ({
   };
 
   const clearProjectsLocal = async () => {
+    suppressBackendSyncRef.current = true;
+    if (syncTimerRef.current) {
+      clearTimeout(syncTimerRef.current);
+      syncTimerRef.current = null;
+    }
     setProjects([]);
+    setIsHydrated(false);
+    setHasLoadedOnce(false);
     workspaceMemberModeRef.current = false;
+    lastProjectsRefreshAtRef.current = 0;
     invalidateWorkspaceBootstrapCache();
     try {
       const keys = await AsyncStorage.getAllKeys();
+      const accountKey = resolveListStorageKey();
       const projectKeys = keys.filter(
         (key) =>
-          key === UNIFIED_PROJECTS_STORAGE_KEY ||
-          key.startsWith(`${UNIFIED_PROJECTS_STORAGE_KEY}.`) ||
-          key === ACTIVE_PROJECT_USER_ID_KEY ||
+          key === accountKey ||
+          key.startsWith(`${UNIFIED_PROJECTS_STORAGE_KEY}.ws.`) ||
           key === WORKSPACE_ACCESS_CACHE_KEY ||
           key === 'bps.cachedWorkspaceAccessSnapshot' ||
           key.startsWith('bps.team.members') ||
-          key.startsWith('bps.project.') ||
-          key.startsWith('bps.timeline.v2.') ||
-          key.startsWith('timeline_') ||
-          key.startsWith('daily_logs_') ||
-          key.startsWith('calendar_events_') ||
           key.startsWith('bps.workspaceSync.')
       );
       if (projectKeys.length > 0) {
         await AsyncStorage.multiRemove(projectKeys);
       }
-      await AsyncStorage.setItem(storageKeyRef.current, JSON.stringify([]));
     } catch (error) {
       console.error('Error clearing local projects:', error);
     }
@@ -1399,7 +1415,9 @@ const ProjectListProviderCore = ({
 
   const refreshProjects = async () => {
     const now = Date.now();
+    const hasCachedProjects = projectsRef.current.length > 0;
     if (
+      hasCachedProjects &&
       hasLoadedOnce &&
       now - lastProjectsRefreshAtRef.current < PROJECTS_REFRESH_DEBOUNCE_MS
     ) {
@@ -1416,7 +1434,9 @@ const ProjectListProviderCore = ({
       return;
     }
     try {
-      const bootstrap = await fetchWorkspaceBootstrap();
+      const bootstrap = await fetchWorkspaceBootstrap(
+        !hasCachedProjects ? { force: true } : undefined
+      );
       const wsAccess = bootstrap?.access ?? null;
       if (wsAccess?.hasWorkspaceAccess) {
         await persistWorkspaceAccessGranted();
@@ -1455,6 +1475,7 @@ const ProjectListProviderCore = ({
         setHasLoadedOnce(true);
         projectsRefreshCooldownUntilRef.current = 0;
         lastProjectsRefreshAtRef.current = Date.now();
+        suppressBackendSyncRef.current = false;
         return;
       }
 
@@ -1501,6 +1522,7 @@ const ProjectListProviderCore = ({
       setHasLoadedOnce(true);
       projectsRefreshCooldownUntilRef.current = 0;
       lastProjectsRefreshAtRef.current = Date.now();
+      suppressBackendSyncRef.current = false;
     } catch (e) {
       const status = (e as { status?: number })?.status;
       if (status === 429) {
