@@ -5,6 +5,7 @@ const {
   acceptWorkspaceInvitesForUser,
   addWorkspaceMember,
   ensureOwnerWorkspace,
+  findInvitedWorkspaceForUser,
   findWorkspaceForUser,
   getSharedProjectResources,
   listWorkspaceMembers,
@@ -57,9 +58,15 @@ function getAccessibleWorkspace(req) {
 
 function resolveWorkspace(req, { createIfMissing = false } = {}) {
   const user = currentUser(req);
+  acceptWorkspaceInvitesForUser(user);
   let workspace = getAccessibleWorkspace(req);
   if (!workspace && createIfMissing) {
-    workspace = getOrEnsureWorkspace(req);
+    const invited = findInvitedWorkspaceForUser(user.userId, user.email);
+    if (invited) {
+      workspace = getAccessibleWorkspace(req) || invited;
+    } else {
+      workspace = getOrEnsureWorkspace(req);
+    }
   }
   return { workspace, user };
 }
@@ -146,11 +153,16 @@ router.get('/me', authenticateToken, async (req, res) => {
   acceptWorkspaceInvitesForUser({ userId, email });
   let workspace = getAccessibleWorkspace(req);
   if (!workspace) {
-    workspace = ensureOwnerWorkspace({
-      userId,
-      email,
-      name: req.query.name || 'Build Profit Workspace',
-    });
+    const invited = findInvitedWorkspaceForUser(userId, email);
+    if (invited) {
+      workspace = getAccessibleWorkspace(req) || invited;
+    } else {
+      workspace = ensureOwnerWorkspace({
+        userId,
+        email,
+        name: req.query.name || 'Build Profit Workspace',
+      });
+    }
   }
   res.json({ success: true, data: workspace });
 });
@@ -160,11 +172,16 @@ router.post('/me', authenticateToken, async (req, res) => {
   acceptWorkspaceInvitesForUser({ userId, email });
   let workspace = getAccessibleWorkspace(req);
   if (!workspace) {
-    workspace = ensureOwnerWorkspace({
-      userId,
-      email,
-      name: req.body?.name || 'Build Profit Workspace',
-    });
+    const invited = findInvitedWorkspaceForUser(userId, email);
+    if (invited) {
+      workspace = getAccessibleWorkspace(req) || invited;
+    } else {
+      workspace = ensureOwnerWorkspace({
+        userId,
+        email,
+        name: req.body?.name || 'Build Profit Workspace',
+      });
+    }
   }
   res.status(201).json({ success: true, data: workspace });
 });

@@ -151,6 +151,11 @@ class BusinessWorkspaceService {
   }
 
   async ensureWorkspace(ownerName?: string) {
+    await this.acceptPendingInvites().catch(() => null);
+    const access = await this.getWorkspaceAccess();
+    if (access.success && access.data?.hasWorkspaceAccess && !access.data.isOwner) {
+      return { success: true, data: access.data };
+    }
     const query = ownerName?.trim()
       ? `?name=${encodeURIComponent(ownerName.trim())}`
       : '';

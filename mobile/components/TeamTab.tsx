@@ -2012,6 +2012,9 @@ const AddMemberModal = ({ onClose, onAdd, availableProjects }: {
 
                   <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
                     <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Workspace access</Text>
+                    <Text style={[styles.addMemberHelperText, { color: supportSub }]}>
+                      Access role controls permissions. Job title and skill tags are labels only.
+                    </Text>
                     <View style={styles.addMemberChipWrap}>
                       {accessRoles.map((r) =>
                         accessRole === r ? (
@@ -2256,6 +2259,9 @@ const AddMemberModal = ({ onClose, onAdd, availableProjects }: {
 
             <View style={[styles.addMemberField, styles.addMemberRoleBlock]}>
               <Text style={[styles.addMemberLabel, { color: Colors.text }]}>Workspace access</Text>
+              <Text style={[styles.addMemberHelperText, { color: supportSub }]}>
+                Access role controls permissions. Job title and skill tags are labels only.
+              </Text>
               <View style={styles.addMemberChipWrap}>
                 {accessRoles.map((r) =>
                   accessRole === r ? (

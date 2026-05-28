@@ -746,6 +746,10 @@ const ProjectListProviderCore = ({
     storageKeyRef.current = resolveListStorageKey();
   }, [resolveListStorageKey]);
 
+  useEffect(() => {
+    workspaceMemberModeRef.current = false;
+  }, [accountUserId]);
+
   // Load when account identity is known (or legacy signed-out mode).
   useEffect(() => {
     if (!accountReady) return;

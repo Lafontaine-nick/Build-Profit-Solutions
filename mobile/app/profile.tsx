@@ -48,6 +48,7 @@ import Slider from '@react-native-community/slider';
 import { useApi } from '@/contexts/ApiContext';
 import { useProjectList } from '@/contexts/ProjectListContext';
 import { resetBusinessEntitlementCache } from '@/utils/businessEntitlementCache';
+import { clearWorkspaceAccessSnapshot } from '@/utils/workspaceAccessCache';
 import { invalidateWorkspaceTimelineProgressCache } from '@/utils/workspaceTimelineProgress';
 import { useRequireAuth } from '@/hooks/useRequireAuth';
 import { useRestrictedWorkspaceFinancials } from '@/hooks/useRestrictedWorkspaceFinancials';
@@ -1434,6 +1435,7 @@ export default function ProfileScreen() {
       }
 
       resetBusinessEntitlementCache();
+      await clearWorkspaceAccessSnapshot().catch(() => null);
       invalidateWorkspaceTimelineProgressCache();
 
       const authKeysToRemove = [
