@@ -44,6 +44,10 @@ import { useProjectList } from "@/contexts/ProjectListContext";
 import { syncClerkTokenToAsyncStorage } from "@/utils/authTokenHelper";
 import { setBusinessEntitlementSnapshot } from "@/utils/businessEntitlementCache";
 import {
+  fetchWorkspaceBootstrap,
+  invalidateWorkspaceBootstrapCache,
+} from "@/utils/workspaceBootstrapCache";
+import {
   normalizeWorkspaceRole,
   workspacePermissionSummary,
 } from "@/utils/workspacePermissions";
@@ -2989,8 +2993,10 @@ export default function TeamTab({
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
 
-      await businessWorkspaceService.acceptPendingInvites().catch(() => null);
-      const access = await businessWorkspaceService.getWorkspaceAccess().catch(() => null);
+      const bootstrap = await fetchWorkspaceBootstrap().catch(() => null);
+      const access = bootstrap?.access
+        ? { success: true as const, data: bootstrap.access }
+        : await businessWorkspaceService.getWorkspaceAccess().catch(() => null);
       const workspaceId = access?.data?.workspaceId || null;
       if (workspaceId) {
         setActiveWorkspaceId(workspaceId);
@@ -3027,7 +3033,42 @@ export default function TeamTab({
 
       if (access?.data?.isOwner) {
         await businessWorkspaceService.ensureWorkspace(ownerDisplayName);
+        invalidateWorkspaceBootstrapCache();
         void refreshProjects();
+      }
+
+      if (bootstrap?.members && access?.data?.hasWorkspaceAccess) {
+        let workspaceMembers = bootstrap.members;
+        if (workspaceMembers.length === 0 && access?.data?.hasWorkspaceAccess) {
+          const fallbackMembers = teamRowsFromWorkspaceAccess(access.data);
+          if (await applyTeamRows(fallbackMembers, workspaceId)) {
+            return true;
+          }
+        }
+
+        const ownerInRoster = workspaceMembers.some(
+          (member) =>
+            member.role === "owner" &&
+            String(member.email || "").trim().toLowerCase() === clerkEmail
+        );
+        if (ownerInRoster) {
+          setCanManageWorkspace(true);
+          setWorkspaceRole("owner");
+        }
+        setSeatLimit(bootstrap.seatLimit || 5);
+        setSeatsUsed(
+          typeof bootstrap.seatsUsed === "number"
+            ? bootstrap.seatsUsed
+            : countTeamSeatsUsed(workspaceMembers.map(memberFromWorkspace))
+        );
+        setWorkspaceMemberIds(new Set(workspaceMembers.map((member) => member.id)));
+        setTeam(workspaceMembers.map(memberFromWorkspace));
+        setWorkspaceRosterLoaded(true);
+        await AsyncStorage.setItem(
+          rosterStorageKey,
+          JSON.stringify(workspaceMembers.map(memberFromWorkspace))
+        );
+        return true;
       }
 
       const roster = await businessWorkspaceService.getWorkspaceMembers();
@@ -3424,6 +3465,7 @@ export default function TeamTab({
         Alert.alert("Could not update member", result.error || "Try again.");
         return;
       }
+      invalidateWorkspaceBootstrapCache();
       await loadWorkspaceRoster();
     }
 
@@ -3458,6 +3500,7 @@ export default function TeamTab({
       return;
     }
 
+    invalidateWorkspaceBootstrapCache();
     await loadWorkspaceRoster();
 
     setShowAddModal(false);
@@ -3526,6 +3569,7 @@ export default function TeamTab({
         next.delete(id);
         return next;
       });
+      invalidateWorkspaceBootstrapCache();
       await loadWorkspaceRoster();
       setEditingMember(null);
       if (member && updateTeam) {

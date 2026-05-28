@@ -9,6 +9,7 @@ import businessWorkspaceService, {
 import { setBusinessEntitlementSnapshot } from '@/utils/businessEntitlementCache';
 import { persistWorkspaceAccessSnapshot } from '@/utils/workspaceAccessCache';
 import { syncClerkTokenToAsyncStorage } from '@/utils/authTokenHelper';
+import { fetchWorkspaceBootstrap } from '@/utils/workspaceBootstrapCache';
 import {
   normalizeSubscriptionPlanId,
   resolveBestPlanIdFromSubscriptions,
@@ -108,12 +109,10 @@ export function useBusinessEntitlement(): EntitlementState {
         }
       }
 
-      await businessWorkspaceService.acceptPendingInvites().catch(() => null);
-
-      // Workspace access is independent of Stripe — invited members have no plan but need Team tab.
-      const workspaceResponse = await businessWorkspaceService
-        .getWorkspaceAccess()
-        .catch(() => null);
+      const bootstrap = await fetchWorkspaceBootstrap().catch(() => null);
+      const workspaceResponse = bootstrap?.access
+        ? { success: true as const, data: bootstrap.access }
+        : await businessWorkspaceService.getWorkspaceAccess().catch(() => null);
 
       if (workspaceResponse?.success && workspaceResponse.data) {
         setWorkspaceAccess(workspaceResponse.data);

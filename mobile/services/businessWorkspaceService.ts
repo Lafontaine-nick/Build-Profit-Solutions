@@ -52,6 +52,14 @@ export type BusinessWorkspaceAccess = {
   member: BusinessWorkspaceMember | null;
 };
 
+export type WorkspaceBootstrapPayload = {
+  access: BusinessWorkspaceAccess;
+  members?: BusinessWorkspaceMember[];
+  seatLimit?: number;
+  seatsUsed?: number;
+  projects?: Record<string, unknown>[];
+};
+
 type ApiResponse<T> = {
   success: boolean;
   data?: T;
@@ -150,6 +158,10 @@ class BusinessWorkspaceService {
     return request<BusinessWorkspaceAccess>('/workspaces/access');
   }
 
+  async getWorkspaceBootstrap() {
+    return request<WorkspaceBootstrapPayload>('/workspaces/bootstrap');
+  }
+
   async ensureWorkspace(ownerName?: string) {
     await this.acceptPendingInvites().catch(() => null);
     const access = await this.getWorkspaceAccess();
@@ -159,7 +171,8 @@ class BusinessWorkspaceService {
     const query = ownerName?.trim()
       ? `?name=${encodeURIComponent(ownerName.trim())}`
       : '';
-    return request<any>(`/workspaces/me${query}`);
+    const result = await request<any>(`/workspaces/me${query}`);
+    return result;
   }
 
   async acceptPendingInvites() {

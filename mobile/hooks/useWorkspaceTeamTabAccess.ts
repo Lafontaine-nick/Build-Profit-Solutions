@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth, useUser } from '@clerk/clerk-react';
 import businessWorkspaceService from '@/services/businessWorkspaceService';
 import { syncClerkTokenToAsyncStorage } from '@/utils/authTokenHelper';
+import { fetchWorkspaceBootstrap } from '@/utils/workspaceBootstrapCache';
 import { setBusinessEntitlementSnapshot } from '@/utils/businessEntitlementCache';
 
 const WORKSPACE_ACCESS_CACHE_KEY = 'bps.cachedWorkspaceAccess';
@@ -49,9 +50,10 @@ export function useWorkspaceTeamTabAccess(active: boolean): WorkspaceTeamTabAcce
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
-    await businessWorkspaceService.acceptPendingInvites().catch(() => null);
-
-    const response = await businessWorkspaceService.getWorkspaceAccess().catch(() => null);
+    const bootstrap = await fetchWorkspaceBootstrap().catch(() => null);
+    const response = bootstrap?.access
+      ? { success: true as const, data: bootstrap.access }
+      : await businessWorkspaceService.getWorkspaceAccess().catch(() => null);
 
     if (response?.success && response.data) {
       const hasAccess = Boolean(response.data.hasWorkspaceAccess);

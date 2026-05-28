@@ -20,6 +20,10 @@ import {
   setActiveProjectUserId,
 } from '../lib/projectListCache';
 import businessWorkspaceService from '../services/businessWorkspaceService';
+import {
+  fetchWorkspaceBootstrap,
+  invalidateWorkspaceBootstrapCache,
+} from '../utils/workspaceBootstrapCache';
 import { useClerkUiEnabled } from './ClerkUiContext';
 import {
   useClerkAccountUserId,
@@ -565,8 +569,8 @@ const listBackendProjects = async (): Promise<any[]> => {
 };
 
 const listWorkspaceSharedProjects = async (): Promise<any[] | null> => {
-  const access = await businessWorkspaceService.getWorkspaceAccess();
-  const wsAccess = access.success ? access.data : null;
+  const bootstrap = await fetchWorkspaceBootstrap();
+  const wsAccess = bootstrap?.access ?? null;
   if (
     !wsAccess?.hasWorkspaceAccess ||
     !wsAccess.workspaceId ||
@@ -575,12 +579,15 @@ const listWorkspaceSharedProjects = async (): Promise<any[] | null> => {
     return null;
   }
 
+  if (Array.isArray(bootstrap?.projects)) {
+    return bootstrap.projects;
+  }
+
   const response = await businessWorkspaceService.getWorkspaceProjects();
   if (!response.success) {
     throw new Error(response.error || 'Failed to load workspace projects');
   }
-  const rows = Array.isArray(response.data) ? response.data : [];
-  return rows;
+  return Array.isArray(response.data) ? response.data : [];
 };
 
 const hydrateProjectsList = async (
@@ -732,6 +739,8 @@ const ProjectListProviderCore = ({
   const storageKeyRef = useRef(UNIFIED_PROJECTS_STORAGE_KEY);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const workspaceMemberModeRef = useRef(false);
+  const lastProjectsRefreshAtRef = useRef(0);
+  const PROJECTS_REFRESH_DEBOUNCE_MS = 5000;
 
   const resolveListStorageKey = useCallback(
     () => getUnifiedProjectsStorageKey(accountUserId),
@@ -780,9 +789,8 @@ const ProjectListProviderCore = ({
 
   const loadProjects = async () => {
     try {
-      await businessWorkspaceService.acceptPendingInvites().catch(() => {});
-      const access = await businessWorkspaceService.getWorkspaceAccess();
-      const wsAccess = access.success ? access.data : null;
+      const bootstrap = await fetchWorkspaceBootstrap();
+      const wsAccess = bootstrap?.access ?? null;
       if (wsAccess?.hasWorkspaceAccess) {
         await persistWorkspaceAccessGranted();
       }
@@ -806,7 +814,9 @@ const ProjectListProviderCore = ({
           }
         }
 
-        const sharedRows = await listWorkspaceSharedProjects();
+        const sharedRows = Array.isArray(bootstrap?.projects)
+          ? bootstrap.projects
+          : await listWorkspaceSharedProjects();
         const fromWorkspace = (sharedRows || []).map(mapBackendProjectToUnified);
         const merged = mergeLocalAndBackend(localParsed, fromWorkspace);
         const normalized = await hydrateProjectsList(merged);
@@ -815,6 +825,7 @@ const ProjectListProviderCore = ({
         await AsyncStorage.setItem(listKey, JSON.stringify(normalized));
         setIsHydrated(true);
         setHasLoadedOnce(true);
+        lastProjectsRefreshAtRef.current = Date.now();
         if (__DEV__) {
           console.log(`✅ Loaded ${normalized.length} workspace projects for member`);
         }
@@ -953,6 +964,7 @@ const ProjectListProviderCore = ({
   const clearProjectsLocal = async () => {
     setProjects([]);
     workspaceMemberModeRef.current = false;
+    invalidateWorkspaceBootstrapCache();
     try {
       const keys = await AsyncStorage.getAllKeys();
       const projectKeys = keys.filter(
@@ -1387,6 +1399,13 @@ const ProjectListProviderCore = ({
 
   const refreshProjects = async () => {
     const now = Date.now();
+    if (
+      hasLoadedOnce &&
+      now - lastProjectsRefreshAtRef.current < PROJECTS_REFRESH_DEBOUNCE_MS
+    ) {
+      await rehydrateProjectsFromStorage();
+      return;
+    }
     if (now < projectsRefreshCooldownUntilRef.current) {
       if (__DEV__) {
         console.warn(
@@ -1397,9 +1416,8 @@ const ProjectListProviderCore = ({
       return;
     }
     try {
-      await businessWorkspaceService.acceptPendingInvites().catch(() => {});
-      const access = await businessWorkspaceService.getWorkspaceAccess();
-      const wsAccess = access.success ? access.data : null;
+      const bootstrap = await fetchWorkspaceBootstrap();
+      const wsAccess = bootstrap?.access ?? null;
       if (wsAccess?.hasWorkspaceAccess) {
         await persistWorkspaceAccessGranted();
       }
@@ -1424,7 +1442,9 @@ const ProjectListProviderCore = ({
           }
         }
 
-        const sharedRows = await listWorkspaceSharedProjects();
+        const sharedRows = Array.isArray(bootstrap?.projects)
+          ? bootstrap.projects
+          : await listWorkspaceSharedProjects();
         const fromWorkspace = (sharedRows || []).map(mapBackendProjectToUnified);
         const merged = mergeLocalAndBackend(localBase, fromWorkspace);
         const normalized = await hydrateProjectsList(merged);
@@ -1434,6 +1454,7 @@ const ProjectListProviderCore = ({
         setIsHydrated(true);
         setHasLoadedOnce(true);
         projectsRefreshCooldownUntilRef.current = 0;
+        lastProjectsRefreshAtRef.current = Date.now();
         return;
       }
 
@@ -1479,6 +1500,7 @@ const ProjectListProviderCore = ({
       setIsHydrated(true);
       setHasLoadedOnce(true);
       projectsRefreshCooldownUntilRef.current = 0;
+      lastProjectsRefreshAtRef.current = Date.now();
     } catch (e) {
       const status = (e as { status?: number })?.status;
       if (status === 429) {

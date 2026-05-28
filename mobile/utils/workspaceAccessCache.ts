@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { BusinessWorkspaceAccess } from '@/services/businessWorkspaceService';
+import { invalidateWorkspaceBootstrapCache } from '@/utils/workspaceBootstrapCache';
 
 const WORKSPACE_ACCESS_SNAPSHOT_KEY = 'bps.cachedWorkspaceAccessSnapshot';
 
@@ -34,4 +35,5 @@ export async function clearWorkspaceAccessSnapshot(): Promise<void> {
   } catch {
     /* ignore */
   }
+  invalidateWorkspaceBootstrapCache();
 }

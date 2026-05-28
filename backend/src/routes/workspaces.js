@@ -83,10 +83,13 @@ function requireActiveMember(req, res, workspace) {
   return member;
 }
 
-router.get('/access', authenticateToken, async (req, res) => {
-  const { userId, email } = currentUser(req);
-  acceptWorkspaceInvitesForUser({ userId, email });
+function normalizePendingMemberEmail(member, email) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  return normalizedEmail && String(member?.email || '').trim().toLowerCase() === normalizedEmail;
+}
 
+function buildWorkspaceAccessPayload(req) {
+  const { userId, email } = currentUser(req);
   const workspace = getAccessibleWorkspace(req);
   const member = workspace
     ? getActiveWorkspaceMember(workspace, { userId, email }) ||
@@ -95,39 +98,66 @@ router.get('/access', authenticateToken, async (req, res) => {
       )
     : null;
   const isActive = member?.status === 'active';
-
   const isOwner = Boolean(
     workspace &&
       (workspace.ownerUserId === userId ||
         (member?.role === 'owner' && member?.status === 'active'))
   );
-
   const ownerMember = workspace
     ? (workspace.members || []).find(
-        (row) =>
-          row.role === 'owner' || row.userId === workspace.ownerUserId
+        (row) => row.role === 'owner' || row.userId === workspace.ownerUserId
       ) || null
     : null;
 
+  return {
+    hasWorkspaceAccess: Boolean(workspace && member && isActive),
+    workspaceId: workspace?.id || null,
+    ownerUserId: workspace?.ownerUserId || null,
+    ownerMember,
+    role: member?.role || null,
+    status: member?.status || null,
+    isOwner,
+    member: member || null,
+  };
+}
+
+router.get('/access', authenticateToken, async (req, res) => {
+  const { userId, email } = currentUser(req);
+  acceptWorkspaceInvitesForUser({ userId, email });
+
   res.json({
     success: true,
-    data: {
-      hasWorkspaceAccess: Boolean(workspace && member && isActive),
-      workspaceId: workspace?.id || null,
-      ownerUserId: workspace?.ownerUserId || null,
-      ownerMember,
-      role: member?.role || null,
-      status: member?.status || null,
-      isOwner,
-      member: member || null,
-    },
+    data: buildWorkspaceAccessPayload(req),
   });
 });
 
-function normalizePendingMemberEmail(member, email) {
-  const normalizedEmail = String(email || '').trim().toLowerCase();
-  return normalizedEmail && String(member?.email || '').trim().toLowerCase() === normalizedEmail;
-}
+/** Single round-trip: accept invites, access snapshot, roster, and member project list. */
+router.get('/bootstrap', authenticateToken, async (req, res) => {
+  const { userId, email } = currentUser(req);
+  acceptWorkspaceInvitesForUser({ userId, email });
+
+  const access = buildWorkspaceAccessPayload(req);
+  const data = { access };
+
+  if (!access.hasWorkspaceAccess || !access.workspaceId) {
+    return res.json({ success: true, data });
+  }
+
+  const workspace = getAccessibleWorkspace(req);
+  const member = requireActiveMember(req, res, workspace);
+  if (!member) return;
+
+  const members = listWorkspaceMembers(workspace.id);
+  data.members = members;
+  data.seatLimit = workspace.seatLimit || 5;
+  data.seatsUsed = countBillableSeats(members);
+
+  if (!access.isOwner) {
+    data.projects = listWorkspaceProjectsForMember(workspace, member);
+  }
+
+  res.json({ success: true, data });
+});
 
 function sanitizeSharedResourcePayload(resourceType, payload, member) {
   if (member?.role === 'owner') return payload;
