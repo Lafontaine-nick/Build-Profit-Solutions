@@ -25,6 +25,8 @@ const SUBSCRIPTION_FETCH_TIMEOUT_MS = 60000;
 const SUBSCRIPTION_READ_TIMEOUT_MS = 12000;
 /** Customer + checkout-session are two sequential fetches — abort if either hangs (wrong API URL / offline). */
 const CHECKOUT_FETCH_TIMEOUT_MS = 60000;
+/** Plan change is a single POST — fail fast enough to retry alternate backend. */
+const CHANGE_PLAN_TIMEOUT_MS = 30000;
 const RENDER_API_BASE = 'https://build-profit-solutions-backend.onrender.com/api';
 
 /** Invalid legacy/env Business price on Render — live Stripe price that works for checkout/upgrades. */
@@ -218,13 +220,9 @@ class StripeService {
     return [primaryBase];
   }
 
-  /** Plan changes: local dev backend first (change-plan may not be on Render yet), then hosted. */
+  /** Plan changes hit production Stripe — prefer hosted API on LAN dev (same as checkout). */
   private getChangePlanBillingBases(): string[] {
-    const primaryBase = this.baseUrl.replace(/\/$/, '');
-    if (isPrivateOrLocalApiUrl(primaryBase)) {
-      return [primaryBase, RENDER_API_BASE];
-    }
-    return [primaryBase];
+    return this.getHostedFirstBillingBases();
   }
 
   async changeSubscriptionPlan(
@@ -268,7 +266,7 @@ class StripeService {
         { email, priceId: livePriceId },
         token,
         'Subscription plan change',
-        CHECKOUT_FETCH_TIMEOUT_MS,
+        CHANGE_PLAN_TIMEOUT_MS,
         this.getChangePlanBillingBases(),
         true,
       );

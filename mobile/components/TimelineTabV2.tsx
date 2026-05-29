@@ -827,7 +827,6 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
   
   useEffect(() => {
     if (!project?.id) return;
-    if (isLoadingRef.current) return;
     if (isUpdatingRef.current) return;
 
     const paymentMilestones = collectPaymentMilestones();
@@ -840,6 +839,9 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
 
     // Allow reload if trigger changed (for payment collection updates)
     if (!isNewProject && !estimateDataChanged && reloadTrigger === 0) return;
+    if (isLoadingRef.current && !isNewProject && reloadTrigger === 0) return;
+
+    let cancelled = false;
 
     const loadMilestones = async () => {
       isLoadingRef.current = true;
@@ -849,7 +851,11 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
       try {
         const key = getStorageKey(project.id);
         const saved = await AsyncStorage.getItem(key);
-        const sharedResult = await businessWorkspaceService.getProjectResources(project.id).catch(() => null);
+        const sharedResult = await Promise.race([
+          businessWorkspaceService.getProjectResources(project.id).catch(() => null),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
+        ]);
+        if (cancelled) return;
         const sharedResource = sharedResult?.success ? sharedResult.data?.resources?.timeline : undefined;
         const sharedTimeline = Array.isArray(sharedResource?.payload)
           ? (sharedResource.payload as Milestone[])
@@ -906,14 +912,18 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
           setMilestones(paymentMilestones?.length ? convertPaymentMilestonesToTimeline(paymentMilestones) : []);
         }
       } catch {
-        setMilestones([]);
+        if (!cancelled) setMilestones([]);
       } finally {
-        setIsLoaded(true);
+        if (!cancelled) setIsLoaded(true);
         isLoadingRef.current = false;
       }
     };
 
     loadMilestones();
+    return () => {
+      cancelled = true;
+      isLoadingRef.current = false;
+    };
   }, [project?.id, projectFromList?.estimateData, (project as any)?.estimateData, collectPaymentMilestones, reloadTrigger]);
   
   // Reload timeline when tab is focused to catch payment collection updates

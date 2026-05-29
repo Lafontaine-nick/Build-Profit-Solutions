@@ -50,3 +50,10 @@ export const estimateStep12NumericKeyboardProps = {
   textContentType: 'none' as const,
   autoComplete: 'off' as const,
 };
+
+/** Estimates Add Labor / Add Materials full-screen modal — pair with `KeyboardPlainAccessory` inside `LineItemModal`. */
+export const lineItemModalNumericKeyboardProps = {
+  inputAccessoryViewID: iosAccessoryId(KEYBOARD_ACCESSORY_IDS.lineItemModalPlain),
+  textContentType: 'none' as const,
+  autoComplete: 'off' as const,
+};

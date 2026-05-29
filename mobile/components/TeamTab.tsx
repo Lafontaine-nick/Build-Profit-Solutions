@@ -31,6 +31,8 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
 import { KEYBOARD_SCROLL_DEFAULTS } from "@/constants/keyboardScrollProps";
 import { useProjectData } from "@/contexts/ProjectDataContext";
+import { useRouter } from "expo-router";
+import BusinessTeamLock from "@/components/BusinessTeamLock";
 import GradientRingBackInner from "@/components/GradientRingBackInner";
 import { useUser, useAuth } from "@clerk/clerk-react";
 import {
@@ -43,6 +45,7 @@ import { useBusinessEntitlement } from "@/hooks/useBusinessEntitlement";
 import { useProjectList } from "@/contexts/ProjectListContext";
 import { syncClerkTokenToAsyncStorage } from "@/utils/authTokenHelper";
 import { setBusinessEntitlementSnapshot } from "@/utils/businessEntitlementCache";
+import { clearWorkspaceAccessSnapshot } from "@/utils/workspaceAccessCache";
 import {
   fetchWorkspaceBootstrap,
   invalidateWorkspaceBootstrapCache,
@@ -2919,12 +2922,16 @@ export default function TeamTab({
   const Colors = useMemo(() => getColors(theme), [theme]);
   const darkMode = theme.bg === '#000000';
   const { projectData, updateTeam } = useProjectData();
+  const router = useRouter();
   const { user: clerkUser } = useUser();
   const { getToken } = useAuth();
   const {
     workspaceAccess,
     refresh: refreshWorkspaceEntitlement,
     initialized: entitlementInitialized,
+    hasBusiness,
+    currentPlanId,
+    loading: entitlementLoading,
   } = useBusinessEntitlement();
   const { refreshProjects, activeProjects } = useProjectList();
   const ownerDisplayName =
@@ -3026,13 +3033,23 @@ export default function TeamTab({
         setWorkspaceRole((access.data.role as AccessRole) || null);
 
         if (access.data.hasWorkspaceAccess) {
-          await persistWorkspaceAccessSnapshot(access.data);
-          await AsyncStorage.setItem("bps.cachedWorkspaceAccess", "1");
-          setCachedAccessSnapshot(access.data);
-          setBusinessEntitlementSnapshot({
-            hasBusiness: false,
-            hasWorkspaceAccess: true,
-          });
+          const ownerWithoutBusiness = Boolean(access.data.isOwner) && !hasBusiness;
+          if (ownerWithoutBusiness) {
+            await clearWorkspaceAccessSnapshot();
+            setCachedAccessSnapshot(null);
+            setBusinessEntitlementSnapshot({
+              hasBusiness: false,
+              hasWorkspaceAccess: false,
+            });
+          } else {
+            await persistWorkspaceAccessSnapshot(access.data);
+            await AsyncStorage.setItem("bps.cachedWorkspaceAccess", "1");
+            setCachedAccessSnapshot(access.data);
+            setBusinessEntitlementSnapshot({
+              hasBusiness: hasBusiness || Boolean(access.data.isOwner),
+              hasWorkspaceAccess: true,
+            });
+          }
           try {
             const legacyRaw = await AsyncStorage.getItem(TEAM_STORAGE_KEY);
             if (legacyRaw) {
@@ -3231,7 +3248,7 @@ export default function TeamTab({
       }
     };
     loadTeam();
-  }, [refreshTrigger, clerkUser?.id, entitlementInitialized]);
+  }, [refreshTrigger, clerkUser?.id, entitlementInitialized, hasBusiness]);
 
   useEffect(() => {
     void readWorkspaceAccessSnapshot().then((snapshot) => {
@@ -3383,13 +3400,16 @@ export default function TeamTab({
   }, [team, effectiveWorkspaceAccess, clerkUser]);
 
   const resolvedCanManageWorkspace = useMemo(() => {
+    if (!hasBusiness && Boolean(effectiveWorkspaceAccess?.isOwner)) {
+      return false;
+    }
     if (effectiveWorkspaceAccess?.hasWorkspaceAccess) {
       return Boolean(
         effectiveWorkspaceAccess.isOwner || effectiveWorkspaceAccess.role === "owner"
       );
     }
     return canManageWorkspace;
-  }, [canManageWorkspace, effectiveWorkspaceAccess]);
+  }, [canManageWorkspace, effectiveWorkspaceAccess, hasBusiness]);
 
   const ownerMember = useMemo(() => {
     const fromTeam = effectiveTeam.find((member) => member.accessRole === "owner");
@@ -3399,6 +3419,22 @@ export default function TeamTab({
     }
     return null;
   }, [effectiveTeam, effectiveWorkspaceAccess]);
+
+  const isWorkspaceOwner = useMemo(
+    () =>
+      Boolean(
+        effectiveWorkspaceAccess?.isOwner ||
+          workspaceRole === "owner" ||
+          ownerMember?.accessRole === "owner"
+      ),
+    [effectiveWorkspaceAccess?.isOwner, workspaceRole, ownerMember?.accessRole]
+  );
+
+  const showBusinessTeamLock =
+    entitlementInitialized &&
+    isWorkspaceOwner &&
+    !hasBusiness &&
+    !entitlementLoading;
 
   const selfMember = useMemo(() => {
     const email =
@@ -3691,6 +3727,25 @@ export default function TeamTab({
 
   return (
     <View style={[styles.screen, embedded && styles.screenEmbedded, { backgroundColor: Colors.bg }]}>
+      {showBusinessTeamLock ? (
+        <View
+          style={[
+            styles.outerCard,
+            styles.teamContainerWide,
+            embedded && styles.teamContainerEmbedded,
+            !darkMode && { backgroundColor: Colors.bg },
+          ]}
+        >
+          <BusinessTeamLock
+            loading={entitlementLoading}
+            currentPlanId={currentPlanId}
+            onUpgrade={() => router.push('/payment/plans')}
+            onRefresh={() => {
+              void refreshWorkspaceEntitlement();
+            }}
+          />
+        </View>
+      ) : (
       <View
         style={[
           styles.outerCard,
@@ -4012,6 +4067,7 @@ export default function TeamTab({
           </LinearGradient>
         </View>
       </View>
+      )}
 
 
       {/* Modals */}

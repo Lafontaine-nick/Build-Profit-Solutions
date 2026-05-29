@@ -21,6 +21,7 @@ import {
   AppState,
   BackHandler,
   useWindowDimensions,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -37,6 +38,17 @@ import ProductScannerModal from '../../components/ProductScannerModal';
 import ProductFoundSheet from '../../components/ProductFoundSheet';
 import SavedMaterialsScreen from '../../components/SavedMaterialsScreen';
 import SubcontractorSearchModal from '../../components/SubcontractorSearchModal';
+import EstimateCustomerPickerModal from '../../components/estimate/EstimateCustomerPickerModal';
+import {
+  collectSavedEstimateCustomers,
+  enrichSavedCustomerFromSources,
+  filterHiddenSavedCustomers,
+  loadHiddenSavedCustomerKeys,
+  loadSavedEstimateCustomers,
+  mergeSavedCustomersForPicker,
+  removeSavedCustomerFromPicker,
+  upsertSavedCustomerFromBid,
+} from '../../utils/estimateSavedCustomers';
 import { MessagesInbox } from '../../components/MessagesInbox';
 import AIBidOptimization from '../../components/AIBidOptimization';
 import ProjectAnalysis from '../../components/ProjectAnalysis';
@@ -45,7 +57,7 @@ import AppTextField from '@/components/ui/AppTextField';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
 import KeyboardPlainAccessory from '@/components/ui/KeyboardPlainAccessory';
 import { KEYBOARD_ACCESSORY_IDS } from '@/constants/keyboard';
-import { estimateStep12NumericKeyboardProps } from '@/constants/inputKeyboardPresets';
+import { estimateStep12NumericKeyboardProps, lineItemModalNumericKeyboardProps } from '@/constants/inputKeyboardPresets';
 import GradientRingBackInner from '../../components/GradientRingBackInner';
 import {
   centsDigitsToNumber,
@@ -1972,9 +1984,26 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
   }, [item, isMaterialForm, laborMode, visible]);
   
   const handleSave = () => {
-    if (isMaterialForm && !String(vendor || '').trim()) {
-      Alert.alert('Vendor required', 'Please enter a vendor or supplier.');
-      return;
+    if (isMaterialForm) {
+      if (!String(name || '').trim()) {
+        Alert.alert('Material required', 'Please enter a material description.');
+        return;
+      }
+      const amount = Number(unitPrice) || 0;
+      if (mode === 'sqft') {
+        const sqft = Number(quantity) || 0;
+        if (sqft <= 0) {
+          Alert.alert('Square feet required', 'Please enter the square footage.');
+          return;
+        }
+        if (amount <= 0) {
+          Alert.alert('Rate required', 'Please enter the price per square foot.');
+          return;
+        }
+      } else if (amount <= 0) {
+        Alert.alert('Amount required', 'Please enter an amount.');
+        return;
+      }
     }
     if (isLaborForm && !String(name || '').trim()) {
       Alert.alert('Labor description required', 'Please enter a labor description.');
@@ -2073,6 +2102,10 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
         : {})}
       onRequestClose={onClose}
     >
+      <KeyboardPlainAccessory
+        nativeID={KEYBOARD_ACCESSORY_IDS.lineItemModalPlain}
+        backgroundColor={darkMode ? '#000000' : Colors.bg}
+      />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'android' ? 'padding' : undefined}
         enabled={Platform.OS === 'android'}
@@ -2354,8 +2387,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             value={String(hours)}
                             onChangeText={setHours}
                             keyboardType="phone-pad"
-                            textContentType="none"
-                            autoComplete="off"
+                            {...lineItemModalNumericKeyboardProps}
                             selectionColor="#22c55e"
                             underlineColorAndroid="transparent"
                           />
@@ -2378,8 +2410,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             onChangeText={(text) => setLaborRateDigits(formatDecimalMoneyDisplay(text))}
                             keyboardType="decimal-pad"
                             keyboardAppearance={darkMode ? 'dark' : 'light'}
-                            textContentType="none"
-                            autoComplete="off"
+                            {...lineItemModalNumericKeyboardProps}
                             autoCorrect={false}
                             spellCheck={false}
                             returnKeyType="done"
@@ -2443,7 +2474,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                       {/* Vendor — same scroll nudge + extra bottom pad as estimate step 1–2 text fields */}
                       <View ref={materialVendorBlockRef} collapsable={false}>
                         <View style={modalStyles.materialFieldGroup}>
-                          <Text style={modalStyles.materialLabel}>Vendor / Supplier *</Text>
+                          <Text style={modalStyles.materialLabel}>Vendor / Supplier (Optional)</Text>
                           <View style={modalStyles.materialInputWrapper}>
                             <Feather
                               name="store"
@@ -2577,8 +2608,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                     keyboardAppearance={
                                       darkMode ? 'dark' : 'light'
                                     }
-                                    textContentType="none"
-                                    autoComplete="off"
+                                    {...lineItemModalNumericKeyboardProps}
                                     autoCorrect={false}
                                     spellCheck={false}
                                     returnKeyType="done"
@@ -2632,8 +2662,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                     keyboardAppearance={
                                       darkMode ? 'dark' : 'light'
                                     }
-                                    textContentType="none"
-                                    autoComplete="off"
+                                    {...lineItemModalNumericKeyboardProps}
                                     autoCorrect={false}
                                     spellCheck={false}
                                     returnKeyType="done"
@@ -2704,8 +2733,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                                 keyboardAppearance={
                                   darkMode ? 'dark' : 'light'
                                 }
-                                textContentType="none"
-                                autoComplete="off"
+                                {...lineItemModalNumericKeyboardProps}
                                 autoCorrect={false}
                                 spellCheck={false}
                                 returnKeyType="done"
@@ -2911,8 +2939,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             value={String(hours)}
                             onChangeText={(text) => setHours(text)}
                             keyboardType="phone-pad"
-                            textContentType="none"
-                            autoComplete="off"
+                            {...lineItemModalNumericKeyboardProps}
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
@@ -2927,8 +2954,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             value={laborRateDigits}
                             onChangeText={(text) => setLaborRateDigits(formatDecimalMoneyDisplay(text))}
                             keyboardType="decimal-pad"
-                            textContentType="none"
-                            autoComplete="off"
+                            {...lineItemModalNumericKeyboardProps}
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
@@ -2955,6 +2981,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                               setQuantity(parseFloat(cleanText) || 0);
                             }}
                             keyboardType="phone-pad"
+                            {...lineItemModalNumericKeyboardProps}
                             returnKeyType="done"
                             onSubmitEditing={() => Keyboard.dismiss()}
                             blurOnSubmit={true}
@@ -2989,6 +3016,7 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
                             setUnitPrice(decimalMoneyInputToNumber(d));
                           }}
                           keyboardType="decimal-pad"
+                          {...lineItemModalNumericKeyboardProps}
                           returnKeyType="done"
                           onSubmitEditing={() => Keyboard.dismiss()}
                           blurOnSubmit={true}
@@ -3276,14 +3304,14 @@ function getEstimateSavedFinancialFields({ materials = 0, labor = 0, financials,
 
 const blankState = () => ({
   id: String(Date.now()),
-  title: 'Untitled Bid',
+  title: '',
   region: 'NV',
   template: '',
   projectType: 'kitchen',
   projectCategory: PROJECT_CATEGORY_SLUGS.kitchen,
   
   // Project Info
-  sqft: 1250,
+  sqft: 0,
   category: 'kitchen-remodel',
   desiredStartDate: '',
   budgetRange: '',
@@ -4995,6 +5023,12 @@ export default function EstimateGeneratorScreen() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(0);
   const [savedEstimates, setSavedEstimates] = useState([]);
+  const [showCustomerPicker, setShowCustomerPicker] = useState(false);
+  const [persistedSavedCustomers, setPersistedSavedCustomers] = useState([]);
+  const [hiddenSavedCustomerKeys, setHiddenSavedCustomerKeys] = useState({ ids: [], names: [] });
+  const [saveCustomerForFutureBids, setSaveCustomerForFutureBids] = useState(true);
+  const saveCustomerForFutureBidsRef = useRef(true);
+  const [customerFillToast, setCustomerFillToast] = useState({ visible: false, name: '' });
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const [isFirstTime, setIsFirstTime] = useState(false);
   const [hasReviewedMarkup, setHasReviewedMarkup] = useState(false);
@@ -5214,6 +5248,184 @@ export default function EstimateGeneratorScreen() {
       setLocalCustomerCompany(bid.customerCompany || '');
     }
   }, [isLoaded, bid.id]); // Only sync when bid ID changes (new bid loaded)
+
+  const savedCustomerSources = useMemo(
+    () => ({
+      savedEstimates,
+      projects: [...(activeProjects || []), ...(estimates || [])],
+    }),
+    [savedEstimates, activeProjects, estimates]
+  );
+
+  const savedCustomers = useMemo(
+    () => {
+      const derived = collectSavedEstimateCustomers({
+        ...savedCustomerSources,
+        excludeBidId: bid.id,
+      });
+      const merged = mergeSavedCustomersForPicker(persistedSavedCustomers, derived);
+      const enriched = merged.map((customer) =>
+        enrichSavedCustomerFromSources(customer, savedCustomerSources)
+      );
+      return filterHiddenSavedCustomers(enriched, hiddenSavedCustomerKeys);
+    },
+    [savedCustomerSources, bid.id, persistedSavedCustomers, hiddenSavedCustomerKeys]
+  );
+
+  useEffect(() => {
+    saveCustomerForFutureBidsRef.current = saveCustomerForFutureBids;
+  }, [saveCustomerForFutureBids]);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([loadSavedEstimateCustomers(), loadHiddenSavedCustomerKeys()])
+      .then(([customers, hidden]) => {
+        if (!cancelled) {
+          setPersistedSavedCustomers(customers);
+          setHiddenSavedCustomerKeys(hidden);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const persistCustomerFromBid = useCallback(async (bidSource) => {
+    if (!saveCustomerForFutureBidsRef.current) return;
+    const name = String(bidSource?.customerName || bidSource?.clientName || '').trim();
+    if (!name) return;
+    try {
+      const updated = await upsertSavedCustomerFromBid(bidSource, {
+        bidId: bidSource.id,
+        projectTitle: bidSource.title,
+      });
+      setPersistedSavedCustomers(updated);
+    } catch (e) {
+      console.warn('persistCustomerFromBid failed', e);
+    }
+  }, []);
+
+  const applySavedCustomer = useCallback((customer) => {
+    const enriched = enrichSavedCustomerFromSources(customer, savedCustomerSources);
+    const phone = enriched.phone ? formatPhoneNumber(String(enriched.phone)) : '';
+    const zip = enriched.zip ? formatZipInput(String(enriched.zip)) : '';
+    setLocalCustomerName(enriched.name || '');
+    setLocalCustomerEmail(enriched.email || '');
+    setLocalCustomerPhone(phone);
+    setLocalCustomerAddress(enriched.address || '');
+    setLocalCustomerCity(enriched.city || '');
+    setLocalCustomerState(enriched.state || '');
+    setLocalCustomerZip(zip);
+    setLocalCustomerCompany(enriched.company || '');
+    setBid((prev) => ({
+      ...prev,
+      customerName: enriched.name || '',
+      customerEmail: enriched.email || '',
+      customerPhone: phone,
+      customerAddress: enriched.address || '',
+      customerCity: enriched.city || '',
+      customerState: enriched.state || '',
+      customerZip: zip,
+      customerCompany: enriched.company || '',
+      customerNotes: enriched.notes || '',
+      clientName: enriched.name || '',
+      clientEmail: enriched.email || '',
+      clientPhone: phone,
+    }));
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+    setShowCustomerPicker(false);
+    setCustomerFillToast({
+      visible: true,
+      name: enriched.name || 'Customer',
+    });
+  }, [savedCustomerSources]);
+
+  const handleDeleteSavedCustomer = useCallback((customer) => {
+    Alert.alert(
+      'Remove saved customer?',
+      `"${customer.name}" will be removed from your saved list. Past bids are not deleted.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              try {
+                const result = await removeSavedCustomerFromPicker(customer);
+                setPersistedSavedCustomers(result.customers);
+                setHiddenSavedCustomerKeys(result.hidden);
+                if (Platform.OS !== 'web') {
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                }
+              } catch (e) {
+                console.warn('handleDeleteSavedCustomer failed', e);
+                Alert.alert('Error', 'Could not remove saved customer.');
+              }
+            })();
+          },
+        },
+      ]
+    );
+  }, []);
+
+  const hasStep1CustomerInfo = useMemo(
+    () =>
+      Boolean(
+        localCustomerName.trim() ||
+          localCustomerEmail.trim() ||
+          localCustomerPhone.trim() ||
+          localCustomerAddress.trim() ||
+          localCustomerCity.trim() ||
+          localCustomerState.trim() ||
+          localCustomerZip.trim() ||
+          localCustomerCompany.trim() ||
+          String(bid.customerNotes || '').trim()
+      ),
+    [
+      localCustomerName,
+      localCustomerEmail,
+      localCustomerPhone,
+      localCustomerAddress,
+      localCustomerCity,
+      localCustomerState,
+      localCustomerZip,
+      localCustomerCompany,
+      bid.customerNotes,
+    ]
+  );
+
+  const clearCustomerInfo = useCallback(() => {
+    setLocalCustomerName('');
+    setLocalCustomerEmail('');
+    setLocalCustomerPhone('');
+    setLocalCustomerAddress('');
+    setLocalCustomerCity('');
+    setLocalCustomerState('');
+    setLocalCustomerZip('');
+    setLocalCustomerCompany('');
+    setBid((prev) => ({
+      ...prev,
+      customerName: '',
+      customerEmail: '',
+      customerPhone: '',
+      customerAddress: '',
+      customerCity: '',
+      customerState: '',
+      customerZip: '',
+      customerCompany: '',
+      customerNotes: '',
+      clientName: '',
+      clientEmail: '',
+      clientPhone: '',
+    }));
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  }, []);
 
   // Check if user has any submitted estimates (either from flag or from estimates/projects list)
   const hasAnySubmittedEstimates = useMemo(() => {
@@ -6782,6 +6994,12 @@ export default function EstimateGeneratorScreen() {
             parsed.customerNotes = '';
             parsed.clientName = '';
             parsed.clientEmail = '';
+            if (!parsed.title || parsed.title === 'Untitled Bid') {
+              parsed.title = '';
+            }
+            if (Number(parsed.sqft) === 1250) {
+              parsed.sqft = 0;
+            }
           } else if (!isNewBid && (parsed.title === 'Untitled Bid' || !parsed.title || parsed.title === '')) {
             console.log('🔍 Current bid is blank, searching for Haim bid...');
             const possibleKeys = [
@@ -10387,6 +10605,8 @@ export default function EstimateGeneratorScreen() {
       console.log('🔍 Debug - estimate data to save:', estimateData);
       
       addEstimate(estimateData);
+
+      void persistCustomerFromBid(bid);
       
       Alert.alert(
         '✅ Estimate Saved!',
@@ -10458,6 +10678,8 @@ export default function EstimateGeneratorScreen() {
 
         console.log('🔍 Debug - submitting bid with data:', estimateData);
         await addEstimate(estimateData);
+
+        void persistCustomerFromBid(sourceBid);
 
         if (sourceBid.leadId && sourceBid.leadSource === 'qualified_lead') {
           try {
@@ -12130,9 +12352,71 @@ export default function EstimateGeneratorScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800' }}>Customer Information</Text>
-                  <Text style={{ color: Colors.sub, fontSize: 13, marginTop: 4 }}>Client contact details and preferences</Text>
+                  <Text style={{ color: Colors.sub, fontSize: 13, marginTop: 4 }}>Reuse contact info from previous bids</Text>
                 </View>
               </View>
+
+              <TouchableOpacity
+                activeOpacity={0.88}
+                onPress={() => {
+                  if (Platform.OS !== 'web') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }
+                  setShowCustomerPicker(true);
+                }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: 18,
+                  paddingVertical: 12,
+                  paddingHorizontal: 14,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: 'rgba(45, 255, 196, 0.28)',
+                  backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.08)' : 'rgba(34, 197, 94, 0.08)',
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                  <Ionicons name="people-outline" size={20} color="#22c55e" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>
+                      Saved Customers
+                    </Text>
+                    <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+                      {savedCustomers.length > 0
+                        ? `${savedCustomers.length} saved • tap to reuse contact info`
+                        : 'Reuse contact info from previous bids'}
+                    </Text>
+                  </View>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={Colors.sub} />
+              </TouchableOpacity>
+
+              {hasStep1CustomerInfo ? (
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={clearCustomerInfo}
+                  style={{
+                    alignSelf: 'flex-end',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                    marginBottom: 14,
+                    paddingVertical: 6,
+                    paddingHorizontal: 10,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: 'rgba(248, 113, 113, 0.35)',
+                    backgroundColor: 'rgba(248, 113, 113, 0.1)',
+                  }}
+                >
+                  <Ionicons name="close-circle-outline" size={15} color="#fca5a5" />
+                  <Text style={{ color: '#fca5a5', fontSize: 13, fontWeight: '700' }}>
+                    Clear customer info
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
 
               <View ref={customerNameBlockRef} collapsable={false}>
                 <AppTextField
@@ -12383,6 +12667,34 @@ export default function EstimateGeneratorScreen() {
                   }}
                 />
               </View>
+
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginTop: 4,
+                  paddingTop: 4,
+                }}
+              >
+                <View style={{ flex: 1, paddingRight: 12 }}>
+                  <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
+                    Save customer for future bids
+                  </Text>
+                  <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }}>
+                    Store contact info for quick reuse
+                  </Text>
+                </View>
+                <Switch
+                  value={saveCustomerForFutureBids}
+                  onValueChange={setSaveCustomerForFutureBids}
+                  trackColor={{
+                    false: darkMode ? '#334155' : '#cbd5e1',
+                    true: 'rgba(45, 255, 196, 0.45)',
+                  }}
+                  thumbColor={saveCustomerForFutureBids ? '#22c55e' : '#94a3b8'}
+                />
+              </View>
             </GlassBorderCard>
             </FirstEstimateWalkthroughHighlight>
           </View>
@@ -12447,7 +12759,7 @@ export default function EstimateGeneratorScreen() {
                   wrapperStyle={{ marginBottom: 16 }}
                   labelStyle={s.label}
                   shellStyle={estimateAccessoryShellStyle}
-                  placeholder="1250"
+                  placeholder="e.g., 1250"
                   placeholderTextColor={estimateStep12PlaceholderColor}
                   value={bid.sqft != null && bid.sqft !== 0 ? String(bid.sqft) : ''}
                   onChangeText={(text) => {
@@ -21672,6 +21984,14 @@ export default function EstimateGeneratorScreen() {
         onDismiss={() => setShowToast(false)}
         duration={6000}
       />
+
+      <BottomToast
+        visible={customerFillToast.visible}
+        message="Customer info filled"
+        subtitle={`${customerFillToast.name}'s contact details were added to this bid.`}
+        onDismiss={() => setCustomerFillToast({ visible: false, name: '' })}
+        duration={4000}
+      />
       
       {/* Modals */}
       <LineItemModal
@@ -21798,6 +22118,14 @@ export default function EstimateGeneratorScreen() {
         paymentLabel={bid.paymentScheduleVariant === 'custom' ? 'Custom Payment' : 'Weekly Payment'}
       />
       
+      <EstimateCustomerPickerModal
+        visible={showCustomerPicker}
+        customers={savedCustomers}
+        onClose={() => setShowCustomerPicker(false)}
+        onSelect={applySavedCustomer}
+        onDelete={handleDeleteSavedCustomer}
+      />
+
       {/* Recovery Modal - Full Page */}
       <Modal
         visible={showRecoveryModal}

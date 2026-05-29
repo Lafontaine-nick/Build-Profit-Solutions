@@ -48,6 +48,7 @@
     "production": {
       "ios": {
         "appleTeamId": "CSGZ33M63A",
+        "ascAppId": "6761603832",
         "bundleIdentifier": "com.buildprofitsolutions.mobile",
         "appName": "Build Profit Solutions"
       }

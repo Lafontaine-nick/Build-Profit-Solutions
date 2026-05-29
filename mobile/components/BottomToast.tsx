@@ -6,6 +6,7 @@ import * as Haptics from 'expo-haptics';
 interface BottomToastProps {
   visible: boolean;
   message: string;
+  subtitle?: string;
   actionLabel?: string;
   onAction?: () => void;
   onDismiss?: () => void;
@@ -15,6 +16,7 @@ interface BottomToastProps {
 export default function BottomToast({
   visible,
   message,
+  subtitle,
   actionLabel,
   onAction,
   onDismiss,
@@ -93,7 +95,10 @@ export default function BottomToast({
       ]}
     >
       <View style={styles.toast}>
-        <Text style={styles.message}>{message}</Text>
+        <View style={styles.messageWrap}>
+          <Text style={styles.message}>{message}</Text>
+          {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+        </View>
         {actionLabel && onAction && (
           <TouchableOpacity
             onPress={handleAction}
@@ -140,12 +145,21 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
   },
-  message: {
+  messageWrap: {
     flex: 1,
+    marginRight: 12,
+  },
+  message: {
     fontSize: 14,
     color: '#f9fafb',
+    fontWeight: '700',
+  },
+  subtitle: {
+    fontSize: 13,
+    color: 'rgba(249, 250, 251, 0.72)',
     fontWeight: '500',
-    marginRight: 12,
+    marginTop: 2,
+    lineHeight: 18,
   },
   actionButton: {
     flexDirection: 'row',

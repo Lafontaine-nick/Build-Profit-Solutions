@@ -194,15 +194,27 @@ export function useBusinessEntitlement(): EntitlementState {
     () => normalizeSubscriptionPlanId(currentPlanId) === 'business',
     [currentPlanId]
   );
-  const canUseBusinessWorkspace =
-    hasBusiness ||
-    hasWorkspaceAccess ||
-    Boolean(workspaceAccess?.hasWorkspaceAccess);
+  const isInvitedWorkspaceMember = useMemo(
+    () =>
+      Boolean(
+        workspaceAccess?.hasWorkspaceAccess &&
+          !workspaceAccess?.isOwner &&
+          workspaceAccess?.role !== 'owner'
+      ),
+    [workspaceAccess]
+  );
+  /** Owners need an active Business subscription; invited members use workspace membership. */
+  const canUseBusinessWorkspace = isInvitedWorkspaceMember
+    ? Boolean(workspaceAccess?.hasWorkspaceAccess || hasWorkspaceAccess)
+    : hasBusiness;
 
   useEffect(() => {
     if (loading) return;
-    setBusinessEntitlementSnapshot({ hasBusiness, hasWorkspaceAccess });
-  }, [hasBusiness, hasWorkspaceAccess, loading]);
+    setBusinessEntitlementSnapshot({
+      hasBusiness,
+      hasWorkspaceAccess: canUseBusinessWorkspace,
+    });
+  }, [hasBusiness, canUseBusinessWorkspace, loading]);
 
   return {
     hasBusiness,

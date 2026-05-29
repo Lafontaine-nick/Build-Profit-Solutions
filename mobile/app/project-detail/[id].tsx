@@ -2185,7 +2185,7 @@ function ProjectDetailContent() {
         case 'Timeline':
           return (
             <View style={styles.wideContainer}>
-              <TimelineTabV2 embedded project={safeProjectData as any} />
+              <TimelineTabV2 embedded project={{ ...safeProjectData, id: id as string }} />
             </View>
           );
         case 'Calendar':

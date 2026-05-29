@@ -84,6 +84,7 @@ export default function SubscriptionPlansModal({
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [currentPlanId, setCurrentPlanId] = useState<string | null>(null);
+  const [detectingCurrentPlan, setDetectingCurrentPlan] = useState(true);
 
   let userEmail: string | null =
     clerkUser?.primaryEmailAddress?.emailAddress ||
@@ -142,10 +143,12 @@ export default function SubscriptionPlansModal({
 
   useEffect(() => {
     const fetchCurrentPlan = async () => {
+      setDetectingCurrentPlan(true);
       try {
         const emailToUse = userEmail || storedEmail;
         if (!emailToUse) {
           console.log('⚠️ No email available for plan fetch');
+          setCurrentPlanId(null);
           return;
         }
 
@@ -157,14 +160,21 @@ export default function SubscriptionPlansModal({
           const match = plans.find((p) => p.id === bestPlanId);
           console.log('✅ Found current plan:', match?.name || bestPlanId);
           setCurrentPlanId(bestPlanId);
+        } else {
+          setCurrentPlanId(null);
         }
       } catch (error: any) {
         console.error('❌ Could not fetch current plan:', error);
+        setCurrentPlanId(null);
+      } finally {
+        setDetectingCurrentPlan(false);
       }
     };
 
     if (plans.length > 0 && (userEmail || storedEmail)) {
       fetchCurrentPlan();
+    } else if (!userEmail && !storedEmail) {
+      setDetectingCurrentPlan(false);
     }
   }, [userEmail, storedEmail, plans]);
 
@@ -216,6 +226,10 @@ export default function SubscriptionPlansModal({
   };
 
   const handleSubscribe = async (plan: SubscriptionPlan) => {
+    if (detectingCurrentPlan) {
+      Alert.alert('One moment', 'Still loading your current plan. Try again in a second.');
+      return;
+    }
     try {
       console.log('🚀 Starting subscription for plan:', plan);
       console.log('🚀 handleSubscribe function called successfully');
@@ -275,6 +289,8 @@ export default function SubscriptionPlansModal({
 
           if (changeResult.success) {
             setCurrentPlanId(plan.id);
+            setLoading(false);
+            setSelectedPlan(null);
             try {
               await AsyncStorage.setItem('bps.cachedPlanId', plan.id);
               const { setBusinessEntitlementSnapshot } = await import(
@@ -284,8 +300,16 @@ export default function SubscriptionPlansModal({
             } catch {
               // non-blocking
             }
-            if (plan.id === 'business') {
-              onUpgradeComplete?.();
+            onUpgradeComplete?.();
+            if (plan.id !== 'business') {
+              try {
+                const { clearWorkspaceAccessSnapshot } = await import(
+                  '@/utils/workspaceAccessCache'
+                );
+                await clearWorkspaceAccessSnapshot();
+              } catch {
+                // non-blocking
+              }
             }
             Alert.alert(
               'Plan updated',
@@ -371,8 +395,10 @@ export default function SubscriptionPlansModal({
 
         if (session.url) {
           if (Platform.OS === 'web') {
-            // On web, open in same tab
+            setLoading(false);
+            setSelectedPlan(null);
             window.location.href = session.url;
+            return;
           } else {
             // Clear loading BEFORE opening checkout: openBrowserAsync only resolves when the
             // user closes Safari/Chrome — otherwise the button spins the entire checkout session.
@@ -692,10 +718,12 @@ export default function SubscriptionPlansModal({
               }
               handleSubscribe(plan);
             }}
-            disabled={loading || currentPlanId === plan.id}
+            disabled={loading || detectingCurrentPlan || currentPlanId === plan.id}
             activeOpacity={0.88}
           >
-            {loading && selectedPlan === plan.id ? (
+            {detectingCurrentPlan && !currentPlanId ? (
+              <ActivityIndicator color={ctaVariant === 'downgrade' ? theme.text : '#fff'} />
+            ) : loading && selectedPlan === plan.id ? (
               <ActivityIndicator color={ctaVariant === 'downgrade' ? theme.text : '#fff'} />
             ) : ctaVariant === 'current' ? (
               <View style={styles.ctaCurrentInner}>
