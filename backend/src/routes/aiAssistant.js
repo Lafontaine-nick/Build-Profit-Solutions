@@ -3,6 +3,9 @@ const router = express.Router();
 const axios = require('axios');
 const { buildSystemPrompt, buildRouterPrompt } = require('./promptSystem');
 const { createOpenAiClient, getAiModels, getAiRuntimeSettings } = require('../config/aiConfig');
+const { createEstimateDraftFromNotes } = require('../services/estimateDraftFromNotes');
+const { suggestLaborMaterialSplits } = require('../services/estimateDraftSuggestSplits');
+
 // Additive: persistent per-user memory. All calls are best-effort and wrapped
 // in try/catch so existing request logic is never blocked if this fails.
 let _userMemory = null;
@@ -15326,6 +15329,72 @@ RULES:
       error: 'AI Assistant error',
       message: err.message || 'An unexpected error occurred',
       details: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+    });
+  }
+});
+
+/**
+ * POST /api/ai-assistant/estimate-draft-from-notes
+ * Parse rough contractor notes into a structured estimate draft for review.
+ */
+router.post('/estimate-draft-from-notes', async (req, res) => {
+  try {
+    const { notes } = req.body || {};
+    const trimmed = String(notes || '').trim();
+    if (!trimmed) {
+      return res.status(400).json({ error: 'Notes are required' });
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(503).json({
+        error: 'AI service unavailable',
+        message: 'OpenAI API key not configured',
+      });
+    }
+
+    const draft = await createEstimateDraftFromNotes(trimmed, openai, aiModels, aiRuntime);
+    return res.json({ draft });
+  } catch (err) {
+    console.error('Error in /estimate-draft-from-notes:', err);
+    const message = err?.message || 'Failed to generate estimate draft';
+    if (/notes are required/i.test(message)) {
+      return res.status(400).json({ error: message });
+    }
+    return res.status(500).json({ error: 'Estimate draft generation failed', message });
+  }
+});
+
+/**
+ * POST /api/ai-assistant/estimate-draft-suggest-splits
+ * Opt-in: suggest labor vs material breakdown for combined room prices (not from notes).
+ */
+router.post('/estimate-draft-suggest-splits', async (req, res) => {
+  try {
+    const { draft } = req.body || {};
+    if (!draft || !Array.isArray(draft.rooms)) {
+      return res.status(400).json({ error: 'Draft with rooms is required' });
+    }
+
+    const splitableCount = draft.rooms.filter(
+      (r) =>
+        r.price != null &&
+        Number(r.price) > 0 &&
+        (r.priceIncludesLaborAndMaterials || r.splitIsSuggested)
+    ).length;
+    if (splitableCount === 0) {
+      return res.status(400).json({
+        error: 'No combined prices to split',
+        message: 'All rooms already have a labor/material breakdown or need pricing.',
+      });
+    }
+
+    const updated = await suggestLaborMaterialSplits(draft);
+    return res.json({ draft: updated });
+  } catch (err) {
+    console.error('Error in /estimate-draft-suggest-splits:', err);
+    return res.status(500).json({
+      error: 'Split suggestion failed',
+      message: err?.message || 'Could not suggest labor/material splits',
     });
   }
 });

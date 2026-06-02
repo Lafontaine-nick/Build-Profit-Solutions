@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Animated, Platform } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScreenLayout } from '../constants/ScreenLayout';
 
 interface BottomToastProps {
   visible: boolean;
@@ -22,39 +24,29 @@ export default function BottomToast({
   onDismiss,
   duration = 5000,
 }: BottomToastProps) {
+  const insets = useSafeAreaInsets();
+  const bottomInset =
+    Platform.OS === 'web'
+      ? 20
+      : ScreenLayout.tabBar.bottomOffset +
+        ScreenLayout.tabBar.height +
+        12 +
+        insets.bottom;
+
   const [show, setShow] = useState(false);
-  const slideAnim = new Animated.Value(100);
-  const opacityAnim = new Animated.Value(0);
+  const slideAnim = useRef(new Animated.Value(100)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+  const activeRef = useRef(false);
+  const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
 
-  useEffect(() => {
-    if (visible) {
-      setShow(true);
-      Animated.parallel([
-        Animated.spring(slideAnim, {
-          toValue: 0,
-          useNativeDriver: true,
-          tension: 65,
-          friction: 10,
-        }),
-        Animated.timing(opacityAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start();
-
-      // Auto-dismiss after duration
-      const timer = setTimeout(() => {
-        handleDismiss();
-      }, duration);
-
-      return () => clearTimeout(timer);
-    } else {
-      handleDismiss();
+  const handleDismiss = useCallback(() => {
+    if (!activeRef.current) return;
+    if (dismissTimerRef.current) {
+      clearTimeout(dismissTimerRef.current);
+      dismissTimerRef.current = null;
     }
-  }, [visible, duration]);
-
-  const handleDismiss = () => {
     Animated.parallel([
       Animated.timing(slideAnim, {
         toValue: 100,
@@ -67,12 +59,52 @@ export default function BottomToast({
         useNativeDriver: true,
       }),
     ]).start(() => {
+      activeRef.current = false;
       setShow(false);
-      if (onDismiss) {
-        onDismiss();
-      }
+      onDismissRef.current?.();
     });
-  };
+  }, [slideAnim, opacityAnim]);
+
+  useEffect(() => {
+    if (!visible) {
+      if (activeRef.current) {
+        handleDismiss();
+      }
+      return;
+    }
+    if (activeRef.current) {
+      return;
+    }
+
+    activeRef.current = true;
+    setShow(true);
+    slideAnim.setValue(100);
+    opacityAnim.setValue(0);
+    Animated.parallel([
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 65,
+        friction: 10,
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    dismissTimerRef.current = setTimeout(() => {
+      handleDismiss();
+    }, duration);
+
+    return () => {
+      if (dismissTimerRef.current) {
+        clearTimeout(dismissTimerRef.current);
+        dismissTimerRef.current = null;
+      }
+    };
+  }, [visible, duration, slideAnim, opacityAnim, handleDismiss]);
 
   const handleAction = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -88,6 +120,7 @@ export default function BottomToast({
     <Animated.View
       style={[
         styles.container,
+        { paddingBottom: bottomInset },
         {
           transform: [{ translateY: slideAnim }],
           opacity: opacityAnim,
@@ -128,7 +161,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     paddingHorizontal: 16,
-    paddingBottom: 20,
     zIndex: 2000,
   },
   toast: {

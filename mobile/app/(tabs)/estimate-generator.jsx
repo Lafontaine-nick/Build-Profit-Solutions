@@ -20,6 +20,7 @@ import {
   Animated,
   AppState,
   BackHandler,
+  InteractionManager,
   useWindowDimensions,
   Switch,
 } from 'react-native';
@@ -39,6 +40,10 @@ import ProductFoundSheet from '../../components/ProductFoundSheet';
 import SavedMaterialsScreen from '../../components/SavedMaterialsScreen';
 import SubcontractorSearchModal from '../../components/SubcontractorSearchModal';
 import EstimateCustomerPickerModal from '../../components/estimate/EstimateCustomerPickerModal';
+import EstimateTemplatePickerModal from '../../components/estimate/EstimateTemplatePickerModal';
+import SaveAsTemplateModal from '../../components/estimate/SaveAsTemplateModal';
+import AIEstimateBuilderModal from '../../components/estimate/AIEstimateBuilderModal';
+import AIEstimateDraftReviewModal from '../../components/estimate/AIEstimateDraftReviewModal';
 import {
   collectSavedEstimateCustomers,
   enrichSavedCustomerFromSources,
@@ -49,6 +54,21 @@ import {
   removeSavedCustomerFromPicker,
   upsertSavedCustomerFromBid,
 } from '../../utils/estimateSavedCustomers';
+import {
+  applySavedBidTemplate,
+  deleteSavedBidTemplate,
+  estimateHasBidBody,
+  estimateHasLineItemContent,
+  loadSavedBidTemplates,
+  recordTemplateUsage,
+  saveBidTemplateFromEstimate,
+  templatePayloadHasCustomer,
+} from '../../utils/estimateSavedBidTemplates';
+import {
+  applyDraftToEstimate,
+  fetchEstimateDraftFromNotes,
+  fetchSuggestedDraftSplits,
+} from '../../utils/estimateAiDraft';
 import { MessagesInbox } from '../../components/MessagesInbox';
 import AIBidOptimization from '../../components/AIBidOptimization';
 import ProjectAnalysis from '../../components/ProjectAnalysis';
@@ -4918,6 +4938,7 @@ export default function EstimateGeneratorScreen() {
   const bidRef = useRef(bid);
   const materialsCartRef = useRef([]);
   const lastEstimateAiUndoRef = useRef(null);
+  const lastTemplateApplyRef = useRef(0);
   /** Declared before any hook reads them — avoids temporal-dead-zone crashes when Estimates mounts (web ErrorBoundary). */
   const [materialsCart, setMaterialsCart] = useState([]);
   const [activeScope, setActiveScope] = useState('kitchen');
@@ -4942,7 +4963,11 @@ export default function EstimateGeneratorScreen() {
     // it has any rows (even $0 lines); otherwise fall back to persisted `bid.materialLineItems`.
     const cartHasRows = Array.isArray(materialsCart) && materialsCart.length > 0;
     const materials = cartHasRows ? materialsFromCart : materialsFromBidLines;
-    const laborFromItems = bid.laborLineItems?.reduce((sum, item) => sum + (item.total || 0), 0) || 0;
+    const laborFromItems =
+      bid.laborLineItems?.reduce(
+        (sum, item) => sum + (Number(item.total) || Number(item.totalCost) || 0),
+        0
+      ) || 0;
     const labor = laborFromItems;
     const rentals = rentalCart.length;
     const financials = getEstimateStep5Financials(bid, materials, labor);
@@ -5029,6 +5054,25 @@ export default function EstimateGeneratorScreen() {
   const [saveCustomerForFutureBids, setSaveCustomerForFutureBids] = useState(true);
   const saveCustomerForFutureBidsRef = useRef(true);
   const [customerFillToast, setCustomerFillToast] = useState({ visible: false, name: '' });
+  const [savedBidTemplates, setSavedBidTemplates] = useState([]);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [appliedTemplateName, setAppliedTemplateName] = useState(null);
+  const [templateFillToast, setTemplateFillToast] = useState({
+    visible: false,
+    name: '',
+    missingCustomer: false,
+  });
+  const [showAiBuilderModal, setShowAiBuilderModal] = useState(false);
+  const [showAiDraftReviewModal, setShowAiDraftReviewModal] = useState(false);
+  const [aiDraftNotes, setAiDraftNotes] = useState('');
+  const [aiDraft, setAiDraft] = useState(null);
+  const [aiDraftGenerating, setAiDraftGenerating] = useState(false);
+  const [aiDraftApplying, setAiDraftApplying] = useState(false);
+  const [aiDraftSuggestingSplits, setAiDraftSuggestingSplits] = useState(false);
+  const [aiDraftFromAssistant, setAiDraftFromAssistant] = useState(false);
+  const [aiDraftFillToast, setAiDraftFillToast] = useState({ visible: false, roomCount: 0 });
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const [isFirstTime, setIsFirstTime] = useState(false);
   const [hasReviewedMarkup, setHasReviewedMarkup] = useState(false);
@@ -5306,6 +5350,45 @@ export default function EstimateGeneratorScreen() {
     }
   }, []);
 
+  const syncLocalCustomerFromBid = useCallback((bidSource) => {
+    const phone = bidSource?.customerPhone
+      ? formatPhoneNumber(String(bidSource.customerPhone))
+      : '';
+    const zip = bidSource?.customerZip ? formatZipInput(String(bidSource.customerZip)) : '';
+    setLocalCustomerName(bidSource?.customerName || '');
+    setLocalCustomerEmail(bidSource?.customerEmail || '');
+    setLocalCustomerPhone(phone);
+    setLocalCustomerAddress(bidSource?.customerAddress || '');
+    setLocalCustomerCity(bidSource?.customerCity || '');
+    setLocalCustomerState(bidSource?.customerState || '');
+    setLocalCustomerZip(zip);
+    setLocalCustomerCompany(bidSource?.customerCompany || '');
+  }, []);
+
+  // Step 1 uses local state; if bid has customer data but locals are empty, hydrate on entry.
+  useEffect(() => {
+    if (step !== 1 || !isLoaded) return;
+    const bidHasCustomer = Boolean(
+      String(bid.customerName || '').trim() ||
+        String(bid.customerEmail || '').trim() ||
+        String(bid.customerPhone || '').trim()
+    );
+    const localHasCustomer = Boolean(
+      localCustomerName.trim() || localCustomerEmail.trim() || localCustomerPhone.trim()
+    );
+    if (bidHasCustomer && !localHasCustomer) {
+      syncLocalCustomerFromBid(bid);
+    }
+  }, [
+    step,
+    isLoaded,
+    bid,
+    localCustomerName,
+    localCustomerEmail,
+    localCustomerPhone,
+    syncLocalCustomerFromBid,
+  ]);
+
   const applySavedCustomer = useCallback((customer) => {
     const enriched = enrichSavedCustomerFromSources(customer, savedCustomerSources);
     const phone = enriched.phone ? formatPhoneNumber(String(enriched.phone)) : '';
@@ -5371,6 +5454,301 @@ export default function EstimateGeneratorScreen() {
       ]
     );
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadSavedBidTemplates()
+      .then((templates) => {
+        if (!cancelled) setSavedBidTemplates(templates);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const bidHasLineItems = useMemo(
+    () => estimateHasLineItemContent(bid, materialsCart),
+    [bid, materialsCart]
+  );
+
+  const handleGenerateAiDraft = useCallback(async (notes) => {
+    setAiDraftGenerating(true);
+    setAiDraftNotes(notes);
+    try {
+      const draft = await fetchEstimateDraftFromNotes(notes);
+      setAiDraft(draft);
+      setShowAiBuilderModal(false);
+      setShowAiDraftReviewModal(true);
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch (e) {
+      console.warn('handleGenerateAiDraft failed', e);
+      Alert.alert(
+        'Could not generate draft',
+        e?.message || 'Something went wrong while parsing your notes. Please try again.'
+      );
+    } finally {
+      setAiDraftGenerating(false);
+    }
+  }, []);
+
+  const handleSuggestAiDraftSplits = useCallback(async () => {
+    if (!aiDraft || aiDraftSuggestingSplits || aiDraftApplying) return;
+    setAiDraftSuggestingSplits(true);
+    try {
+      const nextDraft = await fetchSuggestedDraftSplits(aiDraft);
+      setAiDraft(nextDraft);
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch (e) {
+      console.warn('handleSuggestAiDraftSplits failed', e);
+      Alert.alert(
+        'Could not suggest splits',
+        e?.message || 'Something went wrong. You can still apply the draft as combined prices.'
+      );
+    } finally {
+      setAiDraftSuggestingSplits(false);
+    }
+  }, [aiDraft, aiDraftSuggestingSplits, aiDraftApplying]);
+
+  const handleApplyAiDraft = useCallback(async () => {
+    if (!aiDraft) return;
+
+    const commitApply = async () => {
+      setAiDraftApplying(true);
+      try {
+        const { bid: nextBid, materialsCart: nextCart } = applyDraftToEstimate(bid, aiDraft);
+        lastSavedBidRef.current = null;
+        pendingSaveRef.current = null;
+        setBid(nextBid);
+        setMaterialsCart(nextCart);
+        syncLocalCustomerFromBid(nextBid);
+        setAppliedTemplateName(null);
+        setShowAiDraftReviewModal(false);
+        setShowAiBuilderModal(false);
+        setAiDraftFromAssistant(false);
+        setShowAIAssistant(false);
+        setEstimateAiInitialQuestion('');
+        setStep(0);
+        await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(nextBid));
+        await AsyncStorage.setItem('bps.materialsCart', JSON.stringify(nextCart));
+        setForceRefresh((prev) => prev + 1);
+        if (Platform.OS !== 'web') {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+        setAiDraftFillToast({
+          visible: true,
+          roomCount: aiDraft.rooms?.length || 0,
+        });
+      } catch (e) {
+        console.warn('handleApplyAiDraft failed', e);
+        Alert.alert('Could not apply draft', e?.message || 'Please try again.');
+      } finally {
+        setAiDraftApplying(false);
+      }
+    };
+
+    if (bidHasLineItems) {
+      Alert.alert(
+        'Replace line items?',
+        'Applying this draft will replace your current labor and material line items with the AI-parsed rooms. Other bid fields stay as-is.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Apply draft', onPress: () => void commitApply() },
+        ]
+      );
+      return;
+    }
+
+    await commitApply();
+  }, [aiDraft, bid, bidHasLineItems, syncLocalCustomerFromBid]);
+
+  const commitTemplateApply = useCallback(
+    async (template, mode) => {
+      const { bid: nextBid, materialsCart: nextCart } = applySavedBidTemplate(
+        bid,
+        materialsCart,
+        template,
+        mode
+      );
+      lastSavedBidRef.current = null;
+      pendingSaveRef.current = null;
+      lastTemplateApplyRef.current = Date.now();
+      setBid(nextBid);
+      setMaterialsCart(nextCart);
+      setRentalCart([]);
+      syncLocalCustomerFromBid(nextBid);
+      setAppliedTemplateName(template.name);
+      setShowTemplatePicker(false);
+      try {
+        await AsyncStorage.setItem('bps.materialsCart', JSON.stringify(nextCart));
+        await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(nextBid));
+        const updated = await recordTemplateUsage(template.id);
+        setSavedBidTemplates(updated);
+      } catch (e) {
+        console.warn('recordTemplateUsage failed', e);
+      }
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+      setTemplateFillToast({
+        visible: true,
+        name: template.name,
+        missingCustomer: !templatePayloadHasCustomer(template.payload),
+      });
+    },
+    [bid, materialsCart, syncLocalCustomerFromBid]
+  );
+
+  const runTemplateApply = useCallback(
+    (template, mode) => {
+      void commitTemplateApply(template, mode);
+    },
+    [commitTemplateApply]
+  );
+
+  const promptTemplateApplyMode = useCallback(
+    (template) => {
+      const materials = template.payload.materialLineItems?.length || 0;
+      const labor = template.payload.laborLineItems?.length || 0;
+      const preview = [
+        template.name,
+        '',
+        `Materials: ${materials} items`,
+        `Labor: ${labor} items`,
+        `Est. total: ${money(template.estimatedBidTotal || 0)}`,
+      ].join('\n');
+
+      if (!bidHasLineItems) {
+        runTemplateApply(template, 'create_new');
+        return;
+      }
+
+      Alert.alert('Apply this template?', preview, [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Materials + labor only',
+          onPress: () => runTemplateApply(template, 'materials_labor'),
+        },
+        {
+          text: 'Create new bid',
+          onPress: () => runTemplateApply(template, 'create_new'),
+        },
+      ]);
+    },
+    [bidHasLineItems, runTemplateApply]
+  );
+
+  const handleSelectSavedTemplate = useCallback(
+    (template) => {
+      setShowTemplatePicker(false);
+      const run = () => promptTemplateApplyMode(template);
+      if (Platform.OS === 'ios') {
+        InteractionManager.runAfterInteractions(() => {
+          setTimeout(run, 350);
+        });
+      } else {
+        setTimeout(run, 100);
+      }
+    },
+    [promptTemplateApplyMode]
+  );
+
+  const handleDeleteSavedTemplate = useCallback((template) => {
+    Alert.alert(
+      'Delete template?',
+      `"${template.name}" will be removed. Existing estimates are not changed.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              try {
+                const updated = await deleteSavedBidTemplate(template.id);
+                setSavedBidTemplates(updated);
+                if (appliedTemplateName === template.name) {
+                  setAppliedTemplateName(null);
+                }
+                if (Platform.OS !== 'web') {
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                }
+              } catch (e) {
+                console.warn('handleDeleteSavedTemplate failed', e);
+                Alert.alert('Error', 'Could not delete template.');
+              }
+            })();
+          },
+        },
+      ]
+    );
+  }, [appliedTemplateName]);
+
+  const handleSaveAsTemplate = useCallback(
+    async (input) => {
+      const hasContent = estimateHasBidBody(bid, materialsCart);
+      if (!hasContent) {
+        Alert.alert(
+          'Nothing to save yet',
+          'Add materials, labor, or project costs to this estimate before saving a template.'
+        );
+        return;
+      }
+      setSavingTemplate(true);
+      try {
+        const bidWithCustomer = {
+          ...bid,
+          customerName: localCustomerName.trim() || bid.customerName || '',
+          customerEmail: localCustomerEmail.trim() || bid.customerEmail || '',
+          customerPhone: localCustomerPhone.trim() || bid.customerPhone || '',
+          customerAddress: localCustomerAddress.trim() || bid.customerAddress || '',
+          customerCity: localCustomerCity.trim() || bid.customerCity || '',
+          customerState: localCustomerState.trim() || bid.customerState || '',
+          customerZip: localCustomerZip.trim() || bid.customerZip || '',
+          customerCompany: localCustomerCompany.trim() || bid.customerCompany || '',
+          clientName: localCustomerName.trim() || bid.clientName || bid.customerName || '',
+          clientEmail: localCustomerEmail.trim() || bid.clientEmail || bid.customerEmail || '',
+          clientPhone: localCustomerPhone.trim() || bid.clientPhone || bid.customerPhone || '',
+        };
+        const estimatedTotal = calc?.total || calc?.grandTotal || 0;
+        const updated = await saveBidTemplateFromEstimate(
+          bidWithCustomer,
+          materialsCart,
+          input,
+          estimatedTotal
+        );
+        setSavedBidTemplates(updated);
+        setShowSaveTemplateModal(false);
+        if (Platform.OS !== 'web') {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+        Alert.alert('Template saved', `"${input.name}" is ready to reuse on future bids.`);
+      } catch (e) {
+        console.warn('handleSaveAsTemplate failed', e);
+        Alert.alert('Error', 'Could not save template.');
+      } finally {
+        setSavingTemplate(false);
+      }
+    },
+    [
+      bid,
+      materialsCart,
+      calc?.total,
+      calc?.grandTotal,
+      localCustomerName,
+      localCustomerEmail,
+      localCustomerPhone,
+      localCustomerAddress,
+      localCustomerCity,
+      localCustomerState,
+      localCustomerZip,
+      localCustomerCompany,
+    ]
+  );
 
   const hasStep1CustomerInfo = useMemo(
     () =>
@@ -7427,7 +7805,9 @@ export default function EstimateGeneratorScreen() {
                 
                 // Skip sync if AI just updated labor (within last 2 seconds) to prevent sync loops
                 const timeSinceAILaborUpdate = Date.now() - lastAIMaterialUpdateRef.current;
-                const shouldSkipLaborSync = timeSinceAILaborUpdate < 2000; // Skip sync for 2 seconds after AI action
+                const timeSinceTemplateApply = Date.now() - lastTemplateApplyRef.current;
+                const shouldSkipLaborSync =
+                  timeSinceAILaborUpdate < 2000 || timeSinceTemplateApply < 5000;
                 
                 // If labor totals don't match, update the bid from the project
                 if (!shouldSkipLaborSync && Math.abs(currentLaborTotal - projectLaborTotal) > 0.01) {
@@ -7439,11 +7819,16 @@ export default function EstimateGeneratorScreen() {
                   
                   // Merge: storage + in-memory bid so open edits (customer, title, …) are not reverted.
                   const live = bidRef.current || {};
+                  const projectLabor = Array.isArray(projectEstimate.laborLineItems)
+                    ? projectEstimate.laborLineItems
+                    : [];
+                  const storedLabor = Array.isArray(parsed.laborLineItems) ? parsed.laborLineItems : [];
                   const updatedBid = {
                     ...parsed,
                     ...live,
                     id: parsed.id,
-                    laborLineItems: projectEstimate.laborLineItems || parsed.laborLineItems,
+                    laborLineItems:
+                      projectLabor.length > 0 ? projectLabor : storedLabor,
                   };
                   setBid(updatedBid);
                   await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(updatedBid));
@@ -7468,7 +7853,9 @@ export default function EstimateGeneratorScreen() {
                 
                 // Skip sync if AI just updated materials (within last 2 seconds) to prevent sync loops
                 const timeSinceAIAction = Date.now() - lastAIMaterialUpdateRef.current;
-                const shouldSkipSync = timeSinceAIAction < 2000; // Skip sync for 2 seconds after AI action
+                const timeSinceTemplateApply = Date.now() - lastTemplateApplyRef.current;
+                const shouldSkipSync =
+                  timeSinceAIAction < 2000 || timeSinceTemplateApply < 5000;
                 
                 // If materials differ, update from project
                 if (!shouldSkipSync && Math.abs(currentMaterialsTotal - projectMaterialsTotal) > 0.01) {
@@ -11640,6 +12027,8 @@ export default function EstimateGeneratorScreen() {
     setHasReviewedMarkup(false);
     setHasReviewedTotal(false);
     setMaterialsAddedFlag(false);
+    setAppliedTemplateName(null);
+    setTemplateFillToast({ visible: false, name: '', missingCustomer: false });
     setActiveNavButton(null); // Clear active nav button
     setWeeklyPaymentDateDrafts({ deposit: '', weeks: [], holdback: '' });
     setMilestonePaymentDateDrafts({ deposit: '', milestones: [], final: '' });
@@ -11790,6 +12179,62 @@ export default function EstimateGeneratorScreen() {
             marginBottom: 16,
             marginTop: 0,
           }]}>
+                <TouchableOpacity
+                  activeOpacity={0.88}
+                  onPress={() => {
+                    if (Platform.OS !== 'web') {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }
+                    setShowTemplatePicker(true);
+                  }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 14,
+                    paddingVertical: 12,
+                    paddingHorizontal: 14,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: 'rgba(45, 255, 196, 0.28)',
+                    backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.08)' : 'rgba(34, 197, 94, 0.08)',
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                    <Ionicons name="document-text-outline" size={20} color="#22c55e" />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>
+                        Saved Bid Templates
+                      </Text>
+                      <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+                        {savedBidTemplates.length > 0
+                          ? `${savedBidTemplates.length} saved • tap to apply a bid package`
+                          : 'Reuse materials, labor, and pricing packages'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={Colors.sub} />
+                </TouchableOpacity>
+
+                {appliedTemplateName ? (
+                  <View
+                    style={{
+                      marginBottom: 14,
+                      paddingVertical: 8,
+                      paddingHorizontal: 12,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: 'rgba(45, 255, 196, 0.22)',
+                      backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.06)' : 'rgba(34, 197, 94, 0.06)',
+                    }}
+                  >
+                    <Text style={{ color: Colors.sub, fontSize: 11, fontWeight: '600' }}>Active template</Text>
+                    <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginTop: 2 }}>
+                      {appliedTemplateName}
+                    </Text>
+                  </View>
+                ) : null}
+
                 {/* Total Bid Section - green to blue gradient border */}
               <LinearGradient
                 colors={['#2DFFC4', '#00A6FF']}
@@ -12334,6 +12779,31 @@ export default function EstimateGeneratorScreen() {
                           </TouchableOpacity>
                         </LinearGradient>
                       </View>
+                    </View>
+                    <View style={{ width: '100%' }}>
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        style={{
+                          width: '100%',
+                          backgroundColor: Colors.bg === '#000000' ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                          borderWidth: 1,
+                          borderColor: projectActionGreyBorder,
+                          borderRadius: 16,
+                          paddingVertical: 13,
+                          paddingHorizontal: 14,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          ...(Platform.OS === 'web' ? { cursor: 'pointer' } : {}),
+                        }}
+                        onPress={() => setShowSaveTemplateModal(true)}
+                      >
+                        <View style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}>
+                          <Ionicons name="copy-outline" size={16} color={darkMode ? '#22c55e' : Colors.text} />
+                          <Text style={{ color: darkMode ? '#e2e8f0' : Colors.text, fontSize: 13, fontWeight: '700' }}>
+                            Save as Template
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
                     </View>
                   </View>
               </View>
@@ -12895,6 +13365,9 @@ export default function EstimateGeneratorScreen() {
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: Colors.text, fontSize: 20, fontWeight: '800', letterSpacing: -0.3 }}>Materials & Supplies</Text>
                       <Text style={{ color: darkMode ? 'rgba(203, 213, 225, 0.85)' : Colors.sub, fontSize: 13, marginTop: 5, lineHeight: 18, fontWeight: '500' }}>Live pricing and inflation tracking</Text>
+                      <Text style={{ color: appliedTemplateName ? '#22c55e' : Colors.sub, fontSize: 12, marginTop: 6, fontWeight: '700' }}>
+                        Template: {appliedTemplateName || 'None selected'}
+                      </Text>
                     </View>
                   </View>
                   
@@ -12921,7 +13394,7 @@ export default function EstimateGeneratorScreen() {
                       }}
                       onPress={() => setMaterialModal({ visible: true, item: null })}
                     >
-                      <Ionicons name="add-circle-outline" size={20} color={materialModal.visible ? '#fff' : '#2DFFC4'} />
+                      <Ionicons name="add-circle-outline" size={20} color={materialModal.visible ? '#fff' : (darkMode ? 'rgba(203, 213, 225, 0.75)' : Colors.sub)} />
                       <Text
                         numberOfLines={1}
                         adjustsFontSizeToFit
@@ -12960,7 +13433,7 @@ export default function EstimateGeneratorScreen() {
                         }, 100);
                       }}
                     >
-                      <Ionicons name="search-outline" size={20} color={skuModalVisible ? '#fff' : '#2DFFC4'} />
+                      <Ionicons name="search-outline" size={20} color={skuModalVisible ? '#fff' : (darkMode ? 'rgba(203, 213, 225, 0.75)' : Colors.sub)} />
                       <Text
                         numberOfLines={1}
                         adjustsFontSizeToFit
@@ -13279,6 +13752,36 @@ export default function EstimateGeneratorScreen() {
                       </>
                     )}
                   </GlassBorderCard>
+                </View>
+
+                <View style={{ marginTop: 14 }}>
+                  <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginBottom: 10, paddingHorizontal: 2 }}>
+                    Start from a saved bid package
+                  </Text>
+                  <TouchableOpacity
+                    style={{
+                      minHeight: 52,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : Colors.surface2,
+                      borderRadius: 14,
+                      borderWidth: 1,
+                      borderColor: darkMode ? 'rgba(148, 163, 184, 0.2)' : Colors.line,
+                      paddingVertical: 13,
+                      paddingHorizontal: 14,
+                    }}
+                    onPress={() => {
+                      if (Platform.OS !== 'web') {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }
+                      setShowTemplatePicker(true);
+                    }}
+                  >
+                    <Ionicons name="albums-outline" size={18} color={darkMode ? 'rgba(203, 213, 225, 0.75)' : Colors.sub} />
+                    <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700' }}>Apply Template</Text>
+                  </TouchableOpacity>
                 </View>
             </View>
             
@@ -22126,6 +22629,52 @@ export default function EstimateGeneratorScreen() {
         onDelete={handleDeleteSavedCustomer}
       />
 
+      <EstimateTemplatePickerModal
+        visible={showTemplatePicker}
+        templates={savedBidTemplates}
+        onClose={() => setShowTemplatePicker(false)}
+        onSelect={handleSelectSavedTemplate}
+        onDelete={handleDeleteSavedTemplate}
+      />
+
+      <SaveAsTemplateModal
+        visible={showSaveTemplateModal}
+        saving={savingTemplate}
+        onClose={() => setShowSaveTemplateModal(false)}
+        onSave={handleSaveAsTemplate}
+      />
+
+      <BottomToast
+        visible={aiDraftFillToast.visible}
+        message="AI draft applied"
+        subtitle={
+          aiDraftFillToast.roomCount > 0
+            ? `${aiDraftFillToast.roomCount} room${aiDraftFillToast.roomCount === 1 ? '' : 's'} added as labor line items. Review pricing and scope before sending.`
+            : 'Review pricing and scope before sending.'
+        }
+        onDismiss={() => setAiDraftFillToast({ visible: false, roomCount: 0 })}
+        duration={2500}
+      />
+
+      <BottomToast
+        visible={templateFillToast.visible}
+        message="Template applied"
+        subtitle={
+          templateFillToast.name
+            ? [
+                `${templateFillToast.name} was added to this bid. Review pricing and quantities before sending.`,
+                templateFillToast.missingCustomer
+                  ? 'This template has no saved customer info — fill Step 1 or re-save the template after adding a customer.'
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(' ')
+            : undefined
+        }
+        onDismiss={() => setTemplateFillToast({ visible: false, name: '', missingCustomer: false })}
+        duration={2000}
+      />
+
       {/* Recovery Modal - Full Page */}
       <Modal
         visible={showRecoveryModal}
@@ -22466,11 +23015,64 @@ export default function EstimateGeneratorScreen() {
         onClose={() => {
           setShowAIAssistant(false);
           setEstimateAiInitialQuestion('');
+          setShowAiBuilderModal(false);
+          setShowAiDraftReviewModal(false);
+          setAiDraftFromAssistant(false);
         }}
         context={estimateContext}
         onAction={handleEstimateAIAction}
         initialQuestion={estimateAiInitialQuestion}
-      />
+        estimateBidIsEmpty={!bidHasLineItems}
+        overlayBlocksKeyboard={showAiBuilderModal || showAiDraftReviewModal}
+        onBuildWithAi={() => {
+          setAiDraftFromAssistant(true);
+          setShowAiBuilderModal(true);
+        }}
+      >
+        <AIEstimateBuilderModal
+          visible={showAiBuilderModal}
+          embedded
+          generating={aiDraftGenerating}
+          initialNotes={aiDraftNotes}
+          fromAssistant={aiDraftFromAssistant}
+          onBack={() => {
+            if (!aiDraftGenerating) setShowAiBuilderModal(false);
+          }}
+          onClose={() => {
+            if (!aiDraftGenerating) {
+              setShowAiBuilderModal(false);
+              setAiDraftFromAssistant(false);
+            }
+          }}
+          onGenerate={handleGenerateAiDraft}
+        />
+
+        <AIEstimateDraftReviewModal
+          visible={showAiDraftReviewModal}
+          embedded
+          draft={aiDraft}
+          applying={aiDraftApplying}
+          suggestingSplits={aiDraftSuggestingSplits}
+          fromAssistant={aiDraftFromAssistant}
+          onSuggestSplits={handleSuggestAiDraftSplits}
+          onBack={() => {
+            if (!aiDraftApplying) {
+              setShowAiDraftReviewModal(false);
+              setShowAiBuilderModal(true);
+            }
+          }}
+          onClose={() => {
+            if (!aiDraftApplying) {
+              setShowAiDraftReviewModal(false);
+            }
+          }}
+          onRegenerate={() => {
+            setShowAiDraftReviewModal(false);
+            setShowAiBuilderModal(true);
+          }}
+          onApply={handleApplyAiDraft}
+        />
+      </AIAssistantModal>
 
     </SafeAreaView>
   );

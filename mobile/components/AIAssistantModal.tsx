@@ -947,6 +947,13 @@ type Props = {
   projectOptionsOverride?: Array<{ id: string; title: string; status?: string }>;
   /** When false, disables send until timeline/project data is loaded (avoids stale progress in compare) */
   isContextReady?: boolean;
+  /** Estimate only: open the paste-notes → draft builder flow */
+  onBuildWithAi?: () => void;
+  /** Estimate only: bid has no materials/labor yet — emphasize Build with AI */
+  estimateBidIsEmpty?: boolean;
+  /** When true, child overlay owns the keyboard — disable parent layout shifts. */
+  overlayBlocksKeyboard?: boolean;
+  children?: React.ReactNode;
 };
 
 const QUICK_ACTIONS = [
@@ -999,6 +1006,10 @@ const AIAssistantModal: React.FC<Props> = ({
   onProjectUpdated,
   projectOptionsOverride,
   isContextReady = true,
+  onBuildWithAi,
+  estimateBidIsEmpty = false,
+  overlayBlocksKeyboard = false,
+  children,
 }) => {
   const { theme, darkMode } = useTheme();
   const ThemeColors = useMemo(() => getColors(theme), [theme]);
@@ -1097,6 +1108,8 @@ const AIAssistantModal: React.FC<Props> = ({
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const isUserScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const overlayBlocksKeyboardRef = useRef(overlayBlocksKeyboard);
+  overlayBlocksKeyboardRef.current = overlayBlocksKeyboard;
   
   // Minimum list content height when keyboard is closed (short threads still scroll).
   // When keyboard is open, do NOT set minHeight — KeyboardAvoidingView already shrinks the list; a large minHeight + extra paddingBottom created huge dead scroll space.
@@ -1151,6 +1164,7 @@ const AIAssistantModal: React.FC<Props> = ({
     const keyboardWillShowListener = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
       (e) => {
+        if (overlayBlocksKeyboardRef.current) return;
         setKeyboardHeight(e.endCoordinates.height);
         // Scroll to bottom when keyboard opens (only if user isn't manually scrolling)
         setTimeout(() => {
@@ -1163,6 +1177,7 @@ const AIAssistantModal: React.FC<Props> = ({
     const keyboardWillHideListener = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
       () => {
+        if (overlayBlocksKeyboardRef.current) return;
         setKeyboardHeight(0);
       }
     );
@@ -1618,17 +1633,29 @@ const AIAssistantModal: React.FC<Props> = ({
 
   const estimateQuickActionChips = useMemo(() => {
     if (!isEstimateContext) return [];
-    if (Array.isArray(estimateAssistantBrief?.chips) && estimateAssistantBrief.chips.length > 0) {
-      return estimateAssistantBrief.chips.slice(0, 6);
-    }
-    return [
-      { label: 'Missing Costs', prompt: 'Scan this estimate for missing costs and gaps.' },
-      { label: 'Markup & Margin', prompt: 'Explain my bid margin and markup in plain terms for this estimate.' },
-      { label: 'Line Items', prompt: 'Summarize my materials and labor line items and any risks.' },
-      { label: 'Add to Bid', prompt: 'Help me add a line item to this estimate.' },
-      { label: 'Health Check', prompt: 'Give me a quick health check on this bid before I send it.' },
-    ];
-  }, [estimateAssistantBrief, isEstimateContext]);
+    const base =
+      Array.isArray(estimateAssistantBrief?.chips) && estimateAssistantBrief.chips.length > 0
+        ? estimateAssistantBrief.chips.slice(0, 6)
+        : [
+            { label: 'Missing Costs', prompt: 'Scan this estimate for missing costs and gaps.' },
+            { label: 'Markup & Margin', prompt: 'Explain my bid margin and markup in plain terms for this estimate.' },
+            { label: 'Line Items', prompt: 'Summarize my materials and labor line items and any risks.' },
+            { label: 'Add to Bid', prompt: 'Help me add a line item to this estimate.' },
+            { label: 'Health Check', prompt: 'Give me a quick health check on this bid before I send it.' },
+          ];
+    if (!onBuildWithAi) return base;
+    const withoutDup = base.filter((chip) => {
+      const label = chip.label.trim().toLowerCase();
+      return label !== 'build from notes' && label !== 'build with ai';
+    });
+    return [{ label: 'Build with AI', prompt: '', isBuildFlow: true }, ...withoutDup].slice(0, 7);
+  }, [estimateAssistantBrief, isEstimateContext, onBuildWithAi]);
+
+  const handleOpenEstimateBuilder = useCallback(() => {
+    if (!onBuildWithAi) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onBuildWithAi();
+  }, [onBuildWithAi]);
 
   // Build enhanced context with allProjects if not present
   const enhancedContext = useMemo(() => {
@@ -4807,9 +4834,9 @@ const AIAssistantModal: React.FC<Props> = ({
         style={[styles.flex, { backgroundColor: darkMode ? Colors.bg : ThemeColors.bg }]}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
-        enabled={true}
+        enabled={!overlayBlocksKeyboard}
       >
-        <View style={[styles.gradient, light({ backgroundColor: ThemeColors.bg })]}>
+        <View style={[styles.gradient, light({ backgroundColor: ThemeColors.bg }), styles.aiModalRoot]}>
           <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
             <View
               style={[
@@ -4887,7 +4914,10 @@ const AIAssistantModal: React.FC<Props> = ({
                                 ? `Estimate • ${parsedContext?.stepTitle || 'Bid'}`
                                 : `${projectInfo!.title} • ${projectInfo!.phase}`}
                         </Text>
-                        {projectInfo && !isProjectsScreenContext && !isGlobalAssistantContext && (
+                        {projectInfo &&
+                          !isProjectsScreenContext &&
+                          !isGlobalAssistantContext &&
+                          !(isEstimateContext && estimateBidIsEmpty) && (
                           <Text style={[styles.headerMeta, light({ color: ThemeColors.sub })]}>
                             Total ${projectInfo.total.toLocaleString()} • Overhead {projectInfo.overhead}% • Markup{' '}
                             {projectInfo.markup}%
@@ -4910,8 +4940,8 @@ const AIAssistantModal: React.FC<Props> = ({
               data={messages}
               keyExtractor={(item) => item.id}
               renderItem={renderMessage}
-                enableOnAndroid
-                enableAutomaticScroll
+                enableOnAndroid={!overlayBlocksKeyboard}
+                enableAutomaticScroll={!overlayBlocksKeyboard}
                 extraScrollHeight={Platform.OS === 'ios' ? 28 : 96}
                 extraHeight={Platform.OS === 'ios' ? 110 : 140}
                 keyboardOpeningTime={0}
@@ -5235,8 +5265,43 @@ const AIAssistantModal: React.FC<Props> = ({
                   </View>
                   )}
 
+                  {/* Empty estimate: Build with AI entry (same row style as populated bids, no Current bid / Copilot) */}
+                  {isEstimateContext && estimateBidIsEmpty && onBuildWithAi && (
+                    <TouchableOpacity
+                      activeOpacity={0.88}
+                      onPress={handleOpenEstimateBuilder}
+                      accessibilityRole="button"
+                      accessibilityLabel="Build with AI. Paste notes to generate rooms, scope, and pricing draft."
+                      style={[
+                        styles.estimateBuildWithAiRow,
+                        styles.estimateBuildWithAiRowPrimary,
+                        {
+                          width: '100%',
+                          borderColor: 'rgba(45, 255, 196, 0.35)',
+                          backgroundColor: darkMode
+                            ? 'rgba(34, 197, 94, 0.1)'
+                            : 'rgba(34, 197, 94, 0.08)',
+                        },
+                      ]}
+                    >
+                      <MaterialIcons name="auto-awesome" size={20} color="#22c55e" />
+                      <View style={styles.estimateBuildWithAiCopy}>
+                        <Text style={[styles.estimateBuildWithAiTitle, { color: ThemeColors.text }]}>
+                          Build with AI
+                        </Text>
+                        <Text style={[styles.estimateBuildWithAiSub, { color: ThemeColors.sub }]}>
+                          Paste notes → rooms, scope, and pricing draft
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={18} color={ThemeColors.sub} />
+                    </TouchableOpacity>
+                  )}
+
                   {/* Current Project Strip - hidden on Projects screen and Global AI (project chips handle selection) */}
-                  {projectInfo && !isProjectsScreenContext && !isGlobalAssistantContext && (
+                  {projectInfo &&
+                    !isProjectsScreenContext &&
+                    !isGlobalAssistantContext &&
+                    !(isEstimateContext && estimateBidIsEmpty) && (
                     <View style={styles.projectStripContainer}>
                       <LinearGradient
                         colors={BRAND_FRAME_GRADIENT_COLORS}
@@ -5294,8 +5359,8 @@ const AIAssistantModal: React.FC<Props> = ({
                     </View>
                   )}
 
-                  {/* Estimate: AI Copilot — same shell + gradient typography as Today Brief */}
-                  {isEstimateContext && estimateAssistantBrief && (
+                  {/* Estimate: AI Copilot — hidden on empty bids; Build with AI is the primary path */}
+                  {isEstimateContext && estimateAssistantBrief && !estimateBidIsEmpty ? (
                     <View style={styles.estimateCopilotOuter}>
                       <View
                         style={[styles.todayBriefCard, styles.estimateCopilotCard, light({ backgroundColor: ThemeColors.surface2, borderColor: ThemeColors.line })]}
@@ -5336,6 +5401,21 @@ const AIAssistantModal: React.FC<Props> = ({
                               </Text>
                             </View>
                           </View>
+                          {onBuildWithAi ? (
+                            <TouchableOpacity
+                              activeOpacity={0.88}
+                              onPress={handleOpenEstimateBuilder}
+                              style={[
+                                styles.estimateCopilotBuildFromNotesBtn,
+                                { borderColor: 'rgba(45, 255, 196, 0.35)', backgroundColor: 'rgba(34, 197, 94, 0.1)' },
+                              ]}
+                            >
+                              <MaterialIcons name="auto-awesome" size={16} color="#22c55e" />
+                              <Text style={[styles.estimateCopilotBuildFromNotesText, { color: ThemeColors.text }]}>
+                                Build with AI
+                              </Text>
+                            </TouchableOpacity>
+                          ) : null}
                           <View style={styles.estimateCopilotActionsRow}>
                             <TouchableOpacity
                               activeOpacity={0.9}
@@ -5373,18 +5453,26 @@ const AIAssistantModal: React.FC<Props> = ({
                         </LinearGradient>
                       </View>
                     </View>
-                  )}
+                  ) : null}
                 </>
               }
               ListEmptyComponent={
                 isGlobalAssistantContext && displayBrief ? (
                   <View style={{ height: 24 }} />
                 ) : isEstimateContext ? (
-                  <View style={styles.estimateFooterHelperWrap}>
-                    <Text style={[styles.estimateFooterHelperText, light({ color: ThemeColors.sub })]}>
-                      AI Copilot is above. Ask for budget, standard, or premium pricing in chat if you want scenario comparisons.
-                    </Text>
-                  </View>
+                  estimateBidIsEmpty ? (
+                    <View style={styles.estimateFooterHelperWrap}>
+                      <Text style={[styles.estimateFooterHelperText, light({ color: ThemeColors.sub })]}>
+                        Or ask about markup, scope, and pricing once you have line items on the bid.
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={styles.estimateFooterHelperWrap}>
+                      <Text style={[styles.estimateFooterHelperText, light({ color: ThemeColors.sub })]}>
+                        AI Copilot is above. Ask for budget, standard, or premium pricing in chat if you want scenario comparisons.
+                      </Text>
+                    </View>
+                  )
                 ) : (
                 <View style={[styles.greetingWrapper, light({ backgroundColor: ThemeColors.bg }), isProjectsScreenContext && { marginBottom: 8 }]}>
                   <View style={[styles.greetingIconCircleWrapper, isProjectsScreenContext && { marginBottom: 8 }]}>
@@ -5514,7 +5602,8 @@ const AIAssistantModal: React.FC<Props> = ({
             </View>
             </View>
 
-            {/* Input bar — explicit L/R gutters (absolute children may ignore parent padding in some layouts) */}
+            {/* Input bar — hidden while estimate builder/review overlay is open */}
+            {!overlayBlocksKeyboard ? (
             <View style={[styles.inputContainer, { 
               position: 'absolute',
               bottom: 0,
@@ -5632,15 +5721,24 @@ const AIAssistantModal: React.FC<Props> = ({
 
                     // Estimate Generator — bid-building context (not field project management)
                     if (isEstimateContext) {
-                      return estimateQuickActionChips.map((chip: { label: string; prompt: string }) => (
+                      return estimateQuickActionChips.map((chip: { label: string; prompt: string; isBuildFlow?: boolean }) => (
                         <TouchableOpacity
                           key={chip.label}
                           onPress={() => {
+                            if (chip.isBuildFlow) {
+                              handleOpenEstimateBuilder();
+                              return;
+                            }
                             handleQuickAction(chip.prompt);
                           }}
-                          style={[styles.bottomRailChip, light({ borderColor: ThemeColors.line, backgroundColor: ThemeColors.surface })]}
+                          style={[
+                            styles.bottomRailChip,
+                            chip.isBuildFlow
+                              ? { borderColor: 'rgba(45, 255, 196, 0.35)', backgroundColor: 'rgba(34, 197, 94, 0.12)' }
+                              : light({ borderColor: ThemeColors.line, backgroundColor: ThemeColors.surface }),
+                          ]}
                         >
-                          <Text style={[styles.bottomRailChipText, light({ color: "#16a34a" })]}>{chip.label}</Text>
+                          <Text style={[styles.bottomRailChipText, light({ color: '#16a34a' })]}>{chip.label}</Text>
                         </TouchableOpacity>
                       ));
                     }
@@ -5681,7 +5779,7 @@ const AIAssistantModal: React.FC<Props> = ({
                 >
                   {(() => {
                     if (isEstimateContext) {
-                      return estimateQuickActionChips.map((chip: { label: string; prompt: string }, index: number) => ({
+                      return estimateQuickActionChips.map((chip: { label: string; prompt: string; isBuildFlow?: boolean }, index) => ({
                         ...chip,
                         primary: index === 0,
                       }));
@@ -5737,10 +5835,15 @@ const AIAssistantModal: React.FC<Props> = ({
                       }
                     })();
                     return flowChips;
-                  })().map((chip: { label: string; prompt: string; primary?: boolean }) => (
+                  })().map((chip: { label: string; prompt: string; primary?: boolean; isBuildFlow?: boolean }) => (
                     <TouchableOpacity
                       key={chip.label}
                       onPress={() => {
+                        if (chip.isBuildFlow && onBuildWithAi) {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          onBuildWithAi();
+                          return;
+                        }
                         handleQuickAction(chip.prompt);
                       }}
                       style={[
@@ -5858,7 +5961,9 @@ const AIAssistantModal: React.FC<Props> = ({
               </Animated.View>
               </View>
             </View>
+            ) : null}
             </View>
+            {children}
           </SafeAreaView>
         </View>
       </KeyboardAvoidingView>
@@ -5889,6 +5994,9 @@ const styles = StyleSheet.create({
   gradient: {
     flex: 1,
     backgroundColor: Colors.bg,
+  },
+  aiModalRoot: {
+    position: 'relative',
   },
   safeArea: {
     flex: 1,
@@ -6487,6 +6595,38 @@ const styles = StyleSheet.create({
     alignSelf: "stretch",
     marginTop: 2,
   },
+  estimateBuildWithAiRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 10,
+    marginBottom: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignSelf: 'stretch',
+  },
+  estimateBuildWithAiRowPrimary: {
+    marginTop: 12,
+    marginBottom: 16,
+    paddingVertical: 14,
+  },
+  estimateBuildWithAiCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  estimateBuildWithAiTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: Colors.text,
+  },
+  estimateBuildWithAiSub: {
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 16,
+    color: Colors.sub,
+  },
   estimateCopilotCard: {
     marginTop: 6,
     marginBottom: 16,
@@ -7000,6 +7140,22 @@ const styles = StyleSheet.create({
     marginTop: 16,
     alignItems: "center",
     width: "100%",
+  },
+  estimateCopilotBuildFromNotesBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignSelf: "stretch",
+  },
+  estimateCopilotBuildFromNotesText: {
+    fontSize: 14,
+    fontWeight: "800",
   },
   estimateCopilotPrimaryOnBrief: {
     alignSelf: "flex-start",
