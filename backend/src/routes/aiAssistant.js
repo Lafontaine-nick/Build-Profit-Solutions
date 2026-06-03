@@ -5,6 +5,9 @@ const { buildSystemPrompt, buildRouterPrompt } = require('./promptSystem');
 const { createOpenAiClient, getAiModels, getAiRuntimeSettings } = require('../config/aiConfig');
 const { createEstimateDraftFromNotes } = require('../services/estimateDraftFromNotes');
 const { suggestLaborMaterialSplits } = require('../services/estimateDraftSuggestSplits');
+const { clarifyEstimateDraft } = require('../services/estimateDraftClarify');
+const { enrichDraft } = require('../services/estimateDraftEnrichment');
+const { enrichDraftPhase2, buildRoughEstimateRange } = require('../services/estimateDraftPhase2');
 
 // Additive: persistent per-user memory. All calls are best-effort and wrapped
 // in try/catch so existing request logic is never blocked if this fails.
@@ -15339,7 +15342,7 @@ RULES:
  */
 router.post('/estimate-draft-from-notes', async (req, res) => {
   try {
-    const { notes } = req.body || {};
+    const { notes, builderMode, savedTemplates } = req.body || {};
     const trimmed = String(notes || '').trim();
     if (!trimmed) {
       return res.status(400).json({ error: 'Notes are required' });
@@ -15352,7 +15355,11 @@ router.post('/estimate-draft-from-notes', async (req, res) => {
       });
     }
 
-    const draft = await createEstimateDraftFromNotes(trimmed, openai, aiModels, aiRuntime);
+    const draft = await createEstimateDraftFromNotes(trimmed, openai, aiModels, aiRuntime, {
+      builderMode,
+      userId: req.user?.userId,
+      savedTemplates: Array.isArray(savedTemplates) ? savedTemplates : [],
+    });
     return res.json({ draft });
   } catch (err) {
     console.error('Error in /estimate-draft-from-notes:', err);
@@ -15388,13 +15395,75 @@ router.post('/estimate-draft-suggest-splits', async (req, res) => {
       });
     }
 
-    const updated = await suggestLaborMaterialSplits(draft);
+    const updated = await suggestLaborMaterialSplits({
+      ...draft,
+      applySuggestedSplits: Boolean(req.body?.applySuggestedSplits),
+    });
     return res.json({ draft: updated });
   } catch (err) {
     console.error('Error in /estimate-draft-suggest-splits:', err);
     return res.status(500).json({
       error: 'Split suggestion failed',
       message: err?.message || 'Could not suggest labor/material splits',
+    });
+  }
+});
+
+/**
+ * POST /api/ai-assistant/estimate-draft-clarify
+ * Follow-up questions for missing / unclear draft fields.
+ */
+router.post('/estimate-draft-clarify', async (req, res) => {
+  try {
+    const { draft } = req.body || {};
+    if (!draft) {
+      return res.status(400).json({ error: 'Draft is required' });
+    }
+    const result = await clarifyEstimateDraft(enrichDraft(draft));
+    return res.json(result);
+  } catch (err) {
+    console.error('Error in /estimate-draft-clarify:', err);
+    return res.status(500).json({
+      error: 'Clarify failed',
+      message: err?.message || 'Could not build clarification questions',
+    });
+  }
+});
+
+/**
+ * POST /api/ai-assistant/estimate-draft-rough-range
+ * Optional indicative budget range — labeled AI Rough Estimate, not applied to rooms.
+ */
+router.post('/estimate-draft-rough-range', async (req, res) => {
+  try {
+    const { draft } = req.body || {};
+    if (!draft) {
+      return res.status(400).json({ error: 'Draft is required' });
+    }
+    const enriched = enrichDraft({ ...draft, roughEstimateRequested: true });
+    const scopePackages = enriched.scopePackages || [];
+    const roughEstimate =
+      enriched.roughEstimate || buildRoughEstimateRange(enriched, scopePackages);
+    if (!roughEstimate) {
+      return res.status(400).json({
+        error: 'Could not build rough range',
+        message: 'Add square footage or trade context in notes for a rough budget range.',
+      });
+    }
+    const phase2 = enrichDraftPhase2(
+      { ...enriched, roughEstimate },
+      scopePackages,
+      { roughEstimateRequested: true }
+    );
+    return res.json({
+      draft: { ...enriched, roughEstimate, whatAiDid: phase2.whatAiDid },
+      roughEstimate,
+    });
+  } catch (err) {
+    console.error('Error in /estimate-draft-rough-range:', err);
+    return res.status(500).json({
+      error: 'Rough estimate failed',
+      message: err?.message || 'Could not generate rough budget range',
     });
   }
 });

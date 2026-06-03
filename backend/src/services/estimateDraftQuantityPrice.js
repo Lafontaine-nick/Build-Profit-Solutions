@@ -1,0 +1,335 @@
+/**
+ * Distinguish construction quantities (1200 sqft) from prices ($1,200, $5/sqft).
+ * Quantity alone must never become a line-item dollar amount.
+ */
+
+const { parseSquareFeetFromText, parseLinearFeetFromText } = require('./estimateDraftFromNotes');
+
+const QUANTITY_UNIT_AFTER_RE =
+  /^\s*(?:sq\.?\s*ft|sqft|sq\s*ft|square\s*feet|ft\s*[²2ˆ]?|sf\b|linear\s*feet|ln\.?\s*ft|\blf\b|hrs?|hours?|each|ea\b|units?|squares?|yards?|\byd\b)/i;
+
+const UNIT_RATE_AFTER_RE = /^\s*\/\s*(?:sq\.?\s*ft|sqft|sf|lf|ln|hr|hour|each|ea)\b/i;
+
+const PRICE_INDICATOR_BEFORE_RE =
+  /(?:\$|\b(?:usd|dollars?|costs?|prices?|charges?|bids?|totals?|allowances?|rates?|at|for)\b)\s*$/i;
+
+const WEAK_LABEL_RE =
+  /^(i have|of|and|the|a|an|includes?|with|for|ok|let's say|lets say|let's|lets|create|have|roughly|around|about|maybe|slabs?)$/i;
+
+function roundMoney(n) {
+  return Math.round(Number(n) || 0);
+}
+
+function isQuantityNotPriceContext(source, amountStr, matchStartIndex) {
+  const text = String(source || '');
+  const amt = String(amountStr || '').replace(/,/g, '');
+  if (!amt || !text) return false;
+
+  const amtPos = text.indexOf(amt, Math.max(0, matchStartIndex - 5));
+  if (amtPos < 0) return false;
+
+  const before = text.slice(Math.max(0, amtPos - 28), amtPos);
+  const after = text.slice(amtPos + amt.length, amtPos + amt.length + 36);
+
+  if (UNIT_RATE_AFTER_RE.test(after)) {
+    return !(PRICE_INDICATOR_BEFORE_RE.test(before) || /\$\s*$/.test(before));
+  }
+
+  if (QUANTITY_UNIT_AFTER_RE.test(after)) {
+    return !(PRICE_INDICATOR_BEFORE_RE.test(before) || /\$\s*$/.test(before));
+  }
+
+  if (!/\$/.test(before) && !PRICE_INDICATOR_BEFORE_RE.test(before)) {
+    const n = Number(amt);
+    if (Number.isFinite(n) && n >= 50 && /\b(sq|ft|feet|linear|lf)\b/i.test(after)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/** Regex match from LABELED_PRICE_RE — reject quantity masquerading as price. */
+function labeledPriceMatchIsValid(source, match) {
+  const label = String(match[1] || '').trim();
+  const amountStr = match[2];
+  if (!amountStr) return false;
+  if (WEAK_LABEL_RE.test(label)) return false;
+  if (isQuantityNotPriceContext(source, amountStr, match.index)) return false;
+
+  const n = Number(String(amountStr).replace(/,/g, ''));
+  const suffixK = match[3];
+  if (n < 100 && !/\$/.test(match[0])) return false;
+  if (/^(roughly|around|about|maybe|let's say|lets say|slabs?)$/i.test(label)) return false;
+
+  if (!/\$/.test(match[0]) && !PRICE_INDICATOR_BEFORE_RE.test(String(source).slice(Math.max(0, match.index - 20), match.index))) {
+    if (suffixK && String(suffixK).toLowerCase() === 'k') return true;
+    if (n >= 100 && n < 10000 && !/\$/.test(match[0])) {
+      const after = String(source).slice(
+        match.index + match[0].indexOf(amountStr) + amountStr.length,
+        match.index + match[0].length + 30
+      );
+      if (!QUANTITY_UNIT_AFTER_RE.test(after) && !UNIT_RATE_AFTER_RE.test(after)) {
+        return true;
+      }
+      return false;
+    }
+  }
+  return true;
+}
+
+function amountAppearsAsQuantityInText(sourceText, amount) {
+  const n = roundMoney(amount);
+  if (!n || n <= 0) return false;
+  const text = String(sourceText || '');
+  const amt = String(n);
+
+  const checks = [
+    new RegExp(`\\b${amt}\\s*(?:sq\\.?\\s*ft|sqft|sq\\s*ft|square\\s*feet|ft\\s*[²2])`, 'i'),
+    new RegExp(`\\b${amt}\\s*(?:linear\\s*feet|ln\\.?\\s*ft|\\blf\\b)`, 'i'),
+    new RegExp(`(?:have|of)\\s+${amt}\\s*(?:ft|sq|linear)`, 'i'),
+  ];
+
+  for (const re of checks) {
+    const m = re.exec(text);
+    if (!m) continue;
+    const idx = m.index;
+    const before = text.slice(Math.max(0, idx - 12), idx);
+    if (!/\$/.test(before) && !PRICE_INDICATOR_BEFORE_RE.test(before)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function priceMatchesQuantitySum(price, sourceText) {
+  const n = roundMoney(price);
+  if (!n) return false;
+  const nums = [];
+  const re =
+    /\b(\d[\d,]*)\s*(?:sq\.?\s*ft|sqft|sq\s*ft|square\s*feet|ft\s*[²2]|linear\s*feet|ln\.?\s*ft|\blf\b)/gi;
+  let m;
+  while ((m = re.exec(String(sourceText || '')))) {
+    const v = Number(String(m[1]).replace(/,/g, ''));
+    if (v > 0) nums.push(v);
+  }
+  if (nums.length === 0) return false;
+  if (nums.includes(n)) return true;
+  const sum = nums.reduce((a, b) => a + b, 0);
+  return roundMoney(sum) === n;
+}
+
+function notesContainExplicitPrice(notes, amount) {
+  const n = roundMoney(amount);
+  if (!n) return false;
+  const text = String(notes || '');
+  if (new RegExp(`\\$\\s*${n.toLocaleString().replace(/,/g, ',?')}\\b`, 'i').test(text)) return true;
+  if (new RegExp(`\\$\\s*${n}\\b`, 'i').test(text)) return true;
+  if (new RegExp(`\\b${n}\\s*k\\b`, 'i').test(text)) return true;
+  if (
+    new RegExp(
+      `(?:total|bid|price|cost|charge|allowance|lump|budget)\\s*(?:of|is|:)?\\s*\\$?\\s*${n}\\b`,
+      'i'
+    ).test(text)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function sanitizePricingItem(item, sourceText) {
+  const amount =
+    item?.amount != null
+      ? roundMoney(item.amount)
+      : item?.unitRate != null && item?.quantity != null
+        ? roundMoney(item.unitRate * item.quantity)
+        : item?.unitRate != null
+          ? roundMoney(item.unitRate)
+          : null;
+
+  if (amount == null || amount <= 0) return { ...item, includedInSubtotal: false };
+
+  const isUnitRate =
+    item?.unit &&
+    /^(sqft|lf|hr|each|square|yard)$/i.test(String(item.unit)) &&
+    (item.unitRate != null || /\//.test(String(item.unit)));
+
+  if (isUnitRate && item.unitRate != null && item.unitRate < 500) {
+    return item;
+  }
+
+  if (amountAppearsAsQuantityInText(sourceText, amount) && !notesContainExplicitPrice(sourceText, amount)) {
+    const qty =
+      item?.quantity != null
+        ? Number(item.quantity)
+        : parseSquareFeetFromText(sourceText) || parseLinearFeetFromText(sourceText);
+    return {
+      ...item,
+      amount: null,
+      unitRate: null,
+      quantity: qty,
+      status: 'missing_price',
+      priceSource: 'quantity_only',
+      includedInSubtotal: false,
+      description: item.description || 'Quantity from notes — rate or price not provided',
+    };
+  }
+
+  return item;
+}
+
+function sanitizePricingItemsList(items, sourceText) {
+  return (items || []).map((item) => sanitizePricingItem(item, sourceText));
+}
+
+function sanitizeRoomPrice(room, sourceText) {
+  const text = String(sourceText || '').trim();
+  const items = sanitizePricingItemsList(room.pricingItems || [], text);
+  const pricedLines = items.filter(
+    (p) => p.includedInSubtotal !== false && p.amount > 0 && p.priceSource !== 'quantity_only'
+  );
+  const validSubtotal = pricedLines.reduce((s, p) => s + roundMoney(p.amount), 0);
+
+  const price = room?.price != null ? roundMoney(room.price) : null;
+  let next = { ...room, pricingItems: items };
+
+  if (!text) return next;
+
+  const hadLineItems = (room.pricingItems || []).length > 0;
+
+  if (price != null && price > 0) {
+    if (notesContainExplicitPrice(text, price)) return next;
+
+    const stripAsQuantity =
+      amountAppearsAsQuantityInText(text, price) || priceMatchesQuantitySum(price, text);
+
+    const stripAsFakeLines =
+      validSubtotal === 0 &&
+      !notesContainExplicitPrice(text, price) &&
+      hadLineItems &&
+      items.some((p) => p.priceSource === 'quantity_only' || p.status === 'missing_price');
+
+    if (stripAsQuantity || stripAsFakeLines) {
+      next = { ...next, price: null, priceProvidedByUser: false };
+    } else if (
+      validSubtotal > 0 &&
+      validSubtotal === price &&
+      pricedLines.every((p) => amountAppearsAsQuantityInText(text, p.amount))
+    ) {
+      next = { ...next, price: null, priceProvidedByUser: false };
+    }
+  }
+
+  return next;
+}
+
+function normalizePackageKey(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+/** Match a note sentence to a scope package (avoid cross-assigning qty between packages). */
+function sentenceMatchesPackage(packageName, scopeText, sentence) {
+  const pkgKey = normalizePackageKey(packageName);
+  const scopeKey = normalizePackageKey(scopeText);
+  const s = String(sentence || '').toLowerCase();
+
+  if (/tile|demo/.test(pkgKey) || /tile demo/.test(scopeKey)) {
+    return /\btile\b/.test(s) && /\b(demo|demolish|removal|remove)\b/.test(s);
+  }
+  if ((/laminate|flooring|lvp/.test(pkgKey) || /laminate|flooring/.test(scopeKey)) && !/baseboard/.test(pkgKey)) {
+    return /\b(laminate|lvp|vinyl|flooring)\b/.test(s) && /\b(install|installation)\b/.test(s);
+  }
+  if (/baseboard|trim/.test(pkgKey) || /baseboard/.test(scopeKey)) {
+    return /\b(baseboard|trim)\b/.test(s) || (/\b(linear\s*feet|lf)\b/.test(s) && !/\btile\b/.test(s) && !/\blaminate\b/.test(s));
+  }
+
+  const tokens = pkgKey.split(' ').filter((w) => w.length > 3);
+  return tokens.some((t) => s.includes(t));
+}
+
+/**
+ * Quantities for one scope package only (not global notes blob).
+ */
+function extractScopeQuantitiesForPackage(packageName, scopeText, originalNotes) {
+  const source = `${scopeText || ''}\n${originalNotes || ''}`.trim();
+  if (!source) return [];
+
+  const results = [];
+  const sentences = source.split(/[.;\n]+/).map((x) => x.trim()).filter(Boolean);
+
+  for (const sentence of sentences) {
+    const sqftM = sentence.match(/\b(\d[\d,]*)\s*(?:sq\.?\s*ft|sqft|sq\s*ft|square\s*feet|ft\s*[²2ˆ]?)\b/i);
+    const lfM = sentence.match(/\b(\d[\d,]*)\s*(?:linear\s*feet|ln\.?\s*ft|\blf\b)/i);
+    if (!sqftM && !lfM) continue;
+
+    if (!sentenceMatchesPackage(packageName, scopeText, sentence)) continue;
+
+    const qty = Number(String((sqftM || lfM)[1]).replace(/,/g, ''));
+    if (!Number.isFinite(qty) || qty <= 0) continue;
+
+    const unit = sqftM ? 'sqft' : 'lf';
+    results.push({ label: packageName, quantity: qty, unit });
+  }
+
+  if (results.length === 0 && scopeText) {
+    const sqft = parseSquareFeetFromText(scopeText, packageName);
+    const lf = parseLinearFeetFromText(scopeText, packageName);
+    if (sqft) results.push({ label: packageName, quantity: sqft, unit: 'sqft' });
+    if (lf && !results.some((r) => r.unit === 'lf')) {
+      results.push({ label: packageName, quantity: lf, unit: 'lf' });
+    }
+  }
+
+  const byUnit = new Map();
+  for (const r of results) {
+    if (!byUnit.has(r.unit)) byUnit.set(r.unit, r);
+  }
+  return [...byUnit.values()];
+}
+
+/** @deprecated Use extractScopeQuantitiesForPackage per package */
+function extractScopeQuantitiesFromText(text) {
+  return extractScopeQuantitiesForPackage('Scope', text, '');
+}
+
+function scopeOnlyMissingHints(packageName) {
+  const key = normalizePackageKey(packageName);
+  if (/tile|demo/.test(key)) return ['Demo / removal rate or lump sum'];
+  if (/laminate|flooring|lvp/.test(key) && !/baseboard/.test(key)) {
+    return ['Material allowance per sqft', 'Labor install rate per sqft'];
+  }
+  if (/baseboard|trim/.test(key)) {
+    return ['Material rate per LF', 'Labor install rate per LF', 'Caulk & paint'];
+  }
+  return ['Material and labor pricing'];
+}
+
+function inferProjectTypeFromNotes(notes, projectType) {
+  const n = String(notes || '').toLowerCase();
+  const floorHeavy =
+    /\b(floor\s*job|flooring|laminate\s+flooring|tile\s+demo|lvp|baseboard\s+install)/.test(n) ||
+    (/\b(tile demo|laminate|baseboard)\b/.test(n) && /\b(sqft|sq\s*ft|ft²|linear\s*feet|lf)\b/.test(n));
+  const bathHeavy = /\b(bath(?:room)?\s+remodel|shower|vanity|toilet|tub)\b/.test(n);
+  if (floorHeavy && !bathHeavy) return 'flooring';
+  return projectType;
+}
+
+module.exports = {
+  QUANTITY_UNIT_AFTER_RE,
+  PRICE_INDICATOR_BEFORE_RE,
+  isQuantityNotPriceContext,
+  labeledPriceMatchIsValid,
+  amountAppearsAsQuantityInText,
+  notesContainExplicitPrice,
+  sanitizePricingItem,
+  sanitizePricingItemsList,
+  sanitizeRoomPrice,
+  extractScopeQuantitiesFromText,
+  extractScopeQuantitiesForPackage,
+  scopeOnlyMissingHints,
+  inferProjectTypeFromNotes,
+  WEAK_LABEL_RE,
+};

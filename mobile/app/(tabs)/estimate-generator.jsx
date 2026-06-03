@@ -44,6 +44,14 @@ import EstimateTemplatePickerModal from '../../components/estimate/EstimateTempl
 import SaveAsTemplateModal from '../../components/estimate/SaveAsTemplateModal';
 import AIEstimateBuilderModal from '../../components/estimate/AIEstimateBuilderModal';
 import AIEstimateDraftReviewModal from '../../components/estimate/AIEstimateDraftReviewModal';
+import AIEstimatePricingProposalModal from '../../components/estimate/AIEstimatePricingProposalModal';
+import AIEstimatePricingFallbackModal from '../../components/estimate/AIEstimatePricingFallbackModal';
+import AIEstimateManualPricingModal from '../../components/estimate/AIEstimateManualPricingModal';
+import {
+  applyPricingProposalToDraft,
+  fetchRoughPricingProposal,
+  fetchSavedPricingProposal,
+} from '../../utils/estimateAiDraftPricing';
 import {
   collectSavedEstimateCustomers,
   enrichSavedCustomerFromSources,
@@ -68,7 +76,15 @@ import {
   applyDraftToEstimate,
   fetchEstimateDraftFromNotes,
   fetchSuggestedDraftSplits,
+  fetchClarifyDraftQuestions,
+  fetchRoughEstimateRange,
 } from '../../utils/estimateAiDraft';
+import {
+  capturePricingMemory,
+  fetchPricingLibrary,
+  fetchSuggestMissingPrices,
+  isTestOrDemoBid,
+} from '../../utils/contractorPricingMemory';
 import { MessagesInbox } from '../../components/MessagesInbox';
 import AIBidOptimization from '../../components/AIBidOptimization';
 import ProjectAnalysis from '../../components/ProjectAnalysis';
@@ -5070,8 +5086,19 @@ export default function EstimateGeneratorScreen() {
   const [aiDraft, setAiDraft] = useState(null);
   const [aiDraftGenerating, setAiDraftGenerating] = useState(false);
   const [aiDraftApplying, setAiDraftApplying] = useState(false);
+  const [aiDraftRoughLoading, setAiDraftRoughLoading] = useState(false);
   const [aiDraftSuggestingSplits, setAiDraftSuggestingSplits] = useState(false);
   const [aiDraftFromAssistant, setAiDraftFromAssistant] = useState(false);
+  const [aiDraftClarifying, setAiDraftClarifying] = useState(false);
+  const [aiDraftSuggestingMissing, setAiDraftSuggestingMissing] = useState(false);
+  const [aiSavedPricingProposal, setAiSavedPricingProposal] = useState(null);
+  const [aiRoughPricingProposal, setAiRoughPricingProposal] = useState(null);
+  const [showAiSavedPricingModal, setShowAiSavedPricingModal] = useState(false);
+  const [showAiRoughPricingModal, setShowAiRoughPricingModal] = useState(false);
+  const [showAiManualPricingModal, setShowAiManualPricingModal] = useState(false);
+  const [pricingFallbackVariant, setPricingFallbackVariant] = useState(null);
+  const [aiSaveToPricingLibrary, setAiSaveToPricingLibrary] = useState(true);
+  const [aiClarifyQuestions, setAiClarifyQuestions] = useState(null);
   const [aiDraftFillToast, setAiDraftFillToast] = useState({ visible: false, roomCount: 0 });
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const [isFirstTime, setIsFirstTime] = useState(false);
@@ -5475,8 +5502,11 @@ export default function EstimateGeneratorScreen() {
   const handleGenerateAiDraft = useCallback(async (notes) => {
     setAiDraftGenerating(true);
     setAiDraftNotes(notes);
+    setAiClarifyQuestions(null);
     try {
-      const draft = await fetchEstimateDraftFromNotes(notes);
+      const draft = await fetchEstimateDraftFromNotes(notes, savedBidTemplates);
+      const draftTitle = `${draft.projectTitle || ''} ${draft.customerName || ''}`.toLowerCase();
+      setAiSaveToPricingLibrary(!/\b(test|demo|sample|example)\b/.test(draftTitle));
       setAiDraft(draft);
       setShowAiBuilderModal(false);
       setShowAiDraftReviewModal(true);
@@ -5492,7 +5522,150 @@ export default function EstimateGeneratorScreen() {
     } finally {
       setAiDraftGenerating(false);
     }
+  }, [savedBidTemplates]);
+
+  const handleSuggestMissingPrices = useCallback(async () => {
+    if (!aiDraft || aiDraftSuggestingMissing) return;
+    setAiDraftSuggestingMissing(true);
+    try {
+      const { suggestions, message } = await fetchSuggestMissingPrices(aiDraft, savedBidTemplates);
+      setAiDraft((prev) =>
+        prev
+          ? {
+              ...prev,
+              pricingMemoryMissingSuggestions: suggestions,
+              pricingMemoryMissingMessage: message ?? null,
+            }
+          : prev
+      );
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch (e) {
+      console.warn('handleSuggestMissingPrices failed', e);
+      Alert.alert('Suggest prices', e?.message || 'Could not load suggestions from your pricing history.');
+    } finally {
+      setAiDraftSuggestingMissing(false);
+    }
+  }, [aiDraft, aiDraftSuggestingMissing, savedBidTemplates]);
+
+  const handleUseSavedPricing = useCallback(async () => {
+    if (!aiDraft || aiDraftSuggestingMissing) return;
+    setAiDraftSuggestingMissing(true);
+    try {
+      let templates = savedBidTemplates;
+      try {
+        templates = await loadSavedBidTemplates();
+        setSavedBidTemplates(templates);
+      } catch {
+        templates = savedBidTemplates;
+      }
+      if (!templates?.length) {
+        try {
+          const lib = await fetchPricingLibrary();
+          if ((lib.total || 0) === 0) {
+            setPricingFallbackVariant('saved');
+            return;
+          }
+        } catch {
+          setPricingFallbackVariant('saved');
+          return;
+        }
+      }
+      const proposal = await fetchSavedPricingProposal(aiDraft, templates, {
+        projectLocation: [bid?.projectAddress, bid?.customerCity, bid?.customerState]
+          .filter(Boolean)
+          .join(', '),
+        zipCode: bid?.zipCode || bid?.customerZip || '',
+      });
+      if (proposal.empty) {
+        setPricingFallbackVariant('saved');
+        return;
+      }
+      setAiSavedPricingProposal(proposal);
+      setShowAiSavedPricingModal(true);
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch (e) {
+      console.warn('handleUseSavedPricing failed', e);
+      setPricingFallbackVariant('saved');
+    } finally {
+      setAiDraftSuggestingMissing(false);
+    }
+  }, [aiDraft, aiDraftSuggestingMissing, savedBidTemplates, bid]);
+
+  const handleSuggestRoughPrices = useCallback(async () => {
+    if (!aiDraft || aiDraftRoughLoading) return;
+    setAiDraftRoughLoading(true);
+    try {
+      const proposal = await fetchRoughPricingProposal(aiDraft, savedBidTemplates, {
+        projectLocation: [bid?.projectAddress, bid?.customerCity, bid?.customerState]
+          .filter(Boolean)
+          .join(', '),
+        zipCode: bid?.zipCode || bid?.customerZip || '',
+      });
+      if (proposal.empty) {
+        setPricingFallbackVariant('rough');
+        return;
+      }
+      setAiRoughPricingProposal(proposal);
+      setShowAiRoughPricingModal(true);
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch (e) {
+      console.warn('handleSuggestRoughPrices failed', e);
+      setPricingFallbackVariant('rough');
+    } finally {
+      setAiDraftRoughLoading(false);
+    }
+  }, [aiDraft, aiDraftRoughLoading, savedBidTemplates, bid]);
+
+  const handlePricingFallbackAddManually = useCallback(() => {
+    setPricingFallbackVariant(null);
+    setShowAiSavedPricingModal(false);
+    setShowAiRoughPricingModal(false);
+    setShowAiManualPricingModal(true);
   }, []);
+
+  const handleAddPricesManually = useCallback(() => {
+    if (!aiDraft) return;
+    setShowAiManualPricingModal(true);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  }, [aiDraft]);
+
+  const handleApplySavedPricingProposal = useCallback(() => {
+    if (!aiDraft || !aiSavedPricingProposal || aiSavedPricingProposal.empty) return;
+    setAiDraft(applyPricingProposalToDraft(aiDraft, aiSavedPricingProposal, { approved: true }));
+    setShowAiSavedPricingModal(false);
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  }, [aiDraft, aiSavedPricingProposal]);
+
+  const handleApplyRoughPricingProposal = useCallback(() => {
+    if (!aiDraft || !aiRoughPricingProposal || aiRoughPricingProposal.empty) return;
+    setAiDraft(applyPricingProposalToDraft(aiDraft, aiRoughPricingProposal, { approved: true }));
+    setShowAiRoughPricingModal(false);
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  }, [aiDraft, aiRoughPricingProposal]);
+
+  const handleManualPricingCalculate = useCallback(
+    (proposal) => {
+      if (!aiDraft) return;
+      setAiDraft(applyPricingProposalToDraft(aiDraft, proposal, { approved: true }));
+      setShowAiManualPricingModal(false);
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    },
+    [aiDraft]
+  );
 
   const handleSuggestAiDraftSplits = useCallback(async () => {
     if (!aiDraft || aiDraftSuggestingSplits || aiDraftApplying) return;
@@ -5514,57 +5687,183 @@ export default function EstimateGeneratorScreen() {
     }
   }, [aiDraft, aiDraftSuggestingSplits, aiDraftApplying]);
 
-  const handleApplyAiDraft = useCallback(async () => {
-    if (!aiDraft) return;
-
-    const commitApply = async () => {
-      setAiDraftApplying(true);
-      try {
-        const { bid: nextBid, materialsCart: nextCart } = applyDraftToEstimate(bid, aiDraft);
-        lastSavedBidRef.current = null;
-        pendingSaveRef.current = null;
-        setBid(nextBid);
-        setMaterialsCart(nextCart);
-        syncLocalCustomerFromBid(nextBid);
-        setAppliedTemplateName(null);
-        setShowAiDraftReviewModal(false);
-        setShowAiBuilderModal(false);
-        setAiDraftFromAssistant(false);
-        setShowAIAssistant(false);
-        setEstimateAiInitialQuestion('');
-        setStep(0);
-        await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(nextBid));
-        await AsyncStorage.setItem('bps.materialsCart', JSON.stringify(nextCart));
-        setForceRefresh((prev) => prev + 1);
-        if (Platform.OS !== 'web') {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        }
-        setAiDraftFillToast({
-          visible: true,
-          roomCount: aiDraft.rooms?.length || 0,
-        });
-      } catch (e) {
-        console.warn('handleApplyAiDraft failed', e);
-        Alert.alert('Could not apply draft', e?.message || 'Please try again.');
-      } finally {
-        setAiDraftApplying(false);
+  const handleClarifyAiDraft = useCallback(async () => {
+    if (!aiDraft || aiDraftClarifying) return;
+    setAiDraftClarifying(true);
+    try {
+      const result = await fetchClarifyDraftQuestions(aiDraft);
+      setAiClarifyQuestions(result.questions);
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
-    };
-
-    if (bidHasLineItems) {
-      Alert.alert(
-        'Replace line items?',
-        'Applying this draft will replace your current labor and material line items with the AI-parsed rooms. Other bid fields stay as-is.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Apply draft', onPress: () => void commitApply() },
-        ]
-      );
-      return;
+    } catch (e) {
+      console.warn('handleClarifyAiDraft failed', e);
+      Alert.alert('Could not clarify', e?.message || 'Please try again.');
+    } finally {
+      setAiDraftClarifying(false);
     }
+  }, [aiDraft, aiDraftClarifying]);
 
-    await commitApply();
-  }, [aiDraft, bid, bidHasLineItems, syncLocalCustomerFromBid]);
+  const handleToggleApplySuggestedSplits = useCallback(() => {
+    setAiDraft((prev) =>
+      prev ? { ...prev, applySuggestedSplits: !prev.applySuggestedSplits } : prev
+    );
+  }, []);
+
+  const handleApproveSuggestedSplit = useCallback((parentItemName) => {
+    setAiDraft((prev) => {
+      if (!prev) return prev;
+      const suggestedSplits = (prev.suggestedSplits || []).map((s) =>
+        s.parentItemName === parentItemName ? { ...s, approvedByUser: !s.approvedByUser } : s
+      );
+      const anyApproved = suggestedSplits.some((s) => s.approvedByUser);
+      return {
+        ...prev,
+        suggestedSplits,
+        applySuggestedSplits: anyApproved,
+      };
+    });
+  }, []);
+
+  const commitApplyAiDraft = useCallback(
+    async (mode = 'default') => {
+      if (!aiDraft) return;
+
+      const applyConfirmedOnly = mode === 'confirmed';
+      const scopeOnly = mode === 'scope_only';
+      const withApproved = mode === 'with_approved';
+
+      const runApply = async () => {
+        setAiDraftApplying(true);
+        try {
+          const { bid: appliedBid, materialsCart: nextCart } = applyDraftToEstimate(bid, aiDraft, {
+            scopeOnly,
+            applySuggestedSplits: scopeOnly
+              ? false
+              : withApproved
+                ? true
+                : applyConfirmedOnly
+                  ? false
+                  : Boolean(aiDraft.applySuggestedSplits),
+            applyConfirmedOnly: scopeOnly ? false : applyConfirmedOnly,
+          });
+          const nextBid = {
+            ...appliedBid,
+            aiSaveToPricingLibrary: aiSaveToPricingLibrary,
+          };
+          lastSavedBidRef.current = null;
+          pendingSaveRef.current = null;
+          setBid(nextBid);
+          setMaterialsCart(nextCart);
+          syncLocalCustomerFromBid(nextBid);
+          setAppliedTemplateName(null);
+          setShowAiDraftReviewModal(false);
+          setShowAiBuilderModal(false);
+          setAiDraftFromAssistant(false);
+          setShowAIAssistant(false);
+          setEstimateAiInitialQuestion('');
+          setStep(0);
+          await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(nextBid));
+          await AsyncStorage.setItem('bps.materialsCart', JSON.stringify(nextCart));
+          setForceRefresh((prev) => prev + 1);
+          if (Platform.OS !== 'web') {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          }
+          setAiDraftFillToast({
+            visible: true,
+            roomCount: aiDraft.rooms?.length || 0,
+          });
+          if (!scopeOnly) {
+            void capturePricingMemory({
+              draft: aiDraft,
+              bid: nextBid,
+              meta: {
+                bidStatus: 'applied',
+                isTestBid: isTestOrDemoBid(nextBid),
+                saveToLibrary: aiSaveToPricingLibrary,
+                projectId: String(nextBid.id || ''),
+                projectTitle: String(nextBid.title || ''),
+                markupPct: Number(nextBid.markupPct) || null,
+                region: nextBid.customerState ? String(nextBid.customerState) : null,
+              },
+            });
+          }
+        } catch (e) {
+          console.warn('handleApplyAiDraft failed', e);
+          Alert.alert('Could not apply draft', e?.message || 'Please try again.');
+        } finally {
+          setAiDraftApplying(false);
+        }
+      };
+
+      if (scopeOnly) {
+        Alert.alert(
+          'Save scope only?',
+          'This saves scope, inclusions, exclusions, and notes without applying labor or material pricing.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Save scope', onPress: () => void runApply() },
+          ]
+        );
+        return;
+      }
+
+      if (bidHasLineItems) {
+        const title = applyConfirmedOnly
+          ? 'Apply confirmed pricing?'
+          : withApproved
+            ? 'Apply with approved suggestions?'
+            : 'Replace line items?';
+        const message = applyConfirmedOnly
+          ? 'Only confirmed and calculated prices from your notes will be applied. Missing scope will not be added as $0 lines.'
+          : withApproved
+            ? 'Applies your notes plus AI splits you approved. Unapproved suggestions are skipped.'
+            : 'Applying this draft will replace your current labor and material line items with the AI-parsed rooms. Other bid fields stay as-is.';
+        Alert.alert(title, message, [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: applyConfirmedOnly ? 'Apply confirmed' : withApproved ? 'Apply approved' : 'Apply draft',
+            onPress: () => void runApply(),
+          },
+        ]);
+        return;
+      }
+
+      await runApply();
+    },
+    [aiDraft, aiSaveToPricingLibrary, bid, bidHasLineItems, syncLocalCustomerFromBid]
+  );
+
+  const handleApplyAiDraftConfirmed = useCallback(
+    () => commitApplyAiDraft('confirmed'),
+    [commitApplyAiDraft]
+  );
+  const handleApplyAiDraftWithApproved = useCallback(
+    () => commitApplyAiDraft('with_approved'),
+    [commitApplyAiDraft]
+  );
+  const handleApplyAiDraftScopeOnly = useCallback(
+    () => commitApplyAiDraft('scope_only'),
+    [commitApplyAiDraft]
+  );
+  const handleApplyAiDraft = useCallback(() => commitApplyAiDraft('confirmed'), [commitApplyAiDraft]);
+
+  const handleRoughEstimateRange = useCallback(async () => {
+    if (!aiDraft || aiDraftRoughLoading) return;
+    setAiDraftRoughLoading(true);
+    try {
+      const { draft } = await fetchRoughEstimateRange(aiDraft);
+      setAiDraft(draft);
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch (e) {
+      console.warn('handleRoughEstimateRange failed', e);
+      Alert.alert('Rough estimate', e?.message || 'Could not generate rough budget range.');
+    } finally {
+      setAiDraftRoughLoading(false);
+    }
+  }, [aiDraft, aiDraftRoughLoading]);
 
   const commitTemplateApply = useCallback(
     async (template, mode) => {
@@ -5727,6 +6026,16 @@ export default function EstimateGeneratorScreen() {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
         Alert.alert('Template saved', `"${input.name}" is ready to reuse on future bids.`);
+        void capturePricingMemory({
+          bid: bidWithCustomer,
+          meta: {
+            bidStatus: 'saved_template',
+            isTestBid: isTestOrDemoBid(bidWithCustomer),
+            saveToLibrary: !isTestOrDemoBid(bidWithCustomer),
+            projectId: String(bidWithCustomer.id || ''),
+            projectTitle: String(bidWithCustomer.title || input.name),
+          },
+        });
       } catch (e) {
         console.warn('handleSaveAsTemplate failed', e);
         Alert.alert('Error', 'Could not save template.');
@@ -11066,6 +11375,21 @@ export default function EstimateGeneratorScreen() {
         console.log('🔍 Debug - submitting bid with data:', estimateData);
         await addEstimate(estimateData);
 
+        void capturePricingMemory({
+          draft: sourceBid.aiEstimateDraftSnapshot?.draft,
+          bid: sourceBid,
+          meta: {
+            bidStatus: 'submitted',
+            isTestBid: isTestOrDemoBid(sourceBid),
+            saveToLibrary: sourceBid.aiSaveToPricingLibrary !== false,
+            projectId: String(sourceBid.id || estimateData.id || ''),
+            projectTitle: String(sourceBid.title || ''),
+            markupPct: Number(markup) || null,
+            marginPct: margin,
+            region: sourceBid.customerState ? String(sourceBid.customerState) : null,
+          },
+        });
+
         void persistCustomerFromBid(sourceBid);
 
         if (sourceBid.leadId && sourceBid.leadSource === 'qualified_lead') {
@@ -11264,6 +11588,20 @@ export default function EstimateGeneratorScreen() {
       };
 
       await addEstimate(estimateData);
+      void capturePricingMemory({
+        draft: sourceBid.aiEstimateDraftSnapshot?.draft,
+        bid: estimateSnapshot,
+        meta: {
+          bidStatus: 'won',
+          isTestBid: isTestOrDemoBid(sourceBid),
+          saveToLibrary: sourceBid.aiSaveToPricingLibrary !== false,
+          projectId: String(sourceBid.id || ''),
+          projectTitle: String(sourceBid.title || ''),
+          markupPct: Number(markup) || null,
+          marginPct: margin,
+          region: sourceBid.customerState ? String(sourceBid.customerState) : null,
+        },
+      });
       await markFirstEstimateWalkthroughComplete(clerkUser?.id);
       await refreshWalkthroughState();
       console.log(`✅ Upserted active project with latest schedule dates (${estimateData.status})`);
@@ -23053,8 +23391,13 @@ export default function EstimateGeneratorScreen() {
           draft={aiDraft}
           applying={aiDraftApplying}
           suggestingSplits={aiDraftSuggestingSplits}
+          clarifying={aiDraftClarifying}
+          clarifyQuestions={aiClarifyQuestions}
           fromAssistant={aiDraftFromAssistant}
           onSuggestSplits={handleSuggestAiDraftSplits}
+          onClarifyMissing={handleClarifyAiDraft}
+          onToggleApplySuggestedSplits={handleToggleApplySuggestedSplits}
+          onApproveSuggestedSplit={handleApproveSuggestedSplit}
           onBack={() => {
             if (!aiDraftApplying) {
               setShowAiDraftReviewModal(false);
@@ -23071,6 +23414,92 @@ export default function EstimateGeneratorScreen() {
             setShowAiBuilderModal(true);
           }}
           onApply={handleApplyAiDraft}
+          onApplyConfirmedOnly={handleApplyAiDraftConfirmed}
+          onApplyWithApproved={handleApplyAiDraftWithApproved}
+          onApplyScopeOnly={handleApplyAiDraftScopeOnly}
+          onRequestRoughRange={handleRoughEstimateRange}
+          roughRangeLoading={aiDraftRoughLoading}
+          suggestingMissingPrices={aiDraftSuggestingMissing}
+          onSuggestMissingPrices={handleSuggestMissingPrices}
+          onUseSavedPricing={handleUseSavedPricing}
+          onSuggestRoughPrices={handleSuggestRoughPrices}
+          onAddPricesManually={handleAddPricesManually}
+          saveToPricingLibrary={aiSaveToPricingLibrary}
+          onToggleSaveToPricingLibrary={setAiSaveToPricingLibrary}
+        />
+
+        <AIEstimatePricingProposalModal
+          visible={showAiSavedPricingModal}
+          proposal={aiSavedPricingProposal}
+          title={
+            aiSavedPricingProposal?.primarySource === 'saved_template'
+              ? 'From saved bid template'
+              : aiSavedPricingProposal?.primarySource === 'saved_pricing'
+                ? 'Based on your saved pricing'
+                : 'Saved pricing lookup'
+          }
+          subtitle={
+            aiSavedPricingProposal?.primarySource === 'saved_template'
+              ? `Matched line items from ${aiSavedPricingProposal?.templateCount || 0} saved template(s). Not from AI — review before applying.`
+              : 'Rates from your pricing library or past approved bids only. Review before applying.'
+          }
+          applyLabel={
+            aiSavedPricingProposal?.primarySource === 'saved_template'
+              ? 'Apply template pricing'
+              : 'Apply saved pricing'
+          }
+          onApply={handleApplySavedPricingProposal}
+          onEdit={() => {
+            setShowAiSavedPricingModal(false);
+            setShowAiManualPricingModal(true);
+          }}
+          onAddManually={() => {
+            setShowAiSavedPricingModal(false);
+            setShowAiManualPricingModal(true);
+          }}
+          onClose={() => setShowAiSavedPricingModal(false)}
+        />
+
+        <AIEstimatePricingProposalModal
+          visible={showAiRoughPricingModal}
+          proposal={aiRoughPricingProposal}
+          title={
+            aiRoughPricingProposal?.anyRealSource
+              ? 'Suggested pricing'
+              : 'Suggested pricing (review sources)'
+          }
+          subtitle="Multi-source pricing from saved rates, benchmarks, and fallbacks. Review comparison, confidence, and disclaimer before applying."
+          applyLabel={
+            aiRoughPricingProposal?.anyFallbackOnly && !aiRoughPricingProposal?.anyRealSource
+              ? 'Apply fallback prices'
+              : 'Apply suggested pricing'
+          }
+          onApply={handleApplyRoughPricingProposal}
+          onEdit={() => {
+            setShowAiRoughPricingModal(false);
+            setShowAiManualPricingModal(true);
+          }}
+          onAddManually={() => {
+            setShowAiRoughPricingModal(false);
+            setShowAiManualPricingModal(true);
+          }}
+          onClose={() => setShowAiRoughPricingModal(false)}
+        />
+
+        <AIEstimateManualPricingModal
+          visible={showAiManualPricingModal}
+          draft={aiDraft}
+          saveToLibrary={aiSaveToPricingLibrary}
+          onToggleSaveToLibrary={setAiSaveToPricingLibrary}
+          onCalculate={handleManualPricingCalculate}
+          onClose={() => setShowAiManualPricingModal(false)}
+        />
+
+        <AIEstimatePricingFallbackModal
+          visible={pricingFallbackVariant != null}
+          variant={pricingFallbackVariant || 'saved'}
+          onAddManually={handlePricingFallbackAddManually}
+          onClose={() => setPricingFallbackVariant(null)}
         />
       </AIAssistantModal>
 

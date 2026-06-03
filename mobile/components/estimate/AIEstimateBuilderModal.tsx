@@ -8,6 +8,7 @@ import {
   Platform,
   StyleSheet,
   StatusBar,
+  Keyboard,
   KeyboardAvoidingView,
   ScrollView,
   ActivityIndicator,
@@ -47,12 +48,29 @@ export default function AIEstimateBuilderModal({
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const [notes, setNotes] = useState('');
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   useEffect(() => {
     if (visible) {
       setNotes(initialNotes || '');
+    } else {
+      setKeyboardVisible(false);
     }
   }, [visible, initialNotes]);
+
+  useEffect(() => {
+    if (!visible || Platform.OS === 'web') return undefined;
+
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [visible]);
 
   const handleBack = () => {
     if (generating) return;
@@ -101,8 +119,8 @@ export default function AIEstimateBuilderModal({
       >
         <MaterialIcons name="auto-awesome" size={20} color="#22c55e" />
         <Text style={{ color: Colors.sub, fontSize: 13, flex: 1, lineHeight: 18 }}>
-          Paste rough job notes from a walkthrough. AI will organize rooms, scope, and pricing into a
-          draft you can review before applying.
+          Paste walkthrough notes — lump sums, $/sqft allowances, sqft, labor/material splits. AI
+          organizes scope, calculates clear formulas, and flags what’s missing. Review before applying.
         </Text>
       </View>
 
@@ -118,14 +136,14 @@ export default function AIEstimateBuilderModal({
         multiline
         scrollEnabled={false}
         textAlignVertical="top"
-        placeholder="Example: Ruth whole-home remodel — master bath $12,500, kitchen $18,000, includes LVP at $3/sqft allowance..."
+        placeholder="Example: Josh whole-home remodel — master bath $14,750 (materials $6,900 / labor $7,850), kitchen $23,400 lump sum, guest bath 420 sqft tile $4/sqft + labor $5.75/sqft..."
         placeholderTextColor={placeholderColor}
         style={[
           styles.notesInput,
           inputShell,
           {
             color: Colors.text,
-            minHeight: embedded ? 320 : 280,
+            minHeight: embedded ? 360 : 320,
           },
         ]}
       />
@@ -192,7 +210,7 @@ export default function AIEstimateBuilderModal({
         >
           {notesField}
         </ScrollView>
-        {footer}
+        {!keyboardVisible || generating ? footer : null}
       </View>
     </KeyboardAvoidingView>
   );

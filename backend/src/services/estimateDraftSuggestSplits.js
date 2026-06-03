@@ -4,6 +4,7 @@
  */
 
 const { refreshDraftMetrics } = require('./estimateDraftFromNotes');
+const { enrichDraft } = require('./estimateDraftEnrichment');
 
 function roundMoney(n) {
   return Math.round(Number(n) || 0);
@@ -55,6 +56,7 @@ function applySplitToRoom(room, laborPrice, materialPrice, projectType) {
     materialPrice: material,
     priceIncludesLaborAndMaterials: false,
     splitIsSuggested: true,
+    splitApprovedByUser: Boolean(room.splitApprovedByUser),
   };
 }
 
@@ -75,7 +77,7 @@ async function suggestLaborMaterialSplits(draft) {
   );
 
   if (toSuggest.length === 0) {
-    return refreshDraftMetrics({ ...draft });
+    return enrichDraft(refreshDraftMetrics({ ...draft }));
   }
 
   const nextRooms = draft.rooms.map((room) => {
@@ -89,10 +91,13 @@ async function suggestLaborMaterialSplits(draft) {
     return applySplitToRoom(room, h.laborPrice, h.materialPrice, projectType);
   });
 
-  return refreshDraftMetrics({
-    ...draft,
-    rooms: nextRooms,
-  });
+  return enrichDraft(
+    refreshDraftMetrics({
+      ...draft,
+      rooms: nextRooms,
+      applySuggestedSplits: Boolean(draft.applySuggestedSplits),
+    })
+  );
 }
 
 module.exports = {

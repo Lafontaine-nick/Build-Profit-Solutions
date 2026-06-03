@@ -336,6 +336,8 @@ app.use('/api/ai', aiDashboardRoutes);
 app.use('/api/ai-assistant', aiAssistantRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/user-settings', userSettingsRoutes);
+app.use('/api/contractor-pricing-memory', require('./routes/contractorPricingMemory'));
+app.use('/api/pricing-engine', require('./routes/pricingEngine'));
 app.use('/api/walkthrough-state', userWalkthroughsRoutes);
 app.use('/api/team', teamMessagingRoutes);
 app.use('/api/workspaces', workspaceRoutes);
