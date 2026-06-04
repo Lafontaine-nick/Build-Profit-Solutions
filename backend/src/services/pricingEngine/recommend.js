@@ -8,8 +8,22 @@ function formatMoney(amount) {
   return `$${roundMoney(amount).toLocaleString()}`;
 }
 
+/** Per-unit rate in formulas (avoid rounding $1.91/LF up to $2/LF). */
+function formatUnitRate(rate) {
+  const n = Number(rate);
+  if (!Number.isFinite(n) || n <= 0) return '$0';
+  if (n >= 20) return `$${Math.round(n).toLocaleString()}`;
+  const rounded = Math.round(n * 100) / 100;
+  return `$${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2)}`;
+}
+
 function rateToProposed(scopeItem, rateRow, source) {
-  const qty = scopeItem.quantity;
+  const qty =
+    scopeItem.quantity != null && scopeItem.quantity > 0
+      ? scopeItem.quantity
+      : rateRow.quantity != null && rateRow.quantity > 0
+        ? rateRow.quantity
+        : null;
   const unit = rateRow.unit || scopeItem.unit;
   const rate = rateRow.rate;
   const lump = rateRow.lumpTotal;
@@ -21,7 +35,7 @@ function rateToProposed(scopeItem, rateRow, source) {
     formula = `${formatMoney(total)} lump sum`;
   } else if (rate != null && rate > 0 && qty != null && qty > 0) {
     total = roundMoney(rate * qty);
-    formula = `${qty.toLocaleString()} ${unit} × ${formatMoney(rate)}/${unit} = ${formatMoney(total)}`;
+    formula = `${qty.toLocaleString()} ${unit} × ${formatUnitRate(rate)}/${unit} = ${formatMoney(total)}`;
   } else if (rate != null && rate > 0) {
     total = roundMoney(rate);
     formula = `${formatMoney(rate)}/${unit}`;
@@ -77,7 +91,7 @@ function pickRecommended(scopeItem, lookups, options = {}) {
         'saved_template',
         'company_default',
         'supplier_pricing',
-        'regional_labor_benchmark',
+        'national_trade_average',
         'construction_cost_database',
         'ai_rough_estimate_fallback',
       ];
@@ -89,7 +103,7 @@ function pickRecommended(scopeItem, lookups, options = {}) {
         'saved_template',
         'company_default',
         'supplier_pricing',
-        'regional_labor_benchmark',
+        'national_trade_average',
         'construction_cost_database',
         'ai_rough_estimate_fallback',
       ];
@@ -122,9 +136,9 @@ function pickRecommended(scopeItem, lookups, options = {}) {
         reason = 'Using company or trade default rates.';
       } else if (src === 'supplier_pricing') {
         reason = 'Using supplier/catalog material pricing.';
-      } else if (src === 'regional_labor_benchmark') {
+      } else if (src === 'national_trade_average') {
         reason =
-          'Regional labor benchmark + burden/productivity assumptions — verify before billing.';
+          'National trade average for material and labor from your scope — planning only. Use saved bids when you have them; verify before billing.';
       } else if (src === 'construction_cost_database') {
         reason = 'Location-adjusted construction cost database.';
       } else {

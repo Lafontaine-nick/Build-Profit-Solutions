@@ -570,6 +570,8 @@ function normalizeDraft(raw, options = {}) {
     sanitizeRoomPrice,
     inferProjectTypeFromNotes,
   } = require('./estimateDraftQuantityPrice');
+  const { extractRoomNotesText } = require('./estimateDraftRoomNotes');
+  const { expandJobScopeRooms } = require('./estimateDraftScopeSplit');
   const draft = raw && typeof raw === 'object' ? raw : {};
   const builderMode = options.builderMode
     ? normalizeBuilderMode(options.builderMode)
@@ -596,7 +598,8 @@ function normalizeDraft(raw, options = {}) {
               ? null
               : roundMoney(priceRaw);
           const priceProvidedByUser = Boolean(room?.priceProvidedByUser) || price != null;
-          const notesBlob = `${originalNotes || ''}\n${room?.scope || ''}\n${name}`;
+          const roomNotesText = extractRoomNotesText(originalNotes, name, room?.scope || '');
+          const notesBlob = `${roomNotesText}\n${room?.scope || ''}\n${name}`.trim();
           const pricingItems = sanitizePricingItemsList(
             Array.isArray(room?.pricingItems)
               ? room.pricingItems
@@ -651,6 +654,8 @@ function normalizeDraft(raw, options = {}) {
         .filter(Boolean)
     : [];
 
+  const expandedRooms = expandJobScopeRooms(rooms, originalNotes, { aggressive: false });
+
   const allowances = Array.isArray(draft.allowances)
     ? draft.allowances
         .map((a) => ({
@@ -693,7 +698,7 @@ function normalizeDraft(raw, options = {}) {
     projectTitle: draft.projectTitle ? String(draft.projectTitle).trim() : null,
     projectType,
     projectDescription: draft.projectDescription ? String(draft.projectDescription).trim() : null,
-    rooms,
+    rooms: expandedRooms,
     allowances,
     inclusions,
     exclusions,
@@ -729,7 +734,7 @@ CRITICAL RULES:
 2c. ROUGH PRICE: If user says roughly/around/maybe/let's say/not positive, preserve the exact number and set pricingItem status rough_price.
 3. Extract room/area/trade/service sections (kitchen, bath, roof, concrete, plumbing service, addition, etc.) as separate rooms.
 4. Each room scope should be the full work description for that area in plain English.
-5. Allowances (e.g. $3/sqft tile, $5/sqft install labor, $5/sqft demo labor, $0.85/lf baseboard material) go in allowances[] with amount = the unit rate and unit like "/sqft", "per sqft", or "/lf". Use separate allowance entries for demo labor vs install labor vs material allowance. Do NOT multiply by area — the server calculates totals per room.
+5. Allowances (e.g. $3/sqft tile, $5/sqft install labor, $5/sqft demo labor, $2/lf baseboard material, $5/lf baseboard install labor) go in allowances[] with amount = the unit rate and unit like "/sqft", "per sqft", or "/lf". Use separate allowance entries for demo labor vs install labor vs material allowance. Do NOT multiply by area — the server calculates totals per room.
 5b. When notes state square footage (e.g. "1200 sqft") put it in the matching room scope (flooring). Linear feet (e.g. "500 linear feet baseboard") go in the baseboard/trim room scope only — not as flooring sqft.
 5c. Classify demo/demolition allowances as labor; material cost allowance as material; baseboard trim as its own room when scope differs from flooring.
 6. Global inclusions like "includes all labor and materials" go in inclusions[].

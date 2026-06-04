@@ -136,6 +136,10 @@ export default function AIEstimateBuilderModal({
         multiline
         scrollEnabled={false}
         textAlignVertical="top"
+        blurOnSubmit
+        returnKeyType="done"
+        submitBehavior="blurAndSubmit"
+        onSubmitEditing={() => Keyboard.dismiss()}
         placeholder="Example: Josh whole-home remodel — master bath $14,750 (materials $6,900 / labor $7,850), kitchen $23,400 lump sum, guest bath 420 sqft tile $4/sqft + labor $5.75/sqft..."
         placeholderTextColor={placeholderColor}
         style={[

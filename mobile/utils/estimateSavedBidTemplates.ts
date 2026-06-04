@@ -140,10 +140,19 @@ function sumLabor(items: Record<string, unknown>[]): number {
 
 function normalizeLaborLineItem(item: Record<string, unknown>): Record<string, unknown> {
   const total = Number(item.total) || Number(item.totalCost) || 0;
+  const rate = Number(item.rate) || Number(item.unitPrice) || 0;
+  const mode = item.mode === 'sqft' ? 'sqft' : item.mode;
+  let hours = Number(item.hours ?? item.quantity ?? item.qty ?? 0) || 0;
+  if (mode === 'sqft' && hours <= 0 && total > 0 && rate > 0) {
+    hours = Math.round(total / rate);
+  }
   return {
     ...item,
+    mode,
     total,
     totalCost: total,
+    hours,
+    rate: rate || item.rate,
     name: item.name || item.description || 'Labor',
     description: item.description || item.name || 'Labor',
   };

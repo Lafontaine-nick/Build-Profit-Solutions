@@ -5,7 +5,7 @@ const SOURCE_PRIORITY = {
   saved_template: 3,
   company_default: 4,
   supplier_pricing: 5,
-  regional_labor_benchmark: 6,
+  national_trade_average: 6,
   construction_cost_database: 7,
   ai_rough_estimate_fallback: 8,
 };
@@ -16,7 +16,7 @@ const SOURCE_LABELS = {
   saved_template: 'Saved Bid Template',
   company_default: 'Company Default',
   supplier_pricing: 'Supplier Pricing',
-  regional_labor_benchmark: 'Regional Labor Benchmark',
+  national_trade_average: 'National Trade Average',
   construction_cost_database: 'Construction Cost Database',
   ai_rough_estimate_fallback: 'AI Rough Estimate Fallback',
   manually_entered: 'Manually Entered',
@@ -39,8 +39,15 @@ const PRODUCTIVITY_LF_PER_HR = {
   trim_install: 35,
 };
 
+/** National midpoint per LF for standard paint-grade MDF/primed pine baseboard (2026). */
+const NATIONAL_BASEBOARD_LF_DEFAULTS = {
+  material: 2,
+  labor: 5,
+  installedMid: 7,
+};
+
 const REGIONAL_MATERIAL_DEFAULTS = {
-  flooring: { laminateMaterial: 4, baseboardMaterial: 0.85 },
+  flooring: { laminateMaterial: 4, baseboardMaterial: NATIONAL_BASEBOARD_LF_DEFAULTS.material },
   other: { materialPerSqft: 3.5 },
 };
 
@@ -48,18 +55,111 @@ const AI_FALLBACK_RATES = {
   demoLaborSqft: 5,
   laminateMaterialSqft: 4,
   laminateLaborSqft: 5,
-  baseboardMaterialLf: 0.85,
-  baseboardLaborLf: 2.5,
+  baseboardMaterialLf: NATIONAL_BASEBOARD_LF_DEFAULTS.material,
+  baseboardLaborLf: NATIONAL_BASEBOARD_LF_DEFAULTS.labor,
 };
 
-const REGIONAL_DEFAULTS_BY_TRADE = {
-  demo: { labor: 5, material: 0, unit: 'sqft' },
-  flooring: { material: 3.5, labor: 4.5, unit: 'sqft' },
-  bathroom: { labor: 85, material: 45, unit: 'sqft' },
-  kitchen: { labor: 95, material: 55, unit: 'sqft' },
-  painting: { labor: 2.5, material: 0.85, unit: 'sqft' },
-  other: { labor: 50, material: 35, unit: 'sqft' },
+/**
+ * Planning-only national midpoints by trade (material + labor per unit).
+ * Not live supplier data — updated via product releases.
+ */
+const NATIONAL_TRADE_AVERAGES = {
+  demo: {
+    unit: 'sqft',
+    material: 0.5,
+    labor: 5,
+    materialLabel: 'Demo materials / disposal allowance',
+    laborLabel: 'Demo labor',
+  },
+  flooring: {
+    unit: 'sqft',
+    material: 4,
+    labor: 5,
+    materialLabel: 'Flooring material allowance',
+    laborLabel: 'Flooring install labor',
+  },
+  baseboard: {
+    unit: 'lf',
+    material: 2,
+    labor: 5,
+    materialLabel: 'Baseboard material',
+    laborLabel: 'Baseboard install labor',
+  },
+  bathroom: {
+    unit: 'sqft',
+    material: 45,
+    labor: 85,
+    materialLabel: 'Bathroom materials allowance',
+    laborLabel: 'Bathroom labor',
+  },
+  kitchen: {
+    unit: 'sqft',
+    material: 55,
+    labor: 95,
+    materialLabel: 'Kitchen materials allowance',
+    laborLabel: 'Kitchen labor',
+  },
+  painting: {
+    unit: 'sqft',
+    material: 0.85,
+    labor: 2.5,
+    materialLabel: 'Paint / primer materials',
+    laborLabel: 'Painting labor',
+  },
+  plumbing: {
+    unit: 'hour',
+    material: 75,
+    labor: 125,
+    materialLabel: 'Plumbing materials allowance',
+    laborLabel: 'Plumber labor',
+    defaultQuantity: 8,
+  },
+  plumbing_service: {
+    unit: 'hour',
+    material: 75,
+    labor: 125,
+    materialLabel: 'Plumbing service materials',
+    laborLabel: 'Plumber service labor',
+    defaultQuantity: 4,
+  },
+  electrical: {
+    unit: 'hour',
+    material: 45,
+    labor: 95,
+    materialLabel: 'Electrical materials allowance',
+    laborLabel: 'Electrician labor',
+    defaultQuantity: 8,
+  },
+  roofing: {
+    unit: 'square',
+    material: 350,
+    labor: 450,
+    materialLabel: 'Roofing materials per square',
+    laborLabel: 'Roofing labor per square',
+    defaultQuantity: 20,
+  },
+  concrete: {
+    unit: 'sqft',
+    material: 4,
+    labor: 6,
+    materialLabel: 'Concrete materials',
+    laborLabel: 'Concrete labor',
+  },
+  other: {
+    unit: 'sqft',
+    material: 35,
+    labor: 50,
+    materialLabel: 'Materials allowance',
+    laborLabel: 'Labor',
+  },
 };
+
+const REGIONAL_DEFAULTS_BY_TRADE = Object.fromEntries(
+  Object.entries(NATIONAL_TRADE_AVERAGES).map(([trade, band]) => [
+    trade,
+    { labor: band.labor, material: band.material, unit: band.unit },
+  ])
+);
 
 module.exports = {
   SOURCE_PRIORITY,
@@ -68,6 +168,8 @@ module.exports = {
   DEFAULT_LABOR_BURDEN,
   PRODUCTIVITY_SQFT_PER_HR,
   PRODUCTIVITY_LF_PER_HR,
+  NATIONAL_BASEBOARD_LF_DEFAULTS,
+  NATIONAL_TRADE_AVERAGES,
   REGIONAL_MATERIAL_DEFAULTS,
   AI_FALLBACK_RATES,
   REGIONAL_DEFAULTS_BY_TRADE,

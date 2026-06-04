@@ -5,7 +5,7 @@ const { lookupSavedPricing } = require('./sources/savedPricing');
 const { lookupSavedTemplate } = require('./sources/savedTemplate');
 const { lookupCompanyDefault } = require('./sources/companyDefault');
 const { lookupSupplierPricing } = require('./sources/supplierPricing');
-const { lookupRegionalLabor } = require('./sources/regionalLabor');
+const { lookupNationalTradeAverage } = require('./sources/nationalTradeAverage');
 const { lookupCostDatabase } = require('./sources/costDatabase');
 const { lookupAiFallback } = require('./sources/aiFallback');
 
@@ -55,7 +55,7 @@ function getPricingProposal(params) {
       }),
       company_default: lookupCompanyDefault(scopeItem, context),
       supplier_pricing: lookupSupplierPricing(scopeItem, context),
-      regional_labor_benchmark: lookupRegionalLabor(scopeItem, context),
+      national_trade_average: lookupNationalTradeAverage(scopeItem, { ...context, draft }),
       construction_cost_database: lookupCostDatabase(scopeItem, context),
       ai_rough_estimate_fallback: lookupAiFallback(scopeItem),
     };
@@ -71,7 +71,11 @@ function getPricingProposal(params) {
         anyRealSource = true;
         anyFallbackOnly = false;
       }
-    } else if (recommended?.source && recommended.source !== 'ai_rough_estimate_fallback') {
+    } else if (
+      recommended?.source &&
+      recommended.source !== 'ai_rough_estimate_fallback' &&
+      recommended.source !== 'national_trade_average'
+    ) {
       anyRealSource = true;
       anyFallbackOnly = false;
     }
@@ -131,7 +135,7 @@ function getPricingProposal(params) {
     'saved_template',
     'company_default',
     'supplier_pricing',
-    'regional_labor_benchmark',
+    'national_trade_average',
     'construction_cost_database',
     'ai_rough_estimate_fallback',
   ];
@@ -159,8 +163,8 @@ function getPricingProposal(params) {
           ? 'Rates matched your pricing library and/or saved bid templates only.'
           : 'No saved pricing or templates matched this scope.'
         : anyRealSource
-          ? 'Some rates matched saved or benchmark sources — review before applying.'
-          : 'No saved pricing matched; benchmark and AI fallback shown for comparison only.',
+          ? 'Some rates matched saved pricing or templates — review before applying.'
+          : 'No saved pricing matched; national trade averages shown for planning — verify before bidding.',
     ],
     templateCount: (savedTemplates || []).length,
     disclaimer: PRICING_DISCLAIMER,

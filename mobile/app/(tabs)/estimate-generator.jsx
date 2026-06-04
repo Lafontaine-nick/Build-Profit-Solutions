@@ -49,9 +49,11 @@ import AIEstimatePricingFallbackModal from '../../components/estimate/AIEstimate
 import AIEstimateManualPricingModal from '../../components/estimate/AIEstimateManualPricingModal';
 import {
   applyPricingProposalToDraft,
+  buildProposalFromMissingSuggestions,
   fetchRoughPricingProposal,
   fetchSavedPricingProposal,
 } from '../../utils/estimateAiDraftPricing';
+import { isScopeOnlyDraft } from '../../utils/estimateDraftReviewUi';
 import {
   collectSavedEstimateCustomers,
   enrichSavedCustomerFromSources,
@@ -5099,6 +5101,7 @@ export default function EstimateGeneratorScreen() {
   const [pricingFallbackVariant, setPricingFallbackVariant] = useState(null);
   const [aiSaveToPricingLibrary, setAiSaveToPricingLibrary] = useState(true);
   const [aiClarifyQuestions, setAiClarifyQuestions] = useState(null);
+  const aiSavedPricingAutoRef = useRef(null);
   const [aiDraftFillToast, setAiDraftFillToast] = useState({ visible: false, roomCount: 0 });
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const [isFirstTime, setIsFirstTime] = useState(false);
@@ -5499,17 +5502,86 @@ export default function EstimateGeneratorScreen() {
     [bid, materialsCart]
   );
 
+  const applySavedPricingToDraftState = useCallback(
+    async (targetDraft, options = {}) => {
+      const { autoApply = false, showLoading = true } = options;
+      if (!targetDraft) return { draft: targetDraft, hasProposal: false };
+      if (showLoading) setAiDraftSuggestingMissing(true);
+      try {
+        let templates = savedBidTemplates;
+        try {
+          templates = await loadSavedBidTemplates();
+          setSavedBidTemplates(templates);
+        } catch {
+          templates = savedBidTemplates;
+        }
+        if (!templates?.length) {
+          try {
+            const lib = await fetchPricingLibrary();
+            if ((lib.total || 0) === 0) {
+              return { draft: targetDraft, hasProposal: false };
+            }
+          } catch {
+            return { draft: targetDraft, hasProposal: false };
+          }
+        }
+        const proposal = await fetchSavedPricingProposal(
+          { ...targetDraft, originalNotes: targetDraft.originalNotes || aiDraftNotes },
+          templates,
+          {
+            projectLocation: [bid?.projectAddress, bid?.customerCity, bid?.customerState]
+              .filter(Boolean)
+              .join(', '),
+            zipCode: bid?.zipCode || bid?.customerZip || '',
+          }
+        );
+        if (proposal.empty) {
+          return { draft: targetDraft, hasProposal: false };
+        }
+        setAiSavedPricingProposal(proposal);
+        const nextDraft = autoApply
+          ? applyPricingProposalToDraft(targetDraft, proposal, { approved: true })
+          : { ...targetDraft, pendingPricingProposal: proposal };
+        return { draft: nextDraft, hasProposal: true };
+      } catch (e) {
+        console.warn('applySavedPricingToDraftState failed', e);
+        return { draft: targetDraft, hasProposal: false };
+      } finally {
+        if (showLoading) setAiDraftSuggestingMissing(false);
+      }
+    },
+    [savedBidTemplates, bid, aiDraftNotes]
+  );
+
   const handleGenerateAiDraft = useCallback(async (notes) => {
     setAiDraftGenerating(true);
     setAiDraftNotes(notes);
     setAiClarifyQuestions(null);
+    aiSavedPricingAutoRef.current = null;
     try {
-      const draft = await fetchEstimateDraftFromNotes(notes, savedBidTemplates);
+      let templates = savedBidTemplates;
+      try {
+        templates = await loadSavedBidTemplates();
+        setSavedBidTemplates(templates);
+      } catch {
+        templates = savedBidTemplates;
+      }
+      const draft = await fetchEstimateDraftFromNotes(notes, templates);
       const draftTitle = `${draft.projectTitle || ''} ${draft.customerName || ''}`.toLowerCase();
       setAiSaveToPricingLibrary(!/\b(test|demo|sample|example)\b/.test(draftTitle));
       setAiDraft(draft);
       setShowAiBuilderModal(false);
       setShowAiDraftReviewModal(true);
+
+      const { draft: draftWithProposal, hasProposal } = await applySavedPricingToDraftState(draft, {
+        autoApply: false,
+        showLoading: false,
+      });
+      if (hasProposal) {
+        setAiDraft(draftWithProposal);
+        setShowAiSavedPricingModal(true);
+      }
+
       if (Platform.OS !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
@@ -5522,22 +5594,42 @@ export default function EstimateGeneratorScreen() {
     } finally {
       setAiDraftGenerating(false);
     }
-  }, [savedBidTemplates]);
+  }, [savedBidTemplates, applySavedPricingToDraftState]);
 
   const handleSuggestMissingPrices = useCallback(async () => {
     if (!aiDraft || aiDraftSuggestingMissing) return;
     setAiDraftSuggestingMissing(true);
     try {
       const { suggestions, message } = await fetchSuggestMissingPrices(aiDraft, savedBidTemplates);
-      setAiDraft((prev) =>
-        prev
-          ? {
-              ...prev,
-              pricingMemoryMissingSuggestions: suggestions,
-              pricingMemoryMissingMessage: message ?? null,
-            }
-          : prev
-      );
+      const proposal = buildProposalFromMissingSuggestions(aiDraft, suggestions);
+      if (proposal.lines.length > 0) {
+        setAiDraft((prev) =>
+          prev
+            ? {
+                ...prev,
+                pricingMemoryMissingSuggestions: suggestions,
+                pricingMemoryMissingMessage: message ?? null,
+              }
+            : prev
+        );
+        setAiRoughPricingProposal(proposal);
+        setShowAiRoughPricingModal(true);
+      } else {
+        setAiDraft((prev) =>
+          prev
+            ? {
+                ...prev,
+                pricingMemoryMissingSuggestions: suggestions,
+                pricingMemoryMissingMessage:
+                  message || 'No pricing suggestions available for the remaining scope items.',
+              }
+            : prev
+        );
+        Alert.alert(
+          'No suggestions',
+          message || 'No saved or AI default pricing matched the remaining scope items.'
+        );
+      }
       if (Platform.OS !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
@@ -5549,51 +5641,28 @@ export default function EstimateGeneratorScreen() {
     }
   }, [aiDraft, aiDraftSuggestingMissing, savedBidTemplates]);
 
-  const handleUseSavedPricing = useCallback(async () => {
-    if (!aiDraft || aiDraftSuggestingMissing) return;
-    setAiDraftSuggestingMissing(true);
-    try {
-      let templates = savedBidTemplates;
-      try {
-        templates = await loadSavedBidTemplates();
-        setSavedBidTemplates(templates);
-      } catch {
-        templates = savedBidTemplates;
-      }
-      if (!templates?.length) {
-        try {
-          const lib = await fetchPricingLibrary();
-          if ((lib.total || 0) === 0) {
-            setPricingFallbackVariant('saved');
-            return;
-          }
-        } catch {
-          setPricingFallbackVariant('saved');
-          return;
-        }
-      }
-      const proposal = await fetchSavedPricingProposal(aiDraft, templates, {
-        projectLocation: [bid?.projectAddress, bid?.customerCity, bid?.customerState]
-          .filter(Boolean)
-          .join(', '),
-        zipCode: bid?.zipCode || bid?.customerZip || '',
+  const handleUseSavedPricing = useCallback(
+    async (options = {}) => {
+      const { openModal = true, autoApply = false } = options;
+      if (!aiDraft || aiDraftSuggestingMissing) return false;
+      const { draft: next, hasProposal } = await applySavedPricingToDraftState(aiDraft, {
+        autoApply,
+        showLoading: true,
       });
-      if (proposal.empty) {
+      if (!next) return false;
+      setAiDraft(next);
+      if (openModal && hasProposal) {
+        setShowAiSavedPricingModal(true);
+        if (Platform.OS !== 'web') {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+      } else if (!hasProposal) {
         setPricingFallbackVariant('saved');
-        return;
       }
-      setAiSavedPricingProposal(proposal);
-      setShowAiSavedPricingModal(true);
-      if (Platform.OS !== 'web') {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-    } catch (e) {
-      console.warn('handleUseSavedPricing failed', e);
-      setPricingFallbackVariant('saved');
-    } finally {
-      setAiDraftSuggestingMissing(false);
-    }
-  }, [aiDraft, aiDraftSuggestingMissing, savedBidTemplates, bid]);
+      return hasProposal;
+    },
+    [aiDraft, aiDraftSuggestingMissing, applySavedPricingToDraftState]
+  );
 
   const handleSuggestRoughPrices = useCallback(async () => {
     if (!aiDraft || aiDraftRoughLoading) return;
@@ -12392,6 +12461,29 @@ export default function EstimateGeneratorScreen() {
     weeklyProgressSettingsHydratedBidRef.current = null;
     milestoneBasedSettingsHydratedBidRef.current = null;
 
+    // Clear Build with AI state so job notes don't carry over from the previous bid
+    setAiDraftNotes('');
+    setAiDraft(null);
+    setAiClarifyQuestions(null);
+    setAiSavedPricingProposal(null);
+    setAiRoughPricingProposal(null);
+    setShowAiBuilderModal(false);
+    setShowAiDraftReviewModal(false);
+    setShowAiSavedPricingModal(false);
+    setShowAiRoughPricingModal(false);
+    setShowAiManualPricingModal(false);
+    setShowAIAssistant(false);
+    setEstimateAiInitialQuestion('');
+    setAiDraftFromAssistant(false);
+    setAiDraftGenerating(false);
+    setAiDraftApplying(false);
+    setAiDraftRoughLoading(false);
+    setAiDraftSuggestingSplits(false);
+    setAiDraftClarifying(false);
+    setAiDraftSuggestingMissing(false);
+    setAiDraftFillToast({ visible: false, roomCount: 0 });
+    aiSavedPricingAutoRef.current = null;
+
     // Save the blank bid to storage
     try {
       await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(nextBid));
@@ -14659,11 +14751,12 @@ export default function EstimateGeneratorScreen() {
                                       )}
                                     </View>
                                     <Text style={{ color: darkMode ? 'rgba(203, 213, 225, 0.82)' : Colors.sub, fontSize: 12, marginBottom: 2, lineHeight: 16 }}>
-                                      {item.mode === 'sqft' ? (
-                                        `${bid.sqft || 0} sqft × ${money(item.rate || 0)}/sqft`
-                                      ) : (
-                                        `${item.hours || 0} hrs × ${money(item.rate || 0)}/hr`
-                                      )}
+                                      {(() => {
+                                        const resolved = resolveLaborContractLineItem(item, bid.sqft);
+                                        return resolved.mode === 'sqft'
+                                          ? `${resolved.quantity} sqft × ${money(resolved.unitPrice)}/sqft`
+                                          : `${resolved.quantity} hrs × ${money(resolved.unitPrice)}/hr`;
+                                      })()}
                                     </Text>
                                     {item.metadata && (
                                       <View style={{ marginTop: 5 }}>
@@ -23464,11 +23557,19 @@ export default function EstimateGeneratorScreen() {
           visible={showAiRoughPricingModal}
           proposal={aiRoughPricingProposal}
           title={
-            aiRoughPricingProposal?.anyRealSource
-              ? 'Suggested pricing'
-              : 'Suggested pricing (review sources)'
+            aiRoughPricingProposal?.source === 'ai_rough_estimate' &&
+            (aiDraft?.pricingMemoryMissingSuggestions?.length ?? 0) > 0
+              ? 'Suggested missing prices'
+              : aiRoughPricingProposal?.anyRealSource
+                ? 'Suggested pricing'
+                : 'Suggested pricing (review sources)'
           }
-          subtitle="Multi-source pricing from saved rates, benchmarks, and fallbacks. Review comparison, confidence, and disclaimer before applying."
+          subtitle={
+            aiRoughPricingProposal?.source === 'ai_rough_estimate' &&
+            (aiDraft?.pricingMemoryMissingSuggestions?.length ?? 0) > 0
+              ? 'AI and regional defaults for scope items without template pricing. Review before applying.'
+              : 'Multi-source pricing from saved rates, benchmarks, and fallbacks. Review comparison, confidence, and disclaimer before applying.'
+          }
           applyLabel={
             aiRoughPricingProposal?.anyFallbackOnly && !aiRoughPricingProposal?.anyRealSource
               ? 'Apply fallback prices'

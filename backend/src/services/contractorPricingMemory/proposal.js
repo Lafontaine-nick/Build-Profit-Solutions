@@ -6,13 +6,15 @@ const { extractScopeQuantitiesForPackage } = require('../estimateDraftQuantityPr
 const { listEntries, getSettings } = require('./storage');
 const { buildSuggestionsForDraft } = require('./suggest');
 
+const { AI_FALLBACK_RATES } = require('../pricingEngine/constants');
+
 const REGIONAL_ROUGH = {
   flooring: {
     demoLabor: 5,
     laminateMaterial: 4,
     laminateLabor: 5,
-    baseboardMaterial: 0.85,
-    baseboardLabor: 2.5,
+    baseboardMaterial: AI_FALLBACK_RATES.baseboardMaterialLf,
+    baseboardLabor: AI_FALLBACK_RATES.baseboardLaborLf,
   },
   bathroom: { allInLow: 120, allInHigh: 220 },
   kitchen: { allInLow: 150, allInHigh: 280 },
@@ -193,6 +195,39 @@ function buildLinesForPackage(pkg, draft, entries, sourceMode) {
         packageName: pkg.name,
         lineType: 'labor',
         label: 'Baseboard install labor',
+        unitType: 'lf',
+        quantity: q,
+        unitRate: lab.rate,
+        priceSource,
+        sourceLabel,
+        confidence: lab.confidence,
+      });
+    }
+    return lines;
+  }
+
+  if (/paint/.test(name) && qty?.unit === 'lf') {
+    const q = qty.quantity;
+    const mat = hist([/material/, /baseboard/, /trim/], 'lf', rough.baseboardMaterial);
+    const lab = hist([/labor/, /install/, /paint/], 'lf', rough.baseboardLabor);
+    if (mat && q) {
+      addLine(lines, {
+        packageName: pkg.name,
+        lineType: 'material',
+        label: 'Trim/baseboard material',
+        unitType: 'lf',
+        quantity: q,
+        unitRate: mat.rate,
+        priceSource,
+        sourceLabel,
+        confidence: mat.confidence,
+      });
+    }
+    if (lab && q) {
+      addLine(lines, {
+        packageName: pkg.name,
+        lineType: 'labor',
+        label: 'Trim/baseboard labor',
         unitType: 'lf',
         quantity: q,
         unitRate: lab.rate,

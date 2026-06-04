@@ -44,6 +44,7 @@ export type EstimateBuilderMode = 'organize_only' | 'organize_calculate' | 'sugg
 export type EstimateDraftRoom = {
   name: string;
   scope: string;
+  scopeQuantities?: Array<{ label: string; quantity: number; unit: string }>;
   price: number | null;
   laborPrice: number | null;
   materialPrice: number | null;
@@ -754,6 +755,7 @@ export function getScopePackages(draft: EstimateAiDraft): EstimateDraftScopePack
   return draft.rooms.map((room) => ({
     name: room.name,
     scope: room.scope,
+    scopeQuantities: room.scopeQuantities,
     price: room.price,
     laborPrice: room.laborPrice,
     materialPrice: room.materialPrice,

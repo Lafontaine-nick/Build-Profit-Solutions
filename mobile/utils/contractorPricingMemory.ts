@@ -30,12 +30,14 @@ export type PricingLibrarySection = {
 
 export type MissingPriceSuggestion = {
   missingItem: string;
+  packageName?: string;
   scopeItemName: string;
   suggestedUnitRate?: number;
   suggestedAmount?: number;
   quantity?: number | null;
   estimatedTotal?: number | null;
   unitType?: string;
+  lineType?: 'material' | 'labor' | 'lump_sum';
   source: string;
   sourceLabel: string;
   sourcePriority: number;

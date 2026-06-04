@@ -4,12 +4,16 @@
  */
 
 const { entryMatchesMissingItem } = require('../contractorPricingMemory/normalize');
+const { splitNoteClauses } = require('../estimateDraftQuantityPrice');
 
 const DEMO_RE = /\b(demo|demolition|tear[\s-]?out|removal|rip\s*out|haul[\s-]?off)\b/i;
 const INSTALL_RE = /\b(install|installation|installing|lay|float|set|place|new\s+floor)\b/i;
 const TILE_RE = /\btile\b/i;
 const FLOOR_RE = /\b(laminate|lvp|vinyl|flooring|floor)\b/i;
 const TRIM_RE = /\b(baseboard|trim|moulding|molding)\b/i;
+const BATH_FIXTURE_RE = /\b(vanity|toilet|shower|tub|bath(?:room)?)\b/i;
+const KITCHEN_RE = /\b(cabinet|countertop|backsplash|kitchen)\b/i;
+const PAINT_RE = /\b(paint|painting|primer|repaint)\b/i;
 
 function blob(...parts) {
   return parts.filter(Boolean).join(' ').toLowerCase();
@@ -23,10 +27,19 @@ function noteSnippetForScope(scopeName, notes) {
   if (!notes || !scopeName) return '';
   const tokens = tokenize(scopeName).filter((t) => t.length > 2);
   if (!tokens.length) return '';
-  const parts = String(notes).split(/[,;\n]+/);
-  for (const part of parts) {
+  const nameKey = scopeName.toLowerCase();
+  const wantsInstall = /\b(install|installation)\b/.test(nameKey) && !/\b(demo|removal)\b/.test(nameKey);
+  const wantsDemo = /\b(demo|removal|demolition)\b/.test(nameKey);
+  for (const part of splitNoteClauses(String(notes))) {
     const pl = part.toLowerCase();
-    if (tokens.some((t) => pl.includes(t))) return part.trim();
+    if (!tokens.some((t) => pl.includes(t))) continue;
+    if (wantsInstall && /\b(demo|removal|demolition)\b/.test(pl) && !/\b(install|installation)\b/.test(pl)) {
+      continue;
+    }
+    if (wantsDemo && /\b(install|installation)\b/.test(pl) && !/\b(demo|removal|demolition)\b/.test(pl)) {
+      continue;
+    }
+    return part.trim();
   }
   return '';
 }
@@ -69,6 +82,12 @@ function getScopeWorkIntent(scopeItem, draft) {
   } else if (TRIM_RE.test(text)) {
     workType = 'install';
     roles.push('material', 'labor');
+  } else if (BATH_FIXTURE_RE.test(text) || KITCHEN_RE.test(name) || KITCHEN_RE.test(text)) {
+    workType = 'install';
+    roles.push('material', 'labor');
+  } else if (PAINT_RE.test(text)) {
+    workType = 'install';
+    roles.push('labor', 'material');
   } else {
     roles.push('labor', 'material');
   }
@@ -118,22 +137,76 @@ function workTypesCompatible(scopeWork, lineWork) {
   return scopeWork.workType === lineWork.workType || lineWork.workType === 'install';
 }
 
+function scopeProductFamily(scopeItem) {
+  const scopeText = blob(scopeItem.scopeName, scopeItem.scope);
+  if (DEMO_RE.test(scopeText) || /\bdemo\b/i.test(scopeItem.scopeName || '')) return 'demo';
+  if (/laminate|lvp|vinyl/i.test(scopeText)) return 'laminate';
+  if (TRIM_RE.test(scopeText)) return 'trim';
+  if (BATH_FIXTURE_RE.test(scopeText) && !DEMO_RE.test(scopeText)) return 'bathroom';
+  if (KITCHEN_RE.test(scopeText) && !DEMO_RE.test(scopeText)) return 'kitchen';
+  if (PAINT_RE.test(scopeText)) return 'paint';
+  if (TILE_RE.test(scopeText) && !/laminate|lvp|vinyl|flooring/.test(scopeText)) {
+    if (DEMO_RE.test(scopeText)) return 'demo';
+    return 'tile';
+  }
+  if (FLOOR_RE.test(scopeText)) return 'flooring';
+  return 'other';
+}
+
+function lineProductFamily(line) {
+  const lineText = blob(line.name, line.description, line.section, line.category);
+  if (DEMO_RE.test(lineText)) return 'demo';
+  if (/laminate|lvp|vinyl/i.test(lineText)) return 'laminate';
+  if (TRIM_RE.test(lineText)) return 'trim';
+  if (BATH_FIXTURE_RE.test(lineText) && !DEMO_RE.test(lineText)) return 'bathroom';
+  if (KITCHEN_RE.test(lineText) && !DEMO_RE.test(lineText)) return 'kitchen';
+  if (PAINT_RE.test(lineText)) return 'paint';
+  if (TILE_RE.test(lineText) && !/laminate|lvp|vinyl|flooring/.test(lineText)) return 'tile';
+  if (FLOOR_RE.test(lineText)) return 'flooring';
+  return 'other';
+}
+
 function tradeTokensCompatible(scopeItem, line) {
   const scopeText = blob(scopeItem.scopeName, scopeItem.scope);
   const lineText = blob(line.name, line.description);
+  const scopeFam = scopeProductFamily(scopeItem);
+  const lineFam = lineProductFamily(line);
 
-  if (DEMO_RE.test(scopeText)) return DEMO_RE.test(lineText) || entryMatchesMissingItem(
-    { scopeItemName: lineText },
-    scopeItem.scopeName
-  );
-
-  if (FLOOR_RE.test(scopeText) || /flooring|laminate/i.test(scopeItem.scopeName)) {
-    if (FLOOR_RE.test(lineText) || INSTALL_RE.test(lineText)) return true;
-    if (TILE_RE.test(lineText) && !DEMO_RE.test(lineText) && !TRIM_RE.test(lineText)) return true;
-    return entryMatchesMissingItem({ scopeItemName: lineText }, scopeItem.scopeName);
+  if (scopeFam === 'demo') {
+    return (
+      lineFam === 'demo' ||
+      DEMO_RE.test(lineText) ||
+      entryMatchesMissingItem({ scopeItemName: lineText }, scopeItem.scopeName)
+    );
   }
 
-  if (TRIM_RE.test(scopeText)) return TRIM_RE.test(lineText);
+  if (scopeFam === 'laminate') {
+    // Laminate/LVP install — never reuse bare "Tile" material/labor from a template.
+    if (lineFam === 'laminate') return true;
+    if (/laminate|lvp|vinyl/.test(lineText) && (INSTALL_RE.test(lineText) || FLOOR_RE.test(lineText))) {
+      return true;
+    }
+    return false;
+  }
+
+  if (scopeFam === 'tile') {
+    if (lineFam === 'tile' && !DEMO_RE.test(lineText)) return true;
+    return false;
+  }
+
+  if (scopeFam === 'flooring') {
+    if (lineFam === 'tile' || lineFam === 'demo') return false;
+    if (FLOOR_RE.test(lineText) && lineFam !== 'tile') return true;
+    if (INSTALL_RE.test(lineText) && FLOOR_RE.test(lineText)) return true;
+    return false;
+  }
+
+  if (scopeFam === 'trim') return TRIM_RE.test(lineText);
+
+  if (scopeFam === 'bathroom' || scopeFam === 'kitchen' || scopeFam === 'paint') {
+    if (lineFam === scopeFam) return true;
+    return entryMatchesMissingItem({ scopeItemName: lineText }, scopeItem.scopeName);
+  }
 
   return entryMatchesMissingItem({ scopeItemName: lineText }, scopeItem.scopeName);
 }
@@ -168,6 +241,8 @@ module.exports = {
   scoreScopeToLine,
   workTypesCompatible,
   tradeTokensCompatible,
+  scopeProductFamily,
+  lineProductFamily,
   noteSnippetForScope,
   scopeIntentText,
 };

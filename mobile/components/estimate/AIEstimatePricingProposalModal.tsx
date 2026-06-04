@@ -31,7 +31,7 @@ const COMPARISON_KEYS = [
   'saved_template',
   'company_default',
   'supplier_pricing',
-  'regional_labor_benchmark',
+  'national_trade_average',
   'construction_cost_database',
   'ai_rough_estimate_fallback',
 ] as const;
@@ -77,7 +77,7 @@ function ComparisonCard({
         );
       })}
 
-      {rec ? (
+      {rec && (item.proposedRates?.length ?? 0) > 0 ? (
         <View
           style={{
             marginTop: 10,
@@ -87,7 +87,7 @@ function ComparisonCard({
           }}
         >
           <Text style={{ color: '#22c55e', fontSize: 12, fontWeight: '800' }}>Recommended</Text>
-          {item.proposedRates.map((line, i) => (
+          {item.proposedRates!.map((line, i) => (
             <View key={`pr-${i}`} style={{ marginTop: 6 }}>
               <Text style={{ color: Colors.text, fontSize: 13 }}>{line.label}</Text>
               {line.formula ? (
@@ -113,6 +113,23 @@ function ComparisonCard({
               ))}
             </View>
           ))}
+          <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 6, lineHeight: 16 }}>
+            {rec.reason}
+          </Text>
+        </View>
+      ) : rec && item.comparison?.saved_template?.available ? (
+        <View
+          style={{
+            marginTop: 10,
+            paddingTop: 10,
+            borderTopWidth: StyleSheet.hairlineWidth,
+            borderTopColor: Colors.line,
+          }}
+        >
+          <Text style={{ color: '#22c55e', fontSize: 12, fontWeight: '800' }}>Recommended</Text>
+          <Text style={{ color: Colors.text, fontSize: 13, marginTop: 6 }}>
+            {item.comparison.saved_template.summary}
+          </Text>
           <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 6, lineHeight: 16 }}>
             {rec.reason}
           </Text>

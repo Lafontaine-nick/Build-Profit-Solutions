@@ -16,6 +16,31 @@ const PRICE_INDICATOR_BEFORE_RE =
 const WEAK_LABEL_RE =
   /^(i have|of|and|the|a|an|includes?|with|for|ok|let's say|lets say|let's|lets|create|have|roughly|around|about|maybe|slabs?)$/i;
 
+const META_TOTAL_LABEL_RE =
+  /\b(that gives us|gives us a total|grand total|overall total|total of|bid total|project total|stated total)\b/i;
+
+const NUMERIC_ONLY_LABEL_RE = /^#?\d{1,4}$/;
+
+/** PDF/copy-paste artifacts: "19: $309", page numbers, meta totals — not real line items. */
+function isJunkPriceLabel(label) {
+  const l = String(label || '').trim();
+  if (!l || l.length < 2) return true;
+  if (NUMERIC_ONLY_LABEL_RE.test(l)) return true;
+  if (/^page\s+\d+$/i.test(l)) return true;
+  if (META_TOTAL_LABEL_RE.test(l)) return true;
+  if (WEAK_LABEL_RE.test(l)) return true;
+  return false;
+}
+
+function isAbsurdParsedAmount(amount, label) {
+  const n = roundMoney(amount);
+  if (!n || n <= 0) return false;
+  if (n <= 100000) return false;
+  if (NUMERIC_ONLY_LABEL_RE.test(String(label || '').trim())) return true;
+  if (isJunkPriceLabel(label)) return true;
+  return false;
+}
+
 function roundMoney(n) {
   return Math.round(Number(n) || 0);
 }
@@ -55,6 +80,7 @@ function labeledPriceMatchIsValid(source, match) {
   const amountStr = match[2];
   if (!amountStr) return false;
   if (WEAK_LABEL_RE.test(label)) return false;
+  if (isJunkPriceLabel(label)) return false;
   if (isQuantityNotPriceContext(source, amountStr, match.index)) return false;
 
   const n = Number(String(amountStr).replace(/,/g, ''));
@@ -179,7 +205,14 @@ function sanitizePricingItem(item, sourceText) {
 }
 
 function sanitizePricingItemsList(items, sourceText) {
-  return (items || []).map((item) => sanitizePricingItem(item, sourceText));
+  return (items || [])
+    .map((item) => sanitizePricingItem(item, sourceText))
+    .filter((item) => {
+      if (!item?.name) return false;
+      if (isJunkPriceLabel(item.name)) return false;
+      if (item.amount != null && isAbsurdParsedAmount(item.amount, item.name)) return false;
+      return true;
+    });
 }
 
 function sanitizeRoomPrice(room, sourceText) {
@@ -230,20 +263,111 @@ function normalizePackageKey(name) {
     .trim();
 }
 
+const SQFT_QTY_RE =
+  /\b(\d[\d,]*)\s*(?:sq\.?\s*ft\.?|sqft|sq\s*ft|square\s*feet|ft\.?\s*²|ft\.?\s*2\b|sf\b)/i;
+const LF_QTY_RE =
+  /\b(\d[\d,]*)\s*(?:linear\s*feet|ln\.?\s*ft\.?|\blf\b)/i;
+
+function matchAllQty(clause, pattern) {
+  const re = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`);
+  return [...clause.matchAll(re)];
+}
+
+function packageAcceptsUnit(packageName, scopeText, unit) {
+  const pkgKey = normalizePackageKey(packageName);
+  const scopeKey = normalizePackageKey(scopeText);
+  if (unit === 'lf') {
+    return (
+      /baseboard|trim|crown|moulding|molding|casing/.test(pkgKey) ||
+      /baseboard|trim|linear/.test(scopeKey) ||
+      (/paint/.test(pkgKey) && !/tile|floor|laminate|demo|removal/.test(pkgKey))
+    );
+  }
+  if (unit === 'sqft') {
+    const trimOnly =
+      /\b(baseboard|trim)\b/.test(pkgKey) &&
+      !/\b(tile|demo|removal|flooring|laminate|lvp)\b/.test(pkgKey);
+    return !trimOnly;
+  }
+  return true;
+}
+
+/** Break run-on notes into clauses so "removal … in 1200 … installation" assigns qty per task. */
+function splitNoteClauses(text) {
+  // Do not split on "." — voice notes use "ft.²" / "sq. ft." which are not sentence endings.
+  const sentences = String(text || '')
+    .split(/[;\n]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const clauses = [];
+  for (const sentence of sentences) {
+    const parts = sentence
+      .split(
+        /\s+(?:and|&|\+)\s+|\s+in\s+(?=\d[\d,]*\s*(?:sq\.?\s*ft\.?|sqft|sq\s*ft|square\s*feet|ft\.?\s*²|ft\.?\s*2\b|linear\s*feet|ln\.?\s*ft\.?|\blf\b))/i
+      )
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (parts.length > 1) clauses.push(...parts);
+    else clauses.push(sentence);
+  }
+  return clauses;
+}
+
 /** Match a note sentence to a scope package (avoid cross-assigning qty between packages). */
 function sentenceMatchesPackage(packageName, scopeText, sentence) {
   const pkgKey = normalizePackageKey(packageName);
   const scopeKey = normalizePackageKey(scopeText);
   const s = String(sentence || '').toLowerCase();
 
-  if (/tile|demo/.test(pkgKey) || /tile demo/.test(scopeKey)) {
-    return /\btile\b/.test(s) && /\b(demo|demolish|removal|remove)\b/.test(s);
+  if (/\btile\b/.test(pkgKey) && /\b(install|installation)\b/.test(pkgKey) && !/\b(demo|removal)\b/.test(pkgKey)) {
+    return (
+      /\btile\b/.test(s) &&
+      /\b(install|installation|installing)\b/.test(s) &&
+      !/\b(demo|demolish|removal|remove|tear[\s-]?out)\b/.test(s)
+    );
+  }
+  if (/\btile\b/.test(pkgKey) && /\b(demo|removal)\b/.test(pkgKey)) {
+    return /\btile\b/.test(s) && /\b(demo|demolish|removal|remove|tear[\s-]?out)\b/.test(s);
+  }
+  if (/paint/.test(pkgKey) && !/baseboard|trim/.test(pkgKey)) {
+    return (
+      /\b(paint|painting|primer)\b/.test(s) &&
+      !/\b(baseboard|trim)\b/.test(s) &&
+      !/\b(tile|laminate|lvp|flooring)\b/.test(s)
+    );
   }
   if ((/laminate|flooring|lvp/.test(pkgKey) || /laminate|flooring/.test(scopeKey)) && !/baseboard/.test(pkgKey)) {
     return /\b(laminate|lvp|vinyl|flooring)\b/.test(s) && /\b(install|installation)\b/.test(s);
   }
   if (/baseboard|trim/.test(pkgKey) || /baseboard/.test(scopeKey)) {
     return /\b(baseboard|trim)\b/.test(s) || (/\b(linear\s*feet|lf)\b/.test(s) && !/\btile\b/.test(s) && !/\blaminate\b/.test(s));
+  }
+  if (/shower|tub/.test(pkgKey)) {
+    return /\b(shower|tub)\b/.test(s) && /\b(tile|install|surround)\b/.test(s);
+  }
+  if (/vanity/.test(pkgKey)) {
+    return /\bvanity\b/.test(s);
+  }
+  if (/toilet/.test(pkgKey)) {
+    return /\btoilet\b/.test(s);
+  }
+  if (/cabinet/.test(pkgKey)) {
+    return /\b(cabinet|cabinets)\b/.test(s);
+  }
+  if (/countertop|counter top/.test(pkgKey)) {
+    return /\b(countertop|counter\s*top|quartz|granite)\b/.test(s);
+  }
+  if (/backsplash/.test(pkgKey)) {
+    return /\bbacksplash\b/.test(s);
+  }
+  if (/bath|bathroom/.test(pkgKey) && /demo|gut|tear|removal/.test(pkgKey)) {
+    return /\b(bath|bathroom|shower|vanity)\b/.test(s) && /\b(demo|gut|tear|removal)\b/.test(s);
+  }
+  if (/kitchen/.test(pkgKey) && /demo|gut|tear|removal/.test(pkgKey)) {
+    return /\bkitchen\b/.test(s) && /\b(demo|gut|tear|removal)\b/.test(s);
+  }
+  if (/plumb/.test(pkgKey)) {
+    return /\b(plumb|plumbing|rough[\s-]?in|faucet|drain)\b/.test(s);
   }
 
   const tokens = pkgKey.split(' ').filter((w) => w.length > 3);
@@ -258,20 +382,36 @@ function extractScopeQuantitiesForPackage(packageName, scopeText, originalNotes)
   if (!source) return [];
 
   const results = [];
-  const sentences = source.split(/[.;\n]+/).map((x) => x.trim()).filter(Boolean);
+  const clauses = splitNoteClauses(source);
 
-  for (const sentence of sentences) {
-    const sqftM = sentence.match(/\b(\d[\d,]*)\s*(?:sq\.?\s*ft|sqft|sq\s*ft|square\s*feet|ft\s*[²2ˆ]?)\b/i);
-    const lfM = sentence.match(/\b(\d[\d,]*)\s*(?:linear\s*feet|ln\.?\s*ft|\blf\b)/i);
-    if (!sqftM && !lfM) continue;
+  for (const clause of clauses) {
+    const sqftMatches = matchAllQty(clause, SQFT_QTY_RE);
+    const lfMatches = matchAllQty(clause, LF_QTY_RE);
 
-    if (!sentenceMatchesPackage(packageName, scopeText, sentence)) continue;
-
-    const qty = Number(String((sqftM || lfM)[1]).replace(/,/g, ''));
-    if (!Number.isFinite(qty) || qty <= 0) continue;
-
-    const unit = sqftM ? 'sqft' : 'lf';
-    results.push({ label: packageName, quantity: qty, unit });
+    if (
+      sqftMatches.length &&
+      sentenceMatchesPackage(packageName, scopeText, clause) &&
+      packageAcceptsUnit(packageName, scopeText, 'sqft')
+    ) {
+      for (const m of sqftMatches) {
+        const qty = Number(String(m[1]).replace(/,/g, ''));
+        if (Number.isFinite(qty) && qty > 0) {
+          results.push({ label: packageName, quantity: qty, unit: 'sqft' });
+        }
+      }
+    }
+    if (
+      lfMatches.length &&
+      sentenceMatchesPackage(packageName, scopeText, clause) &&
+      packageAcceptsUnit(packageName, scopeText, 'lf')
+    ) {
+      for (const m of lfMatches) {
+        const qty = Number(String(m[1]).replace(/,/g, ''));
+        if (Number.isFinite(qty) && qty > 0) {
+          results.push({ label: packageName, quantity: qty, unit: 'lf' });
+        }
+      }
+    }
   }
 
   if (results.length === 0 && scopeText) {
@@ -329,7 +469,10 @@ module.exports = {
   sanitizeRoomPrice,
   extractScopeQuantitiesFromText,
   extractScopeQuantitiesForPackage,
+  splitNoteClauses,
   scopeOnlyMissingHints,
   inferProjectTypeFromNotes,
+  isJunkPriceLabel,
+  isAbsurdParsedAmount,
   WEAK_LABEL_RE,
 };

@@ -12,7 +12,10 @@ const {
   scopeOnlyMissingHints,
   notesContainExplicitPrice,
   WEAK_LABEL_RE,
+  isJunkPriceLabel,
+  isAbsurdParsedAmount,
 } = require('./estimateDraftQuantityPrice');
+const { extractRoomNotesText, filterPricingItemsForRoom } = require('./estimateDraftRoomNotes');
 
 const UNIT_RATE_SUFFIX_RE = /^\s*\/\s*(?:sq\.?\s*ft|sqft|sf|lf|ln|hr|hour|each|ea)\b/i;
 
@@ -102,12 +105,13 @@ function extractPricingItemsFromText(text) {
       .trim();
     if (!label || label.length < 2) continue;
     if (/^(and|or|with|for|the|a|an|includes?)\s*$/i.test(label)) continue;
+    if (isJunkPriceLabel(label)) continue;
 
     if (!labeledPriceMatchIsValid(source, match)) continue;
 
     const amount = parseAmount(match[2], match[3]);
     if (amount == null || amount <= 0) continue;
-    if (amount < 100 && !/\$/.test(match[0])) continue;
+    if (isAbsurdParsedAmount(amount, label)) continue;
 
     const key = `${label.toLowerCase()}-${amount}`;
     if (seen.has(key)) continue;
@@ -284,19 +288,30 @@ function inferPackageCategory(room, projectType) {
 
 function buildScopePackage(room, draft, originalNotes) {
   const projectType = draft.projectType || 'other';
-  const notesBlob = `${originalNotes || ''}\n${room.scope || ''}\n${room.name || ''}`;
-  const sanitizedRoom = sanitizeRoomPrice(room, notesBlob);
-  const aiItems = Array.isArray(sanitizedRoom.pricingItems) ? sanitizedRoom.pricingItems : [];
-  const parsedItems = extractPricingItemsFromText(notesBlob);
-  let pricingItems = sanitizePricingItemsList(mergePricingItems(aiItems, parsedItems), notesBlob);
+  const roomNotesText = extractRoomNotesText(originalNotes, room.name, room.scope);
+  const parseText = `${roomNotesText}\n${room.scope || ''}\n${room.name || ''}`.trim();
+  const sanitizedRoom = sanitizeRoomPrice(room, parseText);
+  const roomContext = `${sanitizedRoom.name} ${sanitizedRoom.scope} ${roomNotesText}`;
+  const aiItems = (Array.isArray(sanitizedRoom.pricingItems) ? sanitizedRoom.pricingItems : []).filter(
+    (item) => filterPricingItemsForRoom([item], roomContext, null).length > 0
+  );
+  const parsedItems = extractPricingItemsFromText(parseText);
+  let pricingItems = sanitizePricingItemsList(mergePricingItems(aiItems, parsedItems), parseText);
+
+  const hasRoomTotal = sanitizedRoom.price != null && roundMoney(sanitizedRoom.price) > 0;
+  pricingItems = filterPricingItemsForRoom(
+    pricingItems,
+    roomContext,
+    hasRoomTotal ? roundMoney(sanitizedRoom.price) : null
+  );
+
   const scopeQuantities = extractScopeQuantitiesForPackage(
     sanitizedRoom.name,
     sanitizedRoom.scope,
-    originalNotes
+    `${roomNotesText}\n${originalNotes || ''}`.trim()
   );
 
   const pricedFromSqft = Boolean(sanitizedRoom.pricedFromSqftAllowances);
-  const hasRoomTotal = sanitizedRoom.price != null && roundMoney(sanitizedRoom.price) > 0;
   const splitIsSuggested = Boolean(sanitizedRoom.splitIsSuggested);
 
   let knownSubtotal = pricingItems
@@ -305,6 +320,38 @@ function buildScopePackage(room, draft, originalNotes) {
 
   if (hasRoomTotal && knownSubtotal > roundMoney(sanitizedRoom.price)) {
     knownSubtotal = roundMoney(sanitizedRoom.price);
+  }
+
+  const roomTotal = hasRoomTotal ? roundMoney(sanitizedRoom.price) : null;
+  const userLumpFromNotes =
+    hasRoomTotal &&
+    sanitizedRoom.priceProvidedByUser !== false &&
+    (sanitizedRoom.priceIncludesLaborAndMaterials ||
+      notesContainExplicitPrice(parseText, roomTotal));
+
+  if (
+    userLumpFromNotes &&
+    roomTotal != null &&
+    (knownSubtotal === 0 || Math.abs(knownSubtotal - roomTotal) > 1)
+  ) {
+    pricingItems = [
+      {
+        name: `${sanitizedRoom.name} — total from notes`,
+        description: sanitizedRoom.scope || '',
+        quantity: null,
+        unit: 'lump_sum',
+        unitRate: null,
+        amount: roomTotal,
+        pricingType: 'lump_sum',
+        priceSource: 'user_provided',
+        status: 'confirmed',
+        formula: null,
+        includedInSubtotal: true,
+        approvedByUser: true,
+        needsReview: false,
+      },
+    ];
+    knownSubtotal = roomTotal;
   }
 
   let missingPriceItems =
@@ -331,6 +378,12 @@ function buildScopePackage(room, draft, originalNotes) {
       sanitizedRoom.formula ||
       formula ||
       `${formatMoney(sanitizedRoom.price)} from unit rates in notes`;
+  } else if (hasRoomTotal && !splitIsSuggested && userLumpFromNotes && Math.abs(knownSubtotal - roundMoney(sanitizedRoom.price)) <= 1) {
+    status =
+      sanitizedRoom.priceIncludesLaborAndMaterials && sanitizedRoom.priceProvidedByUser !== false
+        ? 'user_provided'
+        : 'confirmed';
+    priceSource = 'user_provided';
   } else if (hasRoomTotal && !splitIsSuggested) {
     status =
       sanitizedRoom.priceIncludesLaborAndMaterials && sanitizedRoom.priceProvidedByUser !== false
@@ -431,7 +484,7 @@ function buildScopePackage(room, draft, originalNotes) {
     priceIncludesLaborAndMaterials: Boolean(sanitizedRoom.priceIncludesLaborAndMaterials),
     splitIsSuggested,
     priceProvidedByUser: Boolean(
-      (hasRoomTotal && sanitizedRoom.priceProvidedByUser && notesContainExplicitPrice(notesBlob, sanitizedRoom.price)) ||
+      (hasRoomTotal && sanitizedRoom.priceProvidedByUser && notesContainExplicitPrice(parseText, sanitizedRoom.price)) ||
         pricingItems.some((p) => p.includedInSubtotal && p.amount > 0 && p.priceSource !== 'quantity_only')
     ),
     applyEligible: hasRoomTotal || knownSubtotal > 0 || status === 'calculated',

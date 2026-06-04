@@ -209,15 +209,6 @@ function buildWhatAiDid(draft, scopePackages, options = {}) {
       lines.push(`Calculated ${pkg.name}: ${pkg.formula}${labor}.`);
     } else if (pkg.status === 'calculated' && pkg.price != null) {
       lines.push(`Calculated ${pkg.name}: ${formatMoney(pkg.price)} from unit rates in notes.`);
-    } else if (
-      pkg.status === 'user_provided' ||
-      (pkg.status === 'confirmed' && pkg.priceIncludesLaborAndMaterials && pkg.price != null)
-    ) {
-      lines.push(`Preserved your total for ${pkg.name}: ${formatMoney(pkg.price)} (not changed).`);
-    } else if (pkg.status === 'partial_pricing' && pkg.knownSubtotal != null) {
-      lines.push(
-        `Partial pricing for ${pkg.name}: ${formatMoney(pkg.knownSubtotal)} known — other scope still needs prices.`
-      );
     } else if (pkg.status === 'missing_price' && pkg.scope) {
       const q = (pkg.scopeQuantities || [])[0];
       if (q) {
@@ -230,6 +221,32 @@ function buildWhatAiDid(draft, scopePackages, options = {}) {
     } else if (pkg.status === 'rough_price') {
       lines.push(`${pkg.name}: AI rough estimate — review before apply.`);
     }
+  }
+
+  const preserved = (scopePackages || []).filter(
+    (p) =>
+      p.status === 'user_provided' ||
+      (p.status === 'confirmed' && p.priceIncludesLaborAndMaterials && p.price != null)
+  );
+  if (preserved.length === 1) {
+    const p = preserved[0];
+    lines.push(`Preserved your total for ${p.name}: ${formatMoney(p.price)} (not changed).`);
+  } else if (preserved.length > 1) {
+    lines.push(`Preserved ${preserved.length} room totals from your notes (unchanged).`);
+  }
+
+  const partial = (scopePackages || []).filter(
+    (p) => p.status === 'partial_pricing' && p.knownSubtotal != null
+  );
+  if (partial.length === 1) {
+    const p = partial[0];
+    lines.push(
+      `Partial pricing for ${p.name}: ${formatMoney(p.knownSubtotal)} known — other scope still needs prices.`
+    );
+  } else if (partial.length > 1) {
+    lines.push(
+      `${partial.length} areas have partial pricing — finish missing items before bidding.`
+    );
   }
 
   for (const allowance of draft.allowances || []) {
@@ -275,7 +292,7 @@ function buildWhatAiDid(draft, scopePackages, options = {}) {
     );
   }
 
-  return lines.slice(0, 20);
+  return lines.slice(0, 10);
 }
 
 /** Trade-aware rough range — labels only; does not write room prices. */

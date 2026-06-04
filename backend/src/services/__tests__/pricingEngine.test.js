@@ -44,4 +44,40 @@ describe('pricingEngine', () => {
     const result = getPricingProposal({ draft, userId: 'dev-user-1', mode: 'saved_only' });
     expect(result.scopeItems.length).toBe(3);
   });
+
+  it('baseboard rough pricing uses national $/LF midpoints not wage÷productivity', () => {
+    const result = getPricingProposal({ draft, userId: 'dev-user-1', mode: 'suggest' });
+    const bb = result.scopeItems.find((s) => /baseboard/i.test(s.scopeName));
+    expect(bb).toBeDefined();
+    expect(bb.recommended.source).toBe('national_trade_average');
+    const lab = bb.proposedRates.find((p) => p.pricingType === 'labor');
+    const mat = bb.proposedRates.find((p) => p.pricingType === 'material');
+    expect(lab?.rate).toBe(5);
+    expect(mat?.rate).toBe(2);
+    expect(lab?.total).toBe(2500);
+    expect(mat?.total).toBe(1000);
+    expect(bb.proposedRates.find((p) => p.formula?.includes('$1.91'))).toBeUndefined();
+  });
+
+  it('kitchen scope uses national trade average material and labor per sqft', () => {
+    const kitchenDraft = {
+      originalNotes: 'Kitchen remodel 200 sqft floor tile and cabinets',
+      projectType: 'kitchen',
+      rooms: [
+        {
+          name: 'Kitchen',
+          scope: 'Remodel kitchen flooring and cabinets',
+          scopeQuantities: [{ quantity: 200, unit: 'sqft', label: 'area' }],
+          status: 'missing_price',
+        },
+      ],
+    };
+    const result = getPricingProposal({ draft: kitchenDraft, userId: 'dev-user-1', mode: 'suggest' });
+    const kitchen = result.scopeItems.find((s) => s.scopeName === 'Kitchen');
+    expect(kitchen?.recommended?.source).toBe('national_trade_average');
+    const mat = kitchen.proposedRates.find((p) => p.pricingType === 'material');
+    const lab = kitchen.proposedRates.find((p) => p.pricingType === 'labor');
+    expect(mat?.rate).toBe(55);
+    expect(lab?.rate).toBe(95);
+  });
 });

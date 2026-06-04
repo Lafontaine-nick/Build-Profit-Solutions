@@ -306,7 +306,10 @@ function enrichDraft(draftInput, options = {}) {
           .filter((a) => a.status === 'needs_review')
           .map((a) => (a.missingInfo || [])[0])
           .filter(Boolean),
-      ].filter(Boolean);
+      ]
+        .filter(Boolean)
+        .filter((item, index, arr) => arr.indexOf(item) === index)
+        .slice(0, 12);
 
   const stillNeededReview = buildStillNeededReview(draft, scopePackages);
 

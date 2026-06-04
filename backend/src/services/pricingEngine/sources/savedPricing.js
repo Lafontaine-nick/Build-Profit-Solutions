@@ -1,6 +1,6 @@
 const { listEntries, getSettings } = require('../../contractorPricingMemory/storage');
-const { isUnitBasedMemoryEntry } = require('../unitBased');
-const { getScopeWorkIntent } = require('../scopeIntentMatching');
+const { isUnitBasedMemoryEntry, normalizeScopeUnit } = require('../unitBased');
+const { getScopeWorkIntent, scoreScopeToLine } = require('../scopeIntentMatching');
 
 function median(values) {
   if (!values.length) return null;
@@ -9,49 +9,87 @@ function median(values) {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-function entryText(entry) {
-  return `${entry.scopeItemName || ''} ${entry.category || ''}`.toLowerCase();
-}
-
-function entryMatchesIntent(entry, scopeItem, draft, pricingRole) {
-  const scopeIntent = getScopeWorkIntent(scopeItem, draft);
-  const text = entryText(entry);
+function memoryEntryToLine(entry) {
   const isMaterial =
-    entry.category === 'material' || /\bmaterial|allowance\b/.test(text);
-  const isLabor =
-    entry.category === 'labor' || /\blabor\b/.test(text) || (!isMaterial && !entry.category);
-
-  if (pricingRole === 'material' && !isMaterial) return false;
-  if (pricingRole === 'labor' && isMaterial) return false;
-
-  if (scopeIntent.workType === 'demo') {
-    return /\b(demo|demolition|removal|tear)\b/.test(text) && !/\binstall\b/.test(text);
-  }
-
-  if (scopeIntent.workType === 'install') {
-    if (/\b(demo|demolition|removal)\b/.test(text) && !/\binstall/.test(text)) return false;
-    if (/\b(laminate|lvp|flooring|floor|install)\b/.test(text)) return true;
-    if (/\btile\b/.test(text) && !/\b(demo|demolition|removal)\b/.test(text)) return true;
-    if (/\b(baseboard|trim)\b/.test(text)) return true;
-    return false;
-  }
-
-  return true;
+    entry.category === 'material' ||
+    /\bmaterial|allowance|supply\b/i.test(`${entry.scopeItemName || ''} ${entry.category || ''}`);
+  return {
+    name: entry.scopeItemName || '',
+    description: entry.category || '',
+    section: entry.category || '',
+    category: entry.category || '',
+    _source: isMaterial ? 'material' : 'labor',
+  };
 }
 
-function findHistoryRate(entries, scopeItem, draft, pricingRole, unitType) {
-  const matched = entries.filter(
-    (e) =>
-      isUnitBasedMemoryEntry(e) &&
-      (unitType ? e.unitType === unitType : true) &&
-      entryMatchesIntent(e, scopeItem, draft, pricingRole)
-  );
-  if (!matched.length) return null;
-  return {
-    rate: median(matched.map((m) => m.unitRate)),
-    sampleCount: matched.length,
-    confidence: matched.length >= 3 ? 'high' : 'medium',
-  };
+function isMaterialLine(line, source) {
+  if (source === 'material') return true;
+  return /material|allowance|supply/i.test(`${line.section || ''} ${line.category || ''}`);
+}
+
+function findMatchingLibraryEntries(entries, scopeItem, draft, lineSource, unitType) {
+  const scopeUnit = normalizeScopeUnit(unitType || scopeItem.unit);
+  const matched = [];
+
+  for (const entry of entries) {
+    if (!isUnitBasedMemoryEntry(entry)) continue;
+    const entryUnit = normalizeScopeUnit(entry.unitType);
+    if (scopeUnit && entryUnit && entryUnit !== scopeUnit) continue;
+
+    const line = memoryEntryToLine(entry);
+    const source = line._source;
+    if (lineSource && source !== lineSource) continue;
+
+    const score = scoreScopeToLine(scopeItem, line, source, draft);
+    if (score <= 0) continue;
+
+    matched.push({ entry, score, source });
+  }
+
+  return matched;
+}
+
+function pickLibraryRates(scopeItem, entries, draft) {
+  const scopeIntent = getScopeWorkIntent(scopeItem, draft);
+  const scopeUnit = normalizeScopeUnit(scopeItem.unit);
+  const rates = [];
+
+  const roles = [];
+  if (scopeIntent.pricingRoles.includes('material')) roles.push('material');
+  if (scopeIntent.pricingRoles.includes('labor')) roles.push('labor');
+  if (!roles.length) roles.push('labor', 'material');
+
+  for (const role of roles) {
+    const matched = findMatchingLibraryEntries(entries, scopeItem, draft, role, scopeUnit);
+    if (!matched.length) continue;
+
+    matched.sort((a, b) => b.score - a.score);
+    const bestScore = matched[0].score;
+    const topTier = matched.filter((m) => m.score >= bestScore - 5);
+    const unitRates = topTier.map((m) => m.entry.unitRate).filter((r) => r > 0);
+    const med = median(unitRates);
+    if (med == null) continue;
+
+    const label =
+      topTier[0].entry.scopeItemName ||
+      (role === 'material' ? 'Material' : role === 'labor' ? 'Labor' : 'Rate');
+
+    rates.push({
+      pricingType: role,
+      label,
+      rate: med,
+      unit: topTier[0].entry.unitType || scopeItem.unit,
+      confidence: unitRates.length >= 3 ? 'high' : unitRates.length >= 2 ? 'medium' : 'medium',
+      sampleCount: unitRates.length,
+      matchScore: bestScore,
+      assumptions: [
+        `From your pricing library (${unitRates.length} past ${role} rate${unitRates.length === 1 ? '' : 's'})`,
+        `Median $${med}/${topTier[0].entry.unitType || scopeItem.unit} × ${scopeItem.quantity?.toLocaleString?.() || scopeItem.quantity || '?'} ${scopeItem.unit || ''}`.trim(),
+      ],
+    });
+  }
+
+  return rates;
 }
 
 function lookupSavedPricing(scopeItem, userId, context = {}) {
@@ -60,78 +98,37 @@ function lookupSavedPricing(scopeItem, userId, context = {}) {
   if (!settings.pricingMemoryEnabled) {
     return { available: false, rates: [], message: 'Pricing memory disabled' };
   }
-  const entries = listEntries(userId).filter((e) => !e.isTestBid && isUnitBasedMemoryEntry(e));
-  const scopeIntent = getScopeWorkIntent(scopeItem, draft);
-  const rates = [];
 
-  if (scopeItem.unit === 'sqft') {
-    if (scopeIntent.workType === 'demo') {
-      const h = findHistoryRate(entries, scopeItem, draft, 'labor', 'sqft');
-      if (h) {
-        rates.push({
-          pricingType: 'labor',
-          label: 'Demo labor',
-          rate: h.rate,
-          unit: 'sqft',
-          confidence: h.confidence,
-          sampleCount: h.sampleCount,
-        });
-      }
-    } else if (scopeIntent.workType === 'install' || /flooring|laminate|tile/i.test(scopeItem.scopeName)) {
-      const mat = findHistoryRate(entries, scopeItem, draft, 'material', 'sqft');
-      const lab = findHistoryRate(entries, scopeItem, draft, 'labor', 'sqft');
-      if (mat) {
-        rates.push({
-          pricingType: 'material',
-          label: 'Material',
-          rate: mat.rate,
-          unit: 'sqft',
-          confidence: mat.confidence,
-          sampleCount: mat.sampleCount,
-        });
-      }
-      if (lab) {
-        rates.push({
-          pricingType: 'labor',
-          label: 'Install labor',
-          rate: lab.rate,
-          unit: 'sqft',
-          confidence: lab.confidence,
-          sampleCount: lab.sampleCount,
-        });
-      }
-    }
-  } else if (scopeItem.unit === 'lf' && scopeIntent.workType === 'install') {
-    const mat = findHistoryRate(entries, scopeItem, draft, 'material', 'lf');
-    const lab = findHistoryRate(entries, scopeItem, draft, 'labor', 'lf');
-    if (mat) {
-      rates.push({
-        pricingType: 'material',
-        label: 'Trim material',
-        rate: mat.rate,
-        unit: 'lf',
-        confidence: mat.confidence,
-        sampleCount: mat.sampleCount,
-      });
-    }
-    if (lab) {
-      rates.push({
-        pricingType: 'labor',
-        label: 'Trim labor',
-        rate: lab.rate,
-        unit: 'lf',
-        confidence: lab.confidence,
-        sampleCount: lab.sampleCount,
-      });
-    }
+  const entries = listEntries(userId).filter((e) => !e.isTestBid && isUnitBasedMemoryEntry(e));
+  if (!entries.length) {
+    return { available: false, rates: [], message: 'No unit-based rates in pricing library yet' };
+  }
+
+  const scopeIntent = getScopeWorkIntent(scopeItem, draft);
+  const rates = pickLibraryRates(scopeItem, entries, draft);
+
+  if (!rates.length) {
+    return {
+      available: false,
+      rates: [],
+      message: `No pricing library lines matched this scope (${scopeIntent.workType}). Capture rates by applying approved bids.`,
+      scopeIntent: scopeIntent.workType,
+      entryCount: entries.length,
+    };
   }
 
   return {
-    available: rates.length > 0,
+    available: true,
     rates,
     entryCount: entries.length,
     scopeIntent: scopeIntent.workType,
+    message: 'Matched from your pricing library (past approved bids).',
   };
 }
 
-module.exports = { lookupSavedPricing, findHistoryRate, entryMatchesIntent };
+module.exports = {
+  lookupSavedPricing,
+  pickLibraryRates,
+  findMatchingLibraryEntries,
+  memoryEntryToLine,
+};

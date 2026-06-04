@@ -3,20 +3,20 @@ import {
   View,
   Text,
   TouchableOpacity,
-  ActivityIndicator,
   StyleSheet,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { formatDraftMoney, getScopePackages } from '@/utils/estimateAiDraft';
 import {
-  dedupeDraftWarnings,
   formatScopeQuantity,
   getStillNeededList,
   scopePackagePricingHint,
 } from '@/utils/estimateDraftReviewUi';
 import { draftHasApplyablePricing } from '@/utils/estimateAiDraftPricing';
+import { draftHasUnpricedScope } from '@/utils/estimateDraftReviewUi';
 import type { EstimateConfidenceLevel } from '@/utils/estimateAiDraft';
+import AIEstimateDraftReviewPricingActions from '@/components/estimate/AIEstimateDraftReviewPricingActions';
 
 type Colors = {
   text: string;
@@ -42,42 +42,6 @@ type Props = {
   showDetailsContent: React.ReactNode;
 };
 
-function ActionBtn({
-  label,
-  onPress,
-  disabled,
-  color = '#60a5fa',
-  loading,
-}: {
-  label: string;
-  onPress?: () => void;
-  disabled?: boolean;
-  color?: string;
-  loading?: boolean;
-}) {
-  return (
-    <TouchableOpacity
-      activeOpacity={0.88}
-      disabled={disabled || !onPress}
-      onPress={onPress}
-      style={{
-        paddingVertical: 12,
-        paddingHorizontal: 14,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: color,
-        marginBottom: 8,
-        opacity: disabled ? 0.5 : 1,
-      }}
-    >
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-        {loading ? <ActivityIndicator size="small" color={color} /> : null}
-        <Text style={{ color, fontSize: 14, fontWeight: '700', textAlign: 'center' }}>{label}</Text>
-      </View>
-    </TouchableOpacity>
-  );
-}
-
 export default function AIEstimateDraftReviewScopeOnly({
   draft,
   Colors,
@@ -95,8 +59,9 @@ export default function AIEstimateDraftReviewScopeOnly({
   const [showDetails, setShowDetails] = useState(false);
   const scopePackages = getScopePackages(draft);
   const stillNeeded = getStillNeededList(draft);
-  const hasMemorySuggestions = (draft.pricingMemorySuggestions?.length ?? 0) > 0;
   const hasPricing = draftHasApplyablePricing(draft);
+  const hasUnpriced = draftHasUnpricedScope(draft);
+  const showPricingActions = hasUnpriced || !hasPricing;
   const proposal = draft.pendingPricingProposal;
 
   return (
@@ -148,68 +113,18 @@ export default function AIEstimateDraftReviewScopeOnly({
         </View>
       ) : null}
 
-      {!hasPricing ? (
-      <View
-        style={{
-          marginBottom: 12,
-          padding: 14,
-          borderRadius: 14,
-          borderWidth: 1,
-          borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
-          backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : Colors.surface2,
-        }}
-      >
-        <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800', marginBottom: 6 }}>
-          No pricing found yet
-        </Text>
-        <Text style={{ color: Colors.sub, fontSize: 13, lineHeight: 18, marginBottom: 12 }}>
-          I found the scope and quantities, but no material or labor prices.
-        </Text>
-
-        <ActionBtn
-          label={hasMemorySuggestions ? 'Use saved pricing' : 'Use saved pricing'}
-          onPress={onUseSavedPricing}
-          disabled={busy}
-          loading={suggestingMissingPrices}
+      {showPricingActions ? (
+        <AIEstimateDraftReviewPricingActions
+          draft={draft}
+          Colors={Colors}
+          darkMode={darkMode}
+          busy={busy}
+          onUseSavedPricing={onUseSavedPricing}
+          suggestingMissingPrices={suggestingMissingPrices}
+          onSuggestRoughPrices={onSuggestRoughPrices}
+          roughRangeLoading={roughRangeLoading}
+          onAddPricesManually={onAddPricesManually}
         />
-        {hasMemorySuggestions ? (
-          <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 8, marginTop: -4 }}>
-            Based on your saved pricing — approve before applying.
-          </Text>
-        ) : draft.pricingMemoryMessage ? (
-          <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 8, marginTop: -4 }}>
-            {draft.pricingMemoryMessage}
-          </Text>
-        ) : null}
-
-        <ActionBtn
-          label="Suggest rough prices"
-          onPress={onSuggestRoughPrices}
-          disabled={busy}
-          color="#fbbf24"
-          loading={roughRangeLoading}
-        />
-        {draft.roughEstimate ? (
-          <Text style={{ color: '#fbbf24', fontSize: 12, marginBottom: 8 }}>
-            AI Rough Estimate: {formatDraftMoney(draft.roughEstimate.low)} –{' '}
-            {formatDraftMoney(draft.roughEstimate.high)} (review required)
-          </Text>
-        ) : (
-          <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 8, marginTop: -4 }}>
-            Labeled AI Rough Estimate — not applied until you approve.
-          </Text>
-        )}
-
-        <ActionBtn
-          label="Add prices manually"
-          onPress={onAddPricesManually}
-          disabled={busy}
-          color={Colors.text}
-        />
-        <Text style={{ color: Colors.sub, fontSize: 11, textAlign: 'center' }}>
-          Enter unit rates or lump sums for each scope item
-        </Text>
-      </View>
       ) : null}
 
       {(draft.pricingMemorySuggestions?.length ?? 0) > 0 ? (

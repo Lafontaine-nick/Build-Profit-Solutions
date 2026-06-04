@@ -3,7 +3,12 @@ const {
   extractPricingItemsFromText,
   buildScopePackage,
 } = require('../estimateDraftPartialPricing');
-const { amountAppearsAsQuantityInText, labeledPriceMatchIsValid } = require('../estimateDraftQuantityPrice');
+const {
+  amountAppearsAsQuantityInText,
+  labeledPriceMatchIsValid,
+  extractScopeQuantitiesForPackage,
+} = require('../estimateDraftQuantityPrice');
+const { expandJobScopeRooms, detectScopeTasksFromNotes } = require('../estimateDraftScopeSplit');
 
 const FLOOR_NOTES =
   "OK, let's create a bid. I have a floor job. I have 1200 ft.² of tile demo. I have 1200 ft.² of laminate flooring installation and 500 linear feet of baseboard installation, caulk and paint";
@@ -97,5 +102,35 @@ describe('quantity vs price parsing', () => {
     expect(baseboard.scopeQuantities).toEqual([{ label: 'Baseboard Installation', quantity: 500, unit: 'lf' }]);
     expect(tile.knownSubtotal).toBeNull();
     expect(tile.status).toBe('missing_price');
+  });
+
+  test('run-on flooring note: tile removal, tile install, 1000 lf baseboard', () => {
+    const notes =
+      "Let's create a flooring bid 1200 ft.² of tile removal in 1200 ft.² of tile installation 1000 linear feet of baseboard installation prep and paint";
+
+    const removal = extractScopeQuantitiesForPackage('Tile Removal', '', notes);
+    const install = extractScopeQuantitiesForPackage('Tile Installation', '', notes);
+    const baseboard = extractScopeQuantitiesForPackage('Baseboard Installation', '', notes);
+
+    expect(removal).toEqual([{ label: 'Tile Removal', quantity: 1200, unit: 'sqft' }]);
+    expect(install).toEqual([{ label: 'Tile Installation', quantity: 1200, unit: 'sqft' }]);
+    expect(baseboard).toEqual([{ label: 'Baseboard Installation', quantity: 1000, unit: 'lf' }]);
+
+    const aiRooms = [
+      { name: 'Tile Demo', scope: 'demo', price: null },
+      { name: 'Tile Installation', scope: 'install', price: null },
+      { name: 'Interior Painting', scope: '500 lf paint', price: null },
+    ];
+    const expanded = expandJobScopeRooms(aiRooms, notes, { aggressive: false });
+    expect(expanded.map((r) => r.name)).toEqual([
+      'Tile Removal',
+      'Tile Installation',
+      'Baseboard Installation',
+    ]);
+    expect(detectScopeTasksFromNotes(notes).map((t) => t.id)).toEqual([
+      'tile_demo',
+      'tile_install',
+      'baseboard_install',
+    ]);
   });
 });

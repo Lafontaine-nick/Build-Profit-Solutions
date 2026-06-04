@@ -6,7 +6,10 @@ const { SOURCE_LABELS, PRICING_DISCLAIMER } = require('./constants');
 function toLegacyProposal(engineResult, options = {}) {
   const { forSaved = false } = options;
   const source = engineResult.primarySource || 'ai_rough_estimate_fallback';
-  const isFallback = source === 'ai_rough_estimate_fallback' || engineResult.anyFallbackOnly;
+  const isFallback =
+    source === 'ai_rough_estimate_fallback' ||
+    source === 'national_trade_average' ||
+    engineResult.anyFallbackOnly;
 
   let sourceLabel = engineResult.primarySourceLabel || SOURCE_LABELS[source];
   if (forSaved && source === 'saved_template') {

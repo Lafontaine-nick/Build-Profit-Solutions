@@ -1,7 +1,8 @@
 const {
+  AI_FALLBACK_RATES,
   DEFAULT_LABOR_BURDEN,
+  NATIONAL_BASEBOARD_LF_DEFAULTS,
   PRODUCTIVITY_SQFT_PER_HR,
-  PRODUCTIVITY_LF_PER_HR,
   REGIONAL_MATERIAL_DEFAULTS,
 } = require('../constants');
 
@@ -74,26 +75,32 @@ function lookupRegionalLabor(scopeItem, context) {
       });
     }
   } else if (trade === 'baseboard' && scopeItem.unit === 'lf') {
-    const lab = hourlyToUnitRate(wages.carpenters, PRODUCTIVITY_LF_PER_HR.trim_install);
+    // National installed midpoints ($/LF) — not wage÷productivity (that understates trim vs market).
+    const lab = AI_FALLBACK_RATES.baseboardLaborLf;
     const mat = REGIONAL_MATERIAL_DEFAULTS.flooring.baseboardMaterial;
+    const baseboardAssumptions = [
+      `National midpoint install labor ≈ $${NATIONAL_BASEBOARD_LF_DEFAULTS.labor}/LF (paint-grade trim, 2026)`,
+      `Material allowance ≈ $${NATIONAL_BASEBOARD_LF_DEFAULTS.material}/LF — verify supplier quote`,
+      'Caulk, paint, and waste may be additional — review scope',
+    ];
     if (lab) {
       rates.push({
         pricingType: 'labor',
-        label: 'Trim install labor (benchmark)',
+        label: 'Baseboard install labor (national midpoint)',
         rate: lab,
         unit: 'lf',
         confidence: 'medium',
-        assumptions,
+        assumptions: baseboardAssumptions,
       });
     }
     if (mat) {
       rates.push({
         pricingType: 'material',
-        label: 'Baseboard material (regional default)',
+        label: 'Baseboard material (national midpoint)',
         rate: mat,
         unit: 'lf',
         confidence: 'low',
-        assumptions: ['Regional material allowance — verify with supplier'],
+        assumptions: baseboardAssumptions,
       });
     }
   }

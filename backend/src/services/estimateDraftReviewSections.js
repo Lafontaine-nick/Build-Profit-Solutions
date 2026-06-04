@@ -19,6 +19,7 @@ function extractAddressFromDraft(draft) {
 
 function buildLaborTradeItems(draft) {
   const items = [];
+  const seenLaborLineKeys = new Set();
   for (const pkg of draft.scopePackages || []) {
     if (pkg.laborPrice != null && pkg.laborPrice > 0) {
       items.push({
@@ -32,6 +33,9 @@ function buildLaborTradeItems(draft) {
     }
     for (const pi of pkg.pricingItems || []) {
       if (pi.pricingType === 'labor' && pi.amount != null && pi.amount > 0) {
+        const lineKey = `${String(pi.name || '').toLowerCase()}-${pi.amount}`;
+        if (seenLaborLineKeys.has(lineKey)) continue;
+        seenLaborLineKeys.add(lineKey);
         items.push({
           packageName: pkg.name,
           name: pi.name,

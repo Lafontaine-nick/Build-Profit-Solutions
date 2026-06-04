@@ -55,6 +55,23 @@ function lookupAiFallback(scopeItem) {
       confidence: 'low',
       assumptions,
     });
+  } else if (/paint/.test(name) && scopeItem.unit === 'lf') {
+    rates.push({
+      pricingType: 'material',
+      label: 'Trim/baseboard material (fallback)',
+      rate: AI_FALLBACK_RATES.baseboardMaterialLf,
+      unit: 'lf',
+      confidence: 'low',
+      assumptions: [...assumptions, 'Linear-foot paint/trim scope priced as baseboard install'],
+    });
+    rates.push({
+      pricingType: 'labor',
+      label: 'Trim/baseboard labor (fallback)',
+      rate: AI_FALLBACK_RATES.baseboardLaborLf,
+      unit: 'lf',
+      confidence: 'low',
+      assumptions,
+    });
   }
 
   return { available: rates.length > 0, rates };
