@@ -1,6 +1,6 @@
 import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimateAiDraft';
 import { formatDraftMoney, getScopePackages } from '@/utils/estimateAiDraft';
-import { draftHasApplyablePricing, proposalTotalForScopeName } from '@/utils/estimateAiDraftPricing';
+import { draftHasApplyablePricing, formatDisplayUnit, proposalTotalForScopeName } from '@/utils/estimateAiDraftPricing';
 
 export function isScopeOnlyDraft(draft: EstimateAiDraft | null): boolean {
   if (!draft) return false;
@@ -18,6 +18,7 @@ export function draftHasUnpricedScope(draft: EstimateAiDraft | null): boolean {
   return getScopePackages(draft).some((p) => {
     const amount = p.price ?? p.knownSubtotal ?? p.calculatedSubtotal ?? 0;
     if (amount > 0) return false;
+    if (proposalTotalForScopeName(draft.pendingPricingProposal, p.name) > 0) return false;
     return p.status === 'missing_price' || p.status === 'partial_pricing' || !p.status;
   });
 }
@@ -34,7 +35,7 @@ export function scopePackagePricingHint(pkg: EstimateDraftScopePackage): string 
 export function formatScopeQuantity(pkg: EstimateDraftScopePackage): string | null {
   const q = pkg.scopeQuantities?.[0];
   if (!q) return null;
-  return `${q.quantity.toLocaleString()} ${q.unit}`;
+  return `${q.quantity.toLocaleString()} ${formatDisplayUnit(q.unit)}`;
 }
 
 export function getStillNeededList(draft: EstimateAiDraft): string[] {
@@ -88,8 +89,25 @@ const STATUS_SHORT: Record<string, string> = {
   missing_price: 'Needs price',
 };
 
-export function compactPackageStatusLabel(pkg: EstimateDraftScopePackage): string {
-  return STATUS_SHORT[pkg.status] || 'Review';
+export function compactPackageStatusLabel(
+  pkg: EstimateDraftScopePackage,
+  draft?: EstimateAiDraft | null
+): string {
+  const pendingTotal = proposalTotalForScopeName(draft?.pendingPricingProposal, pkg.name);
+  if (pendingTotal > 0 && (pkg.status === 'missing_price' || !pkg.status)) {
+    const src = draft?.pendingPricingProposal?.primarySource || draft?.pendingPricingProposal?.source;
+    if (src === 'saved_template') return 'Saved template';
+    if (src === 'saved_pricing') return 'Saved rate';
+    return 'Matched rate';
+  }
+  return STATUS_SHORT[pkg.status || ''] || 'Review';
+}
+
+export function pendingProposalCalculatedTotal(draft: EstimateAiDraft | null | undefined): number {
+  const p = draft?.pendingPricingProposal;
+  if (!p || p.empty) return 0;
+  if ((p.totalSuggested || 0) > 0) return p.totalSuggested;
+  return (p.lines || []).reduce((sum, line) => sum + (line.total || 0), 0);
 }
 
 export function compactPackageAmount(

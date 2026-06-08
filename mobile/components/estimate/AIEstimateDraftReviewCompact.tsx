@@ -17,6 +17,7 @@ import {
   getCompactProjectSummary,
   getCompactStillNeeded,
   getUniformStatusLabel,
+  pendingProposalCalculatedTotal,
   scopePackagePricingHint,
   SCOPE_LIST_DEFAULT_LIMIT,
   shouldHidePerRowStatus,
@@ -73,8 +74,12 @@ export default function AIEstimateDraftReviewCompact({
   const stillNeeded = getCompactStillNeeded(draft, 5);
   const hasPricing = draftHasApplyablePricing(draft);
   const statedTotal = draft.statedTotal ?? draft.totalValidation?.statedTotal;
+  const pendingTotal = pendingProposalCalculatedTotal(draft);
   const calculatedTotal =
-    draft.calculatedLineItemTotal ?? draft.calculatedTotal ?? draft.totalValidation?.calculatedLineItemsTotal;
+    draft.calculatedLineItemTotal ??
+    draft.calculatedTotal ??
+    draft.totalValidation?.calculatedLineItemsTotal ??
+    (pendingTotal > 0 ? pendingTotal : null);
   const partialCount = scopePackages.filter((p) => p.status === 'partial_pricing').length;
   const missingPriceCount = scopePackages.filter((p) => p.status === 'missing_price').length;
   const hideRowStatus = shouldHidePerRowStatus(scopePackages);
@@ -154,9 +159,14 @@ export default function AIEstimateDraftReviewCompact({
         {visibleScope.map((pkg, index) => {
           const qty = formatScopeQuantity(pkg);
           const amount = compactPackageAmount(pkg, draft);
-          const statusLabel = compactPackageStatusLabel(pkg);
+          const statusLabel = compactPackageStatusLabel(pkg, draft);
           const hint = !amount ? scopePackagePricingHint(pkg) : null;
-          const showStatus = !hideRowStatus && amount && pkg.status !== 'user_provided' && pkg.status !== 'confirmed';
+          const showStatus =
+            !hideRowStatus &&
+            amount &&
+            pkg.status !== 'user_provided' &&
+            pkg.status !== 'confirmed' &&
+            statusLabel !== 'Confirmed';
           return (
             <View
               key={`scope-${pkg.name}-${index}`}

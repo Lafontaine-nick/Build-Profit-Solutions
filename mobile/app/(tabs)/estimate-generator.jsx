@@ -51,7 +51,11 @@ import {
   applyPricingProposalToDraft,
   buildProposalFromMissingSuggestions,
   fetchRoughPricingProposal,
+  resolvePricingZipCode,
   fetchSavedPricingProposal,
+  normalizePricingProposal,
+  proposalHasSavedRates,
+  resolveSavedPricingProposalForDraft,
 } from '../../utils/estimateAiDraftPricing';
 import { isScopeOnlyDraft } from '../../utils/estimateDraftReviewUi';
 import {
@@ -4842,14 +4846,45 @@ const getStyles = (Colors: any, desktopWeb = false) => {
   aiFloatingTextOn: {
     color: "#34D399",
   },
+  aiBuildPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: 14,
+    paddingLeft: 5,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: "rgba(34,197,94,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(34,197,94,0.18)",
+  },
+  aiBuildIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  aiBuildText: {
+    marginLeft: 8,
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#34D399",
+    letterSpacing: 0.2,
+  },
+  aiBuildHint: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 16,
+    marginRight: 10,
+  },
   // Same slot as project-detail Overview: row under chrome, pill right-aligned
   aiPmUnderTabs: {
     flexDirection: "row",
     justifyContent: "flex-end",
     alignItems: "center",
     paddingHorizontal: 4,
-    marginTop: 14,
-    marginBottom: 8,
+    marginTop: 6,
+    marginBottom: 4,
   },
 });
 };
@@ -5098,6 +5133,7 @@ export default function EstimateGeneratorScreen() {
   const [showAiSavedPricingModal, setShowAiSavedPricingModal] = useState(false);
   const [showAiRoughPricingModal, setShowAiRoughPricingModal] = useState(false);
   const [showAiManualPricingModal, setShowAiManualPricingModal] = useState(false);
+  const [aiManualPricingSeed, setAiManualPricingSeed] = useState(null);
   const [pricingFallbackVariant, setPricingFallbackVariant] = useState(null);
   const [aiSaveToPricingLibrary, setAiSaveToPricingLibrary] = useState(true);
   const [aiClarifyQuestions, setAiClarifyQuestions] = useState(null);
@@ -5525,23 +5561,27 @@ export default function EstimateGeneratorScreen() {
             return { draft: targetDraft, hasProposal: false };
           }
         }
-        const proposal = await fetchSavedPricingProposal(
-          { ...targetDraft, originalNotes: targetDraft.originalNotes || aiDraftNotes },
-          templates,
-          {
-            projectLocation: [bid?.projectAddress, bid?.customerCity, bid?.customerState]
-              .filter(Boolean)
-              .join(', '),
-            zipCode: bid?.zipCode || bid?.customerZip || '',
-          }
+        const proposal = resolveSavedPricingProposalForDraft(
+          targetDraft,
+          await fetchSavedPricingProposal(
+            { ...targetDraft, originalNotes: targetDraft.originalNotes || aiDraftNotes },
+            templates,
+            {
+              projectLocation: [bid?.projectAddress, bid?.customerCity, bid?.customerState]
+                .filter(Boolean)
+                .join(', '),
+              zipCode: resolvePricingZipCode(targetDraft, bid),
+            }
+          )
         );
-        if (proposal.empty) {
+        if (!proposalHasSavedRates(proposal)) {
           return { draft: targetDraft, hasProposal: false };
         }
-        setAiSavedPricingProposal(proposal);
+        const finalProposal = normalizePricingProposal(proposal);
+        setAiSavedPricingProposal(finalProposal);
         const nextDraft = autoApply
-          ? applyPricingProposalToDraft(targetDraft, proposal, { approved: true })
-          : { ...targetDraft, pendingPricingProposal: proposal };
+          ? applyPricingProposalToDraft(targetDraft, finalProposal, { approved: true })
+          : { ...targetDraft, pendingPricingProposal: finalProposal };
         return { draft: nextDraft, hasProposal: true };
       } catch (e) {
         console.warn('applySavedPricingToDraftState failed', e);
@@ -5656,12 +5696,23 @@ export default function EstimateGeneratorScreen() {
         if (Platform.OS !== 'web') {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
-      } else if (!hasProposal) {
+      } else if (!hasProposal && openModal) {
+        const pending = normalizePricingProposal(
+          next?.pendingPricingProposal || aiSavedPricingProposal
+        );
+        if (proposalHasSavedRates(pending)) {
+          setAiSavedPricingProposal(pending);
+          setShowAiSavedPricingModal(true);
+          if (Platform.OS !== 'web') {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          }
+          return true;
+        }
         setPricingFallbackVariant('saved');
       }
       return hasProposal;
     },
-    [aiDraft, aiDraftSuggestingMissing, applySavedPricingToDraftState]
+    [aiDraft, aiDraftSuggestingMissing, applySavedPricingToDraftState, aiSavedPricingProposal]
   );
 
   const handleSuggestRoughPrices = useCallback(async () => {
@@ -5672,7 +5723,7 @@ export default function EstimateGeneratorScreen() {
         projectLocation: [bid?.projectAddress, bid?.customerCity, bid?.customerState]
           .filter(Boolean)
           .join(', '),
-        zipCode: bid?.zipCode || bid?.customerZip || '',
+        zipCode: resolvePricingZipCode(aiDraft, bid),
       });
       if (proposal.empty) {
         setPricingFallbackVariant('rough');
@@ -5695,40 +5746,62 @@ export default function EstimateGeneratorScreen() {
     setPricingFallbackVariant(null);
     setShowAiSavedPricingModal(false);
     setShowAiRoughPricingModal(false);
+    setAiManualPricingSeed(null);
     setShowAiManualPricingModal(true);
+  }, []);
+
+  const openAdjustRatesFromProposal = useCallback((proposal) => {
+    if (!proposal || proposal.empty) return;
+    setAiManualPricingSeed(proposal);
+    setShowAiSavedPricingModal(false);
+    setShowAiRoughPricingModal(false);
+    setShowAiManualPricingModal(true);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
   }, []);
 
   const handleAddPricesManually = useCallback(() => {
     if (!aiDraft) return;
+    setAiManualPricingSeed(null);
     setShowAiManualPricingModal(true);
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
   }, [aiDraft]);
 
-  const handleApplySavedPricingProposal = useCallback(() => {
-    if (!aiDraft || !aiSavedPricingProposal || aiSavedPricingProposal.empty) return;
-    setAiDraft(applyPricingProposalToDraft(aiDraft, aiSavedPricingProposal, { approved: true }));
-    setShowAiSavedPricingModal(false);
-    if (Platform.OS !== 'web') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }
-  }, [aiDraft, aiSavedPricingProposal]);
+  const handleApplySavedPricingProposal = useCallback(
+    (proposalOverride) => {
+      const proposal = proposalOverride || aiSavedPricingProposal;
+      if (!aiDraft || !proposal || proposal.empty) return;
+      setAiDraft(applyPricingProposalToDraft(aiDraft, proposal, { approved: true }));
+      setShowAiSavedPricingModal(false);
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    },
+    [aiDraft, aiSavedPricingProposal]
+  );
 
-  const handleApplyRoughPricingProposal = useCallback(() => {
-    if (!aiDraft || !aiRoughPricingProposal || aiRoughPricingProposal.empty) return;
-    setAiDraft(applyPricingProposalToDraft(aiDraft, aiRoughPricingProposal, { approved: true }));
-    setShowAiRoughPricingModal(false);
-    if (Platform.OS !== 'web') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }
-  }, [aiDraft, aiRoughPricingProposal]);
+  const handleApplyRoughPricingProposal = useCallback(
+    (proposalOverride) => {
+      const proposal = proposalOverride || aiRoughPricingProposal;
+      if (!aiDraft || !proposal || proposal.empty) return;
+      setAiDraft(applyPricingProposalToDraft(aiDraft, proposal, { approved: true }));
+      setShowAiRoughPricingModal(false);
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    },
+    [aiDraft, aiRoughPricingProposal]
+  );
 
   const handleManualPricingCalculate = useCallback(
     (proposal) => {
       if (!aiDraft) return;
       setAiDraft(applyPricingProposalToDraft(aiDraft, proposal, { approved: true }));
       setShowAiManualPricingModal(false);
+      setAiManualPricingSeed(null);
       if (Platform.OS !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
@@ -8969,6 +9042,39 @@ export default function EstimateGeneratorScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setShowAIAssistant(true);
   }, []);
+
+  /** Empty bid: open paste-notes flow directly (skip AI Assistant landing). */
+  const openBuildWithAiDirect = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setAiDraftFromAssistant(false);
+    setShowAIAssistant(false);
+    setEstimateAiInitialQuestion('');
+    setShowAiBuilderModal(true);
+  }, []);
+
+  const aiFlowOverlayActive = showAiBuilderModal || showAiDraftReviewModal;
+
+  /** Empty bid + assistant open: skip blank chat landing and go straight to paste-notes. */
+  useEffect(() => {
+    if (
+      showAIAssistant &&
+      !bidHasLineItems &&
+      !showAiBuilderModal &&
+      !showAiDraftReviewModal &&
+      !aiDraftGenerating &&
+      !aiDraftApplying
+    ) {
+      setAiDraftFromAssistant(true);
+      setShowAiBuilderModal(true);
+    }
+  }, [
+    showAIAssistant,
+    bidHasLineItems,
+    showAiBuilderModal,
+    showAiDraftReviewModal,
+    aiDraftGenerating,
+    aiDraftApplying,
+  ]);
 
   const storeEstimateAiUndoSnapshot = useCallback((label) => {
     lastEstimateAiUndoRef.current = {
@@ -12472,6 +12578,7 @@ export default function EstimateGeneratorScreen() {
     setShowAiSavedPricingModal(false);
     setShowAiRoughPricingModal(false);
     setShowAiManualPricingModal(false);
+    setAiManualPricingSeed(null);
     setShowAIAssistant(false);
     setEstimateAiInitialQuestion('');
     setAiDraftFromAssistant(false);
@@ -22688,23 +22795,61 @@ export default function EstimateGeneratorScreen() {
         </LinearGradient>
       </View>
 
-      {/* AI PM — directly under Bid Summary stepper (same slot as project Overview under tabs) */}
+      {/* Build with AI (empty bid) or AI Assistant (populated) — pill under stepper */}
       {step !== 8 && !firstEstimateWalkthroughUiActive && (
-        <View style={[s.wideContainer, s.aiPmUnderTabs]}>
-          <Pressable
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              openEstimateCopilot('');
-            }}
-            style={s.aiFloating}
-            accessibilityRole="button"
-            accessibilityLabel={t('dashboard.aiPmModeOn')}
-          >
-            <Ionicons name="sparkles" size={15} color="#34D399" />
-            <Text style={[s.aiFloatingText, s.aiFloatingTextOn]} numberOfLines={1}>
-              {t('dashboard.aiPmModeOn')}
+        <View
+          style={[
+            s.wideContainer,
+            s.aiPmUnderTabs,
+            !bidHasLineItems && { justifyContent: 'space-between', alignItems: 'center', gap: 12 },
+          ]}
+        >
+          {!bidHasLineItems ? (
+            <Text style={[s.aiBuildHint, { color: Colors.sub }]} numberOfLines={2}>
+              {t('estimate.buildWithAiSub')}
             </Text>
-          </Pressable>
+          ) : null}
+          {bidHasLineItems ? (
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                openEstimateCopilot('');
+              }}
+              style={s.aiFloating}
+              accessibilityRole="button"
+              accessibilityLabel={t('assistant.aiAssistant')}
+            >
+              <Ionicons name="sparkles" size={15} color="#34D399" />
+              <Text style={[s.aiFloatingText, s.aiFloatingTextOn]} numberOfLines={1}>
+                {t('assistant.aiAssistant')}
+              </Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={openBuildWithAiDirect}
+              style={[
+                s.aiBuildPill,
+                {
+                  backgroundColor: darkMode ? 'rgba(34,197,94,0.12)' : 'rgba(34, 197, 94, 0.08)',
+                  borderColor: darkMode ? 'rgba(34,197,94,0.18)' : 'rgba(34, 197, 94, 0.22)',
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={`${t('estimate.buildWithAi')}. ${t('estimate.buildWithAiSub')}`}
+            >
+              <LinearGradient
+                colors={['#2DFFC4', '#00A6FF']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={s.aiBuildIconCircle}
+              >
+                <MaterialIcons name="auto-awesome" size={18} color="#0f172a" />
+              </LinearGradient>
+              <Text style={s.aiBuildText} numberOfLines={1}>
+                {t('estimate.buildWithAi')}
+              </Text>
+            </Pressable>
+          )}
         </View>
       )}
       
@@ -23454,76 +23599,85 @@ export default function EstimateGeneratorScreen() {
         onAction={handleEstimateAIAction}
         initialQuestion={estimateAiInitialQuestion}
         estimateBidIsEmpty={!bidHasLineItems}
-        overlayBlocksKeyboard={showAiBuilderModal || showAiDraftReviewModal}
+        overlayBlocksKeyboard={showAIAssistant && aiFlowOverlayActive}
         onBuildWithAi={() => {
           setAiDraftFromAssistant(true);
           setShowAiBuilderModal(true);
         }}
-      >
-        <AIEstimateBuilderModal
-          visible={showAiBuilderModal}
-          embedded
-          generating={aiDraftGenerating}
-          initialNotes={aiDraftNotes}
-          fromAssistant={aiDraftFromAssistant}
-          onBack={() => {
-            if (!aiDraftGenerating) setShowAiBuilderModal(false);
-          }}
-          onClose={() => {
-            if (!aiDraftGenerating) {
-              setShowAiBuilderModal(false);
-              setAiDraftFromAssistant(false);
-            }
-          }}
-          onGenerate={handleGenerateAiDraft}
-        />
+      />
 
-        <AIEstimateDraftReviewModal
-          visible={showAiDraftReviewModal}
-          embedded
-          draft={aiDraft}
-          applying={aiDraftApplying}
-          suggestingSplits={aiDraftSuggestingSplits}
-          clarifying={aiDraftClarifying}
-          clarifyQuestions={aiClarifyQuestions}
-          fromAssistant={aiDraftFromAssistant}
-          onSuggestSplits={handleSuggestAiDraftSplits}
-          onClarifyMissing={handleClarifyAiDraft}
-          onToggleApplySuggestedSplits={handleToggleApplySuggestedSplits}
-          onApproveSuggestedSplit={handleApproveSuggestedSplit}
-          onBack={() => {
-            if (!aiDraftApplying) {
-              setShowAiDraftReviewModal(false);
-              setShowAiBuilderModal(true);
-            }
-          }}
-          onClose={() => {
-            if (!aiDraftApplying) {
-              setShowAiDraftReviewModal(false);
-            }
-          }}
-          onRegenerate={() => {
+      <AIEstimateBuilderModal
+        visible={showAiBuilderModal}
+        generating={aiDraftGenerating}
+        initialNotes={aiDraftNotes}
+        fromAssistant={aiDraftFromAssistant}
+        onBack={() => {
+          if (aiDraftGenerating) return;
+          setShowAiBuilderModal(false);
+          if (aiDraftFromAssistant && !bidHasLineItems) {
+            setShowAIAssistant(false);
+            setAiDraftFromAssistant(false);
+          }
+        }}
+        onClose={() => {
+          if (!aiDraftGenerating) {
+            setShowAiBuilderModal(false);
+            setAiDraftFromAssistant(false);
+          }
+        }}
+        onGenerate={handleGenerateAiDraft}
+      />
+
+      <AIEstimateDraftReviewModal
+        visible={showAiDraftReviewModal}
+        draft={aiDraft}
+        applying={aiDraftApplying}
+        suggestingSplits={aiDraftSuggestingSplits}
+        clarifying={aiDraftClarifying}
+        clarifyQuestions={aiClarifyQuestions}
+        fromAssistant={aiDraftFromAssistant}
+        onSuggestSplits={handleSuggestAiDraftSplits}
+        onClarifyMissing={handleClarifyAiDraft}
+        onToggleApplySuggestedSplits={handleToggleApplySuggestedSplits}
+        onApproveSuggestedSplit={handleApproveSuggestedSplit}
+        onBack={() => {
+          if (!aiDraftApplying) {
             setShowAiDraftReviewModal(false);
             setShowAiBuilderModal(true);
-          }}
-          onApply={handleApplyAiDraft}
-          onApplyConfirmedOnly={handleApplyAiDraftConfirmed}
-          onApplyWithApproved={handleApplyAiDraftWithApproved}
-          onApplyScopeOnly={handleApplyAiDraftScopeOnly}
-          onRequestRoughRange={handleRoughEstimateRange}
-          roughRangeLoading={aiDraftRoughLoading}
-          suggestingMissingPrices={aiDraftSuggestingMissing}
-          onSuggestMissingPrices={handleSuggestMissingPrices}
-          onUseSavedPricing={handleUseSavedPricing}
-          onSuggestRoughPrices={handleSuggestRoughPrices}
-          onAddPricesManually={handleAddPricesManually}
-          saveToPricingLibrary={aiSaveToPricingLibrary}
-          onToggleSaveToPricingLibrary={setAiSaveToPricingLibrary}
-        />
-
+          }
+        }}
+        onClose={() => {
+          if (!aiDraftApplying) {
+            setShowAiDraftReviewModal(false);
+            setShowAiSavedPricingModal(false);
+            setShowAiRoughPricingModal(false);
+            setShowAiManualPricingModal(false);
+            setAiManualPricingSeed(null);
+          }
+        }}
+        onRegenerate={() => {
+          setShowAiDraftReviewModal(false);
+          setShowAiBuilderModal(true);
+        }}
+        onApply={handleApplyAiDraft}
+        onApplyConfirmedOnly={handleApplyAiDraftConfirmed}
+        onApplyWithApproved={handleApplyAiDraftWithApproved}
+        onApplyScopeOnly={handleApplyAiDraftScopeOnly}
+        onRequestRoughRange={handleRoughEstimateRange}
+        roughRangeLoading={aiDraftRoughLoading}
+        suggestingMissingPrices={aiDraftSuggestingMissing}
+        onSuggestMissingPrices={handleSuggestMissingPrices}
+        onUseSavedPricing={handleUseSavedPricing}
+        onSuggestRoughPrices={handleSuggestRoughPrices}
+        onAddPricesManually={handleAddPricesManually}
+        saveToPricingLibrary={aiSaveToPricingLibrary}
+        onToggleSaveToPricingLibrary={setAiSaveToPricingLibrary}
+      >
         <AIEstimatePricingProposalModal
+          embedded
           visible={showAiSavedPricingModal}
           proposal={aiSavedPricingProposal}
+          pricingMode="saved_only"
           title={
             aiSavedPricingProposal?.primarySource === 'saved_template'
               ? 'From saved bid template'
@@ -23533,8 +23687,8 @@ export default function EstimateGeneratorScreen() {
           }
           subtitle={
             aiSavedPricingProposal?.primarySource === 'saved_template'
-              ? `Matched line items from ${aiSavedPricingProposal?.templateCount || 0} saved template(s). Not from AI — review before applying.`
-              : 'Rates from your pricing library or past approved bids only. Review before applying.'
+              ? 'Matched rates from your saved bid templates only.'
+              : 'Matched rates from your pricing library and past bids only.'
           }
           applyLabel={
             aiSavedPricingProposal?.primarySource === 'saved_template'
@@ -23542,20 +23696,20 @@ export default function EstimateGeneratorScreen() {
               : 'Apply saved pricing'
           }
           onApply={handleApplySavedPricingProposal}
-          onEdit={() => {
-            setShowAiSavedPricingModal(false);
-            setShowAiManualPricingModal(true);
-          }}
+          onEdit={openAdjustRatesFromProposal}
           onAddManually={() => {
             setShowAiSavedPricingModal(false);
+            setAiManualPricingSeed(null);
             setShowAiManualPricingModal(true);
           }}
           onClose={() => setShowAiSavedPricingModal(false)}
         />
 
         <AIEstimatePricingProposalModal
+          embedded
           visible={showAiRoughPricingModal}
           proposal={aiRoughPricingProposal}
+          pricingMode="suggest"
           title={
             aiRoughPricingProposal?.source === 'ai_rough_estimate' &&
             (aiDraft?.pricingMemoryMissingSuggestions?.length ?? 0) > 0
@@ -23567,8 +23721,8 @@ export default function EstimateGeneratorScreen() {
           subtitle={
             aiRoughPricingProposal?.source === 'ai_rough_estimate' &&
             (aiDraft?.pricingMemoryMissingSuggestions?.length ?? 0) > 0
-              ? 'AI and regional defaults for scope items without template pricing. Review before applying.'
-              : 'Multi-source pricing from saved rates, benchmarks, and fallbacks. Review comparison, confidence, and disclaimer before applying.'
+              ? 'AI defaults for items without saved pricing.'
+              : 'Rates by source — HD Live, National Average, or AI estimate.'
           }
           applyLabel={
             aiRoughPricingProposal?.anyFallbackOnly && !aiRoughPricingProposal?.anyRealSource
@@ -23576,33 +23730,36 @@ export default function EstimateGeneratorScreen() {
               : 'Apply suggested pricing'
           }
           onApply={handleApplyRoughPricingProposal}
-          onEdit={() => {
-            setShowAiRoughPricingModal(false);
-            setShowAiManualPricingModal(true);
-          }}
+          onEdit={openAdjustRatesFromProposal}
           onAddManually={() => {
             setShowAiRoughPricingModal(false);
+            setAiManualPricingSeed(null);
             setShowAiManualPricingModal(true);
           }}
           onClose={() => setShowAiRoughPricingModal(false)}
         />
 
         <AIEstimateManualPricingModal
+          embedded
           visible={showAiManualPricingModal}
           draft={aiDraft}
+          seedProposal={aiManualPricingSeed}
           saveToLibrary={aiSaveToPricingLibrary}
           onToggleSaveToLibrary={setAiSaveToPricingLibrary}
           onCalculate={handleManualPricingCalculate}
-          onClose={() => setShowAiManualPricingModal(false)}
+          onClose={() => {
+            setShowAiManualPricingModal(false);
+            setAiManualPricingSeed(null);
+          }}
         />
+      </AIEstimateDraftReviewModal>
 
-        <AIEstimatePricingFallbackModal
-          visible={pricingFallbackVariant != null}
-          variant={pricingFallbackVariant || 'saved'}
-          onAddManually={handlePricingFallbackAddManually}
-          onClose={() => setPricingFallbackVariant(null)}
-        />
-      </AIAssistantModal>
+      <AIEstimatePricingFallbackModal
+        visible={pricingFallbackVariant != null}
+        variant={pricingFallbackVariant || 'saved'}
+        onAddManually={handlePricingFallbackAddManually}
+        onClose={() => setPricingFallbackVariant(null)}
+      />
 
     </SafeAreaView>
   );

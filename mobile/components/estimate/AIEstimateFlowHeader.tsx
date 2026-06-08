@@ -17,6 +17,8 @@ type Props = {
   subtitle?: string;
   step?: 1 | 2;
   fromAssistant?: boolean;
+  /** Parent already applied top safe area (modal shell or assistant). */
+  omitTopSafeArea?: boolean;
   disabled?: boolean;
   onBack: () => void;
 };
@@ -26,15 +28,21 @@ export default function AIEstimateFlowHeader({
   subtitle,
   step,
   fromAssistant = false,
+  omitTopSafeArea = false,
   disabled = false,
   onBack,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
-  const headerTopPadding = Math.max(insets.top, Platform.OS === 'ios' ? 12 : 0) + 8;
+  const headerTopPadding = omitTopSafeArea
+    ? Platform.OS === 'ios'
+      ? 6
+      : 4
+    : Math.max(insets.top, Platform.OS === 'ios' ? 12 : 0) + 8;
+  const showFlowChrome = fromAssistant || step != null;
 
-  if (fromAssistant) {
+  if (showFlowChrome) {
     return (
       <View
         style={[
@@ -52,7 +60,7 @@ export default function AIEstimateFlowHeader({
             disabled={disabled}
             style={styles.iconBtn}
             accessibilityRole="button"
-            accessibilityLabel="Back to AI Assistant"
+            accessibilityLabel={fromAssistant ? 'Back to AI Assistant' : 'Back'}
           >
             <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
           </TouchableOpacity>

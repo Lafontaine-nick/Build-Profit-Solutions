@@ -84,12 +84,16 @@ function extractLanIpv4(src: string): string | null {
  */
 let cachedBackendRestApiBaseUrl: string | null = null;
 
-/** Resolved once per Metro session — avoids console spam on every fetch. */
+/** Resolved once per Metro session for stable hosts; LAN URLs re-resolve (DHCP IP changes). */
 export function resolveBackendRestApiBaseUrl(): string {
-  if (cachedBackendRestApiBaseUrl) {
-    return cachedBackendRestApiBaseUrl;
+  const resolved = resolveBackendRestApiBaseUrlUncached();
+  const isLanOrLoopback = /192\.168\.|10\.0\.2\.2|localhost|127\.0\.0\.1/i.test(resolved);
+  if (isLanOrLoopback) {
+    return resolved;
   }
-  cachedBackendRestApiBaseUrl = resolveBackendRestApiBaseUrlUncached();
+  if (!cachedBackendRestApiBaseUrl) {
+    cachedBackendRestApiBaseUrl = resolved;
+  }
   return cachedBackendRestApiBaseUrl;
 }
 

@@ -1,5 +1,5 @@
 const { scopeItemsFromDraft } = require('./scopeFromDraft');
-const { SOURCE_LABELS, PRICING_DISCLAIMER } = require('./constants');
+const { SOURCE_LABELS, PRICING_DISCLAIMER, DEFAULT_SUPPLIER_ZIP } = require('./constants');
 const { pickRecommended, roundMoney } = require('./recommend');
 const { lookupSavedPricing } = require('./sources/savedPricing');
 const { lookupSavedTemplate } = require('./sources/savedTemplate');
@@ -8,6 +8,37 @@ const { lookupSupplierPricing } = require('./sources/supplierPricing');
 const { lookupNationalTradeAverage } = require('./sources/nationalTradeAverage');
 const { lookupCostDatabase } = require('./sources/costDatabase');
 const { lookupAiFallback } = require('./sources/aiFallback');
+
+/** Resolve ZIP from request, draft field, or originalNotes (e.g. "zip code 89141"). */
+function resolveZipFromDraft(draft, zipCode = '') {
+  const explicit = String(zipCode || draft?.zipCode || draft?.customerZip || '').trim();
+  if (/^\d{5}(-\d{4})?$/.test(explicit)) return explicit.slice(0, 5);
+  const notes = String(draft?.originalNotes || draft?.projectDescription || '');
+  const labeled = notes.match(/\b(?:zip\s*(?:code)?|zipcode)\s*[:.]?\s*(\d{5})\b/i);
+  if (labeled) return labeled[1];
+  const bare = notes.match(/\b(\d{5})\b/);
+  return bare ? bare[1] : '';
+}
+
+/** Always return a ZIP for supplier lookup; flag when using default fallback. */
+function resolveSupplierZipContext(draft, zipCode = '') {
+  const userZip = resolveZipFromDraft(draft, zipCode);
+  if (userZip) {
+    const fromRequest = /^\d{5}/.test(String(zipCode || '').trim());
+    const fromDraftField = /^\d{5}/.test(String(draft?.zipCode || draft?.customerZip || '').trim());
+    const fromNotes = !fromRequest && !fromDraftField;
+    return {
+      zipCode: userZip,
+      supplierZipIsFallback: false,
+      supplierZipSource: fromRequest ? 'bid' : fromDraftField ? 'draft' : fromNotes ? 'notes' : 'bid',
+    };
+  }
+  return {
+    zipCode: DEFAULT_SUPPLIER_ZIP,
+    supplierZipIsFallback: true,
+    supplierZipSource: 'default',
+  };
+}
 
 /**
  * @param {object} params
@@ -20,7 +51,7 @@ const { lookupAiFallback } = require('./sources/aiFallback');
  * @param {object} [params.companyDefaultRates]
  * @param {'suggest'|'saved_only'} [params.mode]
  */
-function getPricingProposal(params) {
+async function getPricingProposal(params) {
   const {
     draft,
     userId = 'dev-user-1',
@@ -31,11 +62,14 @@ function getPricingProposal(params) {
     mode = 'suggest',
   } = params;
 
+  const supplierZipCtx = resolveSupplierZipContext(draft, zipCode);
   const context = {
     userId,
     companyId: params.companyId,
     projectLocation: projectLocation || draft.projectAddress || draft.customerState || '',
-    zipCode: zipCode || draft.zipCode || '',
+    zipCode: supplierZipCtx.zipCode,
+    supplierZipIsFallback: supplierZipCtx.supplierZipIsFallback,
+    supplierZipSource: supplierZipCtx.supplierZipSource,
     savedTemplates,
     companyDefaultRates,
   };
@@ -46,7 +80,13 @@ function getPricingProposal(params) {
   let anyRealSource = false;
   let anyFallbackOnly = true;
 
-  for (const scopeItem of scopeItems) {
+  const supplierLookups =
+    mode === 'saved_only'
+      ? []
+      : await Promise.all(scopeItems.map((scopeItem) => lookupSupplierPricing(scopeItem, context)));
+
+  for (let i = 0; i < scopeItems.length; i++) {
+    const scopeItem = scopeItems[i];
     const lookups = {
       saved_pricing: lookupSavedPricing(scopeItem, userId, { draft }),
       saved_template: lookupSavedTemplate(scopeItem, savedTemplates, {
@@ -54,7 +94,10 @@ function getPricingProposal(params) {
         userId,
       }),
       company_default: lookupCompanyDefault(scopeItem, context),
-      supplier_pricing: lookupSupplierPricing(scopeItem, context),
+      supplier_pricing:
+        mode === 'saved_only'
+          ? { available: false, rates: [] }
+          : supplierLookups[i] || { available: false, rates: [] },
       national_trade_average: lookupNationalTradeAverage(scopeItem, { ...context, draft }),
       construction_cost_database: lookupCostDatabase(scopeItem, context),
       ai_rough_estimate_fallback: lookupAiFallback(scopeItem),
@@ -169,7 +212,10 @@ function getPricingProposal(params) {
     templateCount: (savedTemplates || []).length,
     disclaimer: PRICING_DISCLAIMER,
     warnings,
+    supplierZip: context.zipCode,
+    supplierZipIsFallback: context.supplierZipIsFallback,
+    supplierZipSource: context.supplierZipSource,
   };
 }
 
-module.exports = { getPricingProposal };
+module.exports = { getPricingProposal, resolveZipFromDraft, resolveSupplierZipContext };

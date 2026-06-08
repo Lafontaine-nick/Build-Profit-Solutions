@@ -23,13 +23,13 @@ const authenticateToken = async (req, res, next) => {
 
 router.use(authenticateToken);
 
-router.post('/proposal', (req, res) => {
+router.post('/proposal', async (req, res) => {
   try {
     const draft = req.body.draft ? enrichDraft(req.body.draft) : null;
     if (!draft) return res.status(400).json({ error: 'Draft is required' });
 
     const mode = req.body.mode === 'saved_only' ? 'saved_only' : 'suggest';
-    const engineResult = getPricingProposal({
+    const engineResult = await getPricingProposal({
       draft,
       userId: req.user.userId,
       companyId: req.body.companyId,

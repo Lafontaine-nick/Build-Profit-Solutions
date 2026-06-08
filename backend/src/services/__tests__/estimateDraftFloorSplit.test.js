@@ -38,7 +38,7 @@ describe('estimateDraftFloorSplit', () => {
     });
   });
 
-  test('Nick template matches tile demo after split (laminate may stay unmatched)', () => {
+  test('Nick template matches tile demo after split (laminate may stay unmatched)', async () => {
     const draft = normalizeDraft(
       {
         projectType: 'flooring',
@@ -59,7 +59,7 @@ describe('estimateDraftFloorSplit', () => {
       },
     };
 
-    const result = getPricingProposal({
+    const result = await getPricingProposal({
       draft,
       userId: 'dev',
       savedTemplates: [nick],

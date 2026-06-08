@@ -163,12 +163,12 @@ router.delete('/rates/:id', (req, res) => {
   res.json({ success: true });
 });
 
-router.post('/saved-pricing-proposal', (req, res) => {
+router.post('/saved-pricing-proposal', async (req, res) => {
   try {
     const userId = req.user.userId;
     const draft = req.body.draft ? enrichDraft(req.body.draft) : null;
     if (!draft) return res.status(400).json({ error: 'Draft is required' });
-    const engineResult = getPricingProposal({
+    const engineResult = await getPricingProposal({
       draft,
       userId,
       savedTemplates: req.body.savedTemplates || [],
@@ -184,12 +184,12 @@ router.post('/saved-pricing-proposal', (req, res) => {
   }
 });
 
-router.post('/rough-pricing-proposal', (req, res) => {
+router.post('/rough-pricing-proposal', async (req, res) => {
   try {
     const userId = req.user.userId;
     const draft = req.body.draft ? enrichDraft(req.body.draft) : null;
     if (!draft) return res.status(400).json({ error: 'Draft is required' });
-    const engineResult = getPricingProposal({
+    const engineResult = await getPricingProposal({
       draft,
       userId,
       savedTemplates: req.body.savedTemplates || [],

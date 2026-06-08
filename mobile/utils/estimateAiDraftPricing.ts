@@ -9,6 +9,22 @@ import {
 import { loadSavedBidTemplates } from '@/utils/estimateSavedBidTemplates';
 import { expandJobScopeDraft } from '@/utils/estimateDraftScopeSplit';
 
+/** ZIP from bid fields or draft notes — supplier pricing requires this. */
+export function resolvePricingZipCode(
+  draft?: EstimateAiDraft | null,
+  bid?: { zipCode?: string; customerZip?: string } | null
+): string {
+  const fromBid = String(bid?.zipCode || bid?.customerZip || '').trim();
+  if (/^\d{5}(-\d{4})?$/.test(fromBid)) return fromBid.slice(0, 5);
+  const draftZip = String((draft as { zipCode?: string })?.zipCode || '').trim();
+  if (/^\d{5}(-\d{4})?$/.test(draftZip)) return draftZip.slice(0, 5);
+  const notes = String(draft?.originalNotes || draft?.projectDescription || '');
+  const labeled = notes.match(/\b(?:zip\s*(?:code)?|zipcode)\s*[:.]?\s*(\d{5})\b/i);
+  if (labeled) return labeled[1];
+  const bare = notes.match(/\b(\d{5})\b/);
+  return bare ? bare[1] : '';
+}
+
 /** Keep in sync with backend NATIONAL_TRADE_AVERAGES. */
 const NATIONAL_TRADE_AVERAGES_LOCAL: Record<
   string,
@@ -73,12 +89,20 @@ export type PricingProposalLine = {
   requiresApproval?: boolean;
 };
 
+export type PricingSourceComparisonRow = {
+  rate: number;
+  unit: string | null;
+  summary: string;
+};
+
 export type PricingSourceComparison = {
   available: boolean;
   label: string;
   summary: string;
   rate?: number | null;
   unit?: string | null;
+  material?: PricingSourceComparisonRow | null;
+  labor?: PricingSourceComparisonRow | null;
 };
 
 export type PricingScopeItemProposal = {
@@ -125,6 +149,11 @@ export type PricingProposal = {
   engine?: boolean;
   primarySource?: string;
   templateCount?: number;
+  supplierZip?: string;
+  supplierZipIsFallback?: boolean;
+  supplierZipSource?: 'bid' | 'draft' | 'notes' | 'default';
+  /** saved_only = template/library lookup only; suggest = rough prices with HD + national */
+  pricingMode?: 'saved_only' | 'suggest';
 };
 
 export const PRICING_SOURCE_LABELS: Record<string, string> = {
@@ -133,8 +162,8 @@ export const PRICING_SOURCE_LABELS: Record<string, string> = {
   saved_template: 'Saved Bid Template',
   company_default: 'Company Default',
   supplier_pricing: 'Supplier Pricing',
-  national_trade_average: 'National Trade Average',
-  regional_labor_benchmark: 'National Trade Average',
+  national_trade_average: 'National Average',
+  regional_labor_benchmark: 'National Average',
   construction_cost_database: 'Construction Cost Database',
   ai_rough_estimate_fallback: 'AI Rough Estimate Fallback',
   manually_entered: 'Manually Entered',
@@ -147,11 +176,288 @@ export function sourceDisplayLabel(source: string): string {
 }
 
 export function sourceBadgeColor(source: string): string {
-  if (source === 'saved_pricing' || source === 'pricing_history') return '#60a5fa';
+  if (source === 'saved_pricing' || source === 'pricing_history' || source === 'saved_template') {
+    return '#60a5fa';
+  }
   if (source === 'national_trade_average' || source === 'regional_labor_benchmark') return '#a78bfa';
   if (source === 'supplier_pricing' || source === 'company_default') return '#34d399';
   if (source === 'ai_rough_estimate_fallback' || source === 'ai_rough_estimate') return '#fbbf24';
   return '#94a3b8';
+}
+
+export type SourceVisual = {
+  label: string;
+  shortLabel: string;
+  color: string;
+  bg: string;
+};
+
+export function sourceVisual(source: string): SourceVisual {
+  const label = sourceDisplayLabel(source);
+  if (source === 'supplier_pricing') {
+    return { label: 'Home Depot Live', shortLabel: 'HD Live', color: '#34d399', bg: 'rgba(52,211,153,0.14)' };
+  }
+  if (source === 'national_trade_average' || source === 'regional_labor_benchmark') {
+    return { label, shortLabel: 'National', color: '#a78bfa', bg: 'rgba(167,139,250,0.14)' };
+  }
+  if (source === 'ai_rough_estimate_fallback' || source === 'ai_rough_estimate') {
+    return { label, shortLabel: 'AI Est.', color: '#fbbf24', bg: 'rgba(251,191,36,0.14)' };
+  }
+  if (source === 'saved_pricing' || source === 'pricing_history') {
+    return { label, shortLabel: 'Saved', color: '#60a5fa', bg: 'rgba(96,165,250,0.14)' };
+  }
+  if (source === 'saved_template') {
+    return { label, shortLabel: 'Template', color: '#60a5fa', bg: 'rgba(96,165,250,0.14)' };
+  }
+  const color = sourceBadgeColor(source);
+  return { label, shortLabel: label.split(' ')[0], color, bg: `${color}22` };
+}
+
+function roundProposalMoney(n: number): number {
+  return Math.round(Number(n) || 0);
+}
+
+function formatProposalUnitRate(rate: number, unit: string | null): string {
+  const rounded = Math.round(rate * 100) / 100;
+  const display = rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(2);
+  return `$${display}/${formatDisplayUnit(unit) || 'unit'}`;
+}
+
+/** User-facing unit labels (internal storage stays lowercase, e.g. lf). */
+export function formatDisplayUnit(unit: string | null | undefined): string {
+  if (!unit) return '';
+  const key = unit.trim().toLowerCase();
+  if (key === 'lf') return 'LF';
+  if (key === 'sqft' || key === 'sf') return 'sqft';
+  if (key === 'hr' || key === 'hour' || key === 'hours') return 'hr';
+  if (key === 'lump_sum') return 'lump sum';
+  return unit;
+}
+
+export function comparisonMaterialDetail(
+  row: PricingSourceComparison | undefined
+): PricingSourceComparisonRow | null {
+  if (!row?.available) return null;
+  if (row.material) return row.material;
+  if (row.rate != null) {
+    return { rate: row.rate, unit: row.unit ?? null, summary: row.summary };
+  }
+  return null;
+}
+
+function scopeItemsToProposalLines(scopeItems: PricingScopeItemProposal[]): PricingProposalLine[] {
+  return scopeItems.flatMap((it) =>
+    (it.proposedRates || []).map((p) => ({
+      packageName: it.scopeName,
+      lineType:
+        p.pricingType === 'material' ? 'material' : p.pricingType === 'lump_sum' ? 'lump_sum' : 'labor',
+      label: p.label,
+      unitType: p.unit || it.unit,
+      quantity: p.quantity,
+      unitRate: p.rate,
+      total: p.total || 0,
+      formula: p.formula,
+      priceSource: p.source,
+      sourceLabel: sourceDisplayLabel(p.source),
+      confidence: p.confidence,
+      status:
+        p.source === 'ai_rough_estimate_fallback' ? 'rough_price' : 'pricing_memory_suggested',
+      requiresApproval: p.requiresApproval !== false,
+    }))
+  );
+}
+
+function linesToScopeItems(lines: PricingProposalLine[]): PricingScopeItemProposal[] {
+  const byPkg = new Map<string, PricingProposalLine[]>();
+  for (const line of lines) {
+    const list = byPkg.get(line.packageName) || [];
+    list.push(line);
+    byPkg.set(line.packageName, list);
+  }
+  return [...byPkg.entries()].map(([scopeName, pkgLines]) => {
+    const source = pkgLines[0]?.priceSource || 'saved_pricing';
+    return {
+      scopeItemId: normalizePackageKey(scopeName).replace(/\s+/g, '_') || 'scope',
+      scopeName,
+      quantity: pkgLines[0]?.quantity ?? null,
+      unit: pkgLines[0]?.unitType ?? 'lump_sum',
+      proposedRates: pkgLines.map((line) => ({
+        label: line.label,
+        pricingType: line.lineType,
+        rate: line.unitRate,
+        unit: line.unitType,
+        quantity: line.quantity,
+        total: line.total,
+        formula: line.formula,
+        source: line.priceSource,
+        confidence: line.confidence,
+        assumptions: line.sourceLabel ? [line.sourceLabel] : [],
+        requiresApproval: line.requiresApproval !== false,
+      })),
+      comparison: {},
+      recommended: {
+        source,
+        sourceLabel: sourceDisplayLabel(source),
+        reason: 'Matched from saved pricing.',
+        confidence: 'medium',
+      },
+      warnings: [],
+    };
+  });
+}
+
+/** Ensure lines/scopeItems arrays exist and stay in sync for modal + apply. */
+export function proposalHasSavedRates(proposal: PricingProposal | null | undefined): boolean {
+  if (!proposal) return false;
+  const lines = proposal.lines || [];
+  if (lines.some((l) => (l.total || 0) > 0)) return true;
+  return (proposal.scopeItems || []).some((item) =>
+    (item.proposedRates || []).some((r) => (r.total || 0) > 0)
+  );
+}
+
+function inferPrimarySource(
+  lines: PricingProposalLine[],
+  scopeItems: PricingScopeItemProposal[]
+): PricingProposal['primarySource'] {
+  const sources = new Set<string>();
+  for (const line of lines) {
+    if (line.priceSource) sources.add(line.priceSource);
+  }
+  for (const item of scopeItems) {
+    if (item.recommended?.source) sources.add(item.recommended.source);
+    for (const rate of item.proposedRates || []) {
+      if (rate.source) sources.add(rate.source);
+    }
+  }
+  if (sources.has('saved_template')) return 'saved_template';
+  if (sources.has('saved_pricing') || sources.has('pricing_history')) return 'saved_pricing';
+  if (sources.has('company_default')) return 'company_default';
+  return undefined;
+}
+
+export function emptyPricingProposal(
+  overrides: Partial<PricingProposal> = {}
+): PricingProposal {
+  return {
+    empty: true,
+    source: 'saved_pricing',
+    sourceLabel: '',
+    lines: [],
+    totalSuggested: 0,
+    scopeItems: [],
+    ...overrides,
+  };
+}
+
+export function normalizePricingProposal(
+  proposal: PricingProposal | null | undefined
+): PricingProposal {
+  if (!proposal) return emptyPricingProposal();
+  let lines = proposal.lines || [];
+  let scopeItems = proposal.scopeItems || [];
+  if (scopeItems.length && !lines.length) {
+    lines = scopeItemsToProposalLines(scopeItems);
+  } else if (!scopeItems.length && lines.length) {
+    scopeItems = linesToScopeItems(lines);
+  }
+  const totalSuggested = lines.reduce((s, l) => s + (l.total || 0), 0);
+  const hasRates = proposalHasSavedRates({ ...proposal, lines, scopeItems, totalSuggested });
+  const primarySource =
+    proposal.primarySource && proposal.primarySource !== 'ai_rough_estimate_fallback'
+      ? proposal.primarySource
+      : inferPrimarySource(lines, scopeItems) || proposal.primarySource;
+  return {
+    ...proposal,
+    lines,
+    scopeItems,
+    totalSuggested,
+    empty: !hasRates,
+    anyRealSource: hasRates,
+    primarySource,
+  };
+}
+
+/** Swap recommended material rate between HD Live and National Average for one scope item. */
+export function setScopeMaterialSource(
+  proposal: PricingProposal,
+  scopeItemId: string,
+  materialSource: 'supplier_pricing' | 'national_trade_average'
+): PricingProposal {
+  if (!proposal.scopeItems?.length) return proposal;
+
+  const scopeItems = proposal.scopeItems.map((item) => {
+    if (item.scopeItemId !== scopeItemId) return item;
+    const existingMat = item.proposedRates.find((r) => r.pricingType === 'material');
+    const laborRates = item.proposedRates.filter((r) => r.pricingType !== 'material');
+    const detail = comparisonMaterialDetail(item.comparison?.[materialSource]);
+    if (!detail?.rate) return item;
+
+    const qty =
+      existingMat?.quantity ?? (item.quantity != null && item.quantity > 0 ? item.quantity : null);
+    const unit = detail.unit || existingMat?.unit || item.unit;
+    const total =
+      qty != null && qty > 0 ? roundProposalMoney(detail.rate * qty) : existingMat?.total ?? null;
+    const formula =
+      total != null && qty != null && unit
+        ? `${qty.toLocaleString()} ${unit} × ${formatProposalUnitRate(detail.rate, unit)} = $${total.toLocaleString()}`
+        : existingMat?.formula ?? null;
+
+    const newMat = {
+      label: existingMat?.label || `${item.scopeName} material`,
+      pricingType: 'material',
+      rate: detail.rate,
+      unit,
+      quantity: qty,
+      total,
+      formula,
+      source: materialSource,
+      confidence: materialSource === 'supplier_pricing' ? 'medium' : 'low',
+      assumptions: existingMat?.assumptions || [],
+      requiresApproval: true,
+    };
+
+    const laborSource = laborRates[0]?.source;
+    const recommendedSource =
+      materialSource === 'supplier_pricing' && laborSource === 'national_trade_average'
+        ? 'supplier_pricing'
+        : materialSource;
+
+    return {
+      ...item,
+      proposedRates: [newMat, ...laborRates],
+      recommended: item.recommended
+        ? {
+            ...item.recommended,
+            source: recommendedSource,
+            sourceLabel: sourceDisplayLabel(recommendedSource),
+            reason:
+              materialSource === 'supplier_pricing'
+                ? 'Live Home Depot material selected for the bid.'
+                : 'National average material selected for the bid.',
+          }
+        : null,
+    };
+  });
+
+  const lines = scopeItemsToProposalLines(scopeItems);
+  return {
+    ...proposal,
+    scopeItems,
+    lines,
+    totalSuggested: lines.reduce((s, l) => s + (l.total || 0), 0),
+  };
+}
+
+export function proposalUsesSavedPricing(proposal: PricingProposal | null): boolean {
+  if (!proposal) return false;
+  if (proposal.primarySource === 'saved_pricing' || proposal.primarySource === 'saved_template') {
+    return true;
+  }
+  return (proposal.scopeItems || []).some(
+    (item) =>
+      item.recommended?.source === 'saved_pricing' || item.recommended?.source === 'saved_template'
+  );
 }
 
 async function fetchEngineProposal(
@@ -168,7 +474,7 @@ async function fetchEngineProposal(
     mode: options.mode,
     savedTemplates: options.savedTemplates || [],
     projectLocation: options.projectLocation || draft.projectAddress || '',
-    zipCode: options.zipCode || '',
+    zipCode: options.zipCode || resolvePricingZipCode(draft) || '',
   };
   try {
     const res = await pricingMemoryFetch<{
@@ -177,10 +483,16 @@ async function fetchEngineProposal(
     }>('/proposal', { method: 'POST', body: JSON.stringify(body) }, { apiPath: '/api/pricing-engine' });
     const proposal = res.proposal;
     if (proposal && !proposal.empty) {
+      proposal.pricingMode = options.mode;
+      if (res.engine?.supplierZip) {
+        proposal.supplierZip = res.engine.supplierZip;
+        proposal.supplierZipIsFallback = res.engine.supplierZipIsFallback;
+        proposal.supplierZipSource = res.engine.supplierZipSource;
+      }
       if (!proposal.scopeItems?.length && res.engine?.scopeItems) {
         proposal.scopeItems = res.engine.scopeItems;
       }
-      return proposal;
+      return normalizePricingProposal(proposal);
     }
   } catch (err) {
     if (!isPricingRouteMissingError(err)) throw err;
@@ -600,12 +912,13 @@ function mergeEngineProposalWithTemplates(
     };
   });
 
-  return patchScopeItemsFromTemplateLines({
+  return normalizePricingProposal({
     ...engine,
     scopeItems,
     lines,
     totalSuggested: lines.reduce((s, l) => s + l.total, 0),
     anyRealSource: lines.length > 0,
+    primarySource: 'saved_template',
     message: null,
     assumptions: [
       ...(engine.assumptions || []),
@@ -701,7 +1014,11 @@ function patchScopeItemsFromTemplateLines(proposal: PricingProposal): PricingPro
     }
   }
 
-  return { ...proposal, scopeItems: items };
+  return normalizePricingProposal({
+    ...proposal,
+    scopeItems: items,
+    primarySource: 'saved_template',
+  });
 }
 
 const SQFT_QTY_RE =
@@ -846,6 +1163,12 @@ function extractScopeQuantitiesForPackage(
   return [...byUnit.values()];
 }
 
+function shouldSkipSavedTemplateMatch(pkg: EstimateDraftScopePackage): boolean {
+  if (pkg.priceProvidedByUser) return true;
+  if (pkg.status === 'user_provided' || pkg.status === 'confirmed') return true;
+  return false;
+}
+
 /** Match saved bid templates on-device when API routes are unavailable or omit templates. */
 export function buildSavedPricingProposalFromTemplates(
   draft: EstimateAiDraft,
@@ -857,7 +1180,7 @@ export function buildSavedPricingProposalFromTemplates(
   const matchedTemplateNames: string[] = [];
 
   for (const pkg of getScopePackages(matchDraft)) {
-    if (pkg.status && pkg.status !== 'missing_price' && (pkg.price ?? 0) > 0) continue;
+    if (shouldSkipSavedTemplateMatch(pkg)) continue;
     const qtyInfo = pickPackageQuantity(pkg, notes);
     if (!qtyInfo || qtyInfo.quantity <= 0) continue;
 
@@ -940,18 +1263,46 @@ export function buildSavedPricingProposalFromTemplates(
   }
 
   const totalSuggested = lines.reduce((s, l) => s + l.total, 0);
-  return {
+  return normalizePricingProposal({
     empty: lines.length === 0,
     source: 'saved_template',
     sourceLabel: matchedTemplateNames.length
       ? `Saved bid template (${matchedTemplateNames.join(', ')})`
       : 'Saved Bid Template',
+    primarySource: 'saved_template',
     lines,
     totalSuggested,
     templateCount: templates.length,
     anyRealSource: lines.length > 0,
     engine: false,
-  };
+  });
+}
+
+function enrichSavedScopeItemsFromDraft(
+  draft: EstimateAiDraft,
+  proposal: PricingProposal
+): PricingProposal {
+  const notes = String(draft.originalNotes || '');
+  const packages = getScopePackages(expandDraftForPricingMatch(draft));
+  const scopeItems = [...(proposal.scopeItems || [])];
+
+  for (const pkg of packages) {
+    const found = scopeItems.some((s) => packageKeysMatch(s.scopeName, pkg.name));
+    if (found) continue;
+    const qtyInfo = pickPackageQuantity(pkg, notes);
+    scopeItems.push({
+      scopeItemId: normalizePackageKey(pkg.name).replace(/\s+/g, '_') || 'scope',
+      scopeName: pkg.name,
+      quantity: qtyInfo?.quantity ?? null,
+      unit: qtyInfo?.unit ?? 'lump_sum',
+      proposedRates: [],
+      comparison: {},
+      recommended: null,
+      warnings: ['No saved pricing or bid template matched this item.'],
+    });
+  }
+
+  return { ...proposal, scopeItems };
 }
 
 export async function fetchSavedPricingProposal(
@@ -960,7 +1311,13 @@ export async function fetchSavedPricingProposal(
   location?: { projectLocation?: string; zipCode?: string }
 ): Promise<PricingProposal> {
   const matchDraft = expandDraftForPricingMatch(draft);
+  const stampSaved = (p: PricingProposal) =>
+    normalizePricingProposal(
+      enrichSavedScopeItemsFromDraft(matchDraft, { ...p, pricingMode: 'saved_only' as const })
+    );
   const templates = await resolveSavedBidTemplates(savedTemplates);
+  const fromTemplates =
+    templates.length > 0 ? buildSavedPricingProposalFromTemplates(matchDraft, templates) : null;
   const engineOpts = {
     mode: 'saved_only' as const,
     savedTemplates: templates,
@@ -970,29 +1327,46 @@ export async function fetchSavedPricingProposal(
 
   try {
     const fromApi = await fetchEngineProposal(matchDraft, engineOpts);
-    if (fromApi && !fromApi.empty) {
-      if (templates.length > 0) {
-        const fromTemplates = buildSavedPricingProposalFromTemplates(matchDraft, templates);
-        if (!fromTemplates.empty) {
-          return mergeEngineProposalWithTemplates(fromApi, fromTemplates);
-        }
-        return patchScopeItemsFromTemplateLines(fromApi);
+    if (fromApi && proposalHasSavedRates(fromApi)) {
+      if (fromTemplates && proposalHasSavedRates(fromTemplates)) {
+        return stampSaved(mergeEngineProposalWithTemplates(fromApi, fromTemplates));
       }
-      return fromApi;
+      return stampSaved(patchScopeItemsFromTemplateLines(fromApi));
     }
   } catch {
     // fall through to on-device template + library matching
   }
 
-  if (templates.length > 0) {
-    const hybrid = await buildSavedPricingProposalHybrid(matchDraft, templates);
-    if (!hybrid.empty) return hybrid;
-  } else {
-    const fromLibrary = await buildSavedPricingProposalLocal(matchDraft);
-    if (!fromLibrary.empty) return fromLibrary;
+  if (fromTemplates && proposalHasSavedRates(fromTemplates)) {
+    return stampSaved(fromTemplates);
   }
 
-  return buildSavedPricingProposalLocal(matchDraft);
+  if (templates.length > 0) {
+    const hybrid = await buildSavedPricingProposalHybrid(matchDraft, templates);
+    if (!hybrid.empty) return stampSaved(hybrid);
+  } else {
+    const fromLibrary = await buildSavedPricingProposalLocal(matchDraft);
+    if (!fromLibrary.empty) return stampSaved(fromLibrary);
+  }
+
+  return stampSaved(buildSavedPricingProposalLocal(matchDraft));
+}
+
+/** Prefer a fresh fetch; fall back to pending saved proposal already on the draft. */
+export function resolveSavedPricingProposalForDraft(
+  draft: EstimateAiDraft,
+  fetched: PricingProposal
+): PricingProposal {
+  const normalized = normalizePricingProposal(fetched);
+  if (proposalHasSavedRates(normalized)) return normalized;
+  if (draft.pendingPricingProposal) {
+    const pending = normalizePricingProposal({
+      ...draft.pendingPricingProposal,
+      pricingMode: 'saved_only',
+    });
+    if (proposalHasSavedRates(pending)) return pending;
+  }
+  return normalized;
 }
 
 export async function fetchRoughPricingProposal(
@@ -1008,11 +1382,17 @@ export async function fetchRoughPricingProposal(
       projectLocation: location?.projectLocation,
       zipCode: location?.zipCode,
     });
-    if (fromApi && !fromApi.empty) return fromApi;
+    if (fromApi && !fromApi.empty) {
+      fromApi.pricingMode = 'suggest';
+      return fromApi;
+    }
   } catch {
     // fall through
   }
-  return buildRoughPricingProposalLocal(draft);
+  return normalizePricingProposal({
+    ...buildRoughPricingProposalLocal(draft),
+    pricingMode: 'suggest' as const,
+  });
 }
 
 function buildRoughPricingProposalLocal(draft: EstimateAiDraft): PricingProposal {
@@ -1044,9 +1424,9 @@ function buildRoughPricingProposalLocal(draft: EstimateAiDraft): PricingProposal
         quantity,
         unitRate,
         total,
-        formula: `${quantity.toLocaleString()} ${unitType} × $${unitRate}/${unitType} = $${formatMoney(total)}`,
+        formula: `${quantity.toLocaleString()} ${formatDisplayUnit(unitType)} × $${unitRate}/${formatDisplayUnit(unitType)} = $${formatMoney(total)}`,
         priceSource: 'national_trade_average',
-        sourceLabel: 'National Trade Average',
+        sourceLabel: 'National Average',
         confidence: lineType === 'labor' ? 'medium' : 'low',
         status: 'rough_price',
         requiresApproval: true,
@@ -1065,7 +1445,7 @@ function buildRoughPricingProposalLocal(draft: EstimateAiDraft): PricingProposal
   return {
     empty: lines.length === 0,
     source: 'ai_rough_estimate',
-    sourceLabel: 'National Trade Average',
+    sourceLabel: 'National Average',
     lines,
     totalSuggested,
     message: lines.length === 0 ? 'Could not build per-item rough pricing from scope quantities.' : null,
@@ -1140,7 +1520,7 @@ async function buildSavedPricingProposalLocal(draft: EstimateAiDraft): Promise<P
         quantity,
         unitRate,
         total,
-        formula: `${quantity.toLocaleString()} ${unitType} × $${unitRate}/${unitType} = $${formatMoney(total)}`,
+        formula: `${quantity.toLocaleString()} ${formatDisplayUnit(unitType)} × $${unitRate}/${formatDisplayUnit(unitType)} = $${formatMoney(total)}`,
         priceSource: 'pricing_history',
         sourceLabel: 'Based on your past approved bids',
         confidence: 'medium',
@@ -1260,7 +1640,7 @@ function suggestionToProposalLine(
       quantity: suggestion.quantity,
       unitRate: suggestion.suggestedUnitRate,
       total,
-      formula: `${suggestion.quantity.toLocaleString()} ${unit} × $${suggestion.suggestedUnitRate}/${unit} = $${formatMoney(total)}`,
+      formula: `${suggestion.quantity.toLocaleString()} ${formatDisplayUnit(unit)} × $${suggestion.suggestedUnitRate}/${formatDisplayUnit(unit)} = $${formatMoney(total)}`,
       priceSource:
         suggestion.source === 'regional_default' ? 'ai_rough_estimate' : suggestion.source || 'ai_rough_estimate',
       sourceLabel: suggestion.sourceLabel,
@@ -1715,7 +2095,7 @@ export function buildManualPricingProposal(
         quantity,
         unitRate: rate,
         total,
-        formula: `${quantity.toLocaleString()} ${unitType} × $${rate}/${unitType} = $${total.toLocaleString()}`,
+        formula: `${quantity.toLocaleString()} ${formatDisplayUnit(unitType)} × $${rate}/${formatDisplayUnit(unitType)} = $${total.toLocaleString()}`,
         priceSource: 'manually_entered',
         sourceLabel: 'Manually entered',
         confidence: 'high',
@@ -1840,6 +2220,115 @@ function parseMoney(raw?: string): number | null {
   const n = Number(String(raw).replace(/[^0-9.]/g, ''));
   if (!Number.isFinite(n) || n <= 0) return null;
   return n;
+}
+
+function manualRateInputString(rate: number | null | undefined): string | undefined {
+  if (rate == null || rate <= 0) return undefined;
+  const rounded = Math.round(rate * 100) / 100;
+  return String(rounded % 1 === 0 ? rounded : rounded);
+}
+
+function proposalLinesForPackage(
+  lines: PricingProposalLine[],
+  packageName: string
+): PricingProposalLine[] {
+  return lines.filter(
+    (l) => l.packageName === packageName || roomMatchesProposalPackage(packageName, l.packageName)
+  );
+}
+
+/** Seed manual/adjust-rate fields from a saved or rough pricing proposal. */
+export function manualPricingInputsFromProposal(
+  draft: EstimateAiDraft,
+  proposal: PricingProposal | null | undefined
+): ManualPricingInputs {
+  if (!proposal) return {};
+  const normalized = normalizePricingProposal(proposal);
+  const lines =
+    normalized.lines?.length > 0
+      ? normalized.lines
+      : scopeItemsToProposalLines(normalized.scopeItems || []);
+  if (!lines.length) return {};
+
+  const inputs: ManualPricingInputs = {};
+  for (const pkg of getScopePackages(draft)) {
+    const pkgLines = proposalLinesForPackage(lines, pkg.name);
+    if (!pkgLines.length) continue;
+
+    const kind = classifyPackageKind(pkg.name);
+    const inp: ManualPricingInputs[string] = {};
+    const lump = pkgLines.find((l) => l.lineType === 'lump_sum' && (l.total || 0) > 0);
+    if (lump) {
+      inp.mode = 'lump_sum';
+      inp.lumpSum = manualRateInputString(lump.total);
+      inputs[pkg.name] = inp;
+      continue;
+    }
+
+    const material = pkgLines.find((l) => l.lineType === 'material');
+    const labor = pkgLines.find((l) => l.lineType === 'labor');
+
+    if (kind === 'tile_demo') {
+      if (labor?.unitRate) {
+        inp.mode = 'rate';
+        inp.demoRateSqft = manualRateInputString(labor.unitRate);
+      }
+    } else if (kind === 'flooring') {
+      inp.mode = 'split';
+      if (material?.unitRate) inp.materialRateSqft = manualRateInputString(material.unitRate);
+      if (labor?.unitRate) inp.laborRateSqft = manualRateInputString(labor.unitRate);
+    } else if (kind === 'baseboard') {
+      inp.mode = 'split';
+      if (material?.unitRate) inp.materialRateLf = manualRateInputString(material.unitRate);
+      if (labor?.unitRate) inp.laborRateLf = manualRateInputString(labor.unitRate);
+    } else {
+      inp.mode = 'split';
+      if (material?.unitRate) {
+        if (material.unitType === 'lf') inp.materialRateLf = manualRateInputString(material.unitRate);
+        else inp.materialRateSqft = manualRateInputString(material.unitRate);
+      }
+      if (labor?.unitRate) {
+        if (labor.unitType === 'lf') inp.laborRateLf = manualRateInputString(labor.unitRate);
+        else inp.laborRateSqft = manualRateInputString(labor.unitRate);
+      }
+    }
+
+    if (
+      inp.lumpSum ||
+      inp.demoRateSqft ||
+      inp.materialRateSqft ||
+      inp.laborRateSqft ||
+      inp.materialRateLf ||
+      inp.laborRateLf
+    ) {
+      inputs[pkg.name] = inp;
+    }
+  }
+  return inputs;
+}
+
+/** Apply a uniform % bump to all filled manual rate fields. */
+export function bumpManualInputRates(inputs: ManualPricingInputs, percent: number): ManualPricingInputs {
+  const mult = 1 + percent / 100;
+  const bump = (raw?: string) => {
+    const n = parseMoney(raw);
+    if (n == null) return raw;
+    return manualRateInputString(n * mult);
+  };
+  const out: ManualPricingInputs = {};
+  for (const [name, inp] of Object.entries(inputs)) {
+    out[name] = {
+      ...inp,
+      demoRateSqft: bump(inp.demoRateSqft),
+      materialRateSqft: bump(inp.materialRateSqft),
+      laborRateSqft: bump(inp.laborRateSqft),
+      materialRateLf: bump(inp.materialRateLf),
+      laborRateLf: bump(inp.laborRateLf),
+      lumpSum: bump(inp.lumpSum),
+      caulkPaintLump: bump(inp.caulkPaintLump),
+    };
+  }
+  return out;
 }
 
 export { fetchSuggestMissingPrices };

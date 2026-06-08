@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
+import { getNetworkInfo } from './networkDetection';
 
 /** Hosted backend origin (no path). TestFlight / App Store builds must use this on cellular, not LAN. */
 export const PRODUCTION_AI_ORIGIN = 'https://build-profit-solutions-backend.onrender.com';
@@ -80,6 +81,19 @@ export function resolveAiBaseUrl(): string {
     return 'http://10.0.2.2:3001';
   }
 
+  // Physical device / Expo Go: match REST API LAN detection (Metro IP can go stale after DHCP changes).
+  if (Platform.OS !== 'web' && Constants.isDevice) {
+    try {
+      const { recommendedApiUrl } = getNetworkInfo();
+      const origin = stripApiBaseSuffix(String(recommendedApiUrl || ''));
+      if (origin && !/render\.com/i.test(origin)) {
+        return origin;
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
   const apiBaseUrl =
     process.env.EXPO_PUBLIC_API_BASE_URL ||
     process.env.EXPO_PUBLIC_DEV_API_BASE_URL ||
@@ -143,6 +157,13 @@ export function buildAiAssistantEndpointUrls(routePath: string): string[] {
   return [...new Set(urls)];
 }
 
+/** LAN / loopback: fail fast so we can fall back to production instead of hanging ~60s. */
+function timeoutMsForUrl(url: string, defaultTimeout: number): number {
+  if (/^https:\/\/[^/]*render\.com/i.test(url)) return defaultTimeout;
+  if (/192\.168\.|10\.0\.2\.2|localhost|127\.0\.0\.1/i.test(url)) return 8000;
+  return defaultTimeout;
+}
+
 async function fetchWithFallback(
   urls: string[],
   options: RequestInit,
@@ -152,9 +173,10 @@ async function fetchWithFallback(
 
   for (const url of urls) {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const attemptTimeout = timeoutMsForUrl(url, timeout);
     try {
       const controller = new AbortController();
-      timeoutId = setTimeout(() => controller.abort(), timeout);
+      timeoutId = setTimeout(() => controller.abort(), attemptTimeout);
 
       const response = await fetch(url, {
         ...options,

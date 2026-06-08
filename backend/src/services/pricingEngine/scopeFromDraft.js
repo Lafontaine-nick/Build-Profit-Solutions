@@ -1,5 +1,6 @@
 const { extractScopeQuantitiesForPackage } = require('../estimateDraftQuantityPrice');
 const { expandJobScopeRooms } = require('../estimateDraftScopeSplit');
+const { parseLinearFeetFromText } = require('../estimateDraftFromNotes');
 const { classifyTradeForPricing } = require('./tradeClassifier');
 
 function slugId(name) {
@@ -21,7 +22,11 @@ function pickScopeQuantity(pkg, notes) {
 
   const name = String(pkg.name || '').toLowerCase();
   if (/baseboard|trim/.test(name)) {
-    return extracted.find((q) => q.unit === 'lf') || extracted[0];
+    const lfQty = extracted.find((q) => q.unit === 'lf');
+    if (lfQty) return lfQty;
+    const lfFromNotes = parseLinearFeetFromText(notes, pkg.scope, pkg.name);
+    if (lfFromNotes) return { quantity: lfFromNotes, unit: 'lf', label: 'length' };
+    return null;
   }
   if (/tile|demo|laminate|flooring|lvp|floor/.test(name)) {
     return extracted.find((q) => q.unit === 'sqft') || extracted[0];

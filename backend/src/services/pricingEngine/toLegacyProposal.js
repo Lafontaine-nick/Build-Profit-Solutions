@@ -45,6 +45,10 @@ function toLegacyProposal(engineResult, options = {}) {
     anyRealSource: engineResult.anyRealSource,
     anyFallbackOnly: engineResult.anyFallbackOnly,
     engine: true,
+    supplierZip: engineResult.supplierZip,
+    supplierZipIsFallback: engineResult.supplierZipIsFallback,
+    supplierZipSource: engineResult.supplierZipSource,
+    pricingMode: forSaved ? 'saved_only' : 'suggest',
   };
 }
 

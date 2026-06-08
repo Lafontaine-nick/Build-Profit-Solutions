@@ -14,7 +14,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
@@ -65,6 +65,7 @@ type Props = {
   onAddPricesManually?: () => void;
   saveToPricingLibrary?: boolean;
   onToggleSaveToPricingLibrary?: (value: boolean) => void;
+  children?: React.ReactNode;
 };
 
 export default function AIEstimateDraftReviewModal({
@@ -96,6 +97,7 @@ export default function AIEstimateDraftReviewModal({
   onAddPricesManually,
   saveToPricingLibrary = true,
   onToggleSaveToPricingLibrary,
+  children,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { theme, darkMode } = useTheme();
@@ -106,7 +108,7 @@ export default function AIEstimateDraftReviewModal({
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-    if (fromAssistant && onBack) {
+    if (onBack) {
       onBack();
     } else {
       onClose();
@@ -151,8 +153,9 @@ export default function AIEstimateDraftReviewModal({
             ? 'Scope found — add pricing or save draft'
             : 'Confirm scope and pricing before applying'
         }
-        step={fromAssistant ? 2 : undefined}
+        step={2}
         fromAssistant={fromAssistant}
+        omitTopSafeArea
         disabled={busy}
         onBack={handleBack}
       />
@@ -440,6 +443,7 @@ export default function AIEstimateDraftReviewModal({
           </Text>
         ) : null}
       </View>
+      {children}
     </View>
   );
 
@@ -456,7 +460,9 @@ export default function AIEstimateDraftReviewModal({
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={handleBack}>
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
-      {shell}
+      <SafeAreaView style={{ flex: 1, backgroundColor: Colors.bg }} edges={['top', 'left', 'right']}>
+        {shell}
+      </SafeAreaView>
     </Modal>
   );
 }

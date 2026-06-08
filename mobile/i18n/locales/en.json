@@ -105,7 +105,9 @@
     "addLabor": "Add Labor",
     "saveEstimate": "Save Estimate",
     "submitBid": "Submit Bid",
-    "noItems": "No items added yet"
+    "noItems": "No items added yet",
+    "buildWithAi": "Build with AI",
+    "buildWithAiSub": "Paste notes → rooms, scope, and pricing draft"
   },
   "assistant": {
     "title": "Assistant",

@@ -16,7 +16,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
@@ -77,7 +77,7 @@ export default function AIEstimateBuilderModal({
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-    if (fromAssistant && onBack) {
+    if (onBack) {
       onBack();
     } else {
       onClose();
@@ -199,8 +199,9 @@ export default function AIEstimateBuilderModal({
         <AIEstimateFlowHeader
           title="Build with AI"
           subtitle="Paste walkthrough notes"
-          step={fromAssistant ? 1 : undefined}
+          step={1}
           fromAssistant={fromAssistant}
+          omitTopSafeArea
           disabled={generating}
           onBack={handleBack}
         />
@@ -230,7 +231,9 @@ export default function AIEstimateBuilderModal({
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={handleBack}>
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
-      {body}
+      <SafeAreaView style={{ flex: 1, backgroundColor: Colors.bg }} edges={['top', 'left', 'right']}>
+        {body}
+      </SafeAreaView>
     </Modal>
   );
 }
