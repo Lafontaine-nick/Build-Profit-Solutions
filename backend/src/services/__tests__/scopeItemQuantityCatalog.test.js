@@ -63,4 +63,65 @@ describe('scopeItemQuantityCatalog', () => {
     expect(q.unit).toBe('lump_sum');
     expect(q.pricingReady).toBe(true);
   });
+
+  test('bathroom full demo sums floor + shower wall + shower floor sqft', () => {
+    const measurements = normalizeScopeMeasurements({
+      bathroomFloorSqft: 50,
+      showerWallTileSqft: 90,
+      showerFloorTileSqft: 25,
+    });
+    const demo = resolveQuantityForChecklistItem('demo', { measurements });
+    expect(demo.quantity).toBe(165);
+    expect(demo.unit).toBe('sqft');
+    expect(demo.pricingReady).toBe(true);
+    expect(demo.sourceLabel).toContain('Floor + shower');
+
+    const floorDemo = resolveQuantityForChecklistItem('floor_demo', { measurements });
+    expect(floorDemo.quantity).toBe(50);
+  });
+
+  test('shower floor tile uses shower floor sqft not bathroom floor', () => {
+    const measurements = normalizeScopeMeasurements({
+      bathroomFloorSqft: 50,
+      showerFloorTileSqft: 25,
+    });
+    const floor = resolveQuantityForChecklistItem('shower_floor_tile', { measurements });
+    expect(floor.quantity).toBe(25);
+    expect(floor.pricingReady).toBe(true);
+
+    const prefabPan = resolveQuantityForChecklistItem('prefab_shower_pan', { measurements });
+    expect(prefabPan.quantity).toBe(1);
+    expect(prefabPan.unit).toBe('each');
+
+    const tilePan = resolveQuantityForChecklistItem('shower_pan', { measurements });
+    expect(tilePan.quantity).toBe(1);
+    expect(tilePan.pricingReady).toBe(true);
+
+    const wetTub = resolveQuantityForChecklistItem('wet_area_install', {
+      measurements,
+      choiceId: 'tub',
+    });
+    expect(wetTub.pricingReady).toBe(false);
+
+    const wetTilePan = resolveQuantityForChecklistItem('wet_area_install', {
+      measurements,
+      choiceId: 'tile_pan',
+    });
+    expect(wetTilePan.pricingReady).toBe(false);
+
+    const tubDemo = resolveQuantityForChecklistItem('tub_demo', { measurements });
+    expect(tubDemo.quantity).toBe(1);
+
+    const tubInstall = resolveQuantityForChecklistItem('tub_install', { measurements });
+    expect(tubInstall.quantity).toBe(1);
+    expect(tubInstall.unit).toBe('each');
+
+    const prefabInstall = resolveQuantityForChecklistItem('prefab_shower_pan', { measurements });
+    expect(prefabInstall.quantity).toBe(1);
+
+    const showerFloorDemo = resolveQuantityForChecklistItem('shower_floor_demo', {
+      measurements,
+    });
+    expect(showerFloorDemo.quantity).toBe(25);
+  });
 });

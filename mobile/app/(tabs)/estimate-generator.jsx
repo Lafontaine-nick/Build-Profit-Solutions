@@ -57,8 +57,10 @@ import {
   normalizePricingProposal,
   proposalHasSavedRates,
   resolveSavedPricingProposalForDraft,
+  countSavedPricingScopeItems,
 } from '../../utils/estimateAiDraftPricing';
 import { isScopeOnlyDraft } from '../../utils/estimateDraftReviewUi';
+import { mergeScopeProgressIntoDraft } from '../../utils/estimateScopeChecklistUi';
 import {
   collectSavedEstimateCustomers,
   enrichSavedCustomerFromSources,
@@ -86,14 +88,20 @@ import {
   fetchSuggestedDraftSplits,
   fetchClarifyDraftQuestions,
   fetchRoughEstimateRange,
+  getScopePackages,
   isComplexEstimateTier,
 } from '../../utils/estimateAiDraft';
 import {
   capturePricingMemory,
-  fetchPricingLibrary,
   fetchSuggestMissingPrices,
   isTestOrDemoBid,
 } from '../../utils/contractorPricingMemory';
+import {
+  countSavedPricingSources,
+  clearAllSavedPricingData,
+  draftWithoutPendingPricing,
+  purgeSavedPricingForBid,
+} from '../../utils/estimateSavedPricingCleanup';
 import { MessagesInbox } from '../../components/MessagesInbox';
 import AIBidOptimization from '../../components/AIBidOptimization';
 import ProjectAnalysis from '../../components/ProjectAnalysis';
@@ -5549,39 +5557,45 @@ export default function EstimateGeneratorScreen() {
       if (!targetDraft) return { draft: targetDraft, hasProposal: false };
       if (showLoading) setAiDraftSuggestingMissing(true);
       try {
-        let templates = savedBidTemplates;
+        let templates = [];
         try {
           templates = await loadSavedBidTemplates();
           setSavedBidTemplates(templates);
         } catch {
           templates = savedBidTemplates;
         }
-        if (!templates?.length) {
-          try {
-            const lib = await fetchPricingLibrary();
-            if ((lib.total || 0) === 0) {
-              return { draft: targetDraft, hasProposal: false };
-            }
-          } catch {
-            return { draft: targetDraft, hasProposal: false };
+
+        const { templates: templateCount, libraryTotal } = await countSavedPricingSources();
+        if (templateCount === 0 && libraryTotal === 0) {
+          setAiSavedPricingProposal(null);
+          return {
+            draft: draftWithoutPendingPricing(targetDraft),
+            hasProposal: false,
+          };
+        }
+
+        const fetched = await fetchSavedPricingProposal(
+          { ...targetDraft, originalNotes: targetDraft.originalNotes || aiDraftNotes },
+          templates,
+          {
+            projectLocation: [bid?.projectAddress, bid?.customerCity, bid?.customerState]
+              .filter(Boolean)
+              .join(', '),
+            zipCode: resolvePricingZipCode(targetDraft, bid),
           }
-        }
-        const proposal = resolveSavedPricingProposalForDraft(
-          targetDraft,
-          await fetchSavedPricingProposal(
-            { ...targetDraft, originalNotes: targetDraft.originalNotes || aiDraftNotes },
-            templates,
-            {
-              projectLocation: [bid?.projectAddress, bid?.customerCity, bid?.customerState]
-                .filter(Boolean)
-                .join(', '),
-              zipCode: resolvePricingZipCode(targetDraft, bid),
-            }
-          )
         );
+        const proposal = resolveSavedPricingProposalForDraft(targetDraft, fetched, {
+          allowStalePending: false,
+        });
+
         if (!proposalHasSavedRates(proposal)) {
-          return { draft: targetDraft, hasProposal: false };
+          setAiSavedPricingProposal(null);
+          return {
+            draft: draftWithoutPendingPricing(targetDraft),
+            hasProposal: false,
+          };
         }
+
         const finalProposal = normalizePricingProposal(proposal);
         setAiSavedPricingProposal(finalProposal);
         const nextDraft = autoApply
@@ -5590,7 +5604,7 @@ export default function EstimateGeneratorScreen() {
         return { draft: nextDraft, hasProposal: true };
       } catch (e) {
         console.warn('applySavedPricingToDraftState failed', e);
-        return { draft: targetDraft, hasProposal: false };
+        return { draft: draftWithoutPendingPricing(targetDraft), hasProposal: false };
       } finally {
         if (showLoading) setAiDraftSuggestingMissing(false);
       }
@@ -5698,6 +5712,13 @@ export default function EstimateGeneratorScreen() {
     }
   }, [savedBidTemplates, applySavedPricingToDraftState]);
 
+  const handlePersistScopeProgress = useCallback((items, measurements) => {
+    setAiDraft((prev) => {
+      if (!prev) return prev;
+      return mergeScopeProgressIntoDraft(prev, items, measurements);
+    });
+  }, []);
+
   const handleConfirmScopeAssumptions = useCallback(
     async (confirmedItems, scopeMeasurements) => {
       if (!aiDraft || aiScopeAssumptionsApplying) return;
@@ -5717,7 +5738,11 @@ export default function EstimateGeneratorScreen() {
 
   const handleScopeAssumptionsScopeOnly = useCallback(async (scopeMeasurements) => {
     if (!aiDraft || aiScopeAssumptionsApplying) return;
-    const items = (aiDraft.scopeChecklist?.items || []).map((item) => ({
+    const baseItems =
+      aiDraft.confirmedAssumptions?.length
+        ? aiDraft.confirmedAssumptions
+        : aiDraft.scopeChecklist?.items || [];
+    const items = baseItems.map((item) => ({
       ...item,
       state: item.state === 'excluded' ? 'excluded' : 'unsure',
     }));
@@ -5794,23 +5819,74 @@ export default function EstimateGeneratorScreen() {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
       } else if (!hasProposal && openModal) {
-        const pending = normalizePricingProposal(
-          next?.pendingPricingProposal || aiSavedPricingProposal
-        );
-        if (proposalHasSavedRates(pending)) {
-          setAiSavedPricingProposal(pending);
-          setShowAiSavedPricingModal(true);
-          if (Platform.OS !== 'web') {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          }
-          return true;
-        }
+        setAiSavedPricingProposal(null);
         setPricingFallbackVariant('saved');
       }
       return hasProposal;
     },
-    [aiDraft, aiDraftSuggestingMissing, applySavedPricingToDraftState, aiSavedPricingProposal]
+    [aiDraft, aiDraftSuggestingMissing, applySavedPricingToDraftState]
   );
+
+  const handleClearAllSavedPricing = useCallback(() => {
+    Alert.alert(
+      'Reset all saved pricing?',
+      'This removes every saved bid template on this device and all rates in your pricing library. Nothing will match until you save new bids or templates.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setAiDraftSuggestingMissing(true);
+              await clearAllSavedPricingData();
+              setSavedBidTemplates([]);
+              setAiSavedPricingProposal(null);
+              if (aiDraft) {
+                setAiDraft(draftWithoutPendingPricing(aiDraft));
+              }
+              setShowAiSavedPricingModal(false);
+              setPricingFallbackVariant(null);
+              Alert.alert(
+                'Reset complete',
+                'All saved bid templates and pricing library rates have been removed.'
+              );
+            } catch (e) {
+              Alert.alert('Error', e?.message || 'Could not reset saved pricing');
+            } finally {
+              setAiDraftSuggestingMissing(false);
+            }
+          },
+        },
+      ]
+    );
+  }, [aiDraft]);
+
+  const savedPricingModalOpenRef = useRef(false);
+  useEffect(() => {
+    const opening = showAiSavedPricingModal && !savedPricingModalOpenRef.current;
+    savedPricingModalOpenRef.current = showAiSavedPricingModal;
+    if (!opening || !aiDraft) return;
+
+    let cancelled = false;
+    (async () => {
+      const { draft, hasProposal } = await applySavedPricingToDraftState(aiDraft, {
+        autoApply: false,
+        showLoading: false,
+      });
+      if (cancelled) return;
+      setAiDraft(draft);
+      if (!hasProposal) {
+        setShowAiSavedPricingModal(false);
+        setAiSavedPricingProposal(null);
+        setPricingFallbackVariant('saved');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showAiSavedPricingModal, aiDraft, applySavedPricingToDraftState]);
 
   const handleSuggestRoughPrices = useCallback(async () => {
     if (!aiDraft || aiDraftRoughLoading) return;
@@ -5871,7 +5947,17 @@ export default function EstimateGeneratorScreen() {
     (proposalOverride) => {
       const proposal = proposalOverride || aiSavedPricingProposal;
       if (!aiDraft || !proposal || proposal.empty) return;
-      setAiDraft(applyPricingProposalToDraft(aiDraft, proposal, { approved: true }));
+      const normalized = normalizePricingProposal(proposal);
+      const appliedCount = countSavedPricingScopeItems(normalized).priced;
+      const nextDraft = applyPricingProposalToDraft(aiDraft, normalized, { approved: true });
+      const stillNeedCount = getScopePackages(nextDraft).filter((p) => {
+        const amount = p.price ?? p.knownSubtotal ?? p.calculatedSubtotal ?? 0;
+        return amount <= 0;
+      }).length;
+      setAiDraft({
+        ...nextDraft,
+        savedPricingApplySummary: { appliedCount, stillNeedCount },
+      });
       setShowAiSavedPricingModal(false);
       if (Platform.OS !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -5879,6 +5965,10 @@ export default function EstimateGeneratorScreen() {
     },
     [aiDraft, aiSavedPricingProposal]
   );
+
+  const handleDismissSavedPricingSummary = useCallback(() => {
+    setAiDraft((d) => (d ? { ...d, savedPricingApplySummary: null } : d));
+  }, []);
 
   const handleApplyRoughPricingProposal = useCallback(
     (proposalOverride) => {
@@ -6211,6 +6301,11 @@ export default function EstimateGeneratorScreen() {
                 setSavedBidTemplates(updated);
                 if (appliedTemplateName === template.name) {
                   setAppliedTemplateName(null);
+                }
+                const { templates, libraryTotal } = await countSavedPricingSources();
+                if (templates === 0 && libraryTotal === 0) {
+                  setAiSavedPricingProposal(null);
+                  setAiDraft((d) => draftWithoutPendingPricing(d));
                 }
                 if (Platform.OS !== 'web') {
                   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -7561,7 +7656,30 @@ export default function EstimateGeneratorScreen() {
       const updatedEstimates = savedEstimates.filter(e => e.id !== estimateId);
       setSavedEstimates(updatedEstimates);
       await AsyncStorage.setItem('savedEstimates', JSON.stringify(updatedEstimates));
-      Alert.alert('✅ Deleted', 'Estimate has been deleted.');
+
+      await purgeSavedPricingForBid(estimateId);
+      const templates = await loadSavedBidTemplates();
+      setSavedBidTemplates(templates);
+      if (appliedTemplateName && !templates.some((t) => t.name === appliedTemplateName)) {
+        setAppliedTemplateName(null);
+      }
+
+      setAiSavedPricingProposal(null);
+      setAiDraft((d) => draftWithoutPendingPricing(d));
+
+      if (String(bid?.id || '') === String(estimateId)) {
+        try {
+          await AsyncStorage.multiRemove([
+            BID_STORAGE_KEY,
+            'bps.materialsCart',
+            'bps.rentalCart',
+          ]);
+        } catch {
+          // non-blocking
+        }
+      }
+
+      Alert.alert('✅ Deleted', 'Bid and linked saved pricing removed.');
     } catch (error) {
       console.error('Error deleting estimate:', error);
       Alert.alert('Error', 'Failed to delete estimate');
@@ -23653,7 +23771,7 @@ export default function EstimateGeneratorScreen() {
                                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                                     Alert.alert(
                                       'Delete Bid?',
-                                      `Are you sure you want to delete "${item.title || 'Untitled Bid'}"?`,
+                                      `Delete "${item.title || 'Untitled Bid'}" and any saved templates or pricing library entries linked to this bid?`,
                                       [
                                         { text: 'Cancel', style: 'cancel' },
                                         {
@@ -23747,6 +23865,7 @@ export default function EstimateGeneratorScreen() {
         }}
         onConfirm={handleConfirmScopeAssumptions}
         onScopeOnly={handleScopeAssumptionsScopeOnly}
+        onPersistProgress={handlePersistScopeProgress}
       />
 
       <AIEstimateDraftReviewModal
@@ -23763,6 +23882,9 @@ export default function EstimateGeneratorScreen() {
         onApproveSuggestedSplit={handleApproveSuggestedSplit}
         onBack={() => {
           if (!aiDraftApplying) {
+            setShowAiSavedPricingModal(false);
+            setShowAiRoughPricingModal(false);
+            setShowAiManualPricingModal(false);
             setShowAiDraftReviewModal(false);
             if (isComplexEstimateTier(aiDraft)) {
               setShowAiScopeAssumptionsModal(true);
@@ -23795,6 +23917,7 @@ export default function EstimateGeneratorScreen() {
         onUseSavedPricing={handleUseSavedPricing}
         onSuggestRoughPrices={handleSuggestRoughPrices}
         onAddPricesManually={handleAddPricesManually}
+        onContinueUnpriced={handleDismissSavedPricingSummary}
         saveToPricingLibrary={aiSaveToPricingLibrary}
         onToggleSaveToPricingLibrary={setAiSaveToPricingLibrary}
       >
@@ -23803,29 +23926,15 @@ export default function EstimateGeneratorScreen() {
           visible={showAiSavedPricingModal}
           proposal={aiSavedPricingProposal}
           pricingMode="saved_only"
-          title={
-            aiSavedPricingProposal?.primarySource === 'saved_template'
-              ? 'From saved bid template'
-              : aiSavedPricingProposal?.primarySource === 'saved_pricing'
-                ? 'Based on your saved pricing'
-                : 'Saved pricing lookup'
-          }
-          subtitle={
-            aiSavedPricingProposal?.primarySource === 'saved_template'
-              ? 'Matched rates from your saved bid templates only.'
-              : 'Matched rates from your pricing library and past bids only.'
-          }
-          applyLabel={
-            aiSavedPricingProposal?.primarySource === 'saved_template'
-              ? 'Apply template pricing'
-              : 'Apply saved pricing'
-          }
+          title="Use Saved Pricing"
+          subtitle="Matched rates from your saved bids and pricing library."
           onApply={handleApplySavedPricingProposal}
           onAddManually={() => {
             setShowAiSavedPricingModal(false);
             setAiManualPricingSeed(null);
             setShowAiManualPricingModal(true);
           }}
+          onClearAllSavedPricing={handleClearAllSavedPricing}
           onClose={() => setShowAiSavedPricingModal(false)}
         />
 
@@ -23842,17 +23951,8 @@ export default function EstimateGeneratorScreen() {
                 ? 'Suggested pricing'
                 : 'Suggested pricing (review sources)'
           }
-          subtitle={
-            aiRoughPricingProposal?.source === 'ai_rough_estimate' &&
-            (aiDraft?.pricingMemoryMissingSuggestions?.length ?? 0) > 0
-              ? 'AI defaults for items without saved pricing.'
-              : 'Rates by source — HD Live, National Average, or AI estimate.'
-          }
-          applyLabel={
-            aiRoughPricingProposal?.anyFallbackOnly && !aiRoughPricingProposal?.anyRealSource
-              ? 'Apply fallback prices'
-              : 'Apply suggested pricing'
-          }
+          subtitle="Suggested planning prices. Review and adjust before applying."
+          applyLabel="Apply selected suggested prices"
           onApply={handleApplyRoughPricingProposal}
           onEdit={openAdjustRatesFromProposal}
           onAddManually={() => {

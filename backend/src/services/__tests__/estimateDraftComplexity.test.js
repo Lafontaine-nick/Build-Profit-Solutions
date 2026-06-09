@@ -39,8 +39,28 @@ describe('estimateDraftComplexity', () => {
     const draft = { projectType: 'bathroom', rooms: [] };
     const checklist = buildScopeChecklist(draft, 'room_remodel', 'bathroom remodel');
     expect(checklist).not.toBeNull();
-    expect(checklist.items.length).toBeGreaterThan(10);
+    expect(checklist.items.length).toBeGreaterThan(20);
     expect(checklist.title.toLowerCase()).toContain('bathroom');
+    expect(checklist.items.some((i) => i.id === 'floor_demo')).toBe(true);
+    expect(checklist.items.some((i) => i.id === 'tub_demo')).toBe(true);
+    expect(checklist.items.some((i) => i.id === 'shower_floor_demo')).toBe(true);
+    expect(checklist.items.some((i) => i.id === 'wet_area_install')).toBe(true);
+    expect(checklist.items.some((i) => i.id === 'shower_floor_tile')).toBe(true);
+    expect(checklist.items.some((i) => i.id === 'exhaust_fan')).toBe(true);
+  });
+
+  test('builds landscaping checklist from project type', () => {
+    const draft = { projectType: 'landscaping', rooms: [] };
+    const checklist = buildScopeChecklist(draft, 'room_remodel', 'Backyard landscaping with sod and pavers');
+    expect(checklist.templateKey).toBe('landscaping');
+    expect(checklist.items.some((i) => i.id === 'sod_turf')).toBe(true);
+  });
+
+  test('builds dedicated roofing checklist', () => {
+    const draft = { projectType: 'roofing', rooms: [] };
+    const checklist = buildScopeChecklist(draft, 'room_remodel', 'Roof tear off and 25 squares');
+    expect(checklist.templateKey).toBe('roofing');
+    expect(checklist.items.some((i) => i.id === 'tear_off')).toBe(true);
   });
 
   test('applyScopeAssumptions merges inclusions and exclusions', () => {
@@ -124,5 +144,64 @@ describe('estimateDraftComplexity', () => {
     const demo = (next.rooms || []).find((r) => /bathroom demo/i.test(r.name || ''));
     expect(demo).toBeDefined();
     expect(demo.scopeQuantities?.[0]).toMatchObject({ quantity: 90, unit: 'sqft' });
+  });
+
+  test('applyScopeAssumptions adds tub install package with labor and material hints', () => {
+    const draft = {
+      projectType: 'bathroom',
+      estimateTier: 'room_remodel',
+      originalNotes: 'Tub to shower conversion',
+      scopeChecklist: { templateKey: 'bathroom' },
+      rooms: [],
+      inclusions: [],
+      exclusions: [],
+      missingInfo: [],
+      pricingWarnings: [],
+    };
+    const items = [
+      {
+        id: 'wet_area_install',
+        inputType: 'choice',
+        choiceId: 'tub',
+        state: 'included',
+        label: 'Wet area install',
+      },
+    ];
+    const next = applyScopeAssumptions(draft, items);
+    const tub = (next.rooms || []).find((r) => /tub installation/i.test(r.name || ''));
+    expect(tub).toBeDefined();
+    expect(tub.missingPriceItems).toEqual(
+      expect.arrayContaining(['Tub / surround materials', 'Tub install labor'])
+    );
+    expect(tub.scopeQuantities?.[0]).toMatchObject({ quantity: 1, unit: 'each' });
+  });
+
+  test('applyScopeAssumptions adds prefab pan package with labor and material hints', () => {
+    const draft = {
+      projectType: 'bathroom',
+      estimateTier: 'room_remodel',
+      originalNotes: 'New prefab shower pan',
+      scopeChecklist: { templateKey: 'bathroom' },
+      rooms: [],
+      inclusions: [],
+      exclusions: [],
+      missingInfo: [],
+      pricingWarnings: [],
+    };
+    const items = [
+      {
+        id: 'wet_area_install',
+        inputType: 'choice',
+        choiceId: 'prefab',
+        state: 'included',
+        label: 'Wet area install',
+      },
+    ];
+    const next = applyScopeAssumptions(draft, items);
+    const pan = (next.rooms || []).find((r) => /prefab shower pan/i.test(r.name || ''));
+    expect(pan).toBeDefined();
+    expect(pan.missingPriceItems).toEqual(
+      expect.arrayContaining(['Prefab pan / base materials', 'Shower pan install labor'])
+    );
   });
 });

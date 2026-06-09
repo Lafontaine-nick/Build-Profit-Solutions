@@ -11,7 +11,20 @@ function scopeToSkuQuery(scopeItem) {
   const scope = String(scopeItem.scope || '').toLowerCase();
   const blob = `${name} ${scope}`;
 
-  if (trade === 'baseboard' || /baseboard|trim|crown|moulding|molding|casing/.test(blob)) {
+  const {
+    isPlumbingTrimScope,
+    isElectricalTrimScope,
+    isPermitsScope,
+    isCleanupScope,
+    isDrywallRepairScope,
+    isBaseboardTrimScope,
+  } = require('../sourceValidation');
+
+  if (isPlumbingTrimScope(scopeItem) || isElectricalTrimScope(scopeItem)) return null;
+  if (isPermitsScope(scopeItem) || isCleanupScope(scopeItem)) return null;
+  if (isDrywallRepairScope(scopeItem) && scopeItem.unit !== 'sqft') return null;
+
+  if (isBaseboardTrimScope(scopeItem)) {
     return {
       query: 'baseboard trim mdf primed',
       pricingUnit: 'lf',

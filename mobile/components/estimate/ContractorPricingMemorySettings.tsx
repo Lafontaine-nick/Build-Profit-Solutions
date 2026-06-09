@@ -3,12 +3,12 @@ import { View, Text, Switch, TouchableOpacity, ActivityIndicator, Alert } from '
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import {
-  clearPricingMemory,
   fetchPricingMemoryRates,
   fetchPricingMemorySettings,
   updatePricingMemorySettings,
   type PricingMemorySettings,
 } from '@/utils/contractorPricingMemory';
+import { clearAllSavedPricingData, countSavedPricingSources } from '@/utils/estimateSavedPricingCleanup';
 
 type Props = {
   compact?: boolean;
@@ -21,16 +21,19 @@ export default function ContractorPricingMemorySettings({ compact = false }: Pro
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState<PricingMemorySettings | null>(null);
   const [rateCount, setRateCount] = useState(0);
+  const [templateCount, setTemplateCount] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, rates] = await Promise.all([
+      const [s, rates, sources] = await Promise.all([
         fetchPricingMemorySettings(),
         fetchPricingMemoryRates().catch(() => []),
+        countSavedPricingSources().catch(() => ({ templates: 0, libraryTotal: 0 })),
       ]);
       setSettings(s);
       setRateCount(rates.length);
+      setTemplateCount(sources.templates);
     } catch {
       setSettings(null);
     } finally {
@@ -57,20 +60,21 @@ export default function ContractorPricingMemorySettings({ compact = false }: Pro
 
   const handleClear = () => {
     Alert.alert(
-      'Clear pricing memory?',
-      'This removes saved rates learned from your past bids. Draft suggestions will no longer use your history until you apply new bids.',
+      'Reset all saved pricing?',
+      'This removes saved bid templates on this device and all rates in your pricing library. Draft suggestions will not use your history until you save new bids.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Clear',
+          text: 'Reset',
           style: 'destructive',
           onPress: async () => {
             try {
-              await clearPricingMemory();
+              await clearAllSavedPricingData();
               setRateCount(0);
-              Alert.alert('Cleared', 'Pricing memory has been cleared.');
+              setTemplateCount(0);
+              Alert.alert('Reset complete', 'Saved templates and pricing library rates have been removed.');
             } catch (e) {
-              Alert.alert('Error', (e as Error)?.message || 'Could not clear');
+              Alert.alert('Error', (e as Error)?.message || 'Could not reset');
             }
           },
         },
@@ -138,11 +142,20 @@ export default function ContractorPricingMemorySettings({ compact = false }: Pro
       {row('Learn on completed projects', 'learnOnCompleted')}
       {row('Learn from saved templates', 'learnOnSavedTemplate')}
       <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 4, marginBottom: 8 }}>
-        Saved rates: {rateCount}
+        Saved bid templates: {templateCount} · Library rates: {rateCount}
       </Text>
-      <TouchableOpacity onPress={handleClear} disabled={saving || rateCount === 0}>
-        <Text style={{ color: rateCount === 0 ? Colors.sub : '#f87171', fontSize: 13, fontWeight: '700' }}>
-          Clear pricing memory
+      <TouchableOpacity
+        onPress={handleClear}
+        disabled={saving || (rateCount === 0 && templateCount === 0)}
+      >
+        <Text
+          style={{
+            color: rateCount === 0 && templateCount === 0 ? Colors.sub : '#f87171',
+            fontSize: 13,
+            fontWeight: '700',
+          }}
+        >
+          Reset all saved pricing
         </Text>
       </TouchableOpacity>
     </View>

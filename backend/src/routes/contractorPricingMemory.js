@@ -12,7 +12,7 @@ const {
   DEFAULT_SETTINGS,
 } = require('../services/contractorPricingMemory');
 const { getPricingProposal, toLegacyProposal } = require('../services/pricingEngine');
-const { updateEntry, deleteEntry, getLibraryGrouped } = require('../services/contractorPricingMemory/storage');
+const { updateEntry, deleteEntry, deleteEntriesForProject, getLibraryGrouped } = require('../services/contractorPricingMemory/storage');
 const { enrichDraft } = require('../services/estimateDraftEnrichment');
 
 const authenticateToken = async (req, res, next) => {
@@ -161,6 +161,12 @@ router.delete('/rates/:id', (req, res) => {
   const result = deleteEntry(userId, req.params.id);
   if (!result.deleted) return res.status(404).json({ error: 'Rate not found' });
   res.json({ success: true });
+});
+
+router.delete('/project/:projectId', (req, res) => {
+  const userId = req.user.userId;
+  const result = deleteEntriesForProject(userId, req.params.projectId);
+  res.json({ success: true, ...result });
 });
 
 router.post('/saved-pricing-proposal', async (req, res) => {

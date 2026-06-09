@@ -57,3 +57,10 @@ export const lineItemModalNumericKeyboardProps = {
   textContentType: 'none' as const,
   autoComplete: 'off' as const,
 };
+
+/** AI Confirm Scope quick measurements + item qty — empty accessory (no Done pill). */
+export const aiScopeConfirmNumericKeyboardProps = {
+  inputAccessoryViewID: iosAccessoryId(KEYBOARD_ACCESSORY_IDS.aiScopeConfirmNumeric),
+  textContentType: 'none' as const,
+  autoComplete: 'off' as const,
+};

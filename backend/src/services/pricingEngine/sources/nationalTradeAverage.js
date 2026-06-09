@@ -39,6 +39,10 @@ function resolveUnitAndQuantity(scopeItem, band, draft) {
  */
 function lookupNationalTradeAverage(scopeItem, context = {}) {
   const draft = context.draft || {};
+  const { isPermitsScope, savedOnlyScope } = require('../sourceValidation');
+  if (isPermitsScope(scopeItem) || savedOnlyScope(scopeItem)) {
+    return { available: false, rates: [], message: 'Requires manual pricing or saved rates' };
+  }
   const trade =
     scopeItem.trade ||
     classifyTradeForPricing(

@@ -39,6 +39,11 @@ export const KEYBOARD_ACCESSORY_IDS = {
    * the global green `bpsKeyboardDone` bar above the decimal pad.
    */
   productFoundSheetPlain: 'bps-product-found-sheet-plain-keyboard-accessory',
+  /**
+   * AI estimate Confirm Scope (`AIEstimateScopeAssumptionsModal`) — empty accessory so decimal-pad
+   * fields do not show a Done pill or inherit the global keyboard Done bar.
+   */
+  aiScopeConfirmNumeric: 'bps-ai-scope-confirm-numeric-keyboard-accessory',
 } as const;
 
 /** Use on `inputAccessoryViewID` so Android does not receive iOS-only IDs. */

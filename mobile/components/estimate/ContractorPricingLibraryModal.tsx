@@ -14,11 +14,11 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import {
-  clearPricingMemory,
   deletePricingRate,
   fetchPricingLibrary,
   type PricingLibrarySection,
 } from '@/utils/contractorPricingMemory';
+import { clearAllSavedPricingData } from '@/utils/estimateSavedPricingCleanup';
 
 type Props = {
   visible: boolean;
@@ -129,21 +129,25 @@ export default function ContractorPricingLibraryModal({ visible, onClose }: Prop
             <TouchableOpacity
               style={{ marginTop: 16 }}
               onPress={() => {
-                Alert.alert('Clear all pricing memory?', 'This cannot be undone.', [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Clear',
-                    style: 'destructive',
-                    onPress: async () => {
-                      await clearPricingMemory();
-                      await load();
+                Alert.alert(
+                  'Reset all saved pricing?',
+                  'This removes saved bid templates on this device and all library rates. This cannot be undone.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Reset',
+                      style: 'destructive',
+                      onPress: async () => {
+                        await clearAllSavedPricingData();
+                        await load();
+                      },
                     },
-                  },
-                ]);
+                  ]
+                );
               }}
             >
               <Text style={{ color: '#f87171', fontWeight: '700', textAlign: 'center' }}>
-                Clear pricing memory
+                Reset all saved pricing
               </Text>
             </TouchableOpacity>
           </ScrollView>

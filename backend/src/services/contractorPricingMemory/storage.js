@@ -196,6 +196,18 @@ function deleteEntry(userId, entryId) {
   return { deleted: store.entries.length < before };
 }
 
+function deleteEntriesForProject(userId, projectId) {
+  const pid = String(projectId || '').trim();
+  if (!pid) return { deleted: 0 };
+  const store = loadUserStore(userId);
+  const before = store.entries.length;
+  store.entries = store.entries.filter(
+    (e) => String(e.projectId || '') !== pid && String(e.estimateId || '') !== pid
+  );
+  saveUserStore(userId, store);
+  return { deleted: before - store.entries.length };
+}
+
 function getLibraryGrouped(userId) {
   const entries = listEntries(userId);
   const byTrade = {};
@@ -285,6 +297,7 @@ module.exports = {
   clearMemory,
   updateEntry,
   deleteEntry,
+  deleteEntriesForProject,
   getLibraryGrouped,
   tryPersistToPostgres,
   normalizeScopeKey,

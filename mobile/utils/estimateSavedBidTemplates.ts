@@ -76,6 +76,8 @@ export type SavedBidTemplate = {
   category?: string;
   trade?: string;
   description?: string;
+  /** Bid/estimate this template was saved from — used to cascade-delete with the bid. */
+  sourceEstimateId?: string;
   payload: SavedBidTemplatePayload;
   estimatedMaterialsTotal: number;
   estimatedLaborTotal: number;
@@ -386,12 +388,14 @@ export async function saveBidTemplateFromEstimate(
   const now = new Date().toISOString();
 
   const list = await loadSavedBidTemplates();
+  const sourceEstimateId = String(bid.id || '').trim() || undefined;
   const template: SavedBidTemplate = {
     id: `tpl-${Date.now()}`,
     name,
     category: String(input.category || input.trade || '').trim() || undefined,
     trade: String(input.trade || input.category || '').trim() || undefined,
     description: String(input.description || '').trim() || undefined,
+    sourceEstimateId,
     payload,
     estimatedMaterialsTotal: totals.materialsTotal,
     estimatedLaborTotal: totals.laborTotal,
@@ -411,6 +415,25 @@ export async function deleteSavedBidTemplate(templateId: string): Promise<SavedB
   const next = list.filter((t) => t.id !== templateId);
   await persistSavedBidTemplates(next);
   return next;
+}
+
+/** Remove templates saved from a deleted bid/estimate. */
+export async function deleteSavedBidTemplatesForEstimate(
+  estimateId: string
+): Promise<SavedBidTemplate[]> {
+  const id = String(estimateId || '').trim();
+  if (!id) return loadSavedBidTemplates();
+  const list = await loadSavedBidTemplates();
+  const next = list.filter((t) => t.sourceEstimateId !== id);
+  if (next.length === list.length) return list;
+  await persistSavedBidTemplates(next);
+  return next;
+}
+
+/** Wipe every saved bid template on this device. */
+export async function clearAllSavedBidTemplates(): Promise<SavedBidTemplate[]> {
+  await persistSavedBidTemplates([]);
+  return [];
 }
 
 export async function recordTemplateUsage(templateId: string): Promise<SavedBidTemplate[]> {

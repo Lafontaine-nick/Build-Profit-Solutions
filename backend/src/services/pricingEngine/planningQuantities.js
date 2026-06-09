@@ -30,6 +30,18 @@ const FIXTURE_PLANNING_RATES = {
     materialLabel: 'Tub / surround materials',
     laborLabel: 'Tub install labor',
   },
+  prefab_shower_pan: {
+    material: 850,
+    labor: 650,
+    materialLabel: 'Prefab shower pan / base materials',
+    laborLabel: 'Prefab shower pan install labor',
+  },
+  tile_shower_pan: {
+    material: 450,
+    labor: 1200,
+    materialLabel: 'Tile shower pan materials (liner, drain, mud)',
+    laborLabel: 'Tile shower pan / mud pan build labor',
+  },
 };
 
 function isRemodelContext(draft) {
@@ -46,6 +58,8 @@ function resolveFixtureKind(scopeName) {
   if (/toilet/.test(n)) return 'toilet';
   if (/vanity/.test(n)) return 'vanity';
   if (/shower\s+door|glass\s+door|enclosure/.test(n)) return 'shower_door';
+  if (/prefab\s+shower\s+pan|prefab\s+pan/.test(n)) return 'prefab_shower_pan';
+  if (/tile\s+shower\s+pan|mud\s+pan/.test(n)) return 'tile_shower_pan';
   if (/\btub\b|bathtub/.test(n)) return 'tub';
   return null;
 }

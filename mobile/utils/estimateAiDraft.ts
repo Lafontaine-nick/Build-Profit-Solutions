@@ -64,6 +64,8 @@ export type ScopeChecklistItem = {
   state: ScopeAssumptionState;
   /** choice: selected option id */
   choiceId?: string | null;
+  /** UI-only line injected from wet_area_install picker (not sent to server). */
+  derivedFrom?: string;
 };
 
 export type ScopeChecklist = {
@@ -76,6 +78,8 @@ export type ScopeChecklist = {
   options?: Array<{ id: string; label: string }>;
   summary?: string;
   requiresConfirmation?: boolean;
+  /** Parsed from job notes — used to prefill quick measurements */
+  suggestedMeasurements?: ScopeMeasurements | null;
 };
 
 /** Area (tile, paint, concrete, framing) and length (baseboard, trim) for scope pricing. */
@@ -90,7 +94,17 @@ export type ScopeMeasurements = {
   bathroomFloorSqft?: number | null;
   baseboardLf?: number | null;
   showerWallTileSqft?: number | null;
+  showerFloorTileSqft?: number | null;
   wallPaintSqft?: number | null;
+  kitchenFloorSqft?: number | null;
+  backsplashSqft?: number | null;
+  landscapeSqft?: number | null;
+  roofSquares?: number | null;
+  drywallSqft?: number | null;
+  concreteSqft?: number | null;
+  concreteCy?: number | null;
+  excavationCy?: number | null;
+  landscapeTons?: number | null;
   /** Per-checklist-item overrides keyed by checklist id */
   itemQuantities?: Record<string, ScopeItemQuantity>;
   /** @deprecated use bathroomFloorSqft */
@@ -272,6 +286,11 @@ export type EstimateAiDraft = {
     requiresApproval: boolean;
   }>;
   pricingMemoryMissingMessage?: string | null;
+  /** Shown on review after applying saved pricing from the modal. */
+  savedPricingApplySummary?: {
+    appliedCount: number;
+    stillNeedCount: number;
+  } | null;
   /** simple_unit skips scope checklist; complex tiers require confirmation before pricing. */
   estimateTier?: EstimateTier;
   scopeChecklist?: ScopeChecklist | null;

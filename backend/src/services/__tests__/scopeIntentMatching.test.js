@@ -56,6 +56,18 @@ describe('scopeIntentMatching', () => {
     expect(laminate.available).toBe(false);
   });
 
+  it('Cleanup scope rejects demo template lines (haul-off is not demolition pricing)', () => {
+    const scope = {
+      scopeName: 'Cleanup, Haul-off & Disposal',
+      scope: 'Final clean, debris haul-off, dump fees',
+      quantity: 1,
+      unit: 'lump_sum',
+    };
+    const demoLine = { name: 'Tile demo', description: '', section: 'Labor', mode: 'sqft', unitPrice: 2 };
+    expect(getScopeWorkIntent(scope, {}).workType).toBe('other');
+    expect(scoreScopeToLine(scope, demoLine, 'labor', {})).toBe(0);
+  });
+
   it('template lookup: tile install matches bare Tile labor on run-on flooring notes', () => {
     const notes =
       'Create me a flooring bid, 1200 sqft tile demo and 1200 sqft tile installation, and 1000 linear ft of baseboard install';

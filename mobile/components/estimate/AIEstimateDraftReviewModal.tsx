@@ -64,6 +64,7 @@ type Props = {
   onUseSavedPricing?: () => void;
   onSuggestRoughPrices?: () => void;
   onAddPricesManually?: () => void;
+  onContinueUnpriced?: () => void;
   saveToPricingLibrary?: boolean;
   onToggleSaveToPricingLibrary?: (value: boolean) => void;
   children?: React.ReactNode;
@@ -96,6 +97,7 @@ export default function AIEstimateDraftReviewModal({
   onUseSavedPricing,
   onSuggestRoughPrices,
   onAddPricesManually,
+  onContinueUnpriced,
   saveToPricingLibrary = true,
   onToggleSaveToPricingLibrary,
   children,
@@ -183,6 +185,7 @@ export default function AIEstimateDraftReviewModal({
             onSuggestRoughPrices={onSuggestRoughPrices ?? onRequestRoughRange}
             roughRangeLoading={roughRangeLoading}
             onAddPricesManually={onAddPricesManually}
+            onContinueUnpriced={onContinueUnpriced}
             onRegenerate={onRegenerate}
             showDetailsContent={
               <AIEstimateDraftReviewDetails
@@ -212,6 +215,7 @@ export default function AIEstimateDraftReviewModal({
                 onSuggestRoughPrices={onSuggestRoughPrices ?? onRequestRoughRange}
                 roughRangeLoading={roughRangeLoading}
                 onAddPricesManually={onAddPricesManually}
+                onContinueUnpriced={onContinueUnpriced}
               />
             ) : null}
             <AIEstimateDraftReviewCompact

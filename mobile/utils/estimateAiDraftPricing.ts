@@ -8,6 +8,12 @@ import {
 } from '@/utils/contractorPricingMemory';
 import { loadSavedBidTemplates } from '@/utils/estimateSavedBidTemplates';
 import { expandJobScopeDraft } from '@/utils/estimateDraftScopeSplit';
+import {
+  inferPlanningQuantityForPackage,
+  lookupRuleKeyForPackage,
+  normalizeScopeMeasurements,
+  resolveChecklistItemQuantity,
+} from '@/utils/scopeItemQuantities';
 
 /** ZIP from bid fields or draft notes — supplier pricing requires this. */
 export function resolvePricingZipCode(
@@ -25,7 +31,49 @@ export function resolvePricingZipCode(
   return bare ? bare[1] : '';
 }
 
-/** Keep in sync with backend NATIONAL_TRADE_AVERAGES. */
+/** Keep in sync with backend FIXTURE_PLANNING_RATES + NATIONAL_TRADE_AVERAGES. */
+const FIXTURE_PLANNING_RATES_LOCAL: Record<
+  string,
+  { material: number; labor: number; materialLabel: string; laborLabel: string }
+> = {
+  toilet: {
+    material: 425,
+    labor: 475,
+    materialLabel: 'Toilet & rough-in materials',
+    laborLabel: 'Toilet install labor',
+  },
+  vanity: {
+    material: 950,
+    labor: 650,
+    materialLabel: 'Vanity & top materials',
+    laborLabel: 'Vanity install labor',
+  },
+  shower_door: {
+    material: 650,
+    labor: 450,
+    materialLabel: 'Shower door / enclosure materials',
+    laborLabel: 'Shower door install labor',
+  },
+  tub: {
+    material: 1200,
+    labor: 850,
+    materialLabel: 'Tub / surround materials',
+    laborLabel: 'Tub install labor',
+  },
+  prefab_shower_pan: {
+    material: 850,
+    labor: 650,
+    materialLabel: 'Prefab shower pan / base materials',
+    laborLabel: 'Prefab shower pan install labor',
+  },
+  tile_shower_pan: {
+    material: 450,
+    labor: 1200,
+    materialLabel: 'Tile shower pan materials (liner, drain, mud)',
+    laborLabel: 'Tile shower pan / mud pan build labor',
+  },
+};
+
 const NATIONAL_TRADE_AVERAGES_LOCAL: Record<
   string,
   { unit: string; material: number; labor: number; materialLabel: string; laborLabel: string }
@@ -44,8 +92,22 @@ const NATIONAL_TRADE_AVERAGES_LOCAL: Record<
   other: { unit: 'sqft', material: 35, labor: 50, materialLabel: 'Materials allowance', laborLabel: 'Labor' },
 };
 
+function resolveFixtureKindLocal(scopeName: string): string | null {
+  const n = String(scopeName || '').toLowerCase();
+  if (/toilet/.test(n)) return 'toilet';
+  if (/vanity/.test(n)) return 'vanity';
+  if (/shower\s+door|glass\s+door|enclosure/.test(n)) return 'shower_door';
+  if (/prefab\s+shower\s+pan|prefab\s+pan/.test(n)) return 'prefab_shower_pan';
+  if (/tile\s+shower\s+pan|mud\s+pan/.test(n)) return 'tile_shower_pan';
+  if (/\btub\b|bathtub/.test(n)) return 'tub';
+  return null;
+}
+
 function inferTradeFromPackage(pkg: EstimateDraftScopePackage, draft: EstimateAiDraft): string {
   const blob = `${pkg.name} ${pkg.scope || ''} ${draft.originalNotes || ''} ${draft.projectType || ''}`.toLowerCase();
+  const fixture = resolveFixtureKindLocal(pkg.name);
+  if (fixture && /\binstall/.test(blob)) return 'bathroom_fixture';
+  if (/\btile\s+shower\s+pan|\bmud\s+pan\b/.test(pkg.name.toLowerCase())) return 'bathroom_fixture';
   if (/\b(demo|removal|demolition)\b/.test(blob) || /\bdemo\b/i.test(pkg.name)) return 'demo';
   if (/\b(baseboard|trim|crown|molding)\b/.test(blob)) return 'baseboard';
   if (/\b(paint|painting)\b/.test(blob) && !/\b(floor|tile)\b/.test(blob)) return 'painting';
@@ -129,9 +191,76 @@ export type PricingScopeItemProposal = {
     sourceLabel: string;
     reason: string;
     confidence: string;
+    sourceType?: string;
+    sourceName?: string;
+    disclaimerText?: string;
   } | null;
   warnings: string[];
 };
+
+export const SUGGESTED_PRICING_DISCLAIMER =
+  'Suggested prices are planning estimates. Verify scope, material selections, labor rates, taxes, permits, overhead, and markup before sending to a client.';
+
+function scopeItemBlob(item: Pick<PricingScopeItemProposal, 'scopeName'> & { scope?: string }) {
+  return `${item.scopeName || ''} ${(item as { scope?: string }).scope || ''}`.toLowerCase();
+}
+
+export function suggestItemIsManualOnly(item: PricingScopeItemProposal): boolean {
+  const blob = scopeItemBlob(item);
+  return (
+    /\bplumb.*\btrim|\bplumbing\s+trim|\belectrical\s+trim|\bpermits?\b|\binspection\s+fees?/.test(blob)
+  );
+}
+
+export function suggestItemNeedsPricing(item: PricingScopeItemProposal): boolean {
+  if ((item.warnings || []).some((w) => /needs manual pricing|no reliable source/i.test(w))) return true;
+  if (!scopeItemHasSavedRates(item)) return (item.warnings?.length ?? 0) > 0;
+  return false;
+}
+
+export function suggestItemDefaultIncluded(item: PricingScopeItemProposal): boolean {
+  if (suggestItemNeedsPricing(item)) return false;
+  if (!scopeItemHasSavedRates(item)) return false;
+  const conf = item.recommended?.confidence || 'medium';
+  if (conf === 'low') return false;
+  if (item.recommended?.source === 'ai_rough_estimate_fallback') return false;
+  if (suggestItemIsManualOnly(item)) return false;
+  return true;
+}
+
+export function defaultIncludedSuggestScopeIds(items: PricingScopeItemProposal[]): Set<string> {
+  const ids = new Set<string>();
+  for (const item of items) {
+    if (suggestItemDefaultIncluded(item)) ids.add(item.scopeItemId);
+  }
+  return ids;
+}
+
+export function filterProposalToScopeItems(
+  proposal: PricingProposal,
+  includedIds: Set<string>
+): PricingProposal {
+  const scopeItems = (proposal.scopeItems || []).filter((item) => includedIds.has(item.scopeItemId));
+  const lines = scopeItemsToProposalLines(scopeItems);
+  const totalSuggested = lines.reduce((s, l) => s + (l.total || 0), 0);
+  return normalizePricingProposal({
+    ...proposal,
+    scopeItems,
+    lines,
+    totalSuggested,
+    empty: lines.length === 0,
+  });
+}
+
+export function confidenceVisual(confidence: string | undefined): { label: string; color: string; bg: string } {
+  if (confidence === 'high') {
+    return { label: 'High confidence', color: '#22c55e', bg: 'rgba(34,197,94,0.14)' };
+  }
+  if (confidence === 'low') {
+    return { label: 'Low confidence', color: '#fbbf24', bg: 'rgba(251,191,36,0.14)' };
+  }
+  return { label: 'Medium confidence', color: '#60a5fa', bg: 'rgba(96,165,250,0.14)' };
+}
 
 export type PricingProposal = {
   empty: boolean;
@@ -157,18 +286,18 @@ export type PricingProposal = {
 };
 
 export const PRICING_SOURCE_LABELS: Record<string, string> = {
-  user_provided: 'User Provided',
-  saved_pricing: 'Saved Pricing',
-  saved_template: 'Saved Bid Template',
-  company_default: 'Company Default',
-  supplier_pricing: 'Supplier Pricing',
-  national_trade_average: 'National Average',
-  regional_labor_benchmark: 'National Average',
-  construction_cost_database: 'Construction Cost Database',
-  ai_rough_estimate_fallback: 'AI Rough Estimate Fallback',
-  manually_entered: 'Manually Entered',
-  pricing_history: 'Saved Pricing',
-  ai_rough_estimate: 'AI Rough Estimate Fallback',
+  user_provided: 'Manual',
+  saved_pricing: 'Saved bid',
+  saved_template: 'Saved template',
+  company_default: 'Vendor',
+  supplier_pricing: 'Vendor',
+  national_trade_average: 'Regional',
+  regional_labor_benchmark: 'Regional',
+  construction_cost_database: 'Regional',
+  ai_rough_estimate_fallback: 'AI rough',
+  manually_entered: 'Manual',
+  pricing_history: 'Saved bid',
+  ai_rough_estimate: 'AI rough',
 };
 
 export function sourceDisplayLabel(source: string): string {
@@ -192,25 +321,100 @@ export type SourceVisual = {
   bg: string;
 };
 
-export function sourceVisual(source: string): SourceVisual {
-  const label = sourceDisplayLabel(source);
-  if (source === 'supplier_pricing') {
-    return { label: 'Home Depot Live', shortLabel: 'HD Live', color: '#34d399', bg: 'rgba(52,211,153,0.14)' };
-  }
-  if (source === 'national_trade_average' || source === 'regional_labor_benchmark') {
-    return { label, shortLabel: 'National', color: '#a78bfa', bg: 'rgba(167,139,250,0.14)' };
-  }
-  if (source === 'ai_rough_estimate_fallback' || source === 'ai_rough_estimate') {
-    return { label, shortLabel: 'AI Est.', color: '#fbbf24', bg: 'rgba(251,191,36,0.14)' };
+export function sourceVisual(source: string, mode: 'saved' | 'suggest' = 'saved'): SourceVisual {
+  if (source === 'saved_template') {
+    return {
+      label: mode === 'suggest' ? 'Saved template' : 'Saved template',
+      shortLabel: 'Template',
+      color: '#60a5fa',
+      bg: 'rgba(96,165,250,0.14)',
+    };
   }
   if (source === 'saved_pricing' || source === 'pricing_history') {
-    return { label, shortLabel: 'Saved', color: '#60a5fa', bg: 'rgba(96,165,250,0.14)' };
+    return {
+      label: mode === 'suggest' ? 'Saved Pricing' : 'Saved bid',
+      shortLabel: mode === 'suggest' ? 'Saved' : 'Bid',
+      color: '#60a5fa',
+      bg: 'rgba(96,165,250,0.14)',
+    };
   }
-  if (source === 'saved_template') {
-    return { label, shortLabel: 'Template', color: '#60a5fa', bg: 'rgba(96,165,250,0.14)' };
+  if (source === 'manually_entered' || source === 'user_provided') {
+    return {
+      label: 'Manual',
+      shortLabel: 'Manual',
+      color: '#94a3b8',
+      bg: 'rgba(148,163,184,0.14)',
+    };
   }
+  if (source === 'supplier_pricing') {
+    return {
+      label: mode === 'suggest' ? 'Vendor Live' : 'Vendor',
+      shortLabel: 'Vendor',
+      color: '#34d399',
+      bg: 'rgba(52,211,153,0.14)',
+    };
+  }
+  if (source === 'company_default') {
+    return {
+      label: mode === 'suggest' ? 'Saved Pricing' : 'Vendor',
+      shortLabel: 'Saved',
+      color: '#60a5fa',
+      bg: 'rgba(96,165,250,0.14)',
+    };
+  }
+  if (source === 'regional_labor_benchmark' || source === 'construction_cost_database') {
+    return {
+      label: 'Regional Labor',
+      shortLabel: 'Regional',
+      color: '#a78bfa',
+      bg: 'rgba(167,139,250,0.14)',
+    };
+  }
+  if (source === 'national_trade_average') {
+    return {
+      label: 'National Average',
+      shortLabel: 'National',
+      color: '#a78bfa',
+      bg: 'rgba(167,139,250,0.14)',
+    };
+  }
+  if (source === 'ai_rough_estimate_fallback' || source === 'ai_rough_estimate') {
+    return {
+      label: 'AI Rough',
+      shortLabel: 'AI Rough',
+      color: '#fbbf24',
+      bg: 'rgba(251,191,36,0.14)',
+    };
+  }
+  const label = sourceDisplayLabel(source);
   const color = sourceBadgeColor(source);
   return { label, shortLabel: label.split(' ')[0], color, bg: `${color}22` };
+}
+
+export function isLumpSumUnit(unit: string | null | undefined): boolean {
+  const u = String(unit || '')
+    .trim()
+    .toLowerCase();
+  return u === 'lump_sum' || u === 'lump' || u === 'lot' || u === 'flat';
+}
+
+export function scopeItemHasSavedRates(item: PricingScopeItemProposal): boolean {
+  return (item.proposedRates || []).some((r) => (r.total || 0) > 0);
+}
+
+export function countSavedPricingScopeItems(proposal: PricingProposal | null): {
+  priced: number;
+  needsPricing: number;
+  total: number;
+} {
+  const items = proposal?.scopeItems || [];
+  let priced = 0;
+  let needsPricing = 0;
+  for (const item of items) {
+    if (scopeItemHasSavedRates(item)) priced += 1;
+    else if ((item.warnings?.length ?? 0) > 0) needsPricing += 1;
+  }
+  return { priced, needsPricing, total: items.length };
 }
 
 function roundProposalMoney(n: number): number {
@@ -350,12 +554,54 @@ export function emptyPricingProposal(
   };
 }
 
+function cleanupTemplateRateValid(
+  scopeName: string,
+  scope: string,
+  rate: { label?: string; source?: string; total?: number | null; rate?: number | null; unit?: string | null }
+): boolean {
+  if (rate.source !== 'saved_template' && rate.source !== 'saved_pricing') return true;
+  const label = `${rate.label || ''}`.toLowerCase();
+  if (
+    !/\b(cleanup|disposal|dumpster|haul[\s-]?off|final\s+clean|jobsite\s+clean|permits?|inspection)\b/i.test(
+      label
+    )
+  ) {
+    return false;
+  }
+  const amount = rate.total ?? rate.rate ?? 0;
+  if (isLumpSumUnit(rate.unit || 'lump_sum') && amount > 0 && amount < 50) return false;
+  return true;
+}
+
+function filterScopeItemSavedRates(item: PricingScopeItemProposal): PricingScopeItemProposal {
+  if (!isCloseoutScopePackage(item.scopeName, '')) return item;
+  const proposedRates = (item.proposedRates || []).filter((r) =>
+    cleanupTemplateRateValid(item.scopeName, '', r)
+  );
+  if (proposedRates.length === (item.proposedRates || []).length) return item;
+  return {
+    ...item,
+    proposedRates,
+    recommended: proposedRates.length ? item.recommended : null,
+    warnings: proposedRates.length ? item.warnings : ['Needs manual pricing — no reliable source found.'],
+  };
+}
+
 export function normalizePricingProposal(
   proposal: PricingProposal | null | undefined
 ): PricingProposal {
   if (!proposal) return emptyPricingProposal();
-  let lines = proposal.lines || [];
-  let scopeItems = proposal.scopeItems || [];
+  let lines = normalizeLumpSumLines(proposal.lines || []).filter((line) => {
+    if (!isCloseoutScopePackage(line.packageName, '')) return true;
+    return cleanupTemplateRateValid(line.packageName, '', {
+      label: line.label,
+      source: line.priceSource,
+      total: line.total,
+      rate: line.unitRate,
+      unit: line.unitType,
+    });
+  });
+  let scopeItems = normalizeLumpSumScopeItems(proposal.scopeItems || []).map(filterScopeItemSavedRates);
   if (scopeItems.length && !lines.length) {
     lines = scopeItemsToProposalLines(scopeItems);
   } else if (!scopeItems.length && lines.length) {
@@ -588,10 +834,21 @@ function isDemoPackage(name: string): boolean {
   return /\b(demo|demolition|removal)\b/i.test(name);
 }
 
+function isCloseoutScopePackage(name: string, scope = ''): boolean {
+  const blob = `${name} ${scope}`.trim();
+  return isCleanupPackage(name) || isPermitsPackage(name) || isCleanupPackage(blob) || isPermitsPackage(blob);
+}
+
 function pickPackageQuantity(
   pkg: EstimateDraftScopePackage,
-  originalNotes = ''
+  originalNotes = '',
+  draft?: EstimateAiDraft | null
 ): { quantity: number; unit: string } | null {
+  const scopeText = pkg.scope || '';
+  if (isCloseoutScopePackage(pkg.name, scopeText)) {
+    return { quantity: 1, unit: 'lump_sum' };
+  }
+
   let qs = pkg.scopeQuantities || [];
   if (!qs.length) {
     qs = extractScopeQuantitiesForPackage(pkg.name, pkg.scope || '', originalNotes);
@@ -599,10 +856,39 @@ function pickPackageQuantity(
   const n = pkg.name.toLowerCase();
   if (/baseboard|trim/.test(n)) {
     const lf = qs.find((q) => q.unit === 'lf');
-    return lf ? { quantity: lf.quantity, unit: 'lf' } : null;
+    if (lf) return { quantity: lf.quantity, unit: 'lf' };
   }
   const sqft = qs.find((q) => q.unit === 'sqft');
-  return sqft ? { quantity: sqft.quantity, unit: 'sqft' } : null;
+  if (sqft) return { quantity: sqft.quantity, unit: 'sqft' };
+  const each = qs.find((q) => q.unit === 'each');
+  if (each) return { quantity: each.quantity, unit: 'each' };
+  const lump = qs.find((q) => q.unit === 'lump_sum');
+  if (lump) return { quantity: 1, unit: 'lump_sum' };
+
+  if (draft) {
+    const ruleKey = lookupRuleKeyForPackage(pkg.name, pkg.scope || '');
+    if (ruleKey) {
+      const resolved = resolveChecklistItemQuantity(
+        ruleKey,
+        normalizeScopeMeasurements(draft.scopeMeasurements)
+      );
+      if (resolved.pricingReady && resolved.quantity != null && resolved.quantity > 0) {
+        return { quantity: resolved.quantity, unit: resolved.unit };
+      }
+    }
+    const planning = inferPlanningQuantityForPackage(pkg.name, pkg.scope || '', draft);
+    if (planning && planning.quantity > 0) {
+      return planning;
+    }
+  }
+
+  if (/cleanup|disposal|haul|permits?|plumb|electrical\s+trim/i.test(n)) {
+    return { quantity: 1, unit: 'lump_sum' };
+  }
+  if (/tub\s+install|prefab\s+shower|shower\s+pan|mud\s+pan|toilet|vanity|glass\s+shower/i.test(n)) {
+    return { quantity: 1, unit: 'each' };
+  }
+  return null;
 }
 
 function normalizeLineUnit(raw: unknown): string {
@@ -610,6 +896,118 @@ function normalizeLineUnit(raw: unknown): string {
     .toLowerCase()
     .replace(/\s+/g, '_')
     .replace(/[^a-z0-9_]/g, '');
+}
+
+/** Flat / lump-sum amount from a saved bid line (template or library). */
+export function savedLumpSumAmount(line: Record<string, unknown>, scopeName = ''): number | null {
+  const lt = String(line.name || line.description || '').toLowerCase();
+  const explicit = Number(
+    line.saved_lump_sum_amount ?? line.savedLumpSumAmount ?? line.lumpTotal ?? 0
+  );
+  if (Number.isFinite(explicit) && explicit > 0) return roundMoney(explicit);
+
+  const mode = String(line.mode || line.pricingMode || '').toLowerCase();
+  const unit = normalizeLineUnit(line.unit);
+  const flatUnits = new Set(['lot', 'lump_sum', 'lump', 'flat', 'job', 'project', 'total']);
+  const isFlat =
+    mode === 'flat' || mode === 'lump' || mode === 'lump_sum' || flatUnits.has(unit);
+  if (!isFlat) return null;
+
+  if (isCleanupPackage(scopeName) && !/\b(cleanup|disposal|dumpster|haul|final\s+clean)\b/i.test(lt)) {
+    return null;
+  }
+
+  const total = Number(line.total || 0);
+  if (total > 0) {
+    if (isCleanupPackage(scopeName) && total < 50) return null;
+    return roundMoney(total);
+  }
+
+  const qty = Number(line.quantity || line.qty || 0) || 0;
+  const unitPrice = Number(line.unitPrice ?? line.rate ?? line.cost ?? 0);
+  if (qty <= 1 && unitPrice > 0) {
+    if (isCleanupPackage(scopeName) && unitPrice < 50) return null;
+    return roundMoney(unitPrice);
+  }
+  return null;
+}
+
+function normalizeLumpSumScopeItems(
+  scopeItems: PricingScopeItemProposal[]
+): PricingScopeItemProposal[] {
+  return scopeItems.map((item) => {
+    const itemIsLump = isLumpSumUnit(item.unit);
+    let proposedRates = (item.proposedRates || []).map((line) => {
+      const lineIsLump =
+        itemIsLump || isLumpSumUnit(line.unit) || line.pricingType === 'lump_sum';
+      if (!lineIsLump) return line;
+
+      const lump =
+        (line.total != null && line.total > 0
+          ? line.total
+          : savedLumpSumAmount({
+              total: line.total,
+              unitPrice: line.rate,
+              unit: line.unit,
+              mode: 'lump_sum',
+            })) ?? null;
+
+      if (lump == null || lump <= 0) {
+        return { ...line, rate: null, total: null, unit: 'lump_sum' };
+      }
+
+      return {
+        ...line,
+        pricingType:
+          line.pricingType === 'material' || line.pricingType === 'labor'
+            ? line.pricingType
+            : 'lump_sum',
+        rate: null,
+        unit: 'lump_sum',
+        quantity: 1,
+        total: lump,
+        formula: `$${formatMoney(lump)} lump sum`,
+      };
+    });
+
+    const hasValidTotal = proposedRates.some((r) => (r.total || 0) > 0);
+    if (itemIsLump && !hasValidTotal) {
+      proposedRates = [];
+      return {
+        ...item,
+        proposedRates,
+        warnings:
+          item.warnings?.length > 0
+            ? item.warnings
+            : ['No saved lump sum amount found.'],
+      };
+    }
+
+    return { ...item, proposedRates };
+  });
+}
+
+function normalizeLumpSumLines(lines: PricingProposalLine[]): PricingProposalLine[] {
+  return lines.map((line) => {
+    if (!isLumpSumUnit(line.unitType) && line.lineType !== 'lump_sum') return line;
+    const lump =
+      (line.total != null && line.total > 0 ? line.total : savedLumpSumAmount({
+        total: line.total,
+        unitPrice: line.unitRate,
+        unit: line.unitType,
+        mode: 'lump_sum',
+      })) ?? null;
+    if (lump == null || lump <= 0) return { ...line, unitRate: 0, total: 0 };
+    return {
+      ...line,
+      lineType: 'lump_sum',
+      unitType: 'lump_sum',
+      quantity: 1,
+      unitRate: 0,
+      total: lump,
+      formula: `$${formatMoney(lump)} lump sum`,
+    };
+  });
 }
 
 function templateLineUnitRate(line: Record<string, unknown>, scopeUnit: string): number | null {
@@ -665,6 +1063,28 @@ function lineWorkType(line: Record<string, unknown>, source: 'labor' | 'material
   return 'install';
 }
 
+function isCleanupPackage(name: string): boolean {
+  return /\b(cleanup|disposal|dumpster|haul[\s-]?off|jobsite\s+clean|final\s+clean)\b/i.test(name);
+}
+
+function isPermitsPackage(name: string): boolean {
+  return /\bpermits?\b|\binspection\s+fees?\b/i.test(name);
+}
+
+function templateLineMatchesCloseoutPackage(
+  pkgName: string,
+  line: Record<string, unknown>
+): boolean {
+  const lt = lineText(line);
+  if (isCleanupPackage(pkgName)) {
+    return /\b(cleanup|disposal|dumpster|haul[\s-]?off|final\s+clean|jobsite\s+clean)\b/i.test(lt);
+  }
+  if (isPermitsPackage(pkgName)) {
+    return /\bpermits?\b|\binspection\s+fees?\b/i.test(lt);
+  }
+  return false;
+}
+
 function scoreTemplateLineToPackage(
   pkg: EstimateDraftScopePackage,
   line: Record<string, unknown>,
@@ -682,6 +1102,9 @@ function scoreTemplateLineToPackage(
 
   const pn = pkg.name.toLowerCase();
   const lt = lineText(line);
+  if (isCleanupPackage(pkg.name) || isPermitsPackage(pkg.name)) {
+    return templateLineMatchesCloseoutPackage(pkg.name, line) ? 45 : 0;
+  }
   if (/baseboard|trim/.test(pn)) {
     return /baseboard|trim/.test(lt) ? 30 : 0;
   }
@@ -1214,6 +1637,8 @@ function extractScopeQuantitiesForPackage(
 function shouldSkipSavedTemplateMatch(pkg: EstimateDraftScopePackage): boolean {
   if (pkg.priceProvidedByUser) return true;
   if (pkg.status === 'user_provided' || pkg.status === 'confirmed') return true;
+  // Cleanup/permits need explicit closeout lines — never auto-fill from demo/install template rates.
+  if (isCloseoutScopePackage(pkg.name, pkg.scope || '')) return true;
   return false;
 }
 
@@ -1229,17 +1654,19 @@ export function buildSavedPricingProposalFromTemplates(
 
   for (const pkg of getScopePackages(matchDraft)) {
     if (shouldSkipSavedTemplateMatch(pkg)) continue;
-    const qtyInfo = pickPackageQuantity(pkg, notes);
+    const qtyInfo = pickPackageQuantity(pkg, notes, matchDraft);
     if (!qtyInfo || qtyInfo.quantity <= 0) continue;
 
     type Candidate = {
       score: number;
-      rate: number;
+      rate: number | null;
+      lumpTotal: number | null;
       line: Record<string, unknown>;
       source: 'labor' | 'material';
       templateName: string;
     };
     const candidates: Candidate[] = [];
+    const scopeIsLump = isLumpSumUnit(qtyInfo.unit);
 
     for (const tpl of templates as SavedTemplateRecord[]) {
       const payload = tpl.payload;
@@ -1250,16 +1677,32 @@ export function buildSavedPricingProposalFromTemplates(
 
       for (const line of laborLines) {
         const score = scoreTemplateLineToPackage(pkg, line, 'labor');
-        const rate = score > 0 ? templateLineUnitRate(line, qtyInfo.unit) : null;
-        if (score > 0 && rate != null) {
-          candidates.push({ score, rate, line, source: 'labor', templateName });
+        if (score <= 0) continue;
+        if (scopeIsLump) {
+          const lump = savedLumpSumAmount(line, pkg.name);
+          if (lump != null && lump > 0) {
+            candidates.push({ score, rate: null, lumpTotal: lump, line, source: 'labor', templateName });
+          }
+        } else {
+          const rate = templateLineUnitRate(line, qtyInfo.unit);
+          if (rate != null) {
+            candidates.push({ score, rate, lumpTotal: null, line, source: 'labor', templateName });
+          }
         }
       }
       for (const line of materialLines) {
         const score = scoreTemplateLineToPackage(pkg, line, 'material');
-        const rate = score > 0 ? templateLineUnitRate(line, qtyInfo.unit) : null;
-        if (score > 0 && rate != null) {
-          candidates.push({ score, rate, line, source: 'material', templateName });
+        if (score <= 0) continue;
+        if (scopeIsLump) {
+          const lump = savedLumpSumAmount(line, pkg.name);
+          if (lump != null && lump > 0) {
+            candidates.push({ score, rate: null, lumpTotal: lump, line, source: 'material', templateName });
+          }
+        } else {
+          const rate = templateLineUnitRate(line, qtyInfo.unit);
+          if (rate != null) {
+            candidates.push({ score, rate, lumpTotal: null, line, source: 'material', templateName });
+          }
         }
       }
     }
@@ -1291,6 +1734,25 @@ export function buildSavedPricingProposalFromTemplates(
       if (!matchedTemplateNames.includes(pick.templateName)) {
         matchedTemplateNames.push(pick.templateName);
       }
+      if (pick.lumpTotal != null && pick.lumpTotal > 0) {
+        lines.push({
+          packageName: pkg.name,
+          lineType: 'lump_sum',
+          label: String(pick.line.name || pkg.name),
+          unitType: 'lump_sum',
+          quantity: 1,
+          unitRate: 0,
+          total: pick.lumpTotal,
+          formula: `$${formatMoney(pick.lumpTotal)} lump sum`,
+          priceSource: 'saved_template',
+          sourceLabel: `Saved bid template: ${pick.templateName}`,
+          confidence: 'medium',
+          status: 'confirmed',
+          requiresApproval: true,
+        });
+        continue;
+      }
+      if (pick.rate == null || pick.rate <= 0) continue;
       const total = roundMoney(pick.rate * qtyInfo.quantity);
       lines.push({
         packageName: pkg.name,
@@ -1337,7 +1799,7 @@ function enrichSavedScopeItemsFromDraft(
   for (const pkg of packages) {
     const found = scopeItems.some((s) => packageKeysMatch(s.scopeName, pkg.name));
     if (found) continue;
-    const qtyInfo = pickPackageQuantity(pkg, notes);
+    const qtyInfo = pickPackageQuantity(pkg, notes, draft);
     scopeItems.push({
       scopeItemId: normalizePackageKey(pkg.name).replace(/\s+/g, '_') || 'scope',
       scopeName: pkg.name,
@@ -1346,7 +1808,7 @@ function enrichSavedScopeItemsFromDraft(
       proposedRates: [],
       comparison: {},
       recommended: null,
-      warnings: ['No saved pricing or bid template matched this item.'],
+      warnings: ['Needs pricing'],
     });
   }
 
@@ -1361,7 +1823,9 @@ export async function fetchSavedPricingProposal(
   const matchDraft = expandDraftForPricingMatch(draft);
   const stampSaved = (p: PricingProposal) =>
     normalizePricingProposal(
-      enrichSavedScopeItemsFromDraft(matchDraft, { ...p, pricingMode: 'saved_only' as const })
+      patchScopeItemsFromTemplateLines(
+        enrichSavedScopeItemsFromDraft(matchDraft, { ...p, pricingMode: 'saved_only' as const })
+      )
     );
   const templates = await resolveSavedBidTemplates(savedTemplates);
   const fromTemplates =
@@ -1400,14 +1864,15 @@ export async function fetchSavedPricingProposal(
   return stampSaved(buildSavedPricingProposalLocal(matchDraft));
 }
 
-/** Prefer a fresh fetch; fall back to pending saved proposal already on the draft. */
+/** Prefer a fresh fetch; optional stale pending only when explicitly allowed. */
 export function resolveSavedPricingProposalForDraft(
   draft: EstimateAiDraft,
-  fetched: PricingProposal
+  fetched: PricingProposal,
+  options?: { allowStalePending?: boolean }
 ): PricingProposal {
   const normalized = normalizePricingProposal(fetched);
   if (proposalHasSavedRates(normalized)) return normalized;
-  if (draft.pendingPricingProposal) {
+  if (options?.allowStalePending && draft.pendingPricingProposal) {
     const pending = normalizePricingProposal({
       ...draft.pendingPricingProposal,
       pricingMode: 'saved_only',
@@ -1450,9 +1915,39 @@ function buildRoughPricingProposalLocal(draft: EstimateAiDraft): PricingProposal
     const amount = pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0;
     if (amount > 0) continue;
 
-    const qtyInfo = pickPackageQuantity(pkg, notes);
+    const qtyInfo = pickPackageQuantity(pkg, notes, draft);
     const qty = qtyInfo ? { quantity: qtyInfo.quantity, unit: qtyInfo.unit } : null;
     const trade = inferTradeFromPackage(pkg, draft);
+
+    if (trade === 'bathroom_fixture' && qty?.unit === 'each') {
+      const fixture = resolveFixtureKindLocal(pkg.name);
+      const band = fixture ? FIXTURE_PLANNING_RATES_LOCAL[fixture] : null;
+      if (band) {
+        const quantity = qty.quantity > 0 ? qty.quantity : 1;
+        const pushFixture = (lineType: 'material' | 'labor', label: string, unitRate: number) => {
+          const total = roundMoney(unitRate * quantity);
+          lines.push({
+            packageName: pkg.name,
+            lineType,
+            label,
+            unitType: 'each',
+            quantity,
+            unitRate,
+            total,
+            formula: `${quantity.toLocaleString()} each × $${unitRate}/each = $${formatMoney(total)}`,
+            priceSource: 'national_trade_average',
+            sourceLabel: 'National Average',
+            confidence: lineType === 'labor' ? 'medium' : 'low',
+            status: 'rough_price',
+            requiresApproval: true,
+          });
+        };
+        if (band.material > 0) pushFixture('material', band.materialLabel, band.material);
+        if (band.labor > 0) pushFixture('labor', band.laborLabel, band.labor);
+        continue;
+      }
+    }
+
     const band = NATIONAL_TRADE_AVERAGES_LOCAL[trade] || NATIONAL_TRADE_AVERAGES_LOCAL.other;
     if (!qty || qty.quantity <= 0 || qty.unit !== band.unit) continue;
 
@@ -1548,7 +2043,7 @@ async function buildSavedPricingProposalLocal(draft: EstimateAiDraft): Promise<P
 
   const lines: PricingProposalLine[] = [];
   for (const pkg of getScopePackages(draft)) {
-    const qtyInfo = pickPackageQuantity(pkg, String(draft.originalNotes || ''));
+    const qtyInfo = pickPackageQuantity(pkg, String(draft.originalNotes || ''), draft);
     if (!qtyInfo || qtyInfo.quantity <= 0) continue;
 
     const pkgDemo = isDemoPackage(pkg.name);

@@ -4,6 +4,7 @@ import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { formatDraftMoney } from '@/utils/estimateAiDraft';
 import { draftHasApplyablePricing } from '@/utils/estimateAiDraftPricing';
 import { countDraftPricingReadiness } from '@/utils/scopeItemQuantities';
+import AIEstimateSavedPricingApplySummary from '@/components/estimate/AIEstimateSavedPricingApplySummary';
 
 type Colors = {
   text: string;
@@ -21,6 +22,7 @@ type Props = {
   onSuggestRoughPrices?: () => void;
   roughRangeLoading?: boolean;
   onAddPricesManually?: () => void;
+  onContinueUnpriced?: () => void;
 };
 
 function ActionBtn({
@@ -69,7 +71,23 @@ export default function AIEstimateDraftReviewPricingActions({
   onSuggestRoughPrices,
   roughRangeLoading,
   onAddPricesManually,
+  onContinueUnpriced,
 }: Props) {
+  if (draft.savedPricingApplySummary) {
+    return (
+      <AIEstimateSavedPricingApplySummary
+        draft={draft}
+        Colors={Colors}
+        darkMode={darkMode}
+        busy={busy}
+        onSuggestRoughPrices={onSuggestRoughPrices}
+        roughRangeLoading={roughRangeLoading}
+        onAddPricesManually={onAddPricesManually}
+        onContinueUnpriced={onContinueUnpriced}
+      />
+    );
+  }
+
   const hasPricing = draftHasApplyablePricing(draft);
   const pricingReadiness = countDraftPricingReadiness(draft);
   const roughLabel =

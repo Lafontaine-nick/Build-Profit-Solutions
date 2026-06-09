@@ -38,6 +38,7 @@ type Props = {
   onSuggestRoughPrices?: () => void;
   roughRangeLoading?: boolean;
   onAddPricesManually?: () => void;
+  onContinueUnpriced?: () => void;
   onRegenerate: () => void;
   showDetailsContent: React.ReactNode;
 };
@@ -53,6 +54,7 @@ export default function AIEstimateDraftReviewScopeOnly({
   onSuggestRoughPrices,
   roughRangeLoading,
   onAddPricesManually,
+  onContinueUnpriced,
   onRegenerate,
   showDetailsContent,
 }: Props) {
@@ -124,6 +126,7 @@ export default function AIEstimateDraftReviewScopeOnly({
           onSuggestRoughPrices={onSuggestRoughPrices}
           roughRangeLoading={roughRangeLoading}
           onAddPricesManually={onAddPricesManually}
+          onContinueUnpriced={onContinueUnpriced}
         />
       ) : null}
 

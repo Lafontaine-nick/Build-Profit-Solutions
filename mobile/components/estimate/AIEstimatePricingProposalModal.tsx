@@ -16,12 +16,21 @@ import { getColors } from '@/theme/getColors';
 import type { PricingProposal, PricingScopeItemProposal } from '@/utils/estimateAiDraftPricing';
 import {
   comparisonMaterialDetail,
+  confidenceVisual,
+  countSavedPricingScopeItems,
+  defaultIncludedSuggestScopeIds,
+  filterProposalToScopeItems,
   formatDisplayUnit,
+  isLumpSumUnit,
   normalizePricingProposal,
   proposalHasSavedRates,
   proposalUsesSavedPricing,
+  scopeItemHasSavedRates,
   setScopeMaterialSource,
   sourceVisual,
+  SUGGESTED_PRICING_DISCLAIMER,
+  suggestItemIsManualOnly,
+  suggestItemNeedsPricing,
   updateScopeProposedRate,
   type SourceVisual,
 } from '@/utils/estimateAiDraftPricing';
@@ -32,7 +41,7 @@ type Props = {
   proposal: PricingProposal | null;
   title: string;
   subtitle: string;
-  applyLabel: string;
+  applyLabel?: string;
   /** saved_only = template/library only; suggest = rough prices with HD + national */
   pricingMode?: 'saved_only' | 'suggest';
   /** Overlay inside Review draft (iOS cannot stack two pageSheet modals). */
@@ -40,6 +49,8 @@ type Props = {
   onApply: (proposal: PricingProposal) => void;
   onEdit?: (proposal: PricingProposal) => void;
   onAddManually?: () => void;
+  /** Wipe templates + pricing library (saved-only modal). */
+  onClearAllSavedPricing?: () => void;
   onClose: () => void;
 };
 
@@ -62,15 +73,40 @@ function rateRowLabel(
   return normalized;
 }
 
-function SourceBadge({ source, compact }: { source: string; compact?: boolean }) {
-  const vis = sourceVisual(source);
+function SourceBadge({ source, compact, mode = 'saved' }: { source: string; compact?: boolean; mode?: 'saved' | 'suggest' }) {
+  const vis = sourceVisual(source, mode);
+  const text = compact ? vis.shortLabel : vis.label;
   return (
-    <View style={[styles.badge, { backgroundColor: vis.bg, borderColor: `${vis.color}55` }]}>
-      <View style={[styles.badgeDot, { backgroundColor: vis.color }]} />
-      <Text style={[styles.badgeText, { color: vis.color }]}>
-        {compact ? vis.shortLabel : vis.label}
+    <View
+      style={[
+        styles.badge,
+        compact && styles.badgeCompact,
+        { backgroundColor: vis.bg, borderColor: `${vis.color}55` },
+      ]}
+    >
+      <View style={[styles.badgeDot, compact && styles.badgeDotCompact, { backgroundColor: vis.color }]} />
+      <Text
+        style={[styles.badgeText, compact && styles.badgeTextCompact, { color: vis.color }]}
+        numberOfLines={1}
+      >
+        {text}
       </Text>
     </View>
+  );
+}
+
+function SourceInlineTag({
+  source,
+  mode = 'saved',
+}: {
+  source: string;
+  mode?: 'saved' | 'suggest';
+}) {
+  const vis = sourceVisual(source, mode);
+  return (
+    <Text style={[styles.sourceInlineTag, { color: vis.color }]} numberOfLines={1}>
+      {vis.shortLabel}
+    </Text>
   );
 }
 
@@ -102,10 +138,13 @@ function CompareChip({
       ]}
     >
       <View style={[styles.badgeDot, { backgroundColor: vis.color }]} />
-      <View style={{ flex: 1 }}>
-        <Text style={{ color: active ? vis.color : Colors.sub, fontSize: 11, fontWeight: '700' }}>
+      <View style={styles.compareChipBody}>
+        <Text
+          style={{ color: active ? vis.color : Colors.sub, fontSize: 11, fontWeight: '700' }}
+          numberOfLines={1}
+        >
           {vis.shortLabel}
-          {active ? ' · used for bid' : ''}
+          {active ? ' · in bid' : ''}
         </Text>
         <Text style={{ color: Colors.text, fontSize: 11, fontWeight: '600', marginTop: 1 }}>
           {formatUnitRate(rate, unit)}
@@ -115,31 +154,66 @@ function CompareChip({
   );
 }
 
+function ConfidenceBadge({ confidence, compact }: { confidence?: string; compact?: boolean }) {
+  const vis = confidenceVisual(confidence);
+  const label = compact
+    ? confidence === 'high'
+      ? 'High'
+      : confidence === 'low'
+        ? 'Low'
+        : 'Medium'
+    : vis.label;
+  return (
+    <View
+      style={[
+        styles.badge,
+        compact && styles.badgeCompact,
+        { backgroundColor: vis.bg, borderColor: `${vis.color}55` },
+      ]}
+    >
+      <Text
+        style={[styles.badgeText, compact && styles.badgeTextCompact, { color: vis.color }]}
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
+    </View>
+  );
+}
+
 function RateRow({
   line,
   scopeName,
   Colors,
+  sourceMode = 'saved',
 }: {
   line: NonNullable<PricingScopeItemProposal['proposedRates']>[number];
   scopeName: string;
   Colors: ReturnType<typeof getColors>;
+  sourceMode?: 'saved' | 'suggest';
 }) {
   const label = rateRowLabel(line, scopeName);
+  const showUnitRate =
+    !isLumpSumUnit(line.unit) &&
+    line.pricingType !== 'lump_sum' &&
+    line.rate != null &&
+    line.rate > 0 &&
+    line.unit;
   return (
     <View style={styles.rateRow}>
       <Text style={[styles.rateLabel, { color: Colors.text }]} numberOfLines={1}>
         {label}
       </Text>
-      {line.rate != null && line.unit ? (
-        <Text style={[styles.rateUnit, { color: Colors.sub }]}>{formatUnitRate(line.rate, line.unit)}</Text>
-      ) : (
-        <View style={styles.rateUnit} />
-      )}
-      <Text style={[styles.rateTotal, { color: Colors.text }]}>
-        {line.total != null ? formatDraftMoney(line.total) : '—'}
-      </Text>
-      <View style={styles.rateBadge}>
-        <SourceBadge source={line.source} compact />
+      <View style={styles.rateRowRight}>
+        {showUnitRate ? (
+          <Text style={[styles.rateUnitInline, { color: Colors.sub }]} numberOfLines={1}>
+            {formatUnitRate(line.rate!, line.unit!)}
+          </Text>
+        ) : null}
+        <Text style={[styles.rateTotalInline, { color: Colors.text }]} numberOfLines={1}>
+          {line.total != null ? formatDraftMoney(line.total) : '—'}
+        </Text>
+        <SourceInlineTag source={line.source} mode={sourceMode} />
       </View>
     </View>
   );
@@ -151,25 +225,28 @@ function MaterialCompareRow({
   onSelectMaterial,
   Colors,
   enabled,
+  sourceMode = 'suggest',
 }: {
   item: PricingScopeItemProposal;
   line: NonNullable<PricingScopeItemProposal['proposedRates']>[number];
   onSelectMaterial: (source: 'supplier_pricing' | 'national_trade_average') => void;
   Colors: ReturnType<typeof getColors>;
   enabled: boolean;
+  sourceMode?: 'saved' | 'suggest';
 }) {
   if (!enabled || line.pricingType !== 'material') return null;
 
   const hdDetail = comparisonMaterialDetail(item.comparison?.supplier_pricing);
   const natDetail = comparisonMaterialDetail(item.comparison?.national_trade_average);
   if (!hdDetail || !natDetail) return null;
+  if (line.source !== 'supplier_pricing' && line.source !== 'national_trade_average') return null;
 
   return (
     <View style={[styles.compareRow, { borderTopColor: Colors.line }]}>
       <Text style={[styles.compareLabel, { color: Colors.sub }]}>Tap to switch material source</Text>
       <View style={styles.compareChips}>
         <CompareChip
-          vis={sourceVisual('supplier_pricing')}
+          vis={sourceVisual('supplier_pricing', sourceMode)}
           rate={hdDetail.rate}
           unit={hdDetail.unit}
           active={line.source === 'supplier_pricing'}
@@ -177,7 +254,7 @@ function MaterialCompareRow({
           Colors={Colors}
         />
         <CompareChip
-          vis={sourceVisual('national_trade_average')}
+          vis={sourceVisual('national_trade_average', sourceMode)}
           rate={natDetail.rate}
           unit={natDetail.unit}
           active={line.source === 'national_trade_average'}
@@ -246,6 +323,9 @@ function ScopeCard({
   onSelectMaterial,
   showLiveComparison,
   isSavedOnly,
+  isSuggestMode,
+  included,
+  onToggleIncluded,
   isEditing,
   onToggleEdit,
   onRateChange,
@@ -257,6 +337,9 @@ function ScopeCard({
   onSelectMaterial: (scopeItemId: string, source: 'supplier_pricing' | 'national_trade_average') => void;
   showLiveComparison: boolean;
   isSavedOnly?: boolean;
+  isSuggestMode?: boolean;
+  included?: boolean;
+  onToggleIncluded?: () => void;
   isEditing?: boolean;
   onToggleEdit?: () => void;
   onRateChange?: (pricingType: 'material' | 'labor', rate: number) => void;
@@ -272,9 +355,14 @@ function ScopeCard({
   const scopeTotal = (item.proposedRates || []).reduce((sum, r) => sum + (r.total || 0), 0);
   const detailAssumptions = (item.proposedRates || []).flatMap((r) => r.assumptions || []);
   const hasDetails = detailAssumptions.length > 0 || Boolean(item.recommended?.reason);
-  const unmatched =
-    isSavedOnly && scopeTotal <= 0 && (item.warnings?.length ?? 0) > 0;
+  const sourceMode: 'saved' | 'suggest' = isSuggestMode ? 'suggest' : 'saved';
+  const needsPricing =
+    isSuggestMode
+      ? suggestItemNeedsPricing(item)
+      : isSavedOnly && scopeTotal <= 0 && (item.warnings?.length ?? 0) > 0;
   const canEdit = Boolean(isSavedOnly && scopeTotal > 0 && onToggleEdit);
+  const canToggleInclude = Boolean(isSuggestMode && onToggleIncluded && !needsPricing && scopeTotal > 0);
+  const conf = item.recommended?.confidence;
 
   useEffect(() => {
     if (!isEditing) {
@@ -301,7 +389,7 @@ function ScopeCard({
     if (Number.isFinite(n) && n >= 0) onRateChange?.(pricingType, n);
   };
 
-  if (unmatched) {
+  if (needsPricing) {
     return (
       <View
         style={[
@@ -313,15 +401,27 @@ function ScopeCard({
           },
         ]}
       >
-        <View style={styles.cardHeader}>
-          <Text style={[styles.scopeName, { color: Colors.text }]}>{item.scopeName}</Text>
+        <View style={styles.cardTitleRow}>
+          <Text style={[styles.scopeName, { color: Colors.text }]} numberOfLines={2}>
+            {item.scopeName}
+          </Text>
           {qtyLabel ? (
             <Text style={[styles.scopeQty, { color: Colors.sub }]}>{qtyLabel}</Text>
           ) : null}
         </View>
-        <Text style={{ color: '#fbbf24', fontSize: 12, lineHeight: 17 }}>
-          Not in your saved templates — price manually or use Suggest rough prices.
-        </Text>
+        <View
+          style={[
+            styles.needsPricingBadge,
+            {
+              borderColor: darkMode ? 'rgba(251,191,36,0.45)' : 'rgba(251,191,36,0.55)',
+              backgroundColor: darkMode ? 'rgba(251,191,36,0.12)' : 'rgba(251,191,36,0.1)',
+            },
+          ]}
+        >
+          <Text style={{ color: '#fbbf24', fontSize: 12, fontWeight: '700' }}>
+            {(item.warnings || []).find((w) => /needs manual pricing/i.test(w)) || 'Needs pricing'}
+          </Text>
+        </View>
       </View>
     );
   }
@@ -331,6 +431,7 @@ function ScopeCard({
       style={[
         styles.card,
         isEditing && styles.cardEditing,
+        canToggleInclude && !included && styles.cardExcluded,
         {
           borderColor: isEditing
             ? 'rgba(96,165,250,0.55)'
@@ -338,27 +439,56 @@ function ScopeCard({
               ? 'rgba(255,255,255,0.08)'
               : Colors.line,
           backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : Colors.surface2,
+          opacity: canToggleInclude && !included ? 0.55 : 1,
         },
       ]}
     >
       <View style={styles.cardHeader}>
-        <Text style={[styles.scopeName, { color: Colors.text }]}>{item.scopeName}</Text>
-        <View style={styles.cardHeaderRight}>
-          {qtyLabel ? (
-            <Text style={[styles.scopeQty, { color: Colors.sub }]}>{qtyLabel}</Text>
-          ) : null}
-          {isEditing && onToggleEdit ? (
-            <TouchableOpacity
-              onPress={() => {
-                Keyboard.dismiss();
-                onToggleEdit();
-              }}
-              hitSlop={12}
-              activeOpacity={0.7}
-              style={styles.cardCloseBtn}
+        {canToggleInclude ? (
+          <TouchableOpacity onPress={onToggleIncluded} hitSlop={12} style={styles.includeCheck}>
+            <Ionicons
+              name={included ? 'checkbox' : 'square-outline'}
+              size={22}
+              color={included ? '#22c55e' : Colors.sub}
+            />
+          </TouchableOpacity>
+        ) : null}
+        <View style={styles.cardHeaderBody}>
+          <View style={styles.cardTitleRow}>
+            <Text
+              style={[styles.scopeName, { color: Colors.text }]}
+              numberOfLines={2}
             >
-              <Ionicons name="chevron-up" size={18} color={Colors.sub} />
-            </TouchableOpacity>
+              {item.scopeName}
+            </Text>
+            {qtyLabel ? (
+              <Text style={[styles.scopeQty, { color: Colors.sub }]}>{qtyLabel}</Text>
+            ) : null}
+            {isEditing && onToggleEdit ? (
+              <TouchableOpacity
+                onPress={() => {
+                  Keyboard.dismiss();
+                  onToggleEdit();
+                }}
+                hitSlop={12}
+                activeOpacity={0.7}
+                style={styles.cardCloseBtn}
+              >
+                <Ionicons name="chevron-up" size={18} color={Colors.sub} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          {isSuggestMode && conf ? (
+            <View style={styles.cardMetaRow}>
+              <ConfidenceBadge confidence={conf} compact />
+              {canToggleInclude && !included ? (
+                <Text style={[styles.includeHint, { color: Colors.sub }]} numberOfLines={2}>
+                  {suggestItemIsManualOnly(item)
+                    ? 'Manual pricing recommended'
+                    : 'Unchecked — tap box to include'}
+                </Text>
+              ) : null}
+            </View>
           ) : null}
         </View>
       </View>
@@ -375,20 +505,21 @@ function ScopeCard({
         <TouchableOpacity onPress={onToggleEdit} activeOpacity={0.85}>
           {(item.proposedRates || []).map((line, i) => (
             <View key={`pr-${i}`}>
-              <RateRow line={line} scopeName={item.scopeName} Colors={Colors} />
+              <RateRow line={line} scopeName={item.scopeName} Colors={Colors} sourceMode={sourceMode} />
             </View>
           ))}
         </TouchableOpacity>
       ) : (
         (item.proposedRates || []).map((line, i) => (
           <View key={`pr-${i}`}>
-            <RateRow line={line} scopeName={item.scopeName} Colors={Colors} />
+            <RateRow line={line} scopeName={item.scopeName} Colors={Colors} sourceMode={sourceMode} />
             <MaterialCompareRow
               item={item}
               line={line}
               onSelectMaterial={(source) => onSelectMaterial(item.scopeItemId, source)}
               Colors={Colors}
               enabled={showLiveComparison}
+              sourceMode={sourceMode}
             />
           </View>
         ))
@@ -471,13 +602,70 @@ function ScopeCard({
   );
 }
 
-function SourceLegend({ sources }: { sources: string[] }) {
+function SourceLegend({ sources, mode = 'saved' }: { sources: string[]; mode?: 'saved' | 'suggest' }) {
   if (!sources.length) return null;
   return (
     <View style={styles.legend}>
       {sources.map((source) => (
-        <SourceBadge key={source} source={source} />
+        <SourceBadge key={source} source={source} mode={mode} compact />
       ))}
+    </View>
+  );
+}
+
+function SavedPricingFilterTabs({
+  active,
+  onChange,
+  Colors,
+  darkMode,
+}: {
+  active: 'all' | 'priced' | 'needs';
+  onChange: (tab: 'all' | 'priced' | 'needs') => void;
+  Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
+}) {
+  const tabs: Array<{ id: 'all' | 'priced' | 'needs'; label: string }> = [
+    { id: 'all', label: 'All' },
+    { id: 'priced', label: 'Priced' },
+    { id: 'needs', label: 'Needs pricing' },
+  ];
+  return (
+    <View style={styles.filterTabs}>
+      {tabs.map((tab) => {
+        const selected = active === tab.id;
+        return (
+          <TouchableOpacity
+            key={tab.id}
+            onPress={() => onChange(tab.id)}
+            activeOpacity={0.8}
+            style={[
+              styles.filterTab,
+              {
+                borderColor: selected
+                  ? '#60a5fa'
+                  : darkMode
+                    ? 'rgba(255,255,255,0.12)'
+                    : Colors.line,
+                backgroundColor: selected
+                  ? darkMode
+                    ? 'rgba(96,165,250,0.14)'
+                    : 'rgba(59,130,246,0.1)'
+                  : 'transparent',
+              },
+            ]}
+          >
+            <Text
+              style={{
+                color: selected ? '#60a5fa' : Colors.sub,
+                fontSize: 12,
+                fontWeight: '700',
+              }}
+            >
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
 }
@@ -493,6 +681,7 @@ export default function AIEstimatePricingProposalModal({
   onApply,
   onEdit,
   onAddManually,
+  onClearAllSavedPricing,
   onClose,
 }: Props) {
   const insets = useSafeAreaInsets();
@@ -501,19 +690,30 @@ export default function AIEstimatePricingProposalModal({
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [workingProposal, setWorkingProposal] = useState<PricingProposal | null>(proposal);
   const [editingScopeItemId, setEditingScopeItemId] = useState<string | null>(null);
+  const [savedFilter, setSavedFilter] = useState<'all' | 'priced' | 'needs'>('all');
+  const [includedScopeIds, setIncludedScopeIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!visible) {
       setWorkingProposal(null);
       setEditingScopeItemId(null);
+      setSavedFilter('all');
+      setIncludedScopeIds(new Set());
       return;
     }
-    if (proposal) setWorkingProposal(normalizePricingProposal(proposal));
-  }, [visible, proposal]);
+    if (proposal) {
+      const normalized = normalizePricingProposal(proposal);
+      setWorkingProposal(normalized);
+      if (normalized.pricingMode === 'suggest' || pricingModeProp === 'suggest') {
+        setIncludedScopeIds(defaultIncludedSuggestScopeIds(normalized.scopeItems || []));
+      }
+    }
+  }, [visible, proposal, pricingModeProp]);
 
   const display = normalizePricingProposal(visible ? workingProposal || proposal : null);
   const isSavedOnly =
     pricingModeProp === 'saved_only' || display.pricingMode === 'saved_only';
+  const isSuggestMode = !isSavedOnly;
   const hasContent = proposalHasSavedRates(display);
 
   const legendSources = useMemo(() => {
@@ -536,16 +736,56 @@ export default function AIEstimatePricingProposalModal({
     return order.filter((s) => found.has(s));
   }, [display, isSavedOnly]);
 
+  const savedCounts = useMemo(
+    () => (isSavedOnly ? countSavedPricingScopeItems(display) : null),
+    [display, isSavedOnly]
+  );
+
   const savedMatchStats = useMemo(() => {
-    if (!isSavedOnly || !display.scopeItems?.length) return null;
-    const matched = display.scopeItems.filter((item) =>
-      (item.proposedRates || []).some((r) => (r.total || 0) > 0)
-    ).length;
-    const total = display.scopeItems.length;
-    const unmatched = total - matched;
-    if (unmatched <= 0) return `${matched} item${matched === 1 ? '' : 's'} matched`;
-    return `${matched} matched · ${unmatched} need pricing`;
-  }, [display, isSavedOnly]);
+    if (!savedCounts) return null;
+    return `${savedCounts.priced} prices found • ${savedCounts.needsPricing} still need pricing`;
+  }, [savedCounts]);
+
+  const filteredScopeItems = useMemo(() => {
+    const items = display.scopeItems || [];
+    if (isSavedOnly && savedFilter === 'priced') {
+      return items.filter((item) => scopeItemHasSavedRates(item));
+    }
+    if (isSavedOnly && savedFilter === 'needs') {
+      return items.filter(
+        (item) => !scopeItemHasSavedRates(item) && (item.warnings?.length ?? 0) > 0
+      );
+    }
+    return items;
+  }, [display.scopeItems, isSavedOnly, savedFilter]);
+
+  const selectedSuggestCount = includedScopeIds.size;
+
+  const suggestApplyLabel = useMemo(() => {
+    if (!isSuggestMode) return applyLabel || 'Apply suggested pricing';
+    if (selectedSuggestCount <= 0) return 'Apply selected suggested prices';
+    return `Apply ${selectedSuggestCount} selected price${selectedSuggestCount === 1 ? '' : 's'}`;
+  }, [isSuggestMode, selectedSuggestCount, applyLabel]);
+
+  const savedApplyLabel = useMemo(() => {
+    if (!isSavedOnly || !savedCounts) return applyLabel || 'Apply saved pricing';
+    const n = savedCounts.priced;
+    return n > 0 ? `Apply ${n} saved price${n === 1 ? '' : 's'}` : applyLabel || 'Apply saved pricing';
+  }, [isSavedOnly, savedCounts, applyLabel]);
+
+  const savedStillNeedCaption = useMemo(() => {
+    if (!isSavedOnly || !savedCounts || savedCounts.needsPricing <= 0) return null;
+    const n = savedCounts.needsPricing;
+    return `${n} item${n === 1 ? '' : 's'} will still need pricing.`;
+  }, [isSavedOnly, savedCounts]);
+
+  const suggestUncheckedCaption = useMemo(() => {
+    if (!isSuggestMode) return null;
+    const total = display.scopeItems?.length ?? 0;
+    const unchecked = total - selectedSuggestCount;
+    if (unchecked <= 0) return null;
+    return `${unchecked} unchecked — shown for reference. Check a box to include, or price manually later.`;
+  }, [isSuggestMode, display.scopeItems, selectedSuggestCount]);
 
   const partialTemplateMatch =
     isSavedOnly &&
@@ -606,11 +846,18 @@ export default function AIEstimatePricingProposalModal({
               {display.message ||
                 'You have not saved pricing for this scope yet. Add prices manually or request suggested pricing.'}
             </Text>
+            {isSavedOnly && onClearAllSavedPricing ? (
+              <TouchableOpacity onPress={onClearAllSavedPricing} style={{ marginTop: 16 }}>
+                <Text style={{ color: '#f87171', fontWeight: '700', textAlign: 'center' }}>
+                  Reset all saved pricing
+                </Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         ) : (
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 100 }}>
             <Text style={{ color: Colors.sub, fontSize: 13, lineHeight: 18, marginBottom: 12 }}>
-              {subtitle}
+              {isSuggestMode ? 'Suggested planning prices. Review and adjust before applying.' : subtitle}
             </Text>
 
             {isSavedOnly && savedMatchStats ? (
@@ -619,7 +866,16 @@ export default function AIEstimatePricingProposalModal({
               </Text>
             ) : null}
 
-            {!isSavedOnly ? <SourceLegend sources={legendSources} /> : null}
+            {isSavedOnly ? (
+              <SavedPricingFilterTabs
+                active={savedFilter}
+                onChange={setSavedFilter}
+                Colors={Colors}
+                darkMode={darkMode}
+              />
+            ) : null}
+
+            {!isSavedOnly ? <SourceLegend sources={legendSources} mode="suggest" /> : null}
 
             {isSavedOnly ? (
               <View
@@ -628,13 +884,12 @@ export default function AIEstimatePricingProposalModal({
                   { backgroundColor: darkMode ? 'rgba(96,165,250,0.12)' : 'rgba(96,165,250,0.1)' },
                 ]}
               >
-                <SourceBadge
-                  source={
-                    display.primarySource === 'saved_template' ? 'saved_template' : 'saved_pricing'
-                  }
-                />
                 <Text style={{ color: '#60a5fa', fontSize: 12, lineHeight: 17, flex: 1 }}>
-                  Template rates only. Use Suggest rough prices for HD Live and national rates.
+                  <Text style={{ fontWeight: '800' }}>
+                    {display.primarySource === 'saved_template' ? 'Template' : 'Saved bid'} rates only.
+                  </Text>
+                  {' '}
+                  Use Suggest rough prices for vendor and regional rates.
                 </Text>
               </View>
             ) : null}
@@ -646,7 +901,9 @@ export default function AIEstimatePricingProposalModal({
                   { backgroundColor: darkMode ? 'rgba(96,165,250,0.12)' : 'rgba(96,165,250,0.1)' },
                 ]}
               >
-                <SourceBadge source={display.primarySource === 'saved_template' ? 'saved_template' : 'saved_pricing'} />
+                <View style={styles.infoBannerBadge}>
+                  <SourceBadge source={display.primarySource === 'saved_template' ? 'saved_template' : 'saved_pricing'} compact />
+                </View>
                 <Text style={{ color: '#60a5fa', fontSize: 12, lineHeight: 17, flex: 1 }}>
                   Some lines matched your saved pricing. HD Live and national rates shown where
                   available for comparison.
@@ -676,7 +933,7 @@ export default function AIEstimatePricingProposalModal({
                   { backgroundColor: darkMode ? 'rgba(251,191,36,0.1)' : 'rgba(251,191,36,0.08)' },
                 ]}
               >
-                <SourceBadge source="ai_rough_estimate_fallback" />
+                <SourceBadge source="ai_rough_estimate_fallback" mode="suggest" />
                 <Text style={{ color: '#fbbf24', fontSize: 12, lineHeight: 17, flex: 1 }}>
                   No saved or live pricing found — AI estimates for planning only.
                 </Text>
@@ -684,7 +941,7 @@ export default function AIEstimatePricingProposalModal({
             ) : null}
 
             {useEngineCards
-              ? display.scopeItems!.map((item) => (
+              ? filteredScopeItems.map((item) => (
                   <ScopeCard
                     key={item.scopeItemId}
                     item={item}
@@ -692,6 +949,16 @@ export default function AIEstimatePricingProposalModal({
                     onSelectMaterial={handleSelectMaterial}
                     showLiveComparison={!isSavedOnly}
                     isSavedOnly={isSavedOnly}
+                    isSuggestMode={isSuggestMode}
+                    included={includedScopeIds.has(item.scopeItemId)}
+                    onToggleIncluded={() =>
+                      setIncludedScopeIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(item.scopeItemId)) next.delete(item.scopeItemId);
+                        else next.add(item.scopeItemId);
+                        return next;
+                      })
+                    }
                     isEditing={editingScopeItemId === item.scopeItemId}
                     onToggleEdit={() =>
                       setEditingScopeItemId((prev) =>
@@ -724,12 +991,14 @@ export default function AIEstimatePricingProposalModal({
                         <Text style={[styles.rateLabel, { color: Colors.text }]} numberOfLines={1}>
                           {line.label}
                         </Text>
-                        <Text style={[styles.rateUnit, { color: Colors.sub }]}>{line.formula}</Text>
-                        <Text style={[styles.rateTotal, { color: Colors.text }]}>
-                          {formatDraftMoney(line.total)}
-                        </Text>
-                        <View style={styles.rateBadge}>
-                          <SourceBadge source={line.priceSource} compact />
+                        <View style={styles.rateRowRight}>
+                          <Text style={[styles.rateUnitInline, { color: Colors.sub }]} numberOfLines={1}>
+                            {line.formula}
+                          </Text>
+                          <Text style={[styles.rateTotalInline, { color: Colors.text }]} numberOfLines={1}>
+                            {formatDraftMoney(line.total)}
+                          </Text>
+                          <SourceInlineTag source={line.priceSource} />
                         </View>
                       </View>
                     ))}
@@ -772,12 +1041,46 @@ export default function AIEstimatePricingProposalModal({
         <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16), borderTopColor: Colors.line }]}>
           {!display.empty && hasContent ? (
             <>
+              {isSuggestMode ? (
+                <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 16, marginBottom: 4 }}>
+                  {SUGGESTED_PRICING_DISCLAIMER}
+                </Text>
+              ) : null}
               <TouchableOpacity
-                style={styles.primaryBtn}
-                onPress={() => workingProposal && onApply(workingProposal)}
+                style={[
+                  styles.primaryBtn,
+                  isSuggestMode && selectedSuggestCount <= 0 && { opacity: 0.45 },
+                ]}
+                disabled={isSuggestMode && selectedSuggestCount <= 0}
+                onPress={() => {
+                  if (!workingProposal) return;
+                  const toApply = isSuggestMode
+                    ? filterProposalToScopeItems(workingProposal, includedScopeIds)
+                    : workingProposal;
+                  onApply(toApply);
+                }}
               >
-                <Text style={styles.primaryBtnText}>{applyLabel}</Text>
+                <Text style={styles.primaryBtnText}>
+                  {isSavedOnly ? savedApplyLabel : suggestApplyLabel}
+                </Text>
               </TouchableOpacity>
+              {isSavedOnly && savedStillNeedCaption ? (
+                <Text style={{ color: Colors.sub, fontSize: 12, textAlign: 'center' }}>
+                  {savedStillNeedCaption}
+                </Text>
+              ) : null}
+              {isSuggestMode && suggestUncheckedCaption ? (
+                <Text style={{ color: Colors.sub, fontSize: 12, textAlign: 'center', lineHeight: 17 }}>
+                  {suggestUncheckedCaption}
+                </Text>
+              ) : null}
+              {isSavedOnly && onClearAllSavedPricing ? (
+                <TouchableOpacity onPress={onClearAllSavedPricing} style={{ marginTop: 4 }}>
+                  <Text style={{ color: '#f87171', fontSize: 12, fontWeight: '700', textAlign: 'center' }}>
+                    Reset all saved pricing (templates + library)
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
               {onEdit && !isSavedOnly ? (
                 <TouchableOpacity
                   style={styles.secondaryBtn}
@@ -860,6 +1163,19 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
+  badgeCompact: {
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    gap: 4,
+  },
+  badgeDotCompact: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
+  badgeTextCompact: {
+    fontSize: 10,
+  },
   infoBanner: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -868,11 +1184,16 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 12,
   },
+  infoBannerBadge: {
+    flexShrink: 0,
+    maxWidth: '36%',
+  },
   card: {
     padding: 14,
     borderRadius: 14,
     borderWidth: 1,
     marginBottom: 12,
+    overflow: 'hidden',
   },
   cardEditing: {
     borderWidth: 1.5,
@@ -895,17 +1216,61 @@ const styles = StyleSheet.create({
   unmatchedCard: {
     borderStyle: 'dashed',
   },
+  needsPricingBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    marginTop: 4,
+  },
+  filterTabs: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  filterTab: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
   cardHeader: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     marginBottom: 6,
     gap: 8,
   },
-  cardHeaderRight: {
+  cardHeaderBody: {
+    flex: 1,
+    minWidth: 0,
+    gap: 6,
+  },
+  cardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  cardMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 8,
+  },
+  includeHint: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '600',
+    minWidth: 0,
+  },
+  includeCheck: {
+    marginRight: 2,
+  },
+  cardExcluded: {
+    borderStyle: 'dashed',
   },
   cardCloseBtn: {
     padding: 4,
@@ -922,8 +1287,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
   },
-  scopeName: { fontSize: 16, fontWeight: '800', flex: 1 },
-  scopeQty: { fontSize: 12, fontWeight: '600' },
+  scopeName: { fontSize: 16, fontWeight: '800', flex: 1, flexShrink: 1, minWidth: 0 },
+  scopeQty: { fontSize: 12, fontWeight: '600', flexShrink: 0 },
   rateRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -934,21 +1299,32 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     width: 72,
+    flexShrink: 0,
   },
-  rateUnit: {
-    fontSize: 12,
+  rateRowRight: {
     flex: 1,
-    minWidth: 64,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 6,
+    minWidth: 0,
   },
-  rateTotal: {
+  rateUnitInline: {
+    fontSize: 12,
+    fontWeight: '600',
+    flexShrink: 1,
+    maxWidth: '100%',
+  },
+  rateTotalInline: {
     fontSize: 14,
     fontWeight: '800',
-    width: 72,
-    textAlign: 'right',
+    flexShrink: 0,
   },
-  rateBadge: {
-    width: 76,
-    alignItems: 'flex-end',
+  sourceInlineTag: {
+    fontSize: 10,
+    fontWeight: '700',
+    flexShrink: 0,
   },
   compareRow: {
     marginTop: 0,
@@ -964,20 +1340,22 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   compareChips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    flexDirection: 'column',
+    gap: 6,
   },
   compareChip: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 6,
+    alignItems: 'center',
+    gap: 8,
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 10,
     borderWidth: 1,
+    alignSelf: 'stretch',
+  },
+  compareChipBody: {
     flex: 1,
-    minWidth: '46%',
+    minWidth: 0,
   },
   scopeTotalRow: {
     flexDirection: 'row',

@@ -42,6 +42,7 @@ import { setBusinessEntitlementSnapshot } from '../utils/businessEntitlementCach
 import { setWorkspaceClerkTokenGetter } from '../utils/workspaceAuthBridge';
 import { recordDeletedProject } from '../utils/aiDashboardPortfolioFilter';
 import { isWorkspaceRestrictedFinancialsProject } from '../utils/workspacePermissions';
+import { purgeSavedPricingForBid } from '../utils/estimateSavedPricingCleanup';
 
 // Unified Project interface that combines Estimates, Projects, and Dashboard data
 export interface UnifiedProject {
@@ -1415,6 +1416,10 @@ const ProjectListProviderCore = ({
         /* ignore */
       }
     }
+
+    void purgeSavedPricingForBid(String(projectId)).catch((err) => {
+      if (__DEV__) console.warn('deleteProject: purge saved pricing failed', err);
+    });
   };
 
   // Calculate dashboard metrics

@@ -193,6 +193,23 @@ export async function deletePricingRate(id: string): Promise<void> {
   await pricingMemoryFetch(`/rates/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
+export async function deletePricingMemoryForProject(projectId: string): Promise<{ deleted: number }> {
+  const id = String(projectId || '').trim();
+  if (!id) return { deleted: 0 };
+  try {
+    const res = await pricingMemoryFetch<{ deleted?: number }>(
+      `/project/${encodeURIComponent(id)}`,
+      { method: 'DELETE' }
+    );
+    return { deleted: res.deleted ?? 0 };
+  } catch (e) {
+    if (__DEV__) {
+      console.warn('deletePricingMemoryForProject failed (non-blocking)', e);
+    }
+    return { deleted: 0 };
+  }
+}
+
 export async function updatePricingRate(
   id: string,
   patch: { unitRate?: number; scopeItemName?: string }

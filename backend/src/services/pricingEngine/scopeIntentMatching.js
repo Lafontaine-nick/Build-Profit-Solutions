@@ -11,6 +11,7 @@ const INSTALL_RE = /\b(install|installation|installing|lay|float|set|place|new\s
 const TILE_RE = /\btile\b/i;
 const FLOOR_RE = /\b(laminate|lvp|vinyl|flooring|floor)\b/i;
 const TRIM_RE = /\b(baseboard|trim|moulding|molding)\b/i;
+const CLOSEOUT_RE = /\b(cleanup|disposal|dumpster|final\s+clean|jobsite\s+clean)\b/i;
 const BATH_FIXTURE_RE = /\b(vanity|toilet|shower|tub|bath(?:room)?)\b/i;
 const KITCHEN_RE = /\b(cabinet|countertop|backsplash|kitchen)\b/i;
 const PAINT_RE = /\b(paint|painting|primer|repaint)\b/i;
@@ -71,6 +72,10 @@ function getScopeWorkIntent(scopeItem, draft) {
   const name = scopeItem.scopeName || '';
   const text = scopeIntentText(scopeItem, draft);
   const roles = [];
+
+  if (CLOSEOUT_RE.test(name) || /\bpermits?\b/i.test(name)) {
+    return { workType: 'other', pricingRoles: ['labor'], tokens: tokenize(text) };
+  }
 
   let workType = 'other';
   if (DEMO_RE.test(text) || /\bdemo\b/i.test(name)) {
@@ -139,7 +144,9 @@ function workTypesCompatible(scopeWork, lineWork) {
 
 function scopeProductFamily(scopeItem) {
   const scopeText = blob(scopeItem.scopeName, scopeItem.scope);
-  if (DEMO_RE.test(scopeText) || /\bdemo\b/i.test(scopeItem.scopeName || '')) return 'demo';
+  const name = scopeItem.scopeName || '';
+  if (CLOSEOUT_RE.test(name) || /\bpermits?\b/i.test(name)) return 'closeout';
+  if (DEMO_RE.test(scopeText) || /\bdemo\b/i.test(name)) return 'demo';
   if (/laminate|lvp|vinyl/i.test(scopeText)) return 'laminate';
   if (TRIM_RE.test(scopeText)) return 'trim';
   if (BATH_FIXTURE_RE.test(scopeText) && !DEMO_RE.test(scopeText)) return 'bathroom';
@@ -155,6 +162,7 @@ function scopeProductFamily(scopeItem) {
 
 function lineProductFamily(line) {
   const lineText = blob(line.name, line.description, line.section, line.category);
+  if (CLOSEOUT_RE.test(lineText) || /\bpermits?\b/i.test(lineText)) return 'closeout';
   if (DEMO_RE.test(lineText)) return 'demo';
   if (/laminate|lvp|vinyl/i.test(lineText)) return 'laminate';
   if (TRIM_RE.test(lineText)) return 'trim';
@@ -202,6 +210,14 @@ function tradeTokensCompatible(scopeItem, line) {
   }
 
   if (scopeFam === 'trim') return TRIM_RE.test(lineText);
+
+  if (scopeFam === 'closeout') {
+    return (
+      lineFam === 'closeout' ||
+      CLOSEOUT_RE.test(lineText) ||
+      entryMatchesMissingItem({ scopeItemName: lineText }, scopeItem.scopeName)
+    );
+  }
 
   if (scopeFam === 'bathroom' || scopeFam === 'kitchen' || scopeFam === 'paint') {
     if (lineFam === scopeFam) return true;

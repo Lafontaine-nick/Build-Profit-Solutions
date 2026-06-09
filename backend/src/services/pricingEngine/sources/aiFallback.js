@@ -1,12 +1,21 @@
 const { AI_FALLBACK_RATES } = require('../constants');
+const {
+  isPlumbingTrimScope,
+  isElectricalTrimScope,
+  isBaseboardTrimScope,
+} = require('../sourceValidation');
 
 function lookupAiFallback(scopeItem) {
   const name = scopeItem.scopeName.toLowerCase();
   const rates = [];
   const assumptions = [
     'No verified saved or live source matched',
-    'Planning-only fallback — not guaranteed accurate',
+    'AI rough estimate — planning only, not guaranteed accurate',
   ];
+
+  if (isPlumbingTrimScope(scopeItem) || isElectricalTrimScope(scopeItem)) {
+    return { available: false, rates: [] };
+  }
 
   if (/tile|demo/.test(name) && scopeItem.unit === 'sqft') {
     rates.push({
@@ -38,7 +47,7 @@ function lookupAiFallback(scopeItem) {
       confidence: 'low',
       assumptions,
     });
-  } else if (/baseboard|trim/.test(name) && scopeItem.unit === 'lf') {
+  } else if (isBaseboardTrimScope(scopeItem) && scopeItem.unit === 'lf') {
     rates.push({
       pricingType: 'material',
       label: 'Baseboard material (fallback)',

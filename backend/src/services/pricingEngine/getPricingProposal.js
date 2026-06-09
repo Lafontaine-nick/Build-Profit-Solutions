@@ -8,6 +8,7 @@ const { lookupSupplierPricing } = require('./sources/supplierPricing');
 const { lookupNationalTradeAverage } = require('./sources/nationalTradeAverage');
 const { lookupCostDatabase } = require('./sources/costDatabase');
 const { lookupAiFallback } = require('./sources/aiFallback');
+const { validateScopeItemSuggestion, PLANNING_DISCLAIMER } = require('./sourceValidation');
 
 /** Resolve ZIP from request, draft field, or originalNotes (e.g. "zip code 89141"). */
 function resolveZipFromDraft(draft, zipCode = '') {
@@ -126,9 +127,28 @@ async function getPricingProposal(params) {
       ai_rough_estimate_fallback: lookupAiFallback(scopeItem),
     };
 
-    const { comparison, recommended, proposedRates } = pickRecommended(scopeItem, lookups, {
+    let { comparison, recommended, proposedRates } = pickRecommended(scopeItem, lookups, {
       savedOnly: mode === 'saved_only',
     });
+
+    let validatedWarnings = [];
+    if (mode === 'saved_only') {
+      const validated = validateScopeItemSuggestion(scopeItem, proposedRates, recommended);
+      proposedRates = validated.proposedRates;
+      recommended = validated.recommended;
+      validatedWarnings = validated.warnings || [];
+      if (validated.confidence && recommended) {
+        recommended.confidence = validated.confidence;
+      }
+    } else if (mode === 'suggest') {
+      const validated = validateScopeItemSuggestion(scopeItem, proposedRates, recommended);
+      proposedRates = validated.proposedRates;
+      recommended = validated.recommended;
+      validatedWarnings = validated.warnings || [];
+      if (validated.confidence && recommended) {
+        recommended.confidence = validated.confidence;
+      }
+    }
 
     const isSavedSource =
       recommended?.source === 'saved_pricing' || recommended?.source === 'saved_template';
@@ -154,8 +174,10 @@ async function getPricingProposal(params) {
       !proposedRates.length && mode === 'saved_only'
         ? ['No saved pricing or bid template matched this item.']
         : !proposedRates.length
-          ? ['No saved pricing or live pricing source was found. Use manual entry or AI fallback.']
-          : [];
+          ? ['Needs manual pricing — no reliable source found.']
+          : mode === 'suggest' && validatedWarnings?.length
+            ? validatedWarnings
+            : [];
 
     items.push({
       scopeItemId: scopeItem.scopeItemId,
@@ -236,7 +258,7 @@ async function getPricingProposal(params) {
           : 'No saved pricing matched; national trade averages shown for planning — verify before bidding.',
     ],
     templateCount: (savedTemplates || []).length,
-    disclaimer: PRICING_DISCLAIMER,
+    disclaimer: mode === 'suggest' ? PLANNING_DISCLAIMER : PRICING_DISCLAIMER,
     warnings,
     supplierZip: context.zipCode,
     supplierZipIsFallback: context.supplierZipIsFallback,

@@ -9,6 +9,15 @@ const {
   resolveQuantityForChecklistItem,
   stampPackageWithCatalogRules,
 } = require('./scopeItemQuantityCatalog');
+const { parseScopeMeasurementsFromNotes } = require('./scopeMeasurementParser');
+const {
+  CHECKLIST_TEMPLATES,
+  CHECKLIST_LEGEND,
+  checklistTemplateKey,
+  inferItemStateFromNotes,
+  inferChoiceFromNotes,
+  choiceToState,
+} = require('./scopeChecklistLibrary');
 
 const VALID_ESTIMATE_TIERS = new Set([
   'simple_unit',
@@ -20,332 +29,25 @@ const VALID_ESTIMATE_TIERS = new Set([
 const REMODEL_KEYWORDS_RE =
   /\b(remodel|renovation|gut\s*(?:out|job)?|full\s+(?:bath|kitchen|remodel)|demo\s+and\s+rebuild)\b/i;
 
-const FIXTURE_CHOICE_OPTIONS = [
-  { id: 'staying', label: 'Staying' },
-  { id: 'replacing', label: 'Replacing' },
-  { id: 'relocating', label: 'Relocating' },
-  { id: 'not_in_scope', label: 'Not in this bid' },
-  { id: 'unsure', label: 'Not sure yet' },
-];
-
-const FIXTURE_CHOICE_NO_RELOCATE = [
-  { id: 'staying', label: 'Staying' },
-  { id: 'replacing', label: 'Replacing' },
-  { id: 'not_in_scope', label: 'Not in this bid' },
-  { id: 'unsure', label: 'Not sure yet' },
-];
-
-const CHECKLIST_TEMPLATES = {
-  bathroom: {
-    title: 'Bathroom remodel — confirm project scope',
-    intro:
-      'Before pricing, confirm what work is part of this bid. Yes = in your scope. No = not part of this bid. Not sure = we will not auto-price it.',
-    items: [
-      {
-        id: 'demo',
-        inputType: 'yes_no',
-        label: 'Demo / tear-out of existing bathroom',
-        helperText: 'Remove and dispose of existing fixtures, tile, and finishes.',
-        category: 'scope',
-      },
-      {
-        id: 'tub_shower',
-        inputType: 'choice',
-        label: 'Tub or shower',
-        helperText: 'What happens to the tub or shower area?',
-        options: FIXTURE_CHOICE_OPTIONS,
-        category: 'plumbing',
-      },
-      {
-        id: 'toilet',
-        inputType: 'choice',
-        label: 'Toilet',
-        helperText: 'Staying, replacing, or moving to a new location?',
-        options: FIXTURE_CHOICE_OPTIONS,
-        category: 'plumbing',
-      },
-      {
-        id: 'vanity',
-        inputType: 'choice',
-        label: 'Vanity & countertop',
-        helperText: 'Staying, or remove and install new?',
-        options: FIXTURE_CHOICE_NO_RELOCATE,
-        category: 'fixtures',
-      },
-      {
-        id: 'shower_tile',
-        inputType: 'yes_no',
-        label: 'Shower wall tile installation',
-        helperText: 'Tile labor and materials for shower walls — not just tile supply.',
-        category: 'tile',
-      },
-      {
-        id: 'waterproofing',
-        inputType: 'yes_no',
-        label: 'Shower waterproofing & backer board',
-        helperText: 'Membrane, backer, and prep before tile.',
-        category: 'tile',
-      },
-      {
-        id: 'floor_tile',
-        inputType: 'yes_no',
-        label: 'Floor tile installation',
-        helperText: 'Tile labor and materials for bathroom floor.',
-        category: 'tile',
-      },
-      {
-        id: 'plumbing_rough',
-        inputType: 'yes_no',
-        label: 'Plumbing rough-in (new lines / relocation)',
-        helperText: 'In-wall plumbing changes — not final fixture hookup only.',
-        category: 'plumbing',
-      },
-      {
-        id: 'electrical_rough',
-        inputType: 'yes_no',
-        label: 'Electrical work (new circuits / boxes)',
-        helperText: 'Wiring changes for lights, fans, or GFCI — not bulb swaps.',
-        category: 'electrical',
-      },
-      {
-        id: 'lighting',
-        inputType: 'yes_no',
-        label: 'New lighting fixtures & install',
-        helperText: 'Supply and install light fixtures, not just the fixture cost alone.',
-        category: 'electrical',
-      },
-      {
-        id: 'drywall',
-        inputType: 'yes_no',
-        label: 'Drywall repair / patching',
-        helperText: 'Patch or replace drywall after plumbing or layout changes.',
-        category: 'finishes',
-      },
-      {
-        id: 'paint',
-        inputType: 'yes_no',
-        label: 'Interior painting (prep + labor + paint)',
-        helperText: 'Paint the bathroom walls/ceiling — not paint-only material.',
-        category: 'finishes',
-      },
-      {
-        id: 'trim',
-        inputType: 'yes_no',
-        label: 'Trim & baseboard install',
-        helperText: 'Install trim/baseboard labor and materials.',
-        category: 'finishes',
-      },
-      {
-        id: 'glass_door',
-        inputType: 'yes_no',
-        label: 'Glass shower door install',
-        helperText: 'Door unit plus install — not customer-supplied only.',
-        category: 'fixtures',
-      },
-      {
-        id: 'plumbing_trim',
-        inputType: 'yes_no',
-        label: 'Final plumbing trim (faucets, toilet set, hookups)',
-        helperText: 'Set fixtures and finish connections after rough-in.',
-        category: 'plumbing',
-      },
-      {
-        id: 'electrical_trim',
-        inputType: 'yes_no',
-        label: 'Final electrical trim (devices, plates, bulbs)',
-        helperText: 'Finish devices and trim after rough-in.',
-        category: 'electrical',
-      },
-      {
-        id: 'permits',
-        inputType: 'yes_no',
-        label: 'Permits & inspections (you pull / include in bid)',
-        helperText: 'Permit fees and inspection coordination in your price.',
-        category: 'soft_costs',
-      },
-      {
-        id: 'cleanup',
-        inputType: 'yes_no',
-        label: 'Jobsite cleanup & disposal',
-        helperText: 'Final clean and haul-off / dumpster.',
-        category: 'scope',
-      },
-    ],
-  },
-  kitchen: {
-    title: 'Kitchen remodel — confirm project scope',
-    intro:
-      'Before pricing, confirm what work is part of this bid. Yes = in your scope. No = not part of this bid. Not sure = we will not auto-price it.',
-    items: [
-      {
-        id: 'demo',
-        inputType: 'yes_no',
-        label: 'Cabinet & appliance demo',
-        helperText: 'Remove existing cabinets, counters, and appliances.',
-        category: 'scope',
-      },
-      {
-        id: 'cabinets',
-        inputType: 'yes_no',
-        label: 'New cabinet install',
-        helperText: 'Cabinet supply and installation labor.',
-        category: 'cabinets',
-      },
-      {
-        id: 'countertops',
-        inputType: 'yes_no',
-        label: 'Countertop fabrication & install',
-        helperText: 'Template, fabricate, and install counters.',
-        category: 'countertops',
-      },
-      {
-        id: 'backsplash',
-        inputType: 'yes_no',
-        label: 'Backsplash tile install',
-        helperText: 'Tile labor and materials for backsplash.',
-        category: 'tile',
-      },
-      {
-        id: 'island',
-        inputType: 'yes_no',
-        label: 'Kitchen island (cabinet + counter)',
-        helperText: 'New or expanded island build-out.',
-        category: 'cabinets',
-      },
-      {
-        id: 'appliances',
-        inputType: 'yes_no',
-        label: 'Appliances (supply & hookup)',
-        helperText: 'Appliance cost and connection — mark No if customer supplies.',
-        category: 'fixtures',
-      },
-      {
-        id: 'flooring',
-        inputType: 'yes_no',
-        label: 'Kitchen flooring install',
-        helperText: 'Floor material and install labor.',
-        category: 'flooring',
-      },
-      {
-        id: 'plumbing',
-        inputType: 'yes_no',
-        label: 'Plumbing changes (sink, dishwasher, gas line)',
-        helperText: 'Rough or finish plumbing for kitchen layout.',
-        category: 'plumbing',
-      },
-      {
-        id: 'electrical',
-        inputType: 'yes_no',
-        label: 'Electrical & lighting changes',
-        helperText: 'Circuits, outlets, and lighting for kitchen.',
-        category: 'electrical',
-      },
-      {
-        id: 'walls_moving',
-        inputType: 'choice',
-        label: 'Wall layout changes',
-        helperText: 'Any walls removed or moved?',
-        options: [
-          { id: 'no_changes', label: 'No wall changes' },
-          { id: 'remove', label: 'Removing wall(s)' },
-          { id: 'add', label: 'Adding / moving wall(s)' },
-          { id: 'not_in_scope', label: 'Not in this bid' },
-          { id: 'unsure', label: 'Not sure yet' },
-        ],
-        category: 'structural',
-      },
-      {
-        id: 'paint',
-        inputType: 'yes_no',
-        label: 'Interior painting (prep + labor + paint)',
-        helperText: 'Paint kitchen walls/ceiling — not paint-only material.',
-        category: 'finishes',
-      },
-      {
-        id: 'permits',
-        inputType: 'yes_no',
-        label: 'Permits & inspections',
-        helperText: 'Permit fees in your bid if you include them.',
-        category: 'soft_costs',
-      },
-      {
-        id: 'cleanup',
-        inputType: 'yes_no',
-        label: 'Jobsite cleanup & disposal',
-        helperText: 'Final clean and haul-off.',
-        category: 'scope',
-      },
-    ],
-  },
-  room_remodel: {
-    title: 'Interior remodel — confirm project scope',
-    intro:
-      'This looks like a multi-trade remodel. Confirm what work is in the bid before we price anything.',
-    items: [
-      { id: 'demo', inputType: 'yes_no', label: 'Demo / selective tear-out', category: 'scope' },
-      { id: 'framing', inputType: 'yes_no', label: 'Framing or layout changes', category: 'structural' },
-      { id: 'plumbing', inputType: 'yes_no', label: 'Plumbing work', category: 'plumbing' },
-      { id: 'electrical', inputType: 'yes_no', label: 'Electrical work', category: 'electrical' },
-      { id: 'hvac', inputType: 'yes_no', label: 'HVAC work', category: 'hvac' },
-      { id: 'drywall', inputType: 'yes_no', label: 'Drywall hang / finish', category: 'finishes' },
-      { id: 'flooring', inputType: 'yes_no', label: 'Flooring install', category: 'flooring' },
-      {
-        id: 'paint',
-        inputType: 'yes_no',
-        label: 'Interior painting (prep + labor + paint)',
-        category: 'finishes',
-      },
-      { id: 'trim', inputType: 'yes_no', label: 'Trim & doors', category: 'finishes' },
-      { id: 'permits', inputType: 'yes_no', label: 'Permits & inspections', category: 'soft_costs' },
-      { id: 'cleanup', inputType: 'yes_no', label: 'Jobsite cleanup & disposal', category: 'scope' },
-    ],
-  },
-  addition: {
-    title: 'Addition / conversion — confirm scope phases',
-    intro:
-      'Additions include shell, MEP, tie-ins, and permits. Mark each phase Yes if it is part of this bid.',
-    items: [
-      { id: 'sitework', inputType: 'yes_no', label: 'Sitework & grading', category: 'sitework' },
-      { id: 'foundation', inputType: 'yes_no', label: 'Foundation / slab', category: 'structural' },
-      { id: 'framing', inputType: 'yes_no', label: 'Framing / shell', category: 'structural' },
-      { id: 'roof_tie_in', inputType: 'yes_no', label: 'Roof tie-in to existing', category: 'structural' },
-      { id: 'windows_doors', inputType: 'yes_no', label: 'Windows & exterior doors', category: 'exterior' },
-      { id: 'plumbing_rough', inputType: 'yes_no', label: 'Plumbing rough-in', category: 'plumbing' },
-      { id: 'electrical_rough', inputType: 'yes_no', label: 'Electrical rough-in', category: 'electrical' },
-      { id: 'hvac', inputType: 'yes_no', label: 'HVAC', category: 'hvac' },
-      { id: 'insulation', inputType: 'yes_no', label: 'Insulation', category: 'envelope' },
-      { id: 'drywall', inputType: 'yes_no', label: 'Drywall', category: 'finishes' },
-      { id: 'finishes', inputType: 'yes_no', label: 'Interior finishes', category: 'finishes' },
-      { id: 'permits', inputType: 'yes_no', label: 'Permits & inspections', category: 'soft_costs' },
-      { id: 'engineering', inputType: 'yes_no', label: 'Engineering / drawings', category: 'soft_costs' },
-      { id: 'utility_connections', inputType: 'yes_no', label: 'Utility connections', category: 'sitework' },
-    ],
-  },
-  ground_up: {
-    title: 'Ground-up build — confirm planning scope',
-    intro:
-      'New construction needs phase assumptions before a planning estimate. Mark Yes only for work in this bid.',
-    items: [
-      { id: 'sitework', inputType: 'yes_no', label: 'Sitework & excavation', category: 'sitework' },
-      { id: 'foundation', inputType: 'yes_no', label: 'Foundation', category: 'structural' },
-      { id: 'framing', inputType: 'yes_no', label: 'Framing', category: 'structural' },
-      { id: 'roofing', inputType: 'yes_no', label: 'Roofing', category: 'exterior' },
-      { id: 'exterior', inputType: 'yes_no', label: 'Exterior finishes', category: 'exterior' },
-      { id: 'mep_rough', inputType: 'yes_no', label: 'MEP rough-in', category: 'mep' },
-      { id: 'insulation', inputType: 'yes_no', label: 'Insulation', category: 'envelope' },
-      { id: 'drywall', inputType: 'yes_no', label: 'Drywall', category: 'finishes' },
-      { id: 'cabinets_counters', inputType: 'yes_no', label: 'Cabinets & countertops', category: 'finishes' },
-      { id: 'tile_flooring', inputType: 'yes_no', label: 'Tile & flooring', category: 'finishes' },
-      { id: 'paint_trim', inputType: 'yes_no', label: 'Paint & trim', category: 'finishes' },
-      { id: 'appliances', inputType: 'yes_no', label: 'Appliances', category: 'fixtures' },
-      { id: 'permits', inputType: 'yes_no', label: 'Permits', category: 'soft_costs' },
-      { id: 'engineering', inputType: 'yes_no', label: 'Engineering', category: 'soft_costs' },
-      { id: 'utility_taps', inputType: 'yes_no', label: 'Utility taps / connections', category: 'sitework' },
-      { id: 'contingency', inputType: 'yes_no', label: 'Contingency allowance', category: 'soft_costs' },
-      { id: 'overhead_profit', inputType: 'yes_no', label: 'Builder overhead & profit', category: 'soft_costs' },
-    ],
-  },
-};
+const MULTI_TRADE_PROJECT_TYPES = new Set([
+  'landscaping',
+  'concrete',
+  'excavation',
+  'framing',
+  'plumbing_service',
+  'electrical',
+  'hvac',
+  'deck_patio',
+  'roofing',
+  'painting',
+  'drywall',
+  'room_addition',
+  'home_addition',
+  'adu',
+  'garage_conversion',
+  'new_build',
+  'other',
+]);
 
 function notesText(draft, originalNotes) {
   return String(originalNotes || draft?.originalNotes || '').toLowerCase();
@@ -372,6 +74,9 @@ function isSimpleUnitBid(draft, originalNotes) {
       projectType
     )
   ) {
+    return false;
+  }
+  if (MULTI_TRADE_PROJECT_TYPES.has(projectType) && projectType !== 'flooring' && projectType !== 'painting') {
     return false;
   }
 
@@ -433,89 +138,11 @@ function classifyEstimateTier(draft, originalNotes) {
     return 'simple_unit';
   }
 
-  if (['other', 'roofing', 'concrete'].includes(projectType)) {
+  if (MULTI_TRADE_PROJECT_TYPES.has(projectType) || ['other', 'roofing', 'concrete'].includes(projectType)) {
     return 'room_remodel';
   }
 
   return 'simple_unit';
-}
-
-function checklistTemplateKey(draft, estimateTier) {
-  const projectType = String(draft.projectType || 'other').toLowerCase();
-  const notes = notesText(draft, null);
-
-  if (estimateTier === 'ground_up') return 'ground_up';
-  if (estimateTier === 'addition') return 'addition';
-  if (projectType === 'bathroom' || /\bbath(?:room)?\s+remodel\b/i.test(notes)) return 'bathroom';
-  if (projectType === 'kitchen' || /\bkitchen\s+remodel\b/i.test(notes)) return 'kitchen';
-  if (estimateTier === 'room_remodel') return 'room_remodel';
-  return 'room_remodel';
-}
-
-function inferItemStateFromNotes(itemId, notes) {
-  const n = String(notes || '').toLowerCase();
-  const yesHints = {
-    demo: /\b(demo|demolition|tear\s*out|gut|remove)\b/,
-    shower_tile: /\b(shower\s+tile|tile\s+shower|new\s+shower\s+tile)\b/,
-    floor_tile: /\b(floor\s+tile|tile\s+floor|new\s+floor\s+tile)\b/,
-    cabinets: /\b(cabinet|new\s+cabinets)\b/,
-    countertops: /\b(countertop|quartz|granite|install\s+new\s+countertops?)\b/,
-    backsplash: /\b(backsplash)\b/,
-    island: /\b(island)\b/,
-    paint: /\b(paint(?:ing)?|bathroom\s+paint)\b/,
-    lighting: /\b(new\s+lighting|lighting)\b/,
-    glass_door: /\b(shower\s+door|glass\s+shower)\b/,
-    vanity: /\b(vanity|countertops?\s+and\s+vanity)\b/,
-    permits: /\b(permit)\b/,
-    cleanup: /\b(cleanup|disposal|dumpster|haul\s*off)\b/,
-  };
-  const noHints = {
-    appliances: /\b(no\s+appliances|appliances\s+not\s+included|owner\s+appliances)\b/,
-    permits: /\b(no\s+permits|permits\s+not\s+included|owner\s+pulls?\s+permits)\b/,
-  };
-
-  if (noHints[itemId]?.test(n)) return 'excluded';
-  if (yesHints[itemId]?.test(n)) return 'included';
-  return 'unsure';
-}
-
-function inferChoiceFromNotes(itemId, notes) {
-  const n = String(notes || '').toLowerCase();
-
-  if (itemId === 'toilet') {
-    if (/\b(move|relocate|relocating)\b.*\btoilet\b|\btoilet\b.*\b(move|relocate)\b/.test(n)) return 'relocating';
-    if (/\b(replace|new|remove\s+and\s+replace)\b.*\btoilet\b|\btoilet\b.*\b(replace|new)\b/.test(n)) {
-      return 'replacing';
-    }
-    if (/\btoilet\b.*\bstay|\bstay.*\btoilet\b/.test(n)) return 'staying';
-  }
-
-  if (itemId === 'tub_shower') {
-    if (/\b(relocat|move)\b.*\b(shower|tub)\b|\b(shower|tub)\b.*\b(relocat|move)\b/.test(n)) return 'relocating';
-    if (/\b(new\s+shower|replace|replacing)\b.*\b(shower|tub)\b|\b(shower|tub)\b.*\b(new|replace)\b/.test(n)) {
-      return 'replacing';
-    }
-  }
-
-  if (itemId === 'vanity') {
-    if (/\b(remove\s+and\s+replace|replace|new)\b.*\bvanity\b|\bvanity\b.*\b(replace|new)\b/.test(n)) {
-      return 'replacing';
-    }
-  }
-
-  if (itemId === 'walls_moving') {
-    if (/\b(no\s+wall|walls?\s+not\s+moving)\b/.test(n)) return 'no_changes';
-    if (/\b(remove|removing)\b.*\bwall/.test(n)) return 'remove';
-    if (/\b(add|adding|moving)\b.*\bwall/.test(n)) return 'add';
-  }
-
-  return null;
-}
-
-function choiceToState(choiceId) {
-  if (!choiceId || choiceId === 'unsure') return 'unsure';
-  if (choiceId === 'not_in_scope') return 'excluded';
-  return 'included';
 }
 
 function formatAssumptionLine(item) {
@@ -554,6 +181,15 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     };
   });
 
+  const panIdx = items.findIndex((i) => i.id === 'wet_area_install' || i.id === 'shower_pan');
+  const showerFloorIdx = items.findIndex((i) => i.id === 'shower_floor_tile');
+  const panChoice = panIdx >= 0 ? items[panIdx].choiceId : null;
+  if (panIdx >= 0 && showerFloorIdx >= 0 && panChoice === 'tile_pan') {
+    if (items[showerFloorIdx].state === 'unsure') {
+      items[showerFloorIdx] = { ...items[showerFloorIdx], state: 'included' };
+    }
+  }
+
   const inScopeCount = items.filter((i) => i.state === 'included').length;
   const unsureCount = items.filter((i) => i.state === 'unsure').length;
   const outOfScopeCount = items.filter((i) => i.state === 'excluded').length;
@@ -563,9 +199,15 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     templateKey,
     title: template.title,
     intro: template.intro,
-    legend:
-      'Yes = this work is part of your bid scope. No = not part of this bid. Not sure = we will not auto-price it.',
+    legend: CHECKLIST_LEGEND,
     items,
+    suggestedMeasurements: (() => {
+      const parsed = parseScopeMeasurementsFromNotes(notes, {
+        templateKey,
+        projectType: draft.projectType,
+      });
+      return Object.keys(parsed).length ? parsed : undefined;
+    })(),
     options: [
       { id: 'scope_only', label: 'Build scope only (no pricing yet)' },
       { id: 'rough_range', label: 'Create rough budget range' },
@@ -660,8 +302,65 @@ const CHECKLIST_EXTRA_ROOMS = {
     scope: 'Permit fees and inspection coordination',
   },
   cleanup: {
-    name: 'Jobsite Cleanup & Disposal',
-    scope: 'Final clean, haul-off, and disposal',
+    name: 'Cleanup, Haul-off & Disposal',
+    scope: 'Final clean, debris haul-off, dump fees',
+  },
+  floor_demo: {
+    name: 'Flooring Demo / Removal',
+    scope: 'Remove existing floor tile, LVP, vinyl, or flooring',
+    usesSqft: true,
+  },
+  tub_demo: {
+    name: 'Tub Removal / Demo',
+    scope: 'Remove and dispose of existing bathtub',
+    isFixture: true,
+  },
+  shower_floor_demo: {
+    name: 'Shower Pan / Floor Demo',
+    scope: 'Remove existing shower pan, base, or shower floor tile',
+    usesSqft: true,
+  },
+  tub_install: {
+    name: 'Tub Installation',
+    scope: 'Supply and install bathtub — labor and materials (alcove, drop-in, or freestanding)',
+    isFixture: true,
+  },
+  shower_pan: {
+    name: 'Tile Shower Pan (Mud Pan)',
+    scope: 'Build tile shower pan — labor and materials (slope, drain, liner, mud bed, waterproofing prep)',
+  },
+  prefab_shower_pan: {
+    name: 'Prefab Shower Pan Install',
+    scope: 'Supply and install prefab shower pan or acrylic base — labor and materials',
+    isFixture: true,
+  },
+  shower_floor_tile: {
+    name: 'Shower Floor Tile Installation',
+    scope: 'Shower floor tile labor and materials',
+    usesSqft: true,
+  },
+  shower_niche: {
+    name: 'Shower Niche',
+    scope: 'Frame, waterproof, and tile shower niche',
+    isFixture: true,
+  },
+  shower_bench_curb: {
+    name: 'Shower Bench / Curb',
+    scope: 'Build, waterproof, and tile bench or curb',
+  },
+  exhaust_fan: {
+    name: 'Exhaust Fan / Ventilation',
+    scope: 'Replace or install bath fan and ducting if needed',
+    isFixture: true,
+  },
+  mirror_accessories: {
+    name: 'Mirror & Bath Accessories',
+    scope: 'Install mirror, towel bars, paper holder, hooks, or accessories',
+  },
+  floor_prep: {
+    name: 'Subfloor / Floor Prep',
+    scope: 'Leveling, patching, underlayment, or repair before flooring',
+    usesSqft: true,
   },
   floor_tile: {
     name: 'Floor Tile Installation',
@@ -673,7 +372,6 @@ const CHECKLIST_EXTRA_ROOMS = {
 const CHOICE_CHECKLIST_TO_TASK_ID = {
   toilet: 'toilet_install',
   vanity: 'vanity_install',
-  tub_shower: 'shower_tile',
 };
 
 function checklistItemInBidScope(item) {
@@ -696,7 +394,6 @@ function resolveTaskIdForChecklistItem(item, templateKey) {
   }
 
   if (CHOICE_CHECKLIST_TO_TASK_ID[item.id]) {
-    if (item.id === 'tub_shower' && item.choiceId === 'staying') return null;
     return CHOICE_CHECKLIST_TO_TASK_ID[item.id];
   }
 
@@ -726,6 +423,15 @@ function roomExistsByLabel(rooms, label) {
   });
 }
 
+function defaultMissingPriceItemsForExtra(itemId) {
+  const map = {
+    tub_install: ['Tub / surround materials', 'Tub install labor'],
+    prefab_shower_pan: ['Prefab pan / base materials', 'Shower pan install labor'],
+    shower_pan: ['Pan liner, drain & mud materials', 'Tile shower pan build labor'],
+  };
+  return map[itemId] || ['Materials / supplies', 'Install labor'];
+}
+
 function emptyRoomFromChecklistExtra(itemId, extra, notes, measurements) {
   const ctx = { measurements, notes, packageName: extra.name };
   const resolved = resolveQuantityForChecklistItem(itemId, ctx);
@@ -738,6 +444,9 @@ function emptyRoomFromChecklistExtra(itemId, extra, notes, measurements) {
       quantitySource: resolved.quantitySource,
     });
   }
+  const missingPriceItems = extra.isFixture || ['tub_install', 'shower_pan'].includes(itemId)
+    ? defaultMissingPriceItemsForExtra(itemId)
+    : [];
   return {
     name: extra.name,
     scope: extra.scope,
@@ -748,7 +457,7 @@ function emptyRoomFromChecklistExtra(itemId, extra, notes, measurements) {
     priceIncludesLaborAndMaterials: false,
     priceProvidedByUser: false,
     pricingItems: [],
-    missingPriceItems: [],
+    missingPriceItems,
   };
 }
 
@@ -765,6 +474,20 @@ function addScopePackagesFromConfirmedChecklist(draft, confirmedItems, scopeMeas
 
   for (const item of confirmedItems) {
     if (!checklistItemInBidScope(item)) continue;
+
+    if (item.id === 'wet_area_install' && item.inputType === 'choice') {
+      if (item.choiceId === 'prefab') extraIds.push('prefab_shower_pan');
+      else if (item.choiceId === 'tile_pan') extraIds.push('shower_pan');
+      else if (item.choiceId === 'tub') extraIds.push('tub_install');
+      continue;
+    }
+
+    if (item.id === 'shower_pan' && item.inputType === 'choice') {
+      if (item.choiceId === 'prefab') extraIds.push('prefab_shower_pan');
+      else if (item.choiceId === 'tile_pan') extraIds.push('shower_pan');
+      continue;
+    }
+
     const taskId = resolveTaskIdForChecklistItem(item, templateKey);
     if (taskId) {
       taskIds.add(taskId);
@@ -818,8 +541,17 @@ function applyScopeMeasurements(draft, measurements) {
   const norm = normalizeScopeMeasurements(measurements);
   const hasAny =
     norm.bathroomFloorSqft ||
+    norm.kitchenFloorSqft ||
+    norm.backsplashSqft ||
+    norm.landscapeSqft ||
+    norm.roofSquares ||
+    norm.drywallSqft ||
+    norm.concreteSqft ||
+    norm.concreteCy ||
+    norm.excavationCy ||
     norm.baseboardLf ||
     norm.showerWallTileSqft ||
+    norm.showerFloorTileSqft ||
     norm.wallPaintSqft ||
     Object.keys(norm.itemQuantities || {}).length > 0;
   if (!hasAny) return draft;
@@ -850,8 +582,17 @@ function applyScopeMeasurements(draft, measurements) {
       sqft: norm.bathroomFloorSqft,
       lf: norm.baseboardLf,
       bathroomFloorSqft: norm.bathroomFloorSqft,
+      kitchenFloorSqft: norm.kitchenFloorSqft,
+      backsplashSqft: norm.backsplashSqft,
+      landscapeSqft: norm.landscapeSqft,
+      roofSquares: norm.roofSquares,
+      drywallSqft: norm.drywallSqft,
+      concreteSqft: norm.concreteSqft,
+      concreteCy: norm.concreteCy,
+      excavationCy: norm.excavationCy,
       baseboardLf: norm.baseboardLf,
       showerWallTileSqft: norm.showerWallTileSqft,
+      showerFloorTileSqft: norm.showerFloorTileSqft,
       wallPaintSqft: norm.wallPaintSqft,
       itemQuantities: norm.itemQuantities,
     },
@@ -909,6 +650,12 @@ function applyScopeAssumptions(draft, confirmedItems, scopeMeasurements) {
     ...withChecklistPackages,
     scopeAssumptionsConfirmed: true,
     confirmedAssumptions: confirmedItems,
+    scopeChecklist: withChecklistPackages.scopeChecklist
+      ? {
+          ...withChecklistPackages.scopeChecklist,
+          items: confirmedItems.map((item) => ({ ...item })),
+        }
+      : withChecklistPackages.scopeChecklist,
     inclusions: newInclusions,
     exclusions: newExclusions,
     missingInfo,
