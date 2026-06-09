@@ -40,5 +40,19 @@
     "zip": "",
     "listOnFindSubcontractors": false,
     "updatedAt": "2026-05-28T05:39:49.497Z"
+  },
+  {
+    "id": "user_3ESD7GXNND3kTNwQxE6liuSGcQk",
+    "companyName": "",
+    "contactName": "",
+    "email": "",
+    "phone": "",
+    "website": "",
+    "trades": [
+      "Developer"
+    ],
+    "zip": "89141",
+    "listOnFindSubcontractors": true,
+    "updatedAt": "2026-06-09T05:55:48.839Z"
   }
 ]

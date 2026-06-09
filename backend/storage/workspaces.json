@@ -72,5 +72,31 @@
     ],
     "createdAt": "2026-05-27T05:06:04.731Z",
     "updatedAt": "2026-05-27T05:06:06.119Z"
+  },
+  {
+    "id": "26e1ade3-478a-4182-9ce4-870a2afde55b",
+    "name": "Build Profit Workspace",
+    "ownerUserId": "user_3ESD7GXNND3kTNwQxE6liuSGcQk",
+    "ownerEmail": "nick94lafontaine@gmail.com",
+    "billingPlan": "business",
+    "billingStatus": "inactive",
+    "seatLimit": 5,
+    "members": [
+      {
+        "id": "c1d7138b-76ff-4136-96a9-89b0980d5c4f",
+        "userId": "user_3ESD7GXNND3kTNwQxE6liuSGcQk",
+        "email": "nick94lafontaine@gmail.com",
+        "displayName": "Build Profit Workspace",
+        "role": "owner",
+        "tradeRole": "Project Manager",
+        "status": "active",
+        "projectStatus": "active",
+        "joinedAt": "2026-06-09T03:40:37.185Z",
+        "createdAt": "2026-06-09T03:40:37.185Z",
+        "updatedAt": "2026-06-09T03:40:37.185Z"
+      }
+    ],
+    "createdAt": "2026-06-09T03:40:37.185Z",
+    "updatedAt": "2026-06-09T03:40:37.185Z"
   }
 ]
