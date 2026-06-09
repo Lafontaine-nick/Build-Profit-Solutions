@@ -1,5 +1,6 @@
 const { NATIONAL_TRADE_AVERAGES, SOURCE_LABELS } = require('../constants');
 const { classifyTradeForPricing } = require('../tradeClassifier');
+const { lookupFixturePlanningRates } = require('../planningQuantities');
 
 function resolveUnitAndQuantity(scopeItem, band, draft) {
   const notes = draft?.originalNotes || '';
@@ -26,6 +27,9 @@ function resolveUnitAndQuantity(scopeItem, band, draft) {
   if (unit === 'square') {
     return { unit, quantity: quantity > 0 ? quantity : band.defaultQuantity || 20 };
   }
+  if (unit === 'each') {
+    return { unit, quantity: quantity > 0 ? quantity : 1 };
+  }
   if (quantity > 0) return { unit, quantity };
   return null;
 }
@@ -43,6 +47,17 @@ function lookupNationalTradeAverage(scopeItem, context = {}) {
       draft.originalNotes,
       draft.projectType
     );
+  if (trade === 'bathroom_fixture') {
+    const fixtureResult = lookupFixturePlanningRates(scopeItem);
+    if (fixtureResult.available) {
+      return {
+        ...fixtureResult,
+        sourceLabel: SOURCE_LABELS.national_trade_average,
+      };
+    }
+    return { available: false, rates: [], trade };
+  }
+
   const band = NATIONAL_TRADE_AVERAGES[trade] || NATIONAL_TRADE_AVERAGES.other;
   const resolved = resolveUnitAndQuantity(scopeItem, band, draft);
   if (!resolved || !resolved.quantity) {

@@ -79,14 +79,37 @@ async function getPricingProposal(params) {
   const warnings = [];
   let anyRealSource = false;
   let anyFallbackOnly = true;
+  let pricingReadyCount = 0;
+  let needsMeasurementCount = 0;
+
+  const priceableScopeItems = [];
+  for (const scopeItem of scopeItems) {
+    if (scopeItem.pricingReady) {
+      priceableScopeItems.push(scopeItem);
+      pricingReadyCount += 1;
+    } else {
+      needsMeasurementCount += 1;
+      items.push({
+        scopeItemId: scopeItem.scopeItemId,
+        scopeName: scopeItem.scopeName,
+        quantity: scopeItem.quantity,
+        unit: scopeItem.unit,
+        proposedRates: [],
+        comparison: null,
+        recommended: null,
+        pricingReady: false,
+        warnings: ['Needs quantity or unit confirmation before pricing.'],
+      });
+    }
+  }
 
   const supplierLookups =
     mode === 'saved_only'
       ? []
-      : await Promise.all(scopeItems.map((scopeItem) => lookupSupplierPricing(scopeItem, context)));
+      : await Promise.all(priceableScopeItems.map((scopeItem) => lookupSupplierPricing(scopeItem, context)));
 
-  for (let i = 0; i < scopeItems.length; i++) {
-    const scopeItem = scopeItems[i];
+  for (let i = 0; i < priceableScopeItems.length; i++) {
+    const scopeItem = priceableScopeItems[i];
     const lookups = {
       saved_pricing: lookupSavedPricing(scopeItem, userId, { draft }),
       saved_template: lookupSavedTemplate(scopeItem, savedTemplates, {
@@ -141,6 +164,7 @@ async function getPricingProposal(params) {
       unit: scopeItem.unit,
       proposedRates,
       comparison,
+      pricingReady: true,
       recommended: recommended
         ? {
             source: recommended.source,
@@ -191,6 +215,8 @@ async function getPricingProposal(params) {
     lines: allLines,
     totalSuggested: roundMoney(totalSuggested),
     empty: allLines.length === 0,
+    pricingReadyCount,
+    needsMeasurementCount,
     primarySource,
     primarySourceLabel: SOURCE_LABELS[primarySource] || 'Pricing Engine',
     anyRealSource,

@@ -19,6 +19,12 @@ function classifyTradeForPricing(name, scope = '', notes = '', projectType = '')
   }
   if (/laminate|flooring|lvp|vinyl|carpet/.test(n)) return 'flooring';
   if (/kitchen|cabinet|counter/.test(n)) return 'kitchen';
+  if (
+    /\b(toilet|vanity|shower\s+door|glass\s+door|tub|bathtub|sink)\b/.test(n) &&
+    /\binstall/.test(n)
+  ) {
+    return 'bathroom_fixture';
+  }
   if (/bath|shower|vanity/.test(n)) return 'bathroom';
   if (/plumb/.test(n)) return 'plumbing';
   if (/electric/.test(n)) return 'electrical';

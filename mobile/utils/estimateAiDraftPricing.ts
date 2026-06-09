@@ -449,6 +449,54 @@ export function setScopeMaterialSource(
   };
 }
 
+/** Edit material or labor unit rate on one scope card; recalculates totals. */
+export function updateScopeProposedRate(
+  proposal: PricingProposal,
+  scopeItemId: string,
+  pricingType: 'material' | 'labor',
+  rate: number
+): PricingProposal {
+  if (!proposal.scopeItems?.length || !Number.isFinite(rate) || rate < 0) return proposal;
+
+  const scopeItems = proposal.scopeItems.map((item) => {
+    if (item.scopeItemId !== scopeItemId) return item;
+    const proposedRates = (item.proposedRates || []).map((line) => {
+      const lineType = line.pricingType === 'material' ? 'material' : 'labor';
+      if (lineType !== pricingType) return line;
+      const qty =
+        line.quantity != null && line.quantity > 0
+          ? line.quantity
+          : item.quantity != null && item.quantity > 0
+            ? item.quantity
+            : null;
+      const unit = line.unit || item.unit;
+      const total =
+        qty != null && qty > 0 ? roundProposalMoney(rate * qty) : line.total ?? null;
+      const formula =
+        total != null && qty != null && unit
+          ? `${qty.toLocaleString()} ${formatDisplayUnit(unit)} × ${formatProposalUnitRate(rate, unit)} = $${total.toLocaleString()}`
+          : line.formula ?? null;
+      return {
+        ...line,
+        rate,
+        quantity: qty,
+        total,
+        formula,
+        requiresApproval: true,
+      };
+    });
+    return { ...item, proposedRates };
+  });
+
+  const lines = scopeItemsToProposalLines(scopeItems);
+  return normalizePricingProposal({
+    ...proposal,
+    scopeItems,
+    lines,
+    totalSuggested: lines.reduce((s, l) => s + (l.total || 0), 0),
+  });
+}
+
 export function proposalUsesSavedPricing(proposal: PricingProposal | null): boolean {
   if (!proposal) return false;
   if (proposal.primarySource === 'saved_pricing' || proposal.primarySource === 'saved_template') {

@@ -192,6 +192,11 @@ export function expandJobScopeDraft(draft: EstimateAiDraft, options: { aggressiv
   const notes = String(draft.originalNotes || '').trim();
   if (!notes) return draft;
 
+  // Keep scope packages built from the confirmed checklist — do not replace with note-only split.
+  if (draft.scopeAssumptionsConfirmed && (draft.rooms?.length || draft.scopePackages?.length)) {
+    return draft;
+  }
+
   const tasks = detectScopeTasksFromNotes(notes);
   if (tasks.length < 2) return draft;
 

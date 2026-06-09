@@ -7,6 +7,7 @@ const { createEstimateDraftFromNotes } = require('../services/estimateDraftFromN
 const { suggestLaborMaterialSplits } = require('../services/estimateDraftSuggestSplits');
 const { clarifyEstimateDraft } = require('../services/estimateDraftClarify');
 const { enrichDraft } = require('../services/estimateDraftEnrichment');
+const { applyScopeAssumptions, buildScopeChecklist } = require('../services/estimateDraftComplexity');
 const { enrichDraftPhase2, buildRoughEstimateRange } = require('../services/estimateDraftPhase2');
 
 // Additive: persistent per-user memory. All calls are best-effort and wrapped
@@ -15405,6 +15406,55 @@ router.post('/estimate-draft-suggest-splits', async (req, res) => {
     return res.status(500).json({
       error: 'Split suggestion failed',
       message: err?.message || 'Could not suggest labor/material splits',
+    });
+  }
+});
+
+/**
+ * POST /api/ai-assistant/estimate-draft-scope-checklist
+ * Build or refresh scope assumption checklist for complex jobs.
+ */
+router.post('/estimate-draft-scope-checklist', async (req, res) => {
+  try {
+    const { draft } = req.body || {};
+    if (!draft) {
+      return res.status(400).json({ error: 'Draft is required' });
+    }
+    const enriched = enrichDraft(draft);
+    const checklist =
+      enriched.scopeChecklist ||
+      buildScopeChecklist(enriched, enriched.estimateTier || 'room_remodel', enriched.originalNotes);
+    return res.json({ draft: enriched, checklist });
+  } catch (err) {
+    console.error('Error in /estimate-draft-scope-checklist:', err);
+    return res.status(500).json({
+      error: 'Scope checklist failed',
+      message: err?.message || 'Could not build scope checklist',
+    });
+  }
+});
+
+/**
+ * POST /api/ai-assistant/estimate-draft-apply-scope-assumptions
+ * Merge confirmed scope checklist into draft and re-enrich metadata.
+ */
+router.post('/estimate-draft-apply-scope-assumptions', async (req, res) => {
+  try {
+    const { draft, confirmedItems, scopeMeasurements } = req.body || {};
+    if (!draft) {
+      return res.status(400).json({ error: 'Draft is required' });
+    }
+    if (!Array.isArray(confirmedItems) || confirmedItems.length === 0) {
+      return res.status(400).json({ error: 'confirmedItems array is required' });
+    }
+    const merged = applyScopeAssumptions(draft, confirmedItems, scopeMeasurements);
+    const enriched = enrichDraft(merged);
+    return res.json({ draft: enriched });
+  } catch (err) {
+    console.error('Error in /estimate-draft-apply-scope-assumptions:', err);
+    return res.status(500).json({
+      error: 'Apply scope assumptions failed',
+      message: err?.message || 'Could not apply scope assumptions',
     });
   }
 });

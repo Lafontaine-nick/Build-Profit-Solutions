@@ -305,11 +305,16 @@ function buildScopePackage(room, draft, originalNotes) {
     hasRoomTotal ? roundMoney(sanitizedRoom.price) : null
   );
 
-  const scopeQuantities = extractScopeQuantitiesForPackage(
+  const scopeQuantitiesFromRoom = Array.isArray(sanitizedRoom.scopeQuantities)
+    ? sanitizedRoom.scopeQuantities.filter((q) => q.quantity > 0)
+    : [];
+  const scopeQuantitiesFromNotes = extractScopeQuantitiesForPackage(
     sanitizedRoom.name,
     sanitizedRoom.scope,
     `${roomNotesText}\n${originalNotes || ''}`.trim()
   );
+  const scopeQuantities =
+    scopeQuantitiesFromRoom.length > 0 ? scopeQuantitiesFromRoom : scopeQuantitiesFromNotes;
 
   const pricedFromSqft = Boolean(sanitizedRoom.pricedFromSqftAllowances);
   const splitIsSuggested = Boolean(sanitizedRoom.splitIsSuggested);

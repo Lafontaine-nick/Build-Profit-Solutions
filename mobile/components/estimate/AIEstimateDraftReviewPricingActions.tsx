@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { formatDraftMoney } from '@/utils/estimateAiDraft';
 import { draftHasApplyablePricing } from '@/utils/estimateAiDraftPricing';
+import { countDraftPricingReadiness } from '@/utils/scopeItemQuantities';
 
 type Colors = {
   text: string;
@@ -70,6 +71,17 @@ export default function AIEstimateDraftReviewPricingActions({
   onAddPricesManually,
 }: Props) {
   const hasPricing = draftHasApplyablePricing(draft);
+  const pricingReadiness = countDraftPricingReadiness(draft);
+  const roughLabel =
+    pricingReadiness.ready > 0
+      ? pricingReadiness.needsMeasurement > 0
+        ? `Suggest pricing for ${pricingReadiness.ready} ready items`
+        : 'Suggest rough prices'
+      : 'Suggest rough prices';
+  const roughHint =
+    pricingReadiness.needsMeasurement > 0
+      ? `${pricingReadiness.needsMeasurement} item${pricingReadiness.needsMeasurement === 1 ? '' : 's'} need measurements first — only ready items will be priced.`
+      : 'Labeled AI Rough Estimate — not applied until you approve.';
   const hasMemorySuggestions = (draft.pricingMemorySuggestions?.length ?? 0) > 0;
   const templateHints = (draft.pricingMemoryMissingSuggestions || []).filter(
     (s) => s.source === 'saved_template'
@@ -135,9 +147,9 @@ export default function AIEstimateDraftReviewPricingActions({
       ) : null}
 
       <ActionBtn
-        label="Suggest rough prices"
+        label={roughLabel}
         onPress={onSuggestRoughPrices}
-        disabled={busy}
+        disabled={busy || pricingReadiness.ready === 0}
         color="#fbbf24"
         loading={roughRangeLoading}
       />
@@ -148,7 +160,7 @@ export default function AIEstimateDraftReviewPricingActions({
         </Text>
       ) : (
         <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 8, marginTop: -4 }}>
-          Labeled AI Rough Estimate — not applied until you approve.
+          {roughHint}
         </Text>
       )}
 

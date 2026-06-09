@@ -94,6 +94,34 @@ function computeEstimateConfidence(draft, scopePackages) {
   const pkgs = scopePackages || [];
   const profile = detectNoteProfile(pkgs, draft);
   const reasons = [];
+  const tier = draft.estimateTier || 'simple_unit';
+
+  if (tier !== 'simple_unit' && !draft.scopeAssumptionsConfirmed) {
+    const tierLabel =
+      tier === 'ground_up'
+        ? 'Ground-up build'
+        : tier === 'addition'
+          ? 'Addition / conversion'
+          : 'Remodel';
+    return {
+      level: 'low',
+      label: 'Low confidence',
+      summary: `${tierLabel} — confirm scope assumptions before pricing is applied.`,
+      reasons: ['Complex job detected — review included/excluded scope first'],
+    };
+  }
+
+  if (tier === 'ground_up' && draft.scopeAssumptionsConfirmed) {
+    return {
+      level: 'low',
+      label: 'Low confidence',
+      summary: 'Planning estimate only — verify phases, subs, and soft costs before bidding.',
+      reasons: [
+        'Ground-up builds need phase templates and builder benchmarks',
+        'Supplier pricing supplements — does not replace full construction costing',
+      ],
+    };
+  }
 
   let calculated = 0;
   let userProvided = 0;

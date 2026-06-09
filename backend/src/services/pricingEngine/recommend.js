@@ -116,6 +116,59 @@ function summarizeSourceOption(sourceKey, lookup) {
   };
 }
 
+function mergeSavedSourceRates(lookups) {
+  const sources = ['saved_pricing', 'saved_template', 'company_default'];
+  const roles = ['material', 'labor'];
+  const merged = [];
+  const roleSources = {};
+
+  for (const role of roles) {
+    for (const src of sources) {
+      const lk = lookups[src];
+      if (!lk?.available || !lk.rates?.length) continue;
+      const row = lk.rates.find((r) => r.pricingType === role);
+      if (!row) continue;
+      merged.push(row);
+      roleSources[role] = src;
+      break;
+    }
+  }
+
+  if (!merged.length) {
+    return { available: false, rates: [], roleSources: {}, primarySource: null };
+  }
+
+  const primarySource =
+    roleSources.material === 'saved_template' || roleSources.labor === 'saved_template'
+      ? 'saved_template'
+      : roleSources.material === 'saved_pricing' || roleSources.labor === 'saved_pricing'
+        ? 'saved_pricing'
+        : 'company_default';
+
+  return { available: true, rates: merged, roleSources, primarySource };
+}
+
+function savedMergeReason(roleSources) {
+  const parts = [];
+  if (roleSources.material === 'saved_template') {
+    parts.push('Material from a saved bid template');
+  } else if (roleSources.material === 'saved_pricing') {
+    parts.push('Material from your pricing library');
+  } else if (roleSources.material === 'company_default') {
+    parts.push('Material from company defaults');
+  }
+
+  if (roleSources.labor === 'saved_template') {
+    parts.push('Labor from a saved bid template');
+  } else if (roleSources.labor === 'saved_pricing') {
+    parts.push('Labor from your pricing library');
+  } else if (roleSources.labor === 'company_default') {
+    parts.push('Labor from company defaults');
+  }
+
+  return parts.length ? `${parts.join('; ')}.` : 'Matched rates from saved sources.';
+}
+
 function pickRecommended(scopeItem, lookups, options = {}) {
   const { savedOnly = false } = options;
   const qty = scopeItem.quantity;
@@ -160,8 +213,20 @@ function pickRecommended(scopeItem, lookups, options = {}) {
   let chosenRates = [];
   let blendedLaborSource = null;
   let blendedMaterialSource = null;
+  let savedRoleSources = null;
   let reason = '';
 
+  if (savedOnly) {
+    const merged = mergeSavedSourceRates(lookups);
+    if (merged.available) {
+      chosenSource = merged.primarySource;
+      chosenRates = merged.rates;
+      savedRoleSources = merged.roleSources;
+      reason = savedMergeReason(merged.roleSources);
+    }
+  }
+
+  if (!chosenSource) {
   for (const src of order) {
     if (src === 'supplier_pricing') {
       const lk = lookups.supplier_pricing;
@@ -267,10 +332,17 @@ function pickRecommended(scopeItem, lookups, options = {}) {
       break;
     }
   }
+  }
 
   const proposedRates = chosenRates.map((r) => {
     let lineSource = chosenSource;
-    if (blendedMaterialSource && r.pricingType === 'material') {
+    if (savedRoleSources) {
+      if (r.pricingType === 'material' && savedRoleSources.material) {
+        lineSource = savedRoleSources.material;
+      } else if (r.pricingType === 'labor' && savedRoleSources.labor) {
+        lineSource = savedRoleSources.labor;
+      }
+    } else if (blendedMaterialSource && r.pricingType === 'material') {
       lineSource = blendedMaterialSource;
     } else if (blendedLaborSource && r.pricingType === 'labor') {
       lineSource = blendedLaborSource;
@@ -304,4 +376,4 @@ function pickRecommended(scopeItem, lookups, options = {}) {
   };
 }
 
-module.exports = { pickRecommended, rateToProposed, roundMoney, formatMoney };
+module.exports = { pickRecommended, rateToProposed, roundMoney, formatMoney, mergeSavedSourceRates };

@@ -47,6 +47,7 @@ import AIEstimateDraftReviewModal from '../../components/estimate/AIEstimateDraf
 import AIEstimatePricingProposalModal from '../../components/estimate/AIEstimatePricingProposalModal';
 import AIEstimatePricingFallbackModal from '../../components/estimate/AIEstimatePricingFallbackModal';
 import AIEstimateManualPricingModal from '../../components/estimate/AIEstimateManualPricingModal';
+import AIEstimateScopeAssumptionsModal from '../../components/estimate/AIEstimateScopeAssumptionsModal';
 import {
   applyPricingProposalToDraft,
   buildProposalFromMissingSuggestions,
@@ -80,10 +81,12 @@ import {
 } from '../../utils/estimateSavedBidTemplates';
 import {
   applyDraftToEstimate,
+  applyScopeAssumptionsToDraft,
   fetchEstimateDraftFromNotes,
   fetchSuggestedDraftSplits,
   fetchClarifyDraftQuestions,
   fetchRoughEstimateRange,
+  isComplexEstimateTier,
 } from '../../utils/estimateAiDraft';
 import {
   capturePricingMemory,
@@ -5133,6 +5136,8 @@ export default function EstimateGeneratorScreen() {
   const [showAiSavedPricingModal, setShowAiSavedPricingModal] = useState(false);
   const [showAiRoughPricingModal, setShowAiRoughPricingModal] = useState(false);
   const [showAiManualPricingModal, setShowAiManualPricingModal] = useState(false);
+  const [showAiScopeAssumptionsModal, setShowAiScopeAssumptionsModal] = useState(false);
+  const [aiScopeAssumptionsApplying, setAiScopeAssumptionsApplying] = useState(false);
   const [aiManualPricingSeed, setAiManualPricingSeed] = useState(null);
   const [pricingFallbackVariant, setPricingFallbackVariant] = useState(null);
   const [aiSaveToPricingLibrary, setAiSaveToPricingLibrary] = useState(true);
@@ -5593,6 +5598,59 @@ export default function EstimateGeneratorScreen() {
     [savedBidTemplates, bid, aiDraftNotes]
   );
 
+  /** After complex-job scope is confirmed, run saved pricing then rough pricing. */
+  const advanceComplexDraftAfterScope = useCallback(
+    async (enrichedDraft, { skipPricing = false } = {}) => {
+      setAiDraft(enrichedDraft);
+      setShowAiScopeAssumptionsModal(false);
+      setShowAiDraftReviewModal(true);
+
+      if (skipPricing) return;
+
+      const { draft: withSaved, hasProposal: hasSaved } = await applySavedPricingToDraftState(
+        enrichedDraft,
+        { autoApply: false, showLoading: false }
+      );
+      if (hasSaved) {
+        setAiDraft(withSaved);
+        setShowAiSavedPricingModal(true);
+        if (Platform.OS !== 'web') {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+        return;
+      }
+
+      setAiDraftRoughLoading(true);
+      try {
+        let templates = savedBidTemplates;
+        try {
+          templates = await loadSavedBidTemplates();
+          setSavedBidTemplates(templates);
+        } catch {
+          templates = savedBidTemplates;
+        }
+        const proposal = await fetchRoughPricingProposal(enrichedDraft, templates, {
+          projectLocation: [bid?.projectAddress, bid?.customerCity, bid?.customerState]
+            .filter(Boolean)
+            .join(', '),
+          zipCode: resolvePricingZipCode(enrichedDraft, bid),
+        });
+        if (!proposal.empty) {
+          setAiRoughPricingProposal(proposal);
+          setShowAiRoughPricingModal(true);
+          if (Platform.OS !== 'web') {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          }
+        }
+      } catch (e) {
+        console.warn('advanceComplexDraftAfterScope rough pricing failed', e);
+      } finally {
+        setAiDraftRoughLoading(false);
+      }
+    },
+    [applySavedPricingToDraftState, savedBidTemplates, bid]
+  );
+
   const handleGenerateAiDraft = useCallback(async (notes) => {
     setAiDraftGenerating(true);
     setAiDraftNotes(notes);
@@ -5611,15 +5669,19 @@ export default function EstimateGeneratorScreen() {
       setAiSaveToPricingLibrary(!/\b(test|demo|sample|example)\b/.test(draftTitle));
       setAiDraft(draft);
       setShowAiBuilderModal(false);
-      setShowAiDraftReviewModal(true);
 
-      const { draft: draftWithProposal, hasProposal } = await applySavedPricingToDraftState(draft, {
-        autoApply: false,
-        showLoading: false,
-      });
-      if (hasProposal) {
-        setAiDraft(draftWithProposal);
-        setShowAiSavedPricingModal(true);
+      if (isComplexEstimateTier(draft)) {
+        setShowAiScopeAssumptionsModal(true);
+      } else {
+        setShowAiDraftReviewModal(true);
+        const { draft: draftWithProposal, hasProposal } = await applySavedPricingToDraftState(draft, {
+          autoApply: false,
+          showLoading: false,
+        });
+        if (hasProposal) {
+          setAiDraft(draftWithProposal);
+          setShowAiSavedPricingModal(true);
+        }
       }
 
       if (Platform.OS !== 'web') {
@@ -5635,6 +5697,41 @@ export default function EstimateGeneratorScreen() {
       setAiDraftGenerating(false);
     }
   }, [savedBidTemplates, applySavedPricingToDraftState]);
+
+  const handleConfirmScopeAssumptions = useCallback(
+    async (confirmedItems, scopeMeasurements) => {
+      if (!aiDraft || aiScopeAssumptionsApplying) return;
+      setAiScopeAssumptionsApplying(true);
+      try {
+        const enriched = await applyScopeAssumptionsToDraft(aiDraft, confirmedItems, scopeMeasurements);
+        await advanceComplexDraftAfterScope(enriched);
+      } catch (e) {
+        console.warn('handleConfirmScopeAssumptions failed', e);
+        Alert.alert('Scope confirmation', e?.message || 'Could not save scope assumptions. Please try again.');
+      } finally {
+        setAiScopeAssumptionsApplying(false);
+      }
+    },
+    [aiDraft, aiScopeAssumptionsApplying, advanceComplexDraftAfterScope]
+  );
+
+  const handleScopeAssumptionsScopeOnly = useCallback(async (scopeMeasurements) => {
+    if (!aiDraft || aiScopeAssumptionsApplying) return;
+    const items = (aiDraft.scopeChecklist?.items || []).map((item) => ({
+      ...item,
+      state: item.state === 'excluded' ? 'excluded' : 'unsure',
+    }));
+    setAiScopeAssumptionsApplying(true);
+    try {
+      const enriched = await applyScopeAssumptionsToDraft(aiDraft, items, scopeMeasurements);
+      await advanceComplexDraftAfterScope(enriched, { skipPricing: true });
+    } catch (e) {
+      console.warn('handleScopeAssumptionsScopeOnly failed', e);
+      Alert.alert('Scope only', e?.message || 'Could not continue. Please try again.');
+    } finally {
+      setAiScopeAssumptionsApplying(false);
+    }
+  }, [aiDraft, aiScopeAssumptionsApplying, advanceComplexDraftAfterScope]);
 
   const handleSuggestMissingPrices = useCallback(async () => {
     if (!aiDraft || aiDraftSuggestingMissing) return;
@@ -9052,7 +9149,7 @@ export default function EstimateGeneratorScreen() {
     setShowAiBuilderModal(true);
   }, []);
 
-  const aiFlowOverlayActive = showAiBuilderModal || showAiDraftReviewModal;
+  const aiFlowOverlayActive = showAiBuilderModal || showAiScopeAssumptionsModal || showAiDraftReviewModal;
 
   /** Empty bid + assistant open: skip blank chat landing and go straight to paste-notes. */
   useEffect(() => {
@@ -12578,6 +12675,8 @@ export default function EstimateGeneratorScreen() {
     setShowAiSavedPricingModal(false);
     setShowAiRoughPricingModal(false);
     setShowAiManualPricingModal(false);
+    setShowAiScopeAssumptionsModal(false);
+    setAiScopeAssumptionsApplying(false);
     setAiManualPricingSeed(null);
     setShowAIAssistant(false);
     setEstimateAiInitialQuestion('');
@@ -23592,6 +23691,7 @@ export default function EstimateGeneratorScreen() {
           setShowAIAssistant(false);
           setEstimateAiInitialQuestion('');
           setShowAiBuilderModal(false);
+          setShowAiScopeAssumptionsModal(false);
           setShowAiDraftReviewModal(false);
           setAiDraftFromAssistant(false);
         }}
@@ -23628,6 +23728,27 @@ export default function EstimateGeneratorScreen() {
         onGenerate={handleGenerateAiDraft}
       />
 
+      <AIEstimateScopeAssumptionsModal
+        visible={showAiScopeAssumptionsModal}
+        draft={aiDraft}
+        applying={aiScopeAssumptionsApplying}
+        fromAssistant={aiDraftFromAssistant}
+        onBack={() => {
+          if (!aiScopeAssumptionsApplying) {
+            setShowAiScopeAssumptionsModal(false);
+            setShowAiBuilderModal(true);
+          }
+        }}
+        onClose={() => {
+          if (!aiScopeAssumptionsApplying) {
+            setShowAiScopeAssumptionsModal(false);
+            setAiDraft(null);
+          }
+        }}
+        onConfirm={handleConfirmScopeAssumptions}
+        onScopeOnly={handleScopeAssumptionsScopeOnly}
+      />
+
       <AIEstimateDraftReviewModal
         visible={showAiDraftReviewModal}
         draft={aiDraft}
@@ -23643,7 +23764,11 @@ export default function EstimateGeneratorScreen() {
         onBack={() => {
           if (!aiDraftApplying) {
             setShowAiDraftReviewModal(false);
-            setShowAiBuilderModal(true);
+            if (isComplexEstimateTier(aiDraft)) {
+              setShowAiScopeAssumptionsModal(true);
+            } else {
+              setShowAiBuilderModal(true);
+            }
           }
         }}
         onClose={() => {
@@ -23696,7 +23821,6 @@ export default function EstimateGeneratorScreen() {
               : 'Apply saved pricing'
           }
           onApply={handleApplySavedPricingProposal}
-          onEdit={openAdjustRatesFromProposal}
           onAddManually={() => {
             setShowAiSavedPricingModal(false);
             setAiManualPricingSeed(null);

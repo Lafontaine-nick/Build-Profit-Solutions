@@ -277,4 +277,5 @@ module.exports = {
   expandJobScopeRooms,
   expandFloorJobRooms,
   buildScopeForTask,
+  emptyScopeRoom,
 };

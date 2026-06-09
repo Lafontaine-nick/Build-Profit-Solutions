@@ -15,7 +15,8 @@ import {
 type Props = {
   title: string;
   subtitle?: string;
-  step?: 1 | 2;
+  step?: 1 | 2 | 3;
+  stepTotal?: 2 | 3;
   fromAssistant?: boolean;
   /** Parent already applied top safe area (modal shell or assistant). */
   omitTopSafeArea?: boolean;
@@ -27,6 +28,7 @@ export default function AIEstimateFlowHeader({
   title,
   subtitle,
   step,
+  stepTotal = 2,
   fromAssistant = false,
   omitTopSafeArea = false,
   disabled = false,
@@ -66,7 +68,9 @@ export default function AIEstimateFlowHeader({
           </TouchableOpacity>
           <View style={{ flex: 1, alignItems: 'center' }}>
             {step != null ? (
-              <Text style={[styles.stepLabel, { color: Colors.sub }]}>Step {step} of 2</Text>
+              <Text style={[styles.stepLabel, { color: Colors.sub }]}>
+                Step {step} of {stepTotal}
+              </Text>
             ) : null}
             <Text style={[styles.assistantTitle, { color: Colors.text }]}>{title}</Text>
             {subtitle ? (

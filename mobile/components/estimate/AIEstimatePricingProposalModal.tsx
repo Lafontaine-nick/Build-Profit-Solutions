@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
+  TextInput,
+  Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,6 +22,7 @@ import {
   proposalUsesSavedPricing,
   setScopeMaterialSource,
   sourceVisual,
+  updateScopeProposedRate,
   type SourceVisual,
 } from '@/utils/estimateAiDraftPricing';
 import { formatDraftMoney } from '@/utils/estimateAiDraft';
@@ -186,12 +189,66 @@ function MaterialCompareRow({
   );
 }
 
+function ScopeRateEditor({
+  item,
+  draftRates,
+  onDraftRateChange,
+  Colors,
+  darkMode,
+}: {
+  item: PricingScopeItemProposal;
+  draftRates: Record<string, string>;
+  onDraftRateChange: (pricingType: 'material' | 'labor', text: string) => void;
+  Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
+}) {
+  const editableLines = (item.proposedRates || []).filter(
+    (line) => line.rate != null && line.unit && line.unit !== 'lump_sum'
+  );
+  if (!editableLines.length) return null;
+
+  return (
+    <View style={styles.editPanel}>
+      {editableLines.map((line, i) => {
+        const pricingType = line.pricingType === 'material' ? 'material' : 'labor';
+        const label = rateRowLabel(line, item.scopeName);
+        const unitLabel = formatDisplayUnit(line.unit);
+        return (
+          <View key={`edit-${pricingType}-${i}`} style={styles.editFieldRow}>
+            <Text style={{ color: Colors.sub, fontSize: 11, fontWeight: '700', marginBottom: 4 }}>
+              {label} · $/{unitLabel}
+            </Text>
+            <TextInput
+              value={draftRates[pricingType] ?? String(line.rate ?? '')}
+              onChangeText={(text) => onDraftRateChange(pricingType, text)}
+              keyboardType="decimal-pad"
+              placeholder="0"
+              placeholderTextColor={Colors.sub}
+              style={[
+                styles.editInput,
+                {
+                  color: Colors.text,
+                  borderColor: darkMode ? 'rgba(255,255,255,0.15)' : Colors.line,
+                  backgroundColor: darkMode ? 'rgba(0,0,0,0.25)' : Colors.surface2,
+                },
+              ]}
+            />
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 function ScopeCard({
   item,
   showScopeTotal,
   onSelectMaterial,
   showLiveComparison,
   isSavedOnly,
+  isEditing,
+  onToggleEdit,
+  onRateChange,
   Colors,
   darkMode,
 }: {
@@ -200,10 +257,14 @@ function ScopeCard({
   onSelectMaterial: (scopeItemId: string, source: 'supplier_pricing' | 'national_trade_average') => void;
   showLiveComparison: boolean;
   isSavedOnly?: boolean;
+  isEditing?: boolean;
+  onToggleEdit?: () => void;
+  onRateChange?: (pricingType: 'material' | 'labor', rate: number) => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [draftRates, setDraftRates] = useState<Record<string, string>>({});
   const qtyLabel =
     item.quantity != null
       ? `${item.quantity.toLocaleString()} ${formatDisplayUnit(item.unit)}`
@@ -213,6 +274,32 @@ function ScopeCard({
   const hasDetails = detailAssumptions.length > 0 || Boolean(item.recommended?.reason);
   const unmatched =
     isSavedOnly && scopeTotal <= 0 && (item.warnings?.length ?? 0) > 0;
+  const canEdit = Boolean(isSavedOnly && scopeTotal > 0 && onToggleEdit);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setDraftRates({});
+      return;
+    }
+    const next: Record<string, string> = {};
+    for (const line of item.proposedRates || []) {
+      if (line.pricingType === 'material' && line.rate != null) {
+        next.material = String(line.rate);
+      }
+      if (line.pricingType === 'labor' && line.rate != null) {
+        next.labor = String(line.rate);
+      }
+    }
+    setDraftRates(next);
+  }, [isEditing, item]);
+
+  const handleDraftRateChange = (pricingType: 'material' | 'labor', text: string) => {
+    setDraftRates((prev) => ({ ...prev, [pricingType]: text }));
+    const cleaned = text.replace(/,/g, '').trim();
+    if (!cleaned) return;
+    const n = Number(cleaned);
+    if (Number.isFinite(n) && n >= 0) onRateChange?.(pricingType, n);
+  };
 
   if (unmatched) {
     return (
@@ -243,31 +330,69 @@ function ScopeCard({
     <View
       style={[
         styles.card,
+        isEditing && styles.cardEditing,
         {
-          borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+          borderColor: isEditing
+            ? 'rgba(96,165,250,0.55)'
+            : darkMode
+              ? 'rgba(255,255,255,0.08)'
+              : Colors.line,
           backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : Colors.surface2,
         },
       ]}
     >
       <View style={styles.cardHeader}>
         <Text style={[styles.scopeName, { color: Colors.text }]}>{item.scopeName}</Text>
-        {qtyLabel ? (
-          <Text style={[styles.scopeQty, { color: Colors.sub }]}>{qtyLabel}</Text>
-        ) : null}
+        <View style={styles.cardHeaderRight}>
+          {qtyLabel ? (
+            <Text style={[styles.scopeQty, { color: Colors.sub }]}>{qtyLabel}</Text>
+          ) : null}
+          {isEditing && onToggleEdit ? (
+            <TouchableOpacity
+              onPress={() => {
+                Keyboard.dismiss();
+                onToggleEdit();
+              }}
+              hitSlop={12}
+              activeOpacity={0.7}
+              style={styles.cardCloseBtn}
+            >
+              <Ionicons name="chevron-up" size={18} color={Colors.sub} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
 
-      {(item.proposedRates || []).map((line, i) => (
-        <View key={`pr-${i}`}>
-          <RateRow line={line} scopeName={item.scopeName} Colors={Colors} />
-          <MaterialCompareRow
-            item={item}
-            line={line}
-            onSelectMaterial={(source) => onSelectMaterial(item.scopeItemId, source)}
-            Colors={Colors}
-            enabled={showLiveComparison}
-          />
-        </View>
-      ))}
+      {isEditing ? (
+        <ScopeRateEditor
+          item={item}
+          draftRates={draftRates}
+          onDraftRateChange={handleDraftRateChange}
+          Colors={Colors}
+          darkMode={darkMode}
+        />
+      ) : canEdit ? (
+        <TouchableOpacity onPress={onToggleEdit} activeOpacity={0.85}>
+          {(item.proposedRates || []).map((line, i) => (
+            <View key={`pr-${i}`}>
+              <RateRow line={line} scopeName={item.scopeName} Colors={Colors} />
+            </View>
+          ))}
+        </TouchableOpacity>
+      ) : (
+        (item.proposedRates || []).map((line, i) => (
+          <View key={`pr-${i}`}>
+            <RateRow line={line} scopeName={item.scopeName} Colors={Colors} />
+            <MaterialCompareRow
+              item={item}
+              line={line}
+              onSelectMaterial={(source) => onSelectMaterial(item.scopeItemId, source)}
+              Colors={Colors}
+              enabled={showLiveComparison}
+            />
+          </View>
+        ))
+      )}
 
       {showScopeTotal && scopeTotal > 0 ? (
         <View style={[styles.scopeTotalRow, { borderTopColor: Colors.line }]}>
@@ -311,6 +436,37 @@ function ScopeCard({
           {w}
         </Text>
       ))}
+
+      {canEdit && !isEditing ? (
+        <TouchableOpacity
+          onPress={onToggleEdit}
+          activeOpacity={0.75}
+          style={styles.adjustRateHint}
+        >
+          <Text style={{ color: '#22c55e', fontSize: 11, fontStyle: 'italic', textAlign: 'center' }}>
+            Click to adjust rate
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+
+      {isEditing && onToggleEdit ? (
+        <TouchableOpacity
+          onPress={() => {
+            Keyboard.dismiss();
+            onToggleEdit();
+          }}
+          activeOpacity={0.88}
+          style={[
+            styles.doneEditBtn,
+            {
+              borderColor: darkMode ? 'rgba(96,165,250,0.45)' : 'rgba(59,130,246,0.35)',
+              backgroundColor: darkMode ? 'rgba(96,165,250,0.12)' : 'rgba(59,130,246,0.08)',
+            },
+          ]}
+        >
+          <Text style={{ color: '#60a5fa', fontSize: 14, fontWeight: '800' }}>Done</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
@@ -344,10 +500,12 @@ export default function AIEstimatePricingProposalModal({
   const Colors = getColors(theme);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [workingProposal, setWorkingProposal] = useState<PricingProposal | null>(proposal);
+  const [editingScopeItemId, setEditingScopeItemId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!visible) {
       setWorkingProposal(null);
+      setEditingScopeItemId(null);
       return;
     }
     if (proposal) setWorkingProposal(normalizePricingProposal(proposal));
@@ -416,6 +574,16 @@ export default function AIEstimatePricingProposalModal({
     source: 'supplier_pricing' | 'national_trade_average'
   ) => {
     setWorkingProposal((prev) => (prev ? setScopeMaterialSource(prev, scopeItemId, source) : prev));
+  };
+
+  const handleScopeRateChange = (
+    scopeItemId: string,
+    pricingType: 'material' | 'labor',
+    rate: number
+  ) => {
+    setWorkingProposal((prev) =>
+      prev ? updateScopeProposedRate(prev, scopeItemId, pricingType, rate) : prev
+    );
   };
 
   if (!visible || !proposal) return null;
@@ -524,6 +692,15 @@ export default function AIEstimatePricingProposalModal({
                     onSelectMaterial={handleSelectMaterial}
                     showLiveComparison={!isSavedOnly}
                     isSavedOnly={isSavedOnly}
+                    isEditing={editingScopeItemId === item.scopeItemId}
+                    onToggleEdit={() =>
+                      setEditingScopeItemId((prev) =>
+                        prev === item.scopeItemId ? null : item.scopeItemId
+                      )
+                    }
+                    onRateChange={(pricingType, rate) =>
+                      handleScopeRateChange(item.scopeItemId, pricingType, rate)
+                    }
                     Colors={Colors}
                     darkMode={darkMode}
                   />
@@ -601,7 +778,7 @@ export default function AIEstimatePricingProposalModal({
               >
                 <Text style={styles.primaryBtnText}>{applyLabel}</Text>
               </TouchableOpacity>
-              {onEdit ? (
+              {onEdit && !isSavedOnly ? (
                 <TouchableOpacity
                   style={styles.secondaryBtn}
                   onPress={() => workingProposal && onEdit(workingProposal)}
@@ -697,6 +874,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 12,
   },
+  cardEditing: {
+    borderWidth: 1.5,
+  },
+  editPanel: {
+    marginTop: 4,
+    gap: 10,
+  },
+  editFieldRow: {
+    marginBottom: 2,
+  },
+  editInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    fontWeight: '600',
+  },
   unmatchedCard: {
     borderStyle: 'dashed',
   },
@@ -706,6 +901,26 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 6,
     gap: 8,
+  },
+  cardHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  cardCloseBtn: {
+    padding: 4,
+    marginLeft: 2,
+  },
+  adjustRateHint: {
+    marginTop: 8,
+    paddingVertical: 6,
+  },
+  doneEditBtn: {
+    marginTop: 12,
+    paddingVertical: 11,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
   },
   scopeName: { fontSize: 16, fontWeight: '800', flex: 1 },
   scopeQty: { fontSize: 12, fontWeight: '600' },

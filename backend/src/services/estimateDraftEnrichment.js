@@ -386,11 +386,15 @@ function enrichDraft(draftInput, options = {}) {
     suggestedSplitRoomCount: suggestedSplitRoomCount > 0 ? suggestedSplitRoomCount : 0,
   };
 
-  const phase2 = enrichDraftPhase2(base, scopePackages, {
+  const { enrichDraftComplexity } = require('./estimateDraftComplexity');
+  const complexity = enrichDraftComplexity(base, originalNotes);
+  const withComplexity = { ...base, ...complexity };
+
+  const phase2 = enrichDraftPhase2(withComplexity, scopePackages, {
     roughEstimateRequested: Boolean(draft.roughEstimateRequested),
   });
 
-  let merged = enrichDraftReviewSections({ ...base, ...phase2 });
+  let merged = enrichDraftReviewSections({ ...base, ...complexity, ...phase2 });
   if (userId) {
     merged = attachPricingMemoryToDraft(merged, userId, {
       savedTemplates: options.savedTemplates || [],

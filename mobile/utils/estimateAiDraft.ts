@@ -41,6 +41,64 @@ export type EstimateRoughEstimateRange = {
 
 export type EstimateBuilderMode = 'organize_only' | 'organize_calculate' | 'suggest_breakdown';
 
+export type EstimateTier = 'simple_unit' | 'room_remodel' | 'addition' | 'ground_up';
+
+export type ScopeAssumptionState = 'included' | 'excluded' | 'unsure';
+
+/** yes_no = is this work part of the bid? choice = pick a specific answer (e.g. staying vs replacing). */
+export type ScopeChecklistInputType = 'yes_no' | 'choice';
+
+export type ScopeChecklistOption = {
+  id: string;
+  label: string;
+};
+
+export type ScopeChecklistItem = {
+  id: string;
+  label: string;
+  helperText?: string;
+  category?: string;
+  inputType?: ScopeChecklistInputType;
+  options?: ScopeChecklistOption[];
+  /** yes_no: included = Yes in scope, excluded = No, unsure = Not sure */
+  state: ScopeAssumptionState;
+  /** choice: selected option id */
+  choiceId?: string | null;
+};
+
+export type ScopeChecklist = {
+  estimateTier: EstimateTier;
+  templateKey: string;
+  title: string;
+  intro: string;
+  items: ScopeChecklistItem[];
+  legend?: string;
+  options?: Array<{ id: string; label: string }>;
+  summary?: string;
+  requiresConfirmation?: boolean;
+};
+
+/** Area (tile, paint, concrete, framing) and length (baseboard, trim) for scope pricing. */
+export type ScopeItemQuantity = {
+  quantity: number | null;
+  unit: string;
+  quantitySource?: 'notes' | 'user_entered' | 'inferred' | 'default_assumption' | 'missing' | 'not_applicable';
+};
+
+export type ScopeMeasurements = {
+  /** Bathroom floor sqft — used for floor tile, demo, etc. */
+  bathroomFloorSqft?: number | null;
+  baseboardLf?: number | null;
+  showerWallTileSqft?: number | null;
+  wallPaintSqft?: number | null;
+  /** Per-checklist-item overrides keyed by checklist id */
+  itemQuantities?: Record<string, ScopeItemQuantity>;
+  /** @deprecated use bathroomFloorSqft */
+  sqft?: number | null;
+  /** @deprecated use baseboardLf */
+  lf?: number | null;
+};
+
 export type EstimateDraftRoom = {
   name: string;
   scope: string;
@@ -214,6 +272,13 @@ export type EstimateAiDraft = {
     requiresApproval: boolean;
   }>;
   pricingMemoryMissingMessage?: string | null;
+  /** simple_unit skips scope checklist; complex tiers require confirmation before pricing. */
+  estimateTier?: EstimateTier;
+  scopeChecklist?: ScopeChecklist | null;
+  scopeAssumptionsConfirmed?: boolean;
+  requiresScopeConfirmation?: boolean;
+  confirmedAssumptions?: ScopeChecklistItem[];
+  scopeMeasurements?: ScopeMeasurements | null;
   projectAddress?: string | null;
   addressMissing?: boolean;
   laborTradeItems?: Array<{
@@ -376,6 +441,32 @@ export async function fetchClarifyDraftQuestions(draft: EstimateAiDraft): Promis
   }
 
   return payload;
+}
+
+export function isComplexEstimateTier(draft: EstimateAiDraft | null | undefined): boolean {
+  return Boolean(draft?.estimateTier && draft.estimateTier !== 'simple_unit');
+}
+
+export function aiFlowStepTotal(draft: EstimateAiDraft | null | undefined): 2 | 3 {
+  return isComplexEstimateTier(draft) ? 3 : 2;
+}
+
+export async function applyScopeAssumptionsToDraft(
+  draft: EstimateAiDraft,
+  confirmedItems: ScopeChecklistItem[],
+  scopeMeasurements?: ScopeMeasurements | null
+): Promise<EstimateAiDraft> {
+  const payload = await postAiAssistantJson<{ draft?: EstimateAiDraft; error?: string; message?: string }>(
+    '/estimate-draft-apply-scope-assumptions',
+    { draft, confirmedItems, scopeMeasurements: scopeMeasurements ?? undefined },
+    60000
+  );
+
+  if (!payload?.draft) {
+    throw new Error(payload?.message || payload?.error || 'Failed to apply scope assumptions');
+  }
+
+  return payload.draft;
 }
 
 export function draftHasCombinedRoomPrices(draft: EstimateAiDraft | null): boolean {

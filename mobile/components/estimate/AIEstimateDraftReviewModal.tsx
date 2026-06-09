@@ -19,6 +19,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
+import { aiFlowStepTotal, isComplexEstimateTier } from '@/utils/estimateAiDraft';
 import {
   draftHasApprovedSuggestions,
   draftHasCombinedRoomPrices,
@@ -150,10 +151,13 @@ export default function AIEstimateDraftReviewModal({
         title="Review draft"
         subtitle={
           scopeOnly
-            ? 'Scope found — add pricing or save draft'
+            ? draft?.scopeAssumptionsConfirmed && isComplexEstimateTier(draft)
+              ? 'Scope confirmed — review suggested pricing'
+              : 'Scope found — add pricing or save draft'
             : 'Confirm scope and pricing before applying'
         }
-        step={2}
+        step={aiFlowStepTotal(draft)}
+        stepTotal={aiFlowStepTotal(draft)}
         fromAssistant={fromAssistant}
         omitTopSafeArea
         disabled={busy}
