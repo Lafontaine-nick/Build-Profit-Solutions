@@ -14,7 +14,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
@@ -161,7 +161,7 @@ export default function AIEstimateDraftReviewModal({
         step={aiFlowStepTotal(draft)}
         stepTotal={aiFlowStepTotal(draft)}
         fromAssistant={fromAssistant}
-        omitTopSafeArea
+        omitTopSafeArea={embedded}
         disabled={busy}
         onBack={handleBack}
       />
@@ -466,11 +466,9 @@ export default function AIEstimateDraftReviewModal({
   }
 
   return (
-    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={handleBack}>
+    <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={handleBack}>
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
-      <SafeAreaView style={{ flex: 1, backgroundColor: Colors.bg }} edges={['top', 'left', 'right']}>
-        {shell}
-      </SafeAreaView>
+      <View style={{ flex: 1, backgroundColor: Colors.bg }}>{shell}</View>
     </Modal>
   );
 }

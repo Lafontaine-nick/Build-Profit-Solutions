@@ -5151,6 +5151,7 @@ export default function EstimateGeneratorScreen() {
   const [aiSaveToPricingLibrary, setAiSaveToPricingLibrary] = useState(true);
   const [aiClarifyQuestions, setAiClarifyQuestions] = useState(null);
   const aiSavedPricingAutoRef = useRef(null);
+  const aiDraftReviewResumeRef = useRef(false);
   const [aiDraftFillToast, setAiDraftFillToast] = useState({ visible: false, roomCount: 0 });
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const [isFirstTime, setIsFirstTime] = useState(false);
@@ -5613,13 +5614,29 @@ export default function EstimateGeneratorScreen() {
   );
 
   /** After complex-job scope is confirmed, run saved pricing then rough pricing. */
+  const pauseDraftReviewForPricingModal = useCallback(() => {
+    if (showAiDraftReviewModal) {
+      aiDraftReviewResumeRef.current = true;
+      setShowAiDraftReviewModal(false);
+    }
+  }, [showAiDraftReviewModal]);
+
+  const resumeDraftReviewAfterPricingModal = useCallback(() => {
+    if (aiDraftReviewResumeRef.current) {
+      aiDraftReviewResumeRef.current = false;
+      setShowAiDraftReviewModal(true);
+    }
+  }, []);
+
   const advanceComplexDraftAfterScope = useCallback(
     async (enrichedDraft, { skipPricing = false } = {}) => {
       setAiDraft(enrichedDraft);
       setShowAiScopeAssumptionsModal(false);
-      setShowAiDraftReviewModal(true);
 
-      if (skipPricing) return;
+      if (skipPricing) {
+        setShowAiDraftReviewModal(true);
+        return;
+      }
 
       const { draft: withSaved, hasProposal: hasSaved } = await applySavedPricingToDraftState(
         enrichedDraft,
@@ -5627,6 +5644,7 @@ export default function EstimateGeneratorScreen() {
       );
       if (hasSaved) {
         setAiDraft(withSaved);
+        aiDraftReviewResumeRef.current = true;
         setShowAiSavedPricingModal(true);
         if (Platform.OS !== 'web') {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -5651,13 +5669,17 @@ export default function EstimateGeneratorScreen() {
         });
         if (!proposal.empty) {
           setAiRoughPricingProposal(proposal);
+          aiDraftReviewResumeRef.current = true;
           setShowAiRoughPricingModal(true);
           if (Platform.OS !== 'web') {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           }
+        } else {
+          setShowAiDraftReviewModal(true);
         }
       } catch (e) {
         console.warn('advanceComplexDraftAfterScope rough pricing failed', e);
+        setShowAiDraftReviewModal(true);
       } finally {
         setAiDraftRoughLoading(false);
       }
@@ -5814,6 +5836,7 @@ export default function EstimateGeneratorScreen() {
       if (!next) return false;
       setAiDraft(next);
       if (openModal && hasProposal) {
+        pauseDraftReviewForPricingModal();
         setShowAiSavedPricingModal(true);
         if (Platform.OS !== 'web') {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -5824,7 +5847,7 @@ export default function EstimateGeneratorScreen() {
       }
       return hasProposal;
     },
-    [aiDraft, aiDraftSuggestingMissing, applySavedPricingToDraftState]
+    [aiDraft, aiDraftSuggestingMissing, applySavedPricingToDraftState, pauseDraftReviewForPricingModal]
   );
 
   const handleClearAllSavedPricing = useCallback(() => {
@@ -5900,8 +5923,14 @@ export default function EstimateGeneratorScreen() {
       });
       if (proposal.empty) {
         setPricingFallbackVariant('rough');
+        Alert.alert(
+          'Rough pricing unavailable',
+          proposal.message ||
+            'Could not build rough prices from the current scope. Add measurements or use Add prices manually.'
+        );
         return;
       }
+      pauseDraftReviewForPricingModal();
       setAiRoughPricingProposal(proposal);
       setShowAiRoughPricingModal(true);
       if (Platform.OS !== 'web') {
@@ -5910,10 +5939,11 @@ export default function EstimateGeneratorScreen() {
     } catch (e) {
       console.warn('handleSuggestRoughPrices failed', e);
       setPricingFallbackVariant('rough');
+      Alert.alert('Suggest rough prices', e?.message || 'Could not load rough pricing. Try again or add prices manually.');
     } finally {
       setAiDraftRoughLoading(false);
     }
-  }, [aiDraft, aiDraftRoughLoading, savedBidTemplates, bid]);
+  }, [aiDraft, aiDraftRoughLoading, savedBidTemplates, bid, pauseDraftReviewForPricingModal]);
 
   const handlePricingFallbackAddManually = useCallback(() => {
     setPricingFallbackVariant(null);
@@ -5936,12 +5966,13 @@ export default function EstimateGeneratorScreen() {
 
   const handleAddPricesManually = useCallback(() => {
     if (!aiDraft) return;
+    pauseDraftReviewForPricingModal();
     setAiManualPricingSeed(null);
     setShowAiManualPricingModal(true);
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-  }, [aiDraft]);
+  }, [aiDraft, pauseDraftReviewForPricingModal]);
 
   const handleApplySavedPricingProposal = useCallback(
     (proposalOverride) => {
@@ -5959,11 +5990,12 @@ export default function EstimateGeneratorScreen() {
         savedPricingApplySummary: { appliedCount, stillNeedCount },
       });
       setShowAiSavedPricingModal(false);
+      resumeDraftReviewAfterPricingModal();
       if (Platform.OS !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
     },
-    [aiDraft, aiSavedPricingProposal]
+    [aiDraft, aiSavedPricingProposal, resumeDraftReviewAfterPricingModal]
   );
 
   const handleDismissSavedPricingSummary = useCallback(() => {
@@ -5976,11 +6008,12 @@ export default function EstimateGeneratorScreen() {
       if (!aiDraft || !proposal || proposal.empty) return;
       setAiDraft(applyPricingProposalToDraft(aiDraft, proposal, { approved: true }));
       setShowAiRoughPricingModal(false);
+      resumeDraftReviewAfterPricingModal();
       if (Platform.OS !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
     },
-    [aiDraft, aiRoughPricingProposal]
+    [aiDraft, aiRoughPricingProposal, resumeDraftReviewAfterPricingModal]
   );
 
   const handleManualPricingCalculate = useCallback(
@@ -23920,63 +23953,67 @@ export default function EstimateGeneratorScreen() {
         onContinueUnpriced={handleDismissSavedPricingSummary}
         saveToPricingLibrary={aiSaveToPricingLibrary}
         onToggleSaveToPricingLibrary={setAiSaveToPricingLibrary}
-      >
-        <AIEstimatePricingProposalModal
-          embedded
-          visible={showAiSavedPricingModal}
-          proposal={aiSavedPricingProposal}
-          pricingMode="saved_only"
-          title="Use Saved Pricing"
-          subtitle="Matched rates from your saved bids and pricing library."
-          onApply={handleApplySavedPricingProposal}
-          onAddManually={() => {
-            setShowAiSavedPricingModal(false);
-            setAiManualPricingSeed(null);
-            setShowAiManualPricingModal(true);
-          }}
-          onClearAllSavedPricing={handleClearAllSavedPricing}
-          onClose={() => setShowAiSavedPricingModal(false)}
-        />
+      />
 
-        <AIEstimatePricingProposalModal
-          embedded
-          visible={showAiRoughPricingModal}
-          proposal={aiRoughPricingProposal}
-          pricingMode="suggest"
-          title={
-            aiRoughPricingProposal?.source === 'ai_rough_estimate' &&
-            (aiDraft?.pricingMemoryMissingSuggestions?.length ?? 0) > 0
-              ? 'Suggested missing prices'
-              : aiRoughPricingProposal?.anyRealSource
-                ? 'Suggested pricing'
-                : 'Suggested pricing (review sources)'
-          }
-          subtitle="Suggested planning prices. Review and adjust before applying."
-          applyLabel="Apply selected suggested prices"
-          onApply={handleApplyRoughPricingProposal}
-          onEdit={openAdjustRatesFromProposal}
-          onAddManually={() => {
-            setShowAiRoughPricingModal(false);
-            setAiManualPricingSeed(null);
-            setShowAiManualPricingModal(true);
-          }}
-          onClose={() => setShowAiRoughPricingModal(false)}
-        />
+      <AIEstimatePricingProposalModal
+        visible={showAiSavedPricingModal}
+        proposal={aiSavedPricingProposal}
+        pricingMode="saved_only"
+        title="Use Saved Pricing"
+        subtitle="Matched rates from your saved bids and pricing library."
+        onApply={handleApplySavedPricingProposal}
+        onAddManually={() => {
+          setShowAiSavedPricingModal(false);
+          setAiManualPricingSeed(null);
+          setShowAiManualPricingModal(true);
+        }}
+        onClearAllSavedPricing={handleClearAllSavedPricing}
+        onClose={() => {
+          setShowAiSavedPricingModal(false);
+          resumeDraftReviewAfterPricingModal();
+        }}
+      />
 
-        <AIEstimateManualPricingModal
-          embedded
-          visible={showAiManualPricingModal}
-          draft={aiDraft}
-          seedProposal={aiManualPricingSeed}
-          saveToLibrary={aiSaveToPricingLibrary}
-          onToggleSaveToLibrary={setAiSaveToPricingLibrary}
-          onCalculate={handleManualPricingCalculate}
-          onClose={() => {
-            setShowAiManualPricingModal(false);
-            setAiManualPricingSeed(null);
-          }}
-        />
-      </AIEstimateDraftReviewModal>
+      <AIEstimatePricingProposalModal
+        visible={showAiRoughPricingModal}
+        proposal={aiRoughPricingProposal}
+        pricingMode="suggest"
+        title={
+          aiRoughPricingProposal?.source === 'ai_rough_estimate' &&
+          (aiDraft?.pricingMemoryMissingSuggestions?.length ?? 0) > 0
+            ? 'Suggested missing prices'
+            : aiRoughPricingProposal?.anyRealSource
+              ? 'Suggested pricing'
+              : 'Suggested pricing (review sources)'
+        }
+        subtitle="Suggested planning prices. Review and adjust before applying."
+        applyLabel="Apply selected suggested prices"
+        onApply={handleApplyRoughPricingProposal}
+        onEdit={openAdjustRatesFromProposal}
+        onAddManually={() => {
+          setShowAiRoughPricingModal(false);
+          setAiManualPricingSeed(null);
+          setShowAiManualPricingModal(true);
+        }}
+        onClose={() => {
+          setShowAiRoughPricingModal(false);
+          resumeDraftReviewAfterPricingModal();
+        }}
+      />
+
+      <AIEstimateManualPricingModal
+        visible={showAiManualPricingModal}
+        draft={aiDraft}
+        seedProposal={aiManualPricingSeed}
+        saveToLibrary={aiSaveToPricingLibrary}
+        onToggleSaveToLibrary={setAiSaveToPricingLibrary}
+        onCalculate={handleManualPricingCalculate}
+        onClose={() => {
+          setShowAiManualPricingModal(false);
+          setAiManualPricingSeed(null);
+          resumeDraftReviewAfterPricingModal();
+        }}
+      />
 
       <AIEstimatePricingFallbackModal
         visible={pricingFallbackVariant != null}

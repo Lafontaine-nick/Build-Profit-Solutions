@@ -8,9 +8,20 @@ import {
   StyleSheet,
   TextInput,
   Keyboard,
+  Alert,
+  Platform,
+  StatusBar,
 } from 'react-native';
-import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
+import GradientRingBackInner from '@/components/GradientRingBackInner';
+import {
+  BRAND_FRAME_GRADIENT_COLORS,
+  BRAND_FRAME_GRADIENT_END,
+  BRAND_FRAME_GRADIENT_START,
+} from '@/constants/brandFrameGradient';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import type { PricingProposal, PricingScopeItemProposal } from '@/utils/estimateAiDraftPricing';
@@ -18,19 +29,28 @@ import {
   comparisonMaterialDetail,
   confidenceVisual,
   countSavedPricingScopeItems,
+  APPROVAL_SUBTEXT,
+  BLOCKED_PRICING_MESSAGE,
+  countValidSelectedSuggestItems,
   defaultIncludedSuggestScopeIds,
   filterProposalToScopeItems,
   formatDisplayUnit,
+  getPricingConfirmMessage,
   isLumpSumUnit,
+  MANUAL_PRICING_NO_SOURCE_MESSAGE,
   normalizePricingProposal,
   proposalHasSavedRates,
   proposalUsesSavedPricing,
+  reviewStatusVisual,
   scopeItemHasSavedRates,
   setScopeMaterialSource,
   sourceVisual,
-  SUGGESTED_PRICING_DISCLAIMER,
   suggestItemIsManualOnly,
+  suggestItemNeedsApproval,
   suggestItemNeedsPricing,
+  suggestItemSelectable,
+  sumValidSelectedSuggestTotal,
+  SUGGESTED_PRICING_DISCLAIMER,
   updateScopeProposedRate,
   type SourceVisual,
 } from '@/utils/estimateAiDraftPricing';
@@ -44,7 +64,7 @@ type Props = {
   applyLabel?: string;
   /** saved_only = template/library only; suggest = rough prices with HD + national */
   pricingMode?: 'saved_only' | 'suggest';
-  /** Overlay inside Review draft (iOS cannot stack two pageSheet modals). */
+  /** @deprecated Use standalone fullScreen modal (default). */
   embedded?: boolean;
   onApply: (proposal: PricingProposal) => void;
   onEdit?: (proposal: PricingProposal) => void;
@@ -361,7 +381,7 @@ function ScopeCard({
       ? suggestItemNeedsPricing(item)
       : isSavedOnly && scopeTotal <= 0 && (item.warnings?.length ?? 0) > 0;
   const canEdit = Boolean(isSavedOnly && scopeTotal > 0 && onToggleEdit);
-  const canToggleInclude = Boolean(isSuggestMode && onToggleIncluded && !needsPricing && scopeTotal > 0);
+  const canToggleInclude = Boolean(isSuggestMode && onToggleIncluded && suggestItemSelectable(item));
   const conf = item.recommended?.confidence;
 
   useEffect(() => {
@@ -419,9 +439,24 @@ function ScopeCard({
           ]}
         >
           <Text style={{ color: '#fbbf24', fontSize: 12, fontWeight: '700' }}>
-            {(item.warnings || []).find((w) => /needs manual pricing/i.test(w)) || 'Needs pricing'}
+            {(item.warnings || []).find((w) => /needs manual pricing — no reliable source/i.test(w)) ||
+              (item.pricingBlocked
+                ? BLOCKED_PRICING_MESSAGE
+                : MANUAL_PRICING_NO_SOURCE_MESSAGE)}
           </Text>
         </View>
+        {item.unitMismatchSubtext ? (
+          <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 16, marginTop: 8 }}>
+            {item.unitMismatchSubtext}
+          </Text>
+        ) : null}
+        {(item.warnings || [])
+          .filter((w) => !/needs manual pricing/i.test(w) && w !== item.unitMismatchSubtext)
+          .map((w, i) => (
+            <Text key={`npw-${i}`} style={{ color: Colors.sub, fontSize: 11, lineHeight: 16, marginTop: 6 }}>
+              {w}
+            </Text>
+          ))}
       </View>
     );
   }
@@ -478,14 +513,60 @@ function ScopeCard({
               </TouchableOpacity>
             ) : null}
           </View>
+          {(() => {
+            const rv = reviewStatusVisual(item.reviewStatus);
+            if (!rv) return null;
+            return (
+              <View
+                style={[
+                  styles.needsPricingBadge,
+                  {
+                    alignSelf: 'flex-start',
+                    marginTop: 6,
+                    borderColor: rv.color,
+                    backgroundColor: rv.bg,
+                  },
+                ]}
+              >
+                <Text style={{ color: rv.color, fontSize: 11, fontWeight: '700' }}>{rv.label}</Text>
+              </View>
+            );
+          })()}
+          {item.reviewStatus === 'needs_approval' && item.approvalSubtext ? (
+            <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 16, marginTop: 6 }}>
+              {item.approvalSubtext}
+            </Text>
+          ) : null}
+          {item.reviewStatus === 'needs_approval' &&
+          (item.warnings || []).find((w) => w && !/Confirm what is included/i.test(w) && !/Planning estimate/i.test(w)) ? (
+            <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 16, marginTop: 4 }}>
+              {(item.warnings || []).find(
+                (w) =>
+                  w &&
+                  !/Confirm what is included/i.test(w) &&
+                  !/Planning estimate/i.test(w) &&
+                  !/verify before billing/i.test(w)
+              )}
+            </Text>
+          ) : null}
+          {item.priceRangeHint?.combinedTotal ? (
+            <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 4 }}>
+              Typical range: ${Math.round(item.priceRangeHint.combinedTotal.low).toLocaleString()}–$
+              {Math.round(item.priceRangeHint.combinedTotal.high).toLocaleString()}
+            </Text>
+          ) : null}
           {isSuggestMode && conf ? (
             <View style={styles.cardMetaRow}>
               <ConfidenceBadge confidence={conf} compact />
               {canToggleInclude && !included ? (
                 <Text style={[styles.includeHint, { color: Colors.sub }]} numberOfLines={2}>
-                  {suggestItemIsManualOnly(item)
-                    ? 'Manual pricing recommended'
-                    : 'Unchecked — tap box to include'}
+                  {item.reviewStatus === 'needs_approval'
+                    ? 'Unchecked — confirm scope, then check to include'
+                    : suggestItemNeedsApproval(item)
+                      ? 'Unchecked — confirm scope, then check to include'
+                      : suggestItemIsManualOnly(item)
+                        ? 'Manual pricing recommended'
+                        : 'Unchecked — tap box to include'}
                 </Text>
               ) : null}
             </View>
@@ -562,7 +643,14 @@ function ScopeCard({
         </View>
       ) : null}
 
-      {(item.warnings || []).map((w, i) => (
+      {(item.warnings || [])
+        .filter(
+          (w) =>
+            w &&
+            item.reviewStatus !== 'needs_approval' &&
+            !/needs manual pricing|Blocked —|Planning estimate — verify/i.test(w)
+        )
+        .map((w, i) => (
         <Text key={`w-${i}`} style={{ color: '#fbbf24', fontSize: 11, marginTop: 8 }}>
           {w}
         </Text>
@@ -759,13 +847,24 @@ export default function AIEstimatePricingProposalModal({
     return items;
   }, [display.scopeItems, isSavedOnly, savedFilter]);
 
-  const selectedSuggestCount = includedScopeIds.size;
+  const validSelectedSuggestCount = useMemo(
+    () => countValidSelectedSuggestItems(display.scopeItems, includedScopeIds),
+    [display.scopeItems, includedScopeIds]
+  );
+
+  const suggestTotalSelected = useMemo(
+    () =>
+      isSuggestMode
+        ? sumValidSelectedSuggestTotal(display.scopeItems, includedScopeIds)
+        : display.totalSuggested,
+    [isSuggestMode, display.scopeItems, display.totalSuggested, includedScopeIds]
+  );
 
   const suggestApplyLabel = useMemo(() => {
     if (!isSuggestMode) return applyLabel || 'Apply suggested pricing';
-    if (selectedSuggestCount <= 0) return 'Apply selected suggested prices';
-    return `Apply ${selectedSuggestCount} selected price${selectedSuggestCount === 1 ? '' : 's'}`;
-  }, [isSuggestMode, selectedSuggestCount, applyLabel]);
+    if (validSelectedSuggestCount <= 0) return 'Apply valid selected prices';
+    return `Apply ${validSelectedSuggestCount} valid selected price${validSelectedSuggestCount === 1 ? '' : 's'}`;
+  }, [isSuggestMode, validSelectedSuggestCount, applyLabel]);
 
   const savedApplyLabel = useMemo(() => {
     if (!isSavedOnly || !savedCounts) return applyLabel || 'Apply saved pricing';
@@ -781,11 +880,11 @@ export default function AIEstimatePricingProposalModal({
 
   const suggestUncheckedCaption = useMemo(() => {
     if (!isSuggestMode) return null;
-    const total = display.scopeItems?.length ?? 0;
-    const unchecked = total - selectedSuggestCount;
+    const selectable = (display.scopeItems || []).filter((item) => suggestItemSelectable(item)).length;
+    const unchecked = selectable - validSelectedSuggestCount;
     if (unchecked <= 0) return null;
     return `${unchecked} unchecked — shown for reference. Check a box to include, or price manually later.`;
-  }, [isSuggestMode, display.scopeItems, selectedSuggestCount]);
+  }, [isSuggestMode, display.scopeItems, validSelectedSuggestCount]);
 
   const partialTemplateMatch =
     isSavedOnly &&
@@ -826,15 +925,51 @@ export default function AIEstimatePricingProposalModal({
     );
   };
 
+  const handleBack = () => {
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    onClose();
+  };
+
+  const headerTopPadding = embedded
+    ? 0
+    : Math.max(insets.top, Platform.OS === 'ios' ? 12 : 0) + 8;
+
   if (!visible || !proposal) return null;
 
   const shell = (
-    <View style={[styles.shell, { backgroundColor: Colors.bg, paddingTop: embedded ? 0 : insets.top }]}>
-        <View style={styles.header}>
-          <Text style={[styles.title, { color: Colors.text }]}>{title}</Text>
-          <TouchableOpacity onPress={onClose} hitSlop={12}>
-            <Text style={{ color: Colors.sub, fontSize: 22 }}>×</Text>
-          </TouchableOpacity>
+    <View style={[styles.shell, { backgroundColor: Colors.bg }]}>
+        <View style={[styles.headerRow, { paddingTop: headerTopPadding }]}>
+          <View style={styles.headerSide}>
+            <LinearGradient
+              colors={BRAND_FRAME_GRADIENT_COLORS}
+              start={BRAND_FRAME_GRADIENT_START}
+              end={BRAND_FRAME_GRADIENT_END}
+              style={styles.backButtonBorder}
+            >
+              <GradientRingBackInner
+                darkMode={darkMode}
+                onPress={handleBack}
+                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
+              >
+                <MaterialIcons
+                  name="arrow-back"
+                  size={24}
+                  color={darkMode ? '#FFFFFF' : Colors.text}
+                />
+              </GradientRingBackInner>
+            </LinearGradient>
+          </View>
+          <View style={styles.headerText}>
+            <Text style={[styles.title, { color: Colors.text }]}>{title}</Text>
+            {subtitle ? (
+              <Text style={[styles.headerSubtitle, { color: Colors.sub }]} numberOfLines={2}>
+                {subtitle}
+              </Text>
+            ) : null}
+          </View>
+          <View style={styles.headerSide} />
         </View>
 
         {display.empty || !hasContent ? (
@@ -856,10 +991,6 @@ export default function AIEstimatePricingProposalModal({
           </View>
         ) : (
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 100 }}>
-            <Text style={{ color: Colors.sub, fontSize: 13, lineHeight: 18, marginBottom: 12 }}>
-              {isSuggestMode ? 'Suggested planning prices. Review and adjust before applying.' : subtitle}
-            </Text>
-
             {isSavedOnly && savedMatchStats ? (
               <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', marginBottom: 10 }}>
                 {savedMatchStats}
@@ -1007,10 +1138,16 @@ export default function AIEstimatePricingProposalModal({
 
             <View style={[styles.totalBox, { borderColor: Colors.line }]}>
               <Text style={{ color: Colors.sub, fontSize: 13 }}>
-                {partialTemplateMatch ? 'Total (matched items)' : 'Total suggested'}
+                {isSuggestMode
+                  ? validSelectedSuggestCount > 0
+                    ? 'Total (valid selected)'
+                    : 'Total suggested'
+                  : partialTemplateMatch
+                    ? 'Total (matched items)'
+                    : 'Total suggested'}
               </Text>
               <Text style={{ color: Colors.text, fontSize: 22, fontWeight: '800' }}>
-                {formatDraftMoney(display.totalSuggested)}
+                {formatDraftMoney(isSuggestMode ? suggestTotalSelected : display.totalSuggested)}
               </Text>
             </View>
 
@@ -1049,14 +1186,22 @@ export default function AIEstimatePricingProposalModal({
               <TouchableOpacity
                 style={[
                   styles.primaryBtn,
-                  isSuggestMode && selectedSuggestCount <= 0 && { opacity: 0.45 },
+                  isSuggestMode && validSelectedSuggestCount <= 0 && { opacity: 0.45 },
                 ]}
-                disabled={isSuggestMode && selectedSuggestCount <= 0}
+                disabled={isSuggestMode && validSelectedSuggestCount <= 0}
                 onPress={() => {
                   if (!workingProposal) return;
                   const toApply = isSuggestMode
                     ? filterProposalToScopeItems(workingProposal, includedScopeIds)
                     : workingProposal;
+                  const confirmMsg = getPricingConfirmMessage(toApply);
+                  if (confirmMsg) {
+                    Alert.alert('Confirm pricing', confirmMsg, [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Apply anyway', onPress: () => onApply(toApply) },
+                    ]);
+                    return;
+                  }
                   onApply(toApply);
                 }}
               >
@@ -1111,16 +1256,20 @@ export default function AIEstimatePricingProposalModal({
           { backgroundColor: Colors.bg },
         ]}
       >
-        <SafeAreaView style={{ flex: 1 }} edges={['top', 'left', 'right']}>
-          {shell}
-        </SafeAreaView>
+        {shell}
       </View>
     );
   }
 
   return (
-    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      {shell}
+    <Modal
+      visible
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={handleBack}
+    >
+      <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
+      <View style={[styles.shell, { backgroundColor: Colors.bg }]}>{shell}</View>
     </Modal>
   );
 }
@@ -1131,14 +1280,30 @@ const styles = StyleSheet.create({
     zIndex: 102,
     elevation: 102,
   },
-  header: {
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingBottom: 12,
   },
-  title: { fontSize: 18, fontWeight: '800', flex: 1 },
+  headerSide: { width: 52, alignItems: 'flex-start' },
+  backButtonBorder: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    padding: 1,
+    overflow: 'hidden',
+  },
+  backButton: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerText: { flex: 1, alignItems: 'center', paddingHorizontal: 8 },
+  headerSubtitle: { fontSize: 12, marginTop: 4, textAlign: 'center', lineHeight: 17 },
+  title: { fontSize: 18, fontWeight: '800', textAlign: 'center' },
   legend: {
     flexDirection: 'row',
     flexWrap: 'wrap',

@@ -15,6 +15,10 @@ const CLOSEOUT_RE = /\b(cleanup|disposal|dumpster|final\s+clean|jobsite\s+clean)
 const BATH_FIXTURE_RE = /\b(vanity|toilet|shower|tub|bath(?:room)?)\b/i;
 const KITCHEN_RE = /\b(cabinet|countertop|backsplash|kitchen)\b/i;
 const PAINT_RE = /\b(paint|painting|primer|repaint)\b/i;
+const WATERPROOF_RE =
+  /\b(waterproof|backer\s+board|hardie|hardiebacker|cement\s+board|redgard|red\s+gard|hydro\s*ban|kerdi|membrane|goboard|wedi|densshield)\b/i;
+const SHOWER_TILE_RE =
+  /\b(shower\s+(wall|floor)\s+tile|shower\s+tile\s+(install|installation)|tile\s+shower\s+(install|installation))\b/i;
 
 function blob(...parts) {
   return parts.filter(Boolean).join(' ').toLowerCase();
@@ -147,6 +151,21 @@ function scopeProductFamily(scopeItem) {
   const name = scopeItem.scopeName || '';
   if (CLOSEOUT_RE.test(name) || /\bpermits?\b/i.test(name)) return 'closeout';
   if (DEMO_RE.test(scopeText) || /\bdemo\b/i.test(name)) return 'demo';
+  if (
+    WATERPROOF_RE.test(scopeText) ||
+    /\bwaterproofing\s*&\s*backer/i.test(scopeText)
+  ) {
+    if (!/\b(full\s+wet|complete\s+shower|shower\s+system)\b/i.test(scopeText)) return 'waterproofing';
+  }
+  if (
+    SHOWER_TILE_RE.test(scopeText) ||
+    (/\bshower\b/i.test(scopeText) &&
+      TILE_RE.test(scopeText) &&
+      INSTALL_RE.test(scopeText) &&
+      !WATERPROOF_RE.test(name))
+  ) {
+    return 'shower_tile';
+  }
   if (/laminate|lvp|vinyl/i.test(scopeText)) return 'laminate';
   if (TRIM_RE.test(scopeText)) return 'trim';
   if (BATH_FIXTURE_RE.test(scopeText) && !DEMO_RE.test(scopeText)) return 'bathroom';
@@ -164,6 +183,8 @@ function lineProductFamily(line) {
   const lineText = blob(line.name, line.description, line.section, line.category);
   if (CLOSEOUT_RE.test(lineText) || /\bpermits?\b/i.test(lineText)) return 'closeout';
   if (DEMO_RE.test(lineText)) return 'demo';
+  if (WATERPROOF_RE.test(lineText) || /\bwaterproofing\b/i.test(lineText)) return 'waterproofing';
+  if (SHOWER_TILE_RE.test(lineText)) return 'shower_tile';
   if (/laminate|lvp|vinyl/i.test(lineText)) return 'laminate';
   if (TRIM_RE.test(lineText)) return 'trim';
   if (BATH_FIXTURE_RE.test(lineText) && !DEMO_RE.test(lineText)) return 'bathroom';
@@ -199,6 +220,18 @@ function tradeTokensCompatible(scopeItem, line) {
 
   if (scopeFam === 'tile') {
     if (lineFam === 'tile' && !DEMO_RE.test(lineText)) return true;
+    return false;
+  }
+
+  if (scopeFam === 'waterproofing') {
+    if (lineFam === 'waterproofing' || WATERPROOF_RE.test(lineText)) return true;
+    if (lineFam === 'tile' || lineFam === 'bathroom') return false;
+    return false;
+  }
+
+  if (scopeFam === 'shower_tile') {
+    if (lineFam === 'shower_tile') return true;
+    if (lineFam === 'tile' && !WATERPROOF_RE.test(lineText) && !DEMO_RE.test(lineText)) return true;
     return false;
   }
 

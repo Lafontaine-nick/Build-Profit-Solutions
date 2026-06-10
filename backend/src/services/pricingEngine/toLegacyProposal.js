@@ -42,6 +42,8 @@ function toLegacyProposal(engineResult, options = {}) {
     disclaimer: engineResult.disclaimer || PRICING_DISCLAIMER,
     scopeItems: engineResult.scopeItems,
     warnings: engineResult.warnings,
+    requiresConfirmBeforeApply: engineResult.requiresConfirmBeforeApply,
+    canApplyWithoutConfirm: engineResult.canApplyWithoutConfirm,
     anyRealSource: engineResult.anyRealSource,
     anyFallbackOnly: engineResult.anyFallbackOnly,
     engine: true,

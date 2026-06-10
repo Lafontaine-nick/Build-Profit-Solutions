@@ -313,8 +313,33 @@ function buildScopePackage(room, draft, originalNotes) {
     sanitizedRoom.scope,
     `${roomNotesText}\n${originalNotes || ''}`.trim()
   );
-  const scopeQuantities =
+  let scopeQuantities =
     scopeQuantitiesFromRoom.length > 0 ? scopeQuantitiesFromRoom : scopeQuantitiesFromNotes;
+
+  const {
+    resolveQuantityForPackage,
+    normalizeScopeMeasurements,
+  } = require('./scopeItemQuantityCatalog');
+  const catalogCtx = {
+    measurements: normalizeScopeMeasurements(draft.scopeMeasurements || {}),
+    notes: `${roomNotesText}\n${originalNotes || ''}`.trim(),
+    existingQuantities: scopeQuantities,
+  };
+  const catalogResolved = resolveQuantityForPackage(
+    sanitizedRoom.name,
+    sanitizedRoom.scope,
+    catalogCtx
+  );
+  if (catalogResolved.pricingReady && catalogResolved.quantity != null) {
+    scopeQuantities = [
+      {
+        label: catalogResolved.label || sanitizedRoom.name,
+        quantity: catalogResolved.quantity,
+        unit: catalogResolved.unit,
+        quantitySource: catalogResolved.quantitySource,
+      },
+    ];
+  }
 
   const pricedFromSqft = Boolean(sanitizedRoom.pricedFromSqftAllowances);
   const splitIsSuggested = Boolean(sanitizedRoom.splitIsSuggested);
@@ -603,6 +628,8 @@ function syncRoomsFromScopePackages(draft, scopePackages) {
       applyEligible: pkg.applyEligible,
       pricingItems: pkg.pricingItems,
       missingPriceItems: pkg.missingPriceItems,
+      scopeQuantities: pkg.scopeQuantities?.length ? pkg.scopeQuantities : room.scopeQuantities,
+      quantityMeta: pkg.quantityMeta || room.quantityMeta,
       price:
         pkg.status === 'missing_price' || pkg.status === 'needs_review'
           ? null

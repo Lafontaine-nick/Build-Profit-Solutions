@@ -606,9 +606,13 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
 ];
 
 export function lookupRuleKeyForPackage(name: string, scope = ''): string | null {
-  const blob = `${name} ${scope}`;
+  const nameStr = String(name || '');
+  const fullBlob = `${nameStr} ${scope || ''}`;
   for (const row of PACKAGE_NAME_TO_RULE_KEY) {
-    if (row.test.test(blob)) return row.key;
+    if (row.test.test(nameStr)) return row.key;
+  }
+  for (const row of PACKAGE_NAME_TO_RULE_KEY) {
+    if (row.test.test(fullBlob)) return row.key;
   }
   return null;
 }
@@ -642,6 +646,9 @@ export function inferPlanningQuantityForPackage(
   }
   if (/\b(demo|removal|tear[\s-]?out)\b/.test(blob) && /\btile\b/.test(blob)) {
     return { quantity: 45, unit: 'sqft' };
+  }
+  if (/\b(paint|painting)\b/.test(blob) && !/\b(floor|tile|exterior)\b/.test(blob)) {
+    return { quantity: 175, unit: 'sqft' };
   }
   return null;
 }
@@ -677,6 +684,25 @@ export function countScopePricingReadiness(
   return { ready, needsMeasurement };
 }
 
+function countPackageScopeReadiness(draft: EstimateAiDraft): { ready: number; needsMeasurement: number } {
+  let ready = 0;
+  let needsMeasurement = 0;
+  const packages = draft.scopePackages?.length
+    ? draft.scopePackages
+    : (draft.rooms || []).map((room) => ({
+        scopeQuantities: room.scopeQuantities,
+        price: room.price,
+        knownSubtotal: room.knownSubtotal,
+      }));
+  for (const pkg of packages) {
+    const q = pkg.scopeQuantities?.[0];
+    const priced = (pkg.price ?? 0) > 0 || (pkg.knownSubtotal ?? 0) > 0;
+    if (q && q.quantity > 0) ready += 1;
+    else if (!priced) needsMeasurement += 1;
+  }
+  return { ready, needsMeasurement };
+}
+
 export function countDraftPricingReadiness(draft: EstimateAiDraft | null | undefined): {
   ready: number;
   needsMeasurement: number;
@@ -684,7 +710,15 @@ export function countDraftPricingReadiness(draft: EstimateAiDraft | null | undef
   if (!draft) return { ready: 0, needsMeasurement: 0 };
   const items = draft.confirmedAssumptions || draft.scopeChecklist?.items || [];
   const norm = normalizeScopeMeasurements(draft.scopeMeasurements);
-  return countScopePricingReadiness(items, norm);
+  const fromChecklist = countScopePricingReadiness(items, norm);
+  const fromPackages = countPackageScopeReadiness(draft);
+  return {
+    ready: Math.max(fromChecklist.ready, fromPackages.ready),
+    needsMeasurement:
+      fromPackages.ready > fromChecklist.ready
+        ? fromPackages.needsMeasurement
+        : fromChecklist.needsMeasurement,
+  };
 }
 
 export function scopeMeasurementsToPayload(

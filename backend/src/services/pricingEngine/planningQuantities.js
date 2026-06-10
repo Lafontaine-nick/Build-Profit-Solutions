@@ -42,19 +42,85 @@ const FIXTURE_PLANNING_RATES = {
     materialLabel: 'Tile shower pan materials (liner, drain, mud)',
     laborLabel: 'Tile shower pan / mud pan build labor',
   },
+  shower_niche: {
+    material: 200,
+    labor: 400,
+    materialLabel: 'Niche kit / backer / tile materials',
+    laborLabel: 'Niche frame, waterproof & tile labor',
+  },
+  shower_bench: {
+    material: 300,
+    labor: 450,
+    materialLabel: 'Bench / curb materials & tile',
+    laborLabel: 'Bench / curb build & tile labor',
+  },
+  exhaust_fan: {
+    material: 150,
+    labor: 275,
+    materialLabel: 'Exhaust fan & vent materials',
+    laborLabel: 'Exhaust fan install labor',
+  },
+  mirror_accessories: {
+    material: 125,
+    labor: 175,
+    materialLabel: 'Mirror & accessory materials',
+    laborLabel: 'Mirror / accessory install labor',
+  },
+  lighting_fixture: {
+    material: 200,
+    labor: 275,
+    materialLabel: 'Light fixture materials',
+    laborLabel: 'Light fixture install labor',
+  },
 };
 
-function isRemodelContext(draft) {
+function isPlanningContext(draft) {
   const tier = String(draft?.estimateTier || '').toLowerCase();
-  if (tier === 'room_remodel' || tier === 'addition' || tier === 'ground_up') return true;
+  if (['room_remodel', 'addition', 'ground_up', 'adu', 'new_build', 'service_call', 'repair'].includes(tier)) {
+    return true;
+  }
   const pt = String(draft?.projectType || '').toLowerCase();
-  if (['bathroom', 'bath', 'kitchen'].includes(pt)) return true;
+  if (
+    [
+      'bathroom',
+      'bath',
+      'kitchen',
+      'flooring',
+      'floor',
+      'painting',
+      'paint',
+      'roofing',
+      'roof',
+      'plumbing',
+      'electrical',
+      'hvac',
+      'landscaping',
+      'concrete',
+      'framing',
+      'drywall',
+      'addition',
+      'adu',
+      'handyman',
+    ].includes(pt)
+  ) {
+    return true;
+  }
   const notes = String(draft?.originalNotes || '');
-  return /\b(bath(?:room)?\s+remodel|kitchen\s+remodel|full\s+bath|master\s+bath)\b/i.test(notes);
+  return /\b(remodel|renovation|install|repair|replace|demo|build|addition|adu)\b/i.test(notes);
+}
+
+/** @deprecated */
+function isRemodelContext(draft) {
+  return isPlanningContext(draft);
 }
 
 function resolveFixtureKind(scopeName) {
   const n = String(scopeName || '').toLowerCase();
+  if (/shower\s+niche|\bniche\b/.test(n) && !/kitchen|counter/.test(n)) return 'shower_niche';
+  if (/shower\s+bench|\bcurb\b/.test(n) && !/demolition|demo|removal/.test(n)) return 'shower_bench';
+  if (/exhaust\s+fan|\bventilation\b/.test(n)) return 'exhaust_fan';
+  if (/mirror|\bbath\s+accessories/.test(n)) return 'mirror_accessories';
+  if (/\blighting|\blight\s+fixture/.test(n) && /\binstall/.test(n)) return 'lighting_fixture';
   if (/toilet/.test(n)) return 'toilet';
   if (/vanity/.test(n)) return 'vanity';
   if (/shower\s+door|glass\s+door|enclosure/.test(n)) return 'shower_door';
@@ -68,7 +134,7 @@ function resolveFixtureKind(scopeName) {
  * @returns {{ quantity: number, unit: string, label: string, isPlanningDefault?: boolean } | null}
  */
 function inferPlanningQuantity(packageName, scopeText, draft) {
-  if (!isRemodelContext(draft)) return null;
+  if (!isPlanningContext(draft)) return null;
 
   const name = String(packageName || '').toLowerCase();
   const scope = String(scopeText || '').toLowerCase();
@@ -193,4 +259,5 @@ module.exports = {
   lookupFixturePlanningRates,
   resolveFixtureKind,
   isRemodelContext,
+  isPlanningContext,
 };

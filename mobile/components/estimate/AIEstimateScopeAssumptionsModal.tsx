@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
@@ -1045,7 +1045,6 @@ export default function AIEstimateScopeAssumptionsModal({
         step={2}
         stepTotal={3}
         fromAssistant={fromAssistant}
-        omitTopSafeArea
         disabled={applying}
         onBack={onBack}
       />
@@ -1183,15 +1182,15 @@ export default function AIEstimateScopeAssumptionsModal({
   );
 
   return (
-    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onBack}>
+    <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={onBack}>
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
-      <SafeAreaView style={{ flex: 1, backgroundColor: Colors.bg }} edges={['top', 'left', 'right']}>
+      <View style={{ flex: 1, backgroundColor: Colors.bg }}>
         {body}
         <KeyboardPlainAccessory
           nativeID={KEYBOARD_ACCESSORY_IDS.aiScopeConfirmNumeric}
           backgroundColor={Colors.bg}
         />
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 }

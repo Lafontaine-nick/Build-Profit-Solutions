@@ -90,7 +90,7 @@ const SCOPE_TASKS: ScopeTask[] = [
   },
   {
     id: 'shower_tile',
-    trade: 'bathroom',
+    trade: 'shower_tile',
     name: 'Shower Tile Installation',
     scopeHint: 'shower tile installation',
     detect: (n) => /\b(shower|tub surround|tub)\b/.test(n) && /\b(tile|install|installation|surround)\b/.test(n),

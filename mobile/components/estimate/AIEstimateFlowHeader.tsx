@@ -57,15 +57,30 @@ export default function AIEstimateFlowHeader({
         ]}
       >
         <View style={styles.assistantHeaderRow}>
-          <TouchableOpacity
-            onPress={onBack}
-            disabled={disabled}
-            style={styles.iconBtn}
-            accessibilityRole="button"
-            accessibilityLabel={fromAssistant ? 'Back to AI Assistant' : 'Back'}
-          >
-            <MaterialIcons name="arrow-back" size={24} color={Colors.text} />
-          </TouchableOpacity>
+          <View style={styles.headerSide}>
+            <LinearGradient
+              colors={BRAND_FRAME_GRADIENT_COLORS}
+              start={BRAND_FRAME_GRADIENT_START}
+              end={BRAND_FRAME_GRADIENT_END}
+              style={styles.backButtonBorder}
+            >
+              <GradientRingBackInner
+                darkMode={darkMode}
+                onPress={() => {
+                  if (!disabled) onBack();
+                }}
+                accessibilityLabel={fromAssistant ? 'Back to AI Assistant' : 'Back'}
+                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
+              >
+                <MaterialIcons
+                  name="arrow-back"
+                  size={24}
+                  color={darkMode ? '#FFFFFF' : Colors.text}
+                  style={disabled ? { opacity: 0.4 } : undefined}
+                />
+              </GradientRingBackInner>
+            </LinearGradient>
+          </View>
           <View style={{ flex: 1, alignItems: 'center' }}>
             {step != null ? (
               <Text style={[styles.stepLabel, { color: Colors.sub }]}>
@@ -79,7 +94,7 @@ export default function AIEstimateFlowHeader({
               </Text>
             ) : null}
           </View>
-          <View style={styles.iconBtn} />
+          <View style={styles.headerSide} />
         </View>
       </View>
     );
@@ -129,6 +144,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 4,
     paddingVertical: 6,
+  },
+  headerSide: { width: 52, alignItems: 'flex-start' },
+  backButtonBorder: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    padding: 1,
+    overflow: 'hidden',
+  },
+  backButton: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   iconBtn: {
     width: 40,

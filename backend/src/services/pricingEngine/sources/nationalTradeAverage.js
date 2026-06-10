@@ -1,6 +1,16 @@
 const { NATIONAL_TRADE_AVERAGES, SOURCE_LABELS } = require('../constants');
 const { classifyTradeForPricing } = require('../tradeClassifier');
 const { lookupFixturePlanningRates } = require('../planningQuantities');
+const { normalizeUnit } = require('../pricingRangeCatalog');
+
+function unitsCompatible(scopeUnit, bandUnit) {
+  const su = normalizeUnit(scopeUnit);
+  const bu = normalizeUnit(bandUnit);
+  if (su === bu) return true;
+  if (su === 'lump_sum' && bu === 'each') return true;
+  if (su === 'each' && bu === 'each') return true;
+  return false;
+}
 
 function resolveUnitAndQuantity(scopeItem, band, draft) {
   const notes = draft?.originalNotes || '';
@@ -16,8 +26,15 @@ function resolveUnitAndQuantity(scopeItem, band, draft) {
     if (unit === 'lf') quantity = parseLinearFeetFromText(`${scopeItem.scope} ${notes}`, scopeItem.scopeName);
   }
 
+  const scopeUnit = scopeItem.unit || unit;
+
+  // Never apply $/sqft or $/LF rates to per-piece scope (niche, fan, mirror, etc.).
+  if (!unitsCompatible(scopeUnit, unit)) {
+    return null;
+  }
+
   if (scopeItem.unit === unit && quantity > 0) return { unit, quantity };
-  if (unit === 'sqft' && (scopeItem.unit === 'sqft' || scopeItem.unit === 'lump_sum') && quantity > 0) {
+  if (unit === 'sqft' && scopeItem.unit === 'sqft' && quantity > 0) {
     return { unit: 'sqft', quantity };
   }
   if (unit === 'lf' && scopeItem.unit === 'lf' && quantity > 0) return { unit, quantity };
@@ -30,7 +47,7 @@ function resolveUnitAndQuantity(scopeItem, band, draft) {
   if (unit === 'each') {
     return { unit, quantity: quantity > 0 ? quantity : 1 };
   }
-  if (quantity > 0) return { unit, quantity };
+  if (quantity > 0 && unitsCompatible(scopeUnit, unit)) return { unit, quantity };
   return null;
 }
 

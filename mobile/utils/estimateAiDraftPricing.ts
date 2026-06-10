@@ -14,6 +14,35 @@ import {
   normalizeScopeMeasurements,
   resolveChecklistItemQuantity,
 } from '@/utils/scopeItemQuantities';
+import {
+  APPROVAL_SUBTEXT,
+  BLOCKED_PRICING_MESSAGE,
+  isAutoSelectEligibleScope,
+  isManualPricingScope,
+  isNeedsApprovalScope,
+  MANUAL_PRICING_NO_SOURCE_MESSAGE,
+  suggestItemNeedsManualPricing,
+  suggestItemPricingBlocked,
+  suggestItemSelectable,
+  validateClientPricingUnits,
+} from '@/utils/pricingUnitValidation';
+import { isNeedsApprovalScope as matrixNeedsApproval } from '@/utils/scopePricingMatrix';
+
+export const SUGGESTED_PRICING_DISCLAIMER =
+  'Suggested prices are planning estimates. Verify scope, material selections, labor rates, taxes, permits, overhead, and markup before sending to a client.';
+
+export {
+  APPROVAL_SUBTEXT,
+  BLOCKED_PRICING_MESSAGE,
+  MANUAL_PRICING_NO_SOURCE_MESSAGE,
+  suggestItemNeedsManualPricing,
+  suggestItemPricingBlocked,
+  suggestItemSelectable,
+  validateClientPricingUnits,
+  isAutoSelectEligibleScope,
+  isNeedsApprovalScope,
+  isManualPricingScope,
+} from '@/utils/pricingUnitValidation';
 
 /** ZIP from bid fields or draft notes — supplier pricing requires this. */
 export function resolvePricingZipCode(
@@ -72,6 +101,36 @@ const FIXTURE_PLANNING_RATES_LOCAL: Record<
     materialLabel: 'Tile shower pan materials (liner, drain, mud)',
     laborLabel: 'Tile shower pan / mud pan build labor',
   },
+  shower_niche: {
+    material: 275,
+    labor: 450,
+    materialLabel: 'Niche kit / backer / tile materials',
+    laborLabel: 'Niche frame, waterproof & tile labor',
+  },
+  shower_bench: {
+    material: 350,
+    labor: 650,
+    materialLabel: 'Bench / curb materials & tile',
+    laborLabel: 'Bench / curb build & tile labor',
+  },
+  exhaust_fan: {
+    material: 150,
+    labor: 275,
+    materialLabel: 'Exhaust fan & vent materials',
+    laborLabel: 'Exhaust fan install labor',
+  },
+  mirror_accessories: {
+    material: 125,
+    labor: 175,
+    materialLabel: 'Mirror & accessory materials',
+    laborLabel: 'Mirror / accessory install labor',
+  },
+  lighting_fixture: {
+    material: 200,
+    labor: 275,
+    materialLabel: 'Light fixture materials',
+    laborLabel: 'Light fixture install labor',
+  },
 };
 
 const NATIONAL_TRADE_AVERAGES_LOCAL: Record<
@@ -82,6 +141,27 @@ const NATIONAL_TRADE_AVERAGES_LOCAL: Record<
   flooring: { unit: 'sqft', material: 4, labor: 5, materialLabel: 'Flooring material allowance', laborLabel: 'Flooring install labor' },
   baseboard: { unit: 'lf', material: 2, labor: 5, materialLabel: 'Baseboard material', laborLabel: 'Baseboard install labor' },
   bathroom: { unit: 'sqft', material: 45, labor: 85, materialLabel: 'Bathroom materials', laborLabel: 'Bathroom labor' },
+  shower_waterproofing: {
+    unit: 'sqft',
+    material: 5,
+    labor: 7,
+    materialLabel: 'Backer board, membrane & prep materials',
+    laborLabel: 'Waterproofing & backer board labor',
+  },
+  shower_tile: {
+    unit: 'sqft',
+    material: 8,
+    labor: 14,
+    materialLabel: 'Shower tile materials allowance',
+    laborLabel: 'Shower tile install labor',
+  },
+  shower_full_package: {
+    unit: 'sqft',
+    material: 45,
+    labor: 85,
+    materialLabel: 'Full shower system materials',
+    laborLabel: 'Full shower install labor',
+  },
   kitchen: { unit: 'sqft', material: 55, labor: 95, materialLabel: 'Kitchen materials', laborLabel: 'Kitchen labor' },
   painting: { unit: 'sqft', material: 0.85, labor: 2.5, materialLabel: 'Paint materials', laborLabel: 'Painting labor' },
   plumbing: { unit: 'hour', material: 75, labor: 125, materialLabel: 'Plumbing materials', laborLabel: 'Plumber labor' },
@@ -94,6 +174,11 @@ const NATIONAL_TRADE_AVERAGES_LOCAL: Record<
 
 function resolveFixtureKindLocal(scopeName: string): string | null {
   const n = String(scopeName || '').toLowerCase();
+  if (/shower\s+niche|\bniche\b/.test(n) && !/kitchen|counter/.test(n)) return 'shower_niche';
+  if (/shower\s+bench|\bcurb\b/.test(n) && !/demolition|demo|removal/.test(n)) return 'shower_bench';
+  if (/exhaust\s+fan|\bventilation\b/.test(n)) return 'exhaust_fan';
+  if (/mirror|\bbath\s+accessories/.test(n)) return 'mirror_accessories';
+  if (/\blighting|\blight\s+fixture/.test(n) && /\binstall/.test(n)) return 'lighting_fixture';
   if (/toilet/.test(n)) return 'toilet';
   if (/vanity/.test(n)) return 'vanity';
   if (/shower\s+door|glass\s+door|enclosure/.test(n)) return 'shower_door';
@@ -103,8 +188,36 @@ function resolveFixtureKindLocal(scopeName: string): string | null {
   return null;
 }
 
+function isShowerWaterproofingPackage(name: string, scope = ''): boolean {
+  const ns = `${name} ${scope}`.toLowerCase();
+  if (/\b(full\s+wet|complete\s+shower|shower\s+system)\b/.test(ns)) return false;
+  if (/\bwaterproofing\s*&\s*backer/i.test(ns)) return true;
+  return /\b(waterproof|backer\s+board|hardie|cement\s+board|redgard|membrane|hydro\s*ban|kerdi)\b/i.test(ns);
+}
+
+function isShowerTilePackage(name: string, scope = ''): boolean {
+  const ns = `${name} ${scope}`.toLowerCase();
+  if (isShowerWaterproofingPackage(name, scope)) return false;
+  return (
+    /\b(shower\s+(wall|floor)\s+tile|shower\s+tile\s+(install|installation))\b/i.test(ns) ||
+    (/\bshower\b/i.test(ns) &&
+      /\btile\b/i.test(ns) &&
+      /\b(install|installation|setting|grout)\b/i.test(ns) &&
+      !/\b(demo|removal|waterproof|backer|membrane|redgard)\b/i.test(ns))
+  );
+}
+
+function isShowerFullPackage(name: string, scope = ''): boolean {
+  return /\b(full\s+wet\s+area|complete\s+shower|tile\s+shower\s+package|shower\s+system|wet\s+area\s+package)\b/i.test(
+    `${name} ${scope}`.toLowerCase()
+  );
+}
+
 function inferTradeFromPackage(pkg: EstimateDraftScopePackage, draft: EstimateAiDraft): string {
   const blob = `${pkg.name} ${pkg.scope || ''} ${draft.originalNotes || ''} ${draft.projectType || ''}`.toLowerCase();
+  if (isShowerFullPackage(pkg.name, pkg.scope || '')) return 'shower_full_package';
+  if (isShowerWaterproofingPackage(pkg.name, pkg.scope || '')) return 'shower_waterproofing';
+  if (isShowerTilePackage(pkg.name, pkg.scope || '')) return 'shower_tile';
   const fixture = resolveFixtureKindLocal(pkg.name);
   if (fixture && /\binstall/.test(blob)) return 'bathroom_fixture';
   if (/\btile\s+shower\s+pan|\bmud\s+pan\b/.test(pkg.name.toLowerCase())) return 'bathroom_fixture';
@@ -116,7 +229,11 @@ function inferTradeFromPackage(pkg: EstimateDraftScopePackage, draft: EstimateAi
   if (/\b(roof|shingle)\b/.test(blob)) return 'roofing';
   if (/\b(concrete|slab|deck|patio)\b/.test(blob)) return 'concrete';
   if (/\b(kitchen|cabinet|counter)\b/.test(blob)) return 'kitchen';
-  if (/\b(bath|shower|vanity)\b/.test(blob)) return 'bathroom';
+  if (/\b(bath|shower|vanity)\b/.test(blob)) {
+    if (isShowerWaterproofingPackage(pkg.name, pkg.scope || '')) return 'shower_waterproofing';
+    if (isShowerTilePackage(pkg.name, pkg.scope || '')) return 'shower_tile';
+    return 'bathroom';
+  }
   if (/\b(tile|laminate|flooring|lvp|carpet)\b/.test(blob)) return 'flooring';
   if (draft.projectType === 'flooring') return 'flooring';
   if (draft.projectType === 'kitchen') return 'kitchen';
@@ -196,35 +313,94 @@ export type PricingScopeItemProposal = {
     disclaimerText?: string;
   } | null;
   warnings: string[];
+  requiresConfirmBeforeApply?: boolean;
+  reviewStatus?: PricingReviewStatus;
+  classification?: ScopePricingClassification;
+  priceRangeHint?: PriceRangeHint | null;
+  pricingBlocked?: boolean;
+  autoSelectEligible?: boolean;
+  unitMismatchSubtext?: string | null;
+  approvalSubtext?: string | null;
 };
 
-export const SUGGESTED_PRICING_DISCLAIMER =
-  'Suggested prices are planning estimates. Verify scope, material selections, labor rates, taxes, permits, overhead, and markup before sending to a client.';
+export type PricingReviewStatus =
+  | 'confirmed'
+  | 'needs_price'
+  | 'needs_approval'
+  | 'suggested_rough_price'
+  | 'high_price_warning'
+  | 'unit_mismatch'
+  | 'scope_mismatch'
+  | 'manual_review_required';
+
+export type ScopePricingClassification = {
+  tradeCategory: string;
+  pricingCategory: string;
+  scopeType: 'project' | 'assembly' | 'subScope' | 'materialOnly' | 'laborOnly' | 'serviceCall' | 'allowance';
+  pricingUnit: string;
+  complexity: 'low' | 'standard' | 'high' | 'unknown';
+  includedWork?: string[];
+  excludedWork?: string[];
+};
+
+export type PriceRangeHint = {
+  unit: string;
+  combinedPerUnit?: { low: number; typical: number; high: number };
+  combinedTotal?: { low: number; high: number };
+};
 
 function scopeItemBlob(item: Pick<PricingScopeItemProposal, 'scopeName'> & { scope?: string }) {
   return `${item.scopeName || ''} ${(item as { scope?: string }).scope || ''}`.toLowerCase();
 }
 
 export function suggestItemIsManualOnly(item: PricingScopeItemProposal): boolean {
-  const blob = scopeItemBlob(item);
-  return (
-    /\bplumb.*\btrim|\bplumbing\s+trim|\belectrical\s+trim|\bpermits?\b|\binspection\s+fees?/.test(blob)
-  );
+  return isManualPricingScope(item);
+}
+
+export function suggestItemNeedsApproval(item: PricingScopeItemProposal): boolean {
+  return item.reviewStatus === 'needs_approval' || matrixNeedsApproval(item);
 }
 
 export function suggestItemNeedsPricing(item: PricingScopeItemProposal): boolean {
-  if ((item.warnings || []).some((w) => /needs manual pricing|no reliable source/i.test(w))) return true;
-  if (!scopeItemHasSavedRates(item)) return (item.warnings?.length ?? 0) > 0;
-  return false;
+  return suggestItemNeedsManualPricing(item);
 }
 
 export function suggestItemDefaultIncluded(item: PricingScopeItemProposal): boolean {
-  if (suggestItemNeedsPricing(item)) return false;
+  if (suggestItemPricingBlocked(item)) return false;
+  if (!suggestItemSelectable(item)) return false;
   if (!scopeItemHasSavedRates(item)) return false;
+  if (item.reviewStatus === 'needs_approval') return false;
+  if (isNeedsApprovalScope(item)) return false;
+  if (item.requiresConfirmBeforeApply) return false;
+  if (item.autoSelectEligible === false) return false;
+  if (!isAutoSelectEligibleScope(item)) return false;
+  if (
+    item.reviewStatus === 'unit_mismatch' ||
+    item.reviewStatus === 'scope_mismatch' ||
+    item.reviewStatus === 'manual_review_required'
+  ) {
+    return false;
+  }
   const conf = item.recommended?.confidence || 'medium';
-  if (conf === 'low') return false;
+  const total = (item.proposedRates || []).reduce((s, r) => s + (r.total || 0), 0);
+  const rangeLow = item.priceRangeHint?.combinedTotal?.low;
+  if (conf === 'low') {
+    const unit = String(item.unit || '').toLowerCase();
+    const unitsOk = unit === 'sqft' || unit === 'lf';
+    if (
+      unitsOk &&
+      !item.reviewStatus?.includes('mismatch') &&
+      rangeLow != null &&
+      rangeLow > 0 &&
+      total >= rangeLow * 0.5
+    ) {
+      return true;
+    }
+    return false;
+  }
   if (item.recommended?.source === 'ai_rough_estimate_fallback') return false;
   if (suggestItemIsManualOnly(item)) return false;
+  if (rangeLow != null && rangeLow > 0 && total > 0 && total < rangeLow * 0.5) return false;
   return true;
 }
 
@@ -240,7 +416,9 @@ export function filterProposalToScopeItems(
   proposal: PricingProposal,
   includedIds: Set<string>
 ): PricingProposal {
-  const scopeItems = (proposal.scopeItems || []).filter((item) => includedIds.has(item.scopeItemId));
+  const scopeItems = (proposal.scopeItems || []).filter(
+    (item) => includedIds.has(item.scopeItemId) && suggestItemSelectable(item)
+  );
   const lines = scopeItemsToProposalLines(scopeItems);
   const totalSuggested = lines.reduce((s, l) => s + (l.total || 0), 0);
   return normalizePricingProposal({
@@ -250,6 +428,29 @@ export function filterProposalToScopeItems(
     totalSuggested,
     empty: lines.length === 0,
   });
+}
+
+export function countValidSelectedSuggestItems(
+  scopeItems: PricingScopeItemProposal[] | undefined,
+  includedIds: Set<string>
+): number {
+  let n = 0;
+  for (const item of scopeItems || []) {
+    if (includedIds.has(item.scopeItemId) && suggestItemSelectable(item)) n += 1;
+  }
+  return n;
+}
+
+export function sumValidSelectedSuggestTotal(
+  scopeItems: PricingScopeItemProposal[] | undefined,
+  includedIds: Set<string>
+): number {
+  let sum = 0;
+  for (const item of scopeItems || []) {
+    if (!includedIds.has(item.scopeItemId) || !suggestItemSelectable(item)) continue;
+    sum += (item.proposedRates || []).reduce((s, r) => s + (r.total || 0), 0);
+  }
+  return sum;
 }
 
 export function confidenceVisual(confidence: string | undefined): { label: string; color: string; bg: string } {
@@ -283,6 +484,8 @@ export type PricingProposal = {
   supplierZipSource?: 'bid' | 'draft' | 'notes' | 'default';
   /** saved_only = template/library lookup only; suggest = rough prices with HD + national */
   pricingMode?: 'saved_only' | 'suggest';
+  requiresConfirmBeforeApply?: boolean;
+  canApplyWithoutConfirm?: boolean;
 };
 
 export const PRICING_SOURCE_LABELS: Record<string, string> = {
@@ -587,6 +790,135 @@ function filterScopeItemSavedRates(item: PricingScopeItemProposal): PricingScope
   };
 }
 
+function waterproofingRateInvalid(rate: { pricingType?: string; rate?: number | null }): boolean {
+  if (rate.pricingType === 'material' && (rate.rate ?? 0) >= 25) return true;
+  if (rate.pricingType === 'labor' && (rate.rate ?? 0) >= 40) return true;
+  return false;
+}
+
+function applyClientUnitValidation(item: PricingScopeItemProposal): PricingScopeItemProposal {
+  if (item.pricingBlocked) {
+    return {
+      ...item,
+      proposedRates: [],
+      autoSelectEligible: false,
+      recommended: null,
+    };
+  }
+  const check = validateClientPricingUnits(item);
+  if (!check.blocked) return item;
+  return {
+    ...item,
+    proposedRates: [],
+    pricingBlocked: true,
+    autoSelectEligible: false,
+    warnings: [...new Set([...(item.warnings || []), ...check.warnings])],
+    unitMismatchSubtext: check.unitMismatchSubtext ?? item.unitMismatchSubtext ?? null,
+    reviewStatus: 'needs_price',
+    recommended: null,
+  };
+}
+
+function enrichScopeItemValidation(item: PricingScopeItemProposal): PricingScopeItemProposal {
+  const unitValidated = applyClientUnitValidation(item);
+  if (unitValidated.pricingBlocked) return unitValidated;
+  if (unitValidated.reviewStatus && unitValidated.classification) return unitValidated;
+  if (!isShowerWaterproofingPackage(unitValidated.scopeName)) return unitValidated;
+  return enrichWaterproofingScopeItem(unitValidated);
+}
+
+function enrichWaterproofingScopeItem(item: PricingScopeItemProposal): PricingScopeItemProposal {
+  if (!isShowerWaterproofingPackage(item.scopeName)) return item;
+  const proposedRates = (item.proposedRates || []).filter((r) => !waterproofingRateInvalid(r));
+  const warnings = [...(item.warnings || [])];
+  let requiresConfirmBeforeApply = item.requiresConfirmBeforeApply || false;
+  const qty = item.quantity || 1;
+  const matRate = proposedRates.find((r) => r.pricingType === 'material')?.rate ?? 0;
+  const labRate = proposedRates.find((r) => r.pricingType === 'labor')?.rate ?? 0;
+  const perSqft = matRate + labRate;
+  const total = proposedRates.reduce(
+    (s, r) => s + (r.total ?? (r.rate ?? 0) * (r.quantity ?? qty)),
+    0
+  );
+  const pushWarn = (msg: string) => {
+    if (!warnings.includes(msg)) warnings.push(msg);
+  };
+  if (perSqft > 25) {
+    pushWarn(
+      'This rate appears high for backer board + waterproofing only. Confirm this is not a full shower tile package.'
+    );
+  }
+  const savedSources = ['saved_template', 'saved_pricing', 'company_default'];
+  if (
+    proposedRates.some((r) => savedSources.includes(r.source)) &&
+    perSqft > 17
+  ) {
+    pushWarn('This saved rate looks high for this scope. Review before applying.');
+  }
+  if (total > 2500) {
+    pushWarn('Total exceeds $2,500 for waterproofing/backer board only — verify scope.');
+  }
+  if (total > 5000) {
+    requiresConfirmBeforeApply = true;
+    pushWarn('Total exceeds $5,000 — confirm this is not a full shower package before applying.');
+  }
+  return {
+    ...item,
+    proposedRates,
+    warnings,
+    requiresConfirmBeforeApply,
+    reviewStatus: requiresConfirmBeforeApply ? 'manual_review_required' : perSqft > 25 ? 'scope_mismatch' : item.reviewStatus,
+  };
+}
+
+export function reviewStatusVisual(status: PricingReviewStatus | undefined): {
+  label: string;
+  color: string;
+  bg: string;
+} | null {
+  switch (status) {
+    case 'needs_price':
+      return {
+        label: MANUAL_PRICING_NO_SOURCE_MESSAGE,
+        color: '#fbbf24',
+        bg: 'rgba(251,191,36,0.14)',
+      };
+    case 'needs_approval':
+      return { label: 'Needs approval', color: '#fbbf24', bg: 'rgba(251,191,36,0.14)' };
+    case 'suggested_rough_price':
+      return { label: 'Planning estimate', color: '#60a5fa', bg: 'rgba(96,165,250,0.14)' };
+    case 'high_price_warning':
+      return { label: 'High price warning', color: '#fb923c', bg: 'rgba(251,146,60,0.14)' };
+    case 'unit_mismatch':
+      return {
+        label: BLOCKED_PRICING_MESSAGE,
+        color: '#f87171',
+        bg: 'rgba(248,113,113,0.14)',
+      };
+    case 'scope_mismatch':
+      return { label: 'Scope mismatch', color: '#f87171', bg: 'rgba(248,113,113,0.14)' };
+    case 'manual_review_required':
+      return { label: 'Manual review', color: '#f87171', bg: 'rgba(248,113,113,0.14)' };
+    case 'confirmed':
+      return { label: 'Confirmed', color: '#22c55e', bg: 'rgba(34,197,94,0.14)' };
+    default:
+      return null;
+  }
+}
+
+export function getPricingConfirmMessage(proposal: PricingProposal): string | null {
+  const flagged = (proposal.scopeItems || []).filter((item) => item.requiresConfirmBeforeApply);
+  if (flagged.length === 0 && !proposal.requiresConfirmBeforeApply) return null;
+  const names = flagged.map((i) => i.scopeName).slice(0, 3);
+  const suffix = flagged.length > 3 ? ` and ${flagged.length - 3} more` : '';
+  return `Pricing for ${names.join(', ')}${suffix} may not match scope (rate too high or wrong assembly). Confirm before applying.`;
+}
+
+/** @deprecated use getPricingConfirmMessage */
+export function getWaterproofingConfirmMessage(proposal: PricingProposal): string | null {
+  return getPricingConfirmMessage(proposal);
+}
+
 export function normalizePricingProposal(
   proposal: PricingProposal | null | undefined
 ): PricingProposal {
@@ -601,7 +933,9 @@ export function normalizePricingProposal(
       unit: line.unitType,
     });
   });
-  let scopeItems = normalizeLumpSumScopeItems(proposal.scopeItems || []).map(filterScopeItemSavedRates);
+  let scopeItems = normalizeLumpSumScopeItems(proposal.scopeItems || [])
+    .map(filterScopeItemSavedRates)
+    .map(enrichScopeItemValidation);
   if (scopeItems.length && !lines.length) {
     lines = scopeItemsToProposalLines(scopeItems);
   } else if (!scopeItems.length && lines.length) {
@@ -621,6 +955,9 @@ export function normalizePricingProposal(
     empty: !hasRates,
     anyRealSource: hasRates,
     primarySource,
+    requiresConfirmBeforeApply:
+      proposal.requiresConfirmBeforeApply ||
+      scopeItems.some((i) => i.requiresConfirmBeforeApply),
   };
 }
 
@@ -776,6 +1113,10 @@ async function fetchEngineProposal(
       engine?: { scopeItems: PricingScopeItemProposal[] };
     }>('/proposal', { method: 'POST', body: JSON.stringify(body) }, { apiPath: '/api/pricing-engine' });
     const proposal = res.proposal;
+    const engineItems = res.engine?.scopeItems;
+    const engineHasRates = (engineItems || []).some((item) =>
+      (item.proposedRates || []).some((r) => (r.total || 0) > 0)
+    );
     if (proposal && !proposal.empty) {
       proposal.pricingMode = options.mode;
       if (res.engine?.supplierZip) {
@@ -783,10 +1124,24 @@ async function fetchEngineProposal(
         proposal.supplierZipIsFallback = res.engine.supplierZipIsFallback;
         proposal.supplierZipSource = res.engine.supplierZipSource;
       }
-      if (!proposal.scopeItems?.length && res.engine?.scopeItems) {
-        proposal.scopeItems = res.engine.scopeItems;
+      if (!proposal.scopeItems?.length && engineItems?.length) {
+        proposal.scopeItems = engineItems;
       }
       return normalizePricingProposal(proposal);
+    }
+    if (engineHasRates && engineItems?.length) {
+      return normalizePricingProposal({
+        empty: false,
+        source: 'ai_rough_estimate',
+        sourceLabel: 'National Average',
+        lines: [],
+        scopeItems: engineItems,
+        totalSuggested: 0,
+        pricingMode: options.mode,
+        supplierZip: res.engine?.supplierZip,
+        supplierZipIsFallback: res.engine?.supplierZipIsFallback,
+        supplierZipSource: res.engine?.supplierZipSource,
+      });
     }
   } catch (err) {
     if (!isPricingRouteMissingError(err)) throw err;
@@ -850,6 +1205,14 @@ function pickPackageQuantity(
   }
 
   let qs = pkg.scopeQuantities || [];
+  if (!qs.length && draft?.scopePackages?.length) {
+    const fromScopePkg = draft.scopePackages.find((p) => p.name === pkg.name);
+    if (fromScopePkg?.scopeQuantities?.length) qs = fromScopePkg.scopeQuantities;
+  }
+  if (!qs.length && draft?.rooms?.length) {
+    const fromRoom = draft.rooms.find((r) => r.name === pkg.name);
+    if (fromRoom?.scopeQuantities?.length) qs = fromRoom.scopeQuantities;
+  }
   if (!qs.length) {
     qs = extractScopeQuantitiesForPackage(pkg.name, pkg.scope || '', originalNotes);
   }
@@ -1085,6 +1448,10 @@ function templateLineMatchesCloseoutPackage(
   return false;
 }
 
+function isWaterproofingPackageName(name: string): boolean {
+  return isShowerWaterproofingPackage(name);
+}
+
 function scoreTemplateLineToPackage(
   pkg: EstimateDraftScopePackage,
   line: Record<string, unknown>,
@@ -1104,6 +1471,26 @@ function scoreTemplateLineToPackage(
   const lt = lineText(line);
   if (isCleanupPackage(pkg.name) || isPermitsPackage(pkg.name)) {
     return templateLineMatchesCloseoutPackage(pkg.name, line) ? 45 : 0;
+  }
+  if (isWaterproofingPackageName(pn)) {
+    if (
+      /\b(waterproof|backer|hardie|cement\s+board|redgard|membrane|hydro\s*ban|kerdi|wedi|goboard|densshield|tape|thinset)\b/i.test(
+        lt
+      )
+    ) {
+      if (/\btile\s+install|\binstall.*\btile\b/.test(lt) && !/\b(waterproof|backer|redgard|membrane)\b/.test(lt)) {
+        return 0;
+      }
+      return 40;
+    }
+    return 0;
+  }
+  if (isShowerTilePackage(pn)) {
+    if (lineDemo) return 0;
+    if (/\btile\b/.test(lt) && !/\b(waterproof|backer|redgard|membrane|demo|removal)\b/.test(lt)) {
+      return /\b(install|installation|grout|thinset|setting)\b/.test(lt) || source === 'material' ? 38 : 36;
+    }
+    return 0;
   }
   if (/baseboard|trim/.test(pn)) {
     return /baseboard|trim/.test(lt) ? 30 : 0;

@@ -28,6 +28,28 @@ describe('scopeIntentMatching', () => {
     expect(getScopeWorkIntent(scope, draft).workType).toBe('install');
   });
 
+  it('Waterproofing scope rejects bare Tile install template lines', () => {
+    const scope = {
+      scopeName: 'Shower Waterproofing & Backer Board',
+      scope: 'Membrane, backer, and prep before tile',
+      quantity: 90,
+      unit: 'sqft',
+    };
+    const tileLine = { name: 'Tile', description: 'install labor', section: 'Labor' };
+    expect(scoreScopeToLine(scope, tileLine, 'labor', {})).toBe(0);
+  });
+
+  it('Waterproofing scope accepts waterproofing-named template lines', () => {
+    const scope = {
+      scopeName: 'Shower Waterproofing & Backer Board',
+      scope: 'Membrane, backer, and prep before tile',
+      quantity: 90,
+      unit: 'sqft',
+    };
+    const line = { name: 'RedGard waterproofing labor', description: '', section: 'Labor' };
+    expect(scoreScopeToLine(scope, line, 'labor', {})).toBeGreaterThan(0);
+  });
+
   it('template lookup: tile demo matches demo line; laminate does not use tile install lines', () => {
     const templates = [{
       name: 'Nick',

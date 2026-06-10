@@ -580,9 +580,13 @@ function normalizeScopeMeasurements(measurements = {}) {
 }
 
 function lookupRuleKeyForPackage(name, scope = '') {
-  const blob = `${name} ${scope}`;
+  const nameStr = String(name || '');
+  const fullBlob = `${nameStr} ${scope || ''}`;
   for (const row of PACKAGE_NAME_TO_RULE_KEY) {
-    if (row.test.test(blob)) return row.key;
+    if (row.test.test(nameStr)) return row.key;
+  }
+  for (const row of PACKAGE_NAME_TO_RULE_KEY) {
+    if (row.test.test(fullBlob)) return row.key;
   }
   return null;
 }

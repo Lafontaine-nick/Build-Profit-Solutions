@@ -18,6 +18,16 @@ function formatUnitRate(rate) {
 }
 
 function rateToProposed(scopeItem, rateRow, source) {
+  const { isRateUnitCompatibleWithQuantity, isLumpSumRate } = require('./pricingUnitValidation');
+  if (
+    rateRow.rate != null &&
+    rateRow.rate > 0 &&
+    !isLumpSumRate(rateRow) &&
+    !isRateUnitCompatibleWithQuantity(scopeItem.unit, rateRow)
+  ) {
+    return null;
+  }
+
   const qty =
     scopeItem.quantity != null && scopeItem.quantity > 0
       ? scopeItem.quantity
@@ -354,7 +364,7 @@ function pickRecommended(scopeItem, lookups, options = {}) {
       }
     }
     return rateToProposed(scopeItem, r, lineSource);
-  });
+  }).filter(Boolean);
   const confidence = proposedRates.some((p) => p.confidence === 'high')
     ? 'high'
     : proposedRates.some((p) => p.confidence === 'medium')

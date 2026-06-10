@@ -94,13 +94,21 @@ function scopeItemsFromDraft(draft) {
   const notes = draft.originalNotes || '';
   const projectType = draft.projectType || '';
   const expandedRooms = expandJobScopeRooms(draft.rooms || [], notes, { aggressive: true });
-  const packages = expandedRooms.map((r) => ({
-    name: r.name,
-    scope: r.scope,
-    scopeQuantities: r.scopeQuantities,
-    status: r.packageStatus || r.status,
-    price: r.price,
-  }));
+  const scopePkgByName = new Map((draft.scopePackages || []).map((p) => [p.name, p]));
+  const packages = expandedRooms.map((r) => {
+    const fromScopePkg = scopePkgByName.get(r.name);
+    const scopeQuantities =
+      (r.scopeQuantities?.length ? r.scopeQuantities : null) ??
+      (fromScopePkg?.scopeQuantities?.length ? fromScopePkg.scopeQuantities : null) ??
+      undefined;
+    return {
+      name: r.name,
+      scope: r.scope || fromScopePkg?.scope || '',
+      scopeQuantities,
+      status: r.packageStatus || r.status || fromScopePkg?.status,
+      price: r.price ?? fromScopePkg?.price,
+    };
+  });
   return packages.map((pkg) => {
     const qty = pickScopeQuantity(pkg, notes, draft);
     const unit = qty?.unit || 'lump_sum';

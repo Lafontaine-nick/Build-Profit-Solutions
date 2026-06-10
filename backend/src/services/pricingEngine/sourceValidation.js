@@ -1,3 +1,11 @@
+const { isShowerWaterproofingScope: isWaterproofingTradeScope } = require('./tradeClassifier');
+const { validateScopeItemPricing, REVIEW_STATUS } = require('./globalPricingValidation');
+const { classifyScopeItem } = require('./scopeClassification');
+const {
+  applyPricingApprovalStatus,
+} = require('./pricingApprovalStatus');
+const { runGlobalPricingPipeline } = require('./validateSuggestedPrice');
+
 /**
  * Validate suggested pricing sources per scope item.
  * Prevents vendor live / generic rates from attaching to unrelated trades.
@@ -63,6 +71,28 @@ function isBaseboardTrimScope(scopeItem) {
     scopeItem.trade === 'baseboard' ||
     /\bbaseboard|\btrim install|\bcrown|\bmoulding|\bmolding|\bcasing/.test(blob)
   );
+}
+
+function isShowerWaterproofingScope(scopeItem) {
+  return isWaterproofingTradeScope(scopeItem.scopeName || '', scopeItem.scope || '');
+}
+
+function isShowerTileInstallScope(scopeItem) {
+  const blob = scopeBlob(scopeItem);
+  if (isShowerWaterproofingScope(scopeItem)) return false;
+  return (
+    /\b(shower\s+(wall|floor)\s+tile|shower\s+tile\s+(install|installation))\b/.test(blob) ||
+    (/\bshower\b/.test(blob) &&
+      /\btile\b/.test(blob) &&
+      /\b(install|installation|setting|grout)\b/.test(blob) &&
+      !/\b(demo|removal|waterproof|backer|membrane|redgard)\b/.test(blob))
+  );
+}
+
+function waterproofingRateLooksLikeFullPackage(rate) {
+  if (rate.pricingType === 'material' && (rate.rate ?? 0) >= 25) return true;
+  if (rate.pricingType === 'labor' && (rate.rate ?? 0) >= 40) return true;
+  return false;
 }
 
 function isLumpSumUnit(unit) {
@@ -155,13 +185,17 @@ function rateIsInvalidForScope(scopeItem, rate) {
   ) {
     return true;
   }
+  if (isShowerWaterproofingScope(scopeItem) && waterproofingRateLooksLikeFullPackage(rate)) {
+    return true;
+  }
   return false;
 }
 
 /**
- * @returns {{ proposedRates, recommended, warnings, confidence }}
+ * @returns {{ proposedRates, recommended, warnings, confidence, requiresConfirmBeforeApply, classification, reviewStatus, reviewStatuses, priceRangeHint }}
  */
-function validateScopeItemSuggestion(scopeItem, proposedRates, recommended) {
+function validateScopeItemSuggestion(scopeItem, proposedRates, recommended, context = {}) {
+  const draft = context.draft || {};
   const warnings = [];
   let rates = (proposedRates || []).filter((r) => !rateIsInvalidForScope(scopeItem, r));
 
@@ -170,22 +204,8 @@ function validateScopeItemSuggestion(scopeItem, proposedRates, recommended) {
       ['saved_pricing', 'saved_template', 'company_default'].includes(r.source)
     );
     if (!hasSaved) {
-      return {
-        proposedRates: [],
-        recommended: null,
-        warnings: ['Needs manual pricing — no reliable source found.'],
-        confidence: 'low',
-      };
+      return emptyNeedsPrice(scopeItem, draft, ['Needs manual pricing — no reliable source found.']);
     }
-  }
-
-  if (!rates.length) {
-    return {
-      proposedRates: [],
-      recommended: null,
-      warnings: ['Needs manual pricing — no reliable source found.'],
-      confidence: 'low',
-    };
   }
 
   rates = rates.map((r) => enrichProposedRate(r, scopeItem));
@@ -216,10 +236,49 @@ function validateScopeItemSuggestion(scopeItem, proposedRates, recommended) {
   }
 
   if (rates.some((r) => r.planningEstimate)) {
-    warnings.push('Planning estimate — verify before billing.');
+    if (!warnings.some((w) => /planning estimate/i.test(w))) {
+      warnings.push('Planning estimate — verify before billing.');
+    }
   }
 
-  return { proposedRates: rates, recommended, warnings, confidence };
+  const pipeline = runGlobalPricingPipeline(scopeItem, rates, recommended, { draft });
+  return {
+    proposedRates: pipeline.proposedRates,
+    recommended: pipeline.recommended ?? recommended,
+    warnings: [...new Set([...(warnings || []), ...(pipeline.warnings || [])])],
+    confidence: pipeline.confidence ?? confidence,
+    requiresConfirmBeforeApply: pipeline.requiresConfirmBeforeApply,
+    classification: pipeline.classification,
+    reviewStatus: pipeline.reviewStatus,
+    reviewStatuses: pipeline.reviewStatuses,
+    priceRangeHint: pipeline.priceRangeHint,
+    pricingBlocked: pipeline.pricingBlocked || false,
+    autoSelectEligible: pipeline.autoSelectEligible ?? false,
+    unitMismatchSubtext: pipeline.unitMismatchSubtext,
+    approvalSubtext: pipeline.approvalSubtext,
+  };
+}
+
+function emptyNeedsPrice(scopeItem, draft, warningList, extra = {}) {
+  const base = {
+    proposedRates: [],
+    recommended: null,
+    warnings: warningList,
+    confidence: 'low',
+    requiresConfirmBeforeApply: false,
+    reviewStatus: extra.pricingBlocked ? REVIEW_STATUS.UNIT_MISMATCH : REVIEW_STATUS.NEEDS_PRICE,
+    reviewStatuses: [extra.pricingBlocked ? REVIEW_STATUS.UNIT_MISMATCH : REVIEW_STATUS.NEEDS_PRICE],
+    classification: classifyScopeItem(scopeItem, draft),
+    priceRangeHint: null,
+    pricingBlocked: Boolean(extra.pricingBlocked),
+    autoSelectEligible: false,
+    unitMismatchSubtext: extra.unitMismatchSubtext || null,
+    approvalSubtext: extra.pricingBlocked ? extra.unitMismatchSubtext || null : null,
+  };
+  return applyPricingApprovalStatus(scopeItem, base, {
+    pricingBlocked: Boolean(extra.pricingBlocked),
+    unitMismatchSubtext: extra.unitMismatchSubtext,
+  });
 }
 
 module.exports = {
@@ -231,6 +290,8 @@ module.exports = {
   isCleanupScope,
   isDrywallRepairScope,
   isBaseboardTrimScope,
+  isShowerWaterproofingScope,
+  isShowerTileInstallScope,
   isLumpSumUnit,
   vendorLiveAllowedForScope,
   savedOnlyScope,

@@ -71,7 +71,7 @@ const NATIONAL_TRADE_AVERAGES = {
     unit: 'sqft',
     material: 0.5,
     labor: 5,
-    materialLabel: 'Demo materials / disposal allowance',
+    materialLabel: 'Disposal / consumables',
     laborLabel: 'Demo labor',
   },
   flooring: {
@@ -95,6 +95,27 @@ const NATIONAL_TRADE_AVERAGES = {
     materialLabel: 'Bathroom materials allowance',
     laborLabel: 'Bathroom labor',
   },
+  shower_waterproofing: {
+    unit: 'sqft',
+    material: 5,
+    labor: 7,
+    materialLabel: 'Backer board, membrane & prep materials',
+    laborLabel: 'Waterproofing & backer board labor',
+  },
+  shower_tile: {
+    unit: 'sqft',
+    material: 8,
+    labor: 14,
+    materialLabel: 'Shower tile materials allowance',
+    laborLabel: 'Shower tile install labor',
+  },
+  shower_full_package: {
+    unit: 'sqft',
+    material: 45,
+    labor: 85,
+    materialLabel: 'Full shower system materials',
+    laborLabel: 'Full shower install labor',
+  },
   kitchen: {
     unit: 'sqft',
     material: 55,
@@ -104,8 +125,8 @@ const NATIONAL_TRADE_AVERAGES = {
   },
   painting: {
     unit: 'sqft',
-    material: 0.85,
-    labor: 2.5,
+    material: 1.0,
+    labor: 2.75,
     materialLabel: 'Paint / primer materials',
     laborLabel: 'Painting labor',
   },

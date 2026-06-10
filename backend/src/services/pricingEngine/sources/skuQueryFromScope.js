@@ -37,6 +37,55 @@ function scopeToSkuQuery(scopeItem) {
     return null;
   }
 
+  if (
+    trade === 'shower_waterproofing' ||
+    /\b(waterproof|backer\s+board|hardie|cement\s+board|redgard|membrane)\b/.test(blob)
+  ) {
+    if (!/\b(full\s+wet|complete\s+shower|shower\s+system)\b/.test(blob)) {
+      return {
+        query: 'hardiebacker cement board redgard waterproof membrane',
+        pricingUnit: 'sqft',
+        materialLabel: `${scopeItem.scopeName} material`,
+        highVarianceMaterial: false,
+      };
+    }
+  }
+
+  if (trade === 'shower_tile' || /\bshower\s+(wall|floor)\s+tile\b/.test(blob)) {
+    return {
+      query: 'shower wall tile porcelain ceramic',
+      pricingUnit: 'sqft',
+      materialLabel: `${scopeItem.scopeName} material`,
+      highVarianceMaterial: true,
+    };
+  }
+
+  const scopeUnit = String(scopeItem.unit || '').toLowerCase();
+  if (
+    scopeUnit === 'each' ||
+    scopeUnit === 'lump_sum' ||
+    scopeUnit === 'lf' ||
+    scopeUnit === 'hour' ||
+    scopeUnit === 'day' ||
+    scopeUnit === 'square' ||
+    scopeUnit === 'cy'
+  ) {
+    return null;
+  }
+
+  const { isManualPricingFallback, isNeedsApprovalScope } = require('../scopePricingMatrix');
+  if (isManualPricingFallback(scopeItem) || isNeedsApprovalScope(scopeItem)) {
+    if (scopeUnit !== 'sqft') return null;
+  }
+
+  if (
+    /\b(niche|bench|curb|exhaust\s+fan|mirror|lighting|fixture|shower\s+door|glass\s+door|cabinet|toilet|vanity|hvac|furnace|panel|plant|tree)\b/.test(
+      blob
+    )
+  ) {
+    return null;
+  }
+
   if (trade === 'flooring' || /laminate|lvp|vinyl plank|vinyl flooring/.test(blob)) {
     if (/tile/.test(blob)) {
       return {

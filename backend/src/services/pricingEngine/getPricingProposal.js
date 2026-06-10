@@ -9,6 +9,7 @@ const { lookupNationalTradeAverage } = require('./sources/nationalTradeAverage')
 const { lookupCostDatabase } = require('./sources/costDatabase');
 const { lookupAiFallback } = require('./sources/aiFallback');
 const { validateScopeItemSuggestion, PLANNING_DISCLAIMER } = require('./sourceValidation');
+const { validatePricingProposal } = require('./globalPricingValidation');
 
 /** Resolve ZIP from request, draft field, or originalNotes (e.g. "zip code 89141"). */
 function resolveZipFromDraft(draft, zipCode = '') {
@@ -132,19 +133,43 @@ async function getPricingProposal(params) {
     });
 
     let validatedWarnings = [];
+    let requiresConfirmBeforeApply = false;
+    let classification = null;
+    let reviewStatus = null;
+    let priceRangeHint = null;
+    let pricingBlocked = false;
+    let autoSelectEligible = false;
+    let unitMismatchSubtext = null;
+    let approvalSubtext = null;
     if (mode === 'saved_only') {
-      const validated = validateScopeItemSuggestion(scopeItem, proposedRates, recommended);
+      const validated = validateScopeItemSuggestion(scopeItem, proposedRates, recommended, { draft });
       proposedRates = validated.proposedRates;
       recommended = validated.recommended;
       validatedWarnings = validated.warnings || [];
+      requiresConfirmBeforeApply = validated.requiresConfirmBeforeApply || false;
+      classification = validated.classification;
+      reviewStatus = validated.reviewStatus;
+      priceRangeHint = validated.priceRangeHint;
+      pricingBlocked = validated.pricingBlocked || false;
+      autoSelectEligible = validated.autoSelectEligible || false;
+      unitMismatchSubtext = validated.unitMismatchSubtext || null;
+      approvalSubtext = validated.approvalSubtext || null;
       if (validated.confidence && recommended) {
         recommended.confidence = validated.confidence;
       }
     } else if (mode === 'suggest') {
-      const validated = validateScopeItemSuggestion(scopeItem, proposedRates, recommended);
+      const validated = validateScopeItemSuggestion(scopeItem, proposedRates, recommended, { draft });
       proposedRates = validated.proposedRates;
       recommended = validated.recommended;
       validatedWarnings = validated.warnings || [];
+      requiresConfirmBeforeApply = validated.requiresConfirmBeforeApply || false;
+      classification = validated.classification;
+      reviewStatus = validated.reviewStatus;
+      priceRangeHint = validated.priceRangeHint;
+      pricingBlocked = validated.pricingBlocked || false;
+      autoSelectEligible = validated.autoSelectEligible || false;
+      unitMismatchSubtext = validated.unitMismatchSubtext || null;
+      approvalSubtext = validated.approvalSubtext || null;
       if (validated.confidence && recommended) {
         recommended.confidence = validated.confidence;
       }
@@ -175,7 +200,7 @@ async function getPricingProposal(params) {
         ? ['No saved pricing or bid template matched this item.']
         : !proposedRates.length
           ? ['Needs manual pricing — no reliable source found.']
-          : mode === 'suggest' && validatedWarnings?.length
+          : validatedWarnings?.length
             ? validatedWarnings
             : [];
 
@@ -196,6 +221,14 @@ async function getPricingProposal(params) {
           }
         : null,
       warnings: itemWarnings,
+      requiresConfirmBeforeApply,
+      classification,
+      reviewStatus,
+      priceRangeHint,
+      pricingBlocked,
+      autoSelectEligible,
+      unitMismatchSubtext,
+      approvalSubtext,
     });
   }
 
@@ -231,6 +264,8 @@ async function getPricingProposal(params) {
   const primarySource =
     priorityOrder.find((s) => sourceSet.includes(s)) || 'ai_rough_estimate_fallback';
 
+  const proposalValidation = validatePricingProposal(items, draft);
+
   return {
     mode,
     scopeItems: items,
@@ -259,7 +294,9 @@ async function getPricingProposal(params) {
     ],
     templateCount: (savedTemplates || []).length,
     disclaimer: mode === 'suggest' ? PLANNING_DISCLAIMER : PRICING_DISCLAIMER,
-    warnings,
+    warnings: [...warnings, ...(proposalValidation.proposalWarnings || [])],
+    requiresConfirmBeforeApply: proposalValidation.requiresConfirmBeforeApply,
+    canApplyWithoutConfirm: proposalValidation.canApplyWithoutConfirm,
     supplierZip: context.zipCode,
     supplierZipIsFallback: context.supplierZipIsFallback,
     supplierZipSource: context.supplierZipSource,
