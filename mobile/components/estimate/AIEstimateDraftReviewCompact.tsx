@@ -18,6 +18,7 @@ import {
   getCompactStillNeeded,
   getUniformStatusLabel,
   pendingProposalCalculatedTotal,
+  scopePackageNeedsManualPrice,
   scopePackagePricingHint,
   SCOPE_LIST_DEFAULT_LIMIT,
   shouldHidePerRowStatus,
@@ -42,6 +43,7 @@ type Props = {
   confidenceLevel?: EstimateConfidenceLevel;
   onSuggestMissingPrices?: () => void;
   suggestingMissingPrices?: boolean;
+  onPriceScopeItem?: (packageName: string) => void;
   onRegenerate: () => void;
   showDetailsContent: React.ReactNode;
 };
@@ -65,6 +67,7 @@ export default function AIEstimateDraftReviewCompact({
   confStyle,
   onSuggestMissingPrices,
   suggestingMissingPrices,
+  onPriceScopeItem,
   onRegenerate,
   showDetailsContent,
 }: Props) {
@@ -156,18 +159,76 @@ export default function AIEstimateDraftReviewCompact({
         <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: 10 }}>
           Scope ({scopePackages.length})
         </Text>
+        {missingPriceCount > 0 ? (
+          <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 17, marginBottom: 10 }}>
+            Tap any <Text style={{ fontWeight: '700', color: '#fbbf24' }}>Needs price</Text> item to
+            enter a price before applying.
+          </Text>
+        ) : null}
         {visibleScope.map((pkg, index) => {
           const qty = formatScopeQuantity(pkg);
           const amount = compactPackageAmount(pkg, draft);
           const statusLabel = compactPackageStatusLabel(pkg, draft);
           const hint = !amount ? scopePackagePricingHint(pkg) : null;
+          const needsPrice = scopePackageNeedsManualPrice(pkg, draft);
           const showStatus =
             !hideRowStatus &&
             amount &&
             pkg.status !== 'user_provided' &&
             pkg.status !== 'confirmed' &&
             statusLabel !== 'Confirmed';
-          return (
+          const rowBody = (
+            <>
+              <Text style={{ color: Colors.sub, fontSize: 13, width: 20 }}>{index + 1}.</Text>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }} numberOfLines={2}>
+                  {pkg.name}
+                </Text>
+                {qty ? (
+                  <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }}>{qty}</Text>
+                ) : hint ? (
+                  <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }}>{hint}</Text>
+                ) : null}
+                {needsPrice ? (
+                  <Text style={{ color: '#60a5fa', fontSize: 11, marginTop: 4, fontWeight: '600' }}>
+                    Tap to add price
+                  </Text>
+                ) : null}
+              </View>
+              <View style={{ alignItems: 'flex-end', maxWidth: '42%' }}>
+                {amount ? (
+                  <Text style={{ color: '#22c55e', fontSize: 14, fontWeight: '800' }}>{amount}</Text>
+                ) : (
+                  <Text style={{ color: needsPrice ? '#fbbf24' : Colors.sub, fontSize: 12, fontWeight: needsPrice ? '700' : '400' }}>
+                    {statusLabel}
+                  </Text>
+                )}
+                {showStatus ? (
+                  <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 2 }}>{statusLabel}</Text>
+                ) : null}
+              </View>
+            </>
+          );
+          return needsPrice && onPriceScopeItem ? (
+            <TouchableOpacity
+              key={`scope-${pkg.name}-${index}`}
+              activeOpacity={0.88}
+              disabled={busy}
+              onPress={() => onPriceScopeItem(pkg.name)}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'flex-start',
+                gap: 10,
+                paddingVertical: 10,
+                borderTopWidth: index > 0 ? StyleSheet.hairlineWidth : 0,
+                borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+                borderRadius: 8,
+                backgroundColor: darkMode ? 'rgba(251,191,36,0.06)' : 'rgba(251,191,36,0.04)',
+              }}
+            >
+              {rowBody}
+            </TouchableOpacity>
+          ) : (
             <View
               key={`scope-${pkg.name}-${index}`}
               style={{
@@ -179,27 +240,7 @@ export default function AIEstimateDraftReviewCompact({
                 borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
               }}
             >
-              <Text style={{ color: Colors.sub, fontSize: 13, width: 20 }}>{index + 1}.</Text>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }} numberOfLines={2}>
-                  {pkg.name}
-                </Text>
-                {qty ? (
-                  <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }}>{qty}</Text>
-                ) : hint ? (
-                  <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }}>{hint}</Text>
-                ) : null}
-              </View>
-              <View style={{ alignItems: 'flex-end', maxWidth: '42%' }}>
-                {amount ? (
-                  <Text style={{ color: '#22c55e', fontSize: 14, fontWeight: '800' }}>{amount}</Text>
-                ) : (
-                  <Text style={{ color: Colors.sub, fontSize: 12 }}>{statusLabel}</Text>
-                )}
-                {showStatus ? (
-                  <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 2 }}>{statusLabel}</Text>
-                ) : null}
-              </View>
+              {rowBody}
             </View>
           );
         })}

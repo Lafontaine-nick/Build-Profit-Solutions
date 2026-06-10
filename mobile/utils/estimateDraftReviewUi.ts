@@ -15,12 +15,18 @@ export function isScopeOnlyDraft(draft: EstimateAiDraft | null): boolean {
 /** True when one or more scope packages still need pricing (show Add pricing actions). */
 export function draftHasUnpricedScope(draft: EstimateAiDraft | null): boolean {
   if (!draft) return false;
-  return getScopePackages(draft).some((p) => {
-    const amount = p.price ?? p.knownSubtotal ?? p.calculatedSubtotal ?? 0;
-    if (amount > 0) return false;
-    if (proposalTotalForScopeName(draft.pendingPricingProposal, p.name) > 0) return false;
-    return p.status === 'missing_price' || p.status === 'partial_pricing' || !p.status;
-  });
+  return getScopePackages(draft).some((p) => scopePackageNeedsManualPrice(p, draft));
+}
+
+/** Scope row still needs a user-entered price (tap-to-price on review step 3). */
+export function scopePackageNeedsManualPrice(
+  pkg: EstimateDraftScopePackage,
+  draft?: EstimateAiDraft | null
+): boolean {
+  const amount = pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0;
+  if (amount > 0) return false;
+  if (proposalTotalForScopeName(draft?.pendingPricingProposal, pkg.name) > 0) return false;
+  return pkg.status === 'missing_price' || pkg.status === 'partial_pricing' || !pkg.status;
 }
 
 export function scopePackagePricingHint(pkg: EstimateDraftScopePackage): string {

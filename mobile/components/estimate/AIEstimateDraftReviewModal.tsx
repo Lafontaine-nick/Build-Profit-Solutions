@@ -64,6 +64,7 @@ type Props = {
   onUseSavedPricing?: () => void;
   onSuggestRoughPrices?: () => void;
   onAddPricesManually?: () => void;
+  onPriceScopeItem?: (packageName: string) => void;
   onContinueUnpriced?: () => void;
   saveToPricingLibrary?: boolean;
   onToggleSaveToPricingLibrary?: (value: boolean) => void;
@@ -97,6 +98,7 @@ export default function AIEstimateDraftReviewModal({
   onUseSavedPricing,
   onSuggestRoughPrices,
   onAddPricesManually,
+  onPriceScopeItem,
   onContinueUnpriced,
   saveToPricingLibrary = true,
   onToggleSaveToPricingLibrary,
@@ -227,6 +229,7 @@ export default function AIEstimateDraftReviewModal({
             onSuggestMissingPrices={onSuggestMissingPrices}
             suggestingMissingPrices={suggestingMissingPrices}
             onRegenerate={onRegenerate}
+            onPriceScopeItem={onPriceScopeItem}
             showDetailsContent={
               <AIEstimateDraftReviewDetails
                 draft={draft}

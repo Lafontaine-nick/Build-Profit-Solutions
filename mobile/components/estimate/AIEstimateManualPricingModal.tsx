@@ -39,6 +39,8 @@ type Props = {
   draft: EstimateAiDraft | null;
   /** Pre-fill rates from saved/rough proposal (adjust flow). */
   seedProposal?: PricingProposal | null;
+  /** When set, show only this scope package (tap-to-price from review). */
+  focusPackageName?: string | null;
   embedded?: boolean;
   saveToLibrary: boolean;
   onToggleSaveToLibrary?: (v: boolean) => void;
@@ -143,6 +145,7 @@ export default function AIEstimateManualPricingModal({
   visible,
   draft,
   seedProposal = null,
+  focusPackageName = null,
   embedded = false,
   saveToLibrary,
   onToggleSaveToLibrary,
@@ -162,6 +165,7 @@ export default function AIEstimateManualPricingModal({
   const keyboardHeightRef = useRef(0);
   keyboardHeightRef.current = keyboardHeight;
   const isAdjust = Boolean(seedProposal && !seedProposal.empty);
+  const isSingleItem = Boolean(focusPackageName);
   const hideFooter = fieldFocused || keyboardUp;
 
   useEffect(() => {
@@ -223,6 +227,9 @@ export default function AIEstimateManualPricingModal({
   );
 
   const displayPackages = useMemo(() => {
+    if (focusPackageName) {
+      return packages.filter((p) => p.name === focusPackageName);
+    }
     if (!isAdjust || !draft || !seedProposal) return packages;
     const seeded = manualPricingInputsFromProposal(draft, seedProposal);
     return packages.filter((p) => {
@@ -237,7 +244,7 @@ export default function AIEstimateManualPricingModal({
           inp.laborRateLf
       );
     });
-  }, [packages, isAdjust, draft, seedProposal]);
+  }, [packages, isAdjust, draft, seedProposal, focusPackageName]);
 
   const setField = (pkgName: string, field: string, value: string) => {
     setInputs((prev) => ({
@@ -270,16 +277,22 @@ export default function AIEstimateManualPricingModal({
     >
         <View style={styles.header}>
           <Text style={[styles.title, { color: Colors.text }]}>
-            {isAdjust ? 'Adjust rates' : 'Add prices manually'}
+            {isSingleItem
+              ? 'Add price'
+              : isAdjust
+                ? 'Adjust rates'
+                : 'Add prices manually'}
           </Text>
           <TouchableOpacity onPress={onClose} hitSlop={12}>
             <Text style={{ color: Colors.sub, fontSize: 22 }}>×</Text>
           </TouchableOpacity>
         </View>
         <Text style={{ color: Colors.sub, fontSize: 13, paddingHorizontal: 16, marginBottom: 8 }}>
-          {isAdjust
-            ? 'Rates start from your proposal — edit any line or bump all, then apply.'
-            : 'Enter rates or lump sums — only filled fields are calculated.'}
+          {isSingleItem
+            ? 'Enter a lump sum or unit rates for this scope item, then save.'
+            : isAdjust
+              ? 'Rates start from your proposal — edit any line or bump all, then apply.'
+              : 'Enter rates or lump sums — only filled fields are calculated.'}
         </Text>
 
         {isAdjust ? (
@@ -467,6 +480,58 @@ export default function AIEstimateManualPricingModal({
                   </>
                 ) : null}
 
+                {kind === 'other' ? (
+                  <>
+                    <SegmentedControl
+                      options={[
+                        { id: 'lump_sum', label: 'Lump sum' },
+                        { id: 'split', label: 'Material + Labor' },
+                      ]}
+                      value={mode === 'split' ? 'split' : 'lump_sum'}
+                      onChange={(m) => setMode(pkg.name, m)}
+                      Colors={Colors}
+                    />
+                    {mode === 'lump_sum' ? (
+                      <RateField
+                        label="Total price"
+                        placeholder="Total $"
+                        value={inp.lumpSum || ''}
+                        onChangeText={(v) => setField(pkg.name, 'lumpSum', v)}
+                        onFieldFocus={handleFieldFocus}
+                        Colors={Colors}
+                      />
+                    ) : qty?.unit === 'sqft' ? (
+                      <>
+                        <RateField
+                          label="Material rate"
+                          placeholder="$ / sqft"
+                          value={inp.materialRateSqft || ''}
+                          onChangeText={(v) => setField(pkg.name, 'materialRateSqft', v)}
+                          onFieldFocus={handleFieldFocus}
+                          Colors={Colors}
+                        />
+                        <RateField
+                          label="Labor rate"
+                          placeholder="$ / sqft"
+                          value={inp.laborRateSqft || ''}
+                          onChangeText={(v) => setField(pkg.name, 'laborRateSqft', v)}
+                          onFieldFocus={handleFieldFocus}
+                          Colors={Colors}
+                        />
+                      </>
+                    ) : (
+                      <RateField
+                        label="Total price"
+                        placeholder="Total $"
+                        value={inp.lumpSum || ''}
+                        onChangeText={(v) => setField(pkg.name, 'lumpSum', v)}
+                        onFieldFocus={handleFieldFocus}
+                        Colors={Colors}
+                      />
+                    )}
+                  </>
+                ) : null}
+
                 {preview.total > 0 ? (
                   <View
                     style={{
@@ -527,7 +592,11 @@ export default function AIEstimateManualPricingModal({
             activeOpacity={0.88}
           >
             <Text style={styles.primaryBtnText}>
-              {isAdjust ? 'Apply adjusted pricing' : 'Review calculated draft'}
+              {isSingleItem
+                ? 'Save price'
+                : isAdjust
+                  ? 'Apply adjusted pricing'
+                  : 'Review calculated draft'}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={onClose}>

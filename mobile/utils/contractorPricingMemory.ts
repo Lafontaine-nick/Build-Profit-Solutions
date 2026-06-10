@@ -1,4 +1,7 @@
-import { resolveAiBaseUrl } from '@/utils/resolveAiBackendUrl';
+import {
+  buildPricingApiEndpointUrls,
+  fetchBackendWithFallback,
+} from '@/utils/resolveAiBackendUrl';
 import { withProjectLeadsAuth } from '@/utils/projectLeadsAuthFetch';
 
 export type PricingMemorySettings = {
@@ -81,10 +84,24 @@ export type CapturePricingMemoryMeta = {
 export async function pricingMemoryFetch<T>(
   path: string,
   init: RequestInit = {},
-  options?: { apiPath?: string }
+  options?: { apiPath?: string; timeout?: number; lanTimeout?: number }
 ): Promise<T> {
-  const base = resolveAiBaseUrl();
   const apiPath = options?.apiPath || '/api/contractor-pricing-memory';
+  const urls = buildPricingApiEndpointUrls(path, apiPath);
+  const isHeavyProposal = path === '/proposal' || path === '/rough-pricing-proposal';
+  const timeout = options?.timeout ?? (isHeavyProposal ? 90000 : 60000);
+  const lanTimeout = options?.lanTimeout ?? (isHeavyProposal ? 20000 : 8000);
+
+  if (__DEV__) {
+    console.log(
+      '💰 Pricing API',
+      path,
+      '→',
+      urls[0],
+      urls.length > 1 ? `(+${urls.length - 1} fallbacks)` : ''
+    );
+  }
+
   const authedInit = await withProjectLeadsAuth({
     ...init,
     headers: {
@@ -93,7 +110,7 @@ export async function pricingMemoryFetch<T>(
     },
   });
 
-  const response = await fetch(`${base}${apiPath}${path}`, authedInit);
+  const response = await fetchBackendWithFallback(urls, authedInit, timeout, lanTimeout);
 
   const body = (await response.json().catch(() => ({}))) as T & {
     error?: string;

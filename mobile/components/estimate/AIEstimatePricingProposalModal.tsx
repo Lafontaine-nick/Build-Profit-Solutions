@@ -67,6 +67,7 @@ type Props = {
   /** @deprecated Use standalone fullScreen modal (default). */
   embedded?: boolean;
   onApply: (proposal: PricingProposal) => void;
+  /** @deprecated Inline card editing replaces this; kept for saved-template flows if needed. */
   onEdit?: (proposal: PricingProposal) => void;
   onAddManually?: () => void;
   /** Wipe templates + pricing library (saved-only modal). */
@@ -380,7 +381,7 @@ function ScopeCard({
     isSuggestMode
       ? suggestItemNeedsPricing(item)
       : isSavedOnly && scopeTotal <= 0 && (item.warnings?.length ?? 0) > 0;
-  const canEdit = Boolean(isSavedOnly && scopeTotal > 0 && onToggleEdit);
+  const canEdit = Boolean((isSavedOnly || isSuggestMode) && scopeTotal > 0 && onToggleEdit);
   const canToggleInclude = Boolean(isSuggestMode && onToggleIncluded && suggestItemSelectable(item));
   const conf = item.recommended?.confidence;
 
@@ -582,14 +583,6 @@ function ScopeCard({
           Colors={Colors}
           darkMode={darkMode}
         />
-      ) : canEdit ? (
-        <TouchableOpacity onPress={onToggleEdit} activeOpacity={0.85}>
-          {(item.proposedRates || []).map((line, i) => (
-            <View key={`pr-${i}`}>
-              <RateRow line={line} scopeName={item.scopeName} Colors={Colors} sourceMode={sourceMode} />
-            </View>
-          ))}
-        </TouchableOpacity>
       ) : (
         (item.proposedRates || []).map((line, i) => (
           <View key={`pr-${i}`}>
@@ -613,6 +606,16 @@ function ScopeCard({
             {formatDraftMoney(scopeTotal)}
           </Text>
         </View>
+      ) : null}
+
+      {canEdit && !isEditing ? (
+        <TouchableOpacity
+          onPress={onToggleEdit}
+          activeOpacity={0.88}
+          style={styles.cardAdjustBtn}
+        >
+          <Text style={styles.cardAdjustBtnText}>Adjust rates</Text>
+        </TouchableOpacity>
       ) : null}
 
       {hasDetails ? (
@@ -655,18 +658,6 @@ function ScopeCard({
           {w}
         </Text>
       ))}
-
-      {canEdit && !isEditing ? (
-        <TouchableOpacity
-          onPress={onToggleEdit}
-          activeOpacity={0.75}
-          style={styles.adjustRateHint}
-        >
-          <Text style={{ color: '#22c55e', fontSize: 11, fontStyle: 'italic', textAlign: 'center' }}>
-            Click to adjust rate
-          </Text>
-        </TouchableOpacity>
-      ) : null}
 
       {isEditing && onToggleEdit ? (
         <TouchableOpacity
@@ -767,7 +758,6 @@ export default function AIEstimatePricingProposalModal({
   pricingMode: pricingModeProp,
   embedded = false,
   onApply,
-  onEdit,
   onAddManually,
   onClearAllSavedPricing,
   onClose,
@@ -1226,14 +1216,6 @@ export default function AIEstimatePricingProposalModal({
                   </Text>
                 </TouchableOpacity>
               ) : null}
-              {onEdit && !isSavedOnly ? (
-                <TouchableOpacity
-                  style={styles.secondaryBtn}
-                  onPress={() => workingProposal && onEdit(workingProposal)}
-                >
-                  <Text style={{ color: Colors.text, fontWeight: '700' }}>Adjust rates</Text>
-                </TouchableOpacity>
-              ) : null}
             </>
           ) : onAddManually ? (
             <TouchableOpacity style={styles.primaryBtn} onPress={onAddManually}>
@@ -1441,10 +1423,14 @@ const styles = StyleSheet.create({
     padding: 4,
     marginLeft: 2,
   },
-  adjustRateHint: {
-    marginTop: 8,
-    paddingVertical: 6,
+  cardAdjustBtn: {
+    marginTop: 10,
+    backgroundColor: '#22c55e',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
   },
+  cardAdjustBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 14 },
   doneEditBtn: {
     marginTop: 12,
     paddingVertical: 11,

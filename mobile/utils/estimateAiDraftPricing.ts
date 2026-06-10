@@ -2286,8 +2286,10 @@ export async function fetchRoughPricingProposal(
       fromApi.pricingMode = 'suggest';
       return fromApi;
     }
-  } catch {
-    // fall through
+  } catch (err) {
+    if (__DEV__) {
+      console.warn('fetchRoughPricingProposal: API failed, using local fallback', err);
+    }
   }
   return normalizePricingProposal({
     ...buildRoughPricingProposalLocal(draft),
@@ -2907,14 +2909,27 @@ export type PackagePricingKind = 'tile_demo' | 'flooring' | 'baseboard' | 'other
 
 export function classifyPackageKind(name: string): PackagePricingKind {
   const n = name.toLowerCase();
-  if (/tile|demo/.test(n)) return 'tile_demo';
-  if (/baseboard|trim/.test(n)) return 'baseboard';
-  if ((/laminate|flooring/.test(n) || /install/.test(n)) && !/baseboard/.test(n)) return 'flooring';
+  if (/\b(demo|demolition|tile)\b/.test(n)) return 'tile_demo';
+  if (
+    /\b(baseboard|crown|case)\b/.test(n) ||
+    (/\btrim\b/.test(n) && !/plumbing|electrical/.test(n))
+  ) {
+    return 'baseboard';
+  }
+  if (
+    (/\b(laminate|flooring|lvp|vinyl)\b/.test(n) || /\binstall\b/.test(n)) &&
+    !/baseboard|trim|door|vanity|toilet|fan|light|mirror|glass|niche|bench|curb|cleanup|haul|accessories|allowance|permits?/.test(
+      n
+    )
+  ) {
+    return 'flooring';
+  }
   return 'other';
 }
 
 export function defaultManualMode(kind: PackagePricingKind): ManualPackageMode {
   if (kind === 'tile_demo') return 'rate';
+  if (kind === 'other') return 'lump_sum';
   return 'split';
 }
 
@@ -2980,6 +2995,21 @@ export function computeManualPackagePreview(
       }
       const caulk = parseMoney(inp?.caulkPaintLump);
       if (caulk) addLine(`Caulk & paint: $${formatMoney(caulk)}`, caulk);
+    }
+  } else if (kind === 'other') {
+    const lump = parseMoney(inp?.lumpSum);
+    if (lump) addLine(`Total: $${formatMoney(lump)}`, lump);
+    else if (mode === 'split' && qty?.unit === 'sqft') {
+      const mat = parseMoney(inp?.materialRateSqft);
+      const lab = parseMoney(inp?.laborRateSqft);
+      if (mat) {
+        const t = roundMoney(mat * qty.quantity);
+        addLine(`Material: ${qty.quantity.toLocaleString()} sqft × $${mat}/sqft = $${formatMoney(t)}`, t);
+      }
+      if (lab) {
+        const t = roundMoney(lab * qty.quantity);
+        addLine(`Labor: ${qty.quantity.toLocaleString()} sqft × $${lab}/sqft = $${formatMoney(t)}`, t);
+      }
     }
   }
 
@@ -3130,6 +3160,32 @@ export function buildManualPricingProposal(
             status: 'confirmed',
           });
         }
+      }
+      continue;
+    }
+
+    if (kind === 'other') {
+      if (mode === 'lump_sum' || mode === 'rate') {
+        const lump = parseMoney(inp.lumpSum);
+        if (lump) {
+          lines.push({
+            packageName: pkg.name,
+            lineType: 'lump_sum',
+            label: `${pkg.name} total`,
+            unitType: 'lump_sum',
+            quantity: null,
+            unitRate: null,
+            total: lump,
+            formula: `$${formatMoney(lump)} lump sum`,
+            priceSource: 'manually_entered',
+            sourceLabel: 'Manually entered',
+            confidence: 'high',
+            status: 'confirmed',
+          });
+        }
+      } else if (qty?.unit === 'sqft') {
+        pushRate('material', 'Materials', 'sqft', inp.materialRateSqft, qty.quantity);
+        pushRate('labor', 'Labor', 'sqft', inp.laborRateSqft, qty.quantity);
       }
     }
   }

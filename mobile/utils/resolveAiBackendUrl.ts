@@ -157,23 +157,62 @@ export function buildAiAssistantEndpointUrls(routePath: string): string[] {
   return [...new Set(urls)];
 }
 
+/** Candidate URLs for pricing-engine / contractor-pricing-memory routes. */
+export function buildPricingApiEndpointUrls(
+  routePath: string,
+  apiPath = '/api/contractor-pricing-memory'
+): string[] {
+  const path = routePath.startsWith('/') ? routePath : `/${routePath}`;
+  const normalizedApiPath = apiPath.startsWith('/') ? apiPath : `/${apiPath}`;
+  const urls: string[] = [];
+
+  const pushOrigin = (base: string) => {
+    const origin = stripApiBaseSuffix(String(base || '').trim());
+    if (!origin) return;
+    urls.push(`${origin}${normalizedApiPath}${path}`);
+  };
+
+  pushOrigin(resolveAiBaseUrl());
+
+  try {
+    const { recommendedApiUrl } = getNetworkInfo();
+    pushOrigin(String(recommendedApiUrl || ''));
+  } catch {
+    /* ignore */
+  }
+
+  const isSimulator = Platform.OS === 'ios' && Constants.isDevice === false;
+  const isWeb = Platform.OS === 'web';
+  const isAndroidEmulator = Platform.OS === 'android' && Constants.isDevice === false;
+
+  if (isSimulator || isWeb || isAndroidEmulator) {
+    pushOrigin('http://localhost:3001');
+    if (Platform.OS === 'android') pushOrigin('http://10.0.2.2:3001');
+  }
+
+  pushOrigin(PRODUCTION_AI_ORIGIN);
+
+  return [...new Set(urls)];
+}
+
 /** LAN / loopback: fail fast so we can fall back to production instead of hanging ~60s. */
-function timeoutMsForUrl(url: string, defaultTimeout: number): number {
+function timeoutMsForUrl(url: string, defaultTimeout: number, lanTimeout = 8000): number {
   if (/^https:\/\/[^/]*render\.com/i.test(url)) return defaultTimeout;
-  if (/192\.168\.|10\.0\.2\.2|localhost|127\.0\.0\.1/i.test(url)) return 8000;
+  if (/192\.168\.|10\.0\.2\.2|localhost|127\.0\.0\.1/i.test(url)) return lanTimeout;
   return defaultTimeout;
 }
 
-async function fetchWithFallback(
+export async function fetchBackendWithFallback(
   urls: string[],
   options: RequestInit,
-  timeout = 60000
+  timeout = 60000,
+  lanTimeout = 8000
 ): Promise<Response> {
   const errors: Error[] = [];
 
   for (const url of urls) {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    const attemptTimeout = timeoutMsForUrl(url, timeout);
+    const attemptTimeout = timeoutMsForUrl(url, timeout, lanTimeout);
     try {
       const controller = new AbortController();
       timeoutId = setTimeout(() => controller.abort(), attemptTimeout);
@@ -212,6 +251,14 @@ async function fetchWithFallback(
     );
   }
   throw last || new Error('All connection attempts failed');
+}
+
+async function fetchWithFallback(
+  urls: string[],
+  options: RequestInit,
+  timeout = 60000
+): Promise<Response> {
+  return fetchBackendWithFallback(urls, options, timeout);
 }
 
 export async function postAiAssistantJson<T>(

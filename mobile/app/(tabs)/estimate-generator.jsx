@@ -5147,6 +5147,7 @@ export default function EstimateGeneratorScreen() {
   const [showAiScopeAssumptionsModal, setShowAiScopeAssumptionsModal] = useState(false);
   const [aiScopeAssumptionsApplying, setAiScopeAssumptionsApplying] = useState(false);
   const [aiManualPricingSeed, setAiManualPricingSeed] = useState(null);
+  const [aiManualPricingFocusPackage, setAiManualPricingFocusPackage] = useState(null);
   const [pricingFallbackVariant, setPricingFallbackVariant] = useState(null);
   const [aiSaveToPricingLibrary, setAiSaveToPricingLibrary] = useState(true);
   const [aiClarifyQuestions, setAiClarifyQuestions] = useState(null);
@@ -5968,11 +5969,26 @@ export default function EstimateGeneratorScreen() {
     if (!aiDraft) return;
     pauseDraftReviewForPricingModal();
     setAiManualPricingSeed(null);
+    setAiManualPricingFocusPackage(null);
     setShowAiManualPricingModal(true);
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
   }, [aiDraft, pauseDraftReviewForPricingModal]);
+
+  const handlePriceScopeItem = useCallback(
+    (packageName) => {
+      if (!aiDraft || !packageName) return;
+      pauseDraftReviewForPricingModal();
+      setAiManualPricingSeed(null);
+      setAiManualPricingFocusPackage(packageName);
+      setShowAiManualPricingModal(true);
+      if (Platform.OS !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+    },
+    [aiDraft, pauseDraftReviewForPricingModal]
+  );
 
   const handleApplySavedPricingProposal = useCallback(
     (proposalOverride) => {
@@ -6019,14 +6035,18 @@ export default function EstimateGeneratorScreen() {
   const handleManualPricingCalculate = useCallback(
     (proposal) => {
       if (!aiDraft) return;
-      setAiDraft(applyPricingProposalToDraft(aiDraft, proposal, { approved: true }));
+      setAiDraft((prev) =>
+        prev ? applyPricingProposalToDraft(prev, proposal, { approved: true }) : prev
+      );
       setShowAiManualPricingModal(false);
       setAiManualPricingSeed(null);
+      setAiManualPricingFocusPackage(null);
+      resumeDraftReviewAfterPricingModal();
       if (Platform.OS !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
     },
-    [aiDraft]
+    [aiDraft, resumeDraftReviewAfterPricingModal]
   );
 
   const handleSuggestAiDraftSplits = useCallback(async () => {
@@ -23950,6 +23970,7 @@ export default function EstimateGeneratorScreen() {
         onUseSavedPricing={handleUseSavedPricing}
         onSuggestRoughPrices={handleSuggestRoughPrices}
         onAddPricesManually={handleAddPricesManually}
+        onPriceScopeItem={handlePriceScopeItem}
         onContinueUnpriced={handleDismissSavedPricingSummary}
         saveToPricingLibrary={aiSaveToPricingLibrary}
         onToggleSaveToPricingLibrary={setAiSaveToPricingLibrary}
@@ -23989,7 +24010,6 @@ export default function EstimateGeneratorScreen() {
         subtitle="Suggested planning prices. Review and adjust before applying."
         applyLabel="Apply selected suggested prices"
         onApply={handleApplyRoughPricingProposal}
-        onEdit={openAdjustRatesFromProposal}
         onAddManually={() => {
           setShowAiRoughPricingModal(false);
           setAiManualPricingSeed(null);
@@ -24005,12 +24025,14 @@ export default function EstimateGeneratorScreen() {
         visible={showAiManualPricingModal}
         draft={aiDraft}
         seedProposal={aiManualPricingSeed}
+        focusPackageName={aiManualPricingFocusPackage}
         saveToLibrary={aiSaveToPricingLibrary}
         onToggleSaveToLibrary={setAiSaveToPricingLibrary}
         onCalculate={handleManualPricingCalculate}
         onClose={() => {
           setShowAiManualPricingModal(false);
           setAiManualPricingSeed(null);
+          setAiManualPricingFocusPackage(null);
           resumeDraftReviewAfterPricingModal();
         }}
       />
