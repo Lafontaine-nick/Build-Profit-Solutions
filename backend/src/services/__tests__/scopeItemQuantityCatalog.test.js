@@ -25,6 +25,30 @@ describe('scopeItemQuantityCatalog', () => {
     const electrical = resolveQuantityForChecklistItem('electrical_rough', ctx);
     expect(electrical.pricingReady).toBe(false);
     expect(electrical.quantity).toBeNull();
+
+    const withCount = normalizeScopeMeasurements({
+      itemQuantities: {
+        electrical_rough: { quantity: 2, unit: 'each', quantitySource: 'user_entered' },
+      },
+    });
+    const electricalCount = resolveQuantityForChecklistItem('electrical_rough', {
+      measurements: withCount,
+    });
+    expect(electricalCount.pricingReady).toBe(true);
+    expect(electricalCount.quantity).toBe(2);
+    expect(electricalCount.dualCount).toMatchObject({ quantity: 2, unit: 'each' });
+
+    const withAllowance = normalizeScopeMeasurements({
+      itemQuantities: {
+        'electrical_rough__allowance': { quantity: 1500, unit: 'lump_sum', quantitySource: 'user_entered' },
+      },
+    });
+    const electricalAllowance = resolveQuantityForChecklistItem('electrical_rough', {
+      measurements: withAllowance,
+    });
+    expect(electricalAllowance.pricingReady).toBe(true);
+    expect(electricalAllowance.quantity).toBe(1500);
+    expect(electricalAllowance.dualAllowance).toMatchObject({ quantity: 1500, unit: 'lump_sum' });
   });
 
   test('shower tile requires shower wall sqft not bathroom floor', () => {
@@ -78,6 +102,27 @@ describe('scopeItemQuantityCatalog', () => {
 
     const floorDemo = resolveQuantityForChecklistItem('floor_demo', { measurements });
     expect(floorDemo.quantity).toBe(50);
+  });
+
+  test('kitchen cabinet demo uses lump sum default, not bathroom tear-out sqft', () => {
+    const measurements = normalizeScopeMeasurements({
+      bathroomFloorSqft: 50,
+      showerWallTileSqft: 90,
+      kitchenFloorSqft: 180,
+    });
+    const demo = resolveQuantityForChecklistItem('demo', { measurements, templateKey: 'kitchen' });
+    expect(demo.quantity).toBe(1);
+    expect(demo.unit).toBe('lump_sum');
+    expect(demo.pricingReady).toBe(true);
+    expect(demo.sourceLabel).toBe('Assumed');
+
+    const floorDemo = resolveQuantityForChecklistItem('floor_demo', {
+      measurements,
+      templateKey: 'kitchen',
+    });
+    expect(floorDemo.quantity).toBe(180);
+    expect(floorDemo.unit).toBe('sqft');
+    expect(floorDemo.pricingReady).toBe(true);
   });
 
   test('shower floor tile uses shower floor sqft not bathroom floor', () => {

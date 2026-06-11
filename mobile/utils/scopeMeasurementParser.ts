@@ -2,23 +2,37 @@
  * Client mirror of backend scopeMeasurementParser.js
  */
 
+import type { ScopeItemQuantity } from '@/utils/estimateAiDraft';
+import { parseScopeItemAllowancesFromNotes } from '@/utils/scopeAllowanceParser';
+import { parseScopeItemRatePricingFromNotes } from '@/utils/scopeRatePricingParser';
+
 export type ParsedScopeMeasurements = {
   bathroomFloorSqft?: number;
   kitchenFloorSqft?: number;
+  floorAreaSqft?: number;
   backsplashSqft?: number;
+  countertopSqft?: number;
+  cabinetLf?: number;
   showerWallTileSqft?: number;
   showerFloorTileSqft?: number;
   wallPaintSqft?: number;
+  exteriorPaintSqft?: number;
   drywallSqft?: number;
   landscapeSqft?: number;
+  sodSqft?: number;
+  paverSqft?: number;
+  rockMulchSqft?: number;
+  landscapeTons?: number;
   roofSquares?: number;
   concreteSqft?: number;
   concreteCy?: number;
   excavationCy?: number;
-  landscapeTons?: number;
+  deckSqft?: number;
+  railingLf?: number;
   baseboardLf?: number;
   sqft?: number;
   lf?: number;
+  itemQuantities?: Record<string, ScopeItemQuantity>;
 };
 
 const SQFT_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|ft\.?\s*²|square\s+feet)/gi;
@@ -62,6 +76,18 @@ function pickSqftNearPattern(text: string, pattern: RegExp): number | null {
   return null;
 }
 
+function pickLfNearPattern(text: string, pattern: RegExp): number | null {
+  const re = new RegExp(LF_RE.source, LF_RE.flags);
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const start = Math.max(0, m.index - 25);
+    const end = Math.min(text.length, m.index + m[0].length + 25);
+    const window = text.slice(start, end).toLowerCase();
+    if (pattern.test(window)) return parseQty(m);
+  }
+  return null;
+}
+
 export function parseScopeMeasurementsFromNotes(
   notes: string,
   ctx: { templateKey?: string; projectType?: string } = {}
@@ -95,9 +121,12 @@ export function parseScopeMeasurementsFromNotes(
     (/\bbath(?:room)?\s+remodel\b/.test(blob) && !/\bkitchen\b/.test(blob) ? firstQty(text, SQFT_RE) : null);
   if (bathFloor) out.bathroomFloorSqft = bathFloor;
 
-  const kitchenFloor =
-    pickSqftFromClauses([/\bkitchen\s+floor\b/, /\bkitchen\b.*\bfloor(?:ing)?\b/]) ||
-    (projectType === 'kitchen' || templateKey === 'kitchen' ? firstQty(text, SQFT_RE) : null);
+  const kitchenFloor = pickSqftFromClauses([
+    /\bkitchen\s+floor\b/,
+    /\bkitchen\b.*\b(?:floor(?:ing)?|tile\s+floor|lvp|laminate|vinyl)\b/,
+    /\b(?:floor(?:ing)?|tile\s+floor|lvp|laminate|vinyl)\b.*\bkitchen\b/,
+    /\bfloor(?:ing)?\s+(?:demo|removal|install)\b/,
+  ]);
   if (kitchenFloor) out.kitchenFloorSqft = kitchenFloor;
 
   const backsplash =
@@ -105,22 +134,99 @@ export function parseScopeMeasurementsFromNotes(
     pickSqftFromClauses([/\bback\s*splash\b/, /\bbacksplash\b/]);
   if (backsplash) out.backsplashSqft = backsplash;
 
+  const countertopSqft = (() => {
+    for (const clause of clauses) {
+      const c = clause.toLowerCase();
+      if (/\bback\s*splash|backsplash/.test(c)) continue;
+      if (!/\bcountertops?|\bcounters\b|\bquartz\b|\bgranite\b/.test(c)) continue;
+      const near = pickSqftNearPattern(clause, /\bcountertops?|\bcounters\b|\bquartz\b|\bgranite\b/);
+      if (near) return near;
+      const q = firstQty(clause, SQFT_RE);
+      if (q) return q;
+    }
+    return pickSqftNearPattern(text, /\bcountertops?|\bcounters\b|\bquartz\b|\bgranite\b/);
+  })();
+  if (countertopSqft) out.countertopSqft = countertopSqft;
+
+  const cabinetLf = (() => {
+    for (const clause of clauses) {
+      if (!/\bcabinet/.test(clause.toLowerCase())) continue;
+      const q = firstQty(clause, LF_RE);
+      if (q) return q;
+    }
+    return pickLfNearPattern(text, /\bcabinet/);
+  })();
+  if (cabinetLf) out.cabinetLf = cabinetLf;
+
   const showerWall = pickSqftFromClauses([/\bshower\s+wall\b/, /\bshower\s+tile\b/, /\btile\s+shower\b/]);
   if (showerWall) out.showerWallTileSqft = showerWall;
 
   const showerFloor = pickSqftFromClauses([/\bshower\s+floor\b/, /\bshower\s+pan\b/]);
   if (showerFloor) out.showerFloorTileSqft = showerFloor;
 
-  const paintSqft = pickSqftFromClauses([/\bpaint(?:ing)?\b/, /\binterior\s+paint\b/]);
+  // Use sqft near paint keywords — not first sqft in clause (backsplash may precede paint on one line)
+  const PAINT_SQFT_PATTERNS = [
+    /\bpaint(?:ing)?\b/,
+    /\bwall(?:s)?\s*(?:and|\/|&)\s*ceiling\b/,
+    /\binterior\s+paint\b/,
+  ];
+  const paintSqft = (() => {
+    for (const clause of clauses) {
+      const c = clause.toLowerCase();
+      if (/\bexterior\b/.test(c)) continue;
+      if (!PAINT_SQFT_PATTERNS.some((p) => p.test(c))) continue;
+      for (const pattern of PAINT_SQFT_PATTERNS) {
+        const near = pickSqftNearPattern(clause, pattern);
+        if (near) return near;
+      }
+    }
+    return pickSqftFromClauses(PAINT_SQFT_PATTERNS);
+  })();
   if (paintSqft) out.wallPaintSqft = paintSqft;
+
+  const exteriorPaintSqft = pickSqftFromClauses([/\bexterior\s+paint\b/, /\bpaint\s+exterior\b/]);
+  if (exteriorPaintSqft) out.exteriorPaintSqft = exteriorPaintSqft;
 
   const drywallSqft = pickSqftFromClauses([/\bdrywall\b/, /\bsheetrock\b/]);
   if (drywallSqft) out.drywallSqft = drywallSqft;
 
-  const landscapeSqft =
-    pickSqftFromClauses([/\b(?:back|front|side)?\s*yard\b/, /\blandscap/, /\bsod\b/, /\bturf\b/, /\bmulch\b/, /\bpavers?\b/]) ||
-    (projectType === 'landscaping' || templateKey === 'landscaping' ? firstQty(text, SQFT_RE) : null);
+  const sodSqft = pickSqftFromClauses([/\b(?:new\s+)?sod\b/, /\bturf\b/, /\b(?:new\s+)?grass\b/, /\bexisting\s+sod\b/]);
+  if (sodSqft) out.sodSqft = sodSqft;
+
+  const paverSqft = pickSqftFromClauses([/\bpavers?\b/, /\bpatio\b.*\bpaver/]);
+  if (paverSqft) out.paverSqft = paverSqft;
+
+  const rockMulchSqft = pickSqftFromClauses([/\brock\b/, /\bmulch\b/, /\bgravel\b/]);
+  if (rockMulchSqft) out.rockMulchSqft = rockMulchSqft;
+
+  const landscapeSqft = pickSqftFromClauses([/\b(?:back|front|side)?\s*yard\b/, /\blandscap(?:e|ing)\b/, /\blawn\b/]);
   if (landscapeSqft) out.landscapeSqft = landscapeSqft;
+
+  const floorAreaSqft = (() => {
+    let max = 0;
+    for (const clause of clauses) {
+      const c = clause.toLowerCase();
+      if (/\bbaseboard\b|\bback\s*splash|backsplash|\bcountertop|\bpaint\b/.test(c)) continue;
+      if (!/\b(demo|install|removal|laminate|tile|lvp|vinyl|flooring|floor)\b/.test(c)) continue;
+      const q = firstQty(clause, SQFT_RE);
+      if (q && q > max) max = q;
+    }
+    return max > 0 ? max : null;
+  })();
+  if (floorAreaSqft) out.floorAreaSqft = floorAreaSqft;
+
+  const deckSqft = pickSqftFromClauses([/\bdeck(?:ing)?\b/]);
+  if (deckSqft) out.deckSqft = deckSqft;
+
+  const railingLf = (() => {
+    for (const clause of clauses) {
+      if (!/\brail(?:ing)?|guardrail/.test(clause.toLowerCase())) continue;
+      const q = firstQty(clause, LF_RE);
+      if (q) return q;
+    }
+    return pickLfNearPattern(text, /\brail(?:ing)?|guardrail/);
+  })();
+  if (railingLf) out.railingLf = railingLf;
 
   for (const clause of clauses) {
     if (!/\bbaseboard\b|\btrim\b/.test(clause.toLowerCase())) continue;
@@ -149,8 +255,17 @@ export function parseScopeMeasurementsFromNotes(
     }
   }
 
-  const concreteSqft = pickSqftFromClauses([/\bconcrete\b/, /\bflatwork\b/, /\bslab\b/, /\bpatio\b/]);
+  const concreteSqft = pickSqftFromClauses([/\bconcrete\b/, /\bflatwork\b/, /\bslab\b/, /\bpatio\b/, /\bdriveway\b/]);
   if (concreteSqft) out.concreteSqft = concreteSqft;
+
+  for (const clause of clauses) {
+    if (!/\bconcrete\b|\bfoundation\b|\bslab\b/.test(clause.toLowerCase())) continue;
+    const cy = firstQty(clause, CY_RE);
+    if (cy) {
+      out.concreteCy = cy;
+      break;
+    }
+  }
 
   for (const clause of clauses) {
     if (!/\bexcavat/.test(clause.toLowerCase())) continue;
@@ -161,8 +276,24 @@ export function parseScopeMeasurementsFromNotes(
     }
   }
 
+  for (const clause of clauses) {
+    if (!/\bmulch\b|\brock\b|\bgravel\b|\bstone\b/.test(clause.toLowerCase())) continue;
+    const t = firstQty(clause, TON_RE);
+    if (t) {
+      out.landscapeTons = t;
+      break;
+    }
+  }
+
   if (out.bathroomFloorSqft) out.sqft = out.bathroomFloorSqft;
   if (out.baseboardLf) out.lf = out.baseboardLf;
+
+  const itemAllowances = parseScopeItemAllowancesFromNotes(text, ctx);
+  const itemRatePricing = parseScopeItemRatePricingFromNotes(text, out, ctx);
+  const itemQuantities = { ...itemAllowances, ...itemRatePricing };
+  if (Object.keys(itemQuantities).length) {
+    return { ...out, itemQuantities };
+  }
 
   return out;
 }

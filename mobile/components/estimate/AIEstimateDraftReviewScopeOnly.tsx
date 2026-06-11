@@ -17,6 +17,7 @@ import { draftHasApplyablePricing } from '@/utils/estimateAiDraftPricing';
 import { draftHasUnpricedScope } from '@/utils/estimateDraftReviewUi';
 import type { EstimateConfidenceLevel } from '@/utils/estimateAiDraft';
 import AIEstimateDraftReviewPricingActions from '@/components/estimate/AIEstimateDraftReviewPricingActions';
+import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 
 type Colors = {
   text: string;
@@ -65,20 +66,15 @@ export default function AIEstimateDraftReviewScopeOnly({
   const hasUnpriced = draftHasUnpricedScope(draft);
   const showPricingActions = hasUnpriced || !hasPricing;
   const proposal = draft.pendingPricingProposal;
+  const flowCard = (extra?: object) => ({
+    ...estimateFlowCardStyle(Colors, darkMode, { marginBottom: 12 }),
+    ...extra,
+  });
 
   return (
     <>
       {draft.estimateConfidence ? (
-        <View
-          style={{
-            marginBottom: 12,
-            padding: 14,
-            borderRadius: 14,
-            borderWidth: 1,
-            borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
-            backgroundColor: confStyle.bg,
-          }}
-        >
+        <View style={flowCard({ backgroundColor: confStyle.bg })}>
           <Text style={{ color: confStyle.color, fontSize: 13, fontWeight: '800' }}>
             {draft.estimateConfidence.label}
           </Text>
@@ -152,16 +148,7 @@ export default function AIEstimateDraftReviewScopeOnly({
         </View>
       ) : null}
 
-      <View
-        style={{
-          marginBottom: 12,
-          padding: 14,
-          borderRadius: 14,
-          borderWidth: 1,
-          borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
-          backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : Colors.surface2,
-        }}
-      >
+      <View style={flowCard()}>
         <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: 10 }}>
           Scope found
         </Text>
@@ -174,7 +161,7 @@ export default function AIEstimateDraftReviewScopeOnly({
                 marginBottom: index < scopePackages.length - 1 ? 10 : 0,
                 paddingBottom: index < scopePackages.length - 1 ? 10 : 0,
                 borderBottomWidth: index < scopePackages.length - 1 ? StyleSheet.hairlineWidth : 0,
-                borderBottomColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+                borderBottomColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
               }}
             >
               <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
@@ -190,16 +177,7 @@ export default function AIEstimateDraftReviewScopeOnly({
       </View>
 
       {stillNeeded.length > 0 ? (
-        <View
-          style={{
-            marginBottom: 12,
-            padding: 14,
-            borderRadius: 14,
-            borderWidth: 1,
-            borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
-            backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : Colors.surface2,
-          }}
-        >
+        <View style={flowCard()}>
           <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: 8 }}>
             Still needed
           </Text>

@@ -365,15 +365,43 @@ export function suggestItemNeedsPricing(item: PricingScopeItemProposal): boolean
   return suggestItemNeedsManualPricing(item);
 }
 
+const SAVED_BID_TEMPLATE_SOURCES = new Set([
+  'saved_pricing',
+  'saved_template',
+  'pricing_history',
+  'company_default',
+]);
+
+const ROUGH_PLANNING_SOURCES = new Set([
+  'national_trade_average',
+  'supplier_pricing',
+  'ai_rough_estimate',
+  'ai_rough_estimate_fallback',
+  'regional_default',
+]);
+
+export function suggestItemUsesSavedBidOrTemplate(item: PricingScopeItemProposal): boolean {
+  const rates = (item.proposedRates || []).filter((r) => (r.total || 0) > 0);
+  if (!rates.length) return false;
+  return rates.every((r) => SAVED_BID_TEMPLATE_SOURCES.has(r.source));
+}
+
+/** National / vendor / AI planning prices — show bright, unchecked by default. */
+export function suggestItemIsRoughPlanningItem(item: PricingScopeItemProposal): boolean {
+  if (!scopeItemHasSavedRates(item)) return false;
+  if (suggestItemUsesSavedBidOrTemplate(item)) return false;
+  const rec = item.recommended?.source;
+  if (rec && ROUGH_PLANNING_SOURCES.has(rec)) return true;
+  const rates = (item.proposedRates || []).filter((r) => (r.total || 0) > 0);
+  return rates.some((r) => ROUGH_PLANNING_SOURCES.has(r.source));
+}
+
 export function suggestItemDefaultIncluded(item: PricingScopeItemProposal): boolean {
   if (suggestItemPricingBlocked(item)) return false;
   if (!suggestItemSelectable(item)) return false;
-  if (!scopeItemHasSavedRates(item)) return false;
   if (item.reviewStatus === 'needs_approval') return false;
   if (isNeedsApprovalScope(item)) return false;
   if (item.requiresConfirmBeforeApply) return false;
-  if (item.autoSelectEligible === false) return false;
-  if (!isAutoSelectEligibleScope(item)) return false;
   if (
     item.reviewStatus === 'unit_mismatch' ||
     item.reviewStatus === 'scope_mismatch' ||
@@ -381,29 +409,16 @@ export function suggestItemDefaultIncluded(item: PricingScopeItemProposal): bool
   ) {
     return false;
   }
-  const conf = item.recommended?.confidence || 'medium';
-  const total = (item.proposedRates || []).reduce((s, r) => s + (r.total || 0), 0);
-  const rangeLow = item.priceRangeHint?.combinedTotal?.low;
-  if (conf === 'low') {
-    const unit = String(item.unit || '').toLowerCase();
-    const unitsOk = unit === 'sqft' || unit === 'lf';
-    if (
-      unitsOk &&
-      !item.reviewStatus?.includes('mismatch') &&
-      rangeLow != null &&
-      rangeLow > 0 &&
-      total >= rangeLow * 0.5
-    ) {
-      return true;
-    }
-    return false;
-  }
-  if (item.recommended?.source === 'ai_rough_estimate_fallback') return false;
   if (suggestItemIsManualOnly(item)) return false;
-  if (rangeLow != null && rangeLow > 0 && total > 0 && total < rangeLow * 0.5) return false;
-  return true;
+
+  if (suggestItemUsesSavedBidOrTemplate(item)) return true;
+
+  if (item.autoSelectEligible === true) return true;
+  if (item.autoSelectEligible === false) return false;
+  return isAutoSelectEligibleScope(item);
 }
 
+/** Saved template/bid + auto-select rough estimates start checked; needs-approval stays unchecked. */
 export function defaultIncludedSuggestScopeIds(items: PricingScopeItemProposal[]): Set<string> {
   const ids = new Set<string>();
   for (const item of items) {
@@ -2894,6 +2909,10 @@ export type ManualPricingInputs = Record<
     laborRateSqft?: string;
     materialRateLf?: string;
     laborRateLf?: string;
+    /** Total $ for material when split mode has no unit rate (allowance, each, etc.). */
+    materialTotal?: string;
+    /** Total $ for labor when split mode has no unit rate. */
+    laborTotal?: string;
     lumpSum?: string;
     caulkPaintLump?: string;
   }
@@ -2918,7 +2937,7 @@ export function classifyPackageKind(name: string): PackagePricingKind {
   }
   if (
     (/\b(laminate|flooring|lvp|vinyl)\b/.test(n) || /\binstall\b/.test(n)) &&
-    !/baseboard|trim|door|vanity|toilet|fan|light|mirror|glass|niche|bench|curb|cleanup|haul|accessories|allowance|permits?/.test(
+    !/baseboard|trim|door|vanity|toilet|fan|light|lighting|fixture|exhaust|mirror|glass|niche|bench|curb|cleanup|haul|accessories|allowance|permits?/.test(
       n
     )
   ) {
@@ -2931,6 +2950,146 @@ export function defaultManualMode(kind: PackagePricingKind): ManualPackageMode {
   if (kind === 'tile_demo') return 'rate';
   if (kind === 'other') return 'lump_sum';
   return 'split';
+}
+
+export function packageQuantityUnit(pkg: EstimateDraftScopePackage): string | null {
+  const unit = pkg.scopeQuantities?.[0]?.unit;
+  return unit ? String(unit).trim().toLowerCase() : null;
+}
+
+/** How split-mode manual inputs should be captured for this package unit. */
+export function manualSplitInputKind(unit: string | null): 'sqft' | 'lf' | 'totals' {
+  if (unit === 'sqft' || unit === 'sf') return 'sqft';
+  if (unit === 'lf') return 'lf';
+  return 'totals';
+}
+
+function addManualSplitPreview(
+  pkg: EstimateDraftScopePackage,
+  inp: ManualPricingInputs[string] | undefined,
+  breakdown: string[],
+  addLine: (text: string, amount: number) => void
+) {
+  const qty = pkg.scopeQuantities?.[0];
+  const splitKind = manualSplitInputKind(packageQuantityUnit(pkg));
+  if (splitKind === 'sqft' && qty?.unit === 'sqft') {
+    const mat = parseMoney(inp?.materialRateSqft);
+    const lab = parseMoney(inp?.laborRateSqft);
+    if (mat) {
+      const t = roundMoney(mat * qty.quantity);
+      addLine(`Material: ${qty.quantity.toLocaleString()} sqft × $${mat}/sqft = $${formatMoney(t)}`, t);
+    }
+    if (lab) {
+      const t = roundMoney(lab * qty.quantity);
+      addLine(`Labor: ${qty.quantity.toLocaleString()} sqft × $${lab}/sqft = $${formatMoney(t)}`, t);
+    }
+    return;
+  }
+  if (splitKind === 'lf' && qty?.unit === 'lf') {
+    const mat = parseMoney(inp?.materialRateLf);
+    const lab = parseMoney(inp?.laborRateLf);
+    if (mat) {
+      const t = roundMoney(mat * qty.quantity);
+      addLine(`Material: ${qty.quantity.toLocaleString()} LF × $${mat}/LF = $${formatMoney(t)}`, t);
+    }
+    if (lab) {
+      const t = roundMoney(lab * qty.quantity);
+      addLine(`Labor: ${qty.quantity.toLocaleString()} LF × $${lab}/LF = $${formatMoney(t)}`, t);
+    }
+    const caulk = parseMoney(inp?.caulkPaintLump);
+    if (caulk) addLine(`Caulk & paint: $${formatMoney(caulk)}`, caulk);
+    return;
+  }
+  const mat = parseMoney(inp?.materialTotal);
+  const lab = parseMoney(inp?.laborTotal);
+  if (mat) addLine(`Material: $${formatMoney(mat)}`, mat);
+  if (lab) addLine(`Labor: $${formatMoney(lab)}`, lab);
+}
+
+function pushManualSplitLines(
+  pkg: EstimateDraftScopePackage,
+  inp: ManualPricingInputs[string],
+  lines: PricingProposalLine[],
+  pushRate: (
+    lineType: 'material' | 'labor',
+    label: string,
+    unitType: string,
+    rateStr: string | undefined,
+    quantity: number | null
+  ) => void
+) {
+  const kind = classifyPackageKind(pkg.name);
+  const qty = pkg.scopeQuantities?.[0];
+  const splitKind = manualSplitInputKind(packageQuantityUnit(pkg));
+  const matLabel =
+    kind === 'flooring' ? 'Laminate material' : kind === 'baseboard' ? 'Baseboard material' : 'Materials';
+  const labLabel =
+    kind === 'flooring'
+      ? 'Laminate install labor'
+      : kind === 'baseboard'
+        ? 'Baseboard install labor'
+        : 'Labor';
+  if (splitKind === 'sqft' && qty?.unit === 'sqft') {
+    pushRate('material', matLabel, 'sqft', inp.materialRateSqft, qty.quantity);
+    pushRate('labor', labLabel, 'sqft', inp.laborRateSqft, qty.quantity);
+    return;
+  }
+  if (splitKind === 'lf' && qty?.unit === 'lf') {
+    pushRate('material', matLabel, 'lf', inp.materialRateLf, qty.quantity);
+    pushRate('labor', labLabel, 'lf', inp.laborRateLf, qty.quantity);
+    const caulk = parseMoney(inp.caulkPaintLump);
+    if (caulk) {
+      lines.push({
+        packageName: pkg.name,
+        lineType: 'labor',
+        label: 'Caulk & paint',
+        unitType: 'lump_sum',
+        quantity: null,
+        unitRate: null,
+        total: caulk,
+        formula: `$${formatMoney(caulk)} lump sum`,
+        priceSource: 'manually_entered',
+        sourceLabel: 'Manually entered',
+        confidence: 'high',
+        status: 'confirmed',
+      });
+    }
+    return;
+  }
+  const mat = parseMoney(inp.materialTotal);
+  const lab = parseMoney(inp.laborTotal);
+  if (mat) {
+    lines.push({
+      packageName: pkg.name,
+      lineType: 'material',
+      label: 'Materials',
+      unitType: 'lump_sum',
+      quantity: null,
+      unitRate: null,
+      total: mat,
+      formula: `$${formatMoney(mat)} material`,
+      priceSource: 'manually_entered',
+      sourceLabel: 'Manually entered',
+      confidence: 'high',
+      status: 'confirmed',
+    });
+  }
+  if (lab) {
+    lines.push({
+      packageName: pkg.name,
+      lineType: 'labor',
+      label: 'Labor',
+      unitType: 'lump_sum',
+      quantity: null,
+      unitRate: null,
+      total: lab,
+      formula: `$${formatMoney(lab)} labor`,
+      priceSource: 'manually_entered',
+      sourceLabel: 'Manually entered',
+      confidence: 'high',
+      status: 'confirmed',
+    });
+  }
 }
 
 export function computeManualPackagePreview(
@@ -2962,54 +3121,12 @@ export function computeManualPackagePreview(
         breakdown[breakdown.length - 1] = `${qty.quantity.toLocaleString()} sqft × $${rate}/sqft = $${formatMoney(t)}`;
       }
     }
-  } else if (kind === 'flooring') {
+  } else if (kind === 'flooring' || kind === 'baseboard' || kind === 'other') {
     if (mode === 'lump_sum') {
       const lump = parseMoney(inp?.lumpSum);
-      if (lump) addLine(`Lump sum: $${formatMoney(lump)}`, lump);
-    } else if (qty?.unit === 'sqft') {
-      const mat = parseMoney(inp?.materialRateSqft);
-      const lab = parseMoney(inp?.laborRateSqft);
-      if (mat) {
-        const t = roundMoney(mat * qty.quantity);
-        addLine(`Material: ${qty.quantity.toLocaleString()} sqft × $${mat}/sqft = $${formatMoney(t)}`, t);
-      }
-      if (lab) {
-        const t = roundMoney(lab * qty.quantity);
-        addLine(`Labor: ${qty.quantity.toLocaleString()} sqft × $${lab}/sqft = $${formatMoney(t)}`, t);
-      }
-    }
-  } else if (kind === 'baseboard') {
-    if (mode === 'lump_sum') {
-      const lump = parseMoney(inp?.lumpSum);
-      if (lump) addLine(`Lump sum: $${formatMoney(lump)}`, lump);
-    } else if (qty?.unit === 'lf') {
-      const mat = parseMoney(inp?.materialRateLf);
-      const lab = parseMoney(inp?.laborRateLf);
-      if (mat) {
-        const t = roundMoney(mat * qty.quantity);
-        addLine(`Material: ${qty.quantity.toLocaleString()} LF × $${mat}/LF = $${formatMoney(t)}`, t);
-      }
-      if (lab) {
-        const t = roundMoney(lab * qty.quantity);
-        addLine(`Labor: ${qty.quantity.toLocaleString()} LF × $${lab}/LF = $${formatMoney(t)}`, t);
-      }
-      const caulk = parseMoney(inp?.caulkPaintLump);
-      if (caulk) addLine(`Caulk & paint: $${formatMoney(caulk)}`, caulk);
-    }
-  } else if (kind === 'other') {
-    const lump = parseMoney(inp?.lumpSum);
-    if (lump) addLine(`Total: $${formatMoney(lump)}`, lump);
-    else if (mode === 'split' && qty?.unit === 'sqft') {
-      const mat = parseMoney(inp?.materialRateSqft);
-      const lab = parseMoney(inp?.laborRateSqft);
-      if (mat) {
-        const t = roundMoney(mat * qty.quantity);
-        addLine(`Material: ${qty.quantity.toLocaleString()} sqft × $${mat}/sqft = $${formatMoney(t)}`, t);
-      }
-      if (lab) {
-        const t = roundMoney(lab * qty.quantity);
-        addLine(`Labor: ${qty.quantity.toLocaleString()} sqft × $${lab}/sqft = $${formatMoney(t)}`, t);
-      }
+      if (lump) addLine(`Total: $${formatMoney(lump)}`, lump);
+    } else if (mode === 'split') {
+      addManualSplitPreview(pkg, inp, breakdown, addLine);
     }
   }
 
@@ -3093,79 +3210,8 @@ export function buildManualPricingProposal(
       continue;
     }
 
-    if (kind === 'flooring') {
-      const q = qty?.unit === 'sqft' ? qty.quantity : null;
-      if (mode === 'lump_sum') {
-        const lump = parseMoney(inp.lumpSum);
-        if (lump) {
-          lines.push({
-            packageName: pkg.name,
-            lineType: 'lump_sum',
-            label: 'Laminate lump sum',
-            unitType: 'lump_sum',
-            quantity: null,
-            unitRate: null,
-            total: lump,
-            formula: `$${formatMoney(lump)} lump sum`,
-            priceSource: 'manually_entered',
-            sourceLabel: 'Manually entered',
-            confidence: 'high',
-            status: 'confirmed',
-          });
-        }
-      } else {
-        pushRate('material', 'Laminate material', 'sqft', inp.materialRateSqft, q);
-        pushRate('labor', 'Laminate install labor', 'sqft', inp.laborRateSqft, q);
-      }
-      continue;
-    }
-
-    if (kind === 'baseboard') {
-      const q = qty?.unit === 'lf' ? qty.quantity : null;
-      if (mode === 'lump_sum') {
-        const lump = parseMoney(inp.lumpSum);
-        if (lump) {
-          lines.push({
-            packageName: pkg.name,
-            lineType: 'lump_sum',
-            label: 'Baseboard lump sum',
-            unitType: 'lump_sum',
-            quantity: null,
-            unitRate: null,
-            total: lump,
-            formula: `$${formatMoney(lump)} lump sum`,
-            priceSource: 'manually_entered',
-            sourceLabel: 'Manually entered',
-            confidence: 'high',
-            status: 'confirmed',
-          });
-        }
-      } else {
-        pushRate('material', 'Baseboard material', 'lf', inp.materialRateLf, q);
-        pushRate('labor', 'Baseboard install labor', 'lf', inp.laborRateLf, q);
-        const caulk = parseMoney(inp.caulkPaintLump);
-        if (caulk) {
-          lines.push({
-            packageName: pkg.name,
-            lineType: 'labor',
-            label: 'Caulk & paint',
-            unitType: 'lump_sum',
-            quantity: null,
-            unitRate: null,
-            total: caulk,
-            formula: `$${formatMoney(caulk)} lump sum`,
-            priceSource: 'manually_entered',
-            sourceLabel: 'Manually entered',
-            confidence: 'high',
-            status: 'confirmed',
-          });
-        }
-      }
-      continue;
-    }
-
-    if (kind === 'other') {
-      if (mode === 'lump_sum' || mode === 'rate') {
+    if (kind === 'flooring' || kind === 'baseboard' || kind === 'other') {
+      if (mode === 'lump_sum' || (kind === 'other' && mode === 'rate')) {
         const lump = parseMoney(inp.lumpSum);
         if (lump) {
           lines.push({
@@ -3183,10 +3229,10 @@ export function buildManualPricingProposal(
             status: 'confirmed',
           });
         }
-      } else if (qty?.unit === 'sqft') {
-        pushRate('material', 'Materials', 'sqft', inp.materialRateSqft, qty.quantity);
-        pushRate('labor', 'Labor', 'sqft', inp.laborRateSqft, qty.quantity);
+      } else if (mode === 'split') {
+        pushManualSplitLines(pkg, inp, lines, pushRate);
       }
+      continue;
     }
   }
 
@@ -3271,11 +3317,17 @@ export function manualPricingInputsFromProposal(
       inp.mode = 'split';
       if (material?.unitRate) {
         if (material.unitType === 'lf') inp.materialRateLf = manualRateInputString(material.unitRate);
-        else inp.materialRateSqft = manualRateInputString(material.unitRate);
+        else if (material.unitType === 'sqft') inp.materialRateSqft = manualRateInputString(material.unitRate);
+        else if (material.total) inp.materialTotal = manualRateInputString(material.total);
+      } else if (material?.total) {
+        inp.materialTotal = manualRateInputString(material.total);
       }
       if (labor?.unitRate) {
         if (labor.unitType === 'lf') inp.laborRateLf = manualRateInputString(labor.unitRate);
-        else inp.laborRateSqft = manualRateInputString(labor.unitRate);
+        else if (labor.unitType === 'sqft') inp.laborRateSqft = manualRateInputString(labor.unitRate);
+        else if (labor.total) inp.laborTotal = manualRateInputString(labor.total);
+      } else if (labor?.total) {
+        inp.laborTotal = manualRateInputString(labor.total);
       }
     }
 
@@ -3285,7 +3337,9 @@ export function manualPricingInputsFromProposal(
       inp.materialRateSqft ||
       inp.laborRateSqft ||
       inp.materialRateLf ||
-      inp.laborRateLf
+      inp.laborRateLf ||
+      inp.materialTotal ||
+      inp.laborTotal
     ) {
       inputs[pkg.name] = inp;
     }
@@ -3310,6 +3364,8 @@ export function bumpManualInputRates(inputs: ManualPricingInputs, percent: numbe
       laborRateSqft: bump(inp.laborRateSqft),
       materialRateLf: bump(inp.materialRateLf),
       laborRateLf: bump(inp.laborRateLf),
+      materialTotal: bump(inp.materialTotal),
+      laborTotal: bump(inp.laborTotal),
       lumpSum: bump(inp.lumpSum),
       caulkPaintLump: bump(inp.caulkPaintLump),
     };

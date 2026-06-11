@@ -5,11 +5,13 @@ import { formatDraftMoney } from '@/utils/estimateAiDraft';
 import { draftHasApplyablePricing } from '@/utils/estimateAiDraftPricing';
 import { countDraftPricingReadiness } from '@/utils/scopeItemQuantities';
 import AIEstimateSavedPricingApplySummary from '@/components/estimate/AIEstimateSavedPricingApplySummary';
+import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 
 type Colors = {
   text: string;
   sub: string;
   line: string;
+  surface2: string;
 };
 
 type Props = {
@@ -106,16 +108,7 @@ export default function AIEstimateDraftReviewPricingActions({
   );
 
   return (
-    <View
-      style={{
-        marginBottom: 12,
-        padding: 14,
-        borderRadius: 14,
-        borderWidth: 1,
-        borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
-        backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : 'transparent',
-      }}
-    >
+    <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: 12 })}>
       <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800', marginBottom: 6 }}>
         {hasPricing ? 'Finish pricing' : 'No pricing found yet'}
       </Text>

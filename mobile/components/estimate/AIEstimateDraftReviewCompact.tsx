@@ -25,6 +25,7 @@ import {
 } from '@/utils/estimateDraftReviewUi';
 import { draftHasApplyablePricing } from '@/utils/estimateAiDraftPricing';
 import type { EstimateConfidenceLevel } from '@/utils/estimateAiDraft';
+import { estimateFlowCardStyle, estimateFlowDividerColor } from '@/utils/estimateFlowCardStyle';
 
 type Colors = {
   text: string;
@@ -48,16 +49,10 @@ type Props = {
   showDetailsContent: React.ReactNode;
 };
 
-function cardStyle(Colors: Colors, darkMode: boolean) {
-  return {
-    marginBottom: 12,
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
-    backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : Colors.surface2,
-  };
-}
+const SCOPE_CARD_INSET = 14;
+const flowCard = (Colors: Colors, darkMode: boolean) =>
+  estimateFlowCardStyle(Colors, darkMode, { marginBottom: 12 });
+const flowDivider = (darkMode: boolean) => estimateFlowDividerColor(darkMode);
 
 export default function AIEstimateDraftReviewCompact({
   draft,
@@ -103,9 +98,8 @@ export default function AIEstimateDraftReviewCompact({
       {draft.estimateConfidence ? (
         <View
           style={{
-            ...cardStyle(Colors, darkMode),
+            ...flowCard(Colors, darkMode),
             backgroundColor: confStyle.bg,
-            borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
           }}
         >
           <Text style={{ color: confStyle.color, fontSize: 13, fontWeight: '800' }}>
@@ -119,7 +113,7 @@ export default function AIEstimateDraftReviewCompact({
         </View>
       ) : null}
 
-      <View style={cardStyle(Colors, darkMode)}>
+      <View style={flowCard(Colors, darkMode)}>
         <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800', marginBottom: 4 }}>
           {getCompactProjectSummary(draft)}
         </Text>
@@ -155,7 +149,7 @@ export default function AIEstimateDraftReviewCompact({
         ) : null}
       </View>
 
-      <View style={cardStyle(Colors, darkMode)}>
+      <View style={flowCard(Colors, darkMode)}>
         <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: 10 }}>
           Scope ({scopePackages.length})
         </Text>
@@ -219,11 +213,12 @@ export default function AIEstimateDraftReviewCompact({
                 flexDirection: 'row',
                 alignItems: 'flex-start',
                 gap: 10,
+                marginHorizontal: -SCOPE_CARD_INSET,
+                paddingHorizontal: SCOPE_CARD_INSET,
                 paddingVertical: 10,
                 borderTopWidth: index > 0 ? StyleSheet.hairlineWidth : 0,
-                borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
-                borderRadius: 8,
-                backgroundColor: darkMode ? 'rgba(251,191,36,0.06)' : 'rgba(251,191,36,0.04)',
+                borderTopColor: flowDivider(darkMode),
+                backgroundColor: darkMode ? 'rgba(251,191,36,0.08)' : 'rgba(251,191,36,0.06)',
               }}
             >
               {rowBody}
@@ -237,7 +232,7 @@ export default function AIEstimateDraftReviewCompact({
                 gap: 10,
                 paddingVertical: 10,
                 borderTopWidth: index > 0 ? StyleSheet.hairlineWidth : 0,
-                borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+                borderTopColor: flowDivider(darkMode),
               }}
             >
               {rowBody}
@@ -263,7 +258,7 @@ export default function AIEstimateDraftReviewCompact({
       {roughSuggestionLines.length > 0 || hasRoughOnScope ? (
         <View
           style={{
-            ...cardStyle(Colors, darkMode),
+            ...flowCard(Colors, darkMode),
             borderColor: 'rgba(251, 191, 36, 0.35)',
             backgroundColor: darkMode ? 'rgba(251, 191, 36, 0.08)' : 'rgba(251, 191, 36, 0.06)',
           }}
@@ -284,7 +279,7 @@ export default function AIEstimateDraftReviewCompact({
       ) : null}
 
       {stillNeeded.items.length > 0 ? (
-        <View style={cardStyle(Colors, darkMode)}>
+        <View style={flowCard(Colors, darkMode)}>
           <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: 8 }}>
             Still needed
           </Text>

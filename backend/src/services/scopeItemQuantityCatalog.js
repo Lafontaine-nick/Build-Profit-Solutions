@@ -25,6 +25,7 @@ const QUANTITY_SOURCES = {
  * @property {string[]} [aggregateMeasurementKeys] - sum all present keys (e.g. full bath tear-out)
  * @property {boolean} [canUseRoomSqft]
  * @property {boolean} [requiresUserQuantity]
+ * @property {boolean} [dualAllowanceField]
  * @property {number} [defaultQuantity]
  * @property {'unit_rate'|'each'|'lump_sum'|'allowance'|'hourly'|'scope_only'} pricingMethod
  * @property {string} [quantityHelper]
@@ -45,7 +46,7 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
   floor_demo: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft'],
-    measurementKeys: ['bathroomFloorSqft', 'showerFloorTileSqft'],
+    measurementKeys: ['bathroomFloorSqft', 'showerFloorTileSqft', 'kitchenFloorSqft', 'floorAreaSqft'],
     canUseRoomSqft: true,
     requiresUserQuantity: false,
     pricingMethod: 'unit_rate',
@@ -182,20 +183,24 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
     quantityHelper: 'Assuming 1 toilet. Edit if different.',
   },
   plumbing_rough: {
-    defaultUnit: 'allowance',
+    defaultUnit: 'each',
     allowedUnits: ['each', 'allowance', 'lump_sum'],
     requiresUserQuantity: true,
+    dualAllowanceField: true,
     pricingMethod: 'allowance',
-    quantityHelper: 'Enter fixture moves or use a plumbing allowance.',
-    missingMessage: 'Enter number of fixtures moved or plumbing allowance.',
+    quantityHelper:
+      'Rough-in points = supply/drain relocations. Fixture hookup is on Toilet, Vanity, or Plumbing trim.',
+    missingMessage: 'Enter rough-in points and/or a dollar allowance.',
   },
   electrical_rough: {
-    defaultUnit: 'allowance',
+    defaultUnit: 'each',
     allowedUnits: ['each', 'allowance', 'lump_sum', 'hr'],
     requiresUserQuantity: true,
+    dualAllowanceField: true,
     pricingMethod: 'allowance',
-    quantityHelper: 'Enter devices, fixtures, circuits, or use an electrical allowance.',
-    missingMessage: 'Enter electrical device/fixture count or allowance.',
+    quantityHelper:
+      'Circuits, boxes, or devices affected. Device trim and plates are on Electrical trim.',
+    missingMessage: 'Enter circuit/device count and/or a dollar allowance.',
   },
   lighting: {
     defaultUnit: 'each',
@@ -242,10 +247,11 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKey: 'wallPaintSqft',
+    dualAllowanceField: true,
     canUseRoomSqft: false,
     requiresUserQuantity: true,
     pricingMethod: 'unit_rate',
-    quantityHelper: 'Enter wall/ceiling paint sqft or use room allowance.',
+    quantityHelper: 'Enter paint sqft and/or calculated total from notes rates.',
     missingMessage: 'Enter wall/ceiling paint sqft.',
   },
   trim: {
@@ -298,6 +304,14 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
     pricingMethod: 'lump_sum',
     quantityHelper: 'Assuming 1 cleanup/disposal lump sum.',
   },
+  appliance_removal: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'lump_sum', 'allowance'],
+    defaultQuantity: 1,
+    requiresUserQuantity: false,
+    pricingMethod: 'each',
+    quantityHelper: 'Assuming 1 appliance set to remove. Edit count if multiple.',
+  },
   // Kitchen remodel
   wall_demo: {
     defaultUnit: 'lump_sum',
@@ -310,23 +324,25 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
   cabinets: {
     defaultUnit: 'lf',
     allowedUnits: ['lf', 'each', 'allowance', 'lump_sum'],
+    measurementKey: 'cabinetLf',
     requiresUserQuantity: true,
     pricingMethod: 'unit_rate',
     quantityHelper: 'Enter cabinet run LF or lump sum.',
     missingMessage: 'Enter cabinet LF or allowance.',
   },
   countertops: {
-    defaultUnit: 'lf',
-    allowedUnits: ['lf', 'sqft', 'allowance', 'lump_sum'],
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'lf', 'allowance', 'lump_sum'],
+    measurementKey: 'countertopSqft',
     requiresUserQuantity: true,
     pricingMethod: 'unit_rate',
-    quantityHelper: 'Enter countertop LF or sqft.',
-    missingMessage: 'Enter countertop LF or allowance.',
+    quantityHelper: 'Enter countertop sqft.',
+    missingMessage: 'Enter countertop sqft.',
   },
   flooring: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft'],
-    measurementKeys: ['kitchenFloorSqft', 'bathroomFloorSqft'],
+    measurementKeys: ['kitchenFloorSqft', 'bathroomFloorSqft', 'floorAreaSqft'],
     requiresUserQuantity: true,
     pricingMethod: 'unit_rate',
     quantityHelper: 'Enter kitchen or room floor sqft.',
@@ -336,9 +352,10 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'lf', 'allowance'],
     measurementKey: 'backsplashSqft',
+    dualAllowanceField: true,
     requiresUserQuantity: true,
     pricingMethod: 'unit_rate',
-    quantityHelper: 'Enter backsplash sqft.',
+    quantityHelper: 'Enter backsplash sqft and/or calculated total from notes.',
     missingMessage: 'Enter backsplash sqft.',
   },
   sink_faucet: {
@@ -361,7 +378,7 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
   sod_turf: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
-    measurementKey: 'landscapeSqft',
+    measurementKeys: ['sodSqft', 'landscapeSqft'],
     requiresUserQuantity: true,
     pricingMethod: 'unit_rate',
     quantityHelper: 'Enter sod/turf sqft.',
@@ -370,7 +387,7 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
   pavers: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
-    measurementKey: 'landscapeSqft',
+    measurementKeys: ['paverSqft', 'landscapeSqft'],
     requiresUserQuantity: true,
     pricingMethod: 'unit_rate',
     quantityHelper: 'Enter paver sqft.',
@@ -379,7 +396,7 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
   rock_mulch: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'cy', 'ton', 'allowance', 'lump_sum'],
-    measurementKeys: ['landscapeSqft'],
+    measurementKeys: ['rockMulchSqft', 'landscapeSqft'],
     requiresUserQuantity: true,
     pricingMethod: 'unit_rate',
     quantityHelper: 'Enter coverage sqft, CY, or tons.',
@@ -423,10 +440,20 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
   decking: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'lf', 'allowance', 'lump_sum'],
+    measurementKey: 'deckSqft',
     requiresUserQuantity: true,
     pricingMethod: 'unit_rate',
     quantityHelper: 'Enter deck surface sqft or LF.',
     missingMessage: 'Enter deck sqft or LF.',
+  },
+  railing: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'railingLf',
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Enter railing linear feet.',
+    missingMessage: 'Enter railing LF.',
   },
   pour_flatwork: {
     defaultUnit: 'sqft',
@@ -476,6 +503,7 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
   exterior_paint: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'exteriorPaintSqft',
     requiresUserQuantity: true,
     pricingMethod: 'unit_rate',
     quantityHelper: 'Enter exterior paint sqft.',
@@ -557,6 +585,15 @@ function normalizeScopeMeasurements(measurements = {}) {
   const concreteCy = parseMeasurementNumber(measurements.concreteCy);
   const excavationCy = parseMeasurementNumber(measurements.excavationCy);
   const landscapeTons = parseMeasurementNumber(measurements.landscapeTons);
+  const countertopSqft = parseMeasurementNumber(measurements.countertopSqft);
+  const cabinetLf = parseMeasurementNumber(measurements.cabinetLf);
+  const floorAreaSqft = parseMeasurementNumber(measurements.floorAreaSqft);
+  const sodSqft = parseMeasurementNumber(measurements.sodSqft);
+  const paverSqft = parseMeasurementNumber(measurements.paverSqft);
+  const rockMulchSqft = parseMeasurementNumber(measurements.rockMulchSqft);
+  const exteriorPaintSqft = parseMeasurementNumber(measurements.exteriorPaintSqft);
+  const deckSqft = parseMeasurementNumber(measurements.deckSqft);
+  const railingLf = parseMeasurementNumber(measurements.railingLf);
 
   return {
     bathroomFloorSqft,
@@ -566,13 +603,22 @@ function normalizeScopeMeasurements(measurements = {}) {
     wallPaintSqft,
     kitchenFloorSqft,
     backsplashSqft,
+    countertopSqft,
+    cabinetLf,
+    floorAreaSqft,
     landscapeSqft,
+    sodSqft,
+    paverSqft,
+    rockMulchSqft,
     roofSquares,
     drywallSqft,
     concreteSqft,
     concreteCy,
     excavationCy,
     landscapeTons,
+    exteriorPaintSqft,
+    deckSqft,
+    railingLf,
     sqft: bathroomFloorSqft,
     lf: baseboardLf,
     itemQuantities: measurements.itemQuantities || {},
@@ -591,7 +637,32 @@ function lookupRuleKeyForPackage(name, scope = '') {
   return null;
 }
 
-function getRuleForChecklistItem(itemId) {
+/** Kitchen shares checklist ids with bathroom — override quantity semantics per template. */
+const KITCHEN_CHECKLIST_QUANTITY_RULES = {
+  demo: {
+    defaultUnit: 'lump_sum',
+    allowedUnits: ['lump_sum', 'allowance', 'lf'],
+    defaultQuantity: 1,
+    requiresUserQuantity: false,
+    pricingMethod: 'lump_sum',
+    quantityHelper: 'Assuming 1 cabinet/counter demo lump sum. Edit LF if priced by run.',
+  },
+  floor_demo: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft'],
+    measurementKeys: ['kitchenFloorSqft', 'floorAreaSqft'],
+    canUseRoomSqft: true,
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Enter kitchen floor sqft for flooring removal.',
+    missingMessage: 'Enter kitchen floor demo sqft.',
+  },
+};
+
+function getRuleForChecklistItem(itemId, templateKey) {
+  if (templateKey === 'kitchen' && KITCHEN_CHECKLIST_QUANTITY_RULES[itemId]) {
+    return KITCHEN_CHECKLIST_QUANTITY_RULES[itemId];
+  }
   return CHECKLIST_ITEM_QUANTITY_RULES[itemId] || DEFAULT_SCOPE_ITEM_RULE;
 }
 
@@ -637,12 +708,86 @@ function aggregatedMeasurementSourceLabel(parts) {
   return 'From room measurement';
 }
 
+function roughAllowanceSubKey(itemId) {
+  return `${itemId}__allowance`;
+}
+
+function parseStoredItemQuantity(measurements, key) {
+  const override = measurements.itemQuantities?.[key];
+  if (override && override.quantity != null && override.quantity > 0) {
+    return {
+      quantity: Number(override.quantity),
+      unit: override.unit || 'each',
+      quantitySource: override.quantitySource,
+    };
+  }
+  return null;
+}
+
+function resolveDualAllowanceQuantity(itemId, rule, measurements) {
+  let countEntry = parseStoredItemQuantity(measurements, itemId);
+  if (!countEntry && rule.measurementKey && measurements[rule.measurementKey]) {
+    countEntry = {
+      quantity: measurements[rule.measurementKey],
+      unit: rule.defaultUnit,
+      quantitySource: QUANTITY_SOURCES.inferred,
+    };
+  }
+  const allowanceEntry = parseStoredItemQuantity(measurements, roughAllowanceSubKey(itemId));
+  const legacyAllowance =
+    !countEntry &&
+    !allowanceEntry &&
+    measurements.itemQuantities?.[itemId] &&
+    ['allowance', 'lump_sum'].includes(measurements.itemQuantities[itemId].unit || '')
+      ? parseStoredItemQuantity(measurements, itemId)
+      : null;
+  const effectiveAllowance = allowanceEntry || legacyAllowance;
+  if (!countEntry && !effectiveAllowance) return null;
+
+  const primary = countEntry || effectiveAllowance;
+  const summaryParts = [];
+  if (countEntry) {
+    const unitLabel =
+      itemId === 'plumbing_rough'
+        ? 'rough-in points'
+        : countEntry.unit === 'sqft'
+          ? 'sqft'
+          : countEntry.unit;
+    summaryParts.push(`${countEntry.quantity} ${unitLabel}`);
+  }
+  if (effectiveAllowance) {
+    summaryParts.push(`$${effectiveAllowance.quantity} allowance`);
+  }
+
+  const quantitySource =
+    allowanceEntry?.quantitySource === QUANTITY_SOURCES.notes ||
+    countEntry?.quantitySource === QUANTITY_SOURCES.notes
+      ? QUANTITY_SOURCES.notes
+      : QUANTITY_SOURCES.user_entered;
+
+  return {
+    quantity: primary.quantity,
+    unit: primary.unit,
+    quantitySource,
+    label: itemId,
+    sourceLabel:
+      quantitySource === QUANTITY_SOURCES.notes
+        ? sourceLabel(QUANTITY_SOURCES.notes)
+        : summaryParts.join(' · '),
+    rule,
+    pricingReady: true,
+    dualCount: countEntry,
+    dualAllowance: effectiveAllowance,
+  };
+}
+
 /**
  * @returns {{ quantity: number|null, unit: string, quantitySource: string, label: string, sourceLabel: string, rule: ScopeItemQuantityRule|null, pricingReady: boolean, missingMessage?: string }}
  */
 function resolveQuantityForChecklistItem(itemId, ctx = {}) {
   const choiceId = ctx.choiceId || null;
-  let rule = getRuleForChecklistItem(itemId);
+  const templateKey = ctx.templateKey || null;
+  let rule = getRuleForChecklistItem(itemId, templateKey);
   if (rule?.choiceIds?.length && choiceId && !rule.choiceIds.includes(choiceId)) {
     return {
       quantity: null,
@@ -665,14 +810,17 @@ function resolveQuantityForChecklistItem(itemId, ctx = {}) {
       quantitySource: QUANTITY_SOURCES.not_applicable,
       label: itemId,
       sourceLabel: '',
-      rule: getRuleForChecklistItem(itemId),
+      rule: getRuleForChecklistItem(itemId, templateKey),
       pricingReady: false,
     };
   }
   const measurements = normalizeScopeMeasurements(ctx.measurements);
   const itemOverride = measurements.itemQuantities?.[itemId];
 
-  if (itemOverride && itemOverride.quantity != null && itemOverride.quantity > 0) {
+  if (rule.dualAllowanceField) {
+    const dual = resolveDualAllowanceQuantity(itemId, rule, measurements);
+    if (dual) return dual;
+  } else if (itemOverride && itemOverride.quantity != null && itemOverride.quantity > 0) {
     const unit = itemOverride.unit || rule.defaultUnit;
     return {
       quantity: Number(itemOverride.quantity),
@@ -900,6 +1048,7 @@ function countPricingReadiness(packages, ctx = {}) {
 module.exports = {
   QUANTITY_SOURCES,
   CHECKLIST_ITEM_QUANTITY_RULES,
+  KITCHEN_CHECKLIST_QUANTITY_RULES,
   normalizeScopeMeasurements,
   getRuleForChecklistItem,
   getRuleForPackage,

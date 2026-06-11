@@ -46,7 +46,7 @@ export type EstimateTier = 'simple_unit' | 'room_remodel' | 'addition' | 'ground
 export type ScopeAssumptionState = 'included' | 'excluded' | 'unsure';
 
 /** yes_no = is this work part of the bid? choice = pick a specific answer (e.g. staying vs replacing). */
-export type ScopeChecklistInputType = 'yes_no' | 'choice';
+export type ScopeChecklistInputType = 'yes_no' | 'choice' | 'multi_choice';
 
 export type ScopeChecklistOption = {
   id: string;
@@ -64,6 +64,8 @@ export type ScopeChecklistItem = {
   state: ScopeAssumptionState;
   /** choice: selected option id */
   choiceId?: string | null;
+  /** multi_choice: selected option ids (e.g. wall remove + add) */
+  choiceIds?: string[];
   /** UI-only line injected from wet_area_install picker (not sent to server). */
   derivedFrom?: string;
 };
@@ -92,19 +94,29 @@ export type ScopeItemQuantity = {
 export type ScopeMeasurements = {
   /** Bathroom floor sqft — used for floor tile, demo, etc. */
   bathroomFloorSqft?: number | null;
-  baseboardLf?: number | null;
+  kitchenFloorSqft?: number | null;
+  /** Flooring / multi-area floor jobs (tile demo, laminate install, etc.) */
+  floorAreaSqft?: number | null;
+  backsplashSqft?: number | null;
+  countertopSqft?: number | null;
+  cabinetLf?: number | null;
   showerWallTileSqft?: number | null;
   showerFloorTileSqft?: number | null;
   wallPaintSqft?: number | null;
-  kitchenFloorSqft?: number | null;
-  backsplashSqft?: number | null;
+  exteriorPaintSqft?: number | null;
+  baseboardLf?: number | null;
+  railingLf?: number | null;
   landscapeSqft?: number | null;
+  sodSqft?: number | null;
+  paverSqft?: number | null;
+  rockMulchSqft?: number | null;
+  landscapeTons?: number | null;
   roofSquares?: number | null;
   drywallSqft?: number | null;
   concreteSqft?: number | null;
   concreteCy?: number | null;
   excavationCy?: number | null;
-  landscapeTons?: number | null;
+  deckSqft?: number | null;
   /** Per-checklist-item overrides keyed by checklist id */
   itemQuantities?: Record<string, ScopeItemQuantity>;
   /** @deprecated use bathroomFloorSqft */

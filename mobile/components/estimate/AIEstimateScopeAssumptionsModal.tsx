@@ -27,31 +27,45 @@ import type {
 } from '@/utils/estimateAiDraft';
 import {
   checklistDisplayHelper,
+  choiceIdsToScopeState,
   createCustomScopeItem,
   groupScopeChecklistItems,
   initialScopeGroupCollapse,
   markAllUnsureAsExcluded,
   mergeScopeProgressIntoDraft,
   normalizeScopeChecklistItems,
+  QUANTITY_NEEDED_LABELS_BY_TEMPLATE,
+  quantityNeededLabel,
   scopeChecklistItemsForEditing,
   scopeChecklistItemsForPersist,
   expandWetAreaDerivedScopeItems,
+  toggleWallLayoutChoiceIds,
   WET_AREA_DERIVED_ITEM_IDS,
   scopeChecklistSummaryCounts,
 } from '@/utils/estimateScopeChecklistUi';
 import {
-  CHECKLIST_ITEM_QUANTITY_RULES,
   countScopePricingReadiness,
+  DUAL_QUANTITY_FIELD_LABELS,
   formatUnitLabel,
+  getChecklistItemQuantityRule,
   initialScopeMeasurementInputExtended,
+  isDualAllowanceItem,
   normalizeScopeMeasurements,
   resolveChecklistItemQuantity,
+  roughAllowanceSubKey,
   scopeMeasurementsToPayload,
   type ScopeMeasurementsInputExtended,
 } from '@/utils/scopeItemQuantities';
+import {
+  emptyQuickMeasurementInput,
+  quickMeasurementRowsForTemplate,
+  type QuickMeasurementFieldKey,
+} from '@/utils/scopeQuickMeasurements';
 import { KEYBOARD_ACCESSORY_IDS } from '@/constants/keyboard';
 import { aiScopeConfirmNumericKeyboardProps } from '@/constants/inputKeyboardPresets';
 import KeyboardPlainAccessory from '@/components/ui/KeyboardPlainAccessory';
+
+import { estimateFlowCardStyle, estimateFlowDividerColor } from '@/utils/estimateFlowCardStyle';
 
 type Props = {
   visible: boolean;
@@ -67,8 +81,6 @@ type Props = {
 };
 
 const QUANTITY_NEEDED_LABELS: Record<string, string> = {
-  demo: 'tear-out sqft (floor + shower)',
-  floor_demo: 'bathroom floor sqft',
   tub_demo: 'tub count',
   shower_floor_demo: 'shower floor demo sqft',
   wet_area_install: 'tub or pan count',
@@ -85,7 +97,7 @@ const QUANTITY_NEEDED_LABELS: Record<string, string> = {
   tub_shower: 'shower area sqft',
   drywall: 'repair sqft',
   cabinets: 'cabinet LF or allowance',
-  countertops: 'countertop LF or sqft',
+  countertops: 'countertop sqft',
   backsplash: 'backsplash sqft',
   flooring: 'floor sqft',
   rock_mulch: 'sqft, CY, or tons',
@@ -93,34 +105,12 @@ const QUANTITY_NEEDED_LABELS: Record<string, string> = {
   pavers: 'paver sqft',
   concrete: 'concrete sqft or CY',
   excavation: 'excavation CY or sqft',
-  plumbing_rough: 'fixture count or allowance',
-  electrical_rough: 'device count or allowance',
 };
 
 function hapticTap() {
   if (Platform.OS !== 'web') {
     Haptics.selectionAsync();
   }
-}
-
-/** Match Budget tab / project overview inner cards. */
-function scopeCardStyle(Colors: ReturnType<typeof getColors>, darkMode: boolean) {
-  return {
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.12)' : Colors.line,
-    backgroundColor: Colors.surface2,
-    ...(darkMode
-      ? {
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 6 },
-          shadowOpacity: 0.18,
-          shadowRadius: 12,
-          elevation: 3,
-        }
-      : {}),
-  };
 }
 
 function inputShellStyle(Colors: ReturnType<typeof getColors>, darkMode: boolean) {
@@ -135,7 +125,7 @@ function captionColor(darkMode: boolean, Colors: ReturnType<typeof getColors>) {
 }
 
 function dividerColor(darkMode: boolean) {
-  return darkMode ? 'rgba(148, 163, 184, 0.12)' : 'rgba(148, 163, 184, 0.2)';
+  return estimateFlowDividerColor(darkMode);
 }
 
 function buildNormFromInput(input: ScopeMeasurementsInputExtended) {
@@ -146,6 +136,7 @@ function QuantitySection({
   itemId,
   choiceId,
   inScope,
+  templateKey,
   measurementsInput,
   onItemQuantityChange,
   onItemQuantityBlur,
@@ -156,27 +147,144 @@ function QuantitySection({
   itemId: string;
   choiceId?: string | null;
   inScope: boolean;
+  templateKey?: string | null;
   measurementsInput: ScopeMeasurementsInputExtended;
-  onItemQuantityChange: (itemId: string, quantity: string) => void;
-  onItemQuantityBlur: (itemId: string) => void;
+  onItemQuantityChange: (itemId: string, quantity: string, field?: 'count' | 'allowance') => void;
+  onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
 }) {
-  if (!inScope || !CHECKLIST_ITEM_QUANTITY_RULES[itemId]) return null;
+  const rule = getChecklistItemQuantityRule(itemId, templateKey);
+  if (!inScope || !rule) return null;
 
   const norm = buildNormFromInput(measurementsInput);
-  const resolved = resolveChecklistItemQuantity(itemId, norm, { choiceId });
-  const rule = CHECKLIST_ITEM_QUANTITY_RULES[itemId];
+  const resolved = resolveChecklistItemQuantity(itemId, norm, { choiceId, templateKey });
   if (!resolved.showInput && !resolved.pricingReady) return null;
+  const inputShell = inputShellStyle(Colors, darkMode);
+  const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8';
+
+  if (rule.dualAllowanceField) {
+    const fieldLabels = DUAL_QUANTITY_FIELD_LABELS[itemId];
+    const allowanceKey = roughAllowanceSubKey(itemId);
+    const countInput = measurementsInput.itemQuantities[itemId];
+    const allowanceInput = measurementsInput.itemQuantities[allowanceKey];
+    const isEditing =
+      Object.prototype.hasOwnProperty.call(measurementsInput.itemQuantities, itemId) ||
+      Object.prototype.hasOwnProperty.call(measurementsInput.itemQuantities, allowanceKey);
+
+    if (resolved.pricingReady && !isEditing) {
+      return (
+        <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
+          {resolved.dualCount ? (
+            <View style={styles.qtyCompactRow}>
+              <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 12, fontWeight: '600' }}>
+                {resolved.dualCount.quantity.toLocaleString()} {fieldLabels?.countUnit || 'each'}
+              </Text>
+              <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11 }}>
+                {fieldLabels?.count || 'Quantity'}
+              </Text>
+            </View>
+          ) : null}
+          {resolved.dualAllowance ? (
+            <View style={[styles.qtyCompactRow, resolved.dualCount ? { marginTop: 4 } : undefined]}>
+              <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 12, fontWeight: '600' }}>
+                ${resolved.dualAllowance.quantity.toLocaleString()}
+              </Text>
+              <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11 }}>
+                {fieldLabels?.allowance || 'Allowance'}
+              </Text>
+            </View>
+          ) : null}
+          {resolved.sourceLabel ? (
+            <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 4 }}>
+              {resolved.sourceLabel}
+            </Text>
+          ) : null}
+          <TouchableOpacity
+            onPress={() => {
+              if (resolved.dualCount) {
+                onItemQuantityChange(itemId, String(resolved.dualCount.quantity), 'count');
+              }
+              if (resolved.dualAllowance) {
+                onItemQuantityChange(itemId, String(resolved.dualAllowance.quantity), 'allowance');
+              }
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '600', marginTop: 4 }}>
+              Edit quantity
+            </Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return (
+      <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
+        <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
+          {resolved.missingMessage || 'Enter quantity and/or allowance'}
+        </Text>
+        {rule.quantityHelper ? (
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 8, lineHeight: 15 }}>
+            {rule.quantityHelper}
+          </Text>
+        ) : null}
+        <Text style={{ color: Colors.sub, fontSize: 11, fontWeight: '600', marginBottom: 4 }}>
+          {fieldLabels?.count || 'Quantity'}
+        </Text>
+        <View style={styles.qtyInputRow}>
+          <TextInput
+            value={countInput?.quantity ?? ''}
+            onChangeText={(text) => onItemQuantityChange(itemId, text, 'count')}
+            onBlur={() => onItemQuantityBlur(itemId, 'count')}
+            placeholder="0"
+            placeholderTextColor={placeholderColor}
+            keyboardType="decimal-pad"
+            {...aiScopeConfirmNumericKeyboardProps}
+            editable={!applying}
+            style={[
+              styles.qtyInput,
+              { color: Colors.text, borderColor: inputShell.borderColor, backgroundColor: inputShell.backgroundColor },
+            ]}
+          />
+          <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', minWidth: 48 }}>
+            {fieldLabels?.countUnit || 'each'}
+          </Text>
+        </View>
+        <Text style={{ color: Colors.sub, fontSize: 11, fontWeight: '600', marginTop: 10, marginBottom: 4 }}>
+          {fieldLabels?.allowance || 'Allowance ($)'}
+        </Text>
+        <View style={styles.qtyInputRow}>
+          <Text style={{ color: Colors.sub, fontSize: 14, fontWeight: '600' }}>$</Text>
+          <TextInput
+            value={allowanceInput?.quantity ?? ''}
+            onChangeText={(text) => onItemQuantityChange(itemId, text, 'allowance')}
+            onBlur={() => onItemQuantityBlur(itemId, 'allowance')}
+            placeholder="0"
+            placeholderTextColor={placeholderColor}
+            keyboardType="decimal-pad"
+            {...aiScopeConfirmNumericKeyboardProps}
+            editable={!applying}
+            style={[
+              styles.qtyInput,
+              { color: Colors.text, borderColor: inputShell.borderColor, backgroundColor: inputShell.backgroundColor },
+            ]}
+          />
+        </View>
+      </View>
+    );
+  }
+
   const itemInput = measurementsInput.itemQuantities[itemId];
   const isEditingQuantity = Object.prototype.hasOwnProperty.call(
     measurementsInput.itemQuantities,
     itemId
   );
-  const inputShell = inputShellStyle(Colors, darkMode);
-  const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8';
-  const neededLabel = QUANTITY_NEEDED_LABELS[itemId] || formatUnitLabel(rule.defaultUnit);
+  const neededLabel =
+    (templateKey && QUANTITY_NEEDED_LABELS_BY_TEMPLATE[templateKey]?.[itemId]) ||
+    QUANTITY_NEEDED_LABELS[itemId] ||
+    quantityNeededLabel(itemId, templateKey, rule.defaultUnit);
 
   if (resolved.pricingReady && !isEditingQuantity) {
     return (
@@ -275,6 +383,7 @@ function YesNoChip({
 
 function WetAreaInstallLineCard({
   item,
+  templateKey,
   measurementsInput,
   onItemQuantityChange,
   onItemQuantityBlur,
@@ -283,17 +392,18 @@ function WetAreaInstallLineCard({
   applying,
 }: {
   item: ScopeChecklistItem;
+  templateKey?: string | null;
   measurementsInput: ScopeMeasurementsInputExtended;
-  onItemQuantityChange: (itemId: string, quantity: string) => void;
-  onItemQuantityBlur: (itemId: string) => void;
+  onItemQuantityChange: (itemId: string, quantity: string, field?: 'count' | 'allowance') => void;
+  onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
 }) {
-  const helper = checklistDisplayHelper(item);
+  const helper = checklistDisplayHelper(item, templateKey);
 
   return (
-    <View style={[styles.card, scopeCardStyle(Colors, darkMode)]}>
+    <View style={[styles.card, estimateFlowCardStyle(Colors, darkMode)]}>
       <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 14, fontWeight: '700', lineHeight: 20 }}>
         {item.label}
       </Text>
@@ -310,6 +420,7 @@ function WetAreaInstallLineCard({
       <QuantitySection
         itemId={item.id}
         inScope
+        templateKey={templateKey}
         measurementsInput={measurementsInput}
         onItemQuantityChange={onItemQuantityChange}
         onItemQuantityBlur={onItemQuantityBlur}
@@ -323,6 +434,7 @@ function WetAreaInstallLineCard({
 
 function YesNoRow({
   item,
+  templateKey,
   onSetState,
   measurementsInput,
   onItemQuantityChange,
@@ -332,18 +444,19 @@ function YesNoRow({
   applying,
 }: {
   item: ScopeChecklistItem;
+  templateKey?: string | null;
   onSetState: (state: ScopeAssumptionState) => void;
   measurementsInput: ScopeMeasurementsInputExtended;
-  onItemQuantityChange: (itemId: string, quantity: string) => void;
-  onItemQuantityBlur: (itemId: string) => void;
+  onItemQuantityChange: (itemId: string, quantity: string, field?: 'count' | 'allowance') => void;
+  onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
 }) {
-  const helper = checklistDisplayHelper(item);
+  const helper = checklistDisplayHelper(item, templateKey);
 
   return (
-    <View style={[styles.card, scopeCardStyle(Colors, darkMode)]}>
+    <View style={[styles.card, estimateFlowCardStyle(Colors, darkMode)]}>
       <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 14, fontWeight: '700', lineHeight: 20 }}>
         {item.label}
       </Text>
@@ -391,6 +504,105 @@ function YesNoRow({
         itemId={item.id}
         choiceId={item.choiceId}
         inScope={item.state === 'included'}
+        templateKey={templateKey}
+        measurementsInput={measurementsInput}
+        onItemQuantityChange={onItemQuantityChange}
+        onItemQuantityBlur={onItemQuantityBlur}
+        Colors={Colors}
+        darkMode={darkMode}
+        applying={applying}
+      />
+    </View>
+  );
+}
+
+function MultiChoiceRow({
+  item,
+  templateKey,
+  onToggle,
+  measurementsInput,
+  onItemQuantityChange,
+  onItemQuantityBlur,
+  Colors,
+  darkMode,
+  applying,
+}: {
+  item: ScopeChecklistItem;
+  templateKey?: string | null;
+  onToggle: (optionId: string) => void;
+  measurementsInput: ScopeMeasurementsInputExtended;
+  onItemQuantityChange: (itemId: string, quantity: string, field?: 'count' | 'allowance') => void;
+  onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
+  Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
+  applying: boolean;
+}) {
+  const choiceIds = item.choiceIds ?? [];
+  const inScope = choiceIds.some((id) => id === 'remove' || id === 'add');
+  const helper = checklistDisplayHelper(item, templateKey);
+
+  return (
+    <View style={[styles.card, estimateFlowCardStyle(Colors, darkMode)]}>
+      <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 14, fontWeight: '700', lineHeight: 20 }}>
+        {item.label}
+      </Text>
+      {helper ? (
+        <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 3, lineHeight: 15 }}>
+          {helper}
+        </Text>
+      ) : null}
+      <View style={styles.choiceWrap}>
+        {(item.options || []).map((opt) => {
+          const active = choiceIds.includes(opt.id);
+          const isUnsure = opt.id === 'unsure';
+          const isExcluded = opt.id === 'not_in_scope';
+          let borderColor = darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line;
+          let backgroundColor = darkMode ? 'rgba(255,255,255,0.04)' : 'transparent';
+          let textColor = captionColor(darkMode, Colors);
+
+          if (active) {
+            if (isUnsure) {
+              borderColor = 'rgba(251,191,36,0.55)';
+              textColor = '#d4a017';
+            } else if (isExcluded) {
+              borderColor = darkMode ? 'rgba(148, 163, 184, 0.28)' : Colors.line;
+              backgroundColor = darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)';
+              textColor = darkMode ? '#F5F7FA' : Colors.text;
+            } else {
+              borderColor = '#60a5fa';
+              backgroundColor = 'rgba(96,165,250,0.18)';
+              textColor = '#60a5fa';
+            }
+          }
+
+          return (
+            <TouchableOpacity
+              key={opt.id}
+              activeOpacity={0.88}
+              onPress={() => {
+                hapticTap();
+                onToggle(opt.id);
+              }}
+              style={[styles.choiceChipWide, { borderColor, backgroundColor }]}
+            >
+              <Text
+                style={{
+                  color: textColor,
+                  fontSize: 12,
+                  fontWeight: active ? '800' : '600',
+                  textAlign: 'center',
+                }}
+              >
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      <QuantitySection
+        itemId={item.id}
+        inScope={inScope}
+        templateKey={templateKey}
         measurementsInput={measurementsInput}
         onItemQuantityChange={onItemQuantityChange}
         onItemQuantityBlur={onItemQuantityBlur}
@@ -404,6 +616,7 @@ function YesNoRow({
 
 function ChoiceRow({
   item,
+  templateKey,
   onSelect,
   measurementsInput,
   onItemQuantityChange,
@@ -413,19 +626,20 @@ function ChoiceRow({
   applying,
 }: {
   item: ScopeChecklistItem;
+  templateKey?: string | null;
   onSelect: (choiceId: string) => void;
   measurementsInput: ScopeMeasurementsInputExtended;
-  onItemQuantityChange: (itemId: string, quantity: string) => void;
-  onItemQuantityBlur: (itemId: string) => void;
+  onItemQuantityChange: (itemId: string, quantity: string, field?: 'count' | 'allowance') => void;
+  onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
 }) {
   const inScope = Boolean(item.choiceId && item.choiceId !== 'not_in_scope' && item.choiceId !== 'unsure');
-  const helper = checklistDisplayHelper(item);
+  const helper = checklistDisplayHelper(item, templateKey);
 
   return (
-    <View style={[styles.card, scopeCardStyle(Colors, darkMode)]}>
+    <View style={[styles.card, estimateFlowCardStyle(Colors, darkMode)]}>
       <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 14, fontWeight: '700', lineHeight: 20 }}>
         {item.label}
       </Text>
@@ -486,6 +700,7 @@ function ChoiceRow({
         itemId={item.id}
         choiceId={item.choiceId}
         inScope={inScope}
+        templateKey={templateKey}
         measurementsInput={measurementsInput}
         onItemQuantityChange={onItemQuantityChange}
         onItemQuantityBlur={onItemQuantityBlur}
@@ -553,6 +768,7 @@ function CollapsibleQuickMeasurements({
   measurements,
   setMeasurements,
   templateKey,
+  projectType,
   Colors,
   darkMode,
   applying,
@@ -562,22 +778,19 @@ function CollapsibleQuickMeasurements({
   measurements: ScopeMeasurementsInputExtended;
   setMeasurements: React.Dispatch<React.SetStateAction<ScopeMeasurementsInputExtended>>;
   templateKey?: string;
+  projectType?: string | null;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
 }) {
-  const tk = templateKey || 'bathroom';
-  const showBath = tk === 'bathroom' || tk === 'room_remodel';
-  const showKitchen = tk === 'kitchen';
-  const showLandscape = tk === 'landscaping';
-  const showRoof = tk === 'roofing';
-  const showDrywall = tk === 'drywall';
-  const showPaint = tk === 'painting' || tk === 'room_remodel';
-  const showConcrete = tk === 'concrete' || tk === 'deck_patio';
-  const showExcavation = tk === 'excavation';
+  const rows = quickMeasurementRowsForTemplate(templateKey, projectType);
+
+  const setField = (key: QuickMeasurementFieldKey, value: string) => {
+    setMeasurements((prev) => ({ ...prev, [key]: value }));
+  };
 
   return (
-    <View style={[styles.quickMeasurements, scopeCardStyle(Colors, darkMode)]}>
+    <View style={[styles.quickMeasurements, estimateFlowCardStyle(Colors, darkMode)]}>
       <TouchableOpacity style={styles.quickMeasurementsHeader} onPress={onToggle} activeOpacity={0.7}>
         <View style={{ flex: 1 }}>
           <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 13, fontWeight: '800' }}>
@@ -591,164 +804,25 @@ function CollapsibleQuickMeasurements({
       </TouchableOpacity>
       {expanded ? (
         <View style={{ marginTop: 10, gap: 10 }}>
-          {showBath ? (
-            <>
-              <View style={styles.measurementsRow}>
+          {rows.map((row, rowIdx) => (
+            <View
+              key={row.map((f) => f.key).join('-') || `row-${rowIdx}`}
+              style={row.length > 1 ? styles.measurementsRow : undefined}
+            >
+              {row.map((field) => (
                 <QuickMeasurementField
-                  label="Bathroom floor sqft"
-                  value={measurements.bathroomFloorSqft}
-                  onChangeText={(bathroomFloorSqft) =>
-                    setMeasurements((prev) => ({ ...prev, bathroomFloorSqft }))
-                  }
-                  placeholder="e.g. 90"
+                  key={field.key}
+                  label={field.label}
+                  value={measurements[field.key]}
+                  onChangeText={(value) => setField(field.key, value)}
+                  placeholder={field.placeholder}
                   Colors={Colors}
                   darkMode={darkMode}
                   applying={applying}
                 />
-                <QuickMeasurementField
-                  label="Shower wall sqft"
-                  value={measurements.showerWallTileSqft}
-                  onChangeText={(showerWallTileSqft) =>
-                    setMeasurements((prev) => ({ ...prev, showerWallTileSqft }))
-                  }
-                  placeholder="e.g. 90"
-                  Colors={Colors}
-                  darkMode={darkMode}
-                  applying={applying}
-                />
-              </View>
-              <View style={styles.measurementsRow}>
-                <QuickMeasurementField
-                  label="Shower floor sqft"
-                  value={measurements.showerFloorTileSqft}
-                  onChangeText={(showerFloorTileSqft) =>
-                    setMeasurements((prev) => ({ ...prev, showerFloorTileSqft }))
-                  }
-                  placeholder="e.g. 15"
-                  Colors={Colors}
-                  darkMode={darkMode}
-                  applying={applying}
-                />
-                <QuickMeasurementField
-                  label="Wall/ceiling paint sqft"
-                  value={measurements.wallPaintSqft}
-                  onChangeText={(wallPaintSqft) => setMeasurements((prev) => ({ ...prev, wallPaintSqft }))}
-                  placeholder="e.g. 175"
-                  Colors={Colors}
-                  darkMode={darkMode}
-                  applying={applying}
-                />
-              </View>
-              <QuickMeasurementField
-                label="Baseboard linear feet"
-                value={measurements.baseboardLf}
-                onChangeText={(baseboardLf) => setMeasurements((prev) => ({ ...prev, baseboardLf }))}
-                placeholder="e.g. 24"
-                Colors={Colors}
-                darkMode={darkMode}
-                applying={applying}
-              />
-            </>
-          ) : null}
-          {showKitchen ? (
-            <View style={styles.measurementsRow}>
-              <QuickMeasurementField
-                label="Kitchen floor sqft"
-                value={measurements.kitchenFloorSqft}
-                onChangeText={(kitchenFloorSqft) => setMeasurements((prev) => ({ ...prev, kitchenFloorSqft }))}
-                placeholder="e.g. 180"
-                Colors={Colors}
-                darkMode={darkMode}
-                applying={applying}
-              />
-              <QuickMeasurementField
-                label="Backsplash sqft"
-                value={measurements.backsplashSqft}
-                onChangeText={(backsplashSqft) => setMeasurements((prev) => ({ ...prev, backsplashSqft }))}
-                placeholder="e.g. 40"
-                Colors={Colors}
-                darkMode={darkMode}
-                applying={applying}
-              />
+              ))}
             </View>
-          ) : null}
-          {showLandscape ? (
-            <QuickMeasurementField
-              label="Landscape coverage sqft"
-              value={measurements.landscapeSqft}
-              onChangeText={(landscapeSqft) => setMeasurements((prev) => ({ ...prev, landscapeSqft }))}
-              placeholder="e.g. 1200"
-              Colors={Colors}
-              darkMode={darkMode}
-              applying={applying}
-            />
-          ) : null}
-          {showRoof ? (
-            <QuickMeasurementField
-              label="Roof squares"
-              value={measurements.roofSquares}
-              onChangeText={(roofSquares) => setMeasurements((prev) => ({ ...prev, roofSquares }))}
-              placeholder="e.g. 28"
-              Colors={Colors}
-              darkMode={darkMode}
-              applying={applying}
-            />
-          ) : null}
-          {showDrywall ? (
-            <QuickMeasurementField
-              label="Drywall sqft"
-              value={measurements.drywallSqft}
-              onChangeText={(drywallSqft) => setMeasurements((prev) => ({ ...prev, drywallSqft }))}
-              placeholder="e.g. 800"
-              Colors={Colors}
-              darkMode={darkMode}
-              applying={applying}
-            />
-          ) : null}
-          {showPaint ? (
-            <QuickMeasurementField
-              label="Paint sqft"
-              value={measurements.wallPaintSqft}
-              onChangeText={(wallPaintSqft) => setMeasurements((prev) => ({ ...prev, wallPaintSqft }))}
-              placeholder="e.g. 1500"
-              Colors={Colors}
-              darkMode={darkMode}
-              applying={applying}
-            />
-          ) : null}
-          {showConcrete ? (
-            <View style={styles.measurementsRow}>
-              <QuickMeasurementField
-                label="Concrete sqft"
-                value={measurements.concreteSqft}
-                onChangeText={(concreteSqft) => setMeasurements((prev) => ({ ...prev, concreteSqft }))}
-                placeholder="e.g. 400"
-                Colors={Colors}
-                darkMode={darkMode}
-                applying={applying}
-              />
-              <QuickMeasurementField
-                label="Concrete CY"
-                value={measurements.concreteCy}
-                onChangeText={(concreteCy) => setMeasurements((prev) => ({ ...prev, concreteCy }))}
-                placeholder="e.g. 12"
-                Colors={Colors}
-                darkMode={darkMode}
-                applying={applying}
-              />
-            </View>
-          ) : null}
-          {showExcavation ? (
-            <QuickMeasurementField
-              label="Excavation CY"
-              value={measurements.excavationCy}
-              onChangeText={(excavationCy) => setMeasurements((prev) => ({ ...prev, excavationCy }))}
-              placeholder="e.g. 45"
-              Colors={Colors}
-              darkMode={darkMode}
-              applying={applying}
-            />
-          ) : null}
+          ))}
         </View>
       ) : null}
     </View>
@@ -815,19 +889,7 @@ export default function AIEstimateScopeAssumptionsModal({
   const checklist = draft?.scopeChecklist;
   const [items, setItems] = useState<ScopeChecklistItem[]>([]);
   const [measurements, setMeasurements] = useState<ScopeMeasurementsInputExtended>({
-    bathroomFloorSqft: '',
-    kitchenFloorSqft: '',
-    backsplashSqft: '',
-    landscapeSqft: '',
-    roofSquares: '',
-    drywallSqft: '',
-    concreteSqft: '',
-    concreteCy: '',
-    excavationCy: '',
-    baseboardLf: '',
-    showerWallTileSqft: '',
-    showerFloorTileSqft: '',
-    wallPaintSqft: '',
+    ...emptyQuickMeasurementInput(),
     itemQuantities: {},
   });
   const [quickMeasurementsOpen, setQuickMeasurementsOpen] = useState(false);
@@ -851,8 +913,16 @@ export default function AIEstimateScopeAssumptionsModal({
         confirmed: draft?.confirmedAssumptions,
         measurements: draft?.scopeMeasurements,
         checklist: draft?.scopeChecklist?.items,
+        notes: draft?.originalNotes,
+        suggested: draft?.scopeChecklist?.suggestedMeasurements,
       }),
-    [draft?.confirmedAssumptions, draft?.scopeMeasurements, draft?.scopeChecklist?.items]
+    [
+      draft?.confirmedAssumptions,
+      draft?.scopeMeasurements,
+      draft?.scopeChecklist?.items,
+      draft?.scopeChecklist?.suggestedMeasurements,
+      draft?.originalNotes,
+    ]
   );
 
   useEffect(() => {
@@ -870,7 +940,9 @@ export default function AIEstimateScopeAssumptionsModal({
         expandWetAreaDerivedScopeItems(normalized),
         checklist.templateKey
       );
-      setCollapsedGroups(initialScopeGroupCollapse(grouped, buildNormFromInput(nextMeasurements)));
+      setCollapsedGroups(
+        initialScopeGroupCollapse(grouped, buildNormFromInput(nextMeasurements), checklist.templateKey)
+      );
     }
   }, [visible, draftScopeRestoreKey, checklist?.templateKey, draft]);
 
@@ -892,8 +964,8 @@ export default function AIEstimateScopeAssumptionsModal({
   );
 
   const pricingCounts = useMemo(
-    () => countScopePricingReadiness(displayItems, normMeasurements),
-    [displayItems, normMeasurements]
+    () => countScopePricingReadiness(displayItems, normMeasurements, checklist?.templateKey),
+    [displayItems, normMeasurements, checklist?.templateKey]
   );
 
   const summary = useMemo(
@@ -906,23 +978,37 @@ export default function AIEstimateScopeAssumptionsModal({
     [displayItems, checklist?.templateKey]
   );
 
-  const handleItemQuantityChange = (itemId: string, quantity: string) => {
-    const rule = CHECKLIST_ITEM_QUANTITY_RULES[itemId];
+  const handleItemQuantityChange = (itemId: string, quantity: string, field: 'count' | 'allowance' = 'count') => {
+    const rule = getChecklistItemQuantityRule(itemId, checklist?.templateKey);
+    if (field === 'allowance' && rule?.dualAllowanceField) {
+      setMeasurements((prev) => ({
+        ...prev,
+        itemQuantities: {
+          ...prev.itemQuantities,
+          [roughAllowanceSubKey(itemId)]: { quantity, unit: 'lump_sum' },
+        },
+      }));
+      return;
+    }
     setMeasurements((prev) => ({
       ...prev,
       itemQuantities: {
         ...prev.itemQuantities,
-        [itemId]: { quantity, unit: rule?.defaultUnit || 'sqft' },
+        [itemId]: {
+          quantity,
+          unit: rule?.dualAllowanceField ? 'each' : rule?.defaultUnit || 'sqft',
+        },
       },
     }));
   };
 
-  const handleItemQuantityBlur = (itemId: string) => {
+  const handleItemQuantityBlur = (itemId: string, field: 'count' | 'allowance' = 'count') => {
     setMeasurements((prev) => {
-      const current = prev.itemQuantities[itemId];
+      const key = field === 'allowance' && isDualAllowanceItem(itemId) ? roughAllowanceSubKey(itemId) : itemId;
+      const current = prev.itemQuantities[key];
       if (current?.quantity?.trim()) return prev;
       const itemQuantities = { ...prev.itemQuantities };
-      delete itemQuantities[itemId];
+      delete itemQuantities[key];
       return { ...prev, itemQuantities };
     });
   };
@@ -931,6 +1017,32 @@ export default function AIEstimateScopeAssumptionsModal({
     item.derivedFrom === 'wet_area_install' || WET_AREA_DERIVED_ITEM_IDS.has(item.id) ? (
       <WetAreaInstallLineCard
         item={item}
+        templateKey={checklist?.templateKey}
+        measurementsInput={measurements}
+        onItemQuantityChange={handleItemQuantityChange}
+        onItemQuantityBlur={handleItemQuantityBlur}
+        Colors={Colors}
+        darkMode={darkMode}
+        applying={applying}
+      />
+    ) : item.inputType === 'multi_choice' && (item.options?.length ?? 0) > 0 ? (
+      <MultiChoiceRow
+        item={item}
+        templateKey={checklist?.templateKey}
+        onToggle={(optionId) =>
+          setItems((prev) =>
+            prev.map((row) => {
+              if (row.id !== item.id) return row;
+              const choiceIds = toggleWallLayoutChoiceIds(row.choiceIds, optionId);
+              return {
+                ...row,
+                choiceIds,
+                choiceId: choiceIds[0] ?? null,
+                state: choiceIdsToScopeState(choiceIds),
+              };
+            })
+          )
+        }
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
         onItemQuantityBlur={handleItemQuantityBlur}
@@ -941,6 +1053,7 @@ export default function AIEstimateScopeAssumptionsModal({
     ) : item.inputType === 'choice' && (item.options?.length ?? 0) > 0 ? (
       <ChoiceRow
         item={item}
+        templateKey={checklist?.templateKey}
         onSelect={(choiceId) =>
           setItems((prev) => {
             const next = prev.map((row) =>
@@ -973,6 +1086,7 @@ export default function AIEstimateScopeAssumptionsModal({
     ) : (
       <YesNoRow
         item={item}
+        templateKey={checklist?.templateKey}
         onSetState={(state) =>
           setItems((prev) => prev.map((row) => (row.id === item.id ? { ...row, state } : row)))
         }
@@ -1075,6 +1189,7 @@ export default function AIEstimateScopeAssumptionsModal({
           measurements={measurements}
           setMeasurements={setMeasurements}
           templateKey={checklist?.templateKey}
+          projectType={draft?.projectType}
           Colors={Colors}
           darkMode={darkMode}
           applying={applying}
@@ -1094,7 +1209,7 @@ export default function AIEstimateScopeAssumptionsModal({
         </View>
 
         {showCustomItemInput ? (
-          <View style={[styles.customItemRow, scopeCardStyle(Colors, darkMode)]}>
+          <View style={[styles.customItemRow, estimateFlowCardStyle(Colors, darkMode)]}>
             <TextInput
               value={customItemLabel}
               onChangeText={setCustomItemLabel}

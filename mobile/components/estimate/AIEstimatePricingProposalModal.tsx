@@ -46,6 +46,7 @@ import {
   setScopeMaterialSource,
   sourceVisual,
   suggestItemIsManualOnly,
+  suggestItemIsRoughPlanningItem,
   suggestItemNeedsApproval,
   suggestItemNeedsPricing,
   suggestItemSelectable,
@@ -55,6 +56,7 @@ import {
   type SourceVisual,
 } from '@/utils/estimateAiDraftPricing';
 import { formatDraftMoney } from '@/utils/estimateAiDraft';
+import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 
 type Props = {
   visible: boolean;
@@ -384,6 +386,8 @@ function ScopeCard({
   const canEdit = Boolean((isSavedOnly || isSuggestMode) && scopeTotal > 0 && onToggleEdit);
   const canToggleInclude = Boolean(isSuggestMode && onToggleIncluded && suggestItemSelectable(item));
   const conf = item.recommended?.confidence;
+  const fadeWhenUnchecked =
+    canToggleInclude && !included && !isSuggestMode && !suggestItemIsRoughPlanningItem(item);
 
   useEffect(() => {
     if (!isEditing) {
@@ -467,15 +471,13 @@ function ScopeCard({
       style={[
         styles.card,
         isEditing && styles.cardEditing,
-        canToggleInclude && !included && styles.cardExcluded,
+        canToggleInclude && !included && fadeWhenUnchecked && styles.cardExcluded,
         {
+          ...estimateFlowCardStyle(Colors, darkMode),
           borderColor: isEditing
             ? 'rgba(96,165,250,0.55)'
-            : darkMode
-              ? 'rgba(255,255,255,0.08)'
-              : Colors.line,
-          backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : Colors.surface2,
-          opacity: canToggleInclude && !included ? 0.55 : 1,
+            : undefined,
+          opacity: fadeWhenUnchecked ? 0.55 : 1,
         },
       ]}
     >
@@ -561,13 +563,13 @@ function ScopeCard({
               <ConfidenceBadge confidence={conf} compact />
               {canToggleInclude && !included ? (
                 <Text style={[styles.includeHint, { color: Colors.sub }]} numberOfLines={2}>
-                  {item.reviewStatus === 'needs_approval'
-                    ? 'Unchecked — confirm scope, then check to include'
-                    : suggestItemNeedsApproval(item)
+                  {suggestItemIsRoughPlanningItem(item)
+                    ? 'Rough estimate — check to include this price'
+                    : item.reviewStatus === 'needs_approval' || suggestItemNeedsApproval(item)
                       ? 'Unchecked — confirm scope, then check to include'
                       : suggestItemIsManualOnly(item)
-                        ? 'Manual pricing recommended'
-                        : 'Unchecked — tap box to include'}
+                        ? 'Manual pricing recommended — check to include anyway'
+                        : 'Unchecked — check to include this price'}
                 </Text>
               ) : null}
             </View>
@@ -870,11 +872,21 @@ export default function AIEstimatePricingProposalModal({
 
   const suggestUncheckedCaption = useMemo(() => {
     if (!isSuggestMode) return null;
-    const selectable = (display.scopeItems || []).filter((item) => suggestItemSelectable(item)).length;
-    const unchecked = selectable - validSelectedSuggestCount;
+    const selectable = (display.scopeItems || []).filter((item) => suggestItemSelectable(item));
+    if (selectable.length <= 0) return null;
+    const roughUnchecked = selectable.filter(
+      (item) => suggestItemIsRoughPlanningItem(item) && !includedScopeIds.has(item.scopeItemId)
+    ).length;
+    const unchecked = selectable.length - validSelectedSuggestCount;
+    if (validSelectedSuggestCount <= 0) {
+      return `${selectable.length} suggested — check items to include before applying.`;
+    }
     if (unchecked <= 0) return null;
-    return `${unchecked} unchecked — shown for reference. Check a box to include, or price manually later.`;
-  }, [isSuggestMode, display.scopeItems, validSelectedSuggestCount]);
+    if (roughUnchecked > 0) {
+      return `${roughUnchecked} rough estimate${roughUnchecked === 1 ? '' : 's'} unchecked — check to include, or price manually later.`;
+    }
+    return `${unchecked} unchecked — confirm scope, then check to include.`;
+  }, [isSuggestMode, display.scopeItems, validSelectedSuggestCount, includedScopeIds]);
 
   const partialTemplateMatch =
     isSavedOnly &&
@@ -1098,10 +1110,7 @@ export default function AIEstimatePricingProposalModal({
                     key={pkgName}
                     style={[
                       styles.card,
-                      {
-                        borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
-                        backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : Colors.surface2,
-                      },
+                      estimateFlowCardStyle(Colors, darkMode),
                     ]}
                   >
                     <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800', marginBottom: 8 }}>

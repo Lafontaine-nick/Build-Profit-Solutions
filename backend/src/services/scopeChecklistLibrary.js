@@ -242,9 +242,23 @@ const CHECKLIST_TEMPLATES = {
     title: 'Kitchen remodel — confirm project scope',
     intro: 'Confirm what work is in this bid before pricing.',
     items: [
-      { id: 'demo', inputType: 'yes_no', label: 'Cabinet & appliance demo', helperText: 'Remove cabinets, counters, appliances.', category: 'demo' },
+      { id: 'demo', inputType: 'yes_no', label: 'Cabinet & countertop demo', helperText: 'Remove cabinets, counters, and built-ins.', category: 'demo' },
       { id: 'floor_demo', inputType: 'yes_no', label: 'Flooring demo / removal', helperText: 'Remove existing kitchen flooring.', category: 'demo' },
       { id: 'wall_demo', inputType: 'yes_no', label: 'Wall / soffit demo', helperText: 'Remove walls, soffits, or bulkheads.', category: 'demo' },
+      {
+        id: 'appliance_removal',
+        inputType: 'yes_no',
+        label: 'Appliance removal',
+        helperText: 'Disconnect and remove range, dishwasher, fridge, etc.',
+        category: 'appliances',
+      },
+      {
+        id: 'appliances',
+        inputType: 'yes_no',
+        label: 'Appliance reinstall & hookup',
+        helperText: 'Reconnect and install appliances after cabinets.',
+        category: 'appliances',
+      },
       { id: 'cabinets', inputType: 'yes_no', label: 'New cabinet install', helperText: 'Cabinet supply and installation.', category: 'cabinets' },
       { id: 'countertops', inputType: 'yes_no', label: 'Countertop fabrication & install', helperText: 'Template, fabricate, and install.', category: 'cabinets' },
       { id: 'sink_faucet', inputType: 'yes_no', label: 'Sink, faucet & disposal', helperText: 'Sink, faucet, and garbage disposal install.', category: 'cabinets' },
@@ -256,19 +270,18 @@ const CHECKLIST_TEMPLATES = {
       { id: 'plumbing', inputType: 'yes_no', label: 'Plumbing connections', helperText: 'Sink, dishwasher, gas line, or rough-in.', category: 'trades' },
       { id: 'electrical', inputType: 'yes_no', label: 'Electrical & GFCI / outlets', helperText: 'Circuits, outlets, and lighting.', category: 'trades' },
       { id: 'lighting', inputType: 'yes_no', label: 'Lighting fixtures & install', helperText: 'Fixture + install.', category: 'trades' },
-      { id: 'appliances', inputType: 'yes_no', label: 'Appliance install & hookup', helperText: 'Mark No if customer supplies appliances.', category: 'trades' },
       { id: 'drywall', inputType: 'yes_no', label: 'Drywall / patching', helperText: 'Patch after layout changes.', category: 'trades' },
       { id: 'paint', inputType: 'yes_no', label: 'Interior painting', helperText: 'Prep, labor, and paint.', category: 'trades' },
       { id: 'trim', inputType: 'yes_no', label: 'Trim & baseboard', helperText: 'Trim install labor and materials.', category: 'trades' },
       {
         id: 'walls_moving',
-        inputType: 'choice',
+        inputType: 'multi_choice',
         label: 'Wall layout changes',
-        helperText: 'Any walls removed or moved?',
+        helperText: 'Select all that apply — you can remove and add walls on the same job.',
         options: [
-          { id: 'no_changes', label: 'No wall changes' },
           { id: 'remove', label: 'Removing wall(s)' },
           { id: 'add', label: 'Adding / moving wall(s)' },
+          { id: 'no_changes', label: 'No wall changes' },
           { id: 'not_in_scope', label: 'Not in this bid' },
           { id: 'unsure', label: 'Not sure yet' },
         ],
@@ -520,7 +533,9 @@ const CHECKLIST_TEMPLATES = {
 /** Note patterns → default Yes for checklist item ids. */
 const CHECKLIST_YES_HINTS = {
   demo: /\b(demo|demolition|tear\s*out|gut|remove)\b/,
-  floor_demo: /\b(floor\s+demo|remove\s+(?:floor|tile|lvp|vinyl|flooring))\b/,
+  appliance_removal:
+    /\b(remove|disconnect|pull|haul).*\b(appliance|ridge|dishwasher|range|refrigerator|oven|microwave|hood)\b|\b(appliance|ridge|dishwasher|range|refrigerator)\b.*\b(remove|disconnect|pull|haul)\b/,
+  floor_demo: /\b(floor\s+demo|remove\s+(?:floor|tile|lvp|vinyl|flooring|kitchen\s+floor))\b/,
   tub_demo: /\b(remove|demo|tear[\s-]?out|rip[\s-]?out).*\b(tub|bathtub)\b|\b(tub|bathtub)\b.*\b(remove|demo|tear[\s-]?out)\b/,
   shower_floor_demo:
     /\b(remove|demo|tear[\s-]?out).*\b(shower\s+(?:pan|floor|base)|pan\s+insert|mud\s+pan)\b|\b(shower\s+(?:pan|floor|base)|prefab\s+pan)\b.*\b(remove|demo|tear[\s-]?out)\b/,
@@ -533,9 +548,11 @@ const CHECKLIST_YES_HINTS = {
   floor_prep: /\b(floor\s+prep|subfloor|level(?:ing)?|underlayment)\b/,
   exhaust_fan: /\b(exhaust\s+fan|bath\s+fan|ventilation)\b/,
   mirror_accessories: /\b(mirror|towel\s+bar|accessories|robe\s+hook)\b/,
-  cabinets: /\b(cabinet|new\s+cabinets)\b/,
-  countertops: /\b(countertop|quartz|granite|install\s+new\s+countertops?)\b/,
+  cabinets: /\b(cabinets?|new\s+cabinets)\b/,
+  countertops: /\b(countertops?|counters|quartz|granite|install\s+new\s+countertops?)\b/,
   backsplash: /\b(backsplash)\b/,
+  appliances:
+    /\b(appliance\s+install|install\s+appliances?|hookup\s+appliances?|reconnect\s+appliances?|appliance\s+hookup)\b/,
   island: /\b(island)\b/,
   paint: /\b(paint(?:ing)?|bathroom\s+paint)\b/,
   lighting: /\b(new\s+lighting|lighting|light\s+fixtures?)\b/,
@@ -665,9 +682,8 @@ function inferChoiceFromNotes(itemId, notes) {
   }
 
   if (itemId === 'walls_moving') {
-    if (/\b(no\s+wall|walls?\s+not\s+moving)\b/.test(n)) return 'no_changes';
-    if (/\b(remove|removing)\b.*\bwall/.test(n)) return 'remove';
-    if (/\b(add|adding|moving)\b.*\bwall/.test(n)) return 'add';
+    const ids = inferChoicesFromNotes(itemId, notes);
+    return ids[0] || null;
   }
 
   if (itemId === 'shower_pan') {
@@ -684,6 +700,35 @@ function choiceToState(choiceId) {
   return 'included';
 }
 
+const WALL_LAYOUT_WORK_IDS = new Set(['remove', 'add']);
+
+function inferChoicesFromNotes(itemId, notes) {
+  const n = String(notes || '').toLowerCase();
+  if (itemId !== 'walls_moving') return [];
+
+  const ids = [];
+  if (/\b(remove|removing|demo|demolish|tear[\s-]?out)\b.*\bwalls?\b|\bwalls?\b.*\b(remove|removing|demo|demolish|tear[\s-]?out)\b/.test(n)) {
+    ids.push('remove');
+  }
+  if (/\b(add|adding|moving|new|build)\b.*\bwalls?\b|\bwalls?\b.*\b(add|adding|moving|new|build)\b/.test(n)) {
+    ids.push('add');
+  }
+  if (!ids.length && /\b(no\s+wall|walls?\s+not\s+moving|no\s+layout\s+changes?)\b/.test(n)) {
+    ids.push('no_changes');
+  }
+  return ids;
+}
+
+function choiceIdsToState(choiceIds) {
+  const ids = Array.isArray(choiceIds) ? choiceIds : [];
+  if (!ids.length) return 'unsure';
+  if (ids.includes('not_in_scope')) return 'excluded';
+  if (ids.includes('unsure') && ids.length === 1) return 'unsure';
+  if (ids.some((id) => WALL_LAYOUT_WORK_IDS.has(id))) return 'included';
+  if (ids.includes('no_changes')) return 'included';
+  return 'unsure';
+}
+
 module.exports = {
   FIXTURE_CHOICE_OPTIONS,
   FIXTURE_CHOICE_NO_RELOCATE,
@@ -694,5 +739,7 @@ module.exports = {
   checklistTemplateKey,
   inferItemStateFromNotes,
   inferChoiceFromNotes,
+  inferChoicesFromNotes,
   choiceToState,
+  choiceIdsToState,
 };

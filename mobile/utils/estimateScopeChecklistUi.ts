@@ -1,7 +1,8 @@
 import type { EstimateAiDraft, ScopeChecklistItem, ScopeChecklistOption, ScopeMeasurements } from '@/utils/estimateAiDraft';
 import {
-  CHECKLIST_ITEM_QUANTITY_RULES,
   checklistItemInScope,
+  formatUnitLabel,
+  getChecklistItemQuantityRule,
   resolveChecklistItemQuantity,
   type NormalizedScopeMeasurements,
 } from '@/utils/scopeItemQuantities';
@@ -22,12 +23,41 @@ const FIXTURE_CHOICE_NO_RELOCATE: ScopeChecklistOption[] = [
 ];
 
 const WALL_CHOICE_OPTIONS: ScopeChecklistOption[] = [
-  { id: 'no_changes', label: 'No wall changes' },
   { id: 'remove', label: 'Removing wall(s)' },
   { id: 'add', label: 'Adding / moving wall(s)' },
+  { id: 'no_changes', label: 'No wall changes' },
   { id: 'not_in_scope', label: 'Not in this bid' },
   { id: 'unsure', label: 'Not sure yet' },
 ];
+
+const WALL_LAYOUT_WORK_IDS = new Set(['remove', 'add']);
+const WALL_LAYOUT_EXCLUSIVE_IDS = new Set(['no_changes', 'not_in_scope', 'unsure']);
+
+export function choiceIdsToScopeState(choiceIds: string[] | undefined): 'included' | 'excluded' | 'unsure' {
+  const ids = choiceIds ?? [];
+  if (!ids.length) return 'unsure';
+  if (ids.includes('not_in_scope')) return 'excluded';
+  if (ids.includes('unsure') && ids.length === 1) return 'unsure';
+  if (ids.some((id) => WALL_LAYOUT_WORK_IDS.has(id))) return 'included';
+  if (ids.includes('no_changes')) return 'included';
+  return 'unsure';
+}
+
+/** Toggle wall layout chips — remove/add can combine; other options are exclusive. */
+export function toggleWallLayoutChoiceIds(current: string[] | undefined, optionId: string): string[] {
+  if (WALL_LAYOUT_EXCLUSIVE_IDS.has(optionId)) {
+    const ids = current ?? [];
+    if (ids.length === 1 && ids[0] === optionId) return [];
+    return [optionId];
+  }
+  let next = (current ?? []).filter((id) => WALL_LAYOUT_WORK_IDS.has(id));
+  if (next.includes(optionId)) {
+    next = next.filter((id) => id !== optionId);
+  } else {
+    next = [...next, optionId];
+  }
+  return next;
+}
 
 const SHOWER_PAN_CHOICE_OPTIONS: ScopeChecklistOption[] = [
   { id: 'prefab', label: 'Prefab pan / base' },
@@ -72,7 +102,7 @@ const CHOICE_ITEM_CONFIG: Record<
   },
   walls_moving: {
     label: 'Wall layout changes',
-    helperText: 'Any walls removed or moved?',
+    helperText: 'Select all that apply — you can remove and add walls on the same job.',
     options: WALL_CHOICE_OPTIONS,
   },
   shower_pan: {
@@ -90,10 +120,36 @@ function labelLooksLikeChoiceQuestion(label: string): boolean {
   );
 }
 
+function isMultiChoiceItem(item: ScopeChecklistItem): boolean {
+  return item.inputType === 'multi_choice' || item.id === 'walls_moving';
+}
+
 function isChoiceItem(item: ScopeChecklistItem): boolean {
+  if (isMultiChoiceItem(item)) return false;
   if (item.inputType === 'choice') return true;
   if (CHOICE_ITEM_CONFIG[item.id]) return true;
   return labelLooksLikeChoiceQuestion(item.label);
+}
+
+function normalizeMultiChoiceItem(item: ScopeChecklistItem): ScopeChecklistItem {
+  const config = CHOICE_ITEM_CONFIG[item.id];
+  const options = item.options?.length ? item.options : config?.options || WALL_CHOICE_OPTIONS;
+  let choiceIds = item.choiceIds?.length
+    ? [...item.choiceIds]
+    : item.choiceId
+      ? [item.choiceId]
+      : [];
+  if (!choiceIds.length && item.state === 'excluded') choiceIds = ['not_in_scope'];
+  return {
+    ...item,
+    inputType: 'multi_choice',
+    label: config?.label || item.label,
+    helperText: config?.helperText || item.helperText,
+    options,
+    choiceIds,
+    choiceId: choiceIds[0] ?? null,
+    state: choiceIdsToScopeState(choiceIds),
+  };
 }
 
 function defaultOptionsForItem(item: ScopeChecklistItem): ScopeChecklistOption[] {
@@ -106,6 +162,9 @@ function defaultOptionsForItem(item: ScopeChecklistItem): ScopeChecklistOption[]
 
 /** Normalize server or cached checklist rows so choice questions never show Yes/No. */
 export function normalizeScopeChecklistItem(item: ScopeChecklistItem): ScopeChecklistItem {
+  if (isMultiChoiceItem(item)) {
+    return normalizeMultiChoiceItem(item);
+  }
   if (!isChoiceItem(item)) {
     return {
       ...item,
@@ -278,6 +337,14 @@ export function expandWetAreaDerivedScopeItems(items: ScopeChecklistItem[]): Sco
   return result;
 }
 
+/** Kitchen-specific helper copy (ids overlap with bathroom checklist). */
+export const KITCHEN_CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
+  demo: 'Remove cabinets, counters, and built-ins.',
+  appliance_removal: 'Disconnect and haul off existing appliances.',
+  floor_demo: 'Remove existing kitchen flooring.',
+  appliances: 'Reconnect and install appliances after cabinets.',
+};
+
 /** Shorter contractor-friendly helper copy (overrides server text in Confirm Scope UI). */
 export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   demo: 'Remove fixtures, tile, and finishes.',
@@ -311,8 +378,38 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   cleanup: 'Final clean, debris haul-off, dump fees.',
 };
 
-export function checklistDisplayHelper(item: ScopeChecklistItem): string | undefined {
+export function checklistDisplayHelper(
+  item: ScopeChecklistItem,
+  templateKey?: string | null
+): string | undefined {
+  if (templateKey === 'kitchen' && KITCHEN_CHECKLIST_HELPER_OVERRIDES[item.id]) {
+    return KITCHEN_CHECKLIST_HELPER_OVERRIDES[item.id];
+  }
   return CHECKLIST_HELPER_OVERRIDES[item.id] || item.helperText;
+}
+
+export const QUANTITY_NEEDED_LABELS_BY_TEMPLATE: Record<string, Record<string, string>> = {
+  kitchen: {
+    demo: 'cabinet demo lump sum or LF',
+    appliance_removal: 'appliance count',
+    appliances: 'appliance count or allowance',
+    countertops: 'countertop sqft',
+    floor_demo: 'kitchen floor sqft',
+  },
+  bathroom: {
+    demo: 'tear-out sqft (floor + shower)',
+    floor_demo: 'bathroom floor sqft',
+  },
+};
+
+export function quantityNeededLabel(
+  itemId: string,
+  templateKey: string | null | undefined,
+  fallbackUnit: string
+): string {
+  const byTemplate = templateKey && QUANTITY_NEEDED_LABELS_BY_TEMPLATE[templateKey]?.[itemId];
+  if (byTemplate) return byTemplate;
+  return formatUnitLabel(fallbackUnit);
 }
 
 export type ScopeChecklistGroup = {
@@ -354,6 +451,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
   ],
   kitchen: [
     { title: 'Demo', itemIds: ['demo', 'floor_demo', 'wall_demo'] },
+    { title: 'Appliances', itemIds: ['appliance_removal', 'appliances'] },
     {
       title: 'Cabinets & Counters',
       itemIds: ['cabinets', 'countertops', 'sink_faucet', 'cabinet_hardware', 'island'],
@@ -364,16 +462,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     },
     {
       title: 'Trades',
-      itemIds: [
-        'plumbing',
-        'electrical',
-        'lighting',
-        'appliances',
-        'drywall',
-        'paint',
-        'trim',
-        'walls_moving',
-      ],
+      itemIds: ['plumbing', 'electrical', 'lighting', 'drywall', 'paint', 'trim', 'walls_moving'],
     },
     { title: 'Closeout', itemIds: ['permits', 'cleanup'] },
   ],
@@ -541,7 +630,12 @@ export function scopeChecklistSummaryCounts(
   let unsure = 0;
   let excluded = 0;
   for (const item of items) {
-    if (item.inputType === 'choice') {
+    if (item.inputType === 'multi_choice') {
+      const ids = item.choiceIds ?? [];
+      if (ids.includes('not_in_scope')) excluded += 1;
+      else if (!ids.length || (ids.length === 1 && ids.includes('unsure'))) unsure += 1;
+      else included += 1;
+    } else if (item.inputType === 'choice') {
       if (item.choiceId === 'not_in_scope') excluded += 1;
       else if (!item.choiceId || item.choiceId === 'unsure') unsure += 1;
       else included += 1;
@@ -552,24 +646,40 @@ export function scopeChecklistSummaryCounts(
   return { included, unsure, excluded, needsMeasurement };
 }
 
-function itemNeedsMeasurement(item: ScopeChecklistItem, measurements: NormalizedScopeMeasurements): boolean {
+function itemNeedsMeasurement(
+  item: ScopeChecklistItem,
+  measurements: NormalizedScopeMeasurements,
+  templateKey?: string | null
+): boolean {
   if (!checklistItemInScope(item)) return false;
-  if (!CHECKLIST_ITEM_QUANTITY_RULES[item.id]) return false;
-  const resolved = resolveChecklistItemQuantity(item.id, measurements, { choiceId: item.choiceId });
+  if (!getChecklistItemQuantityRule(item.id, templateKey)) return false;
+  const resolved = resolveChecklistItemQuantity(item.id, measurements, {
+    choiceId: item.choiceId,
+    templateKey,
+  });
   return resolved.showInput && !resolved.pricingReady;
 }
+
+/** Scope groups that stay open on first load even when items are still "Not sure". */
+const SCOPE_GROUPS_DEFAULT_EXPANDED: Record<string, ReadonlySet<string>> = {
+  kitchen: new Set(['Cabinets & Counters', 'Tile & Flooring', 'Appliances']),
+};
 
 /** Collapse groups with no included items and no missing measurements. */
 export function initialScopeGroupCollapse(
   grouped: Array<{ title: string; items: ScopeChecklistItem[] }>,
-  measurements: NormalizedScopeMeasurements
+  measurements: NormalizedScopeMeasurements,
+  templateKey?: string | null
 ): Record<string, boolean> {
+  const alwaysExpand = SCOPE_GROUPS_DEFAULT_EXPANDED[templateKey || ''] || new Set<string>();
   const collapsed: Record<string, boolean> = {};
   for (const group of grouped) {
     if (!group.title) continue;
-    const shouldExpand = group.items.some(
-      (item) => checklistItemInScope(item) || itemNeedsMeasurement(item, measurements)
-    );
+    const shouldExpand =
+      alwaysExpand.has(group.title) ||
+      group.items.some(
+        (item) => checklistItemInScope(item) || itemNeedsMeasurement(item, measurements, templateKey)
+      );
     collapsed[group.title] = !shouldExpand;
   }
   return collapsed;
@@ -590,6 +700,18 @@ export function createCustomScopeItem(label: string): ScopeChecklistItem {
 
 export function markAllUnsureAsExcluded(items: ScopeChecklistItem[]): ScopeChecklistItem[] {
   return items.map((item) => {
+    if (item.inputType === 'multi_choice') {
+      const ids = item.choiceIds ?? [];
+      if (!ids.length || ids.includes('unsure')) {
+        return {
+          ...item,
+          choiceIds: ['not_in_scope'],
+          choiceId: 'not_in_scope',
+          state: 'excluded',
+        };
+      }
+      return item;
+    }
     if (item.inputType === 'choice') {
       if (!item.choiceId || item.choiceId === 'unsure') {
         return { ...item, choiceId: 'not_in_scope', state: 'excluded' };

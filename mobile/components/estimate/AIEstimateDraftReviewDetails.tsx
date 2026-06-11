@@ -9,6 +9,7 @@ import {
   summarizePricingWarnings,
   summarizeWhatAiDidForDisplay,
 } from '@/utils/estimateDraftReviewUi';
+import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 
 type Colors = {
   text: string;
@@ -40,16 +41,8 @@ type Props = {
   suggestingMissingPrices?: boolean;
 };
 
-function cardStyle(Colors: Colors, darkMode: boolean) {
-  return {
-    marginBottom: 10,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
-    backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : Colors.surface2,
-  };
-}
+const flowCard = (Colors: Colors, darkMode: boolean) =>
+  estimateFlowCardStyle(Colors, darkMode, { marginBottom: 10 });
 
 function PriceRow({
   label,
@@ -87,7 +80,7 @@ function Collapsible({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <View style={cardStyle(Colors, darkMode)}>
+    <View style={flowCard(Colors, darkMode)}>
       <TouchableOpacity
         activeOpacity={0.88}
         onPress={() => setOpen((v) => !v)}
@@ -143,7 +136,7 @@ export default function AIEstimateDraftReviewDetails({
       </Text>
 
       {whatAiDid.length > 0 ? (
-        <View style={cardStyle(Colors, darkMode)}>
+        <View style={flowCard(Colors, darkMode)}>
           {whatAiDid.map((line, i) => (
             <Text key={`did-${i}`} style={{ color: Colors.sub, fontSize: 12, marginBottom: i < whatAiDid.length - 1 ? 4 : 0, lineHeight: 17 }}>
               • {line}
@@ -184,7 +177,7 @@ export default function AIEstimateDraftReviewDetails({
       ) : null}
 
       {draft.noPricingDetected ? (
-        <View style={cardStyle(Colors, darkMode)}>
+        <View style={flowCard(Colors, darkMode)}>
           {onApplyScopeOnly ? (
             <TouchableOpacity activeOpacity={0.88} disabled={busy} onPress={onApplyScopeOnly} style={{ marginBottom: 6 }}>
               <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '700' }}>Save scope only (no prices)</Text>
@@ -207,7 +200,7 @@ export default function AIEstimateDraftReviewDetails({
       ) : null}
 
       {(calculatedTotal != null && calculatedTotal > 0) || statedTotal != null ? (
-        <View style={cardStyle(Colors, darkMode)}>
+        <View style={flowCard(Colors, darkMode)}>
           <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '800', marginBottom: 6 }}>
             Totals
           </Text>
@@ -238,7 +231,7 @@ export default function AIEstimateDraftReviewDetails({
       ) : null}
 
       {summaryWarnings.length > 0 ? (
-        <View style={cardStyle(Colors, darkMode)}>
+        <View style={flowCard(Colors, darkMode)}>
           <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '800', marginBottom: 6 }}>
             Heads up
           </Text>
@@ -251,7 +244,7 @@ export default function AIEstimateDraftReviewDetails({
       ) : null}
 
       {draft.roughEstimate ? (
-        <View style={cardStyle(Colors, darkMode)}>
+        <View style={flowCard(Colors, darkMode)}>
           <Text style={{ color: '#fbbf24', fontSize: 12, fontWeight: '700' }}>
             Rough estimate: {formatDraftMoney(draft.roughEstimate.low)} –{' '}
             {formatDraftMoney(draft.roughEstimate.high)}
@@ -260,7 +253,7 @@ export default function AIEstimateDraftReviewDetails({
       ) : null}
 
       {missingPriceHints.length > 0 && !draft.noPricingDetected && partialCount === 0 ? (
-        <View style={cardStyle(Colors, darkMode)}>
+        <View style={flowCard(Colors, darkMode)}>
           <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '800', marginBottom: 4 }}>
             Pricing gaps
           </Text>

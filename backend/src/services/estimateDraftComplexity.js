@@ -5,8 +5,10 @@
 
 const { SCOPE_TASKS, emptyScopeRoom } = require('./estimateDraftScopeSplit');
 const {
+  QUANTITY_SOURCES,
   normalizeScopeMeasurements,
   resolveQuantityForChecklistItem,
+  getRuleForChecklistItem,
   stampPackageWithCatalogRules,
 } = require('./scopeItemQuantityCatalog');
 const { parseScopeMeasurementsFromNotes } = require('./scopeMeasurementParser');
@@ -16,7 +18,9 @@ const {
   checklistTemplateKey,
   inferItemStateFromNotes,
   inferChoiceFromNotes,
+  inferChoicesFromNotes,
   choiceToState,
+  choiceIdsToState,
 } = require('./scopeChecklistLibrary');
 
 const VALID_ESTIMATE_TIERS = new Set([
@@ -146,6 +150,14 @@ function classifyEstimateTier(draft, originalNotes) {
 }
 
 function formatAssumptionLine(item) {
+  if (item.inputType === 'multi_choice') {
+    const ids = Array.isArray(item.choiceIds) ? item.choiceIds : [];
+    const labels = (item.options || [])
+      .filter((o) => ids.includes(o.id) && o.id !== 'unsure')
+      .map((o) => o.label);
+    if (labels.length) return `${item.label}: ${labels.join(', ')}`;
+    return item.label;
+  }
   if (item.inputType === 'choice') {
     const opt = (item.options || []).find((o) => o.id === item.choiceId);
     if (opt && item.choiceId !== 'unsure') {
@@ -165,6 +177,16 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
 
   const items = template.items.map((item) => {
     const inputType = item.inputType || 'yes_no';
+    if (inputType === 'multi_choice') {
+      const choiceIds = inferChoicesFromNotes(item.id, notes);
+      return {
+        ...item,
+        inputType,
+        choiceIds,
+        choiceId: choiceIds[0] || null,
+        state: choiceIdsToState(choiceIds),
+      };
+    }
     if (inputType === 'choice') {
       const choiceId = inferChoiceFromNotes(item.id, notes);
       return {
@@ -187,6 +209,19 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
   if (panIdx >= 0 && showerFloorIdx >= 0 && panChoice === 'tile_pan') {
     if (items[showerFloorIdx].state === 'unsure') {
       items[showerFloorIdx] = { ...items[showerFloorIdx], state: 'included' };
+    }
+  }
+
+  if (templateKey === 'kitchen') {
+    const removalIdx = items.findIndex((i) => i.id === 'appliance_removal');
+    const reinstallIdx = items.findIndex((i) => i.id === 'appliances');
+    if (
+      removalIdx >= 0 &&
+      reinstallIdx >= 0 &&
+      items[reinstallIdx].state === 'included' &&
+      items[removalIdx].state === 'unsure'
+    ) {
+      items[removalIdx] = { ...items[removalIdx], state: 'included' };
     }
   }
 
@@ -310,6 +345,11 @@ const CHECKLIST_EXTRA_ROOMS = {
     scope: 'Remove existing floor tile, LVP, vinyl, or flooring',
     usesSqft: true,
   },
+  appliance_removal: {
+    name: 'Appliance Removal',
+    scope: 'Disconnect and remove existing kitchen appliances',
+    isFixture: true,
+  },
   tub_demo: {
     name: 'Tub Removal / Demo',
     scope: 'Remove and dispose of existing bathtub',
@@ -375,6 +415,12 @@ const CHOICE_CHECKLIST_TO_TASK_ID = {
 };
 
 function checklistItemInBidScope(item) {
+  if (item.inputType === 'multi_choice') {
+    const ids = Array.isArray(item.choiceIds) ? item.choiceIds : [];
+    if (!ids.length || ids.includes('not_in_scope') || ids.includes('unsure')) return false;
+    if (ids.includes('no_changes') && !ids.some((id) => id === 'remove' || id === 'add')) return false;
+    return ids.some((id) => id === 'remove' || id === 'add');
+  }
   if (item.inputType === 'choice') {
     return Boolean(item.choiceId && item.choiceId !== 'not_in_scope' && item.choiceId !== 'unsure');
   }
@@ -432,11 +478,33 @@ function defaultMissingPriceItemsForExtra(itemId) {
   return map[itemId] || ['Materials / supplies', 'Install labor'];
 }
 
-function emptyRoomFromChecklistExtra(itemId, extra, notes, measurements) {
-  const ctx = { measurements, notes, packageName: extra.name };
+function emptyRoomFromChecklistExtra(itemId, extra, notes, measurements, templateKey) {
+  const ctx = { measurements, notes, packageName: extra.name, templateKey };
   const resolved = resolveQuantityForChecklistItem(itemId, ctx);
   const scopeQuantities = [];
-  if (resolved.pricingReady && resolved.quantity != null) {
+  const norm = normalizeScopeMeasurements(measurements);
+  const rule = getRuleForChecklistItem(itemId, templateKey);
+
+  if (rule?.dualAllowanceField) {
+    const count = norm.itemQuantities?.[itemId];
+    const allowance = norm.itemQuantities?.[`${itemId}__allowance`];
+    if (count?.quantity > 0) {
+      scopeQuantities.push({
+        label: `${extra.name} — rough-in count`,
+        quantity: count.quantity,
+        unit: count.unit || 'each',
+        quantitySource: count.quantitySource || QUANTITY_SOURCES.user_entered,
+      });
+    }
+    if (allowance?.quantity > 0) {
+      scopeQuantities.push({
+        label: `${extra.name} — allowance`,
+        quantity: allowance.quantity,
+        unit: allowance.unit || 'lump_sum',
+        quantitySource: allowance.quantitySource || QUANTITY_SOURCES.user_entered,
+      });
+    }
+  } else if (resolved.pricingReady && resolved.quantity != null) {
     scopeQuantities.push({
       label: extra.name,
       quantity: resolved.quantity,
@@ -512,7 +580,7 @@ function addScopePackagesFromConfirmedChecklist(draft, confirmedItems, scopeMeas
   for (const itemId of extraIds) {
     const extra = CHECKLIST_EXTRA_ROOMS[itemId];
     if (!extra || roomExistsByLabel(rooms, extra.name)) continue;
-    rooms.push(emptyRoomFromChecklistExtra(itemId, extra, notes, scopeMeasurements));
+    rooms.push(emptyRoomFromChecklistExtra(itemId, extra, notes, scopeMeasurements, templateKey));
   }
 
   for (const item of fallbackItems) {
@@ -542,13 +610,23 @@ function applyScopeMeasurements(draft, measurements) {
   const hasAny =
     norm.bathroomFloorSqft ||
     norm.kitchenFloorSqft ||
+    norm.floorAreaSqft ||
     norm.backsplashSqft ||
+    norm.countertopSqft ||
+    norm.cabinetLf ||
     norm.landscapeSqft ||
+    norm.sodSqft ||
+    norm.paverSqft ||
+    norm.rockMulchSqft ||
+    norm.landscapeTons ||
     norm.roofSquares ||
     norm.drywallSqft ||
     norm.concreteSqft ||
     norm.concreteCy ||
     norm.excavationCy ||
+    norm.deckSqft ||
+    norm.exteriorPaintSqft ||
+    norm.railingLf ||
     norm.baseboardLf ||
     norm.showerWallTileSqft ||
     norm.showerFloorTileSqft ||
@@ -583,13 +661,23 @@ function applyScopeMeasurements(draft, measurements) {
       lf: norm.baseboardLf,
       bathroomFloorSqft: norm.bathroomFloorSqft,
       kitchenFloorSqft: norm.kitchenFloorSqft,
+      floorAreaSqft: norm.floorAreaSqft,
       backsplashSqft: norm.backsplashSqft,
+      countertopSqft: norm.countertopSqft,
+      cabinetLf: norm.cabinetLf,
       landscapeSqft: norm.landscapeSqft,
+      sodSqft: norm.sodSqft,
+      paverSqft: norm.paverSqft,
+      rockMulchSqft: norm.rockMulchSqft,
+      landscapeTons: norm.landscapeTons,
       roofSquares: norm.roofSquares,
       drywallSqft: norm.drywallSqft,
       concreteSqft: norm.concreteSqft,
       concreteCy: norm.concreteCy,
       excavationCy: norm.excavationCy,
+      deckSqft: norm.deckSqft,
+      exteriorPaintSqft: norm.exteriorPaintSqft,
+      railingLf: norm.railingLf,
       baseboardLf: norm.baseboardLf,
       showerWallTileSqft: norm.showerWallTileSqft,
       showerFloorTileSqft: norm.showerFloorTileSqft,
@@ -611,6 +699,13 @@ function applyScopeAssumptions(draft, confirmedItems, scopeMeasurements) {
 
   for (const item of confirmedItems) {
     const line = formatAssumptionLine(item);
+    if (item.inputType === 'multi_choice') {
+      const ids = Array.isArray(item.choiceIds) ? item.choiceIds : [];
+      if (ids.includes('not_in_scope')) excluded.push(line);
+      else if (!ids.length || (ids.length === 1 && ids.includes('unsure'))) unsure.push(line);
+      else included.push(line);
+      continue;
+    }
     if (item.inputType === 'choice') {
       if (item.choiceId === 'not_in_scope') excluded.push(line);
       else if (item.choiceId && item.choiceId !== 'unsure') included.push(line);
