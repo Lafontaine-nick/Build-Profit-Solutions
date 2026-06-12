@@ -89,6 +89,8 @@ export type ScopeItemQuantity = {
   quantity: number | null;
   unit: string;
   quantitySource?: 'notes' | 'user_entered' | 'inferred' | 'default_assumption' | 'missing' | 'not_applicable';
+  /** Cabinets allowance in notes also covered countertops on the same line. */
+  includesCountertops?: boolean;
 };
 
 export type ScopeMeasurements = {
@@ -561,6 +563,37 @@ export function resolveRoomForApply(
   }
 
   return room;
+}
+
+/** Job notes blob for scope parsing — prefers originalNotes, then description / rooms. */
+export function resolveDraftScopeNotes(
+  draft: {
+    originalNotes?: string | null;
+    projectDescription?: string | null;
+    contractScope?: string | null;
+    rooms?: Array<{ name?: string; scope?: string }>;
+    scopeChecklist?: { intro?: string } | null;
+  } | null | undefined
+): string {
+  const direct = String(draft?.originalNotes || '').trim();
+  if (direct) return direct;
+
+  const parts: string[] = [];
+  const desc = String(draft?.projectDescription || '').trim();
+  if (desc) parts.push(desc);
+  const contract = String(draft?.contractScope || '').trim();
+  if (contract) parts.push(contract);
+  for (const room of draft?.rooms || []) {
+    const body = String(room?.scope || '').trim();
+    if (!body) continue;
+    const header = String(room?.name || '').trim();
+    parts.push(header ? `${header}\n${body}` : body);
+  }
+  if (!parts.length) {
+    const intro = String(draft?.scopeChecklist?.intro || '').trim();
+    if (intro) parts.push(intro);
+  }
+  return parts.join('\n\n').trim();
 }
 
 function buildScopeDescription(draft: EstimateAiDraft): string {

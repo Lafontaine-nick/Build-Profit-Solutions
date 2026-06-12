@@ -169,4 +169,85 @@ describe('scopeItemQuantityCatalog', () => {
     });
     expect(showerFloorDemo.quantity).toBe(25);
   });
+
+  test('kitchen backsplash and paint resolve rate pricing from notes', () => {
+    const notes = [
+      'Kitchen remodel for Martinez - 30339',
+      'Backsplash tile 45 sqft - material $8/sqft, labor $12/sqft',
+      'Paint walls/ceiling 320 sqft - $1.50/sqft labor',
+    ].join('\n');
+
+    const measurements = normalizeScopeMeasurements({
+      backsplashSqft: 45,
+      wallPaintSqft: 320,
+    });
+
+    const backsplash = resolveQuantityForChecklistItem('backsplash', {
+      templateKey: 'kitchen',
+      notes,
+      measurements,
+    });
+    expect(backsplash.dualAllowance).toMatchObject({ quantity: 900 });
+    expect(backsplash.dualMaterial).toMatchObject({ quantity: 360 });
+    expect(backsplash.dualLabor).toMatchObject({ quantity: 540 });
+
+    const paint = resolveQuantityForChecklistItem('paint', {
+      templateKey: 'kitchen',
+      notes,
+      measurements,
+    });
+    expect(paint.dualAllowance).toMatchObject({ quantity: 480 });
+    expect(paint.dualLabor).toMatchObject({ quantity: 480 });
+  });
+
+  test('paint allowance stored as unit rate upgrades when sqft lives on itemQuantities', () => {
+    const notes = 'Paint walls/ceiling 320 sqft - $1.50/sqft labor';
+    const measurements = normalizeScopeMeasurements({
+      itemQuantities: {
+        paint: { quantity: 320, unit: 'sqft', quantitySource: 'notes' },
+        paint__allowance: { quantity: 1.5, unit: 'allowance', quantitySource: 'user_entered' },
+      },
+    });
+
+    const paint = resolveQuantityForChecklistItem('paint', {
+      templateKey: 'kitchen',
+      notes,
+      measurements,
+    });
+    expect(paint.dualAllowance).toMatchObject({ quantity: 480 });
+  });
+
+  test('backsplash rate pricing uses backsplashSqft measurement when itemQuantities empty', () => {
+    const notes = 'Backsplash tile 45 sqft - material $8/sqft, labor $12/sqft';
+    const measurements = normalizeScopeMeasurements({
+      backsplashSqft: 45,
+    });
+
+    const backsplash = resolveQuantityForChecklistItem('backsplash', {
+      templateKey: 'kitchen',
+      notes,
+      measurements,
+    });
+    expect(backsplash.dualAllowance).toMatchObject({ quantity: 900 });
+    expect(backsplash.dualMaterial).toMatchObject({ quantity: 360 });
+    expect(backsplash.dualLabor).toMatchObject({ quantity: 540 });
+  });
+
+  test('backsplash pricing resolves from persisted rate subkeys without notes', () => {
+    const measurements = normalizeScopeMeasurements({
+      backsplashSqft: 45,
+      itemQuantities: {
+        backsplash__material: { quantity: 360, unit: 'allowance', quantitySource: 'notes' },
+        backsplash__labor: { quantity: 540, unit: 'allowance', quantitySource: 'notes' },
+        backsplash__allowance: { quantity: 900, unit: 'allowance', quantitySource: 'notes' },
+      },
+    });
+
+    const backsplash = resolveQuantityForChecklistItem('backsplash', {
+      templateKey: 'kitchen',
+      notes: '',
+      measurements,
+    });
+    expect(backsplash.dualAllowance).toMatchObject({ quantity: 900 });
+  });
 });

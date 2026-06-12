@@ -35,7 +35,7 @@ export type ParsedScopeMeasurements = {
   itemQuantities?: Record<string, ScopeItemQuantity>;
 };
 
-const SQFT_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|ft\.?\s*²|square\s+feet)/gi;
+const SQFT_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|ft\.?\s*²|square\s+(?:foot|feet))/gi;
 const LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+feet|ln\s*ft|linear\s+ft)/gi;
 const CY_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:cy|cubic\s+yards?)/gi;
 const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)\s*squares?\b/gi;
@@ -53,10 +53,35 @@ function firstQty(text: string, re: RegExp): number | null {
 }
 
 function splitNoteClauses(text: string): string[] {
-  return String(text || '')
-    .split(/[\n.;]+/)
-    .map((s) => s.trim())
+  const normalized = String(text || '').trim();
+  if (!normalized) return [];
+
+  let sentences = normalized
+    .split(/(?<!\d)\.\s+(?=[a-z])/gi)
+    .map((x) => x.trim())
     .filter(Boolean);
+  if (sentences.length === 1) {
+    sentences = normalized
+      .split(/[\n;]+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }
+
+  const clauses: string[] = [];
+  for (let sentence of sentences) {
+    sentence = sentence.replace(/\bwalls?\s+and\s+(?:the\s+)?ceiling\b/gi, (m) =>
+      m.replace(/\s+and\s+/i, ' __WALLS_CEILING__ ')
+    );
+    const parts = sentence
+      .split(
+        /\s+(?:and|&|\+)\s+|\s+in\s+(?=\d[\d,]*\s*(?:sq\.?\s*ft\.?|sqft|sq\s*ft|square\s*feet|ft\.?\s*²|ft\.?\s*2\b|linear\s*feet|ln\.?\s*ft\.?|\blf\b))/i
+      )
+      .map((p) => p.trim().replace(/__WALLS_CEILING__/g, ' and '))
+      .filter(Boolean);
+    if (parts.length > 1) clauses.push(...parts);
+    else clauses.push(sentence.replace(/__WALLS_CEILING__/g, ' and '));
+  }
+  return clauses;
 }
 
 function clauseMatches(clause: string, patterns: RegExp[]): boolean {
@@ -167,7 +192,7 @@ export function parseScopeMeasurementsFromNotes(
   // Use sqft near paint keywords — not first sqft in clause (backsplash may precede paint on one line)
   const PAINT_SQFT_PATTERNS = [
     /\bpaint(?:ing)?\b/,
-    /\bwall(?:s)?\s*(?:and|\/|&)\s*ceiling\b/,
+    /\bwall(?:s)?\s*(?:and\s+(?:the\s+)?|\/|&\s*)ceiling\b/,
     /\binterior\s+paint\b/,
   ];
   const paintSqft = (() => {

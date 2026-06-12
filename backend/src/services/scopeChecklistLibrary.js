@@ -552,7 +552,7 @@ const CHECKLIST_YES_HINTS = {
   countertops: /\b(countertops?|counters|quartz|granite|install\s+new\s+countertops?)\b/,
   backsplash: /\b(backsplash)\b/,
   appliances:
-    /\b(appliance\s+install|install\s+appliances?|hookup\s+appliances?|reconnect\s+appliances?|appliance\s+hookup)\b/,
+    /\b(appliance\s+install|install\s+appliances?|appliance\s+allowance|hookup\s+appliances?|reconnect\s+appliances?|appliance\s+hookup)\b/,
   island: /\b(island)\b/,
   paint: /\b(paint(?:ing)?|bathroom\s+paint)\b/,
   lighting: /\b(new\s+lighting|lighting|light\s+fixtures?)\b/,
@@ -579,7 +579,7 @@ const CHECKLIST_YES_HINTS = {
   interior_paint: /\b(interior\s+paint|paint\s+(?:walls|interior))\b/,
   exterior_paint: /\b(exterior\s+paint|paint\s+exterior)\b/,
   permits: /\b(permit)\b/,
-  cleanup: /\b(cleanup|disposal|dumpster|haul[\s-]?off)\b/,
+  cleanup: /\b(cleanup|disposal|dumpster|debris|final\s+clean)\b/,
 };
 
 const CHECKLIST_NO_HINTS = {

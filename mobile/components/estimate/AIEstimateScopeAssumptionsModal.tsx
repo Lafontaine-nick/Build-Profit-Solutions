@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -25,6 +25,7 @@ import type {
   ScopeChecklistItem,
   ScopeMeasurements,
 } from '@/utils/estimateAiDraft';
+import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
 import {
   checklistDisplayHelper,
   choiceIdsToScopeState,
@@ -33,7 +34,9 @@ import {
   initialScopeGroupCollapse,
   markAllUnsureAsExcluded,
   mergeScopeProgressIntoDraft,
-  normalizeScopeChecklistItems,
+  applyKitchenScopeInferences,
+  applyScopeInferencesFromNotes,
+  hydrateScopeChecklistFromNotes,
   QUANTITY_NEEDED_LABELS_BY_TEMPLATE,
   quantityNeededLabel,
   scopeChecklistItemsForEditing,
@@ -44,16 +47,20 @@ import {
   scopeChecklistSummaryCounts,
 } from '@/utils/estimateScopeChecklistUi';
 import {
+  buildNormalizedScopeMeasurementsFromInput,
+  checklistItemInScope,
   countScopePricingReadiness,
   DUAL_QUANTITY_FIELD_LABELS,
   formatUnitLabel,
   getChecklistItemQuantityRule,
   initialScopeMeasurementInputExtended,
   isDualAllowanceItem,
-  normalizeScopeMeasurements,
+  overlayDualRatePricingDisplay,
+  prepareScopeMeasurementsInputForUi,
   resolveChecklistItemQuantity,
   roughAllowanceSubKey,
   scopeMeasurementsToPayload,
+  scopeMeasurementsPayloadForPersist,
   type ScopeMeasurementsInputExtended,
 } from '@/utils/scopeItemQuantities';
 import {
@@ -66,10 +73,21 @@ import { aiScopeConfirmNumericKeyboardProps } from '@/constants/inputKeyboardPre
 import KeyboardPlainAccessory from '@/components/ui/KeyboardPlainAccessory';
 
 import { estimateFlowCardStyle, estimateFlowDividerColor } from '@/utils/estimateFlowCardStyle';
+import {
+  SCOPE_ITEM_TIER_OPACITY,
+  scopeChecklistNoteSummary,
+  scopeItemHasNoteSignal,
+  scopeItemNoteBadge,
+  scopeItemVisualTier,
+  type ScopeItemNoteBadge,
+  type ScopeItemVisualContext,
+} from '@/utils/scopeItemVisualTier';
 
 type Props = {
   visible: boolean;
   draft: EstimateAiDraft | null;
+  /** Session notes when draft.originalNotes was not persisted on the draft object. */
+  notesFallback?: string | null;
   applying?: boolean;
   fromAssistant?: boolean;
   onBack: () => void;
@@ -128,8 +146,72 @@ function dividerColor(darkMode: boolean) {
   return estimateFlowDividerColor(darkMode);
 }
 
-function buildNormFromInput(input: ScopeMeasurementsInputExtended) {
-  return normalizeScopeMeasurements(scopeMeasurementsToPayload(input));
+function ScopeItemTitleRow({
+  label,
+  noteBadge,
+  darkMode,
+  Colors,
+}: {
+  label: string;
+  noteBadge?: ScopeItemNoteBadge | null;
+  darkMode: boolean;
+  Colors: ReturnType<typeof getColors>;
+}) {
+  const badgeLabel = noteBadge === 'prefilled' ? 'Prefilled' : noteBadge === 'mentioned' ? 'In notes' : null;
+
+  return (
+    <View style={styles.cardTitleRow}>
+      <Text
+        style={{
+          color: darkMode ? '#F5F7FA' : Colors.text,
+          fontSize: 14,
+          fontWeight: '700',
+          lineHeight: 20,
+          flex: 1,
+        }}
+      >
+        {label}
+      </Text>
+      {badgeLabel ? (
+        <View style={[styles.fromNotesBadge, darkMode ? styles.fromNotesBadgeDark : styles.fromNotesBadgeLight]}>
+          <Text style={{ color: '#22c55e', fontSize: 10, fontWeight: '700' }}>{badgeLabel}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function isUserEditingQuantity(
+  measurementsInput: ScopeMeasurementsInputExtended,
+  itemId: string,
+  allowanceKey?: string
+): boolean {
+  const entry = measurementsInput.itemQuantities[itemId];
+  const allowanceEntry = allowanceKey ? measurementsInput.itemQuantities[allowanceKey] : undefined;
+  return entry?.quantitySource === 'user_entered' || allowanceEntry?.quantitySource === 'user_entered';
+}
+
+function formatResolvedQuantityDisplay(quantity: number, unit: string): string {
+  if (unit === 'allowance' || unit === 'lump_sum') {
+    return `$${quantity.toLocaleString()}`;
+  }
+  return `${quantity.toLocaleString()} ${formatUnitLabel(unit)}`;
+}
+
+function scopeCardStyle(
+  tier: ReturnType<typeof scopeItemVisualTier>,
+  Colors: ReturnType<typeof getColors>,
+  darkMode: boolean
+) {
+  return [styles.card, estimateFlowCardStyle(Colors, darkMode), { opacity: SCOPE_ITEM_TIER_OPACITY[tier] }];
+}
+
+function buildNormFromInput(
+  input: ScopeMeasurementsInputExtended,
+  notes?: string | null,
+  templateKey?: string | null
+) {
+  return buildNormalizedScopeMeasurementsFromInput(input, { notes, templateKey });
 }
 
 function QuantitySection({
@@ -137,6 +219,7 @@ function QuantitySection({
   choiceId,
   inScope,
   templateKey,
+  originalNotes,
   measurementsInput,
   onItemQuantityChange,
   onItemQuantityBlur,
@@ -148,8 +231,14 @@ function QuantitySection({
   choiceId?: string | null;
   inScope: boolean;
   templateKey?: string | null;
+  originalNotes?: string | null;
   measurementsInput: ScopeMeasurementsInputExtended;
-  onItemQuantityChange: (itemId: string, quantity: string, field?: 'count' | 'allowance') => void;
+  onItemQuantityChange: (
+    itemId: string,
+    quantity: string,
+    field?: 'count' | 'allowance',
+    unit?: string
+  ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
@@ -158,8 +247,15 @@ function QuantitySection({
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!inScope || !rule) return null;
 
-  const norm = buildNormFromInput(measurementsInput);
-  const resolved = resolveChecklistItemQuantity(itemId, norm, { choiceId, templateKey });
+  const norm = buildNormFromInput(measurementsInput, originalNotes, templateKey);
+  let resolved = resolveChecklistItemQuantity(itemId, norm, {
+    choiceId,
+    templateKey,
+    notes: originalNotes,
+  });
+  if (rule?.dualAllowanceField) {
+    resolved = overlayDualRatePricingDisplay(itemId, resolved, norm, originalNotes, templateKey);
+  }
   if (!resolved.showInput && !resolved.pricingReady) return null;
   const inputShell = inputShellStyle(Colors, darkMode);
   const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8';
@@ -169,9 +265,7 @@ function QuantitySection({
     const allowanceKey = roughAllowanceSubKey(itemId);
     const countInput = measurementsInput.itemQuantities[itemId];
     const allowanceInput = measurementsInput.itemQuantities[allowanceKey];
-    const isEditing =
-      Object.prototype.hasOwnProperty.call(measurementsInput.itemQuantities, itemId) ||
-      Object.prototype.hasOwnProperty.call(measurementsInput.itemQuantities, allowanceKey);
+    const isEditing = isUserEditingQuantity(measurementsInput, itemId, allowanceKey);
 
     if (resolved.pricingReady && !isEditing) {
       return (
@@ -186,13 +280,36 @@ function QuantitySection({
               </Text>
             </View>
           ) : null}
-          {resolved.dualAllowance ? (
+          {resolved.dualMaterial ? (
             <View style={[styles.qtyCompactRow, resolved.dualCount ? { marginTop: 4 } : undefined]}>
+              <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 12, fontWeight: '600' }}>
+                ${resolved.dualMaterial.quantity.toLocaleString()}
+              </Text>
+              <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11 }}>Material</Text>
+            </View>
+          ) : null}
+          {resolved.dualLabor ? (
+            <View style={[styles.qtyCompactRow, { marginTop: 4 }]}>
+              <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 12, fontWeight: '600' }}>
+                ${resolved.dualLabor.quantity.toLocaleString()}
+              </Text>
+              <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11 }}>Labor</Text>
+            </View>
+          ) : null}
+          {resolved.dualAllowance ? (
+            <View
+              style={[
+                styles.qtyCompactRow,
+                resolved.dualCount || resolved.dualMaterial || resolved.dualLabor ? { marginTop: 4 } : undefined,
+              ]}
+            >
               <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 12, fontWeight: '600' }}>
                 ${resolved.dualAllowance.quantity.toLocaleString()}
               </Text>
               <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11 }}>
-                {fieldLabels?.allowance || 'Allowance'}
+                {resolved.dualMaterial || resolved.dualLabor
+                  ? 'Total'
+                  : fieldLabels?.allowance || 'Allowance'}
               </Text>
             </View>
           ) : null}
@@ -204,10 +321,20 @@ function QuantitySection({
           <TouchableOpacity
             onPress={() => {
               if (resolved.dualCount) {
-                onItemQuantityChange(itemId, String(resolved.dualCount.quantity), 'count');
+                onItemQuantityChange(
+                  itemId,
+                  String(resolved.dualCount.quantity),
+                  'count',
+                  resolved.dualCount.unit
+                );
               }
               if (resolved.dualAllowance) {
-                onItemQuantityChange(itemId, String(resolved.dualAllowance.quantity), 'allowance');
+                onItemQuantityChange(
+                  itemId,
+                  String(resolved.dualAllowance.quantity),
+                  'allowance',
+                  resolved.dualAllowance.unit
+                );
               }
             }}
             activeOpacity={0.7}
@@ -277,26 +404,58 @@ function QuantitySection({
   }
 
   const itemInput = measurementsInput.itemQuantities[itemId];
-  const isEditingQuantity = Object.prototype.hasOwnProperty.call(
-    measurementsInput.itemQuantities,
-    itemId
-  );
+  const isEditingQuantity = isUserEditingQuantity(measurementsInput, itemId);
   const neededLabel =
     (templateKey && QUANTITY_NEEDED_LABELS_BY_TEMPLATE[templateKey]?.[itemId]) ||
     QUANTITY_NEEDED_LABELS[itemId] ||
     quantityNeededLabel(itemId, templateKey, rule.defaultUnit);
 
   if (resolved.pricingReady && !isEditingQuantity) {
+    if (resolved.combinedAllowanceRole === 'included_in_combined') {
+      const combinedTotal = resolved.combinedAllowanceTotal ?? resolved.quantity ?? 0;
+      return (
+        <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
+          <View style={[styles.includedPill, darkMode ? styles.includedPillDark : styles.includedPillLight]}>
+            <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '700' }}>
+              Included in cabinet allowance
+            </Text>
+          </View>
+          <Text
+            style={{
+              color: darkMode ? '#F5F7FA' : Colors.text,
+              fontSize: 12,
+              fontWeight: '600',
+              marginTop: 8,
+            }}
+          >
+            No separate price
+          </Text>
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 4, lineHeight: 15 }}>
+            Same ${Number(combinedTotal).toLocaleString()} combined total as cabinets above — not added
+            again.
+          </Text>
+        </View>
+      );
+    }
+
     return (
       <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
         <View style={styles.qtyCompactRow}>
           <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 12, fontWeight: '600' }}>
-            {resolved.quantity?.toLocaleString()} {formatUnitLabel(resolved.unit)}
+            {formatResolvedQuantityDisplay(resolved.quantity ?? 0, resolved.unit)}
           </Text>
           <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11 }}>{resolved.sourceLabel}</Text>
         </View>
+        {resolved.combinedAllowanceRole === 'combined_total' ? (
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 4, lineHeight: 15 }}>
+            One allowance for cabinets and countertops — the countertop line below is included, not
+            priced again.
+          </Text>
+        ) : null}
         <TouchableOpacity
-          onPress={() => onItemQuantityChange(itemId, String(resolved.quantity ?? ''))}
+          onPress={() =>
+            onItemQuantityChange(itemId, String(resolved.quantity ?? ''), 'count', resolved.unit)
+          }
           activeOpacity={0.7}
         >
           <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '600', marginTop: 4 }}>
@@ -384,29 +543,43 @@ function YesNoChip({
 function WetAreaInstallLineCard({
   item,
   templateKey,
+  originalNotes,
   measurementsInput,
   onItemQuantityChange,
   onItemQuantityBlur,
+  visualCtx,
   Colors,
   darkMode,
   applying,
 }: {
   item: ScopeChecklistItem;
   templateKey?: string | null;
+  originalNotes?: string | null;
   measurementsInput: ScopeMeasurementsInputExtended;
-  onItemQuantityChange: (itemId: string, quantity: string, field?: 'count' | 'allowance') => void;
+  onItemQuantityChange: (
+    itemId: string,
+    quantity: string,
+    field?: 'count' | 'allowance',
+    unit?: string
+  ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
+  visualCtx: ScopeItemVisualContext;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
 }) {
   const helper = checklistDisplayHelper(item, templateKey);
+  const tier = scopeItemVisualTier(item, visualCtx);
+  const noteBadge = scopeItemNoteBadge(item, visualCtx);
 
   return (
-    <View style={[styles.card, estimateFlowCardStyle(Colors, darkMode)]}>
-      <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 14, fontWeight: '700', lineHeight: 20 }}>
-        {item.label}
-      </Text>
+    <View style={scopeCardStyle(tier, Colors, darkMode)}>
+      <ScopeItemTitleRow
+        label={item.label}
+        noteBadge={noteBadge}
+        darkMode={darkMode}
+        Colors={Colors}
+      />
       {helper ? (
         <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 3, lineHeight: 15 }}>
           {helper}
@@ -421,6 +594,7 @@ function WetAreaInstallLineCard({
         itemId={item.id}
         inScope
         templateKey={templateKey}
+        originalNotes={originalNotes}
         measurementsInput={measurementsInput}
         onItemQuantityChange={onItemQuantityChange}
         onItemQuantityBlur={onItemQuantityBlur}
@@ -435,31 +609,45 @@ function WetAreaInstallLineCard({
 function YesNoRow({
   item,
   templateKey,
+  originalNotes,
   onSetState,
   measurementsInput,
   onItemQuantityChange,
   onItemQuantityBlur,
+  visualCtx,
   Colors,
   darkMode,
   applying,
 }: {
   item: ScopeChecklistItem;
   templateKey?: string | null;
+  originalNotes?: string | null;
   onSetState: (state: ScopeAssumptionState) => void;
   measurementsInput: ScopeMeasurementsInputExtended;
-  onItemQuantityChange: (itemId: string, quantity: string, field?: 'count' | 'allowance') => void;
+  onItemQuantityChange: (
+    itemId: string,
+    quantity: string,
+    field?: 'count' | 'allowance',
+    unit?: string
+  ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
+  visualCtx: ScopeItemVisualContext;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
 }) {
   const helper = checklistDisplayHelper(item, templateKey);
+  const tier = scopeItemVisualTier(item, visualCtx);
+  const noteBadge = scopeItemNoteBadge(item, visualCtx);
 
   return (
-    <View style={[styles.card, estimateFlowCardStyle(Colors, darkMode)]}>
-      <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 14, fontWeight: '700', lineHeight: 20 }}>
-        {item.label}
-      </Text>
+    <View style={scopeCardStyle(tier, Colors, darkMode)}>
+      <ScopeItemTitleRow
+        label={item.label}
+        noteBadge={noteBadge}
+        darkMode={darkMode}
+        Colors={Colors}
+      />
       {helper ? (
         <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 3, lineHeight: 15 }}>
           {helper}
@@ -505,6 +693,7 @@ function YesNoRow({
         choiceId={item.choiceId}
         inScope={item.state === 'included'}
         templateKey={templateKey}
+        originalNotes={originalNotes}
         measurementsInput={measurementsInput}
         onItemQuantityChange={onItemQuantityChange}
         onItemQuantityBlur={onItemQuantityBlur}
@@ -519,20 +708,29 @@ function YesNoRow({
 function MultiChoiceRow({
   item,
   templateKey,
+  originalNotes,
   onToggle,
   measurementsInput,
   onItemQuantityChange,
   onItemQuantityBlur,
+  visualCtx,
   Colors,
   darkMode,
   applying,
 }: {
   item: ScopeChecklistItem;
   templateKey?: string | null;
+  originalNotes?: string | null;
   onToggle: (optionId: string) => void;
   measurementsInput: ScopeMeasurementsInputExtended;
-  onItemQuantityChange: (itemId: string, quantity: string, field?: 'count' | 'allowance') => void;
+  onItemQuantityChange: (
+    itemId: string,
+    quantity: string,
+    field?: 'count' | 'allowance',
+    unit?: string
+  ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
+  visualCtx: ScopeItemVisualContext;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
@@ -540,12 +738,17 @@ function MultiChoiceRow({
   const choiceIds = item.choiceIds ?? [];
   const inScope = choiceIds.some((id) => id === 'remove' || id === 'add');
   const helper = checklistDisplayHelper(item, templateKey);
+  const tier = scopeItemVisualTier(item, visualCtx);
+  const noteBadge = scopeItemNoteBadge(item, visualCtx);
 
   return (
-    <View style={[styles.card, estimateFlowCardStyle(Colors, darkMode)]}>
-      <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 14, fontWeight: '700', lineHeight: 20 }}>
-        {item.label}
-      </Text>
+    <View style={scopeCardStyle(tier, Colors, darkMode)}>
+      <ScopeItemTitleRow
+        label={item.label}
+        noteBadge={noteBadge}
+        darkMode={darkMode}
+        Colors={Colors}
+      />
       {helper ? (
         <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 3, lineHeight: 15 }}>
           {helper}
@@ -603,6 +806,7 @@ function MultiChoiceRow({
         itemId={item.id}
         inScope={inScope}
         templateKey={templateKey}
+        originalNotes={originalNotes}
         measurementsInput={measurementsInput}
         onItemQuantityChange={onItemQuantityChange}
         onItemQuantityBlur={onItemQuantityBlur}
@@ -617,32 +821,46 @@ function MultiChoiceRow({
 function ChoiceRow({
   item,
   templateKey,
+  originalNotes,
   onSelect,
   measurementsInput,
   onItemQuantityChange,
   onItemQuantityBlur,
+  visualCtx,
   Colors,
   darkMode,
   applying,
 }: {
   item: ScopeChecklistItem;
   templateKey?: string | null;
+  originalNotes?: string | null;
   onSelect: (choiceId: string) => void;
   measurementsInput: ScopeMeasurementsInputExtended;
-  onItemQuantityChange: (itemId: string, quantity: string, field?: 'count' | 'allowance') => void;
+  onItemQuantityChange: (
+    itemId: string,
+    quantity: string,
+    field?: 'count' | 'allowance',
+    unit?: string
+  ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
+  visualCtx: ScopeItemVisualContext;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
 }) {
   const inScope = Boolean(item.choiceId && item.choiceId !== 'not_in_scope' && item.choiceId !== 'unsure');
   const helper = checklistDisplayHelper(item, templateKey);
+  const tier = scopeItemVisualTier(item, visualCtx);
+  const noteBadge = scopeItemNoteBadge(item, visualCtx);
 
   return (
-    <View style={[styles.card, estimateFlowCardStyle(Colors, darkMode)]}>
-      <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 14, fontWeight: '700', lineHeight: 20 }}>
-        {item.label}
-      </Text>
+    <View style={scopeCardStyle(tier, Colors, darkMode)}>
+      <ScopeItemTitleRow
+        label={item.label}
+        noteBadge={noteBadge}
+        darkMode={darkMode}
+        Colors={Colors}
+      />
       {helper ? (
         <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 3, lineHeight: 15 }}>
           {helper}
@@ -701,6 +919,7 @@ function ChoiceRow({
         choiceId={item.choiceId}
         inScope={inScope}
         templateKey={templateKey}
+        originalNotes={originalNotes}
         measurementsInput={measurementsInput}
         onItemQuantityChange={onItemQuantityChange}
         onItemQuantityBlur={onItemQuantityBlur}
@@ -835,6 +1054,7 @@ function ScopeGroupSection({
   collapsed,
   onToggle,
   renderItem,
+  noteSummary,
   Colors,
   darkMode,
 }: {
@@ -843,22 +1063,36 @@ function ScopeGroupSection({
   collapsed: boolean;
   onToggle: () => void;
   renderItem: (item: ScopeChecklistItem) => React.ReactNode;
+  noteSummary?: { fromNotes: number; toConfirm: number };
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
 }) {
   if (!items.length) return null;
 
+  const allSecondary =
+    noteSummary != null && noteSummary.fromNotes === 0 && noteSummary.toConfirm === items.length;
+  const headerOpacity = allSecondary ? SCOPE_ITEM_TIER_OPACITY.secondary : 1;
+
   return (
     <View style={styles.groupSection}>
       {title ? (
         <TouchableOpacity
-          style={[styles.groupHeader, { borderBottomColor: dividerColor(darkMode) }]}
+          style={[styles.groupHeader, { borderBottomColor: dividerColor(darkMode), opacity: headerOpacity }]}
           onPress={onToggle}
           activeOpacity={0.7}
         >
-          <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 13, fontWeight: '800', flex: 1 }}>
-            {title}
-          </Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 13, fontWeight: '800' }}>
+              {title}
+            </Text>
+            {noteSummary && (noteSummary.fromNotes > 0 || noteSummary.toConfirm > 0) ? (
+              <Text style={{ color: captionColor(darkMode, Colors), fontSize: 10, marginTop: 2 }}>
+                {noteSummary.fromNotes > 0 ? `${noteSummary.fromNotes} from notes` : null}
+                {noteSummary.fromNotes > 0 && noteSummary.toConfirm > 0 ? ' · ' : null}
+                {noteSummary.toConfirm > 0 ? `${noteSummary.toConfirm} to confirm` : null}
+              </Text>
+            ) : null}
+          </View>
           <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginRight: 6 }}>
             {items.length}
           </Text>
@@ -875,6 +1109,7 @@ function ScopeGroupSection({
 export default function AIEstimateScopeAssumptionsModal({
   visible,
   draft,
+  notesFallback,
   applying = false,
   fromAssistant = false,
   onBack,
@@ -887,6 +1122,11 @@ export default function AIEstimateScopeAssumptionsModal({
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const checklist = draft?.scopeChecklist;
+  const scopeNotes = useMemo(() => {
+    const resolved = resolveDraftScopeNotes(draft);
+    if (resolved) return resolved;
+    return String(notesFallback || '').trim();
+  }, [draft, notesFallback]);
   const [items, setItems] = useState<ScopeChecklistItem[]>([]);
   const [measurements, setMeasurements] = useState<ScopeMeasurementsInputExtended>({
     ...emptyQuickMeasurementInput(),
@@ -898,6 +1138,9 @@ export default function AIEstimateScopeAssumptionsModal({
   const [showCustomItemInput, setShowCustomItemInput] = useState(false);
   const itemsRef = useRef(items);
   const measurementsRef = useRef(measurements);
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollContentRef = useRef<View>(null);
+  const itemRefs = useRef<Record<string, View | null>>({});
 
   useEffect(() => {
     itemsRef.current = items;
@@ -913,7 +1156,7 @@ export default function AIEstimateScopeAssumptionsModal({
         confirmed: draft?.confirmedAssumptions,
         measurements: draft?.scopeMeasurements,
         checklist: draft?.scopeChecklist?.items,
-        notes: draft?.originalNotes,
+        notes: scopeNotes,
         suggested: draft?.scopeChecklist?.suggestedMeasurements,
       }),
     [
@@ -921,7 +1164,8 @@ export default function AIEstimateScopeAssumptionsModal({
       draft?.scopeMeasurements,
       draft?.scopeChecklist?.items,
       draft?.scopeChecklist?.suggestedMeasurements,
-      draft?.originalNotes,
+      scopeNotes,
+      notesFallback,
     ]
   );
 
@@ -929,8 +1173,21 @@ export default function AIEstimateScopeAssumptionsModal({
     if (visible && checklist?.items?.length) {
       const sourceItems = scopeChecklistItemsForEditing(draft);
       if (!sourceItems.length) return;
-      const normalized = normalizeScopeChecklistItems(sourceItems);
-      const nextMeasurements = initialScopeMeasurementInputExtended(draft);
+      const nextMeasurements = prepareScopeMeasurementsInputForUi(
+        initialScopeMeasurementInputExtended(draft, scopeNotes),
+        { notes: scopeNotes, templateKey: checklist.templateKey }
+      );
+      const norm = buildNormFromInput(nextMeasurements, scopeNotes, checklist.templateKey);
+      let normalized = hydrateScopeChecklistFromNotes(
+        sourceItems,
+        checklist.templateKey,
+        scopeNotes,
+        norm
+      );
+      normalized = applyKitchenScopeInferences(normalized, checklist.templateKey, {
+        notes: scopeNotes,
+        measurements: norm,
+      });
       setItems(normalized);
       setMeasurements(nextMeasurements);
       setQuickMeasurementsOpen(false);
@@ -941,10 +1198,26 @@ export default function AIEstimateScopeAssumptionsModal({
         checklist.templateKey
       );
       setCollapsedGroups(
-        initialScopeGroupCollapse(grouped, buildNormFromInput(nextMeasurements), checklist.templateKey)
+        initialScopeGroupCollapse(
+          grouped,
+          norm,
+          checklist.templateKey,
+          scopeNotes
+        )
       );
     }
   }, [visible, draftScopeRestoreKey, checklist?.templateKey, draft]);
+
+  // Keep rate-pricing subkeys in form state whenever notes are available (handles hot reload / stale saves).
+  useEffect(() => {
+    if (!visible || !scopeNotes.trim()) return;
+    setMeasurements((prev) =>
+      prepareScopeMeasurementsInputForUi(prev, {
+        notes: scopeNotes,
+        templateKey: checklist?.templateKey,
+      })
+    );
+  }, [visible, scopeNotes, checklist?.templateKey]);
 
   useEffect(() => {
     if (visible || !onPersistProgress || applying) return;
@@ -952,20 +1225,29 @@ export default function AIEstimateScopeAssumptionsModal({
     if (!currentItems.length) return;
     onPersistProgress(
       scopeChecklistItemsForPersist(currentItems),
-      scopeMeasurementsToPayload(measurementsRef.current)
+      scopeMeasurementsPayloadForPersist(measurementsRef.current, {
+        notes: scopeNotes,
+        templateKey: checklist?.templateKey,
+      })
     );
-  }, [visible, onPersistProgress, applying]);
+  }, [visible, onPersistProgress, applying, scopeNotes, checklist?.templateKey]);
 
   const displayItems = useMemo(() => expandWetAreaDerivedScopeItems(items), [items]);
 
   const normMeasurements = useMemo(
-    () => buildNormFromInput(measurements),
-    [measurements]
+    () => buildNormFromInput(measurements, scopeNotes, checklist?.templateKey),
+    [measurements, scopeNotes, checklist?.templateKey]
   );
 
   const pricingCounts = useMemo(
-    () => countScopePricingReadiness(displayItems, normMeasurements, checklist?.templateKey),
-    [displayItems, normMeasurements, checklist?.templateKey]
+    () =>
+      countScopePricingReadiness(
+        displayItems,
+        normMeasurements,
+        checklist?.templateKey,
+        scopeNotes
+      ),
+    [displayItems, normMeasurements, checklist?.templateKey, scopeNotes]
   );
 
   const summary = useMemo(
@@ -973,19 +1255,42 @@ export default function AIEstimateScopeAssumptionsModal({
     [displayItems, pricingCounts.needsMeasurement]
   );
 
+  const visualCtx = useMemo<ScopeItemVisualContext>(
+    () => ({
+      notes: scopeNotes,
+      templateKey: checklist?.templateKey,
+      measurements: normMeasurements,
+    }),
+    [scopeNotes, checklist?.templateKey, normMeasurements]
+  );
+
+  const noteSummary = useMemo(
+    () => scopeChecklistNoteSummary(displayItems, visualCtx),
+    [displayItems, visualCtx]
+  );
+
   const groupedItems = useMemo(
     () => groupScopeChecklistItems(displayItems, checklist?.templateKey),
     [displayItems, checklist?.templateKey]
   );
 
-  const handleItemQuantityChange = (itemId: string, quantity: string, field: 'count' | 'allowance' = 'count') => {
+  const handleItemQuantityChange = (
+    itemId: string,
+    quantity: string,
+    field: 'count' | 'allowance' = 'count',
+    unit?: string
+  ) => {
     const rule = getChecklistItemQuantityRule(itemId, checklist?.templateKey);
     if (field === 'allowance' && rule?.dualAllowanceField) {
       setMeasurements((prev) => ({
         ...prev,
         itemQuantities: {
           ...prev.itemQuantities,
-          [roughAllowanceSubKey(itemId)]: { quantity, unit: 'lump_sum' },
+          [roughAllowanceSubKey(itemId)]: {
+            quantity,
+            unit: unit || 'allowance',
+            quantitySource: 'user_entered',
+          },
         },
       }));
       return;
@@ -996,10 +1301,60 @@ export default function AIEstimateScopeAssumptionsModal({
         ...prev.itemQuantities,
         [itemId]: {
           quantity,
-          unit: rule?.dualAllowanceField ? 'each' : rule?.defaultUnit || 'sqft',
+          unit: unit || (rule?.dualAllowanceField ? 'each' : rule?.defaultUnit || 'sqft'),
+          quantitySource: 'user_entered',
         },
       },
     }));
+  };
+
+  const scrollToFirstMissingMeasurement = useCallback(() => {
+    for (const item of displayItems) {
+      if (!checklistItemInScope(item)) continue;
+      const rule = getChecklistItemQuantityRule(item.id, checklist?.templateKey);
+      if (!rule) continue;
+      const resolved = resolveChecklistItemQuantity(item.id, normMeasurements, {
+        choiceId: item.choiceId,
+        templateKey: checklist?.templateKey,
+        notes: scopeNotes,
+      });
+      if (!resolved.showInput || resolved.pricingReady) continue;
+
+      const group = groupedItems.find((g) => g.items.some((row) => row.id === item.id));
+      if (group?.title) {
+        setCollapsedGroups((prev) => ({ ...prev, [group.title]: false }));
+      }
+
+      const node = itemRefs.current[item.id];
+      const content = scrollContentRef.current;
+      if (node && content) {
+        node.measureLayout(content, (_x, y) => {
+          scrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true });
+        });
+      }
+      return;
+    }
+  }, [displayItems, groupedItems, normMeasurements, checklist?.templateKey, scopeNotes]);
+
+  const handleAcceptAllFromNotes = () => {
+    hapticTap();
+    setItems((prev) =>
+      applyScopeInferencesFromNotes(
+        prev,
+        scopeNotes,
+        checklist?.templateKey,
+        normMeasurements
+      )
+    );
+    setCollapsedGroups((prev) => {
+      const next = { ...prev };
+      for (const group of groupedItems) {
+        if (group.items.some((item) => scopeItemHasNoteSignal(item, visualCtx))) {
+          next[group.title] = false;
+        }
+      }
+      return next;
+    });
   };
 
   const handleItemQuantityBlur = (itemId: string, field: 'count' | 'allowance' = 'count') => {
@@ -1013,14 +1368,17 @@ export default function AIEstimateScopeAssumptionsModal({
     });
   };
 
-  const renderItem = (item: ScopeChecklistItem) =>
-    item.derivedFrom === 'wet_area_install' || WET_AREA_DERIVED_ITEM_IDS.has(item.id) ? (
+  const renderItem = (item: ScopeChecklistItem) => {
+    const row =
+      item.derivedFrom === 'wet_area_install' || WET_AREA_DERIVED_ITEM_IDS.has(item.id) ? (
       <WetAreaInstallLineCard
         item={item}
         templateKey={checklist?.templateKey}
+        originalNotes={scopeNotes}
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
         onItemQuantityBlur={handleItemQuantityBlur}
+        visualCtx={visualCtx}
         Colors={Colors}
         darkMode={darkMode}
         applying={applying}
@@ -1029,6 +1387,7 @@ export default function AIEstimateScopeAssumptionsModal({
       <MultiChoiceRow
         item={item}
         templateKey={checklist?.templateKey}
+        originalNotes={scopeNotes}
         onToggle={(optionId) =>
           setItems((prev) =>
             prev.map((row) => {
@@ -1046,6 +1405,7 @@ export default function AIEstimateScopeAssumptionsModal({
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
         onItemQuantityBlur={handleItemQuantityBlur}
+        visualCtx={visualCtx}
         Colors={Colors}
         darkMode={darkMode}
         applying={applying}
@@ -1054,6 +1414,7 @@ export default function AIEstimateScopeAssumptionsModal({
       <ChoiceRow
         item={item}
         templateKey={checklist?.templateKey}
+        originalNotes={scopeNotes}
         onSelect={(choiceId) =>
           setItems((prev) => {
             const next = prev.map((row) =>
@@ -1079,6 +1440,7 @@ export default function AIEstimateScopeAssumptionsModal({
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
         onItemQuantityBlur={handleItemQuantityBlur}
+        visualCtx={visualCtx}
         Colors={Colors}
         darkMode={darkMode}
         applying={applying}
@@ -1087,17 +1449,37 @@ export default function AIEstimateScopeAssumptionsModal({
       <YesNoRow
         item={item}
         templateKey={checklist?.templateKey}
+        originalNotes={scopeNotes}
         onSetState={(state) =>
-          setItems((prev) => prev.map((row) => (row.id === item.id ? { ...row, state } : row)))
+          setItems((prev) => {
+            const next = prev.map((row) => (row.id === item.id ? { ...row, state } : row));
+            return applyKitchenScopeInferences(next, checklist?.templateKey, {
+              notes: scopeNotes,
+              measurements: normMeasurements,
+            });
+          })
         }
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
         onItemQuantityBlur={handleItemQuantityBlur}
+        visualCtx={visualCtx}
         Colors={Colors}
         darkMode={darkMode}
         applying={applying}
       />
     );
+
+    return (
+      <View
+        ref={(node) => {
+          itemRefs.current[item.id] = node;
+        }}
+        collapsable={false}
+      >
+        {row}
+      </View>
+    );
+  };
 
   const handleConfirm = () => {
     if (applying || items.length === 0) return;
@@ -1115,7 +1497,7 @@ export default function AIEstimateScopeAssumptionsModal({
         'Measurements still needed',
         `${count} included item${count === 1 ? '' : 's'} still need measurements.`,
         [
-          { text: 'Enter missing measurements', style: 'cancel' },
+          { text: 'Enter missing measurements', style: 'cancel', onPress: scrollToFirstMissingMeasurement },
           {
             text: 'Continue anyway',
             onPress: proceed,
@@ -1164,12 +1546,14 @@ export default function AIEstimateScopeAssumptionsModal({
       />
 
       <ScrollView
+        ref={scrollRef}
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 120 }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         showsVerticalScrollIndicator={false}
       >
+        <View ref={scrollContentRef} collapsable={false}>
         <Text
           style={{
             color: captionColor(darkMode, Colors),
@@ -1179,8 +1563,20 @@ export default function AIEstimateScopeAssumptionsModal({
             lineHeight: 17,
           }}
         >
-          {summary.included} included · {summary.needsMeasurement} need measurements · {summary.unsure}{' '}
-          not sure
+          {noteSummary.fromNotes > 0 ? `${noteSummary.fromNotes} from notes · ` : ''}
+          {summary.included} included
+          {summary.needsMeasurement > 0 ? (
+            <>
+              {' · '}
+              <Text onPress={scrollToFirstMissingMeasurement} style={{ color: '#fbbf24', fontWeight: '700' }}>
+                {summary.needsMeasurement} need measurements
+              </Text>
+            </>
+          ) : (
+            ' · 0 need measurements'
+          )}
+          {' · '}
+          {summary.unsure} not sure
         </Text>
 
         <CollapsibleQuickMeasurements
@@ -1203,6 +1599,11 @@ export default function AIEstimateScopeAssumptionsModal({
           >
             <Text style={{ color: '#22c55e', fontSize: 12, fontWeight: '700' }}>Add custom scope item</Text>
           </TouchableOpacity>
+          {noteSummary.fromNotes > 0 ? (
+            <TouchableOpacity onPress={handleAcceptAllFromNotes} disabled={applying} activeOpacity={0.7}>
+              <Text style={{ color: '#22c55e', fontSize: 12, fontWeight: '700' }}>Accept all from notes</Text>
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity onPress={handleMarkAllUnsureAsNo} disabled={applying} activeOpacity={0.7}>
             <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '700' }}>Mark all Not Sure as No</Text>
           </TouchableOpacity>
@@ -1248,10 +1649,12 @@ export default function AIEstimateScopeAssumptionsModal({
               setCollapsedGroups((prev) => ({ ...prev, [group.title]: !prev[group.title] }))
             }
             renderItem={renderItem}
+            noteSummary={scopeChecklistNoteSummary(group.items, visualCtx)}
             Colors={Colors}
             darkMode={darkMode}
           />
         ))}
+        </View>
       </ScrollView>
 
       <View
@@ -1345,10 +1748,11 @@ const styles = StyleSheet.create({
   },
   scopeActionsRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 10,
-    gap: 12,
+    gap: 8,
   },
   customItemRow: {
     flexDirection: 'row',
@@ -1380,6 +1784,25 @@ const styles = StyleSheet.create({
   },
   card: {
     marginBottom: 8,
+  },
+  cardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  fromNotesBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  fromNotesBadgeLight: {
+    borderColor: 'rgba(34, 197, 94, 0.35)',
+    backgroundColor: 'rgba(34, 197, 94, 0.08)',
+  },
+  fromNotesBadgeDark: {
+    borderColor: 'rgba(34, 197, 94, 0.35)',
+    backgroundColor: 'rgba(34, 197, 94, 0.12)',
   },
   includedPillRow: {
     marginTop: 10,

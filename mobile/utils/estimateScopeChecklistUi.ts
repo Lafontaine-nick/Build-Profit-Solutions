@@ -1,11 +1,19 @@
 import type { EstimateAiDraft, ScopeChecklistItem, ScopeChecklistOption, ScopeMeasurements } from '@/utils/estimateAiDraft';
+import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
 import {
   checklistItemInScope,
   formatUnitLabel,
   getChecklistItemQuantityRule,
+  notesHaveCombinedCabinetsCounters,
   resolveChecklistItemQuantity,
   type NormalizedScopeMeasurements,
 } from '@/utils/scopeItemQuantities';
+import {
+  inferChoiceFromNotes,
+  inferChoicesFromNotes,
+  inferItemStateFromNotes,
+} from '@/utils/scopeItemNoteHints';
+import { scopeItemHasNoteSignal, scopeItemNoteBadge } from '@/utils/scopeItemVisualTier';
 
 const FIXTURE_CHOICE_OPTIONS: ScopeChecklistOption[] = [
   { id: 'staying', label: 'Staying' },
@@ -240,8 +248,125 @@ function migrateLegacyBathroomScopeItems(items: ScopeChecklistItem[]): ScopeChec
   return [...items.filter((i) => i.id !== 'tub_shower' && i.id !== 'shower_pan'), wetAreaInstall];
 }
 
-export function normalizeScopeChecklistItems(items: ScopeChecklistItem[]): ScopeChecklistItem[] {
-  return migrateLegacyBathroomScopeItems(items).map(normalizeScopeChecklistItem);
+export type KitchenScopeInferenceCtx = {
+  notes?: string | null;
+  measurements?: NormalizedScopeMeasurements;
+};
+
+/** Kitchen: reinstalling appliances implies removal; combined cabinets+counters implies countertops. */
+export function applyKitchenScopeInferences(
+  items: ScopeChecklistItem[],
+  templateKey?: string | null,
+  ctx?: KitchenScopeInferenceCtx
+): ScopeChecklistItem[] {
+  if (templateKey !== 'kitchen') return items;
+
+  const next = items.map((item) => ({ ...item }));
+  const removalIdx = next.findIndex((i) => i.id === 'appliance_removal');
+  const reinstallIdx = next.findIndex((i) => i.id === 'appliances');
+  if (
+    removalIdx >= 0 &&
+    reinstallIdx >= 0 &&
+    next[reinstallIdx].state === 'included' &&
+    next[removalIdx].state === 'unsure'
+  ) {
+    next[removalIdx] = { ...next[removalIdx], state: 'included' };
+  }
+
+  const cabinetsIdx = next.findIndex((i) => i.id === 'cabinets');
+  const countertopsIdx = next.findIndex((i) => i.id === 'countertops');
+  if (cabinetsIdx >= 0 && countertopsIdx >= 0) {
+    const cabinetsIncluded = next[cabinetsIdx].state === 'included';
+    const cabinetEntry = ctx?.measurements?.itemQuantities?.cabinets;
+    const countertopEntry = ctx?.measurements?.itemQuantities?.countertops;
+    const combined =
+      Boolean(cabinetEntry?.includesCountertops) ||
+      notesHaveCombinedCabinetsCounters(ctx?.notes) ||
+      (cabinetEntry?.unit === 'allowance' &&
+        (cabinetEntry.quantity ?? 0) >= 5000 &&
+        !(countertopEntry?.quantity != null && countertopEntry.quantity > 0));
+    if (combined && cabinetsIncluded) {
+      const cabinetAmt = cabinetEntry?.quantity;
+      next[cabinetsIdx] = {
+        ...next[cabinetsIdx],
+        helperText:
+          'Cabinet supply and installation — allowance includes countertops.',
+      };
+      if (next[countertopsIdx].state !== 'excluded') {
+        next[countertopsIdx] = {
+          ...next[countertopsIdx],
+          state: 'included',
+          helperText: cabinetAmt
+            ? `Included in the $${Number(cabinetAmt).toLocaleString()} cabinet allowance — not priced separately.`
+            : 'Included in cabinet allowance — confirm only if priced separately.',
+        };
+      }
+    }
+  }
+
+  return next;
+}
+
+/** Set Yes/choice from note hints for items still on Not sure. */
+export function applyScopeInferencesFromNotes(
+  items: ScopeChecklistItem[],
+  notes: string | null | undefined,
+  templateKey?: string | null,
+  measurements?: NormalizedScopeMeasurements
+): ScopeChecklistItem[] {
+  if (!String(notes || '').trim()) return items;
+
+  const next = items.map((item) => {
+    if (item.inputType === 'multi_choice') {
+      const choiceIds = inferChoicesFromNotes(item.id, notes);
+      if (choiceIds.length) {
+        return {
+          ...item,
+          choiceIds,
+          choiceId: choiceIds[0] ?? null,
+          state: choiceIdsToScopeState(choiceIds),
+        };
+      }
+      return item;
+    }
+    if (item.inputType === 'choice') {
+      const choiceId = inferChoiceFromNotes(item.id, notes);
+      if (choiceId && (!item.choiceId || item.choiceId === 'unsure')) {
+        return { ...item, choiceId, state: choiceIdToState(choiceId) };
+      }
+      return item;
+    }
+    const inferred = inferItemStateFromNotes(item.id, notes);
+    if (item.state === 'unsure' && inferred === 'included') {
+      return { ...item, state: 'included' as const };
+    }
+    if (item.state === 'unsure' && inferred === 'excluded') {
+      return { ...item, state: 'excluded' as const };
+    }
+    return item;
+  });
+
+  return applyKitchenScopeInferences(next, templateKey, { notes, measurements });
+}
+
+export function normalizeScopeChecklistItems(
+  items: ScopeChecklistItem[],
+  templateKey?: string | null,
+  inferenceCtx?: KitchenScopeInferenceCtx
+): ScopeChecklistItem[] {
+  const migrated = migrateLegacyBathroomScopeItems(items).map(normalizeScopeChecklistItem);
+  return applyKitchenScopeInferences(migrated, templateKey, inferenceCtx);
+}
+
+/** Re-apply note hints + kitchen linked allowances on each Confirm Scope open. */
+export function hydrateScopeChecklistFromNotes(
+  items: ScopeChecklistItem[],
+  templateKey?: string | null,
+  notes?: string | null,
+  measurements?: NormalizedScopeMeasurements
+): ScopeChecklistItem[] {
+  const normalized = normalizeScopeChecklistItems(items, templateKey, { notes, measurements });
+  return applyScopeInferencesFromNotes(normalized, notes, templateKey, measurements);
 }
 
 /** Strip UI-only derived lines before saving scope back to the draft. */
@@ -265,14 +390,18 @@ export function scopeChecklistItemsForEditing(draft: EstimateAiDraft | null): Sc
 export function mergeScopeProgressIntoDraft(
   draft: EstimateAiDraft,
   items: ScopeChecklistItem[],
-  measurements?: ScopeMeasurements | null
+  measurements?: ScopeMeasurements | null,
+  options?: { scopeNotes?: string | null }
 ): EstimateAiDraft {
   const persistedItems = scopeChecklistItemsForPersist(items);
   if (!persistedItems.length && !measurements) return draft;
 
+  const scopeNotes = String(options?.scopeNotes || resolveDraftScopeNotes(draft) || '').trim();
+
   const next: EstimateAiDraft = {
     ...draft,
     confirmedAssumptions: persistedItems.length ? persistedItems : draft.confirmedAssumptions,
+    ...(scopeNotes && !String(draft.originalNotes || '').trim() ? { originalNotes: scopeNotes } : {}),
   };
 
   if (measurements) {
@@ -649,36 +778,44 @@ export function scopeChecklistSummaryCounts(
 function itemNeedsMeasurement(
   item: ScopeChecklistItem,
   measurements: NormalizedScopeMeasurements,
-  templateKey?: string | null
+  templateKey?: string | null,
+  notes?: string | null
 ): boolean {
   if (!checklistItemInScope(item)) return false;
   if (!getChecklistItemQuantityRule(item.id, templateKey)) return false;
   const resolved = resolveChecklistItemQuantity(item.id, measurements, {
     choiceId: item.choiceId,
     templateKey,
+    notes,
   });
   return resolved.showInput && !resolved.pricingReady;
 }
 
 /** Scope groups that stay open on first load even when items are still "Not sure". */
 const SCOPE_GROUPS_DEFAULT_EXPANDED: Record<string, ReadonlySet<string>> = {
-  kitchen: new Set(['Cabinets & Counters', 'Tile & Flooring', 'Appliances']),
+  kitchen: new Set(['Cabinets & Counters', 'Tile & Flooring', 'Appliances', 'Trades']),
 };
 
 /** Collapse groups with no included items and no missing measurements. */
 export function initialScopeGroupCollapse(
   grouped: Array<{ title: string; items: ScopeChecklistItem[] }>,
   measurements: NormalizedScopeMeasurements,
-  templateKey?: string | null
+  templateKey?: string | null,
+  notes?: string | null
 ): Record<string, boolean> {
   const alwaysExpand = SCOPE_GROUPS_DEFAULT_EXPANDED[templateKey || ''] || new Set<string>();
+  const visualCtx = { measurements, templateKey, notes };
   const collapsed: Record<string, boolean> = {};
   for (const group of grouped) {
     if (!group.title) continue;
     const shouldExpand =
       alwaysExpand.has(group.title) ||
       group.items.some(
-        (item) => checklistItemInScope(item) || itemNeedsMeasurement(item, measurements, templateKey)
+        (item) =>
+          checklistItemInScope(item) ||
+          itemNeedsMeasurement(item, measurements, templateKey, notes) ||
+          scopeItemHasNoteSignal(item, visualCtx) ||
+          scopeItemNoteBadge(item, visualCtx) != null
       );
     collapsed[group.title] = !shouldExpand;
   }

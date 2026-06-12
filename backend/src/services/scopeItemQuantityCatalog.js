@@ -671,6 +671,32 @@ function getRuleForPackage(name, scope = '') {
   return key ? CHECKLIST_ITEM_QUANTITY_RULES[key] : null;
 }
 
+function notesHaveCombinedCabinetsCounters(notes) {
+  const n = String(notes || '').toLowerCase();
+  const hasCabinets = /\b(cabinets?|cabinetry)\b/.test(n);
+  const hasCounters = /\b(counters?|countertops?|quartz|granite)\b/.test(n);
+  return hasCabinets && hasCounters;
+}
+
+function resolveLinkedCountertopAllowance(itemId, measurements, notes) {
+  if (itemId !== 'countertops') return null;
+  const cabinetEntry = measurements.itemQuantities?.cabinets;
+  if (!cabinetEntry?.quantity || cabinetEntry.quantity <= 0) return null;
+  if (!['allowance', 'lump_sum'].includes(cabinetEntry.unit || '')) return null;
+  if (!cabinetEntry.includesCountertops && !notesHaveCombinedCabinetsCounters(notes)) return null;
+
+  return {
+    quantity: Number(cabinetEntry.quantity),
+    unit: 'allowance',
+    quantitySource: QUANTITY_SOURCES.notes,
+    label: 'countertops',
+    sourceLabel: 'Combined cabinets & counters',
+    rule: getRuleForChecklistItem('countertops'),
+    pricingReady: true,
+    linkedCabinetAllowance: true,
+  };
+}
+
 function sourceLabel(source) {
   switch (source) {
     case QUANTITY_SOURCES.notes:
@@ -724,7 +750,188 @@ function parseStoredItemQuantity(measurements, key) {
   return null;
 }
 
-function resolveDualAllowanceQuantity(itemId, rule, measurements) {
+function sqftFromItemQuantities(measurements, itemId) {
+  const entry = measurements.itemQuantities?.[itemId];
+  if (!entry?.quantity || entry.unit !== 'sqft') return undefined;
+  const q = Number(entry.quantity);
+  return Number.isFinite(q) && q > 0 ? q : undefined;
+}
+
+const { resolveItemRatePricingFromNotes } = require('./scopeRatePricingParser');
+
+function measurementsForRatePricing(measurements) {
+  return {
+    backsplashSqft: measurements.backsplashSqft ?? sqftFromItemQuantities(measurements, 'backsplash'),
+    wallPaintSqft: measurements.wallPaintSqft ?? sqftFromItemQuantities(measurements, 'paint'),
+    kitchenFloorSqft: measurements.kitchenFloorSqft,
+    bathroomFloorSqft: measurements.bathroomFloorSqft,
+    floorAreaSqft: measurements.floorAreaSqft,
+    drywallSqft: measurements.drywallSqft,
+  };
+}
+
+function measurementsForRatePricingWithCount(measurements, itemId, countEntry) {
+  const base = measurementsForRatePricing(measurements);
+  if (!countEntry || countEntry.unit !== 'sqft' || !countEntry.quantity) return base;
+  if (itemId === 'backsplash' && !base.backsplashSqft) {
+    return { ...base, backsplashSqft: countEntry.quantity };
+  }
+  if (itemId === 'paint' && !base.wallPaintSqft) {
+    return { ...base, wallPaintSqft: countEntry.quantity };
+  }
+  return base;
+}
+
+function applyRatePricingBreakdown(
+  itemId,
+  measurements,
+  notes,
+  templateKey,
+  countEntry,
+  allowanceEntry,
+  legacyAllowance
+) {
+  let effectiveAllowance = allowanceEntry || legacyAllowance;
+  let materialEntry = parseStoredItemQuantity(measurements, `${itemId}__material`);
+  let laborEntry = parseStoredItemQuantity(measurements, `${itemId}__labor`);
+  const sqft = countEntry?.quantity ?? null;
+
+  if (!notes?.trim()) {
+    if (materialEntry || laborEntry) {
+      effectiveAllowance = finalizeRateAllowanceTotal(
+        effectiveAllowance,
+        materialEntry,
+        laborEntry,
+        countEntry
+      );
+    } else if (
+      effectiveAllowance &&
+      sqft != null &&
+      effectiveAllowance.quantity > 0 &&
+      effectiveAllowance.quantity < sqft
+    ) {
+      effectiveAllowance = {
+        quantity: Math.round(effectiveAllowance.quantity * sqft * 100) / 100,
+        unit: 'allowance',
+        quantitySource: effectiveAllowance.quantitySource || QUANTITY_SOURCES.notes,
+      };
+    }
+    return { effectiveAllowance, materialEntry, laborEntry };
+  }
+
+  const rateBreakdown = resolveItemRatePricingFromNotes(
+    itemId,
+    measurementsForRatePricingWithCount(measurements, itemId, countEntry),
+    notes,
+    { templateKey }
+  );
+  if (!rateBreakdown) {
+    effectiveAllowance = finalizeRateAllowanceTotal(
+      effectiveAllowance,
+      materialEntry,
+      laborEntry,
+      countEntry
+    );
+    return { effectiveAllowance, materialEntry, laborEntry };
+  }
+
+  const storedLooksLikeUnitRate =
+    effectiveAllowance &&
+    sqft != null &&
+    effectiveAllowance.quantity > 0 &&
+    effectiveAllowance.quantity < sqft;
+
+  const userLocked =
+    allowanceEntry?.quantitySource === QUANTITY_SOURCES.user_entered &&
+    effectiveAllowance &&
+    !storedLooksLikeUnitRate &&
+    effectiveAllowance.quantity >= rateBreakdown.total;
+
+  if (userLocked) {
+    return { effectiveAllowance, materialEntry, laborEntry };
+  }
+
+  const shouldUseComputed =
+    !effectiveAllowance ||
+    storedLooksLikeUnitRate ||
+    rateBreakdown.total > effectiveAllowance.quantity;
+
+  if (!shouldUseComputed) {
+    effectiveAllowance = finalizeRateAllowanceTotal(
+      effectiveAllowance,
+      materialEntry,
+      laborEntry,
+      countEntry
+    );
+    return { effectiveAllowance, materialEntry, laborEntry };
+  }
+
+  effectiveAllowance = {
+    quantity: rateBreakdown.total,
+    unit: 'allowance',
+    quantitySource: QUANTITY_SOURCES.notes,
+  };
+  if (rateBreakdown.material != null) {
+    materialEntry = {
+      quantity: rateBreakdown.material,
+      unit: 'allowance',
+      quantitySource: QUANTITY_SOURCES.notes,
+    };
+  }
+  if (rateBreakdown.labor != null) {
+    laborEntry = {
+      quantity: rateBreakdown.labor,
+      unit: 'allowance',
+      quantitySource: QUANTITY_SOURCES.notes,
+    };
+  }
+  effectiveAllowance = finalizeRateAllowanceTotal(
+    effectiveAllowance,
+    materialEntry,
+    laborEntry,
+    countEntry
+  );
+  return { effectiveAllowance, materialEntry, laborEntry };
+}
+
+function finalizeRateAllowanceTotal(
+  effectiveAllowance,
+  materialEntry,
+  laborEntry,
+  countEntry
+) {
+  const sqft = countEntry?.quantity ?? null;
+  const splitTotal = (materialEntry?.quantity || 0) + (laborEntry?.quantity || 0);
+  const looksLikeUnitRate =
+    effectiveAllowance &&
+    sqft != null &&
+    effectiveAllowance.quantity > 0 &&
+    effectiveAllowance.quantity < sqft;
+  if (
+    splitTotal > 0 &&
+    (!effectiveAllowance || looksLikeUnitRate || effectiveAllowance.quantity < splitTotal)
+  ) {
+    return {
+      quantity: splitTotal,
+      unit: 'allowance',
+      quantitySource:
+        materialEntry?.quantitySource ||
+        laborEntry?.quantitySource ||
+        effectiveAllowance?.quantitySource ||
+        QUANTITY_SOURCES.notes,
+    };
+  }
+  if (looksLikeUnitRate && effectiveAllowance && sqft != null) {
+    return {
+      quantity: Math.round(effectiveAllowance.quantity * sqft * 100) / 100,
+      unit: 'allowance',
+      quantitySource: effectiveAllowance.quantitySource || QUANTITY_SOURCES.notes,
+    };
+  }
+  return effectiveAllowance;
+}
+
+function resolveDualAllowanceQuantity(itemId, rule, measurements, notes, templateKey) {
   let countEntry = parseStoredItemQuantity(measurements, itemId);
   if (!countEntry && rule.measurementKey && measurements[rule.measurementKey]) {
     countEntry = {
@@ -741,7 +948,17 @@ function resolveDualAllowanceQuantity(itemId, rule, measurements) {
     ['allowance', 'lump_sum'].includes(measurements.itemQuantities[itemId].unit || '')
       ? parseStoredItemQuantity(measurements, itemId)
       : null;
-  const effectiveAllowance = allowanceEntry || legacyAllowance;
+
+  const { effectiveAllowance, materialEntry, laborEntry } = applyRatePricingBreakdown(
+    itemId,
+    measurements,
+    notes,
+    templateKey,
+    countEntry,
+    allowanceEntry,
+    legacyAllowance
+  );
+
   if (!countEntry && !effectiveAllowance) return null;
 
   const primary = countEntry || effectiveAllowance;
@@ -755,13 +972,20 @@ function resolveDualAllowanceQuantity(itemId, rule, measurements) {
           : countEntry.unit;
     summaryParts.push(`${countEntry.quantity} ${unitLabel}`);
   }
-  if (effectiveAllowance) {
+  if (materialEntry) summaryParts.push(`$${materialEntry.quantity} material`);
+  if (laborEntry) summaryParts.push(`$${laborEntry.quantity} labor`);
+  if (effectiveAllowance && (materialEntry || laborEntry)) {
+    summaryParts.push(`$${effectiveAllowance.quantity} total`);
+  } else if (effectiveAllowance) {
     summaryParts.push(`$${effectiveAllowance.quantity} allowance`);
   }
 
   const quantitySource =
     allowanceEntry?.quantitySource === QUANTITY_SOURCES.notes ||
-    countEntry?.quantitySource === QUANTITY_SOURCES.notes
+    countEntry?.quantitySource === QUANTITY_SOURCES.notes ||
+    materialEntry?.quantitySource === QUANTITY_SOURCES.notes ||
+    laborEntry?.quantitySource === QUANTITY_SOURCES.notes ||
+    effectiveAllowance?.quantitySource === QUANTITY_SOURCES.notes
       ? QUANTITY_SOURCES.notes
       : QUANTITY_SOURCES.user_entered;
 
@@ -777,6 +1001,8 @@ function resolveDualAllowanceQuantity(itemId, rule, measurements) {
     rule,
     pricingReady: true,
     dualCount: countEntry,
+    dualMaterial: materialEntry,
+    dualLabor: laborEntry,
     dualAllowance: effectiveAllowance,
   };
 }
@@ -818,9 +1044,20 @@ function resolveQuantityForChecklistItem(itemId, ctx = {}) {
   const itemOverride = measurements.itemQuantities?.[itemId];
 
   if (rule.dualAllowanceField) {
-    const dual = resolveDualAllowanceQuantity(itemId, rule, measurements);
+    const dual = resolveDualAllowanceQuantity(
+      itemId,
+      rule,
+      measurements,
+      ctx.notes || '',
+      templateKey
+    );
     if (dual) return dual;
-  } else if (itemOverride && itemOverride.quantity != null && itemOverride.quantity > 0) {
+  }
+
+  const linkedCountertop = resolveLinkedCountertopAllowance(itemId, measurements, ctx.notes || '');
+  if (linkedCountertop) return linkedCountertop;
+
+  if (itemOverride && itemOverride.quantity != null && itemOverride.quantity > 0) {
     const unit = itemOverride.unit || rule.defaultUnit;
     return {
       quantity: Number(itemOverride.quantity),

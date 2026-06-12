@@ -294,21 +294,34 @@ function packageAcceptsUnit(packageName, scopeText, unit) {
 
 /** Break run-on notes into clauses so "removal … in 1200 … installation" assigns qty per task. */
 function splitNoteClauses(text) {
-  // Do not split on "." — voice notes use "ft.²" / "sq. ft." which are not sentence endings.
-  const sentences = String(text || '')
-    .split(/[;\n]+/)
+  const normalized = String(text || '').trim();
+  if (!normalized) return [];
+
+  // Sentence breaks in walkthrough notes — skip decimals ($1.50) and sq. ft. abbreviations.
+  let sentences = normalized
+    .split(/(?<!\d)\.\s+(?=[a-z])/gi)
     .map((x) => x.trim())
     .filter(Boolean);
+  if (sentences.length === 1) {
+    sentences = normalized
+      .split(/[;\n]+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }
+
   const clauses = [];
-  for (const sentence of sentences) {
+  for (let sentence of sentences) {
+    sentence = sentence.replace(/\bwalls?\s+and\s+(?:the\s+)?ceiling\b/gi, (m) =>
+      m.replace(/\s+and\s+/i, ' __WALLS_CEILING__ ')
+    );
     const parts = sentence
       .split(
         /\s+(?:and|&|\+)\s+|\s+in\s+(?=\d[\d,]*\s*(?:sq\.?\s*ft\.?|sqft|sq\s*ft|square\s*feet|ft\.?\s*²|ft\.?\s*2\b|linear\s*feet|ln\.?\s*ft\.?|\blf\b))/i
       )
-      .map((p) => p.trim())
+      .map((p) => p.trim().replace(/__WALLS_CEILING__/g, ' and '))
       .filter(Boolean);
     if (parts.length > 1) clauses.push(...parts);
-    else clauses.push(sentence);
+    else clauses.push(sentence.replace(/__WALLS_CEILING__/g, ' and '));
   }
   return clauses;
 }

@@ -223,6 +223,40 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     ) {
       items[removalIdx] = { ...items[removalIdx], state: 'included' };
     }
+
+    const cabinetsIdx = items.findIndex((i) => i.id === 'cabinets');
+    const countertopsIdx = items.findIndex((i) => i.id === 'countertops');
+    if (cabinetsIdx >= 0 && countertopsIdx >= 0) {
+      const n = String(notes || '').toLowerCase();
+      const combinedCabinetsCounters =
+        /\b(cabinets?|cabinetry)\b/.test(n) && /\b(counters?|countertops?|quartz|granite)\b/.test(n);
+      const cabinetEntry = (() => {
+        try {
+          const { parseScopeMeasurementsFromNotes } = require('./scopeMeasurementParser');
+          return parseScopeMeasurementsFromNotes(notes, { templateKey: 'kitchen' }).itemQuantities?.cabinets;
+        } catch {
+          return null;
+        }
+      })();
+      const combined =
+        combinedCabinetsCounters || Boolean(cabinetEntry?.includesCountertops);
+      if (items[cabinetsIdx].state === 'included' && combined) {
+        const cabinetAmt = cabinetEntry?.quantity;
+        items[cabinetsIdx] = {
+          ...items[cabinetsIdx],
+          helperText: 'Cabinet supply and installation — allowance includes countertops.',
+        };
+        if (items[countertopsIdx].state !== 'excluded') {
+          items[countertopsIdx] = {
+            ...items[countertopsIdx],
+            state: 'included',
+            helperText: cabinetAmt
+              ? `Included in the $${Number(cabinetAmt).toLocaleString()} cabinet allowance — not priced separately.`
+              : 'Included in cabinet allowance — confirm only if priced separately.',
+          };
+        }
+      }
+    }
   }
 
   const inScopeCount = items.filter((i) => i.state === 'included').length;

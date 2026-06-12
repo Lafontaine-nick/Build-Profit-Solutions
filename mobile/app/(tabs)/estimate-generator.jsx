@@ -5738,9 +5738,11 @@ export default function EstimateGeneratorScreen() {
   const handlePersistScopeProgress = useCallback((items, measurements) => {
     setAiDraft((prev) => {
       if (!prev) return prev;
-      return mergeScopeProgressIntoDraft(prev, items, measurements);
+      return mergeScopeProgressIntoDraft(prev, items, measurements, {
+        scopeNotes: prev.originalNotes || aiDraftNotes,
+      });
     });
-  }, []);
+  }, [aiDraftNotes]);
 
   const handleConfirmScopeAssumptions = useCallback(
     async (confirmedItems, scopeMeasurements) => {
@@ -23901,7 +23903,8 @@ export default function EstimateGeneratorScreen() {
 
       <AIEstimateScopeAssumptionsModal
         visible={showAiScopeAssumptionsModal}
-        draft={aiDraft}
+        draft={aiDraft ? { ...aiDraft, originalNotes: aiDraft.originalNotes || aiDraftNotes } : null}
+        notesFallback={aiDraftNotes}
         applying={aiScopeAssumptionsApplying}
         fromAssistant={aiDraftFromAssistant}
         onBack={() => {

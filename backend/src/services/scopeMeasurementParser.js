@@ -7,7 +7,7 @@ const { splitNoteClauses } = require('./estimateDraftQuantityPrice');
 const { parseScopeItemAllowancesFromNotes } = require('./scopeAllowanceParser');
 const { parseScopeItemRatePricingFromNotes } = require('./scopeRatePricingParser');
 
-const SQFT_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|ft\.?\s*²|square\s+feet)/gi;
+const SQFT_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|ft\.?\s*²|square\s+(?:foot|feet))/gi;
 const LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+feet|ln\s*ft|linear\s+ft)/gi;
 const CY_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:cy|cubic\s+yards?)/gi;
 const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)\s*squares?\b/gi;
@@ -158,7 +158,7 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   // Interior paint — use sqft near paint keywords (not first sqft in clause; backsplash may precede paint on one line)
   const PAINT_SQFT_PATTERNS = [
     /\bpaint(?:ing)?\b/,
-    /\bwall(?:s)?\s*(?:and|\/|&)\s*ceiling\b/,
+    /\bwall(?:s)?\s*(?:and\s+(?:the\s+)?|\/|&\s*)ceiling\b/,
     /\binterior\s+paint\b/,
   ];
   const paintSqft = (() => {

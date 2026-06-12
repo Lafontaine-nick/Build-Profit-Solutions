@@ -3,9 +3,12 @@
  * e.g. "45 sqft backsplash, material $8/sqft, labor $12/sqft" → $900 allowance
  */
 
-const { splitAllowanceClauses } = require('./scopeAllowanceParser');
+const { splitNoteClauses } = require('./estimateDraftQuantityPrice');
 
-const SQFT_UNIT = /(?:sq\.?\s*ft|sqft|\bsf\b)/i;
+const SQFT_UNIT = /(?:sq\.?\s*ft\.?|sqft|\bsf\b|square\s+(?:foot|feet))/i;
+const SQFT_DENOM = '(?:sq\\.?\\s*ft\\.?|sqft|\\bsf\\b|square\\s+(?:foot|feet))';
+const PER = '(?:\\/|per|a|@)\\s*(?:the\\s+)?';
+const MONEY = '[\\$]?';
 
 /** @type {Record<string, keyof import('./scopeMeasurementParser').ParsedScopeMeasurements>} */
 const ITEM_SQFT_MEASUREMENT_KEY = {
@@ -22,30 +25,38 @@ function parseRateToken(raw) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+function pushRateMatches(clause, re, bucket) {
+  let m;
+  while ((m = re.exec(clause)) !== null) {
+    const rate = parseRateToken(m[1]);
+    if (rate) bucket.push(rate);
+  }
+}
+
 function extractSqftUnitRates(clause) {
   const materialRates = [];
   const laborRates = [];
 
-  const materialRe =
-    /\bmaterials?\s*\$?\s*(\d[\d,]*(?:\.\d+)?)\s*(?:\/|per\s*)?\s*(?:sq\.?\s*ft|sqft)\b/gi;
-  let m;
-  while ((m = materialRe.exec(clause)) !== null) {
-    const rate = parseRateToken(m[1]);
-    if (rate) materialRates.push(rate);
-  }
-
-  const laborRe = /\blabor\s*\$?\s*(\d[\d,]*(?:\.\d+)?)\s*(?:\/|per\s*)?\s*(?:sq\.?\s*ft|sqft)\b/gi;
-  while ((m = laborRe.exec(clause)) !== null) {
-    const rate = parseRateToken(m[1]);
-    if (rate) laborRates.push(rate);
-  }
-
-  const laborLeadRe =
-    /\$\s*(\d[\d,]*(?:\.\d+)?)\s*(?:\/|per\s*)?\s*(?:sq\.?\s*ft|sqft)\s*labor\b/gi;
-  while ((m = laborLeadRe.exec(clause)) !== null) {
-    const rate = parseRateToken(m[1]);
-    if (rate) laborRates.push(rate);
-  }
+  pushRateMatches(
+    clause,
+    new RegExp(`\\bmaterials?\\s*${MONEY}\\s*(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:${PER}${SQFT_DENOM}|${SQFT_DENOM})\\b`, 'gi'),
+    materialRates
+  );
+  pushRateMatches(
+    clause,
+    new RegExp(`\\blabor\\s*${MONEY}\\s*(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:${PER})?${SQFT_DENOM}\\b`, 'gi'),
+    laborRates
+  );
+  pushRateMatches(
+    clause,
+    new RegExp(`\\$\\s*(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:${PER})?${SQFT_DENOM}\\s*labor\\b`, 'gi'),
+    laborRates
+  );
+  pushRateMatches(
+    clause,
+    new RegExp(`\\$\\s*(\\d[\\d,]*(?:\\.\\d+)?)\\s+square\\s+(?:foot|feet)\\s*labor\\b`, 'gi'),
+    laborRates
+  );
 
   return {
     materialRate: materialRates[0] || null,
@@ -115,7 +126,7 @@ const RATE_PRICING_MATCHERS = [
   },
   {
     id: 'paint',
-    match: /\b(paint(?:ing)?|primer)\b/i,
+    match: /\b(paint(?:ing)?|primer|walls?\s+and\s+(?:the\s+)?ceiling)\b/i,
     exclude: /\b(exterior)\b/i,
   },
   {
@@ -150,7 +161,7 @@ function parseScopeItemRatePricingFromNotes(notes, measurements = {}, ctx = {}) 
   if (!text) return {};
 
   const out = {};
-  const clauses = splitAllowanceClauses(text);
+  const clauses = splitNoteClauses(text);
   for (const clause of clauses) {
     const rates = extractSqftUnitRates(clause);
     if (!rates.materialRate && !rates.laborRate) continue;
@@ -158,21 +169,32 @@ function parseScopeItemRatePricingFromNotes(notes, measurements = {}, ctx = {}) 
 
     for (const matcher of RATE_PRICING_MATCHERS) {
       if (!clauseMatchesMatcher(clause, matcher)) continue;
-      if (out[`${matcher.id}__allowance`]) break;
+      if (out[`${matcher.id}__allowance`]) continue;
 
       const sqft = sqftForItem(matcher.id, measurements, ctx);
-      if (!sqft) break;
+      if (!sqft) continue;
 
       Object.assign(out, buildRatePricingEntries(matcher.id, sqft, rates));
-      break;
     }
   }
 
   return out;
 }
 
+function resolveItemRatePricingFromNotes(itemId, measurements, notes, ctx = {}) {
+  const entries = parseScopeItemRatePricingFromNotes(notes, measurements, ctx);
+  const totalEntry = entries[`${itemId}__allowance`];
+  if (!totalEntry?.quantity) return null;
+  return {
+    material: entries[`${itemId}__material`]?.quantity ?? null,
+    labor: entries[`${itemId}__labor`]?.quantity ?? null,
+    total: Number(totalEntry.quantity),
+  };
+}
+
 module.exports = {
   parseScopeItemRatePricingFromNotes,
+  resolveItemRatePricingFromNotes,
   extractSqftUnitRates,
   ITEM_SQFT_MEASUREMENT_KEY,
 };
