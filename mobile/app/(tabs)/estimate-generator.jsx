@@ -61,6 +61,7 @@ import {
 } from '../../utils/estimateAiDraftPricing';
 import { isScopeOnlyDraft } from '../../utils/estimateDraftReviewUi';
 import { mergeScopeProgressIntoDraft } from '../../utils/estimateScopeChecklistUi';
+import { scopeMeasurementsPayloadForPersist } from '../../utils/scopeItemQuantities';
 import {
   collectSavedEstimateCustomers,
   enrichSavedCustomerFromSources,
@@ -5738,8 +5739,15 @@ export default function EstimateGeneratorScreen() {
   const handlePersistScopeProgress = useCallback((items, measurements) => {
     setAiDraft((prev) => {
       if (!prev) return prev;
-      return mergeScopeProgressIntoDraft(prev, items, measurements, {
-        scopeNotes: prev.originalNotes || aiDraftNotes,
+      const scopeNotes = prev.originalNotes || aiDraftNotes;
+      const repairedMeasurements = scopeNotes.trim()
+        ? scopeMeasurementsPayloadForPersist(measurements, {
+            notes: scopeNotes,
+            templateKey: prev.scopeChecklist?.templateKey,
+          })
+        : measurements;
+      return mergeScopeProgressIntoDraft(prev, items, repairedMeasurements, {
+        scopeNotes,
       });
     });
   }, [aiDraftNotes]);

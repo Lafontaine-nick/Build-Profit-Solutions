@@ -107,6 +107,21 @@ Demo old cabinets and haul off $850 lump sum`;
     expect(paint.dualMaterial).toBeFalsy();
   });
 
+  test('backsplash material/labor a square foot phrasing: labor is $12 not $8', () => {
+    const { extractSqftUnitRates } = require('../scopeRatePricingParser');
+    const clause = 'backsplash tile 45 sqft material $8 a square foot Labor $12 a square foot';
+    const rates = extractSqftUnitRates(clause);
+    expect(rates.materialRate).toBe(8);
+    expect(rates.laborRate).toBe(12);
+
+    const notes =
+      'Kitchen remodel for Martinez 30339 Cabinets encounters $28,629 includes labor materials appliance install allowance $1200 backsplash tile 45 sqft material $8 a square foot Labor $12 a square foot. paint walls and the ceiling 320 sqft $1.50 square feet Labor. demo old Cabinets and haul off $850';
+    const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'kitchen', projectType: 'kitchen' });
+    expect(parsed.itemQuantities?.backsplash__material?.quantity).toBe(360);
+    expect(parsed.itemQuantities?.backsplash__labor?.quantity).toBe(540);
+    expect(parsed.itemQuantities?.backsplash__allowance?.quantity).toBe(900);
+  });
+
   test('voice-style Martinez notes: a square foot phrasing computes backsplash and paint totals', () => {
     const notes =
       'Kitchen remodel for Martinez 30339 Cabinets encounters $28,629 includes labor materials appliance install allowance $1200 backsplash tile 45 sqft material $8 a square foot Labor $12 a square foot. paint walls and the ceiling 320 sqft $1.50 square feet Labor. demo old Cabinets and haul off $850';
@@ -133,6 +148,76 @@ Demo old cabinets and haul off $850 lump sum`;
       measurements: norm,
     });
     expect(paint.dualAllowance?.quantity).toBe(480);
+  });
+
+  test('voice-style appliance allowance does not become appliance removal pricing', () => {
+    const notes =
+      'Kitchen remodel for Martinez 30339 Cabinets encounters $28,629 includes labor materials appliance install allowance $1200 backsplash tile 45 sqft material $8 a square foot Labor $12 a square foot. paint walls and the ceiling 320 sqft $1.50 square feet Labor. demo old Cabinets and haul off $850';
+    const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'kitchen', projectType: 'kitchen' });
+    expect(parsed.itemQuantities?.appliances?.quantity).toBe(1200);
+    expect(parsed.itemQuantities?.appliance_removal).toBeUndefined();
+  });
+
+  test('golden roofing scenario calculates squares rates', () => {
+    const notes =
+      'Roof replacement, tear off 28 squares $80 per square. New shingles install 28 squares $350 per square. Cleanup $600';
+    const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'roofing', projectType: 'roofing' });
+    expect(parsed.roofSquares).toBe(28);
+    expect(parsed.itemQuantities?.tear_off).toMatchObject({ quantity: 2240, unit: 'allowance' });
+    expect(parsed.itemQuantities?.shingles_roofing).toMatchObject({ quantity: 9800, unit: 'allowance' });
+    expect(parsed.itemQuantities?.cleanup).toMatchObject({ quantity: 600, unit: 'lump_sum' });
+  });
+
+  test('golden concrete scenario calculates sqft and CY rates', () => {
+    const notes =
+      'Concrete patio 400 sqft $12 per sqft. Foundation concrete 18 cy $165 per cy. Demo removal $900';
+    const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'concrete', projectType: 'concrete' });
+    expect(parsed.concreteSqft).toBe(400);
+    expect(parsed.concreteCy).toBe(18);
+    expect(parsed.itemQuantities?.concrete).toMatchObject({ quantity: 4800, unit: 'allowance' });
+    expect(parsed.itemQuantities?.pour_flatwork).toMatchObject({ quantity: 4800, unit: 'allowance' });
+  });
+
+  test('golden deck scenario calculates deck sqft and railing LF rates', () => {
+    const notes =
+      'Deck build, composite decking 320 sqft $28/sqft, railing 48 linear feet $85 per linear foot, stairs $1200';
+    const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'deck_patio', projectType: 'deck_patio' });
+    expect(parsed.deckSqft).toBe(320);
+    expect(parsed.railingLf).toBe(48);
+    expect(parsed.itemQuantities?.decking).toMatchObject({ quantity: 8960, unit: 'allowance' });
+    expect(parsed.itemQuantities?.railing).toMatchObject({ quantity: 4080, unit: 'allowance' });
+  });
+
+  test('golden landscaping scenario calculates sod, paver, and rock rates', () => {
+    const notes =
+      'Backyard landscaping: sod 900 sqft $2.25/sqft, pavers 180 sqft $18/sqft, rock 12 tons $95 per ton';
+    const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'landscaping', projectType: 'landscaping' });
+    expect(parsed.sodSqft).toBe(900);
+    expect(parsed.paverSqft).toBe(180);
+    expect(parsed.landscapeTons).toBe(12);
+    expect(parsed.itemQuantities?.sod_turf).toMatchObject({ quantity: 2025, unit: 'allowance' });
+    expect(parsed.itemQuantities?.pavers).toMatchObject({ quantity: 3240, unit: 'allowance' });
+    expect(parsed.itemQuantities?.rock_mulch).toMatchObject({ quantity: 1140, unit: 'allowance' });
+  });
+
+  test('golden excavation and drywall/painting scenarios calculate trade rates', () => {
+    const excavation =
+      'Excavation and grading, excavation 45 cy $38 per cy, trenching allowance $1400, haul off $900';
+    const excavated = parseScopeMeasurementsFromNotes(excavation, {
+      templateKey: 'excavation',
+      projectType: 'excavation',
+    });
+    expect(excavated.excavationCy).toBe(45);
+    expect(excavated.itemQuantities?.excavation).toMatchObject({ quantity: 1710, unit: 'allowance' });
+
+    const drywallPaint =
+      'Drywall job hang drywall 800 sqft $1.75/sqft, finish drywall 800 sqft $2.25/sqft. Interior paint 1500 sqft labor $1.50/sqft material $0.75/sqft';
+    const parsed = parseScopeMeasurementsFromNotes(drywallPaint, { templateKey: 'drywall', projectType: 'drywall' });
+    expect(parsed.drywallSqft).toBe(800);
+    expect(parsed.wallPaintSqft).toBe(1500);
+    expect(parsed.itemQuantities?.hang).toMatchObject({ quantity: 1400, unit: 'allowance' });
+    expect(parsed.itemQuantities?.finish_tape).toMatchObject({ quantity: 1800, unit: 'allowance' });
+    expect(parsed.itemQuantities?.interior_paint).toMatchObject({ quantity: 3375, unit: 'allowance' });
   });
 
   test('demo haul-off does not auto-include cleanup scope item', () => {
@@ -200,5 +285,32 @@ describe('trade-specific scope checklists', () => {
     const q = resolveQuantityForChecklistItem('flooring', { measurements });
     expect(q.quantity).toBe(220);
     expect(q.pricingReady).toBe(true);
+  });
+
+  test('adds note-backed custom rows when priced work is outside the active template', () => {
+    const draft = { projectType: 'kitchen', rooms: [], originalNotes: '' };
+    const notes = 'Kitchen remodel with drywall hang 200 sqft $2/sqft after wall demo';
+    const checklist = buildScopeChecklist(draft, 'room_remodel', notes);
+    const hang = checklist.items.find((i) => i.id === 'hang');
+    expect(hang).toMatchObject({
+      label: 'Hang drywall',
+      state: 'included',
+      noteBacked: true,
+    });
+    expect(checklist.suggestedMeasurements.itemQuantities.hang).toMatchObject({
+      quantity: 400,
+      unit: 'allowance',
+    });
+  });
+
+  test('does not add duplicate interior paint row when kitchen template has paint', () => {
+    const draft = { projectType: 'kitchen', rooms: [], originalNotes: '' };
+    const notes =
+      'Kitchen remodel backsplash tile 45 sqft material $8 a square foot Labor $12 a square foot. paint walls and the ceiling 320 sqft $1.50 square feet Labor.';
+    const checklist = buildScopeChecklist(draft, 'room_remodel', notes);
+    expect(checklist.items.some((i) => i.id === 'paint')).toBe(true);
+    expect(checklist.items.some((i) => i.id === 'interior_paint')).toBe(false);
+    expect(checklist.suggestedMeasurements.itemQuantities.backsplash__labor.quantity).toBe(540);
+    expect(checklist.suggestedMeasurements.itemQuantities.paint__allowance.quantity).toBe(480);
   });
 });

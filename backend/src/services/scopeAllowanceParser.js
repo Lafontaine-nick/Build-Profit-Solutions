@@ -30,7 +30,7 @@ const ITEM_ALLOWANCE_MATCHERS = [
   },
   {
     id: 'appliance_removal',
-    match: /\b(remove|disconnect|haul).*\b(appliance|ridge|dishwasher|range|refrigerator)\b|\b(appliance|ridge|dishwasher)\b.*\b(remove|disconnect|haul)\b/i,
+    match: /\b(remove|disconnect|haul)\b[^.;]{0,48}\b(appliances?|ridge|dishwasher|range|refrigerator)\b|\b(appliances?|ridge|dishwasher|range|refrigerator)\b[^.;]{0,48}\b(remove|disconnect|haul)\b/i,
     unit: 'allowance',
   },
   {

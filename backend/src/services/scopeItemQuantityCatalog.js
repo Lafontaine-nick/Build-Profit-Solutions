@@ -767,6 +767,19 @@ function measurementsForRatePricing(measurements) {
     bathroomFloorSqft: measurements.bathroomFloorSqft,
     floorAreaSqft: measurements.floorAreaSqft,
     drywallSqft: measurements.drywallSqft,
+    exteriorPaintSqft: measurements.exteriorPaintSqft,
+    landscapeSqft: measurements.landscapeSqft,
+    sodSqft: measurements.sodSqft,
+    paverSqft: measurements.paverSqft,
+    rockMulchSqft: measurements.rockMulchSqft,
+    landscapeTons: measurements.landscapeTons,
+    roofSquares: measurements.roofSquares,
+    concreteSqft: measurements.concreteSqft,
+    concreteCy: measurements.concreteCy,
+    excavationCy: measurements.excavationCy,
+    deckSqft: measurements.deckSqft,
+    railingLf: measurements.railingLf,
+    baseboardLf: measurements.baseboardLf,
   };
 }
 

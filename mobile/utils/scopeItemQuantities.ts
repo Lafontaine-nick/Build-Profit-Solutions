@@ -6,6 +6,7 @@
 import type { EstimateAiDraft, ScopeMeasurements } from '@/utils/estimateAiDraft';
 import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
+import { parseScopeItemAllowancesFromNotes } from '@/utils/scopeAllowanceParser';
 import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
 import {
   parseScopeItemRatePricingFromNotes,
@@ -778,6 +779,19 @@ function measurementsForRatePricing(
     bathroomFloorSqft: measurements.bathroomFloorSqft ?? undefined,
     floorAreaSqft: measurements.floorAreaSqft ?? undefined,
     drywallSqft: measurements.drywallSqft ?? undefined,
+    exteriorPaintSqft: measurements.exteriorPaintSqft ?? undefined,
+    landscapeSqft: measurements.landscapeSqft ?? undefined,
+    sodSqft: measurements.sodSqft ?? undefined,
+    paverSqft: measurements.paverSqft ?? undefined,
+    rockMulchSqft: measurements.rockMulchSqft ?? undefined,
+    landscapeTons: measurements.landscapeTons ?? undefined,
+    roofSquares: measurements.roofSquares ?? undefined,
+    concreteSqft: measurements.concreteSqft ?? undefined,
+    concreteCy: measurements.concreteCy ?? undefined,
+    excavationCy: measurements.excavationCy ?? undefined,
+    deckSqft: measurements.deckSqft ?? undefined,
+    railingLf: measurements.railingLf ?? undefined,
+    baseboardLf: measurements.baseboardLf ?? undefined,
   };
 }
 
@@ -816,6 +830,19 @@ function measurementsPayloadForRatePricing(
     bathroomFloorSqft: parseScopeMeasurementInput(input.bathroomFloorSqft) ?? undefined,
     floorAreaSqft: parseScopeMeasurementInput(input.floorAreaSqft) ?? undefined,
     drywallSqft: parseScopeMeasurementInput(input.drywallSqft) ?? undefined,
+    exteriorPaintSqft: parseScopeMeasurementInput(input.exteriorPaintSqft) ?? undefined,
+    landscapeSqft: parseScopeMeasurementInput(input.landscapeSqft) ?? undefined,
+    sodSqft: parseScopeMeasurementInput(input.sodSqft) ?? undefined,
+    paverSqft: parseScopeMeasurementInput(input.paverSqft) ?? undefined,
+    rockMulchSqft: parseScopeMeasurementInput(input.rockMulchSqft) ?? undefined,
+    landscapeTons: parseScopeMeasurementInput(input.landscapeTons) ?? undefined,
+    roofSquares: parseScopeMeasurementInput(input.roofSquares) ?? undefined,
+    concreteSqft: parseScopeMeasurementInput(input.concreteSqft) ?? undefined,
+    concreteCy: parseScopeMeasurementInput(input.concreteCy) ?? undefined,
+    excavationCy: parseScopeMeasurementInput(input.excavationCy) ?? undefined,
+    deckSqft: parseScopeMeasurementInput(input.deckSqft) ?? undefined,
+    railingLf: parseScopeMeasurementInput(input.railingLf) ?? undefined,
+    baseboardLf: parseScopeMeasurementInput(input.baseboardLf) ?? undefined,
   };
 }
 
@@ -843,6 +870,22 @@ export function sanitizeMistakenUnitRateAllowances(
   return { ...synced, itemQuantities };
 }
 
+function ratePricingItemIdFromKey(key: string): string | null {
+  const match = String(key || '').match(/^(.+)__(?:material|labor|allowance)$/);
+  return match ? match[1] : null;
+}
+
+function stripRatePricingSubkeys(
+  itemQuantities: Record<string, ScopeItemQuantityValue> | undefined
+): Record<string, ScopeItemQuantityValue> {
+  const out: Record<string, ScopeItemQuantityValue> = {};
+  for (const [id, val] of Object.entries(itemQuantities || {})) {
+    if (/__(?:material|labor|allowance)$/.test(id)) continue;
+    out[id] = val;
+  }
+  return out;
+}
+
 /** Bake sqft × rate totals into itemQuantities so UI does not depend on live notes at render. */
 export function reparseRatePricingIntoItemQuantities(
   input: ScopeMeasurementsInputExtended,
@@ -858,6 +901,18 @@ export function reparseRatePricingIntoItemQuantities(
     measurementsPayloadForRatePricing(input),
     { templateKey: templateKey ?? undefined }
   );
+
+  const touchedItemIds = new Set<string>();
+  for (const key of Object.keys(rateItems)) {
+    const itemId = ratePricingItemIdFromKey(key) || (rateItems[key] ? key : null);
+    if (itemId) touchedItemIds.add(itemId);
+  }
+  for (const itemId of touchedItemIds) {
+    delete itemQuantities[`${itemId}__material`];
+    delete itemQuantities[`${itemId}__labor`];
+    delete itemQuantities[`${itemId}__allowance`];
+  }
+
   for (const [id, val] of Object.entries(rateItems)) {
     if (!val.quantity || Number(val.quantity) <= 0) continue;
     itemQuantities[id] = {
@@ -1040,21 +1095,6 @@ function applyRatePricingBreakdown(
     return { effectiveAllowance, materialEntry, laborEntry };
   }
 
-  const shouldUseComputed =
-    !effectiveAllowance ||
-    storedLooksLikeUnitRate ||
-    rateBreakdown.total > effectiveAllowance.quantity;
-
-  if (!shouldUseComputed) {
-    effectiveAllowance = finalizeRateAllowanceTotal(
-      effectiveAllowance,
-      materialEntry,
-      laborEntry,
-      countEntry
-    );
-    return { effectiveAllowance, materialEntry, laborEntry };
-  }
-
   effectiveAllowance = {
     quantity: rateBreakdown.total,
     unit: 'allowance',
@@ -1081,6 +1121,83 @@ function applyRatePricingBreakdown(
     countEntry
   );
   return { effectiveAllowance, materialEntry, laborEntry };
+}
+
+/**
+ * Display-only: sqft × $/sqft from notes, ignoring persisted __material/__labor/__allowance.
+ * Used when Step 2 reopens with stale saved measurements from an older parse.
+ */
+export function resolveDualRatePricingDisplayFromNotes(
+  itemId: string,
+  measurementsInput: ScopeMeasurementsInputExtended,
+  notes?: string | null,
+  templateKey?: string | null
+): Pick<
+  ResolvedItemQuantity,
+  'dualCount' | 'dualMaterial' | 'dualLabor' | 'dualAllowance' | 'pricingReady' | 'quantitySource' | 'sourceLabel'
+> | null {
+  const rule = getChecklistItemQuantityRule(itemId, templateKey);
+  if (!rule?.dualAllowanceField) return null;
+
+  const text = String(notes || '').trim();
+  if (!text) return null;
+
+  let sqft: number | null = null;
+  if (rule.measurementKey) {
+    sqft = parseScopeMeasurementInput(
+      String(measurementsInput[rule.measurementKey as keyof ScopeMeasurementsInputExtended] ?? '')
+    );
+  }
+  sqft = sqft ?? sqftFromItemQuantities(measurementsInput, itemId) ?? null;
+  if (!sqft) return null;
+
+  const syncedInput: ScopeMeasurementsInputExtended = {
+    ...measurementsInput,
+    ...(itemId === 'backsplash' ? { backsplashSqft: String(sqft) } : {}),
+    ...(itemId === 'paint' ? { wallPaintSqft: String(sqft) } : {}),
+  };
+
+  const breakdown = resolveItemRatePricingFromNotes(
+    itemId,
+    measurementsPayloadForRatePricing(syncedInput),
+    text,
+    { templateKey: templateKey ?? undefined }
+  );
+  if (!breakdown?.total) return null;
+
+  const countEntry = {
+    quantity: sqft,
+    unit: rule.defaultUnit,
+    quantitySource: 'notes' as const,
+  };
+  const materialEntry =
+    breakdown.material != null
+      ? { quantity: breakdown.material, unit: 'allowance' as const, quantitySource: 'notes' as const }
+      : null;
+  let laborEntry =
+    breakdown.labor != null
+      ? { quantity: breakdown.labor, unit: 'allowance' as const, quantitySource: 'notes' as const }
+      : null;
+  const allowanceEntry = {
+    quantity: breakdown.total,
+    unit: 'allowance' as const,
+    quantitySource: 'notes' as const,
+  };
+
+  return {
+    dualCount: countEntry,
+    dualMaterial: materialEntry,
+    dualLabor: laborEntry,
+    dualAllowance: finalizeRateAllowanceTotal(
+      allowanceEntry,
+      materialEntry,
+      laborEntry,
+      countEntry
+    ),
+    pricingReady: true,
+    quantitySource: 'notes',
+    sourceLabel: sourceLabel('notes'),
+  };
 }
 
 /** Last-resort display merge: sqft × $/sqft from notes and/or baked itemQuantities subkeys. */
@@ -1118,34 +1235,62 @@ export function overlayDualRatePricingDisplay(
 
   const text = String(notes || '').trim();
   if (text && countEntry) {
-    const parsed = parseScopeItemRatePricingFromNotes(
-      text,
+    const rateBreakdown = resolveItemRatePricingFromNotes(
+      itemId,
       measurementsForRatePricingWithCount(measurements, itemId, countEntry),
+      text,
       { templateKey: templateKey ?? undefined }
     );
-    const material = parsed[`${itemId}__material`];
-    const labor = parsed[`${itemId}__labor`];
-    const total = parsed[`${itemId}__allowance`];
-    if (material?.quantity) {
-      materialEntry = {
-        quantity: Number(material.quantity),
-        unit: 'allowance',
-        quantitySource: 'notes',
-      };
-    }
-    if (labor?.quantity) {
-      laborEntry = {
-        quantity: Number(labor.quantity),
-        unit: 'allowance',
-        quantitySource: 'notes',
-      };
-    }
-    if (total?.quantity) {
+    if (rateBreakdown) {
+      if (rateBreakdown.material != null) {
+        materialEntry = {
+          quantity: rateBreakdown.material,
+          unit: 'allowance',
+          quantitySource: 'notes',
+        };
+      }
+      if (rateBreakdown.labor != null) {
+        laborEntry = {
+          quantity: rateBreakdown.labor,
+          unit: 'allowance',
+          quantitySource: 'notes',
+        };
+      }
       allowanceEntry = {
-        quantity: Number(total.quantity),
+        quantity: rateBreakdown.total,
         unit: 'allowance',
         quantitySource: 'notes',
       };
+    } else {
+      const parsed = parseScopeItemRatePricingFromNotes(
+        text,
+        measurementsForRatePricingWithCount(measurements, itemId, countEntry),
+        { templateKey: templateKey ?? undefined }
+      );
+      const material = parsed[`${itemId}__material`];
+      const labor = parsed[`${itemId}__labor`];
+      const total = parsed[`${itemId}__allowance`];
+      if (material?.quantity) {
+        materialEntry = {
+          quantity: Number(material.quantity),
+          unit: 'allowance',
+          quantitySource: 'notes',
+        };
+      }
+      if (labor?.quantity) {
+        laborEntry = {
+          quantity: Number(labor.quantity),
+          unit: 'allowance',
+          quantitySource: 'notes',
+        };
+      }
+      if (total?.quantity) {
+        allowanceEntry = {
+          quantity: Number(total.quantity),
+          unit: 'allowance',
+          quantitySource: 'notes',
+        };
+      }
     }
   }
 
@@ -1339,6 +1484,34 @@ export function resolveChecklistItemQuantity(
   if (linkedCountertop) return linkedCountertop;
 
   const override = measurements.itemQuantities[itemId];
+  if (!rule.dualAllowanceField && override?.quantitySource !== 'user_entered' && ctx.notes?.trim()) {
+    const parsedAllowance = parseScopeItemAllowancesFromNotes(ctx.notes, {
+      templateKey: ctx.templateKey ?? undefined,
+    })[itemId];
+    if (parsedAllowance?.quantity && Number(parsedAllowance.quantity) > 0) {
+      const includesCountertops =
+        Boolean(parsedAllowance.includesCountertops) ||
+        (itemId === 'cabinets' && notesHaveCombinedCabinetsCounters(ctx.notes));
+      const combinedCabinetsCounters = itemId === 'cabinets' && includesCountertops;
+      return {
+        quantity: Number(parsedAllowance.quantity),
+        unit: parsedAllowance.unit || rule.defaultUnit,
+        quantitySource: 'notes',
+        sourceLabel: combinedCabinetsCounters
+          ? `Combined total · cabinets + counters · ${sourceLabel('notes')}`
+          : sourceLabel('notes'),
+        pricingReady: true,
+        quantityHelper: rule.quantityHelper,
+        showInput: true,
+        ...(combinedCabinetsCounters
+          ? {
+              combinedAllowanceRole: 'combined_total' as const,
+              combinedAllowanceTotal: Number(parsedAllowance.quantity),
+            }
+          : {}),
+      };
+    }
+  }
   if (rule.dualAllowanceField) {
     const dual = resolveDualAllowanceQuantity(
       itemId,
@@ -1766,8 +1939,12 @@ export function initialScopeMeasurementInputExtended(
     };
   };
 
+  const isPricingSubKey = (id: string) => /__(?:material|labor|allowance)$/.test(id);
+
   for (const [id, val] of Object.entries(saved?.itemQuantities || {})) {
     if (!val.quantity) continue;
+    // Never hydrate stale rate splits from saved scope — always reparse from notes below.
+    if (isPricingSubKey(id)) continue;
     putItemQuantity(id, {
       quantity: val.quantity,
       unit: val.unit,
@@ -1775,8 +1952,6 @@ export function initialScopeMeasurementInputExtended(
       includesCountertops: (val as ScopeItemQuantityValue).includesCountertops,
     });
   }
-
-  const isPricingSubKey = (id: string) => /__(?:material|labor|allowance)$/.test(id);
 
   const mergeParsedItemQuantities = (
     source: Record<string, ScopeItemQuantityValue> | undefined
@@ -1793,9 +1968,6 @@ export function initialScopeMeasurementInputExtended(
             includesCountertops: (val as { includesCountertops?: boolean }).includesCountertops,
           });
         }
-        continue;
-      }
-      if (existing?.quantity && !isPricingSubKey(id) && existing.quantitySource !== 'user_entered') {
         continue;
       }
       putItemQuantity(id, {

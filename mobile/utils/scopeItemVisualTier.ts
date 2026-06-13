@@ -12,7 +12,7 @@ import {
 
 export type ScopeItemVisualTier = 'primary' | 'secondary' | 'muted';
 
-export type ScopeItemNoteBadge = 'prefilled' | 'mentioned';
+export type ScopeItemNoteBadge = 'prefilled' | 'mentioned' | 'review';
 
 export const SCOPE_ITEM_TIER_OPACITY: Record<ScopeItemVisualTier, number> = {
   primary: 1,
@@ -47,6 +47,7 @@ function itemPricingFromNotes(item: ScopeChecklistItem, ctx: ScopeItemVisualCont
 
 function itemMentionedInNotes(item: ScopeChecklistItem, ctx: ScopeItemVisualContext): boolean {
   const notes = ctx.notes;
+  if (item.noteBacked) return true;
   if (!String(notes || '').trim()) return false;
 
   if (inferItemStateFromNotes(item.id, notes) !== 'unsure') return true;
@@ -71,9 +72,20 @@ export function scopeItemNoteBadge(
   ctx: ScopeItemVisualContext
 ): ScopeItemNoteBadge | null {
   const notes = ctx.notes;
-  if (!String(notes || '').trim()) return null;
+  if (!String(notes || '').trim() && !item.noteBacked) return null;
 
   if (itemPricingFromNotes(item, ctx) && checklistItemInScope(item)) return 'prefilled';
+
+  const resolved = resolveChecklistItemQuantity(item.id, ctx.measurements, {
+    choiceId: item.choiceId,
+    templateKey: ctx.templateKey,
+    notes: ctx.notes,
+  });
+  if (checklistItemInScope(item) && itemMentionedInNotes(item, ctx) && resolved.showInput && !resolved.pricingReady) {
+    return 'review';
+  }
+
+  if (item.noteBacked && checklistItemInScope(item)) return 'mentioned';
 
   if (itemIsExcluded(item) && inferItemStateFromNotes(item.id, notes) === 'excluded') return 'mentioned';
 

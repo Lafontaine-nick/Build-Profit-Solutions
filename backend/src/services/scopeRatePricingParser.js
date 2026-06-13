@@ -5,24 +5,71 @@
 
 const { splitNoteClauses } = require('./estimateDraftQuantityPrice');
 
-const SQFT_UNIT = /(?:sq\.?\s*ft\.?|sqft|\bsf\b|square\s+(?:foot|feet))/i;
-const SQFT_DENOM = '(?:sq\\.?\\s*ft\\.?|sqft|\\bsf\\b|square\\s+(?:foot|feet))';
+const UNIT_DENOMS = {
+  sqft: '(?:sq\\.?\\s*ft\\.?|sqft|\\bsf\\b|square\\s+(?:foot|feet))',
+  lf: '(?:lf|linear\\s+(?:foot|feet)|linear\\s+ft|ln\\s*ft)',
+  cy: '(?:cy|cubic\\s+yards?)',
+  ton: '(?:tons?)',
+  squares: '(?:roofing\\s+)?squares?',
+};
+const RATE_UNIT = new RegExp(
+  `(?:${UNIT_DENOMS.sqft}|${UNIT_DENOMS.lf}|${UNIT_DENOMS.cy}|${UNIT_DENOMS.ton}|${UNIT_DENOMS.squares})`,
+  'i'
+);
 const PER = '(?:\\/|per|a|@)\\s*(?:the\\s+)?';
 const MONEY = '[\\$]?';
 
 /** @type {Record<string, keyof import('./scopeMeasurementParser').ParsedScopeMeasurements>} */
-const ITEM_SQFT_MEASUREMENT_KEY = {
-  backsplash: 'backsplashSqft',
-  paint: 'wallPaintSqft',
-  interior_paint: 'wallPaintSqft',
-  flooring: 'kitchenFloorSqft',
-  floor_tile: 'kitchenFloorSqft',
-  drywall: 'drywallSqft',
+const ITEM_RATE_MEASUREMENT = {
+  backsplash: { key: 'backsplashSqft', unit: 'sqft', split: true },
+  paint: { key: 'wallPaintSqft', unit: 'sqft', split: true },
+  interior_paint: { key: 'wallPaintSqft', unit: 'sqft' },
+  exterior_paint: { key: 'exteriorPaintSqft', unit: 'sqft' },
+  flooring: { keys: ['kitchenFloorSqft', 'floorAreaSqft', 'bathroomFloorSqft'], unit: 'sqft' },
+  floor_tile: { keys: ['bathroomFloorSqft', 'kitchenFloorSqft', 'floorAreaSqft'], unit: 'sqft' },
+  drywall: { key: 'drywallSqft', unit: 'sqft' },
+  hang: { key: 'drywallSqft', unit: 'sqft' },
+  finish_tape: { key: 'drywallSqft', unit: 'sqft' },
+  patch_repair: { key: 'drywallSqft', unit: 'sqft' },
+  sod_turf: { keys: ['sodSqft', 'landscapeSqft'], unit: 'sqft' },
+  pavers: { keys: ['paverSqft', 'landscapeSqft'], unit: 'sqft' },
+  rock_mulch: { keys: ['landscapeTons', 'rockMulchSqft', 'landscapeSqft'], units: ['ton', 'sqft', 'sqft'] },
+  concrete: { keys: ['concreteSqft', 'concreteCy'], units: ['sqft', 'cy'] },
+  pour_flatwork: { keys: ['concreteSqft', 'concreteCy'], units: ['sqft', 'cy'] },
+  concrete_patio: { keys: ['concreteSqft', 'concreteCy'], units: ['sqft', 'cy'] },
+  excavation: { key: 'excavationCy', unit: 'cy' },
+  decking: { key: 'deckSqft', unit: 'sqft' },
+  railing: { key: 'railingLf', unit: 'lf' },
+  trim: { key: 'baseboardLf', unit: 'lf' },
+  tear_off: { key: 'roofSquares', unit: 'squares' },
+  shingles_roofing: { key: 'roofSquares', unit: 'squares' },
 };
 
 function parseRateToken(raw) {
   const n = Number(String(raw || '').replace(/,/g, ''));
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function splitRateClauses(text) {
+  const raw = splitNoteClauses(text)
+    .flatMap((clause) =>
+      clause.split(/,\s+(?=(?:paint|primer|demo|demolition|cabinet|countertop|flooring|drywall|shingle|roof|concrete|deck|landscape|excavat|plumb|electrical)\b|[a-z])/i)
+    )
+    .map((clause) => clause.trim())
+    .filter(Boolean);
+  const merged = [];
+  for (const clause of raw) {
+    if (
+      merged.length &&
+      /^(?:materials?|labor)\b|\$\s*\d[\d,]*(?:\.\d+)?\s*(?:\/|per|a|@)?/i.test(clause) &&
+      !RATE_PRICING_MATCHERS.some((matcher) => matcher.match.test(clause))
+    ) {
+      merged[merged.length - 1] = `${merged[merged.length - 1]}, ${clause}`;
+    } else {
+      merged.push(clause);
+    }
+  }
+  return merged;
 }
 
 function pushRateMatches(clause, re, bucket) {
@@ -33,35 +80,74 @@ function pushRateMatches(clause, re, bucket) {
   }
 }
 
-function extractSqftUnitRates(clause) {
+function unitDenomFor(unit) {
+  return UNIT_DENOMS[unit] || UNIT_DENOMS.sqft;
+}
+
+function pickLaborRate(materialRate, laborBeforePrice, laborSuffix) {
+  if (laborBeforePrice.length) {
+    return laborBeforePrice[laborBeforePrice.length - 1];
+  }
+  const fromSuffix = laborSuffix.filter((rate) => rate !== materialRate);
+  if (fromSuffix.length) return fromSuffix[fromSuffix.length - 1];
+  return laborSuffix[0] || null;
+}
+
+function extractUnitRates(clause, unit = 'sqft') {
+  const denom = unitDenomFor(unit);
   const materialRates = [];
-  const laborRates = [];
+  const laborBeforePrice = [];
+  const laborSuffix = [];
+  const generalRates = [];
+  // Do not match "$8/sqft Labor $12" — "Labor" here starts the next rate, not a suffix label.
+  const laborSuffixTail = '(?!\\s*\\$)';
 
   pushRateMatches(
     clause,
-    new RegExp(`\\bmaterials?\\s*${MONEY}\\s*(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:${PER}${SQFT_DENOM}|${SQFT_DENOM})\\b`, 'gi'),
+    new RegExp(`\\bmaterials?\\s*${MONEY}\\s*(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:${PER}${denom}|${denom})\\b`, 'gi'),
     materialRates
   );
   pushRateMatches(
     clause,
-    new RegExp(`\\blabor\\s*${MONEY}\\s*(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:${PER})?${SQFT_DENOM}\\b`, 'gi'),
-    laborRates
+    new RegExp(`\\blabor\\s*${MONEY}\\s*(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:${PER})?${denom}\\b`, 'gi'),
+    laborBeforePrice
   );
   pushRateMatches(
     clause,
-    new RegExp(`\\$\\s*(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:${PER})?${SQFT_DENOM}\\s*labor\\b`, 'gi'),
-    laborRates
+    new RegExp(
+      `\\$\\s*(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:${PER})?${denom}\\s*labor\\b${laborSuffixTail}`,
+      'gi'
+    ),
+    laborSuffix
   );
   pushRateMatches(
     clause,
-    new RegExp(`\\$\\s*(\\d[\\d,]*(?:\\.\\d+)?)\\s+square\\s+(?:foot|feet)\\s*labor\\b`, 'gi'),
-    laborRates
+    new RegExp(
+      `\\$\\s*(\\d[\\d,]*(?:\\.\\d+)?)\\s+(?:${denom})\\s*labor\\b${laborSuffixTail}`,
+      'gi'
+    ),
+    laborSuffix
+  );
+  pushRateMatches(
+    clause,
+    new RegExp(`\\$\\s*(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:${PER})?${denom}\\b`, 'gi'),
+    generalRates
   );
 
+  const materialRate = materialRates[0] || null;
+  const laborRate = pickLaborRate(materialRate, laborBeforePrice, laborSuffix);
+
   return {
-    materialRate: materialRates[0] || null,
-    laborRate: laborRates[0] || null,
+    materialRate,
+    laborRate,
+    generalRate:
+      generalRates.find((rate) => rate !== materialRate && rate !== laborRate) || generalRates[0] || null,
   };
+}
+
+function extractSqftUnitRates(clause) {
+  const { materialRate, laborRate } = extractUnitRates(clause, 'sqft');
+  return { materialRate, laborRate };
 }
 
 function clauseMatchesMatcher(clause, matcher) {
@@ -74,42 +160,79 @@ function roundMoney(n) {
   return Math.round(Number(n) * 100) / 100;
 }
 
-function sqftForItem(itemId, measurements, ctx = {}) {
-  const key = ITEM_SQFT_MEASUREMENT_KEY[itemId];
-  if (key && measurements[key]) return measurements[key];
+function quantityForItem(itemId, measurements) {
+  const config = ITEM_RATE_MEASUREMENT[itemId];
+  if (!config) return { quantity: null, unit: null };
 
-  if (itemId === 'flooring' || itemId === 'floor_tile') {
-    return measurements.kitchenFloorSqft || measurements.floorAreaSqft || measurements.bathroomFloorSqft || null;
+  if (config.key && measurements[config.key]) {
+    return { quantity: measurements[config.key], unit: config.unit };
   }
 
-  return null;
+  if (config.keys?.length) {
+    for (let i = 0; i < config.keys.length; i += 1) {
+      const key = config.keys[i];
+      if (measurements[key]) {
+        return {
+          quantity: measurements[key],
+          unit: config.units?.[i] || config.unit,
+        };
+      }
+    }
+  }
+
+  return { quantity: null, unit: config.unit || null };
 }
 
-function buildRatePricingEntries(itemId, sqft, rates) {
-  const { materialRate, laborRate } = rates;
-  if (!sqft || (!materialRate && !laborRate)) return {};
+function ratePricingItemIdFromKey(key) {
+  const match = String(key || '').match(/^(.+)__(?:material|labor|allowance)$/);
+  return match ? match[1] : null;
+}
 
-  const materialTotal = materialRate ? roundMoney(sqft * materialRate) : 0;
-  const laborTotal = laborRate ? roundMoney(sqft * laborRate) : 0;
-  const total = roundMoney(materialTotal + laborTotal);
+function mergeRatePricingEntries(out, itemId, entries) {
+  const allowanceKey = ITEM_RATE_MEASUREMENT[itemId]?.split ? `${itemId}__allowance` : itemId;
+  const nextTotal = Number(entries[allowanceKey]?.quantity || 0);
+  const prevTotal = Number(out[allowanceKey]?.quantity || 0);
+  const prevLabor = Number(out[`${itemId}__labor`]?.quantity || 0);
+  const nextLabor = Number(entries[`${itemId}__labor`]?.quantity || 0);
+  const shouldReplace =
+    !prevTotal ||
+    nextTotal > prevTotal ||
+    (nextLabor > 0 && nextLabor !== prevLabor) ||
+    (nextTotal === prevTotal && nextLabor > prevLabor);
+  if (!shouldReplace) return out;
+  delete out[`${itemId}__material`];
+  delete out[`${itemId}__labor`];
+  delete out[allowanceKey];
+  delete out[itemId];
+  return Object.assign(out, entries);
+}
+
+function buildRatePricingEntries(itemId, quantity, rates, options = {}) {
+  const { materialRate, laborRate, generalRate } = rates;
+  if (!quantity || (!materialRate && !laborRate && !generalRate)) return {};
+
+  const materialTotal = materialRate ? roundMoney(quantity * materialRate) : 0;
+  const laborTotal = laborRate ? roundMoney(quantity * laborRate) : 0;
+  const generalTotal = !materialTotal && !laborTotal && generalRate ? roundMoney(quantity * generalRate) : 0;
+  const total = roundMoney(materialTotal + laborTotal + generalTotal);
   if (total <= 0) return {};
 
   const out = {};
-  if (materialTotal > 0) {
+  if (options.split && materialTotal > 0) {
     out[`${itemId}__material`] = {
       quantity: materialTotal,
       unit: 'allowance',
       quantitySource: 'notes',
     };
   }
-  if (laborTotal > 0) {
+  if (options.split && laborTotal > 0) {
     out[`${itemId}__labor`] = {
       quantity: laborTotal,
       unit: 'allowance',
       quantitySource: 'notes',
     };
   }
-  out[`${itemId}__allowance`] = {
+  out[options.split ? `${itemId}__allowance` : itemId] = {
     quantity: total,
     unit: 'allowance',
     quantitySource: 'notes',
@@ -135,6 +258,10 @@ const RATE_PRICING_MATCHERS = [
     exclude: /\b(exterior)\b/i,
   },
   {
+    id: 'exterior_paint',
+    match: /\b(exterior\s+paint|paint\s+exterior)\b/i,
+  },
+  {
     id: 'flooring',
     match: /\b(flooring|laminate|lvp|vinyl\s+floor|carpet)\b/i,
     exclude: /\b(demo|demolition)\b/i,
@@ -149,6 +276,21 @@ const RATE_PRICING_MATCHERS = [
     match: /\b(drywall|sheetrock)\b/i,
     exclude: /\b(demo|demolition)\b/i,
   },
+  { id: 'hang', match: /\b(hang\s+drywall|drywall\s+hang)\b/i },
+  { id: 'finish_tape', match: /\b(tape|mud|finish\s+drywall)\b/i },
+  { id: 'patch_repair', match: /\b(drywall\s+patch|patch\s+drywall|patch\s+repair)\b/i },
+  { id: 'sod_turf', match: /\b(sod|turf|grass)\b/i },
+  { id: 'pavers', match: /\bpavers?\b/i },
+  { id: 'rock_mulch', match: /\b(rock|mulch|gravel)\b/i },
+  { id: 'concrete', match: /\bconcrete\b/i },
+  { id: 'pour_flatwork', match: /\b(flatwork|slab|driveway|sidewalk|concrete\s+patio)\b/i },
+  { id: 'concrete_patio', match: /\bconcrete\s+patio\b/i },
+  { id: 'excavation', match: /\b(excavat(?:e|ion)|grading|trench(?:ing)?)\b/i },
+  { id: 'decking', match: /\b(decking|deck\s+surface|composite\s+deck)\b/i },
+  { id: 'railing', match: /\b(rail(?:ing)?|guardrail)\b/i },
+  { id: 'trim', match: /\b(baseboard|trim)\b/i },
+  { id: 'tear_off', match: /\b(tear[\s-]?off|roof\s+demo|remove\s+shingles?)\b/i },
+  { id: 'shingles_roofing', match: /\b(shingles?|roof(?:ing)?\s+install|new\s+roof)\b/i },
 ];
 
 /**
@@ -161,20 +303,26 @@ function parseScopeItemRatePricingFromNotes(notes, measurements = {}, ctx = {}) 
   if (!text) return {};
 
   const out = {};
-  const clauses = splitNoteClauses(text);
+  const clauses = splitRateClauses(text);
   for (const clause of clauses) {
-    const rates = extractSqftUnitRates(clause);
-    if (!rates.materialRate && !rates.laborRate) continue;
-    if (!SQFT_UNIT.test(clause)) continue;
+    if (!RATE_UNIT.test(clause)) continue;
 
     for (const matcher of RATE_PRICING_MATCHERS) {
       if (!clauseMatchesMatcher(clause, matcher)) continue;
-      if (out[`${matcher.id}__allowance`]) continue;
 
-      const sqft = sqftForItem(matcher.id, measurements, ctx);
-      if (!sqft) continue;
+      const { quantity, unit } = quantityForItem(matcher.id, measurements);
+      if (!quantity || !unit) continue;
+      const rates = extractUnitRates(clause, unit);
+      if (!rates.materialRate && !rates.laborRate && !rates.generalRate) continue;
 
-      Object.assign(out, buildRatePricingEntries(matcher.id, sqft, rates));
+      const entries = buildRatePricingEntries(
+        matcher.id,
+        quantity,
+        rates,
+        ITEM_RATE_MEASUREMENT[matcher.id]
+      );
+      if (!Object.keys(entries).length) continue;
+      mergeRatePricingEntries(out, matcher.id, entries);
     }
   }
 
@@ -196,5 +344,10 @@ module.exports = {
   parseScopeItemRatePricingFromNotes,
   resolveItemRatePricingFromNotes,
   extractSqftUnitRates,
-  ITEM_SQFT_MEASUREMENT_KEY,
+  ITEM_SQFT_MEASUREMENT_KEY: Object.fromEntries(
+    Object.entries(ITEM_RATE_MEASUREMENT)
+      .filter(([, config]) => config.unit === 'sqft' && config.key)
+      .map(([id, config]) => [id, config.key])
+  ),
+  ITEM_RATE_MEASUREMENT,
 };

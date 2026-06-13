@@ -36,7 +36,7 @@ export type ParsedScopeMeasurements = {
 };
 
 const SQFT_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|ft\.?\s*²|square\s+(?:foot|feet))/gi;
-const LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+feet|ln\s*ft|linear\s+ft)/gi;
+const LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|linear\s+ft)/gi;
 const CY_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:cy|cubic\s+yards?)/gi;
 const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)\s*squares?\b/gi;
 const TON_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:tons?)\b/gi;
@@ -81,7 +81,10 @@ function splitNoteClauses(text: string): string[] {
     if (parts.length > 1) clauses.push(...parts);
     else clauses.push(sentence.replace(/__WALLS_CEILING__/g, ' and '));
   }
-  return clauses;
+  return clauses
+    .flatMap((clause) => clause.split(/,\s+(?=[a-z])/i))
+    .map((clause) => clause.trim())
+    .filter(Boolean);
 }
 
 function clauseMatches(clause: string, patterns: RegExp[]): boolean {

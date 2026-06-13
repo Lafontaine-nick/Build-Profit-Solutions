@@ -1,4 +1,5 @@
 import { postAiAssistantJson } from '@/utils/resolveAiBackendUrl';
+import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
 
 export type DraftItemStatus =
   | 'confirmed'
@@ -68,6 +69,8 @@ export type ScopeChecklistItem = {
   choiceIds?: string[];
   /** UI-only line injected from wet_area_install picker (not sent to server). */
   derivedFrom?: string;
+  /** Server-added custom row created from a priced/mentioned note outside the selected template. */
+  noteBacked?: boolean;
 };
 
 export type ScopeChecklist = {
@@ -409,6 +412,79 @@ export const BUILDER_MODE_LABELS: Record<EstimateBuilderMode, { title: string; s
   },
 };
 
+function stripRatePricingSubkeys(
+  itemQuantities?: ScopeMeasurements['itemQuantities']
+): ScopeMeasurements['itemQuantities'] {
+  const out: NonNullable<ScopeMeasurements['itemQuantities']> = {};
+  for (const [id, val] of Object.entries(itemQuantities || {})) {
+    if (/__(?:material|labor|allowance)$/.test(id)) continue;
+    out[id] = val;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+export function repairDraftRatePricingFromNotes(draft: EstimateAiDraft, notes: string): EstimateAiDraft {
+  const text = String(notes || draft.originalNotes || '').trim();
+  if (!text) return draft;
+
+  const parsed = parseScopeMeasurementsFromNotes(text, {
+    templateKey: draft.scopeChecklist?.templateKey,
+    projectType: draft.projectType,
+  });
+  if (!Object.keys(parsed).length) {
+    return { ...draft, originalNotes: draft.originalNotes || text };
+  }
+
+  const mergedItemQuantities = {
+    ...stripRatePricingSubkeys(draft.scopeMeasurements?.itemQuantities),
+    ...stripRatePricingSubkeys(draft.scopeChecklist?.suggestedMeasurements?.itemQuantities),
+    ...(parsed.itemQuantities || {}),
+  };
+
+  const mergedScopeMeasurements: ScopeMeasurements = {
+    ...(draft.scopeMeasurements || {}),
+    ...parsed,
+    itemQuantities: mergedItemQuantities,
+  };
+
+  if (__DEV__) {
+    const serverIq = draft.scopeChecklist?.suggestedMeasurements?.itemQuantities || {};
+    console.log('🧮 AI draft backsplash repair', {
+      server: {
+        material: serverIq.backsplash__material?.quantity,
+        labor: serverIq.backsplash__labor?.quantity,
+        total: serverIq.backsplash__allowance?.quantity,
+      },
+      parsed: {
+        material: parsed.itemQuantities?.backsplash__material?.quantity,
+        labor: parsed.itemQuantities?.backsplash__labor?.quantity,
+        total: parsed.itemQuantities?.backsplash__allowance?.quantity,
+      },
+      merged: {
+        material: mergedItemQuantities.backsplash__material?.quantity,
+        labor: mergedItemQuantities.backsplash__labor?.quantity,
+        total: mergedItemQuantities.backsplash__allowance?.quantity,
+      },
+    });
+  }
+
+  return {
+    ...draft,
+    originalNotes: draft.originalNotes || text,
+    scopeMeasurements: mergedScopeMeasurements,
+    scopeChecklist: draft.scopeChecklist
+      ? {
+          ...draft.scopeChecklist,
+          suggestedMeasurements: {
+            ...(draft.scopeChecklist.suggestedMeasurements || {}),
+            ...parsed,
+            itemQuantities: mergedItemQuantities,
+          },
+        }
+      : draft.scopeChecklist,
+  };
+}
+
 export async function fetchEstimateDraftFromNotes(
   notes: string,
   savedTemplates: unknown[] = []
@@ -422,7 +498,7 @@ export async function fetchEstimateDraftFromNotes(
     throw new Error(payload?.message || payload?.error || 'Failed to generate estimate draft');
   }
 
-  return payload.draft;
+  return repairDraftRatePricingFromNotes(payload.draft, notes);
 }
 
 export async function fetchSuggestedDraftSplits(

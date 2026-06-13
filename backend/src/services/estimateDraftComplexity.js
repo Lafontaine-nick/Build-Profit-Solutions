@@ -168,12 +168,73 @@ function formatAssumptionLine(item) {
   return item.label;
 }
 
+const NOTE_BACKED_SCOPE_LABELS = {
+  tear_off: ['Tear-off / removal', 'Remove existing roofing or shingles.'],
+  shingles_roofing: ['Shingles / roofing install', 'Install new roofing material.'],
+  concrete: ['Concrete work', 'Concrete labor and materials from notes.'],
+  pour_flatwork: ['Concrete flatwork', 'Pour slab, patio, driveway, or sidewalk flatwork.'],
+  concrete_patio: ['Concrete patio / flatwork', 'Concrete patio or flatwork from notes.'],
+  excavation: ['Excavation / grading', 'Excavation, trenching, or grading from notes.'],
+  decking: ['Decking / surface install', 'Deck surface labor and materials from notes.'],
+  railing: ['Railing / guardrails', 'Railing labor and materials from notes.'],
+  sod_turf: ['Sod / turf', 'Sod or turf labor and materials from notes.'],
+  pavers: ['Pavers', 'Paver labor and materials from notes.'],
+  rock_mulch: ['Rock / mulch', 'Rock, mulch, or gravel from notes.'],
+  hang: ['Hang drywall', 'Drywall hang labor and materials from notes.'],
+  finish_tape: ['Tape / mud / finish', 'Drywall finish from notes.'],
+  patch_repair: ['Patch / repair', 'Drywall patch or repair from notes.'],
+  interior_paint: ['Interior paint', 'Interior paint labor and materials from notes.'],
+  exterior_paint: ['Exterior paint', 'Exterior paint labor and materials from notes.'],
+  trim: ['Trim / baseboard', 'Trim or baseboard labor and materials from notes.'],
+};
+
+const NOTE_BACKED_TEMPLATE_ALIASES = {
+  interior_paint: ['paint'],
+};
+
+function noteBackedChecklistItems(templateItems, parsedMeasurements) {
+  const itemQuantities = parsedMeasurements?.itemQuantities || {};
+  const templateIds = new Set(templateItems.map((item) => item.id));
+  const added = new Set();
+  const out = [];
+
+  for (const key of Object.keys(itemQuantities)) {
+    const itemId = key.replace(/__(?:material|labor|allowance)$/, '');
+    if (!itemId || added.has(itemId) || templateIds.has(itemId)) continue;
+    const aliases = NOTE_BACKED_TEMPLATE_ALIASES[itemId] || [];
+    if (aliases.some((alias) => templateIds.has(alias))) continue;
+    const rule = getRuleForChecklistItem(itemId);
+    if (!rule) continue;
+    const [label, helperText] = NOTE_BACKED_SCOPE_LABELS[itemId] || [
+      itemId.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase()),
+      'Scope item found in notes.',
+    ];
+    added.add(itemId);
+    out.push({
+      id: itemId,
+      inputType: 'yes_no',
+      label,
+      helperText,
+      category: 'from_notes',
+      state: 'included',
+      noteBacked: true,
+    });
+  }
+
+  return out;
+}
+
 function buildScopeChecklist(draft, estimateTier, originalNotes) {
   if (estimateTier === 'simple_unit') return null;
 
   const templateKey = checklistTemplateKey(draft, estimateTier);
   const template = CHECKLIST_TEMPLATES[templateKey] || CHECKLIST_TEMPLATES.room_remodel;
   const notes = originalNotes || draft.originalNotes || '';
+
+  const parsedMeasurements = parseScopeMeasurementsFromNotes(notes, {
+    templateKey,
+    projectType: draft.projectType,
+  });
 
   const items = template.items.map((item) => {
     const inputType = item.inputType || 'yes_no';
@@ -259,6 +320,8 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     }
   }
 
+  items.push(...noteBackedChecklistItems(items, parsedMeasurements));
+
   const inScopeCount = items.filter((i) => i.state === 'included').length;
   const unsureCount = items.filter((i) => i.state === 'unsure').length;
   const outOfScopeCount = items.filter((i) => i.state === 'excluded').length;
@@ -271,11 +334,7 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     legend: CHECKLIST_LEGEND,
     items,
     suggestedMeasurements: (() => {
-      const parsed = parseScopeMeasurementsFromNotes(notes, {
-        templateKey,
-        projectType: draft.projectType,
-      });
-      return Object.keys(parsed).length ? parsed : undefined;
+      return Object.keys(parsedMeasurements).length ? parsedMeasurements : undefined;
     })(),
     options: [
       { id: 'scope_only', label: 'Build scope only (no pricing yet)' },
@@ -803,10 +862,23 @@ function enrichDraftComplexity(draft, originalNotes) {
   const estimateTier = classifyEstimateTier(draft, originalNotes);
   const scopeChecklist =
     estimateTier === 'simple_unit' ? null : buildScopeChecklist(draft, estimateTier, originalNotes);
+  const parsedMeasurements = scopeChecklist?.suggestedMeasurements;
 
   return {
     estimateTier,
     scopeChecklist,
+    ...(parsedMeasurements
+      ? {
+          scopeMeasurements: {
+            ...(draft.scopeMeasurements || {}),
+            ...parsedMeasurements,
+            itemQuantities: {
+              ...(draft.scopeMeasurements?.itemQuantities || {}),
+              ...(parsedMeasurements.itemQuantities || {}),
+            },
+          },
+        }
+      : {}),
     scopeAssumptionsConfirmed: Boolean(draft.scopeAssumptionsConfirmed),
     requiresScopeConfirmation: estimateTier !== 'simple_unit' && !draft.scopeAssumptionsConfirmed,
   };

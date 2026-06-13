@@ -25,7 +25,7 @@ import type {
   ScopeChecklistItem,
   ScopeMeasurements,
 } from '@/utils/estimateAiDraft';
-import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
+import { resolveDraftScopeNotes, repairDraftRatePricingFromNotes } from '@/utils/estimateAiDraft';
 import {
   checklistDisplayHelper,
   choiceIdsToScopeState,
@@ -58,6 +58,7 @@ import {
   overlayDualRatePricingDisplay,
   prepareScopeMeasurementsInputForUi,
   resolveChecklistItemQuantity,
+  resolveDualRatePricingDisplayFromNotes,
   roughAllowanceSubKey,
   scopeMeasurementsToPayload,
   scopeMeasurementsPayloadForPersist,
@@ -157,7 +158,15 @@ function ScopeItemTitleRow({
   darkMode: boolean;
   Colors: ReturnType<typeof getColors>;
 }) {
-  const badgeLabel = noteBadge === 'prefilled' ? 'Prefilled' : noteBadge === 'mentioned' ? 'In notes' : null;
+  const badgeLabel =
+    noteBadge === 'prefilled'
+      ? 'Prefilled'
+      : noteBadge === 'mentioned'
+        ? 'In notes'
+        : noteBadge === 'review'
+          ? 'Review'
+          : null;
+  const badgeColor = noteBadge === 'review' ? '#f59e0b' : '#22c55e';
 
   return (
     <View style={styles.cardTitleRow}>
@@ -174,7 +183,7 @@ function ScopeItemTitleRow({
       </Text>
       {badgeLabel ? (
         <View style={[styles.fromNotesBadge, darkMode ? styles.fromNotesBadgeDark : styles.fromNotesBadgeLight]}>
-          <Text style={{ color: '#22c55e', fontSize: 10, fontWeight: '700' }}>{badgeLabel}</Text>
+          <Text style={{ color: badgeColor, fontSize: 10, fontWeight: '700' }}>{badgeLabel}</Text>
         </View>
       ) : null}
     </View>
@@ -266,6 +275,34 @@ function QuantitySection({
     const countInput = measurementsInput.itemQuantities[itemId];
     const allowanceInput = measurementsInput.itemQuantities[allowanceKey];
     const isEditing = isUserEditingQuantity(measurementsInput, itemId, allowanceKey);
+
+    if (!isEditing && originalNotes?.trim()) {
+      const fromNotes = resolveDualRatePricingDisplayFromNotes(
+        itemId,
+        measurementsInput,
+        originalNotes,
+        templateKey
+      );
+      if (fromNotes) {
+        resolved = { ...resolved, ...fromNotes, showInput: true };
+      }
+    }
+
+    if (__DEV__ && itemId === 'backsplash') {
+      const raw = measurementsInput.itemQuantities || {};
+      console.log('🧮 Backsplash quantity render', {
+        raw: {
+          material: raw.backsplash__material?.quantity,
+          labor: raw.backsplash__labor?.quantity,
+          total: raw.backsplash__allowance?.quantity,
+        },
+        resolved: {
+          material: resolved.dualMaterial?.quantity,
+          labor: resolved.dualLabor?.quantity,
+          total: resolved.dualAllowance?.quantity,
+        },
+      });
+    }
 
     if (resolved.pricingReady && !isEditing) {
       return (
@@ -1173,8 +1210,10 @@ export default function AIEstimateScopeAssumptionsModal({
     if (visible && checklist?.items?.length) {
       const sourceItems = scopeChecklistItemsForEditing(draft);
       if (!sourceItems.length) return;
+      const draftForScope =
+        draft && scopeNotes.trim() ? repairDraftRatePricingFromNotes(draft, scopeNotes) : draft;
       const nextMeasurements = prepareScopeMeasurementsInputForUi(
-        initialScopeMeasurementInputExtended(draft, scopeNotes),
+        initialScopeMeasurementInputExtended(draftForScope, scopeNotes),
         { notes: scopeNotes, templateKey: checklist.templateKey }
       );
       const norm = buildNormFromInput(nextMeasurements, scopeNotes, checklist.templateKey);

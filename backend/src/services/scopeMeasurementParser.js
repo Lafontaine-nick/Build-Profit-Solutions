@@ -8,7 +8,7 @@ const { parseScopeItemAllowancesFromNotes } = require('./scopeAllowanceParser');
 const { parseScopeItemRatePricingFromNotes } = require('./scopeRatePricingParser');
 
 const SQFT_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|ft\.?\s*²|square\s+(?:foot|feet))/gi;
-const LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+feet|ln\s*ft|linear\s+ft)/gi;
+const LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|linear\s+ft)/gi;
 const CY_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:cy|cubic\s+yards?)/gi;
 const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)\s*squares?\b/gi;
 const TON_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:tons?)\b/gi;
@@ -64,6 +64,13 @@ function clauseMatches(clause, patterns) {
   return patterns.some((p) => p.test(c));
 }
 
+function splitMeasurementClauses(text) {
+  return splitNoteClauses(text)
+    .flatMap((clause) => clause.split(/,\s+(?=[a-z])/i))
+    .map((clause) => clause.trim())
+    .filter(Boolean);
+}
+
 /**
  * @param {string} notes
  * @param {{ templateKey?: string, projectType?: string }} [ctx]
@@ -76,7 +83,7 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   const projectType = String(ctx.projectType || '').toLowerCase();
   const out = {};
 
-  const clauses = splitNoteClauses(text);
+  const clauses = splitMeasurementClauses(text);
   const blob = text.toLowerCase();
 
   const pickSqftFromClauses = (patterns) => {
