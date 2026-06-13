@@ -5692,6 +5692,10 @@ export default function EstimateGeneratorScreen() {
   const handleGenerateAiDraft = useCallback(async (notes) => {
     setAiDraftGenerating(true);
     setAiDraftNotes(notes);
+    setAiDraft(null);
+    setShowAiScopeAssumptionsModal(false);
+    setShowAiDraftReviewModal(false);
+    setShowAiSavedPricingModal(false);
     setAiClarifyQuestions(null);
     aiSavedPricingAutoRef.current = null;
     try {

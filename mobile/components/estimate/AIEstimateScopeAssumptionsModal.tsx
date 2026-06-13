@@ -448,6 +448,20 @@ function QuantitySection({
     quantityNeededLabel(itemId, templateKey, rule.defaultUnit);
 
   if (resolved.pricingReady && !isEditingQuantity) {
+    if (__DEV__ && itemId === 'demo') {
+      const raw = measurementsInput.itemQuantities || {};
+      console.log('🧮 Demo quantity render', {
+        rawDemo: raw.demo,
+        resolved: {
+          quantity: resolved.quantity,
+          unit: resolved.unit,
+          source: resolved.quantitySource,
+          label: resolved.sourceLabel,
+        },
+        hasNotes: Boolean(originalNotes?.trim()),
+      });
+    }
+
     if (resolved.combinedAllowanceRole === 'included_in_combined') {
       const combinedTotal = resolved.combinedAllowanceTotal ?? resolved.quantity ?? 0;
       return (
@@ -1246,6 +1260,19 @@ export default function AIEstimateScopeAssumptionsModal({
       );
     }
   }, [visible, draftScopeRestoreKey, checklist?.templateKey, draft]);
+
+  useEffect(() => {
+    if (visible) return;
+    setItems([]);
+    setMeasurements({
+      ...emptyQuickMeasurementInput(),
+      itemQuantities: {},
+    });
+    setCollapsedGroups({});
+    setQuickMeasurementsOpen(false);
+    setCustomItemLabel('');
+    setShowCustomItemInput(false);
+  }, [visible]);
 
   // Keep rate-pricing subkeys in form state whenever notes are available (handles hot reload / stale saves).
   useEffect(() => {
