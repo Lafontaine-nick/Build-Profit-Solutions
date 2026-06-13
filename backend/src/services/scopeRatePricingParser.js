@@ -6,7 +6,7 @@
 const { splitNoteClauses } = require('./estimateDraftQuantityPrice');
 
 const UNIT_DENOMS = {
-  sqft: '(?:sq\\.?\\s*ft\\.?|sqft|\\bsf\\b|square\\s+(?:foot|feet))',
+  sqft: '(?:sq\\.?\\s*ft\\.?|sqft|\\bsf\\b|ft\\.?\\s*(?:²|2\\b|\\?)|square\\s+(?:foot|feet))',
   lf: '(?:lf|linear\\s+(?:foot|feet)|linear\\s+ft|ln\\s*ft)',
   cy: '(?:cy|cubic\\s+yards?)',
   ton: '(?:tons?)',
@@ -18,13 +18,38 @@ const RATE_UNIT = new RegExp(
 );
 const PER = '(?:\\/|per|a|@)\\s*(?:the\\s+)?';
 const MONEY = '[\\$]?';
+const NUMBER_WORDS = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+};
+const RATE_AMOUNT = `(?:\\d[\\d,]*(?:\\.\\d+)?|${Object.keys(NUMBER_WORDS).join('|')})`;
 
 /** @type {Record<string, keyof import('./scopeMeasurementParser').ParsedScopeMeasurements>} */
 const ITEM_RATE_MEASUREMENT = {
   backsplash: { key: 'backsplashSqft', unit: 'sqft', split: true },
   paint: { key: 'wallPaintSqft', unit: 'sqft', split: true },
+  shower_tile: { key: 'showerWallTileSqft', unit: 'sqft', split: true },
   interior_paint: { key: 'wallPaintSqft', unit: 'sqft' },
   exterior_paint: { key: 'exteriorPaintSqft', unit: 'sqft' },
+  floor_demo: { keys: ['floorAreaSqft', 'kitchenFloorSqft', 'bathroomFloorSqft'], unit: 'sqft' },
   flooring: { keys: ['kitchenFloorSqft', 'floorAreaSqft', 'bathroomFloorSqft'], unit: 'sqft' },
   floor_tile: { keys: ['bathroomFloorSqft', 'kitchenFloorSqft', 'floorAreaSqft'], unit: 'sqft' },
   drywall: { key: 'drywallSqft', unit: 'sqft' },
@@ -46,12 +71,19 @@ const ITEM_RATE_MEASUREMENT = {
 };
 
 function parseRateToken(raw) {
-  const n = Number(String(raw || '').replace(/,/g, ''));
+  const normalized = String(raw || '').trim().toLowerCase();
+  if (NUMBER_WORDS[normalized]) return NUMBER_WORDS[normalized];
+  const n = Number(normalized.replace(/,/g, ''));
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function splitRateClauses(text) {
   const raw = splitNoteClauses(text)
+    .flatMap((clause) =>
+      clause.split(
+        /\b(?:next|then|also(?:\s+we\s+have)?)\s+(?=(?:install|baseboard|trim|flooring|lvp|laminate|vinyl|carpet)\b)/i
+      )
+    )
     .flatMap((clause) =>
       clause.split(/,\s+(?=(?:paint|primer|demo|demolition|cabinet|countertop|flooring|drywall|shingle|roof|concrete|deck|landscape|excavat|plumb|electrical)\b|[a-z])/i)
     )
@@ -61,7 +93,7 @@ function splitRateClauses(text) {
   for (const clause of raw) {
     if (
       merged.length &&
-      /^(?:materials?|labor)\b|\$\s*\d[\d,]*(?:\.\d+)?\s*(?:\/|per|a|@)?/i.test(clause) &&
+      /^(?:(?:and\s+)?(?:the\s+)?(?:materials?|material\s+(?:cost|price)|labor(?:\s+(?:cost|price))?)\b)|\$\s*\d[\d,]*(?:\.\d+)?\s*(?:\/|per|a|@)?/i.test(clause) &&
       !RATE_PRICING_MATCHERS.some((matcher) => matcher.match.test(clause))
     ) {
       merged[merged.length - 1] = `${merged[merged.length - 1]}, ${clause}`;
@@ -104,18 +136,24 @@ function extractUnitRates(clause, unit = 'sqft') {
 
   pushRateMatches(
     clause,
-    new RegExp(`\\bmaterials?\\s*${MONEY}\\s*(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:${PER}${denom}|${denom})\\b`, 'gi'),
+    new RegExp(
+      `\\b(?:materials?|material\\s+(?:cost|price))\\s*(?:is\\s*)?${MONEY}\\s*(${RATE_AMOUNT})\\s*(?:dollars?\\s*)?(?:${PER}${denom}|${denom})\\b`,
+      'gi'
+    ),
     materialRates
   );
   pushRateMatches(
     clause,
-    new RegExp(`\\blabor\\s*${MONEY}\\s*(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:${PER})?${denom}\\b`, 'gi'),
+    new RegExp(
+      `\\blabor(?:\\s+(?:cost|price))?\\s*(?:is\\s*)?${MONEY}\\s*(${RATE_AMOUNT})\\s*(?:dollars?\\s*)?(?:${PER})?${denom}\\b`,
+      'gi'
+    ),
     laborBeforePrice
   );
   pushRateMatches(
     clause,
     new RegExp(
-      `\\$\\s*(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:${PER})?${denom}\\s*labor\\b${laborSuffixTail}`,
+      `\\$\\s*(${RATE_AMOUNT})\\s*(?:dollars?\\s*)?(?:${PER})?${denom}\\s*(?:for\\s+)?labor\\b${laborSuffixTail}`,
       'gi'
     ),
     laborSuffix
@@ -123,14 +161,14 @@ function extractUnitRates(clause, unit = 'sqft') {
   pushRateMatches(
     clause,
     new RegExp(
-      `\\$\\s*(\\d[\\d,]*(?:\\.\\d+)?)\\s+(?:${denom})\\s*labor\\b${laborSuffixTail}`,
+      `\\$\\s*(${RATE_AMOUNT})\\s+(?:dollars?\\s*)?(?:${denom})\\s*(?:for\\s+)?labor\\b${laborSuffixTail}`,
       'gi'
     ),
     laborSuffix
   );
   pushRateMatches(
     clause,
-    new RegExp(`\\$\\s*(\\d[\\d,]*(?:\\.\\d+)?)\\s*(?:${PER})?${denom}\\b`, 'gi'),
+    new RegExp(`\\$\\s*(${RATE_AMOUNT})\\s*(?:dollars?\\s*)?(?:${PER})?${denom}\\b`, 'gi'),
     generalRates
   );
 
@@ -183,6 +221,37 @@ function quantityForItem(itemId, measurements) {
   return { quantity: null, unit: config.unit || null };
 }
 
+function quantityFromClauseForUnit(clause, unit) {
+  const denom = unitDenomFor(unit);
+  const re = new RegExp(`\\b(\\d[\\d,]*(?:\\.\\d+)?)\\s*${denom}\\b`, 'gi');
+  let m;
+  while ((m = re.exec(clause)) !== null) {
+    const before = clause.slice(Math.max(0, m.index - 6), m.index);
+    if (/\$\s*$/.test(before)) continue;
+    const quantity = Number(String(m[1]).replace(/,/g, ''));
+    if (Number.isFinite(quantity) && quantity > 0) {
+      return quantity;
+    }
+  }
+  return null;
+}
+
+function explicitQuantityForMatchedClause(itemId, clause) {
+  const config = ITEM_RATE_MEASUREMENT[itemId];
+  if (!config) return null;
+
+  const units = [];
+  if (config.unit) units.push(config.unit);
+  if (config.units?.length) units.push(...config.units);
+
+  for (const unit of [...new Set(units)]) {
+    const quantity = quantityFromClauseForUnit(clause, unit);
+    if (quantity) return { quantity, unit };
+  }
+
+  return null;
+}
+
 function ratePricingItemIdFromKey(key) {
   const match = String(key || '').match(/^(.+)__(?:material|labor|allowance)$/);
   return match ? match[1] : null;
@@ -218,14 +287,14 @@ function buildRatePricingEntries(itemId, quantity, rates, options = {}) {
   if (total <= 0) return {};
 
   const out = {};
-  if (options.split && materialTotal > 0) {
+  if (materialTotal > 0) {
     out[`${itemId}__material`] = {
       quantity: materialTotal,
       unit: 'allowance',
       quantitySource: 'notes',
     };
   }
-  if (options.split && laborTotal > 0) {
+  if (laborTotal > 0) {
     out[`${itemId}__labor`] = {
       quantity: laborTotal,
       unit: 'allowance',
@@ -253,6 +322,10 @@ const RATE_PRICING_MATCHERS = [
     exclude: /\b(exterior)\b/i,
   },
   {
+    id: 'shower_tile',
+    match: /\b(shower\s+wall\s+tile|shower\s+tile|tile\s+shower)\b/i,
+  },
+  {
     id: 'interior_paint',
     match: /\b(interior\s+paint|paint\s+(?:walls|interior))\b/i,
     exclude: /\b(exterior)\b/i,
@@ -260,6 +333,10 @@ const RATE_PRICING_MATCHERS = [
   {
     id: 'exterior_paint',
     match: /\b(exterior\s+paint|paint\s+exterior)\b/i,
+  },
+  {
+    id: 'floor_demo',
+    match: /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b.*\b(?:tile|floor|flooring|lvp|vinyl|laminate|carpet)\b|\b(?:tile|floor|flooring|lvp|vinyl|laminate|carpet)\b.*\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i,
   },
   {
     id: 'flooring',
@@ -310,7 +387,8 @@ function parseScopeItemRatePricingFromNotes(notes, measurements = {}, ctx = {}) 
     for (const matcher of RATE_PRICING_MATCHERS) {
       if (!clauseMatchesMatcher(clause, matcher)) continue;
 
-      const { quantity, unit } = quantityForItem(matcher.id, measurements);
+      const { quantity, unit } =
+        explicitQuantityForMatchedClause(matcher.id, clause) || quantityForItem(matcher.id, measurements);
       if (!quantity || !unit) continue;
       const rates = extractUnitRates(clause, unit);
       if (!rates.materialRate && !rates.laborRate && !rates.generalRate) continue;
@@ -331,7 +409,7 @@ function parseScopeItemRatePricingFromNotes(notes, measurements = {}, ctx = {}) 
 
 function resolveItemRatePricingFromNotes(itemId, measurements, notes, ctx = {}) {
   const entries = parseScopeItemRatePricingFromNotes(notes, measurements, ctx);
-  const totalEntry = entries[`${itemId}__allowance`];
+  const totalEntry = entries[`${itemId}__allowance`] || entries[itemId];
   if (!totalEntry?.quantity) return null;
   return {
     material: entries[`${itemId}__material`]?.quantity ?? null,

@@ -75,6 +75,16 @@ export const DUAL_QUANTITY_FIELD_LABELS: Record<
     countUnit: 'sqft',
     allowance: 'Calculated total ($)',
   },
+  shower_tile: {
+    count: 'Shower wall tile area',
+    countUnit: 'sqft',
+    allowance: 'Calculated total ($)',
+  },
+  flooring: {
+    count: 'Flooring area',
+    countUnit: 'sqft',
+    allowance: 'Calculated total ($)',
+  },
 };
 
 export type NormalizedScopeMeasurements = {
@@ -133,14 +143,14 @@ export type ResolvedItemQuantity = {
 export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule> = {
   demo: {
     defaultUnit: 'sqft',
-    allowedUnits: ['sqft'],
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     aggregateMeasurementKeys: ['bathroomFloorSqft', 'showerWallTileSqft', 'showerFloorTileSqft'],
     canUseRoomSqft: true,
     quantityHelper: 'Sums bathroom floor + shower walls + shower floor for full tear-out.',
   },
   floor_demo: {
     defaultUnit: 'sqft',
-    allowedUnits: ['sqft'],
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKeys: ['bathroomFloorSqft', 'showerFloorTileSqft', 'kitchenFloorSqft', 'floorAreaSqft'],
     canUseRoomSqft: true,
     quantityHelper: 'Uses bathroom floor sqft for floor removal.',
@@ -164,6 +174,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     allowedUnits: ['sqft'],
     measurementKey: 'showerWallTileSqft',
     requiresUserQuantity: true,
+    dualAllowanceField: true,
     quantityHelper: 'Enter shower wall tile sqft — not bathroom floor sqft.',
     missingMessage: 'Enter shower wall tile sqft.',
   },
@@ -177,7 +188,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
   },
   floor_tile: {
     defaultUnit: 'sqft',
-    allowedUnits: ['sqft'],
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKey: 'bathroomFloorSqft',
     canUseRoomSqft: true,
     quantityHelper: 'Uses bathroom floor sqft.',
@@ -307,7 +318,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
   },
   trim: {
     defaultUnit: 'lf',
-    allowedUnits: ['lf'],
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
     measurementKey: 'baseboardLf',
     requiresUserQuantity: true,
     quantityHelper: 'Linear feet around bathroom perimeter.',
@@ -383,8 +394,9 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
   },
   flooring: {
     defaultUnit: 'sqft',
-    allowedUnits: ['sqft'],
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKeys: ['kitchenFloorSqft', 'bathroomFloorSqft', 'floorAreaSqft'],
+    dualAllowanceField: true,
     requiresUserQuantity: true,
     quantityHelper: 'Enter kitchen or room floor sqft.',
     missingMessage: 'Enter floor sqft.',
@@ -711,7 +723,7 @@ const KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRul
   },
   floor_demo: {
     defaultUnit: 'sqft',
-    allowedUnits: ['sqft'],
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKeys: ['kitchenFloorSqft', 'floorAreaSqft'],
     requiresUserQuantity: true,
     quantityHelper: 'Enter kitchen floor sqft for flooring removal.',
@@ -759,13 +771,14 @@ export function syncDualAllowanceSqftFields(
   input: ScopeMeasurementsInputExtended
 ): ScopeMeasurementsInputExtended {
   const next = { ...input };
-  const sync = (itemId: string, field: 'backsplashSqft' | 'wallPaintSqft') => {
+  const sync = (itemId: string, field: 'backsplashSqft' | 'wallPaintSqft' | 'showerWallTileSqft') => {
     if (parseScopeMeasurementInput(String(next[field] ?? ''))) return;
     const q = sqftFromItemQuantities(input, itemId);
     if (q) next[field] = String(q);
   };
   sync('backsplash', 'backsplashSqft');
   sync('paint', 'wallPaintSqft');
+  sync('shower_tile', 'showerWallTileSqft');
   return next;
 }
 
@@ -775,6 +788,7 @@ function measurementsForRatePricing(
   return {
     backsplashSqft: measurements.backsplashSqft ?? sqftFromItemQuantities(measurements, 'backsplash'),
     wallPaintSqft: measurements.wallPaintSqft ?? sqftFromItemQuantities(measurements, 'paint'),
+    showerWallTileSqft: measurements.showerWallTileSqft ?? sqftFromItemQuantities(measurements, 'shower_tile'),
     kitchenFloorSqft: measurements.kitchenFloorSqft ?? undefined,
     bathroomFloorSqft: measurements.bathroomFloorSqft ?? undefined,
     floorAreaSqft: measurements.floorAreaSqft ?? undefined,
@@ -808,6 +822,9 @@ function measurementsForRatePricingWithCount(
   if (itemId === 'paint' && !base.wallPaintSqft) {
     return { ...base, wallPaintSqft: countEntry.quantity };
   }
+  if (itemId === 'shower_tile' && !base.showerWallTileSqft) {
+    return { ...base, showerWallTileSqft: countEntry.quantity };
+  }
   return base;
 }
 
@@ -826,6 +843,9 @@ function measurementsPayloadForRatePricing(
     wallPaintSqft:
       parseScopeMeasurementInput(synced.wallPaintSqft) ??
       sqftFromItemQuantities(synced, 'paint'),
+    showerWallTileSqft:
+      parseScopeMeasurementInput(synced.showerWallTileSqft) ??
+      sqftFromItemQuantities(synced, 'shower_tile'),
     kitchenFloorSqft: parseScopeMeasurementInput(input.kitchenFloorSqft) ?? undefined,
     bathroomFloorSqft: parseScopeMeasurementInput(input.bathroomFloorSqft) ?? undefined,
     floorAreaSqft: parseScopeMeasurementInput(input.floorAreaSqft) ?? undefined,
@@ -855,6 +875,7 @@ export function sanitizeMistakenUnitRateAllowances(
   const checks: Array<{ itemId: string; sqftKey: keyof ScopeMeasurementsInputExtended }> = [
     { itemId: 'backsplash', sqftKey: 'backsplashSqft' },
     { itemId: 'paint', sqftKey: 'wallPaintSqft' },
+    { itemId: 'shower_tile', sqftKey: 'showerWallTileSqft' },
   ];
   for (const { itemId, sqftKey } of checks) {
     const sqft =
@@ -981,7 +1002,9 @@ function withRatePricingHydratedFromNotes(
       ? ratePayload.wallPaintSqft ?? null
       : itemId === 'backsplash'
         ? ratePayload.backsplashSqft ?? null
-        : null;
+        : itemId === 'shower_tile'
+          ? ratePayload.showerWallTileSqft ?? null
+          : null;
 
   const itemQuantities = { ...measurements.itemQuantities };
   for (const [key, val] of Object.entries(parsed)) {
@@ -1148,6 +1171,14 @@ export function resolveDualRatePricingDisplayFromNotes(
       String(measurementsInput[rule.measurementKey as keyof ScopeMeasurementsInputExtended] ?? '')
     );
   }
+  if (!sqft && rule.measurementKeys?.length) {
+    for (const key of rule.measurementKeys) {
+      sqft = parseScopeMeasurementInput(
+        String(measurementsInput[key as keyof ScopeMeasurementsInputExtended] ?? '')
+      );
+      if (sqft) break;
+    }
+  }
   sqft = sqft ?? sqftFromItemQuantities(measurementsInput, itemId) ?? null;
   if (!sqft) return null;
 
@@ -1155,6 +1186,8 @@ export function resolveDualRatePricingDisplayFromNotes(
     ...measurementsInput,
     ...(itemId === 'backsplash' ? { backsplashSqft: String(sqft) } : {}),
     ...(itemId === 'paint' ? { wallPaintSqft: String(sqft) } : {}),
+    ...(itemId === 'shower_tile' ? { showerWallTileSqft: String(sqft) } : {}),
+    ...(itemId === 'flooring' ? { floorAreaSqft: String(sqft) } : {}),
   };
 
   const breakdown = resolveItemRatePricingFromNotes(
@@ -2019,6 +2052,16 @@ export function initialScopeMeasurementInputExtended(
     return '';
   };
 
+  const hasBaseboardNotes = /\b(baseboards?|trim|crown|moulding|molding|casing)\b/i.test(scopeNotes);
+  const pickBaseboardLf = () => {
+    if (!hasBaseboardNotes) return '';
+    const fromNotes =
+      parsedFromNotes.baseboardLf ??
+      suggested?.baseboardLf;
+    if (fromNotes != null && Number(fromNotes) > 0) return String(fromNotes);
+    return pick('baseboardLf') || (saved?.lf ? String(saved.lf) : parsed.lf ? String(parsed.lf) : '');
+  };
+
   const base = emptyQuickMeasurementInput();
   let result: ScopeMeasurementsInputExtended = {
     ...base,
@@ -2043,8 +2086,7 @@ export function initialScopeMeasurementInputExtended(
     deckSqft: pick('deckSqft'),
     exteriorPaintSqft: pick('exteriorPaintSqft'),
     railingLf: pick('railingLf'),
-    baseboardLf:
-      pick('baseboardLf') || (saved?.lf ? String(saved.lf) : parsed.lf ? String(parsed.lf) : ''),
+    baseboardLf: pickBaseboardLf(),
     showerWallTileSqft: pick('showerWallTileSqft'),
     showerFloorTileSqft: pick('showerFloorTileSqft'),
     wallPaintSqft: pick('wallPaintSqft'),

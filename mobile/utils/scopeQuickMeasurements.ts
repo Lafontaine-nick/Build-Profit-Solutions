@@ -45,6 +45,58 @@ const F = (
   placeholder: string
 ): QuickMeasurementFieldDef => ({ key, label, placeholder });
 
+const QUICK_MEASUREMENT_FIELD_DEFS: Record<QuickMeasurementFieldKey, QuickMeasurementFieldDef> = {
+  bathroomFloorSqft: F('bathroomFloorSqft', 'Bathroom floor sqft', 'e.g. 90'),
+  kitchenFloorSqft: F('kitchenFloorSqft', 'Kitchen floor sqft', 'e.g. 180'),
+  floorAreaSqft: F('floorAreaSqft', 'Floor area sqft', 'e.g. 1200'),
+  backsplashSqft: F('backsplashSqft', 'Backsplash sqft', 'e.g. 40'),
+  countertopSqft: F('countertopSqft', 'Countertop sqft', 'e.g. 55'),
+  cabinetLf: F('cabinetLf', 'Cabinet run LF', 'e.g. 24'),
+  showerWallTileSqft: F('showerWallTileSqft', 'Shower wall sqft', 'e.g. 90'),
+  showerFloorTileSqft: F('showerFloorTileSqft', 'Shower floor sqft', 'e.g. 15'),
+  wallPaintSqft: F('wallPaintSqft', 'Wall/ceiling paint sqft', 'e.g. 320'),
+  exteriorPaintSqft: F('exteriorPaintSqft', 'Exterior paint sqft', 'e.g. 2200'),
+  baseboardLf: F('baseboardLf', 'Baseboard linear feet', 'e.g. 48'),
+  railingLf: F('railingLf', 'Railing linear feet', 'e.g. 48'),
+  landscapeSqft: F('landscapeSqft', 'General coverage sqft', 'e.g. 1200'),
+  sodSqft: F('sodSqft', 'Sod / turf sqft', 'e.g. 900'),
+  paverSqft: F('paverSqft', 'Paver sqft', 'e.g. 180'),
+  rockMulchSqft: F('rockMulchSqft', 'Rock / mulch sqft', 'e.g. 600'),
+  landscapeTons: F('landscapeTons', 'Rock / mulch tons', 'e.g. 12'),
+  roofSquares: F('roofSquares', 'Roof squares', 'e.g. 28'),
+  drywallSqft: F('drywallSqft', 'Drywall sqft', 'e.g. 800'),
+  concreteSqft: F('concreteSqft', 'Concrete sqft', 'e.g. 400'),
+  concreteCy: F('concreteCy', 'Concrete CY', 'e.g. 12'),
+  excavationCy: F('excavationCy', 'Excavation CY', 'e.g. 45'),
+  deckSqft: F('deckSqft', 'Deck surface sqft', 'e.g. 320'),
+};
+
+const NOTE_BACKED_QUICK_FIELD_ORDER: QuickMeasurementFieldKey[] = [
+  'showerWallTileSqft',
+  'showerFloorTileSqft',
+  'railingLf',
+  'landscapeTons',
+  'rockMulchSqft',
+  'deckSqft',
+  'roofSquares',
+  'concreteSqft',
+  'concreteCy',
+  'excavationCy',
+  'sodSqft',
+  'paverSqft',
+  'floorAreaSqft',
+  'bathroomFloorSqft',
+  'kitchenFloorSqft',
+  'backsplashSqft',
+  'countertopSqft',
+  'cabinetLf',
+  'wallPaintSqft',
+  'exteriorPaintSqft',
+  'drywallSqft',
+  'baseboardLf',
+  'landscapeSqft',
+];
+
 export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]> = {
   bathroom: [
     row(
@@ -167,6 +219,46 @@ export function quickMeasurementRowsForTemplate(
 ): QuickMeasurementRow[] {
   const key = resolveQuickMeasurementTemplateKey(templateKey, projectType);
   return SCOPE_QUICK_MEASUREMENT_ROWS[key] || SCOPE_QUICK_MEASUREMENT_ROWS.room_remodel;
+}
+
+function hasQuickMeasurementValue(value: unknown): boolean {
+  const n = Number(String(value ?? '').replace(/,/g, '').trim());
+  return Number.isFinite(n) && n > 0;
+}
+
+function chunkRows(fields: QuickMeasurementFieldDef[]): QuickMeasurementRow[] {
+  const rows: QuickMeasurementRow[] = [];
+  for (let i = 0; i < fields.length; i += 2) {
+    rows.push(fields.slice(i, i + 2));
+  }
+  return rows;
+}
+
+export function quickMeasurementRowsForInput(
+  templateKey: string | null | undefined,
+  projectType: string | null | undefined,
+  measurements: Partial<Record<QuickMeasurementFieldKey, string | number | null | undefined>>,
+  noteBackedKeys?: Iterable<QuickMeasurementFieldKey>
+): QuickMeasurementRow[] {
+  const resolvedKey = resolveQuickMeasurementTemplateKey(templateKey, projectType);
+  const noteKeySet = noteBackedKeys ? new Set(noteBackedKeys) : null;
+  const baseRows = quickMeasurementRowsForTemplate(templateKey, projectType);
+  const baseKeys = new Set(baseRows.flatMap((r) => r.map((f) => f.key)));
+  const extraFields = NOTE_BACKED_QUICK_FIELD_ORDER
+    .filter((key) => !baseKeys.has(key) && (!noteKeySet || noteKeySet.has(key)) && hasQuickMeasurementValue(measurements[key]))
+    .map((key) => QUICK_MEASUREMENT_FIELD_DEFS[key]);
+
+  if (resolvedKey === 'room_remodel') {
+    const valuedBaseFields = baseRows
+      .flatMap((r) => r)
+      .filter((field) => (!noteKeySet || noteKeySet.has(field.key)) && hasQuickMeasurementValue(measurements[field.key]));
+    const noteRows = chunkRows([...valuedBaseFields, ...extraFields]);
+    return noteRows.length ? noteRows : baseRows;
+  }
+
+  if (!extraFields.length) return baseRows;
+
+  return [...baseRows, ...chunkRows(extraFields)];
 }
 
 export function emptyQuickMeasurementInput(): Record<QuickMeasurementFieldKey, string> {

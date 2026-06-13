@@ -35,7 +35,7 @@ export type ParsedScopeMeasurements = {
   itemQuantities?: Record<string, ScopeItemQuantity>;
 };
 
-const SQFT_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|ft\.?\s*²|square\s+(?:foot|feet))/gi;
+const SQFT_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|ft\.?\s*(?:²|2\b|\?)|square\s+(?:foot|feet))/gi;
 const LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|linear\s+ft)/gi;
 const CY_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:cy|cubic\s+yards?)/gi;
 const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)\s*squares?\b/gi;
@@ -144,9 +144,20 @@ export function parseScopeMeasurementsFromNotes(
     return null;
   };
 
+  const firstGenericBathroomSqft = () => {
+    if (!/\bbath(?:room)?\s+remodel\b/.test(blob) || /\bkitchen\b/.test(blob)) return null;
+    for (const clause of clauses) {
+      const c = clause.toLowerCase();
+      if (/\b(shower|wall|ceiling|backsplash|countertop|paint)\b/.test(c)) continue;
+      const q = firstQty(clause, SQFT_RE);
+      if (q) return q;
+    }
+    return null;
+  };
+
   const bathFloor =
     pickSqftFromClauses([/\bbath(?:room)?\s+floor\b/, /\bbath(?:room)?\b.*\bfloor(?:ing)?\b/]) ||
-    (/\bbath(?:room)?\s+remodel\b/.test(blob) && !/\bkitchen\b/.test(blob) ? firstQty(text, SQFT_RE) : null);
+    firstGenericBathroomSqft();
   if (bathFloor) out.bathroomFloorSqft = bathFloor;
 
   const kitchenFloor = pickSqftFromClauses([
@@ -234,7 +245,7 @@ export function parseScopeMeasurementsFromNotes(
     let max = 0;
     for (const clause of clauses) {
       const c = clause.toLowerCase();
-      if (/\bbaseboard\b|\bback\s*splash|backsplash|\bcountertop|\bpaint\b/.test(c)) continue;
+      if (/\bbaseboard\b|\bback\s*splash|backsplash|\bcountertop|\bpaint\b|\bshower\b/.test(c)) continue;
       if (!/\b(demo|install|removal|laminate|tile|lvp|vinyl|flooring|floor)\b/.test(c)) continue;
       const q = firstQty(clause, SQFT_RE);
       if (q && q > max) max = q;

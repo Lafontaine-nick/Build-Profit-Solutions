@@ -292,6 +292,48 @@ const CHECKLIST_TEMPLATES = {
     ],
   },
 
+  flooring: {
+    title: 'Flooring — confirm project scope',
+    intro: 'Confirm flooring scope before pricing.',
+    items: [
+      {
+        id: 'floor_demo',
+        inputType: 'yes_no',
+        label: 'Flooring demo / removal',
+        helperText: 'Remove existing tile, LVP, vinyl, carpet, or flooring.',
+        category: 'demo',
+      },
+      {
+        id: 'flooring',
+        inputType: 'yes_no',
+        label: 'Flooring install',
+        helperText: 'New flooring material and installation labor.',
+        category: 'flooring',
+      },
+      {
+        id: 'floor_prep',
+        inputType: 'yes_no',
+        label: 'Subfloor / floor prep',
+        helperText: 'Leveling, patching, underlayment, or repair before flooring.',
+        category: 'flooring',
+      },
+      {
+        id: 'trim',
+        inputType: 'yes_no',
+        label: 'Trim & baseboard install',
+        helperText: 'Trim/baseboard labor and materials.',
+        category: 'trim',
+      },
+      {
+        id: 'cleanup',
+        inputType: 'yes_no',
+        label: 'Cleanup, haul-off & disposal',
+        helperText: 'Final clean, debris haul-off, dump fees.',
+        category: 'closeout',
+      },
+    ],
+  },
+
   landscaping: {
     title: 'Landscaping — confirm project scope',
     intro: 'Confirm landscaping scope before pricing.',
@@ -535,11 +577,14 @@ const CHECKLIST_YES_HINTS = {
   demo: /\b(demo|demolition|tear\s*out|gut|remove)\b/,
   appliance_removal:
     /\b(remove|disconnect|pull|haul).*\b(appliance|ridge|dishwasher|range|refrigerator|oven|microwave|hood)\b|\b(appliance|ridge|dishwasher|range|refrigerator)\b.*\b(remove|disconnect|pull|haul)\b/,
-  floor_demo: /\b(floor\s+demo|remove\s+(?:floor|tile|lvp|vinyl|flooring|kitchen\s+floor))\b/,
+  floor_demo:
+    /\b(floor\s+demo|demo\s+(?:existing\s+)?(?:floor|tile|lvp|vinyl|flooring)|remove\s+(?:floor|tile|lvp|vinyl|flooring|kitchen\s+floor))\b/,
+  flooring:
+    /\b(lvp|laminate|vinyl|carpet|flooring|floor\s+tile|tile\s+floor)\b.*\binstall(?:ation)?\b|\binstall(?:ation)?\b.*\b(lvp|laminate|vinyl|carpet|flooring|floor\s+tile|tile\s+floor)\b/,
   tub_demo: /\b(remove|demo|tear[\s-]?out|rip[\s-]?out).*\b(tub|bathtub)\b|\b(tub|bathtub)\b.*\b(remove|demo|tear[\s-]?out)\b/,
   shower_floor_demo:
     /\b(remove|demo|tear[\s-]?out).*\b(shower\s+(?:pan|floor|base)|pan\s+insert|mud\s+pan)\b|\b(shower\s+(?:pan|floor|base)|prefab\s+pan)\b.*\b(remove|demo|tear[\s-]?out)\b/,
-  shower_tile: /\b(shower\s+tile|tile\s+shower|new\s+shower\s+tile)\b/,
+  shower_tile: /\b(shower\s+wall\s+tile|shower\s+tile|tile\s+shower|new\s+shower\s+tile)\b/,
   wet_area_install: /\b(tub\s+install|new\s+tub|shower\s+pan|prefab\s+pan|tile\s+pan|mud\s+pan|tub[\s-]to[\s-]shower)\b/,
   shower_floor_tile: /\b(shower\s+floor\s+tile|tile\s+shower\s+floor)\b/,
   shower_niche: /\b(shower\s+niche|tile\s+niche|niche)\b/,
@@ -572,6 +617,7 @@ const CHECKLIST_YES_HINTS = {
   ductwork: /\b(duct(?:work)?|ducting)\b/,
   decking: /\b(deck(?:ing)?|composite\s+deck)\b/,
   railing: /\b(rail(?:ing)?|guardrail)\b/,
+  trim: /\b(baseboard|trim|crown|moulding|molding|casing)\b/,
   pour_flatwork: /\b(concrete\s+patio|slab|flatwork|sidewalk|driveway)\b/,
   trenching: /\b(trench(?:ing)?|utility\s+trench)\b/,
   hang: /\b(hang\s+drywall|drywall\s+hang)\b/,
@@ -600,6 +646,12 @@ function checklistTemplateKey(draft, estimateTier) {
 
   if (projectType === 'bathroom' || /\bbath(?:room)?\s+remodel\b/i.test(notes)) return 'bathroom';
   if (projectType === 'kitchen' || /\bkitchen\s+remodel\b/i.test(notes)) return 'kitchen';
+  if (
+    projectType === 'flooring' ||
+    /\b(lvp|laminate|vinyl|carpet|flooring\s+(?:install|job)|floor\s+demo|baseboard)\b/i.test(notes)
+  ) {
+    return 'flooring';
+  }
   if (
     projectType === 'landscaping' ||
     /\b(landscap(?:e|ing)|irrigation|sod|mulch|pavers|grading)\b/i.test(notes)

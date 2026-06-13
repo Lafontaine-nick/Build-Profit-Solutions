@@ -4,12 +4,12 @@
  */
 
 const UNIT_RATE_AFTER_RE =
-  /^\s*(?:\/|per|a|@)\s*(?:the\s+)?(?:sq\.?\s*ft\.?|sqft|sf|square\s+(?:foot|feet)|lf|ln|hr|hour|each|ea)\b/i;
+  /^\s*(?:dollars?\s*)?(?:(?:\/|per|a|@)\s*(?:the\s+)?)?(?:sq\.?\s*ft\.?|sqft|sf|square\s+(?:foot|feet)|lf|ln|hr|hour|each|ea)\b/i;
 
 /** Keep compound labels intact (e.g. "cabinets and counters $28,629") — do not split on "and". */
 function splitAllowanceClauses(text) {
   return String(text || '')
-    .split(/[\n;]+/)
+    .split(/(?<!\d)\.\s+|[\n;]+/)
     .map((s) => s.trim())
     .filter(Boolean);
 }
@@ -91,6 +91,12 @@ const ITEM_ALLOWANCE_MATCHERS = [
     id: 'paint',
     match: /\b(paint(?:ing)?|primer)\b/i,
     exclude: /\b(exterior|\/|per\s+sq|square\s+(?:foot|feet))/i,
+    unit: 'allowance',
+  },
+  {
+    id: 'floor_tile',
+    match: /\b(floor\s+tile|tile\s+floor)\b/i,
+    exclude: /\b(demo|demolition|\/|per\s+sq|square\s+(?:foot|feet))/i,
     unit: 'allowance',
   },
   {
@@ -176,8 +182,37 @@ function extractAmountPositions(clause) {
   return positions;
 }
 
+function pickExplicitDemoAmount(clause) {
+  const text = String(clause || '');
+  const demoRe =
+    /\b(?:demo|demolition|tear[\s-]?out|gut|haul[\s-]?off|remove\s+(?:old\s+)?cabinets?)\b/gi;
+  const dollarRe = /\$\s*(\d[\d,]*(?:\.\d+)?)\s*([kK])?/g;
+  let demoMatch;
+
+  while ((demoMatch = demoRe.exec(text)) !== null) {
+    const searchStart = demoMatch.index + demoMatch[0].length;
+    const searchEnd = Math.min(text.length, searchStart + 140);
+    dollarRe.lastIndex = searchStart;
+    let dollarMatch;
+
+    while ((dollarMatch = dollarRe.exec(text)) !== null && dollarMatch.index <= searchEnd) {
+      const after = text.slice(dollarMatch.index + dollarMatch[0].length, dollarMatch.index + dollarMatch[0].length + 24);
+      if (UNIT_RATE_AFTER_RE.test(after)) continue;
+      const amt = parseAmountToken(dollarMatch[1], dollarMatch[2]);
+      if (amt) return amt;
+    }
+  }
+
+  return null;
+}
+
 /** Pick the dollar amount closest to this matcher’s hit — not the largest in the clause. */
 function pickAmountForMatcher(clause, matcher) {
+  if (matcher.id === 'demo') {
+    const explicitDemoAmount = pickExplicitDemoAmount(clause);
+    if (explicitDemoAmount) return explicitDemoAmount;
+  }
+
   const re = new RegExp(matcher.match.source, matcher.match.flags);
   const hit = re.exec(clause);
   if (!hit) return null;

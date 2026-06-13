@@ -358,6 +358,72 @@ export function normalizeScopeChecklistItems(
   return applyKitchenScopeInferences(migrated, templateKey, inferenceCtx);
 }
 
+const NOTE_BACKED_SCOPE_COPY: Record<string, { label: string; helperText: string; category?: string }> = {
+  shower_tile: {
+    label: 'Shower Tile',
+    helperText: 'Shower wall tile labor and materials.',
+    category: 'from_notes',
+  },
+  railing: {
+    label: 'Railing / guardrails',
+    helperText: 'Railing labor and materials from notes.',
+    category: 'from_notes',
+  },
+  rock_mulch: {
+    label: 'Rock / mulch',
+    helperText: 'Rock, mulch, or gravel from notes.',
+    category: 'from_notes',
+  },
+  decking: {
+    label: 'Decking / surface install',
+    helperText: 'Deck surface labor and materials from notes.',
+    category: 'from_notes',
+  },
+  concrete: {
+    label: 'Concrete work',
+    helperText: 'Concrete labor and materials from notes.',
+    category: 'from_notes',
+  },
+};
+
+function itemIdFromQuantityKey(key: string): string {
+  return key.replace(/__(?:material|labor|allowance)$/, '');
+}
+
+function injectNoteBackedPricedItems(
+  items: ScopeChecklistItem[],
+  measurements?: NormalizedScopeMeasurements
+): ScopeChecklistItem[] {
+  const itemQuantities = measurements?.itemQuantities || {};
+  const existingIds = new Set(items.map((item) => item.id));
+  const addedIds = new Set<string>();
+  const additions: ScopeChecklistItem[] = [];
+
+  for (const key of Object.keys(itemQuantities)) {
+    const itemId = itemIdFromQuantityKey(key);
+    if (!itemId || existingIds.has(itemId) || addedIds.has(itemId)) continue;
+    if (!getChecklistItemQuantityRule(itemId)) continue;
+
+    const copy = NOTE_BACKED_SCOPE_COPY[itemId] || {
+      label: itemId.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase()),
+      helperText: 'Scope item found in notes.',
+      category: 'from_notes',
+    };
+    additions.push({
+      id: itemId,
+      inputType: 'yes_no',
+      label: copy.label,
+      helperText: copy.helperText,
+      category: copy.category || 'from_notes',
+      state: 'included',
+      noteBacked: true,
+    });
+    addedIds.add(itemId);
+  }
+
+  return additions.length ? [...items, ...additions] : items;
+}
+
 /** Re-apply note hints + kitchen linked allowances on each Confirm Scope open. */
 export function hydrateScopeChecklistFromNotes(
   items: ScopeChecklistItem[],
@@ -365,7 +431,8 @@ export function hydrateScopeChecklistFromNotes(
   notes?: string | null,
   measurements?: NormalizedScopeMeasurements
 ): ScopeChecklistItem[] {
-  const normalized = normalizeScopeChecklistItems(items, templateKey, { notes, measurements });
+  const withNoteBacked = injectNoteBackedPricedItems(items, measurements);
+  const normalized = normalizeScopeChecklistItems(withNoteBacked, templateKey, { notes, measurements });
   return applyScopeInferencesFromNotes(normalized, notes, templateKey, measurements);
 }
 

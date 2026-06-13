@@ -8,7 +8,7 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   tub_demo: /\b(remove|demo|tear[\s-]?out|rip[\s-]?out).*\b(tub|bathtub)\b|\b(tub|bathtub)\b.*\b(remove|demo|tear[\s-]?out)\b/,
   shower_floor_demo:
     /\b(remove|demo|tear[\s-]?out).*\b(shower\s+(?:pan|floor|base)|pan\s+insert|mud\s+pan)\b|\b(shower\s+(?:pan|floor|base)|prefab\s+pan)\b.*\b(remove|demo|tear[\s-]?out)\b/,
-  shower_tile: /\b(shower\s+tile|tile\s+shower|new\s+shower\s+tile)\b/,
+  shower_tile: /\b(shower\s+wall\s+tile|shower\s+tile|tile\s+shower|new\s+shower\s+tile)\b/,
   wet_area_install: /\b(tub\s+install|new\s+tub|shower\s+pan|prefab\s+pan|tile\s+pan|mud\s+pan|tub[\s-]to[\s-]shower)\b/,
   shower_floor_tile: /\b(shower\s+floor\s+tile|tile\s+shower\s+floor)\b/,
   shower_niche: /\b(shower\s+niche|tile\s+niche|niche)\b/,

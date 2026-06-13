@@ -509,7 +509,7 @@ export const PRICING_SOURCE_LABELS: Record<string, string> = {
   saved_template: 'Saved template',
   company_default: 'Vendor',
   supplier_pricing: 'Vendor',
-  national_trade_average: 'Regional',
+  national_trade_average: 'National Average',
   regional_labor_benchmark: 'Regional',
   construction_cost_database: 'Regional',
   ai_rough_estimate_fallback: 'AI rough',
@@ -2674,6 +2674,135 @@ export function buildProposalFromMissingSuggestions(
       ? 'Indicative only. Approve before applying; line items will be labeled AI Rough Estimate.'
       : undefined,
   };
+}
+
+function packageNeedsBudgetSplit(pkg: EstimateDraftScopePackage): boolean {
+  const total = Number(pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0);
+  if (total <= 0) return false;
+  const noteBacked =
+    pkg.status === 'calculated' ||
+    pkg.priceSource === 'notes' ||
+    Boolean((pkg as EstimateDraftScopePackage & { pricedFromSqftAllowances?: boolean }).pricedFromSqftAllowances) ||
+    (pkg.pricingItems || []).some((item) => item.priceSource === 'notes');
+  if (!noteBacked) return false;
+  if ((pkg.materialPrice ?? 0) > 0 || (pkg.laborPrice ?? 0) > 0) return false;
+  if ((pkg.pricingItems || []).some((item) => item.pricingType === 'material' || item.pricingType === 'labor')) {
+    return false;
+  }
+  return true;
+}
+
+/** Build approval-required material/labor budget splits for note-backed lump sums or single total rates. */
+export function buildBudgetSplitProposalFromDraft(draft: EstimateAiDraft): PricingProposal {
+  const scopeItems: PricingScopeItemProposal[] = [];
+  const lines: PricingProposalLine[] = [];
+
+  for (const pkg of getScopePackages(draft)) {
+    if (!packageNeedsBudgetSplit(pkg)) continue;
+
+    const qty = pkg.scopeQuantities?.[0];
+    const trade = inferTradeFromPackage(pkg, draft);
+    const band = NATIONAL_TRADE_AVERAGES_LOCAL[trade];
+    const total = roundMoney(Number(pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0));
+    if (!band || !qty || qty.quantity <= 0 || qty.unit !== band.unit || total <= 0 || band.material <= 0) {
+      continue;
+    }
+
+    const materialTotal = Math.min(total, roundMoney(qty.quantity * band.material));
+    const laborTotal = roundMoney(total - materialTotal);
+    if (materialTotal <= 0 || laborTotal <= 0) continue;
+
+    const rates = [
+      {
+        label: band.materialLabel,
+        pricingType: 'material',
+        rate: band.material,
+        unit: band.unit,
+        quantity: qty.quantity,
+        total: materialTotal,
+        formula: `${qty.quantity.toLocaleString()} ${band.unit.toUpperCase()} × $${band.material}/${band.unit} = $${formatMoney(materialTotal)}`,
+        source: 'national_trade_average',
+        confidence: 'medium',
+        assumptions: [
+          `Suggested material budget split from National Average; original note total stays $${formatMoney(total)}.`,
+        ],
+        requiresApproval: true,
+      },
+      {
+        label: band.laborLabel,
+        pricingType: 'labor',
+        rate: laborTotal,
+        unit: 'lump_sum',
+        quantity: 1,
+        total: laborTotal,
+        formula: `$${formatMoney(total)} note total - $${formatMoney(materialTotal)} suggested materials = $${formatMoney(laborTotal)} labor`,
+        source: 'national_trade_average',
+        confidence: 'medium',
+        assumptions: [
+          `Suggested labor remainder from National Average material split; review before applying to project budget.`,
+        ],
+        requiresApproval: true,
+      },
+    ];
+
+    scopeItems.push({
+      scopeItemId: normalizePackageKey(pkg.name).replace(/\s+/g, '_') || 'budget_split',
+      scopeName: pkg.name,
+      quantity: qty.quantity,
+      unit: qty.unit,
+      proposedRates: rates,
+      comparison: {},
+      recommended: {
+        source: 'national_trade_average',
+        sourceLabel: 'National Average',
+        reason: `Original notes gave a total of $${formatMoney(total)} but did not split material vs labor.`,
+        confidence: 'medium',
+        disclaimerText: 'Suggested split is for internal budget tracking and can be edited before applying.',
+      },
+      warnings: [`Review suggested split; original note total remains $${formatMoney(total)}.`],
+      requiresConfirmBeforeApply: true,
+      reviewStatus: 'needs_approval',
+      autoSelectEligible: false,
+      approvalSubtext: 'National Average suggested split for project budget tracking.',
+    });
+
+    for (const rate of rates) {
+      lines.push({
+        packageName: pkg.name,
+        lineType: rate.pricingType as 'material' | 'labor',
+        label: rate.label,
+        unitType: rate.unit || 'lump_sum',
+        quantity: rate.quantity,
+        unitRate: rate.rate,
+        total: rate.total || 0,
+        formula: rate.formula,
+        priceSource: 'national_trade_average',
+        sourceLabel: 'National Average',
+        confidence: rate.confidence,
+        status: 'rough_price',
+        requiresApproval: true,
+      });
+    }
+  }
+
+  const totalSuggested = lines.reduce((sum, line) => sum + (line.total || 0), 0);
+  return normalizePricingProposal({
+    empty: lines.length === 0,
+    source: 'manual',
+    sourceLabel: 'National Average Budget Split',
+    lines,
+    scopeItems,
+    totalSuggested,
+    pricingMode: 'suggest',
+    message: lines.length ? null : 'No note-backed lump sums need a budget split.',
+    assumptions: [
+      'Original note totals are preserved.',
+      'Material/labor split is suggested from National Average rates for project budget tracking.',
+    ],
+    disclaimer: 'Review and approve before applying. These splits affect internal material/labor budgets.',
+    anyRealSource: true,
+    requiresConfirmBeforeApply: true,
+  });
 }
 
 /** Sum template/proposal lines that belong on this scope row (supports name mismatches like Tile Flooring ↔ Tile Removal). */

@@ -36,7 +36,7 @@ const QUANTITY_SOURCES = {
 const CHECKLIST_ITEM_QUANTITY_RULES = {
   demo: {
     defaultUnit: 'sqft',
-    allowedUnits: ['sqft'],
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     aggregateMeasurementKeys: ['bathroomFloorSqft', 'showerWallTileSqft', 'showerFloorTileSqft'],
     canUseRoomSqft: true,
     requiresUserQuantity: false,
@@ -45,7 +45,7 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
   },
   floor_demo: {
     defaultUnit: 'sqft',
-    allowedUnits: ['sqft'],
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKeys: ['bathroomFloorSqft', 'showerFloorTileSqft', 'kitchenFloorSqft', 'floorAreaSqft'],
     canUseRoomSqft: true,
     requiresUserQuantity: false,
@@ -75,6 +75,7 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
     measurementKey: 'showerWallTileSqft',
     canUseRoomSqft: false,
     requiresUserQuantity: true,
+    dualAllowanceField: true,
     pricingMethod: 'unit_rate',
     quantityHelper: 'Enter shower wall tile sqft — not bathroom floor sqft.',
     missingMessage: 'Enter shower wall tile sqft.',
@@ -91,7 +92,7 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
   },
   floor_tile: {
     defaultUnit: 'sqft',
-    allowedUnits: ['sqft'],
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKey: 'bathroomFloorSqft',
     canUseRoomSqft: true,
     requiresUserQuantity: false,
@@ -256,7 +257,7 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
   },
   trim: {
     defaultUnit: 'lf',
-    allowedUnits: ['lf'],
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
     measurementKey: 'baseboardLf',
     canUseRoomSqft: false,
     requiresUserQuantity: true,
@@ -341,8 +342,9 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
   },
   flooring: {
     defaultUnit: 'sqft',
-    allowedUnits: ['sqft'],
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKeys: ['kitchenFloorSqft', 'bathroomFloorSqft', 'floorAreaSqft'],
+    dualAllowanceField: true,
     requiresUserQuantity: true,
     pricingMethod: 'unit_rate',
     quantityHelper: 'Enter kitchen or room floor sqft.',
@@ -525,6 +527,7 @@ const PACKAGE_NAME_TO_RULE_KEY = [
   { test: /\bbath(?:room)?\s+demo\b|\bdemo\b.*\bbath/i, key: 'demo' },
   { test: /\btile\s+demo|\btile\s+removal|\btile\s+demolition/i, key: 'floor_demo' },
   { test: /\bfloor\s+demo|\bflooring\s+demo/i, key: 'floor_demo' },
+  { test: /\b(lvp|laminate|vinyl|carpet|flooring)\b.*\b(install|installation)\b|\b(install|installation)\b.*\b(lvp|laminate|vinyl|carpet|flooring)\b/i, key: 'flooring' },
   { test: /\bshower\s+floor\s+tile|\btile\s+shower\s+floor/i, key: 'shower_floor_tile' },
   { test: /\bprefab\s+shower\s+pan|\bshower\s+pan\s+install/i, key: 'prefab_shower_pan' },
   { test: /\btile\s+shower\s+pan|\bmud\s+pan/i, key: 'shower_pan' },
@@ -543,6 +546,7 @@ const PACKAGE_NAME_TO_RULE_KEY = [
   { test: /\bpaver/i, key: 'pavers' },
   { test: /\bconcrete\b/i, key: 'concrete' },
   { test: /\bexcavat/i, key: 'excavation' },
+  { test: /\brail(?:ing)?\b|\bguardrail\b/i, key: 'railing' },
   { test: /\bshower\b.*\btile\b|\btile\b.*\bshower\b|\bshower\s+wall\s+tile/i, key: 'shower_tile' },
   { test: /\bwaterproof|\bbacker\s+board/i, key: 'waterproofing' },
   { test: /\bfloor\b.*\btile\b|\btile\b.*\bfloor\b/i, key: 'floor_tile' },
@@ -649,7 +653,7 @@ const KITCHEN_CHECKLIST_QUANTITY_RULES = {
   },
   floor_demo: {
     defaultUnit: 'sqft',
-    allowedUnits: ['sqft'],
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKeys: ['kitchenFloorSqft', 'floorAreaSqft'],
     canUseRoomSqft: true,
     requiresUserQuantity: true,
@@ -1251,10 +1255,28 @@ function isPricingReadyForPackage(name, scope, ctx = {}) {
   return resolved.quantity != null && resolved.quantity > 0;
 }
 
+function parsedTotalForPackage(name, scope, measurements = {}) {
+  const ruleKey = lookupRuleKeyForPackage(name, scope);
+  if (!ruleKey) return null;
+
+  const itemQuantities = normalizeScopeMeasurements(measurements).itemQuantities || {};
+  const direct = itemQuantities[ruleKey];
+  const allowance = itemQuantities[`${ruleKey}__allowance`];
+  const total = allowance?.quantity ?? direct?.quantity;
+  const unit = allowance?.unit ?? direct?.unit;
+
+  if ((unit === 'allowance' || unit === 'lump_sum') && Number(total) > 0) {
+    return Number(total);
+  }
+
+  return null;
+}
+
 function stampPackageWithCatalogRules(pkg, ctx = {}) {
   const name = pkg.name || '';
   const scope = pkg.scope || '';
   const existing = pkg.scopeQuantities || [];
+  const parsedTotal = parsedTotalForPackage(name, scope, ctx.measurements);
 
   const resolved = resolveQuantityForPackage(name, scope, {
     ...ctx,
@@ -1266,7 +1288,7 @@ function stampPackageWithCatalogRules(pkg, ctx = {}) {
     return kept.length ? { ...pkg, scopeQuantities: kept } : { ...pkg, scopeQuantities: undefined };
   }
 
-  return {
+  const next = {
     ...pkg,
     scopeQuantities: [
       {
@@ -1283,6 +1305,34 @@ function stampPackageWithCatalogRules(pkg, ctx = {}) {
       missingMessage: resolved.missingMessage,
     },
   };
+
+  const currentTotal = Number(pkg.price || pkg.knownSubtotal || pkg.calculatedSubtotal || 0);
+  const existingLooksCalculated =
+    pkg.pricedFromSqftAllowances ||
+    pkg.priceSource === 'calculated' ||
+    pkg.status === 'calculated' ||
+    pkg.packageStatus === 'calculated' ||
+    pkg.priceProvidedByUser === false;
+  const shouldApplyParsedTotal =
+    parsedTotal &&
+    (parsedTotal > currentTotal || existingLooksCalculated);
+
+  if (shouldApplyParsedTotal) {
+    next.price = parsedTotal;
+    next.knownSubtotal = parsedTotal;
+    next.calculatedSubtotal = parsedTotal;
+    next.priceIncludesLaborAndMaterials = false;
+    next.priceProvidedByUser = false;
+    next.pricedFromSqftAllowances = true;
+    next.status = 'calculated';
+    next.packageStatus = 'calculated';
+    next.pricingType = 'unit_rate';
+    next.priceSource = 'notes';
+    next.applyEligible = true;
+    next.missingPriceItems = [];
+  }
+
+  return next;
 }
 
 function countPricingReadiness(packages, ctx = {}) {

@@ -10,7 +10,17 @@ describe('estimateDraftComplexity', () => {
   const flooringNotes =
     '1200 sqft tile demo, 1200 sqft tile installation, 1200 LF baseboard install';
 
-  test('classifies clear unit flooring job as simple_unit', () => {
+  test('classifies single clear unit flooring job as simple_unit', () => {
+    const draft = {
+      projectType: 'flooring',
+      rooms: [{ name: 'LVP Flooring Installation', scope: '1200 sqft LVP flooring installation' }],
+    };
+    const notes = '1200 sqft LVP flooring installation at $6 per sqft';
+    expect(classifyEstimateTier(draft, notes)).toBe('simple_unit');
+    expect(isSimpleUnitBid(draft, notes)).toBe(true);
+  });
+
+  test('classifies multi-part flooring job as room_remodel for scope confirmation', () => {
     const draft = {
       projectType: 'flooring',
       rooms: [
@@ -19,8 +29,9 @@ describe('estimateDraftComplexity', () => {
         { name: 'Baseboard Installation', scope: '1200 LF baseboard' },
       ],
     };
-    expect(classifyEstimateTier(draft, flooringNotes)).toBe('simple_unit');
-    expect(isSimpleUnitBid(draft, flooringNotes)).toBe(true);
+    expect(classifyEstimateTier(draft, flooringNotes)).toBe('room_remodel');
+    expect(isSimpleUnitBid(draft, flooringNotes)).toBe(false);
+    expect(buildScopeChecklist(draft, 'room_remodel', flooringNotes).templateKey).toBe('flooring');
   });
 
   test('classifies bathroom remodel as room_remodel', () => {
@@ -144,6 +155,104 @@ describe('estimateDraftComplexity', () => {
     const demo = (next.rooms || []).find((r) => /bathroom demo/i.test(r.name || ''));
     expect(demo).toBeDefined();
     expect(demo.scopeQuantities?.[0]).toMatchObject({ quantity: 90, unit: 'sqft' });
+  });
+
+  test('applyScopeAssumptions does not duplicate existing note-backed railing package', () => {
+    const draft = {
+      projectType: 'other',
+      estimateTier: 'room_remodel',
+      originalNotes:
+        'Custom shower tile 120 ft? material 6 dollars a square foot Labor is $14 a square foot. Metal railing 48 linear feet $85 per linear foot. 12 tons of rock $95 per ton.',
+      scopeChecklist: { templateKey: 'room_remodel' },
+      rooms: [
+        { name: 'Custom Shower Tile', scope: '120 sqft shower tile', price: 2400, packageStatus: 'calculated' },
+        { name: 'Metal Railing', scope: '48 linear feet metal railing', price: 85, packageStatus: 'partial_pricing' },
+        { name: 'Rock Supply', scope: '12 tons of rock', price: 95, packageStatus: 'partial_pricing' },
+      ],
+      inclusions: [],
+      exclusions: [],
+      missingInfo: [],
+      pricingWarnings: [],
+    };
+    const items = [
+      { id: 'shower_tile', inputType: 'yes_no', state: 'included', label: 'Shower Tile' },
+      { id: 'rock_mulch', inputType: 'yes_no', state: 'included', label: 'Rock / mulch' },
+      { id: 'railing', inputType: 'yes_no', state: 'included', label: 'Railing / guardrails' },
+    ];
+
+    const next = applyScopeAssumptions(draft, items, {
+      showerWallTileSqft: 120,
+      railingLf: 48,
+      landscapeTons: 12,
+      itemQuantities: {
+        shower_tile__allowance: { quantity: 2400, unit: 'allowance', quantitySource: 'notes' },
+        railing: { quantity: 4080, unit: 'allowance', quantitySource: 'notes' },
+        rock_mulch: { quantity: 1140, unit: 'allowance', quantitySource: 'notes' },
+      },
+    });
+
+    expect((next.rooms || []).filter((r) => /railing/i.test(r.name || ''))).toHaveLength(1);
+    expect((next.rooms || []).map((r) => r.name)).toEqual(['Custom Shower Tile', 'Metal Railing', 'Rock Supply']);
+    expect(next.rooms.find((r) => r.name === 'Metal Railing')).toMatchObject({
+      price: 4080,
+      knownSubtotal: 4080,
+      status: 'calculated',
+    });
+    expect(next.rooms.find((r) => r.name === 'Rock Supply')).toMatchObject({
+      price: 1140,
+      knownSubtotal: 1140,
+      status: 'calculated',
+    });
+  });
+
+  test('applyScopeAssumptions syncs flooring checklist pricing without duplicate demo package', () => {
+    const notes =
+      'Flooring job demo existing tile which is 850 ft.² labor is $3 dollars a square foot for demo next install LVP flooring which is 850 ft.² material is $4.50 a square foot and $3.25 a square foot for Labor. Also we have baseboard installation 220 linear feet with lump sum of $7 dollars per linear foot.';
+    const draft = {
+      projectType: 'flooring',
+      estimateTier: 'room_remodel',
+      originalNotes: notes,
+      scopeChecklist: { templateKey: 'flooring' },
+      rooms: [
+        { name: 'Tile Demo', scope: 'Demo existing tile' },
+        {
+          name: 'LVP Flooring Installation',
+          scope: 'Install LVP flooring',
+          price: 6800,
+          priceProvidedByUser: false,
+          pricedFromSqftAllowances: true,
+        },
+        { name: 'Baseboard Installation', scope: 'Baseboard installation' },
+      ],
+      inclusions: [],
+      exclusions: [],
+      missingInfo: [],
+      pricingWarnings: [],
+    };
+    const items = [
+      { id: 'floor_demo', inputType: 'yes_no', state: 'included', label: 'Flooring demo / removal' },
+      { id: 'flooring', inputType: 'yes_no', state: 'included', label: 'Flooring install' },
+      { id: 'trim', inputType: 'yes_no', state: 'included', label: 'Trim & baseboard install' },
+    ];
+
+    const next = applyScopeAssumptions(draft, items, {
+      floorAreaSqft: 850,
+      baseboardLf: 220,
+      itemQuantities: {
+        floor_demo: { quantity: 2550, unit: 'allowance', quantitySource: 'notes' },
+        flooring: { quantity: 6587.5, unit: 'allowance', quantitySource: 'notes' },
+        trim: { quantity: 1540, unit: 'allowance', quantitySource: 'notes' },
+      },
+    });
+
+    expect(next.rooms.map((r) => r.name)).toEqual([
+      'Tile Demo',
+      'LVP Flooring Installation',
+      'Baseboard Installation',
+    ]);
+    expect(next.rooms.find((r) => r.name === 'Tile Demo')).toMatchObject({ price: 2550 });
+    expect(next.rooms.find((r) => r.name === 'LVP Flooring Installation')).toMatchObject({ price: 6587.5 });
+    expect(next.rooms.find((r) => r.name === 'Baseboard Installation')).toMatchObject({ price: 1540 });
   });
 
   test('applyScopeAssumptions adds tub install package with labor and material hints', () => {

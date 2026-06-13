@@ -394,7 +394,12 @@ function newLineItemId(): string {
 
 export function formatDraftMoney(amount: number | null | undefined): string {
   if (amount == null || Number.isNaN(Number(amount))) return '—';
-  return `$${Math.round(Number(amount)).toLocaleString()}`;
+  const value = Math.round(Number(amount) * 100) / 100;
+  const hasCents = Math.abs(value % 1) > 0.0001;
+  return `$${value.toLocaleString(undefined, {
+    minimumFractionDigits: hasCents ? 2 : 0,
+    maximumFractionDigits: hasCents ? 2 : 0,
+  })}`;
 }
 
 export const BUILDER_MODE_LABELS: Record<EstimateBuilderMode, { title: string; subtitle: string }> = {
@@ -733,6 +738,74 @@ function materialPortion(room: EstimateDraftRoom): number {
   return 0;
 }
 
+function scopePackageRuleKeyForApply(name: string, scope = ''): string | null {
+  const blob = `${name || ''} ${scope || ''}`.toLowerCase();
+  if (/\b(tile\s+demo|tile\s+removal|floor\s+demo|flooring\s+demo|demo\s+existing\s+tile)\b/.test(blob)) {
+    return 'floor_demo';
+  }
+  if (/\b(lvp|laminate|vinyl|flooring|carpet)\b/.test(blob) && !/\bdemo|removal\b/.test(blob)) {
+    return 'flooring';
+  }
+  if (/\bbaseboard|trim\b/.test(blob)) return 'trim';
+  if (/\bshower\b.*\btile\b|\btile\b.*\bshower\b/.test(blob)) return 'shower_tile';
+  if (/\brail(?:ing)?\b|\bguardrail\b/.test(blob)) return 'railing';
+  if (/\brock|mulch|gravel\b/.test(blob)) return 'rock_mulch';
+  if (/\bconcrete\b|\bflatwork\b|\bslab\b|\bdriveway\b|\bsidewalk\b/.test(blob)) return 'concrete';
+  return null;
+}
+
+function parsedNoteSplitForPackage(
+  pkg: EstimateDraftScopePackage | undefined,
+  draft: EstimateAiDraft
+): { material: number; labor: number; total: number } | null {
+  if (!pkg) return null;
+  const key = scopePackageRuleKeyForApply(pkg.name || '', pkg.scope || '');
+  if (!key) return null;
+
+  const parsedFromNotes = parseScopeMeasurementsFromNotes(resolveDraftScopeNotes(draft), {
+    templateKey: draft.scopeChecklist?.templateKey,
+    projectType: draft.projectType ?? undefined,
+  }).itemQuantities || {};
+  const itemQuantities = {
+    ...(draft.scopeMeasurements?.itemQuantities || {}),
+    ...parsedFromNotes,
+  };
+  const material = Number(itemQuantities[`${key}__material`]?.quantity || 0);
+  const labor = Number(itemQuantities[`${key}__labor`]?.quantity || 0);
+  const total = Number(
+    itemQuantities[`${key}__allowance`]?.quantity ||
+      itemQuantities[key]?.quantity ||
+      pkg.price ||
+      pkg.knownSubtotal ||
+      pkg.calculatedSubtotal ||
+      0
+  );
+
+  if (material > 0 || labor > 0) {
+    return {
+      material: material > 0 ? material : 0,
+      labor: labor > 0 ? labor : Math.max(0, total - material),
+      total,
+    };
+  }
+
+  const calculatedFromNotes =
+    pkg.status === 'calculated' ||
+    pkg.priceSource === 'notes' ||
+    Boolean((pkg as EstimateDraftScopePackage & { pricedFromSqftAllowances?: boolean }).pricedFromSqftAllowances);
+
+  if (total > 0 && calculatedFromNotes) {
+    const materialOnly = new Set(['rock_mulch', 'sod_turf', 'plants_trees']);
+    return {
+      material: materialOnly.has(key) ? total : 0,
+      labor: materialOnly.has(key) ? 0 : total,
+      total,
+    };
+  }
+
+  return null;
+}
+
 function laborDescription(room: EstimateDraftRoom, pkg?: EstimateDraftScopePackage): string {
   const scope = room.scope?.trim() || room.name;
   const parts = [scope];
@@ -762,6 +835,10 @@ function effectiveLaborTotal(
   draft: EstimateAiDraft
 ): number | null {
   const resolved = resolveRoomForApply(room, draft);
+  const parsedSplit = parsedNoteSplitForPackage(pkg, draft);
+  if (parsedSplit) {
+    return parsedSplit.labor > 0 ? parsedSplit.labor : null;
+  }
   if (pkg?.status === 'partial_pricing' && (pkg.knownSubtotal || 0) > 0) {
     const materialFromItems = (pkg.pricingItems || [])
       .filter((i) => i.pricingType === 'material' && i.amount != null)
@@ -829,8 +906,9 @@ function materialLineItemsFromDraft(
 
     const pkg = getScopePackageForRoom(draft, room.name);
     const resolved = resolveRoomForApply(room, draft);
+    const parsedSplit = parsedNoteSplitForPackage(pkg, draft);
 
-    if (pkg?.pricingItems?.length) {
+    if (!parsedSplit && pkg?.pricingItems?.length) {
       for (const item of pkg.pricingItems) {
         if (item.pricingType !== 'material' || item.amount == null || item.amount <= 0) continue;
         if (applyConfirmedOnly && item.status === 'ai_suggested' && !item.approvedByUser) continue;
@@ -851,7 +929,7 @@ function materialLineItemsFromDraft(
       }
     }
 
-    const splitMaterial = materialPortion(resolved);
+    const splitMaterial = parsedSplit ? parsedSplit.material : materialPortion(resolved);
     if (splitMaterial > 0) {
       lines.push({
         id: newLineItemId(),

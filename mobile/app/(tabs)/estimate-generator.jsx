@@ -50,6 +50,7 @@ import AIEstimateManualPricingModal from '../../components/estimate/AIEstimateMa
 import AIEstimateScopeAssumptionsModal from '../../components/estimate/AIEstimateScopeAssumptionsModal';
 import {
   applyPricingProposalToDraft,
+  buildBudgetSplitProposalFromDraft,
   buildProposalFromMissingSuggestions,
   fetchRoughPricingProposal,
   resolvePricingZipCode,
@@ -3103,9 +3104,25 @@ const LineItemModal = ({ visible, onClose, item, onSave, title, laborMode }) => 
 };
 
 /** Match `calc` grand total so saved draft totals stay correct without waiting for the next render. */
+function sumEstimateMaterialRows(rows = []) {
+  return (rows || []).reduce((sum, item) => {
+    const total = Number(item.total);
+    if (!Number.isNaN(total) && total > 0) return sum + total;
+    const qty = Number(item.quantity || item.qty || 0);
+    const unit = Number(item.unitPrice || item.cost || 0);
+    return sum + qty * unit;
+  }, 0);
+}
+
+function materialTotalForBidAndCart(bid, cart = []) {
+  const bidMaterials = sumEstimateMaterialRows(bid?.materialLineItems || []);
+  const cartMaterials = sumEstimateMaterialRows(cart || []);
+  return bid?.aiEstimateDraftSnapshot ? bidMaterials : cartMaterials || bidMaterials;
+}
+
 function computeEstimateGrandTotalFromBidAndCart(bid, cart) {
   if (!bid) return 0;
-  const materials = (cart || []).reduce((sum, r) => sum + (r.total || 0), 0);
+  const materials = materialTotalForBidAndCart(bid, cart);
   const labor = (bid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0) || 0;
   const financials = getEstimateStep5Financials(bid, materials, labor);
   return financials.bidPrice;
@@ -5014,20 +5031,9 @@ export default function EstimateGeneratorScreen() {
   }, [materialsCart]);
 
   const calc = useMemo(() => {
-    const materialsFromCart = materialsCart.reduce(
-      (sum, r) => sum + (Number(r.total) || 0),
-      0
-    );
-    const materialsFromBidLines = Array.isArray(bid.materialLineItems)
-      ? bid.materialLineItems.reduce(
-          (sum, item) => sum + (Number(item.total) || 0),
-          0
-        )
-      : 0;
-    // On first open, `loadBid()` can commit before `loadMaterials()` finishes. Prefer the cart when
-    // it has any rows (even $0 lines); otherwise fall back to persisted `bid.materialLineItems`.
-    const cartHasRows = Array.isArray(materialsCart) && materialsCart.length > 0;
-    const materials = cartHasRows ? materialsFromCart : materialsFromBidLines;
+    // On AI-applied bids, the draft-generated bid material lines are authoritative.
+    // The separate cart can briefly contain stale rows from a previous estimate/apply attempt.
+    const materials = materialTotalForBidAndCart(bid, materialsCart);
     const laborFromItems =
       bid.laborLineItems?.reduce(
         (sum, item) => sum + (Number(item.total) || Number(item.totalCost) || 0),
@@ -5142,8 +5148,10 @@ export default function EstimateGeneratorScreen() {
   const [aiDraftSuggestingMissing, setAiDraftSuggestingMissing] = useState(false);
   const [aiSavedPricingProposal, setAiSavedPricingProposal] = useState(null);
   const [aiRoughPricingProposal, setAiRoughPricingProposal] = useState(null);
+  const [aiBudgetSplitProposal, setAiBudgetSplitProposal] = useState(null);
   const [showAiSavedPricingModal, setShowAiSavedPricingModal] = useState(false);
   const [showAiRoughPricingModal, setShowAiRoughPricingModal] = useState(false);
+  const [showAiBudgetSplitModal, setShowAiBudgetSplitModal] = useState(false);
   const [showAiManualPricingModal, setShowAiManualPricingModal] = useState(false);
   const [showAiScopeAssumptionsModal, setShowAiScopeAssumptionsModal] = useState(false);
   const [aiScopeAssumptionsApplying, setAiScopeAssumptionsApplying] = useState(false);
@@ -6046,6 +6054,20 @@ export default function EstimateGeneratorScreen() {
     [aiDraft, aiRoughPricingProposal, resumeDraftReviewAfterPricingModal]
   );
 
+  const handleApplyBudgetSplitProposal = useCallback(
+    (proposalOverride) => {
+      const proposal = proposalOverride || aiBudgetSplitProposal;
+      if (!aiDraft || !proposal || proposal.empty) return;
+      setAiDraft(applyPricingProposalToDraft(aiDraft, proposal, { approved: true }));
+      setShowAiBudgetSplitModal(false);
+      resumeDraftReviewAfterPricingModal();
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    },
+    [aiDraft, aiBudgetSplitProposal, resumeDraftReviewAfterPricingModal]
+  );
+
   const handleManualPricingCalculate = useCallback(
     (proposal) => {
       if (!aiDraft) return;
@@ -6149,6 +6171,7 @@ export default function EstimateGeneratorScreen() {
           };
           lastSavedBidRef.current = null;
           pendingSaveRef.current = null;
+          lastAIMaterialUpdateRef.current = Date.now();
           setBid(nextBid);
           setMaterialsCart(nextCart);
           syncLocalCustomerFromBid(nextBid);
@@ -6204,6 +6227,19 @@ export default function EstimateGeneratorScreen() {
         return;
       }
 
+      if (applyConfirmedOnly) {
+        const budgetSplitProposal = buildBudgetSplitProposalFromDraft(aiDraft);
+        if (budgetSplitProposal && !budgetSplitProposal.empty) {
+          setAiBudgetSplitProposal(budgetSplitProposal);
+          pauseDraftReviewForPricingModal();
+          setShowAiBudgetSplitModal(true);
+          if (Platform.OS !== 'web') {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          }
+          return;
+        }
+      }
+
       if (bidHasLineItems) {
         const title = applyConfirmedOnly
           ? 'Apply confirmed pricing?'
@@ -6227,7 +6263,7 @@ export default function EstimateGeneratorScreen() {
 
       await runApply();
     },
-    [aiDraft, aiSaveToPricingLibrary, bid, bidHasLineItems, syncLocalCustomerFromBid]
+    [aiDraft, aiSaveToPricingLibrary, bid, bidHasLineItems, pauseDraftReviewForPricingModal, syncLocalCustomerFromBid]
   );
 
   const handleApplyAiDraftConfirmed = useCallback(
@@ -6870,22 +6906,8 @@ export default function EstimateGeneratorScreen() {
   ]);
   
   // Calculate totals separately for display purposes (used elsewhere in the code)
-  const materialsCartTotal = Array.isArray(materialsCart)
-    ? materialsCart.reduce((sum, item) => {
-        const total = Number(item.total);
-        if (!Number.isNaN(total) && total > 0) return sum + total;
-        const qty = Number(item.quantity || item.qty || 0);
-        const unit = Number(item.unitPrice || item.cost || 0);
-        return sum + qty * unit;
-      }, 0)
-    : 0;
-  const materialsLineItemsTotal = (bid.materialLineItems || []).reduce((sum, item) => {
-    const total = Number(item.total);
-    if (!Number.isNaN(total) && total > 0) return sum + total;
-    const qty = Number(item.quantity || item.qty || 0);
-    const unit = Number(item.unitPrice || item.cost || 0);
-    return sum + qty * unit;
-  }, 0);
+  const materialsCartTotal = materialTotalForBidAndCart(bid, materialsCart);
+  const materialsLineItemsTotal = sumEstimateMaterialRows(bid.materialLineItems || []);
   const hasPaymentSchedule = useMemo(() => {
     const milestones = Array.isArray(bid.paymentMilestones) ? bid.paymentMilestones : [];
     const weeklyPayments = Array.isArray(bid.weeklyPayments) ? bid.weeklyPayments : [];
@@ -8693,6 +8715,15 @@ export default function EstimateGeneratorScreen() {
     if (isInitialLoadRef.current) return;
     
     setBid((prev) => {
+      const aiAppliedWithNoMaterials =
+        Boolean(prev.aiEstimateDraftSnapshot) &&
+        Array.isArray(prev.materialLineItems) &&
+        prev.materialLineItems.length === 0;
+      const justAppliedAi = Date.now() - lastAIMaterialUpdateRef.current < 5000;
+      if (aiAppliedWithNoMaterials && justAppliedAi && (materialsCart || []).length > 0) {
+        return prev;
+      }
+
       const nextLineItems = (materialsCart || []).map((item) => ({
         id: item.id || `material-${Date.now()}`,
         name: item.name || 'Material',
@@ -9114,6 +9145,10 @@ export default function EstimateGeneratorScreen() {
     if (isInitialLoadRef.current) return;
     
     setBid((prev) => {
+      if (prev.aiEstimateDraftSnapshot && (materialsCart || []).length > 0) {
+        return prev;
+      }
+
       const nextLineItems = (materialsCart || []).map((item) => ({
         id: item.id || `material-${Date.now()}`,
         name: item.name || 'Material',
@@ -9171,7 +9206,7 @@ export default function EstimateGeneratorScreen() {
         // Once we persist, this bid is no longer a blank "new bid" — otherwise loadBid wipes Step 1/2 fields on every reopen.
         _isNewBid: false,
         materialLineItems:
-          cart.length > 0
+          !b.aiEstimateDraftSnapshot && cart.length > 0
             ? cart.map((item) => ({
                 id: item.id,
                 name: item.name || item.description,
@@ -24032,6 +24067,25 @@ export default function EstimateGeneratorScreen() {
         }}
         onClose={() => {
           setShowAiRoughPricingModal(false);
+          resumeDraftReviewAfterPricingModal();
+        }}
+      />
+
+      <AIEstimatePricingProposalModal
+        visible={showAiBudgetSplitModal}
+        proposal={aiBudgetSplitProposal}
+        pricingMode="suggest"
+        title="Approve budget split"
+        subtitle="Your note total stays the same. Review the National Average material/labor split before applying it to project budgets."
+        applyLabel="Apply approved budget splits"
+        onApply={handleApplyBudgetSplitProposal}
+        onAddManually={() => {
+          setShowAiBudgetSplitModal(false);
+          setAiManualPricingSeed(aiBudgetSplitProposal);
+          setShowAiManualPricingModal(true);
+        }}
+        onClose={() => {
+          setShowAiBudgetSplitModal(false);
           resumeDraftReviewAfterPricingModal();
         }}
       />

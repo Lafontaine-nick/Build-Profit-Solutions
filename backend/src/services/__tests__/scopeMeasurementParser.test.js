@@ -134,6 +134,8 @@ Demo old cabinets and haul off $850 lump sum`;
     expect(parsed.itemQuantities?.paint__allowance?.quantity).toBe(480);
     expect(parsed.itemQuantities?.paint__labor?.quantity).toBe(480);
     expect(parsed.itemQuantities?.paint?.quantity).toBeUndefined();
+    expect(parsed.itemQuantities?.demo?.quantity).toBe(850);
+    expect(parsed.itemQuantities?.demo?.unit).toBe('lump_sum');
 
     const norm = normalizeScopeMeasurements(parsed);
     const backsplash = resolveQuantityForChecklistItem('backsplash', {
@@ -148,6 +150,12 @@ Demo old cabinets and haul off $850 lump sum`;
       measurements: norm,
     });
     expect(paint.dualAllowance?.quantity).toBe(480);
+    const demo = resolveQuantityForChecklistItem('demo', {
+      templateKey: 'kitchen',
+      notes,
+      measurements: norm,
+    });
+    expect(demo.quantity).toBe(850);
   });
 
   test('voice-style appliance allowance does not become appliance removal pricing', () => {
@@ -156,6 +164,122 @@ Demo old cabinets and haul off $850 lump sum`;
     const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'kitchen', projectType: 'kitchen' });
     expect(parsed.itemQuantities?.appliances?.quantity).toBe(1200);
     expect(parsed.itemQuantities?.appliance_removal).toBeUndefined();
+  });
+
+  test('voice-style bathroom notes compute shower tile rates and floor tile total', () => {
+    const notes =
+      'OK bathroom remodel we are going to demo the shower and haul off all the trash for $950. The shower wall tile is 120 ft² and the material cost is six dollars a square foot and the labor cost is $14 a square foot. And then the floor tile total will be $810';
+    const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'bathroom', projectType: 'bathroom' });
+    expect(parsed.bathroomFloorSqft).toBeUndefined();
+    expect(parsed.floorAreaSqft).toBeUndefined();
+    expect(parsed.showerWallTileSqft).toBe(120);
+    expect(parsed.itemQuantities?.demo).toMatchObject({ quantity: 950, unit: 'lump_sum' });
+    expect(parsed.itemQuantities?.shower_tile__material).toMatchObject({ quantity: 720, unit: 'allowance' });
+    expect(parsed.itemQuantities?.shower_tile__labor).toMatchObject({ quantity: 1680, unit: 'allowance' });
+    expect(parsed.itemQuantities?.shower_tile__allowance).toMatchObject({ quantity: 2400, unit: 'allowance' });
+    expect(parsed.itemQuantities?.floor_tile).toMatchObject({ quantity: 810, unit: 'allowance' });
+    expect(inferItemStateFromNotes('shower_tile', notes)).toBe('included');
+
+    const norm = normalizeScopeMeasurements(parsed);
+    const showerTile = resolveQuantityForChecklistItem('shower_tile', {
+      templateKey: 'bathroom',
+      notes,
+      measurements: norm,
+    });
+    expect(showerTile.dualCount?.quantity).toBe(120);
+    expect(showerTile.dualMaterial?.quantity).toBe(720);
+    expect(showerTile.dualLabor?.quantity).toBe(1680);
+    expect(showerTile.dualAllowance?.quantity).toBe(2400);
+    expect(resolveQuantityForChecklistItem('floor_tile', { templateKey: 'bathroom', notes, measurements: norm }).quantity).toBe(810);
+  });
+
+  test('rate parser computes directly from item quantity and rates in the same clause', () => {
+    const { parseScopeItemRatePricingFromNotes } = require('../scopeRatePricingParser');
+    const notes =
+      'Custom shower tile 120 sqft material $6/sqft labor $14/sqft; railing 48 linear feet $85 per linear foot; rock 12 tons $95 per ton';
+    const parsed = parseScopeItemRatePricingFromNotes(notes, {}, {});
+
+    expect(parsed.shower_tile__material).toMatchObject({ quantity: 720, unit: 'allowance' });
+    expect(parsed.shower_tile__labor).toMatchObject({ quantity: 1680, unit: 'allowance' });
+    expect(parsed.shower_tile__allowance).toMatchObject({ quantity: 2400, unit: 'allowance' });
+    expect(parsed.railing).toMatchObject({ quantity: 4080, unit: 'allowance' });
+    expect(parsed.rock_mulch).toMatchObject({ quantity: 1140, unit: 'allowance' });
+  });
+
+  test('flooring scope preserves material and labor splits for final estimate apply', () => {
+    const notes =
+      'Flooring job. Demo existing tile 850 sqft at $3 per sqft. Install LVP 850 sqft material $4.50 per sqft labor $3.25 per sqft. Baseboard 220 linear feet $7 per linear foot.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'flooring', projectType: 'flooring' });
+
+    expect(parsed.floorAreaSqft).toBe(850);
+    expect(parsed.baseboardLf).toBe(220);
+    expect(parsed.itemQuantities?.floor_demo).toMatchObject({ quantity: 2550, unit: 'allowance' });
+    expect(parsed.itemQuantities?.flooring__material).toMatchObject({ quantity: 3825, unit: 'allowance' });
+    expect(parsed.itemQuantities?.flooring__labor).toMatchObject({ quantity: 2762.5, unit: 'allowance' });
+    expect(parsed.itemQuantities?.flooring).toMatchObject({ quantity: 6587.5, unit: 'allowance' });
+    expect(parsed.itemQuantities?.trim).toMatchObject({ quantity: 1540, unit: 'allowance' });
+  });
+
+  test('mixed custom scope keeps shower sqft and does not leak railing LF into baseboard', () => {
+    const notes =
+      'Custom shower tile 120 ft.² material 6 a square foot Labor is $14 a square foot. Metal railing 48 linear feet $85 per linear foot. 12 tons of rock $95 per ton.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'room_remodel', projectType: 'room_remodel' });
+
+    expect(parsed.showerWallTileSqft).toBe(120);
+    expect(parsed.railingLf).toBe(48);
+    expect(parsed.baseboardLf).toBeUndefined();
+    expect(parsed.landscapeTons).toBe(12);
+    expect(parsed.itemQuantities?.shower_tile__allowance).toMatchObject({ quantity: 2400, unit: 'allowance' });
+    expect(parsed.itemQuantities?.railing).toMatchObject({ quantity: 4080, unit: 'allowance' });
+    expect(parsed.itemQuantities?.rock_mulch).toMatchObject({ quantity: 1140, unit: 'allowance' });
+  });
+
+  test('mixed custom scope accepts ft question-mark sqft shorthand from mobile notes', () => {
+    const notes =
+      'Custom shower tile 120 ft? material 6 dollars a square foot Labor is $14 a square foot. Metal railing 48 linear feet $85 per linear foot. 12 tons of rock $95 per ton.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'room_remodel', projectType: 'room_remodel' });
+
+    expect(parsed.showerWallTileSqft).toBe(120);
+    expect(parsed.railingLf).toBe(48);
+    expect(parsed.baseboardLf).toBeUndefined();
+    expect(parsed.landscapeTons).toBe(12);
+    expect(parsed.itemQuantities?.shower_tile__material).toMatchObject({ quantity: 720, unit: 'allowance' });
+    expect(parsed.itemQuantities?.shower_tile__labor).toMatchObject({ quantity: 1680, unit: 'allowance' });
+    expect(parsed.itemQuantities?.shower_tile__allowance).toMatchObject({ quantity: 2400, unit: 'allowance' });
+    expect(parsed.itemQuantities?.railing).toMatchObject({ quantity: 4080, unit: 'allowance' });
+    expect(parsed.itemQuantities?.rock_mulch).toMatchObject({ quantity: 1140, unit: 'allowance' });
+  });
+
+  test('flooring demo install and baseboard voice notes calculate each scope card', () => {
+    const notes =
+      'Flooring job demo existing tile which is 850 ft.² labor is $3 dollars a square foot for demo next install LVP flooring which is 850 ft.² material is $4.50 a square foot and $3.25 a square foot for Labor. Also we have baseboard installation 220 linear feet with lump sum of $7 dollars per linear foot.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'flooring', projectType: 'flooring' });
+
+    expect(parsed.floorAreaSqft).toBe(850);
+    expect(parsed.baseboardLf).toBe(220);
+    expect(parsed.itemQuantities?.floor_demo).toMatchObject({ quantity: 2550, unit: 'allowance' });
+    expect(parsed.itemQuantities?.flooring).toMatchObject({ quantity: 6587.5, unit: 'allowance' });
+    expect(parsed.itemQuantities?.trim).toMatchObject({ quantity: 1540, unit: 'allowance' });
+    expect(parsed.itemQuantities?.demo).toBeUndefined();
+
+    const norm = normalizeScopeMeasurements(parsed);
+    expect(
+      resolveQuantityForChecklistItem('floor_demo', { templateKey: 'flooring', notes, measurements: norm }).quantity
+    ).toBe(2550);
+    expect(
+      resolveQuantityForChecklistItem('flooring', { templateKey: 'flooring', notes, measurements: norm }).quantity
+    ).toBe(6587.5);
+    expect(
+      resolveQuantityForChecklistItem('trim', { templateKey: 'flooring', notes, measurements: norm }).pricingReady
+    ).toBe(true);
+  });
+
+  test('rate parser does not treat a dollar rate as the item quantity', () => {
+    const { parseScopeItemRatePricingFromNotes } = require('../scopeRatePricingParser');
+    const parsed = parseScopeItemRatePricingFromNotes('Paint walls and ceiling $1.50 square feet labor', {}, {});
+
+    expect(parsed.paint).toBeUndefined();
+    expect(parsed.paint__allowance).toBeUndefined();
   });
 
   test('golden roofing scenario calculates squares rates', () => {

@@ -25,7 +25,7 @@ import type {
   ScopeChecklistItem,
   ScopeMeasurements,
 } from '@/utils/estimateAiDraft';
-import { resolveDraftScopeNotes, repairDraftRatePricingFromNotes } from '@/utils/estimateAiDraft';
+import { formatDraftMoney, resolveDraftScopeNotes, repairDraftRatePricingFromNotes } from '@/utils/estimateAiDraft';
 import {
   checklistDisplayHelper,
   choiceIdsToScopeState,
@@ -66,12 +66,10 @@ import {
 } from '@/utils/scopeItemQuantities';
 import {
   emptyQuickMeasurementInput,
-  quickMeasurementRowsForTemplate,
+  quickMeasurementRowsForInput,
   type QuickMeasurementFieldKey,
 } from '@/utils/scopeQuickMeasurements';
-import { KEYBOARD_ACCESSORY_IDS } from '@/constants/keyboard';
-import { aiScopeConfirmNumericKeyboardProps } from '@/constants/inputKeyboardPresets';
-import KeyboardPlainAccessory from '@/components/ui/KeyboardPlainAccessory';
+import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
 
 import { estimateFlowCardStyle, estimateFlowDividerColor } from '@/utils/estimateFlowCardStyle';
 import {
@@ -124,6 +122,11 @@ const QUANTITY_NEEDED_LABELS: Record<string, string> = {
   pavers: 'paver sqft',
   concrete: 'concrete sqft or CY',
   excavation: 'excavation CY or sqft',
+};
+
+const scopeNumericInputProps = {
+  textContentType: 'none' as const,
+  autoComplete: 'off' as const,
 };
 
 function hapticTap() {
@@ -202,7 +205,7 @@ function isUserEditingQuantity(
 
 function formatResolvedQuantityDisplay(quantity: number, unit: string): string {
   if (unit === 'allowance' || unit === 'lump_sum') {
-    return `$${quantity.toLocaleString()}`;
+    return formatDraftMoney(quantity);
   }
   return `${quantity.toLocaleString()} ${formatUnitLabel(unit)}`;
 }
@@ -232,6 +235,7 @@ function QuantitySection({
   measurementsInput,
   onItemQuantityChange,
   onItemQuantityBlur,
+  onItemQuantityFocus,
   Colors,
   darkMode,
   applying,
@@ -249,6 +253,7 @@ function QuantitySection({
     unit?: string
   ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
+  onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
@@ -400,12 +405,13 @@ function QuantitySection({
         <View style={styles.qtyInputRow}>
           <TextInput
             value={countInput?.quantity ?? ''}
+            onFocus={() => onItemQuantityFocus(itemId, 'count')}
             onChangeText={(text) => onItemQuantityChange(itemId, text, 'count')}
             onBlur={() => onItemQuantityBlur(itemId, 'count')}
             placeholder="0"
             placeholderTextColor={placeholderColor}
             keyboardType="decimal-pad"
-            {...aiScopeConfirmNumericKeyboardProps}
+            {...scopeNumericInputProps}
             editable={!applying}
             style={[
               styles.qtyInput,
@@ -423,12 +429,13 @@ function QuantitySection({
           <Text style={{ color: Colors.sub, fontSize: 14, fontWeight: '600' }}>$</Text>
           <TextInput
             value={allowanceInput?.quantity ?? ''}
+            onFocus={() => onItemQuantityFocus(itemId, 'allowance')}
             onChangeText={(text) => onItemQuantityChange(itemId, text, 'allowance')}
             onBlur={() => onItemQuantityBlur(itemId, 'allowance')}
             placeholder="0"
             placeholderTextColor={placeholderColor}
             keyboardType="decimal-pad"
-            {...aiScopeConfirmNumericKeyboardProps}
+            {...scopeNumericInputProps}
             editable={!applying}
             style={[
               styles.qtyInput,
@@ -525,12 +532,13 @@ function QuantitySection({
       <View style={styles.qtyInputRow}>
         <TextInput
           value={itemInput?.quantity ?? ''}
+          onFocus={() => onItemQuantityFocus(itemId)}
           onChangeText={(text) => onItemQuantityChange(itemId, text)}
           onBlur={() => onItemQuantityBlur(itemId)}
           placeholder={`Enter ${neededLabel}`}
           placeholderTextColor={placeholderColor}
           keyboardType="decimal-pad"
-          {...aiScopeConfirmNumericKeyboardProps}
+          {...scopeNumericInputProps}
           editable={!applying}
           style={[
             styles.qtyInput,
@@ -598,6 +606,7 @@ function WetAreaInstallLineCard({
   measurementsInput,
   onItemQuantityChange,
   onItemQuantityBlur,
+  onItemQuantityFocus,
   visualCtx,
   Colors,
   darkMode,
@@ -614,6 +623,7 @@ function WetAreaInstallLineCard({
     unit?: string
   ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
+  onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   visualCtx: ScopeItemVisualContext;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
@@ -649,6 +659,7 @@ function WetAreaInstallLineCard({
         measurementsInput={measurementsInput}
         onItemQuantityChange={onItemQuantityChange}
         onItemQuantityBlur={onItemQuantityBlur}
+        onItemQuantityFocus={onItemQuantityFocus}
         Colors={Colors}
         darkMode={darkMode}
         applying={applying}
@@ -665,6 +676,7 @@ function YesNoRow({
   measurementsInput,
   onItemQuantityChange,
   onItemQuantityBlur,
+  onItemQuantityFocus,
   visualCtx,
   Colors,
   darkMode,
@@ -682,6 +694,7 @@ function YesNoRow({
     unit?: string
   ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
+  onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   visualCtx: ScopeItemVisualContext;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
@@ -748,6 +761,7 @@ function YesNoRow({
         measurementsInput={measurementsInput}
         onItemQuantityChange={onItemQuantityChange}
         onItemQuantityBlur={onItemQuantityBlur}
+        onItemQuantityFocus={onItemQuantityFocus}
         Colors={Colors}
         darkMode={darkMode}
         applying={applying}
@@ -764,6 +778,7 @@ function MultiChoiceRow({
   measurementsInput,
   onItemQuantityChange,
   onItemQuantityBlur,
+  onItemQuantityFocus,
   visualCtx,
   Colors,
   darkMode,
@@ -781,6 +796,7 @@ function MultiChoiceRow({
     unit?: string
   ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
+  onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   visualCtx: ScopeItemVisualContext;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
@@ -861,6 +877,7 @@ function MultiChoiceRow({
         measurementsInput={measurementsInput}
         onItemQuantityChange={onItemQuantityChange}
         onItemQuantityBlur={onItemQuantityBlur}
+        onItemQuantityFocus={onItemQuantityFocus}
         Colors={Colors}
         darkMode={darkMode}
         applying={applying}
@@ -877,6 +894,7 @@ function ChoiceRow({
   measurementsInput,
   onItemQuantityChange,
   onItemQuantityBlur,
+  onItemQuantityFocus,
   visualCtx,
   Colors,
   darkMode,
@@ -894,6 +912,7 @@ function ChoiceRow({
     unit?: string
   ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
+  onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   visualCtx: ScopeItemVisualContext;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
@@ -974,6 +993,7 @@ function ChoiceRow({
         measurementsInput={measurementsInput}
         onItemQuantityChange={onItemQuantityChange}
         onItemQuantityBlur={onItemQuantityBlur}
+        onItemQuantityFocus={onItemQuantityFocus}
         Colors={Colors}
         darkMode={darkMode}
         applying={applying}
@@ -1017,7 +1037,7 @@ function QuickMeasurementField({
         placeholder={placeholder}
         placeholderTextColor={placeholderColor}
         keyboardType="decimal-pad"
-        {...aiScopeConfirmNumericKeyboardProps}
+        {...scopeNumericInputProps}
         editable={!applying}
         style={[
           styles.measurementInput,
@@ -1039,6 +1059,7 @@ function CollapsibleQuickMeasurements({
   setMeasurements,
   templateKey,
   projectType,
+  notes,
   Colors,
   darkMode,
   applying,
@@ -1049,11 +1070,56 @@ function CollapsibleQuickMeasurements({
   setMeasurements: React.Dispatch<React.SetStateAction<ScopeMeasurementsInputExtended>>;
   templateKey?: string;
   projectType?: string | null;
+  notes?: string | null;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
 }) {
-  const rows = quickMeasurementRowsForTemplate(templateKey, projectType);
+  const noteQuickMeasurements = useMemo(() => {
+    const parsed = parseScopeMeasurementsFromNotes(notes || '', { templateKey, projectType: projectType ?? undefined });
+    const out: Partial<Record<QuickMeasurementFieldKey, string>> = {};
+    const noteKeys: QuickMeasurementFieldKey[] = [];
+    const put = (key: QuickMeasurementFieldKey, value: unknown) => {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n <= 0) return;
+      out[key] = String(n);
+      noteKeys.push(key);
+    };
+
+    put('bathroomFloorSqft', parsed.bathroomFloorSqft);
+    put('kitchenFloorSqft', parsed.kitchenFloorSqft);
+    put('floorAreaSqft', parsed.floorAreaSqft);
+    put('backsplashSqft', parsed.backsplashSqft);
+    put('countertopSqft', parsed.countertopSqft);
+    put('cabinetLf', parsed.cabinetLf);
+    put('showerWallTileSqft', parsed.showerWallTileSqft);
+    put('showerFloorTileSqft', parsed.showerFloorTileSqft);
+    put('wallPaintSqft', parsed.wallPaintSqft);
+    put('exteriorPaintSqft', parsed.exteriorPaintSqft);
+    put('baseboardLf', parsed.baseboardLf);
+    put('railingLf', parsed.railingLf);
+    put('landscapeSqft', parsed.landscapeSqft);
+    put('sodSqft', parsed.sodSqft);
+    put('paverSqft', parsed.paverSqft);
+    put('rockMulchSqft', parsed.rockMulchSqft);
+    put('landscapeTons', parsed.landscapeTons);
+    put('roofSquares', parsed.roofSquares);
+    put('drywallSqft', parsed.drywallSqft);
+    put('concreteSqft', parsed.concreteSqft);
+    put('concreteCy', parsed.concreteCy);
+    put('excavationCy', parsed.excavationCy);
+    put('deckSqft', parsed.deckSqft);
+
+    return { values: out, keys: noteKeys };
+  }, [notes, templateKey, projectType]);
+  const displayMeasurements = { ...noteQuickMeasurements.values };
+  for (const [key, value] of Object.entries(measurements)) {
+    if (key === 'itemQuantities') continue;
+    if (String(value || '').trim()) {
+      displayMeasurements[key as QuickMeasurementFieldKey] = String(value);
+    }
+  }
+  const rows = quickMeasurementRowsForInput(templateKey, projectType, displayMeasurements, noteQuickMeasurements.keys);
 
   const setField = (key: QuickMeasurementFieldKey, value: string) => {
     setMeasurements((prev) => ({ ...prev, [key]: value }));
@@ -1083,7 +1149,7 @@ function CollapsibleQuickMeasurements({
                 <QuickMeasurementField
                   key={field.key}
                   label={field.label}
-                  value={measurements[field.key]}
+                  value={displayMeasurements[field.key] || ''}
                   onChangeText={(value) => setField(field.key, value)}
                   placeholder={field.placeholder}
                   Colors={Colors}
@@ -1192,6 +1258,7 @@ export default function AIEstimateScopeAssumptionsModal({
   const scrollRef = useRef<ScrollView>(null);
   const scrollContentRef = useRef<View>(null);
   const itemRefs = useRef<Record<string, View | null>>({});
+  const focusedQuantityRef = useRef<string | null>(null);
 
   useEffect(() => {
     itemsRef.current = items;
@@ -1259,7 +1326,11 @@ export default function AIEstimateScopeAssumptionsModal({
         )
       );
     }
-  }, [visible, draftScopeRestoreKey, checklist?.templateKey, draft]);
+    // `draft` is intentionally excluded: re-running on every parent re-render (e.g. when the
+    // keyboard opens) remounts the inputs and drops focus. `draftScopeRestoreKey` is the stable
+    // content signature that captures the data this effect actually reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, draftScopeRestoreKey, checklist?.templateKey]);
 
   useEffect(() => {
     if (visible) return;
@@ -1424,13 +1495,38 @@ export default function AIEstimateScopeAssumptionsModal({
   };
 
   const handleItemQuantityBlur = (itemId: string, field: 'count' | 'allowance' = 'count') => {
+    const focusKey = `${itemId}:${field}`;
+    focusedQuantityRef.current = null;
+    setTimeout(() => {
+      if (focusedQuantityRef.current === focusKey) return;
+      setMeasurements((prev) => {
+        const key = field === 'allowance' && isDualAllowanceItem(itemId) ? roughAllowanceSubKey(itemId) : itemId;
+        const current = prev.itemQuantities[key];
+        if (current?.quantity?.trim()) return prev;
+        const itemQuantities = { ...prev.itemQuantities };
+        delete itemQuantities[key];
+        return { ...prev, itemQuantities };
+      });
+    }, 250);
+  };
+
+  const handleItemQuantityFocus = (itemId: string, field: 'count' | 'allowance' = 'count') => {
+    focusedQuantityRef.current = `${itemId}:${field}`;
     setMeasurements((prev) => {
-      const key = field === 'allowance' && isDualAllowanceItem(itemId) ? roughAllowanceSubKey(itemId) : itemId;
-      const current = prev.itemQuantities[key];
-      if (current?.quantity?.trim()) return prev;
-      const itemQuantities = { ...prev.itemQuantities };
-      delete itemQuantities[key];
-      return { ...prev, itemQuantities };
+      const rule = getChecklistItemQuantityRule(itemId, checklist?.templateKey);
+      const key = field === 'allowance' && rule?.dualAllowanceField ? roughAllowanceSubKey(itemId) : itemId;
+      if (prev.itemQuantities[key]?.quantitySource === 'user_entered') return prev;
+      return {
+        ...prev,
+        itemQuantities: {
+          ...prev.itemQuantities,
+          [key]: {
+            quantity: String(prev.itemQuantities[key]?.quantity ?? ''),
+            unit: field === 'allowance' ? 'allowance' : rule?.defaultUnit || 'sqft',
+            quantitySource: 'user_entered',
+          },
+        },
+      };
     });
   };
 
@@ -1444,6 +1540,7 @@ export default function AIEstimateScopeAssumptionsModal({
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
         onItemQuantityBlur={handleItemQuantityBlur}
+        onItemQuantityFocus={handleItemQuantityFocus}
         visualCtx={visualCtx}
         Colors={Colors}
         darkMode={darkMode}
@@ -1471,6 +1568,7 @@ export default function AIEstimateScopeAssumptionsModal({
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
         onItemQuantityBlur={handleItemQuantityBlur}
+        onItemQuantityFocus={handleItemQuantityFocus}
         visualCtx={visualCtx}
         Colors={Colors}
         darkMode={darkMode}
@@ -1506,6 +1604,7 @@ export default function AIEstimateScopeAssumptionsModal({
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
         onItemQuantityBlur={handleItemQuantityBlur}
+        onItemQuantityFocus={handleItemQuantityFocus}
         visualCtx={visualCtx}
         Colors={Colors}
         darkMode={darkMode}
@@ -1528,6 +1627,7 @@ export default function AIEstimateScopeAssumptionsModal({
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
         onItemQuantityBlur={handleItemQuantityBlur}
+        onItemQuantityFocus={handleItemQuantityFocus}
         visualCtx={visualCtx}
         Colors={Colors}
         darkMode={darkMode}
@@ -1616,7 +1716,7 @@ export default function AIEstimateScopeAssumptionsModal({
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 120 }}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
       >
         <View ref={scrollContentRef} collapsable={false}>
@@ -1652,6 +1752,7 @@ export default function AIEstimateScopeAssumptionsModal({
           setMeasurements={setMeasurements}
           templateKey={checklist?.templateKey}
           projectType={draft?.projectType}
+          notes={scopeNotes}
           Colors={Colors}
           darkMode={darkMode}
           applying={applying}
@@ -1770,10 +1871,6 @@ export default function AIEstimateScopeAssumptionsModal({
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
       <View style={{ flex: 1, backgroundColor: Colors.bg }}>
         {body}
-        <KeyboardPlainAccessory
-          nativeID={KEYBOARD_ACCESSORY_IDS.aiScopeConfirmNumeric}
-          backgroundColor={Colors.bg}
-        />
       </View>
     </Modal>
   );

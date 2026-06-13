@@ -68,6 +68,34 @@ function hasClearUnitQuantities(draft, notes) {
   });
 }
 
+function hasMultipleFlooringScopeParts(draft, notes) {
+  const parts = new Set();
+  const chunks = [
+    notes,
+    ...((draft.rooms || []).map((room) => `${room.name || ''} ${room.scope || ''}`)),
+    ...((draft.scopePackages || []).map((pkg) => `${pkg.name || ''} ${pkg.scope || ''}`)),
+  ];
+
+  for (const chunk of chunks) {
+    const text = String(chunk || '').toLowerCase();
+    if (!text) continue;
+    if (/\b(demo|demolition|remove|removal|tear\s*out)\b.*\b(tile|floor|flooring|lvp|vinyl|laminate|carpet)\b|\b(tile|floor|flooring|lvp|vinyl|laminate|carpet)\b.*\b(demo|demolition|remove|removal|tear\s*out)\b/.test(text)) {
+      parts.add('demo');
+    }
+    if (/\b(lvp|laminate|vinyl|carpet|flooring|floor\s+tile|tile\s+floor)\b.*\b(install|installation)\b|\b(install|installation)\b.*\b(lvp|laminate|vinyl|carpet|flooring|floor\s+tile|tile\s+floor)\b/.test(text)) {
+      parts.add('install');
+    }
+    if (/\b(baseboard|trim|crown|moulding|molding|casing)\b/.test(text)) {
+      parts.add('trim');
+    }
+    if (/\b(floor\s+prep|subfloor|level(?:ing)?|underlayment)\b/.test(text)) {
+      parts.add('prep');
+    }
+  }
+
+  return parts.size > 1;
+}
+
 function isSimpleUnitBid(draft, originalNotes) {
   const notes = notesText(draft, originalNotes);
   const projectType = String(draft.projectType || 'other').toLowerCase();
@@ -84,9 +112,11 @@ function isSimpleUnitBid(draft, originalNotes) {
     return false;
   }
 
-  if (projectType === 'flooring') return true;
+  if (projectType === 'flooring') {
+    return hasClearUnitQuantities(draft, notes) && !hasMultipleFlooringScopeParts(draft, notes);
+  }
 
-  const simpleTypes = new Set(['flooring', 'painting', 'plumbing_service', 'landscaping', 'deck_patio']);
+  const simpleTypes = new Set(['painting', 'plumbing_service', 'landscaping', 'deck_patio']);
   const simpleNotes =
     /\b(tile demo|tile install|baseboard|laminate|lvp|carpet install|paint(?:ing)?|drywall patch|demo\s+\d+)\b/i.test(
       notes
@@ -142,7 +172,7 @@ function classifyEstimateTier(draft, originalNotes) {
     return 'simple_unit';
   }
 
-  if (MULTI_TRADE_PROJECT_TYPES.has(projectType) || ['other', 'roofing', 'concrete'].includes(projectType)) {
+  if (MULTI_TRADE_PROJECT_TYPES.has(projectType) || ['other', 'flooring', 'roofing', 'concrete'].includes(projectType)) {
     return 'room_remodel';
   }
 
@@ -189,6 +219,7 @@ const NOTE_BACKED_SCOPE_LABELS = {
 };
 
 const NOTE_BACKED_TEMPLATE_ALIASES = {
+  demo: ['floor_demo'],
   interior_paint: ['paint'],
 };
 
@@ -562,6 +593,39 @@ function roomExistsByLabel(rooms, label) {
   });
 }
 
+function canonicalScopeKey(text) {
+  const t = String(text || '').toLowerCase();
+  if (/\b(shower\s+tile|shower\s+wall\s+tile|tile\s+shower)\b/.test(t)) return 'shower_tile';
+  if (
+    /\b(demo|demolition|remove|removal|tear[\s-]?out)\b/.test(t) &&
+    /\b(tile|floor|flooring|lvp|vinyl|laminate|carpet)\b/.test(t)
+  ) {
+    return 'floor_demo';
+  }
+  if (
+    /\b(install|installation)\b/.test(t) &&
+    /\b(lvp|laminate|vinyl|carpet|flooring|floor)\b/.test(t) &&
+    !/\b(demo|demolition|remove|removal|tear[\s-]?out)\b/.test(t)
+  ) {
+    return 'flooring';
+  }
+  if (/\b(rail(?:ing)?|guardrail|metal\s+railing)\b/.test(t)) return 'railing';
+  if (/\b(rock|mulch|gravel)\b/.test(t)) return 'rock_mulch';
+  if (/\b(deck(?:ing)?|composite\s+deck)\b/.test(t)) return 'decking';
+  if (/\b(concrete|flatwork|slab|driveway|sidewalk)\b/.test(t)) return 'concrete';
+  if (/\b(baseboard|trim|crown|moulding|molding|casing)\b/.test(t)) return 'trim';
+  return null;
+}
+
+function roomExistsForChecklistItem(rooms, item) {
+  const itemKey = canonicalScopeKey(`${item.id} ${item.label || ''} ${item.helperText || ''}`);
+  if (!itemKey) return false;
+  return (rooms || []).some((room) => {
+    const roomKey = canonicalScopeKey(`${room.name || ''} ${room.scope || ''}`);
+    return roomKey === itemKey;
+  });
+}
+
 function defaultMissingPriceItemsForExtra(itemId) {
   const map = {
     tub_install: ['Tub / surround materials', 'Tub install labor'],
@@ -673,6 +737,7 @@ function addScopePackagesFromConfirmedChecklist(draft, confirmedItems, scopeMeas
   for (const itemId of extraIds) {
     const extra = CHECKLIST_EXTRA_ROOMS[itemId];
     if (!extra || roomExistsByLabel(rooms, extra.name)) continue;
+    if (roomExistsForChecklistItem(rooms, { id: itemId, label: extra.name, helperText: extra.scope })) continue;
     rooms.push(emptyRoomFromChecklistExtra(itemId, extra, notes, scopeMeasurements, templateKey));
   }
 
@@ -680,6 +745,7 @@ function addScopePackagesFromConfirmedChecklist(draft, confirmedItems, scopeMeas
     const name = String(item.label || 'Scope item')
       .replace(/\s*—.*$/, '')
       .trim();
+    if (roomExistsForChecklistItem(rooms, item)) continue;
     if (!name || roomExistsByLabel(rooms, name)) continue;
     rooms.push({
       name,
