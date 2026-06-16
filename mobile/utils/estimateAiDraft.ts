@@ -1,5 +1,6 @@
 import { postAiAssistantJson } from '@/utils/resolveAiBackendUrl';
 import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
+import { resolveScopePackageBudgetBreakdown } from '@/utils/scopeBudgetBreakdown';
 
 export type DraftItemStatus =
   | 'confirmed'
@@ -186,6 +187,7 @@ export type EstimateDraftScopePackage = {
   formula: string | null;
   pricingItems?: EstimateDraftPricingItem[];
   scopeQuantities?: Array<{ label: string; quantity: number; unit: string }>;
+  budgetSplitBasis?: { quantity: number; unit: string } | null;
   missingPriceItems?: string[];
   missingInfo: string[];
   warnings?: string[];
@@ -591,7 +593,27 @@ export function getScopePackageForRoom(
   draft: EstimateAiDraft,
   roomName: string
 ): EstimateDraftScopePackage | undefined {
-  return draft.scopePackages?.find((p) => p.name === roomName);
+  const exact = draft.scopePackages?.find((p) => p.name === roomName);
+  if (exact) return exact;
+  if (!draft.scopePackages?.length) {
+    return getScopePackages(draft).find((p) => p.name === roomName);
+  }
+  const normalizedRoom = roomName.toLowerCase();
+  return draft.scopePackages.find((p) => {
+    const normalizedPkg = p.name.toLowerCase();
+    if (normalizedPkg === normalizedRoom) return true;
+    const roomIsDemo = /\bdemo|removal\b/.test(normalizedRoom);
+    const pkgIsDemo = /\bdemo|removal\b/.test(normalizedPkg);
+    if (roomIsDemo || pkgIsDemo) return roomIsDemo && pkgIsDemo;
+    if (/\bbaseboard|trim\b/.test(normalizedRoom) && /\bbaseboard|trim\b/.test(normalizedPkg)) return true;
+    if (
+      /\blvp|flooring|floor\b/.test(normalizedRoom) &&
+      /\blvp|flooring|floor\b/.test(normalizedPkg)
+    ) {
+      return true;
+    }
+    return false;
+  });
 }
 
 export function roomIsApplyEligible(
@@ -738,75 +760,36 @@ function materialPortion(room: EstimateDraftRoom): number {
   return 0;
 }
 
-function scopePackageRuleKeyForApply(name: string, scope = ''): string | null {
-  const blob = `${name || ''} ${scope || ''}`.toLowerCase();
-  if (/\b(tile\s+demo|tile\s+removal|floor\s+demo|flooring\s+demo|demo\s+existing\s+tile)\b/.test(blob)) {
-    return 'floor_demo';
-  }
-  if (/\b(lvp|laminate|vinyl|flooring|carpet)\b/.test(blob) && !/\bdemo|removal\b/.test(blob)) {
-    return 'flooring';
-  }
-  if (/\bbaseboard|trim\b/.test(blob)) return 'trim';
-  if (/\bshower\b.*\btile\b|\btile\b.*\bshower\b/.test(blob)) return 'shower_tile';
-  if (/\brail(?:ing)?\b|\bguardrail\b/.test(blob)) return 'railing';
-  if (/\brock|mulch|gravel\b/.test(blob)) return 'rock_mulch';
-  if (/\bconcrete\b|\bflatwork\b|\bslab\b|\bdriveway\b|\bsidewalk\b/.test(blob)) return 'concrete';
-  return null;
-}
-
 function parsedNoteSplitForPackage(
   pkg: EstimateDraftScopePackage | undefined,
   draft: EstimateAiDraft
-): { material: number; labor: number; total: number } | null {
+): { material: number; labor: number; total: number; splitIsSuggested?: boolean } | null {
   if (!pkg) return null;
-  const key = scopePackageRuleKeyForApply(pkg.name || '', pkg.scope || '');
-  if (!key) return null;
+  const breakdown = resolveScopePackageBudgetBreakdown(pkg, draft);
+  if (!breakdown) return null;
+  if (breakdown.material <= 0 && breakdown.labor <= 0) return null;
 
-  const parsedFromNotes = parseScopeMeasurementsFromNotes(resolveDraftScopeNotes(draft), {
-    templateKey: draft.scopeChecklist?.templateKey,
-    projectType: draft.projectType ?? undefined,
-  }).itemQuantities || {};
-  const itemQuantities = {
-    ...(draft.scopeMeasurements?.itemQuantities || {}),
-    ...parsedFromNotes,
+  const isSuggested =
+    breakdown.materialSource === 'suggested' && breakdown.laborSource === 'suggested';
+  const hasApprovedPkgSplit =
+    Number(pkg.materialPrice ?? 0) > 0 && Number(pkg.laborPrice ?? 0) > 0;
+  if (isSuggested && !draft.applySuggestedSplits && !hasApprovedPkgSplit) {
+    return null;
+  }
+
+  return {
+    material: breakdown.material,
+    labor: breakdown.labor,
+    total: breakdown.total,
+    splitIsSuggested: isSuggested,
   };
-  const material = Number(itemQuantities[`${key}__material`]?.quantity || 0);
-  const labor = Number(itemQuantities[`${key}__labor`]?.quantity || 0);
-  const total = Number(
-    itemQuantities[`${key}__allowance`]?.quantity ||
-      itemQuantities[key]?.quantity ||
-      pkg.price ||
-      pkg.knownSubtotal ||
-      pkg.calculatedSubtotal ||
-      0
-  );
-
-  if (material > 0 || labor > 0) {
-    return {
-      material: material > 0 ? material : 0,
-      labor: labor > 0 ? labor : Math.max(0, total - material),
-      total,
-    };
-  }
-
-  const calculatedFromNotes =
-    pkg.status === 'calculated' ||
-    pkg.priceSource === 'notes' ||
-    Boolean((pkg as EstimateDraftScopePackage & { pricedFromSqftAllowances?: boolean }).pricedFromSqftAllowances);
-
-  if (total > 0 && calculatedFromNotes) {
-    const materialOnly = new Set(['rock_mulch', 'sod_turf', 'plants_trees']);
-    return {
-      material: materialOnly.has(key) ? total : 0,
-      labor: materialOnly.has(key) ? 0 : total,
-      total,
-    };
-  }
-
-  return null;
 }
 
-function laborDescription(room: EstimateDraftRoom, pkg?: EstimateDraftScopePackage): string {
+function laborDescription(
+  room: EstimateDraftRoom,
+  pkg?: EstimateDraftScopePackage,
+  parsedSplit?: { splitIsSuggested?: boolean } | null
+): string {
   const scope = room.scope?.trim() || room.name;
   const parts = [scope];
   if (pkg?.status === 'partial_pricing') {
@@ -821,7 +804,13 @@ function laborDescription(room: EstimateDraftRoom, pkg?: EstimateDraftScopePacka
     }
     parts.push('\n(Partial package — add remaining scope on Labor/Materials steps.)');
   }
-  if (room.splitIsSuggested && room.splitApprovedByUser) {
+  if (parsedSplit) {
+    parts.push(
+      parsedSplit.splitIsSuggested
+        ? '\n(National Average budget split applied — review on Labor step.)'
+        : '\n(Material/labor split from notes — review on Labor step.)'
+    );
+  } else if (room.splitIsSuggested && room.splitApprovedByUser) {
     parts.push('\n(AI-suggested labor split — review on Labor step.)');
   } else if (room.priceIncludesLaborAndMaterials && !room.splitIsSuggested) {
     parts.push('\n(Price from notes includes labor and materials — split on steps if needed.)');
@@ -849,11 +838,87 @@ function effectiveLaborTotal(
   return total > 0 ? total : null;
 }
 
+function packageIsApplyEligible(pkg: EstimateDraftScopePackage, applyConfirmedOnly: boolean): boolean {
+  if (pkg.status === 'missing_price') return false;
+  if (applyConfirmedOnly && (pkg.status === 'ai_suggested' || pkg.status === 'rough_price')) {
+    return false;
+  }
+  if (pkg.applyEligible) return true;
+  const amount = pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0;
+  return amount > 0;
+}
+
+function laborDescriptionForPackage(
+  pkg: EstimateDraftScopePackage,
+  parsedSplit?: { splitIsSuggested?: boolean } | null
+): string {
+  const parts = [pkg.scope?.trim() || pkg.name];
+  if (parsedSplit) {
+    parts.push(
+      parsedSplit.splitIsSuggested
+        ? '\n(National Average budget split applied — review on Labor step.)'
+        : '\n(Material/labor split from notes — review on Labor step.)'
+    );
+  } else if (pkg.priceIncludesLaborAndMaterials || (pkg.includesLabor && pkg.includesMaterials)) {
+    parts.push('\n(Price from notes includes labor and materials — split on steps if needed.)');
+  }
+  return parts.join('');
+}
+
+function budgetSplitDisplaySubtitle(
+  parsedSplit: { splitIsSuggested?: boolean } | null | undefined,
+  type: 'material' | 'labor'
+): string | null {
+  if (!parsedSplit) return null;
+  if (parsedSplit.splitIsSuggested) {
+    return type === 'material'
+      ? 'National Average material budget split'
+      : 'National Average labor remainder';
+  }
+  return type === 'material' ? 'Material from notes' : 'Labor from notes';
+}
+
 function laborLineItemsFromDraft(
   draft: EstimateAiDraft,
   applyConfirmedOnly: boolean
 ): Record<string, unknown>[] {
   const lines: Record<string, unknown>[] = [];
+
+  if (draft.scopePackages?.length) {
+    for (const pkg of draft.scopePackages) {
+      if (!packageIsApplyEligible(pkg, applyConfirmedOnly)) continue;
+
+      const parsedSplit = parsedNoteSplitForPackage(pkg, draft);
+      const total =
+        parsedSplit?.labor ??
+        (pkg.laborPrice != null
+          ? pkg.laborPrice
+          : pkg.priceIncludesLaborAndMaterials || (pkg.includesLabor && pkg.includesMaterials)
+            ? pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0
+            : pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0);
+      if (total == null || total <= 0) continue;
+
+      const isCombinedOnly = !parsedSplit && (pkg.priceIncludesLaborAndMaterials || (pkg.includesLabor && pkg.includesMaterials));
+      lines.push({
+        id: newLineItemId(),
+        name: pkg.name,
+        description: laborDescriptionForPackage(pkg, parsedSplit),
+        hours: 1,
+        rate: total,
+        total,
+        totalCost: total,
+        category: isCombinedOnly ? 'Trade package' : 'Labor',
+        section: pkg.name,
+        source: 'ai-draft',
+        priceProvidedByUser: true,
+        priceIncludesLaborAndMaterials: isCombinedOnly,
+        splitIsSuggested: Boolean(parsedSplit?.splitIsSuggested || pkg.splitIsSuggested),
+        displaySubtitle: budgetSplitDisplaySubtitle(parsedSplit, 'labor'),
+        partialPricing: pkg.status === 'partial_pricing',
+      });
+    }
+    return lines;
+  }
 
   for (const room of draft.rooms) {
     if (!roomIsApplyEligible(room, draft, applyConfirmedOnly)) continue;
@@ -863,6 +928,7 @@ function laborLineItemsFromDraft(
     if (total == null || total <= 0) continue;
 
     const resolved = resolveRoomForApply(room, draft);
+    const parsedSplit = parsedNoteSplitForPackage(pkg, draft);
     const isCombinedOnly =
       resolved.priceIncludesLaborAndMaterials &&
       !resolved.splitIsSuggested &&
@@ -871,7 +937,7 @@ function laborLineItemsFromDraft(
     lines.push({
       id: newLineItemId(),
       name: resolved.name,
-      description: laborDescription(resolved, pkg),
+      description: laborDescription(resolved, pkg, parsedSplit),
       hours: 1,
       rate: total,
       total,
@@ -888,6 +954,7 @@ function laborLineItemsFromDraft(
       priceIncludesLaborAndMaterials:
         pkg?.status === 'partial_pricing' ? false : resolved.priceIncludesLaborAndMaterials,
       splitIsSuggested: Boolean(resolved.splitIsSuggested),
+      displaySubtitle: budgetSplitDisplaySubtitle(parsedSplit, 'labor'),
       partialPricing: pkg?.status === 'partial_pricing',
     });
   }
@@ -900,6 +967,57 @@ function materialLineItemsFromDraft(
   applyConfirmedOnly: boolean
 ): Record<string, unknown>[] {
   const lines: Record<string, unknown>[] = [];
+
+  if (draft.scopePackages?.length) {
+    for (const pkg of draft.scopePackages) {
+      if (!packageIsApplyEligible(pkg, applyConfirmedOnly)) continue;
+
+      const parsedSplit = parsedNoteSplitForPackage(pkg, draft);
+      if (!parsedSplit && pkg.pricingItems?.length) {
+        for (const item of pkg.pricingItems) {
+          if (item.pricingType !== 'material' || item.amount == null || item.amount <= 0) continue;
+          if (applyConfirmedOnly && item.status === 'ai_suggested' && !item.approvedByUser) continue;
+          lines.push({
+            id: newLineItemId(),
+            name: `${pkg.name} — ${item.name}`,
+            description: item.description || `From notes (${item.status || 'confirmed'})`,
+            quantity: 1,
+            qty: 1,
+            unit: 'lot',
+            unitPrice: item.amount,
+            cost: item.amount,
+            total: item.amount,
+            section: pkg.name,
+            source: 'ai-draft',
+            isManual: true,
+          });
+        }
+      }
+
+      const splitMaterial = parsedSplit ? parsedSplit.material : Number(pkg.materialPrice ?? 0);
+      const splitIsSuggested = parsedSplit?.splitIsSuggested ?? Boolean(pkg.splitIsSuggested);
+      if (splitMaterial > 0) {
+        lines.push({
+          id: newLineItemId(),
+          name: `${pkg.name} — materials`,
+          description: splitIsSuggested
+            ? `Suggested materials split for ${pkg.name} — adjust after applying.`
+            : `Materials for ${pkg.name}`,
+          quantity: 1,
+          qty: 1,
+          unit: 'lot',
+          unitPrice: splitMaterial,
+          cost: splitMaterial,
+          total: splitMaterial,
+          section: pkg.name,
+          source: 'ai-draft',
+          isManual: true,
+          displaySubtitle: budgetSplitDisplaySubtitle(parsedSplit, 'material'),
+        });
+      }
+    }
+    return lines;
+  }
 
   for (const room of draft.rooms) {
     if (!roomIsApplyEligible(room, draft, applyConfirmedOnly)) continue;
@@ -925,16 +1043,18 @@ function materialLineItemsFromDraft(
           section: room.name,
           source: 'ai-draft',
           isManual: true,
+          displaySubtitle: budgetSplitDisplaySubtitle(parsedSplit, 'material'),
         });
       }
     }
 
     const splitMaterial = parsedSplit ? parsedSplit.material : materialPortion(resolved);
+    const splitIsSuggested = parsedSplit?.splitIsSuggested ?? Boolean(resolved.splitIsSuggested);
     if (splitMaterial > 0) {
       lines.push({
         id: newLineItemId(),
         name: `${room.name} — materials`,
-        description: resolved.splitIsSuggested
+        description: splitIsSuggested
           ? `Suggested materials split for ${room.name} — adjust after applying.`
           : `Materials for ${room.name}`,
         quantity: 1,
@@ -986,7 +1106,7 @@ export function applyDraftToEstimate(
   const draftForApply: EstimateAiDraft = {
     ...draft,
     applySuggestedSplits: applyConfirmedOnly
-      ? false
+      ? true
       : options.applySuggestedSplits ?? Boolean(draft.applySuggestedSplits),
   };
 

@@ -13,7 +13,13 @@ import {
   lookupRuleKeyForPackage,
   normalizeScopeMeasurements,
   resolveChecklistItemQuantity,
+  getNationalAverageBudgetSplit,
 } from '@/utils/scopeItemQuantities';
+import {
+  lookupRuleKeyForBudgetPackage,
+  packageNeedsSuggestedBudgetSplit,
+  resolveScopePackageBudgetBreakdown,
+} from '@/utils/scopeBudgetBreakdown';
 import {
   APPROVAL_SUBTEXT,
   BLOCKED_PRICING_MESSAGE,
@@ -2676,20 +2682,8 @@ export function buildProposalFromMissingSuggestions(
   };
 }
 
-function packageNeedsBudgetSplit(pkg: EstimateDraftScopePackage): boolean {
-  const total = Number(pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0);
-  if (total <= 0) return false;
-  const noteBacked =
-    pkg.status === 'calculated' ||
-    pkg.priceSource === 'notes' ||
-    Boolean((pkg as EstimateDraftScopePackage & { pricedFromSqftAllowances?: boolean }).pricedFromSqftAllowances) ||
-    (pkg.pricingItems || []).some((item) => item.priceSource === 'notes');
-  if (!noteBacked) return false;
-  if ((pkg.materialPrice ?? 0) > 0 || (pkg.laborPrice ?? 0) > 0) return false;
-  if ((pkg.pricingItems || []).some((item) => item.pricingType === 'material' || item.pricingType === 'labor')) {
-    return false;
-  }
-  return true;
+function packageNeedsBudgetSplit(pkg: EstimateDraftScopePackage, draft: EstimateAiDraft): boolean {
+  return packageNeedsSuggestedBudgetSplit(pkg, draft);
 }
 
 /** Build approval-required material/labor budget splits for note-backed lump sums or single total rates. */
@@ -2698,23 +2692,24 @@ export function buildBudgetSplitProposalFromDraft(draft: EstimateAiDraft): Prici
   const lines: PricingProposalLine[] = [];
 
   for (const pkg of getScopePackages(draft)) {
-    if (!packageNeedsBudgetSplit(pkg)) continue;
+    if (!packageNeedsBudgetSplit(pkg, draft)) continue;
 
+    const breakdown = resolveScopePackageBudgetBreakdown(pkg, draft);
+    if (!breakdown || breakdown.materialSource !== 'suggested') continue;
+
+    const ruleKey = lookupRuleKeyForBudgetPackage(pkg.name, pkg.scope || '');
+    const band = ruleKey ? getNationalAverageBudgetSplit(ruleKey) : null;
     const qty = pkg.scopeQuantities?.[0];
-    const trade = inferTradeFromPackage(pkg, draft);
-    const band = NATIONAL_TRADE_AVERAGES_LOCAL[trade];
-    const total = roundMoney(Number(pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0));
-    if (!band || !qty || qty.quantity <= 0 || qty.unit !== band.unit || total <= 0 || band.material <= 0) {
+    const total = roundMoney(breakdown.total);
+    const materialTotal = roundMoney(breakdown.material);
+    const laborTotal = roundMoney(breakdown.labor);
+    if (!band || !qty || qty.quantity <= 0 || qty.unit !== band.unit || total <= 0 || materialTotal <= 0 || laborTotal <= 0) {
       continue;
     }
 
-    const materialTotal = Math.min(total, roundMoney(qty.quantity * band.material));
-    const laborTotal = roundMoney(total - materialTotal);
-    if (materialTotal <= 0 || laborTotal <= 0) continue;
-
     const rates = [
       {
-        label: band.materialLabel,
+        label: `${band.unit === 'lf' ? 'LF' : band.unit === 'squares' ? 'Square' : 'Sqft'} material allowance`,
         pricingType: 'material',
         rate: band.material,
         unit: band.unit,
@@ -2729,7 +2724,7 @@ export function buildBudgetSplitProposalFromDraft(draft: EstimateAiDraft): Prici
         requiresApproval: true,
       },
       {
-        label: band.laborLabel,
+        label: 'Labor remainder',
         pricingType: 'labor',
         rate: laborTotal,
         unit: 'lump_sum',

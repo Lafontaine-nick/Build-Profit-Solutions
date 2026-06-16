@@ -59,8 +59,9 @@ import {
   proposalHasSavedRates,
   resolveSavedPricingProposalForDraft,
   countSavedPricingScopeItems,
+  draftHasApplyablePricing,
 } from '../../utils/estimateAiDraftPricing';
-import { isScopeOnlyDraft } from '../../utils/estimateDraftReviewUi';
+import { draftHasUnpricedScope, isScopeOnlyDraft } from '../../utils/estimateDraftReviewUi';
 import { mergeScopeProgressIntoDraft } from '../../utils/estimateScopeChecklistUi';
 import { scopeMeasurementsPayloadForPersist } from '../../utils/scopeItemQuantities';
 import {
@@ -5643,7 +5644,10 @@ export default function EstimateGeneratorScreen() {
       setAiDraft(enrichedDraft);
       setShowAiScopeAssumptionsModal(false);
 
-      if (skipPricing) {
+      const notePricingComplete =
+        draftHasApplyablePricing(enrichedDraft) && !draftHasUnpricedScope(enrichedDraft);
+
+      if (skipPricing || notePricingComplete) {
         setShowAiDraftReviewModal(true);
         return;
       }
@@ -5698,6 +5702,7 @@ export default function EstimateGeneratorScreen() {
   );
 
   const handleGenerateAiDraft = useCallback(async (notes) => {
+    if (aiDraftGenerating) return;
     setAiDraftGenerating(true);
     setAiDraftNotes(notes);
     setAiDraft(null);
@@ -5746,7 +5751,7 @@ export default function EstimateGeneratorScreen() {
     } finally {
       setAiDraftGenerating(false);
     }
-  }, [savedBidTemplates, applySavedPricingToDraftState]);
+  }, [aiDraftGenerating, savedBidTemplates, applySavedPricingToDraftState]);
 
   const handlePersistScopeProgress = useCallback((items, measurements) => {
     setAiDraft((prev) => {
@@ -5768,14 +5773,22 @@ export default function EstimateGeneratorScreen() {
     async (confirmedItems, scopeMeasurements) => {
       if (!aiDraft || aiScopeAssumptionsApplying) return;
       setAiScopeAssumptionsApplying(true);
+      let enriched;
       try {
-        const enriched = await applyScopeAssumptionsToDraft(aiDraft, confirmedItems, scopeMeasurements);
-        await advanceComplexDraftAfterScope(enriched);
+        enriched = await applyScopeAssumptionsToDraft(aiDraft, confirmedItems, scopeMeasurements);
       } catch (e) {
         console.warn('handleConfirmScopeAssumptions failed', e);
         Alert.alert('Scope confirmation', e?.message || 'Could not save scope assumptions. Please try again.');
+        return;
       } finally {
         setAiScopeAssumptionsApplying(false);
+      }
+
+      try {
+        await advanceComplexDraftAfterScope(enriched);
+      } catch (e) {
+        console.warn('advanceComplexDraftAfterScope failed', e);
+        setShowAiDraftReviewModal(true);
       }
     },
     [aiDraft, aiScopeAssumptionsApplying, advanceComplexDraftAfterScope]
@@ -5792,14 +5805,22 @@ export default function EstimateGeneratorScreen() {
       state: item.state === 'excluded' ? 'excluded' : 'unsure',
     }));
     setAiScopeAssumptionsApplying(true);
+    let enriched;
     try {
-      const enriched = await applyScopeAssumptionsToDraft(aiDraft, items, scopeMeasurements);
-      await advanceComplexDraftAfterScope(enriched, { skipPricing: true });
+      enriched = await applyScopeAssumptionsToDraft(aiDraft, items, scopeMeasurements);
     } catch (e) {
       console.warn('handleScopeAssumptionsScopeOnly failed', e);
       Alert.alert('Scope only', e?.message || 'Could not continue. Please try again.');
+      return;
     } finally {
       setAiScopeAssumptionsApplying(false);
+    }
+
+    try {
+      await advanceComplexDraftAfterScope(enriched, { skipPricing: true });
+    } catch (e) {
+      console.warn('advanceComplexDraftAfterScope scope-only failed', e);
+      setShowAiDraftReviewModal(true);
     }
   }, [aiDraft, aiScopeAssumptionsApplying, advanceComplexDraftAfterScope]);
 
@@ -6012,6 +6033,71 @@ export default function EstimateGeneratorScreen() {
     [aiDraft, pauseDraftReviewForPricingModal]
   );
 
+  const handleUpdateScopeBudgetSplit = useCallback((packageName, material, labor, basis = null) => {
+    setAiDraft((prev) => {
+      if (!prev || !packageName) return prev;
+      const nextMaterial = Math.max(0, Number(material) || 0);
+      const nextLabor = Math.max(0, Number(labor) || 0);
+      const nextTotal = Math.round((nextMaterial + nextLabor) * 100) / 100;
+      const nextScopePackages = (prev.scopePackages || []).map((pkg) =>
+        pkg.name === packageName
+          ? {
+              ...pkg,
+              price: nextTotal,
+              knownSubtotal: nextTotal,
+              calculatedSubtotal: nextTotal,
+              finalApprovedTotal: nextTotal,
+              materialPrice: nextMaterial,
+              laborPrice: nextLabor,
+              budgetSplitBasis: basis,
+              includesMaterials: nextMaterial > 0,
+              includesLabor: nextLabor > 0,
+              priceIncludesLaborAndMaterials: nextMaterial > 0 && nextLabor > 0,
+              priceProvidedByUser: true,
+              priceSource: 'manual',
+              status: 'user_provided',
+              splitIsSuggested: false,
+            }
+          : pkg
+      );
+      const nextRooms = (prev.rooms || []).map((room) =>
+        room.name === packageName || room.scope === packageName
+          ? {
+              ...room,
+              price: nextTotal,
+              knownSubtotal: nextTotal,
+              materialPrice: nextMaterial,
+              laborPrice: nextLabor,
+              priceIncludesLaborAndMaterials: nextMaterial > 0 && nextLabor > 0,
+              priceProvidedByUser: true,
+              packageStatus: 'user_provided',
+              splitIsSuggested: false,
+            }
+          : room
+      );
+      const calculatedTotal = nextScopePackages.reduce((sum, pkg) => {
+        const amount = Number(pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0);
+        return sum + (Number.isFinite(amount) ? amount : 0);
+      }, 0);
+      return {
+        ...prev,
+        scopePackages: nextScopePackages,
+        rooms: nextRooms,
+        calculatedLineItemTotal: calculatedTotal,
+        calculatedTotal,
+        totalValidation: prev.totalValidation
+          ? {
+              ...prev.totalValidation,
+              calculatedLineItemsTotal: calculatedTotal,
+            }
+          : prev.totalValidation,
+        applySuggestedSplits: true,
+        pricingProposalApproved: true,
+        savedPricingApplySummary: null,
+      };
+    });
+  }, []);
+
   const handleApplySavedPricingProposal = useCallback(
     (proposalOverride) => {
       const proposal = proposalOverride || aiSavedPricingProposal;
@@ -6058,7 +6144,12 @@ export default function EstimateGeneratorScreen() {
     (proposalOverride) => {
       const proposal = proposalOverride || aiBudgetSplitProposal;
       if (!aiDraft || !proposal || proposal.empty) return;
-      setAiDraft(applyPricingProposalToDraft(aiDraft, proposal, { approved: true }));
+      setAiDraft({
+        ...aiDraft,
+        pendingPricingProposal: proposal,
+        pricingProposalApproved: true,
+        applySuggestedSplits: true,
+      });
       setShowAiBudgetSplitModal(false);
       resumeDraftReviewAfterPricingModal();
       if (Platform.OS !== 'web') {
@@ -6151,18 +6242,19 @@ export default function EstimateGeneratorScreen() {
       const scopeOnly = mode === 'scope_only';
       const withApproved = mode === 'with_approved';
 
-      const runApply = async () => {
+      const runApply = async (draftOverride = null, forceApplySuggestedSplits = false) => {
+        const draftToApply = draftOverride || aiDraft;
         setAiDraftApplying(true);
         try {
-          const { bid: appliedBid, materialsCart: nextCart } = applyDraftToEstimate(bid, aiDraft, {
+          const { bid: appliedBid, materialsCart: nextCart } = applyDraftToEstimate(bid, draftToApply, {
             scopeOnly,
             applySuggestedSplits: scopeOnly
               ? false
-              : withApproved
+              : withApproved || forceApplySuggestedSplits
                 ? true
                 : applyConfirmedOnly
                   ? false
-                  : Boolean(aiDraft.applySuggestedSplits),
+                  : Boolean(draftToApply.applySuggestedSplits),
             applyConfirmedOnly: scopeOnly ? false : applyConfirmedOnly,
           });
           const nextBid = {
@@ -6190,11 +6282,11 @@ export default function EstimateGeneratorScreen() {
           }
           setAiDraftFillToast({
             visible: true,
-            roomCount: aiDraft.rooms?.length || 0,
+            roomCount: draftToApply.rooms?.length || 0,
           });
           if (!scopeOnly) {
             void capturePricingMemory({
-              draft: aiDraft,
+              draft: draftToApply,
               bid: nextBid,
               meta: {
                 bidStatus: 'applied',
@@ -6230,11 +6322,23 @@ export default function EstimateGeneratorScreen() {
       if (applyConfirmedOnly) {
         const budgetSplitProposal = buildBudgetSplitProposalFromDraft(aiDraft);
         if (budgetSplitProposal && !budgetSplitProposal.empty) {
-          setAiBudgetSplitProposal(budgetSplitProposal);
-          pauseDraftReviewForPricingModal();
-          setShowAiBudgetSplitModal(true);
-          if (Platform.OS !== 'web') {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          const approvedDraft = {
+            ...aiDraft,
+            pendingPricingProposal: budgetSplitProposal,
+            pricingProposalApproved: true,
+            applySuggestedSplits: true,
+          };
+          if (bidHasLineItems) {
+            Alert.alert(
+              'Apply confirmed pricing?',
+              'This applies the note totals and the material/labor budget splits shown in Step 3. Missing scope will not be added as $0 lines.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Apply confirmed', onPress: () => void runApply(approvedDraft, true) },
+              ]
+            );
+          } else {
+            await runApply(approvedDraft, true);
           }
           return;
         }
@@ -14403,9 +14507,10 @@ export default function EstimateGeneratorScreen() {
                                         {!isEditing ? (
                                           <>
                                             <Text style={{ color: darkMode ? 'rgba(203, 213, 225, 0.82)' : Colors.sub, fontSize: 12, marginBottom: 2, lineHeight: 16 }}>
-                                              {item.mode === 'sqft' || item.unit === 'sq ft'
-                                                ? `${item.quantity || item.qty || 0} sq ft × ${money(resolveMaterialCartUnitPrice(item))}/sq ft`
-                                                : `${item.quantity || item.qty || 0} ${item.unit || 'ea'} × ${money(resolveMaterialCartUnitPrice(item))}`}
+                                              {item.displaySubtitle ||
+                                                (item.mode === 'sqft' || item.unit === 'sq ft'
+                                                  ? `${item.quantity || item.qty || 0} sq ft × ${money(resolveMaterialCartUnitPrice(item))}/sq ft`
+                                                  : `${item.quantity || item.qty || 0} ${item.unit || 'ea'} × ${money(resolveMaterialCartUnitPrice(item))}`)}
                                             </Text>
                                             {item.vendorId && (
                                               <Text style={{ color: darkMode ? 'rgba(148, 163, 184, 0.9)' : Colors.sub, fontSize: 11, lineHeight: 15 }}>
@@ -15177,12 +15282,13 @@ export default function EstimateGeneratorScreen() {
                                       )}
                                     </View>
                                     <Text style={{ color: darkMode ? 'rgba(203, 213, 225, 0.82)' : Colors.sub, fontSize: 12, marginBottom: 2, lineHeight: 16 }}>
-                                      {(() => {
-                                        const resolved = resolveLaborContractLineItem(item, bid.sqft);
-                                        return resolved.mode === 'sqft'
-                                          ? `${resolved.quantity} sqft × ${money(resolved.unitPrice)}/sqft`
-                                          : `${resolved.quantity} hrs × ${money(resolved.unitPrice)}/hr`;
-                                      })()}
+                                      {item.displaySubtitle ||
+                                        (() => {
+                                          const resolved = resolveLaborContractLineItem(item, bid.sqft);
+                                          return resolved.mode === 'sqft'
+                                            ? `${resolved.quantity} sqft × ${money(resolved.unitPrice)}/sqft`
+                                            : `${resolved.quantity} hrs × ${money(resolved.unitPrice)}/hr`;
+                                        })()}
                                     </Text>
                                     {item.metadata && (
                                       <View style={{ marginTop: 5 }}>
@@ -24021,9 +24127,11 @@ export default function EstimateGeneratorScreen() {
         onSuggestRoughPrices={handleSuggestRoughPrices}
         onAddPricesManually={handleAddPricesManually}
         onPriceScopeItem={handlePriceScopeItem}
+        onUpdateScopeBudgetSplit={handleUpdateScopeBudgetSplit}
         onContinueUnpriced={handleDismissSavedPricingSummary}
         saveToPricingLibrary={aiSaveToPricingLibrary}
         onToggleSaveToPricingLibrary={setAiSaveToPricingLibrary}
+        markupPct={Number(bid?.markupPct) || 0}
       />
 
       <AIEstimatePricingProposalModal

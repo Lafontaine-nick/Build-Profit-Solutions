@@ -49,14 +49,23 @@ export default function AIEstimateBuilderModal({
   const Colors = useMemo(() => getColors(theme), [theme]);
   const [notes, setNotes] = useState('');
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [localGenerating, setLocalGenerating] = useState(false);
+  const busy = generating || localGenerating;
 
   useEffect(() => {
     if (visible) {
       setNotes(initialNotes || '');
     } else {
       setKeyboardVisible(false);
+      setLocalGenerating(false);
     }
   }, [visible, initialNotes]);
+
+  useEffect(() => {
+    if (!generating) {
+      setLocalGenerating(false);
+    }
+  }, [generating]);
 
   useEffect(() => {
     if (!visible || Platform.OS === 'web') return undefined;
@@ -73,7 +82,7 @@ export default function AIEstimateBuilderModal({
   }, [visible]);
 
   const handleBack = () => {
-    if (generating) return;
+    if (busy) return;
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
@@ -86,11 +95,20 @@ export default function AIEstimateBuilderModal({
 
   const handleGenerate = () => {
     const trimmed = notes.trim();
-    if (!trimmed || generating) return;
+    if (!trimmed || busy) return;
+    setLocalGenerating(true);
+    Keyboard.dismiss();
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
-    onGenerate(trimmed);
+    try {
+      const maybePromise = onGenerate(trimmed) as unknown;
+      if (maybePromise && typeof (maybePromise as Promise<void>).catch === 'function') {
+        (maybePromise as Promise<void>).catch(() => setLocalGenerating(false));
+      }
+    } catch {
+      setLocalGenerating(false);
+    }
   };
 
   const placeholderColor = darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub;
@@ -132,7 +150,7 @@ export default function AIEstimateBuilderModal({
       <TextInput
         value={notes}
         onChangeText={setNotes}
-        editable={!generating}
+        editable={!busy}
         multiline
         scrollEnabled={false}
         textAlignVertical="top"
@@ -167,16 +185,16 @@ export default function AIEstimateBuilderModal({
     >
       <TouchableOpacity
         activeOpacity={0.88}
-        disabled={!notes.trim() || generating}
+        disabled={!notes.trim() || busy}
         onPress={handleGenerate}
       >
         <LinearGradient
-          colors={notes.trim() && !generating ? ['#2DFFC4', '#00A6FF'] : ['#64748b', '#475569']}
+          colors={notes.trim() && !busy ? ['#2DFFC4', '#00A6FF'] : ['#64748b', '#475569']}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}
           style={styles.primaryBtn}
         >
-          {generating ? (
+          {busy ? (
             <ActivityIndicator color="#0f172a" />
           ) : (
             <>
@@ -202,7 +220,7 @@ export default function AIEstimateBuilderModal({
           step={1}
           fromAssistant={fromAssistant}
           omitTopSafeArea={embedded}
-          disabled={generating}
+          disabled={busy}
           onBack={handleBack}
         />
         <ScrollView
@@ -215,7 +233,7 @@ export default function AIEstimateBuilderModal({
         >
           {notesField}
         </ScrollView>
-        {!keyboardVisible || generating ? footer : null}
+        {!keyboardVisible || busy ? footer : null}
       </View>
     </KeyboardAvoidingView>
   );

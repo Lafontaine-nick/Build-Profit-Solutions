@@ -1,6 +1,29 @@
 import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimateAiDraft';
 import { formatDraftMoney, getScopePackages } from '@/utils/estimateAiDraft';
 import { draftHasApplyablePricing, formatDisplayUnit, proposalTotalForScopeName } from '@/utils/estimateAiDraftPricing';
+import {
+  resolveScopePackageBudgetBreakdown,
+  type BudgetSplitSource,
+  type ItemBudgetBreakdown,
+} from '@/utils/scopeBudgetBreakdown';
+
+export type ScopePackageBudgetBreakdown = ItemBudgetBreakdown;
+export type { BudgetSplitSource };
+
+/** Material/labor breakdown for Step 3 scope rows — mirrors Step 2 Confirm Scope logic. */
+export { resolveScopePackageBudgetBreakdown };
+
+export function budgetSplitSourceLabel(source: BudgetSplitSource): string {
+  if (source === 'notes') return 'From notes';
+  if (source === 'manual') return 'Manual';
+  return 'National Average';
+}
+
+export function budgetSplitSourceColor(source: BudgetSplitSource): string {
+  if (source === 'notes') return '#22c55e';
+  if (source === 'manual') return '#fbbf24';
+  return '#60a5fa';
+}
 
 export function isScopeOnlyDraft(draft: EstimateAiDraft | null): boolean {
   if (!draft) return false;
@@ -70,6 +93,49 @@ export function getStillNeededList(draft: EstimateAiDraft): string[] {
     if (/permit/i.test(m)) add('Permit responsibility');
   }
   return items;
+}
+
+function canonicalStillNeededKey(item: string): string {
+  const k = item.trim().toLowerCase();
+  if (/customer name/.test(k)) return 'customer-name';
+  if (/customer phone|phone/.test(k)) return 'customer-phone';
+  if (/payment/.test(k)) return 'payment-terms';
+  if (/project address|address missing/.test(k)) return 'project-address';
+  if (/permit/.test(k)) return 'permit-responsibility';
+  if (/start date/.test(k)) return 'start-date';
+  return k;
+}
+
+function shouldHideStillNeededItem(draft: EstimateAiDraft, item: string): boolean {
+  const calculatedTotal =
+    draft.totalValidation?.calculatedLineItemsTotal ?? draft.calculatedLineItemTotal ?? draft.calculatedTotal;
+  if (calculatedTotal != null && calculatedTotal > 0 && /no overall bid total was found/i.test(item)) {
+    return true;
+  }
+  if (/labor vs material breakdown per room|suggest material.*labor split|combined prices\)/i.test(item)) {
+    return true;
+  }
+  if (/demo \/ removal|flooring labor and materials/i.test(item)) {
+    return true;
+  }
+  if (!draftHasUnpricedScope(draft) && /need pricing|pricing for|finish pricing on partial scope/i.test(item)) {
+    return true;
+  }
+  return false;
+}
+
+function normalizeStillNeededItems(draft: EstimateAiDraft, items: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    const text = item.trim();
+    if (!text || shouldHideStillNeededItem(draft, text)) continue;
+    const key = canonicalStillNeededKey(text);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+  }
+  return out;
 }
 
 export function dedupeDraftWarnings(draft: EstimateAiDraft): string[] {
@@ -157,15 +223,18 @@ export function getCompactStillNeeded(draft: EstimateAiDraft, max = 5): { items:
     if (/:\s*partial pricing/i.test(s)) continue;
     add(s);
   }
-  const items = groupGenericMissingScopeItems(merged).slice(0, max);
-  return { items, overflow: Math.max(0, merged.length - max) };
+  const grouped = groupGenericMissingScopeItems(normalizeStillNeededItems(draft, merged));
+  return { items: grouped.slice(0, max), overflow: Math.max(0, grouped.length - max) };
 }
 
 export function summarizeWhatAiDidForDisplay(lines: string[], max = 4): string[] {
-  if (lines.length <= max) return lines;
-  const preserved = lines.filter((l) => /preserved your total/i.test(l));
-  const partial = lines.filter((l) => /partial pricing for/i.test(l));
-  const rest = lines.filter(
+  const cleaned = lines
+    .map((line) => String(line).replace(/\bjob job\b/gi, 'job').trim())
+    .filter(Boolean);
+  if (cleaned.length <= max) return cleaned;
+  const preserved = cleaned.filter((l) => /preserved your total/i.test(l));
+  const partial = cleaned.filter((l) => /partial pricing for/i.test(l));
+  const rest = cleaned.filter(
     (l) => !/preserved your total/i.test(l) && !/partial pricing for/i.test(l)
   );
   const out = [...rest];
@@ -254,10 +323,10 @@ export function summarizePricingWarnings(warnings: string[]): string[] {
   }
   const partialLine = other.find((w) => /partial pricing|scope package/i.test(w));
   if (partialLine) out.push(partialLine.replace(/\d+ scope package/, (n) => n));
-  const lumpLine = other.find((w) => /lump-sum/i.test(w));
-  if (lumpLine) out.push(lumpLine);
   for (const w of other) {
-    if (w === partialLine || w === lumpLine) continue;
+    if (w === partialLine) continue;
+    if (/lump-sum package/i.test(w) && /suggest material.*labor split/i.test(w)) continue;
+    if (/combined labor \+ materials total/i.test(w) && /suggest material.*labor split/i.test(w)) continue;
     if (out.length >= 4) break;
     if (!out.some((x) => x.toLowerCase() === w.toLowerCase())) out.push(w);
   }

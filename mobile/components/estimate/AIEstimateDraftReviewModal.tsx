@@ -22,7 +22,6 @@ import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { aiFlowStepTotal, isComplexEstimateTier } from '@/utils/estimateAiDraft';
 import {
   draftHasApprovedSuggestions,
-  draftHasCombinedRoomPrices,
   formatDraftMoney,
 } from '@/utils/estimateAiDraft';
 import type { EstimateConfidenceLevel } from '@/utils/estimateAiDraft';
@@ -65,9 +64,16 @@ type Props = {
   onSuggestRoughPrices?: () => void;
   onAddPricesManually?: () => void;
   onPriceScopeItem?: (packageName: string) => void;
+  onUpdateScopeBudgetSplit?: (
+    packageName: string,
+    material: number,
+    labor: number,
+    basis?: { quantity: number; unit: string } | null
+  ) => void;
   onContinueUnpriced?: () => void;
   saveToPricingLibrary?: boolean;
   onToggleSaveToPricingLibrary?: (value: boolean) => void;
+  markupPct?: number;
   children?: React.ReactNode;
 };
 
@@ -99,9 +105,11 @@ export default function AIEstimateDraftReviewModal({
   onSuggestRoughPrices,
   onAddPricesManually,
   onPriceScopeItem,
+  onUpdateScopeBudgetSplit,
   onContinueUnpriced,
   saveToPricingLibrary = true,
   onToggleSaveToPricingLibrary,
+  markupPct = 0,
   children,
 }: Props) {
   const insets = useSafeAreaInsets();
@@ -120,11 +128,6 @@ export default function AIEstimateDraftReviewModal({
     }
   };
 
-  const showSuggestSplits =
-    !!onSuggestSplits &&
-    !!draft &&
-    (draftHasCombinedRoomPrices(draft) || (draft.suggestedSplitRoomCount || 0) > 0);
-  const hasSuggestedSplits = (draft?.suggestedSplitRoomCount || 0) > 0;
   const busy = applying || suggestingSplits || clarifying || roughRangeLoading;
   const hasApproved = draftHasApprovedSuggestions(draft);
   const confidenceLevel = draft?.estimateConfidence?.level as EstimateConfidenceLevel | undefined;
@@ -201,6 +204,7 @@ export default function AIEstimateDraftReviewModal({
                 onClarifyMissing={onClarifyMissing}
                 onRequestRoughRange={onRequestRoughRange}
                 roughRangeLoading={roughRangeLoading}
+                markupPct={markupPct}
               />
             }
           />
@@ -230,6 +234,8 @@ export default function AIEstimateDraftReviewModal({
             suggestingMissingPrices={suggestingMissingPrices}
             onRegenerate={onRegenerate}
             onPriceScopeItem={onPriceScopeItem}
+            onUpdateScopeBudgetSplit={onUpdateScopeBudgetSplit}
+            markupPct={markupPct}
             showDetailsContent={
               <AIEstimateDraftReviewDetails
                 draft={draft}
@@ -243,14 +249,7 @@ export default function AIEstimateDraftReviewModal({
                 onClarifyMissing={onClarifyMissing}
                 onRequestRoughRange={onRequestRoughRange}
                 roughRangeLoading={roughRangeLoading}
-                onApproveSuggestedSplit={onApproveSuggestedSplit}
-                onToggleApplySuggestedSplits={onToggleApplySuggestedSplits}
-                showSuggestSplits={showSuggestSplits}
-                hasSuggestedSplits={hasSuggestedSplits}
-                suggestingSplits={suggestingSplits}
-                onSuggestSplits={onSuggestSplits}
-                onSuggestMissingPrices={onSuggestMissingPrices}
-                suggestingMissingPrices={suggestingMissingPrices}
+                markupPct={markupPct}
               />
             }
           />

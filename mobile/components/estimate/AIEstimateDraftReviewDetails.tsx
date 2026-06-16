@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { formatDraftMoney, getScopePackages } from '@/utils/estimateAiDraft';
 import {
   compactNeedsReviewForDisplay,
   dedupeMissingPriceSuggestions,
+  draftHasUnpricedScope,
+  getStillNeededList,
+  groupGenericMissingScopeItems,
   summarizePricingWarnings,
   summarizeWhatAiDidForDisplay,
 } from '@/utils/estimateDraftReviewUi';
@@ -31,38 +33,24 @@ type Props = {
   onClarifyMissing?: () => void;
   onRequestRoughRange?: () => void;
   roughRangeLoading?: boolean;
-  onApproveSuggestedSplit?: (parentItemName: string) => void;
-  onToggleApplySuggestedSplits?: () => void;
-  showSuggestSplits?: boolean;
-  hasSuggestedSplits?: boolean;
-  suggestingSplits?: boolean;
-  onSuggestSplits?: () => void;
-  onSuggestMissingPrices?: () => void;
-  suggestingMissingPrices?: boolean;
+  markupPct?: number;
 };
 
 const flowCard = (Colors: Colors, darkMode: boolean) =>
   estimateFlowCardStyle(Colors, darkMode, { marginBottom: 10 });
 
-function PriceRow({
-  label,
-  value,
-  Colors,
-  highlight,
-}: {
-  label: string;
-  value: string;
-  Colors: Colors;
-  highlight?: boolean;
-}) {
-  return (
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-      <Text style={{ color: Colors.sub, fontSize: 12 }}>{label}</Text>
-      <Text style={{ color: highlight ? '#22c55e' : Colors.text, fontSize: 13, fontWeight: '700' }}>
-        {value}
-      </Text>
-    </View>
-  );
+const REDUNDANT_STILL_NEEDED =
+  /labor vs material breakdown per room|suggest material.*labor split|combined prices\)|flooring labor and materials|demo \/ removal/i;
+
+function canonicalStillNeededKey(item: string): string {
+  const k = item.trim().toLowerCase();
+  if (/customer name/.test(k)) return 'customer-name';
+  if (/customer phone|phone/.test(k)) return 'customer-phone';
+  if (/payment/.test(k)) return 'payment-terms';
+  if (/project address|address missing/.test(k)) return 'project-address';
+  if (/permit/.test(k)) return 'permit-responsibility';
+  if (/start date/.test(k)) return 'start-date';
+  return k;
 }
 
 function Collapsible({
@@ -106,73 +94,78 @@ export default function AIEstimateDraftReviewDetails({
   onClarifyMissing,
   onRequestRoughRange,
   roughRangeLoading,
-  onApproveSuggestedSplit,
-  onToggleApplySuggestedSplits,
-  showSuggestSplits,
-  hasSuggestedSplits,
-  suggestingSplits,
-  onSuggestSplits,
-  onSuggestMissingPrices,
-  suggestingMissingPrices,
 }: Props) {
   const scopePackages = getScopePackages(draft);
-  const previewSplits = (draft.suggestedSplits || []).filter((s) => s.previewOnly);
-  const appliedSplits = (draft.suggestedSplits || []).filter((s) => !s.previewOnly);
-  const allSplits = [...previewSplits, ...appliedSplits];
   const tv = draft.totalValidation;
   const whatAiDid = summarizeWhatAiDidForDisplay(draft.whatAiDid || [], 3);
-  const summaryWarnings = summarizePricingWarnings(warnings);
+  const hasUnpricedScope = draftHasUnpricedScope(draft);
+  const calculatedTotal =
+    tv?.calculatedLineItemsTotal ?? draft.calculatedLineItemTotal ?? draft.calculatedTotal;
+  const fullStillNeeded = groupGenericMissingScopeItems(
+    (() => {
+      const raw = draft.stillNeededReview?.length ? draft.stillNeededReview : getStillNeededList(draft);
+      const reviewSource = needsReview.length
+        ? needsReview
+        : draft.needsReviewItems?.length
+          ? draft.needsReviewItems
+          : draft.missingInfo || [];
+      const merged: string[] = [];
+      const seen = new Set<string>();
+      const add = (s: string) => {
+        const k = s.trim().toLowerCase();
+        if (!k || seen.has(k)) return;
+        seen.add(k);
+        merged.push(s.trim());
+      };
+      for (const s of raw) add(s);
+      for (const s of reviewSource) {
+        if (/partial pricing for/i.test(s)) continue;
+        if (/:\s*partial pricing/i.test(s)) continue;
+        add(s);
+      }
+      const normalized: string[] = [];
+      const canonicalSeen = new Set<string>();
+      for (const item of merged) {
+        if (calculatedTotal != null && calculatedTotal > 0 && /no overall bid total was found/i.test(item)) {
+          continue;
+        }
+        const key = canonicalStillNeededKey(item);
+        if (canonicalSeen.has(key)) continue;
+        canonicalSeen.add(key);
+        normalized.push(item);
+      }
+      return normalized;
+    })()
+  ).filter(
+    (item) =>
+      !/finish pricing on partial scope/i.test(item) &&
+      !REDUNDANT_STILL_NEEDED.test(item) &&
+      (hasUnpricedScope || !/need pricing|pricing for/i.test(item))
+  );
+  const summaryWarnings = summarizePricingWarnings(warnings).filter(
+    (warning) =>
+      hasUnpricedScope ||
+      !/partial pricing|need pricing|still need pricing|room\/areas need pricing/i.test(warning)
+  );
   const compactReview = compactNeedsReviewForDisplay(needsReview, 5);
   const missingPriceHints = dedupeMissingPriceSuggestions(draft.pricingMemoryMissingSuggestions || [], 4);
   const partialCount = scopePackages.filter((p) => p.status === 'partial_pricing').length;
-  const calculatedTotal =
-    tv?.calculatedLineItemsTotal ?? draft.calculatedLineItemTotal ?? draft.calculatedTotal;
-  const statedTotal = tv?.statedTotal ?? draft.statedTotal;
-
   return (
     <>
-      <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 16, marginBottom: 10, textAlign: 'center' }}>
-        AI-organized draft — verify scope, pricing, and totals before applying.
+      <Text style={{ color: Colors.sub, fontSize: 13, lineHeight: 18, marginBottom: 12, textAlign: 'center' }}>
+        Details below focus on missing project info, pricing notes, and review warnings.
       </Text>
 
       {whatAiDid.length > 0 ? (
         <View style={flowCard(Colors, darkMode)}>
           {whatAiDid.map((line, i) => (
-            <Text key={`did-${i}`} style={{ color: Colors.sub, fontSize: 12, marginBottom: i < whatAiDid.length - 1 ? 4 : 0, lineHeight: 17 }}>
+            <Text
+              key={`did-${i}`}
+              style={{ color: Colors.sub, fontSize: 13, marginBottom: i < whatAiDid.length - 1 ? 6 : 0, lineHeight: 18 }}
+            >
               • {line}
             </Text>
           ))}
-        </View>
-      ) : null}
-
-      {(showSuggestSplits && onSuggestSplits) || (onSuggestMissingPrices && partialCount > 0) ? (
-        <View style={{ marginBottom: 10, gap: 8 }}>
-          {showSuggestSplits && onSuggestSplits ? (
-            <TouchableOpacity
-              activeOpacity={0.88}
-              disabled={busy}
-              onPress={onSuggestSplits}
-              style={{
-                paddingVertical: 10,
-                paddingHorizontal: 12,
-                borderRadius: 10,
-                borderWidth: 1,
-                borderColor: '#22c55e',
-                opacity: busy ? 0.5 : 1,
-              }}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                {suggestingSplits ? (
-                  <ActivityIndicator size="small" color="#22c55e" />
-                ) : (
-                  <MaterialIcons name="auto-awesome" size={14} color="#22c55e" />
-                )}
-                <Text style={{ color: '#22c55e', fontSize: 12, fontWeight: '700' }}>
-                  {hasSuggestedSplits ? 'Re-suggest labor & material split' : 'Suggest labor & material split'}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          ) : null}
         </View>
       ) : null}
 
@@ -180,63 +173,32 @@ export default function AIEstimateDraftReviewDetails({
         <View style={flowCard(Colors, darkMode)}>
           {onApplyScopeOnly ? (
             <TouchableOpacity activeOpacity={0.88} disabled={busy} onPress={onApplyScopeOnly} style={{ marginBottom: 6 }}>
-              <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '700' }}>Save scope only (no prices)</Text>
+              <Text style={{ color: '#60a5fa', fontSize: 13, fontWeight: '700' }}>Save scope only (no prices)</Text>
             </TouchableOpacity>
           ) : null}
           {onClarifyMissing ? (
             <TouchableOpacity activeOpacity={0.88} disabled={busy} onPress={onClarifyMissing} style={{ marginBottom: 6 }}>
-              <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '700' }}>Ask clarifying questions</Text>
+              <Text style={{ color: '#60a5fa', fontSize: 13, fontWeight: '700' }}>Ask clarifying questions</Text>
             </TouchableOpacity>
           ) : null}
           {onRequestRoughRange ? (
             <TouchableOpacity activeOpacity={0.88} disabled={busy} onPress={onRequestRoughRange}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 {roughRangeLoading ? <ActivityIndicator size="small" color="#fbbf24" /> : null}
-                <Text style={{ color: '#fbbf24', fontSize: 12, fontWeight: '700' }}>Rough budget range</Text>
+                <Text style={{ color: '#fbbf24', fontSize: 13, fontWeight: '700' }}>Rough budget range</Text>
               </View>
             </TouchableOpacity>
           ) : null}
         </View>
       ) : null}
 
-      {(calculatedTotal != null && calculatedTotal > 0) || statedTotal != null ? (
-        <View style={flowCard(Colors, darkMode)}>
-          <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '800', marginBottom: 6 }}>
-            Totals
-          </Text>
-          {(tv?.materialsTotal ?? draft.calculatedMaterialTotal) != null ? (
-            <PriceRow
-              label="Materials"
-              value={formatDraftMoney(tv?.materialsTotal ?? draft.calculatedMaterialTotal)}
-              Colors={Colors}
-            />
-          ) : null}
-          {(tv?.laborTotal ?? draft.calculatedLaborTotal) != null ? (
-            <PriceRow
-              label="Labor"
-              value={formatDraftMoney(tv?.laborTotal ?? draft.calculatedLaborTotal)}
-              Colors={Colors}
-            />
-          ) : null}
-          {calculatedTotal != null && calculatedTotal > 0 ? (
-            <PriceRow label="Line items" value={formatDraftMoney(calculatedTotal)} Colors={Colors} highlight />
-          ) : null}
-          {statedTotal != null && statedTotal > 0 ? (
-            <PriceRow label="In your notes" value={formatDraftMoney(statedTotal)} Colors={Colors} />
-          ) : null}
-          {draft.totalMatches === true ? (
-            <Text style={{ color: '#22c55e', fontSize: 11, marginTop: 4 }}>Totals match your notes.</Text>
-          ) : null}
-        </View>
-      ) : null}
-
       {summaryWarnings.length > 0 ? (
         <View style={flowCard(Colors, darkMode)}>
-          <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '800', marginBottom: 6 }}>
+          <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: 6 }}>
             Heads up
           </Text>
           {summaryWarnings.map((warning, index) => (
-            <Text key={`warn-${index}`} style={{ color: '#fbbf24', fontSize: 12, marginBottom: 4, lineHeight: 17 }}>
+            <Text key={`warn-${index}`} style={{ color: '#fbbf24', fontSize: 13, marginBottom: 6, lineHeight: 18 }}>
               • {warning}
             </Text>
           ))}
@@ -245,7 +207,7 @@ export default function AIEstimateDraftReviewDetails({
 
       {draft.roughEstimate ? (
         <View style={flowCard(Colors, darkMode)}>
-          <Text style={{ color: '#fbbf24', fontSize: 12, fontWeight: '700' }}>
+          <Text style={{ color: '#fbbf24', fontSize: 13, fontWeight: '700' }}>
             Rough estimate: {formatDraftMoney(draft.roughEstimate.low)} –{' '}
             {formatDraftMoney(draft.roughEstimate.high)}
           </Text>
@@ -254,79 +216,54 @@ export default function AIEstimateDraftReviewDetails({
 
       {missingPriceHints.length > 0 && !draft.noPricingDetected && partialCount === 0 ? (
         <View style={flowCard(Colors, darkMode)}>
-          <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '800', marginBottom: 4 }}>
+          <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: 4 }}>
             Pricing gaps
           </Text>
-          <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 16 }}>
+          <Text style={{ color: Colors.sub, fontSize: 13, lineHeight: 18 }}>
             Common gaps: {missingPriceHints.join(' · ')}
           </Text>
         </View>
       ) : null}
 
-      {compactReview.items.length > 0 ? (
+      {fullStillNeeded.length > 0 ? (
+        <Collapsible
+          title={`Still needed (${fullStillNeeded.length})`}
+          defaultOpen={fullStillNeeded.length <= 6}
+          Colors={Colors}
+          darkMode={darkMode}
+        >
+          {fullStillNeeded.map((item, index) => (
+            <Text key={`missing-full-${index}`} style={{ color: Colors.sub, fontSize: 13, marginBottom: 6, lineHeight: 18 }}>
+              • {item}
+            </Text>
+          ))}
+        </Collapsible>
+      ) : null}
+
+      {compactReview.items.length > 0 && fullStillNeeded.length === 0 ? (
         <Collapsible title={`Missing project info (${compactReview.items.length})`} Colors={Colors} darkMode={darkMode}>
           {compactReview.items.map((item, index) => (
-            <Text key={`missing-${index}`} style={{ color: Colors.sub, fontSize: 12, marginBottom: 4, lineHeight: 17 }}>
+            <Text key={`missing-${index}`} style={{ color: Colors.sub, fontSize: 13, marginBottom: 6, lineHeight: 18 }}>
               • {item}
             </Text>
           ))}
           {compactReview.overflow > 0 ? (
-            <Text style={{ color: Colors.sub, fontSize: 11 }}>+ {compactReview.overflow} more</Text>
-          ) : null}
-        </Collapsible>
-      ) : null}
-
-      {allSplits.length > 0 ? (
-        <Collapsible
-          title={`Labor / material splits (${allSplits.length})`}
-          defaultOpen={allSplits.length <= 4}
-          Colors={Colors}
-          darkMode={darkMode}
-        >
-          {allSplits.slice(0, 6).map((split, index) => (
-            <View key={`split-${index}`} style={{ marginBottom: 8 }}>
-              <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700' }}>{split.parentItemName}</Text>
-              <Text style={{ color: Colors.sub, fontSize: 11 }}>
-                {formatDraftMoney(split.total)} → Mat {formatDraftMoney(split.suggestedMaterials)} · Lab{' '}
-                {formatDraftMoney(split.suggestedLabor)}
-              </Text>
-              {split.previewOnly && onApproveSuggestedSplit ? (
-                <TouchableOpacity
-                  style={{ marginTop: 2 }}
-                  disabled={busy}
-                  onPress={() => onApproveSuggestedSplit(split.parentItemName)}
-                >
-                  <Text style={{ color: split.approvedByUser ? '#22c55e' : '#60a5fa', fontSize: 11, fontWeight: '700' }}>
-                    {split.approvedByUser ? '✓ Approved' : 'Approve split'}
-                  </Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-          ))}
-          {allSplits.length > 6 ? (
-            <Text style={{ color: Colors.sub, fontSize: 11 }}>+ {allSplits.length - 6} more rooms</Text>
-          ) : null}
-          {onToggleApplySuggestedSplits ? (
-            <TouchableOpacity disabled={busy} onPress={onToggleApplySuggestedSplits} style={{ marginTop: 4 }}>
-              <Text style={{ color: draft.applySuggestedSplits ? '#22c55e' : Colors.sub, fontSize: 11, fontWeight: '700' }}>
-                {draft.applySuggestedSplits ? '✓ Include approved splits when applying' : 'Apply without AI splits'}
-              </Text>
-            </TouchableOpacity>
+            <Text style={{ color: Colors.sub, fontSize: 12 }}>+ {compactReview.overflow} more</Text>
           ) : null}
         </Collapsible>
       ) : null}
 
       {scopePackages.length > 0 ? (
-        <Collapsible title={`Room scope text (${scopePackages.length})`} Colors={Colors} darkMode={darkMode}>
+        <Collapsible title={`Scope notes (${scopePackages.length})`} Colors={Colors} darkMode={darkMode}>
           {scopePackages.map((pkg, index) => (
-            <View key={`${pkg.name}-${index}`} style={{ marginBottom: index < scopePackages.length - 1 ? 8 : 0 }}>
-              <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>{pkg.name}</Text>
+            <View key={`${pkg.name}-${index}`} style={{ marginBottom: index < scopePackages.length - 1 ? 10 : 0 }}>
+              <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700' }}>{pkg.name}</Text>
               {pkg.scope ? (
-                <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2, lineHeight: 16 }} numberOfLines={2}>
+                <Text style={{ color: Colors.sub, fontSize: 13, marginTop: 4, lineHeight: 18 }} numberOfLines={3}>
                   {pkg.scope}
                 </Text>
               ) : (
-                <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2 }}>No scope text</Text>
+                <Text style={{ color: Colors.sub, fontSize: 13, marginTop: 4 }}>No scope text</Text>
               )}
             </View>
           ))}
@@ -336,7 +273,7 @@ export default function AIEstimateDraftReviewDetails({
       {draft.allowances.length > 0 ? (
         <Collapsible title="Allowances" Colors={Colors} darkMode={darkMode}>
           {draft.allowances.map((allowance, index) => (
-            <Text key={`allow-${index}`} style={{ color: Colors.sub, fontSize: 12, marginBottom: 4 }}>
+            <Text key={`allow-${index}`} style={{ color: Colors.sub, fontSize: 13, marginBottom: 6, lineHeight: 18 }}>
               • {allowance.name || allowance.description}: {formatDraftMoney(allowance.rate ?? allowance.amount)}
               {allowance.unit ? ` ${allowance.unit}` : ''}
             </Text>
@@ -347,7 +284,7 @@ export default function AIEstimateDraftReviewDetails({
       {(draft.pricingMemorySuggestions?.length ?? 0) > 0 ? (
         <Collapsible title="Pricing history matches" Colors={Colors} darkMode={darkMode}>
           {draft.pricingMemorySuggestions!.slice(0, 5).map((s, i) => (
-            <Text key={`pm-${i}`} style={{ color: Colors.sub, fontSize: 12, marginBottom: 4 }}>
+            <Text key={`pm-${i}`} style={{ color: Colors.sub, fontSize: 13, marginBottom: 6, lineHeight: 18 }}>
               • {s.scopeItemName}: ${s.suggestedUnitRate}/{s.unitType}
             </Text>
           ))}
@@ -357,7 +294,7 @@ export default function AIEstimateDraftReviewDetails({
       {clarifyQuestions && clarifyQuestions.length > 0 ? (
         <Collapsible title="Clarifying questions" defaultOpen Colors={Colors} darkMode={darkMode}>
           {clarifyQuestions.map((q, index) => (
-            <Text key={`clarify-${index}`} style={{ color: Colors.text, fontSize: 12, marginBottom: 6, lineHeight: 17 }}>
+            <Text key={`clarify-${index}`} style={{ color: Colors.text, fontSize: 13, marginBottom: 6, lineHeight: 18 }}>
               {index + 1}. {q}
             </Text>
           ))}

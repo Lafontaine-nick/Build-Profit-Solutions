@@ -59,6 +59,7 @@ import {
   prepareScopeMeasurementsInputForUi,
   resolveChecklistItemQuantity,
   resolveDualRatePricingDisplayFromNotes,
+  resolveSuggestedBudgetSplitDisplay,
   roughAllowanceSubKey,
   scopeMeasurementsToPayload,
   scopeMeasurementsPayloadForPersist,
@@ -210,6 +211,342 @@ function formatResolvedQuantityDisplay(quantity: number, unit: string): string {
   return `${quantity.toLocaleString()} ${formatUnitLabel(unit)}`;
 }
 
+function pricingTextColor(darkMode: boolean, Colors: ReturnType<typeof getColors>) {
+  return darkMode ? '#F5F7FA' : Colors.text;
+}
+
+function pricingLabelColor(darkMode: boolean, Colors: ReturnType<typeof getColors>) {
+  return darkMode ? 'rgba(255,255,255,0.72)' : Colors.sub;
+}
+
+function SourcePill({
+  kind,
+  label,
+}: {
+  kind: 'notes' | 'national';
+  label?: string;
+}) {
+  const text = label || (kind === 'notes' ? 'From notes' : 'National Average');
+  const isNotes = kind === 'notes';
+  return (
+    <View
+      style={[
+        styles.sourcePill,
+        isNotes ? styles.sourcePillNotes : styles.sourcePillNational,
+      ]}
+    >
+      <Text
+        style={{
+          color: isNotes ? '#22c55e' : '#60a5fa',
+          fontSize: 11,
+          fontWeight: '700',
+        }}
+      >
+        {text}
+      </Text>
+    </View>
+  );
+}
+
+function PricingAmountRow({
+  value,
+  label,
+  pill,
+  darkMode,
+  Colors,
+  emphasized,
+}: {
+  value: string;
+  label?: string;
+  pill?: React.ReactNode;
+  darkMode: boolean;
+  Colors: ReturnType<typeof getColors>;
+  emphasized?: boolean;
+}) {
+  return (
+    <View style={[styles.pricingRow, emphasized ? styles.pricingRowEmphasized : undefined]}>
+      <Text
+        style={{
+          color: pricingTextColor(darkMode, Colors),
+          fontSize: emphasized ? 17 : 15,
+          fontWeight: '700',
+          letterSpacing: emphasized ? -0.2 : 0,
+        }}
+      >
+        {value}
+      </Text>
+      {pill ?? (
+        <Text style={{ color: pricingLabelColor(darkMode, Colors), fontSize: 13, fontWeight: '600' }}>
+          {label}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+function PricingSplitRow({
+  label,
+  value,
+  darkMode,
+  Colors,
+}: {
+  label: string;
+  value: string;
+  darkMode: boolean;
+  Colors: ReturnType<typeof getColors>;
+}) {
+  return (
+    <View style={styles.pricingSplitRow}>
+      <Text style={{ color: pricingLabelColor(darkMode, Colors), fontSize: 14, fontWeight: '600' }}>
+        {label}
+      </Text>
+      <Text style={{ color: pricingTextColor(darkMode, Colors), fontSize: 15, fontWeight: '700' }}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function SuggestedBudgetSplitRows({
+  split,
+  Colors,
+  darkMode,
+}: {
+  split: NonNullable<ReturnType<typeof resolveSuggestedBudgetSplitDisplay>>;
+  Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
+}) {
+  const panelBg = darkMode ? 'rgba(96, 165, 250, 0.08)' : 'rgba(96, 165, 250, 0.06)';
+  const panelBorder = darkMode ? 'rgba(96, 165, 250, 0.22)' : 'rgba(96, 165, 250, 0.18)';
+
+  return (
+    <View
+      style={[
+        styles.budgetSplitPanel,
+        { backgroundColor: panelBg, borderColor: panelBorder },
+      ]}
+    >
+      <View style={styles.budgetSplitHeader}>
+        <Text style={{ color: pricingTextColor(darkMode, Colors), fontSize: 14, fontWeight: '700' }}>
+          Budget split
+        </Text>
+        <SourcePill kind="national" />
+      </View>
+      <PricingSplitRow
+        label="Material"
+        value={formatDraftMoney(split.material)}
+        darkMode={darkMode}
+        Colors={Colors}
+      />
+      <PricingSplitRow
+        label="Labor"
+        value={formatDraftMoney(split.labor)}
+        darkMode={darkMode}
+        Colors={Colors}
+      />
+      {split.helper ? (
+        <Text
+          style={{
+            color: pricingLabelColor(darkMode, Colors),
+            fontSize: 12,
+            lineHeight: 17,
+            marginTop: 8,
+          }}
+        >
+          {split.helper}
+        </Text>
+      ) : null}
+      <Text
+        style={{
+          color: pricingLabelColor(darkMode, Colors),
+          fontSize: 12,
+          lineHeight: 17,
+          marginTop: 4,
+        }}
+      >
+        Why this split? Notes only gave one total, so materials use National Average and labor gets the remainder.
+      </Text>
+    </View>
+  );
+}
+
+function EditQuantityLink({ onPress, label = 'Edit pricing' }: { onPress: () => void; label?: string }) {
+  return (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
+      <Text style={styles.editQuantityLink}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+function PricingInputField({
+  label,
+  value,
+  helper,
+  basis,
+  prefix,
+  suffix,
+  placeholder = '0',
+  onFocus,
+  onChangeText,
+  onBlur,
+  Colors,
+  darkMode,
+  applying,
+}: {
+  label: string;
+  value: string;
+  helper?: string | null;
+  basis?: { quantity: number; unit: string } | null;
+  prefix?: string;
+  suffix?: string;
+  placeholder?: string;
+  onFocus: () => void;
+  onChangeText: (text: string) => void;
+  onBlur: () => void;
+  Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
+  applying: boolean;
+}) {
+  const [inputMode, setInputMode] = useState<'total' | 'rate'>('total');
+  const inputShell = inputShellStyle(Colors, darkMode);
+  const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8';
+  const supportsRateMode = Boolean(basis?.quantity && basis.quantity > 0);
+  const amount = Number(String(value || '').replace(/,/g, ''));
+  const rateValue =
+    supportsRateMode && Number.isFinite(amount) && amount > 0
+      ? String(Math.round((amount / basis!.quantity) * 100) / 100)
+      : '';
+  const displayValue = inputMode === 'rate' ? rateValue : value;
+  const activePrefix = inputMode === 'rate' ? '$' : prefix;
+  const activeSuffix = inputMode === 'rate' && basis ? `/${formatUnitLabel(basis.unit)}` : suffix;
+  const helperText =
+    inputMode === 'rate' && Number.isFinite(amount) && amount > 0
+      ? `Total ${formatDraftMoney(amount)}`
+      : helper;
+  const handleChangeText = (text: string) => {
+    if (inputMode === 'rate' && basis?.quantity) {
+      const rate = Number(String(text || '').replace(/,/g, ''));
+      if (!Number.isFinite(rate)) {
+        onChangeText('');
+        return;
+      }
+      onChangeText(String(Math.round(rate * basis.quantity * 100) / 100));
+      return;
+    }
+    onChangeText(text);
+  };
+
+  return (
+    <View
+      style={[
+        styles.pricingInputCard,
+        {
+          borderColor: inputShell.borderColor,
+          backgroundColor: darkMode ? 'rgba(255,255,255,0.035)' : 'rgba(248,250,252,0.9)',
+        },
+      ]}
+    >
+      <View style={styles.pricingInputHeader}>
+        <Text
+          style={{
+            color: Colors.sub,
+            fontSize: 12,
+            fontWeight: '700',
+          }}
+        >
+          {label}
+        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        {helperText ? (
+          <View
+            style={[
+              styles.rateChip,
+              {
+                borderColor: darkMode ? 'rgba(96, 165, 250, 0.28)' : 'rgba(59, 130, 246, 0.24)',
+                backgroundColor: darkMode ? 'rgba(96, 165, 250, 0.09)' : 'rgba(59, 130, 246, 0.08)',
+              },
+            ]}
+          >
+            <Text style={{ color: '#60a5fa', fontSize: 11, fontWeight: '700' }}>{helperText}</Text>
+          </View>
+        ) : null}
+        {supportsRateMode ? (
+          <TouchableOpacity
+            activeOpacity={0.75}
+            onPress={() => setInputMode((mode) => (mode === 'total' ? 'rate' : 'total'))}
+            style={[
+              styles.rateModeToggle,
+              {
+                borderColor: darkMode ? 'rgba(34, 197, 94, 0.3)' : 'rgba(22, 163, 74, 0.24)',
+                backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.08)' : 'rgba(22, 163, 74, 0.08)',
+              },
+            ]}
+          >
+            <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '700' }}>
+              {inputMode === 'total' ? `Edit $/${formatUnitLabel(basis!.unit)}` : 'Edit total'}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+        </View>
+      </View>
+      <View
+        style={[
+          styles.pricingInputRow,
+          {
+            borderColor: inputShell.borderColor,
+            backgroundColor: inputShell.backgroundColor,
+          },
+        ]}
+      >
+        {activePrefix ? (
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 15, fontWeight: '700' }}>
+            {activePrefix}
+          </Text>
+        ) : null}
+        <TextInput
+          value={displayValue}
+          onFocus={onFocus}
+          onChangeText={handleChangeText}
+          onBlur={onBlur}
+          placeholder={placeholder}
+          placeholderTextColor={placeholderColor}
+          keyboardType="decimal-pad"
+          {...scopeNumericInputProps}
+          editable={!applying}
+          style={[
+            styles.pricingInput,
+            { color: Colors.text },
+          ]}
+        />
+        {activeSuffix ? (
+          <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', minWidth: 40 }}>
+            {activeSuffix}
+          </Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function parseBudgetSplitBasis(split: ReturnType<typeof resolveSuggestedBudgetSplitDisplay> | null) {
+  const match = split?.helper?.match(/^([\d,.]+)\s+([A-Z]+)/i);
+  if (!match) return null;
+  const quantity = Number(match[1].replace(/,/g, ''));
+  if (!Number.isFinite(quantity) || quantity <= 0) return null;
+  const unit = match[2].toLowerCase() === 'sqft' ? 'sqft' : match[2].toLowerCase();
+  return { quantity, unit };
+}
+
+function unitRateHelper(
+  amountValue: string | undefined,
+  basis: { quantity: number; unit: string } | null | undefined
+): string | null {
+  const amount = Number(String(amountValue || '').replace(/,/g, ''));
+  if (!basis || !Number.isFinite(amount) || amount <= 0 || basis.quantity <= 0) return null;
+  const rate = Math.round((amount / basis.quantity) * 100) / 100;
+  return `${formatDraftMoney(rate)} / ${formatUnitLabel(basis.unit)}`;
+}
+
 function scopeCardStyle(
   tier: ReturnType<typeof scopeItemVisualTier>,
   Colors: ReturnType<typeof getColors>,
@@ -258,6 +595,7 @@ function QuantitySection({
   darkMode: boolean;
   applying: boolean;
 }) {
+  const [pricingEditorOpen, setPricingEditorOpen] = useState(false);
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!inScope || !rule) return null;
 
@@ -277,9 +615,13 @@ function QuantitySection({
   if (rule.dualAllowanceField) {
     const fieldLabels = DUAL_QUANTITY_FIELD_LABELS[itemId];
     const allowanceKey = roughAllowanceSubKey(itemId);
+    const materialKey = `${itemId}__material`;
+    const laborKey = `${itemId}__labor`;
     const countInput = measurementsInput.itemQuantities[itemId];
     const allowanceInput = measurementsInput.itemQuantities[allowanceKey];
-    const isEditing = isUserEditingQuantity(measurementsInput, itemId, allowanceKey);
+    const materialInput = measurementsInput.itemQuantities[materialKey];
+    const laborInput = measurementsInput.itemQuantities[laborKey];
+    const isEditing = pricingEditorOpen;
 
     if (!isEditing && originalNotes?.trim()) {
       const fromNotes = resolveDualRatePricingDisplayFromNotes(
@@ -310,58 +652,79 @@ function QuantitySection({
     }
 
     if (resolved.pricingReady && !isEditing) {
+      const suggestedBudgetSplit = resolveSuggestedBudgetSplitDisplay(
+        itemId,
+        measurementsInput,
+        templateKey,
+        resolved
+      );
       return (
         <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
           {resolved.dualCount ? (
-            <View style={styles.qtyCompactRow}>
-              <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 12, fontWeight: '600' }}>
-                {resolved.dualCount.quantity.toLocaleString()} {fieldLabels?.countUnit || 'each'}
-              </Text>
-              <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11 }}>
-                {fieldLabels?.count || 'Quantity'}
-              </Text>
-            </View>
+            <PricingAmountRow
+              value={`${resolved.dualCount.quantity.toLocaleString()} ${fieldLabels?.countUnit || 'each'}`}
+              label={fieldLabels?.count || 'Quantity'}
+              darkMode={darkMode}
+              Colors={Colors}
+            />
           ) : null}
           {resolved.dualMaterial ? (
-            <View style={[styles.qtyCompactRow, resolved.dualCount ? { marginTop: 4 } : undefined]}>
-              <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 12, fontWeight: '600' }}>
-                ${resolved.dualMaterial.quantity.toLocaleString()}
-              </Text>
-              <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11 }}>Material</Text>
+            <View style={resolved.dualCount ? styles.pricingRowGap : undefined}>
+              <PricingAmountRow
+                value={formatDraftMoney(resolved.dualMaterial.quantity)}
+                label="Material"
+                darkMode={darkMode}
+                Colors={Colors}
+              />
             </View>
           ) : null}
           {resolved.dualLabor ? (
-            <View style={[styles.qtyCompactRow, { marginTop: 4 }]}>
-              <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 12, fontWeight: '600' }}>
-                ${resolved.dualLabor.quantity.toLocaleString()}
-              </Text>
-              <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11 }}>Labor</Text>
+            <View style={styles.pricingRowGap}>
+              <PricingAmountRow
+                value={formatDraftMoney(resolved.dualLabor.quantity)}
+                label="Labor"
+                darkMode={darkMode}
+                Colors={Colors}
+              />
             </View>
           ) : null}
           {resolved.dualAllowance ? (
             <View
-              style={[
-                styles.qtyCompactRow,
-                resolved.dualCount || resolved.dualMaterial || resolved.dualLabor ? { marginTop: 4 } : undefined,
-              ]}
+              style={
+                resolved.dualCount || resolved.dualMaterial || resolved.dualLabor
+                  ? styles.pricingRowGap
+                  : undefined
+              }
             >
-              <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 12, fontWeight: '600' }}>
-                ${resolved.dualAllowance.quantity.toLocaleString()}
-              </Text>
-              <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11 }}>
-                {resolved.dualMaterial || resolved.dualLabor
-                  ? 'Total'
-                  : fieldLabels?.allowance || 'Allowance'}
-              </Text>
+              <PricingAmountRow
+                value={formatDraftMoney(resolved.dualAllowance.quantity)}
+                label={
+                  resolved.dualMaterial || resolved.dualLabor
+                    ? 'Total'
+                    : fieldLabels?.allowance || 'Allowance'
+                }
+                pill={
+                  !resolved.dualMaterial && !resolved.dualLabor && resolved.quantitySource === 'notes' ? (
+                    <SourcePill kind="notes" />
+                  ) : undefined
+                }
+                emphasized={!resolved.dualMaterial && !resolved.dualLabor}
+                darkMode={darkMode}
+                Colors={Colors}
+              />
             </View>
           ) : null}
-          {resolved.sourceLabel ? (
-            <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 4 }}>
-              {resolved.sourceLabel}
-            </Text>
+          {resolved.sourceLabel && (resolved.dualMaterial || resolved.dualLabor) ? (
+            <View style={[styles.pricingRowGap, { alignItems: 'flex-end' }]}>
+              <SourcePill kind="notes" />
+            </View>
           ) : null}
-          <TouchableOpacity
+          {suggestedBudgetSplit ? (
+            <SuggestedBudgetSplitRows split={suggestedBudgetSplit} Colors={Colors} darkMode={darkMode} />
+          ) : null}
+          <EditQuantityLink
             onPress={() => {
+              setPricingEditorOpen(true);
               if (resolved.dualCount) {
                 onItemQuantityChange(
                   itemId,
@@ -378,27 +741,48 @@ function QuantitySection({
                   resolved.dualAllowance.unit
                 );
               }
+              if (resolved.dualMaterial) {
+                onItemQuantityChange(
+                  materialKey,
+                  String(resolved.dualMaterial.quantity),
+                  'count',
+                  'allowance'
+                );
+              }
+              if (resolved.dualLabor) {
+                onItemQuantityChange(
+                  laborKey,
+                  String(resolved.dualLabor.quantity),
+                  'count',
+                  'allowance'
+                );
+              }
             }}
-            activeOpacity={0.7}
-          >
-            <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '600', marginTop: 4 }}>
-              Edit quantity
-            </Text>
-          </TouchableOpacity>
+          />
         </View>
       );
     }
 
     return (
       <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
-        <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
-          {resolved.missingMessage || 'Enter quantity and/or allowance'}
-        </Text>
-        {rule.quantityHelper ? (
-          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 8, lineHeight: 15 }}>
-            {rule.quantityHelper}
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={() => resolved.pricingReady && setPricingEditorOpen(false)}
+        >
+          <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
+            {pricingEditorOpen ? 'Edit pricing' : resolved.missingMessage || 'Enter quantity and/or allowance'}
           </Text>
-        ) : null}
+          {rule.quantityHelper ? (
+            <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 4, lineHeight: 15 }}>
+              {rule.quantityHelper}
+            </Text>
+          ) : null}
+          {pricingEditorOpen ? (
+            <Text style={{ color: '#60a5fa', fontSize: 11, fontWeight: '700', marginBottom: 8 }}>
+              Tap card to collapse
+            </Text>
+          ) : null}
+        </TouchableOpacity>
         <Text style={{ color: Colors.sub, fontSize: 11, fontWeight: '600', marginBottom: 4 }}>
           {fieldLabels?.count || 'Quantity'}
         </Text>
@@ -422,6 +806,40 @@ function QuantitySection({
             {fieldLabels?.countUnit || 'each'}
           </Text>
         </View>
+        <PricingInputField
+          label="Material"
+          value={materialInput?.quantity ?? (resolved.dualMaterial ? String(resolved.dualMaterial.quantity) : '')}
+          helper={unitRateHelper(
+            materialInput?.quantity ?? (resolved.dualMaterial ? String(resolved.dualMaterial.quantity) : ''),
+            resolved.dualCount ?? null
+          )}
+          basis={resolved.dualCount ?? null}
+          prefix="$"
+          placeholder="Material total"
+          onFocus={() => onItemQuantityFocus(materialKey)}
+          onChangeText={(text) => onItemQuantityChange(materialKey, text, 'count', 'allowance')}
+          onBlur={() => onItemQuantityBlur(materialKey)}
+          Colors={Colors}
+          darkMode={darkMode}
+          applying={applying}
+        />
+        <PricingInputField
+          label="Labor"
+          value={laborInput?.quantity ?? (resolved.dualLabor ? String(resolved.dualLabor.quantity) : '')}
+          helper={unitRateHelper(
+            laborInput?.quantity ?? (resolved.dualLabor ? String(resolved.dualLabor.quantity) : ''),
+            resolved.dualCount ?? null
+          )}
+          basis={resolved.dualCount ?? null}
+          prefix="$"
+          placeholder="Labor total"
+          onFocus={() => onItemQuantityFocus(laborKey)}
+          onChangeText={(text) => onItemQuantityChange(laborKey, text, 'count', 'allowance')}
+          onBlur={() => onItemQuantityBlur(laborKey)}
+          Colors={Colors}
+          darkMode={darkMode}
+          applying={applying}
+        />
         <Text style={{ color: Colors.sub, fontSize: 11, fontWeight: '600', marginTop: 10, marginBottom: 4 }}>
           {fieldLabels?.allowance || 'Allowance ($)'}
         </Text>
@@ -448,13 +866,26 @@ function QuantitySection({
   }
 
   const itemInput = measurementsInput.itemQuantities[itemId];
-  const isEditingQuantity = isUserEditingQuantity(measurementsInput, itemId);
+  const materialKey = `${itemId}__material`;
+  const laborKey = `${itemId}__labor`;
+  const materialInput = measurementsInput.itemQuantities[materialKey];
+  const laborInput = measurementsInput.itemQuantities[laborKey];
+  const isEditingQuantity = pricingEditorOpen;
+  const isEditingPricing = pricingEditorOpen;
   const neededLabel =
     (templateKey && QUANTITY_NEEDED_LABELS_BY_TEMPLATE[templateKey]?.[itemId]) ||
     QUANTITY_NEEDED_LABELS[itemId] ||
     quantityNeededLabel(itemId, templateKey, rule.defaultUnit);
 
-  if (resolved.pricingReady && !isEditingQuantity) {
+  const suggestedBudgetSplit = resolveSuggestedBudgetSplitDisplay(
+    itemId,
+    measurementsInput,
+    templateKey,
+    resolved
+  );
+  const suggestedBasis = parseBudgetSplitBasis(suggestedBudgetSplit);
+
+  if (resolved.pricingReady && !isEditingQuantity && !isEditingPricing) {
     if (__DEV__ && itemId === 'demo') {
       const raw = measurementsInput.itemQuantities || {};
       console.log('🧮 Demo quantity render', {
@@ -498,57 +929,117 @@ function QuantitySection({
 
     return (
       <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
-        <View style={styles.qtyCompactRow}>
-          <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 12, fontWeight: '600' }}>
-            {formatResolvedQuantityDisplay(resolved.quantity ?? 0, resolved.unit)}
-          </Text>
-          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11 }}>{resolved.sourceLabel}</Text>
-        </View>
+        <PricingAmountRow
+          value={formatResolvedQuantityDisplay(resolved.quantity ?? 0, resolved.unit)}
+          pill={resolved.quantitySource === 'notes' ? <SourcePill kind="notes" /> : undefined}
+          label={resolved.sourceLabel}
+          emphasized
+          darkMode={darkMode}
+          Colors={Colors}
+        />
         {resolved.combinedAllowanceRole === 'combined_total' ? (
-          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 4, lineHeight: 15 }}>
+          <Text
+            style={{
+              color: pricingLabelColor(darkMode, Colors),
+              fontSize: 12,
+              marginTop: 8,
+              lineHeight: 17,
+            }}
+          >
             One allowance for cabinets and countertops — the countertop line below is included, not
             priced again.
           </Text>
         ) : null}
-        <TouchableOpacity
-          onPress={() =>
-            onItemQuantityChange(itemId, String(resolved.quantity ?? ''), 'count', resolved.unit)
-          }
-          activeOpacity={0.7}
-        >
-          <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '600', marginTop: 4 }}>
-            Edit quantity
-          </Text>
-        </TouchableOpacity>
+        {suggestedBudgetSplit ? (
+          <SuggestedBudgetSplitRows split={suggestedBudgetSplit} Colors={Colors} darkMode={darkMode} />
+        ) : null}
+        <EditQuantityLink
+          onPress={() => {
+            setPricingEditorOpen(true);
+            const total = String(resolved.quantity ?? '');
+            const unit = resolved.unit === 'allowance' || resolved.unit === 'lump_sum' ? 'allowance' : resolved.unit;
+            onItemQuantityChange(itemId, total, 'count', unit);
+            if (suggestedBudgetSplit) {
+              onItemQuantityChange(materialKey, String(suggestedBudgetSplit.material), 'count', 'allowance');
+              onItemQuantityChange(laborKey, String(suggestedBudgetSplit.labor), 'count', 'allowance');
+            }
+          }}
+        />
       </View>
     );
   }
 
+  const editingUnit = itemInput?.unit || resolved.unit || rule.defaultUnit;
+  const editingIsMoneyTotal = editingUnit === 'allowance' || editingUnit === 'lump_sum';
+  const showSplitFields = Boolean(materialInput || laborInput || suggestedBudgetSplit);
+  const materialValue = materialInput?.quantity ?? (suggestedBudgetSplit ? String(suggestedBudgetSplit.material) : '');
+  const laborValue = laborInput?.quantity ?? (suggestedBudgetSplit ? String(suggestedBudgetSplit.labor) : '');
+
   return (
     <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
-      <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
-        Needs {neededLabel}
-      </Text>
-      <View style={styles.qtyInputRow}>
-        <TextInput
-          value={itemInput?.quantity ?? ''}
-          onFocus={() => onItemQuantityFocus(itemId)}
-          onChangeText={(text) => onItemQuantityChange(itemId, text)}
-          onBlur={() => onItemQuantityBlur(itemId)}
-          placeholder={`Enter ${neededLabel}`}
-          placeholderTextColor={placeholderColor}
-          keyboardType="decimal-pad"
-          {...scopeNumericInputProps}
-          editable={!applying}
-          style={[
-            styles.qtyInput,
-            { color: Colors.text, borderColor: inputShell.borderColor, backgroundColor: inputShell.backgroundColor },
-          ]}
-        />
-        <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', minWidth: 40 }}>
-          {formatUnitLabel(rule.defaultUnit)}
+      <TouchableOpacity
+        activeOpacity={0.75}
+        onPress={() => resolved.pricingReady && setPricingEditorOpen(false)}
+      >
+        <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
+          {isEditingQuantity || isEditingPricing ? 'Edit pricing' : `Needs ${neededLabel}`}
         </Text>
-      </View>
+        {rule.quantityHelper ? (
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 4, lineHeight: 15 }}>
+            {rule.quantityHelper}
+          </Text>
+        ) : null}
+        {pricingEditorOpen ? (
+          <Text style={{ color: '#60a5fa', fontSize: 11, fontWeight: '700', marginBottom: 8 }}>
+            Tap card to collapse
+          </Text>
+        ) : null}
+      </TouchableOpacity>
+      <PricingInputField
+        label={editingIsMoneyTotal ? 'Lump sum / total' : 'Pricing basis'}
+        value={itemInput?.quantity ?? ''}
+        prefix={editingIsMoneyTotal ? '$' : undefined}
+        suffix={editingIsMoneyTotal ? undefined : formatUnitLabel(editingUnit)}
+        placeholder={editingIsMoneyTotal ? 'Enter total' : `Enter ${neededLabel}`}
+        onFocus={() => onItemQuantityFocus(itemId)}
+        onChangeText={(text) => onItemQuantityChange(itemId, text, 'count', editingUnit)}
+        onBlur={() => onItemQuantityBlur(itemId)}
+        Colors={Colors}
+        darkMode={darkMode}
+        applying={applying}
+      />
+      {showSplitFields ? (
+        <>
+          <PricingInputField
+            label="Material"
+            value={materialValue}
+            helper={unitRateHelper(materialValue, suggestedBasis)}
+            basis={suggestedBasis}
+            prefix="$"
+            placeholder="Material total"
+            onFocus={() => onItemQuantityFocus(materialKey)}
+            onChangeText={(text) => onItemQuantityChange(materialKey, text, 'count', 'allowance')}
+            onBlur={() => onItemQuantityBlur(materialKey)}
+            Colors={Colors}
+            darkMode={darkMode}
+            applying={applying}
+          />
+          <PricingInputField
+            label="Labor"
+            value={laborValue}
+            helper={unitRateHelper(laborValue, suggestedBasis)}
+            basis={suggestedBasis}
+            prefix="$"
+            placeholder="Labor total"
+            onFocus={() => onItemQuantityFocus(laborKey)}
+            onChangeText={(text) => onItemQuantityChange(laborKey, text, 'count', 'allowance')}
+            onBlur={() => onItemQuantityBlur(laborKey)}
+            Colors={Colors}
+            darkMode={darkMode}
+            applying={applying}
+          />
+        </>
+      ) : null}
     </View>
   );
 }
@@ -1516,13 +2007,14 @@ export default function AIEstimateScopeAssumptionsModal({
       const rule = getChecklistItemQuantityRule(itemId, checklist?.templateKey);
       const key = field === 'allowance' && rule?.dualAllowanceField ? roughAllowanceSubKey(itemId) : itemId;
       if (prev.itemQuantities[key]?.quantitySource === 'user_entered') return prev;
+      const isPricingSubkey = /__(material|labor)$/.test(itemId);
       return {
         ...prev,
         itemQuantities: {
           ...prev.itemQuantities,
           [key]: {
             quantity: String(prev.itemQuantities[key]?.quantity ?? ''),
-            unit: field === 'allowance' ? 'allowance' : rule?.defaultUnit || 'sqft',
+            unit: isPricingSubkey || field === 'allowance' ? 'allowance' : rule?.defaultUnit || 'sqft',
             quantitySource: 'user_entered',
           },
         },
@@ -2013,14 +2505,107 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   qtySection: {
-    marginTop: 10,
-    paddingTop: 10,
+    marginTop: 12,
+    paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 2,
   },
   qtyCompactRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  pricingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    minHeight: 30,
+  },
+  pricingRowEmphasized: {
+    minHeight: 34,
+  },
+  pricingRowGap: {
+    marginTop: 6,
+  },
+  pricingSplitRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  budgetSplitPanel: {
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  budgetSplitHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sourcePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  sourcePillNotes: {
+    borderColor: 'rgba(34, 197, 94, 0.35)',
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+  },
+  sourcePillNational: {
+    borderColor: 'rgba(96, 165, 250, 0.35)',
+    backgroundColor: 'rgba(96, 165, 250, 0.1)',
+  },
+  editQuantityLink: {
+    color: '#22c55e',
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 10,
+  },
+  pricingInputCard: {
+    marginTop: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingTop: 9,
+    paddingBottom: 10,
+  },
+  pricingInputHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 7,
+  },
+  rateChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  rateModeToggle: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  pricingInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+  },
+  pricingInput: {
+    flex: 1,
+    paddingVertical: 8,
+    fontSize: 15,
+    fontWeight: '700',
   },
   qtyInputRow: {
     flexDirection: 'row',

@@ -140,6 +140,71 @@ export type ResolvedItemQuantity = {
   combinedAllowanceTotal?: number;
 };
 
+export type SuggestedBudgetSplitDisplay = {
+  material: number;
+  labor: number;
+  total: number;
+  sourceLabel: string;
+  helper: string;
+  basis?: { quantity: number; unit: string } | null;
+};
+
+const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
+  string,
+  { unit: string; material: number; labor: number; sourceLabel: string }
+> = {
+  trim: { unit: 'lf', material: 2, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
+  flooring: { unit: 'sqft', material: 4, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
+  floor_demo: { unit: 'sqft', material: 0.5, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
+  demo: { unit: 'sqft', material: 0.5, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
+  backsplash: { unit: 'sqft', material: 8, labor: 14, sourceLabel: 'Suggested budget split · National Average' },
+  paint: { unit: 'sqft', material: 0.85, labor: 2.5, sourceLabel: 'Suggested budget split · National Average' },
+  interior_paint: { unit: 'sqft', material: 0.85, labor: 2.5, sourceLabel: 'Suggested budget split · National Average' },
+  exterior_paint: { unit: 'sqft', material: 0.85, labor: 2.5, sourceLabel: 'Suggested budget split · National Average' },
+  shower_tile: { unit: 'sqft', material: 8, labor: 14, sourceLabel: 'Suggested budget split · National Average' },
+  floor_tile: { unit: 'sqft', material: 8, labor: 14, sourceLabel: 'Suggested budget split · National Average' },
+  floor_prep: { unit: 'sqft', material: 4, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
+  waterproofing: { unit: 'sqft', material: 5, labor: 7, sourceLabel: 'Suggested budget split · National Average' },
+  railing: { unit: 'lf', material: 15, labor: 25, sourceLabel: 'Suggested budget split · National Average' },
+  pour_flatwork: { unit: 'sqft', material: 4, labor: 6, sourceLabel: 'Suggested budget split · National Average' },
+  concrete: { unit: 'sqft', material: 4, labor: 6, sourceLabel: 'Suggested budget split · National Average' },
+  drywall: { unit: 'sqft', material: 1.5, labor: 3, sourceLabel: 'Suggested budget split · National Average' },
+  decking: { unit: 'sqft', material: 8, labor: 12, sourceLabel: 'Suggested budget split · National Average' },
+  countertops: { unit: 'sqft', material: 35, labor: 25, sourceLabel: 'Suggested budget split · National Average' },
+  cabinets: { unit: 'lf', material: 150, labor: 75, sourceLabel: 'Suggested budget split · National Average' },
+  shingles_roofing: { unit: 'squares', material: 350, labor: 450, sourceLabel: 'Suggested budget split · National Average' },
+  tear_off: { unit: 'squares', material: 50, labor: 200, sourceLabel: 'Suggested budget split · National Average' },
+  pavers: { unit: 'sqft', material: 6, labor: 8, sourceLabel: 'Suggested budget split · National Average' },
+};
+
+const NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES: Record<string, string> = {
+  hang: 'drywall',
+  finish_tape: 'drywall',
+  patch_repair: 'drywall',
+};
+
+export function getNationalAverageBudgetSplit(itemId: string) {
+  return (
+    NATIONAL_AVERAGE_BUDGET_SPLITS[itemId] ??
+    NATIONAL_AVERAGE_BUDGET_SPLITS[NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES[itemId] || '']
+  );
+}
+
+export function computeNationalAverageBudgetSplit(
+  itemId: string,
+  total: number,
+  count: number
+): { material: number; labor: number } | null {
+  const average = getNationalAverageBudgetSplit(itemId);
+  if (!average || !Number.isFinite(count) || count <= 0 || !Number.isFinite(total) || total <= 0) {
+    return null;
+  }
+  const material = Math.min(total, Math.round(count * average.material * 100) / 100);
+  const labor = Math.max(0, Math.round((total - material) * 100) / 100);
+  if (material <= 0 || labor <= 0) return null;
+  return { material, labor };
+}
+
 export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule> = {
   demo: {
     defaultUnit: 'sqft',
@@ -1233,6 +1298,85 @@ export function resolveDualRatePricingDisplayFromNotes(
   };
 }
 
+function firstMeasurementQuantityForRule(
+  rule: ScopeItemQuantityRule,
+  measurementsInput: ScopeMeasurementsInputExtended
+): number | null {
+  if (rule.measurementKey) {
+    const quantity = parseScopeMeasurementInput(
+      String(measurementsInput[rule.measurementKey as keyof ScopeMeasurementsInputExtended] ?? '')
+    );
+    if (quantity && quantity > 0) return quantity;
+  }
+  if (rule.measurementKeys?.length) {
+    for (const key of rule.measurementKeys) {
+      const quantity = parseScopeMeasurementInput(
+        String(measurementsInput[key as keyof ScopeMeasurementsInputExtended] ?? '')
+      );
+      if (quantity && quantity > 0) return quantity;
+    }
+  }
+  return null;
+}
+
+export function resolveBudgetSplitQuantity(
+  itemId: string,
+  templateKey: string | null | undefined,
+  measurementsInput: ScopeMeasurementsInputExtended,
+  resolved: Pick<ResolvedItemQuantity, 'quantity' | 'unit' | 'dualCount'>,
+  scopeQuantity?: { quantity: number; unit: string } | null
+): number | null {
+  const rule = getChecklistItemQuantityRule(itemId, templateKey);
+  const average = getNationalAverageBudgetSplit(itemId);
+  if (!rule || !average) return null;
+
+  if (scopeQuantity && scopeQuantity.quantity > 0 && scopeQuantity.unit === average.unit) {
+    return scopeQuantity.quantity;
+  }
+  if (resolved.dualCount?.unit === average.unit && resolved.dualCount.quantity > 0) {
+    return resolved.dualCount.quantity;
+  }
+  if (resolved.quantity != null && resolved.unit === average.unit && resolved.quantity > 0) {
+    return resolved.quantity;
+  }
+  return firstMeasurementQuantityForRule(rule, measurementsInput);
+}
+
+export function resolveSuggestedBudgetSplitDisplay(
+  itemId: string,
+  measurementsInput: ScopeMeasurementsInputExtended,
+  templateKey: string | null | undefined,
+  resolved: Pick<
+    ResolvedItemQuantity,
+    'quantity' | 'unit' | 'quantitySource' | 'dualCount' | 'dualMaterial' | 'dualLabor' | 'dualAllowance'
+  >
+): SuggestedBudgetSplitDisplay | null {
+  const rule = getChecklistItemQuantityRule(itemId, templateKey);
+  const average = getNationalAverageBudgetSplit(itemId);
+  if (!rule || !average) return null;
+  if (resolved.dualMaterial || resolved.dualLabor) return null;
+
+  const total = Number(resolved.dualAllowance?.quantity ?? resolved.quantity ?? 0);
+  if (!Number.isFinite(total) || total <= 0) return null;
+  if (resolved.quantitySource !== 'notes' && resolved.dualAllowance?.quantity == null) return null;
+
+  const count =
+    resolved.dualCount?.unit === average.unit && resolved.dualCount.quantity > 0
+      ? resolved.dualCount.quantity
+      : firstMeasurementQuantityForRule(rule, measurementsInput);
+  const split = computeNationalAverageBudgetSplit(itemId, total, count ?? 0);
+  if (!split || !count) return null;
+
+  return {
+    material: split.material,
+    labor: split.labor,
+    total,
+    sourceLabel: average.sourceLabel,
+    helper: `${count.toLocaleString()} ${average.unit.toUpperCase()} · for budget tracking`,
+    basis: { quantity: count, unit: average.unit },
+  };
+}
+
 /** Last-resort display merge: sqft × $/sqft from notes and/or baked itemQuantities subkeys. */
 export function overlayDualRatePricingDisplay(
   itemId: string,
@@ -1642,12 +1786,47 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   { test: /\bbath(?:room)?\s+demo\b|\bdemo\b.*\bbath/i, key: 'demo' },
   { test: /\btile\s+demo|\btile\s+removal|\btile\s+demolition/i, key: 'floor_demo' },
   { test: /\bfloor\s+demo|\bflooring\s+demo/i, key: 'floor_demo' },
+  {
+    test: /\b(lvp|laminate|vinyl|carpet|flooring)\b.*\b(install|installation)\b|\b(install|installation)\b.*\b(lvp|laminate|vinyl|carpet|flooring)\b/i,
+    key: 'flooring',
+  },
+  { test: /\b(lvp|laminate|vinyl|carpet)\b|\bflooring\s+install/i, key: 'flooring' },
   { test: /\bshower\s+floor\s+tile|\btile\s+shower\s+floor/i, key: 'shower_floor_tile' },
+  { test: /\bprefab\s+shower\s+pan|\bshower\s+pan\s+install/i, key: 'prefab_shower_pan' },
+  { test: /\btile\s+shower\s+pan|\bmud\s+pan/i, key: 'shower_pan' },
+  { test: /\bshower\s+pan|\btile\s+pan/i, key: 'shower_pan' },
+  { test: /\btub\s+install|\btub\s+installation|\bbathtub/i, key: 'tub_install' },
+  { test: /\bshower\s+niche|\bniche/i, key: 'shower_niche' },
+  { test: /\bshower\s+bench|\bcurb/i, key: 'shower_bench_curb' },
+  { test: /\bexhaust\s+fan|\bbath\s+fan|\bventilation/i, key: 'exhaust_fan' },
+  { test: /\bmirror|\baccessories|\btowel\s+bar/i, key: 'mirror_accessories' },
+  { test: /\bfloor\s+prep|\bsubfloor|\bunderlayment/i, key: 'floor_prep' },
+  { test: /\bback\s*splash/i, key: 'backsplash' },
+  { test: /\bcabinet/i, key: 'cabinets' },
+  { test: /\bcountertop/i, key: 'countertops' },
+  { test: /\brock|\bmulch|\bgravel/i, key: 'rock_mulch' },
+  { test: /\bsod|\bturf/i, key: 'sod_turf' },
+  { test: /\bpaver/i, key: 'pavers' },
+  { test: /\bconcrete\b/i, key: 'pour_flatwork' },
+  { test: /\bexcavat/i, key: 'excavation' },
+  { test: /\brail(?:ing)?\b|\bguardrail\b/i, key: 'railing' },
   { test: /\bshower\b.*\btile\b|\btile\b.*\bshower\b|\bshower\s+wall\s+tile/i, key: 'shower_tile' },
+  { test: /\bwaterproof|\bbacker\s+board/i, key: 'waterproofing' },
   { test: /\bfloor\b.*\btile\b|\btile\b.*\bfloor\b/i, key: 'floor_tile' },
-  { test: /\bbaseboard|\btrim\s+install/i, key: 'trim' },
-  { test: /\bvanity/i, key: 'vanity' },
-  { test: /\btoilet/i, key: 'toilet' },
+  { test: /\bvanity\b/i, key: 'vanity' },
+  { test: /\btoilet\b/i, key: 'toilet' },
+  { test: /\bplumb.*\brough|\brough[\s-]?in\b.*\bplumb/i, key: 'plumbing_rough' },
+  { test: /\belectrical\b(?!.*trim)|\bnew\s+circuits\b/i, key: 'electrical_rough' },
+  { test: /\blight(?:ing)?\s+fix|\bfixture.*\blight/i, key: 'lighting' },
+  { test: /\bdrywall\b|\bpatch/i, key: 'drywall' },
+  { test: /\bpaint|\bpainting/i, key: 'paint' },
+  { test: /\bbaseboard|\btrim\s+install|\btrim\s+&\s+baseboard/i, key: 'trim' },
+  { test: /\bshower\s+door|\bglass\s+door|\benclosure/i, key: 'glass_door' },
+  { test: /\bplumb.*\btrim|\bplumbing\s+trim|\bfinal\s+plumb/i, key: 'plumbing_trim' },
+  { test: /\belectrical\s+trim|\bdevices.*\bplates/i, key: 'electrical_trim' },
+  { test: /\bpermit|\binspection/i, key: 'permits' },
+  { test: /\bcleanup|\bdisposal|\bhaul[\s-]?off|\bdumpster/i, key: 'cleanup' },
+  { test: /\bplumb(?!.*trim)/i, key: 'plumbing_rough' },
 ];
 
 export function lookupRuleKeyForPackage(name: string, scope = ''): string | null {

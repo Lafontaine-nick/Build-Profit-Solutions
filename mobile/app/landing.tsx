@@ -11,6 +11,7 @@ import {
   StatusBar,
   ScrollView,
   useWindowDimensions,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -21,7 +22,6 @@ import type { TFunction } from "i18next";
 import { useAuth, useUser } from "@clerk/clerk-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getColors } from "@/theme/getColors";
-import { getPostAuthHref } from "@/lib/postAuthNavigation";
 import { useClerkUiEnabled } from "@/contexts/ClerkUiContext";
 import {
   getStaySignedInPreference,
@@ -71,8 +71,11 @@ function ClerkLandingHeroContent({
 }) {
   const router = useRouter();
   const { showGoToDashboard, isLoaded, user } = useClerkLandingSession();
+  const [openingDashboard, setOpeningDashboard] = useState(false);
 
   const onPress = async () => {
+    if (!isLoaded || openingDashboard) return;
+    setOpeningDashboard(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       if (showGoToDashboard) {
@@ -81,21 +84,19 @@ function ClerkLandingHeroContent({
           router.push("/auth?mode=signin");
           return;
         }
-        if (user?.id) {
-          const href = await getPostAuthHref(user.id);
-          router.replace(href as "/onboarding" | "/(tabs)/dashboard");
-          return;
-        }
         router.replace("/(tabs)/dashboard");
         return;
       }
     } catch {
       // fall through to sign-in
     }
+    setOpeningDashboard(false);
     router.push("/auth?mode=signin");
   };
 
-  const buttonLabel = !isLoaded
+  const buttonLabel = openingDashboard
+    ? "Opening Dashboard..."
+    : !isLoaded
     ? t("landing.checkingSessionButton")
     : showGoToDashboard
       ? t("landing.goToDashboardButton")
@@ -122,14 +123,23 @@ function ClerkLandingHeroContent({
         </View>
       </View>
 
-      <TouchableOpacity style={styles.primaryButton} onPress={onPress} activeOpacity={0.85}>
+      <TouchableOpacity
+        style={[styles.primaryButton, (!isLoaded || openingDashboard) && { opacity: 0.7 }]}
+        onPress={onPress}
+        activeOpacity={0.85}
+        disabled={!isLoaded || openingDashboard}
+      >
         <LinearGradient
           colors={["#22c55e", "#22d3ee"]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
           style={styles.buttonGradient}
         >
-          <Ionicons name="rocket-outline" size={20} color="#020617" />
+          {openingDashboard ? (
+            <ActivityIndicator size="small" color="#020617" />
+          ) : (
+            <Ionicons name="rocket-outline" size={20} color="#020617" />
+          )}
           <Text style={styles.primaryButtonText}>{buttonLabel}</Text>
         </LinearGradient>
       </TouchableOpacity>
