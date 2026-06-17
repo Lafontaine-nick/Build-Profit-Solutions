@@ -1,5 +1,8 @@
 import { postAiAssistantJson } from '@/utils/resolveAiBackendUrl';
-import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
+import {
+  clearStalePricingWhenNotesUnpriced,
+  parseScopeMeasurementsFromNotes,
+} from '@/utils/scopeMeasurementParser';
 import { resolveScopePackageBudgetBreakdown } from '@/utils/scopeBudgetBreakdown';
 
 export type DraftItemStatus =
@@ -447,6 +450,10 @@ export function repairDraftRatePricingFromNotes(draft: EstimateAiDraft, notes: s
     ...stripRatePricingSubkeys(draft.scopeChecklist?.suggestedMeasurements?.itemQuantities),
     ...(parsed.itemQuantities || {}),
   };
+  if (parsed.itemQuantities?.floor_demo && !parsed.itemQuantities?.demo) {
+    delete mergedItemQuantities.demo;
+  }
+  clearStalePricingWhenNotesUnpriced(mergedItemQuantities, text, parsed.itemQuantities);
 
   const mergedScopeMeasurements: ScopeMeasurements = {
     ...(draft.scopeMeasurements || {}),

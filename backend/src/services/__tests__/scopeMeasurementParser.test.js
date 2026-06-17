@@ -274,6 +274,59 @@ Demo old cabinets and haul off $850 lump sum`;
     ).toBe(true);
   });
 
+  test('Smith residence flooring: multi-area demo, unpriced install, trim, and cleanup', () => {
+    const notes =
+      'Floor job at Smith residence. Demo existing tile in main bath 850 sqft lump sum $2,550. Demo kitchen vinyl 180 sqft allowance $900. Install LVP in both areas 1030 total sqft not priced yet. Baseboards throughout 220 LF lump sum $1,540. Final clean and haul off $650 lump sum.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'flooring', projectType: 'flooring' });
+    const norm = normalizeScopeMeasurements(parsed);
+    const draft = { projectType: 'flooring', rooms: [], originalNotes: notes };
+    const checklist = buildScopeChecklist(draft, 'room_remodel', notes);
+
+    expect(parsed.bathroomFloorSqft).toBe(850);
+    expect(parsed.kitchenFloorSqft).toBe(180);
+    expect(parsed.floorAreaSqft).toBe(1030);
+    expect(parsed.baseboardLf).toBe(220);
+    expect(parsed.itemQuantities?.floor_demo).toMatchObject({ quantity: 3450, unit: 'allowance' });
+    expect(parsed.itemQuantities?.trim).toMatchObject({ quantity: 1540, unit: 'allowance' });
+    expect(parsed.itemQuantities?.cleanup).toMatchObject({ quantity: 650, unit: 'lump_sum' });
+    expect(parsed.itemQuantities?.demo).toBeUndefined();
+    expect(parsed.itemQuantities?.flooring).toBeUndefined();
+
+    const floorDemo = checklist.items.find((i) => i.id === 'floor_demo');
+    const flooring = checklist.items.find((i) => i.id === 'flooring');
+    const floorPrep = checklist.items.find((i) => i.id === 'floor_prep');
+    const trim = checklist.items.find((i) => i.id === 'trim');
+    const cleanup = checklist.items.find((i) => i.id === 'cleanup');
+
+    expect(floorDemo?.state).toBe('included');
+    expect(flooring?.state).toBe('included');
+    expect(floorPrep?.state).toBe('unsure');
+    expect(trim?.state).toBe('included');
+    expect(cleanup?.state).toBe('included');
+
+    const floorDemoQty = resolveQuantityForChecklistItem('floor_demo', {
+      templateKey: 'flooring',
+      notes,
+      measurements: norm,
+    });
+    const flooringQty = resolveQuantityForChecklistItem('flooring', {
+      templateKey: 'flooring',
+      notes,
+      measurements: norm,
+    });
+    const trimQty = resolveQuantityForChecklistItem('trim', { templateKey: 'flooring', notes, measurements: norm });
+    const cleanupQty = resolveQuantityForChecklistItem('cleanup', {
+      templateKey: 'flooring',
+      notes,
+      measurements: norm,
+    });
+
+    expect(floorDemoQty).toMatchObject({ quantity: 3450, unit: 'allowance', pricingReady: true });
+    expect(flooringQty).toMatchObject({ quantity: 1030, unit: 'sqft', pricingReady: true });
+    expect(trimQty).toMatchObject({ quantity: 1540, unit: 'allowance', pricingReady: true });
+    expect(cleanupQty).toMatchObject({ quantity: 650, unit: 'lump_sum', pricingReady: true });
+  });
+
   test('rate parser does not treat a dollar rate as the item quantity', () => {
     const { parseScopeItemRatePricingFromNotes } = require('../scopeRatePricingParser');
     const parsed = parseScopeItemRatePricingFromNotes('Paint walls and ceiling $1.50 square feet labor', {}, {});

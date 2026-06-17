@@ -59,11 +59,14 @@ import {
   prepareScopeMeasurementsInputForUi,
   resolveChecklistItemQuantity,
   resolveDualRatePricingDisplayFromNotes,
-  resolveSuggestedBudgetSplitDisplay,
+  resolveScopeItemSuggestedPricing,
   roughAllowanceSubKey,
   scopeMeasurementsToPayload,
   scopeMeasurementsPayloadForPersist,
+  type PricingLegSource,
   type ScopeMeasurementsInputExtended,
+  type ScopePricingContext,
+  type SuggestedPricingBlock,
 } from '@/utils/scopeItemQuantities';
 import {
   emptyQuickMeasurementInput,
@@ -96,6 +99,8 @@ type Props = {
   onScopeOnly?: (measurements?: ScopeMeasurements) => void;
   /** Persist in-progress scope without API round-trip (e.g. when navigating to review/pricing). */
   onPersistProgress?: (items: ScopeChecklistItem[], measurements?: ScopeMeasurements) => void;
+  /** Saved templates + active bid used to prefer saved $/unit rates in suggested pricing. */
+  pricingContext?: ScopePricingContext | null;
 };
 
 const QUANTITY_NEEDED_LABELS: Record<string, string> = {
@@ -219,34 +224,39 @@ function pricingLabelColor(darkMode: boolean, Colors: ReturnType<typeof getColor
   return darkMode ? 'rgba(255,255,255,0.72)' : Colors.sub;
 }
 
+/** Maps a per-leg pricing source to the small pill shown next to that line. */
+function legPillKind(source: PricingLegSource): 'notes' | 'template' | 'national' {
+  if (source === 'notes') return 'notes';
+  if (source === 'template') return 'template';
+  return 'national';
+}
+
 function SourcePill({
   kind,
   label,
 }: {
-  kind: 'notes' | 'national';
+  kind: 'notes' | 'national' | 'template';
   label?: string;
 }) {
-  const text = label || (kind === 'notes' ? 'From notes' : 'National Average');
-  const isNotes = kind === 'notes';
+  const defaultText =
+    kind === 'notes' ? 'From notes' : kind === 'template' ? 'Saved rate' : 'National Average';
+  const text = label || defaultText;
+  const color = kind === 'notes' ? '#22c55e' : kind === 'template' ? '#a78bfa' : '#60a5fa';
+  const pillStyle =
+    kind === 'notes'
+      ? styles.sourcePillNotes
+      : kind === 'template'
+        ? styles.sourcePillTemplate
+        : styles.sourcePillNational;
   return (
-    <View
-      style={[
-        styles.sourcePill,
-        isNotes ? styles.sourcePillNotes : styles.sourcePillNational,
-      ]}
-    >
-      <Text
-        style={{
-          color: isNotes ? '#22c55e' : '#60a5fa',
-          fontSize: 11,
-          fontWeight: '700',
-        }}
-      >
-        {text}
-      </Text>
+    <View style={[styles.sourcePill, pillStyle]}>
+      <Text style={{ color, fontSize: 11, fontWeight: '700' }}>{text}</Text>
     </View>
   );
 }
+
+/** Saved templates + active bid, supplied once and consumed by every QuantitySection. */
+const ScopePricingContextValue = React.createContext<ScopePricingContext | null>(null);
 
 function PricingAmountRow({
   value,
@@ -287,19 +297,24 @@ function PricingAmountRow({
 function PricingSplitRow({
   label,
   value,
+  pill,
   darkMode,
   Colors,
 }: {
   label: string;
   value: string;
+  pill?: React.ReactNode;
   darkMode: boolean;
   Colors: ReturnType<typeof getColors>;
 }) {
   return (
     <View style={styles.pricingSplitRow}>
-      <Text style={{ color: pricingLabelColor(darkMode, Colors), fontSize: 14, fontWeight: '600' }}>
-        {label}
-      </Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Text style={{ color: pricingLabelColor(darkMode, Colors), fontSize: 14, fontWeight: '600' }}>
+          {label}
+        </Text>
+        {pill ?? null}
+      </View>
       <Text style={{ color: pricingTextColor(darkMode, Colors), fontSize: 15, fontWeight: '700' }}>
         {value}
       </Text>
@@ -308,16 +323,34 @@ function PricingSplitRow({
 }
 
 function SuggestedBudgetSplitRows({
-  split,
+  block,
   Colors,
   darkMode,
 }: {
-  split: NonNullable<ReturnType<typeof resolveSuggestedBudgetSplitDisplay>>;
+  block: SuggestedPricingBlock;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
 }) {
   const panelBg = darkMode ? 'rgba(96, 165, 250, 0.08)' : 'rgba(96, 165, 250, 0.06)';
   const panelBorder = darkMode ? 'rgba(96, 165, 250, 0.22)' : 'rgba(96, 165, 250, 0.18)';
+  const usesTemplate = block.materialSource === 'template' || block.laborSource === 'template';
+  const headerTitle =
+    block.mode === 'note_total_split'
+      ? 'Budget split'
+      : block.isComparison
+        ? 'Suggested comparison'
+        : 'Suggested pricing';
+  const headerPillKind = usesTemplate ? 'template' : 'national';
+  const headerPillLabel = block.rateSourceLabel;
+
+  const explanation =
+    block.mode === 'note_total_split'
+      ? `Notes gave one total, so materials use ${usesTemplate ? 'your saved rate' : 'National Average'} and labor gets the remainder.`
+      : block.mode === 'fill_missing'
+        ? `Notes only priced one side, so the missing side uses ${usesTemplate ? 'your saved rate' : 'National Average'}. Notes pricing stays primary.`
+        : block.isComparison
+          ? `Comparison from ${usesTemplate ? 'your saved rate' : 'National Average'}. Notes pricing remains primary.`
+          : `Suggested from ${usesTemplate ? 'your saved rate' : 'National Average'} because notes only gave a quantity, not pricing.`;
 
   return (
     <View
@@ -328,23 +361,25 @@ function SuggestedBudgetSplitRows({
     >
       <View style={styles.budgetSplitHeader}>
         <Text style={{ color: pricingTextColor(darkMode, Colors), fontSize: 14, fontWeight: '700' }}>
-          Budget split
+          {headerTitle}
         </Text>
-        <SourcePill kind="national" />
+        <SourcePill kind={headerPillKind} label={headerPillLabel} />
       </View>
       <PricingSplitRow
         label="Material"
-        value={formatDraftMoney(split.material)}
+        value={formatDraftMoney(block.material)}
+        pill={<SourcePill kind={legPillKind(block.materialSource)} />}
         darkMode={darkMode}
         Colors={Colors}
       />
       <PricingSplitRow
         label="Labor"
-        value={formatDraftMoney(split.labor)}
+        value={formatDraftMoney(block.labor)}
+        pill={<SourcePill kind={legPillKind(block.laborSource)} />}
         darkMode={darkMode}
         Colors={Colors}
       />
-      {split.helper ? (
+      {block.helper ? (
         <Text
           style={{
             color: pricingLabelColor(darkMode, Colors),
@@ -353,7 +388,7 @@ function SuggestedBudgetSplitRows({
             marginTop: 8,
           }}
         >
-          {split.helper}
+          {block.helper}
         </Text>
       ) : null}
       <Text
@@ -364,8 +399,32 @@ function SuggestedBudgetSplitRows({
           marginTop: 4,
         }}
       >
-        Why this split? Notes only gave one total, so materials use National Average and labor gets the remainder.
+        {explanation}
       </Text>
+    </View>
+  );
+}
+
+/** Collapsible "Compare to suggested/saved" panel shown when notes priced both legs. */
+function ComparisonToggle({
+  block,
+  Colors,
+  darkMode,
+}: {
+  block: SuggestedPricingBlock;
+  Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const usesTemplate = block.materialSource === 'template' || block.laborSource === 'template';
+  return (
+    <View style={{ marginTop: 8 }}>
+      <TouchableOpacity activeOpacity={0.7} onPress={() => setOpen((prev) => !prev)}>
+        <Text style={styles.editQuantityLink}>
+          {open ? 'Hide comparison' : `Compare to ${usesTemplate ? 'saved rate' : 'National Average'}`}
+        </Text>
+      </TouchableOpacity>
+      {open ? <SuggestedBudgetSplitRows block={block} Colors={Colors} darkMode={darkMode} /> : null}
     </View>
   );
 }
@@ -528,8 +587,11 @@ function PricingInputField({
   );
 }
 
-function parseBudgetSplitBasis(split: ReturnType<typeof resolveSuggestedBudgetSplitDisplay> | null) {
-  const match = split?.helper?.match(/^([\d,.]+)\s+([A-Z]+)/i);
+function parseBudgetSplitBasis(block: SuggestedPricingBlock | null) {
+  if (block?.basis && block.basis.quantity > 0) {
+    return { quantity: block.basis.quantity, unit: block.basis.unit };
+  }
+  const match = block?.helper?.match(/^([\d,.]+)\s+([A-Z]+)/i);
   if (!match) return null;
   const quantity = Number(match[1].replace(/,/g, ''));
   if (!Number.isFinite(quantity) || quantity <= 0) return null;
@@ -545,6 +607,57 @@ function unitRateHelper(
   if (!basis || !Number.isFinite(amount) || amount <= 0 || basis.quantity <= 0) return null;
   const rate = Math.round((amount / basis.quantity) * 100) / 100;
   return `${formatDraftMoney(rate)} / ${formatUnitLabel(basis.unit)}`;
+}
+
+function scoreScopeNotesForMeasurements(
+  notes: string,
+  templateKey?: string | null,
+  projectType?: string | null
+): number {
+  const text = String(notes || '').trim();
+  if (!text) return 0;
+  const parsed = parseScopeMeasurementsFromNotes(text, {
+    templateKey: templateKey ?? undefined,
+    projectType: projectType ?? undefined,
+  });
+  let score = Math.min(text.length, 500) / 1000;
+  if (parsed.bathroomFloorSqft) score += 8;
+  if (parsed.kitchenFloorSqft) score += 8;
+  if (parsed.floorAreaSqft) score += 8;
+  if (parsed.baseboardLf) score += 5;
+  if (parsed.itemQuantities?.floor_demo?.quantity) score += 8;
+  if (parsed.itemQuantities?.trim?.quantity) score += 3;
+  if (/\bnot\s+priced\s+yet\b/i.test(text)) score += 3;
+  return score;
+}
+
+function chooseBestScopeNotes(
+  draft: EstimateAiDraft | null,
+  notesFallback?: string | null
+): string {
+  const candidates = [
+    String(notesFallback || '').trim(),
+    resolveDraftScopeNotes(draft),
+    String(draft?.originalNotes || '').trim(),
+    String(draft?.projectDescription || '').trim(),
+    String(draft?.contractScope || '').trim(),
+    String(draft?.scopeChecklist?.intro || '').trim(),
+  ].filter(Boolean);
+
+  let best = '';
+  let bestScore = -1;
+  for (const candidate of candidates) {
+    const score = scoreScopeNotesForMeasurements(
+      candidate,
+      draft?.scopeChecklist?.templateKey,
+      draft?.projectType
+    );
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+  return best;
 }
 
 function scopeCardStyle(
@@ -596,6 +709,7 @@ function QuantitySection({
   applying: boolean;
 }) {
   const [pricingEditorOpen, setPricingEditorOpen] = useState(false);
+  const pricingContext = React.useContext(ScopePricingContextValue);
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!inScope || !rule) return null;
 
@@ -652,12 +766,15 @@ function QuantitySection({
     }
 
     if (resolved.pricingReady && !isEditing) {
-      const suggestedBudgetSplit = resolveSuggestedBudgetSplitDisplay(
+      const suggested = resolveScopeItemSuggestedPricing(
         itemId,
         measurementsInput,
         templateKey,
-        resolved
+        resolved,
+        pricingContext
       );
+      const suggestedBudgetSplit = suggested.fill;
+      const suggestedComparisonSplit = suggested.comparison;
       return (
         <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
           {resolved.dualCount ? (
@@ -720,7 +837,10 @@ function QuantitySection({
             </View>
           ) : null}
           {suggestedBudgetSplit ? (
-            <SuggestedBudgetSplitRows split={suggestedBudgetSplit} Colors={Colors} darkMode={darkMode} />
+            <SuggestedBudgetSplitRows block={suggestedBudgetSplit} Colors={Colors} darkMode={darkMode} />
+          ) : null}
+          {suggestedComparisonSplit ? (
+            <ComparisonToggle block={suggestedComparisonSplit} Colors={Colors} darkMode={darkMode} />
           ) : null}
           <EditQuantityLink
             onPress={() => {
@@ -748,6 +868,8 @@ function QuantitySection({
                   'count',
                   'allowance'
                 );
+              } else if (suggestedBudgetSplit) {
+                onItemQuantityChange(materialKey, String(suggestedBudgetSplit.material), 'count', 'allowance');
               }
               if (resolved.dualLabor) {
                 onItemQuantityChange(
@@ -756,6 +878,8 @@ function QuantitySection({
                   'count',
                   'allowance'
                 );
+              } else if (suggestedBudgetSplit) {
+                onItemQuantityChange(laborKey, String(suggestedBudgetSplit.labor), 'count', 'allowance');
               }
             }}
           />
@@ -877,12 +1001,15 @@ function QuantitySection({
     QUANTITY_NEEDED_LABELS[itemId] ||
     quantityNeededLabel(itemId, templateKey, rule.defaultUnit);
 
-  const suggestedBudgetSplit = resolveSuggestedBudgetSplitDisplay(
+  const suggested = resolveScopeItemSuggestedPricing(
     itemId,
     measurementsInput,
     templateKey,
-    resolved
+    resolved,
+    pricingContext
   );
+  const suggestedBudgetSplit = suggested.fill;
+  const suggestedComparisonSplit = suggested.comparison;
   const suggestedBasis = parseBudgetSplitBasis(suggestedBudgetSplit);
 
   if (resolved.pricingReady && !isEditingQuantity && !isEditingPricing) {
@@ -951,7 +1078,10 @@ function QuantitySection({
           </Text>
         ) : null}
         {suggestedBudgetSplit ? (
-          <SuggestedBudgetSplitRows split={suggestedBudgetSplit} Colors={Colors} darkMode={darkMode} />
+          <SuggestedBudgetSplitRows block={suggestedBudgetSplit} Colors={Colors} darkMode={darkMode} />
+        ) : null}
+        {suggestedComparisonSplit ? (
+          <ComparisonToggle block={suggestedComparisonSplit} Colors={Colors} darkMode={darkMode} />
         ) : null}
         <EditQuantityLink
           onPress={() => {
@@ -1606,6 +1736,7 @@ function CollapsibleQuickMeasurements({
   const displayMeasurements = { ...noteQuickMeasurements.values };
   for (const [key, value] of Object.entries(measurements)) {
     if (key === 'itemQuantities') continue;
+    if (noteQuickMeasurements.keys.includes(key as QuickMeasurementFieldKey)) continue;
     if (String(value || '').trim()) {
       displayMeasurements[key as QuickMeasurementFieldKey] = String(value);
     }
@@ -1725,15 +1856,14 @@ export default function AIEstimateScopeAssumptionsModal({
   onConfirm,
   onScopeOnly,
   onPersistProgress,
+  pricingContext = null,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const checklist = draft?.scopeChecklist;
   const scopeNotes = useMemo(() => {
-    const resolved = resolveDraftScopeNotes(draft);
-    if (resolved) return resolved;
-    return String(notesFallback || '').trim();
+    return chooseBestScopeNotes(draft, notesFallback);
   }, [draft, notesFallback]);
   const [items, setItems] = useState<ScopeChecklistItem[]>([]);
   const [measurements, setMeasurements] = useState<ScopeMeasurementsInputExtended>({
@@ -2359,12 +2489,14 @@ export default function AIEstimateScopeAssumptionsModal({
   );
 
   return (
-    <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={onBack}>
-      <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
-      <View style={{ flex: 1, backgroundColor: Colors.bg }}>
-        {body}
-      </View>
-    </Modal>
+    <ScopePricingContextValue.Provider value={pricingContext}>
+      <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={onBack}>
+        <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
+        <View style={{ flex: 1, backgroundColor: Colors.bg }}>
+          {body}
+        </View>
+      </Modal>
+    </ScopePricingContextValue.Provider>
   );
 }
 
@@ -2559,6 +2691,10 @@ const styles = StyleSheet.create({
   sourcePillNational: {
     borderColor: 'rgba(96, 165, 250, 0.35)',
     backgroundColor: 'rgba(96, 165, 250, 0.1)',
+  },
+  sourcePillTemplate: {
+    borderColor: 'rgba(167, 139, 250, 0.35)',
+    backgroundColor: 'rgba(167, 139, 250, 0.12)',
   },
   editQuantityLink: {
     color: '#22c55e',

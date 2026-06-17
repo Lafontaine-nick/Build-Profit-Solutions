@@ -3,15 +3,15 @@
  * Skips unit rates ($8/sqft) — only totals and lump-sum lines.
  */
 
+const { splitScopeNoteSentences } = require('./estimateDraftQuantityPrice');
+const ACCUMULATE_ALLOWANCE_IDS = new Set(['floor_demo']);
+
 const UNIT_RATE_AFTER_RE =
   /^\s*(?:dollars?\s*)?(?:(?:\/|per|a|@)\s*(?:the\s+)?)?(?:sq\.?\s*ft\.?|sqft|sf|square\s+(?:foot|feet)|lf|ln|hr|hour|each|ea)\b/i;
 
 /** Keep compound labels intact (e.g. "cabinets and counters $28,629") — do not split on "and". */
 function splitAllowanceClauses(text) {
-  return String(text || '')
-    .split(/(?<!\d)\.\s+|[\n;]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  return splitScopeNoteSentences(text);
 }
 
 /**
@@ -72,14 +72,21 @@ const ITEM_ALLOWANCE_MATCHERS = [
     unit: 'allowance',
   },
   {
-    id: 'demo',
-    match: /\b(demo|demolition|tear[\s-]?out|gut|haul[\s-]?off)\b/i,
-    unit: 'lump_sum',
+    id: 'floor_demo',
+    match:
+      /\b(?:demo|demolition|tear[\s-]?out|remove|removal)\b[^.;]{0,80}\b(?:tile|floor|flooring|lvp|vinyl|laminate|carpet)\b|\b(?:tile|floor|flooring|lvp|vinyl|laminate|carpet)\b[^.;]{0,80}\b(?:demo|demolition|tear[\s-]?out|remove|removal)\b/i,
+    unit: 'allowance',
   },
   {
     id: 'cleanup',
-    match: /\b(cleanup|disposal|dumpster|debris)\b/i,
+    match: /\b(cleanup|disposal|dumpster|debris|final\s+clean(?:\s+and\s+haul(?:[\s-]?off?))?)\b/i,
     exclude: /\b(demo|demolition|tear[\s-]?out)\b/i,
+    unit: 'lump_sum',
+  },
+  {
+    id: 'demo',
+    match: /\b(demo|demolition|tear[\s-]?out|gut|haul[\s-]?off)\b/i,
+    exclude: /\b(final\s+clean|cleanup|disposal)\b/i,
     unit: 'lump_sum',
   },
   {
@@ -102,7 +109,13 @@ const ITEM_ALLOWANCE_MATCHERS = [
   {
     id: 'flooring',
     match: /\b(flooring|laminate|lvp|vinyl\s+floor|carpet)\b/i,
-    exclude: /\b(demo|demolition|\/|per\s+sq)/i,
+    exclude: /\b(demo|demolition|remove|removal|tear[\s-]?out|\/|per\s+sq|not\s+priced|unpriced|no\s+pric(?:e|ing))/i,
+    unit: 'allowance',
+  },
+  {
+    id: 'trim',
+    match: /\b(baseboards?|trim|moulding|molding|casing)\b/i,
+    exclude: /\b(\/|per\s+(?:linear\s+foot|feet|lf)|per\s+lf)\b/i,
     unit: 'allowance',
   },
 ];
@@ -264,12 +277,22 @@ function parseScopeItemAllowancesFromNotes(notes, ctx = {}) {
   for (const clause of clauses) {
     const combinedCabinetsCounters = clauseHasCombinedCabinetsAndCounters(clause);
 
+    const matchedIdsForClause = new Set();
+
     for (const matcher of ITEM_ALLOWANCE_MATCHERS) {
+      if (matcher.id === 'demo' && matchedIdsForClause.has('floor_demo')) continue;
+      if (matcher.id === 'demo' && /\b(final\s+clean|cleanup|disposal)\b/i.test(clause)) continue;
       if (!clauseMatchesMatcher(clause, matcher)) continue;
-      if (out[matcher.id]) continue;
 
       const amount = pickAmountForMatcher(clause, matcher) ?? pickClauseTotalAmount(clause);
       if (!amount) continue;
+
+      if (ACCUMULATE_ALLOWANCE_IDS.has(matcher.id) && out[matcher.id]) {
+        out[matcher.id].quantity += amount;
+        matchedIdsForClause.add(matcher.id);
+        continue;
+      }
+      if (out[matcher.id]) continue;
 
       const entry = {
         quantity: amount,
@@ -280,6 +303,7 @@ function parseScopeItemAllowancesFromNotes(notes, ctx = {}) {
         entry.includesCountertops = true;
       }
       out[matcher.id] = entry;
+      matchedIdsForClause.add(matcher.id);
     }
   }
 

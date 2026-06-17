@@ -343,7 +343,7 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
   flooring: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
-    measurementKeys: ['kitchenFloorSqft', 'bathroomFloorSqft', 'floorAreaSqft'],
+    measurementKeys: ['floorAreaSqft', 'kitchenFloorSqft', 'bathroomFloorSqft'],
     dualAllowanceField: true,
     requiresUserQuantity: true,
     pricingMethod: 'unit_rate',
@@ -1142,15 +1142,19 @@ function resolveQuantityForChecklistItem(itemId, ctx = {}) {
   const altKeys = rule.measurementKeys || [];
   for (const key of altKeys) {
     if (measurements[key]) {
-      return {
-        quantity: measurements[key],
-        unit: rule.defaultUnit,
-        quantitySource: QUANTITY_SOURCES.inferred,
-        label: packageName,
-        sourceLabel: sourceLabel(QUANTITY_SOURCES.inferred),
-        rule,
-        pricingReady: true,
-      };
+      return applyPricingReadyFlags(
+        {
+          quantity: measurements[key],
+          unit: rule.defaultUnit,
+          quantitySource: QUANTITY_SOURCES.inferred,
+          label: packageName,
+          sourceLabel: sourceLabel(QUANTITY_SOURCES.inferred),
+          rule,
+          pricingReady: true,
+        },
+        itemId,
+        ctx
+      );
     }
   }
 
@@ -1225,6 +1229,25 @@ function resolveQuantityForPackage(name, scope = '', ctx = {}) {
     rule: null,
     pricingReady: false,
   };
+}
+
+function notesExplicitlyUnpriced(itemId, notes) {
+  const n = String(notes || '').toLowerCase();
+  if (!/\b(?:not\s+priced(?:\s+yet|)|unpriced|no\s+pric(?:e|ing)(?:\s+yet|)|pricing\s+tbd|tbd\s+on\s+pric(?:e|ing))\b/i.test(n)) {
+    return false;
+  }
+  const itemPatterns = {
+    flooring: /\b(?:install|lvp|laminate|vinyl|carpet|flooring|floor\s+install)\b/i,
+    floor_tile: /\b(?:floor\s+tile|tile\s+floor)\b/i,
+  };
+  const pattern = itemPatterns[itemId];
+  return Boolean(pattern && pattern.test(n));
+}
+
+function applyPricingReadyFlags(resolved, itemId, ctx = {}) {
+  void itemId;
+  void ctx;
+  return resolved;
 }
 
 function isQuantityValidForPricing(qty, rule) {

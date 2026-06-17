@@ -617,7 +617,7 @@ const CHECKLIST_YES_HINTS = {
   ductwork: /\b(duct(?:work)?|ducting)\b/,
   decking: /\b(deck(?:ing)?|composite\s+deck)\b/,
   railing: /\b(rail(?:ing)?|guardrail)\b/,
-  trim: /\b(baseboard|trim|crown|moulding|molding|casing)\b/,
+  trim: /\b(baseboards?|trim|crown|moulding|molding|casing)\b/,
   pour_flatwork: /\b(concrete\s+patio|slab|flatwork|sidewalk|driveway)\b/,
   trenching: /\b(trench(?:ing)?|utility\s+trench)\b/,
   hang: /\b(hang\s+drywall|drywall\s+hang)\b/,
@@ -648,7 +648,7 @@ function checklistTemplateKey(draft, estimateTier) {
   if (projectType === 'kitchen' || /\bkitchen\s+remodel\b/i.test(notes)) return 'kitchen';
   if (
     projectType === 'flooring' ||
-    /\b(lvp|laminate|vinyl|carpet|flooring\s+(?:install|job)|floor\s+demo|baseboard)\b/i.test(notes)
+    /\b(lvp|laminate|vinyl|carpet|flooring\s+(?:install|job)|floor\s+demo|baseboards?)\b/i.test(notes)
   ) {
     return 'flooring';
   }

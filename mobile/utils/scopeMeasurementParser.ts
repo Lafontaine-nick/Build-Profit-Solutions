@@ -35,7 +35,7 @@ export type ParsedScopeMeasurements = {
   itemQuantities?: Record<string, ScopeItemQuantity>;
 };
 
-const SQFT_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|ft\.?\s*(?:²|2\b|\?)|square\s+(?:foot|feet))/gi;
+const SQFT_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:total\s+)?(?:sq\.?\s*ft|sqft|\bsf\b|ft\.?\s*(?:²|2\b|\?)|square\s+(?:foot|feet))/gi;
 const LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|linear\s+ft)/gi;
 const CY_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:cy|cubic\s+yards?)/gi;
 const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)\s*squares?\b/gi;
@@ -57,7 +57,9 @@ function splitNoteClauses(text: string): string[] {
   if (!normalized) return [];
 
   let sentences = normalized
-    .split(/(?<!\d)\.\s+(?=[a-z])/gi)
+    .split(
+      /(?<!\d)\.\s+(?=[A-Z])|\.\s+(?=(?:demo|install|final|baseboards?|remove|tear|new|paint|interior|cleanup|haul|trim|replace|lvp|vinyl|carpet|flooring)\b)/gi
+    )
     .map((x) => x.trim())
     .filter(Boolean);
   if (sentences.length === 1) {
@@ -72,24 +74,22 @@ function splitNoteClauses(text: string): string[] {
     sentence = sentence.replace(/\bwalls?\s+and\s+(?:the\s+)?ceiling\b/gi, (m) =>
       m.replace(/\s+and\s+/i, ' __WALLS_CEILING__ ')
     );
+    sentence = sentence.replace(/\bfinal\s+clean\s+and\s+haul(?:[\s-]?off?)\b/gi, (m) =>
+      m.replace(/\s+and\s+/i, ' __FINAL_CLEAN_HAUL__ ')
+    );
     const parts = sentence
       .split(
         /\s+(?:and|&|\+)\s+|\s+in\s+(?=\d[\d,]*\s*(?:sq\.?\s*ft\.?|sqft|sq\s*ft|square\s*feet|ft\.?\s*²|ft\.?\s*2\b|linear\s*feet|ln\.?\s*ft\.?|\blf\b))/i
       )
-      .map((p) => p.trim().replace(/__WALLS_CEILING__/g, ' and '))
+      .map((p) => p.trim().replace(/__WALLS_CEILING__/g, ' and ').replace(/__FINAL_CLEAN_HAUL__/g, ' and '))
       .filter(Boolean);
     if (parts.length > 1) clauses.push(...parts);
-    else clauses.push(sentence.replace(/__WALLS_CEILING__/g, ' and '));
+    else clauses.push(sentence.replace(/__WALLS_CEILING__/g, ' and ').replace(/__FINAL_CLEAN_HAUL__/g, ' and '));
   }
   return clauses
     .flatMap((clause) => clause.split(/,\s+(?=[a-z])/i))
     .map((clause) => clause.trim())
     .filter(Boolean);
-}
-
-function clauseMatches(clause: string, patterns: RegExp[]): boolean {
-  const c = clause.toLowerCase();
-  return patterns.some((p) => p.test(c));
 }
 
 function pickSqftNearPattern(text: string, pattern: RegExp): number | null {
@@ -131,8 +131,9 @@ export function parseScopeMeasurementsFromNotes(
 
   const pickSqftFromClauses = (patterns: RegExp[]) => {
     for (const clause of clauses) {
-      if (!clauseMatches(clause, patterns)) continue;
-      const near = pickSqftNearPattern(clause, patterns[0]);
+      const matchedPattern = patterns.find((p) => p.test(clause.toLowerCase()));
+      if (!matchedPattern) continue;
+      const near = pickSqftNearPattern(clause, matchedPattern);
       if (near) return near;
       const q = firstQty(clause, SQFT_RE);
       if (q) return q;
@@ -156,7 +157,12 @@ export function parseScopeMeasurementsFromNotes(
   };
 
   const bathFloor =
-    pickSqftFromClauses([/\bbath(?:room)?\s+floor\b/, /\bbath(?:room)?\b.*\bfloor(?:ing)?\b/]) ||
+    pickSqftFromClauses([
+      /\bbath(?:room)?\s+floor\b/,
+      /\bbath(?:room)?\b.*\bfloor(?:ing)?\b/,
+      /\bfloor\b.*\bbath(?:room)?\b/,
+      /\bmain\s+bath(?:room)?\b/,
+    ]) ||
     firstGenericBathroomSqft();
   if (bathFloor) out.bathroomFloorSqft = bathFloor;
 
@@ -245,8 +251,14 @@ export function parseScopeMeasurementsFromNotes(
     let max = 0;
     for (const clause of clauses) {
       const c = clause.toLowerCase();
-      if (/\bbaseboard\b|\bback\s*splash|backsplash|\bcountertop|\bpaint\b|\bshower\b/.test(c)) continue;
-      if (!/\b(demo|install|removal|laminate|tile|lvp|vinyl|flooring|floor)\b/.test(c)) continue;
+      if (
+        /\bbaseboards?\b|\btrim\b|\bmoulding\b|\bmolding\b|\bcasing\b/i.test(c) &&
+        !/\b(install|installation|lvp|laminate|vinyl|carpet|flooring|tile|demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(c)
+      ) {
+        continue;
+      }
+      if (/\bback\s*splash|backsplash|\bcountertop|\bpaint\b|\bshower\b/i.test(c)) continue;
+      if (!/\b(demo|demolition|remove|removal|tear[\s-]?out|install|installation|laminate|tile|lvp|vinyl|flooring|floor|carpet)\b/i.test(c)) continue;
       const q = firstQty(clause, SQFT_RE);
       if (q && q > max) max = q;
     }
@@ -268,7 +280,7 @@ export function parseScopeMeasurementsFromNotes(
   if (railingLf) out.railingLf = railingLf;
 
   for (const clause of clauses) {
-    if (!/\bbaseboard\b|\btrim\b/.test(clause.toLowerCase())) continue;
+    if (!/\bbaseboards?\b|\btrim\b/.test(clause.toLowerCase())) continue;
     const q = firstQty(clause, LF_RE);
     if (q) {
       out.baseboardLf = q;
@@ -335,4 +347,40 @@ export function parseScopeMeasurementsFromNotes(
   }
 
   return out;
+}
+
+const UNPRICED_NOTE_RE = /\b(not\s+priced\s+yet|not\s+priced|unpriced|no\s+pric(?:e|ing))\b/i;
+
+/**
+ * Single source of truth for stale-pricing cleanup during hydration. When the
+ * notes say an item is unpriced, drop any carried-over rate splits (and money
+ * totals) for every item the fresh notes parse did NOT price. Generalized
+ * across all trades so material/labor splits never linger from a prior parse.
+ */
+export function clearStalePricingWhenNotesUnpriced(
+  itemQuantities: Record<string, { quantity: unknown; unit?: string; quantitySource?: unknown }>,
+  notes: string | null | undefined,
+  freshParsedItemQuantities?: Record<string, { unit?: string }> | null
+): void {
+  if (!itemQuantities || !UNPRICED_NOTE_RE.test(String(notes || ''))) return;
+  const fresh = freshParsedItemQuantities || {};
+  const bases = new Set<string>();
+  for (const id of Object.keys(itemQuantities)) {
+    bases.add(id.replace(/__(?:material|labor|allowance)$/, ''));
+  }
+  const isMoneyUnit = (unit?: string) => unit === 'allowance' || unit === 'lump_sum';
+  for (const base of bases) {
+    const freshHasPricing =
+      `${base}__material` in fresh ||
+      `${base}__labor` in fresh ||
+      `${base}__allowance` in fresh ||
+      (base in fresh && isMoneyUnit(fresh[base]?.unit));
+    if (freshHasPricing) continue;
+    delete itemQuantities[`${base}__material`];
+    delete itemQuantities[`${base}__labor`];
+    delete itemQuantities[`${base}__allowance`];
+    if (isMoneyUnit(itemQuantities[base]?.unit)) {
+      delete itemQuantities[base];
+    }
+  }
 }

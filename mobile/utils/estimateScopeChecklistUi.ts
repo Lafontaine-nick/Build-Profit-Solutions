@@ -424,6 +424,19 @@ function injectNoteBackedPricedItems(
   return additions.length ? [...items, ...additions] : items;
 }
 
+function shouldSuppressGenericDemo(
+  item: ScopeChecklistItem,
+  templateKey?: string | null,
+  measurements?: NormalizedScopeMeasurements
+): boolean {
+  return (
+    item.id === 'demo' &&
+    templateKey === 'flooring' &&
+    Boolean(measurements?.itemQuantities?.floor_demo?.quantity) &&
+    !measurements?.itemQuantities?.demo?.quantity
+  );
+}
+
 /** Re-apply note hints + kitchen linked allowances on each Confirm Scope open. */
 export function hydrateScopeChecklistFromNotes(
   items: ScopeChecklistItem[],
@@ -431,7 +444,8 @@ export function hydrateScopeChecklistFromNotes(
   notes?: string | null,
   measurements?: NormalizedScopeMeasurements
 ): ScopeChecklistItem[] {
-  const withNoteBacked = injectNoteBackedPricedItems(items, measurements);
+  const scopedItems = items.filter((item) => !shouldSuppressGenericDemo(item, templateKey, measurements));
+  const withNoteBacked = injectNoteBackedPricedItems(scopedItems, measurements);
   const normalized = normalizeScopeChecklistItems(withNoteBacked, templateKey, { notes, measurements });
   return applyScopeInferencesFromNotes(normalized, notes, templateKey, measurements);
 }

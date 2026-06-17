@@ -125,8 +125,12 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
   ],
   flooring: [
     row(
-      F('floorAreaSqft', 'Floor area sqft', 'e.g. 1200'),
-      F('baseboardLf', 'Baseboard linear feet', 'e.g. 500')
+      F('bathroomFloorSqft', 'Main bath floor sqft', 'e.g. 850'),
+      F('kitchenFloorSqft', 'Kitchen floor sqft', 'e.g. 180')
+    ),
+    row(
+      F('floorAreaSqft', 'Total floor area sqft', 'e.g. 1030'),
+      F('baseboardLf', 'Baseboard linear feet', 'e.g. 220')
     ),
   ],
   landscaping: [

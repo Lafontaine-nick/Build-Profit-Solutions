@@ -7,7 +7,7 @@ const { splitNoteClauses } = require('./estimateDraftQuantityPrice');
 const { parseScopeItemAllowancesFromNotes } = require('./scopeAllowanceParser');
 const { parseScopeItemRatePricingFromNotes } = require('./scopeRatePricingParser');
 
-const SQFT_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|\bsf\b|ft\.?\s*(?:²|2\b|\?)|square\s+(?:foot|feet))/gi;
+const SQFT_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:total\s+)?(?:sq\.?\s*ft|sqft|\bsf\b|ft\.?\s*(?:²|2\b|\?)|square\s+(?:foot|feet))/gi;
 const LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|linear\s+ft)/gi;
 const CY_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:cy|cubic\s+yards?)/gi;
 const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)\s*squares?\b/gi;
@@ -88,8 +88,9 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
 
   const pickSqftFromClauses = (patterns) => {
     for (const clause of clauses) {
-      if (!clauseMatches(clause, patterns)) continue;
-      const near = pickSqftNearPattern(clause, patterns[0]);
+      const matchedPattern = patterns.find((p) => p.test(clause.toLowerCase()));
+      if (!matchedPattern) continue;
+      const near = pickSqftNearPattern(clause, matchedPattern);
       if (near) return near;
       const q = firstQty(clause, SQFT_RE);
       if (q) return q;
@@ -114,7 +115,12 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
 
   // Bathroom floor
   const bathFloor =
-    pickSqftFromClauses([/\bbath(?:room)?\s+floor\b/, /\bbath(?:room)?\b.*\bfloor(?:ing)?\b/, /\bfloor\b.*\bbath(?:room)?\b/]) ||
+    pickSqftFromClauses([
+      /\bbath(?:room)?.\s+floor\b/,
+      /\bbath(?:room)?.\b.*\bfloor(?:ing)?.\b/,
+      /\bfloor\b.*\bbath(?:room)?.\b/,
+      /\b(?:main\s+)(?:bath(?:room|)|bath)\b/,
+    ]) ||
     firstGenericBathroomSqft();
   if (bathFloor) out.bathroomFloorSqft = bathFloor;
 
@@ -222,8 +228,14 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     let max = 0;
     for (const clause of clauses) {
       const c = clause.toLowerCase();
-      if (/\bbaseboard\b|\bback\s*splash|backsplash|\bcountertop|\bpaint\b|\bshower\b/.test(c)) continue;
-      if (!/\b(demo|install|removal|laminate|tile|lvp|vinyl|flooring|floor)\b/.test(c)) continue;
+      if (
+        /\bbaseboards?\b|\btrim\b|\bmoulding\b|\bmolding\b|\bcasing\b/i.test(c) &&
+        !/\b(install|installation|lvp|laminate|vinyl|carpet|flooring|tile|demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(c)
+      ) {
+        continue;
+      }
+      if (/\bback\s*splash|backsplash|\bcountertop|\bpaint\b|\bshower\b/i.test(c)) continue;
+      if (!/\b(demo|demolition|remove|removal|tear[\s-]?out|install|installation|laminate|tile|lvp|vinyl|flooring|floor|carpet)\b/i.test(c)) continue;
       const q = firstQty(clause, SQFT_RE);
       if (q && q > max) max = q;
     }
@@ -248,7 +260,7 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   const baseboardLf =
     (() => {
       for (const clause of clauses) {
-        if (!/\bbaseboard\b|\btrim\b/.test(clause.toLowerCase())) continue;
+        if (!/\bbaseboards?\b|\btrim\b/.test(clause.toLowerCase())) continue;
         const q = firstQty(clause, LF_RE);
         if (q) return q;
       }

@@ -7,8 +7,12 @@ import type { EstimateAiDraft, ScopeMeasurements } from '@/utils/estimateAiDraft
 import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 import { parseScopeItemAllowancesFromNotes } from '@/utils/scopeAllowanceParser';
-import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
 import {
+  clearStalePricingWhenNotesUnpriced,
+  parseScopeMeasurementsFromNotes,
+} from '@/utils/scopeMeasurementParser';
+import {
+  getRatePricingMatcher,
   parseScopeItemRatePricingFromNotes,
   resolveItemRatePricingFromNotes,
 } from '@/utils/scopeRatePricingParser';
@@ -146,6 +150,7 @@ export type SuggestedBudgetSplitDisplay = {
   total: number;
   sourceLabel: string;
   helper: string;
+  mode: 'note_total_split' | 'suggested_price';
   basis?: { quantity: number; unit: string } | null;
 };
 
@@ -460,7 +465,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
   flooring: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
-    measurementKeys: ['kitchenFloorSqft', 'bathroomFloorSqft', 'floorAreaSqft'],
+    measurementKeys: ['floorAreaSqft', 'kitchenFloorSqft', 'bathroomFloorSqft'],
     dualAllowanceField: true,
     requiresUserQuantity: true,
     quantityHelper: 'Enter kitchen or room floor sqft.',
@@ -1339,6 +1344,10 @@ export function resolveBudgetSplitQuantity(
   if (resolved.quantity != null && resolved.unit === average.unit && resolved.quantity > 0) {
     return resolved.quantity;
   }
+  if (itemId === 'floor_demo' && average.unit === 'sqft') {
+    const floorArea = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+    if (floorArea && floorArea > 0) return floorArea;
+  }
   return firstMeasurementQuantityForRule(rule, measurementsInput);
 }
 
@@ -1356,14 +1365,26 @@ export function resolveSuggestedBudgetSplitDisplay(
   if (!rule || !average) return null;
   if (resolved.dualMaterial || resolved.dualLabor) return null;
 
-  const total = Number(resolved.dualAllowance?.quantity ?? resolved.quantity ?? 0);
-  if (!Number.isFinite(total) || total <= 0) return null;
-  if (resolved.quantitySource !== 'notes' && resolved.dualAllowance?.quantity == null) return null;
-
   const count =
     resolved.dualCount?.unit === average.unit && resolved.dualCount.quantity > 0
       ? resolved.dualCount.quantity
-      : firstMeasurementQuantityForRule(rule, measurementsInput);
+      : itemId === 'floor_demo' && average.unit === 'sqft'
+        ? parseScopeMeasurementInput(measurementsInput.floorAreaSqft) ?? firstMeasurementQuantityForRule(rule, measurementsInput)
+        : firstMeasurementQuantityForRule(rule, measurementsInput);
+
+  const hasNoteTotal = resolved.quantitySource === 'notes' || resolved.dualAllowance?.quantity != null;
+  const inferredCountCanPrice =
+    !hasNoteTotal &&
+    resolved.quantity != null &&
+    resolved.unit === average.unit &&
+    resolved.quantity > 0;
+  if (!hasNoteTotal && !inferredCountCanPrice) return null;
+
+  const total = hasNoteTotal
+    ? Number(resolved.dualAllowance?.quantity ?? resolved.quantity ?? 0)
+    : Math.round(Number(resolved.quantity) * (average.material + average.labor) * 100) / 100;
+  if (!Number.isFinite(total) || total <= 0) return null;
+
   const split = computeNationalAverageBudgetSplit(itemId, total, count ?? 0);
   if (!split || !count) return null;
 
@@ -1373,7 +1394,350 @@ export function resolveSuggestedBudgetSplitDisplay(
     total,
     sourceLabel: average.sourceLabel,
     helper: `${count.toLocaleString()} ${average.unit.toUpperCase()} · for budget tracking`,
+    mode: hasNoteTotal ? 'note_total_split' : 'suggested_price',
     basis: { quantity: count, unit: average.unit },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Unified scope pricing engine
+// ---------------------------------------------------------------------------
+// One model that resolves each item's material + labor legs independently from
+// a clear source priority: notes (explicit) -> saved template/bid rate (same
+// trade family) -> national average. Handles lump-sum split, material-only
+// fill, labor-only fill, and a comparison split when notes priced both legs.
+
+export type PricingLegSource = 'notes' | 'template' | 'national_average';
+
+export type ScopePricingLineItem = {
+  name?: string | null;
+  label?: string | null;
+  description?: string | null;
+  unit?: string | null;
+  quantity?: number | null;
+  qty?: number | null;
+  unitPrice?: number | null;
+  cost?: number | null;
+  rate?: number | null;
+  total?: number | null;
+};
+
+export type ScopePricingTemplateSource = {
+  name?: string | null;
+  materialLineItems?: ScopePricingLineItem[] | null;
+  laborLineItems?: ScopePricingLineItem[] | null;
+};
+
+/** Saved templates + the active bid, used to derive $/unit rates by trade family. */
+export type ScopePricingContext = {
+  templates?: ScopePricingTemplateSource[] | null;
+  bid?: ScopePricingTemplateSource | null;
+};
+
+export type TemplateRateMatch = {
+  materialRate: number | null;
+  laborRate: number | null;
+  source: string;
+};
+
+/** Fallback trade families for items that have no rate-pricing matcher. */
+const TEMPLATE_FAMILY_FALLBACK: Record<string, RegExp> = {
+  countertops: /counter\s*top|quartz|granite|laminate\s*top|solid\s*surface|butcher\s*block/i,
+  cabinets: /cabinet|cabinetry|vanity/i,
+  floor_prep: /floor\s*prep|underlayment|leveling|self\s*level|patch/i,
+  waterproofing: /waterproof|kerdi|redgard|red\s*guard|schluter|membrane/i,
+  demo: /demo|demolition|tear\s*out|removal|remove|haul/i,
+  floor_demo: /demo|demolition|tear\s*out|removal|remove/i,
+};
+
+function normalizeRateUnit(unit?: string | null): string | null {
+  const value = String(unit || '').toLowerCase().trim();
+  if (!value) return null;
+  if (/^(sqft|sf|sq\.?\s*ft|square\s*f(?:oo|ee)t)$/.test(value)) return 'sqft';
+  if (/^(lf|linear\s*f(?:oo|ee)t|ln\.?\s*ft|lin\.?\s*ft)$/.test(value)) return 'lf';
+  if (/^(cy|cubic\s*yards?)$/.test(value)) return 'cy';
+  if (/^(ton|tons)$/.test(value)) return 'ton';
+  if (/^(square|squares)$/.test(value)) return 'squares';
+  return value;
+}
+
+function lineItemRatePerUnit(item: ScopePricingLineItem): number | null {
+  const direct = Number(item.unitPrice ?? item.cost ?? item.rate ?? 0);
+  if (Number.isFinite(direct) && direct > 0) return Math.round(direct * 100) / 100;
+  const qty = Number(item.quantity ?? item.qty ?? 0);
+  const total = Number(item.total ?? 0);
+  if (qty > 0 && total > 0) return Math.round((total / qty) * 100) / 100;
+  return null;
+}
+
+function lineItemMatchesFamily(
+  item: ScopePricingLineItem,
+  matcher: { match: RegExp; exclude?: RegExp }
+): boolean {
+  const text = `${item.name || ''} ${item.label || ''} ${item.description || ''}`.trim();
+  if (!text) return false;
+  if (!matcher.match.test(text)) return false;
+  if (matcher.exclude?.test(text)) return false;
+  return true;
+}
+
+function averageMatchingRate(
+  items: ScopePricingLineItem[] | null | undefined,
+  matcher: { match: RegExp; exclude?: RegExp },
+  targetUnit: string | null
+): number | null {
+  if (!Array.isArray(items) || !items.length) return null;
+  const rates: number[] = [];
+  for (const item of items) {
+    if (!lineItemMatchesFamily(item, matcher)) continue;
+    if (targetUnit && normalizeRateUnit(item.unit) !== targetUnit) continue;
+    const rate = lineItemRatePerUnit(item);
+    if (rate) rates.push(rate);
+  }
+  if (!rates.length) return null;
+  const sum = rates.reduce((acc, r) => acc + r, 0);
+  return Math.round((sum / rates.length) * 100) / 100;
+}
+
+/**
+ * Resolve a $/unit material + labor rate for a checklist item from saved
+ * templates and the active bid, matched within the same trade family and unit.
+ * The active bid is checked first (most specific to the current job).
+ */
+export function resolveTemplateRateForItem(
+  itemId: string,
+  unit: string | null | undefined,
+  ctx?: ScopePricingContext | null
+): TemplateRateMatch | null {
+  if (!ctx) return null;
+  const matcher =
+    getRatePricingMatcher(itemId) ||
+    (TEMPLATE_FAMILY_FALLBACK[itemId] ? { match: TEMPLATE_FAMILY_FALLBACK[itemId] } : null);
+  if (!matcher) return null;
+
+  const targetUnit = normalizeRateUnit(unit);
+  const sources: ScopePricingTemplateSource[] = [
+    ...(ctx.bid ? [ctx.bid] : []),
+    ...((ctx.templates || []).filter(Boolean) as ScopePricingTemplateSource[]),
+  ];
+
+  for (const source of sources) {
+    const materialRate = averageMatchingRate(source.materialLineItems, matcher, targetUnit);
+    const laborRate = averageMatchingRate(source.laborLineItems, matcher, targetUnit);
+    if (materialRate || laborRate) {
+      return {
+        materialRate: materialRate ?? null,
+        laborRate: laborRate ?? null,
+        source: String(source.name || 'Saved pricing'),
+      };
+    }
+  }
+  return null;
+}
+
+export type SuggestedPricingMode =
+  | 'note_total_split'
+  | 'fill_missing'
+  | 'suggested_price';
+
+/** Suggested pricing block enriched with per-leg sources for the Confirm Scope UI. */
+export type SuggestedPricingBlock = {
+  material: number;
+  labor: number;
+  total: number;
+  materialSource: PricingLegSource;
+  laborSource: PricingLegSource;
+  rateSourceLabel: string;
+  templateName?: string | null;
+  helper: string;
+  mode: SuggestedPricingMode;
+  isComparison?: boolean;
+  basis?: { quantity: number; unit: string } | null;
+};
+
+export type ScopeItemSuggestedPricing = {
+  /** Inline suggestion: fills a missing leg, splits a lump sum, or prices a quantity. */
+  fill: SuggestedPricingBlock | null;
+  /** Collapsible comparison shown when notes already priced both legs. */
+  comparison: SuggestedPricingBlock | null;
+};
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function rateSourceLabelFor(
+  materialSource: PricingLegSource,
+  laborSource: PricingLegSource,
+  templateName: string | null
+): string {
+  const usesTemplate = materialSource === 'template' || laborSource === 'template';
+  if (usesTemplate && templateName) return `Suggested · ${templateName}`;
+  return 'Suggested · National Average';
+}
+
+/**
+ * Canonical pricing resolver for the Confirm Scope UI. Resolves material and
+ * labor independently with the priority notes -> template/bid -> national
+ * average, and works for any trade/material/labor combination.
+ */
+export function resolveScopeItemSuggestedPricing(
+  itemId: string,
+  measurementsInput: ScopeMeasurementsInputExtended,
+  templateKey: string | null | undefined,
+  resolved: Pick<
+    ResolvedItemQuantity,
+    'quantity' | 'unit' | 'quantitySource' | 'dualCount' | 'dualMaterial' | 'dualLabor' | 'dualAllowance'
+  >,
+  pricingContext?: ScopePricingContext | null
+): ScopeItemSuggestedPricing {
+  const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
+  const rule = getChecklistItemQuantityRule(itemId, templateKey);
+  const average = getNationalAverageBudgetSplit(itemId);
+  if (!rule) return empty;
+
+  const unit = average?.unit || rule.defaultUnit || 'sqft';
+
+  // Quantity in the rate unit (e.g. 850 sqft, 220 lf).
+  const count =
+    resolved.dualCount?.unit === unit && resolved.dualCount.quantity > 0
+      ? resolved.dualCount.quantity
+      : itemId === 'floor_demo' && unit === 'sqft'
+        ? parseScopeMeasurementInput(measurementsInput.floorAreaSqft) ??
+          firstMeasurementQuantityForRule(rule, measurementsInput)
+        : resolved.quantity != null && resolved.unit === unit && resolved.quantity > 0
+          ? resolved.quantity
+          : firstMeasurementQuantityForRule(rule, measurementsInput);
+  if (!count || count <= 0) return empty;
+
+  const template = resolveTemplateRateForItem(itemId, unit, pricingContext);
+  const materialRate = template?.materialRate ?? average?.material ?? null;
+  const laborRate = template?.laborRate ?? average?.labor ?? null;
+  const materialRateSource: PricingLegSource = template?.materialRate ? 'template' : 'national_average';
+  const laborRateSource: PricingLegSource = template?.laborRate ? 'template' : 'national_average';
+  const templateName = template?.source ?? null;
+
+  if (!materialRate && !laborRate) return empty;
+
+  // Notes breakdown (canonical from the resolved item).
+  const noteMaterial = resolved.dualMaterial?.quantity ?? null;
+  const noteLabor = resolved.dualLabor?.quantity ?? null;
+  const noteTotal =
+    resolved.dualAllowance?.quantity ??
+    (resolved.quantitySource === 'notes' &&
+    (resolved.unit === 'allowance' || resolved.unit === 'lump_sum')
+      ? resolved.quantity
+      : null);
+
+  const basis = { quantity: count, unit };
+  const basisHelper = `${count.toLocaleString()} ${unit.toUpperCase()}`;
+
+  // Case A: notes priced both legs -> collapsible comparison only.
+  if (noteMaterial != null && noteLabor != null) {
+    if (!materialRate || !laborRate) return empty;
+    const material = round2(count * materialRate);
+    const labor = round2(count * laborRate);
+    return {
+      fill: null,
+      comparison: {
+        material,
+        labor,
+        total: round2(material + labor),
+        materialSource: materialRateSource,
+        laborSource: laborRateSource,
+        rateSourceLabel: rateSourceLabelFor(materialRateSource, laborRateSource, templateName),
+        templateName,
+        helper: `${basisHelper} · suggested comparison`,
+        mode: 'suggested_price',
+        isComparison: true,
+        basis,
+      },
+    };
+  }
+
+  // Case B: exactly one leg from notes -> fill the missing leg.
+  if (noteMaterial != null && noteLabor == null) {
+    if (!laborRate) return empty;
+    const labor = round2(count * laborRate);
+    const material = round2(noteMaterial);
+    return {
+      fill: {
+        material,
+        labor,
+        total: round2(material + labor),
+        materialSource: 'notes',
+        laborSource: laborRateSource,
+        rateSourceLabel: rateSourceLabelFor('notes', laborRateSource, templateName),
+        templateName,
+        helper: `${basisHelper} · labor suggested, material from notes`,
+        mode: 'fill_missing',
+        basis,
+      },
+      comparison: null,
+    };
+  }
+  if (noteLabor != null && noteMaterial == null) {
+    if (!materialRate) return empty;
+    const material = round2(count * materialRate);
+    const labor = round2(noteLabor);
+    return {
+      fill: {
+        material,
+        labor,
+        total: round2(material + labor),
+        materialSource: materialRateSource,
+        laborSource: 'notes',
+        rateSourceLabel: rateSourceLabelFor(materialRateSource, 'notes', templateName),
+        templateName,
+        helper: `${basisHelper} · material suggested, labor from notes`,
+        mode: 'fill_missing',
+        basis,
+      },
+      comparison: null,
+    };
+  }
+
+  // Case C: lump-sum total from notes -> split via template/national ratio.
+  if (noteTotal != null && noteTotal > 0) {
+    if (!materialRate) return empty;
+    const material = Math.min(noteTotal, round2(count * materialRate));
+    const labor = round2(noteTotal - material);
+    if (material <= 0 || labor <= 0) return empty;
+    return {
+      fill: {
+        material,
+        labor,
+        total: round2(noteTotal),
+        materialSource: materialRateSource,
+        laborSource: 'notes',
+        rateSourceLabel: rateSourceLabelFor(materialRateSource, materialRateSource, templateName),
+        templateName,
+        helper: `${basisHelper} · for budget tracking`,
+        mode: 'note_total_split',
+        basis,
+      },
+      comparison: null,
+    };
+  }
+
+  // Case D: quantity only, no notes pricing -> full suggested price.
+  if (!materialRate || !laborRate) return empty;
+  const material = round2(count * materialRate);
+  const labor = round2(count * laborRate);
+  return {
+    fill: {
+      material,
+      labor,
+      total: round2(material + labor),
+      materialSource: materialRateSource,
+      laborSource: laborRateSource,
+      rateSourceLabel: rateSourceLabelFor(materialRateSource, laborRateSource, templateName),
+      templateName,
+      helper: `${basisHelper} · suggested pricing`,
+      mode: 'suggested_price',
+      basis,
+    },
+    comparison: null,
   };
 }
 
@@ -1613,6 +1977,16 @@ function resolveDualAllowanceQuantity(
   };
 }
 
+function applyPricingReadyFlags(
+  resolved: ResolvedItemQuantity,
+  itemId: string,
+  ctx: { notes?: string | null } = {}
+): ResolvedItemQuantity {
+  void itemId;
+  void ctx;
+  return resolved;
+}
+
 export function resolveChecklistItemQuantity(
   itemId: string,
   measurements: NormalizedScopeMeasurements,
@@ -1740,9 +2114,9 @@ export function resolveChecklistItemQuantity(
   }
 
   for (const key of rule.measurementKeys || (rule.measurementKey ? [rule.measurementKey] : [])) {
-    const val = measurements[key];
-    if (val) {
-      return {
+    const val = Number(measurements[key]);
+    if (Number.isFinite(val) && val > 0) {
+      const resolved: ResolvedItemQuantity = {
         quantity: val,
         unit: rule.defaultUnit,
         quantitySource: 'inferred',
@@ -1751,6 +2125,7 @@ export function resolveChecklistItemQuantity(
         quantityHelper: rule.quantityHelper,
         showInput: true,
       };
+      return applyPricingReadyFlags(resolved, itemId, ctx);
     }
   }
 
@@ -2082,7 +2457,24 @@ export function prepareScopeMeasurementsInputForUi(
   input: ScopeMeasurementsInputExtended,
   options?: { notes?: string | null; templateKey?: string | null }
 ): ScopeMeasurementsInputExtended {
-  return scopeMeasurementsInputFromPayload(scopeMeasurementsPayloadForPersist(input, options));
+  const notes = String(options?.notes || '').trim();
+  const payload = scopeMeasurementsPayloadForPersist(input, options);
+  if (!notes) return scopeMeasurementsInputFromPayload(payload);
+
+  const parsed = parseScopeMeasurementsFromNotes(notes, {
+    templateKey: options?.templateKey ?? undefined,
+  });
+  const itemQuantities = {
+    ...(payload.itemQuantities || {}),
+    ...(parsed.itemQuantities || {}),
+  };
+  clearStalePricingWhenNotesUnpriced(itemQuantities, notes, parsed.itemQuantities);
+
+  return scopeMeasurementsInputFromPayload({
+    ...payload,
+    ...parsed,
+    itemQuantities,
+  });
 }
 
 export type ScopeMeasurementsInputExtended = ReturnType<typeof emptyQuickMeasurementInput> & {
@@ -2169,6 +2561,9 @@ export function initialScopeMeasurementInputExtended(
     source: Record<string, ScopeItemQuantityValue> | undefined
   ) => {
     for (const [id, val] of Object.entries(source || {})) {
+      if (id === 'demo' && parsedFromNotes.itemQuantities?.floor_demo && !parsedFromNotes.itemQuantities?.demo) {
+        continue;
+      }
       const existing = itemQuantities[id];
       const notesQty = String(val.quantity);
       if (existing?.quantity && existing.quantitySource === 'user_entered') {
@@ -2191,9 +2586,10 @@ export function initialScopeMeasurementInputExtended(
     }
   };
 
-  // Notes parse, then backend suggestedMeasurements — fills rate splits stale saves may drop
-  mergeParsedItemQuantities(parsedFromNotes.itemQuantities as Record<string, ScopeItemQuantityValue>);
+  // Backend suggestedMeasurements first, then fresh notes parse — current notes win over stale server/saved totals.
   mergeParsedItemQuantities(suggested?.itemQuantities as Record<string, ScopeItemQuantityValue>);
+  mergeParsedItemQuantities(parsedFromNotes.itemQuantities as Record<string, ScopeItemQuantityValue>);
+  clearStalePricingWhenNotesUnpriced(itemQuantities, scopeNotes, parsedFromNotes.itemQuantities);
 
   const cabinetsEntry = itemQuantities.cabinets;
   if (cabinetsEntry) {
@@ -2207,11 +2603,20 @@ export function initialScopeMeasurementInputExtended(
   }
 
   const pick = (key: QuickMeasurementFieldKey) => {
+    const parsedNoteValueRaw = parsedFromNotes[key as keyof typeof parsedFromNotes];
+    const parsedNoteValue =
+      typeof parsedNoteValueRaw === 'number' || typeof parsedNoteValueRaw === 'string'
+        ? parsedNoteValueRaw
+        : undefined;
     const fromNotes =
-      parsedFromNotes[key as keyof typeof parsedFromNotes] ??
+      parsedNoteValue ??
       suggested?.[key as keyof ScopeMeasurements];
     const s = saved?.[key as keyof ScopeMeasurements];
     const backsplashFromNotes = parsedFromNotes.backsplashSqft;
+
+    if (parsedNoteValue != null && Number(parsedNoteValue) > 0) {
+      return String(parsedNoteValue);
+    }
 
     // Paint sqft often stale at 45 when it duplicated backsplash on older drafts / parsers
     if (key === 'wallPaintSqft' && fromNotes != null && Number(fromNotes) > 0) {

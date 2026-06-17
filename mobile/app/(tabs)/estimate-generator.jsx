@@ -5127,6 +5127,24 @@ export default function EstimateGeneratorScreen() {
   const saveCustomerForFutureBidsRef = useRef(true);
   const [customerFillToast, setCustomerFillToast] = useState({ visible: false, name: '' });
   const [savedBidTemplates, setSavedBidTemplates] = useState([]);
+  // Saved templates + the active bid feed saved $/unit rates into Step 2 suggested pricing.
+  const aiScopePricingContext = useMemo(
+    () => ({
+      templates: (savedBidTemplates || [])
+        .map((tpl) => ({
+          name: tpl?.name || tpl?.label || 'Saved template',
+          materialLineItems: tpl?.payload?.materialLineItems || [],
+          laborLineItems: tpl?.payload?.laborLineItems || [],
+        }))
+        .filter((tpl) => tpl.materialLineItems.length || tpl.laborLineItems.length),
+      bid: {
+        name: bid?.title || 'This bid',
+        materialLineItems: bid?.materialLineItems || [],
+        laborLineItems: bid?.laborLineItems || [],
+      },
+    }),
+    [savedBidTemplates, bid?.materialLineItems, bid?.laborLineItems, bid?.title]
+  );
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
@@ -24075,6 +24093,7 @@ export default function EstimateGeneratorScreen() {
         onConfirm={handleConfirmScopeAssumptions}
         onScopeOnly={handleScopeAssumptionsScopeOnly}
         onPersistProgress={handlePersistScopeProgress}
+        pricingContext={aiScopePricingContext}
       />
 
       <AIEstimateDraftReviewModal

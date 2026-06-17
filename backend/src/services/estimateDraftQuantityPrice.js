@@ -292,14 +292,19 @@ function packageAcceptsUnit(packageName, scopeText, unit) {
   return true;
 }
 
-/** Break run-on notes into clauses so "removal … in 1200 … installation" assigns qty per task. */
-function splitNoteClauses(text) {
+/**
+ * Sentence breaks — skip decimals ($1.50) but split after priced totals ($2,550. Demo)
+ * when the next clause starts a new scope item.
+ */
+const SCOPE_NOTE_SENTENCES_RE =
+  /(?<!\d)\.\s+(?=[A-Z])|\.\s+(?=(?:demo|install|final|baseboards?|remove|tear|new|paint|interior|cleanup|haul|trim|replace|lvp|vinyl|carpet|flooring)\b)/gi;
+
+function splitScopeNoteSentences(text) {
   const normalized = String(text || '').trim();
   if (!normalized) return [];
 
-  // Sentence breaks in walkthrough notes — skip decimals ($1.50) and sq. ft. abbreviations.
   let sentences = normalized
-    .split(/(?<!\d)\.\s+(?=[a-z])/gi)
+    .split(SCOPE_NOTE_SENTENCES_RE)
     .map((x) => x.trim())
     .filter(Boolean);
   if (sentences.length === 1) {
@@ -308,20 +313,32 @@ function splitNoteClauses(text) {
       .map((x) => x.trim())
       .filter(Boolean);
   }
+  return sentences;
+}
+
+/** Break run-on notes into clauses so "removal … in 1200 … installation" assigns qty per task. */
+function splitNoteClauses(text) {
+  const normalized = String(text || '').trim();
+  if (!normalized) return [];
+
+  const sentences = splitScopeNoteSentences(normalized);
 
   const clauses = [];
   for (let sentence of sentences) {
     sentence = sentence.replace(/\bwalls?\s+and\s+(?:the\s+)?ceiling\b/gi, (m) =>
       m.replace(/\s+and\s+/i, ' __WALLS_CEILING__ ')
     );
+    sentence = sentence.replace(/\bfinal\s+clean\s+and\s+haul(?:[\s-]?off?)\b/gi, (m) =>
+      m.replace(/\s+and\s+/i, ' __FINAL_CLEAN_HAUL__ ')
+    );
     const parts = sentence
       .split(
         /\s+(?:and|&|\+)\s+|\s+in\s+(?=\d[\d,]*\s*(?:sq\.?\s*ft\.?|sqft|sq\s*ft|square\s*feet|ft\.?\s*²|ft\.?\s*2\b|linear\s*feet|ln\.?\s*ft\.?|\blf\b))/i
       )
-      .map((p) => p.trim().replace(/__WALLS_CEILING__/g, ' and '))
+      .map((p) => p.trim().replace(/__WALLS_CEILING__/g, ' and ').replace(/__FINAL_CLEAN_HAUL__/g, ' and '))
       .filter(Boolean);
     if (parts.length > 1) clauses.push(...parts);
-    else clauses.push(sentence.replace(/__WALLS_CEILING__/g, ' and '));
+    else clauses.push(sentence.replace(/__WALLS_CEILING__/g, ' and ').replace(/__FINAL_CLEAN_HAUL__/g, ' and '));
   }
   return clauses;
 }
@@ -483,6 +500,7 @@ module.exports = {
   extractScopeQuantitiesFromText,
   extractScopeQuantitiesForPackage,
   splitNoteClauses,
+  splitScopeNoteSentences,
   scopeOnlyMissingHints,
   inferProjectTypeFromNotes,
   isJunkPriceLabel,

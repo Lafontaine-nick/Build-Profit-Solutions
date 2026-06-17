@@ -317,18 +317,18 @@ const RATE_PRICING_MATCHERS = [
     exclude: /\b(demo|demolition)\b/i,
   },
   {
+    id: 'interior_paint',
+    match: /\b(interior\s+paint|paint\s+(?:walls|interior))\b/i,
+    exclude: /\b(exterior)\b/i,
+  },
+  {
     id: 'paint',
     match: /\b(paint(?:ing)?|primer|walls?\s+and\s+(?:the\s+)?ceiling)\b/i,
-    exclude: /\b(exterior)\b/i,
+    exclude: /\b(exterior|interior\s+paint|paint\s+interior)\b/i,
   },
   {
     id: 'shower_tile',
     match: /\b(shower\s+wall\s+tile|shower\s+tile|tile\s+shower)\b/i,
-  },
-  {
-    id: 'interior_paint',
-    match: /\b(interior\s+paint|paint\s+(?:walls|interior))\b/i,
-    exclude: /\b(exterior)\b/i,
   },
   {
     id: 'exterior_paint',

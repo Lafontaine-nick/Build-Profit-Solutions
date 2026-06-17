@@ -14,6 +14,8 @@ type AllowanceMatcher = {
   unit: string;
 };
 
+const ACCUMULATE_ALLOWANCE_IDS = new Set(['floor_demo']);
+
 const ITEM_ALLOWANCE_MATCHERS: AllowanceMatcher[] = [
   {
     id: 'appliances',
@@ -64,14 +66,21 @@ const ITEM_ALLOWANCE_MATCHERS: AllowanceMatcher[] = [
     unit: 'allowance',
   },
   {
-    id: 'demo',
-    match: /\b(demo|demolition|tear[\s-]?out|gut|haul[\s-]?off)\b/i,
-    unit: 'lump_sum',
+    id: 'floor_demo',
+    match:
+      /\b(?:demo|demolition|tear[\s-]?out|remove|removal)\b[^.;]{0,80}\b(?:tile|floor|flooring|lvp|vinyl|laminate|carpet)\b|\b(?:tile|floor|flooring|lvp|vinyl|laminate|carpet)\b[^.;]{0,80}\b(?:demo|demolition|tear[\s-]?out|remove|removal)\b/i,
+    unit: 'allowance',
   },
   {
     id: 'cleanup',
-    match: /\b(cleanup|disposal|dumpster|debris)\b/i,
+    match: /\b(cleanup|disposal|dumpster|debris|final\s+clean(?:\s+and\s+haul(?:[\s-]?off?))?)\b/i,
     exclude: /\b(demo|demolition|tear[\s-]?out)\b/i,
+    unit: 'lump_sum',
+  },
+  {
+    id: 'demo',
+    match: /\b(demo|demolition|tear[\s-]?out|gut|haul[\s-]?off)\b/i,
+    exclude: /\b(final\s+clean|cleanup|disposal)\b/i,
     unit: 'lump_sum',
   },
   {
@@ -94,17 +103,34 @@ const ITEM_ALLOWANCE_MATCHERS: AllowanceMatcher[] = [
   {
     id: 'flooring',
     match: /\b(flooring|laminate|lvp|vinyl\s+floor|carpet)\b/i,
-    exclude: /\b(demo|demolition|\/|per\s+sq)/i,
+    exclude: /\b(demo|demolition|remove|removal|tear[\s-]?out|\/|per\s+sq|not\s+priced|unpriced|no\s+pric(?:e|ing))/i,
+    unit: 'allowance',
+  },
+  {
+    id: 'trim',
+    match: /\b(baseboards?|trim|moulding|molding|casing)\b/i,
+    exclude: /\b(\/|per\s+(?:linear\s+foot|feet|lf)|per\s+lf)\b/i,
     unit: 'allowance',
   },
 ];
 
 /** Keep compound labels intact (e.g. "cabinets and counters $28,629") — do not split on "and". */
 function splitAllowanceClauses(text: string): string[] {
-  return String(text || '')
-    .split(/(?<!\d)\.\s+|[\n;]+/)
+  const normalized = String(text || '').trim();
+  if (!normalized) return [];
+  let clauses = normalized
+    .split(
+      /(?<!\d)\.\s+(?=[A-Z])|\.\s+(?=(?:demo|install|final|baseboards?|remove|tear|new|paint|interior|cleanup|haul|trim|replace|lvp|vinyl|carpet|flooring)\b)/gi
+    )
     .map((s) => s.trim())
     .filter(Boolean);
+  if (clauses.length === 1) {
+    clauses = normalized
+      .split(/[\n;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return clauses;
 }
 
 function parseAmountToken(raw: string, kSuffix?: string): number | null {
@@ -182,6 +208,7 @@ function extractAmountPositions(clause: string): Array<{ amount: number; index: 
 
 function pickExplicitDemoAmount(clause: string): number | null {
   const text = String(clause || '');
+  if (/\b(final\s+clean|cleanup|disposal)\b/i.test(text)) return null;
   const demoRe =
     /\b(?:demo|demolition|tear[\s-]?out|gut|haul[\s-]?off|remove\s+(?:old\s+)?cabinets?)\b/gi;
   const dollarRe = /\$\s*(\d[\d,]*(?:\.\d+)?)\s*([kK])?/g;
@@ -261,10 +288,19 @@ export function parseScopeItemAllowancesFromNotes(
 
     for (const matcher of ITEM_ALLOWANCE_MATCHERS) {
       if (!clauseMatchesMatcher(clause, matcher)) continue;
-      if (out[matcher.id]) continue;
+      if (out[matcher.id] && !ACCUMULATE_ALLOWANCE_IDS.has(matcher.id)) continue;
+      if (matcher.id === 'demo' && /\b(final\s+clean|cleanup|disposal)\b/i.test(clause)) continue;
 
       const amount = pickAmountForMatcher(clause, matcher) ?? pickClauseTotalAmount(clause);
       if (!amount) continue;
+
+      if (out[matcher.id] && ACCUMULATE_ALLOWANCE_IDS.has(matcher.id)) {
+        out[matcher.id] = {
+          ...out[matcher.id],
+          quantity: Number(out[matcher.id].quantity || 0) + amount,
+        };
+        continue;
+      }
 
       const entry: ScopeItemQuantity & { includesCountertops?: boolean } = {
         quantity: amount,

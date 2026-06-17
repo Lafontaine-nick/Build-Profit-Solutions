@@ -1,10 +1,11 @@
 /** Client mirror of backend scopeChecklistLibrary note inference (keep in sync). */
 
 const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
-  demo: /\b(demo|demolition|tear\s*out|gut|remove)\b/,
+  demo: /\b(demo|demolition|tear\s*out|gut|remove)\b(?![^.]{0,80}\b(?:tile|floor|flooring|lvp|vinyl|laminate|carpet)\b)/,
   appliance_removal:
     /\b(remove|disconnect|pull|haul).*\b(appliance|ridge|dishwasher|range|refrigerator|oven|microwave|hood)\b|\b(appliance|ridge|dishwasher|range|refrigerator)\b.*\b(remove|disconnect|pull|haul)\b/,
-  floor_demo: /\b(floor\s+demo|remove\s+(?:floor|tile|lvp|vinyl|flooring|kitchen\s+floor))\b/,
+  floor_demo:
+    /\b(?:floor\s+demo|(?:demo|demolition|remove|removal|tear[\s-]?out)[^.]{0,80}\b(?:floor|tile|lvp|vinyl|flooring|kitchen\s+floor)|(?:floor|tile|lvp|vinyl|flooring|kitchen\s+floor)[^.]{0,80}\b(?:demo|demolition|remove|removal|tear[\s-]?out))\b/,
   tub_demo: /\b(remove|demo|tear[\s-]?out|rip[\s-]?out).*\b(tub|bathtub)\b|\b(tub|bathtub)\b.*\b(remove|demo|tear[\s-]?out)\b/,
   shower_floor_demo:
     /\b(remove|demo|tear[\s-]?out).*\b(shower\s+(?:pan|floor|base)|pan\s+insert|mud\s+pan)\b|\b(shower\s+(?:pan|floor|base)|prefab\s+pan)\b.*\b(remove|demo|tear[\s-]?out)\b/,
@@ -14,6 +15,7 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   shower_niche: /\b(shower\s+niche|tile\s+niche|niche)\b/,
   shower_bench_curb: /\b(shower\s+bench|curb|bench)\b/,
   floor_tile: /\b(floor\s+tile|tile\s+floor|new\s+floor\s+tile)\b/,
+  flooring: /\b(install\s+(?:lvp|laminate|vinyl|carpet|flooring)|(?:lvp|laminate|vinyl|carpet|flooring)\s+(?:install|installation))\b/,
   floor_prep: /\b(floor\s+prep|subfloor|level(?:ing)?|underlayment)\b/,
   exhaust_fan: /\b(exhaust\s+fan|bath\s+fan|ventilation)\b/,
   mirror_accessories: /\b(mirror|towel\s+bar|accessories|robe\s+hook)\b/,
@@ -47,6 +49,7 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   finish_tape: /\b(tape|mud|finish\s+drywall)\b/,
   interior_paint: /\b(interior\s+paint|paint\s+(?:walls|interior))\b/,
   exterior_paint: /\b(exterior\s+paint|paint\s+exterior)\b/,
+  trim: /\b(baseboards?|trim|crown|moulding|molding|casing)\b/,
   permits: /\b(permit)\b/,
   cleanup: /\b(cleanup|disposal|dumpster|debris|final\s+clean)\b/,
 };
