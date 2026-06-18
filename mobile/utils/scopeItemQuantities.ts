@@ -32,9 +32,9 @@ export type QuantitySource =
 export type ScopeItemQuantityRule = {
   defaultUnit: string;
   allowedUnits: string[];
-  measurementKey?: keyof NormalizedScopeMeasurements;
-  measurementKeys?: Array<keyof NormalizedScopeMeasurements>;
-  aggregateMeasurementKeys?: Array<keyof NormalizedScopeMeasurements>;
+  measurementKey?: keyof Omit<NormalizedScopeMeasurements, 'itemQuantities'>;
+  measurementKeys?: Array<keyof Omit<NormalizedScopeMeasurements, 'itemQuantities'>>;
+  aggregateMeasurementKeys?: Array<keyof Omit<NormalizedScopeMeasurements, 'itemQuantities'>>;
   choiceIds?: string[];
   canUseRoomSqft?: boolean;
   requiresUserQuantity?: boolean;
@@ -86,6 +86,11 @@ export const DUAL_QUANTITY_FIELD_LABELS: Record<
   },
   flooring: {
     count: 'Flooring area',
+    countUnit: 'sqft',
+    allowance: 'Calculated total ($)',
+  },
+  floor_demo: {
+    count: 'Floor demo area',
     countUnit: 'sqft',
     allowance: 'Calculated total ($)',
   },
@@ -701,15 +706,28 @@ function resolvedQuantityFromNotes(
   if (linkedCountertop) return linkedCountertop;
 
   if (rule.dualAllowanceField) {
+    const countQuantity =
+      (itemId === 'floor_demo' ? measurements.floorAreaSqft : null) ??
+      (rule.measurementKey ? measurements[rule.measurementKey] : null) ??
+      (rule.measurementKeys || [])
+        .map((key) => measurements[key])
+        .find((quantity) => quantity != null && quantity > 0) ??
+      null;
     let countEntry =
-      rule.measurementKey && measurements[rule.measurementKey]
+      countQuantity && countQuantity > 0
         ? {
-            quantity: measurements[rule.measurementKey]!,
+            quantity: countQuantity,
             unit: rule.defaultUnit,
             quantitySource: 'inferred' as const,
           }
         : null;
     const allowanceEntry = parseStoredItemQuantity(measurements, roughAllowanceSubKey(itemId));
+    const legacyAllowance =
+      !allowanceEntry &&
+      fromNotes[itemId] &&
+      ['allowance', 'lump_sum'].includes(fromNotes[itemId].unit || '')
+        ? parseStoredItemQuantity(measurements, itemId)
+        : null;
     const { effectiveAllowance, materialEntry, laborEntry } = applyRatePricingBreakdown(
       itemId,
       measurements,
@@ -717,7 +735,7 @@ function resolvedQuantityFromNotes(
       ctx.templateKey,
       countEntry,
       allowanceEntry,
-      null
+      legacyAllowance
     );
     if (!countEntry && !effectiveAllowance) return null;
     const primary = countEntry || effectiveAllowance!;
@@ -904,7 +922,7 @@ function isRatePricingSubKey(key: string): boolean {
 
 function measurementsPayloadForRatePricing(
   input: ScopeMeasurementsInputExtended
-): Parameters<typeof parseScopeItemRatePricingFromNotes>[1] {
+): NonNullable<Parameters<typeof parseScopeItemRatePricingFromNotes>[1]> {
   const synced = syncDualAllowanceSqftFields(input);
   return {
     backsplashSqft:
@@ -966,6 +984,29 @@ function ratePricingItemIdFromKey(key: string): string | null {
   return match ? match[1] : null;
 }
 
+type ScopeItemQuantityLike = {
+  quantity?: number | string | null;
+  unit?: string;
+  quantitySource?: QuantitySource;
+  includesCountertops?: boolean;
+};
+
+function isUserEnteredQuantity(val: ScopeItemQuantityLike | undefined): boolean {
+  return val?.quantitySource === 'user_entered';
+}
+
+function itemHasUserEnteredPricing(
+  itemQuantities: Record<string, ScopeItemQuantityLike>,
+  itemId: string
+): boolean {
+  return (
+    isUserEnteredQuantity(itemQuantities[itemId]) ||
+    isUserEnteredQuantity(itemQuantities[`${itemId}__material`]) ||
+    isUserEnteredQuantity(itemQuantities[`${itemId}__labor`]) ||
+    isUserEnteredQuantity(itemQuantities[`${itemId}__allowance`])
+  );
+}
+
 function stripRatePricingSubkeys(
   itemQuantities: Record<string, ScopeItemQuantityValue> | undefined
 ): Record<string, ScopeItemQuantityValue> {
@@ -999,6 +1040,7 @@ export function reparseRatePricingIntoItemQuantities(
     if (itemId) touchedItemIds.add(itemId);
   }
   for (const itemId of touchedItemIds) {
+    if (itemHasUserEnteredPricing(itemQuantities, itemId)) continue;
     delete itemQuantities[`${itemId}__material`];
     delete itemQuantities[`${itemId}__labor`];
     delete itemQuantities[`${itemId}__allowance`];
@@ -1006,6 +1048,8 @@ export function reparseRatePricingIntoItemQuantities(
 
   for (const [id, val] of Object.entries(rateItems)) {
     if (!val.quantity || Number(val.quantity) <= 0) continue;
+    const itemId = ratePricingItemIdFromKey(id) || id;
+    if (itemHasUserEnteredPricing(itemQuantities, itemId)) continue;
     itemQuantities[id] = {
       quantity: String(val.quantity),
       unit: val.unit || 'allowance',
@@ -1066,30 +1110,11 @@ function withRatePricingHydratedFromNotes(
   );
   if (!Object.keys(parsed).length) return measurements;
 
-  const ratePayload = measurementsForRatePricingWithCount(measurements, itemId, countEntry ?? null);
-  const sqft =
-    itemId === 'paint'
-      ? ratePayload.wallPaintSqft ?? null
-      : itemId === 'backsplash'
-        ? ratePayload.backsplashSqft ?? null
-        : itemId === 'shower_tile'
-          ? ratePayload.showerWallTileSqft ?? null
-          : null;
-
   const itemQuantities = { ...measurements.itemQuantities };
   for (const [key, val] of Object.entries(parsed)) {
     if (!key.startsWith(`${itemId}__`)) continue;
     const existing = itemQuantities[key];
-    const existingLooksLikeUnitRate =
-      existing?.quantity != null &&
-      sqft != null &&
-      existing.quantity > 0 &&
-      existing.quantity < sqft;
-    if (
-      existing?.quantitySource === 'user_entered' &&
-      !isRatePricingSubKey(key) &&
-      !existingLooksLikeUnitRate
-    ) {
+    if (existing?.quantitySource === 'user_entered') {
       continue;
     }
     itemQuantities[key] = {
@@ -1178,13 +1203,21 @@ function applyRatePricingBreakdown(
     effectiveAllowance.quantity > 0 &&
     effectiveAllowance.quantity < sqft;
 
-  const userLocked =
+  const hasUserEnteredSplit =
+    materialEntry?.quantitySource === 'user_entered' ||
+    laborEntry?.quantitySource === 'user_entered';
+  const hasUserEnteredAllowance =
     allowanceEntry?.quantitySource === 'user_entered' &&
     effectiveAllowance &&
-    !storedLooksLikeUnitRate &&
-    effectiveAllowance.quantity >= rateBreakdown.total;
+    !storedLooksLikeUnitRate;
 
-  if (userLocked) {
+  if (hasUserEnteredSplit || hasUserEnteredAllowance) {
+    effectiveAllowance = finalizeRateAllowanceTotal(
+      effectiveAllowance,
+      materialEntry,
+      laborEntry,
+      countEntry
+    );
     return { effectiveAllowance, materialEntry, laborEntry };
   }
 
@@ -1393,7 +1426,7 @@ export function resolveSuggestedBudgetSplitDisplay(
     labor: split.labor,
     total,
     sourceLabel: average.sourceLabel,
-    helper: `${count.toLocaleString()} ${average.unit.toUpperCase()} · for budget tracking`,
+    helper: `Based on ${count.toLocaleString()} ${average.unit}`,
     mode: hasNoteTotal ? 'note_total_split' : 'suggested_price',
     basis: { quantity: count, unit: average.unit },
   };
@@ -1413,9 +1446,12 @@ export type ScopePricingLineItem = {
   name?: string | null;
   label?: string | null;
   description?: string | null;
+  mode?: string | null;
   unit?: string | null;
+  unitType?: string | null;
   quantity?: number | null;
   qty?: number | null;
+  hours?: number | null;
   unitPrice?: number | null;
   cost?: number | null;
   rate?: number | null;
@@ -1453,7 +1489,7 @@ const TEMPLATE_FAMILY_FALLBACK: Record<string, RegExp> = {
 function normalizeRateUnit(unit?: string | null): string | null {
   const value = String(unit || '').toLowerCase().trim();
   if (!value) return null;
-  if (/^(sqft|sf|sq\.?\s*ft|square\s*f(?:oo|ee)t)$/.test(value)) return 'sqft';
+  if (/^(sqft|sf|sq\.?\s*ft|sq\s*ft|sq\s*feet|square\s*f(?:oo|ee)t)$/.test(value)) return 'sqft';
   if (/^(lf|linear\s*f(?:oo|ee)t|ln\.?\s*ft|lin\.?\s*ft)$/.test(value)) return 'lf';
   if (/^(cy|cubic\s*yards?)$/.test(value)) return 'cy';
   if (/^(ton|tons)$/.test(value)) return 'ton';
@@ -1464,9 +1500,16 @@ function normalizeRateUnit(unit?: string | null): string | null {
 function lineItemRatePerUnit(item: ScopePricingLineItem): number | null {
   const direct = Number(item.unitPrice ?? item.cost ?? item.rate ?? 0);
   if (Number.isFinite(direct) && direct > 0) return Math.round(direct * 100) / 100;
-  const qty = Number(item.quantity ?? item.qty ?? 0);
+  const qty = Number(item.quantity ?? item.qty ?? item.hours ?? 0);
   const total = Number(item.total ?? 0);
   if (qty > 0 && total > 0) return Math.round((total / qty) * 100) / 100;
+  return null;
+}
+
+function lineItemNormalizedUnit(item: ScopePricingLineItem): string | null {
+  const explicit = normalizeRateUnit(item.unit ?? item.unitType);
+  if (explicit) return explicit;
+  if (String(item.mode || '').toLowerCase() === 'sqft') return 'sqft';
   return null;
 }
 
@@ -1490,7 +1533,7 @@ function averageMatchingRate(
   const rates: number[] = [];
   for (const item of items) {
     if (!lineItemMatchesFamily(item, matcher)) continue;
-    if (targetUnit && normalizeRateUnit(item.unit) !== targetUnit) continue;
+    if (targetUnit && lineItemNormalizedUnit(item) !== targetUnit) continue;
     const rate = lineItemRatePerUnit(item);
     if (rate) rates.push(rate);
   }
@@ -1572,7 +1615,7 @@ function rateSourceLabelFor(
   templateName: string | null
 ): string {
   const usesTemplate = materialSource === 'template' || laborSource === 'template';
-  if (usesTemplate && templateName) return `Suggested · ${templateName}`;
+  if (usesTemplate && templateName) return 'Suggested · Saved rate';
   return 'Suggested · National Average';
 }
 
@@ -1630,7 +1673,7 @@ export function resolveScopeItemSuggestedPricing(
       : null);
 
   const basis = { quantity: count, unit };
-  const basisHelper = `${count.toLocaleString()} ${unit.toUpperCase()}`;
+  const basisHelper = `Based on ${count.toLocaleString()} ${unit}`;
 
   // Case A: notes priced both legs -> collapsible comparison only.
   if (noteMaterial != null && noteLabor != null) {
@@ -1680,6 +1723,10 @@ export function resolveScopeItemSuggestedPricing(
     if (!materialRate) return empty;
     const material = round2(count * materialRate);
     const labor = round2(noteLabor);
+    // Demo/removal notes often give one labor total — keep compact card + budget split panel.
+    if (itemId === 'floor_demo' && noteTotal != null && Math.abs(noteTotal - labor) < 0.01) {
+      return empty;
+    }
     return {
       fill: {
         material,
@@ -1699,6 +1746,26 @@ export function resolveScopeItemSuggestedPricing(
 
   // Case C: lump-sum total from notes -> split via template/national ratio.
   if (noteTotal != null && noteTotal > 0) {
+    if (template?.materialRate && template?.laborRate) {
+      const material = round2(count * template.materialRate);
+      const labor = round2(count * template.laborRate);
+      return {
+        fill: null,
+        comparison: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'template',
+          laborSource: 'template',
+          rateSourceLabel: rateSourceLabelFor('template', 'template', templateName),
+          templateName,
+          helper: `${basisHelper} · suggested comparison`,
+          mode: 'suggested_price',
+          isComparison: true,
+          basis,
+        },
+      };
+    }
     if (!materialRate) return empty;
     const material = Math.min(noteTotal, round2(count * materialRate));
     const labor = round2(noteTotal - material);
@@ -1712,7 +1779,7 @@ export function resolveScopeItemSuggestedPricing(
         laborSource: 'notes',
         rateSourceLabel: rateSourceLabelFor(materialRateSource, materialRateSource, templateName),
         templateName,
-        helper: `${basisHelper} · for budget tracking`,
+        helper: `${basisHelper} · budget split`,
         mode: 'note_total_split',
         basis,
       },
@@ -1751,8 +1818,11 @@ export function overlayDualRatePricingDisplay(
 ): ResolvedItemQuantity {
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule?.dualAllowanceField) return resolved;
+  if (itemHasUserEnteredPricing(measurements.itemQuantities || {}, itemId)) return resolved;
 
-  let countEntry =
+  let countEntry: (NonNullable<ReturnType<typeof parseStoredItemQuantity>> & {
+    quantitySource?: QuantitySource;
+  }) | null =
     resolved.dualCount ??
     (resolved.quantity != null && resolved.unit === 'sqft'
       ? {
@@ -1871,13 +1941,36 @@ function resolveDualAllowanceQuantity(
   notes?: string | null,
   templateKey?: string | null
 ): ResolvedItemQuantity | null {
-  let countEntry = parseStoredItemQuantity(measurements, itemId);
+  const storedItemEntry = parseStoredItemQuantity(measurements, itemId);
+  let countEntry =
+    storedItemEntry && !['allowance', 'lump_sum'].includes(storedItemEntry.unit)
+      ? storedItemEntry
+      : null;
   if (!countEntry && rule.measurementKey && measurements[rule.measurementKey]) {
     countEntry = {
       quantity: measurements[rule.measurementKey]!,
       unit: rule.defaultUnit,
       quantitySource: 'inferred',
     };
+  }
+  if (!countEntry && itemId === 'floor_demo' && measurements.floorAreaSqft) {
+    countEntry = {
+      quantity: measurements.floorAreaSqft,
+      unit: rule.defaultUnit,
+      quantitySource: 'inferred',
+    };
+  }
+  if (!countEntry && Array.isArray(rule.measurementKeys)) {
+    const quantity = rule.measurementKeys
+      .map((key) => measurements[key])
+      .find((value) => value != null && value > 0);
+    if (quantity) {
+      countEntry = {
+        quantity,
+        unit: rule.defaultUnit,
+        quantitySource: 'inferred',
+      };
+    }
   }
 
   const hydrated = withRatePricingHydratedFromNotes(
@@ -1891,11 +1984,10 @@ function resolveDualAllowanceQuantity(
 
   // Legacy: single field saved as allowance/lump_sum on the main key
   const legacyAllowance =
-    !countEntry &&
     !allowanceEntry &&
-    hydrated.itemQuantities[itemId] &&
-    ['allowance', 'lump_sum'].includes(hydrated.itemQuantities[itemId].unit || '')
-      ? parseStoredItemQuantity(hydrated, itemId)
+    storedItemEntry &&
+    ['allowance', 'lump_sum'].includes(storedItemEntry.unit || '')
+      ? storedItemEntry
       : null;
 
   let { effectiveAllowance, materialEntry, laborEntry } = applyRatePricingBreakdown(
@@ -2281,7 +2373,21 @@ export function countScopePricingReadiness(
   for (const item of items) {
     if (!checklistItemInScope(item)) continue;
     const rule = getChecklistItemQuantityRule(item.id, templateKey);
-    if (!rule) continue;
+    if (!rule) {
+      if (String(item.id || '').startsWith('custom_')) {
+        const base = measurements.itemQuantities?.[item.id];
+        const allowance = measurements.itemQuantities?.[`${item.id}__allowance`];
+        const material = measurements.itemQuantities?.[`${item.id}__material`];
+        const labor = measurements.itemQuantities?.[`${item.id}__labor`];
+        const total =
+          Number(allowance?.quantity || 0) ||
+          (base?.unit === 'allowance' ? Number(base.quantity || 0) : 0) ||
+          Number(material?.quantity || 0) + Number(labor?.quantity || 0);
+        if (Number.isFinite(total) && total > 0) ready += 1;
+        else needsMeasurement += 1;
+      }
+      continue;
+    }
     const resolved = resolveChecklistItemQuantity(item.id, measurements, {
       choiceId: item.choiceId,
       templateKey,
@@ -2464,10 +2570,12 @@ export function prepareScopeMeasurementsInputForUi(
   const parsed = parseScopeMeasurementsFromNotes(notes, {
     templateKey: options?.templateKey ?? undefined,
   });
-  const itemQuantities = {
-    ...(payload.itemQuantities || {}),
-    ...(parsed.itemQuantities || {}),
-  };
+  const itemQuantities = { ...(parsed.itemQuantities || {}) };
+  for (const [id, val] of Object.entries(payload.itemQuantities || {})) {
+    if (!itemQuantities[id] || val.quantitySource === 'user_entered') {
+      itemQuantities[id] = val;
+    }
+  }
   clearStalePricingWhenNotesUnpriced(itemQuantities, notes, parsed.itemQuantities);
 
   return scopeMeasurementsInputFromPayload({
@@ -2495,7 +2603,9 @@ export function initialScopeMeasurementInputExtended(
 ): ScopeMeasurementsInputExtended {
   const saved = draft?.scopeMeasurements;
   const suggested = draft?.scopeChecklist?.suggestedMeasurements;
-  const scopeNotes = String(notesOverride || resolveDraftScopeNotes(draft) || '').trim();
+  const scopeNotes = String(
+    notesOverride || resolveDraftScopeNotes(draft as Parameters<typeof resolveDraftScopeNotes>[0]) || ''
+  ).trim();
   const parsedFromNotes = scopeNotes
     ? parseScopeMeasurementsFromNotes(scopeNotes, {
         templateKey: draft?.scopeChecklist?.templateKey,
@@ -2515,7 +2625,7 @@ export function initialScopeMeasurementInputExtended(
   const itemQuantities: ScopeMeasurementsInputExtended['itemQuantities'] = {};
   const putItemQuantity = (
     id: string,
-    val: { quantity: number | string; unit: string; quantitySource?: QuantitySource; includesCountertops?: boolean }
+    val: { quantity: number | string | null; unit: string; quantitySource?: QuantitySource; includesCountertops?: boolean }
   ) => {
     if (val.quantity == null || Number(val.quantity) <= 0 || !val.unit) return;
     const includesCountertops = val.includesCountertops;
@@ -2544,11 +2654,25 @@ export function initialScopeMeasurementInputExtended(
   };
 
   const isPricingSubKey = (id: string) => /__(?:material|labor|allowance)$/.test(id);
+  const hasCompleteUserSelectedSplit = (itemId: string) => {
+    const savedItems = saved?.itemQuantities || {};
+    const material = savedItems[`${itemId}__material`];
+    const labor = savedItems[`${itemId}__labor`];
+    const allowance = savedItems[`${itemId}__allowance`];
+    return (
+      material?.quantitySource === 'user_entered' &&
+      labor?.quantitySource === 'user_entered' &&
+      allowance?.quantitySource === 'user_entered' &&
+      Number(material.quantity || 0) > 0 &&
+      Number(labor.quantity || 0) > 0 &&
+      Number(allowance.quantity || 0) > 0
+    );
+  };
 
   for (const [id, val] of Object.entries(saved?.itemQuantities || {})) {
     if (!val.quantity) continue;
-    // Never hydrate stale rate splits from saved scope — always reparse from notes below.
-    if (isPricingSubKey(id)) continue;
+    // Reparse stale/incomplete rate splits from notes. Preserve only complete pricing selected by the user.
+    if (isPricingSubKey(id) && !hasCompleteUserSelectedSplit(ratePricingItemIdFromKey(id) || id)) continue;
     putItemQuantity(id, {
       quantity: val.quantity,
       unit: val.unit,
@@ -2567,7 +2691,11 @@ export function initialScopeMeasurementInputExtended(
       const existing = itemQuantities[id];
       const notesQty = String(val.quantity);
       if (existing?.quantity && existing.quantitySource === 'user_entered') {
-        if (existing.quantity === notesQty || isPricingSubKey(id)) {
+        const itemId = ratePricingItemIdFromKey(id) || id;
+        if (isPricingSubKey(id) && hasCompleteUserSelectedSplit(itemId)) {
+          continue;
+        }
+        if (existing.quantity === notesQty) {
           putItemQuantity(id, {
             quantity: val.quantity,
             unit: val.unit,

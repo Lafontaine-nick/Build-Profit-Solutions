@@ -4,7 +4,9 @@ const {
   buildScopeChecklist,
   applyScopeAssumptions,
   applyScopeMeasurements,
+  enrichDraftComplexity,
 } = require('../estimateDraftComplexity');
+const { buildScopePackage, syncRoomsFromScopePackages } = require('../estimateDraftPartialPricing');
 
 describe('estimateDraftComplexity', () => {
   const flooringNotes =
@@ -123,6 +125,40 @@ describe('estimateDraftComplexity', () => {
     expect(next.scopePackages[4].scopeQuantities || []).toHaveLength(0);
     expect(next.originalNotes).toContain('90 sqft bathroom floor');
     expect(next.originalNotes).toContain('24 lf baseboard');
+  });
+
+  test('enrichment preserves selected flooring pricing over note-parsed rates', () => {
+    const originalNotes =
+      'Flooring job demo existing tile which is 850 ft.2 labor is $3 dollars a square foot for tile demo next install LVP flooring which is 850 ft.? material is $4.50 a square foot and $3.25 a square foot for Labor.';
+    const draft = {
+      projectType: 'flooring',
+      originalNotes,
+      estimateTier: 'room_remodel',
+      scopeMeasurements: {
+        floorAreaSqft: 850,
+        itemQuantities: {
+          flooring: { quantity: 850, unit: 'sqft', quantitySource: 'user_entered' },
+          flooring__allowance: { quantity: 5950, unit: 'allowance', quantitySource: 'user_entered' },
+          flooring__material: { quantity: 2550, unit: 'allowance', quantitySource: 'user_entered' },
+          flooring__labor: { quantity: 3400, unit: 'allowance', quantitySource: 'user_entered' },
+        },
+      },
+    };
+
+    const next = enrichDraftComplexity(draft, originalNotes);
+
+    expect(next.scopeMeasurements.itemQuantities.flooring__allowance).toMatchObject({
+      quantity: 5950,
+      quantitySource: 'user_entered',
+    });
+    expect(next.scopeMeasurements.itemQuantities.flooring__material).toMatchObject({
+      quantity: 2550,
+      quantitySource: 'user_entered',
+    });
+    expect(next.scopeMeasurements.itemQuantities.flooring__labor).toMatchObject({
+      quantity: 3400,
+      quantitySource: 'user_entered',
+    });
   });
 
   test('applyScopeAssumptions adds Bathroom Demo when demo is confirmed in checklist', () => {
@@ -253,6 +289,133 @@ describe('estimateDraftComplexity', () => {
     expect(next.rooms.find((r) => r.name === 'Tile Demo')).toMatchObject({ price: 2550 });
     expect(next.rooms.find((r) => r.name === 'LVP Flooring Installation')).toMatchObject({ price: 6587.5 });
     expect(next.rooms.find((r) => r.name === 'Baseboard Installation')).toMatchObject({ price: 1540 });
+  });
+
+  test('applyScopeAssumptions carries selected saved-rate split into review packages', () => {
+    const notes =
+      'Install LVP flooring which is 850 ft.² material is $4.50 a square foot and $3.25 a square foot for Labor.';
+    const draft = {
+      projectType: 'flooring',
+      estimateTier: 'room_remodel',
+      originalNotes: notes,
+      scopeChecklist: { templateKey: 'flooring' },
+      rooms: [
+        {
+          name: 'LVP Flooring Installation',
+          scope: 'Install LVP flooring',
+          price: 6587.5,
+          materialPrice: 3825,
+          laborPrice: 2762.5,
+          priceProvidedByUser: false,
+          pricedFromSqftAllowances: true,
+        },
+      ],
+      inclusions: [],
+      exclusions: [],
+      missingInfo: [],
+      pricingWarnings: [],
+    };
+    const items = [
+      { id: 'flooring', inputType: 'yes_no', state: 'included', label: 'Flooring install' },
+    ];
+
+    const next = applyScopeAssumptions(draft, items, {
+      floorAreaSqft: 850,
+      itemQuantities: {
+        flooring: { quantity: 850, unit: 'sqft', quantitySource: 'user_entered' },
+        flooring__material: { quantity: 2550, unit: 'allowance', quantitySource: 'user_entered' },
+        flooring__labor: { quantity: 3400, unit: 'allowance', quantitySource: 'user_entered' },
+        flooring__allowance: { quantity: 5950, unit: 'allowance', quantitySource: 'user_entered' },
+      },
+    });
+
+    const room = next.rooms.find((r) => r.name === 'LVP Flooring Installation');
+    expect(room).toMatchObject({
+      price: 5950,
+      knownSubtotal: 5950,
+      calculatedSubtotal: 5950,
+      materialPrice: 2550,
+      laborPrice: 3400,
+      priceSource: 'user_provided',
+      status: 'user_provided',
+    });
+
+    const pkg = buildScopePackage(room, next, next.originalNotes);
+    expect(pkg).toMatchObject({
+      price: 5950,
+      materialPrice: 2550,
+      laborPrice: 3400,
+      priceSource: 'user_provided',
+      status: 'user_provided',
+      budgetSplitBasis: { quantity: 850, unit: 'sqft' },
+    });
+  });
+
+  test('applyScopeAssumptions adds priced custom scope item to review packages', () => {
+    const draft = {
+      projectType: 'flooring',
+      estimateTier: 'room_remodel',
+      originalNotes: 'Flooring job with tile demo, LVP install, and baseboards',
+      scopeChecklist: { templateKey: 'flooring' },
+      rooms: [
+        { name: 'Tile Demo', scope: 'Demo existing tile', price: 2550 },
+        { name: 'LVP Flooring Installation', scope: 'Install LVP flooring', price: 6587.5 },
+        { name: 'Baseboard Installation', scope: 'Baseboard installation', price: 1540 },
+      ],
+      inclusions: [],
+      exclusions: [],
+      missingInfo: [],
+      pricingWarnings: [],
+    };
+    const items = [
+      { id: 'floor_demo', inputType: 'yes_no', state: 'included', label: 'Flooring demo / removal' },
+      { id: 'flooring', inputType: 'yes_no', state: 'included', label: 'Flooring install' },
+      { id: 'trim', inputType: 'yes_no', state: 'included', label: 'Trim & baseboard install' },
+      {
+        id: 'custom_123',
+        inputType: 'yes_no',
+        state: 'included',
+        label: 'Demo',
+        helperText: 'Added manually. Price as total, sqft, or LF.',
+        category: 'custom',
+      },
+    ];
+
+    const next = applyScopeAssumptions(draft, items, {
+      itemQuantities: {
+        custom_123: { quantity: 500, unit: 'sqft', quantitySource: 'user_entered' },
+        custom_123__material: { quantity: 2500, unit: 'allowance', quantitySource: 'user_entered' },
+        custom_123__labor: { quantity: 2500, unit: 'allowance', quantitySource: 'user_entered' },
+        custom_123__allowance: { quantity: 5000, unit: 'allowance', quantitySource: 'user_entered' },
+      },
+    });
+
+    const custom = (next.rooms || []).find((r) => r.name === 'Demo');
+    expect(custom).toMatchObject({
+      price: 5000,
+      knownSubtotal: 5000,
+      materialPrice: 2500,
+      laborPrice: 2500,
+      status: 'user_provided',
+      priceSource: 'user_provided',
+      applyEligible: true,
+    });
+    expect(custom.scopeQuantities?.[0]).toMatchObject({ quantity: 500, unit: 'sqft' });
+
+    const pkg = buildScopePackage(custom, next, next.originalNotes);
+    expect(pkg).toMatchObject({
+      status: 'user_provided',
+      priceSource: 'user_provided',
+      materialPrice: 2500,
+      laborPrice: 2500,
+      budgetSplitBasis: { quantity: 500, unit: 'sqft' },
+    });
+    const synced = syncRoomsFromScopePackages(next, [pkg]).find((r) => r.name === 'Demo');
+    expect(synced).toMatchObject({
+      materialPrice: 2500,
+      laborPrice: 2500,
+      priceSource: 'user_provided',
+    });
   });
 
   test('applyScopeAssumptions adds tub install package with labor and material hints', () => {

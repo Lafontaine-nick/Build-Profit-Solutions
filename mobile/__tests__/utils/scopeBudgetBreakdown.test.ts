@@ -85,6 +85,38 @@ describe('scopeBudgetBreakdown', () => {
     expect(packageNeedsSuggestedBudgetSplit(pkg, draft)).toBe(false);
   });
 
+  it('uses selected saved-rate split even when it is lower than the stale package total', () => {
+    const draft = flooringDraft({
+      scopeMeasurements: {
+        floorAreaSqft: '850',
+        baseboardLf: '220',
+        itemQuantities: {
+          flooring: { quantity: 850, unit: 'sqft', quantitySource: 'user_entered' },
+          flooring__material: { quantity: 2550, unit: 'allowance', quantitySource: 'user_entered' },
+          flooring__labor: { quantity: 3400, unit: 'allowance', quantitySource: 'user_entered' },
+          flooring__allowance: { quantity: 5950, unit: 'allowance', quantitySource: 'user_entered' },
+        },
+      },
+      scopePackages: [
+        {
+          name: 'LVP Flooring Installation',
+          price: 6800,
+          status: 'partial_pricing',
+          priceSource: 'notes',
+          scopeQuantities: [{ quantity: 850, unit: 'sqft' }],
+        },
+      ],
+    });
+    const breakdown = resolveScopePackageBudgetBreakdown(draft.scopePackages![0], draft);
+    expect(breakdown).toMatchObject({
+      total: 5950,
+      material: 2550,
+      labor: 3400,
+      materialSource: 'manual',
+      laborSource: 'manual',
+    });
+  });
+
   it('uses National Average for baseboard lump sum', () => {
     const draft = flooringDraft();
     const pkg = draft.scopePackages!.find((p) => p.name === 'Baseboard')!;
@@ -112,6 +144,38 @@ describe('scopeBudgetBreakdown', () => {
     const breakdown = resolveScopePackageBudgetBreakdown(pkg, draft);
     expect(breakdown?.materialSource).toBe('suggested');
     expect(breakdown?.laborSource).toBe('suggested');
+  });
+
+  it('rejects stale material/labor splits that do not match the package total', () => {
+    const draft = flooringDraft({
+      scopeMeasurements: {
+        floorAreaSqft: '850',
+        baseboardLf: '220',
+        itemQuantities: {
+          floor_demo__material: { quantity: 3825, unit: 'allowance' },
+          floor_demo__labor: { quantity: 5313, unit: 'allowance' },
+        },
+      },
+      scopePackages: [
+        {
+          name: 'Tile Demo',
+          price: 2550,
+          materialPrice: 3825,
+          laborPrice: 5313,
+          status: 'calculated',
+          priceSource: 'notes',
+          scopeQuantities: [{ quantity: 850, unit: 'sqft' }],
+        },
+      ],
+    });
+    const breakdown = resolveScopePackageBudgetBreakdown(draft.scopePackages![0], draft);
+    expect(breakdown).toMatchObject({
+      total: 2550,
+      material: 425,
+      labor: 2125,
+      materialSource: 'suggested',
+      laborSource: 'suggested',
+    });
   });
 
   it('assigns rock supply lump sums to materials only', () => {

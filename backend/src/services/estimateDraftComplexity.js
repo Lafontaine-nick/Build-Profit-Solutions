@@ -593,6 +593,21 @@ function roomExistsByLabel(rooms, label) {
   });
 }
 
+function roomExistsByExactLabel(rooms, label) {
+  const key = String(label || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  if (!key) return false;
+  return (rooms || []).some((room) => {
+    const name = String(room.name || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    return name === key;
+  });
+}
+
 function canonicalScopeKey(text) {
   const t = String(text || '').toLowerCase();
   if (/\b(shower\s+tile|shower\s+wall\s+tile|tile\s+shower)\b/.test(t)) return 'shower_tile';
@@ -633,6 +648,66 @@ function defaultMissingPriceItemsForExtra(itemId) {
     shower_pan: ['Pan liner, drain & mud materials', 'Tile shower pan build labor'],
   };
   return map[itemId] || ['Materials / supplies', 'Install labor'];
+}
+
+function customChecklistRoomFromMeasurements(item, measurements) {
+  const norm = normalizeScopeMeasurements(measurements);
+  const itemQuantities = norm.itemQuantities || {};
+  const itemId = item.id;
+  const base = itemQuantities[itemId];
+  const allowance = itemQuantities[`${itemId}__allowance`];
+  const material = itemQuantities[`${itemId}__material`];
+  const labor = itemQuantities[`${itemId}__labor`];
+  const materialPrice = parseScopeMeasurementNumber(material?.quantity);
+  const laborPrice = parseScopeMeasurementNumber(labor?.quantity);
+  const allowancePrice =
+    parseScopeMeasurementNumber(allowance?.quantity) ||
+    (base?.unit === 'allowance' ? parseScopeMeasurementNumber(base.quantity) : null);
+  const splitTotal = (materialPrice || 0) + (laborPrice || 0);
+  const total = allowancePrice || (splitTotal > 0 ? splitTotal : null);
+  const basisQuantity =
+    base?.unit && base.unit !== 'allowance' ? parseScopeMeasurementNumber(base.quantity) : null;
+  const name = String(item.label || 'Custom scope item')
+    .replace(/\s*—.*$/, '')
+    .trim();
+  const scopeQuantities = [];
+
+  if (basisQuantity) {
+    scopeQuantities.push({
+      label: name,
+      quantity: basisQuantity,
+      unit: base.unit || 'unit',
+      quantitySource: base.quantitySource || QUANTITY_SOURCES.user_entered,
+    });
+  } else if (allowancePrice) {
+    scopeQuantities.push({
+      label: `${name} — total`,
+      quantity: allowancePrice,
+      unit: 'allowance',
+      quantitySource: allowance?.quantitySource || base?.quantitySource || QUANTITY_SOURCES.user_entered,
+    });
+  }
+
+  return {
+    name,
+    category: 'custom',
+    scope: item.helperText || item.label || name,
+    scopeQuantities: scopeQuantities.length ? scopeQuantities : undefined,
+    price: total,
+    knownSubtotal: total,
+    calculatedSubtotal: total,
+    laborPrice: laborPrice || null,
+    materialPrice: materialPrice || null,
+    priceIncludesLaborAndMaterials: Boolean(total && !(materialPrice && laborPrice)),
+    priceProvidedByUser: Boolean(total),
+    pricingType: materialPrice || laborPrice ? 'split' : total ? 'lump_sum' : 'unknown',
+    priceSource: total ? 'user_provided' : 'missing',
+    status: total ? 'user_provided' : 'missing_price',
+    pricingItems: [],
+    missingPriceItems: total ? [] : ['Materials / supplies', 'Install labor'],
+    budgetSplitBasis: basisQuantity ? { quantity: basisQuantity, unit: base.unit || 'unit' } : null,
+    applyEligible: Boolean(total),
+  };
 }
 
 function emptyRoomFromChecklistExtra(itemId, extra, notes, measurements, templateKey) {
@@ -742,6 +817,12 @@ function addScopePackagesFromConfirmedChecklist(draft, confirmedItems, scopeMeas
   }
 
   for (const item of fallbackItems) {
+    if (String(item.id || '').startsWith('custom_')) {
+      const customRoom = customChecklistRoomFromMeasurements(item, scopeMeasurements);
+      if (!customRoom.name || roomExistsByExactLabel(rooms, customRoom.name)) continue;
+      rooms.push(customRoom);
+      continue;
+    }
     const name = String(item.label || 'Scope item')
       .replace(/\s*—.*$/, '')
       .trim();
@@ -924,6 +1005,21 @@ function applyScopeAssumptions(draft, confirmedItems, scopeMeasurements) {
   return applyScopeMeasurements(merged, scopeMeasurements);
 }
 
+function mergeScopeMeasurementItemQuantities(existing = {}, parsed = {}) {
+  const merged = {
+    ...(existing || {}),
+    ...(parsed || {}),
+  };
+
+  for (const [key, val] of Object.entries(existing || {})) {
+    if (val?.quantitySource === 'user_entered') {
+      merged[key] = val;
+    }
+  }
+
+  return merged;
+}
+
 function enrichDraftComplexity(draft, originalNotes) {
   const estimateTier = classifyEstimateTier(draft, originalNotes);
   const scopeChecklist =
@@ -938,10 +1034,10 @@ function enrichDraftComplexity(draft, originalNotes) {
           scopeMeasurements: {
             ...(draft.scopeMeasurements || {}),
             ...parsedMeasurements,
-            itemQuantities: {
-              ...(draft.scopeMeasurements?.itemQuantities || {}),
-              ...(parsedMeasurements.itemQuantities || {}),
-            },
+            itemQuantities: mergeScopeMeasurementItemQuantities(
+              draft.scopeMeasurements?.itemQuantities,
+              parsedMeasurements.itemQuantities
+            ),
           },
         }
       : {}),

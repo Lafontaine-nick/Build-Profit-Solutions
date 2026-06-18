@@ -231,6 +231,14 @@ function sanitizeRoomPrice(room, sourceText) {
   const hadLineItems = (room.pricingItems || []).length > 0;
 
   if (price != null && price > 0) {
+    if (
+      room.priceProvidedByUser ||
+      room.priceSource === 'user_provided' ||
+      room.status === 'user_provided' ||
+      room.category === 'custom'
+    ) {
+      return next;
+    }
     if (notesContainExplicitPrice(text, price)) return next;
 
     const stripAsQuantity =

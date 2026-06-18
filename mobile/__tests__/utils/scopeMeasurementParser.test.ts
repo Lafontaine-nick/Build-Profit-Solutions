@@ -77,4 +77,120 @@ describe('mobile scope measurement parser', () => {
       resolveChecklistItemQuantity('cleanup', measurements, { templateKey: 'flooring', notes: SMITH_NOTES })
     ).toMatchObject({ quantity: 650, unit: 'lump_sum', pricingReady: true });
   });
+
+  it('keeps flooring demo unit-rate labor as a compact total with budget split', () => {
+    const notes =
+      'Flooring job demo existing tile which is 850 ft.2 labor is $3 dollars a square foot for tile demo next install LVP flooring which is 850 ft.? material is $4.50 a square foot and $3.25 a square foot for Labor. Also we have baseboard installation 220 linear feet with lump sum of $7 dollars per linear foot.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'flooring',
+      projectType: 'flooring',
+    });
+    const measurements = normalizeScopeMeasurements(parsed);
+    const floorDemo = resolveChecklistItemQuantity('floor_demo', measurements, {
+      templateKey: 'flooring',
+      notes,
+    });
+
+    expect(parsed.itemQuantities?.floor_demo).toMatchObject({ quantity: 2550, unit: 'allowance' });
+    expect(floorDemo).toMatchObject({
+      quantity: 2550,
+      unit: 'allowance',
+      pricingReady: true,
+    });
+  });
+
+  it('keeps selected saved-rate pricing primary when notes also priced flooring', () => {
+    const notes =
+      'Install LVP flooring which is 850 sqft. Material is $4.50 a square foot and $3.25 a square foot for labor.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'flooring',
+      projectType: 'flooring',
+    });
+    const measurements = normalizeScopeMeasurements({
+      ...parsed,
+      itemQuantities: {
+        ...(parsed.itemQuantities || {}),
+        flooring: { quantity: 850, unit: 'sqft', quantitySource: 'user_entered' },
+        flooring__material: { quantity: 2550, unit: 'allowance', quantitySource: 'user_entered' },
+        flooring__labor: { quantity: 3400, unit: 'allowance', quantitySource: 'user_entered' },
+        flooring__allowance: { quantity: 5950, unit: 'allowance', quantitySource: 'user_entered' },
+      },
+    });
+
+    expect(
+      resolveChecklistItemQuantity('flooring', measurements, { templateKey: 'flooring', notes })
+    ).toMatchObject({
+      dualMaterial: { quantity: 2550 },
+      dualLabor: { quantity: 3400 },
+      dualAllowance: { quantity: 5950 },
+    });
+  });
+
+  it('persists selected saved-rate split into the backend payload (not notes pricing)', () => {
+    const notes =
+      'Install LVP flooring which is 850 sqft. Material is $4.50 a square foot and $3.25 a square foot for labor.';
+    const input = initialScopeMeasurementInputExtended({
+      projectType: 'flooring',
+      originalNotes: notes,
+      scopeChecklist: { templateKey: 'flooring' },
+      scopeMeasurements: { itemQuantities: {} },
+    });
+    input.itemQuantities = {
+      ...input.itemQuantities,
+      flooring: { quantity: '850', unit: 'sqft', quantitySource: 'user_entered' },
+      flooring__material: { quantity: '2550', unit: 'allowance', quantitySource: 'user_entered' },
+      flooring__labor: { quantity: '3400', unit: 'allowance', quantitySource: 'user_entered' },
+      flooring__allowance: { quantity: '5950', unit: 'allowance', quantitySource: 'user_entered' },
+    };
+
+    const payload = scopeMeasurementsPayloadForPersist(input, {
+      notes,
+      templateKey: 'flooring',
+    });
+
+    expect(payload.itemQuantities?.flooring__allowance).toMatchObject({
+      quantity: 5950,
+      quantitySource: 'user_entered',
+    });
+    expect(payload.itemQuantities?.flooring__material).toMatchObject({
+      quantity: 2550,
+      quantitySource: 'user_entered',
+    });
+    expect(payload.itemQuantities?.flooring__labor).toMatchObject({
+      quantity: 3400,
+      quantitySource: 'user_entered',
+    });
+  });
+
+  it('hydrates selected saved-rate split instead of reverting pricing subkeys to notes', () => {
+    const notes =
+      'Install LVP flooring which is 850 sqft. Material is $4.50 a square foot and $3.25 a square foot for labor.';
+    const input = initialScopeMeasurementInputExtended({
+      projectType: 'flooring',
+      originalNotes: notes,
+      scopeChecklist: { templateKey: 'flooring' },
+      scopeMeasurements: {
+        floorAreaSqft: 850,
+        itemQuantities: {
+          flooring: { quantity: 850, unit: 'sqft', quantitySource: 'user_entered' },
+          flooring__material: { quantity: 2550, unit: 'allowance', quantitySource: 'user_entered' },
+          flooring__labor: { quantity: 3400, unit: 'allowance', quantitySource: 'user_entered' },
+          flooring__allowance: { quantity: 5950, unit: 'allowance', quantitySource: 'user_entered' },
+        },
+      },
+    });
+
+    expect(input.itemQuantities.flooring__material).toMatchObject({
+      quantity: '2550',
+      quantitySource: 'user_entered',
+    });
+    expect(input.itemQuantities.flooring__labor).toMatchObject({
+      quantity: '3400',
+      quantitySource: 'user_entered',
+    });
+    expect(input.itemQuantities.flooring__allowance).toMatchObject({
+      quantity: '5950',
+      quantitySource: 'user_entered',
+    });
+  });
 });

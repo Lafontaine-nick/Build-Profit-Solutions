@@ -858,13 +858,21 @@ function applyRatePricingBreakdown(
     effectiveAllowance.quantity > 0 &&
     effectiveAllowance.quantity < sqft;
 
-  const userLocked =
+  const hasUserEnteredSplit =
+    materialEntry?.quantitySource === QUANTITY_SOURCES.user_entered ||
+    laborEntry?.quantitySource === QUANTITY_SOURCES.user_entered;
+  const hasUserEnteredAllowance =
     allowanceEntry?.quantitySource === QUANTITY_SOURCES.user_entered &&
     effectiveAllowance &&
-    !storedLooksLikeUnitRate &&
-    effectiveAllowance.quantity >= rateBreakdown.total;
+    !storedLooksLikeUnitRate;
 
-  if (userLocked) {
+  if (hasUserEnteredSplit || hasUserEnteredAllowance) {
+    effectiveAllowance = finalizeRateAllowanceTotal(
+      effectiveAllowance,
+      materialEntry,
+      laborEntry,
+      countEntry
+    );
     return { effectiveAllowance, materialEntry, laborEntry };
   }
 
@@ -949,7 +957,11 @@ function finalizeRateAllowanceTotal(
 }
 
 function resolveDualAllowanceQuantity(itemId, rule, measurements, notes, templateKey) {
-  let countEntry = parseStoredItemQuantity(measurements, itemId);
+  const storedItemEntry = parseStoredItemQuantity(measurements, itemId);
+  let countEntry =
+    storedItemEntry && !['allowance', 'lump_sum'].includes(storedItemEntry.unit)
+      ? storedItemEntry
+      : null;
   if (!countEntry && rule.measurementKey && measurements[rule.measurementKey]) {
     countEntry = {
       quantity: measurements[rule.measurementKey],
@@ -957,13 +969,31 @@ function resolveDualAllowanceQuantity(itemId, rule, measurements, notes, templat
       quantitySource: QUANTITY_SOURCES.inferred,
     };
   }
+  if (!countEntry && itemId === 'floor_demo' && measurements.floorAreaSqft) {
+    countEntry = {
+      quantity: measurements.floorAreaSqft,
+      unit: rule.defaultUnit,
+      quantitySource: QUANTITY_SOURCES.inferred,
+    };
+  }
+  if (!countEntry && Array.isArray(rule.measurementKeys)) {
+    const quantity = rule.measurementKeys
+      .map((key) => measurements[key])
+      .find((value) => value != null && value > 0);
+    if (quantity) {
+      countEntry = {
+        quantity,
+        unit: rule.defaultUnit,
+        quantitySource: QUANTITY_SOURCES.inferred,
+      };
+    }
+  }
   const allowanceEntry = parseStoredItemQuantity(measurements, roughAllowanceSubKey(itemId));
   const legacyAllowance =
-    !countEntry &&
     !allowanceEntry &&
-    measurements.itemQuantities?.[itemId] &&
-    ['allowance', 'lump_sum'].includes(measurements.itemQuantities[itemId].unit || '')
-      ? parseStoredItemQuantity(measurements, itemId)
+    storedItemEntry &&
+    ['allowance', 'lump_sum'].includes(storedItemEntry.unit || '')
+      ? storedItemEntry
       : null;
 
   const { effectiveAllowance, materialEntry, laborEntry } = applyRatePricingBreakdown(
@@ -1295,11 +1325,49 @@ function parsedTotalForPackage(name, scope, measurements = {}) {
   return null;
 }
 
+function selectedPricingForPackage(name, scope, measurements = {}) {
+  const ruleKey = lookupRuleKeyForPackage(name, scope);
+  if (!ruleKey) return null;
+
+  const itemQuantities = normalizeScopeMeasurements(measurements).itemQuantities || {};
+  const base = itemQuantities[ruleKey];
+  const allowance = itemQuantities[`${ruleKey}__allowance`];
+  const material = itemQuantities[`${ruleKey}__material`];
+  const labor = itemQuantities[`${ruleKey}__labor`];
+  const userSelected =
+    base?.quantitySource === QUANTITY_SOURCES.user_entered ||
+    allowance?.quantitySource === QUANTITY_SOURCES.user_entered ||
+    material?.quantitySource === QUANTITY_SOURCES.user_entered ||
+    labor?.quantitySource === QUANTITY_SOURCES.user_entered;
+  if (!userSelected) return null;
+
+  const materialPrice = Number(material?.quantity || 0);
+  const laborPrice = Number(labor?.quantity || 0);
+  const splitTotal = materialPrice + laborPrice;
+  const allowanceTotal = Number(allowance?.quantity || 0);
+  const baseTotal = ['allowance', 'lump_sum'].includes(base?.unit || '') ? Number(base?.quantity || 0) : 0;
+  const total = allowanceTotal || baseTotal || splitTotal;
+  if (!Number.isFinite(total) || total <= 0) return null;
+
+  const basis =
+    base?.quantity > 0 && base.unit && !['allowance', 'lump_sum'].includes(base.unit)
+      ? { quantity: Number(base.quantity), unit: base.unit }
+      : null;
+
+  return {
+    total,
+    materialPrice: materialPrice > 0 ? materialPrice : null,
+    laborPrice: laborPrice > 0 ? laborPrice : null,
+    basis,
+  };
+}
+
 function stampPackageWithCatalogRules(pkg, ctx = {}) {
   const name = pkg.name || '';
   const scope = pkg.scope || '';
   const existing = pkg.scopeQuantities || [];
   const parsedTotal = parsedTotalForPackage(name, scope, ctx.measurements);
+  const selectedPricing = selectedPricingForPackage(name, scope, ctx.measurements);
 
   const resolved = resolveQuantityForPackage(name, scope, {
     ...ctx,
@@ -1328,6 +1396,29 @@ function stampPackageWithCatalogRules(pkg, ctx = {}) {
       missingMessage: resolved.missingMessage,
     },
   };
+
+  if (selectedPricing) {
+    next.price = selectedPricing.total;
+    next.knownSubtotal = selectedPricing.total;
+    next.calculatedSubtotal = selectedPricing.total;
+    next.finalApprovedTotal = selectedPricing.total;
+    next.materialPrice = selectedPricing.materialPrice;
+    next.laborPrice = selectedPricing.laborPrice;
+    next.priceIncludesLaborAndMaterials = Boolean(
+      selectedPricing.total && !(selectedPricing.materialPrice && selectedPricing.laborPrice)
+    );
+    next.priceProvidedByUser = true;
+    next.pricedFromSqftAllowances = false;
+    next.status = 'user_provided';
+    next.packageStatus = 'user_provided';
+    next.pricingType = selectedPricing.materialPrice || selectedPricing.laborPrice ? 'split' : 'lump_sum';
+    next.priceSource = 'user_provided';
+    next.applyEligible = true;
+    next.missingPriceItems = [];
+    next.budgetSplitBasis = selectedPricing.basis;
+    next.splitIsSuggested = false;
+    return next;
+  }
 
   const currentTotal = Number(pkg.price || pkg.knownSubtotal || pkg.calculatedSubtotal || 0);
   const existingLooksCalculated =

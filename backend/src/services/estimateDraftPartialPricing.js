@@ -394,14 +394,27 @@ function buildScopePackage(room, draft, originalNotes) {
   let formula = sanitizedRoom.formula || null;
   const warnings = [];
 
+  const hasManualUserSplit =
+    hasRoomTotal &&
+    sanitizedRoom.laborPrice != null &&
+    sanitizedRoom.materialPrice != null &&
+    (sanitizedRoom.priceSource === 'user_provided' ||
+      sanitizedRoom.status === 'user_provided' ||
+      sanitizedRoom.priceProvidedByUser === true ||
+      sanitizedRoom.category === 'custom');
   const hasCalculatedSplit =
     hasRoomTotal &&
     sanitizedRoom.laborPrice != null &&
     sanitizedRoom.materialPrice != null &&
     !sanitizedRoom.priceIncludesLaborAndMaterials &&
-    !splitIsSuggested;
+    !splitIsSuggested &&
+    !hasManualUserSplit;
 
-  if ((pricedFromSqft || hasCalculatedSplit) && hasRoomTotal) {
+  if (hasManualUserSplit) {
+    status = 'user_provided';
+    priceSource = 'user_provided';
+    missingPriceItems = [];
+  } else if ((pricedFromSqft || hasCalculatedSplit) && hasRoomTotal) {
     status = 'calculated';
     priceSource = 'calculated';
     formula =
@@ -449,7 +462,8 @@ function buildScopePackage(room, draft, originalNotes) {
     knownSubtotal === 0 &&
     hasRoomTotal &&
     status !== 'calculated' &&
-    status !== 'partial_pricing'
+    status !== 'partial_pricing' &&
+    status !== 'user_provided'
   ) {
     pricingItems = [
       {
@@ -481,7 +495,7 @@ function buildScopePackage(room, draft, originalNotes) {
 
   return {
     name: sanitizedRoom.name,
-    category: inferPackageCategory(sanitizedRoom, projectType),
+    category: sanitizedRoom.category || inferPackageCategory(sanitizedRoom, projectType),
     trade: detectTrades(projectType, `${sanitizedRoom.name} ${sanitizedRoom.scope}`)[0] || projectType,
     scope: sanitizedRoom.scope || '',
     scopeQuantities,
@@ -509,10 +523,18 @@ function buildScopePackage(room, draft, originalNotes) {
     missingPriceItems,
     clarificationQuestions: [],
     warnings,
-    pricingType: status === 'calculated' ? 'unit_rate' : status === 'partial_pricing' ? 'partial' : 'lump_sum',
+    pricingType:
+      status === 'calculated'
+        ? 'unit_rate'
+        : status === 'partial_pricing'
+          ? 'partial'
+          : hasManualUserSplit
+            ? 'split'
+            : 'lump_sum',
     missingInfo: [],
     priceIncludesLaborAndMaterials: Boolean(sanitizedRoom.priceIncludesLaborAndMaterials),
     splitIsSuggested,
+    budgetSplitBasis: sanitizedRoom.budgetSplitBasis || null,
     priceProvidedByUser: Boolean(
       (hasRoomTotal && sanitizedRoom.priceProvidedByUser && notesContainExplicitPrice(parseText, sanitizedRoom.price)) ||
         pricingItems.some((p) => p.includedInSubtotal && p.amount > 0 && p.priceSource !== 'quantity_only')
@@ -623,9 +645,18 @@ function syncRoomsFromScopePackages(draft, scopePackages) {
     return {
       ...room,
       partialPricing: pkg.status === 'partial_pricing',
+      category: pkg.category || room.category,
       knownSubtotal: pkg.knownSubtotal,
       packageStatus: pkg.status,
       applyEligible: pkg.applyEligible,
+      laborPrice: pkg.laborPrice ?? room.laborPrice ?? null,
+      materialPrice: pkg.materialPrice ?? room.materialPrice ?? null,
+      priceSource: pkg.priceSource || room.priceSource,
+      budgetSplitBasis: pkg.budgetSplitBasis || room.budgetSplitBasis,
+      splitIsSuggested: pkg.splitIsSuggested ?? room.splitIsSuggested,
+      priceProvidedByUser: pkg.priceProvidedByUser ?? room.priceProvidedByUser,
+      priceIncludesLaborAndMaterials:
+        pkg.priceIncludesLaborAndMaterials ?? room.priceIncludesLaborAndMaterials,
       pricingItems: pkg.pricingItems,
       missingPriceItems: pkg.missingPriceItems,
       scopeQuantities: pkg.scopeQuantities?.length ? pkg.scopeQuantities : room.scopeQuantities,

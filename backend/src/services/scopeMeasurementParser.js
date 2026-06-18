@@ -242,6 +242,9 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     return max > 0 ? max : null;
   })();
   if (floorAreaSqft) out.floorAreaSqft = floorAreaSqft;
+  if (floorAreaSqft && !out.kitchenFloorSqft && (projectType === 'kitchen' || templateKey === 'kitchen')) {
+    out.kitchenFloorSqft = floorAreaSqft;
+  }
 
   const deckSqft = pickSqftFromClauses([/\bdeck(?:ing)?\b/]);
   if (deckSqft) out.deckSqft = deckSqft;
@@ -292,8 +295,19 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     }
   }
 
-  // Concrete
-  const concreteSqft = pickSqftFromClauses([/\bconcrete\b/, /\bflatwork\b/, /\bslab\b/, /\bpatio\b/, /\bdriveway\b/]);
+  // Concrete — do not let a paver/landscape patio sqft fill concrete sqft.
+  const concreteSqft = (() => {
+    for (const clause of clauses) {
+      const c = clause.toLowerCase();
+      if (/\bpavers?\b|\bsod\b|\bturf\b|\brock\b|\bmulch\b|\bgravel\b/.test(c)) continue;
+      if (!/\bconcrete\b|\bflatwork\b|\bslab\b|\bdriveway\b/.test(c)) continue;
+      const near = pickSqftNearPattern(clause, /\bconcrete\b|\bflatwork\b|\bslab\b|\bdriveway\b/);
+      if (near) return near;
+      const q = firstQty(clause, SQFT_RE);
+      if (q) return q;
+    }
+    return null;
+  })();
   if (concreteSqft) out.concreteSqft = concreteSqft;
 
   let concreteCy = null;
@@ -316,6 +330,9 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       excavationCy = cy;
       break;
     }
+  }
+  if (!excavationCy && /\bexcavat(?:e|ion)\b|\btrench(?:ing)?\b|\bgrading\b/.test(blob)) {
+    excavationCy = firstQty(text, CY_RE);
   }
   if (excavationCy) out.excavationCy = excavationCy;
 

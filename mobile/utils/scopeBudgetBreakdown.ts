@@ -27,6 +27,11 @@ export type ItemBudgetBreakdown = {
 
 const MATERIAL_ONLY_BUDGET_KEYS = new Set(['rock_mulch', 'sod_turf', 'plants_trees']);
 
+function splitMatchesTotal(material: number, labor: number, total: number): boolean {
+  if (material <= 0 || labor <= 0 || total <= 0) return false;
+  return Math.abs(material + labor - total) <= 1;
+}
+
 export function buildDraftBudgetContext(draft: EstimateAiDraft) {
   const templateKey = draft.scopeChecklist?.templateKey;
   const notes = resolveDraftScopeNotes(draft);
@@ -38,10 +43,12 @@ export function buildDraftBudgetContext(draft: EstimateAiDraft) {
         projectType: draft.projectType ?? undefined,
       }).itemQuantities || {}
     : {};
-  const itemQuantities = {
-    ...(draft.scopeMeasurements?.itemQuantities || {}),
-    ...parsedFromNotes,
-  };
+  const itemQuantities: Record<string, ScopeItemQuantityValue> = { ...parsedFromNotes };
+  for (const [id, val] of Object.entries(draft.scopeMeasurements?.itemQuantities || {})) {
+    if (!itemQuantities[id] || val.quantitySource === 'user_entered') {
+      itemQuantities[id] = val as ScopeItemQuantityValue;
+    }
+  }
   return { templateKey, notes, measurementsInput, norm, itemQuantities };
 }
 
@@ -122,6 +129,30 @@ export function resolveItemBudgetBreakdown(params: {
   const rule = getChecklistItemQuantityRule(ruleKey, templateKey);
 
   if (rule?.dualAllowanceField) {
+    const itemMaterial = Number(itemQuantities[`${ruleKey}__material`]?.quantity || 0);
+    const itemLabor = Number(itemQuantities[`${ruleKey}__labor`]?.quantity || 0);
+    const itemAllowance = Number(itemQuantities[`${ruleKey}__allowance`]?.quantity || 0);
+    const hasUserSelectedSplit =
+      itemQuantities[`${ruleKey}__material`]?.quantitySource === 'user_entered' ||
+      itemQuantities[`${ruleKey}__labor`]?.quantitySource === 'user_entered' ||
+      itemQuantities[`${ruleKey}__allowance`]?.quantitySource === 'user_entered';
+    const selectedTotal = itemAllowance > 0 ? itemAllowance : itemMaterial + itemLabor;
+    if (
+      hasUserSelectedSplit &&
+      itemMaterial > 0 &&
+      itemLabor > 0 &&
+      splitMatchesTotal(itemMaterial, itemLabor, selectedTotal)
+    ) {
+      return {
+        total: selectedTotal,
+        material: itemMaterial,
+        labor: itemLabor,
+        materialSource: 'manual',
+        laborSource: 'manual',
+        basis: scopeQuantity,
+      };
+    }
+
     const dual = resolveDualRatePricingDisplayFromNotes(ruleKey, measurementsInput, notes, templateKey);
     const mat = dual?.dualMaterial?.quantity;
     const lab = dual?.dualLabor?.quantity;
@@ -140,7 +171,7 @@ export function resolveItemBudgetBreakdown(params: {
   const pkgLab = Number(pkgLaborPrice ?? 0);
   const packageWasEditedManually =
     pkgPriceSource === 'manual' || pkgPriceSource === 'user' || pkgPriceSource === 'user_provided';
-  if (packageWasEditedManually && pkgMat > 0 && pkgLab > 0) {
+  if (packageWasEditedManually && splitMatchesTotal(pkgMat, pkgLab, total)) {
     return {
       total,
       material: pkgMat,
@@ -153,7 +184,7 @@ export function resolveItemBudgetBreakdown(params: {
 
   const material = Number(itemQuantities[`${ruleKey}__material`]?.quantity || 0);
   const labor = Number(itemQuantities[`${ruleKey}__labor`]?.quantity || 0);
-  if (material > 0 && labor > 0) {
+  if (splitMatchesTotal(material, labor, total)) {
     return {
       total,
       material,
@@ -164,7 +195,7 @@ export function resolveItemBudgetBreakdown(params: {
     };
   }
 
-  if (pkgMat > 0 && pkgLab > 0) {
+  if (splitMatchesTotal(pkgMat, pkgLab, total)) {
     const source: BudgetSplitSource =
       pkgSplitIsSuggested
           ? 'suggested'
@@ -213,7 +244,7 @@ export function resolveItemBudgetBreakdown(params: {
     labor: computed.labor,
     materialSource: 'suggested',
     laborSource: 'suggested',
-    basis: count,
+    basis: scopeQuantity ?? { quantity: count, unit: rule?.defaultUnit || 'unit' },
   };
 }
 
@@ -222,13 +253,43 @@ export function resolveScopePackageBudgetBreakdown(
   pkg: EstimateDraftScopePackage,
   draft: EstimateAiDraft
 ): ItemBudgetBreakdown | null {
-  const total = Number(pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0);
+  const pkgMat = Number(pkg.materialPrice ?? 0);
+  const pkgLab = Number(pkg.laborPrice ?? 0);
+  const packageTotal = Number(pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0);
+  const packageWasEditedManually =
+    pkg.priceSource === 'manual' || pkg.priceSource === 'user' || pkg.priceSource === 'user_provided';
+  const ruleKey = lookupRuleKeyForBudgetPackage(pkg.name, pkg.scope || '');
+  const ctx = buildDraftBudgetContext(draft);
+  const itemMaterial = ruleKey ? Number(ctx.itemQuantities[`${ruleKey}__material`]?.quantity || 0) : 0;
+  const itemLabor = ruleKey ? Number(ctx.itemQuantities[`${ruleKey}__labor`]?.quantity || 0) : 0;
+  const itemMaterialSource = ruleKey ? ctx.itemQuantities[`${ruleKey}__material`]?.quantitySource : undefined;
+  const itemLaborSource = ruleKey ? ctx.itemQuantities[`${ruleKey}__labor`]?.quantitySource : undefined;
+  const hasUserSelectedItemSplit =
+    itemMaterialSource === 'user_entered' || itemLaborSource === 'user_entered';
+  const itemSplitTotal = itemMaterial > 0 && itemLabor > 0 ? itemMaterial + itemLabor : 0;
+  const packageSplitTotal = pkgMat > 0 && pkgLab > 0 ? pkgMat + pkgLab : 0;
+  const canUseSplitTotal =
+    ruleKey !== 'floor_demo' && (itemSplitTotal > packageTotal || packageSplitTotal > packageTotal);
+  const total = hasUserSelectedItemSplit && itemSplitTotal > 0
+    ? itemSplitTotal
+    : canUseSplitTotal
+    ? Math.max(itemSplitTotal, packageSplitTotal)
+    : packageTotal;
   if (total <= 0) return null;
 
-  const ruleKey = lookupRuleKeyForBudgetPackage(pkg.name, pkg.scope || '');
+  if (packageWasEditedManually && splitMatchesTotal(pkgMat, pkgLab, total)) {
+    return {
+      total,
+      material: pkgMat,
+      labor: pkgLab,
+      materialSource: 'manual',
+      laborSource: 'manual',
+      basis: pkg.budgetSplitBasis ?? pkg.scopeQuantities?.[0] ?? null,
+    };
+  }
+
   if (!ruleKey) return null;
 
-  const ctx = buildDraftBudgetContext(draft);
   return resolveItemBudgetBreakdown({
     ruleKey,
     total,

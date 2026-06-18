@@ -279,6 +279,24 @@ export default function AIEstimateDraftReviewCompact({
   const [showAllScope, setShowAllScope] = useState(false);
   const [editingPricingFor, setEditingPricingFor] = useState<string | null>(null);
   const scopePackages = getScopePackages(draft);
+  if (__DEV__) {
+    const q = draft.scopeMeasurements?.itemQuantities || {};
+    const pkg = scopePackages.find((p) => /flooring|lvp/i.test(`${p.name || ''} ${p.scope || ''}`));
+    if (pkg) {
+      console.log('[scope-pricing] step3 render', {
+        rows: scopePackages.map((p) => ({
+          name: p.name,
+          price: p.price ?? p.knownSubtotal ?? p.calculatedSubtotal,
+          status: p.status,
+        })),
+        material: q.flooring__material,
+        labor: q.flooring__labor,
+        allowance: q.flooring__allowance,
+        packagePrice: pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal,
+        packageStatus: pkg.status,
+      });
+    }
+  }
   const stillNeeded = getCompactStillNeeded(draft, 5);
   const hasPricing = draftHasApplyablePricing(draft);
   const statedTotal = draft.statedTotal ?? draft.totalValidation?.statedTotal;

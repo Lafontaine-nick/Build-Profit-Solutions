@@ -910,7 +910,7 @@ export function createCustomScopeItem(label: string): ScopeChecklistItem {
     id,
     inputType: 'yes_no',
     label: trimmed,
-    helperText: 'Custom scope item added by contractor.',
+    helperText: 'Added manually. Price as total, sqft, or LF.',
     state: 'included',
     category: 'custom',
   };

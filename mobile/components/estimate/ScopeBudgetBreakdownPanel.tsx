@@ -22,6 +22,20 @@ function pricingLabelColor(darkMode: boolean, Colors: Colors) {
   return darkMode ? 'rgba(255,255,255,0.72)' : Colors.sub;
 }
 
+function formatUnitLabel(unit: string | null | undefined) {
+  const normalized = String(unit || '').toLowerCase();
+  if (normalized === 'sqft' || normalized === 'sf') return 'sqft';
+  if (normalized === 'lf' || normalized === 'linear foot' || normalized === 'linear feet') return 'LF';
+  return normalized || 'unit';
+}
+
+function rateHelper(amount: number, basis: ScopePackageBudgetBreakdown['basis']) {
+  if (!basis?.quantity || basis.quantity <= 0) return null;
+  const rate = amount / basis.quantity;
+  if (!Number.isFinite(rate) || rate <= 0) return null;
+  return `Rate: ${formatDraftMoney(rate)} / ${formatUnitLabel(basis.unit)}`;
+}
+
 function SourcePill({
   source,
 }: {
@@ -84,38 +98,47 @@ export default function ScopeBudgetBreakdownPanel({
     lineLabel: string,
     amount: number,
     source: ScopePackageBudgetBreakdown['materialSource']
-  ) => (
-    <View key={lineLabel} style={styles.breakdownLineBlock}>
-      <View style={styles.breakdownLineRow}>
-        <Text
-          style={{
-            flex: 1,
-            marginRight: 12,
-            color: pricingLabelColor(darkMode, Colors),
-            fontSize: 14,
-            fontWeight: '600',
-          }}
-        >
-          {lineLabel}
-        </Text>
-        <Text
-          style={{
-            flexShrink: 0,
-            color: pricingTextColor(darkMode, Colors),
-            fontSize: 15,
-            fontWeight: '700',
-          }}
-        >
-          {formatDraftMoney(amount)}
-        </Text>
-      </View>
-      {!sameSource ? (
-        <View style={styles.breakdownPillRow}>
-          <SourcePill source={source} />
+  ) => {
+    const helper = rateHelper(amount, breakdown.basis);
+    return (
+      <View key={lineLabel} style={styles.breakdownLineBlock}>
+        <View style={styles.breakdownLineRow}>
+          <Text
+            style={{
+              flex: 1,
+              marginRight: 12,
+              color: pricingLabelColor(darkMode, Colors),
+              fontSize: 14,
+              fontWeight: '600',
+            }}
+          >
+            {lineLabel}
+          </Text>
+          <View style={{ alignItems: 'flex-end', flexShrink: 0 }}>
+            <Text
+              style={{
+                color: pricingTextColor(darkMode, Colors),
+                fontSize: 15,
+                fontWeight: '700',
+              }}
+            >
+              {formatDraftMoney(amount)}
+            </Text>
+            {helper ? (
+              <Text style={{ color: pricingLabelColor(darkMode, Colors), fontSize: 11, marginTop: 2 }}>
+                {helper}
+              </Text>
+            ) : null}
+          </View>
         </View>
-      ) : null}
-    </View>
-  );
+        {!sameSource ? (
+          <View style={styles.breakdownPillRow}>
+            <SourcePill source={source} />
+          </View>
+        ) : null}
+      </View>
+    );
+  };
 
   return (
     <View

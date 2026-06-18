@@ -11,7 +11,14 @@ const UNIT_RATE_AFTER_RE =
 
 /** Keep compound labels intact (e.g. "cabinets and counters $28,629") — do not split on "and". */
 function splitAllowanceClauses(text) {
-  return splitScopeNoteSentences(text);
+  return splitScopeNoteSentences(text)
+    .flatMap((clause) =>
+      clause.split(
+        /,\s+(?=(?:demo|demolition|remove|tear|install|baseboards?|trim|flooring|lvp|vinyl|carpet|sod|turf|pavers?|rock|mulch|gravel|decorative\s+rock|concrete|roof|shingles?|cleanup|final\s+clean|haul)\b)/i
+      )
+    )
+    .map((clause) => clause.trim())
+    .filter(Boolean);
 }
 
 /**
@@ -116,6 +123,17 @@ const ITEM_ALLOWANCE_MATCHERS = [
     id: 'trim',
     match: /\b(baseboards?|trim|moulding|molding|casing)\b/i,
     exclude: /\b(\/|per\s+(?:linear\s+foot|feet|lf)|per\s+lf)\b/i,
+    unit: 'allowance',
+  },
+  {
+    id: 'rock_mulch',
+    match: /\b(rock|mulch|gravel|stone)\b/i,
+    exclude: /\b(\/|per\s+(?:ton|sq|square|sf|sqft))\b/i,
+    unit: 'allowance',
+  },
+  {
+    id: 'tear_off',
+    match: /\b(tear[\s-]?off|roof\s+demo|remove\s+shingles?|shingle\s+removal)\b/i,
     unit: 'allowance',
   },
 ];

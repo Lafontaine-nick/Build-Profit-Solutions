@@ -32,6 +32,43 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(fill?.materialSource).toBe('national_average');
   });
 
+  it('shows saved flooring rates as a comparison instead of splitting a note total into saved material plus remainder', () => {
+    const input = inputWith({ floorAreaSqft: '850' });
+    const resolved = {
+      quantity: 3825,
+      unit: 'allowance',
+      quantitySource: 'notes' as const,
+      dualAllowance: { quantity: 3825, unit: 'allowance' },
+    };
+    const pricingContext: ScopePricingContext = {
+      templates: [
+        {
+          name: 'LVP Floors',
+          materialLineItems: [{ name: 'LVP plank flooring', unit: 'sqft', unitPrice: 3 }],
+          laborLineItems: [{ name: 'LVP install labor', unit: 'sqft', unitPrice: 4 }],
+        },
+      ],
+    };
+
+    const { fill, comparison } = resolveScopeItemSuggestedPricing(
+      'flooring',
+      input,
+      'flooring',
+      resolved,
+      pricingContext
+    );
+
+    expect(fill).toBeNull();
+    expect(comparison).toMatchObject({
+      material: 2550,
+      labor: 3400,
+      total: 5950,
+      materialSource: 'template',
+      laborSource: 'template',
+      isComparison: true,
+    });
+  });
+
   it('fills the missing labor leg when notes priced only material', () => {
     const input = inputWith({ floorAreaSqft: '1000' });
     const resolved = {
@@ -60,6 +97,24 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(fill).toMatchObject({ mode: 'fill_missing', material: 4000, labor: 3000 });
     expect(fill?.materialSource).toBe('national_average');
     expect(fill?.laborSource).toBe('notes');
+  });
+
+  it('splits flooring demo lump totals into material + labor budget tracking', () => {
+    const input = inputWith({ floorAreaSqft: '850' });
+    const resolved = {
+      quantity: 2550,
+      unit: 'allowance',
+      quantitySource: 'notes' as const,
+    };
+    const { fill, comparison } = resolveScopeItemSuggestedPricing('floor_demo', input, 'flooring', resolved);
+    expect(comparison).toBeNull();
+    expect(fill).toMatchObject({
+      mode: 'note_total_split',
+      material: 425,
+      labor: 2125,
+      total: 2550,
+      materialSource: 'national_average',
+    });
   });
 
   it('shows only a comparison when notes priced both legs', () => {
@@ -116,6 +171,23 @@ describe('resolveTemplateRateForItem', () => {
       materialRate: 5.5,
       laborRate: 3.25,
       source: 'LVP Floors',
+    });
+  });
+
+  it('matches saved sqft labor lines stored as hours and rate', () => {
+    const ctx: ScopePricingContext = {
+      templates: [
+        {
+          name: 'Nick',
+          materialLineItems: [{ name: 'LVP flooring', unit: 'sqft', unitPrice: 3 }],
+          laborLineItems: [{ name: 'LVP install', mode: 'sqft', hours: 1200, rate: 4, total: 4800 }],
+        },
+      ],
+    };
+    expect(resolveTemplateRateForItem('flooring', 'sqft', ctx)).toMatchObject({
+      materialRate: 3,
+      laborRate: 4,
+      source: 'Nick',
     });
   });
 

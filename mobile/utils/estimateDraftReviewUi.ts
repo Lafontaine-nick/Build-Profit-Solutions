@@ -186,6 +186,10 @@ export function compactPackageAmount(
   pkg: EstimateDraftScopePackage,
   draft?: EstimateAiDraft | null
 ): string | null {
+  if (draft) {
+    const breakdown = resolveScopePackageBudgetBreakdown(pkg, draft);
+    if (breakdown?.total && breakdown.total > 0) return formatDraftMoney(breakdown.total);
+  }
   const amount = pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal;
   if (amount != null && amount > 0) return formatDraftMoney(amount);
   const pending = proposalTotalForScopeName(draft?.pendingPricingProposal, pkg.name);

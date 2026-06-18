@@ -263,12 +263,14 @@ Demo old cabinets and haul off $850 lump sum`;
     expect(parsed.itemQuantities?.demo).toBeUndefined();
 
     const norm = normalizeScopeMeasurements(parsed);
-    expect(
-      resolveQuantityForChecklistItem('floor_demo', { templateKey: 'flooring', notes, measurements: norm }).quantity
-    ).toBe(2550);
-    expect(
-      resolveQuantityForChecklistItem('flooring', { templateKey: 'flooring', notes, measurements: norm }).quantity
-    ).toBe(6587.5);
+    const floorDemo = resolveQuantityForChecklistItem('floor_demo', { templateKey: 'flooring', notes, measurements: norm });
+    expect(floorDemo.quantity).toBe(2550);
+    expect(floorDemo.unit).toBe('allowance');
+    const flooring = resolveQuantityForChecklistItem('flooring', { templateKey: 'flooring', notes, measurements: norm });
+    expect(flooring.quantity).toBe(850);
+    expect(flooring.dualMaterial?.quantity).toBe(3825);
+    expect(flooring.dualLabor?.quantity).toBe(2762.5);
+    expect(flooring.dualAllowance?.quantity).toBe(6587.5);
     expect(
       resolveQuantityForChecklistItem('trim', { templateKey: 'flooring', notes, measurements: norm }).pricingReady
     ).toBe(true);

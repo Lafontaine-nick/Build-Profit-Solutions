@@ -93,6 +93,7 @@ import {
   fetchRoughEstimateRange,
   getScopePackages,
   isComplexEstimateTier,
+  syncSelectedScopePricing,
 } from '../../utils/estimateAiDraft';
 import {
   capturePricingMemory,
@@ -186,6 +187,7 @@ import WebPageShell from '@/components/layout/WebPageShell';
 // Colors will be defined inside the component using theme
 
 const BID_STORAGE_KEY = 'bps.currentBid.v2';
+const AI_DRAFT_PROGRESS_STORAGE_KEY = 'bps.aiDraftProgress.v1';
 const screenWidth = Dimensions.get('window').width;
 const CART_SCROLL_MAX_HEIGHT = 420;
 const ESTIMATE_SCAN_DESTINATIONS = ['estimate'];
@@ -5181,6 +5183,23 @@ export default function EstimateGeneratorScreen() {
   const [aiClarifyQuestions, setAiClarifyQuestions] = useState(null);
   const aiSavedPricingAutoRef = useRef(null);
   const aiDraftReviewResumeRef = useRef(false);
+  const latestScopeMeasurementsRef = useRef(null);
+  const syncDraftWithLatestScopeMeasurements = useCallback((draft) => {
+    if (!draft) return draft;
+    const latest = latestScopeMeasurementsRef.current;
+    if (!latest) return syncSelectedScopePricing(draft);
+    return syncSelectedScopePricing({
+      ...draft,
+      scopeMeasurements: {
+        ...(draft.scopeMeasurements || {}),
+        ...latest,
+        itemQuantities: {
+          ...(draft.scopeMeasurements?.itemQuantities || {}),
+          ...(latest.itemQuantities || {}),
+        },
+      },
+    });
+  }, []);
   const [aiDraftFillToast, setAiDraftFillToast] = useState({ visible: false, roomCount: 0 });
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const [isFirstTime, setIsFirstTime] = useState(false);
@@ -5576,6 +5595,26 @@ export default function EstimateGeneratorScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(AI_DRAFT_PROGRESS_STORAGE_KEY);
+        if (cancelled || !raw) return;
+        const saved = JSON.parse(raw);
+        if (!saved?.draft?.scopeChecklist) return;
+        setAiDraft(saved.draft);
+        setAiDraftNotes(saved.notes || saved.draft.originalNotes || '');
+        setAiDraftFromAssistant(Boolean(saved.fromAssistant));
+      } catch (e) {
+        console.warn('restore AI draft progress failed', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const bidHasLineItems = useMemo(
     () => estimateHasLineItemContent(bid, materialsCart),
     [bid, materialsCart]
@@ -5659,11 +5698,12 @@ export default function EstimateGeneratorScreen() {
 
   const advanceComplexDraftAfterScope = useCallback(
     async (enrichedDraft, { skipPricing = false } = {}) => {
-      setAiDraft(enrichedDraft);
+      const syncedDraft = syncDraftWithLatestScopeMeasurements(enrichedDraft);
+      setAiDraft(syncedDraft);
       setShowAiScopeAssumptionsModal(false);
 
       const notePricingComplete =
-        draftHasApplyablePricing(enrichedDraft) && !draftHasUnpricedScope(enrichedDraft);
+        draftHasApplyablePricing(syncedDraft) && !draftHasUnpricedScope(syncedDraft);
 
       if (skipPricing || notePricingComplete) {
         setShowAiDraftReviewModal(true);
@@ -5671,11 +5711,11 @@ export default function EstimateGeneratorScreen() {
       }
 
       const { draft: withSaved, hasProposal: hasSaved } = await applySavedPricingToDraftState(
-        enrichedDraft,
+        syncedDraft,
         { autoApply: false, showLoading: false }
       );
       if (hasSaved) {
-        setAiDraft(withSaved);
+        setAiDraft(syncDraftWithLatestScopeMeasurements(withSaved));
         aiDraftReviewResumeRef.current = true;
         setShowAiSavedPricingModal(true);
         if (Platform.OS !== 'web') {
@@ -5693,11 +5733,11 @@ export default function EstimateGeneratorScreen() {
         } catch {
           templates = savedBidTemplates;
         }
-        const proposal = await fetchRoughPricingProposal(enrichedDraft, templates, {
+        const proposal = await fetchRoughPricingProposal(syncedDraft, templates, {
           projectLocation: [bid?.projectAddress, bid?.customerCity, bid?.customerState]
             .filter(Boolean)
             .join(', '),
-          zipCode: resolvePricingZipCode(enrichedDraft, bid),
+          zipCode: resolvePricingZipCode(syncedDraft, bid),
         });
         if (!proposal.empty) {
           setAiRoughPricingProposal(proposal);
@@ -5716,7 +5756,7 @@ export default function EstimateGeneratorScreen() {
         setAiDraftRoughLoading(false);
       }
     },
-    [applySavedPricingToDraftState, savedBidTemplates, bid]
+    [applySavedPricingToDraftState, savedBidTemplates, bid, syncDraftWithLatestScopeMeasurements]
   );
 
   const handleGenerateAiDraft = useCallback(async (notes) => {
@@ -5724,6 +5764,8 @@ export default function EstimateGeneratorScreen() {
     setAiDraftGenerating(true);
     setAiDraftNotes(notes);
     setAiDraft(null);
+      latestScopeMeasurementsRef.current = null;
+    AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
     setShowAiScopeAssumptionsModal(false);
     setShowAiDraftReviewModal(false);
     setShowAiSavedPricingModal(false);
@@ -5781,19 +5823,64 @@ export default function EstimateGeneratorScreen() {
             templateKey: prev.scopeChecklist?.templateKey,
           })
         : measurements;
-      return mergeScopeProgressIntoDraft(prev, items, repairedMeasurements, {
-        scopeNotes,
-      });
+      latestScopeMeasurementsRef.current = repairedMeasurements || null;
+      const nextDraft = syncDraftWithLatestScopeMeasurements(
+        mergeScopeProgressIntoDraft(prev, items, repairedMeasurements, {
+          scopeNotes,
+        })
+      );
+      AsyncStorage.setItem(
+        AI_DRAFT_PROGRESS_STORAGE_KEY,
+        JSON.stringify({
+          draft: nextDraft,
+          notes: scopeNotes,
+          fromAssistant: aiDraftFromAssistant,
+          stage: 'scope',
+          updatedAt: Date.now(),
+        })
+      ).catch((e) => console.warn('persist AI scope progress failed', e));
+      return nextDraft;
     });
-  }, [aiDraftNotes]);
+  }, [aiDraftFromAssistant, aiDraftNotes, syncDraftWithLatestScopeMeasurements]);
 
   const handleConfirmScopeAssumptions = useCallback(
     async (confirmedItems, scopeMeasurements) => {
       if (!aiDraft || aiScopeAssumptionsApplying) return;
+      latestScopeMeasurementsRef.current = scopeMeasurements || latestScopeMeasurementsRef.current;
+      const draftForScope = syncDraftWithLatestScopeMeasurements(
+        mergeScopeProgressIntoDraft(aiDraft, confirmedItems, scopeMeasurements, {
+          scopeNotes: aiDraft.originalNotes || aiDraftNotes,
+        })
+      );
+      if (__DEV__) {
+        const q = draftForScope.scopeMeasurements?.itemQuantities || {};
+        const pkg = draftForScope.scopePackages?.find((p) => /flooring|lvp/i.test(`${p.name || ''} ${p.scope || ''}`));
+        console.log('[scope-pricing] parent draftForScope', {
+          material: q.flooring__material,
+          labor: q.flooring__labor,
+          allowance: q.flooring__allowance,
+          packagePrice: pkg?.price ?? pkg?.knownSubtotal ?? pkg?.calculatedSubtotal,
+          packageStatus: pkg?.status,
+        });
+      }
+      setAiDraft(draftForScope);
       setAiScopeAssumptionsApplying(true);
       let enriched;
       try {
-        enriched = await applyScopeAssumptionsToDraft(aiDraft, confirmedItems, scopeMeasurements);
+        enriched = syncDraftWithLatestScopeMeasurements(
+          await applyScopeAssumptionsToDraft(draftForScope, confirmedItems, scopeMeasurements)
+        );
+        if (__DEV__) {
+          const q = enriched.scopeMeasurements?.itemQuantities || {};
+          const pkg = enriched.scopePackages?.find((p) => /flooring|lvp/i.test(`${p.name || ''} ${p.scope || ''}`));
+          console.log('[scope-pricing] parent enriched', {
+            material: q.flooring__material,
+            labor: q.flooring__labor,
+            allowance: q.flooring__allowance,
+            packagePrice: pkg?.price ?? pkg?.knownSubtotal ?? pkg?.calculatedSubtotal,
+            packageStatus: pkg?.status,
+          });
+        }
       } catch (e) {
         console.warn('handleConfirmScopeAssumptions failed', e);
         Alert.alert('Scope confirmation', e?.message || 'Could not save scope assumptions. Please try again.');
@@ -5809,7 +5896,7 @@ export default function EstimateGeneratorScreen() {
         setShowAiDraftReviewModal(true);
       }
     },
-    [aiDraft, aiScopeAssumptionsApplying, advanceComplexDraftAfterScope]
+    [aiDraft, aiDraftNotes, aiScopeAssumptionsApplying, advanceComplexDraftAfterScope, syncDraftWithLatestScopeMeasurements]
   );
 
   const handleScopeAssumptionsScopeOnly = useCallback(async (scopeMeasurements) => {
@@ -6294,6 +6381,7 @@ export default function EstimateGeneratorScreen() {
           setStep(0);
           await AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(nextBid));
           await AsyncStorage.setItem('bps.materialsCart', JSON.stringify(nextCart));
+          await AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY);
           setForceRefresh((prev) => prev + 1);
           if (Platform.OS !== 'web') {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -9487,6 +9575,11 @@ export default function EstimateGeneratorScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setAiDraftFromAssistant(false);
     setShowAIAssistant(false);
+    setShowAiScopeAssumptionsModal(false);
+    setShowAiDraftReviewModal(false);
+    setAiDraft(null);
+    setAiDraftNotes('');
+    AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
     setEstimateAiInitialQuestion('');
     setShowAiBuilderModal(true);
   }, []);
@@ -12924,6 +13017,7 @@ export default function EstimateGeneratorScreen() {
         'manualMaterialEntry',
         'manualLaborEntry',
         BID_STORAGE_KEY, // Clear the current bid storage
+        AI_DRAFT_PROGRESS_STORAGE_KEY,
         'bps.currentBid',
         'bps.currentBid.v1',
         'bps.haimBid',
@@ -24046,6 +24140,11 @@ export default function EstimateGeneratorScreen() {
         overlayBlocksKeyboard={showAIAssistant && aiFlowOverlayActive}
         onBuildWithAi={() => {
           setAiDraftFromAssistant(true);
+          setShowAiScopeAssumptionsModal(false);
+          setShowAiDraftReviewModal(false);
+          setAiDraft(null);
+          setAiDraftNotes('');
+          AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
           setShowAiBuilderModal(true);
         }}
       />
@@ -24098,7 +24197,7 @@ export default function EstimateGeneratorScreen() {
 
       <AIEstimateDraftReviewModal
         visible={showAiDraftReviewModal}
-        draft={aiDraft}
+        draft={syncDraftWithLatestScopeMeasurements(aiDraft)}
         applying={aiDraftApplying}
         suggestingSplits={aiDraftSuggestingSplits}
         clarifying={aiDraftClarifying}

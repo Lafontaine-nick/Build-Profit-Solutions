@@ -4,6 +4,7 @@ import {
   parseScopeMeasurementsFromNotes,
 } from '@/utils/scopeMeasurementParser';
 import { resolveScopePackageBudgetBreakdown } from '@/utils/scopeBudgetBreakdown';
+import { lookupRuleKeyForPackage } from '@/utils/scopeItemQuantities';
 
 export type DraftItemStatus =
   | 'confirmed'
@@ -529,7 +530,7 @@ export async function fetchSuggestedDraftSplits(
     throw new Error(payload?.message || payload?.error || 'Failed to suggest splits');
   }
 
-  return payload.draft;
+  return syncSelectedScopePricing(payload.draft);
 }
 
 export async function fetchRoughEstimateRange(
@@ -574,14 +575,33 @@ export function aiFlowStepTotal(draft: EstimateAiDraft | null | undefined): 2 | 
   return isComplexEstimateTier(draft) ? 3 : 2;
 }
 
+function overlayScopeMeasurements(
+  draft: EstimateAiDraft,
+  scopeMeasurements?: ScopeMeasurements | null
+): EstimateAiDraft {
+  if (!scopeMeasurements) return draft;
+  return {
+    ...draft,
+    scopeMeasurements: {
+      ...(draft.scopeMeasurements || {}),
+      ...scopeMeasurements,
+      itemQuantities: {
+        ...(draft.scopeMeasurements?.itemQuantities || {}),
+        ...(scopeMeasurements.itemQuantities || {}),
+      },
+    },
+  };
+}
+
 export async function applyScopeAssumptionsToDraft(
   draft: EstimateAiDraft,
   confirmedItems: ScopeChecklistItem[],
   scopeMeasurements?: ScopeMeasurements | null
 ): Promise<EstimateAiDraft> {
+  const draftForApply = overlayScopeMeasurements(draft, scopeMeasurements);
   const payload = await postAiAssistantJson<{ draft?: EstimateAiDraft; error?: string; message?: string }>(
     '/estimate-draft-apply-scope-assumptions',
-    { draft, confirmedItems, scopeMeasurements: scopeMeasurements ?? undefined },
+    { draft: draftForApply, confirmedItems, scopeMeasurements: scopeMeasurements ?? undefined },
     60000
   );
 
@@ -589,7 +609,7 @@ export async function applyScopeAssumptionsToDraft(
     throw new Error(payload?.message || payload?.error || 'Failed to apply scope assumptions');
   }
 
-  return payload.draft;
+  return syncSelectedScopePricing(overlayScopeMeasurements(payload.draft, scopeMeasurements));
 }
 
 export function draftHasCombinedRoomPrices(draft: EstimateAiDraft | null): boolean {
@@ -621,6 +641,110 @@ export function getScopePackageForRoom(
     }
     return false;
   });
+}
+
+function selectedPricingForScopeName(
+  draft: EstimateAiDraft,
+  name: string,
+  scope = ''
+): {
+  total: number;
+  materialPrice: number | null;
+  laborPrice: number | null;
+  basis: { quantity: number; unit: string } | null;
+} | null {
+  const ruleKey = lookupRuleKeyForPackage(name, scope);
+  if (!ruleKey) return null;
+  const itemQuantities = draft.scopeMeasurements?.itemQuantities || {};
+  const base = itemQuantities[ruleKey];
+  const allowance = itemQuantities[`${ruleKey}__allowance`];
+  const material = itemQuantities[`${ruleKey}__material`];
+  const labor = itemQuantities[`${ruleKey}__labor`];
+  const userSelected =
+    base?.quantitySource === 'user_entered' ||
+    allowance?.quantitySource === 'user_entered' ||
+    material?.quantitySource === 'user_entered' ||
+    labor?.quantitySource === 'user_entered';
+  if (!userSelected) return null;
+
+  const materialPrice = Number(material?.quantity || 0);
+  const laborPrice = Number(labor?.quantity || 0);
+  const splitTotal = materialPrice + laborPrice;
+  const allowanceTotal = Number(allowance?.quantity || 0);
+  const baseTotal = ['allowance', 'lump_sum'].includes(base?.unit || '') ? Number(base?.quantity || 0) : 0;
+  const total = allowanceTotal || baseTotal || splitTotal;
+  if (!Number.isFinite(total) || total <= 0) return null;
+
+  const basis =
+    base?.quantity && base.unit && !['allowance', 'lump_sum'].includes(base.unit)
+      ? { quantity: Number(base.quantity), unit: base.unit }
+      : null;
+
+  return {
+    total,
+    materialPrice: materialPrice > 0 ? materialPrice : null,
+    laborPrice: laborPrice > 0 ? laborPrice : null,
+    basis,
+  };
+}
+
+function applySelectedPricingToScopePackage(
+  pkg: EstimateDraftScopePackage,
+  draft: EstimateAiDraft
+): EstimateDraftScopePackage {
+  const selected = selectedPricingForScopeName(draft, pkg.name, pkg.scope);
+  if (!selected) return pkg;
+  return {
+    ...pkg,
+    price: selected.total,
+    knownSubtotal: selected.total,
+    calculatedSubtotal: selected.total,
+    finalApprovedTotal: selected.total,
+    materialPrice: selected.materialPrice,
+    laborPrice: selected.laborPrice,
+    includesLabor: selected.laborPrice != null ? true : pkg.includesLabor,
+    includesMaterials: selected.materialPrice != null ? true : pkg.includesMaterials,
+    priceSource: 'user_provided',
+    status: 'user_provided',
+    pricingType: selected.materialPrice || selected.laborPrice ? 'split' : 'lump_sum',
+    priceIncludesLaborAndMaterials: Boolean(selected.total && !(selected.materialPrice && selected.laborPrice)),
+    splitIsSuggested: false,
+    priceProvidedByUser: true,
+    applyEligible: true,
+    budgetSplitBasis: selected.basis ?? pkg.budgetSplitBasis ?? pkg.scopeQuantities?.[0] ?? null,
+    missingPriceItems: [],
+  };
+}
+
+function applySelectedPricingToRoom(room: EstimateDraftRoom, draft: EstimateAiDraft): EstimateDraftRoom {
+  const selected = selectedPricingForScopeName(draft, room.name, room.scope);
+  if (!selected) return room;
+  return {
+    ...room,
+    price: selected.total,
+    knownSubtotal: selected.total,
+    materialPrice: selected.materialPrice,
+    laborPrice: selected.laborPrice,
+    priceIncludesLaborAndMaterials: Boolean(selected.total && !(selected.materialPrice && selected.laborPrice)),
+    splitIsSuggested: false,
+    priceProvidedByUser: true,
+    pricedFromSqftAllowances: false,
+    packageStatus: 'user_provided',
+    applyEligible: true,
+    missingPriceItems: [],
+  };
+}
+
+export function syncSelectedScopePricing(draft: EstimateAiDraft): EstimateAiDraft {
+  if (!draft?.scopeMeasurements?.itemQuantities) return draft;
+  const nextDraft = { ...draft };
+  if (draft.scopePackages?.length) {
+    nextDraft.scopePackages = draft.scopePackages.map((pkg) => applySelectedPricingToScopePackage(pkg, draft));
+  }
+  if (draft.rooms?.length) {
+    nextDraft.rooms = draft.rooms.map((room) => applySelectedPricingToRoom(room, draft));
+  }
+  return nextDraft;
 }
 
 export function roomIsApplyEligible(
@@ -1105,6 +1229,7 @@ export function applyDraftToEstimate(
   draft: EstimateAiDraft,
   options: ApplyDraftOptions = {}
 ): ApplyDraftResult {
+  draft = syncSelectedScopePricing(draft);
   if (options.scopeOnly) {
     return applyScopeDraftOnly(bid, draft);
   }
@@ -1187,8 +1312,10 @@ export function draftHasApprovedSuggestions(draft: EstimateAiDraft | null): bool
 }
 
 export function getScopePackages(draft: EstimateAiDraft): EstimateDraftScopePackage[] {
-  if (draft.scopePackages?.length) return draft.scopePackages;
-  return draft.rooms.map((room) => ({
+  if (draft.scopePackages?.length) {
+    return draft.scopePackages.map((pkg) => applySelectedPricingToScopePackage(pkg, draft));
+  }
+  return draft.rooms.map((room) => applySelectedPricingToScopePackage({
     name: room.name,
     scope: room.scope,
     scopeQuantities: room.scopeQuantities,
@@ -1220,5 +1347,5 @@ export function getScopePackages(draft: EstimateAiDraft): EstimateDraftScopePack
     splitIsSuggested: Boolean(room.splitIsSuggested),
     priceProvidedByUser: Boolean(room.priceProvidedByUser),
     applyEligible: room.applyEligible ?? (room.price != null || (room.knownSubtotal || 0) > 0),
-  }));
+  }, draft));
 }
