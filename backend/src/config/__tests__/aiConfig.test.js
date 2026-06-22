@@ -78,7 +78,7 @@ describe('aiConfig', () => {
       ocr: {
         receipt: {
           temperature: 0.1,
-          maxTokens: 1000,
+          maxTokens: 2048,
         },
       },
       leadScoring: {

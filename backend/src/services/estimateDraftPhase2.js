@@ -41,6 +41,7 @@ function packageHasPricing(pkg) {
     (pkg.price != null && pkg.price > 0) ||
     (pkg.knownSubtotal != null && pkg.knownSubtotal > 0) ||
     pkg.status === 'calculated' ||
+    pkg.status === 'user_provided' ||
     pkg.status === 'partial_pricing' ||
     pkg.status === 'rough_price'
   );

@@ -109,7 +109,7 @@ describe('supplierPricing', () => {
       ],
     };
 
-    const result = await getPricingProposal({ draft, userId: 'dev-user-1', mode: 'suggest' });
+    const result = await getPricingProposal({ draft, userId: 'test-supplier-live-baseboard', mode: 'suggest' });
     const bb = result.scopeItems.find((s) => /baseboard/i.test(s.scopeName));
     expect(bb?.recommended?.source).toBe('supplier_pricing');
     expect(bb?.comparison?.supplier_pricing?.available).toBe(true);
@@ -140,7 +140,7 @@ describe('supplierPricing', () => {
       ],
     };
 
-    const result = await getPricingProposal({ draft, userId: 'dev-user-1', zipCode: '89109', mode: 'suggest' });
+    const result = await getPricingProposal({ draft, userId: 'test-supplier-empty-baseboard', zipCode: '89109', mode: 'suggest' });
     const bb = result.scopeItems.find((s) => /baseboard/i.test(s.scopeName));
     expect(bb?.recommended?.source).toBe('national_trade_average');
     expect(bb?.comparison?.supplier_pricing?.available).toBe(false);
@@ -172,7 +172,7 @@ describe('supplierPricing', () => {
       ],
     };
 
-    const result = await getPricingProposal({ draft, userId: 'dev-user-1', mode: 'suggest' });
+    const result = await getPricingProposal({ draft, userId: 'test-supplier-tile-comparison', mode: 'suggest' });
     const tile = result.scopeItems.find((s) => /tile/i.test(s.scopeName));
     expect(tile?.comparison?.supplier_pricing?.available).toBe(true);
     expect(tile?.recommended?.source).toBe('national_trade_average');

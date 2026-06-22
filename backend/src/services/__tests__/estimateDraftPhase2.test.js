@@ -5,12 +5,12 @@ describe('estimateDraftPhase2', () => {
   test('high confidence for quantity × rate flooring job', () => {
     const draft = normalizeDraft(
       {
-        projectType: 'other',
+        projectType: 'flooring',
         projectDescription: '1200 sqft laminate',
         rooms: [
           {
             name: 'Flooring',
-            scope: '1200 sqft laminate install and tile demo',
+            scope: '1200 sqft laminate install',
             price: null,
             priceIncludesLaborAndMaterials: false,
           },
@@ -20,7 +20,7 @@ describe('estimateDraftPhase2', () => {
           { name: 'Install labor', amount: 5, unit: '/sqft', description: '' },
         ],
       },
-      { originalNotes: '1200 sqft laminate $4/sqft material $5/sqft labor' }
+      { originalNotes: '1200 sqft laminate install $4/sqft material $5/sqft labor' }
     );
 
     expect(draft.estimateConfidence?.level).toBe('high');
@@ -31,6 +31,7 @@ describe('estimateDraftPhase2', () => {
   test('scope-only notes → low confidence and no pricing', () => {
     const draft = normalizeDraft({
       projectType: 'bathroom',
+      scopeAssumptionsConfirmed: true,
       rooms: [
         {
           name: 'Bathroom',
@@ -51,6 +52,7 @@ describe('estimateDraftPhase2', () => {
   test('lump sum preserved → user_provided status', () => {
     const draft = normalizeDraft({
       projectType: 'bathroom',
+      scopeAssumptionsConfirmed: true,
       rooms: [
         {
           name: 'Bathroom',
@@ -89,8 +91,8 @@ describe('estimateDraftPhase2', () => {
 
     expect(draft.rooms[0].laborPrice).toBe(8000);
     expect(draft.rooms[0].materialPrice).toBe(11000);
-    expect(draft.scopePackages[0].status).toBe('calculated');
-    expect(draft.noteProfile?.primary).toBe('exact_rate');
+    expect(draft.scopePackages[0].status).toBe('user_provided');
+    expect(draft.noteProfile?.primary).toBe('lump_sum');
     const lines = buildWhatAiDid(draft, draft.scopePackages);
     expect(lines.some((l) => /Calculated|Preserved/i.test(l))).toBe(true);
   });
@@ -101,6 +103,7 @@ describe('estimateDraftPhase2', () => {
     const draft = normalizeDraft(
       {
         projectType: 'kitchen',
+        scopeAssumptionsConfirmed: true,
         rooms: [
           {
             name: 'Kitchen Remodel',

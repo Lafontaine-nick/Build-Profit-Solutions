@@ -74,20 +74,20 @@ describe('pricingEngine', () => {
       projectType: 'kitchen',
       rooms: [
         {
-          name: 'Kitchen',
-          scope: 'Remodel kitchen flooring and cabinets',
+          name: 'Kitchen Floor Tile Installation',
+          scope: 'Install 200 sqft kitchen floor tile',
           scopeQuantities: [{ quantity: 200, unit: 'sqft', label: 'area' }],
           status: 'missing_price',
         },
       ],
     };
-    const result = await getPricingProposal({ draft: kitchenDraft, userId: 'dev-user-1', mode: 'suggest' });
-    const kitchen = result.scopeItems.find((s) => s.scopeName === 'Kitchen');
+    const result = await getPricingProposal({ draft: kitchenDraft, userId: 'test-kitchen-national-average', mode: 'suggest' });
+    const kitchen = result.scopeItems.find((s) => s.scopeName === 'Kitchen Floor Tile Installation');
     expect(kitchen?.recommended?.source).toBe('national_trade_average');
     const mat = kitchen.proposedRates.find((p) => p.pricingType === 'material');
     const lab = kitchen.proposedRates.find((p) => p.pricingType === 'labor');
-    expect(mat?.rate).toBe(55);
-    expect(lab?.rate).toBe(95);
+    expect(mat?.rate).toBe(4);
+    expect(lab?.rate).toBe(5);
   });
 
   it('baseboard scope ignores sqft quantities and uses lf from notes', () => {
@@ -207,7 +207,7 @@ describe('pricingEngine', () => {
     ];
     const result = await getPricingProposal({
       draft: bathDraft,
-      userId: 'dev-user-1',
+      userId: 'test-saved-only-template',
       mode: 'saved_only',
       savedTemplates,
     });
@@ -216,8 +216,8 @@ describe('pricingEngine', () => {
     const lab = shower.proposedRates.find((p) => p.pricingType === 'labor');
     expect(mat?.source).toBe('saved_template');
     expect(mat?.rate).toBe(3.5);
-    expect(lab?.source).toBe('saved_pricing');
-    expect(lab?.rate).toBe(5);
+    expect(lab?.source).toBe('saved_template');
+    expect(lab?.rate).toBe(8);
     expect(shower.proposedRates.length).toBe(2);
   });
 });

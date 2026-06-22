@@ -45,6 +45,7 @@ describe('three note variants (Phase 1)', () => {
   test('variant B — exact rate: $/sqft material + labor calculated', () => {
     const draft = normalizeDraft({
       projectType: 'bathroom',
+      scopeAssumptionsConfirmed: true,
       projectDescription: '500 square feet of bathroom remodel work',
       rooms: [
         {

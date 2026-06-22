@@ -78,6 +78,7 @@ describe('scope-only → pricing → apply flow (Phase 1 E2E)', () => {
       calculatedLineItemTotal: 18475,
       calculatedLaborTotal: 13250,
       calculatedMaterialTotal: 5225,
+      scopeAssumptionsConfirmed: true,
     };
 
     const enriched = enrichDraft(pricedDraft, { originalNotes: FLOOR_SCOPE_NOTES });

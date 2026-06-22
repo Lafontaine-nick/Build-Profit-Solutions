@@ -325,7 +325,8 @@ function applySqftAllowancePricing(draft, options = {}) {
       laborPrice: computed.laborPrice,
       materialPrice: computed.materialPrice,
       priceIncludesLaborAndMaterials: false,
-      priceProvidedByUser: true,
+      priceProvidedByUser: false,
+      priceSource: 'calculated',
       pricedFromSqftAllowances: true,
       formula: computed.formula,
     });
@@ -597,7 +598,7 @@ function normalizeDraft(raw, options = {}) {
             priceRaw === null || priceRaw === undefined || priceRaw === ''
               ? null
               : roundMoney(priceRaw);
-          const priceProvidedByUser = Boolean(room?.priceProvidedByUser) || price != null;
+          const priceProvidedByUser = Boolean(room?.priceProvidedByUser);
           const roomNotesText = extractRoomNotesText(originalNotes, name, room?.scope || '');
           const notesBlob = `${roomNotesText}\n${room?.scope || ''}\n${name}`.trim();
           const pricingItems = sanitizePricingItemsList(
@@ -707,6 +708,7 @@ function normalizeDraft(raw, options = {}) {
     contractScope: draft.contractScope ? String(draft.contractScope).trim() : null,
     suggestedPaymentSchedule,
     pricingWarnings: [],
+    scopeAssumptionsConfirmed: Boolean(draft.scopeAssumptionsConfirmed),
   };
 
   let processed = baseDraft;

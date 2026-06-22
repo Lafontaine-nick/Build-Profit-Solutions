@@ -8,6 +8,9 @@ const initializeDatabase = () => {
       connectionString: process.env.DATABASE_URL,
       ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     });
+  } else if (process.env.NODE_ENV === 'test') {
+    pool = null;
+    return pool;
   } else {
     // Fallback to local development
     pool = new Pool({

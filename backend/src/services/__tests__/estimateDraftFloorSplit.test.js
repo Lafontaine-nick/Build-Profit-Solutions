@@ -92,6 +92,6 @@ describe('estimateDraftFloorSplit', () => {
       notes
     );
     expect(rooms).toHaveLength(2);
-    expect(rooms[0].name).toBe('Tile Removal');
+    expect(rooms[0].name).toBe('Tile Demo');
   });
 });

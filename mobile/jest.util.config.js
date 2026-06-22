@@ -6,9 +6,12 @@ module.exports = {
   moduleNameMapper: {
     '^react-native$': '<rootDir>/__test_stubs__/react-native.js',
     '^expo-constants$': '<rootDir>/__test_stubs__/expo-constants.js',
+    '^@expo/vector-icons$': '<rootDir>/__test_stubs__/expo-vector-icons.js',
+    '^@react-native-async-storage/async-storage$': '<rootDir>/__test_stubs__/async-storage.js',
     '/networkDetection$': '<rootDir>/__test_stubs__/networkDetection.js',
     '^@/(.*)$': '<rootDir>/$1',
   },
+  setupFiles: ['<rootDir>/jest.util.setup.js'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   transformIgnorePatterns: ['node_modules/(?!(expo|expo-.*|@expo)/)'],
   transform: {

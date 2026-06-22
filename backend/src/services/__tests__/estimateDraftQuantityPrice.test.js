@@ -38,7 +38,6 @@ describe('quantity vs price parsing', () => {
             name: 'Flooring',
             scope: '1200 sqft tile demo and 1200 sqft laminate install',
             price: 4100,
-            priceProvidedByUser: true,
             pricingItems: [
               { name: 'I have', amount: 1200, status: 'confirmed' },
               { name: 'caulk and paint Demo', amount: 1200, status: 'confirmed' },
@@ -95,11 +94,20 @@ describe('quantity vs price parsing', () => {
       { projectType: 'flooring' },
       notes
     );
-    expect(tile.scopeQuantities).toEqual([{ label: 'Tile Demo', quantity: 1200, unit: 'sqft' }]);
-    expect(laminate.scopeQuantities).toEqual([
-      { label: 'Laminate Flooring Installation', quantity: 1200, unit: 'sqft' },
+    expect(tile.scopeQuantities).toEqual([
+      { label: 'Tile Demo', quantity: 1200, unit: 'sqft', quantitySource: 'notes' },
     ]);
-    expect(baseboard.scopeQuantities).toEqual([{ label: 'Baseboard Installation', quantity: 500, unit: 'lf' }]);
+    expect(laminate.scopeQuantities).toEqual([
+      {
+        label: 'Laminate Flooring Installation',
+        quantity: 1200,
+        unit: 'sqft',
+        quantitySource: 'notes',
+      },
+    ]);
+    expect(baseboard.scopeQuantities).toEqual([
+      { label: 'Baseboard Installation', quantity: 500, unit: 'lf', quantitySource: 'notes' },
+    ]);
     expect(tile.knownSubtotal).toBeNull();
     expect(tile.status).toBe('missing_price');
   });
