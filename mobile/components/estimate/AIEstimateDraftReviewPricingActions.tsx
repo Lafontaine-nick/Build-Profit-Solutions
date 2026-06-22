@@ -1,9 +1,10 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
-import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
-import { formatDraftMoney } from '@/utils/estimateAiDraft';
+import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimateAiDraft';
+import { formatDraftMoney, getScopePackages } from '@/utils/estimateAiDraft';
 import { draftHasApplyablePricing } from '@/utils/estimateAiDraftPricing';
 import { countDraftPricingReadiness } from '@/utils/scopeItemQuantities';
+import { formatScopeQuantity } from '@/utils/estimateDraftReviewUi';
 import AIEstimateSavedPricingApplySummary from '@/components/estimate/AIEstimateSavedPricingApplySummary';
 import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 
@@ -63,6 +64,36 @@ function ActionBtn({
   );
 }
 
+function measuredScopeLines(packages: EstimateDraftScopePackage[]): string[] {
+  return packages
+    .map((pkg) => {
+      const qty = formatScopeQuantity(pkg);
+      return qty ? `${pkg.name}: ${qty}` : null;
+    })
+    .filter(Boolean)
+    .slice(0, 5) as string[];
+}
+
+function quickMeasurementLines(draft: EstimateAiDraft): string[] {
+  const measurements = draft.scopeMeasurements || {};
+  const rows: Array<[string, unknown, string]> = [
+    ['Excavation', measurements.excavationCy, 'CY'],
+    ['Foundation concrete', measurements.concreteCy, 'CY'],
+    ['Concrete flatwork', measurements.concreteSqft, 'sqft'],
+    ['Drywall', measurements.drywallSqft, 'sqft'],
+    ['Interior paint', measurements.wallPaintSqft, 'sqft'],
+    ['Flooring', measurements.floorAreaSqft, 'sqft'],
+    ['Baseboards / trim', measurements.baseboardLf, 'LF'],
+  ];
+  return rows
+    .map(([label, value, unit]) => {
+      const n = Number(value || 0);
+      return Number.isFinite(n) && n > 0 ? `${label}: ${n.toLocaleString()} ${unit}` : null;
+    })
+    .filter(Boolean)
+    .slice(0, 6) as string[];
+}
+
 export default function AIEstimateDraftReviewPricingActions({
   draft,
   Colors,
@@ -92,16 +123,20 @@ export default function AIEstimateDraftReviewPricingActions({
 
   const hasPricing = draftHasApplyablePricing(draft);
   const pricingReadiness = countDraftPricingReadiness(draft);
+  const packageMeasurementLines = measuredScopeLines(getScopePackages(draft));
+  const measuredLines = packageMeasurementLines.length ? packageMeasurementLines : quickMeasurementLines(draft);
   const roughLabel =
     pricingReadiness.ready > 0
       ? pricingReadiness.needsMeasurement > 0
-        ? `Suggest pricing for ${pricingReadiness.ready} ready items`
-        : 'Suggest rough prices'
-      : 'Suggest rough prices';
+        ? `Suggest pricing for ${pricingReadiness.ready} measured items`
+        : 'Suggest pricing from measurements'
+      : 'Add measurements to suggest pricing';
   const roughHint =
-    pricingReadiness.needsMeasurement > 0
+    pricingReadiness.ready === 0
+      ? 'Enter sqft, LF, CY, counts, or allowances in Confirm Scope first. Then suggested pricing can calculate material, labor, and totals.'
+      : pricingReadiness.needsMeasurement > 0
       ? `${pricingReadiness.needsMeasurement} item${pricingReadiness.needsMeasurement === 1 ? '' : 's'} need measurements first — only ready items will be priced.`
-      : 'Labeled AI Rough Estimate — not applied until you approve.';
+      : 'Suggested pricing uses these measurements and stays review-only until you approve.';
   const hasMemorySuggestions = (draft.pricingMemorySuggestions?.length ?? 0) > 0;
   const templateHints = (draft.pricingMemoryMissingSuggestions || []).filter(
     (s) => s.source === 'saved_template'
@@ -115,8 +150,30 @@ export default function AIEstimateDraftReviewPricingActions({
       <Text style={{ color: Colors.sub, fontSize: 13, lineHeight: 18, marginBottom: 12 }}>
         {hasPricing
           ? 'Some scope items still need prices. Use saved template rates, AI rough estimates, or enter manually.'
-          : 'I found the scope and quantities, but no material or labor prices.'}
+          : pricingReadiness.ready > 0
+            ? 'I found scope measurements, but no material or labor prices. Use suggested pricing to calculate totals.'
+            : 'I found the scope, but pricing needs measurements like sqft, LF, CY, counts, or allowances first.'}
       </Text>
+
+      {measuredLines.length > 0 ? (
+        <View
+          style={{
+            marginBottom: 10,
+            padding: 10,
+            borderRadius: 10,
+            backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.08)' : 'rgba(34, 197, 94, 0.06)',
+          }}
+        >
+          <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '800', marginBottom: 5 }}>
+            Ready for suggested pricing
+          </Text>
+          {measuredLines.map((line, index) => (
+            <Text key={`measured-${index}`} style={{ color: Colors.text, fontSize: 12, marginBottom: 3 }}>
+              • {line}
+            </Text>
+          ))}
+        </View>
+      ) : null}
 
       <ActionBtn
         label="Use saved pricing"

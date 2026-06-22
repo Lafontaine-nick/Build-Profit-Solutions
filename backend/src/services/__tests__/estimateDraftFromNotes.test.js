@@ -213,6 +213,34 @@ describe('estimateDraftFromNotes sqft × allowance pricing', () => {
     expect(draft.pricingWarnings.filter((w) => /Baseboard:/i.test(w)).length).toBe(1);
   });
 
+  test('complex prompts are not reclassified as flooring because finish phases mention flooring', () => {
+    const adu = normalizeDraft(
+      {
+        projectType: 'flooring',
+        rooms: [{ name: 'Flooring', scope: 'LLM guessed flooring from finish phase', price: null }],
+      },
+      {
+        originalNotes:
+          'Detached ADU casita with bathroom and kitchenette, permits, utility trenching, slab foundation, framing, roofing, rough plumbing/electrical, HVAC, insulation, drywall, flooring, and paint.',
+      }
+    );
+    const basement = normalizeDraft(
+      {
+        projectType: 'flooring',
+        rooms: [{ name: 'LVP Flooring Installation', scope: 'LLM guessed flooring from finish phase', price: null }],
+      },
+      {
+        originalNotes:
+          'Basement finish with framing, plumbing, electrical, HVAC, drywall, LVP flooring, paint, trim, permits, and cleanup.',
+      }
+    );
+
+    expect(adu.projectType).toBe('adu');
+    expect(adu.estimateTier).toBe('addition');
+    expect(basement.projectType).toBe('other');
+    expect(basement.estimateTier).toBe('room_remodel');
+  });
+
   test('$/sqft allowances without sqft prompt for area', () => {
     const draft = normalizeDraft({
       projectType: 'bathroom',

@@ -487,6 +487,18 @@ function scopeOnlyMissingHints(packageName) {
 
 function inferProjectTypeFromNotes(notes, projectType) {
   const n = String(notes || '').toLowerCase();
+  if (/\b(new\s+home|custom\s+home|spec\s+home|ground\s*up|ground-up|new\s+build)\b/.test(n)) {
+    return 'new_build';
+  }
+  if (/\b(?:adu|casita)\b/.test(n)) return 'adu';
+  if (/\bgarage\s+conversion\b/.test(n)) return 'garage_conversion';
+  if (/\broom\s+addition\b/.test(n)) return 'room_addition';
+  if (/\bhome\s+addition\b|\baddition\b.*\b(?:foundation|framing|roof|hvac|drywall)\b/.test(n)) {
+    return 'home_addition';
+  }
+  if (/\b(basement\s+finish(?:ing)?|finished\s+basement|insurance\s+(?:repair|restoration)|restoration|mixed\s+repair)\b/.test(n)) {
+    return 'other';
+  }
   const floorHeavy =
     /\b(floor\s*job|flooring|laminate\s+flooring|tile\s+demo|lvp|baseboard\s+install)/.test(n) ||
     (/\b(tile demo|laminate|baseboard)\b/.test(n) && /\b(sqft|sq\s*ft|ft²|linear\s*feet|lf)\b/.test(n));

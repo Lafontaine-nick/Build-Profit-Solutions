@@ -1,5 +1,7 @@
 import { emptyQuickMeasurementInput } from '@/utils/scopeQuickMeasurements';
 import {
+  buildNormalizedScopeMeasurementsFromInput,
+  resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
   resolveTemplateRateForItem,
   resolveDualRatePricingDisplayFromNotes,
@@ -154,6 +156,97 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(fill?.materialSource).toBe('template');
     expect(fill?.laborSource).toBe('template');
     expect(fill?.rateSourceLabel).toContain('Saved rate');
+  });
+
+  it('uses CY national average rates when concrete is measured in cubic yards', () => {
+    const input = inputWith({ concreteCy: '18' });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('concrete', measurements, { templateKey: 'addition' });
+
+    expect(resolved.unit).toBe('cy');
+
+    const { fill } = resolveScopeItemSuggestedPricing('concrete', input, 'addition', resolved);
+    expect(fill).toMatchObject({
+      mode: 'suggested_price',
+      material: 2970,
+      labor: 3330,
+      total: 6300,
+      basis: { quantity: 18, unit: 'cy' },
+    });
+  });
+
+  it('defaults addition concrete pricing basis to CY before a measurement is entered', () => {
+    const input = inputWith({});
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('concrete', measurements, { templateKey: 'addition' });
+
+    expect(resolved.unit).toBe('cy');
+    expect(resolved.pricingReady).toBe(false);
+  });
+
+  it('migrates stale addition concrete card entries from sqft to CY', () => {
+    const input = inputWith({});
+    input.itemQuantities = {
+      concrete: { quantity: '250', unit: 'sqft', quantitySource: 'user_entered' },
+    };
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('concrete', measurements, { templateKey: 'addition' });
+
+    expect(resolved.quantity).toBe(250);
+    expect(resolved.unit).toBe('cy');
+  });
+
+  it('suggests rough plumbing pricing from rough-in points', () => {
+    const input = inputWith({});
+    input.itemQuantities = {
+      plumbing_rough: { quantity: '3', unit: 'each', quantitySource: 'user_entered' },
+    };
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('plumbing_rough', measurements, { templateKey: 'addition' });
+
+    const { fill } = resolveScopeItemSuggestedPricing('plumbing_rough', input, 'addition', resolved);
+    expect(fill).toMatchObject({
+      mode: 'suggested_price',
+      material: 450,
+      labor: 1050,
+      total: 1500,
+      basis: { quantity: 3, unit: 'each' },
+    });
+  });
+
+  it('suggests electrical rough-in pricing from device counts', () => {
+    const input = inputWith({});
+    input.itemQuantities = {
+      electrical_rough: { quantity: '4', unit: 'each', quantitySource: 'user_entered' },
+    };
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('electrical_rough', measurements, { templateKey: 'addition' });
+
+    const { fill } = resolveScopeItemSuggestedPricing('electrical_rough', input, 'addition', resolved);
+    expect(fill).toMatchObject({
+      mode: 'suggested_price',
+      material: 140,
+      labor: 360,
+      total: 500,
+      basis: { quantity: 4, unit: 'each' },
+    });
+  });
+
+  it('uses sqft national average rates when concrete is measured in square feet', () => {
+    const input = inputWith({ concreteSqft: '500' });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('concrete', measurements, { templateKey: 'addition' });
+
+    expect(resolved.unit).toBe('sqft');
+
+    const { fill } = resolveScopeItemSuggestedPricing('concrete', input, 'addition', resolved);
+    expect(fill).toMatchObject({
+      mode: 'suggested_price',
+      material: 2000,
+      labor: 3000,
+      total: 5000,
+      basis: { quantity: 500, unit: 'sqft' },
+    });
   });
 });
 

@@ -239,6 +239,7 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
   drywall: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'drywallSqft',
     requiresUserQuantity: true,
     pricingMethod: 'unit_rate',
     quantityHelper: 'Enter patch/repair sqft or use a lump sum.',
@@ -407,6 +408,7 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
   concrete: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'cy', 'allowance', 'lump_sum'],
+    measurementKeys: ['concreteSqft', 'concreteCy'],
     requiresUserQuantity: true,
     pricingMethod: 'unit_rate',
     quantityHelper: 'Enter concrete sqft or CY.',
@@ -527,6 +529,7 @@ const PACKAGE_NAME_TO_RULE_KEY = [
   { test: /\bbath(?:room)?\s+demo\b|\bdemo\b.*\bbath/i, key: 'demo' },
   { test: /\btile\s+demo|\btile\s+removal|\btile\s+demolition/i, key: 'floor_demo' },
   { test: /\bfloor\s+demo|\bflooring\s+demo/i, key: 'floor_demo' },
+  { test: /^\s*flooring\s*$/i, key: 'flooring' },
   { test: /\b(lvp|laminate|vinyl|carpet|flooring)\b.*\b(install|installation)\b|\b(install|installation)\b.*\b(lvp|laminate|vinyl|carpet|flooring)\b/i, key: 'flooring' },
   { test: /\bshower\s+floor\s+tile|\btile\s+shower\s+floor/i, key: 'shower_floor_tile' },
   { test: /\bprefab\s+shower\s+pan|\bshower\s+pan\s+install/i, key: 'prefab_shower_pan' },
@@ -663,7 +666,20 @@ const KITCHEN_CHECKLIST_QUANTITY_RULES = {
   },
 };
 
+const ADDITION_CHECKLIST_QUANTITY_RULES = {
+  concrete: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.concrete,
+    defaultUnit: 'cy',
+    measurementKeys: ['concreteCy', 'concreteSqft'],
+    quantityHelper: 'Enter foundation concrete CY, or flatwork sqft if this is slab/flatwork.',
+    missingMessage: 'Enter foundation concrete CY or flatwork sqft.',
+  },
+};
+
 function getRuleForChecklistItem(itemId, templateKey) {
+  if (templateKey === 'addition' && ADDITION_CHECKLIST_QUANTITY_RULES[itemId]) {
+    return ADDITION_CHECKLIST_QUANTITY_RULES[itemId];
+  }
   if (templateKey === 'kitchen' && KITCHEN_CHECKLIST_QUANTITY_RULES[itemId]) {
     return KITCHEN_CHECKLIST_QUANTITY_RULES[itemId];
   }
@@ -716,6 +732,15 @@ function sourceLabel(source) {
     default:
       return '';
   }
+}
+
+function measurementUnitForKey(key, fallbackUnit) {
+  if (/Sqft$/.test(key)) return 'sqft';
+  if (/Lf$/.test(key)) return 'lf';
+  if (/Cy$/.test(key)) return 'cy';
+  if (/Tons$/.test(key)) return 'ton';
+  if (/Squares$/.test(key)) return 'squares';
+  return fallbackUnit;
 }
 
 function sumMeasurementKeys(measurements, keys) {
@@ -965,7 +990,7 @@ function resolveDualAllowanceQuantity(itemId, rule, measurements, notes, templat
   if (!countEntry && rule.measurementKey && measurements[rule.measurementKey]) {
     countEntry = {
       quantity: measurements[rule.measurementKey],
-      unit: rule.defaultUnit,
+      unit: measurementUnitForKey(rule.measurementKey, rule.defaultUnit),
       quantitySource: QUANTITY_SOURCES.inferred,
     };
   }
@@ -977,13 +1002,17 @@ function resolveDualAllowanceQuantity(itemId, rule, measurements, notes, templat
     };
   }
   if (!countEntry && Array.isArray(rule.measurementKeys)) {
-    const quantity = rule.measurementKeys
-      .map((key) => measurements[key])
-      .find((value) => value != null && value > 0);
-    if (quantity) {
+    const match = rule.measurementKeys
+      .map((key) =>
+        measurements[key]
+          ? { quantity: measurements[key], unit: measurementUnitForKey(key, rule.defaultUnit) }
+          : null
+      )
+      .find((entry) => entry?.quantity != null && entry.quantity > 0);
+    if (match) {
       countEntry = {
-        quantity,
-        unit: rule.defaultUnit,
+        quantity: match.quantity,
+        unit: match.unit,
         quantitySource: QUANTITY_SOURCES.inferred,
       };
     }
@@ -1054,6 +1083,13 @@ function resolveDualAllowanceQuantity(itemId, rule, measurements, notes, templat
   };
 }
 
+function normalizedOverrideUnitForRule(itemId, templateKey, unit, rule) {
+  if (templateKey === 'addition' && itemId === 'concrete' && unit === 'sqft') {
+    return rule.defaultUnit;
+  }
+  return unit || rule.defaultUnit;
+}
+
 /**
  * @returns {{ quantity: number|null, unit: string, quantitySource: string, label: string, sourceLabel: string, rule: ScopeItemQuantityRule|null, pricingReady: boolean, missingMessage?: string }}
  */
@@ -1105,7 +1141,7 @@ function resolveQuantityForChecklistItem(itemId, ctx = {}) {
   if (linkedCountertop) return linkedCountertop;
 
   if (itemOverride && itemOverride.quantity != null && itemOverride.quantity > 0) {
-    const unit = itemOverride.unit || rule.defaultUnit;
+    const unit = normalizedOverrideUnitForRule(itemId, templateKey, itemOverride.unit, rule);
     return {
       quantity: Number(itemOverride.quantity),
       unit,
@@ -1157,7 +1193,7 @@ function resolveQuantityForChecklistItem(itemId, ctx = {}) {
   if (rule.measurementKey && measurements[rule.measurementKey]) {
     return {
       quantity: measurements[rule.measurementKey],
-      unit: rule.defaultUnit,
+      unit: measurementUnitForKey(rule.measurementKey, rule.defaultUnit),
       quantitySource: QUANTITY_SOURCES.inferred,
       label: packageName,
       sourceLabel:
@@ -1175,7 +1211,7 @@ function resolveQuantityForChecklistItem(itemId, ctx = {}) {
       return applyPricingReadyFlags(
         {
           quantity: measurements[key],
-          unit: rule.defaultUnit,
+          unit: measurementUnitForKey(key, rule.defaultUnit),
           quantitySource: QUANTITY_SOURCES.inferred,
           label: packageName,
           sourceLabel: sourceLabel(QUANTITY_SOURCES.inferred),
@@ -1421,6 +1457,9 @@ function stampPackageWithCatalogRules(pkg, ctx = {}) {
   }
 
   const currentTotal = Number(pkg.price || pkg.knownSubtotal || pkg.calculatedSubtotal || 0);
+  const splitTotal = Number(pkg.materialPrice || 0) + Number(pkg.laborPrice || 0);
+  const existingSplitMatchesCurrent =
+    splitTotal > 0 && currentTotal > 0 && Math.abs(splitTotal - currentTotal) < 0.01;
   const existingLooksCalculated =
     pkg.pricedFromSqftAllowances ||
     pkg.priceSource === 'calculated' ||
@@ -1429,6 +1468,7 @@ function stampPackageWithCatalogRules(pkg, ctx = {}) {
     pkg.priceProvidedByUser === false;
   const shouldApplyParsedTotal =
     parsedTotal &&
+    !existingSplitMatchesCurrent &&
     (parsedTotal > currentTotal || existingLooksCalculated);
 
   if (shouldApplyParsedTotal) {
@@ -1463,6 +1503,7 @@ module.exports = {
   QUANTITY_SOURCES,
   CHECKLIST_ITEM_QUANTITY_RULES,
   KITCHEN_CHECKLIST_QUANTITY_RULES,
+  ADDITION_CHECKLIST_QUANTITY_RULES,
   normalizeScopeMeasurements,
   getRuleForChecklistItem,
   getRuleForPackage,

@@ -36,6 +36,54 @@ describe('estimateDraftComplexity', () => {
     expect(buildScopeChecklist(draft, 'room_remodel', flooringNotes).templateKey).toBe('flooring');
   });
 
+  test('applying flooring checklist keeps combined notes material/labor total intact', () => {
+    const notes =
+      'Flooring job: demo existing tile 850 sqft labor $3/sqft. Install 850 sqft LVP material $4.50/sqft labor $3.25/sqft. Baseboards 220 LF at $7/LF.';
+    const draft = {
+      projectType: 'flooring',
+      estimateTier: 'room_remodel',
+      originalNotes: notes,
+      rooms: [
+        {
+          name: 'Flooring',
+          scope: 'Demo existing tile and install LVP flooring',
+          price: 9138,
+          knownSubtotal: 9138,
+          calculatedSubtotal: 9138,
+          laborPrice: 5313,
+          materialPrice: 3825,
+          priceSource: 'calculated',
+          status: 'calculated',
+          priceProvidedByUser: false,
+          scopeQuantities: [{ label: 'Flooring', quantity: 850, unit: 'sqft', quantitySource: 'notes' }],
+        },
+        {
+          name: 'Baseboards',
+          scope: 'Install baseboards',
+          price: null,
+          priceSource: 'missing',
+          status: 'partial_pricing',
+          scopeQuantities: [{ label: 'Baseboards', quantity: 220, unit: 'lf', quantitySource: 'notes' }],
+        },
+      ],
+      inclusions: [],
+      exclusions: [],
+      missingInfo: [],
+      pricingWarnings: [],
+    };
+    const checklist = buildScopeChecklist(draft, 'room_remodel', notes);
+    const confirmed = checklist.items.filter((item) => ['floor_demo', 'flooring', 'trim'].includes(item.id));
+    const next = applyScopeAssumptions({ ...draft, scopeChecklist: checklist }, confirmed, checklist.suggestedMeasurements);
+
+    const flooring = next.rooms.find((room) => room.name === 'Flooring');
+    expect(flooring.price).toBe(9138);
+    expect(flooring.laborPrice).toBe(5313);
+    expect(flooring.materialPrice).toBe(3825);
+    expect(flooring.scopeQuantities).toEqual([
+      expect.objectContaining({ quantity: 850, unit: 'sqft', quantitySource: 'notes' }),
+    ]);
+  });
+
   test('classifies bathroom remodel as room_remodel', () => {
     const notes = 'Full bathroom remodel, new shower tile, move toilet, quartz vanity';
     const draft = { projectType: 'bathroom', rooms: [{ name: 'Master Bath', scope: notes }] };
@@ -216,7 +264,20 @@ describe('estimateDraftComplexity', () => {
       projectType: 'adu',
       estimateTier: 'addition',
       originalNotes: notes,
-      rooms: [],
+      rooms: [
+        {
+          name: 'Plumbing (Bathroom)',
+          scope: 'LLM starter row that should be replaced by confirmed phases',
+          status: 'missing_price',
+          priceSource: 'missing',
+        },
+        {
+          name: 'Interior Painting',
+          scope: 'LLM starter row that should be replaced by confirmed phases',
+          status: 'missing_price',
+          priceSource: 'missing',
+        },
+      ],
       inclusions: [],
       exclusions: [],
       missingInfo: [],
@@ -284,7 +345,7 @@ describe('estimateDraftComplexity', () => {
         'Contingency allowance',
       ])
     );
-    expect(packageNames.some((name) => /bathroom demo|kitchen remodel|lvp flooring installation/i.test(name))).toBe(false);
+    expect(packageNames.some((name) => /bathroom demo|kitchen remodel|lvp flooring installation|plumbing \(bathroom\)|interior painting/i.test(name))).toBe(false);
     expect(next.rooms.every((room) => room.status === 'missing_price')).toBe(true);
     expect(next.rooms.every((room) => room.applyEligible === false)).toBe(true);
   });

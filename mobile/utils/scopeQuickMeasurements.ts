@@ -222,7 +222,50 @@ export function quickMeasurementRowsForTemplate(
   projectType?: string | null
 ): QuickMeasurementRow[] {
   const key = resolveQuickMeasurementTemplateKey(templateKey, projectType);
-  return SCOPE_QUICK_MEASUREMENT_ROWS[key] || SCOPE_QUICK_MEASUREMENT_ROWS.room_remodel;
+  return applyProjectSpecificQuickMeasurementLabels(
+    SCOPE_QUICK_MEASUREMENT_ROWS[key] || SCOPE_QUICK_MEASUREMENT_ROWS.room_remodel,
+    key,
+    projectType
+  );
+}
+
+function projectAreaFieldLabel(projectType?: string | null): string | null {
+  switch (String(projectType || '').toLowerCase()) {
+    case 'adu':
+      return 'ADU / casita sqft';
+    case 'room_addition':
+      return 'Room addition sqft';
+    case 'home_addition':
+      return 'Addition sqft';
+    case 'garage_conversion':
+      return 'Garage conversion sqft';
+    case 'new_build':
+      return 'Building sqft';
+    default:
+      return null;
+  }
+}
+
+function applyProjectSpecificQuickMeasurementLabels(
+  rows: QuickMeasurementRow[],
+  templateKey: string,
+  projectType?: string | null
+): QuickMeasurementRow[] {
+  if (templateKey !== 'addition' && templateKey !== 'ground_up') return rows;
+  const floorAreaLabel = projectAreaFieldLabel(projectType);
+  if (!floorAreaLabel) return rows;
+
+  return rows.map((measurementRow) =>
+    measurementRow.map((field) =>
+      field.key === 'floorAreaSqft'
+        ? {
+            ...field,
+            label: floorAreaLabel,
+            placeholder: projectType === 'adu' ? 'e.g. 650' : field.placeholder,
+          }
+        : field
+    )
+  );
 }
 
 function hasQuickMeasurementValue(value: unknown): boolean {

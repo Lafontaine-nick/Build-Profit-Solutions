@@ -209,8 +209,11 @@ function isUserEditingQuantity(
   return entry?.quantitySource === 'user_entered' || allowanceEntry?.quantitySource === 'user_entered';
 }
 
-function formatResolvedQuantityDisplay(quantity: number, unit: string): string {
+function formatResolvedQuantityDisplay(quantity: number, unit: string, quantitySource?: string): string {
   if (unit === 'allowance' || unit === 'lump_sum') {
+    if (quantitySource === 'default_assumption') {
+      return `${quantity.toLocaleString()} ${formatUnitLabel(unit)}`;
+    }
     return formatDraftMoney(quantity);
   }
   return `${quantity.toLocaleString()} ${formatUnitLabel(unit)}`;
@@ -1090,6 +1093,7 @@ function QuantitySection({
   applying: boolean;
 }) {
   const [pricingEditorOpen, setPricingEditorOpen] = useState(false);
+  const [focusedPricingField, setFocusedPricingField] = useState<string | null>(null);
   const pricingContext = React.useContext(ScopePricingContextValue);
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!inScope || !rule) return null;
@@ -1106,6 +1110,14 @@ function QuantitySection({
   if (!resolved.showInput && !resolved.pricingReady) return null;
   const inputShell = inputShellStyle(Colors, darkMode);
   const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8';
+  const focusQuantityField = (targetItemId: string, field: 'count' | 'allowance' = 'count') => {
+    setFocusedPricingField(`${targetItemId}:${field}`);
+    onItemQuantityFocus(targetItemId, field);
+  };
+  const blurQuantityField = (targetItemId: string, field: 'count' | 'allowance' = 'count') => {
+    setFocusedPricingField(null);
+    onItemQuantityBlur(targetItemId, field);
+  };
 
   if (rule.dualAllowanceField) {
     const fieldLabels = DUAL_QUANTITY_FIELD_LABELS[itemId];
@@ -1116,7 +1128,7 @@ function QuantitySection({
     const allowanceInput = measurementsInput.itemQuantities[allowanceKey];
     const materialInput = measurementsInput.itemQuantities[materialKey];
     const laborInput = measurementsInput.itemQuantities[laborKey];
-    const isEditing = pricingEditorOpen;
+    const isEditing = pricingEditorOpen || focusedPricingField != null;
 
     const hasUserSelectedPricing = hasCompleteUserSelectedPricing(
       measurementsInput.itemQuantities,
@@ -1322,9 +1334,9 @@ function QuantitySection({
         <View style={styles.qtyInputRow}>
           <TextInput
             value={countInput?.quantity ?? ''}
-            onFocus={() => onItemQuantityFocus(itemId, 'count')}
+            onFocus={() => focusQuantityField(itemId, 'count')}
             onChangeText={(text) => onItemQuantityChange(itemId, text, 'count')}
-            onBlur={() => onItemQuantityBlur(itemId, 'count')}
+            onBlur={() => blurQuantityField(itemId, 'count')}
             placeholder="0"
             placeholderTextColor={placeholderColor}
             keyboardType="decimal-pad"
@@ -1349,9 +1361,9 @@ function QuantitySection({
           basis={resolved.dualCount ?? null}
           prefix="$"
           placeholder="Material total"
-          onFocus={() => onItemQuantityFocus(materialKey)}
+          onFocus={() => focusQuantityField(materialKey)}
           onChangeText={(text) => onItemQuantityChange(materialKey, text, 'count', 'allowance')}
-          onBlur={() => onItemQuantityBlur(materialKey)}
+          onBlur={() => blurQuantityField(materialKey)}
           Colors={Colors}
           darkMode={darkMode}
           applying={applying}
@@ -1366,9 +1378,9 @@ function QuantitySection({
           basis={resolved.dualCount ?? null}
           prefix="$"
           placeholder="Labor total"
-          onFocus={() => onItemQuantityFocus(laborKey)}
+          onFocus={() => focusQuantityField(laborKey)}
           onChangeText={(text) => onItemQuantityChange(laborKey, text, 'count', 'allowance')}
-          onBlur={() => onItemQuantityBlur(laborKey)}
+          onBlur={() => blurQuantityField(laborKey)}
           Colors={Colors}
           darkMode={darkMode}
           applying={applying}
@@ -1380,9 +1392,9 @@ function QuantitySection({
           <Text style={{ color: Colors.sub, fontSize: 14, fontWeight: '600' }}>$</Text>
           <TextInput
             value={allowanceInput?.quantity ?? ''}
-            onFocus={() => onItemQuantityFocus(itemId, 'allowance')}
+            onFocus={() => focusQuantityField(itemId, 'allowance')}
             onChangeText={(text) => onItemQuantityChange(itemId, text, 'allowance')}
-            onBlur={() => onItemQuantityBlur(itemId, 'allowance')}
+            onBlur={() => blurQuantityField(itemId, 'allowance')}
             placeholder="0"
             placeholderTextColor={placeholderColor}
             keyboardType="decimal-pad"
@@ -1403,8 +1415,8 @@ function QuantitySection({
   const laborKey = `${itemId}__labor`;
   const materialInput = measurementsInput.itemQuantities[materialKey];
   const laborInput = measurementsInput.itemQuantities[laborKey];
-  const isEditingQuantity = pricingEditorOpen;
-  const isEditingPricing = pricingEditorOpen;
+  const isEditingQuantity = pricingEditorOpen || focusedPricingField != null;
+  const isEditingPricing = pricingEditorOpen || focusedPricingField != null;
   const neededLabel =
     (templateKey && QUANTITY_NEEDED_LABELS_BY_TEMPLATE[templateKey]?.[itemId]) ||
     QUANTITY_NEEDED_LABELS[itemId] ||
@@ -1479,7 +1491,11 @@ function QuantitySection({
     return (
       <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
         <PricingAmountRow
-          value={formatResolvedQuantityDisplay(resolved.quantity ?? 0, resolved.unit)}
+          value={formatResolvedQuantityDisplay(
+            resolved.quantity ?? 0,
+            resolved.unit,
+            resolved.quantitySource
+          )}
           pill={resolved.quantitySource === 'notes' ? <SourcePill kind="notes" /> : undefined}
           label={resolved.sourceLabel}
           emphasized
@@ -1558,9 +1574,9 @@ function QuantitySection({
         prefix={editingIsMoneyTotal ? '$' : undefined}
         suffix={editingIsMoneyTotal ? undefined : formatUnitLabel(editingUnit)}
         placeholder={editingIsMoneyTotal ? 'Enter total' : `Enter ${neededLabel}`}
-        onFocus={() => onItemQuantityFocus(itemId)}
+        onFocus={() => focusQuantityField(itemId)}
         onChangeText={(text) => onItemQuantityChange(itemId, text, 'count', editingUnit)}
-        onBlur={() => onItemQuantityBlur(itemId)}
+        onBlur={() => blurQuantityField(itemId)}
         Colors={Colors}
         darkMode={darkMode}
         applying={applying}
@@ -1574,9 +1590,9 @@ function QuantitySection({
             basis={suggestedBasis}
             prefix="$"
             placeholder="Material total"
-            onFocus={() => onItemQuantityFocus(materialKey)}
+            onFocus={() => focusQuantityField(materialKey)}
             onChangeText={(text) => onItemQuantityChange(materialKey, text, 'count', 'allowance')}
-            onBlur={() => onItemQuantityBlur(materialKey)}
+            onBlur={() => blurQuantityField(materialKey)}
             Colors={Colors}
             darkMode={darkMode}
             applying={applying}
@@ -1588,9 +1604,9 @@ function QuantitySection({
             basis={suggestedBasis}
             prefix="$"
             placeholder="Labor total"
-            onFocus={() => onItemQuantityFocus(laborKey)}
+            onFocus={() => focusQuantityField(laborKey)}
             onChangeText={(text) => onItemQuantityChange(laborKey, text, 'count', 'allowance')}
-            onBlur={() => onItemQuantityBlur(laborKey)}
+            onBlur={() => blurQuantityField(laborKey)}
             Colors={Colors}
             darkMode={darkMode}
             applying={applying}
@@ -2650,17 +2666,68 @@ export default function AIEstimateScopeAssumptionsModal({
       }));
       return;
     }
-    setMeasurementsSynced((prev) => ({
-      ...prev,
-      itemQuantities: {
+    setMeasurementsSynced((prev) => {
+      const itemQuantities = {
         ...prev.itemQuantities,
         [itemId]: {
           quantity,
           unit: unit || (rule?.dualAllowanceField ? 'each' : rule?.defaultUnit || 'sqft'),
-          quantitySource: 'user_entered',
+          quantitySource: 'user_entered' as const,
         },
-      },
-    }));
+      };
+
+      if (rule?.dualAllowanceField && field === 'count') {
+        const allowanceKey = roughAllowanceSubKey(itemId);
+        const materialKey = `${itemId}__material`;
+        const laborKey = `${itemId}__labor`;
+        const hasManualPricing = [allowanceKey, materialKey, laborKey].some((key) => {
+          const entry = prev.itemQuantities[key];
+          return entry?.quantitySource === 'user_entered' && String(entry.quantity || '').trim();
+        });
+
+        if (!hasManualPricing) {
+          const nextInput = { ...prev, itemQuantities };
+          const normalized = buildNormalizedScopeMeasurementsFromInput(nextInput, {
+            notes: scopeNotes,
+            templateKey: checklist?.templateKey,
+          });
+          const resolved = resolveChecklistItemQuantity(itemId, normalized, {
+            templateKey: checklist?.templateKey,
+            notes: scopeNotes,
+          });
+          const suggested = resolveScopeItemSuggestedPricing(
+            itemId,
+            nextInput,
+            checklist?.templateKey,
+            resolved,
+            pricingContext
+          ).fill;
+
+          if (suggested) {
+            itemQuantities[allowanceKey] = {
+              quantity: String(suggested.total),
+              unit: 'allowance',
+              quantitySource: 'inferred',
+            };
+            itemQuantities[materialKey] = {
+              quantity: String(suggested.material),
+              unit: 'allowance',
+              quantitySource: 'inferred',
+            };
+            itemQuantities[laborKey] = {
+              quantity: String(suggested.labor),
+              unit: 'allowance',
+              quantitySource: 'inferred',
+            };
+          }
+        }
+      }
+
+      return {
+        ...prev,
+        itemQuantities,
+      };
+    });
   };
 
   const scrollToFirstMissingMeasurement = useCallback(() => {

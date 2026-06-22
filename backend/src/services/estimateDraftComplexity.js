@@ -608,6 +608,21 @@ function roomExistsByExactLabel(rooms, label) {
   });
 }
 
+function roomHasConfirmedPricing(room) {
+  const price = Number(room?.price || room?.knownSubtotal || room?.calculatedSubtotal || 0);
+  const laborPrice = Number(room?.laborPrice || 0);
+  const materialPrice = Number(room?.materialPrice || 0);
+  return (
+    price > 0 ||
+    laborPrice > 0 ||
+    materialPrice > 0 ||
+    room?.priceProvidedByUser === true ||
+    room?.status === 'user_provided' ||
+    room?.packageStatus === 'user_provided' ||
+    room?.priceSource === 'user_provided'
+  );
+}
+
 function canonicalScopeKey(text) {
   const t = String(text || '').toLowerCase();
   if (/\b(shower\s+tile|shower\s+wall\s+tile|tile\s+shower)\b/.test(t)) return 'shower_tile';
@@ -807,7 +822,9 @@ function addScopePackagesFromConfirmedChecklist(draft, confirmedItems, scopeMeas
   }
 
   const notes = String(draft.originalNotes || '').trim();
-  const rooms = [...(draft.rooms || [])];
+  const rooms = phaseTemplate
+    ? [...(draft.rooms || []).filter((room) => roomHasConfirmedPricing(room))]
+    : [...(draft.rooms || [])];
 
   for (const taskId of taskIds) {
     const task = SCOPE_TASKS.find((t) => t.id === taskId);

@@ -125,6 +125,42 @@ describe('scopeItemQuantityCatalog', () => {
     expect(floorDemo.pricingReady).toBe(true);
   });
 
+  test('addition concrete defaults to CY and preserves entered measurement unit', () => {
+    const empty = resolveQuantityForChecklistItem('concrete', {
+      measurements: normalizeScopeMeasurements({}),
+      templateKey: 'addition',
+    });
+    expect(empty.unit).toBe('cy');
+    expect(empty.pricingReady).toBe(false);
+
+    const cy = resolveQuantityForChecklistItem('concrete', {
+      measurements: normalizeScopeMeasurements({ concreteCy: 18 }),
+      templateKey: 'addition',
+    });
+    expect(cy.quantity).toBe(18);
+    expect(cy.unit).toBe('cy');
+    expect(cy.pricingReady).toBe(true);
+
+    const staleCardEntry = resolveQuantityForChecklistItem('concrete', {
+      measurements: normalizeScopeMeasurements({
+        itemQuantities: {
+          concrete: { quantity: 250, unit: 'sqft', quantitySource: 'user_entered' },
+        },
+      }),
+      templateKey: 'addition',
+    });
+    expect(staleCardEntry.quantity).toBe(250);
+    expect(staleCardEntry.unit).toBe('cy');
+
+    const sqft = resolveQuantityForChecklistItem('concrete', {
+      measurements: normalizeScopeMeasurements({ concreteSqft: 500 }),
+      templateKey: 'addition',
+    });
+    expect(sqft.quantity).toBe(500);
+    expect(sqft.unit).toBe('sqft');
+    expect(sqft.pricingReady).toBe(true);
+  });
+
   test('shower floor tile uses shower floor sqft not bathroom floor', () => {
     const measurements = normalizeScopeMeasurements({
       bathroomFloorSqft: 50,

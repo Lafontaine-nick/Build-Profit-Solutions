@@ -175,6 +175,8 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   floor_tile: { unit: 'sqft', material: 8, labor: 14, sourceLabel: 'Suggested budget split · National Average' },
   floor_prep: { unit: 'sqft', material: 4, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
   waterproofing: { unit: 'sqft', material: 5, labor: 7, sourceLabel: 'Suggested budget split · National Average' },
+  plumbing_rough: { unit: 'each', material: 150, labor: 350, sourceLabel: 'Suggested budget split · National Average' },
+  electrical_rough: { unit: 'each', material: 35, labor: 90, sourceLabel: 'Suggested budget split · National Average' },
   railing: { unit: 'lf', material: 15, labor: 25, sourceLabel: 'Suggested budget split · National Average' },
   pour_flatwork: { unit: 'sqft', material: 4, labor: 6, sourceLabel: 'Suggested budget split · National Average' },
   concrete: { unit: 'sqft', material: 4, labor: 6, sourceLabel: 'Suggested budget split · National Average' },
@@ -187,25 +189,50 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   pavers: { unit: 'sqft', material: 6, labor: 8, sourceLabel: 'Suggested budget split · National Average' },
 };
 
+const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
+  string,
+  Record<string, { unit: string; material: number; labor: number; sourceLabel: string }>
+> = {
+  concrete: {
+    sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.concrete,
+    cy: { unit: 'cy', material: 165, labor: 185, sourceLabel: 'Suggested budget split · National Average' },
+  },
+  pour_flatwork: {
+    sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.pour_flatwork,
+    cy: { unit: 'cy', material: 165, labor: 185, sourceLabel: 'Suggested budget split · National Average' },
+  },
+  excavation: {
+    cy: { unit: 'cy', material: 5, labor: 45, sourceLabel: 'Suggested budget split · National Average' },
+    sqft: { unit: 'sqft', material: 0.5, labor: 2.5, sourceLabel: 'Suggested budget split · National Average' },
+    lf: { unit: 'lf', material: 1, labor: 8, sourceLabel: 'Suggested budget split · National Average' },
+  },
+};
+
 const NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES: Record<string, string> = {
   hang: 'drywall',
   finish_tape: 'drywall',
   patch_repair: 'drywall',
 };
 
-export function getNationalAverageBudgetSplit(itemId: string) {
+export function getNationalAverageBudgetSplit(itemId: string, unit?: string | null) {
+  const key = NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES[itemId] || itemId;
+  const normalizedUnit = String(unit || '').toLowerCase();
+  if (normalizedUnit && NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT[key]?.[normalizedUnit]) {
+    return NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT[key][normalizedUnit];
+  }
   return (
-    NATIONAL_AVERAGE_BUDGET_SPLITS[itemId] ??
-    NATIONAL_AVERAGE_BUDGET_SPLITS[NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES[itemId] || '']
+    NATIONAL_AVERAGE_BUDGET_SPLITS[key] ??
+    NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT[key]?.[Object.keys(NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT[key] || {})[0]]
   );
 }
 
 export function computeNationalAverageBudgetSplit(
   itemId: string,
   total: number,
-  count: number
+  count: number,
+  unit?: string | null
 ): { material: number; labor: number } | null {
-  const average = getNationalAverageBudgetSplit(itemId);
+  const average = getNationalAverageBudgetSplit(itemId, unit);
   if (!average || !Number.isFinite(count) || count <= 0 || !Number.isFinite(total) || total <= 0) {
     return null;
   }
@@ -378,6 +405,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
   drywall: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'drywallSqft',
     requiresUserQuantity: true,
     quantityHelper: 'Enter patch/repair sqft or lump sum.',
     missingMessage: 'Enter drywall repair sqft.',
@@ -714,18 +742,26 @@ function resolvedQuantityFromNotes(
   if (linkedCountertop) return linkedCountertop;
 
   if (rule.dualAllowanceField) {
-    const countQuantity =
-      (itemId === 'floor_demo' ? measurements.floorAreaSqft : null) ??
-      (rule.measurementKey ? measurements[rule.measurementKey] : null) ??
-      (rule.measurementKeys || [])
-        .map((key) => measurements[key])
-        .find((quantity) => quantity != null && quantity > 0) ??
-      null;
+    const countMeasurement =
+      itemId === 'floor_demo' && measurements.floorAreaSqft
+        ? { quantity: measurements.floorAreaSqft, unit: 'sqft' }
+        : rule.measurementKey && measurements[rule.measurementKey]
+          ? {
+              quantity: measurements[rule.measurementKey],
+              unit: measurementUnitForKey(rule.measurementKey, rule.defaultUnit),
+            }
+          : (rule.measurementKeys || [])
+              .map((key) =>
+                measurements[key]
+                  ? { quantity: measurements[key], unit: measurementUnitForKey(key, rule.defaultUnit) }
+                  : null
+              )
+              .find((entry) => entry?.quantity != null && entry.quantity > 0) ?? null;
     let countEntry =
-      countQuantity && countQuantity > 0
+      countMeasurement?.quantity && countMeasurement.quantity > 0
         ? {
-            quantity: countQuantity,
-            unit: rule.defaultUnit,
+            quantity: countMeasurement.quantity,
+            unit: countMeasurement.unit,
             quantitySource: 'inferred' as const,
           }
         : null;
@@ -827,10 +863,23 @@ const KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRul
   },
 };
 
+const ADDITION_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule> = {
+  concrete: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.concrete,
+    defaultUnit: 'cy',
+    measurementKeys: ['concreteCy', 'concreteSqft'],
+    quantityHelper: 'Enter foundation concrete CY, or flatwork sqft if this is slab/flatwork.',
+    missingMessage: 'Enter foundation concrete CY or flatwork sqft.',
+  },
+};
+
 export function getChecklistItemQuantityRule(
   itemId: string,
   templateKey?: string | null
 ): ScopeItemQuantityRule | undefined {
+  if (templateKey === 'addition' && ADDITION_CHECKLIST_ITEM_QUANTITY_RULES[itemId]) {
+    return ADDITION_CHECKLIST_ITEM_QUANTITY_RULES[itemId];
+  }
   if (templateKey === 'kitchen' && KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES[itemId]) {
     return KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES[itemId];
   }
@@ -1354,18 +1403,38 @@ function firstMeasurementQuantityForRule(
   rule: ScopeItemQuantityRule,
   measurementsInput: ScopeMeasurementsInputExtended
 ): number | null {
+  return firstMeasurementForRule(rule, measurementsInput)?.quantity ?? null;
+}
+
+function measurementUnitForKey(key: keyof Omit<NormalizedScopeMeasurements, 'itemQuantities'>, fallbackUnit: string): string {
+  if (/Sqft$/.test(key)) return 'sqft';
+  if (/Lf$/.test(key)) return 'lf';
+  if (/Cy$/.test(key)) return 'cy';
+  if (/Tons$/.test(key)) return 'ton';
+  if (/Squares$/.test(key)) return 'squares';
+  return fallbackUnit;
+}
+
+function firstMeasurementForRule(
+  rule: ScopeItemQuantityRule,
+  measurementsInput: ScopeMeasurementsInputExtended
+): { quantity: number; unit: string } | null {
   if (rule.measurementKey) {
     const quantity = parseScopeMeasurementInput(
       String(measurementsInput[rule.measurementKey as keyof ScopeMeasurementsInputExtended] ?? '')
     );
-    if (quantity && quantity > 0) return quantity;
+    if (quantity && quantity > 0) {
+      return { quantity, unit: measurementUnitForKey(rule.measurementKey, rule.defaultUnit) };
+    }
   }
   if (rule.measurementKeys?.length) {
     for (const key of rule.measurementKeys) {
       const quantity = parseScopeMeasurementInput(
         String(measurementsInput[key as keyof ScopeMeasurementsInputExtended] ?? '')
       );
-      if (quantity && quantity > 0) return quantity;
+      if (quantity && quantity > 0) {
+        return { quantity, unit: measurementUnitForKey(key, rule.defaultUnit) };
+      }
     }
   }
   return null;
@@ -1379,8 +1448,16 @@ export function resolveBudgetSplitQuantity(
   scopeQuantity?: { quantity: number; unit: string } | null
 ): number | null {
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
-  const average = getNationalAverageBudgetSplit(itemId);
-  if (!rule || !average) return null;
+  if (!rule) return null;
+  const measurementMatch = firstMeasurementForRule(rule, measurementsInput);
+  const preferredUnit =
+    scopeQuantity?.unit ||
+    resolved.dualCount?.unit ||
+    (resolved.unit && !['allowance', 'lump_sum'].includes(resolved.unit) ? resolved.unit : null) ||
+    measurementMatch?.unit ||
+    rule?.defaultUnit;
+  const average = getNationalAverageBudgetSplit(itemId, preferredUnit);
+  if (!average) return null;
 
   if (scopeQuantity && scopeQuantity.quantity > 0 && scopeQuantity.unit === average.unit) {
     return scopeQuantity.quantity;
@@ -1395,7 +1472,7 @@ export function resolveBudgetSplitQuantity(
     const floorArea = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
     if (floorArea && floorArea > 0) return floorArea;
   }
-  return firstMeasurementQuantityForRule(rule, measurementsInput);
+  return measurementMatch?.quantity ?? null;
 }
 
 export function resolveSuggestedBudgetSplitDisplay(
@@ -1408,8 +1485,15 @@ export function resolveSuggestedBudgetSplitDisplay(
   >
 ): SuggestedBudgetSplitDisplay | null {
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
-  const average = getNationalAverageBudgetSplit(itemId);
-  if (!rule || !average) return null;
+  if (!rule) return null;
+  const measurementMatch = firstMeasurementForRule(rule, measurementsInput);
+  const preferredUnit =
+    resolved.dualCount?.unit ||
+    (resolved.unit && !['allowance', 'lump_sum'].includes(resolved.unit) ? resolved.unit : null) ||
+    measurementMatch?.unit ||
+    rule?.defaultUnit;
+  const average = getNationalAverageBudgetSplit(itemId, preferredUnit);
+  if (!average) return null;
   if (resolved.dualMaterial || resolved.dualLabor) return null;
 
   const count =
@@ -1417,7 +1501,7 @@ export function resolveSuggestedBudgetSplitDisplay(
       ? resolved.dualCount.quantity
       : itemId === 'floor_demo' && average.unit === 'sqft'
         ? parseScopeMeasurementInput(measurementsInput.floorAreaSqft) ?? firstMeasurementQuantityForRule(rule, measurementsInput)
-        : firstMeasurementQuantityForRule(rule, measurementsInput);
+        : measurementMatch?.quantity ?? null;
 
   const hasNoteTotal = resolved.quantitySource === 'notes' || resolved.dualAllowance?.quantity != null;
   const inferredCountCanPrice =
@@ -1432,7 +1516,7 @@ export function resolveSuggestedBudgetSplitDisplay(
     : Math.round(Number(resolved.quantity) * (average.material + average.labor) * 100) / 100;
   if (!Number.isFinite(total) || total <= 0) return null;
 
-  const split = computeNationalAverageBudgetSplit(itemId, total, count ?? 0);
+  const split = computeNationalAverageBudgetSplit(itemId, total, count ?? 0, average.unit);
   if (!split || !count) return null;
 
   return {
@@ -1650,10 +1734,17 @@ export function resolveScopeItemSuggestedPricing(
 ): ScopeItemSuggestedPricing {
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
-  const average = getNationalAverageBudgetSplit(itemId);
   if (!rule) return empty;
+  const measurementMatch = firstMeasurementForRule(rule, measurementsInput);
+  const preferredUnit =
+    resolved.dualCount?.unit ||
+    (resolved.unit && !['allowance', 'lump_sum'].includes(resolved.unit) ? resolved.unit : null) ||
+    measurementMatch?.unit ||
+    rule.defaultUnit ||
+    'sqft';
+  const average = getNationalAverageBudgetSplit(itemId, preferredUnit);
 
-  const unit = average?.unit || rule.defaultUnit || 'sqft';
+  const unit = average?.unit || preferredUnit;
 
   // Quantity in the rate unit (e.g. 850 sqft, 220 lf).
   const count =
@@ -1664,7 +1755,9 @@ export function resolveScopeItemSuggestedPricing(
           firstMeasurementQuantityForRule(rule, measurementsInput)
         : resolved.quantity != null && resolved.unit === unit && resolved.quantity > 0
           ? resolved.quantity
-          : firstMeasurementQuantityForRule(rule, measurementsInput);
+          : measurementMatch?.unit === unit
+            ? measurementMatch.quantity
+            : firstMeasurementQuantityForRule(rule, measurementsInput);
   if (!count || count <= 0) return empty;
 
   const template = resolveTemplateRateForItem(itemId, unit, pricingContext);
@@ -2093,6 +2186,18 @@ function applyPricingReadyFlags(
   return resolved;
 }
 
+function normalizedOverrideUnitForRule(
+  itemId: string,
+  templateKey: string | null | undefined,
+  unit: string | null | undefined,
+  rule: ScopeItemQuantityRule
+): string {
+  if (templateKey === 'addition' && itemId === 'concrete' && unit === 'sqft') {
+    return rule.defaultUnit;
+  }
+  return unit || rule.defaultUnit;
+}
+
 export function resolveChecklistItemQuantity(
   itemId: string,
   measurements: NormalizedScopeMeasurements,
@@ -2187,7 +2292,7 @@ export function resolveChecklistItemQuantity(
       itemId === 'cabinets' && includesCountertops;
     return {
       quantity: override.quantity,
-      unit: override.unit || rule.defaultUnit,
+      unit: normalizedOverrideUnitForRule(itemId, ctx.templateKey, override.unit, rule),
       quantitySource: override.quantitySource || 'user_entered',
       sourceLabel: combinedCabinetsCounters
         ? `Combined total · cabinets + counters · ${baseLabel}`
@@ -2224,7 +2329,7 @@ export function resolveChecklistItemQuantity(
     if (Number.isFinite(val) && val > 0) {
       const resolved: ResolvedItemQuantity = {
         quantity: val,
-        unit: rule.defaultUnit,
+        unit: measurementUnitForKey(key, rule.defaultUnit),
         quantitySource: 'inferred',
         sourceLabel: 'From notes',
         pricingReady: true,
@@ -2440,7 +2545,12 @@ export function countDraftPricingReadiness(draft: EstimateAiDraft | null | undef
   if (!draft) return { ready: 0, needsMeasurement: 0 };
   const items = draft.confirmedAssumptions || draft.scopeChecklist?.items || [];
   const norm = normalizeScopeMeasurements(draft.scopeMeasurements);
-  const fromChecklist = countScopePricingReadiness(items, norm);
+  const fromChecklist = countScopePricingReadiness(
+    items,
+    norm,
+    draft.scopeChecklist?.templateKey,
+    draft.originalNotes
+  );
   const fromPackages = countPackageScopeReadiness(draft);
   return {
     ready: Math.max(fromChecklist.ready, fromPackages.ready),
