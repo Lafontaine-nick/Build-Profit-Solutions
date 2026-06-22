@@ -580,7 +580,7 @@ const CHECKLIST_YES_HINTS = {
   floor_demo:
     /\b(floor\s+demo|demo\s+(?:existing\s+)?(?:floor|tile|lvp|vinyl|flooring)|remove\s+(?:floor|tile|lvp|vinyl|flooring|kitchen\s+floor))\b/,
   flooring:
-    /\b(lvp|laminate|vinyl|carpet|flooring|floor\s+tile|tile\s+floor)\b.*\binstall(?:ation)?\b|\binstall(?:ation)?\b.*\b(lvp|laminate|vinyl|carpet|flooring|floor\s+tile|tile\s+floor)\b/,
+    /\bflooring\b|\b(lvp|laminate|vinyl|carpet|floor\s+tile|tile\s+floor)\b.*\binstall(?:ation)?\b|\binstall(?:ation)?\b.*\b(lvp|laminate|vinyl|carpet|flooring|floor\s+tile|tile\s+floor)\b/,
   tub_demo: /\b(remove|demo|tear[\s-]?out|rip[\s-]?out).*\b(tub|bathtub)\b|\b(tub|bathtub)\b.*\b(remove|demo|tear[\s-]?out)\b/,
   shower_floor_demo:
     /\b(remove|demo|tear[\s-]?out).*\b(shower\s+(?:pan|floor|base)|pan\s+insert|mud\s+pan)\b|\b(shower\s+(?:pan|floor|base)|prefab\s+pan)\b.*\b(remove|demo|tear[\s-]?out)\b/,
@@ -603,8 +603,41 @@ const CHECKLIST_YES_HINTS = {
   lighting: /\b(new\s+lighting|lighting|light\s+fixtures?)\b/,
   glass_door: /\b(shower\s+door|glass\s+shower)\b/,
   vanity: /\b(vanity|countertops?\s+and\s+vanity)\b/,
-  plumbing_rough: /\b(plumb(?:ing)?\s+rough|rough[\s-]?in|relocat.*plumb)\b/,
+  plumbing: /\b(plumb(?:ing)?|rough\s+plumb(?:ing)?|water\s+lines?|drain(?:age)?|sewer|bathroom\s+rough)\b/,
+  plumbing_rough: /\b(plumb(?:ing)?\s+rough|rough\s+plumb(?:ing)?|rough[\s-]?in|relocat.*plumb)\b/,
+  electrical: /\b(electrical|new\s+circuits?|wiring|outlets?|switches?|gfci|panel)\b/,
   electrical_rough: /\b(electrical|new\s+circuits?|wiring|gfci)\b/,
+  plans_engineering: /\b(plans?|drawings?|engineering|architect(?:ural)?|design\s+docs?)\b/,
+  utility_coordination: /\b(utility\s+coordination|utility\s+coord|coordinate\s+utilities|utility\s+company)\b/,
+  sitework: /\b(site\s*work|site\s+prep|lot\s+prep|clearing|grubbing)\b/,
+  excavation: /\b(excavat(?:e|ion)|dig(?:ging)?|trench(?:ing)?|cut\s+foundation)\b/,
+  grading: /\b(grading|grade\s+site|rough\s+grade|final\s+grade)\b/,
+  utility_trenching: /\b(utility\s+trench(?:ing)?|trench(?:ing)?\s+(?:for\s+)?utilities|water\s+line|sewer\s+line|gas\s+line)\b/,
+  foundation: /\b(foundation|footings?|slab|stem\s+wall|crawlspace|basement)\b/,
+  concrete: /\b(concrete|slab|footings?|foundation\s+pour)\b/,
+  framing: /\b(fram(?:e|ing)|wall\s+framing|roof\s+framing|shell)\b/,
+  roof_tie_in: /\b(roof\s+tie[\s-]?in|tie\s+into\s+(?:the\s+)?roof|roofing\s+tie[\s-]?in|roofing)\b/,
+  windows_doors: /\b(windows?|doors?|exterior\s+doors?|sliders?)\b/,
+  exterior_finishes: /\b(exterior\s+finishes|siding|stucco|soffit|fascia|exterior\s+trim)\b/,
+  hvac: /\b(hvac|furnace|air\s+condition|heat\s+pump|duct(?:work)?|mini\s*split)\b/,
+  insulation: /\b(insulat(?:e|ion)|batt\s+insulation|spray\s+foam)\b/,
+  drywall: /\b(drywall|sheetrock|gypsum|hang\s+and\s+finish)\b/,
+  cabinets_counters: /\b(cabinets?|cabinetry|counters?|countertops?|kitchenette|quartz|granite)\b/,
+  tile: /\b(tile|shower\s+tile|floor\s+tile|backsplash)\b/,
+  trim: /\b(trim|baseboards?|interior\s+doors?|casing|moulding|molding)\b/,
+  interior_trim: /\b(interior\s+(?:doors?|trim)|baseboards?|casing|door\s+trim)\b/,
+  plumbing_trim: /\b(plumbing\s+(?:fixtures?|trim|trim[\s-]?out)|bathroom|toilet|vanity|shower|sink|faucet)\b/,
+  electrical_trim: /\b(electrical\s+(?:trim|trim[\s-]?out|devices?|fixtures?)|outlets?|switches?|lighting)\b/,
+  hvac_startup: /\b(hvac\s+(?:startup|registers?|trim)|registers?|start\s+up\s+hvac)\b/,
+  final_inspections: /\b(final\s+inspection|final\s+inspections|inspection\s+closeout)\b/,
+  contingency: /\b(contingency|contingency\s+allowance)\b/,
+  roofing: /\b(roof(?:ing)?|shingles?|roof\s+install)\b/,
+  exterior: /\b(exterior|siding|stucco|exterior\s+finishes)\b/,
+  mep_rough: /\b(mep|mechanical|electrical|plumbing|rough[\s-]?in|rough\s+mechanical)\b/,
+  tile_flooring: /\b(tile|flooring|floors?|lvp|laminate|carpet|hardwood)\b/,
+  paint_trim: /\b(paint|trim|baseboards?|interior\s+paint)\b/,
+  utility_taps: /\b(utility\s+taps?|water\s+tap|sewer\s+tap|gas\s+tap|utility\s+connections?)\b/,
+  overhead_profit: /\b(overhead|profit|builder\s+fee|builder\s+overhead)\b/,
   irrigation: /\b(irrigation|sprinkler)\b/,
   sod_turf: /\b(sod|turf|grass)\b/,
   pavers: /\b(paver|pavers)\b/,
@@ -624,13 +657,19 @@ const CHECKLIST_YES_HINTS = {
   finish_tape: /\b(tape|mud|finish\s+drywall)\b/,
   interior_paint: /\b(interior\s+paint|paint\s+(?:walls|interior))\b/,
   exterior_paint: /\b(exterior\s+paint|paint\s+exterior)\b/,
-  permits: /\b(permit)\b/,
+  permits: /\b(permits?)\b/,
   cleanup: /\b(cleanup|disposal|dumpster|debris|final\s+clean)\b/,
 };
 
 const CHECKLIST_NO_HINTS = {
   appliances: /\b(no\s+appliances|appliances\s+not\s+included|owner\s+appliances)\b/,
   permits: /\b(no\s+permits|permits\s+not\s+included|owner\s+pulls?\s+permits)\b/,
+  foundation:
+    /\b(no|without|not\s+including)\s+(?:new\s+)?(?:foundation|footings?|slab)\b|\b(?:foundation|footings?|slab)\s+(?:not\s+included|excluded)\b/,
+  roof_tie_in:
+    /\b(no|without|not\s+including)\b[^.]{0,40}\b(?:roof(?:ing)?|roof\s+tie[\s-]?in|roof\s+work)\b|\b(?:roof(?:ing)?|roof\s+tie[\s-]?in|roof\s+work)\s+(?:not\s+included|excluded)\b/,
+  roofing:
+    /\b(no|without|not\s+including)\b[^.]{0,40}\b(?:roof(?:ing)?|roof\s+work)\b|\b(?:roof(?:ing)?|roof\s+work)\s+(?:not\s+included|excluded)\b/,
 };
 
 function notesText(draft, originalNotes) {
@@ -643,6 +682,12 @@ function checklistTemplateKey(draft, estimateTier) {
 
   if (estimateTier === 'ground_up') return 'ground_up';
   if (estimateTier === 'addition') return 'addition';
+  if (
+    estimateTier === 'room_remodel' &&
+    /\b(basement\s+finish(?:ing)?|finished\s+basement|interior\s+renovation|insurance\s+(?:repair|restoration)|restoration|mixed\s+repair)\b/i.test(notes)
+  ) {
+    return 'room_remodel';
+  }
 
   if (projectType === 'bathroom' || /\bbath(?:room)?\s+remodel\b/i.test(notes)) return 'bathroom';
   if (projectType === 'kitchen' || /\bkitchen\s+remodel\b/i.test(notes)) return 'kitchen';

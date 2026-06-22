@@ -48,6 +48,59 @@ describe('estimateDraftComplexity', () => {
     expect(classifyEstimateTier(draft, notes)).toBe('ground_up');
   });
 
+  test('classifies room additions and home additions as addition tier', () => {
+    const cases = [
+      {
+        projectType: 'room_addition',
+        notes: 'Add a 240 sqft bedroom addition with foundation, framing, electrical, insulation, drywall, and paint.',
+      },
+      {
+        projectType: 'home_addition',
+        notes: 'Home addition with new family room, bathroom tie-in, HVAC extension, roofing tie-in, and finishes.',
+      },
+      {
+        projectType: 'adu',
+        notes: 'Build a detached ADU casita with kitchenette, bathroom, utility trenching, foundation, framing, and roofing.',
+      },
+      {
+        projectType: 'garage_conversion',
+        notes: 'Garage conversion into living space with insulation, drywall, electrical, HVAC, and flooring.',
+      },
+    ];
+
+    for (const { projectType, notes } of cases) {
+      const draft = { projectType, rooms: [] };
+      expect(classifyEstimateTier(draft, notes)).toBe('addition');
+      expect(isSimpleUnitBid(draft, notes)).toBe(false);
+      const checklist = buildScopeChecklist(draft, 'addition', notes);
+      expect(checklist.templateKey).toBe('addition');
+      expect(checklist.items.some((i) => i.id === 'foundation')).toBe(true);
+      expect(checklist.items.some((i) => i.id === 'framing')).toBe(true);
+      expect(checklist.items.some((i) => i.id === 'contingency')).toBe(true);
+    }
+  });
+
+  test('classifies notes-only addition language as addition tier', () => {
+    const notes = 'Room addition: add 320 sqft office with slab foundation, framing, roof tie-in, electrical, drywall and paint.';
+    const draft = { projectType: 'other', rooms: [] };
+    expect(classifyEstimateTier(draft, notes)).toBe('addition');
+    const checklist = buildScopeChecklist(draft, 'addition', notes);
+    expect(checklist.templateKey).toBe('addition');
+    expect(checklist.title.toLowerCase()).toContain('addition');
+    expect(checklist.items.some((i) => i.id === 'roof_tie_in')).toBe(true);
+  });
+
+  test('classifies notes-only ground-up language as ground_up tier', () => {
+    const notes = 'Ground up build for a 1850 sqft custom home with sitework, foundation, framing, roofing, MEP, drywall and finishes.';
+    const draft = { projectType: 'other', rooms: [] };
+    expect(classifyEstimateTier(draft, notes)).toBe('ground_up');
+    const checklist = buildScopeChecklist(draft, 'ground_up', notes);
+    expect(checklist.templateKey).toBe('ground_up');
+    expect(checklist.items.some((i) => i.id === 'sitework')).toBe(true);
+    expect(checklist.items.some((i) => i.id === 'foundation')).toBe(true);
+    expect(checklist.items.some((i) => i.id === 'overhead_profit')).toBe(true);
+  });
+
   test('builds bathroom checklist for remodel', () => {
     const draft = { projectType: 'bathroom', rooms: [] };
     const checklist = buildScopeChecklist(draft, 'room_remodel', 'bathroom remodel');
@@ -101,6 +154,378 @@ describe('estimateDraftComplexity', () => {
     expect(next.inclusions.some((l) => l.includes('Demo'))).toBe(true);
     expect(next.inclusions.some((l) => l.includes('Toilet: Replacing'))).toBe(true);
     expect(next.exclusions.some((l) => l.includes('Permits'))).toBe(true);
+  });
+
+  test('applyScopeAssumptions turns confirmed addition phases into missing-price review packages', () => {
+    const notes =
+      'Room addition: add 240 sqft bedroom addition with slab foundation, framing, roof tie-in, electrical, insulation, drywall, flooring, and paint.';
+    const draft = {
+      projectType: 'room_addition',
+      estimateTier: 'addition',
+      originalNotes: notes,
+      rooms: [],
+      inclusions: [],
+      exclusions: [],
+      missingInfo: [],
+      pricingWarnings: [],
+    };
+    const checklist = buildScopeChecklist(draft, 'addition', notes);
+    const confirmed = checklist.items
+      .filter((item) =>
+        ['plans_engineering', 'permits', 'foundation', 'framing', 'roof_tie_in', 'electrical_rough', 'drywall', 'flooring', 'paint', 'cleanup'].includes(
+          item.id
+        )
+      )
+      .map((item) => ({ ...item, state: 'included' }));
+
+    const next = applyScopeAssumptions({ ...draft, scopeChecklist: checklist }, confirmed, {
+      drywallSqft: 900,
+      floorAreaSqft: 240,
+      wallPaintSqft: 750,
+    });
+
+    const packageNames = (next.rooms || []).map((room) => room.name);
+    expect(packageNames).toEqual(
+      expect.arrayContaining([
+        'Plans / engineering',
+        'Permits / fees',
+        'Footings / slab / foundation',
+        'Framing / shell',
+        'Roofing / tie-in',
+        'Rough electrical',
+        'Drywall',
+        'Flooring',
+        'Paint',
+        'Cleanup & disposal',
+      ])
+    );
+    expect(next.rooms.every((room) => room.status === 'missing_price')).toBe(true);
+    expect(next.rooms.every((room) => room.priceSource === 'missing')).toBe(true);
+    expect(next.rooms.every((room) => room.applyEligible === false)).toBe(true);
+    expect(next.rooms.find((room) => room.name === 'Plans / engineering').missingPriceItems).toEqual(
+      expect.arrayContaining(['Materials / supplies', 'Install labor'])
+    );
+    expect(next.scopeAssumptionsConfirmed).toBe(true);
+    expect(next.pricingWarnings).toEqual(expect.arrayContaining(['Complex job — pricing applies only to confirmed scope']));
+  });
+
+  test('ADU casita notes preselect addition phases and create phase-based review packages', () => {
+    const notes =
+      'Detached ADU casita with bathroom and kitchenette: plans, permits, utility trenching for water and sewer, slab foundation, framing, roofing, windows and doors, rough plumbing, electrical, mini split HVAC, insulation, drywall, cabinets, countertops, appliance allowance, plumbing fixtures, lighting, flooring, paint, final inspection, cleanup, and contingency.';
+    const draft = {
+      projectType: 'adu',
+      estimateTier: 'addition',
+      originalNotes: notes,
+      rooms: [],
+      inclusions: [],
+      exclusions: [],
+      missingInfo: [],
+      pricingWarnings: [],
+    };
+
+    const checklist = buildScopeChecklist(draft, 'addition', notes);
+    expect(checklist.templateKey).toBe('addition');
+    expect(checklist.items.filter((item) => item.state === 'included').map((item) => item.id)).toEqual(
+      expect.arrayContaining([
+        'plans_engineering',
+        'permits',
+        'utility_trenching',
+        'foundation',
+        'framing',
+        'roof_tie_in',
+        'windows_doors',
+        'plumbing_rough',
+        'electrical_rough',
+        'hvac',
+        'insulation',
+        'drywall',
+        'cabinets_counters',
+        'plumbing_trim',
+        'electrical_trim',
+        'appliances',
+        'flooring',
+        'paint',
+        'final_inspections',
+        'cleanup',
+        'contingency',
+      ])
+    );
+
+    const confirmed = checklist.items.filter((item) => item.state === 'included');
+    const next = applyScopeAssumptions({ ...draft, scopeChecklist: checklist }, confirmed, {
+      floorAreaSqft: 650,
+      drywallSqft: 2200,
+      wallPaintSqft: 1800,
+    });
+
+    const packageNames = (next.rooms || []).map((room) => room.name);
+    expect(packageNames).toEqual(
+      expect.arrayContaining([
+        'Plans / engineering',
+        'Permits / fees',
+        'Utility trenching',
+        'Footings / slab / foundation',
+        'Framing / shell',
+        'Roofing / tie-in',
+        'Windows & exterior doors',
+        'Rough plumbing',
+        'Rough electrical',
+        'HVAC',
+        'Insulation',
+        'Drywall',
+        'Cabinets & counters',
+        'Plumbing fixtures / trim-out',
+        'Electrical devices / fixtures',
+        'Appliances',
+        'Flooring',
+        'Paint',
+        'Final inspections',
+        'Cleanup & disposal',
+        'Contingency allowance',
+      ])
+    );
+    expect(packageNames.some((name) => /bathroom demo|kitchen remodel|lvp flooring installation/i.test(name))).toBe(false);
+    expect(next.rooms.every((room) => room.status === 'missing_price')).toBe(true);
+    expect(next.rooms.every((room) => room.applyEligible === false)).toBe(true);
+  });
+
+  test('garage conversion notes include interior conversion phases without foundation or roof work', () => {
+    const notes =
+      'Garage conversion into bedroom suite: permits, frame closet and non-bearing wall, add egress window and exterior door, electrical wiring and outlets, mini split HVAC, insulation, drywall, LVP flooring, paint, baseboards, final inspection, and cleanup. No foundation or roof work included.';
+    const draft = {
+      projectType: 'garage_conversion',
+      estimateTier: 'addition',
+      originalNotes: notes,
+      rooms: [],
+      inclusions: [],
+      exclusions: [],
+      missingInfo: [],
+      pricingWarnings: [],
+    };
+
+    const checklist = buildScopeChecklist(draft, 'addition', notes);
+    const includedIds = checklist.items.filter((item) => item.state === 'included').map((item) => item.id);
+    const excludedIds = checklist.items.filter((item) => item.state === 'excluded').map((item) => item.id);
+
+    expect(includedIds).toEqual(
+      expect.arrayContaining([
+        'permits',
+        'framing',
+        'windows_doors',
+        'electrical_rough',
+        'hvac',
+        'insulation',
+        'drywall',
+        'flooring',
+        'paint',
+        'interior_trim',
+        'final_inspections',
+        'cleanup',
+      ])
+    );
+    expect(excludedIds).toEqual(expect.arrayContaining(['foundation', 'roof_tie_in']));
+
+    const confirmed = checklist.items.filter((item) => item.state === 'included');
+    const next = applyScopeAssumptions({ ...draft, scopeChecklist: checklist }, confirmed, {
+      floorAreaSqft: 430,
+      drywallSqft: 1500,
+      wallPaintSqft: 1200,
+    });
+
+    const packageNames = (next.rooms || []).map((room) => room.name);
+    expect(packageNames).toEqual(
+      expect.arrayContaining([
+        'Permits / fees',
+        'Framing / shell',
+        'Windows & exterior doors',
+        'Rough electrical',
+        'HVAC',
+        'Insulation',
+        'Drywall',
+        'Flooring',
+        'Paint',
+        'Interior doors / trim',
+        'Final inspections',
+        'Cleanup & disposal',
+      ])
+    );
+    expect(packageNames).not.toEqual(
+      expect.arrayContaining(['Footings / slab / foundation', 'Roofing / tie-in'])
+    );
+    expect(packageNames.some((name) => /bathroom|kitchen|lvp flooring installation/i.test(name))).toBe(false);
+    expect(next.rooms.every((room) => room.status === 'missing_price')).toBe(true);
+    expect(next.rooms.every((room) => room.applyEligible === false)).toBe(true);
+  });
+
+  test('basement finish stays room_remodel and creates generic multi-trade phase packages', () => {
+    const notes =
+      'Basement finish with framing, rough plumbing for bathroom, electrical wiring and outlets, HVAC duct runs, drywall hang and finish, LVP flooring, paint, trim and doors, permits, and cleanup.';
+    const draft = {
+      projectType: 'other',
+      originalNotes: notes,
+      rooms: [],
+      inclusions: [],
+      exclusions: [],
+      missingInfo: [],
+      pricingWarnings: [],
+    };
+
+    expect(classifyEstimateTier(draft, notes)).toBe('room_remodel');
+    const checklist = buildScopeChecklist(draft, 'room_remodel', notes);
+    expect(checklist.templateKey).toBe('room_remodel');
+
+    const includedIds = checklist.items.filter((item) => item.state === 'included').map((item) => item.id);
+    expect(includedIds).toEqual(
+      expect.arrayContaining([
+        'framing',
+        'plumbing',
+        'electrical',
+        'hvac',
+        'drywall',
+        'flooring',
+        'paint',
+        'trim',
+        'permits',
+        'cleanup',
+      ])
+    );
+
+    const confirmed = checklist.items.filter((item) => item.state === 'included');
+    const next = applyScopeAssumptions(
+      { ...draft, estimateTier: 'room_remodel', scopeChecklist: checklist },
+      confirmed,
+      {
+        floorAreaSqft: 900,
+        drywallSqft: 3200,
+        wallPaintSqft: 2600,
+        baseboardLf: 420,
+      }
+    );
+
+    const packageNames = (next.rooms || []).map((room) => room.name);
+    expect(packageNames).toEqual(
+      expect.arrayContaining([
+        'Framing or layout changes',
+        'Plumbing work',
+        'Electrical work',
+        'HVAC work',
+        'Drywall hang / finish',
+        'Flooring install',
+        'Interior painting',
+        'Trim & doors',
+        'Permits & inspections',
+        'Cleanup, haul-off & disposal',
+      ])
+    );
+    expect(packageNames.some((name) => /bathroom demo|kitchen remodel|lvp flooring installation/i.test(name))).toBe(false);
+    expect(next.rooms.every((room) => room.status === 'missing_price')).toBe(true);
+    expect(next.rooms.every((room) => room.applyEligible === false)).toBe(true);
+    expect(next.pricingWarnings).toEqual(expect.arrayContaining(['Complex job — pricing applies only to confirmed scope']));
+  });
+
+  test('mixed repair restoration stays room_remodel and does not collapse to flooring template', () => {
+    const notes =
+      'Insurance restoration mixed repair: drywall patch in hallway, paint walls, replace 80 LF baseboards, replace two interior doors, repair small LVP flooring area, and cleanup.';
+    const draft = {
+      projectType: 'other',
+      originalNotes: notes,
+      rooms: [],
+      inclusions: [],
+      exclusions: [],
+      missingInfo: [],
+      pricingWarnings: [],
+    };
+
+    expect(classifyEstimateTier(draft, notes)).toBe('room_remodel');
+    const checklist = buildScopeChecklist(draft, 'room_remodel', notes);
+    expect(checklist.templateKey).toBe('room_remodel');
+
+    const includedIds = checklist.items.filter((item) => item.state === 'included').map((item) => item.id);
+    expect(includedIds).toEqual(
+      expect.arrayContaining(['drywall', 'flooring', 'paint', 'trim', 'cleanup'])
+    );
+
+    const confirmed = checklist.items.filter((item) => item.state === 'included');
+    const next = applyScopeAssumptions(
+      { ...draft, estimateTier: 'room_remodel', scopeChecklist: checklist },
+      confirmed,
+      {
+        drywallSqft: 180,
+        floorAreaSqft: 120,
+        wallPaintSqft: 900,
+        baseboardLf: 80,
+      }
+    );
+
+    const packageNames = (next.rooms || []).map((room) => room.name);
+    expect(packageNames).toEqual(
+      expect.arrayContaining([
+        'Drywall hang / finish',
+        'Flooring install',
+        'Interior painting',
+        'Trim & doors',
+        'Cleanup, haul-off & disposal',
+      ])
+    );
+    expect(packageNames).not.toEqual(
+      expect.arrayContaining(['Flooring Demo / Removal', 'LVP Flooring Installation', 'Baseboard Installation'])
+    );
+    expect(next.rooms.every((room) => room.status === 'missing_price')).toBe(true);
+    expect(next.rooms.every((room) => room.applyEligible === false)).toBe(true);
+  });
+
+  test('applyScopeAssumptions keeps ground-up build as phase-based missing-price packages', () => {
+    const notes =
+      'Ground up build for a 1850 sqft custom home with plans, permits, sitework, foundation, framing, roofing, MEP rough-in, drywall, cabinets, flooring, paint, appliances, utility taps, contingency, and builder overhead.';
+    const draft = {
+      projectType: 'new_build',
+      estimateTier: 'ground_up',
+      originalNotes: notes,
+      rooms: [],
+      inclusions: [],
+      exclusions: [],
+      missingInfo: [],
+      pricingWarnings: [],
+    };
+    const checklist = buildScopeChecklist(draft, 'ground_up', notes);
+    const confirmed = checklist.items
+      .filter((item) =>
+        ['plans_engineering', 'permits', 'sitework', 'foundation', 'framing', 'roofing', 'mep_rough', 'drywall', 'cabinets_counters', 'tile_flooring', 'paint_trim', 'utility_taps', 'contingency', 'overhead_profit'].includes(
+          item.id
+        )
+      )
+      .map((item) => ({ ...item, state: 'included' }));
+
+    const next = applyScopeAssumptions({ ...draft, scopeChecklist: checklist }, confirmed, {
+      drywallSqft: 6200,
+      floorAreaSqft: 1850,
+    });
+
+    const packageNames = (next.rooms || []).map((room) => room.name);
+    expect(packageNames).toEqual(
+      expect.arrayContaining([
+        'Plans / engineering',
+        'Permits / fees',
+        'Sitework & excavation',
+        'Foundation',
+        'Framing',
+        'Roofing',
+        'MEP rough-in',
+        'Drywall',
+        'Cabinets & countertops',
+        'Tile & flooring',
+        'Paint & trim',
+        'Utility taps / connections',
+        'Contingency allowance',
+        'Builder overhead & profit',
+      ])
+    );
+    expect(packageNames.some((name) => /bathroom|kitchen|lvp flooring installation/i.test(name))).toBe(false);
+    expect(next.rooms.every((room) => room.status === 'missing_price')).toBe(true);
+    expect(next.rooms.every((room) => room.applyEligible === false)).toBe(true);
+    expect(next.pricingWarnings).toEqual(
+      expect.arrayContaining(['Ground-up planning estimate — verify phases, soft costs, and subs before bidding'])
+    );
   });
 
   test('applyScopeMeasurements stamps sqft and lf on matching scope packages', () => {

@@ -193,4 +193,110 @@ describe('mobile scope measurement parser', () => {
       quantitySource: 'user_entered',
     });
   });
+
+  it('parses bathroom shower tile material/labor rates separately from floor sqft', () => {
+    const notes =
+      'Bathroom remodel. Shower wall tile 120 sqft material $6/sqft labor $14/sqft. Bathroom floor tile 45 sqft not priced yet.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'bathroom',
+      projectType: 'bathroom',
+    });
+    const measurements = normalizeScopeMeasurements(parsed);
+    const showerTile = resolveChecklistItemQuantity('shower_tile', measurements, {
+      templateKey: 'bathroom',
+      notes,
+    });
+    const floorTile = resolveChecklistItemQuantity('floor_tile', measurements, {
+      templateKey: 'bathroom',
+      notes,
+    });
+
+    expect(parsed.showerWallTileSqft).toBe(120);
+    expect(parsed.bathroomFloorSqft).toBe(45);
+    expect(showerTile).toMatchObject({
+      dualCount: { quantity: 120, unit: 'sqft' },
+      dualMaterial: { quantity: 720 },
+      dualLabor: { quantity: 1680 },
+      dualAllowance: { quantity: 2400 },
+    });
+    expect(floorTile).toMatchObject({ quantity: 45, unit: 'sqft', pricingReady: true });
+  });
+
+  it('parses kitchen mixed scope without stealing backsplash sqft for paint', () => {
+    const notes =
+      'Kitchen remodel. Cabinets 20 LF. Countertops 48 sqft allowance $5,000. Backsplash tile 35 sqft material $8/sqft labor $12/sqft. Paint walls and ceiling 320 sqft $1.50/sqft labor. Appliance install allowance $1,200. Demo $850 lump sum.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'kitchen',
+      projectType: 'kitchen',
+    });
+    const measurements = normalizeScopeMeasurements(parsed);
+    const backsplash = resolveChecklistItemQuantity('backsplash', measurements, {
+      templateKey: 'kitchen',
+      notes,
+    });
+    const paint = resolveChecklistItemQuantity('paint', measurements, {
+      templateKey: 'kitchen',
+      notes,
+    });
+
+    expect(parsed.cabinetLf).toBe(20);
+    expect(parsed.countertopSqft).toBe(48);
+    expect(parsed.backsplashSqft).toBe(35);
+    expect(parsed.wallPaintSqft).toBe(320);
+    expect(parsed.itemQuantities?.appliances).toMatchObject({ quantity: 1200, unit: 'allowance' });
+    expect(parsed.itemQuantities?.demo).toMatchObject({ quantity: 850, unit: 'lump_sum' });
+    expect(backsplash).toMatchObject({
+      dualMaterial: { quantity: 280 },
+      dualLabor: { quantity: 420 },
+      dualAllowance: { quantity: 700 },
+    });
+    expect(paint).toMatchObject({
+      dualCount: { quantity: 320, unit: 'sqft' },
+      dualLabor: { quantity: 480 },
+      dualAllowance: { quantity: 480 },
+    });
+  });
+
+  it('parses drywall hang and finish rates from the same drywall quantity', () => {
+    const notes =
+      'Drywall job. Hang drywall 1200 sqft material $1.50 per sqft labor $3 per sqft. Finish drywall 1200 sqft labor $2.25 per sqft.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'drywall',
+      projectType: 'drywall',
+    });
+    const measurements = normalizeScopeMeasurements(parsed);
+
+    expect(parsed.drywallSqft).toBe(1200);
+    expect(parsed.itemQuantities?.hang__material).toMatchObject({ quantity: 1800, unit: 'allowance' });
+    expect(parsed.itemQuantities?.hang__labor).toMatchObject({ quantity: 3600, unit: 'allowance' });
+    expect(parsed.itemQuantities?.finish_tape__labor).toMatchObject({ quantity: 2700, unit: 'allowance' });
+    expect(resolveChecklistItemQuantity('hang', measurements, { templateKey: 'drywall', notes })).toMatchObject({
+      quantity: 5400,
+      unit: 'allowance',
+      pricingReady: true,
+    });
+  });
+
+  it('parses concrete and landscape unit rates across sqft, CY, and sod sqft', () => {
+    const notes =
+      'Concrete patio 600 sqft material $4/sqft labor $6/sqft. Excavation 12 CY $95 per CY. New sod 900 sqft $2/sqft.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'landscape',
+      projectType: 'landscape',
+    });
+    const measurements = normalizeScopeMeasurements(parsed);
+
+    expect(parsed.concreteSqft).toBe(600);
+    expect(parsed.excavationCy).toBe(12);
+    expect(parsed.sodSqft).toBe(900);
+    expect(parsed.itemQuantities?.concrete__material).toMatchObject({ quantity: 2400, unit: 'allowance' });
+    expect(parsed.itemQuantities?.concrete__labor).toMatchObject({ quantity: 3600, unit: 'allowance' });
+    expect(parsed.itemQuantities?.excavation).toMatchObject({ quantity: 1140, unit: 'allowance' });
+    expect(parsed.itemQuantities?.sod_turf).toMatchObject({ quantity: 1800, unit: 'allowance' });
+    expect(resolveChecklistItemQuantity('concrete', measurements, { templateKey: 'landscape', notes })).toMatchObject({
+      quantity: 6000,
+      unit: 'allowance',
+      pricingReady: true,
+    });
+  });
 });

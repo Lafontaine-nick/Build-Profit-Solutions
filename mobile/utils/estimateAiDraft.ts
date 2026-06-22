@@ -841,8 +841,9 @@ function buildScopeDescription(draft: EstimateAiDraft): string {
     parts.push(draft.contractScope.trim());
   }
 
-  if (draft.rooms.length > 0) {
-    const roomBlocks = draft.rooms.map((room) => {
+  const rooms = draft.rooms || [];
+  if (rooms.length > 0) {
+    const roomBlocks = rooms.map((room) => {
       const header = room.name.trim();
       const body = room.scope.trim();
       return body ? `${header}\n${body}` : header;
@@ -850,8 +851,9 @@ function buildScopeDescription(draft: EstimateAiDraft): string {
     parts.push(roomBlocks.join('\n\n'));
   }
 
-  if (draft.allowances.length > 0) {
-    const allowanceLines = draft.allowances.map((allowance) => {
+  const allowances = draft.allowances || [];
+  if (allowances.length > 0) {
+    const allowanceLines = allowances.map((allowance) => {
       const label = allowance.name || allowance.description || 'Allowance';
       const rate = allowance.rate ?? allowance.amount;
       const amount =
@@ -868,12 +870,14 @@ function buildScopeDescription(draft: EstimateAiDraft): string {
     parts.push(['Allowances', ...allowanceLines.map((line) => `• ${line}`)].join('\n'));
   }
 
-  if (draft.inclusions.length > 0) {
-    parts.push(['Inclusions', ...draft.inclusions.map((line) => `• ${line}`)].join('\n'));
+  const inclusions = draft.inclusions || [];
+  if (inclusions.length > 0) {
+    parts.push(['Inclusions', ...inclusions.map((line) => `• ${line}`)].join('\n'));
   }
 
-  if (draft.exclusions.length > 0) {
-    parts.push(['Exclusions', ...draft.exclusions.map((line) => `• ${line}`)].join('\n'));
+  const exclusions = draft.exclusions || [];
+  if (exclusions.length > 0) {
+    parts.push(['Exclusions', ...exclusions.map((line) => `• ${line}`)].join('\n'));
   }
 
   return parts.filter(Boolean).join('\n\n').trim();
@@ -1315,7 +1319,7 @@ export function getScopePackages(draft: EstimateAiDraft): EstimateDraftScopePack
   if (draft.scopePackages?.length) {
     return draft.scopePackages.map((pkg) => applySelectedPricingToScopePackage(pkg, draft));
   }
-  return draft.rooms.map((room) => applySelectedPricingToScopePackage({
+  return (draft.rooms || []).map((room) => applySelectedPricingToScopePackage({
     name: room.name,
     scope: room.scope,
     scopeQuantities: room.scopeQuantities,

@@ -354,6 +354,9 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   const itemAllowances = parseScopeItemAllowancesFromNotes(text, ctx);
   const itemRatePricing = parseScopeItemRatePricingFromNotes(text, out, ctx);
   const itemQuantities = { ...itemAllowances, ...itemRatePricing };
+  if (ctx.templateKey === 'flooring' && itemQuantities.floor_demo) {
+    delete itemQuantities.demo;
+  }
   if (Object.keys(itemQuantities).length) {
     out.itemQuantities = itemQuantities;
   }

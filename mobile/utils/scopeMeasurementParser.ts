@@ -58,7 +58,7 @@ function splitNoteClauses(text: string): string[] {
 
   let sentences = normalized
     .split(
-      /(?<!\d)\.\s+(?=[A-Z])|\.\s+(?=(?:demo|install|final|baseboards?|remove|tear|new|paint|interior|cleanup|haul|trim|replace|lvp|vinyl|carpet|flooring)\b)/gi
+      /(?<!\d)\.\s+(?=[A-Z])|\.\s+(?=(?:demo|install|final|baseboards?|remove|tear|new|paint|interior|cleanup|haul|trim|replace|lvp|vinyl|carpet|flooring|backsplash|back\s*splash|cabinet|countertops?|counters?|appliance)\b)/gi
     )
     .map((x) => x.trim())
     .filter(Boolean);
@@ -342,6 +342,9 @@ export function parseScopeMeasurementsFromNotes(
   const itemAllowances = parseScopeItemAllowancesFromNotes(text, ctx);
   const itemRatePricing = parseScopeItemRatePricingFromNotes(text, out, ctx);
   const itemQuantities = { ...itemAllowances, ...itemRatePricing };
+  if (ctx.templateKey === 'flooring' && itemQuantities.floor_demo) {
+    delete itemQuantities.demo;
+  }
   if (Object.keys(itemQuantities).length) {
     return { ...out, itemQuantities };
   }

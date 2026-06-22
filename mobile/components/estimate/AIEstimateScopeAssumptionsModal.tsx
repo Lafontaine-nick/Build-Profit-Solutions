@@ -51,6 +51,7 @@ import {
   DUAL_QUANTITY_FIELD_LABELS,
   formatUnitLabel,
   getChecklistItemQuantityRule,
+  hasCompleteUserSelectedPricing,
   initialScopeMeasurementInputExtended,
   isDualAllowanceItem,
   overlayDualRatePricingDisplay,
@@ -1117,10 +1118,10 @@ function QuantitySection({
     const laborInput = measurementsInput.itemQuantities[laborKey];
     const isEditing = pricingEditorOpen;
 
-    const hasUserSelectedPricing =
-      materialInput?.quantitySource === 'user_entered' ||
-      laborInput?.quantitySource === 'user_entered' ||
-      allowanceInput?.quantitySource === 'user_entered';
+    const hasUserSelectedPricing = hasCompleteUserSelectedPricing(
+      measurementsInput.itemQuantities,
+      itemId
+    );
 
     if (!isEditing && originalNotes?.trim() && !hasUserSelectedPricing) {
       const fromNotes = resolveDualRatePricingDisplayFromNotes(
@@ -1133,6 +1134,18 @@ function QuantitySection({
         resolved = { ...resolved, ...fromNotes, showInput: true };
       }
     }
+
+    const mergeNotesSplitForDisplay = () => {
+      if (isEditing || !originalNotes?.trim() || hasUserSelectedPricing) return resolved;
+      if (resolved.dualMaterial && resolved.dualLabor) return resolved;
+      const fromNotes = resolveDualRatePricingDisplayFromNotes(
+        itemId,
+        measurementsInput,
+        originalNotes,
+        templateKey
+      );
+      return fromNotes ? { ...resolved, ...fromNotes, showInput: true } : resolved;
+    };
 
     if (__DEV__ && itemId === 'backsplash') {
       const raw = measurementsInput.itemQuantities || {};
@@ -1151,13 +1164,14 @@ function QuantitySection({
     }
 
     if (resolved.pricingReady && !isEditing) {
+      const displayResolved = mergeNotesSplitForDisplay();
       const suggested = hasUserSelectedPricing
         ? { fill: null, comparison: null }
         : resolveScopeItemSuggestedPricing(
             itemId,
             measurementsInput,
             templateKey,
-            resolved,
+            displayResolved,
             pricingContext
           );
       const suggestedBudgetSplit = suggested.fill;
@@ -1178,42 +1192,42 @@ function QuantitySection({
       };
       return (
         <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
-          {resolved.dualCount ? (
+          {displayResolved.dualCount ? (
             <PricingSplitRow
               label={fieldLabels?.count || 'Quantity'}
-              value={`${resolved.dualCount.quantity.toLocaleString()} ${fieldLabels?.countUnit || 'each'}`}
+              value={`${displayResolved.dualCount.quantity.toLocaleString()} ${fieldLabels?.countUnit || 'each'}`}
               darkMode={darkMode}
               Colors={Colors}
             />
           ) : null}
-          {resolved.dualMaterial ? (
+          {displayResolved.dualMaterial ? (
             <PricingSplitRow
               label="Material"
-              value={formatDraftMoney(resolved.dualMaterial.quantity)}
-              helper={unitRateHelper(String(resolved.dualMaterial.quantity), resolved.dualCount)}
+              value={formatDraftMoney(displayResolved.dualMaterial.quantity)}
+              helper={unitRateHelper(String(displayResolved.dualMaterial.quantity), displayResolved.dualCount)}
               darkMode={darkMode}
               Colors={Colors}
             />
           ) : null}
-          {resolved.dualLabor ? (
+          {displayResolved.dualLabor ? (
             <PricingSplitRow
               label="Labor"
-              value={formatDraftMoney(resolved.dualLabor.quantity)}
-              helper={unitRateHelper(String(resolved.dualLabor.quantity), resolved.dualCount)}
+              value={formatDraftMoney(displayResolved.dualLabor.quantity)}
+              helper={unitRateHelper(String(displayResolved.dualLabor.quantity), displayResolved.dualCount)}
               darkMode={darkMode}
               Colors={Colors}
             />
           ) : null}
-          {resolved.dualAllowance ? (
+          {displayResolved.dualAllowance ? (
             <PricingSplitRow
               label={
-                resolved.dualMaterial || resolved.dualLabor
+                displayResolved.dualMaterial || displayResolved.dualLabor
                   ? 'Total'
                   : fieldLabels?.allowance || 'Allowance'
               }
-              value={formatDraftMoney(resolved.dualAllowance.quantity)}
+              value={formatDraftMoney(displayResolved.dualAllowance.quantity)}
               pill={
-                !resolved.dualMaterial && !resolved.dualLabor && resolved.quantitySource === 'notes' ? (
+                !displayResolved.dualMaterial && !displayResolved.dualLabor && displayResolved.quantitySource === 'notes' ? (
                   <SourcePill kind="notes" />
                 ) : undefined
               }
@@ -1221,7 +1235,7 @@ function QuantitySection({
               Colors={Colors}
             />
           ) : null}
-          {resolved.quantitySource === 'notes' && (resolved.dualMaterial || resolved.dualLabor) ? (
+          {displayResolved.quantitySource === 'notes' && (displayResolved.dualMaterial || displayResolved.dualLabor) ? (
             <View style={[styles.pricingRowGap, { alignItems: 'flex-end' }]}>
               <SourcePill kind="notes" />
             </View>

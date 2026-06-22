@@ -2,6 +2,7 @@ import { emptyQuickMeasurementInput } from '@/utils/scopeQuickMeasurements';
 import {
   resolveScopeItemSuggestedPricing,
   resolveTemplateRateForItem,
+  resolveDualRatePricingDisplayFromNotes,
   type ScopeMeasurementsInputExtended,
   type ScopePricingContext,
 } from '@/utils/scopeItemQuantities';
@@ -152,7 +153,7 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(fill).toMatchObject({ material: 6000, labor: 4000, mode: 'suggested_price' });
     expect(fill?.materialSource).toBe('template');
     expect(fill?.laborSource).toBe('template');
-    expect(fill?.rateSourceLabel).toContain('LVP Floors');
+    expect(fill?.rateSourceLabel).toContain('Saved rate');
   });
 });
 
@@ -213,5 +214,21 @@ describe('resolveTemplateRateForItem', () => {
       },
     };
     expect(resolveTemplateRateForItem('flooring', 'sqft', ctx)).toBeNull();
+  });
+
+  it('rehydrates notes material/labor split when only a partial user_entered allowance is stored', () => {
+    const notes =
+      'Install LVP flooring which is 850 sqft. Material is $4.50 a square foot and $3.25 a square foot for labor.';
+    const input = inputWith({ floorAreaSqft: '850' });
+    input.itemQuantities = {
+      ...input.itemQuantities,
+      flooring__allowance: { quantity: '3825', unit: 'allowance', quantitySource: 'user_entered' },
+    };
+    const fromNotes = resolveDualRatePricingDisplayFromNotes('flooring', input, notes, 'flooring');
+    expect(fromNotes).toMatchObject({
+      dualMaterial: { quantity: 3825 },
+      dualLabor: { quantity: 2762.5 },
+      dualAllowance: { quantity: 6587.5 },
+    });
   });
 });

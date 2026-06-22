@@ -305,7 +305,7 @@ function packageAcceptsUnit(packageName, scopeText, unit) {
  * when the next clause starts a new scope item.
  */
 const SCOPE_NOTE_SENTENCES_RE =
-  /(?<!\d)\.\s+(?=[A-Z])|\.\s+(?=(?:demo|install|final|baseboards?|remove|tear|new|paint|interior|cleanup|haul|trim|replace|lvp|vinyl|carpet|flooring)\b)/gi;
+  /(?<!\d)\.\s+(?=[A-Z])|\.\s+(?=(?:demo|install|final|baseboards?|remove|tear|new|paint|interior|cleanup|haul|trim|replace|lvp|vinyl|carpet|flooring|backsplash|back\s*splash|cabinet|countertops?|counters?|appliance)\b)/gi;
 
 function splitScopeNoteSentences(text) {
   const normalized = String(text || '').trim();

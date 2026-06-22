@@ -163,7 +163,7 @@ function classifyEstimateTier(draft, originalNotes) {
 
   if (
     REMODEL_KEYWORDS_RE.test(notes) ||
-    /\b(basement\s+finish|laundry\s+remodel|interior\s+renovation)\b/i.test(notes)
+    /\b(basement\s+finish(?:ing)?|finished\s+basement|laundry\s+remodel|interior\s+renovation|insurance\s+(?:repair|restoration)|restoration|mixed\s+repair)\b/i.test(notes)
   ) {
     return 'room_remodel';
   }
@@ -756,6 +756,9 @@ function emptyRoomFromChecklistExtra(itemId, extra, notes, measurements, templat
     materialPrice: null,
     priceIncludesLaborAndMaterials: false,
     priceProvidedByUser: false,
+    status: 'missing_price',
+    priceSource: 'missing',
+    applyEligible: false,
     pricingItems: [],
     missingPriceItems,
   };
@@ -771,6 +774,7 @@ function addScopePackagesFromConfirmedChecklist(draft, confirmedItems, scopeMeas
   const taskIds = new Set();
   const extraIds = [];
   const fallbackItems = [];
+  const phaseTemplate = templateKey === 'addition' || templateKey === 'ground_up' || templateKey === 'room_remodel';
 
   for (const item of confirmedItems) {
     if (!checklistItemInBidScope(item)) continue;
@@ -788,12 +792,14 @@ function addScopePackagesFromConfirmedChecklist(draft, confirmedItems, scopeMeas
       continue;
     }
 
-    const taskId = resolveTaskIdForChecklistItem(item, templateKey);
-    if (taskId) {
-      taskIds.add(taskId);
-      continue;
+    if (!phaseTemplate) {
+      const taskId = resolveTaskIdForChecklistItem(item, templateKey);
+      if (taskId) {
+        taskIds.add(taskId);
+        continue;
+      }
     }
-    if (CHECKLIST_EXTRA_ROOMS[item.id]) {
+    if (!phaseTemplate && CHECKLIST_EXTRA_ROOMS[item.id]) {
       extraIds.push(item.id);
       continue;
     }
@@ -836,8 +842,11 @@ function addScopePackagesFromConfirmedChecklist(draft, confirmedItems, scopeMeas
       materialPrice: null,
       priceIncludesLaborAndMaterials: false,
       priceProvidedByUser: false,
+      status: 'missing_price',
+      priceSource: 'missing',
+      applyEligible: false,
       pricingItems: [],
-      missingPriceItems: [],
+      missingPriceItems: ['Materials / supplies', 'Install labor'],
     });
   }
 

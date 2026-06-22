@@ -532,6 +532,14 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     quantityHelper: 'Enter railing linear feet.',
     missingMessage: 'Enter railing LF.',
   },
+  concrete: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'cy', 'allowance', 'lump_sum'],
+    measurementKeys: ['concreteSqft', 'concreteCy'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter concrete sqft or CY.',
+    missingMessage: 'Enter concrete quantity.',
+  },
   pour_flatwork: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'cy', 'allowance', 'lump_sum'],
@@ -964,6 +972,8 @@ export function sanitizeMistakenUnitRateAllowances(
     { itemId: 'backsplash', sqftKey: 'backsplashSqft' },
     { itemId: 'paint', sqftKey: 'wallPaintSqft' },
     { itemId: 'shower_tile', sqftKey: 'showerWallTileSqft' },
+    { itemId: 'flooring', sqftKey: 'floorAreaSqft' },
+    { itemId: 'floor_demo', sqftKey: 'floorAreaSqft' },
   ];
   for (const { itemId, sqftKey } of checks) {
     const sqft =
@@ -1007,6 +1017,24 @@ function itemHasUserEnteredPricing(
   );
 }
 
+/** True only when the user explicitly chose material, labor, and total (e.g. "Use this pricing"). */
+export function hasCompleteUserSelectedPricing(
+  itemQuantities: Record<string, ScopeItemQuantityLike>,
+  itemId: string
+): boolean {
+  const material = itemQuantities[`${itemId}__material`];
+  const labor = itemQuantities[`${itemId}__labor`];
+  const allowance = itemQuantities[roughAllowanceSubKey(itemId)];
+  return (
+    material?.quantitySource === 'user_entered' &&
+    labor?.quantitySource === 'user_entered' &&
+    allowance?.quantitySource === 'user_entered' &&
+    Number(material.quantity || 0) > 0 &&
+    Number(labor.quantity || 0) > 0 &&
+    Number(allowance.quantity || 0) > 0
+  );
+}
+
 function stripRatePricingSubkeys(
   itemQuantities: Record<string, ScopeItemQuantityValue> | undefined
 ): Record<string, ScopeItemQuantityValue> {
@@ -1040,7 +1068,7 @@ export function reparseRatePricingIntoItemQuantities(
     if (itemId) touchedItemIds.add(itemId);
   }
   for (const itemId of touchedItemIds) {
-    if (itemHasUserEnteredPricing(itemQuantities, itemId)) continue;
+    if (hasCompleteUserSelectedPricing(itemQuantities, itemId)) continue;
     delete itemQuantities[`${itemId}__material`];
     delete itemQuantities[`${itemId}__labor`];
     delete itemQuantities[`${itemId}__allowance`];
@@ -1049,7 +1077,7 @@ export function reparseRatePricingIntoItemQuantities(
   for (const [id, val] of Object.entries(rateItems)) {
     if (!val.quantity || Number(val.quantity) <= 0) continue;
     const itemId = ratePricingItemIdFromKey(id) || id;
-    if (itemHasUserEnteredPricing(itemQuantities, itemId)) continue;
+    if (hasCompleteUserSelectedPricing(itemQuantities, itemId)) continue;
     itemQuantities[id] = {
       quantity: String(val.quantity),
       unit: val.unit || 'allowance',
@@ -1197,21 +1225,7 @@ function applyRatePricingBreakdown(
     return { effectiveAllowance, materialEntry, laborEntry };
   }
 
-  const storedLooksLikeUnitRate =
-    effectiveAllowance &&
-    sqft != null &&
-    effectiveAllowance.quantity > 0 &&
-    effectiveAllowance.quantity < sqft;
-
-  const hasUserEnteredSplit =
-    materialEntry?.quantitySource === 'user_entered' ||
-    laborEntry?.quantitySource === 'user_entered';
-  const hasUserEnteredAllowance =
-    allowanceEntry?.quantitySource === 'user_entered' &&
-    effectiveAllowance &&
-    !storedLooksLikeUnitRate;
-
-  if (hasUserEnteredSplit || hasUserEnteredAllowance) {
+  if (hasCompleteUserSelectedPricing(measurements.itemQuantities || {}, itemId)) {
     effectiveAllowance = finalizeRateAllowanceTotal(
       effectiveAllowance,
       materialEntry,
@@ -1818,7 +1832,7 @@ export function overlayDualRatePricingDisplay(
 ): ResolvedItemQuantity {
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule?.dualAllowanceField) return resolved;
-  if (itemHasUserEnteredPricing(measurements.itemQuantities || {}, itemId)) return resolved;
+  if (hasCompleteUserSelectedPricing(measurements.itemQuantities || {}, itemId)) return resolved;
 
   let countEntry: (NonNullable<ReturnType<typeof parseStoredItemQuantity>> & {
     quantitySource?: QuantitySource;
@@ -2578,11 +2592,17 @@ export function prepareScopeMeasurementsInputForUi(
   }
   clearStalePricingWhenNotesUnpriced(itemQuantities, notes, parsed.itemQuantities);
 
-  return scopeMeasurementsInputFromPayload({
-    ...payload,
-    ...parsed,
-    itemQuantities,
-  });
+  const reparsed = reparseRatePricingIntoItemQuantities(
+    scopeMeasurementsInputFromPayload({
+      ...payload,
+      ...parsed,
+      itemQuantities,
+    }),
+    notes,
+    options?.templateKey
+  );
+
+  return reparsed;
 }
 
 export type ScopeMeasurementsInputExtended = ReturnType<typeof emptyQuickMeasurementInput> & {
@@ -2654,20 +2674,8 @@ export function initialScopeMeasurementInputExtended(
   };
 
   const isPricingSubKey = (id: string) => /__(?:material|labor|allowance)$/.test(id);
-  const hasCompleteUserSelectedSplit = (itemId: string) => {
-    const savedItems = saved?.itemQuantities || {};
-    const material = savedItems[`${itemId}__material`];
-    const labor = savedItems[`${itemId}__labor`];
-    const allowance = savedItems[`${itemId}__allowance`];
-    return (
-      material?.quantitySource === 'user_entered' &&
-      labor?.quantitySource === 'user_entered' &&
-      allowance?.quantitySource === 'user_entered' &&
-      Number(material.quantity || 0) > 0 &&
-      Number(labor.quantity || 0) > 0 &&
-      Number(allowance.quantity || 0) > 0
-    );
-  };
+  const hasCompleteUserSelectedSplit = (itemId: string) =>
+    hasCompleteUserSelectedPricing(saved?.itemQuantities || {}, itemId);
 
   for (const [id, val] of Object.entries(saved?.itemQuantities || {})) {
     if (!val.quantity) continue;
