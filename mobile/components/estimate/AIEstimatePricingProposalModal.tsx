@@ -49,6 +49,7 @@ import {
   suggestItemIsRoughPlanningItem,
   suggestItemNeedsApproval,
   suggestItemNeedsPricing,
+  suggestItemNeedsQuantityConfirmation,
   suggestItemSelectable,
   sumValidSelectedSuggestTotal,
   SUGGESTED_PRICING_DISCLAIMER,
@@ -72,6 +73,10 @@ type Props = {
   /** @deprecated Inline card editing replaces this; kept for saved-template flows if needed. */
   onEdit?: (proposal: PricingProposal) => void;
   onAddManually?: () => void;
+  /** Yellow / unpriced scope cards — open manual pricing focused on this item. */
+  onPriceScopeItem?: (scopeName: string) => void;
+  /** Yellow cards missing qty/unit — return to Step 2 scope confirmation. */
+  onConfirmScopeItem?: (scopeName: string) => void;
   /** Wipe templates + pricing library (saved-only modal). */
   onClearAllSavedPricing?: () => void;
   onClose: () => void;
@@ -352,6 +357,8 @@ function ScopeCard({
   isEditing,
   onToggleEdit,
   onRateChange,
+  onPriceScopeItem,
+  onConfirmScopeItem,
   Colors,
   darkMode,
 }: {
@@ -366,6 +373,8 @@ function ScopeCard({
   isEditing?: boolean;
   onToggleEdit?: () => void;
   onRateChange?: (pricingType: 'material' | 'labor', rate: number) => void;
+  onPriceScopeItem?: (scopeName: string) => void;
+  onConfirmScopeItem?: (scopeName: string) => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
 }) {
@@ -388,6 +397,10 @@ function ScopeCard({
   const conf = item.recommended?.confidence;
   const fadeWhenUnchecked =
     canToggleInclude && !included && !isSuggestMode && !suggestItemIsRoughPlanningItem(item);
+  const showConfirmInScope = Boolean(
+    onConfirmScopeItem && suggestItemNeedsQuantityConfirmation(item)
+  );
+  const showManualPriceAction = Boolean(onPriceScopeItem);
 
   useEffect(() => {
     if (!isEditing) {
@@ -462,6 +475,44 @@ function ScopeCard({
               {w}
             </Text>
           ))}
+        {showManualPriceAction || showConfirmInScope ? (
+          <View style={styles.unpricedActions}>
+            {showManualPriceAction ? (
+              <TouchableOpacity
+                activeOpacity={0.85}
+                style={[
+                  styles.unpricedPrimaryBtn,
+                  {
+                    backgroundColor: darkMode ? 'rgba(34,197,94,0.18)' : 'rgba(34,197,94,0.12)',
+                    borderColor: darkMode ? 'rgba(34,197,94,0.45)' : 'rgba(34,197,94,0.35)',
+                  },
+                ]}
+                onPress={() => {
+                  if (Platform.OS !== 'web') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }
+                  onPriceScopeItem?.(item.scopeName);
+                }}
+              >
+                <Text style={styles.unpricedPrimaryBtnText}>Add price manually</Text>
+              </TouchableOpacity>
+            ) : null}
+            {showConfirmInScope ? (
+              <TouchableOpacity
+                activeOpacity={0.85}
+                style={styles.unpricedSecondaryBtn}
+                onPress={() => {
+                  if (Platform.OS !== 'web') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }
+                  onConfirmScopeItem?.(item.scopeName);
+                }}
+              >
+                <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '700' }}>Confirm in scope</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
       </View>
     );
   }
@@ -761,6 +812,8 @@ export default function AIEstimatePricingProposalModal({
   embedded = false,
   onApply,
   onAddManually,
+  onPriceScopeItem,
+  onConfirmScopeItem,
   onClearAllSavedPricing,
   onClose,
 }: Props) {
@@ -804,7 +857,7 @@ export default function AIEstimatePricingProposalModal({
         if (line.source) found.add(line.source);
       }
     }
-    const savedOrder = ['saved_pricing', 'saved_template', 'company_default'];
+    const savedOrder = ['scope_confirmation', 'saved_pricing', 'saved_template', 'company_default'];
     const roughOrder = [
       'saved_pricing',
       'saved_template',
@@ -823,7 +876,7 @@ export default function AIEstimatePricingProposalModal({
 
   const savedMatchStats = useMemo(() => {
     if (!savedCounts) return null;
-    return `${savedCounts.priced} prices found • ${savedCounts.needsPricing} still need pricing`;
+    return `${savedCounts.priced} confirmed price${savedCounts.priced === 1 ? '' : 's'} found • ${savedCounts.needsPricing} still need pricing`;
   }, [savedCounts]);
 
   const filteredScopeItems = useMemo(() => {
@@ -861,7 +914,7 @@ export default function AIEstimatePricingProposalModal({
   const savedApplyLabel = useMemo(() => {
     if (!isSavedOnly || !savedCounts) return applyLabel || 'Apply saved pricing';
     const n = savedCounts.priced;
-    return n > 0 ? `Apply ${n} saved price${n === 1 ? '' : 's'}` : applyLabel || 'Apply saved pricing';
+    return n > 0 ? `Apply ${n} confirmed price${n === 1 ? '' : 's'}` : applyLabel || 'Apply saved pricing';
   }, [isSavedOnly, savedCounts, applyLabel]);
 
   const savedStillNeedCaption = useMemo(() => {
@@ -1019,7 +1072,7 @@ export default function AIEstimatePricingProposalModal({
               >
                 <Text style={{ color: '#60a5fa', fontSize: 12, lineHeight: 17, flex: 1 }}>
                   <Text style={{ fontWeight: '800' }}>
-                    {display.primarySource === 'saved_template' ? 'Template' : 'Saved bid'} rates only.
+                    Saved rates + confirmed scope prices.
                   </Text>
                   {' '}
                   Use Suggest rough prices for vendor and regional rates.
@@ -1101,6 +1154,8 @@ export default function AIEstimatePricingProposalModal({
                     onRateChange={(pricingType, rate) =>
                       handleScopeRateChange(item.scopeItemId, pricingType, rate)
                     }
+                    onPriceScopeItem={onPriceScopeItem}
+                    onConfirmScopeItem={onConfirmScopeItem}
                     Colors={Colors}
                     darkMode={darkMode}
                   />
@@ -1379,6 +1434,26 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     marginTop: 4,
+  },
+  unpricedActions: {
+    marginTop: 12,
+    gap: 8,
+  },
+  unpricedPrimaryBtn: {
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  unpricedPrimaryBtnText: {
+    color: '#22c55e',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  unpricedSecondaryBtn: {
+    paddingVertical: 4,
+    alignItems: 'center',
   },
   filterTabs: {
     flexDirection: 'row',

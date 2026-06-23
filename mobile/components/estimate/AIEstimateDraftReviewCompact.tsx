@@ -3,7 +3,6 @@ import {
   View,
   Text,
   TouchableOpacity,
-  ActivityIndicator,
   StyleSheet,
   TextInput,
 } from 'react-native';
@@ -16,7 +15,6 @@ import {
   dedupeMissingPriceSuggestions,
   formatScopeQuantity,
   getCompactProjectSummary,
-  getCompactStillNeeded,
   getUniformStatusLabel,
   pendingProposalCalculatedTotal,
   resolveScopePackageBudgetBreakdown,
@@ -46,8 +44,6 @@ type Props = {
   busy: boolean;
   confStyle: { bg: string; color: string };
   confidenceLevel?: EstimateConfidenceLevel;
-  onSuggestMissingPrices?: () => void;
-  suggestingMissingPrices?: boolean;
   onPriceScopeItem?: (packageName: string) => void;
   onUpdateScopeBudgetSplit?: (
     packageName: string,
@@ -267,8 +263,6 @@ export default function AIEstimateDraftReviewCompact({
   darkMode,
   busy,
   confStyle,
-  onSuggestMissingPrices,
-  suggestingMissingPrices,
   onPriceScopeItem,
   onUpdateScopeBudgetSplit,
   markupPct = 0,
@@ -297,7 +291,6 @@ export default function AIEstimateDraftReviewCompact({
       });
     }
   }
-  const stillNeeded = getCompactStillNeeded(draft, 5);
   const hasPricing = draftHasApplyablePricing(draft);
   const statedTotal = draft.statedTotal ?? draft.totalValidation?.statedTotal;
   const pendingTotal = pendingProposalCalculatedTotal(draft);
@@ -314,7 +307,6 @@ export default function AIEstimateDraftReviewCompact({
     ? scopePackages
     : scopePackages.slice(0, SCOPE_LIST_DEFAULT_LIMIT);
   const hiddenScopeCount = Math.max(0, scopePackages.length - SCOPE_LIST_DEFAULT_LIMIT);
-  const showSuggestPrices = Boolean(onSuggestMissingPrices && (missingPriceCount > 0 || partialCount > 0));
   const roughSuggestionLines = dedupeMissingPriceSuggestions(
     draft.pricingMemoryMissingSuggestions || [],
     6
@@ -323,14 +315,23 @@ export default function AIEstimateDraftReviewCompact({
   const scopeBudgetTotals = scopePackages.reduce(
     (sum, pkg) => {
       const breakdown = resolveScopePackageBudgetBreakdown(pkg, draft);
-      if (!breakdown) return sum;
+      const amount = compactPackageAmount(pkg, draft);
+      const numericAmount = amount ? parseMoneyInput(amount) : 0;
+      if (!breakdown) {
+        return {
+          ...sum,
+          allowance: sum.allowance + numericAmount,
+        };
+      }
+      const allowance = Math.max(0, numericAmount - breakdown.material - breakdown.labor);
       return {
         material: sum.material + breakdown.material,
         labor: sum.labor + breakdown.labor,
+        allowance: sum.allowance + allowance,
         coveredTotal: sum.coveredTotal + breakdown.total,
       };
     },
-    { material: 0, labor: 0, coveredTotal: 0 }
+    { material: 0, labor: 0, allowance: 0, coveredTotal: 0 }
   );
   const materialTotal =
     scopeBudgetTotals.material > 0
@@ -340,18 +341,29 @@ export default function AIEstimateDraftReviewCompact({
     scopeBudgetTotals.labor > 0
       ? roundedMoney(scopeBudgetTotals.labor)
       : draft.totalValidation?.laborTotal ?? draft.calculatedLaborTotal;
+  const allowanceTotal = scopeBudgetTotals.allowance > 0 ? roundedMoney(scopeBudgetTotals.allowance) : null;
   const directSubtotal =
     calculatedTotal != null && calculatedTotal > 0
       ? calculatedTotal
-      : materialTotal != null && laborTotal != null
-        ? roundedMoney(materialTotal + laborTotal)
+      : materialTotal != null || laborTotal != null || allowanceTotal != null
+        ? roundedMoney((materialTotal || 0) + (laborTotal || 0) + (allowanceTotal || 0))
         : null;
   const normalizedMarkupPct = Math.max(0, Number(markupPct) || 0);
   const estimatedBidWithMarkup =
     directSubtotal != null && directSubtotal > 0 && normalizedMarkupPct > 0
       ? roundedMoney(directSubtotal * (1 + normalizedMarkupPct / 100))
       : null;
-  const showTotalsCard = (calculatedTotal != null && calculatedTotal > 0) || statedTotal != null;
+  const showTotalsCard =
+    (calculatedTotal != null && calculatedTotal > 0) ||
+    allowanceTotal != null ||
+    statedTotal != null;
+  const stillNeededScopeItems = scopePackages
+    .filter((pkg) => scopePackageNeedsManualPrice(pkg, draft))
+    .map((pkg) => `Pricing for ${pkg.name}`);
+  const stillNeededDisplay = {
+    items: stillNeededScopeItems.slice(0, 5),
+    overflow: Math.max(0, stillNeededScopeItems.length - 5),
+  };
 
   return (
     <>
@@ -571,6 +583,9 @@ export default function AIEstimateDraftReviewCompact({
           {laborTotal != null ? (
             <PriceRow label="Labor" value={formatDraftMoney(laborTotal)} Colors={Colors} />
           ) : null}
+          {allowanceTotal != null ? (
+            <PriceRow label="Allowances" value={formatDraftMoney(allowanceTotal)} Colors={Colors} />
+          ) : null}
           {calculatedTotal != null && calculatedTotal > 0 ? (
             <PriceRow label="Total" value={formatDraftMoney(calculatedTotal)} Colors={Colors} highlight />
           ) : null}
@@ -618,50 +633,24 @@ export default function AIEstimateDraftReviewCompact({
         </View>
       ) : null}
 
-      {stillNeeded.items.length > 0 ? (
+      {stillNeededDisplay.items.length > 0 ? (
         <View style={flowCard(Colors, darkMode)}>
           <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: 8 }}>
             Still needed
           </Text>
-          {stillNeeded.items
+          {stillNeededDisplay.items
             .filter((item) => !/finish pricing on partial scope/i.test(item))
             .map((item, i) => (
               <Text key={`need-${i}`} style={{ color: Colors.sub, fontSize: 13, marginBottom: 4, lineHeight: 18 }}>
                 • {item}
               </Text>
             ))}
-          {stillNeeded.overflow > 0 ? (
+          {stillNeededDisplay.overflow > 0 ? (
             <Text style={{ color: '#60a5fa', fontSize: 12, marginTop: 2 }}>
-              + {stillNeeded.overflow} more in details
+              + {stillNeededDisplay.overflow} more item{stillNeededDisplay.overflow === 1 ? '' : 's'}
             </Text>
           ) : null}
         </View>
-      ) : null}
-
-      {showSuggestPrices ? (
-        <TouchableOpacity
-          activeOpacity={0.88}
-          disabled={busy}
-          onPress={onSuggestMissingPrices}
-          style={{
-            marginBottom: 12,
-            paddingVertical: 12,
-            paddingHorizontal: 14,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: '#60a5fa',
-            opacity: busy ? 0.5 : 1,
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-            {suggestingMissingPrices ? (
-              <ActivityIndicator size="small" color="#60a5fa" />
-            ) : (
-              <MaterialIcons name="lightbulb-outline" size={16} color="#60a5fa" />
-            )}
-            <Text style={{ color: '#60a5fa', fontSize: 14, fontWeight: '700' }}>Suggest missing prices</Text>
-          </View>
-        </TouchableOpacity>
       ) : null}
 
       <TouchableOpacity

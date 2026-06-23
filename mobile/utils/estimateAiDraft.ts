@@ -107,6 +107,8 @@ export type ScopeMeasurements = {
   kitchenFloorSqft?: number | null;
   /** Flooring / multi-area floor jobs (tile demo, laminate install, etc.) */
   floorAreaSqft?: number | null;
+  /** Finished floor install area — separate from building/ADU sqft on addition jobs */
+  flooringSqft?: number | null;
   backsplashSqft?: number | null;
   countertopSqft?: number | null;
   cabinetLf?: number | null;

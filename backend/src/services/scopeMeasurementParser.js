@@ -206,6 +206,19 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   const drywallSqft = pickSqftFromClauses([/\bdrywall\b/, /\bsheetrock\b/, /\bhang\s+(?:and\s+)?finish\b/]);
   if (drywallSqft) out.drywallSqft = drywallSqft;
 
+  const flooringSqft = (() => {
+    let max = 0;
+    for (const clause of clauses) {
+      const c = clause.toLowerCase();
+      if (/\b(demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(c)) continue;
+      if (!/\b(flooring|lvp|laminate|vinyl|carpet|floor\s+install)\b/i.test(c)) continue;
+      const q = firstQty(clause, SQFT_RE);
+      if (q && q > max) max = q;
+    }
+    return max > 0 ? max : null;
+  })();
+  if (flooringSqft) out.flooringSqft = flooringSqft;
+
   // Landscaping — specific coverage areas first
   const sodSqft = pickSqftFromClauses([/\b(?:new\s+)?sod\b/, /\bturf\b/, /\b(?:new\s+)?grass\b/, /\bexisting\s+sod\b/]);
   if (sodSqft) out.sodSqft = sodSqft;

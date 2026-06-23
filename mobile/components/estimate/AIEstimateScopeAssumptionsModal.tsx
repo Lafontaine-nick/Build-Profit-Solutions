@@ -46,11 +46,13 @@ import {
 } from '@/utils/estimateScopeChecklistUi';
 import {
   buildNormalizedScopeMeasurementsFromInput,
+  allowanceSplitSubKey,
   checklistItemInScope,
   countScopePricingReadiness,
   DUAL_QUANTITY_FIELD_LABELS,
   formatUnitLabel,
   getChecklistItemQuantityRule,
+  getChecklistItemQuantityRuleOrDefault,
   hasCompleteUserSelectedPricing,
   initialScopeMeasurementInputExtended,
   isDualAllowanceItem,
@@ -59,8 +61,11 @@ import {
   resolveChecklistItemQuantity,
   resolveDualRatePricingDisplayFromNotes,
   resolveScopeItemSuggestedPricing,
+  isPlaceholderAllowancePricing,
   roughAllowanceSubKey,
   scopeMeasurementsPayloadForPersist,
+  resolveAllowanceEditorPricingBasis,
+  resolveAllowanceEditorDefaultBasisUnit,
   type PricingLegSource,
   type ScopeMeasurementsInputExtended,
   type ScopePricingContext,
@@ -209,9 +214,17 @@ function isUserEditingQuantity(
   return entry?.quantitySource === 'user_entered' || allowanceEntry?.quantitySource === 'user_entered';
 }
 
-function formatResolvedQuantityDisplay(quantity: number, unit: string, quantitySource?: string): string {
+function formatResolvedQuantityDisplay(
+  quantity: number,
+  unit: string,
+  quantitySource?: string,
+  itemId?: string
+): string {
   if (unit === 'allowance' || unit === 'lump_sum') {
-    if (quantitySource === 'default_assumption') {
+    if (
+      quantitySource === 'default_assumption' ||
+      isPlaceholderAllowancePricing(quantity, unit, itemId)
+    ) {
       return `${quantity.toLocaleString()} ${formatUnitLabel(unit)}`;
     }
     return formatDraftMoney(quantity);
@@ -281,8 +294,13 @@ function SourcePill({
           ? styles.sourcePillRemainder
         : styles.sourcePillNational;
   return (
-    <View style={[styles.sourcePill, pillStyle]}>
-      <Text style={{ color, fontSize: 11, fontWeight: '700' }}>{text}</Text>
+    <View style={[styles.sourcePill, pillStyle, { maxWidth: '100%' }]}>
+      <Text
+        numberOfLines={2}
+        style={{ color, fontSize: 11, fontWeight: '700', flexShrink: 1 }}
+      >
+        {text}
+      </Text>
     </View>
   );
 }
@@ -374,6 +392,13 @@ function PricingSplitRow({
   );
 }
 
+function headerSourcePillLabel(rateSourceLabel: string): string | undefined {
+  if (rateSourceLabel.startsWith('Suggested · ')) {
+    return rateSourceLabel.slice('Suggested · '.length);
+  }
+  return rateSourceLabel;
+}
+
 function SuggestedBudgetSplitRows({
   block,
   Colors,
@@ -389,16 +414,19 @@ function SuggestedBudgetSplitRows({
   const panelBorder = darkMode ? 'rgba(96, 165, 250, 0.22)' : 'rgba(96, 165, 250, 0.18)';
   const usesTemplate = block.materialSource === 'template' || block.laborSource === 'template';
   const headerTitle =
-    block.mode === 'note_total_split'
-      ? 'Budget split'
-      : block.isComparison
-        ? 'Suggested comparison'
-        : 'Suggested pricing';
+    block.lumpSumOnly
+      ? 'Suggested allowance'
+      : block.mode === 'note_total_split'
+        ? 'Budget split'
+        : block.isComparison
+          ? 'Suggested comparison'
+          : 'Suggested pricing';
   const headerPillKind = usesTemplate ? 'template' : 'national';
   const headerPillLabel = block.rateSourceLabel;
 
-  const explanation =
-    block.mode === 'note_total_split'
+  const explanation = block.lumpSumOnly
+    ? 'This is a flat allowance, not a material/labor split.'
+    : block.mode === 'note_total_split'
       ? `Notes gave one total. Material uses ${usesTemplate ? 'your saved rate' : 'National Average'}; labor is the remaining note total.`
       : block.mode === 'fill_missing'
         ? `Notes only priced one side, so the missing side uses ${usesTemplate ? 'your saved rate' : 'National Average'}. Notes pricing stays primary.`
@@ -414,24 +442,38 @@ function SuggestedBudgetSplitRows({
       ]}
     >
       <View style={styles.budgetSplitHeader}>
-        <Text style={{ color: pricingTextColor(darkMode, Colors), fontSize: 14, fontWeight: '700' }}>
+        <Text
+          style={[styles.budgetSplitHeaderTitle, { color: pricingTextColor(darkMode, Colors) }]}
+          numberOfLines={2}
+        >
           {headerTitle}
         </Text>
-        <SourcePill kind={headerPillKind} label={headerPillLabel} />
+        <View style={styles.budgetSplitHeaderPill}>
+          <SourcePill
+            kind={headerPillKind}
+            label={headerSourcePillLabel(headerPillLabel)}
+          />
+        </View>
       </View>
+      {!block.lumpSumOnly ? (
+        <PricingSplitRow
+          label="Material"
+          value={formatDraftMoney(block.material)}
+          pill={legSourcePill({ block, leg: 'material' })}
+          helper={unitRateHelper(String(block.material), block.basis)}
+          darkMode={darkMode}
+          Colors={Colors}
+        />
+      ) : null}
       <PricingSplitRow
-        label="Material"
-        value={formatDraftMoney(block.material)}
-        pill={legSourcePill({ block, leg: 'material' })}
-        helper={unitRateHelper(String(block.material), block.basis)}
-        darkMode={darkMode}
-        Colors={Colors}
-      />
-      <PricingSplitRow
-        label="Labor"
-        value={formatDraftMoney(block.labor)}
+        label={block.lumpSumOnly ? 'Allowance' : 'Labor'}
+        value={formatDraftMoney(block.lumpSumOnly ? block.total : block.labor)}
         pill={legSourcePill({ block, leg: 'labor' })}
-        helper={unitRateHelper(String(block.labor), block.basis)}
+        helper={
+          block.lumpSumOnly
+            ? 'Flat allowance'
+            : unitRateHelper(String(block.labor), block.basis)
+        }
         darkMode={darkMode}
         Colors={Colors}
       />
@@ -469,7 +511,9 @@ function SuggestedBudgetSplitRows({
           onPress={onUsePricing}
           style={styles.useSuggestedPricingBtn}
         >
-          <Text style={styles.useSuggestedPricingBtnText}>Use this pricing</Text>
+          <Text style={styles.useSuggestedPricingBtnText}>
+            {block.lumpSumOnly ? 'Use this allowance' : 'Use this pricing'}
+          </Text>
         </TouchableOpacity>
       ) : null}
     </View>
@@ -1095,8 +1139,8 @@ function QuantitySection({
   const [pricingEditorOpen, setPricingEditorOpen] = useState(false);
   const [focusedPricingField, setFocusedPricingField] = useState<string | null>(null);
   const pricingContext = React.useContext(ScopePricingContextValue);
-  const rule = getChecklistItemQuantityRule(itemId, templateKey);
-  if (!inScope || !rule) return null;
+  const rule = getChecklistItemQuantityRuleOrDefault(itemId, templateKey);
+  if (!inScope) return null;
 
   const norm = buildNormFromInput(measurementsInput, originalNotes, templateKey);
   let resolved = resolveChecklistItemQuantity(itemId, norm, {
@@ -1128,14 +1172,14 @@ function QuantitySection({
     const allowanceInput = measurementsInput.itemQuantities[allowanceKey];
     const materialInput = measurementsInput.itemQuantities[materialKey];
     const laborInput = measurementsInput.itemQuantities[laborKey];
-    const isEditing = pricingEditorOpen || focusedPricingField != null;
+    const showEditor = pricingEditorOpen || focusedPricingField != null;
 
     const hasUserSelectedPricing = hasCompleteUserSelectedPricing(
       measurementsInput.itemQuantities,
       itemId
     );
 
-    if (!isEditing && originalNotes?.trim() && !hasUserSelectedPricing) {
+    if (!showEditor && originalNotes?.trim() && !hasUserSelectedPricing) {
       const fromNotes = resolveDualRatePricingDisplayFromNotes(
         itemId,
         measurementsInput,
@@ -1148,7 +1192,7 @@ function QuantitySection({
     }
 
     const mergeNotesSplitForDisplay = () => {
-      if (isEditing || !originalNotes?.trim() || hasUserSelectedPricing) return resolved;
+      if (showEditor || !originalNotes?.trim() || hasUserSelectedPricing) return resolved;
       if (resolved.dualMaterial && resolved.dualLabor) return resolved;
       const fromNotes = resolveDualRatePricingDisplayFromNotes(
         itemId,
@@ -1175,7 +1219,7 @@ function QuantitySection({
       });
     }
 
-    if (resolved.pricingReady && !isEditing) {
+    if (resolved.pricingReady && !showEditor) {
       const displayResolved = mergeNotesSplitForDisplay();
       const suggested = hasUserSelectedPricing
         ? { fill: null, comparison: null }
@@ -1198,8 +1242,10 @@ function QuantitySection({
           onItemQuantityChange(itemId, String(block.basis.quantity), 'count', block.basis.unit);
         }
         onItemQuantityChange(itemId, String(block.total), 'allowance', 'allowance');
-        onItemQuantityChange(materialKey, String(block.material), 'count', 'allowance');
-        onItemQuantityChange(laborKey, String(block.labor), 'count', 'allowance');
+        if (!block.lumpSumOnly) {
+          onItemQuantityChange(materialKey, String(block.material), 'count', 'allowance');
+          onItemQuantityChange(laborKey, String(block.labor), 'count', 'allowance');
+        }
         setTimeout(() => onItemQuantityBlur(itemId), 0);
       };
       return (
@@ -1289,8 +1335,6 @@ function QuantitySection({
                   'count',
                   'allowance'
                 );
-              } else if (suggestedBudgetSplit) {
-                onItemQuantityChange(materialKey, String(suggestedBudgetSplit.material), 'count', 'allowance');
               }
               if (resolved.dualLabor) {
                 onItemQuantityChange(
@@ -1299,11 +1343,25 @@ function QuantitySection({
                   'count',
                   'allowance'
                 );
-              } else if (suggestedBudgetSplit) {
-                onItemQuantityChange(laborKey, String(suggestedBudgetSplit.labor), 'count', 'allowance');
               }
             }}
           />
+        </View>
+      );
+    }
+
+    if (!showEditor) {
+      return (
+        <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
+          <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
+            {resolved.missingMessage || 'Enter quantity and/or allowance'}
+          </Text>
+          {rule.quantityHelper ? (
+            <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 4, lineHeight: 15 }}>
+              {rule.quantityHelper}
+            </Text>
+          ) : null}
+          <EditQuantityLink onPress={() => setPricingEditorOpen(true)} />
         </View>
       );
     }
@@ -1312,21 +1370,22 @@ function QuantitySection({
       <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
         <TouchableOpacity
           activeOpacity={0.75}
-          onPress={() => resolved.pricingReady && setPricingEditorOpen(false)}
+          onPress={() => {
+            if (focusedPricingField) return;
+            setPricingEditorOpen(false);
+          }}
         >
           <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
-            {pricingEditorOpen ? 'Edit pricing' : resolved.missingMessage || 'Enter quantity and/or allowance'}
+            Edit pricing
           </Text>
           {rule.quantityHelper ? (
             <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 4, lineHeight: 15 }}>
               {rule.quantityHelper}
             </Text>
           ) : null}
-          {pricingEditorOpen ? (
-            <Text style={{ color: '#60a5fa', fontSize: 11, fontWeight: '700', marginBottom: 8 }}>
-              Tap card to collapse
-            </Text>
-          ) : null}
+          <Text style={{ color: '#60a5fa', fontSize: 11, fontWeight: '700', marginBottom: 8 }}>
+            Tap card to collapse
+          </Text>
         </TouchableOpacity>
         <Text style={{ color: Colors.sub, fontSize: 11, fontWeight: '600', marginBottom: 4 }}>
           {fieldLabels?.count || 'Quantity'}
@@ -1411,12 +1470,15 @@ function QuantitySection({
   }
 
   const itemInput = measurementsInput.itemQuantities[itemId];
-  const materialKey = `${itemId}__material`;
-  const laborKey = `${itemId}__labor`;
+  const materialKey = allowanceSplitSubKey(itemId, 'material');
+  const laborKey = allowanceSplitSubKey(itemId, 'labor');
+  const allowanceKey = allowanceSplitSubKey(itemId, 'allowance');
+  const sqftBasisKey = allowanceSplitSubKey(itemId, 'sqft_basis');
   const materialInput = measurementsInput.itemQuantities[materialKey];
   const laborInput = measurementsInput.itemQuantities[laborKey];
-  const isEditingQuantity = pricingEditorOpen || focusedPricingField != null;
-  const isEditingPricing = pricingEditorOpen || focusedPricingField != null;
+  const allowanceInput = measurementsInput.itemQuantities[allowanceKey];
+  const sqftBasisInput = measurementsInput.itemQuantities[sqftBasisKey];
+  const showEditor = pricingEditorOpen || focusedPricingField != null;
   const neededLabel =
     (templateKey && QUANTITY_NEEDED_LABELS_BY_TEMPLATE[templateKey]?.[itemId]) ||
     QUANTITY_NEEDED_LABELS[itemId] ||
@@ -1431,22 +1493,27 @@ function QuantitySection({
   );
   const suggestedBudgetSplit = suggested.fill;
   const suggestedComparisonSplit = suggested.comparison;
-  const suggestedBasis = parseBudgetSplitBasis(suggestedBudgetSplit);
+  const pricingBasis =
+    resolveAllowanceEditorPricingBasis(itemId, measurementsInput, templateKey) ??
+    parseBudgetSplitBasis(suggestedBudgetSplit);
+  const fallbackBasisUnit = resolveAllowanceEditorDefaultBasisUnit(itemId, templateKey, rule);
+  const basisUnit = pricingBasis?.unit || fallbackBasisUnit;
+  const basisUnitLabel = formatUnitLabel(basisUnit);
   const applySuggestedPricingBlock = (block: SuggestedPricingBlock) => {
     hapticTap();
     if (block.basis?.quantity && block.basis.unit) {
-      onItemQuantityChange(itemId, String(block.basis.quantity), 'count', block.basis.unit);
-    } else {
-      onItemQuantityChange(itemId, String(block.total), 'count', 'allowance');
+      onItemQuantityChange(sqftBasisKey, String(block.basis.quantity), 'count', block.basis.unit);
     }
-    onItemQuantityChange(`${itemId}__allowance`, String(block.total), 'count', 'allowance');
-    onItemQuantityChange(materialKey, String(block.material), 'count', 'allowance');
-    onItemQuantityChange(laborKey, String(block.labor), 'count', 'allowance');
+    onItemQuantityChange(allowanceKey, String(block.total), 'count', 'allowance');
+    if (!block.lumpSumOnly) {
+      onItemQuantityChange(materialKey, String(block.material), 'count', 'allowance');
+      onItemQuantityChange(laborKey, String(block.labor), 'count', 'allowance');
+    }
     setPricingEditorOpen(false);
     setTimeout(() => onItemQuantityBlur(itemId), 0);
   };
 
-  if (resolved.pricingReady && !isEditingQuantity && !isEditingPricing) {
+  if (resolved.pricingReady && !showEditor) {
     if (__DEV__ && itemId === 'demo') {
       const raw = measurementsInput.itemQuantities || {};
       console.log('🧮 Demo quantity render', {
@@ -1494,7 +1561,8 @@ function QuantitySection({
           value={formatResolvedQuantityDisplay(
             resolved.quantity ?? 0,
             resolved.unit,
-            resolved.quantitySource
+            resolved.quantitySource,
+            itemId
           )}
           pill={resolved.quantitySource === 'notes' ? <SourcePill kind="notes" /> : undefined}
           label={resolved.sourceLabel}
@@ -1529,12 +1597,13 @@ function QuantitySection({
         <EditQuantityLink
           onPress={() => {
             setPricingEditorOpen(true);
-            const total = String(resolved.quantity ?? '');
-            const unit = resolved.unit === 'allowance' || resolved.unit === 'lump_sum' ? 'allowance' : resolved.unit;
-            onItemQuantityChange(itemId, total, 'count', unit);
-            if (suggestedBudgetSplit) {
-              onItemQuantityChange(materialKey, String(suggestedBudgetSplit.material), 'count', 'allowance');
-              onItemQuantityChange(laborKey, String(suggestedBudgetSplit.labor), 'count', 'allowance');
+            const total =
+              resolved.quantity != null &&
+              !isPlaceholderAllowancePricing(resolved.quantity, resolved.unit, itemId)
+                ? String(resolved.quantity)
+                : '';
+            if (total) {
+              onItemQuantityChange(allowanceKey, total, 'count', 'allowance');
             }
           }}
         />
@@ -1542,76 +1611,212 @@ function QuantitySection({
     );
   }
 
-  const editingUnit = itemInput?.unit || resolved.unit || rule.defaultUnit;
-  const editingIsMoneyTotal = editingUnit === 'allowance' || editingUnit === 'lump_sum';
-  const showSplitFields = Boolean(materialInput || laborInput || suggestedBudgetSplit);
-  const materialValue = materialInput?.quantity ?? (suggestedBudgetSplit ? String(suggestedBudgetSplit.material) : '');
-  const laborValue = laborInput?.quantity ?? (suggestedBudgetSplit ? String(suggestedBudgetSplit.labor) : '');
-
-  return (
-    <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
-      <TouchableOpacity
-        activeOpacity={0.75}
-        onPress={() => resolved.pricingReady && setPricingEditorOpen(false)}
-      >
+  if (!showEditor) {
+    return (
+      <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
         <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
-          {isEditingQuantity || isEditingPricing ? 'Edit pricing' : `Needs ${neededLabel}`}
+          Needs {neededLabel}
         </Text>
         {rule.quantityHelper ? (
           <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 4, lineHeight: 15 }}>
             {rule.quantityHelper}
           </Text>
         ) : null}
-        {pricingEditorOpen ? (
+        {suggestedBudgetSplit ? (
+          <SuggestedBudgetSplitRows
+            block={suggestedBudgetSplit}
+            Colors={Colors}
+            darkMode={darkMode}
+            onUsePricing={() => applySuggestedPricingBlock(suggestedBudgetSplit)}
+          />
+        ) : null}
+        {suggestedComparisonSplit ? (
+          <ComparisonToggle
+            block={suggestedComparisonSplit}
+            Colors={Colors}
+            darkMode={darkMode}
+            onUsePricing={() => applySuggestedPricingBlock(suggestedComparisonSplit)}
+          />
+        ) : null}
+        <EditQuantityLink onPress={() => setPricingEditorOpen(true)} />
+      </View>
+    );
+  }
+
+  const lumpSumValue =
+    allowanceInput?.quantity ??
+    (itemInput?.unit === 'allowance' || itemInput?.unit === 'lump_sum' ? itemInput?.quantity ?? '' : '');
+  const pricingBasisValue = sqftBasisInput?.quantity ?? '';
+  const materialValue = materialInput?.quantity ?? '';
+  const laborValue = laborInput?.quantity ?? '';
+  const splitTotal = (() => {
+    const materialNumber = Number(String(materialValue || '').replace(/,/g, ''));
+    const laborNumber = Number(String(laborValue || '').replace(/,/g, ''));
+    const total =
+      (Number.isFinite(materialNumber) && materialNumber > 0 ? materialNumber : 0) +
+      (Number.isFinite(laborNumber) && laborNumber > 0 ? laborNumber : 0);
+    return total > 0 ? total : null;
+  })();
+
+  if (rule.lumpSumOnly) {
+    return (
+      <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={() => {
+            if (focusedPricingField) return;
+            setPricingEditorOpen(false);
+          }}
+        >
+          <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
+            Edit pricing
+          </Text>
+          {rule.quantityHelper ? (
+            <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 4, lineHeight: 15 }}>
+              {rule.quantityHelper}
+            </Text>
+          ) : null}
           <Text style={{ color: '#60a5fa', fontSize: 11, fontWeight: '700', marginBottom: 8 }}>
             Tap card to collapse
           </Text>
+        </TouchableOpacity>
+        <PricingInputField
+          label="Allowance"
+          value={lumpSumValue}
+          prefix="$"
+          placeholder="Enter allowance"
+          onFocus={() => focusQuantityField(allowanceKey)}
+          onChangeText={(text) => onItemQuantityChange(allowanceKey, text, 'count', 'allowance')}
+          onBlur={() => blurQuantityField(allowanceKey)}
+          Colors={Colors}
+          darkMode={darkMode}
+          applying={applying}
+        />
+        {suggestedBudgetSplit ? (
+          <SuggestedBudgetSplitRows
+            block={suggestedBudgetSplit}
+            Colors={Colors}
+            darkMode={darkMode}
+            onUsePricing={() => applySuggestedPricingBlock(suggestedBudgetSplit)}
+          />
         ) : null}
+        {suggestedComparisonSplit ? (
+          <ComparisonToggle
+            block={suggestedComparisonSplit}
+            Colors={Colors}
+            darkMode={darkMode}
+            onUsePricing={() => applySuggestedPricingBlock(suggestedComparisonSplit)}
+          />
+        ) : null}
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
+      <TouchableOpacity
+        activeOpacity={0.75}
+        onPress={() => {
+          if (focusedPricingField) return;
+          setPricingEditorOpen(false);
+        }}
+      >
+        <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
+          Edit pricing
+        </Text>
+        {rule.quantityHelper ? (
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 4, lineHeight: 15 }}>
+            {rule.quantityHelper}
+          </Text>
+        ) : null}
+        <Text style={{ color: '#60a5fa', fontSize: 11, fontWeight: '700', marginBottom: 8 }}>
+          Tap card to collapse
+        </Text>
       </TouchableOpacity>
       <PricingInputField
-        label={editingIsMoneyTotal ? 'Lump sum / total' : 'Pricing basis'}
-        value={itemInput?.quantity ?? ''}
-        prefix={editingIsMoneyTotal ? '$' : undefined}
-        suffix={editingIsMoneyTotal ? undefined : formatUnitLabel(editingUnit)}
-        placeholder={editingIsMoneyTotal ? 'Enter total' : `Enter ${neededLabel}`}
-        onFocus={() => focusQuantityField(itemId)}
-        onChangeText={(text) => onItemQuantityChange(itemId, text, 'count', editingUnit)}
-        onBlur={() => blurQuantityField(itemId)}
+        label="Lump sum / total"
+        value={lumpSumValue}
+        prefix="$"
+        placeholder="Enter total"
+        onFocus={() => focusQuantityField(allowanceKey)}
+        onChangeText={(text) => onItemQuantityChange(allowanceKey, text, 'count', 'allowance')}
+        onBlur={() => blurQuantityField(allowanceKey)}
         Colors={Colors}
         darkMode={darkMode}
         applying={applying}
       />
-      {showSplitFields ? (
-        <>
-          <PricingInputField
-            label="Material"
-            value={materialValue}
-            helper={unitRateHelper(materialValue, suggestedBasis)}
-            basis={suggestedBasis}
-            prefix="$"
-            placeholder="Material total"
-            onFocus={() => focusQuantityField(materialKey)}
-            onChangeText={(text) => onItemQuantityChange(materialKey, text, 'count', 'allowance')}
-            onBlur={() => blurQuantityField(materialKey)}
-            Colors={Colors}
-            darkMode={darkMode}
-            applying={applying}
-          />
-          <PricingInputField
-            label="Labor"
-            value={laborValue}
-            helper={unitRateHelper(laborValue, suggestedBasis)}
-            basis={suggestedBasis}
-            prefix="$"
-            placeholder="Labor total"
-            onFocus={() => focusQuantityField(laborKey)}
-            onChangeText={(text) => onItemQuantityChange(laborKey, text, 'count', 'allowance')}
-            onBlur={() => blurQuantityField(laborKey)}
-            Colors={Colors}
-            darkMode={darkMode}
-            applying={applying}
-          />
-        </>
+      <PricingInputField
+        label="Pricing basis"
+        value={pricingBasisValue}
+        suffix={basisUnitLabel}
+        placeholder={pricingBasis ? String(pricingBasis.quantity) : `Enter ${basisUnitLabel}`}
+        helper={
+          !pricingBasisValue && pricingBasis
+            ? `Using ${pricingBasis.quantity.toLocaleString()} ${basisUnitLabel} from job measurements`
+            : undefined
+        }
+        onFocus={() => focusQuantityField(sqftBasisKey)}
+        onChangeText={(text) =>
+          onItemQuantityChange(sqftBasisKey, text, 'count', basisUnit)
+        }
+        onBlur={() => blurQuantityField(sqftBasisKey)}
+        Colors={Colors}
+        darkMode={darkMode}
+        applying={applying}
+      />
+      <PricingInputField
+        label="Material"
+        value={materialValue}
+        helper={unitRateHelper(materialValue, pricingBasis)}
+        basis={pricingBasis}
+        prefix="$"
+        placeholder={pricingBasis ? `Material $/${basisUnitLabel}` : 'Material total'}
+        defaultInputMode={pricingBasis ? 'rate' : 'total'}
+        onFocus={() => focusQuantityField(materialKey)}
+        onChangeText={(text) => onItemQuantityChange(materialKey, text, 'count', 'allowance')}
+        onBlur={() => blurQuantityField(materialKey)}
+        Colors={Colors}
+        darkMode={darkMode}
+        applying={applying}
+      />
+      <PricingInputField
+        label="Labor"
+        value={laborValue}
+        helper={unitRateHelper(laborValue, pricingBasis)}
+        basis={pricingBasis}
+        prefix="$"
+        placeholder={pricingBasis ? `Labor $/${basisUnitLabel}` : 'Labor total'}
+        defaultInputMode={pricingBasis ? 'rate' : 'total'}
+        onFocus={() => focusQuantityField(laborKey)}
+        onChangeText={(text) => onItemQuantityChange(laborKey, text, 'count', 'allowance')}
+        onBlur={() => blurQuantityField(laborKey)}
+        Colors={Colors}
+        darkMode={darkMode}
+        applying={applying}
+      />
+      {splitTotal ? (
+        <PricingSplitRow
+          label="Split total"
+          value={formatDraftMoney(splitTotal)}
+          darkMode={darkMode}
+          Colors={Colors}
+        />
+      ) : null}
+      {suggestedBudgetSplit ? (
+        <SuggestedBudgetSplitRows
+          block={suggestedBudgetSplit}
+          Colors={Colors}
+          darkMode={darkMode}
+          onUsePricing={() => applySuggestedPricingBlock(suggestedBudgetSplit)}
+        />
+      ) : null}
+      {suggestedComparisonSplit ? (
+        <ComparisonToggle
+          block={suggestedComparisonSplit}
+          Colors={Colors}
+          darkMode={darkMode}
+          onUsePricing={() => applySuggestedPricingBlock(suggestedComparisonSplit)}
+        />
       ) : null}
     </View>
   );
@@ -2277,6 +2482,7 @@ function CollapsibleQuickMeasurements({
     put('landscapeTons', parsed.landscapeTons);
     put('roofSquares', parsed.roofSquares);
     put('drywallSqft', parsed.drywallSqft);
+    put('flooringSqft', parsed.flooringSqft);
     put('concreteSqft', parsed.concreteSqft);
     put('concreteCy', parsed.concreteCy);
     put('excavationCy', parsed.excavationCy);
@@ -2651,7 +2857,8 @@ export default function AIEstimateScopeAssumptionsModal({
     field: 'count' | 'allowance' = 'count',
     unit?: string
   ) => {
-    const rule = getChecklistItemQuantityRule(itemId, checklist?.templateKey);
+    const baseItemId = itemId.replace(/__(allowance|sqft_basis|material|labor)$/, '');
+    const rule = getChecklistItemQuantityRuleOrDefault(baseItemId, checklist?.templateKey);
     if (field === 'allowance' && rule?.dualAllowanceField) {
       setMeasurementsSynced((prev) => ({
         ...prev,
@@ -2671,7 +2878,7 @@ export default function AIEstimateScopeAssumptionsModal({
         ...prev.itemQuantities,
         [itemId]: {
           quantity,
-          unit: unit || (rule?.dualAllowanceField ? 'each' : rule?.defaultUnit || 'sqft'),
+          unit: unit || (rule?.dualAllowanceField ? 'each' : rule.defaultUnit),
           quantitySource: 'user_entered' as const,
         },
       };
@@ -2744,8 +2951,7 @@ export default function AIEstimateScopeAssumptionsModal({
         }
         return;
       }
-      const rule = getChecklistItemQuantityRule(item.id, checklist?.templateKey);
-      if (!rule) continue;
+      const rule = getChecklistItemQuantityRuleOrDefault(item.id, checklist?.templateKey);
       const resolved = resolveChecklistItemQuantity(item.id, normMeasurements, {
         choiceId: item.choiceId,
         templateKey: checklist?.templateKey,
@@ -2788,17 +2994,32 @@ export default function AIEstimateScopeAssumptionsModal({
   const handleItemQuantityFocus = (itemId: string, field: 'count' | 'allowance' = 'count') => {
     focusedQuantityRef.current = `${itemId}:${field}`;
     setMeasurementsSynced((prev) => {
-      const rule = getChecklistItemQuantityRule(itemId, checklist?.templateKey);
-      const key = field === 'allowance' && rule?.dualAllowanceField ? roughAllowanceSubKey(itemId) : itemId;
+      const baseItemId = itemId.replace(/__(allowance|sqft_basis|material|labor)$/, '');
+      const rule = getChecklistItemQuantityRuleOrDefault(baseItemId, checklist?.templateKey);
+      let key = itemId;
+      if (field === 'allowance' && rule.dualAllowanceField && !itemId.includes('__')) {
+        key = roughAllowanceSubKey(baseItemId);
+      }
       if (prev.itemQuantities[key]?.quantitySource === 'user_entered') return prev;
-      const isPricingSubkey = /__(material|labor)$/.test(itemId);
+      const unitForKey = (() => {
+        if (key.endsWith('__allowance') || key.endsWith('__material') || key.endsWith('__labor')) {
+          return 'allowance';
+        }
+        if (key.endsWith('__sqft_basis')) {
+          return (
+            resolveAllowanceEditorPricingBasis(baseItemId, prev, checklist?.templateKey)?.unit || 'sqft'
+          );
+        }
+        if (field === 'allowance') return 'allowance';
+        return rule.defaultUnit;
+      })();
       return {
         ...prev,
         itemQuantities: {
           ...prev.itemQuantities,
           [key]: {
             quantity: String(prev.itemQuantities[key]?.quantity ?? ''),
-            unit: isPricingSubkey || field === 'allowance' ? 'allowance' : rule?.defaultUnit || 'sqft',
+            unit: unitForKey,
             quantitySource: 'user_entered',
           },
         },
@@ -2814,42 +3035,62 @@ export default function AIEstimateScopeAssumptionsModal({
         [itemId]: block,
       };
       setMeasurementsSynced((prev) => {
-        const rule = getChecklistItemQuantityRule(itemId, checklist?.templateKey);
-        const allowanceKey = rule?.dualAllowanceField ? roughAllowanceSubKey(itemId) : `${itemId}__allowance`;
-        if (__DEV__ && itemId === 'flooring') {
-          console.log('[scope-pricing] apply saved pricing', {
-            itemId,
-            total: block.total,
-            material: block.material,
-            labor: block.labor,
-            basis: block.basis,
-          });
+        const rule = getChecklistItemQuantityRuleOrDefault(itemId, checklist?.templateKey);
+        const allowanceKey = rule.dualAllowanceField
+          ? roughAllowanceSubKey(itemId)
+          : allowanceSplitSubKey(itemId, 'allowance');
+        const basisKey = allowanceSplitSubKey(itemId, 'sqft_basis');
+        const materialKey = allowanceSplitSubKey(itemId, 'material');
+        const laborKey = allowanceSplitSubKey(itemId, 'labor');
+        const itemQuantities: Record<string, { quantity: string; unit: string; quantitySource: string }> = {
+          ...prev.itemQuantities,
+          [allowanceKey]: {
+            quantity: String(block.total),
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+        };
+        if (block.basis?.quantity && block.basis.unit) {
+          itemQuantities[basisKey] = {
+            quantity: String(block.basis.quantity),
+            unit: block.basis.unit,
+            quantitySource: 'user_entered',
+          };
+        }
+        if (!block.lumpSumOnly) {
+          itemQuantities[materialKey] = {
+            quantity: String(block.material),
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          };
+          itemQuantities[laborKey] = {
+            quantity: String(block.labor),
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          };
+        } else if (block.labor > 0) {
+          itemQuantities[laborKey] = {
+            quantity: String(block.labor),
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          };
+        }
+        if (!rule.dualAllowanceField) {
+          itemQuantities[itemId] = {
+            quantity: String(block.basis?.quantity ?? block.total),
+            unit: block.basis?.unit || 'allowance',
+            quantitySource: 'user_entered',
+          };
+        } else {
+          itemQuantities[itemId] = {
+            quantity: String(block.basis?.quantity ?? block.total),
+            unit: block.basis?.unit || rule.defaultUnit,
+            quantitySource: 'user_entered',
+          };
         }
         return {
           ...prev,
-          itemQuantities: {
-            ...prev.itemQuantities,
-            [itemId]: {
-              quantity: String(block.basis?.quantity ?? block.total),
-              unit: block.basis?.unit || (rule?.dualAllowanceField ? rule.defaultUnit : 'allowance'),
-              quantitySource: 'user_entered',
-            },
-            [allowanceKey]: {
-              quantity: String(block.total),
-              unit: 'allowance',
-              quantitySource: 'user_entered',
-            },
-            [`${itemId}__material`]: {
-              quantity: String(block.material),
-              unit: 'allowance',
-              quantitySource: 'user_entered',
-            },
-            [`${itemId}__labor`]: {
-              quantity: String(block.labor),
-              unit: 'allowance',
-              quantitySource: 'user_entered',
-            },
-          },
+          itemQuantities,
         };
       });
       setTimeout(() => persistScopeProgressNow(), 0);
@@ -3558,9 +3799,20 @@ const styles = StyleSheet.create({
   },
   budgetSplitHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 8,
+  },
+  budgetSplitHeaderTitle: {
+    flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  budgetSplitHeaderPill: {
+    flexShrink: 0,
+    marginLeft: 4,
   },
   sourcePill: {
     paddingHorizontal: 8,

@@ -34,12 +34,16 @@ export type ScopeItemQuantityRule = {
   allowedUnits: string[];
   measurementKey?: keyof Omit<NormalizedScopeMeasurements, 'itemQuantities'>;
   measurementKeys?: Array<keyof Omit<NormalizedScopeMeasurements, 'itemQuantities'>>;
+  pricingBasisMeasurementKey?: keyof Omit<NormalizedScopeMeasurements, 'itemQuantities'>;
+  pricingBasisMeasurementKeys?: Array<keyof Omit<NormalizedScopeMeasurements, 'itemQuantities'>>;
   aggregateMeasurementKeys?: Array<keyof Omit<NormalizedScopeMeasurements, 'itemQuantities'>>;
   choiceIds?: string[];
   canUseRoomSqft?: boolean;
   requiresUserQuantity?: boolean;
   /** Separate count + dollar allowance inputs (plumbing/electrical rough-in). */
   dualAllowanceField?: boolean;
+  /** Flat allowance lines (permits, cleanup, fees) — no material/labor split in UI or suggestions. */
+  lumpSumOnly?: boolean;
   defaultQuantity?: number;
   quantityHelper?: string;
   missingMessage?: string;
@@ -100,6 +104,7 @@ export type NormalizedScopeMeasurements = {
   bathroomFloorSqft: number | null;
   kitchenFloorSqft: number | null;
   floorAreaSqft: number | null;
+  flooringSqft: number | null;
   backsplashSqft: number | null;
   countertopSqft: number | null;
   cabinetLf: number | null;
@@ -187,7 +192,45 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   shingles_roofing: { unit: 'squares', material: 350, labor: 450, sourceLabel: 'Suggested budget split · National Average' },
   tear_off: { unit: 'squares', material: 50, labor: 200, sourceLabel: 'Suggested budget split · National Average' },
   pavers: { unit: 'sqft', material: 6, labor: 8, sourceLabel: 'Suggested budget split · National Average' },
+  permits: {
+    unit: 'allowance',
+    material: 0,
+    labor: 3500,
+    sourceLabel: 'Suggested allowance · National Average',
+  },
+  cleanup: {
+    unit: 'lump_sum',
+    material: 0,
+    labor: 1000,
+    sourceLabel: 'Suggested allowance · National Average',
+  },
 };
+
+/** Allowance/lump-sum lines that defaulted to quantity 1 — not a real dollar amount. */
+export const PLACEHOLDER_ALLOWANCE_ITEM_IDS = [
+  'permits',
+  'cleanup',
+  'plumbing_trim',
+  'electrical_trim',
+  'mirror_accessories',
+] as const;
+
+export function isPlaceholderAllowancePricing(
+  quantity: number | null | undefined,
+  unit: string | null | undefined,
+  itemId?: string | null
+): boolean {
+  if (
+    !itemId ||
+    !PLACEHOLDER_ALLOWANCE_ITEM_IDS.includes(itemId as (typeof PLACEHOLDER_ALLOWANCE_ITEM_IDS)[number])
+  ) {
+    return false;
+  }
+  if (quantity == null || !Number.isFinite(Number(quantity))) return false;
+  const normalizedUnit = String(unit || '').toLowerCase();
+  if (normalizedUnit !== 'allowance' && normalizedUnit !== 'lump_sum') return false;
+  return Number(quantity) === 1;
+}
 
 const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
   string,
@@ -392,8 +435,9 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
   mirror_accessories: {
     defaultUnit: 'allowance',
     allowedUnits: ['each', 'allowance', 'lump_sum'],
-    defaultQuantity: 1,
-    quantityHelper: 'Assuming 1 accessories allowance.',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter lump sum, or price accessories with material and labor by sqft.',
+    missingMessage: 'Enter accessories allowance.',
   },
   floor_prep: {
     defaultUnit: 'sqft',
@@ -435,27 +479,35 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
   },
   plumbing_trim: {
     defaultUnit: 'allowance',
-    allowedUnits: ['each', 'allowance', 'lump_sum'],
-    defaultQuantity: 1,
-    quantityHelper: 'Assuming 1 plumbing trim allowance.',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    quantityHelper: 'Enter plumbing trim-out allowance for this job.',
+    missingMessage: 'Enter plumbing trim allowance.',
   },
   electrical_trim: {
     defaultUnit: 'allowance',
-    allowedUnits: ['each', 'allowance', 'lump_sum'],
-    defaultQuantity: 1,
-    quantityHelper: 'Assuming 1 electrical trim allowance.',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    quantityHelper: 'Enter electrical trim-out allowance for this job.',
+    missingMessage: 'Enter electrical trim allowance.',
   },
   permits: {
     defaultUnit: 'allowance',
     allowedUnits: ['allowance', 'lump_sum'],
-    defaultQuantity: 1,
-    quantityHelper: 'Assuming 1 permit allowance.',
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    quantityHelper: 'Enter permit and inspection allowance for this job.',
+    missingMessage: 'Enter permit allowance.',
   },
   cleanup: {
     defaultUnit: 'lump_sum',
     allowedUnits: ['lump_sum', 'allowance'],
-    defaultQuantity: 1,
-    quantityHelper: 'Assuming 1 cleanup/disposal lump sum.',
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    quantityHelper: 'Enter cleanup and disposal allowance for this job.',
+    missingMessage: 'Enter cleanup/disposal allowance.',
   },
   appliance_removal: {
     defaultUnit: 'each',
@@ -498,7 +550,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
   flooring: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
-    measurementKeys: ['floorAreaSqft', 'kitchenFloorSqft', 'bathroomFloorSqft'],
+    measurementKeys: ['flooringSqft', 'floorAreaSqft', 'kitchenFloorSqft', 'bathroomFloorSqft'],
     dualAllowanceField: true,
     requiresUserQuantity: true,
     quantityHelper: 'Enter kitchen or room floor sqft.',
@@ -651,6 +703,7 @@ export function normalizeScopeMeasurements(measurements?: ScopeMeasurements | nu
       num(measurements?.bathroomFloorSqft) ?? num(measurements?.sqft),
     kitchenFloorSqft: num(measurements?.kitchenFloorSqft),
     floorAreaSqft: num(measurements?.floorAreaSqft),
+    flooringSqft: num(measurements?.flooringSqft),
     backsplashSqft: num(measurements?.backsplashSqft),
     countertopSqft: num(measurements?.countertopSqft),
     cabinetLf: num(measurements?.cabinetLf),
@@ -863,7 +916,77 @@ const KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRul
   },
 };
 
+const additionFloorAreaRule = (
+  quantityHelper: string,
+  missingMessage = 'Enter pricing basis or lump sum.'
+): ScopeItemQuantityRule => ({
+  defaultUnit: 'sqft',
+  allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+  pricingBasisMeasurementKey: 'floorAreaSqft',
+  requiresUserQuantity: true,
+  quantityHelper,
+  missingMessage,
+});
+
+const additionAllowanceByFloorAreaRule = (
+  quantityHelper: string,
+  missingMessage = 'Needs pricing'
+): ScopeItemQuantityRule => ({
+  defaultUnit: 'allowance',
+  allowedUnits: ['allowance', 'lump_sum', 'sqft'],
+  pricingBasisMeasurementKey: 'floorAreaSqft',
+  requiresUserQuantity: true,
+  quantityHelper,
+  missingMessage,
+});
+
+const additionFlatAllowanceRule = (
+  quantityHelper: string,
+  missingMessage = 'Enter allowance.'
+): ScopeItemQuantityRule => ({
+  defaultUnit: 'allowance',
+  allowedUnits: ['allowance', 'lump_sum'],
+  requiresUserQuantity: true,
+  lumpSumOnly: true,
+  quantityHelper,
+  missingMessage,
+});
+
 const ADDITION_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule> = {
+  plans_engineering: additionFlatAllowanceRule(
+    'Enter plans and engineering allowance for this job.',
+    'Enter plans/engineering allowance.'
+  ),
+  permits: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.permits,
+    quantityHelper: 'Enter permit and inspection allowance for this job.',
+  },
+  utility_coordination: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter utility coordination lump sum, or utility run LF if known.',
+    missingMessage: 'Enter utility coordination pricing.',
+  },
+  sitework: additionFloorAreaRule(
+    'Enter site prep sqft, or price site prep with lump sum/material/labor.',
+    'Enter site prep sqft or pricing.'
+  ),
+  grading: additionFloorAreaRule(
+    'Finish/rough grading is usually priced by sqft; use CY for mass cut/fill.',
+    'Enter grading sqft or pricing.'
+  ),
+  utility_trenching: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'cy', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Utility trenching is usually priced by LF; use CY for trench excavation volume.',
+    missingMessage: 'Enter utility trenching LF or pricing.',
+  },
+  foundation: additionFloorAreaRule(
+    'Enter foundation/slab footprint sqft, or use concrete CY on the concrete line.',
+    'Enter foundation sqft or pricing.'
+  ),
   concrete: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.concrete,
     defaultUnit: 'cy',
@@ -871,7 +994,325 @@ const ADDITION_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRu
     quantityHelper: 'Enter foundation concrete CY, or flatwork sqft if this is slab/flatwork.',
     missingMessage: 'Enter foundation concrete CY or flatwork sqft.',
   },
+  framing: additionFloorAreaRule(
+    'Enter framed floor area sqft, or price framing with lump sum/material/labor.',
+    'Enter framing sqft or pricing.'
+  ),
+  roof_tie_in: additionFloorAreaRule(
+    'Enter roof/tie-in area sqft, or price as a lump sum.',
+    'Enter roof/tie-in sqft or pricing.'
+  ),
+  windows_doors: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum', 'sqft'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter window/door count, or use lump sum/material/labor if count is unknown.',
+    missingMessage: 'Enter window/door count or pricing.',
+  },
+  exterior_finishes: additionFloorAreaRule(
+    'Enter exterior finish area sqft, or price with lump sum/material/labor.',
+    'Enter exterior finish sqft or pricing.'
+  ),
+  hvac: additionFloorAreaRule(
+    'Enter conditioned floor sqft, or price HVAC with lump sum/material/labor.',
+    'Enter HVAC sqft or pricing.'
+  ),
+  insulation: additionFloorAreaRule(
+    'Enter insulation area sqft, or price insulation with lump sum/material/labor.',
+    'Enter insulation sqft or pricing.'
+  ),
+  drywall: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.drywall,
+    measurementKey: 'drywallSqft',
+    quantityHelper: 'Enter drywall sqft, or price drywall with lump sum/material/labor.',
+  },
+  paint: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.paint,
+    measurementKey: 'wallPaintSqft',
+    quantityHelper: 'Enter paint sqft and/or calculated material/labor totals.',
+  },
+  flooring: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.flooring,
+    measurementKeys: ['flooringSqft', 'floorAreaSqft'],
+    quantityHelper: 'Enter flooring sqft and/or calculated material/labor totals.',
+  },
+  cabinets_counters: additionFlatAllowanceRule(
+    'Enter cabinet and counter allowance for this job.',
+    'Enter cabinet/counter allowance.'
+  ),
+  tile: additionFloorAreaRule(
+    'Enter tile area sqft, or price tile with lump sum/material/labor.',
+    'Enter tile sqft or pricing.'
+  ),
+  interior_trim: additionFloorAreaRule(
+    'Enter trim area sqft, or use lump sum/material/labor.',
+    'Enter interior trim pricing.'
+  ),
+  plumbing_trim: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.plumbing_trim,
+  },
+  electrical_trim: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.electrical_trim,
+  },
+  hvac_startup: additionAllowanceByFloorAreaRule(
+    'Enter HVAC startup lump sum, or price by conditioned floor sqft.',
+    'Enter HVAC startup pricing.'
+  ),
+  appliances: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.appliances,
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    quantityHelper: 'Enter appliance count/allowance, or material/labor totals.',
+  },
+  final_inspections: additionFlatAllowanceRule(
+    'Enter final inspection allowance for this job.',
+    'Enter final inspection allowance.'
+  ),
+  cleanup: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.cleanup,
+    quantityHelper: 'Enter cleanup and disposal allowance for this job.',
+  },
+  contingency: additionAllowanceByFloorAreaRule(
+    'Enter contingency allowance, or budget by ADU floor sqft.',
+    'Enter contingency pricing.'
+  ),
 };
+
+/** Fallback when a checklist item has no explicit rule — still show pricing entry in Step 2. */
+export const DEFAULT_SCOPE_ALLOWANCE_QUANTITY_RULE: ScopeItemQuantityRule = {
+  defaultUnit: 'allowance',
+  allowedUnits: ['allowance', 'lump_sum'],
+  requiresUserQuantity: true,
+  quantityHelper: 'Enter lump sum, or price material and labor by the right job basis.',
+  missingMessage: 'Needs pricing',
+};
+
+export function usesAllowanceSplitEditor(rule: ScopeItemQuantityRule): boolean {
+  return !rule.dualAllowanceField;
+}
+
+type PricingBasisPreference = {
+  unit: string;
+  measurementKeys?: Array<keyof Omit<NormalizedScopeMeasurements, 'itemQuantities'>>;
+  useFloorAreaFallback?: boolean;
+};
+
+const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> = {
+  demo: { unit: 'sqft', measurementKeys: ['bathroomFloorSqft', 'floorAreaSqft'] },
+  floor_demo: { unit: 'sqft', measurementKeys: ['bathroomFloorSqft', 'kitchenFloorSqft', 'floorAreaSqft'] },
+  demo_removal: { unit: 'sqft', measurementKeys: ['floorAreaSqft', 'deckSqft', 'concreteSqft', 'drywallSqft'] },
+  floor_tile: { unit: 'sqft', measurementKeys: ['bathroomFloorSqft', 'floorAreaSqft'] },
+  flooring: { unit: 'sqft', measurementKeys: ['flooringSqft', 'floorAreaSqft', 'kitchenFloorSqft', 'bathroomFloorSqft'] },
+  floor_prep: { unit: 'sqft', measurementKeys: ['bathroomFloorSqft', 'kitchenFloorSqft', 'floorAreaSqft'] },
+  drywall: { unit: 'sqft', measurementKeys: ['drywallSqft', 'floorAreaSqft'] },
+  hang: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
+  finish_tape: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
+  texture: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
+  patch_repair: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
+  paint: { unit: 'sqft', measurementKeys: ['wallPaintSqft', 'floorAreaSqft'] },
+  interior_paint: { unit: 'sqft', measurementKeys: ['wallPaintSqft', 'floorAreaSqft'] },
+  exterior_paint: { unit: 'sqft', measurementKeys: ['exteriorPaintSqft'] },
+  prep: { unit: 'sqft', measurementKeys: ['wallPaintSqft', 'floorAreaSqft'] },
+  trim: { unit: 'lf', measurementKeys: ['baseboardLf'] },
+  trim_paint: { unit: 'lf', measurementKeys: ['baseboardLf'] },
+  baseboard: { unit: 'lf', measurementKeys: ['baseboardLf'] },
+  shower_tile: { unit: 'sqft', measurementKeys: ['showerWallTileSqft'] },
+  shower_floor_tile: { unit: 'sqft', measurementKeys: ['showerFloorTileSqft'] },
+  waterproofing: { unit: 'sqft', measurementKeys: ['showerWallTileSqft'] },
+  backsplash: { unit: 'sqft', measurementKeys: ['backsplashSqft'] },
+  countertops: { unit: 'sqft', measurementKeys: ['countertopSqft'] },
+  cabinets: { unit: 'lf', measurementKeys: ['cabinetLf'] },
+  pavers: { unit: 'sqft', measurementKeys: ['paverSqft', 'landscapeSqft'] },
+  sod_turf: { unit: 'sqft', measurementKeys: ['sodSqft', 'landscapeSqft'] },
+  rock_mulch: { unit: 'sqft', measurementKeys: ['rockMulchSqft', 'landscapeSqft'] },
+  concrete: { unit: 'sqft', measurementKeys: ['concreteSqft', 'concreteCy'] },
+  pour_flatwork: { unit: 'sqft', measurementKeys: ['concreteSqft', 'concreteCy'] },
+  concrete_patio: { unit: 'sqft', measurementKeys: ['concreteSqft', 'deckSqft', 'floorAreaSqft'] },
+  pour_foundation: { unit: 'cy', measurementKeys: ['concreteCy', 'concreteSqft'] },
+  excavation: { unit: 'cy', measurementKeys: ['excavationCy'] },
+  trenching: { unit: 'lf' },
+  utility_trenching: { unit: 'lf' },
+  grading: { unit: 'sqft', measurementKeys: ['landscapeSqft', 'floorAreaSqft'] },
+  sitework: { unit: 'sqft', measurementKeys: ['landscapeSqft', 'floorAreaSqft'] },
+  site_prep: { unit: 'sqft', measurementKeys: ['concreteSqft', 'landscapeSqft', 'floorAreaSqft'] },
+  soil_prep: { unit: 'sqft', measurementKeys: ['landscapeSqft'] },
+  clearing: { unit: 'sqft', measurementKeys: ['landscapeSqft', 'floorAreaSqft'] },
+  demo_clearing: { unit: 'sqft', measurementKeys: ['landscapeSqft'] },
+  backfill: { unit: 'cy', measurementKeys: ['excavationCy'] },
+  haul_off: { unit: 'cy', measurementKeys: ['excavationCy'] },
+  imported_fill: { unit: 'cy', measurementKeys: ['excavationCy'] },
+  railing: { unit: 'lf', measurementKeys: ['railingLf'] },
+  decking: { unit: 'sqft', measurementKeys: ['deckSqft'] },
+  footings_piers: { unit: 'each' },
+  framing_structure: { unit: 'sqft', measurementKeys: ['deckSqft'] },
+  stairs: { unit: 'each' },
+  staining_sealing: { unit: 'sqft', measurementKeys: ['deckSqft'] },
+  tear_off: { unit: 'squares', measurementKeys: ['roofSquares'] },
+  shingles_roofing: { unit: 'squares', measurementKeys: ['roofSquares'] },
+  decking_repair: { unit: 'sqft', measurementKeys: ['roofSquares'] },
+  underlayment: { unit: 'squares', measurementKeys: ['roofSquares'] },
+  flashing: { unit: 'lf' },
+  vents_penetrations: { unit: 'each' },
+  gutters_downspouts: { unit: 'lf' },
+  service_call: { unit: 'each' },
+  fixture_repair: { unit: 'each' },
+  fixture_replace: { unit: 'each' },
+  drain_cleaning: { unit: 'lf' },
+  water_line: { unit: 'lf' },
+  sewer_line: { unit: 'lf' },
+  drainage: { unit: 'lf' },
+  irrigation: { unit: 'sqft', measurementKeys: ['landscapeSqft'] },
+  plants_trees: { unit: 'each' },
+  landscape_lighting: { unit: 'each' },
+  mobilization: { unit: 'allowance' },
+  emergency_fee: { unit: 'allowance' },
+  parts_materials: { unit: 'allowance' },
+  materials_package: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+  labor: { unit: 'hr' },
+  layout: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+  wall_framing: { unit: 'lf', measurementKeys: ['baseboardLf'] },
+  openings: { unit: 'each' },
+  blocking: { unit: 'lf' },
+  shear_sheathing: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+  hardware: { unit: 'allowance' },
+  tub_demo: { unit: 'each' },
+  wet_area_install: { unit: 'each' },
+  tub_install: { unit: 'each' },
+  prefab_shower_pan: { unit: 'each' },
+  shower_pan: { unit: 'each' },
+  shower_niche: { unit: 'each' },
+  shower_bench_curb: { unit: 'each' },
+  vanity: { unit: 'each' },
+  toilet: { unit: 'each' },
+  lighting: { unit: 'each' },
+  exhaust_fan: { unit: 'each' },
+  glass_door: { unit: 'each' },
+  appliances: { unit: 'each' },
+  appliance_removal: { unit: 'each' },
+  sink_faucet: { unit: 'each' },
+  cabinet_hardware: { unit: 'each' },
+  island: { unit: 'lf', measurementKeys: ['cabinetLf'] },
+  plumbing: { unit: 'each' },
+  electrical: { unit: 'each' },
+  hvac: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+  walls_moving: { unit: 'lf' },
+  equipment_replace: { unit: 'each' },
+  refrigerant: { unit: 'lb' },
+  thermostat: { unit: 'each' },
+  ductwork: { unit: 'lf' },
+  ventilation: { unit: 'each' },
+};
+
+const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<string, Record<string, PricingBasisPreference>> = {
+  addition: {
+    utility_coordination: { unit: 'lf' },
+    sitework: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    grading: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    utility_trenching: { unit: 'lf' },
+    foundation: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    framing: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    roof_tie_in: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    windows_doors: { unit: 'each' },
+    exterior_finishes: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    hvac: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    insulation: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    tile: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    interior_trim: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    hvac_startup: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    contingency: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+  },
+  ground_up: {
+    sitework: { unit: 'sqft', measurementKeys: ['floorAreaSqft', 'landscapeSqft'] },
+    utility_taps: { unit: 'each' },
+    foundation: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    framing: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    roofing: { unit: 'squares', measurementKeys: ['roofSquares'] },
+    exterior: { unit: 'sqft', measurementKeys: ['floorAreaSqft', 'exteriorPaintSqft'] },
+    mep_rough: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    insulation: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    tile_flooring: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    paint_trim: { unit: 'sqft', measurementKeys: ['wallPaintSqft', 'floorAreaSqft'] },
+    contingency: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    overhead_profit: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+  },
+  room_remodel: {
+    framing: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    plumbing: { unit: 'each' },
+    electrical: { unit: 'each' },
+    hvac: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    drywall: { unit: 'sqft', measurementKeys: ['drywallSqft', 'floorAreaSqft'] },
+    flooring: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    paint: { unit: 'sqft', measurementKeys: ['wallPaintSqft', 'floorAreaSqft'] },
+    trim: { unit: 'lf', measurementKeys: ['baseboardLf'] },
+  },
+};
+
+function pricingBasisPreferenceFor(
+  itemId: string,
+  templateKey?: string | null
+): PricingBasisPreference | null {
+  return (
+    (templateKey && TEMPLATE_PRICING_BASIS_PREFERENCES[templateKey]?.[itemId]) ||
+    GLOBAL_PRICING_BASIS_PREFERENCES[itemId] ||
+    null
+  );
+}
+
+export function resolveAllowanceEditorDefaultBasisUnit(
+  itemId: string,
+  templateKey?: string | null,
+  rule?: ScopeItemQuantityRule
+): string {
+  const preferred = pricingBasisPreferenceFor(itemId, templateKey)?.unit;
+  if (preferred) return preferred;
+  const fallbackRule = rule ?? getChecklistItemQuantityRuleOrDefault(itemId, templateKey);
+  if (fallbackRule.defaultUnit === 'allowance' || fallbackRule.defaultUnit === 'lump_sum') return 'sqft';
+  return fallbackRule.defaultUnit;
+}
+
+export function resolveAllowanceEditorPricingBasis(
+  itemId: string,
+  measurementsInput: ScopeMeasurementsInputExtended,
+  templateKey?: string | null
+): { quantity: number; unit: string } | null {
+  const rule = getChecklistItemQuantityRuleOrDefault(itemId, templateKey);
+  const basisKey = allowanceSplitSubKey(itemId, 'sqft_basis');
+  const stored = measurementsInput.itemQuantities[basisKey];
+  const storedQty = parseScopeMeasurementInput(String(stored?.quantity ?? ''));
+  if (storedQty && storedQty > 0) {
+    return { quantity: storedQty, unit: stored?.unit || 'sqft' };
+  }
+  const preferred = pricingBasisPreferenceFor(itemId, templateKey);
+  if (preferred?.measurementKeys?.length) {
+    for (const key of preferred.measurementKeys) {
+      const quantity = parseScopeMeasurementInput(
+        String(measurementsInput[key as keyof ScopeMeasurementsInputExtended] ?? '')
+      );
+      if (quantity && quantity > 0) {
+        return { quantity, unit: measurementUnitForKey(key, preferred.unit) };
+      }
+    }
+  }
+  const fromPricingBasis = firstPricingBasisMeasurementForRule(rule, measurementsInput);
+  if (fromPricingBasis) return fromPricingBasis;
+  const fromRule = firstMeasurementForRule(rule, measurementsInput);
+  if (fromRule) return fromRule;
+  if (rule.defaultUnit && rule.defaultUnit !== 'sqft' && rule.defaultUnit !== 'allowance' && rule.defaultUnit !== 'lump_sum') {
+    return null;
+  }
+  const canUseFloorFallback = preferred?.useFloorAreaFallback || rule.canUseRoomSqft || rule.defaultUnit === 'sqft';
+  if (!canUseFloorFallback) return null;
+  const floor = parseScopeMeasurementInput(String(measurementsInput.floorAreaSqft ?? ''));
+  if (floor && floor > 0) return { quantity: floor, unit: 'sqft' };
+  return null;
+}
+
+export function allowanceSplitSubKey(
+  itemId: string,
+  part: 'allowance' | 'sqft_basis' | 'material' | 'labor'
+): string {
+  return `${itemId}__${part}`;
+}
 
 export function getChecklistItemQuantityRule(
   itemId: string,
@@ -884,6 +1325,13 @@ export function getChecklistItemQuantityRule(
     return KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES[itemId];
   }
   return CHECKLIST_ITEM_QUANTITY_RULES[itemId];
+}
+
+export function getChecklistItemQuantityRuleOrDefault(
+  itemId: string,
+  templateKey?: string | null
+): ScopeItemQuantityRule {
+  return getChecklistItemQuantityRule(itemId, templateKey) ?? DEFAULT_SCOPE_ALLOWANCE_QUANTITY_RULE;
 }
 
 function parseStoredItemQuantity(
@@ -924,6 +1372,7 @@ export function syncDualAllowanceSqftFields(
   sync('backsplash', 'backsplashSqft');
   sync('paint', 'wallPaintSqft');
   sync('shower_tile', 'showerWallTileSqft');
+  sync('flooring', 'flooringSqft');
   return next;
 }
 
@@ -937,6 +1386,7 @@ function measurementsForRatePricing(
     kitchenFloorSqft: measurements.kitchenFloorSqft ?? undefined,
     bathroomFloorSqft: measurements.bathroomFloorSqft ?? undefined,
     floorAreaSqft: measurements.floorAreaSqft ?? undefined,
+    flooringSqft: measurements.flooringSqft ?? undefined,
     drywallSqft: measurements.drywallSqft ?? undefined,
     exteriorPaintSqft: measurements.exteriorPaintSqft ?? undefined,
     landscapeSqft: measurements.landscapeSqft ?? undefined,
@@ -1021,7 +1471,7 @@ export function sanitizeMistakenUnitRateAllowances(
     { itemId: 'backsplash', sqftKey: 'backsplashSqft' },
     { itemId: 'paint', sqftKey: 'wallPaintSqft' },
     { itemId: 'shower_tile', sqftKey: 'showerWallTileSqft' },
-    { itemId: 'flooring', sqftKey: 'floorAreaSqft' },
+    { itemId: 'flooring', sqftKey: 'flooringSqft' },
     { itemId: 'floor_demo', sqftKey: 'floorAreaSqft' },
   ];
   for (const { itemId, sqftKey } of checks) {
@@ -1033,6 +1483,28 @@ export function sanitizeMistakenUnitRateAllowances(
     const entry = itemQuantities[allowanceKey];
     if (entry?.quantity && Number(entry.quantity) > 0 && Number(entry.quantity) < sqft) {
       delete itemQuantities[allowanceKey];
+    }
+  }
+  for (const itemId of PLACEHOLDER_ALLOWANCE_ITEM_IDS) {
+    const entry = itemQuantities[itemId];
+    if (
+      entry &&
+      isPlaceholderAllowancePricing(parseScopeMeasurementInput(String(entry.quantity)), entry.unit)
+    ) {
+      delete itemQuantities[itemId];
+    }
+    if (isDualAllowanceItem(itemId)) {
+      const allowanceKey = roughAllowanceSubKey(itemId);
+      const allowanceEntry = itemQuantities[allowanceKey];
+      if (
+        allowanceEntry &&
+        isPlaceholderAllowancePricing(
+          parseScopeMeasurementInput(String(allowanceEntry.quantity)),
+          allowanceEntry.unit
+        )
+      ) {
+        delete itemQuantities[allowanceKey];
+      }
     }
   }
   return { ...synced, itemQuantities };
@@ -1063,6 +1535,23 @@ function itemHasUserEnteredPricing(
     isUserEnteredQuantity(itemQuantities[`${itemId}__material`]) ||
     isUserEnteredQuantity(itemQuantities[`${itemId}__labor`]) ||
     isUserEnteredQuantity(itemQuantities[`${itemId}__allowance`])
+  );
+}
+
+function hasUserEnteredFlatAllowancePricing(
+  itemQuantities: Record<string, ScopeItemQuantityLike>,
+  itemId: string
+): boolean {
+  const allowance = itemQuantities[roughAllowanceSubKey(itemId)];
+  if (isUserEnteredQuantity(allowance) && Number(allowance.quantity || 0) > 0) return true;
+
+  const item = itemQuantities[itemId];
+  const unit = String(item?.unit || '').toLowerCase();
+  return (
+    isUserEnteredQuantity(item) &&
+    ['allowance', 'lump_sum'].includes(unit) &&
+    Number(item?.quantity || 0) > 0 &&
+    !isPlaceholderAllowancePricing(Number(item?.quantity || 0), unit, itemId)
   );
 }
 
@@ -1440,6 +1929,26 @@ function firstMeasurementForRule(
   return null;
 }
 
+function firstPricingBasisMeasurementForRule(
+  rule: ScopeItemQuantityRule,
+  measurementsInput: ScopeMeasurementsInputExtended
+): { quantity: number; unit: string } | null {
+  const keys = rule.pricingBasisMeasurementKeys?.length
+    ? rule.pricingBasisMeasurementKeys
+    : rule.pricingBasisMeasurementKey
+      ? [rule.pricingBasisMeasurementKey]
+      : [];
+  for (const key of keys) {
+    const quantity = parseScopeMeasurementInput(
+      String(measurementsInput[key as keyof ScopeMeasurementsInputExtended] ?? '')
+    );
+    if (quantity && quantity > 0) {
+      return { quantity, unit: measurementUnitForKey(key, rule.defaultUnit) };
+    }
+  }
+  return null;
+}
+
 export function resolveBudgetSplitQuantity(
   itemId: string,
   templateKey: string | null | undefined,
@@ -1693,6 +2202,8 @@ export type SuggestedPricingBlock = {
   helper: string;
   mode: SuggestedPricingMode;
   isComparison?: boolean;
+  /** Permit/fees-style flat allowance — hide material row in UI. */
+  lumpSumOnly?: boolean;
   basis?: { quantity: number; unit: string } | null;
 };
 
@@ -1715,6 +2226,41 @@ function rateSourceLabelFor(
   const usesTemplate = materialSource === 'template' || laborSource === 'template';
   if (usesTemplate && templateName) return 'Suggested · Saved rate';
   return 'Suggested · National Average';
+}
+
+function flatAllowanceCopyFor(itemId: string): { fromNotes: string; suggested: string } {
+  const copyByItem: Record<string, { fromNotes: string; suggested: string }> = {
+    cleanup: {
+      fromNotes: 'Cleanup/disposal allowance from notes.',
+      suggested: 'Suggested cleanup and disposal allowance.',
+    },
+    plans_engineering: {
+      fromNotes: 'Plans/engineering allowance from notes.',
+      suggested: 'Suggested plans and engineering allowance.',
+    },
+    cabinets_counters: {
+      fromNotes: 'Cabinet and counter allowance from notes.',
+      suggested: 'Suggested cabinet and counter allowance.',
+    },
+    plumbing_trim: {
+      fromNotes: 'Plumbing trim-out allowance from notes.',
+      suggested: 'Suggested plumbing trim-out allowance.',
+    },
+    electrical_trim: {
+      fromNotes: 'Electrical trim-out allowance from notes.',
+      suggested: 'Suggested electrical trim-out allowance.',
+    },
+    final_inspections: {
+      fromNotes: 'Final inspection allowance from notes.',
+      suggested: 'Suggested final inspection allowance.',
+    },
+  };
+  return (
+    copyByItem[itemId] ?? {
+      fromNotes: 'Permit allowance from notes.',
+      suggested: 'Suggested permit and inspection allowance.',
+    }
+  );
 }
 
 /**
@@ -1744,10 +2290,10 @@ export function resolveScopeItemSuggestedPricing(
     'sqft';
   const average = getNationalAverageBudgetSplit(itemId, preferredUnit);
 
-  const unit = average?.unit || preferredUnit;
+  let unit = average?.unit || preferredUnit;
 
   // Quantity in the rate unit (e.g. 850 sqft, 220 lf).
-  const count =
+  let count =
     resolved.dualCount?.unit === unit && resolved.dualCount.quantity > 0
       ? resolved.dualCount.quantity
       : itemId === 'floor_demo' && unit === 'sqft'
@@ -1758,7 +2304,65 @@ export function resolveScopeItemSuggestedPricing(
           : measurementMatch?.unit === unit
             ? measurementMatch.quantity
             : firstMeasurementQuantityForRule(rule, measurementsInput);
+  if ((!count || count <= 0) && (rule.defaultUnit === 'allowance' || rule.defaultUnit === 'lump_sum')) {
+    const flatAverage = getNationalAverageBudgetSplit(itemId, rule.defaultUnit);
+    if (rule.lumpSumOnly && (flatAverage?.labor || flatAverage?.material)) {
+      count = 1;
+      unit = flatAverage?.unit || rule.defaultUnit;
+    }
+  }
   if (!count || count <= 0) return empty;
+
+  const basis = { quantity: count, unit };
+  const basisHelper = rule.lumpSumOnly
+    ? 'Suggested allowance for this job'
+    : `Based on ${count.toLocaleString()} ${unit}`;
+
+  if (rule.lumpSumOnly) {
+    if (hasUserEnteredFlatAllowancePricing(measurementsInput.itemQuantities || {}, itemId)) {
+      return empty;
+    }
+    const copy = flatAllowanceCopyFor(itemId);
+    const noteTotal =
+      resolved.dualAllowance?.quantity ??
+      (resolved.quantitySource === 'notes' &&
+      (resolved.unit === 'allowance' || resolved.unit === 'lump_sum')
+        ? resolved.quantity
+        : null);
+    if (noteTotal != null && noteTotal > 0) {
+      return {
+        fill: {
+          material: 0,
+          labor: round2(noteTotal),
+          total: round2(noteTotal),
+          materialSource: 'notes',
+          laborSource: 'notes',
+          rateSourceLabel: 'From notes',
+          helper: copy.fromNotes,
+          mode: 'suggested_price',
+          lumpSumOnly: true,
+        },
+        comparison: null,
+      };
+    }
+    const flatAverage = getNationalAverageBudgetSplit(itemId, rule.defaultUnit);
+    const total = round2((flatAverage?.material ?? 0) + (flatAverage?.labor ?? 0));
+    if (total <= 0) return empty;
+    return {
+      fill: {
+        material: 0,
+        labor: total,
+        total,
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel: 'Suggested · National Average',
+        helper: copy.suggested,
+        mode: 'suggested_price',
+        lumpSumOnly: true,
+      },
+      comparison: null,
+    };
+  }
 
   const template = resolveTemplateRateForItem(itemId, unit, pricingContext);
   const materialRate = template?.materialRate ?? average?.material ?? null;
@@ -1778,9 +2382,6 @@ export function resolveScopeItemSuggestedPricing(
     (resolved.unit === 'allowance' || resolved.unit === 'lump_sum')
       ? resolved.quantity
       : null);
-
-  const basis = { quantity: count, unit };
-  const basisHelper = `Based on ${count.toLocaleString()} ${unit}`;
 
   // Case A: notes priced both legs -> collapsible comparison only.
   if (noteMaterial != null && noteLabor != null) {
@@ -2204,8 +2805,8 @@ export function resolveChecklistItemQuantity(
   ctx: { choiceId?: string | null; templateKey?: string | null; notes?: string | null } = {}
 ): ResolvedItemQuantity {
   const choiceId = ctx.choiceId ?? null;
-  const rule = getChecklistItemQuantityRule(itemId, ctx.templateKey);
-  if (!rule) {
+  const explicitRule = getChecklistItemQuantityRule(itemId, ctx.templateKey);
+  if (!explicitRule && String(itemId).startsWith('custom_')) {
     return {
       quantity: null,
       unit: 'lump_sum',
@@ -2215,6 +2816,7 @@ export function resolveChecklistItemQuantity(
       showInput: false,
     };
   }
+  const rule = explicitRule ?? DEFAULT_SCOPE_ALLOWANCE_QUANTITY_RULE;
 
   if (rule.choiceIds?.length && choiceId && !rule.choiceIds.includes(choiceId)) {
     return {
@@ -2283,7 +2885,11 @@ export function resolveChecklistItemQuantity(
       ctx.templateKey
     );
     if (dual) return dual;
-  } else if (override?.quantity != null && override.quantity > 0) {
+  } else if (
+    override?.quantity != null &&
+    override.quantity > 0 &&
+    !isPlaceholderAllowancePricing(override.quantity, override.unit, itemId)
+  ) {
     const includesCountertops =
       Boolean(override.includesCountertops) ||
       (itemId === 'cabinets' && notesHaveCombinedCabinetsCounters(ctx.notes));
@@ -2354,6 +2960,46 @@ export function resolveChecklistItemQuantity(
 
   const fromNotes = resolvedQuantityFromNotes(itemId, measurements, ctx);
   if (fromNotes) return fromNotes;
+
+  if (usesAllowanceSplitEditor(rule)) {
+    const allowanceEntry =
+      parseStoredItemQuantity(measurements, allowanceSplitSubKey(itemId, 'allowance')) ??
+      (override &&
+      ['allowance', 'lump_sum'].includes(override.unit || '') &&
+      override.quantity > 0 &&
+      !isPlaceholderAllowancePricing(override.quantity, override.unit, itemId)
+        ? {
+            quantity: override.quantity,
+            unit: override.unit || 'allowance',
+            quantitySource: override.quantitySource,
+          }
+        : null);
+    const materialEntry = parseStoredItemQuantity(measurements, allowanceSplitSubKey(itemId, 'material'));
+    const laborEntry = parseStoredItemQuantity(measurements, allowanceSplitSubKey(itemId, 'labor'));
+    const splitTotal =
+      (materialEntry?.quantity ?? 0) + (laborEntry?.quantity ?? 0);
+    const total = allowanceEntry?.quantity ?? (splitTotal > 0 ? splitTotal : null);
+    if (total != null && total > 0) {
+      return {
+        quantity: total,
+        unit: 'allowance',
+        quantitySource:
+          allowanceEntry?.quantitySource ||
+          materialEntry?.quantitySource ||
+          laborEntry?.quantitySource ||
+          'user_entered',
+        sourceLabel: sourceLabel(
+          allowanceEntry?.quantitySource ||
+            materialEntry?.quantitySource ||
+            laborEntry?.quantitySource ||
+            'user_entered'
+        ),
+        pricingReady: true,
+        quantityHelper: rule.quantityHelper,
+        showInput: true,
+      };
+    }
+  }
 
   return {
     quantity: null,
@@ -2491,22 +3137,20 @@ export function countScopePricingReadiness(
   let needsMeasurement = 0;
   for (const item of items) {
     if (!checklistItemInScope(item)) continue;
-    const rule = getChecklistItemQuantityRule(item.id, templateKey);
-    if (!rule) {
-      if (String(item.id || '').startsWith('custom_')) {
-        const base = measurements.itemQuantities?.[item.id];
-        const allowance = measurements.itemQuantities?.[`${item.id}__allowance`];
-        const material = measurements.itemQuantities?.[`${item.id}__material`];
-        const labor = measurements.itemQuantities?.[`${item.id}__labor`];
-        const total =
-          Number(allowance?.quantity || 0) ||
-          (base?.unit === 'allowance' ? Number(base.quantity || 0) : 0) ||
-          Number(material?.quantity || 0) + Number(labor?.quantity || 0);
-        if (Number.isFinite(total) && total > 0) ready += 1;
-        else needsMeasurement += 1;
-      }
+    if (String(item.id || '').startsWith('custom_')) {
+      const base = measurements.itemQuantities?.[item.id];
+      const allowance = measurements.itemQuantities?.[`${item.id}__allowance`];
+      const material = measurements.itemQuantities?.[`${item.id}__material`];
+      const labor = measurements.itemQuantities?.[`${item.id}__labor`];
+      const total =
+        Number(allowance?.quantity || 0) ||
+        (base?.unit === 'allowance' ? Number(base.quantity || 0) : 0) ||
+        Number(material?.quantity || 0) + Number(labor?.quantity || 0);
+      if (Number.isFinite(total) && total > 0) ready += 1;
+      else needsMeasurement += 1;
       continue;
     }
+    const rule = getChecklistItemQuantityRuleOrDefault(item.id, templateKey);
     const resolved = resolveChecklistItemQuantity(item.id, measurements, {
       choiceId: item.choiceId,
       templateKey,
@@ -2606,6 +3250,7 @@ export function scopeMeasurementsToPayload(
     bathroomFloorSqft: parseScopeMeasurementInput(sanitized.bathroomFloorSqft),
     kitchenFloorSqft: parseScopeMeasurementInput(sanitized.kitchenFloorSqft),
     floorAreaSqft: parseScopeMeasurementInput(sanitized.floorAreaSqft),
+    flooringSqft: parseScopeMeasurementInput(sanitized.flooringSqft),
     backsplashSqft: parseScopeMeasurementInput(sanitized.backsplashSqft),
     countertopSqft: parseScopeMeasurementInput(sanitized.countertopSqft),
     cabinetLf: parseScopeMeasurementInput(sanitized.cabinetLf),
@@ -2658,6 +3303,7 @@ export function scopeMeasurementsInputFromPayload(
     bathroomFloorSqft: measurementFieldString(payload.bathroomFloorSqft ?? payload.sqft),
     kitchenFloorSqft: measurementFieldString(payload.kitchenFloorSqft),
     floorAreaSqft: measurementFieldString(payload.floorAreaSqft),
+    flooringSqft: measurementFieldString(payload.flooringSqft),
     backsplashSqft: measurementFieldString(payload.backsplashSqft),
     countertopSqft: measurementFieldString(payload.countertopSqft),
     cabinetLf: measurementFieldString(payload.cabinetLf),
@@ -2900,6 +3546,7 @@ export function initialScopeMeasurementInputExtended(
       (saved?.sqft ? String(saved.sqft) : parsed.sqft ? String(parsed.sqft) : ''),
     kitchenFloorSqft: pick('kitchenFloorSqft'),
     floorAreaSqft: pick('floorAreaSqft'),
+    flooringSqft: pick('flooringSqft'),
     backsplashSqft: pick('backsplashSqft'),
     countertopSqft: pick('countertopSqft'),
     cabinetLf: pick('cabinetLf'),

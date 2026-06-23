@@ -4,9 +4,11 @@ describe('scopeQuickMeasurements', () => {
   it('labels addition floor area as ADU/casita sqft for ADU projects', () => {
     const rows = quickMeasurementRowsForTemplate('addition', 'adu');
     const floorArea = rows.flat().find((field) => field.key === 'floorAreaSqft');
+    const flooring = rows.flat().find((field) => field.key === 'flooringSqft');
 
     expect(floorArea?.label).toBe('ADU / casita sqft');
     expect(floorArea?.placeholder).toBe('e.g. 650');
+    expect(flooring?.label).toBe('Flooring sqft');
   });
 
   it('labels addition floor area by project type', () => {

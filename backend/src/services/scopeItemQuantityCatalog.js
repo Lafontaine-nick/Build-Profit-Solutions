@@ -26,6 +26,7 @@ const QUANTITY_SOURCES = {
  * @property {boolean} [canUseRoomSqft]
  * @property {boolean} [requiresUserQuantity]
  * @property {boolean} [dualAllowanceField]
+ * @property {boolean} [lumpSumOnly]
  * @property {number} [defaultQuantity]
  * @property {'unit_rate'|'each'|'lump_sum'|'allowance'|'hourly'|'scope_only'} pricingMethod
  * @property {string} [quantityHelper]
@@ -276,35 +277,39 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
   },
   plumbing_trim: {
     defaultUnit: 'allowance',
-    allowedUnits: ['each', 'allowance', 'lump_sum'],
-    defaultQuantity: 1,
-    requiresUserQuantity: false,
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
     pricingMethod: 'allowance',
-    quantityHelper: 'Assuming 1 plumbing trim allowance.',
+    quantityHelper: 'Enter plumbing trim-out allowance for this job.',
+    missingMessage: 'Enter plumbing trim allowance.',
   },
   electrical_trim: {
     defaultUnit: 'allowance',
-    allowedUnits: ['each', 'allowance', 'lump_sum'],
-    defaultQuantity: 1,
-    requiresUserQuantity: false,
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
     pricingMethod: 'allowance',
-    quantityHelper: 'Assuming 1 electrical trim allowance.',
+    quantityHelper: 'Enter electrical trim-out allowance for this job.',
+    missingMessage: 'Enter electrical trim allowance.',
   },
   permits: {
     defaultUnit: 'allowance',
     allowedUnits: ['allowance', 'lump_sum'],
-    defaultQuantity: 1,
-    requiresUserQuantity: false,
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
     pricingMethod: 'allowance',
-    quantityHelper: 'Assuming 1 permit allowance.',
+    quantityHelper: 'Enter permit and inspection fees for this job.',
+    missingMessage: 'Enter permit allowance.',
   },
   cleanup: {
     defaultUnit: 'lump_sum',
     allowedUnits: ['lump_sum', 'allowance'],
-    defaultQuantity: 1,
-    requiresUserQuantity: false,
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
     pricingMethod: 'lump_sum',
-    quantityHelper: 'Assuming 1 cleanup/disposal lump sum.',
+    quantityHelper: 'Enter cleanup and disposal allowance for this job.',
+    missingMessage: 'Enter cleanup/disposal allowance.',
   },
   appliance_removal: {
     defaultUnit: 'each',
@@ -344,7 +349,7 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
   flooring: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
-    measurementKeys: ['floorAreaSqft', 'kitchenFloorSqft', 'bathroomFloorSqft'],
+    measurementKeys: ['flooringSqft', 'floorAreaSqft', 'kitchenFloorSqft', 'bathroomFloorSqft'],
     dualAllowanceField: true,
     requiresUserQuantity: true,
     pricingMethod: 'unit_rate',
@@ -595,6 +600,7 @@ function normalizeScopeMeasurements(measurements = {}) {
   const countertopSqft = parseMeasurementNumber(measurements.countertopSqft);
   const cabinetLf = parseMeasurementNumber(measurements.cabinetLf);
   const floorAreaSqft = parseMeasurementNumber(measurements.floorAreaSqft);
+  const flooringSqft = parseMeasurementNumber(measurements.flooringSqft);
   const sodSqft = parseMeasurementNumber(measurements.sodSqft);
   const paverSqft = parseMeasurementNumber(measurements.paverSqft);
   const rockMulchSqft = parseMeasurementNumber(measurements.rockMulchSqft);
@@ -613,6 +619,7 @@ function normalizeScopeMeasurements(measurements = {}) {
     countertopSqft,
     cabinetLf,
     floorAreaSqft,
+    flooringSqft,
     landscapeSqft,
     sodSqft,
     paverSqft,
@@ -666,7 +673,79 @@ const KITCHEN_CHECKLIST_QUANTITY_RULES = {
   },
 };
 
+function additionFloorAreaRule(quantityHelper, missingMessage = 'Enter pricing basis or lump sum.') {
+  return {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    pricingBasisMeasurementKey: 'floorAreaSqft',
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper,
+    missingMessage,
+  };
+}
+
+function additionAllowanceByFloorAreaRule(quantityHelper, missingMessage = 'Needs pricing') {
+  return {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum', 'sqft'],
+    pricingBasisMeasurementKey: 'floorAreaSqft',
+    requiresUserQuantity: true,
+    pricingMethod: 'allowance',
+    quantityHelper,
+    missingMessage,
+  };
+}
+
+function additionFlatAllowanceRule(quantityHelper, missingMessage = 'Enter allowance.') {
+  return {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    pricingMethod: 'allowance',
+    quantityHelper,
+    missingMessage,
+  };
+}
+
 const ADDITION_CHECKLIST_QUANTITY_RULES = {
+  plans_engineering: additionFlatAllowanceRule(
+    'Enter plans and engineering allowance for this job.',
+    'Enter plans/engineering allowance.'
+  ),
+  permits: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.permits,
+    quantityHelper: 'Enter permit and inspection allowance for this job.',
+  },
+  utility_coordination: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Enter utility coordination lump sum, or utility run LF if known.',
+    missingMessage: 'Enter utility coordination pricing.',
+  },
+  sitework: additionFloorAreaRule(
+    'Enter site prep sqft, or price site prep with lump sum/material/labor.',
+    'Enter site prep sqft or pricing.'
+  ),
+  grading: additionFloorAreaRule(
+    'Finish/rough grading is usually priced by sqft; use CY for mass cut/fill.',
+    'Enter grading sqft or pricing.'
+  ),
+  utility_trenching: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'cy', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Utility trenching is usually priced by LF; use CY for trench excavation volume.',
+    missingMessage: 'Enter utility trenching LF or pricing.',
+  },
+  foundation: additionFloorAreaRule(
+    'Enter foundation/slab footprint sqft, or use concrete CY on the concrete line.',
+    'Enter foundation sqft or pricing.'
+  ),
   concrete: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.concrete,
     defaultUnit: 'cy',
@@ -674,6 +753,89 @@ const ADDITION_CHECKLIST_QUANTITY_RULES = {
     quantityHelper: 'Enter foundation concrete CY, or flatwork sqft if this is slab/flatwork.',
     missingMessage: 'Enter foundation concrete CY or flatwork sqft.',
   },
+  framing: additionFloorAreaRule(
+    'Enter framed floor area sqft, or price framing with lump sum/material/labor.',
+    'Enter framing sqft or pricing.'
+  ),
+  roof_tie_in: additionFloorAreaRule(
+    'Enter roof/tie-in area sqft, or price as a lump sum.',
+    'Enter roof/tie-in sqft or pricing.'
+  ),
+  windows_doors: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum', 'sqft'],
+    requiresUserQuantity: true,
+    pricingMethod: 'each',
+    quantityHelper: 'Enter window/door count, or use lump sum/material/labor if count is unknown.',
+    missingMessage: 'Enter window/door count or pricing.',
+  },
+  exterior_finishes: additionFloorAreaRule(
+    'Enter exterior finish area sqft, or price with lump sum/material/labor.',
+    'Enter exterior finish sqft or pricing.'
+  ),
+  hvac: additionFloorAreaRule(
+    'Enter conditioned floor sqft, or price HVAC with lump sum/material/labor.',
+    'Enter HVAC sqft or pricing.'
+  ),
+  insulation: additionFloorAreaRule(
+    'Enter insulation area sqft, or price insulation with lump sum/material/labor.',
+    'Enter insulation sqft or pricing.'
+  ),
+  drywall: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.drywall,
+    measurementKey: 'drywallSqft',
+    quantityHelper: 'Enter drywall sqft, or price drywall with lump sum/material/labor.',
+  },
+  paint: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.paint,
+    measurementKey: 'wallPaintSqft',
+    quantityHelper: 'Enter paint sqft and/or calculated material/labor totals.',
+  },
+  flooring: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.flooring,
+    measurementKeys: ['flooringSqft', 'floorAreaSqft'],
+    quantityHelper: 'Enter flooring sqft and/or calculated material/labor totals.',
+  },
+  cabinets_counters: additionFlatAllowanceRule(
+    'Enter cabinet and counter allowance for this job.',
+    'Enter cabinet/counter allowance.'
+  ),
+  tile: additionFloorAreaRule(
+    'Enter tile area sqft, or price tile with lump sum/material/labor.',
+    'Enter tile sqft or pricing.'
+  ),
+  interior_trim: additionFloorAreaRule(
+    'Enter trim area sqft, or use lump sum/material/labor.',
+    'Enter interior trim pricing.'
+  ),
+  plumbing_trim: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.plumbing_trim,
+  },
+  electrical_trim: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.electrical_trim,
+  },
+  hvac_startup: additionAllowanceByFloorAreaRule(
+    'Enter HVAC startup lump sum, or price by conditioned floor sqft.',
+    'Enter HVAC startup pricing.'
+  ),
+  appliances: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.appliances,
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    quantityHelper: 'Enter appliance count/allowance, or material/labor totals.',
+  },
+  final_inspections: additionFlatAllowanceRule(
+    'Enter final inspection allowance for this job.',
+    'Enter final inspection allowance.'
+  ),
+  cleanup: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.cleanup,
+    quantityHelper: 'Enter cleanup and disposal allowance for this job.',
+  },
+  contingency: additionAllowanceByFloorAreaRule(
+    'Enter contingency allowance, or budget by ADU floor sqft.',
+    'Enter contingency pricing.'
+  ),
 };
 
 function getRuleForChecklistItem(itemId, templateKey) {
@@ -743,6 +905,21 @@ function measurementUnitForKey(key, fallbackUnit) {
   return fallbackUnit;
 }
 
+function isPlaceholderAllowancePricing(quantity, unit, itemId) {
+  const PLACEHOLDER_ALLOWANCE_ITEM_IDS = [
+    'permits',
+    'cleanup',
+    'plumbing_trim',
+    'electrical_trim',
+    'mirror_accessories',
+  ];
+  if (!itemId || !PLACEHOLDER_ALLOWANCE_ITEM_IDS.includes(itemId)) return false;
+  if (quantity == null || !Number.isFinite(Number(quantity))) return false;
+  const normalizedUnit = String(unit || '').toLowerCase();
+  if (normalizedUnit !== 'allowance' && normalizedUnit !== 'lump_sum') return false;
+  return Number(quantity) === 1;
+}
+
 function sumMeasurementKeys(measurements, keys) {
   let total = 0;
   let parts = 0;
@@ -795,6 +972,7 @@ function measurementsForRatePricing(measurements) {
     kitchenFloorSqft: measurements.kitchenFloorSqft,
     bathroomFloorSqft: measurements.bathroomFloorSqft,
     floorAreaSqft: measurements.floorAreaSqft,
+    flooringSqft: measurements.flooringSqft,
     drywallSqft: measurements.drywallSqft,
     exteriorPaintSqft: measurements.exteriorPaintSqft,
     landscapeSqft: measurements.landscapeSqft,
@@ -1140,7 +1318,12 @@ function resolveQuantityForChecklistItem(itemId, ctx = {}) {
   const linkedCountertop = resolveLinkedCountertopAllowance(itemId, measurements, ctx.notes || '');
   if (linkedCountertop) return linkedCountertop;
 
-  if (itemOverride && itemOverride.quantity != null && itemOverride.quantity > 0) {
+  if (
+    itemOverride &&
+    itemOverride.quantity != null &&
+    itemOverride.quantity > 0 &&
+    !isPlaceholderAllowancePricing(itemOverride.quantity, itemOverride.unit, itemId)
+  ) {
     const unit = normalizedOverrideUnitForRule(itemId, templateKey, itemOverride.unit, rule);
     return {
       quantity: Number(itemOverride.quantity),
@@ -1510,6 +1693,7 @@ module.exports = {
   lookupRuleKeyForPackage,
   resolveQuantityForChecklistItem,
   resolveQuantityForPackage,
+  isPlaceholderAllowancePricing,
   isQuantityValidForPricing,
   isPricingReadyForPackage,
   stampPackageWithCatalogRules,

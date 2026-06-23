@@ -6,8 +6,10 @@ const { inferPlanningQuantity } = require('./planningQuantities');
 const {
   normalizeScopeMeasurements,
   resolveQuantityForPackage,
+  isPlaceholderAllowancePricing,
   isQuantityValidForPricing,
   getRuleForPackage,
+  lookupRuleKeyForPackage,
 } = require('../scopeItemQuantityCatalog');
 
 function slugId(name) {
@@ -24,6 +26,7 @@ function classifyTrade(name, scope = '', notes = '', projectType = '') {
 function pickScopeQuantity(pkg, notes, draft = {}) {
   const measurements = normalizeScopeMeasurements(draft.scopeMeasurements || {});
   const ctx = { measurements, notes };
+  const ruleKey = lookupRuleKeyForPackage(pkg.name, pkg.scope || '');
 
   const fromPkg = pkg.scopeQuantities || [];
   if (fromPkg.length) {
@@ -41,7 +44,11 @@ function pickScopeQuantity(pkg, notes, draft = {}) {
     }
     const rule = getRuleForPackage(pkg.name, pkg.scope);
     const q = fromPkg[0];
-    if (q && isQuantityValidForPricing({ quantity: q.quantity, unit: q.unit }, rule)) {
+    if (
+      q &&
+      !isPlaceholderAllowancePricing(q.quantity, q.unit, ruleKey) &&
+      isQuantityValidForPricing({ quantity: q.quantity, unit: q.unit }, rule)
+    ) {
       return { quantity: q.quantity, unit: q.unit, label: q.label, quantitySource: q.quantitySource };
     }
   }
@@ -114,13 +121,19 @@ function scopeItemsFromDraft(draft) {
     const unit = qty?.unit || 'lump_sum';
     const quantity = qty?.quantity != null ? Number(qty.quantity) : null;
     const pricingReady = quantity != null && quantity > 0;
+    const normalizedUnit = String(unit || '').toLowerCase();
+    const supportedUnit = ['sqft', 'lf', 'hr', 'hour', 'each', 'cy', 'squares', 'square', 'allowance', 'lump_sum'].includes(
+      normalizedUnit
+    )
+      ? normalizedUnit
+      : 'lump_sum';
     return {
       scopeItemId: slugId(pkg.name),
       scopeName: pkg.name,
       scope: pkg.scope || '',
       trade: classifyTrade(pkg.name, pkg.scope, notes, projectType),
       quantity,
-      unit: unit === 'sqft' || unit === 'lf' || unit === 'hr' || unit === 'each' ? unit : 'lump_sum',
+      unit: supportedUnit === 'hour' ? 'hr' : supportedUnit === 'square' ? 'squares' : supportedUnit,
       status: pkg.status,
       hasUserPrice: (pkg.price ?? 0) > 0,
       pricingReady,

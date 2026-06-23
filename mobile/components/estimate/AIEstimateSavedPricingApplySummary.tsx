@@ -69,7 +69,7 @@ export default function AIEstimateSavedPricingApplySummary({
   if (!summary) return null;
 
   const { appliedCount, stillNeedCount } = summary;
-  const appliedLabel = `${appliedCount} saved price${appliedCount === 1 ? '' : 's'} applied`;
+  const appliedLabel = `${appliedCount} confirmed price${appliedCount === 1 ? '' : 's'} applied`;
   const stillLabel = `${stillNeedCount} item${stillNeedCount === 1 ? '' : 's'} still need pricing`;
 
   return (
@@ -84,7 +84,7 @@ export default function AIEstimateSavedPricingApplySummary({
       }}
     >
       <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800', marginBottom: 6 }}>
-        Saved pricing applied
+        Confirmed pricing applied
       </Text>
       <Text style={{ color: Colors.sub, fontSize: 13, lineHeight: 18, marginBottom: 12 }}>
         {appliedLabel} • {stillLabel}

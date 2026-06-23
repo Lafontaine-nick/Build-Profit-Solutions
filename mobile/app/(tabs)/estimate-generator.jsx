@@ -6071,6 +6071,11 @@ export default function EstimateGeneratorScreen() {
         zipCode: resolvePricingZipCode(aiDraft, bid),
       });
       if (proposal.empty) {
+        if (proposalHasSavedRates(aiRoughPricingProposal)) {
+          pauseDraftReviewForPricingModal();
+          setShowAiRoughPricingModal(true);
+          return;
+        }
         setPricingFallbackVariant('rough');
         Alert.alert(
           'Rough pricing unavailable',
@@ -6087,12 +6092,17 @@ export default function EstimateGeneratorScreen() {
       }
     } catch (e) {
       console.warn('handleSuggestRoughPrices failed', e);
+      if (proposalHasSavedRates(aiRoughPricingProposal)) {
+        pauseDraftReviewForPricingModal();
+        setShowAiRoughPricingModal(true);
+        return;
+      }
       setPricingFallbackVariant('rough');
       Alert.alert('Suggest rough prices', e?.message || 'Could not load rough pricing. Try again or add prices manually.');
     } finally {
       setAiDraftRoughLoading(false);
     }
-  }, [aiDraft, aiDraftRoughLoading, savedBidTemplates, bid, pauseDraftReviewForPricingModal]);
+  }, [aiDraft, aiDraftRoughLoading, aiRoughPricingProposal, savedBidTemplates, bid, pauseDraftReviewForPricingModal]);
 
   const handlePricingFallbackAddManually = useCallback(() => {
     setPricingFallbackVariant(null);
@@ -6136,6 +6146,27 @@ export default function EstimateGeneratorScreen() {
       }
     },
     [aiDraft, pauseDraftReviewForPricingModal]
+  );
+
+  const handleConfirmScopeItemFromPricing = useCallback((_scopeName) => {
+    aiDraftReviewResumeRef.current = false;
+    setShowAiRoughPricingModal(false);
+    setShowAiSavedPricingModal(false);
+    setShowAiManualPricingModal(false);
+    setShowAiDraftReviewModal(false);
+    setShowAiScopeAssumptionsModal(true);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  }, []);
+
+  const handlePriceScopeItemFromPricingModal = useCallback(
+    (scopeName) => {
+      setShowAiRoughPricingModal(false);
+      setShowAiSavedPricingModal(false);
+      handlePriceScopeItem(scopeName);
+    },
+    [handlePriceScopeItem]
   );
 
   const handleUpdateScopeBudgetSplit = useCallback((packageName, material, labor, basis = null) => {
@@ -24256,8 +24287,8 @@ export default function EstimateGeneratorScreen() {
         visible={showAiSavedPricingModal}
         proposal={aiSavedPricingProposal}
         pricingMode="saved_only"
-        title="Use Saved Pricing"
-        subtitle="Matched rates from your saved bids and pricing library."
+        title="Use Confirmed Pricing"
+        subtitle="Matched saved rates plus prices confirmed in scope."
         onApply={handleApplySavedPricingProposal}
         onAddManually={() => {
           setShowAiSavedPricingModal(false);
@@ -24265,6 +24296,8 @@ export default function EstimateGeneratorScreen() {
           setShowAiManualPricingModal(true);
         }}
         onClearAllSavedPricing={handleClearAllSavedPricing}
+        onPriceScopeItem={handlePriceScopeItemFromPricingModal}
+        onConfirmScopeItem={handleConfirmScopeItemFromPricing}
         onClose={() => {
           setShowAiSavedPricingModal(false);
           resumeDraftReviewAfterPricingModal();
@@ -24291,6 +24324,8 @@ export default function EstimateGeneratorScreen() {
           setAiManualPricingSeed(null);
           setShowAiManualPricingModal(true);
         }}
+        onPriceScopeItem={handlePriceScopeItemFromPricingModal}
+        onConfirmScopeItem={handleConfirmScopeItemFromPricing}
         onClose={() => {
           setShowAiRoughPricingModal(false);
           resumeDraftReviewAfterPricingModal();

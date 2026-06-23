@@ -107,6 +107,39 @@ describe('pricingEngine', () => {
     expect(bb?.unit).toBe('lf');
   });
 
+  it('preserves CY quantities and ignores stale placeholder allowances', () => {
+    const items = scopeItemsFromDraft({
+      originalNotes: 'ADU excavation 50 CY and permits',
+      projectType: 'addition',
+      scopeMeasurements: {
+        itemQuantities: {
+          permits: { quantity: 1, unit: 'allowance', quantitySource: 'user_entered' },
+        },
+      },
+      rooms: [
+        {
+          name: 'Excavation',
+          scope: 'Excavation for ADU pad',
+          scopeQuantities: [{ quantity: 50, unit: 'cy', label: 'excavation' }],
+        },
+        {
+          name: 'Permits / fees',
+          scope: 'Permit fees and inspections',
+          scopeQuantities: [{ quantity: 1, unit: 'allowance', label: 'allowance' }],
+        },
+      ],
+    });
+
+    const excavation = items.find((s) => /excavation/i.test(s.scopeName));
+    expect(excavation?.quantity).toBe(50);
+    expect(excavation?.unit).toBe('cy');
+    expect(excavation?.pricingReady).toBe(true);
+
+    const permits = items.find((s) => /permits/i.test(s.scopeName));
+    expect(permits?.quantity).toBeNull();
+    expect(permits?.pricingReady).toBe(false);
+  });
+
   it('uses default supplier ZIP when notes have no ZIP', async () => {
     const result = await getPricingProposal({ draft, userId: 'dev-user-1', mode: 'suggest' });
     expect(result.supplierZip).toMatch(/^\d{5}$/);

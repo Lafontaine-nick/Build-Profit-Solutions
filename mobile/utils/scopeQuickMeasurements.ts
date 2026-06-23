@@ -23,6 +23,7 @@ export type QuickMeasurementFieldKey =
   | 'landscapeTons'
   | 'roofSquares'
   | 'drywallSqft'
+  | 'flooringSqft'
   | 'concreteSqft'
   | 'concreteCy'
   | 'excavationCy'
@@ -65,6 +66,7 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Record<QuickMeasurementFieldKey, QuickMeasur
   landscapeTons: F('landscapeTons', 'Rock / mulch tons', 'e.g. 12'),
   roofSquares: F('roofSquares', 'Roof squares', 'e.g. 28'),
   drywallSqft: F('drywallSqft', 'Drywall sqft', 'e.g. 800'),
+  flooringSqft: F('flooringSqft', 'Flooring sqft', 'e.g. 600'),
   concreteSqft: F('concreteSqft', 'Concrete sqft', 'e.g. 400'),
   concreteCy: F('concreteCy', 'Concrete CY', 'e.g. 12'),
   excavationCy: F('excavationCy', 'Excavation CY', 'e.g. 45'),
@@ -93,6 +95,7 @@ const NOTE_BACKED_QUICK_FIELD_ORDER: QuickMeasurementFieldKey[] = [
   'wallPaintSqft',
   'exteriorPaintSqft',
   'drywallSqft',
+  'flooringSqft',
   'baseboardLf',
   'landscapeSqft',
 ];
@@ -192,8 +195,9 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
     ),
     row(
       F('wallPaintSqft', 'Interior paint sqft', 'e.g. 1500'),
-      F('floorAreaSqft', 'Flooring sqft', 'e.g. 800')
+      F('floorAreaSqft', 'Building sqft', 'e.g. 650')
     ),
+    row(F('flooringSqft', 'Flooring sqft', 'e.g. 600')),
   ],
 };
 
@@ -329,6 +333,7 @@ export function emptyQuickMeasurementInput(): Record<QuickMeasurementFieldKey, s
     landscapeTons: '',
     roofSquares: '',
     drywallSqft: '',
+    flooringSqft: '',
     concreteSqft: '',
     concreteCy: '',
     excavationCy: '',

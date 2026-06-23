@@ -1,6 +1,8 @@
 import { emptyQuickMeasurementInput } from '@/utils/scopeQuickMeasurements';
 import {
   buildNormalizedScopeMeasurementsFromInput,
+  isPlaceholderAllowancePricing,
+  resolveAllowanceEditorPricingBasis,
   resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
   resolveTemplateRateForItem,
@@ -10,7 +12,7 @@ import {
 } from '@/utils/scopeItemQuantities';
 
 function inputWith(
-  fields: Partial<Record<string, string>>
+  fields: Partial<ScopeMeasurementsInputExtended>
 ): ScopeMeasurementsInputExtended {
   return {
     ...emptyQuickMeasurementInput(),
@@ -230,6 +232,220 @@ describe('resolveScopeItemSuggestedPricing', () => {
       total: 500,
       basis: { quantity: 4, unit: 'each' },
     });
+  });
+
+  it('treats stale permit placeholder $1 as missing pricing', () => {
+    const input = inputWith({});
+    input.itemQuantities = {
+      permits: { quantity: '1', unit: 'allowance', quantitySource: 'user_entered' },
+    };
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('permits', measurements, { templateKey: 'addition' });
+
+    expect(resolved.pricingReady).toBe(false);
+    expect(resolved.quantity).toBeNull();
+    expect(isPlaceholderAllowancePricing(1, 'allowance', 'permits')).toBe(true);
+  });
+
+  it('suggests flat permit allowance pricing for ADU scope', () => {
+    const input = inputWith({});
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('permits', measurements, { templateKey: 'addition' });
+
+    const { fill } = resolveScopeItemSuggestedPricing('permits', input, 'addition', resolved);
+    expect(fill).toMatchObject({
+      mode: 'suggested_price',
+      lumpSumOnly: true,
+      material: 0,
+      labor: 3500,
+      total: 3500,
+    });
+  });
+
+  it('suggests cleanup as a flat allowance, not a material/labor lump-sum split', () => {
+    const input = inputWith({});
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('cleanup', measurements, { templateKey: 'addition' });
+
+    const { fill } = resolveScopeItemSuggestedPricing('cleanup', input, 'addition', resolved);
+    expect(fill).toMatchObject({
+      mode: 'suggested_price',
+      lumpSumOnly: true,
+      material: 0,
+      labor: 1000,
+      total: 1000,
+    });
+  });
+
+  it('hides flat allowance suggestions after the user enters an allowance', () => {
+    const input = inputWith({});
+    input.itemQuantities = {
+      cleanup__allowance: {
+        quantity: '1000',
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+      },
+    };
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('cleanup', measurements, { templateKey: 'addition' });
+
+    const { fill, comparison } = resolveScopeItemSuggestedPricing('cleanup', input, 'addition', resolved);
+    expect(fill).toBeNull();
+    expect(comparison).toBeNull();
+  });
+
+  it('shows pricing entry for addition items without explicit quantity rules', () => {
+    const input = inputWith({});
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('framing', measurements, { templateKey: 'addition' });
+
+    expect(resolved).toMatchObject({
+      pricingReady: false,
+      showInput: true,
+      missingMessage: 'Needs pricing',
+    });
+  });
+
+  it('marks allowance split items priced when lump sum subkey is entered', () => {
+    const input = inputWith({
+      itemQuantities: {
+        permits__allowance: {
+          quantity: '3500',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+      },
+    });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('permits', measurements, { templateKey: 'addition' });
+
+    expect(resolved).toMatchObject({
+      pricingReady: true,
+      quantity: 3500,
+      unit: 'allowance',
+    });
+  });
+
+  it('marks default-rule allowance split items priced when lump sum subkey is entered', () => {
+    const input = inputWith({
+      itemQuantities: {
+        plans_engineering__allowance: {
+          quantity: '8500',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+      },
+    });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('plans_engineering', measurements, {
+      templateKey: 'addition',
+    });
+
+    expect(resolved).toMatchObject({
+      pricingReady: true,
+      quantity: 8500,
+      unit: 'allowance',
+    });
+  });
+
+  it('treats plans/engineering as a flat allowance line without sqft pricing basis', () => {
+    const input = inputWith({ floorAreaSqft: '500' });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('plans_engineering', measurements, {
+      templateKey: 'addition',
+    });
+
+    expect(resolved).toMatchObject({
+      pricingReady: false,
+      unit: 'allowance',
+    });
+    expect(resolveAllowanceEditorPricingBasis('plans_engineering', input, 'addition')).toBeNull();
+    expect(resolveScopeItemSuggestedPricing('plans_engineering', input, 'addition', resolved)).toEqual({
+      fill: null,
+      comparison: null,
+    });
+  });
+
+  it('treats trim-out, cabinets, and final inspections as flat allowance lines', () => {
+    const input = inputWith({ floorAreaSqft: '600' });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const flatAllowanceItems = [
+      'plumbing_trim',
+      'electrical_trim',
+      'cabinets_counters',
+      'final_inspections',
+    ] as const;
+
+    for (const itemId of flatAllowanceItems) {
+      const resolved = resolveChecklistItemQuantity(itemId, measurements, { templateKey: 'addition' });
+      expect(resolved.pricingReady).toBe(false);
+      expect(resolveAllowanceEditorPricingBasis(itemId, input, 'addition')).toBeNull();
+      expect(resolveScopeItemSuggestedPricing(itemId, input, 'addition', resolved)).toEqual({
+        fill: null,
+        comparison: null,
+      });
+    }
+  });
+
+  it('uses ADU-specific pricing basis units for missing-price scope cards', () => {
+    const input = inputWith({
+      floorAreaSqft: '500',
+      excavationCy: '50',
+    });
+
+    expect(resolveAllowanceEditorPricingBasis('permits', input, 'addition')).toBeNull();
+    expect(resolveAllowanceEditorPricingBasis('grading', input, 'addition')).toEqual({
+      quantity: 500,
+      unit: 'sqft',
+    });
+    expect(resolveAllowanceEditorPricingBasis('excavation', input, 'addition')).toEqual({
+      quantity: 50,
+      unit: 'cy',
+    });
+    expect(resolveAllowanceEditorPricingBasis('utility_trenching', input, 'addition')).toBeNull();
+  });
+
+  it('uses scenario-specific pricing basis units outside ADU', () => {
+    const input = inputWith({
+      floorAreaSqft: '800',
+      kitchenFloorSqft: '220',
+      roofSquares: '18',
+      deckSqft: '320',
+      railingLf: '42',
+      landscapeSqft: '1200',
+      excavationCy: '75',
+      cabinetLf: '24',
+    });
+
+    expect(resolveAllowanceEditorPricingBasis('flooring', input, 'kitchen')).toEqual({
+      quantity: 220,
+      unit: 'sqft',
+    });
+    expect(resolveAllowanceEditorPricingBasis('cabinets', input, 'kitchen')).toEqual({
+      quantity: 24,
+      unit: 'lf',
+    });
+    expect(resolveAllowanceEditorPricingBasis('shingles_roofing', input, 'roofing')).toEqual({
+      quantity: 18,
+      unit: 'squares',
+    });
+    expect(resolveAllowanceEditorPricingBasis('decking', input, 'deck_patio')).toEqual({
+      quantity: 320,
+      unit: 'sqft',
+    });
+    expect(resolveAllowanceEditorPricingBasis('railing', input, 'deck_patio')).toEqual({
+      quantity: 42,
+      unit: 'lf',
+    });
+    expect(resolveAllowanceEditorPricingBasis('sod_turf', input, 'landscaping')).toEqual({
+      quantity: 1200,
+      unit: 'sqft',
+    });
+    expect(resolveAllowanceEditorPricingBasis('backfill', input, 'excavation')).toEqual({
+      quantity: 75,
+      unit: 'cy',
+    });
+    expect(resolveAllowanceEditorPricingBasis('water_line', input, 'plumbing_service')).toBeNull();
   });
 
   it('uses sqft national average rates when concrete is measured in square feet', () => {

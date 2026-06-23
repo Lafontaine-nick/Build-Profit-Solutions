@@ -80,12 +80,26 @@ describe('scopeItemQuantityCatalog', () => {
     expect(next.scopeQuantities[0]).toMatchObject({ quantity: 24, unit: 'lf' });
   });
 
-  test('resolveQuantityForPackage gives cleanup lump sum default', () => {
+  test('resolveQuantityForPackage marks cleanup as needing pricing when no amount entered', () => {
     const ctx = { measurements: normalizeScopeMeasurements({ sqft: 90 }) };
     const q = resolveQuantityForPackage('Jobsite Cleanup & Disposal', 'Final clean', ctx);
-    expect(q.quantity).toBe(1);
+    expect(q.quantity).toBeNull();
     expect(q.unit).toBe('lump_sum');
-    expect(q.pricingReady).toBe(true);
+    expect(q.pricingReady).toBe(false);
+  });
+
+  test('permits ignore stale placeholder allowance of $1', () => {
+    const ctx = {
+      measurements: normalizeScopeMeasurements({
+        itemQuantities: {
+          permits: { quantity: 1, unit: 'allowance', quantitySource: 'user_entered' },
+        },
+      }),
+      templateKey: 'addition',
+    };
+    const permits = resolveQuantityForChecklistItem('permits', ctx);
+    expect(permits.quantity).toBeNull();
+    expect(permits.pricingReady).toBe(false);
   });
 
   test('bathroom full demo sums floor + shower wall + shower floor sqft', () => {
