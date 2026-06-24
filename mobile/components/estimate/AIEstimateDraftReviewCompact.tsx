@@ -26,6 +26,7 @@ import {
 } from '@/utils/estimateDraftReviewUi';
 import { draftHasApplyablePricing } from '@/utils/estimateAiDraftPricing';
 import type { EstimateConfidenceLevel } from '@/utils/estimateAiDraft';
+import { evaluateDraftReadiness } from '@/utils/estimateReadiness';
 import { estimateFlowCardStyle, estimateFlowDividerColor } from '@/utils/estimateFlowCardStyle';
 import ScopeBudgetBreakdownPanel from '@/components/estimate/ScopeBudgetBreakdownPanel';
 
@@ -349,6 +350,7 @@ export default function AIEstimateDraftReviewCompact({
         ? roundedMoney((materialTotal || 0) + (laborTotal || 0) + (allowanceTotal || 0))
         : null;
   const normalizedMarkupPct = Math.max(0, Number(markupPct) || 0);
+  const readiness = evaluateDraftReadiness(draft, { markupPct: normalizedMarkupPct });
   const estimatedBidWithMarkup =
     directSubtotal != null && directSubtotal > 0 && normalizedMarkupPct > 0
       ? roundedMoney(directSubtotal * (1 + normalizedMarkupPct / 100))
@@ -384,6 +386,48 @@ export default function AIEstimateDraftReviewCompact({
           </Text>
         </View>
       ) : null}
+
+      <View style={flowCard(Colors, darkMode)}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800' }}>
+              Estimate readiness
+            </Text>
+            <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 3 }}>
+              Suitable for: {readiness.summary.suitableFor}
+            </Text>
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={{ color: readiness.canMarkBidReady ? '#22c55e' : '#fbbf24', fontSize: 18, fontWeight: '900' }}>
+              {readiness.score}%
+            </Text>
+            <Text style={{ color: Colors.sub, fontSize: 11, fontWeight: '700', textTransform: 'capitalize' }}>
+              {readiness.status.replace(/_/g, ' ')}
+            </Text>
+          </View>
+        </View>
+        {readiness.highPriorityReviews.length ? (
+          <View style={{ marginTop: 10, gap: 4 }}>
+            <Text style={{ color: '#fbbf24', fontSize: 12, fontWeight: '800' }}>
+              {readiness.highPriorityReviews.length} high-priority item{readiness.highPriorityReviews.length === 1 ? '' : 's'} need review
+            </Text>
+            {readiness.highPriorityReviews.slice(0, 3).map((risk) => (
+              <Text key={risk.key} style={{ color: Colors.sub, fontSize: 12, lineHeight: 16 }}>
+                - {risk.title}: {risk.recommendedAction || risk.explanation}
+              </Text>
+            ))}
+          </View>
+        ) : (
+          <Text style={{ color: '#22c55e', fontSize: 12, fontWeight: '700', marginTop: 10 }}>
+            No high-priority readiness blockers detected.
+          </Text>
+        )}
+        {!readiness.canMarkBidReady ? (
+          <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 8, lineHeight: 15 }}>
+            Bid-ready is disabled until gating risks are resolved. Save draft and budgetary review remain available.
+          </Text>
+        ) : null}
+      </View>
 
       <View style={flowCard(Colors, darkMode)}>
         <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800', marginBottom: 4 }}>

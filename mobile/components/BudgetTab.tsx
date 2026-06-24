@@ -33,6 +33,7 @@ import {
   computeElapsedCalendarPct,
   type ProfitForecastOutput,
 } from '../src/lib/profitForecast';
+import { deriveEstimateFeedbackFromBudgetData } from '@/utils/estimateFeedback';
 import {
   computeProjectFinancials,
   sumPlannedCostFromBuckets,
@@ -690,6 +691,47 @@ export default function BudgetTab({
     ]
   );
   const profitForecast = profitForecastOverride ?? computedProfitForecast;
+  const estimateFeedback = useMemo(
+    () =>
+      deriveEstimateFeedbackFromBudgetData({
+        projectId,
+        status: String((projectFromList as any)?.status ?? (projectData as any)?.status ?? ''),
+        lines: data?.lines || [],
+        expenses: (projectData?.expenses || []).map((expense: any) => ({
+          id: String(expense.id),
+          category: expense.category,
+          description: expense.description ?? expense.notes,
+          vendor: expense.vendor,
+          amount: expense.amount,
+          date: expense.date,
+          receiptUri: expense.receiptUri || undefined,
+          aiConfidence: expense.aiConfidence,
+          linkedLineId: expense.linkedLineId,
+        })),
+        changeOrders: (projectData?.changeOrders || []).map((co: any) => ({
+          id: String(co.id),
+          title: co.title,
+          amount: co.amount,
+          status: co.status,
+          approved: co.approved,
+          materialsAmount: co.materialsAmount,
+          laborAmount: co.laborAmount,
+        })),
+        plannedBudget: financials.plannedCostBudget || financials.adjustedCostBudget,
+        finalCustomerPrice: financials.adjustedContractValue,
+      }),
+    [
+      projectId,
+      projectFromList,
+      projectData?.status,
+      projectData?.expenses,
+      projectData?.changeOrders,
+      data?.lines,
+      financials.plannedCostBudget,
+      financials.adjustedCostBudget,
+      financials.adjustedContractValue,
+    ]
+  );
 
   // Calculate projected costs for alerts
   const projectedTotal = actual + (purchaseOrdersTotal * 0.8); // Assume 80% of committed POs will be spent
@@ -949,6 +991,74 @@ export default function BudgetTab({
                           : `Over budget by ${money(Math.abs(remaining), currency)}`}
                       </Text>
                     </View>
+                  </View>
+                </View>
+              </View>
+
+              <View style={[styles.sectionCardContainer, { marginTop: 12 }]}>
+                <View
+                  style={[
+                    styles.sectionCard,
+                    darkMode && styles.sectionCardElevated,
+                    {
+                      backgroundColor: Colors.surface2,
+                      borderWidth: 1,
+                      borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                    },
+                  ]}
+                >
+                  <View style={styles.budgetCardHeaderMatch}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                      <View style={styles.budgetOverviewIconBadge}>
+                        <MaterialIcons name="analytics" size={16} color="#22c55e" />
+                      </View>
+                      <Text style={[styles.budgetSectionTitleMatch, { color: darkMode ? '#F5F7FA' : theme.text }]}>
+                        Estimate performance
+                      </Text>
+                    </View>
+                    <Text style={{ color: pageCaption, fontSize: 12, fontWeight: '700', textTransform: 'capitalize' }}>
+                      {estimateFeedback.status.replace(/_/g, ' ')}
+                    </Text>
+                  </View>
+                  <View style={styles.totalsContent}>
+                    <Row
+                      label="Actual coverage"
+                      value={`${estimateFeedback.projectSummary.mappedActualCoveragePercent}%`}
+                      theme={budgetTotalsTheme}
+                      variant="book"
+                      metricLabel
+                    />
+                    <Row
+                      label="Direct-cost variance"
+                      value={
+                        estimateFeedback.projectSummary.directCostVariancePercent != null
+                          ? `${estimateFeedback.projectSummary.directCostVariancePercent > 0 ? '+' : ''}${estimateFeedback.projectSummary.directCostVariancePercent}%`
+                          : 'Needs mapped actuals'
+                      }
+                      theme={budgetTotalsTheme}
+                      variant="book"
+                      metricLabel
+                    />
+                    <Row
+                      label="Calibration suggestions"
+                      value={`${estimateFeedback.rateSuggestions.length} rate / ${estimateFeedback.assumptionSuggestions.length} assumption`}
+                      theme={budgetTotalsTheme}
+                      variant="book"
+                      metricLabel
+                    />
+                    {estimateFeedback.unresolvedMappings.length > 0 ? (
+                      <Text style={{ color: '#fbbf24', fontSize: 12, lineHeight: 17, marginTop: 8 }}>
+                        {estimateFeedback.unresolvedMappings.length} actual record{estimateFeedback.unresolvedMappings.length === 1 ? '' : 's'} need mapping review before high-confidence calibration.
+                      </Text>
+                    ) : estimateFeedback.status === 'insufficient_data' ? (
+                      <Text style={{ color: pageCaption, fontSize: 12, lineHeight: 17, marginTop: 8 }}>
+                        Add receipts, invoices, time, or actual costs to compare this estimate after work starts.
+                      </Text>
+                    ) : (
+                      <Text style={{ color: '#22c55e', fontSize: 12, lineHeight: 17, marginTop: 8 }}>
+                        Actuals are mapped well enough for review. Suggestions still require explicit approval.
+                      </Text>
+                    )}
                   </View>
                 </View>
               </View>

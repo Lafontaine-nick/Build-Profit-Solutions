@@ -4,6 +4,11 @@
  */
 
 import type { EstimateAiDraft, ScopeMeasurements } from '@/utils/estimateAiDraft';
+import {
+  SCOPE_PARSED_FROM_NOTES_LABEL,
+  SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL,
+  SCOPE_LABOR_PARSED_FROM_NOTES_LABEL,
+} from '@/constants/scopeNoteSourceLabels';
 import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 import { parseScopeItemAllowancesFromNotes } from '@/utils/scopeAllowanceParser';
@@ -24,6 +29,8 @@ import {
 export type QuantitySource =
   | 'notes'
   | 'user_entered'
+  | 'calculated_confirmed'
+  | 'manual_override'
   | 'inferred'
   | 'default_assumption'
   | 'missing'
@@ -681,13 +688,17 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
 function sourceLabel(source: QuantitySource): string {
   switch (source) {
     case 'notes':
-      return 'From notes';
+      return SCOPE_PARSED_FROM_NOTES_LABEL;
     case 'user_entered':
-      return 'Entered';
+      return 'User entered';
+    case 'calculated_confirmed':
+      return 'Calculated';
+    case 'manual_override':
+      return 'Manual override';
     case 'inferred':
-      return 'From room measurement';
+      return 'Calculated';
     case 'default_assumption':
-      return 'Assumed';
+      return 'AI assumption';
     case 'missing':
       return 'Needs measurement';
     default:
@@ -1364,7 +1375,10 @@ export function syncDualAllowanceSqftFields(
   input: ScopeMeasurementsInputExtended
 ): ScopeMeasurementsInputExtended {
   const next = { ...input };
-  const sync = (itemId: string, field: 'backsplashSqft' | 'wallPaintSqft' | 'showerWallTileSqft') => {
+  const sync = (
+    itemId: string,
+    field: 'backsplashSqft' | 'wallPaintSqft' | 'showerWallTileSqft' | 'flooringSqft'
+  ) => {
     if (parseScopeMeasurementInput(String(next[field] ?? ''))) return;
     const q = sqftFromItemQuantities(input, itemId);
     if (q) next[field] = String(q);
@@ -2231,33 +2245,33 @@ function rateSourceLabelFor(
 function flatAllowanceCopyFor(itemId: string): { fromNotes: string; suggested: string } {
   const copyByItem: Record<string, { fromNotes: string; suggested: string }> = {
     cleanup: {
-      fromNotes: 'Cleanup/disposal allowance from notes.',
+      fromNotes: 'Cleanup/disposal allowance parsed from notes.',
       suggested: 'Suggested cleanup and disposal allowance.',
     },
     plans_engineering: {
-      fromNotes: 'Plans/engineering allowance from notes.',
+      fromNotes: 'Plans/engineering allowance parsed from notes.',
       suggested: 'Suggested plans and engineering allowance.',
     },
     cabinets_counters: {
-      fromNotes: 'Cabinet and counter allowance from notes.',
+      fromNotes: 'Cabinet and counter allowance parsed from notes.',
       suggested: 'Suggested cabinet and counter allowance.',
     },
     plumbing_trim: {
-      fromNotes: 'Plumbing trim-out allowance from notes.',
+      fromNotes: 'Plumbing trim-out allowance parsed from notes.',
       suggested: 'Suggested plumbing trim-out allowance.',
     },
     electrical_trim: {
-      fromNotes: 'Electrical trim-out allowance from notes.',
+      fromNotes: 'Electrical trim-out allowance parsed from notes.',
       suggested: 'Suggested electrical trim-out allowance.',
     },
     final_inspections: {
-      fromNotes: 'Final inspection allowance from notes.',
+      fromNotes: 'Final inspection allowance parsed from notes.',
       suggested: 'Suggested final inspection allowance.',
     },
   };
   return (
     copyByItem[itemId] ?? {
-      fromNotes: 'Permit allowance from notes.',
+      fromNotes: 'Permit allowance parsed from notes.',
       suggested: 'Suggested permit and inspection allowance.',
     }
   );
@@ -2337,7 +2351,7 @@ export function resolveScopeItemSuggestedPricing(
           total: round2(noteTotal),
           materialSource: 'notes',
           laborSource: 'notes',
-          rateSourceLabel: 'From notes',
+          rateSourceLabel: SCOPE_PARSED_FROM_NOTES_LABEL,
           helper: copy.fromNotes,
           mode: 'suggested_price',
           lumpSumOnly: true,
@@ -2420,7 +2434,7 @@ export function resolveScopeItemSuggestedPricing(
         laborSource: laborRateSource,
         rateSourceLabel: rateSourceLabelFor('notes', laborRateSource, templateName),
         templateName,
-        helper: `${basisHelper} · labor suggested, material from notes`,
+        helper: `${basisHelper} · labor suggested, ${SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL.toLowerCase()}`,
         mode: 'fill_missing',
         basis,
       },
@@ -2444,7 +2458,7 @@ export function resolveScopeItemSuggestedPricing(
         laborSource: 'notes',
         rateSourceLabel: rateSourceLabelFor(materialRateSource, 'notes', templateName),
         templateName,
-        helper: `${basisHelper} · material suggested, labor from notes`,
+        helper: `${basisHelper} · material suggested, ${SCOPE_LABOR_PARSED_FROM_NOTES_LABEL.toLowerCase()}`,
         mode: 'fill_missing',
         basis,
       },
@@ -2937,7 +2951,7 @@ export function resolveChecklistItemQuantity(
         quantity: val,
         unit: measurementUnitForKey(key, rule.defaultUnit),
         quantitySource: 'inferred',
-        sourceLabel: 'From notes',
+        sourceLabel: SCOPE_PARSED_FROM_NOTES_LABEL,
         pricingReady: true,
         quantityHelper: rule.quantityHelper,
         showInput: true,
@@ -2966,6 +2980,7 @@ export function resolveChecklistItemQuantity(
       parseStoredItemQuantity(measurements, allowanceSplitSubKey(itemId, 'allowance')) ??
       (override &&
       ['allowance', 'lump_sum'].includes(override.unit || '') &&
+      override.quantity != null &&
       override.quantity > 0 &&
       !isPlaceholderAllowancePricing(override.quantity, override.unit, itemId)
         ? {
@@ -3274,6 +3289,10 @@ export function scopeMeasurementsToPayload(
     sqft: parseScopeMeasurementInput(sanitized.bathroomFloorSqft),
     lf: parseScopeMeasurementInput(sanitized.baseboardLf),
     itemQuantities: Object.keys(itemQuantities).length ? itemQuantities : undefined,
+    pricingAcceptance:
+      input.pricingAcceptance && Object.keys(input.pricingAcceptance).length
+        ? input.pricingAcceptance
+        : undefined,
   };
   return payload;
 }
@@ -3325,6 +3344,7 @@ export function scopeMeasurementsInputFromPayload(
     showerFloorTileSqft: measurementFieldString(payload.showerFloorTileSqft),
     wallPaintSqft: measurementFieldString(payload.wallPaintSqft),
     itemQuantities,
+    pricingAcceptance: payload.pricingAcceptance,
   };
 }
 
@@ -3366,6 +3386,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<typeof emptyQuickMeasure
     string,
     { quantity: string; unit: string; quantitySource?: QuantitySource; includesCountertops?: boolean }
   >;
+  pricingAcceptance?: Record<string, import('@/utils/estimateAiDraft').ScopePricingAcceptanceMetadata>;
 };
 
 export function initialScopeMeasurementInputExtended(
@@ -3568,6 +3589,7 @@ export function initialScopeMeasurementInputExtended(
     showerFloorTileSqft: pick('showerFloorTileSqft'),
     wallPaintSqft: pick('wallPaintSqft'),
     itemQuantities,
+    pricingAcceptance: saved?.pricingAcceptance,
   };
 
   result = syncDualAllowanceSqftFields(result);

@@ -95,6 +95,7 @@ import {
   isComplexEstimateTier,
   syncSelectedScopePricing,
 } from '../../utils/estimateAiDraft';
+import { formatEstimateAiError } from '../../utils/resolveAiBackendUrl';
 import {
   capturePricingMemory,
   fetchSuggestMissingPrices,
@@ -5806,7 +5807,7 @@ export default function EstimateGeneratorScreen() {
       console.warn('handleGenerateAiDraft failed', e);
       Alert.alert(
         'Could not generate draft',
-        e?.message || 'Something went wrong while parsing your notes. Please try again.'
+        formatEstimateAiError(e)
       );
     } finally {
       setAiDraftGenerating(false);

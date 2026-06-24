@@ -15364,7 +15364,11 @@ router.post('/estimate-draft-from-notes', async (req, res) => {
     return res.json({ draft });
   } catch (err) {
     console.error('Error in /estimate-draft-from-notes:', err);
-    const message = err?.message || 'Failed to generate estimate draft';
+    let message = err?.message || 'Failed to generate estimate draft';
+    if (/premature close|api\.openai\.com/i.test(message)) {
+      message =
+        'AI service connection failed. Verify OPENAI_API_KEY on the server (Render → Environment) matches a working key, then restart the service.';
+    }
     if (/notes are required/i.test(message)) {
       return res.status(400).json({ error: message });
     }

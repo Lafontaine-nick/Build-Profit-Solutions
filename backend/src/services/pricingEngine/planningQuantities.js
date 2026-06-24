@@ -143,7 +143,7 @@ function inferPlanningQuantity(packageName, scopeText, draft) {
 
   const fromNotesScoped = parseSquareFeetFromText(scopeText, packageName);
   if (fromNotesScoped && fromNotesScoped > 0 && scopeText.trim().length > 20) {
-    return { quantity: fromNotesScoped, unit: 'sqft', label: 'From notes' };
+    return { quantity: fromNotesScoped, unit: 'sqft', label: 'Parsed from notes' };
   }
 
   if (/shower/.test(blob) && /tile/.test(blob)) {

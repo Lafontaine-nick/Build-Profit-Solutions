@@ -66,7 +66,7 @@ export function scopeItemHasNoteSignal(item: ScopeChecklistItem, ctx: ScopeItemV
   return itemMentionedInNotes(item, ctx) || itemPricingFromNotes(item, ctx);
 }
 
-/** Green badge: prefilled qty/pricing from notes, or mentioned-only when in scope. */
+/** Green badge: prefilled qty/pricing parsed from notes, or mentioned-only when in scope. */
 export function scopeItemNoteBadge(
   item: ScopeChecklistItem,
   ctx: ScopeItemVisualContext

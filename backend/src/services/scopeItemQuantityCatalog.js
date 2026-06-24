@@ -882,7 +882,7 @@ function resolveLinkedCountertopAllowance(itemId, measurements, notes) {
 function sourceLabel(source) {
   switch (source) {
     case QUANTITY_SOURCES.notes:
-      return 'From notes';
+      return 'Parsed from notes';
     case QUANTITY_SOURCES.user_entered:
       return 'Entered';
     case QUANTITY_SOURCES.inferred:

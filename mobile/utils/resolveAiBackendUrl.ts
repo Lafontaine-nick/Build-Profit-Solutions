@@ -146,11 +146,15 @@ export function buildAiAssistantEndpointUrls(routePath: string): string[] {
     urls.push(`http://localhost:3001/api/ai-assistant${path}`);
   }
 
-  if (
+  const primaryIsLocalDev =
     primaryUrl.includes('localhost') ||
+    primaryUrl.includes('127.0.0.1') ||
     primaryUrl.includes('192.168.') ||
-    primaryUrl.includes('10.0.2.2')
-  ) {
+    primaryUrl.includes('10.0.2.2');
+
+  // Dev builds targeting a LAN backend should fail fast with "start backend" — not fall
+  // through to hosted Render (often a different/stale OpenAI key and confusing errors).
+  if (primaryIsLocalDev && !__DEV__) {
     urls.push(`${PRODUCTION_AI_API}${path}`);
   }
 
@@ -251,6 +255,37 @@ export async function fetchBackendWithFallback(
     );
   }
   throw last || new Error('All connection attempts failed');
+}
+
+/** User-facing copy for Build with AI / estimate-draft failures. */
+export function formatEstimateAiError(error: unknown): string {
+  const raw = String((error instanceof Error ? error.message : error) || '').trim();
+
+  if (
+    raw.includes('Could not reach the AI backend') ||
+    raw.includes('Network request failed') ||
+    raw.includes('Failed to fetch')
+  ) {
+    return (
+      'Could not reach your backend.\n\n' +
+      'On your Mac, run: cd backend && npm run dev\n' +
+      'Keep your phone on the same Wi‑Fi, then try again.'
+    );
+  }
+
+  if (/premature close|api\.openai\.com/i.test(raw)) {
+    return (
+      'The AI service on the server could not reach OpenAI.\n\n' +
+      'If you are on a dev build: start the backend on your Mac (npm run dev in backend/) and stay on the same Wi‑Fi.\n\n' +
+      'For TestFlight/production: update OPENAI_API_KEY on Render to match a working key, then restart the service.'
+    );
+  }
+
+  if (/billing|quota|insufficient/i.test(raw)) {
+    return 'OpenAI reported a billing or quota issue for the API key on your server. Add credits or update the key on Render.';
+  }
+
+  return raw || 'Something went wrong while parsing your notes. Please try again.';
 }
 
 async function fetchWithFallback(

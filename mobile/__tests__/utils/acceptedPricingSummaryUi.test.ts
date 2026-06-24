@@ -1,0 +1,551 @@
+import {
+  buildAcceptanceFromSuggestedBlock,
+  buildSecondaryDisclosureContent,
+  collectProjectWideScopeGaps,
+  confidenceBadgeLabel,
+  geographicBasisFromSourceKind,
+  getPricingSecondaryAction,
+  getPricingSourceMessage,
+  hasAcceptedScopePricing,
+  inferPricingModel,
+  isItemSpecificAssemblyComponent,
+  markManualPricingAdjustment,
+  pricingSourceLabelFromBlock,
+  resolveAcceptedPricingDisplay,
+  shouldHideSuggestedPanel,
+  shouldShowConfidenceBadge,
+} from '@/utils/acceptedPricingSummaryUi';
+import type { ScopeItemIntelligence } from '@/utils/scopeIntelligence';
+import type { ResolvedItemQuantity, SuggestedPricingBlock } from '@/utils/scopeItemQuantities';
+
+function suggestedBlock(overrides: Partial<SuggestedPricingBlock> = {}): SuggestedPricingBlock {
+  return {
+    material: 0,
+    labor: 3500,
+    total: 3500,
+    materialSource: 'national_average',
+    laborSource: 'national_average',
+    rateSourceLabel: 'Suggested · National Average',
+    helper: 'Suggested permit and inspection allowance.',
+    mode: 'suggested_price',
+    lumpSumOnly: true,
+    ...overrides,
+  };
+}
+
+function allowanceResolved(overrides: Partial<ResolvedItemQuantity> = {}): ResolvedItemQuantity {
+  return {
+    quantity: 3500,
+    unit: 'allowance',
+    quantitySource: 'user_entered',
+    sourceLabel: 'User entered',
+    pricingReady: true,
+    showInput: false,
+    ...overrides,
+  };
+}
+
+function intelligence(overrides: Partial<ScopeItemIntelligence> = {}): ScopeItemIntelligence {
+  return {
+    scopeItemKey: 'permits',
+    quantity: {
+      source: 'user_entered',
+      sourceLabel: 'User entered',
+      confidence: 'high',
+      confidenceLabel: 'High confidence',
+      reason: '',
+    },
+    pricing: {
+      source: 'national_average',
+      confidence: 'low',
+      confidenceLabel: 'Low confidence',
+      reason: 'Pricing uses a broad national average fallback.',
+    },
+    pricingCompleteness: {
+      status: 'mostly_complete',
+      rateType: 'allowance',
+      confidence: 'medium',
+      includedCostComponents: [],
+      missingCostComponents: [],
+      unknownCostComponents: [],
+      notices: [],
+      regionalRelevance: {
+        overall: 'low',
+        dimensions: { regionalMatch: 'low' },
+      },
+      dateRelevance: {
+        status: 'unknown',
+        message: 'Rate effective date is unknown.',
+      },
+    },
+    validation: { status: 'ready', issues: [] },
+    scopeGaps: [
+      {
+        key: 'adu_utility_coordination',
+        scopeGroupKey: 'utility_coordination',
+        label: 'Utility coordination',
+        severity: 'review',
+        message: 'Utility coordination may be needed.',
+        suggestedScopeKeys: ['utility_coordination'],
+      },
+    ],
+    ...overrides,
+  } as ScopeItemIntelligence;
+}
+
+function displayForPermits(acceptance = buildAcceptanceFromSuggestedBlock(suggestedBlock())) {
+  return resolveAcceptedPricingDisplay({
+    itemId: 'permits',
+    resolved: allowanceResolved(),
+    acceptance,
+    suggestedBlock: suggestedBlock(),
+    intelligence: intelligence(),
+  });
+}
+
+describe('acceptedPricingSummaryUi', () => {
+  it('builds national-average acceptance metadata from suggested block', () => {
+    const acceptance = buildAcceptanceFromSuggestedBlock(suggestedBlock());
+    expect(acceptance.pricingSourceLabel).toBe('National average');
+    expect(acceptance.pricingSourceKind).toBe('national_average');
+    expect(acceptance.selectionStatus).toBe('accepted');
+    expect(acceptance.pricingTypeLabel).toBe('Flat allowance');
+    expect(acceptance.geographicBasis).toBe('National');
+  });
+
+  it('does not show a secondary action for flat allowance cards', () => {
+    const display = displayForPermits();
+    expect(getPricingSecondaryAction({
+      display,
+      intelligence: intelligence(),
+      resolved: allowanceResolved(),
+      suggestedBlock: suggestedBlock(),
+      scopeKey: 'permits',
+    })).toBeNull();
+  });
+
+  it('does not show confidence badge for purely user-entered pricing', () => {
+    const acceptance = {
+      selectionStatus: 'user_entered' as const,
+      pricingSourceLabel: 'User entered',
+      pricingSourceKind: 'user_entered' as const,
+      pricingTypeLabel: 'Lump sum',
+      totalAmount: 12000,
+    };
+    expect(shouldShowConfidenceBadge(acceptance)).toBe(false);
+    const display = resolveAcceptedPricingDisplay({
+      itemId: 'demo',
+      resolved: { ...allowanceResolved({ quantity: 12000, unit: 'lump_sum' }) },
+      acceptance,
+      intelligence: intelligence(),
+    });
+    expect(display.showConfidenceBadge).toBe(false);
+    expect(display.confidenceLabel).toBeNull();
+  });
+
+  it('keeps accepted source, confidence, source message, and edit metadata without generic disclosure', () => {
+    const display = displayForPermits();
+    expect(display.selectionStatusLabel).toBe('Accepted');
+    expect(display.pricingSourceLabel).toBe('National average');
+    expect(display.confidenceLabel).toBe('Low confidence');
+    expect(display.warningMessage).toBe(
+      'Based on national average pricing. Review before sending the estimate.'
+    );
+    expect(display.warningMessage).not.toMatch(/Local pricing was unavailable/i);
+    expect(display.warningMessage).not.toMatch(/Low confidence/i);
+    expect(getPricingSecondaryAction({
+      display,
+      intelligence: intelligence(),
+      resolved: allowanceResolved(),
+      scopeKey: 'permits',
+    })).toBeNull();
+  });
+
+  it('does not show Last updated on confirm scope cards for unknown freshness', () => {
+    const display = displayForPermits();
+    expect(display.warningMessage).not.toMatch(/Update date unavailable/);
+    expect(getPricingSecondaryAction({
+      display,
+      intelligence: intelligence(),
+      resolved: allowanceResolved(),
+      scopeKey: 'permits',
+    })).toBeNull();
+  });
+
+  it('shows stale saved-rate source message when pricing is outdated', () => {
+    const acceptance = {
+      ...buildAcceptanceFromSuggestedBlock(
+        suggestedBlock({ materialSource: 'template', laborSource: 'template', templateName: 'Saved bid' })
+      ),
+      pricingSourceKind: 'saved_rate' as const,
+      pricingSourceLabel: 'Saved company pricing',
+    };
+    const message = getPricingSourceMessage(
+      intelligence({
+        pricing: {
+          source: 'saved_rate',
+          confidence: 'medium',
+          confidenceLabel: 'Medium confidence',
+          reason: '',
+        },
+        pricingCompleteness: {
+          status: 'mostly_complete',
+          rateType: 'allowance',
+          confidence: 'medium',
+          includedCostComponents: [],
+          missingCostComponents: [],
+          unknownCostComponents: [],
+          notices: [],
+          dateRelevance: { status: 'stale', message: 'Rate effective date is unknown.' },
+        },
+      }),
+      acceptance
+    );
+    expect(message).toBe('Based on your saved company pricing. Review if this rate is no longer current.');
+  });
+
+  it('shows View calculation for unit-priced items', () => {
+    const resolved: ResolvedItemQuantity = {
+      quantity: 600,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+      sourceLabel: 'User entered',
+      pricingReady: true,
+      showInput: false,
+      dualCount: { quantity: 600, unit: 'sqft' },
+    };
+    const block = suggestedBlock({
+      material: 2550,
+      labor: 2250,
+      total: 4800,
+      lumpSumOnly: false,
+      basis: { quantity: 600, unit: 'sqft' },
+    });
+    const display = resolveAcceptedPricingDisplay({
+      itemId: 'flooring',
+      resolved,
+      acceptance: buildAcceptanceFromSuggestedBlock(block),
+      suggestedBlock: block,
+      intelligence: intelligence(),
+    });
+    expect(display.subtitleLine).toMatch(/600 sqft × \$8\.00\/sqft/);
+    const action = getPricingSecondaryAction({
+      display,
+      intelligence: intelligence(),
+      resolved,
+      suggestedBlock: block,
+      scopeKey: 'flooring',
+    });
+    expect(action?.label).toBe('View calculation');
+    const disclosure = buildSecondaryDisclosureContent({
+      action: action!,
+      display,
+      intelligence: intelligence(),
+      resolved,
+      suggestedBlock: block,
+      scopeKey: 'flooring',
+    });
+    expect(disclosure?.kind).toBe('rows');
+    if (disclosure?.kind === 'rows') {
+      expect(disclosure.rows.some((row) => row.label === 'Quantity')).toBe(true);
+      expect(disclosure.rows.some((row) => row.label === 'Formula')).toBe(false);
+    }
+  });
+
+  it('shows View breakdown for material/labor split cards', () => {
+    const resolved: ResolvedItemQuantity = {
+      quantity: 9200,
+      unit: 'allowance',
+      quantitySource: 'user_entered',
+      sourceLabel: 'User entered',
+      pricingReady: true,
+      showInput: false,
+      dualMaterial: { quantity: 5000, unit: 'allowance' },
+      dualLabor: { quantity: 4200, unit: 'allowance' },
+    };
+    const display = resolveAcceptedPricingDisplay({
+      itemId: 'drywall',
+      resolved,
+      acceptance: {
+        selectionStatus: 'accepted',
+        pricingSourceLabel: 'Saved company pricing',
+        pricingSourceKind: 'saved_rate',
+        pricingTypeLabel: 'Material + labor',
+        materialAmount: 5000,
+        laborAmount: 4200,
+        totalAmount: 9200,
+      },
+      intelligence: intelligence(),
+    });
+    expect(display.subtitleLine).toBe('Material $5,000 · Labor $4,200');
+    const action = getPricingSecondaryAction({
+      display,
+      intelligence: intelligence(),
+      resolved,
+      scopeKey: 'drywall',
+    });
+    expect(action?.label).toBe('View breakdown');
+  });
+
+  it('shows View original suggestion only when original suggestion data exists', () => {
+    const acceptance = buildAcceptanceFromSuggestedBlock(suggestedBlock());
+    const adjusted = markManualPricingAdjustment(acceptance, 'permits', { permits: acceptance }, 4000)!;
+    const display = resolveAcceptedPricingDisplay({
+      itemId: 'permits',
+      resolved: allowanceResolved({ quantity: 4000 }),
+      acceptance: adjusted.permits,
+      suggestedBlock: suggestedBlock(),
+      intelligence: intelligence(),
+    });
+    const action = getPricingSecondaryAction({
+      display,
+      intelligence: intelligence(),
+      resolved: allowanceResolved({ quantity: 4000 }),
+      suggestedBlock: suggestedBlock(),
+      scopeKey: 'permits',
+    });
+    expect(action?.label).toBe('View original suggestion');
+  });
+
+  it('shows Compare sources when a comparison block differs from selected source', () => {
+    const fill = suggestedBlock({ total: 4800, material: 2550, labor: 2250, lumpSumOnly: false, basis: { quantity: 600, unit: 'sqft' } });
+    const comparison = suggestedBlock({
+      total: 5100,
+      material: 2700,
+      labor: 2400,
+      materialSource: 'template',
+      laborSource: 'template',
+      templateName: 'Saved bid',
+      lumpSumOnly: false,
+      basis: { quantity: 600, unit: 'sqft' },
+      isComparison: true,
+    });
+    const display = resolveAcceptedPricingDisplay({
+      itemId: 'flooring',
+      resolved: {
+        quantity: 600,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+        sourceLabel: 'User entered',
+        pricingReady: true,
+        showInput: false,
+        dualCount: { quantity: 600, unit: 'sqft' },
+      },
+      acceptance: buildAcceptanceFromSuggestedBlock(fill),
+      suggestedBlock: fill,
+      intelligence: intelligence(),
+    });
+    const action = getPricingSecondaryAction({
+      display,
+      intelligence: intelligence(),
+      resolved: {
+        quantity: 600,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+        sourceLabel: 'User entered',
+        pricingReady: true,
+        showInput: false,
+        dualCount: { quantity: 600, unit: 'sqft' },
+      },
+      suggestedBlock: fill,
+      comparisonBlock: comparison,
+      scopeKey: 'flooring',
+    });
+    expect(action?.label).toBe('Compare sources');
+  });
+
+  it('shows Review missing scope for item-specific unresolved components', () => {
+    const display = displayForPermits();
+    const action = getPricingSecondaryAction({
+      display,
+      intelligence: intelligence({
+        assembly: {
+          assemblyKey: 'permits',
+          label: 'Permits',
+          completeness: 'mostly_complete',
+          confidence: 'low',
+          unknownComponents: [
+            {
+              key: 'meter_fees',
+              label: 'Meter fees',
+              status: 'unknown',
+              severity: 'review',
+              relatedScopeKeys: ['permits'],
+              message: 'Not confirmed',
+            },
+          ],
+          missingComponents: [],
+          includedComponents: [],
+        },
+      }),
+      resolved: allowanceResolved(),
+      scopeKey: 'permits',
+    });
+    expect(action?.label).toBe('Review missing scope');
+  });
+
+  it('preserves pricing acceptance metadata after removing generic disclosure', () => {
+    const acceptance = buildAcceptanceFromSuggestedBlock(suggestedBlock());
+    expect(acceptance.totalAmount).toBe(3500);
+    expect(acceptance.originalPricingSourceLabel).toBe('National average');
+    expect(acceptance.geographicBasis).toBe('National');
+  });
+
+  it('detects accepted pricing and hides suggestion panel after acceptance', () => {
+    const itemQuantities = {
+      permits__allowance: { quantity: '3500', unit: 'allowance', quantitySource: 'user_entered' as const },
+    };
+    const pricingAcceptance = { permits: buildAcceptanceFromSuggestedBlock(suggestedBlock()) };
+    expect(hasAcceptedScopePricing('permits', itemQuantities, pricingAcceptance)).toBe(true);
+    expect(
+      shouldHideSuggestedPanel({ itemId: 'permits', itemQuantities, pricingAcceptance })
+    ).toBe(true);
+  });
+
+  it('never maps confidence values into geographic basis', () => {
+    expect(geographicBasisFromSourceKind('national_average')).toBe('National');
+    const display = resolveAcceptedPricingDisplay({
+      itemId: 'permits',
+      resolved: allowanceResolved(),
+      acceptance: { ...buildAcceptanceFromSuggestedBlock(suggestedBlock()), geographicBasis: 'low' },
+      intelligence: intelligence(),
+    });
+    expect(display.geographicBasis).toBe('National');
+  });
+
+  it('separates project-wide gaps from item-specific assembly components', () => {
+    const gaps = collectProjectWideScopeGaps(intelligence().scopeGaps);
+    expect(gaps.map((gap) => gap.label)).toContain('Utility coordination');
+    expect(
+      isItemSpecificAssemblyComponent(
+        {
+          key: 'meter_fees',
+          label: 'Meter fees',
+          status: 'unknown',
+          severity: 'review',
+          relatedScopeKeys: ['utility_coordination'],
+          message: 'Unknown',
+        },
+        'permits'
+      )
+    ).toBe(false);
+  });
+
+  it('labels retail and national sources from suggested block', () => {
+    expect(pricingSourceLabelFromBlock(suggestedBlock())).toBe('National average');
+    expect(
+      pricingSourceLabelFromBlock(
+        suggestedBlock({ materialSource: 'template', laborSource: 'template', templateName: 'My saved bid' })
+      )
+    ).toBe('Saved company pricing');
+  });
+
+  it('uses pricing intelligence confidence for national average', () => {
+    expect(confidenceBadgeLabel(intelligence(), buildAcceptanceFromSuggestedBlock(suggestedBlock()))).toBe(
+      'Low confidence'
+    );
+  });
+
+  it('infers flat allowance pricing model without quantity disclosure', () => {
+    const display = displayForPermits();
+    expect(inferPricingModel(display.acceptance, allowanceResolved())).toBe('flat_allowance');
+  });
+
+  describe('getPricingSourceMessage', () => {
+    it('displays neutral national average messaging', () => {
+      const acceptance = buildAcceptanceFromSuggestedBlock(suggestedBlock());
+      expect(getPricingSourceMessage(intelligence(), acceptance)).toBe(
+        'Based on national average pricing. Review before sending the estimate.'
+      );
+    });
+
+    it('displays regional average messaging', () => {
+      const acceptance = {
+        ...buildAcceptanceFromSuggestedBlock(suggestedBlock()),
+        pricingSourceLabel: 'Regional average',
+        pricingSourceKind: 'unknown' as const,
+        geographicBasis: 'Regional',
+      };
+      expect(getPricingSourceMessage(intelligence(), acceptance)).toBe(
+        'Based on regional average pricing. Confirm local rates before sending.'
+      );
+    });
+
+    it('does not show an unnecessary source warning for user-entered pricing', () => {
+      const acceptance = {
+        selectionStatus: 'user_entered' as const,
+        pricingSourceLabel: 'User entered',
+        pricingSourceKind: 'user_entered' as const,
+        pricingTypeLabel: 'Lump sum',
+        totalAmount: 12000,
+      };
+      expect(getPricingSourceMessage(intelligence(), acceptance)).toBeNull();
+    });
+
+    it('does not show an unnecessary source warning for current saved company pricing', () => {
+      const acceptance = {
+        selectionStatus: 'accepted' as const,
+        pricingSourceLabel: 'Saved company pricing',
+        pricingSourceKind: 'saved_rate' as const,
+        pricingTypeLabel: 'Material + labor',
+        totalAmount: 9200,
+      };
+      expect(
+        getPricingSourceMessage(
+          intelligence({
+            pricing: {
+              source: 'saved_rate',
+              confidence: 'high',
+              confidenceLabel: 'High confidence',
+              reason: '',
+            },
+            pricingCompleteness: {
+              status: 'mostly_complete',
+              rateType: 'allowance',
+              confidence: 'high',
+              includedCostComponents: [],
+              missingCostComponents: [],
+              unknownCostComponents: [],
+              notices: [],
+              dateRelevance: { status: 'current', message: 'Updated recently.' },
+            },
+          }),
+          acceptance
+        )
+      ).toBeNull();
+    });
+
+    it('displays AI fallback review messaging', () => {
+      const acceptance = {
+        selectionStatus: 'accepted' as const,
+        pricingSourceLabel: 'AI-estimated pricing',
+        pricingSourceKind: 'unknown' as const,
+        pricingTypeLabel: 'Unit pricing',
+        totalAmount: 4800,
+      };
+      expect(getPricingSourceMessage(intelligence(), acceptance)).toBe(
+        'AI-estimated pricing. Review before sending the estimate.'
+      );
+    });
+
+    it('displays supplier confirmation messaging', () => {
+      const acceptance = {
+        selectionStatus: 'accepted' as const,
+        pricingSourceLabel: 'Supplier pricing',
+        pricingSourceKind: 'unknown' as const,
+        pricingTypeLabel: 'Material',
+        totalAmount: 2400,
+      };
+      expect(getPricingSourceMessage(intelligence(), acceptance)).toBe(
+        'Based on supplier pricing. Confirm current availability and rate before sending.'
+      );
+    });
+
+    it('returns only one source-related message and keeps badge consistency', () => {
+      const display = displayForPermits();
+      expect(display.warningMessage?.split('.').length).toBeLessThanOrEqual(3);
+      expect(display.pricingSourceLabel).toBe('National average');
+      expect(display.warningMessage).toContain('national average pricing');
+    });
+  });
+});

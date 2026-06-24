@@ -765,6 +765,37 @@ Return ONLY valid JSON with this shape:
   "suggestedPaymentSchedule": [{ "label": string, "amount": number | null, "percentage": number | null, "dueTiming": string }] | null
 }`;
 
+function isRetryableOpenAiError(err) {
+  const msg = String(err?.message || err || '').toLowerCase();
+  return (
+    msg.includes('premature close') ||
+    msg.includes('connection error') ||
+    msg.includes('econnreset') ||
+    msg.includes('socket hang up') ||
+    msg.includes('fetch failed') ||
+    msg.includes('network') ||
+    msg.includes('503') ||
+    msg.includes('502') ||
+    msg.includes('504')
+  );
+}
+
+async function createChatCompletionWithRetry(openai, params, maxAttempts = 3) {
+  let lastError;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await openai.chat.completions.create(params);
+    } catch (err) {
+      lastError = err;
+      if (attempt >= maxAttempts || !isRetryableOpenAiError(err)) {
+        throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, attempt * 750));
+    }
+  }
+  throw lastError;
+}
+
 async function createEstimateDraftFromNotes(notes, openai, aiModels, aiRuntime, options = {}) {
   const trimmed = String(notes || '').trim();
   if (!trimmed) {
@@ -772,7 +803,7 @@ async function createEstimateDraftFromNotes(notes, openai, aiModels, aiRuntime, 
   }
   const { inferBuilderMode } = require('./estimateDraftEnrichment');
 
-  const completion = await openai.chat.completions.create({
+  const completion = await createChatCompletionWithRetry(openai, {
     model: aiModels.assistant.estimate,
     response_format: aiRuntime.assistant.estimate.responseFormat,
     messages: [

@@ -5,6 +5,11 @@ import {
 } from '@/utils/scopeMeasurementParser';
 import { resolveScopePackageBudgetBreakdown } from '@/utils/scopeBudgetBreakdown';
 import { lookupRuleKeyForPackage } from '@/utils/scopeItemQuantities';
+import {
+  SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL,
+  SCOPE_LABOR_PARSED_FROM_NOTES_LABEL,
+  SCOPE_PARSED_FROM_NOTES_LABEL,
+} from '@/constants/scopeNoteSourceLabels';
 
 export type DraftItemStatus =
   | 'confirmed'
@@ -96,9 +101,39 @@ export type ScopeChecklist = {
 export type ScopeItemQuantity = {
   quantity: number | null;
   unit: string;
-  quantitySource?: 'notes' | 'user_entered' | 'inferred' | 'default_assumption' | 'missing' | 'not_applicable';
+  quantitySource?:
+    | 'notes'
+    | 'user_entered'
+    | 'calculated_confirmed'
+    | 'manual_override'
+    | 'inferred'
+    | 'default_assumption'
+    | 'missing'
+    | 'not_applicable';
   /** Cabinets allowance in notes also covered countertops on the same line. */
   includesCountertops?: boolean;
+};
+
+/** Persisted accepted-pricing metadata for Confirm Scope cards. */
+export type ScopePricingAcceptanceMetadata = {
+  selectionStatus: 'accepted' | 'user_entered' | 'manual_adjusted';
+  pricingSourceLabel: string;
+  pricingSourceKind:
+    | 'national_average'
+    | 'saved_rate'
+    | 'parsed_from_notes'
+    | 'user_entered'
+    | 'allowance'
+    | 'unknown';
+  pricingTypeLabel: string;
+  geographicBasis?: string;
+  originalSuggestionLabel?: string;
+  originalPricingSourceLabel?: string;
+  rateSourceLabel?: string;
+  lumpSumOnly?: boolean;
+  materialAmount?: number;
+  laborAmount?: number;
+  totalAmount: number;
 };
 
 export type ScopeMeasurements = {
@@ -131,6 +166,8 @@ export type ScopeMeasurements = {
   deckSqft?: number | null;
   /** Per-checklist-item overrides keyed by checklist id */
   itemQuantities?: Record<string, ScopeItemQuantity>;
+  /** Accepted pricing metadata keyed by checklist item id */
+  pricingAcceptance?: Record<string, ScopePricingAcceptanceMetadata>;
   /** @deprecated use bathroomFloorSqft */
   sqft?: number | null;
   /** @deprecated use baseboardLf */
@@ -1012,7 +1049,7 @@ function budgetSplitDisplaySubtitle(
       ? 'National Average material budget split'
       : 'National Average labor remainder';
   }
-  return type === 'material' ? 'Material from notes' : 'Labor from notes';
+  return type === 'material' ? SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL : SCOPE_LABOR_PARSED_FROM_NOTES_LABEL;
 }
 
 function laborLineItemsFromDraft(
@@ -1117,7 +1154,7 @@ function materialLineItemsFromDraft(
           lines.push({
             id: newLineItemId(),
             name: `${pkg.name} — ${item.name}`,
-            description: item.description || `From notes (${item.status || 'confirmed'})`,
+            description: item.description || `${SCOPE_PARSED_FROM_NOTES_LABEL} (${item.status || 'confirmed'})`,
             quantity: 1,
             qty: 1,
             unit: 'lot',
@@ -1170,7 +1207,7 @@ function materialLineItemsFromDraft(
         lines.push({
           id: newLineItemId(),
           name: `${room.name} — ${item.name}`,
-          description: item.description || `From notes (${item.status || 'confirmed'})`,
+          description: item.description || `${SCOPE_PARSED_FROM_NOTES_LABEL} (${item.status || 'confirmed'})`,
           quantity: 1,
           qty: 1,
           unit: 'lot',

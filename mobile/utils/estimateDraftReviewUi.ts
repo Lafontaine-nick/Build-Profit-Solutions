@@ -1,3 +1,5 @@
+import { SCOPE_PARSED_FROM_NOTES_LABEL } from '@/constants/scopeNoteSourceLabels';
+
 import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimateAiDraft';
 import { formatDraftMoney, getScopePackages } from '@/utils/estimateAiDraft';
 import { draftHasApplyablePricing, formatDisplayUnit, proposalTotalForScopeName } from '@/utils/estimateAiDraftPricing';
@@ -14,7 +16,7 @@ export type { BudgetSplitSource };
 export { resolveScopePackageBudgetBreakdown };
 
 export function budgetSplitSourceLabel(source: BudgetSplitSource): string {
-  if (source === 'notes') return 'From notes';
+  if (source === 'notes') return SCOPE_PARSED_FROM_NOTES_LABEL;
   if (source === 'manual') return 'Manual';
   return 'National Average';
 }
@@ -152,7 +154,7 @@ export function dedupeDraftWarnings(draft: EstimateAiDraft): string[] {
 
 const STATUS_SHORT: Record<string, string> = {
   confirmed: 'Confirmed',
-  user_provided: 'From notes',
+  user_provided: SCOPE_PARSED_FROM_NOTES_LABEL,
   rough_price: 'Rough',
   partial_pricing: 'Partial',
   calculated: 'Calculated',

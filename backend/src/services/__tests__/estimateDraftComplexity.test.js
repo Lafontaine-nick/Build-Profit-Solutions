@@ -337,7 +337,7 @@ describe('estimateDraftComplexity', () => {
         'Cabinets & counters',
         'Plumbing fixtures / trim-out',
         'Electrical devices / fixtures',
-        'Appliances',
+        'Appliance install',
         'Flooring',
         'Paint',
         'Final inspections',

@@ -19,6 +19,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
+import {
+  SCOPE_MENTIONED_IN_NOTES_LABEL,
+  SCOPE_PARSED_FROM_NOTES_LABEL,
+  scopeLinkedToNotesSummary,
+} from '@/constants/scopeNoteSourceLabels';
 import type {
   EstimateAiDraft,
   ScopeAssumptionState,
@@ -67,6 +72,7 @@ import {
   resolveAllowanceEditorPricingBasis,
   resolveAllowanceEditorDefaultBasisUnit,
   type PricingLegSource,
+  type QuantitySource,
   type ScopeMeasurementsInputExtended,
   type ScopePricingContext,
   type SuggestedPricingBlock,
@@ -87,6 +93,25 @@ import {
   type ScopeItemNoteBadge,
   type ScopeItemVisualContext,
 } from '@/utils/scopeItemVisualTier';
+import {
+  primaryIntelligenceNotice,
+  resolveScopeItemIntelligence,
+  type ScopeItemIntelligence,
+} from '@/utils/scopeIntelligence';
+import {
+  AcceptedPricingSummary,
+  ProjectReviewSummary,
+} from '@/components/estimate/AcceptedPricingSummary';
+import {
+  buildAcceptanceFromSuggestedBlock,
+  collectProjectWideScopeGaps,
+  hasAcceptedScopePricing,
+  markManualPricingAdjustment,
+  parsePricingAmount,
+  resolveAcceptedPricingDisplay,
+  shouldHideSuggestedPanel,
+} from '@/utils/acceptedPricingSummaryUi';
+import { evaluateProjectScopeGaps } from '@/utils/scopeAssemblyRegistry';
 
 type Props = {
   visible: boolean;
@@ -175,7 +200,7 @@ function ScopeItemTitleRow({
     noteBadge === 'prefilled'
       ? 'Prefilled'
       : noteBadge === 'mentioned'
-        ? 'In notes'
+        ? SCOPE_MENTIONED_IN_NOTES_LABEL
         : noteBadge === 'review'
           ? 'Review'
           : null;
@@ -270,7 +295,7 @@ function SourcePill({
 }) {
   const defaultText =
     kind === 'notes'
-      ? 'From notes'
+      ? SCOPE_PARSED_FROM_NOTES_LABEL
       : kind === 'template'
         ? 'Saved rate'
         : kind === 'remainder'
@@ -307,6 +332,10 @@ function SourcePill({
 
 /** Saved templates + active bid, supplied once and consumed by every QuantitySection. */
 const ScopePricingContextValue = React.createContext<ScopePricingContext | null>(null);
+const ScopeAssemblyContextValue = React.createContext<{
+  activeScopeKeys: string[];
+  excludedScopeKeys: string[];
+}>({ activeScopeKeys: [], excludedScopeKeys: [] });
 
 function PricingAmountRow({
   value,
@@ -387,6 +416,94 @@ function PricingSplitRow({
         <Text style={[styles.pricingRateHelper, { color: pricingLabelColor(darkMode, Colors) }]}>
           Rate: {helper}
         </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function ScopeIntelligenceNotice({
+  intelligence,
+  Colors,
+  darkMode,
+  onUseCalculatedQuantity,
+  compact = false,
+}: {
+  intelligence: ScopeItemIntelligence;
+  Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
+  onUseCalculatedQuantity?: () => void;
+  compact?: boolean;
+}) {
+  const notice = primaryIntelligenceNotice(intelligence);
+  const formula = intelligence.formula;
+  const showQuantity =
+    intelligence.quantity.confidence !== 'high' ||
+    intelligence.quantity.source === 'calculated_assumption' ||
+    intelligence.quantity.source === 'benchmark_estimate' ||
+    Boolean(formula);
+  if (compact) {
+    if (!notice && !showQuantity && !formula) return null;
+  } else if (!notice && !showQuantity && !formula) {
+    return null;
+  }
+
+  const accent =
+    intelligence.validation.status === 'measurement_needed'
+      ? '#f59e0b'
+      : intelligence.validation.status === 'blocked'
+        ? '#ef4444'
+        : '#60a5fa';
+
+  return (
+    <View
+      style={[
+        styles.intelligenceNotice,
+        {
+          borderColor: darkMode ? 'rgba(96,165,250,0.22)' : 'rgba(96,165,250,0.18)',
+          backgroundColor: darkMode ? 'rgba(15,23,42,0.58)' : 'rgba(248,250,252,0.92)',
+        },
+      ]}
+    >
+      {showQuantity ? (
+        <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
+          <Text style={{ color: accent, fontWeight: '800' }}>{intelligence.quantity.confidenceLabel}</Text>
+          {' · '}
+          {intelligence.quantity.sourceLabel}
+        </Text>
+      ) : null}
+      {notice ? (
+        <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
+          {notice}
+        </Text>
+      ) : null}
+      {formula ? (
+        <View style={styles.formulaNoticeBlock}>
+          <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
+            <Text style={{ color: '#22c55e', fontWeight: '800' }}>Calculated quantity</Text>
+            {' · '}
+            {formula.roundedValue.toLocaleString()} {formatUnitLabel(formula.unit)}
+            {' · '}
+            {formula.confidence === 'high' ? 'High' : formula.confidence === 'medium' ? 'Medium' : 'Low'} confidence
+          </Text>
+          <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
+            {formula.formulaExplanation}
+          </Text>
+          {formula.expectedRange ? (
+            <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
+              Expected range: {formula.expectedRange.low.toLocaleString()}-{formula.expectedRange.high.toLocaleString()}{' '}
+              {formatUnitLabel(formula.unit)}
+            </Text>
+          ) : null}
+          {onUseCalculatedQuantity ? (
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={onUseCalculatedQuantity}
+              style={[styles.formulaActionButton, { borderColor: darkMode ? 'rgba(34,197,94,0.35)' : 'rgba(34,197,94,0.3)' }]}
+            >
+              <Text style={styles.formulaActionText}>Use calculated quantity</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       ) : null}
     </View>
   );
@@ -862,7 +979,8 @@ function CustomScopePricingSection({
     itemId: string,
     quantity: string,
     field?: 'count' | 'allowance',
-    unit?: string
+    unit?: string,
+    source?: QuantitySource
   ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
@@ -1127,7 +1245,8 @@ function QuantitySection({
     itemId: string,
     quantity: string,
     field?: 'count' | 'allowance',
-    unit?: string
+    unit?: string,
+    source?: QuantitySource
   ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
@@ -1139,6 +1258,7 @@ function QuantitySection({
   const [pricingEditorOpen, setPricingEditorOpen] = useState(false);
   const [focusedPricingField, setFocusedPricingField] = useState<string | null>(null);
   const pricingContext = React.useContext(ScopePricingContextValue);
+  const assemblyContext = React.useContext(ScopeAssemblyContextValue);
   const rule = getChecklistItemQuantityRuleOrDefault(itemId, templateKey);
   if (!inScope) return null;
 
@@ -1232,6 +1352,16 @@ function QuantitySection({
           );
       const suggestedBudgetSplit = suggested.fill;
       const suggestedComparisonSplit = suggested.comparison;
+      const intelligence = resolveScopeItemIntelligence({
+        scopeKey: itemId,
+        templateKey,
+        notes: originalNotes,
+        measurements: norm,
+        resolved: displayResolved,
+        suggestedPricing: suggestedBudgetSplit,
+        activeScopeKeys: assemblyContext.activeScopeKeys,
+        excludedScopeKeys: assemblyContext.excludedScopeKeys,
+      });
       const applySuggestedPricingBlock = (block: SuggestedPricingBlock) => {
         if (onApplySuggestedPricing) {
           onApplySuggestedPricing(itemId, block);
@@ -1248,104 +1378,143 @@ function QuantitySection({
         }
         setTimeout(() => onItemQuantityBlur(itemId), 0);
       };
+      const accepted = hasAcceptedScopePricing(
+        itemId,
+        measurementsInput.itemQuantities,
+        measurementsInput.pricingAcceptance
+      );
+      const hideSuggestion = shouldHideSuggestedPanel({
+        itemId,
+        itemQuantities: measurementsInput.itemQuantities,
+        pricingAcceptance: measurementsInput.pricingAcceptance,
+      });
+      const acceptedDisplay = accepted
+        ? resolveAcceptedPricingDisplay({
+            itemId,
+            resolved: displayResolved,
+            acceptance: measurementsInput.pricingAcceptance?.[itemId],
+            suggestedBlock: suggestedBudgetSplit,
+            intelligence,
+          })
+        : null;
+      const openPricingEditor = () => {
+        setPricingEditorOpen(true);
+        if (resolved.dualCount) {
+          onItemQuantityChange(itemId, String(resolved.dualCount.quantity), 'count', resolved.dualCount.unit);
+        }
+        if (resolved.dualAllowance) {
+          onItemQuantityChange(itemId, String(resolved.dualAllowance.quantity), 'allowance', resolved.dualAllowance.unit);
+        }
+        if (resolved.dualMaterial) {
+          onItemQuantityChange(materialKey, String(resolved.dualMaterial.quantity), 'count', 'allowance');
+        }
+        if (resolved.dualLabor) {
+          onItemQuantityChange(laborKey, String(resolved.dualLabor.quantity), 'count', 'allowance');
+        }
+      };
+      const onUseCalculatedQuantity = intelligence.formula
+        ? () => {
+            hapticTap();
+            onItemQuantityChange(
+              itemId,
+              String(intelligence.formula?.roundedValue ?? ''),
+              'count',
+              intelligence.formula?.unit,
+              'calculated_confirmed'
+            );
+            setTimeout(() => onItemQuantityBlur(itemId), 0);
+          }
+        : undefined;
       return (
         <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
-          {displayResolved.dualCount ? (
-            <PricingSplitRow
-              label={fieldLabels?.count || 'Quantity'}
-              value={`${displayResolved.dualCount.quantity.toLocaleString()} ${fieldLabels?.countUnit || 'each'}`}
-              darkMode={darkMode}
+          {accepted && acceptedDisplay ? (
+            <AcceptedPricingSummary
+              display={acceptedDisplay}
+              intelligence={intelligence}
+              scopeKey={itemId}
+              resolved={displayResolved}
+              suggestedBlock={suggestedBudgetSplit}
+              comparisonBlock={suggestedComparisonSplit}
               Colors={Colors}
-            />
-          ) : null}
-          {displayResolved.dualMaterial ? (
-            <PricingSplitRow
-              label="Material"
-              value={formatDraftMoney(displayResolved.dualMaterial.quantity)}
-              helper={unitRateHelper(String(displayResolved.dualMaterial.quantity), displayResolved.dualCount)}
               darkMode={darkMode}
-              Colors={Colors}
+              onEditPricing={openPricingEditor}
             />
-          ) : null}
-          {displayResolved.dualLabor ? (
-            <PricingSplitRow
-              label="Labor"
-              value={formatDraftMoney(displayResolved.dualLabor.quantity)}
-              helper={unitRateHelper(String(displayResolved.dualLabor.quantity), displayResolved.dualCount)}
-              darkMode={darkMode}
-              Colors={Colors}
-            />
-          ) : null}
-          {displayResolved.dualAllowance ? (
-            <PricingSplitRow
-              label={
-                displayResolved.dualMaterial || displayResolved.dualLabor
-                  ? 'Total'
-                  : fieldLabels?.allowance || 'Allowance'
-              }
-              value={formatDraftMoney(displayResolved.dualAllowance.quantity)}
-              pill={
-                !displayResolved.dualMaterial && !displayResolved.dualLabor && displayResolved.quantitySource === 'notes' ? (
+          ) : (
+            <>
+              {displayResolved.dualCount ? (
+                <PricingSplitRow
+                  label={fieldLabels?.count || 'Quantity'}
+                  value={`${displayResolved.dualCount.quantity.toLocaleString()} ${fieldLabels?.countUnit || 'each'}`}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              ) : null}
+              {displayResolved.dualMaterial ? (
+                <PricingSplitRow
+                  label="Material"
+                  value={formatDraftMoney(displayResolved.dualMaterial.quantity)}
+                  helper={unitRateHelper(String(displayResolved.dualMaterial.quantity), displayResolved.dualCount)}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              ) : null}
+              {displayResolved.dualLabor ? (
+                <PricingSplitRow
+                  label="Labor"
+                  value={formatDraftMoney(displayResolved.dualLabor.quantity)}
+                  helper={unitRateHelper(String(displayResolved.dualLabor.quantity), displayResolved.dualCount)}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              ) : null}
+              {displayResolved.dualAllowance ? (
+                <PricingSplitRow
+                  label={
+                    displayResolved.dualMaterial || displayResolved.dualLabor
+                      ? 'Total'
+                      : fieldLabels?.allowance || 'Allowance'
+                  }
+                  value={formatDraftMoney(displayResolved.dualAllowance.quantity)}
+                  pill={
+                    !displayResolved.dualMaterial && !displayResolved.dualLabor && displayResolved.quantitySource === 'notes' ? (
+                      <SourcePill kind="notes" />
+                    ) : undefined
+                  }
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              ) : null}
+              {displayResolved.quantitySource === 'notes' && (displayResolved.dualMaterial || displayResolved.dualLabor) ? (
+                <View style={[styles.pricingRowGap, { alignItems: 'flex-end' }]}>
                   <SourcePill kind="notes" />
-                ) : undefined
-              }
-              darkMode={darkMode}
-              Colors={Colors}
-            />
-          ) : null}
-          {displayResolved.quantitySource === 'notes' && (displayResolved.dualMaterial || displayResolved.dualLabor) ? (
-            <View style={[styles.pricingRowGap, { alignItems: 'flex-end' }]}>
-              <SourcePill kind="notes" />
-            </View>
-          ) : null}
-          {suggestedBudgetSplit ? (
-            <SuggestedBudgetSplitRows block={suggestedBudgetSplit} Colors={Colors} darkMode={darkMode} />
-          ) : null}
-          {suggestedComparisonSplit ? (
-            <ComparisonToggle
-              block={suggestedComparisonSplit}
-              Colors={Colors}
-              darkMode={darkMode}
-              onUsePricing={() => applySuggestedPricingBlock(suggestedComparisonSplit)}
-            />
-          ) : null}
-          <EditQuantityLink
-            onPress={() => {
-              setPricingEditorOpen(true);
-              if (resolved.dualCount) {
-                onItemQuantityChange(
-                  itemId,
-                  String(resolved.dualCount.quantity),
-                  'count',
-                  resolved.dualCount.unit
-                );
-              }
-              if (resolved.dualAllowance) {
-                onItemQuantityChange(
-                  itemId,
-                  String(resolved.dualAllowance.quantity),
-                  'allowance',
-                  resolved.dualAllowance.unit
-                );
-              }
-              if (resolved.dualMaterial) {
-                onItemQuantityChange(
-                  materialKey,
-                  String(resolved.dualMaterial.quantity),
-                  'count',
-                  'allowance'
-                );
-              }
-              if (resolved.dualLabor) {
-                onItemQuantityChange(
-                  laborKey,
-                  String(resolved.dualLabor.quantity),
-                  'count',
-                  'allowance'
-                );
-              }
-            }}
-          />
+                </View>
+              ) : null}
+              <ScopeIntelligenceNotice
+                intelligence={intelligence}
+                Colors={Colors}
+                darkMode={darkMode}
+                compact
+                onUseCalculatedQuantity={onUseCalculatedQuantity}
+              />
+              {!hideSuggestion && suggestedBudgetSplit ? (
+                <SuggestedBudgetSplitRows
+                  block={suggestedBudgetSplit}
+                  Colors={Colors}
+                  darkMode={darkMode}
+                  onUsePricing={() => applySuggestedPricingBlock(suggestedBudgetSplit)}
+                />
+              ) : null}
+              {suggestedComparisonSplit ? (
+                <ComparisonToggle
+                  block={suggestedComparisonSplit}
+                  Colors={Colors}
+                  darkMode={darkMode}
+                  onUsePricing={() => applySuggestedPricingBlock(suggestedComparisonSplit)}
+                />
+              ) : null}
+              <EditQuantityLink onPress={openPricingEditor} />
+            </>
+          )}
         </View>
       );
     }
@@ -1493,6 +1662,16 @@ function QuantitySection({
   );
   const suggestedBudgetSplit = suggested.fill;
   const suggestedComparisonSplit = suggested.comparison;
+  const intelligence = resolveScopeItemIntelligence({
+    scopeKey: itemId,
+    templateKey,
+    notes: originalNotes,
+    measurements: norm,
+    resolved,
+    suggestedPricing: suggestedBudgetSplit,
+    activeScopeKeys: assemblyContext.activeScopeKeys,
+    excludedScopeKeys: assemblyContext.excludedScopeKeys,
+  });
   const pricingBasis =
     resolveAllowanceEditorPricingBasis(itemId, measurementsInput, templateKey) ??
     parseBudgetSplitBasis(suggestedBudgetSplit);
@@ -1500,6 +1679,11 @@ function QuantitySection({
   const basisUnit = pricingBasis?.unit || fallbackBasisUnit;
   const basisUnitLabel = formatUnitLabel(basisUnit);
   const applySuggestedPricingBlock = (block: SuggestedPricingBlock) => {
+    if (onApplySuggestedPricing) {
+      onApplySuggestedPricing(itemId, block);
+      setPricingEditorOpen(false);
+      return;
+    }
     hapticTap();
     if (block.basis?.quantity && block.basis.unit) {
       onItemQuantityChange(sqftBasisKey, String(block.basis.quantity), 'count', block.basis.unit);
@@ -1557,25 +1741,12 @@ function QuantitySection({
 
     return (
       <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
-        <PricingAmountRow
-          value={formatResolvedQuantityDisplay(
-            resolved.quantity ?? 0,
-            resolved.unit,
-            resolved.quantitySource,
-            itemId
-          )}
-          pill={resolved.quantitySource === 'notes' ? <SourcePill kind="notes" /> : undefined}
-          label={resolved.sourceLabel}
-          emphasized
-          darkMode={darkMode}
-          Colors={Colors}
-        />
         {resolved.combinedAllowanceRole === 'combined_total' ? (
           <Text
             style={{
               color: pricingLabelColor(darkMode, Colors),
               fontSize: 12,
-              marginTop: 8,
+              marginBottom: 8,
               lineHeight: 17,
             }}
           >
@@ -1583,19 +1754,27 @@ function QuantitySection({
             priced again.
           </Text>
         ) : null}
-        {suggestedBudgetSplit ? (
-          <SuggestedBudgetSplitRows block={suggestedBudgetSplit} Colors={Colors} darkMode={darkMode} />
-        ) : null}
-        {suggestedComparisonSplit ? (
-          <ComparisonToggle
-            block={suggestedComparisonSplit}
-            Colors={Colors}
-            darkMode={darkMode}
-            onUsePricing={() => applySuggestedPricingBlock(suggestedComparisonSplit)}
-          />
-        ) : null}
-        <EditQuantityLink
-          onPress={() => {
+        {(() => {
+          const accepted = hasAcceptedScopePricing(
+            itemId,
+            measurementsInput.itemQuantities,
+            measurementsInput.pricingAcceptance
+          );
+          const hideSuggestion = shouldHideSuggestedPanel({
+            itemId,
+            itemQuantities: measurementsInput.itemQuantities,
+            pricingAcceptance: measurementsInput.pricingAcceptance,
+          });
+          const acceptedDisplay = accepted
+            ? resolveAcceptedPricingDisplay({
+                itemId,
+                resolved,
+                acceptance: measurementsInput.pricingAcceptance?.[itemId],
+                suggestedBlock: suggestedBudgetSplit,
+                intelligence,
+              })
+            : null;
+          const openPricingEditor = () => {
             setPricingEditorOpen(true);
             const total =
               resolved.quantity != null &&
@@ -1605,8 +1784,77 @@ function QuantitySection({
             if (total) {
               onItemQuantityChange(allowanceKey, total, 'count', 'allowance');
             }
-          }}
-        />
+          };
+          const onUseCalculatedQuantity = intelligence.formula
+            ? () => {
+                hapticTap();
+                onItemQuantityChange(
+                  itemId,
+                  String(intelligence.formula?.roundedValue ?? ''),
+                  'count',
+                  intelligence.formula?.unit,
+                  'calculated_confirmed'
+                );
+                setTimeout(() => onItemQuantityBlur(itemId), 0);
+              }
+            : undefined;
+          if (accepted && acceptedDisplay) {
+            return (
+              <AcceptedPricingSummary
+                display={acceptedDisplay}
+                intelligence={intelligence}
+                scopeKey={itemId}
+                resolved={resolved}
+                suggestedBlock={suggestedBudgetSplit}
+                comparisonBlock={suggestedComparisonSplit}
+                Colors={Colors}
+                darkMode={darkMode}
+                onEditPricing={openPricingEditor}
+              />
+            );
+          }
+          return (
+            <>
+              <PricingAmountRow
+                value={formatResolvedQuantityDisplay(
+                  resolved.quantity ?? 0,
+                  resolved.unit,
+                  resolved.quantitySource,
+                  itemId
+                )}
+                pill={resolved.quantitySource === 'notes' ? <SourcePill kind="notes" /> : undefined}
+                label={resolved.sourceLabel}
+                emphasized
+                darkMode={darkMode}
+                Colors={Colors}
+              />
+              <ScopeIntelligenceNotice
+                intelligence={intelligence}
+                Colors={Colors}
+                darkMode={darkMode}
+                compact
+                onUseCalculatedQuantity={onUseCalculatedQuantity}
+              />
+              {!hideSuggestion && suggestedBudgetSplit ? (
+                <SuggestedBudgetSplitRows
+                  block={suggestedBudgetSplit}
+                  Colors={Colors}
+                  darkMode={darkMode}
+                  onUsePricing={() => applySuggestedPricingBlock(suggestedBudgetSplit)}
+                />
+              ) : null}
+              {suggestedComparisonSplit ? (
+                <ComparisonToggle
+                  block={suggestedComparisonSplit}
+                  Colors={Colors}
+                  darkMode={darkMode}
+                  onUsePricing={() => applySuggestedPricingBlock(suggestedComparisonSplit)}
+                />
+              ) : null}
+              <EditQuantityLink onPress={openPricingEditor} />
+            </>
+          );
+        })()}
       </View>
     );
   }
@@ -2583,7 +2831,7 @@ function ScopeGroupSection({
             </Text>
             {noteSummary && (noteSummary.fromNotes > 0 || noteSummary.toConfirm > 0) ? (
               <Text style={{ color: captionColor(darkMode, Colors), fontSize: 10, marginTop: 2 }}>
-                {noteSummary.fromNotes > 0 ? `${noteSummary.fromNotes} from notes` : null}
+                {noteSummary.fromNotes > 0 ? scopeLinkedToNotesSummary(noteSummary.fromNotes) : null}
                 {noteSummary.fromNotes > 0 && noteSummary.toConfirm > 0 ? ' · ' : null}
                 {noteSummary.toConfirm > 0 ? `${noteSummary.toConfirm} to confirm` : null}
               </Text>
@@ -2664,6 +2912,9 @@ export default function AIEstimateScopeAssumptionsModal({
       templateKey: checklist?.templateKey,
     });
     const itemQuantities = { ...(payload.itemQuantities || {}) };
+    const pricingAcceptance = {
+      ...(measurementsRef.current.pricingAcceptance || {}),
+    };
     for (const [itemId, block] of Object.entries(selectedPricingRef.current)) {
       const rule = getChecklistItemQuantityRule(itemId, checklist?.templateKey);
       const allowanceKey = rule?.dualAllowanceField ? roughAllowanceSubKey(itemId) : `${itemId}__allowance`;
@@ -2687,10 +2938,12 @@ export default function AIEstimateScopeAssumptionsModal({
         unit: 'allowance',
         quantitySource: 'user_entered',
       };
+      pricingAcceptance[itemId] = buildAcceptanceFromSuggestedBlock(block);
     }
     return {
       ...payload,
       itemQuantities: Object.keys(itemQuantities).length ? itemQuantities : payload.itemQuantities,
+      pricingAcceptance: Object.keys(pricingAcceptance).length ? pricingAcceptance : payload.pricingAcceptance,
     };
   }, [checklist?.templateKey, scopeNotes]);
 
@@ -2850,12 +3103,31 @@ export default function AIEstimateScopeAssumptionsModal({
     () => groupScopeChecklistItems(displayItems, checklist?.templateKey),
     [displayItems, checklist?.templateKey]
   );
+  const scopeAssemblyContext = useMemo(
+    () => ({
+      activeScopeKeys: displayItems.filter(checklistItemInScope).map((item) => item.id),
+      excludedScopeKeys: displayItems.filter((item) => item.state === 'excluded').map((item) => item.id),
+    }),
+    [displayItems]
+  );
+  const projectReviewGaps = useMemo(
+    () =>
+      collectProjectWideScopeGaps(
+        evaluateProjectScopeGaps({
+          projectContext: checklist?.templateKey,
+          activeScopeKeys: scopeAssemblyContext.activeScopeKeys,
+          excludedScopeKeys: scopeAssemblyContext.excludedScopeKeys,
+        })
+      ),
+    [checklist?.templateKey, scopeAssemblyContext.activeScopeKeys, scopeAssemblyContext.excludedScopeKeys]
+  );
 
   const handleItemQuantityChange = (
     itemId: string,
     quantity: string,
     field: 'count' | 'allowance' = 'count',
-    unit?: string
+    unit?: string,
+    source: QuantitySource = 'user_entered'
   ) => {
     const baseItemId = itemId.replace(/__(allowance|sqft_basis|material|labor)$/, '');
     const rule = getChecklistItemQuantityRuleOrDefault(baseItemId, checklist?.templateKey);
@@ -2867,9 +3139,18 @@ export default function AIEstimateScopeAssumptionsModal({
           [roughAllowanceSubKey(itemId)]: {
             quantity,
             unit: unit || 'allowance',
-            quantitySource: 'user_entered',
+            quantitySource: source,
           },
         },
+        pricingAcceptance:
+          source === 'user_entered'
+            ? markManualPricingAdjustment(
+                prev.pricingAcceptance?.[baseItemId],
+                baseItemId,
+                prev.pricingAcceptance,
+                parsePricingAmount(quantity)
+              )
+            : prev.pricingAcceptance,
       }));
       return;
     }
@@ -2879,7 +3160,7 @@ export default function AIEstimateScopeAssumptionsModal({
         [itemId]: {
           quantity,
           unit: unit || (rule?.dualAllowanceField ? 'each' : rule.defaultUnit),
-          quantitySource: 'user_entered' as const,
+          quantitySource: source,
         },
       };
 
@@ -2933,6 +3214,15 @@ export default function AIEstimateScopeAssumptionsModal({
       return {
         ...prev,
         itemQuantities,
+        pricingAcceptance:
+          source === 'user_entered' && /__(allowance|sqft_basis|material|labor)$/.test(itemId)
+            ? markManualPricingAdjustment(
+                prev.pricingAcceptance?.[baseItemId],
+                baseItemId,
+                prev.pricingAcceptance,
+                parsePricingAmount(quantity)
+              )
+            : prev.pricingAcceptance,
       };
     });
   };
@@ -3034,6 +3324,7 @@ export default function AIEstimateScopeAssumptionsModal({
         ...selectedPricingRef.current,
         [itemId]: block,
       };
+      const acceptance = buildAcceptanceFromSuggestedBlock(block);
       setMeasurementsSynced((prev) => {
         const rule = getChecklistItemQuantityRuleOrDefault(itemId, checklist?.templateKey);
         const allowanceKey = rule.dualAllowanceField
@@ -3091,6 +3382,10 @@ export default function AIEstimateScopeAssumptionsModal({
         return {
           ...prev,
           itemQuantities,
+          pricingAcceptance: {
+            ...(prev.pricingAcceptance || {}),
+            [itemId]: acceptance,
+          },
         };
       });
       setTimeout(() => persistScopeProgressNow(), 0);
@@ -3351,7 +3646,7 @@ export default function AIEstimateScopeAssumptionsModal({
             lineHeight: 17,
           }}
         >
-          {noteSummary.fromNotes > 0 ? `${noteSummary.fromNotes} from notes · ` : ''}
+          {noteSummary.fromNotes > 0 ? `${scopeLinkedToNotesSummary(noteSummary.fromNotes)} · ` : ''}
           {summary.included} included
           {summary.needsMeasurement > 0 ? (
             <>
@@ -3370,6 +3665,8 @@ export default function AIEstimateScopeAssumptionsModal({
             </>
           ) : null}
         </Text>
+
+        <ProjectReviewSummary gaps={projectReviewGaps} Colors={Colors} darkMode={darkMode} />
 
         <CollapsibleQuickMeasurements
           expanded={quickMeasurementsOpen}
@@ -3511,12 +3808,14 @@ export default function AIEstimateScopeAssumptionsModal({
 
   return (
     <ScopePricingContextValue.Provider value={pricingContext}>
-      <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={handleBack}>
-        <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
-        <View style={{ flex: 1, backgroundColor: Colors.bg }}>
-          {body}
-        </View>
-      </Modal>
+      <ScopeAssemblyContextValue.Provider value={scopeAssemblyContext}>
+        <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={handleBack}>
+          <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
+          <View style={{ flex: 1, backgroundColor: Colors.bg }}>
+            {body}
+          </View>
+        </Modal>
+      </ScopeAssemblyContextValue.Provider>
     </ScopePricingContextValue.Provider>
   );
 }
@@ -3789,6 +4088,52 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     marginTop: 3,
     opacity: 0.82,
+  },
+  intelligenceNotice: {
+    marginTop: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: 3,
+  },
+  intelligenceNoticeText: {
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '600',
+  },
+  formulaNoticeBlock: {
+    gap: 4,
+  },
+  formulaActionButton: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  formulaActionText: {
+    color: '#22c55e',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  assemblyActionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 4,
+  },
+  assemblyActionChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  assemblyActionText: {
+    color: '#f59e0b',
+    fontSize: 10,
+    fontWeight: '800',
   },
   budgetSplitPanel: {
     marginTop: 10,
