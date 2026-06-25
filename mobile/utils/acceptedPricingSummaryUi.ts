@@ -264,6 +264,7 @@ function normalizeAcceptanceMetadata(
 ): ScopePricingAcceptanceMetadata {
   if (
     acceptance.selectionStatus !== 'accepted' &&
+    acceptance.selectionStatus !== 'manual_adjusted' &&
     acceptance.pricingSourceKind === 'user_entered' &&
     suggestedBlock &&
     Math.abs(Number(suggestedBlock.total) - Number(acceptance.totalAmount)) < 0.01
@@ -868,6 +869,7 @@ export function markManualPricingAdjustment(
       selectionStatus: 'manual_adjusted',
       pricingSourceLabel: 'User adjusted',
       pricingSourceKind: 'user_entered',
+      totalAmount: nextAmount ?? current.totalAmount,
       originalPricingSourceLabel: current.originalPricingSourceLabel || current.pricingSourceLabel,
       originalSuggestionLabel: current.originalSuggestionLabel || current.rateSourceLabel,
     },

@@ -17,7 +17,7 @@ function inputWith(
   return {
     ...emptyQuickMeasurementInput(),
     ...fields,
-    itemQuantities: {},
+    itemQuantities: fields.itemQuantities ?? {},
   } as ScopeMeasurementsInputExtended;
 }
 
@@ -302,7 +302,7 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(resolved).toMatchObject({
       pricingReady: false,
       showInput: true,
-      missingMessage: 'Needs pricing',
+      missingMessage: 'Enter framing sqft or pricing.',
     });
   });
 

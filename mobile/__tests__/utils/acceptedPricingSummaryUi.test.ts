@@ -224,7 +224,14 @@ describe('acceptedPricingSummaryUi', () => {
     const display = resolveAcceptedPricingDisplay({
       itemId: 'flooring',
       resolved,
-      acceptance: buildAcceptanceFromSuggestedBlock(block),
+      acceptance: {
+        selectionStatus: 'accepted',
+        pricingSourceLabel: 'National average',
+        pricingSourceKind: 'national_average',
+        pricingTypeLabel: 'Unit pricing',
+        geographicBasis: 'National',
+        totalAmount: 4800,
+      },
       suggestedBlock: block,
       intelligence: intelligence(),
     });
@@ -287,13 +294,29 @@ describe('acceptedPricingSummaryUi', () => {
     expect(action?.label).toBe('View breakdown');
   });
 
-  it('shows View original suggestion only when original suggestion data exists', () => {
+  it('preserves manual adjustment metadata when suggested block total still matches original acceptance', () => {
     const acceptance = buildAcceptanceFromSuggestedBlock(suggestedBlock());
-    const adjusted = markManualPricingAdjustment(acceptance, 'permits', { permits: acceptance }, 4000)!;
+    const adjustedRecord = markManualPricingAdjustment(acceptance, 'permits', { permits: acceptance }, 4000);
     const display = resolveAcceptedPricingDisplay({
       itemId: 'permits',
       resolved: allowanceResolved({ quantity: 4000 }),
-      acceptance: adjusted.permits,
+      acceptance: adjustedRecord?.permits,
+      suggestedBlock: suggestedBlock(),
+      intelligence: intelligence(),
+    });
+    expect(display.selectionStatusLabel).toBe('User adjusted');
+    expect(display.pricingSourceLabel).toBe('User adjusted');
+    expect(display.totalLabel).toBe('$4,000');
+  });
+
+  it('shows View original suggestion only when original suggestion data exists', () => {
+    const acceptance = buildAcceptanceFromSuggestedBlock(suggestedBlock());
+    const adjustedRecord = markManualPricingAdjustment(acceptance, 'permits', { permits: acceptance }, 4000);
+    expect(adjustedRecord?.permits.selectionStatus).toBe('manual_adjusted');
+    const display = resolveAcceptedPricingDisplay({
+      itemId: 'permits',
+      resolved: allowanceResolved({ quantity: 4000 }),
+      acceptance: adjustedRecord?.permits,
       suggestedBlock: suggestedBlock(),
       intelligence: intelligence(),
     });

@@ -925,6 +925,12 @@ const KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRul
     quantityHelper: 'Enter kitchen floor sqft for flooring removal.',
     missingMessage: 'Enter kitchen floor demo sqft.',
   },
+  flooring: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.flooring,
+    measurementKeys: ['kitchenFloorSqft', 'flooringSqft', 'floorAreaSqft', 'bathroomFloorSqft'],
+    quantityHelper: 'Enter kitchen floor sqft for flooring install.',
+    missingMessage: 'Enter kitchen floor sqft.',
+  },
 };
 
 const additionFloorAreaRule = (
@@ -1255,6 +1261,13 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<string, Record<string, PricingB
     flooring: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     paint: { unit: 'sqft', measurementKeys: ['wallPaintSqft', 'floorAreaSqft'] },
     trim: { unit: 'lf', measurementKeys: ['baseboardLf'] },
+  },
+  kitchen: {
+    floor_demo: { unit: 'sqft', measurementKeys: ['kitchenFloorSqft', 'flooringSqft', 'floorAreaSqft'] },
+    flooring: { unit: 'sqft', measurementKeys: ['kitchenFloorSqft', 'flooringSqft', 'floorAreaSqft'] },
+    cabinets: { unit: 'lf', measurementKeys: ['cabinetLf'] },
+    countertops: { unit: 'sqft', measurementKeys: ['countertopSqft', 'kitchenFloorSqft'] },
+    backsplash: { unit: 'sqft', measurementKeys: ['backsplashSqft'] },
   },
 };
 
