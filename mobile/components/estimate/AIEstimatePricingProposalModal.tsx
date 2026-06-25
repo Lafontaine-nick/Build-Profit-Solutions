@@ -400,6 +400,7 @@ function ScopeCard({
   const showConfirmInScope = Boolean(
     onConfirmScopeItem && suggestItemNeedsQuantityConfirmation(item)
   );
+  const showUseScopeSuggestion = Boolean(onConfirmScopeItem && item.scopeSuggestionAvailable);
   const showManualPriceAction = Boolean(onPriceScopeItem);
 
   useEffect(() => {
@@ -457,12 +458,19 @@ function ScopeCard({
           ]}
         >
           <Text style={{ color: '#fbbf24', fontSize: 12, fontWeight: '700' }}>
-            {(item.warnings || []).find((w) => /needs manual pricing — no reliable source/i.test(w)) ||
+            {item.scopeSuggestionAvailable
+              ? 'Suggested price available in Confirm Scope'
+              : (item.warnings || []).find((w) => /needs manual pricing — no reliable source/i.test(w)) ||
               (item.pricingBlocked
                 ? BLOCKED_PRICING_MESSAGE
                 : MANUAL_PRICING_NO_SOURCE_MESSAGE)}
           </Text>
         </View>
+        {item.scopeSuggestionAvailable ? (
+          <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 16, marginTop: 8 }}>
+            Use the Step 2 scope card suggestion, or add a manual price here.
+          </Text>
+        ) : null}
         {item.unitMismatchSubtext ? (
           <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 16, marginTop: 8 }}>
             {item.unitMismatchSubtext}
@@ -475,7 +483,7 @@ function ScopeCard({
               {w}
             </Text>
           ))}
-        {showManualPriceAction || showConfirmInScope ? (
+        {showManualPriceAction || showConfirmInScope || showUseScopeSuggestion ? (
           <View style={styles.unpricedActions}>
             {showManualPriceAction ? (
               <TouchableOpacity
@@ -497,7 +505,7 @@ function ScopeCard({
                 <Text style={styles.unpricedPrimaryBtnText}>Add price manually</Text>
               </TouchableOpacity>
             ) : null}
-            {showConfirmInScope ? (
+            {showConfirmInScope || showUseScopeSuggestion ? (
               <TouchableOpacity
                 activeOpacity={0.85}
                 style={styles.unpricedSecondaryBtn}
@@ -508,7 +516,9 @@ function ScopeCard({
                   onConfirmScopeItem?.(item.scopeName);
                 }}
               >
-                <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '700' }}>Confirm in scope</Text>
+                <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '700' }}>
+                  {showUseScopeSuggestion ? 'Use scope suggestion' : 'Confirm in scope'}
+                </Text>
               </TouchableOpacity>
             ) : null}
           </View>

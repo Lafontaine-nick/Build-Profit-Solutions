@@ -377,23 +377,181 @@ describe('acceptedPricingSummaryUi', () => {
     expect(action?.label).toBe('Compare sources');
   });
 
-  it('shows Review missing scope for item-specific unresolved components', () => {
+  it('shows count-based review action for item-specific unresolved components', () => {
     const display = displayForPermits();
+    const assemblyIntel = intelligence({
+      assembly: {
+        assemblyKey: 'permits',
+        label: 'Permits',
+        completeness: 'mostly_complete',
+        confidence: 'low',
+        unknownComponents: [
+          {
+            key: 'plan_check',
+            label: 'Plan check fees',
+            status: 'unknown',
+            severity: 'review',
+            relatedScopeKeys: ['permits'],
+            message: 'Not confirmed',
+          },
+        ],
+        missingComponents: [],
+        includedComponents: [],
+      },
+    });
+    const action = getPricingSecondaryAction({
+      display,
+      intelligence: assemblyIntel,
+      resolved: allowanceResolved(),
+      scopeKey: 'permits',
+    });
+    expect(action?.kind).toBe('review_missing_scope');
+    expect(action?.label).toBe('Review 1 scope assumption');
+    expect(
+      buildSecondaryDisclosureContent({
+        action: action!,
+        display,
+        intelligence: assemblyIntel,
+        resolved: allowanceResolved(),
+        scopeKey: 'permits',
+      })
+    ).toBeNull();
+  });
+
+  it('hides review action when all item-specific gaps are resolved', () => {
+    const display = displayForPermits();
+    const assemblyIntel = intelligence({
+      assembly: {
+        assemblyKey: 'permits',
+        label: 'Permits',
+        completeness: 'mostly_complete',
+        confidence: 'low',
+        unknownComponents: [
+          {
+            key: 'plan_check',
+            label: 'Plan check fees',
+            status: 'unknown',
+            severity: 'review',
+            relatedScopeKeys: ['permits'],
+            message: 'Not confirmed',
+          },
+        ],
+        missingComponents: [],
+        includedComponents: [],
+      },
+    });
+    const scopeGapResolutions = {
+      'permits::plan_check': { status: 'included' as const, updatedAt: '2026-01-01T00:00:00.000Z' },
+    };
+    expect(
+      getPricingSecondaryAction({
+        display,
+        intelligence: assemblyIntel,
+        resolved: allowanceResolved(),
+        scopeKey: 'permits',
+        scopeGapResolutions,
+      })
+    ).toBeNull();
+  });
+
+  it('shows needs-pricing card action when scope decisions are complete but pricing is not', () => {
+    const display = resolveAcceptedPricingDisplay({
+      itemId: 'excavation',
+      resolved: {
+        quantity: 2500,
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+        sourceLabel: 'User entered',
+        pricingReady: true,
+        showInput: false,
+      },
+      acceptance: buildAcceptanceFromSuggestedBlock(suggestedBlock({ total: 2500, labor: 2250, material: 250 })),
+      intelligence: intelligence(),
+    });
+    const assemblyIntel = intelligence({
+      assembly: {
+        assemblyKey: 'excavation',
+        label: 'Excavation',
+        completeness: 'mostly_complete',
+        confidence: 'low',
+        unknownComponents: [
+          {
+            key: 'export',
+            label: 'Export',
+            status: 'unknown',
+            severity: 'info',
+            relatedScopeKeys: ['excavation', 'haul_off'],
+            message: 'Not confirmed',
+          },
+        ],
+        missingComponents: [],
+        includedComponents: [],
+      },
+    });
+    const scopeGapResolutions = {
+      'excavation::export': {
+        status: 'price_separately' as const,
+        pricingStatus: 'needs_pricing' as const,
+        linkedLineItemId: 'haul_off',
+        parentScopeItemId: 'excavation',
+      },
+    };
+    const action = getPricingSecondaryAction({
+      display,
+      intelligence: assemblyIntel,
+      resolved: {
+        quantity: 2500,
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+        sourceLabel: 'User entered',
+        pricingReady: true,
+        showInput: false,
+      },
+      scopeKey: 'excavation',
+      scopeGapResolutions,
+      scopeGapPricingContext: { itemQuantities: {}, pricingAcceptance: {} },
+    });
+    expect(action?.kind).toBe('needs_separate_pricing');
+    expect(action?.label).toBe('1 item still needs pricing');
+  });
+
+  it('shows plural review label for multiple unresolved gaps', () => {
+    const display = resolveAcceptedPricingDisplay({
+      itemId: 'excavation',
+      resolved: {
+        quantity: 2500,
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+        sourceLabel: 'User entered',
+        pricingReady: true,
+        showInput: false,
+      },
+      acceptance: buildAcceptanceFromSuggestedBlock(suggestedBlock({ total: 2500, labor: 2250, material: 250 })),
+      intelligence: intelligence(),
+    });
     const action = getPricingSecondaryAction({
       display,
       intelligence: intelligence({
         assembly: {
-          assemblyKey: 'permits',
-          label: 'Permits',
+          assemblyKey: 'excavation',
+          label: 'Excavation',
           completeness: 'mostly_complete',
           confidence: 'low',
           unknownComponents: [
             {
-              key: 'meter_fees',
-              label: 'Meter fees',
+              key: 'export',
+              label: 'Export',
               status: 'unknown',
-              severity: 'review',
-              relatedScopeKeys: ['permits'],
+              severity: 'info',
+              relatedScopeKeys: ['excavation'],
+              message: 'Not confirmed',
+            },
+            {
+              key: 'dump_fees',
+              label: 'Dump fees',
+              status: 'unknown',
+              severity: 'info',
+              relatedScopeKeys: ['excavation'],
               message: 'Not confirmed',
             },
           ],
@@ -401,10 +559,17 @@ describe('acceptedPricingSummaryUi', () => {
           includedComponents: [],
         },
       }),
-      resolved: allowanceResolved(),
-      scopeKey: 'permits',
+      resolved: {
+        quantity: 2500,
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+        sourceLabel: 'User entered',
+        pricingReady: true,
+        showInput: false,
+      },
+      scopeKey: 'excavation',
     });
-    expect(action?.label).toBe('Review missing scope');
+    expect(action?.label).toBe('Review 2 scope assumptions');
   });
 
   it('preserves pricing acceptance metadata after removing generic disclosure', () => {

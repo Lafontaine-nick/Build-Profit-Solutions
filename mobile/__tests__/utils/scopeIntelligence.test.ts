@@ -1,5 +1,8 @@
 import {
+  buildCardIntelligenceDisplay,
+  cardConfidenceForIntelligence,
   classifyMeasurementRelationship,
+  detectActualDuplicatePricingConflicts,
   getScopeUnitDefinition,
   primaryIntelligenceNotice,
   pricingConfidenceForSuggestedBlock,
@@ -337,6 +340,21 @@ describe('scopeIntelligence', () => {
         })
       ).confidence
     ).toBe('medium');
+  });
+
+  it('keeps confidence low when benchmark inclusion profile is undefined', () => {
+    const confidence = pricingConfidenceForSuggestedBlock(
+      suggested({
+        benchmarkScopeProfile: {
+          sourceRecordId: 'national_average:excavation:cy',
+          pricingSource: 'national_average',
+          scopeAssumptionsDefined: false,
+          scopeAssumptions: [],
+        },
+      })
+    );
+    expect(confidence.confidence).toBe('low');
+    expect(confidence.reason).toMatch(/does not fully define what is included/i);
   });
 
   it('looks up approved formulas and assumptions by scope', () => {
@@ -984,5 +1002,148 @@ describe('scopeIntelligence', () => {
     expect(summary.pricingReadiness).toBeGreaterThanOrEqual(0);
     expect(summary.nationalAverageCount).toBeGreaterThanOrEqual(1);
     expect(summary.incompletePriceDefinitionCount).toBeGreaterThanOrEqual(0);
+  });
+
+  it('uses duplicate-pricing language for overlap definitions instead of inclusion wording', () => {
+    const excavationOverlap = getOverlapDefinitions().find((overlap) => overlap.key === 'excavation_trenching');
+    expect(excavationOverlap?.message).toMatch(/may overlap/i);
+    expect(excavationOverlap?.message).toMatch(/avoid duplicate pricing/i);
+    expect(excavationOverlap?.message).not.toMatch(/may cover/i);
+
+    for (const overlap of getOverlapDefinitions()) {
+      expect(overlap.message).toMatch(/avoid duplicate pricing/i);
+      expect(overlap.message).not.toMatch(/may cover/i);
+    }
+  });
+
+  it('summarizes defined national-average scope profiles without generic overlap warnings', () => {
+    const intelligence = resolveScopeItemIntelligence({
+      scopeKey: 'excavation',
+      templateKey: 'sitework',
+      notes: 'Excavate 50 CY for footings.',
+      measurements: emptyMeasurements({ excavationCy: 50 }),
+      activeScopeKeys: ['excavation', 'utility_trenching', 'backfill', 'haul_off'],
+      resolved: resolved({
+        quantity: 50,
+        unit: 'cy',
+        quantitySource: 'notes',
+        sourceLabel: 'Parsed from notes',
+        pricingReady: true,
+        showInput: false,
+      }),
+      suggestedPricing: suggested({
+        material: 250,
+        labor: 2250,
+        total: 2500,
+        basis: { quantity: 50, unit: 'cy' },
+        benchmarkScopeProfile: {
+          sourceRecordId: 'national_average:excavation:cy',
+          pricingSource: 'national_average',
+          scopeAssumptionsDefined: true,
+          scopeProfileSource: 'bps_standard_assumption',
+          scopeAssumptions: [
+            { scopeKey: 'excavation', status: 'included', displayLabel: 'Base excavation' },
+            { scopeKey: 'equipment', status: 'included', displayLabel: 'Excavation equipment' },
+            { scopeKey: 'operator', status: 'included', displayLabel: 'Operator labor' },
+            { scopeKey: 'haul_off', status: 'excluded', displayLabel: 'Haul-off / export', riskLevel: 'high' },
+            { scopeKey: 'dump_fees', status: 'excluded', displayLabel: 'Dump fees', riskLevel: 'high' },
+            { scopeKey: 'backfill', status: 'excluded', displayLabel: 'Backfill', riskLevel: 'high' },
+            { scopeKey: 'compaction', status: 'excluded', displayLabel: 'Compaction', riskLevel: 'high' },
+            { scopeKey: 'shoring', status: 'excluded', displayLabel: 'Shoring', riskLevel: 'high' },
+          ],
+        },
+      }),
+    });
+
+    expect(intelligence.quantity.confidence).toBe('high');
+    expect(cardConfidenceForIntelligence(intelligence)).toBe('low');
+    expect(intelligence.confidenceReasons).not.toContain('missing_scope_profile');
+    expect(intelligence.overlapRisk.hasOverlapRisk).toBe(false);
+    expect(primaryIntelligenceNotice(intelligence)).toBeNull();
+
+    const card = buildCardIntelligenceDisplay(intelligence);
+    expect(card.confidence).toBe('low');
+    expect(card.confidenceLabel).toBe('Low confidence');
+    expect(card.conciseBenchmarkWarning).toMatch(/national-average price covers Base excavation/i);
+    expect(card.conciseBenchmarkWarning).toMatch(/5 scope assumptions/i);
+    expect(card.duplicatePricingMessage).toBeNull();
+    expect(card.otherNotice).toBeNull();
+    expect(card.showQuantityConfidenceLine).toBe(true);
+  });
+
+  it('shows duplicate-pricing warnings only when related scopes have accepted prices', () => {
+    const conflict = detectActualDuplicatePricingConflicts({
+      scopeKey: 'excavation',
+      activeScopeKeys: ['excavation', 'backfill'],
+      overlaps: [
+        {
+          key: 'excavation_trenching',
+          componentKey: 'trench_excavation',
+          componentLabel: 'Trench excavation/backfill',
+          relatedScopeKeys: ['backfill'],
+          severity: 'review',
+          message: 'generic overlap',
+          resolutionOptions: [],
+        },
+      ],
+      pricingAcceptance: {
+        excavation: { selectionStatus: 'accepted', totalAmount: 2500 },
+        backfill: { selectionStatus: 'accepted', totalAmount: 1200 },
+      },
+    });
+    expect(conflict.hasOverlapRisk).toBe(true);
+    expect(conflict.title).toBe('Possible duplicate pricing');
+    expect(conflict.reason).toMatch(/separate price/i);
+
+    const noConflict = detectActualDuplicatePricingConflicts({
+      scopeKey: 'excavation',
+      activeScopeKeys: ['excavation', 'backfill'],
+      overlaps: [
+        {
+          key: 'excavation_trenching',
+          componentKey: 'trench_excavation',
+          componentLabel: 'Trench excavation/backfill',
+          relatedScopeKeys: ['backfill'],
+          severity: 'review',
+          message: 'generic overlap',
+          resolutionOptions: [],
+        },
+      ],
+    });
+    expect(noConflict.hasOverlapRisk).toBe(false);
+  });
+
+  it('does not lower card confidence from overlap alone when benchmark scope is defined', () => {
+    const intelligence = resolveScopeItemIntelligence({
+      scopeKey: 'cabinets',
+      templateKey: 'kitchen',
+      measurements: emptyMeasurements({ cabinetLf: 20 }),
+      activeScopeKeys: ['cabinets', 'countertops', 'trim'],
+      resolved: resolved({
+        quantity: 20,
+        unit: 'lf',
+        quantitySource: 'user_entered',
+        sourceLabel: 'User entered',
+        pricingReady: true,
+        showInput: false,
+      }),
+      suggestedPricing: suggested({
+        materialSource: 'template',
+        laborSource: 'template',
+        rateSourceLabel: 'Suggested · Saved rate',
+        benchmarkScopeProfile: {
+          sourceRecordId: 'template:cabinets',
+          pricingSource: 'saved_rate',
+          scopeAssumptionsDefined: true,
+          scopeAssumptions: [
+            { scopeKey: 'countertops', status: 'excluded', displayLabel: 'Countertops' },
+          ],
+        },
+      }),
+    });
+
+    expect(intelligence.overlapRisk.hasOverlapRisk).toBe(false);
+    expect(cardConfidenceForIntelligence(intelligence)).not.toBe('low');
+    expect(buildCardIntelligenceDisplay(intelligence).conciseBenchmarkWarning).toBeNull();
   });
 });

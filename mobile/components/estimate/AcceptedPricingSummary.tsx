@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { getColors } from '@/theme/getColors';
 import type { ScopeItemIntelligence } from '@/utils/scopeIntelligence';
 import type { AssemblyComponentStatus } from '@/utils/scopeAssemblyRegistry';
@@ -10,12 +10,27 @@ import {
   itemSpecificAssemblyComponents,
   type AcceptedPricingDisplay,
 } from '@/utils/acceptedPricingSummaryUi';
+import {
+  formatParentIncludedScopeGapSummary,
+  getReviewableScopeComponents,
+  type ScopeGapPricingContext,
+  type ScopeGapResolutionsMap,
+} from '@/utils/scopeReviewUi';
+import type { BenchmarkScopeAssumption, BenchmarkScopeAssumptionProfile } from '@/utils/benchmarkScopeAssumptions';
+import ScopeReviewSheet from '@/components/estimate/ScopeReviewSheet';
 
 function captionColor(darkMode: boolean, Colors: ReturnType<typeof getColors>) {
   return darkMode ? 'rgba(255,255,255,0.62)' : Colors.sub;
 }
 
 function confidenceBadgeColors(label: NonNullable<AcceptedPricingDisplay['confidenceLabel']>, darkMode: boolean) {
+  if (label === 'Scope review pending') {
+    return {
+      border: darkMode ? 'rgba(251,191,36,0.35)' : 'rgba(245,158,11,0.28)',
+      background: darkMode ? 'rgba(251,191,36,0.1)' : 'rgba(245,158,11,0.08)',
+      text: '#fbbf24',
+    };
+  }
   if (label === 'High confidence') {
     return {
       border: darkMode ? 'rgba(34,197,94,0.35)' : 'rgba(22,163,74,0.28)',
@@ -37,13 +52,7 @@ function confidenceBadgeColors(label: NonNullable<AcceptedPricingDisplay['confid
   };
 }
 
-export function PricingSourceBadge({
-  label,
-  darkMode,
-}: {
-  label: string;
-  darkMode: boolean;
-}) {
+export function PricingSourceBadge({ label, darkMode }: { label: string; darkMode: boolean }) {
   return (
     <View
       style={[
@@ -96,7 +105,6 @@ export function ScopeIntelligenceDetailsPanel({
   const formula = intelligence.formula;
   const assembly = intelligence.assembly;
   const pricingCompleteness = intelligence.pricingCompleteness;
-  const itemUnknown = itemSpecificAssemblyComponents(assembly?.unknownComponents, scopeKey);
   const itemMissing = itemSpecificAssemblyComponents(assembly?.missingComponents, scopeKey);
 
   return (
@@ -165,71 +173,6 @@ export function ScopeIntelligenceDetailsPanel({
           ))}
         </View>
       ) : null}
-      {itemUnknown.length ? (
-        <ScopeItemReviewDetails
-          components={itemUnknown}
-          Colors={Colors}
-          darkMode={darkMode}
-        />
-      ) : null}
-    </View>
-  );
-}
-
-function ScopeReviewPanel({
-  components,
-  Colors,
-  darkMode,
-}: {
-  components: AssemblyComponentStatus[];
-  Colors: ReturnType<typeof getColors>;
-  darkMode: boolean;
-}) {
-  return (
-    <View style={{ gap: 10 }}>
-      {components.map((component) => (
-        <View key={component.key} style={{ gap: 6 }}>
-          <Text style={[styles.detailText, { color: darkMode ? '#F5F7FA' : Colors.text, fontWeight: '700' }]}>
-            {component.label}
-          </Text>
-          <Text style={[styles.detailText, { color: captionColor(darkMode, Colors) }]}>Not confirmed</Text>
-          <View style={styles.actionRow}>
-            {['Included', 'Excluded', 'Priced elsewhere'].map((label) => (
-              <TouchableOpacity
-                key={`${component.key}-${label}`}
-                activeOpacity={0.75}
-                onPress={() =>
-                  Alert.alert(
-                    'Scope review noted',
-                    `${label} for ${component.label} will be saved with inclusion metadata. No totals were changed.`
-                  )
-                }
-                style={[styles.actionChip, { borderColor: darkMode ? 'rgba(245,158,11,0.35)' : 'rgba(245,158,11,0.28)' }]}
-              >
-                <Text style={styles.actionChipText}>{label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      ))}
-    </View>
-  );
-}
-
-function ScopeItemReviewDetails({
-  components,
-  Colors,
-  darkMode,
-}: {
-  components: AssemblyComponentStatus[];
-  Colors: ReturnType<typeof getColors>;
-  darkMode: boolean;
-}) {
-  if (!components.length) return null;
-  return (
-    <View style={{ gap: 8 }}>
-      <Text style={[styles.detailHeading, { color: '#f59e0b' }]}>Scope review</Text>
-      <ScopeReviewPanel components={components} Colors={Colors} darkMode={darkMode} />
     </View>
   );
 }
@@ -238,24 +181,61 @@ export function AcceptedPricingSummary({
   display,
   intelligence,
   scopeKey,
+  scopeItemLabel,
   resolved,
   suggestedBlock,
   comparisonBlock,
+  scopeGapResolutions,
+  scopeGapPricingContext,
+  originalNotes,
   Colors,
   darkMode,
   onEditPricing,
+  onScopeGapResolutionsChange,
+  onScopeGapPriceSeparately,
+  onScopeGapIncludeInParentPrice,
 }: {
   display: AcceptedPricingDisplay;
   intelligence: ScopeItemIntelligence;
   scopeKey: string;
+  scopeItemLabel: string;
   resolved: import('@/utils/scopeItemQuantities').ResolvedItemQuantity;
   suggestedBlock?: import('@/utils/scopeItemQuantities').SuggestedPricingBlock | null;
   comparisonBlock?: import('@/utils/scopeItemQuantities').SuggestedPricingBlock | null;
+  scopeGapResolutions?: ScopeGapResolutionsMap;
+  scopeGapPricingContext?: ScopeGapPricingContext;
+  originalNotes?: string | null;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   onEditPricing: () => void;
+  onScopeGapResolutionsChange?: (next: ScopeGapResolutionsMap) => void;
+  onScopeGapPriceSeparately?: (
+    componentKey: string,
+    component: AssemblyComponentStatus,
+    benchmarkAssumption?: BenchmarkScopeAssumption | null,
+    benchmarkProfile?: BenchmarkScopeAssumptionProfile | null
+  ) => void;
+  onScopeGapIncludeInParentPrice?: (
+    componentKey: string,
+    component: AssemblyComponentStatus,
+    addonAmount: number,
+    benchmarkAssumption?: BenchmarkScopeAssumption | null,
+    benchmarkProfile?: BenchmarkScopeAssumptionProfile | null
+  ) => void;
 }) {
   const [secondaryOpen, setSecondaryOpen] = useState(false);
+  const [scopeReviewOpen, setScopeReviewOpen] = useState(false);
+
+  const reviewableComponents = useMemo(
+    () =>
+      getReviewableScopeComponents(
+        intelligence.assembly?.unknownComponents,
+        scopeKey,
+        originalNotes,
+        suggestedBlock?.benchmarkScopeProfile
+      ),
+    [intelligence.assembly?.unknownComponents, scopeKey, originalNotes, suggestedBlock?.benchmarkScopeProfile]
+  );
 
   const secondaryAction = useMemo(
     () =>
@@ -266,12 +246,18 @@ export function AcceptedPricingSummary({
         suggestedBlock,
         comparisonBlock,
         scopeKey,
+        originalNotes,
+        scopeGapResolutions,
+        scopeGapPricingContext,
       }),
-    [display, intelligence, resolved, suggestedBlock, comparisonBlock, scopeKey]
+    [display, intelligence, resolved, suggestedBlock, comparisonBlock, scopeKey, originalNotes, scopeGapResolutions, scopeGapPricingContext]
   );
 
+  const opensScopeReviewSheet =
+    secondaryAction?.kind === 'review_missing_scope' || secondaryAction?.kind === 'needs_separate_pricing';
+
   const secondaryDisclosure = useMemo(() => {
-    if (!secondaryAction || !secondaryOpen) return null;
+    if (!secondaryAction || !secondaryOpen || opensScopeReviewSheet) return null;
     return buildSecondaryDisclosureContent({
       action: secondaryAction,
       display,
@@ -281,7 +267,22 @@ export function AcceptedPricingSummary({
       comparisonBlock,
       scopeKey,
     });
-  }, [secondaryAction, secondaryOpen, display, intelligence, resolved, suggestedBlock, comparisonBlock, scopeKey]);
+  }, [
+    secondaryAction,
+    secondaryOpen,
+    opensScopeReviewSheet,
+    display,
+    intelligence,
+    resolved,
+    suggestedBlock,
+    comparisonBlock,
+    scopeKey,
+  ]);
+
+  const includedAddonSummary = useMemo(
+    () => formatParentIncludedScopeGapSummary(scopeKey, scopeGapResolutions),
+    [scopeKey, scopeGapResolutions]
+  );
 
   const methodLine =
     display.pricingModel === 'unit_pricing' && display.subtitleLine
@@ -298,6 +299,11 @@ export function AcceptedPricingSummary({
       {display.pricingModel === 'material_labor_split' && display.subtitleLine ? (
         <Text style={[styles.subtitleText, { color: captionColor(darkMode, Colors) }]}>{display.subtitleLine}</Text>
       ) : null}
+      {includedAddonSummary ? (
+        <Text style={[styles.subtitleText, { color: captionColor(darkMode, Colors) }]}>
+          {includedAddonSummary}
+        </Text>
+      ) : null}
       <View style={styles.badgeRow}>
         <PricingSourceBadge label={display.pricingSourceLabel} darkMode={darkMode} />
         {display.showConfidenceBadge && display.confidenceLabel ? (
@@ -313,12 +319,20 @@ export function AcceptedPricingSummary({
         </TouchableOpacity>
         {secondaryAction ? (
           <TouchableOpacity
-            onPress={() => setSecondaryOpen((open) => !open)}
+            onPress={() => {
+              if (opensScopeReviewSheet) {
+                setScopeReviewOpen(true);
+              } else {
+                setSecondaryOpen((open) => !open);
+              }
+            }}
             activeOpacity={0.7}
             accessibilityRole="button"
-            accessibilityState={{ expanded: secondaryOpen }}
+            accessibilityState={{ expanded: opensScopeReviewSheet ? scopeReviewOpen : secondaryOpen }}
           >
-            <Text style={styles.editLink}>{secondaryOpen ? 'Hide' : secondaryAction.label}</Text>
+            <Text style={styles.editLink}>
+              {opensScopeReviewSheet ? secondaryAction.label : secondaryOpen ? 'Hide' : secondaryAction.label}
+            </Text>
           </TouchableOpacity>
         ) : null}
       </View>
@@ -342,15 +356,37 @@ export function AcceptedPricingSummary({
                 </Text>
               ))
             : null}
-          {secondaryDisclosure.kind === 'scope_review' ? (
-            <ScopeReviewPanel
-              components={secondaryDisclosure.components}
-              Colors={Colors}
-              darkMode={darkMode}
-            />
-          ) : null}
         </View>
       ) : null}
+
+      <ScopeReviewSheet
+        visible={scopeReviewOpen}
+        scopeItemId={scopeKey}
+        scopeItemLabel={scopeItemLabel}
+        priceLabel={display.totalLabel}
+        components={reviewableComponents}
+        benchmarkProfile={suggestedBlock?.benchmarkScopeProfile}
+        resolutions={scopeGapResolutions}
+        pricingContext={scopeGapPricingContext}
+        Colors={Colors}
+        darkMode={darkMode}
+        onClose={() => setScopeReviewOpen(false)}
+        onResolve={(next) => onScopeGapResolutionsChange?.(next)}
+        onPriceSeparately={(componentKey, component, benchmarkAssumption, benchmarkProfile) => {
+          onScopeGapPriceSeparately?.(componentKey, component, benchmarkAssumption, benchmarkProfile);
+          setScopeReviewOpen(false);
+        }}
+        onIncludeInParentPrice={(componentKey, component, addonAmount, benchmarkAssumption, benchmarkProfile) => {
+          onScopeGapIncludeInParentPrice?.(
+            componentKey,
+            component,
+            addonAmount,
+            benchmarkAssumption,
+            benchmarkProfile
+          );
+          setScopeReviewOpen(false);
+        }}
+      />
     </View>
   );
 }
@@ -473,22 +509,6 @@ const styles = StyleSheet.create({
   detailText: {
     fontSize: 12,
     lineHeight: 17,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  actionChip: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  actionChipText: {
-    color: '#f59e0b',
-    fontSize: 11,
-    fontWeight: '700',
   },
   inlineAction: {
     alignSelf: 'flex-start',

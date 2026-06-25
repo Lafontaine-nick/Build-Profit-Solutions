@@ -29,6 +29,18 @@ import {
   type ScopeItemQuantityRule,
   type SuggestedPricingBlock,
 } from '@/utils/scopeItemQuantities';
+import {
+  benchmarkScopeDefinitionQuality,
+  buildConciseBenchmarkScopeWarning,
+  canonicalBenchmarkScopeKey,
+  HIGH_IMPACT_FALLBACK_SCOPE_KEYS,
+  type BenchmarkScopeAssumptionProfile,
+} from '@/utils/benchmarkScopeAssumptions';
+import {
+  countUnresolvedScopeGaps,
+  getReviewableScopeComponents,
+  type ScopeGapResolutionsMap,
+} from '@/utils/scopeReviewUi';
 
 export type IntelligenceQuantitySource =
   | 'from_notes'
@@ -178,6 +190,25 @@ export type ScopePricingIntelligence = {
   reason: string;
 };
 
+export type OverlapRisk = {
+  hasOverlapRisk: boolean;
+  relatedScopeKeys: string[];
+  reason?: string;
+  title?: string;
+};
+
+export type CardIntelligenceDisplay = {
+  confidence: IntelligenceConfidence;
+  confidenceLabel: string;
+  sourceLabel: string;
+  conciseBenchmarkWarning: string | null;
+  duplicatePricingMessage: string | null;
+  duplicatePricingTitle: string | null;
+  otherNotice: string | null;
+  confidenceReasons: string[];
+  showQuantityConfidenceLine: boolean;
+};
+
 export type ScopeItemIntelligence = {
   scopeItemKey: string;
   unitDefinition: ScopeUnitDefinition;
@@ -210,12 +241,19 @@ export type ScopeItemIntelligence = {
   canContinue: boolean;
   quantity: ScopeQuantityIntelligence;
   pricing: ScopePricingIntelligence;
+  benchmarkScopeProfile?: BenchmarkScopeAssumptionProfile | null;
+  overlapRisk: OverlapRisk;
+  confidenceReasons: string[];
   pricingCompleteness?: PricingCompletenessResult | null;
+  reviewableAssumptionCount: number;
+  unresolvedAssumptionCount: number;
   validation: {
     status: 'ready' | 'review_required' | 'measurement_needed' | 'blocked';
     issues: ScopeIntelligenceIssue[];
   };
 };
+
+type ScopeGapResolutionsLike = Record<string, { status?: string }>;
 
 const CONFIDENCE_LABELS: Record<IntelligenceConfidence, string> = {
   high: 'High confidence',
@@ -1086,6 +1124,25 @@ export function pricingConfidenceForSource(source: PricingSourceKind): ScopePric
 export function pricingConfidenceForSuggestedBlock(
   block?: SuggestedPricingBlock | null
 ): ScopePricingIntelligence {
+  if (block?.benchmarkScopeProfile) {
+    const quality = benchmarkScopeDefinitionQuality(block.benchmarkScopeProfile);
+    if (quality === 'undefined') {
+      return {
+        source: pricingSourceFromBlock(block),
+        confidence: 'low',
+        confidenceLabel: CONFIDENCE_LABELS.low,
+        reason: 'Pricing source does not fully define what is included.',
+      };
+    }
+    if (quality === 'partial') {
+      return {
+        source: pricingSourceFromBlock(block),
+        confidence: 'low',
+        confidenceLabel: CONFIDENCE_LABELS.low,
+        reason: 'Pricing source has incomplete scope assumptions.',
+      };
+    }
+  }
   return pricingConfidenceForSource(pricingSourceFromBlock(block));
 }
 
@@ -1103,6 +1160,10 @@ export function resolveScopeItemIntelligence(params: {
   projectLocation?: ProjectLocation | null;
   projectMarkupPercent?: number | null;
   projectMarginPercent?: number | null;
+  pricingAcceptance?: Record<string, { selectionStatus?: string; totalAmount?: number }>;
+  scopeGapResolutions?: ScopeGapResolutionsLike;
+  itemQuantities?: Record<string, { quantity?: string | number | null; unit?: string; quantitySource?: string }>;
+  pricingAccepted?: boolean;
 }): ScopeItemIntelligence {
   const rule = getChecklistItemQuantityRule(params.scopeKey, params.templateKey);
   const unitDefinition = getScopeUnitDefinition(params.scopeKey, params.templateKey);
@@ -1194,8 +1255,44 @@ export function resolveScopeItemIntelligence(params: {
     excludedScopeKeys: params.excludedScopeKeys,
   });
   const overlaps = assembly?.possibleOverlaps || [];
+  const benchmarkScopeProfile = params.suggestedPricing?.benchmarkScopeProfile ?? null;
+  const reviewableAssumptionCount = countReviewableScopeAssumptionsForIntelligence(
+    params.scopeKey,
+    benchmarkScopeProfile
+  );
+  const reviewableComponents = getReviewableScopeComponents(
+    assembly?.unknownComponents,
+    params.scopeKey,
+    params.notes,
+    benchmarkScopeProfile
+  );
+  const unresolvedAssumptionCount = countUnresolvedScopeGaps(
+    params.scopeKey,
+    reviewableComponents,
+    params.scopeGapResolutions as ScopeGapResolutionsMap | undefined,
+    {
+      itemQuantities: params.itemQuantities,
+      pricingAcceptance: params.pricingAcceptance,
+    }
+  );
+  const overlapRisk = detectActualDuplicatePricingConflicts({
+    scopeKey: params.scopeKey,
+    activeScopeKeys: params.activeScopeKeys || [],
+    overlaps,
+    pricingAcceptance: params.pricingAcceptance,
+    benchmarkProfile: benchmarkScopeProfile,
+    scopeGapResolutions: params.scopeGapResolutions,
+  });
+  const confidenceReasons = buildConfidenceReasons({
+    quantity,
+    pricing,
+    benchmarkScopeProfile,
+    overlapRisk,
+  });
   const dependencies = assembly?.dependencies || [];
-  const assemblyNotices = assembly?.notices || [];
+  const assemblyNotices = (assembly?.notices || []).filter(
+    (notice) => notice.ruleKey !== 'scope_possible_overlap'
+  );
   const pricingCompleteness = evaluatePricingCompleteness({
     scopeKey: params.scopeKey,
     trade: unitDefinition.trade,
@@ -1249,6 +1346,11 @@ export function resolveScopeItemIntelligence(params: {
     canContinue: !blocking,
     quantity,
     pricing,
+    benchmarkScopeProfile,
+    reviewableAssumptionCount,
+    unresolvedAssumptionCount,
+    overlapRisk,
+    confidenceReasons,
     pricingCompleteness,
     validation: {
       status: blocking
@@ -1260,6 +1362,222 @@ export function resolveScopeItemIntelligence(params: {
             : 'ready',
       issues: allValidationIssues,
     },
+  };
+}
+
+const CONFIDENCE_RANK: Record<IntelligenceConfidence, number> = {
+  high: 3,
+  medium: 2,
+  low: 1,
+  missing: 0,
+};
+
+function lowerConfidence(
+  current: IntelligenceConfidence,
+  candidate: IntelligenceConfidence
+): IntelligenceConfidence {
+  return CONFIDENCE_RANK[current] <= CONFIDENCE_RANK[candidate] ? current : candidate;
+}
+
+export function buildOverlapRisk(overlaps: ScopeOverlapNotice[]): OverlapRisk {
+  const primary = overlaps[0];
+  if (!primary) {
+    return { hasOverlapRisk: false, relatedScopeKeys: [] };
+  }
+  return {
+    hasOverlapRisk: true,
+    relatedScopeKeys: primary.relatedScopeKeys,
+    reason: primary.message,
+  };
+}
+
+function countReviewableScopeAssumptionsForIntelligence(
+  scopeKey: string,
+  profile: BenchmarkScopeAssumptionProfile | null | undefined
+): number {
+  if (!profile?.scopeAssumptionsDefined) {
+    if (scopeKey === 'excavation') return 5;
+    const keys = HIGH_IMPACT_FALLBACK_SCOPE_KEYS[scopeKey] || [];
+    return new Set(keys.map((key) => canonicalBenchmarkScopeKey(key))).size;
+  }
+  return profile.scopeAssumptions.filter((assumption) => {
+    if (assumption.status === 'included') return assumption.riskLevel === 'high';
+    return assumption.status === 'excluded' || assumption.status === 'conditional' || assumption.status === 'unknown';
+  }).length;
+}
+
+function scopeKeyLabel(scopeKey: string): string {
+  return scopeKey.replace(/_/g, ' ');
+}
+
+function scopeHasAcceptedPricing(
+  scopeKey: string,
+  pricingAcceptance?: Record<string, { selectionStatus?: string; totalAmount?: number }>
+): boolean {
+  const acceptance = pricingAcceptance?.[scopeKey];
+  if (!acceptance) return false;
+  return acceptance.selectionStatus === 'accepted' || acceptance.selectionStatus === 'manual_adjusted';
+}
+
+export function detectActualDuplicatePricingConflicts(params: {
+  scopeKey: string;
+  activeScopeKeys: string[];
+  overlaps: ScopeOverlapNotice[];
+  pricingAcceptance?: Record<string, { selectionStatus?: string; totalAmount?: number }>;
+  benchmarkProfile?: BenchmarkScopeAssumptionProfile | null;
+  scopeGapResolutions?: ScopeGapResolutionsLike;
+}): OverlapRisk {
+  const relatedKeys: string[] = [];
+  const messages: string[] = [];
+  const active = new Set(params.activeScopeKeys);
+  const currentAccepted = scopeHasAcceptedPricing(params.scopeKey, params.pricingAcceptance);
+
+  for (const overlap of params.overlaps) {
+    const pricedRelated = overlap.relatedScopeKeys.filter(
+      (key) =>
+        key !== params.scopeKey &&
+        active.has(key) &&
+        scopeHasAcceptedPricing(key, params.pricingAcceptance)
+    );
+    if (currentAccepted && pricedRelated.length > 0) {
+      const relatedLabel = scopeKeyLabel(pricedRelated[0]);
+      const parentLabel = scopeKeyLabel(params.scopeKey);
+      messages.push(
+        `${relatedLabel.charAt(0).toUpperCase()}${relatedLabel.slice(1)} may already be included in ${parentLabel} and also has a separate price. Review both items.`
+      );
+      relatedKeys.push(...pricedRelated);
+    }
+  }
+
+  if (params.benchmarkProfile?.scopeAssumptionsDefined) {
+    for (const assumption of params.benchmarkProfile.scopeAssumptions) {
+      if (assumption.status !== 'included') continue;
+      const relatedScopeKey = assumption.scopeKey;
+      if (
+        active.has(relatedScopeKey) &&
+        scopeHasAcceptedPricing(relatedScopeKey, params.pricingAcceptance) &&
+        relatedScopeKey !== params.scopeKey
+      ) {
+        const label = assumption.displayLabel || scopeKeyLabel(relatedScopeKey);
+        messages.push(
+          `${label} is included in the suggested ${scopeKeyLabel(params.scopeKey)} price but also has separate pricing. Review both items.`
+        );
+        relatedKeys.push(relatedScopeKey);
+      }
+    }
+  }
+
+  if (params.scopeGapResolutions) {
+    for (const [key, record] of Object.entries(params.scopeGapResolutions)) {
+      const separator = key.indexOf('::');
+      if (separator <= 0) continue;
+      const parentScopeItemId = key.slice(0, separator);
+      const componentKey = key.slice(separator + 2);
+      if (parentScopeItemId !== params.scopeKey || record.status !== 'included') continue;
+      for (const relatedScopeKey of [componentKey, ...(params.overlaps[0]?.relatedScopeKeys || [])]) {
+        if (
+          relatedScopeKey !== params.scopeKey &&
+          active.has(relatedScopeKey) &&
+          scopeHasAcceptedPricing(relatedScopeKey, params.pricingAcceptance)
+        ) {
+          const label = scopeKeyLabel(relatedScopeKey);
+          messages.push(
+            `${label.charAt(0).toUpperCase()}${label.slice(1)} may already be covered by ${scopeKeyLabel(params.scopeKey)} and also has a separate price. Review both items.`
+          );
+          relatedKeys.push(relatedScopeKey);
+        }
+      }
+    }
+  }
+
+  if (!messages.length) {
+    return { hasOverlapRisk: false, relatedScopeKeys: [] };
+  }
+  return {
+    hasOverlapRisk: true,
+    relatedScopeKeys: [...new Set(relatedKeys)],
+    reason: messages[0],
+    title: 'Possible duplicate pricing',
+  };
+}
+
+export function benchmarkScopeUndefinedCardMessage(
+  profile: BenchmarkScopeAssumptionProfile | null | undefined,
+  pricingSource?: PricingSourceKind
+): string | null {
+  if (benchmarkScopeDefinitionQuality(profile) !== 'undefined') return null;
+  if (pricingSource === 'national_average') {
+    return 'This national-average price does not fully define its inclusions. Review high-impact scope items before using it.';
+  }
+  return 'This price source does not fully define its inclusions. Review high-impact scope items before using it.';
+}
+
+export function buildConfidenceReasons(params: {
+  quantity: ScopeQuantityIntelligence;
+  pricing: ScopePricingIntelligence;
+  benchmarkScopeProfile?: BenchmarkScopeAssumptionProfile | null;
+  overlapRisk: OverlapRisk;
+}): string[] {
+  const reasons: string[] = [];
+  if (params.benchmarkScopeProfile && !params.benchmarkScopeProfile.scopeAssumptionsDefined) {
+    reasons.push('missing_scope_profile');
+  }
+  if (params.pricing.confidence === 'low' && params.pricing.reason) {
+    reasons.push(params.pricing.reason);
+  }
+  if (params.overlapRisk.hasOverlapRisk) {
+    reasons.push('possible_scope_overlap');
+  }
+  if (params.quantity.confidence === 'medium' || params.quantity.confidence === 'low') {
+    reasons.push(params.quantity.reason);
+  }
+  return reasons;
+}
+
+export function cardConfidenceForIntelligence(intelligence: ScopeItemIntelligence): IntelligenceConfidence {
+  let confidence = intelligence.quantity.confidence;
+  const profile = intelligence.benchmarkScopeProfile;
+  if (profile && benchmarkScopeDefinitionQuality(profile) !== 'defined') {
+    confidence = lowerConfidence(confidence, 'low');
+  } else if (intelligence.pricing.source !== 'unknown') {
+    confidence = lowerConfidence(confidence, intelligence.pricing.confidence);
+  }
+  return confidence;
+}
+
+export function buildCardIntelligenceDisplay(
+  intelligence: ScopeItemIntelligence,
+  options?: { pricingAccepted?: boolean }
+): CardIntelligenceDisplay {
+  const confidence = cardConfidenceForIntelligence(intelligence);
+  const profileUndefined = benchmarkScopeDefinitionQuality(intelligence.benchmarkScopeProfile) === 'undefined';
+  const conciseBenchmarkWarning = buildConciseBenchmarkScopeWarning({
+    profile: intelligence.benchmarkScopeProfile,
+    pricingSource: intelligence.pricing.source,
+    assumptionCount: intelligence.unresolvedAssumptionCount ?? intelligence.reviewableAssumptionCount,
+    pricingAccepted: options?.pricingAccepted,
+  });
+  const otherNotice = primaryIntelligenceNotice(intelligence);
+  const suppressOtherNotice =
+    Boolean(conciseBenchmarkWarning) &&
+    Boolean(
+      otherNotice &&
+        (/national average|does not fully define|pricing source/i.test(otherNotice) ||
+          otherNotice === intelligence.pricing.reason)
+    );
+
+  return {
+    confidence,
+    confidenceLabel: CONFIDENCE_LABELS[confidence],
+    sourceLabel: intelligence.quantity.sourceLabel,
+    conciseBenchmarkWarning,
+    duplicatePricingMessage: intelligence.overlapRisk.hasOverlapRisk
+      ? intelligence.overlapRisk.reason ?? null
+      : null,
+    duplicatePricingTitle: intelligence.overlapRisk.title ?? null,
+    otherNotice: suppressOtherNotice ? null : otherNotice,
+    confidenceReasons: intelligence.confidenceReasons,
+    showQuantityConfidenceLine: !profileUndefined || confidence !== intelligence.quantity.confidence,
   };
 }
 
@@ -1279,7 +1597,10 @@ export function primaryIntelligenceNotice(intelligence: ScopeItemIntelligence): 
     const sign = intelligence.formulaComparison.variancePercent > 0 ? '+' : '';
     return `Calculated comparison: ${intelligence.formulaComparison.calculatedValue.toLocaleString()} ${formatUnitLabel(intelligence.formulaComparison.calculatedUnit)} (${sign}${intelligence.formulaComparison.variancePercent}% vs current).`;
   }
-  const issue = intelligence.validation.issues.find((i) => i.severity === 'warning' || i.severity === 'review');
+  const issue = intelligence.validation.issues.find(
+    (i) =>
+      (i.severity === 'warning' || i.severity === 'review') && i.ruleKey !== 'scope_possible_overlap'
+  );
   if (issue) return issue.message;
   if (intelligence.quantity.confidence === 'low') return intelligence.quantity.reason;
   return null;

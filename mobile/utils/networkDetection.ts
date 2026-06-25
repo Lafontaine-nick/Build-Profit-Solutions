@@ -153,9 +153,23 @@ export const getNetworkInfo = (): NetworkInfo => {
     recommendedApiUrl = 'https://build-profit-solutions-backend.onrender.com';
     console.log('✅ Production mode - using Render backend');
   } else if (isExpoGo || isPhysicalDevice) {
-    // Expo Go or physical device - use auto-detected or configured local IP
-    const envUrl = Constants.expoConfig?.extra?.devApiBaseUrl;
-    if (envUrl && (envUrl.includes('192.168') || envUrl.includes('10.0.2.2') || envUrl.includes('172.'))) {
+    // Expo Go or physical device — explicit .env LAN URL beats Metro auto-detect (stale hostUri).
+    const extra = Constants.expoConfig?.extra as
+      | { devApiBaseUrl?: string; apiBaseUrl?: string }
+      | undefined;
+    const explicitApiBase =
+      process.env.EXPO_PUBLIC_API_BASE_URL?.trim() ||
+      process.env.EXPO_PUBLIC_DEV_API_BASE_URL?.trim() ||
+      extra?.apiBaseUrl?.trim() ||
+      extra?.devApiBaseUrl?.trim() ||
+      '';
+    const explicitLanIp = explicitApiBase ? extractIpFromSource(explicitApiBase) : null;
+
+    const envUrl = extra?.devApiBaseUrl;
+    if (explicitLanIp && explicitApiBase && /192\.168\.|10\.|172\./.test(explicitApiBase)) {
+      recommendedApiUrl = `http://${explicitLanIp}:3001`;
+      console.log('✅ Using LOCAL backend from EXPO_PUBLIC_API_BASE_URL:', recommendedApiUrl);
+    } else if (envUrl && (envUrl.includes('192.168') || envUrl.includes('10.0.2.2') || envUrl.includes('172.'))) {
       recommendedApiUrl = envUrl;
       console.log('✅ Using LOCAL backend from config:', envUrl);
     } else if (autoDetectedIP) {

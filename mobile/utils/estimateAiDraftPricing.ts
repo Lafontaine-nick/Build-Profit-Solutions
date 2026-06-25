@@ -15,6 +15,7 @@ import {
   isPlaceholderAllowancePricing,
   lookupRuleKeyForPackage,
   normalizeScopeMeasurements,
+  ruleKeysToTryForPackage,
   resolveChecklistItemQuantity,
   getNationalAverageBudgetSplit,
 } from '@/utils/scopeItemQuantities';
@@ -350,6 +351,7 @@ export type PricingScopeItemProposal = {
   autoSelectEligible?: boolean;
   unitMismatchSubtext?: string | null;
   approvalSubtext?: string | null;
+  scopeSuggestionAvailable?: boolean;
 };
 
 export type PricingReviewStatus =
@@ -1858,25 +1860,16 @@ function scopePricingLinesForPackage(
   pkg: EstimateDraftScopePackage,
   draft: EstimateAiDraft
 ): PricingProposalLine[] {
-  const itemId = lookupRuleKeyForPackage(pkg.name, pkg.scope || '');
-  if (!itemId) return [];
   const itemQuantities = draft.scopeMeasurements?.itemQuantities || {};
-  const allowance = scopeQuantityEntry(itemQuantities, allowanceSplitSubKey(itemId, 'allowance'));
-  const direct = scopeQuantityEntry(itemQuantities, itemId);
-  const material = scopeQuantityEntry(itemQuantities, allowanceSplitSubKey(itemId, 'material'));
-  const labor = scopeQuantityEntry(itemQuantities, allowanceSplitSubKey(itemId, 'labor'));
-
-  const fallbackAllowance =
-    direct &&
-    ['allowance', 'lump_sum'].includes(String(direct.unit || '').toLowerCase()) &&
-    !isPlaceholderAllowancePricing(direct.quantity, direct.unit, itemId)
-      ? direct
-      : null;
-  const totalAllowance = allowance || fallbackAllowance;
+  const pricingAcceptance = draft.scopeMeasurements?.pricingAcceptance || {};
 
   const sourceLabel = 'Entered in Confirm Scope';
-  const lines: PricingProposalLine[] = [];
-  const addLump = (lineType: 'material' | 'labor' | 'lump_sum', label: string, total: number) => {
+  const addLump = (
+    lines: PricingProposalLine[],
+    lineType: 'material' | 'labor' | 'lump_sum',
+    label: string,
+    total: number
+  ) => {
     lines.push({
       packageName: pkg.name,
       lineType,
@@ -1894,12 +1887,50 @@ function scopePricingLinesForPackage(
     });
   };
 
-  if (material?.quantity) addLump('material', `${pkg.name} material`, material.quantity);
-  if (labor?.quantity) addLump('labor', `${pkg.name} labor`, labor.quantity);
-  if (!lines.length && totalAllowance?.quantity) {
-    addLump('lump_sum', `${pkg.name} allowance`, totalAllowance.quantity);
+  for (const itemId of ruleKeysToTryForPackage(pkg.name, pkg.scope || '')) {
+    const acceptance = pricingAcceptance[itemId];
+    const allowance = scopeQuantityEntry(itemQuantities, allowanceSplitSubKey(itemId, 'allowance'));
+    const direct = scopeQuantityEntry(itemQuantities, itemId);
+    const material = scopeQuantityEntry(itemQuantities, allowanceSplitSubKey(itemId, 'material'));
+    const labor = scopeQuantityEntry(itemQuantities, allowanceSplitSubKey(itemId, 'labor'));
+
+    if (
+      acceptance &&
+      Number(acceptance.totalAmount) > 0 &&
+      (acceptance.selectionStatus === 'accepted' || acceptance.selectionStatus === 'manual_adjusted')
+    ) {
+      const lines: PricingProposalLine[] = [];
+      const materialAmount = Number(acceptance.materialAmount ?? material?.quantity ?? 0);
+      const laborAmount = Number(acceptance.laborAmount ?? labor?.quantity ?? 0);
+      const allowanceAmount = Number(acceptance.allowanceAmount ?? 0);
+      const subcontractorAmount = Number(acceptance.subcontractorAmount ?? 0);
+      if (materialAmount > 0) addLump(lines, 'material', `${pkg.name} material`, materialAmount);
+      if (laborAmount > 0) addLump(lines, 'labor', `${pkg.name} labor`, laborAmount);
+      if (allowanceAmount > 0) addLump(lines, 'lump_sum', `${pkg.name} allowance`, allowanceAmount);
+      if (subcontractorAmount > 0) {
+        addLump(lines, 'lump_sum', `${pkg.name} subcontractor allowance`, subcontractorAmount);
+      }
+      if (!lines.length) addLump(lines, 'lump_sum', `${pkg.name} allowance`, acceptance.totalAmount);
+      return lines;
+    }
+
+    const fallbackAllowance =
+      direct &&
+      ['allowance', 'lump_sum'].includes(String(direct.unit || '').toLowerCase()) &&
+      !isPlaceholderAllowancePricing(direct.quantity, direct.unit, itemId)
+        ? direct
+        : null;
+    const totalAllowance = allowance || fallbackAllowance;
+
+    const lines: PricingProposalLine[] = [];
+    if (material?.quantity) addLump(lines, 'material', `${pkg.name} material`, material.quantity);
+    if (labor?.quantity) addLump(lines, 'labor', `${pkg.name} labor`, labor.quantity);
+    if (!lines.length && totalAllowance?.quantity) {
+      addLump(lines, 'lump_sum', `${pkg.name} allowance`, totalAllowance.quantity);
+    }
+    if (lines.length) return lines;
   }
-  return lines;
+  return [];
 }
 
 function mergeScopeConfirmationPricing(
@@ -1919,8 +1950,10 @@ function mergeScopeConfirmationPricing(
   }
   for (const line of scopeLines) {
     const key = normalizePackageKey(line.packageName) || line.packageName;
-    if (linesForPackageName(linesByPkg, line.packageName).length) continue;
-    linesByPkg.set(key, [line]);
+    const existingScopeLines = linesByPkg.get(key) || [];
+    const list = existingScopeLines.filter((existing) => existing.priceSource === 'scope_confirmation');
+    list.push(line);
+    linesByPkg.set(key, list);
   }
 
   const lines = [...linesByPkg.values()].flat();
@@ -2536,12 +2569,32 @@ function enrichSavedScopeItemsFromDraft(
 ): PricingProposal {
   const notes = String(draft.originalNotes || '');
   const packages = getScopePackages(expandDraftForPricingMatch(draft));
-  const scopeItems = [...(proposal.scopeItems || [])];
+  const scopeSuggestionAvailableFor = (pkg: EstimateDraftScopePackage): boolean => {
+    const qtyInfo = pickPackageQuantity(pkg, notes, draft);
+    if (!qtyInfo) return false;
+    return ruleKeysToTryForPackage(pkg.name, pkg.scope || '').some((key) =>
+      Boolean(getNationalAverageBudgetSplit(key, qtyInfo.unit))
+    );
+  };
+  const matchingPackageFor = (scopeName: string) =>
+    packages.find((pkg) => packageKeysMatch(scopeName, pkg.name));
+  const markScopeSuggestion = (item: PricingScopeItemProposal): PricingScopeItemProposal => {
+    const pkg = matchingPackageFor(item.scopeName);
+    if (!pkg || !scopeSuggestionAvailableFor(pkg)) return item;
+    const hasRates = (item.proposedRates || []).some((rate) => (rate.total || 0) > 0);
+    return {
+      ...item,
+      scopeSuggestionAvailable: true,
+      warnings: hasRates ? item.warnings : ['Suggested price available in Confirm Scope'],
+    };
+  };
+  const scopeItems = [...(proposal.scopeItems || [])].map(markScopeSuggestion);
 
   for (const pkg of packages) {
     const found = scopeItems.some((s) => packageKeysMatch(s.scopeName, pkg.name));
     if (found) continue;
     const qtyInfo = pickPackageQuantity(pkg, notes, draft);
+    const scopeSuggestionAvailable = scopeSuggestionAvailableFor(pkg);
     scopeItems.push({
       scopeItemId: normalizePackageKey(pkg.name).replace(/\s+/g, '_') || 'scope',
       scopeName: pkg.name,
@@ -2550,7 +2603,8 @@ function enrichSavedScopeItemsFromDraft(
       proposedRates: [],
       comparison: {},
       recommended: null,
-      warnings: ['Needs pricing'],
+      warnings: [scopeSuggestionAvailable ? 'Suggested price available in Confirm Scope' : 'Needs pricing'],
+      scopeSuggestionAvailable,
     });
   }
 

@@ -5891,7 +5891,7 @@ export default function EstimateGeneratorScreen() {
       }
 
       try {
-        await advanceComplexDraftAfterScope(enriched);
+        await advanceComplexDraftAfterScope(enriched, { skipPricing: true });
       } catch (e) {
         console.warn('advanceComplexDraftAfterScope failed', e);
         setShowAiDraftReviewModal(true);

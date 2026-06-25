@@ -1,4 +1,15 @@
+import {
+  countNeedsSeparatePricing,
+  countUnresolvedScopeDecisions,
+  countUnresolvedScopeGaps,
+  formatNeedsSeparatePricingLabel,
+  formatReviewScopeItemsLabel,
+  getReviewableScopeComponents,
+  type ScopeGapPricingContext,
+  type ScopeGapResolutionsMap,
+} from '@/utils/scopeReviewUi';
 import type { ScopeItemIntelligence } from '@/utils/scopeIntelligence';
+import { buildConciseBenchmarkScopeWarning } from '@/utils/benchmarkScopeAssumptions';
 import type { AssemblyComponentStatus, ScopeGapNotice } from '@/utils/scopeAssemblyRegistry';
 import type { ResolvedItemQuantity, ScopeItemQuantityValue, SuggestedPricingBlock } from '@/utils/scopeItemQuantities';
 import {
@@ -26,6 +37,8 @@ export type ScopePricingAcceptanceMetadata = {
   lumpSumOnly?: boolean;
   materialAmount?: number;
   laborAmount?: number;
+  allowanceAmount?: number;
+  subcontractorAmount?: number;
   totalAmount: number;
 };
 
@@ -34,11 +47,13 @@ export type PricingSecondaryActionKind =
   | 'view_breakdown'
   | 'compare_sources'
   | 'view_original_suggestion'
-  | 'review_missing_scope';
+  | 'review_missing_scope'
+  | 'needs_separate_pricing';
 
 export type PricingSecondaryAction = {
   kind: PricingSecondaryActionKind;
   label: string;
+  unresolvedScopeGapCount?: number;
 };
 
 export type PricingSecondaryDisclosure =
@@ -60,8 +75,8 @@ export type AcceptedPricingDisplay = {
   pricingTypeLabel: string;
   subtitleLine: string | null;
   geographicBasis: string;
-  confidenceLabel: 'High confidence' | 'Medium confidence' | 'Low confidence' | null;
-  confidenceShortLabel: 'High' | 'Medium' | 'Low' | null;
+  confidenceLabel: 'High confidence' | 'Medium confidence' | 'Low confidence' | 'Scope review pending' | null;
+  confidenceShortLabel: 'High' | 'Medium' | 'Low' | 'Pending' | null;
   showConfidenceBadge: boolean;
   warningMessage: string | null;
   acceptance: ScopePricingAcceptanceMetadata;
@@ -229,7 +244,7 @@ export function resolveAcceptedPricingDisplay(params: {
     params.suggestedBlock,
     params.intelligence
   );
-  const confidenceLabel = confidenceBadgeLabel(params.intelligence, acceptance);
+  const confidenceLabel = resolveAcceptedConfidenceLabel(params.intelligence, acceptance);
   const pricingModel = inferPricingModel(acceptance, params.resolved);
   const showConfidenceBadge = shouldShowConfidenceBadge(acceptance);
 
@@ -255,6 +270,16 @@ export function resolveAcceptedPricingDisplay(params: {
     acceptance,
     pricingModel,
   };
+}
+
+function resolveAcceptedConfidenceLabel(
+  intelligence: ScopeItemIntelligence,
+  acceptance: ScopePricingAcceptanceMetadata
+): NonNullable<AcceptedPricingDisplay['confidenceLabel']> {
+  if ((intelligence.unresolvedAssumptionCount ?? 0) > 0) {
+    return 'Scope review pending';
+  }
+  return confidenceBadgeLabel(intelligence, acceptance);
 }
 
 function normalizeAcceptanceMetadata(
@@ -356,10 +381,18 @@ function buildMaterialLaborSummaryLine(
   acceptance: ScopePricingAcceptanceMetadata,
   resolved: ResolvedItemQuantity
 ): string | null {
+  const parts: string[] = [];
   const material = acceptance.materialAmount ?? resolved.dualMaterial?.quantity;
   const labor = acceptance.laborAmount ?? resolved.dualLabor?.quantity;
-  if (material == null || labor == null || material <= 0 || labor <= 0) return null;
-  return `Material ${formatDraftMoney(material)} · Labor ${formatDraftMoney(labor)}`;
+  const allowance = acceptance.allowanceAmount;
+  const subcontractor = acceptance.subcontractorAmount;
+  if (material != null && material > 0) parts.push(`Material ${formatDraftMoney(material)}`);
+  if (labor != null && labor > 0) parts.push(`Labor ${formatDraftMoney(labor)}`);
+  if (allowance != null && allowance > 0) parts.push(`Allowance ${formatDraftMoney(allowance)}`);
+  if (subcontractor != null && subcontractor > 0) {
+    parts.push(`Subcontractor ${formatDraftMoney(subcontractor)}`);
+  }
+  return parts.length ? parts.join(' · ') : null;
 }
 
 export function getPricingSecondaryAction(params: {
@@ -369,10 +402,59 @@ export function getPricingSecondaryAction(params: {
   suggestedBlock?: SuggestedPricingBlock | null;
   comparisonBlock?: SuggestedPricingBlock | null;
   scopeKey: string;
+  originalNotes?: string | null;
+  scopeGapResolutions?: ScopeGapResolutionsMap;
+  scopeGapPricingContext?: ScopeGapPricingContext;
 }): PricingSecondaryAction | null {
-  const itemUnknown = itemSpecificAssemblyComponents(params.intelligence.assembly?.unknownComponents, params.scopeKey);
-  if (itemUnknown.length) {
-    return { kind: 'review_missing_scope', label: 'Review missing scope' };
+  const reviewable = getReviewableScopeComponents(
+    params.intelligence.assembly?.unknownComponents,
+    params.scopeKey,
+    params.originalNotes,
+    params.suggestedBlock?.benchmarkScopeProfile
+  );
+  const pricingContext = params.scopeGapPricingContext;
+  const unresolvedDecisionCount = countUnresolvedScopeDecisions(
+    params.scopeKey,
+    reviewable,
+    params.scopeGapResolutions
+  );
+  if (unresolvedDecisionCount > 0) {
+    return {
+      kind: 'review_missing_scope',
+      label:
+        unresolvedDecisionCount === 1
+          ? 'Review 1 scope assumption'
+          : `Review ${unresolvedDecisionCount} scope assumptions`,
+      unresolvedScopeGapCount: unresolvedDecisionCount,
+    };
+  }
+
+  const needsPricingCount = countNeedsSeparatePricing(
+    params.scopeKey,
+    reviewable,
+    params.scopeGapResolutions,
+    pricingContext
+  );
+  if (needsPricingCount > 0) {
+    return {
+      kind: 'needs_separate_pricing',
+      label: formatNeedsSeparatePricingLabel(needsPricingCount),
+      unresolvedScopeGapCount: needsPricingCount,
+    };
+  }
+
+  const fullyUnresolvedCount = countUnresolvedScopeGaps(
+    params.scopeKey,
+    reviewable,
+    params.scopeGapResolutions,
+    pricingContext
+  );
+  if (fullyUnresolvedCount > 0) {
+    return {
+      kind: 'review_missing_scope',
+      label: formatReviewScopeItemsLabel(fullyUnresolvedCount),
+      unresolvedScopeGapCount: fullyUnresolvedCount,
+    };
   }
 
   const { acceptance, pricingModel } = params.display;
@@ -527,11 +609,8 @@ export function buildSecondaryDisclosureContent(params: {
       if (rows.length <= 1) return null;
       return { kind: 'rows', heading: 'Original suggestion', rows };
     }
-    case 'review_missing_scope': {
-      const components = itemSpecificAssemblyComponents(intelligence.assembly?.unknownComponents, params.scopeKey);
-      if (!components.length) return null;
-      return { kind: 'scope_review', heading: 'Missing scope', components };
-    }
+    case 'review_missing_scope':
+      return null;
     default:
       return null;
   }
@@ -564,7 +643,8 @@ function mapConfidence(value: string): 'High confidence' | 'Medium confidence' |
 
 export function confidenceShortLabel(
   label: AcceptedPricingDisplay['confidenceLabel']
-): 'High' | 'Medium' | 'Low' {
+): 'High' | 'Medium' | 'Low' | 'Pending' {
+  if (label === 'Scope review pending') return 'Pending';
   if (label === 'High confidence') return 'High';
   if (label === 'Medium confidence') return 'Medium';
   return 'Low';
@@ -659,7 +739,11 @@ function isStalePricing(intelligence: ScopeItemIntelligence): boolean {
 }
 
 function validationIssueMessage(intelligence: ScopeItemIntelligence): string | null {
-  const issue = intelligence.validation.issues.find((i) => i.severity === 'warning' || i.severity === 'blocking');
+  const issue = intelligence.validation.issues.find(
+    (i) =>
+      (i.severity === 'warning' || i.severity === 'blocking') &&
+      i.ruleKey !== 'scope_possible_overlap'
+  );
   return issue?.message || null;
 }
 
@@ -685,6 +769,19 @@ export function getPricingSourceMessage(
   intelligence: ScopeItemIntelligence,
   acceptance: ScopePricingAcceptanceMetadata
 ): string | null {
+  const unresolvedAssumptionCount = intelligence.unresolvedAssumptionCount ?? intelligence.reviewableAssumptionCount ?? 0;
+  const conciseBenchmarkWarning = buildConciseBenchmarkScopeWarning({
+    profile: intelligence.benchmarkScopeProfile,
+    pricingSource: intelligence.pricing.source,
+    assumptionCount: unresolvedAssumptionCount,
+    pricingAccepted: acceptance.selectionStatus === 'accepted' || acceptance.selectionStatus === 'manual_adjusted',
+  });
+  if (conciseBenchmarkWarning) return conciseBenchmarkWarning;
+
+  if (intelligence.overlapRisk?.hasOverlapRisk && intelligence.overlapRisk.reason) {
+    return intelligence.overlapRisk.reason;
+  }
+
   if (acceptance.selectionStatus === 'user_entered' && acceptance.pricingSourceKind === 'user_entered') {
     return validationIssueMessage(intelligence);
   }

@@ -14,6 +14,7 @@ import {
   inferItemStateFromNotes,
 } from '@/utils/scopeItemNoteHints';
 import { scopeItemHasNoteSignal, scopeItemNoteBadge } from '@/utils/scopeItemVisualTier';
+import { applyScopeGapExclusionsToDraft } from '@/utils/scopeReviewUi';
 
 const FIXTURE_CHOICE_OPTIONS: ScopeChecklistOption[] = [
   { id: 'staying', label: 'Staying' },
@@ -487,6 +488,11 @@ export function mergeScopeProgressIntoDraft(
 
   if (measurements) {
     next.scopeMeasurements = measurements;
+    next.exclusions = applyScopeGapExclusionsToDraft(
+      draft.exclusions || [],
+      measurements.scopeGapResolutions,
+      draft.scopeMeasurements?.scopeGapResolutions
+    );
   }
 
   if (draft.scopeChecklist && persistedItems.length) {

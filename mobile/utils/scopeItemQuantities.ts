@@ -25,6 +25,12 @@ import {
   emptyQuickMeasurementInput,
   type QuickMeasurementFieldKey,
 } from '@/utils/scopeQuickMeasurements';
+import {
+  createUndefinedBenchmarkScopeProfile,
+  type BenchmarkScopeAssumption,
+  type BenchmarkScopeAssumptionProfile,
+  type ScopeProfileSource,
+} from '@/utils/benchmarkScopeAssumptions';
 
 export type QuantitySource =
   | 'notes'
@@ -171,9 +177,59 @@ export type SuggestedBudgetSplitDisplay = {
   basis?: { quantity: number; unit: string } | null;
 };
 
+type NationalAverageBudgetSplit = {
+  unit: string;
+  material: number;
+  labor: number;
+  sourceLabel: string;
+  effectiveDate?: string | null;
+  scopeAssumptions?: BenchmarkScopeAssumptionProfile | null;
+  trade?: string;
+  category?: string;
+  pricingMethod?: 'unit_price' | 'material_labor' | 'lump_sum' | 'allowance' | 'equipment' | 'subcontractor';
+  quantityType?: string;
+  materialBucketLabel?: string;
+  laborBucketLabel?: string;
+  rateSource?: 'bps_national_benchmark';
+  rateSourceReference?: string;
+  scopeProfileSource?: ScopeProfileSource;
+  productionStatus?: 'production_ready' | 'review_required' | 'fallback_only' | 'disabled';
+};
+
+export type SuggestedPricingCostBucketKind =
+  | 'material'
+  | 'labor'
+  | 'equipment'
+  | 'subcontractor'
+  | 'allowance'
+  | 'other_direct_cost';
+
+export type SuggestedPricingCostBucket = {
+  key: SuggestedPricingCostBucketKind;
+  label: string;
+  amount: number;
+  rate?: number | null;
+  source: PricingLegSource;
+};
+
+export type BenchmarkPricingCoverageStatus =
+  | 'complete'
+  | 'partial'
+  | 'rate_only'
+  | 'scope_only'
+  | 'missing'
+  | 'invalid'
+  | 'needs_review';
+
+export type BenchmarkPricingProductionStatus =
+  | 'production_ready'
+  | 'review_required'
+  | 'fallback_only'
+  | 'disabled';
+
 const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   string,
-  { unit: string; material: number; labor: number; sourceLabel: string }
+  NationalAverageBudgetSplit
 > = {
   trim: { unit: 'lf', material: 2, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
   flooring: { unit: 'sqft', material: 4, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
@@ -241,7 +297,7 @@ export function isPlaceholderAllowancePricing(
 
 const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
   string,
-  Record<string, { unit: string; material: number; labor: number; sourceLabel: string }>
+  Record<string, NationalAverageBudgetSplit>
 > = {
   concrete: {
     sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.concrete,
@@ -264,6 +320,546 @@ const NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES: Record<string, string> = {
   patch_repair: 'drywall',
 };
 
+const BPS_SCOPE_SOURCE: ScopeProfileSource = 'bps_standard_assumption';
+const BPS_SCOPE_REFERENCE = 'Build Profit national-average scope model';
+
+function assumption(
+  scopeKey: string,
+  status: BenchmarkScopeAssumption['status'],
+  displayLabel: string,
+  notes: string,
+  options: Partial<BenchmarkScopeAssumption> = {}
+): BenchmarkScopeAssumption {
+  return {
+    scopeKey,
+    status,
+    displayLabel,
+    notes,
+    source: BPS_SCOPE_SOURCE,
+    sourceReference: BPS_SCOPE_REFERENCE,
+    confidence: options.confidence ?? 'medium',
+    impact: options.impact ?? (status === 'included' ? 'low' : 'high'),
+    riskLevel: options.riskLevel ?? (status === 'included' ? 'low' : 'high'),
+    recommendedContractorAction:
+      options.recommendedContractorAction ??
+      (status === 'included'
+        ? 'keep_included'
+        : status === 'conditional'
+          ? 'confirm_conditions'
+          : status === 'unknown'
+            ? 'confirm_before_excluding'
+            : 'add_separate_item'),
+    conditionText: options.conditionText,
+  };
+}
+
+const BPS_STANDARD_SCOPE_PROFILES: Record<
+  string,
+  {
+    category: string;
+    rootCause: string;
+    assumptions: BenchmarkScopeAssumption[];
+  }
+> = {
+  excavation: {
+    category: 'sitework',
+    rootCause:
+      'Build Profit national-average excavation is modeled as base excavation only; adjacent earthwork scopes are separate when required.',
+    assumptions: [
+      assumption('excavation', 'included', 'Base excavation', 'Excavation of the measured quantity is included.'),
+      assumption('equipment', 'included', 'Standard excavation equipment', 'Typical machine cost is embedded in the rate.', { impact: 'medium' }),
+      assumption('operator', 'included', 'Operator labor', 'Operator labor for base excavation is included in the labor rate.', { impact: 'medium' }),
+      assumption('haul_off', 'excluded', 'Haul-off / export', 'Offsite export is not included in this base excavation suggestion.'),
+      assumption('dump_fees', 'excluded', 'Dump fees', 'Disposal facility fees are not included in this base excavation suggestion.'),
+      assumption('backfill', 'excluded', 'Backfill', 'Backfill placement or imported fill should be priced separately unless intentionally included.'),
+      assumption('compaction', 'excluded', 'Compaction', 'Placement, moisture conditioning, and compaction are not included.'),
+      assumption('shoring', 'excluded', 'Shoring', 'Shoring is condition-dependent and not included in this base excavation suggestion.'),
+    ],
+  },
+  concrete: {
+    category: 'concrete',
+    rootCause:
+      'Build Profit national-average concrete is modeled as base material and placement only; access, reinforcement, sawcutting, and disposal are separate scopes.',
+    assumptions: [
+      assumption('concrete_placement', 'included', 'Concrete placement', 'Base concrete placement for the measured quantity is included.'),
+      assumption('finishing', 'included', 'Basic finishing', 'Basic placement finishing is included; decorative or specialty finish scope is not implied.'),
+      assumption('pumping', 'excluded', 'Concrete pumping', 'Pump truck or special placement equipment is not included.'),
+      assumption('reinforcement', 'excluded', 'Reinforcement', 'Rebar, mesh, chairs, and related reinforcement are not included unless priced separately.'),
+      assumption('sawcutting', 'excluded', 'Sawcutting', 'Sawcut control joints are not included in this base concrete suggestion.'),
+      assumption('disposal', 'excluded', 'Disposal / haul-off', 'Demo debris, excess concrete, or haul-off is not included.'),
+    ],
+  },
+  pour_flatwork: {
+    category: 'concrete',
+    rootCause:
+      'Build Profit national-average flatwork is modeled as base material and placement only; access, reinforcement, sawcutting, and disposal are separate scopes.',
+    assumptions: [
+      assumption('concrete_placement', 'included', 'Flatwork placement', 'Base flatwork placement for the measured quantity is included.'),
+      assumption('finishing', 'included', 'Basic finishing', 'Basic broom or trowel finish is included; decorative finishing is not implied.'),
+      assumption('pumping', 'excluded', 'Concrete pumping', 'Pump truck or special placement equipment is not included.'),
+      assumption('reinforcement', 'excluded', 'Reinforcement', 'Rebar, mesh, chairs, and related reinforcement are not included unless priced separately.'),
+      assumption('sawcutting', 'excluded', 'Sawcutting', 'Sawcut control joints are not included in this base flatwork suggestion.'),
+      assumption('disposal', 'excluded', 'Disposal / haul-off', 'Demo debris, excess concrete, or haul-off is not included.'),
+    ],
+  },
+  flooring: {
+    category: 'flooring',
+    rootCause: 'Build Profit national-average flooring is modeled as new flooring material plus standard installation.',
+    assumptions: [
+      assumption('flooring_material', 'included', 'Flooring material', 'Standard flooring material for the measured area is included.'),
+      assumption('flooring_installation', 'included', 'Standard installation', 'Standard layout, cutting, and installation labor are included.'),
+      assumption('floor_demo', 'excluded', 'Existing-floor demolition', 'Removal of existing flooring is not included.'),
+      assumption('disposal', 'excluded', 'Disposal / haul-off', 'Disposal of removed flooring is not included.'),
+      assumption('floor_prep', 'excluded', 'Floor prep / leveling', 'Leveling, patching, moisture mitigation, and substrate repair are not included.'),
+      assumption('underlayment', 'excluded', 'Underlayment', 'Underlayment is not included unless selected separately.'),
+      assumption('transitions', 'excluded', 'Transitions', 'Transitions, thresholds, and reducers are not included.'),
+      assumption('baseboard', 'excluded', 'Baseboards', 'Baseboard removal or installation is not included.'),
+      assumption('stairs', 'conditional', 'Stairs', 'Stair installation needs separate confirmation and pricing.', {
+        conditionText: 'Included only if the measured quantity and rate explicitly account for stairs.',
+        recommendedContractorAction: 'confirm_conditions',
+      }),
+    ],
+  },
+  floor_tile: {
+    category: 'tile',
+    rootCause: 'Build Profit national-average floor tile is modeled as tile material plus standard tile installation.',
+    assumptions: [
+      assumption('tile_material', 'included', 'Tile material', 'Standard tile material for the measured area is included.'),
+      assumption('tile_installation', 'included', 'Standard tile installation', 'Standard thinset/grout installation labor is included.'),
+      assumption('floor_demo', 'excluded', 'Existing-floor demolition', 'Removal of existing flooring is not included.'),
+      assumption('floor_prep', 'excluded', 'Floor prep / leveling', 'Substrate prep, leveling, and repair are not included.'),
+      assumption('underlayment', 'excluded', 'Underlayment / backer board', 'Backer board, uncoupling membrane, or underlayment is not included.'),
+      assumption('transitions', 'excluded', 'Transitions', 'Transitions and thresholds are not included.'),
+    ],
+  },
+  shower_tile: {
+    category: 'tile',
+    rootCause: 'Build Profit national-average shower tile is modeled as tile material plus standard wall/floor tile labor.',
+    assumptions: [
+      assumption('tile_material', 'included', 'Tile material', 'Standard tile material for the measured shower area is included.'),
+      assumption('tile_installation', 'included', 'Standard tile installation', 'Standard tile setting and grout labor are included.'),
+      assumption('waterproofing', 'excluded', 'Waterproofing', 'Waterproofing membrane/system is not included unless priced separately.'),
+      assumption('backer_board', 'excluded', 'Backer board', 'Backer board or substrate replacement is not included.'),
+      assumption('niche_bench', 'excluded', 'Niches / benches', 'Niches, benches, and specialty layouts are not included.'),
+    ],
+  },
+  paint: {
+    category: 'paint',
+    rootCause: 'Build Profit national-average paint is modeled as standard paint material, labor, and basic prep.',
+    assumptions: [
+      assumption('paint_material', 'included', 'Paint material', 'Standard paint material is included.'),
+      assumption('paint_labor', 'included', 'Standard paint labor', 'Standard application labor is included.'),
+      assumption('prep', 'included', 'Basic prep', 'Minor surface prep, masking, and cleanup are included.', { impact: 'medium' }),
+      assumption('repairs', 'excluded', 'Wall repairs', 'Drywall/plaster repairs and texture repair are not included.'),
+      assumption('doors', 'excluded', 'Doors', 'Door painting is not included unless scoped separately.'),
+      assumption('trim', 'excluded', 'Trim', 'Trim painting is not included unless scoped separately.'),
+      assumption('high_access', 'conditional', 'High ceilings / access', 'High ceilings, scaffolding, lifts, or difficult access require confirmation.', {
+        conditionText: 'Price separately when height or access is outside normal reach.',
+      }),
+      assumption('specialty_finish', 'excluded', 'Specialty finishes', 'Specialty coatings, cabinet finishes, and decorative finishes are not included.'),
+    ],
+  },
+  interior_paint: {
+    category: 'paint',
+    rootCause: 'Build Profit national-average interior paint is modeled as standard wall/ceiling paint material, labor, and basic prep.',
+    assumptions: [
+      assumption('paint_material', 'included', 'Paint material', 'Standard interior paint material is included.'),
+      assumption('paint_labor', 'included', 'Standard paint labor', 'Standard wall/ceiling application labor is included.'),
+      assumption('prep', 'included', 'Basic prep', 'Minor prep, masking, and cleanup are included.', { impact: 'medium' }),
+      assumption('repairs', 'excluded', 'Wall repairs', 'Drywall/plaster repairs and texture repair are not included.'),
+      assumption('doors', 'excluded', 'Doors', 'Door painting is not included unless scoped separately.'),
+      assumption('trim', 'excluded', 'Trim', 'Trim painting is not included unless scoped separately.'),
+    ],
+  },
+  exterior_paint: {
+    category: 'paint',
+    rootCause: 'Build Profit national-average exterior paint is modeled as standard exterior paint material, labor, and basic prep.',
+    assumptions: [
+      assumption('paint_material', 'included', 'Exterior paint material', 'Standard exterior paint material is included.'),
+      assumption('paint_labor', 'included', 'Standard paint labor', 'Standard exterior application labor is included.'),
+      assumption('prep', 'included', 'Basic prep', 'Minor prep and cleanup are included.', { impact: 'medium' }),
+      assumption('repairs', 'excluded', 'Exterior repairs', 'Siding, trim, stucco, or substrate repairs are not included.'),
+      assumption('high_access', 'conditional', 'Access equipment', 'Ladders, lifts, scaffolding, or difficult access require confirmation.', {
+        conditionText: 'Price separately when access is outside standard ladder work.',
+      }),
+    ],
+  },
+  drywall: {
+    category: 'drywall',
+    rootCause: 'Build Profit national-average drywall is modeled as board, hang, tape, finish, and standard texture.',
+    assumptions: [
+      assumption('drywall_board', 'included', 'Drywall board', 'Standard drywall board material is included.'),
+      assumption('hang', 'included', 'Hang drywall', 'Standard drywall hanging labor is included.'),
+      assumption('finish_tape', 'included', 'Tape and finish', 'Standard taping and finishing are included.'),
+      assumption('texture', 'included', 'Standard texture', 'Standard texture is included where typical for the job.', { impact: 'medium' }),
+      assumption('demo', 'excluded', 'Demolition', 'Removal of existing wall/ceiling material is not included.'),
+      assumption('disposal', 'excluded', 'Disposal / haul-off', 'Debris disposal is not included.'),
+      assumption('insulation', 'excluded', 'Insulation', 'Insulation is not included.'),
+      assumption('fire_rating', 'conditional', 'Fire-rated assemblies', 'Fire-rated or specialty assemblies require confirmation.', {
+        conditionText: 'Price separately when a rated assembly is required.',
+      }),
+      assumption('level_5', 'excluded', 'Level 5 finish', 'Level 5 finish is not included.'),
+      assumption('paint', 'excluded', 'Painting', 'Primer and paint are not included.'),
+    ],
+  },
+  plumbing_rough: {
+    category: 'plumbing',
+    rootCause: 'Build Profit national-average plumbing rough-in is modeled as standard rough labor and common rough materials.',
+    assumptions: [
+      assumption('rough_labor', 'included', 'Rough-in labor', 'Standard rough-in labor is included.'),
+      assumption('standard_fittings', 'included', 'Standard fittings', 'Common rough-in fittings and supplies are included.'),
+      assumption('fixtures', 'excluded', 'Fixtures', 'Fixtures and trim-out are not included.'),
+      assumption('permits', 'excluded', 'Permits', 'Permits and inspection fees are not included.'),
+      assumption('trenching', 'excluded', 'Trenching', 'Trenching, sawcutting, and excavation are not included.'),
+      assumption('patching', 'excluded', 'Patching', 'Wall, floor, and concrete patching are not included.'),
+      assumption('testing', 'conditional', 'Testing', 'Pressure testing and special inspections require confirmation.', {
+        conditionText: 'Include only when required testing is part of the rough-in scope.',
+      }),
+    ],
+  },
+  electrical_rough: {
+    category: 'electrical',
+    rootCause: 'Build Profit national-average electrical rough-in is modeled as standard rough wiring and device-box installation.',
+    assumptions: [
+      assumption('wiring', 'included', 'Standard wiring', 'Standard branch wiring is included.'),
+      assumption('device_boxes', 'included', 'Boxes / rough devices', 'Standard boxes and rough device installation are included.'),
+      assumption('fixtures', 'excluded', 'Fixtures', 'Light fixtures and finish devices are not included.'),
+      assumption('permits', 'excluded', 'Permits', 'Permits and utility fees are not included.'),
+      assumption('panel_upgrade', 'excluded', 'Panel / service upgrade', 'Panel, service, and meter upgrades are not included.'),
+      assumption('trenching', 'excluded', 'Trenching', 'Trenching and underground conduit work are not included.'),
+      assumption('patching', 'excluded', 'Patching', 'Wall, ceiling, and concrete patching are not included.'),
+      assumption('controls', 'conditional', 'Specialty controls', 'Dimmers, smart controls, low-voltage, and specialty systems require confirmation.', {
+        conditionText: 'Price separately when specialty controls are required.',
+      }),
+    ],
+  },
+  cabinets: {
+    category: 'cabinets',
+    rootCause: 'Build Profit national-average cabinets are modeled as cabinet boxes plus standard installation.',
+    assumptions: [
+      assumption('cabinet_boxes', 'included', 'Cabinet boxes', 'Standard cabinet boxes are included.'),
+      assumption('installation', 'included', 'Standard installation', 'Standard cabinet installation labor is included.'),
+      assumption('hardware', 'included', 'Basic hardware', 'Basic standard hardware is included when typical.', { impact: 'medium' }),
+      assumption('demo', 'excluded', 'Demolition', 'Existing cabinet removal is not included.'),
+      assumption('disposal', 'excluded', 'Disposal / haul-off', 'Disposal of removed cabinets is not included.'),
+      assumption('countertops', 'excluded', 'Countertops', 'Countertops are not included.'),
+      assumption('trim', 'excluded', 'Crown / specialty trim', 'Crown, fillers, panels, and specialty trim are not included.'),
+      assumption('appliance_panels', 'excluded', 'Appliance panels', 'Appliance panels and custom modifications are not included.'),
+      assumption('plumbing_reconnect', 'excluded', 'Plumbing reconnection', 'Sink/faucet/disposal reconnection is not included.'),
+    ],
+  },
+  countertops: {
+    category: 'countertops',
+    rootCause: 'Build Profit national-average countertops are modeled as countertop material, fabrication, and standard installation.',
+    assumptions: [
+      assumption('countertop_material', 'included', 'Countertop material', 'Standard countertop material is included.'),
+      assumption('fabrication', 'included', 'Fabrication', 'Standard fabrication is included.'),
+      assumption('installation', 'included', 'Standard installation', 'Standard countertop installation is included.'),
+      assumption('standard_edge', 'included', 'Standard edge', 'A standard edge profile is included.', { impact: 'medium' }),
+      assumption('demo', 'excluded', 'Demolition', 'Existing countertop removal is not included.'),
+      assumption('disposal', 'excluded', 'Disposal / haul-off', 'Disposal of removed countertops is not included.'),
+      assumption('plumbing_reconnect', 'excluded', 'Plumbing reconnect', 'Plumbing disconnect/reconnect is not included.'),
+      assumption('sink', 'excluded', 'Sink', 'Sink purchase or specialty sink work is not included.'),
+      assumption('backsplash', 'excluded', 'Backsplash', 'Backsplash is not included.'),
+      assumption('support', 'conditional', 'Structural support', 'Brackets, substrate, or structural support require confirmation.', {
+        conditionText: 'Price separately when additional support is required.',
+      }),
+    ],
+  },
+  shingles_roofing: {
+    category: 'roofing',
+    rootCause: 'Build Profit national-average roofing is modeled as new roofing material and standard installation.',
+    assumptions: [
+      assumption('roofing_material', 'included', 'Roofing material', 'Standard shingle roofing material is included.'),
+      assumption('underlayment', 'included', 'Underlayment', 'Standard underlayment is included.'),
+      assumption('roof_installation', 'included', 'Standard installation', 'Standard roofing installation labor is included.'),
+      assumption('flashing', 'conditional', 'Flashing', 'Basic flashing may be included; extensive flashing replacement requires confirmation.', {
+        conditionText: 'Confirm whether required flashing is standard or needs separate pricing.',
+      }),
+      assumption('tear_off', 'excluded', 'Tear-off', 'Existing roofing tear-off is not included.'),
+      assumption('disposal', 'excluded', 'Disposal / haul-off', 'Disposal of removed roofing is not included.'),
+      assumption('permits', 'excluded', 'Permits', 'Roofing permits are not included.'),
+      assumption('deck_repair', 'excluded', 'Deck repair', 'Roof deck repair or sheathing replacement is not included.'),
+      assumption('steep_slope', 'conditional', 'Steep slope / difficult access', 'Steep-slope, height, or difficult access premiums require confirmation.', {
+        conditionText: 'Price separately when roof pitch/access exceeds standard installation.',
+      }),
+      assumption('gutters', 'excluded', 'Gutters', 'Gutters and downspouts are not included.'),
+      assumption('skylights', 'excluded', 'Skylights', 'Skylights and specialty penetrations are not included.'),
+    ],
+  },
+  tear_off: {
+    category: 'roofing',
+    rootCause: 'Build Profit national-average tear-off is modeled as roofing removal labor plus basic disposal handling.',
+    assumptions: [
+      assumption('tear_off', 'included', 'Roof tear-off', 'Removal of existing roofing for the measured squares is included.'),
+      assumption('loading', 'included', 'Loading debris', 'Loading removed roofing into disposal container is included.'),
+      assumption('disposal', 'conditional', 'Disposal / dump fees', 'Disposal fees require confirmation because local fees vary.', {
+        conditionText: 'Add separate pricing when dump fees are not included in the removal rate.',
+      }),
+      assumption('deck_repair', 'excluded', 'Deck repair', 'Roof deck repair is not included.'),
+      assumption('multiple_layers', 'conditional', 'Multiple layers', 'Multiple layers require confirmation and may need separate pricing.', {
+        conditionText: 'Price separately when more than one layer is removed.',
+      }),
+    ],
+  },
+  permits: {
+    category: 'permits',
+    rootCause: 'Build Profit national-average permit pricing is modeled as a placeholder permit/inspection allowance.',
+    assumptions: [
+      assumption('building_permit', 'included', 'Building permit allowance', 'A basic building permit allowance is included.'),
+      assumption('standard_inspections', 'included', 'Standard inspections', 'Standard inspection fees are included as an allowance.', { impact: 'medium' }),
+      assumption('impact_fees', 'excluded', 'Impact fees', 'Impact, school, utility, and connection fees are not included.'),
+      assumption('meter_fees', 'excluded', 'Meter fees', 'Meter or utility service fees are not included.'),
+      assumption('engineering_review', 'excluded', 'Engineering / special review', 'Engineering, fire, special inspection, and expedited review fees are not included.'),
+      assumption('reinspection_fees', 'excluded', 'Reinspection fees', 'Reinspection or penalty fees are not included.'),
+    ],
+  },
+  cleanup: {
+    category: 'cleanup',
+    rootCause: 'Build Profit national-average cleanup is modeled as a job cleanup allowance.',
+    assumptions: [
+      assumption('cleanup', 'included', 'Final cleanup allowance', 'Basic job cleanup allowance is included.'),
+      assumption('loading', 'included', 'Loading light debris', 'Loading light construction debris is included as part of cleanup.', { impact: 'medium' }),
+      assumption('dump_fees', 'excluded', 'Dump fees', 'Dump fees and landfill charges are not included unless confirmed.'),
+      assumption('hazardous_materials', 'excluded', 'Hazardous materials', 'Hazardous material handling is not included.'),
+      assumption('large_haul_off', 'conditional', 'Large haul-off', 'Large dumpsters or heavy debris require confirmation.', {
+        conditionText: 'Price separately when cleanup requires dumpsters, heavy debris, or multiple loads.',
+      }),
+    ],
+  },
+  demo: {
+    category: 'demolition',
+    rootCause: 'Build Profit national-average demolition is modeled as standard removal labor with light loading.',
+    assumptions: [
+      assumption('removal', 'included', 'Demolition labor', 'Standard removal labor for the measured area is included.'),
+      assumption('loading', 'included', 'Loading debris', 'Loading debris is included.', { impact: 'medium' }),
+      assumption('dump_fees', 'excluded', 'Dump fees', 'Dump fees and disposal facility costs are not included.'),
+      assumption('hazardous_materials', 'excluded', 'Hazardous materials', 'Hazardous materials and abatement are not included.'),
+      assumption('protection', 'excluded', 'Protection', 'Dust protection, containment, and specialty protection are not included.'),
+    ],
+  },
+  floor_demo: {
+    category: 'demolition',
+    rootCause: 'Build Profit national-average floor demolition is modeled as flooring removal labor with light loading.',
+    assumptions: [
+      assumption('floor_demo', 'included', 'Floor removal', 'Removal of existing flooring for the measured area is included.'),
+      assumption('loading', 'included', 'Loading debris', 'Loading removed flooring is included.', { impact: 'medium' }),
+      assumption('dump_fees', 'excluded', 'Dump fees', 'Dump fees and disposal facility costs are not included.'),
+      assumption('subfloor_repair', 'excluded', 'Subfloor repair', 'Subfloor repair or leveling is not included.'),
+    ],
+  },
+  trim: {
+    category: 'finish_carpentry',
+    rootCause: 'Build Profit national-average trim is modeled as standard trim material plus installation.',
+    assumptions: [
+      assumption('trim_material', 'included', 'Trim material', 'Standard trim material is included.'),
+      assumption('trim_installation', 'included', 'Trim installation', 'Standard trim installation labor is included.'),
+      assumption('paint', 'excluded', 'Painting / finishing', 'Painting, staining, or finishing trim is not included.'),
+      assumption('demo', 'excluded', 'Existing trim removal', 'Existing trim removal and disposal are not included.'),
+    ],
+  },
+  backsplash: {
+    category: 'tile',
+    rootCause: 'Build Profit national-average backsplash is modeled as backsplash tile material plus standard installation.',
+    assumptions: [
+      assumption('tile_material', 'included', 'Backsplash tile material', 'Standard backsplash tile material is included.'),
+      assumption('tile_installation', 'included', 'Backsplash installation', 'Standard backsplash tile installation labor is included.'),
+      assumption('wall_prep', 'excluded', 'Wall prep / repair', 'Wall repair, substrate replacement, and leveling are not included.'),
+      assumption('specialty_pattern', 'conditional', 'Specialty pattern', 'Specialty layout or pattern work requires confirmation.', {
+        conditionText: 'Price separately for complex pattern, mosaic, or specialty layout.',
+      }),
+    ],
+  },
+  waterproofing: {
+    category: 'waterproofing',
+    rootCause: 'Build Profit national-average waterproofing is modeled as membrane/material plus standard installation.',
+    assumptions: [
+      assumption('waterproofing_material', 'included', 'Waterproofing material', 'Standard membrane/liquid waterproofing material is included.'),
+      assumption('waterproofing_labor', 'included', 'Waterproofing labor', 'Standard waterproofing installation labor is included.'),
+      assumption('substrate_repair', 'excluded', 'Substrate repair', 'Substrate repair or replacement is not included.'),
+      assumption('flood_test', 'conditional', 'Flood test', 'Flood testing requires confirmation.', {
+        conditionText: 'Include only when required by scope, code, or inspector.',
+      }),
+    ],
+  },
+  floor_prep: {
+    category: 'flooring',
+    rootCause: 'Build Profit national-average floor prep is modeled as basic prep/leveling material plus labor.',
+    assumptions: [
+      assumption('floor_prep', 'included', 'Basic floor prep', 'Basic prep/patching for the measured area is included.'),
+      assumption('leveling', 'conditional', 'Leveling', 'Significant self-leveling requires confirmation.', {
+        conditionText: 'Price separately when floor flatness requires substantial leveling material/labor.',
+      }),
+      assumption('moisture_mitigation', 'excluded', 'Moisture mitigation', 'Moisture mitigation systems are not included.'),
+      assumption('subfloor_repair', 'excluded', 'Subfloor repair', 'Subfloor replacement or structural repair is not included.'),
+    ],
+  },
+  cabinets_counters: {
+    category: 'cabinets',
+    rootCause: 'Build Profit combined cabinet/counter allowance is a placeholder allowance and should be reviewed before production use.',
+    assumptions: [
+      assumption('cabinets', 'conditional', 'Cabinets', 'Cabinet scope must be confirmed for combined allowances.', {
+        conditionText: 'Use only when the allowance intentionally covers cabinets.',
+      }),
+      assumption('countertops', 'conditional', 'Countertops', 'Countertop scope must be confirmed for combined allowances.', {
+        conditionText: 'Use only when the allowance intentionally covers countertops.',
+      }),
+    ],
+  },
+  decking: {
+    category: 'decking',
+    rootCause: 'Build Profit national-average decking is modeled as decking material plus standard installation.',
+    assumptions: [
+      assumption('decking_material', 'included', 'Decking material', 'Standard decking material is included.'),
+      assumption('decking_labor', 'included', 'Decking installation', 'Standard decking installation labor is included.'),
+      assumption('framing', 'excluded', 'Deck framing', 'Structural framing, posts, footings, and beams are not included.'),
+      assumption('railing', 'excluded', 'Railing', 'Deck railing is not included.'),
+      assumption('stairs', 'excluded', 'Stairs', 'Deck stairs are not included.'),
+      assumption('demo', 'excluded', 'Demolition', 'Existing deck demolition and disposal are not included.'),
+    ],
+  },
+  railing: {
+    category: 'railing',
+    rootCause: 'Build Profit national-average railing is modeled as standard railing material plus installation.',
+    assumptions: [
+      assumption('railing_material', 'included', 'Railing material', 'Standard railing material is included.'),
+      assumption('railing_labor', 'included', 'Railing installation', 'Standard railing installation labor is included.'),
+      assumption('blocking', 'excluded', 'Blocking / structural support', 'Blocking or structural reinforcement is not included.'),
+      assumption('stairs', 'conditional', 'Stair railing', 'Stair railing requires confirmation.', {
+        conditionText: 'Price separately when railing is on stairs or complex geometry.',
+      }),
+    ],
+  },
+  pavers: {
+    category: 'sitework',
+    rootCause: 'Build Profit national-average pavers are modeled as paver material plus basic installation.',
+    assumptions: [
+      assumption('paver_material', 'included', 'Paver material', 'Standard paver material is included.'),
+      assumption('paver_installation', 'included', 'Paver installation', 'Basic paver installation labor is included.'),
+      assumption('excavation', 'excluded', 'Excavation', 'Excavation and subgrade preparation are not included.'),
+      assumption('base_material', 'excluded', 'Base material', 'Base rock, bedding sand, and compaction are not included unless priced separately.'),
+      assumption('edge_restraint', 'excluded', 'Edge restraint', 'Edge restraint is not included.'),
+      assumption('drainage', 'conditional', 'Drainage', 'Drainage requirements need confirmation.', {
+        conditionText: 'Price separately when drainage improvements are required.',
+      }),
+    ],
+  },
+};
+
+function canonicalNationalAverageItemKey(itemId: string): string {
+  const aliased = NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES[itemId] || itemId;
+  if (aliased === 'interior_paint' || aliased === 'exterior_paint') return aliased;
+  return aliased;
+}
+
+function buildNationalAverageDefinedScopeProfile(params: {
+  itemId: string;
+  average: NationalAverageBudgetSplit;
+  quantity?: number | null;
+  total?: number | null;
+}): BenchmarkScopeAssumptionProfile | null {
+  const profileKey = canonicalNationalAverageItemKey(params.itemId);
+  const definition = BPS_STANDARD_SCOPE_PROFILES[profileKey];
+  if (!definition) return null;
+  return {
+    sourceRecordId: `national_average:${params.itemId}:${params.average.unit}`,
+    parentPricingRecordId: `bps_national:${profileKey}:${params.average.unit}`,
+    pricingSource: 'national_average',
+    rateSource: params.average.rateSource || 'bps_national_benchmark',
+    rateSourceReference: params.average.rateSourceReference || 'Build Profit national-average rate table',
+    geographicBasis: 'national',
+    effectiveDate: params.average.effectiveDate ?? null,
+    verifiedAt: null,
+    scopeProfileSource: BPS_SCOPE_SOURCE,
+    scopeAssumptionsDefined: true,
+    scopeAssumptions: definition.assumptions,
+    confidence: 'low',
+    confidenceReasons: [
+      'bps_standard_scope_profile',
+      'national_rate_geographic_basis',
+      'freshness_not_verified',
+    ],
+    productionStatus: params.average.productionStatus || 'review_required',
+    audit: {
+      quantity: params.quantity,
+      unit: params.average.unit,
+      materialRate: params.average.material,
+      laborRate: params.average.labor,
+      equipmentRate: null,
+      total: params.total,
+      rootCause: definition.rootCause,
+    },
+  };
+}
+
+function costBucketKindForLabel(label: string): SuggestedPricingCostBucketKind {
+  const normalized = label.toLowerCase();
+  if (normalized.includes('equipment')) return 'equipment';
+  if (normalized.includes('allowance')) return 'allowance';
+  if (normalized.includes('subcontract')) return 'subcontractor';
+  if (normalized.includes('labor')) return 'labor';
+  if (normalized.includes('material')) return 'material';
+  return 'other_direct_cost';
+}
+
+function nationalAverageMaterialBucketLabel(itemId: string, average?: NationalAverageBudgetSplit | null): string {
+  if (average?.materialBucketLabel) return average.materialBucketLabel;
+  if (itemId === 'excavation') return 'Equipment';
+  return 'Material';
+}
+
+function nationalAverageLaborBucketLabel(itemId: string, average?: NationalAverageBudgetSplit | null): string {
+  if (average?.laborBucketLabel) return average.laborBucketLabel;
+  if (average?.unit === 'allowance' || average?.unit === 'lump_sum') return 'Allowance';
+  return 'Labor';
+}
+
+function buildSuggestedPricingCostBuckets(params: {
+  itemId: string;
+  average?: NationalAverageBudgetSplit | null;
+  material: number;
+  labor: number;
+  materialSource: PricingLegSource;
+  laborSource: PricingLegSource;
+  materialRate?: number | null;
+  laborRate?: number | null;
+  lumpSumOnly?: boolean;
+}): SuggestedPricingCostBucket[] {
+  if (params.lumpSumOnly) {
+    return [
+      {
+        key: 'allowance',
+        label: 'Allowance',
+        amount: round2(params.material + params.labor),
+        rate: null,
+        source: params.laborSource,
+      },
+    ];
+  }
+  const buckets: SuggestedPricingCostBucket[] = [];
+  if (params.material > 0) {
+    const label = nationalAverageMaterialBucketLabel(params.itemId, params.average);
+    buckets.push({
+      key: costBucketKindForLabel(label),
+      label,
+      amount: params.material,
+      rate: params.materialRate,
+      source: params.materialSource,
+    });
+  }
+  if (params.labor > 0) {
+    const label = nationalAverageLaborBucketLabel(params.itemId, params.average);
+    buckets.push({
+      key: costBucketKindForLabel(label),
+      label,
+      amount: params.labor,
+      rate: params.laborRate,
+      source: params.laborSource,
+    });
+  }
+  return buckets;
+}
+
 export function getNationalAverageBudgetSplit(itemId: string, unit?: string | null) {
   const key = NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES[itemId] || itemId;
   const normalizedUnit = String(unit || '').toLowerCase();
@@ -274,6 +870,183 @@ export function getNationalAverageBudgetSplit(itemId: string, unit?: string | nu
     NATIONAL_AVERAGE_BUDGET_SPLITS[key] ??
     NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT[key]?.[Object.keys(NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT[key] || {})[0]]
   );
+}
+
+export type BenchmarkPricingCatalogRecord = {
+  id: string;
+  itemKey: string;
+  trade: string;
+  category: string;
+  pricingMethod: NonNullable<NationalAverageBudgetSplit['pricingMethod']>;
+  quantityType: string;
+  unit: string;
+  materialRate: number;
+  laborRate: number;
+  equipmentRate: number | null;
+  subcontractorRate: number | null;
+  combinedRate: number;
+  rateSource: string;
+  rateSourceReference: string;
+  geographicBasis: 'national';
+  effectiveDate: string | null;
+  verifiedAt: string | null;
+  scopeProfileSource: ScopeProfileSource;
+  scopeAssumptionsDefined: boolean;
+  scopeAssumptionCount: number;
+  includedAssumptionCount: number;
+  excludedAssumptionCount: number;
+  conditionalAssumptionCount: number;
+  freshnessKnown: boolean;
+  pricingCoverage: BenchmarkPricingCoverageStatus;
+  scopeProfileCoverage: BenchmarkPricingCoverageStatus;
+  sourceCoverage: BenchmarkPricingCoverageStatus;
+  freshnessCoverage: BenchmarkPricingCoverageStatus;
+  productionStatus: BenchmarkPricingProductionStatus;
+  productionReady: boolean;
+  confidence: 'high' | 'medium' | 'low';
+  confidenceReasons: string[];
+  costBucketLabels: string[];
+};
+
+function categoryForNationalAverageItem(itemKey: string, average: NationalAverageBudgetSplit): string {
+  if (average.category) return average.category;
+  return BPS_STANDARD_SCOPE_PROFILES[canonicalNationalAverageItemKey(itemKey)]?.category || 'general';
+}
+
+function tradeForNationalAverageItem(itemKey: string, average: NationalAverageBudgetSplit): string {
+  if (average.trade) return average.trade;
+  const category = categoryForNationalAverageItem(itemKey, average);
+  if (category === 'paint') return 'painting';
+  if (category === 'finish_carpentry') return 'carpentry';
+  return category;
+}
+
+function pricingCoverageForRecord(average: NationalAverageBudgetSplit): BenchmarkPricingCoverageStatus {
+  const hasUnit = Boolean(average.unit);
+  const hasRate = Number(average.material) > 0 || Number(average.labor) > 0;
+  if (!hasUnit || !hasRate) return 'invalid';
+  return 'complete';
+}
+
+function scopeCoverageForProfile(profile: BenchmarkScopeAssumptionProfile | undefined): BenchmarkPricingCoverageStatus {
+  if (!profile) return 'missing';
+  if (!profile.scopeAssumptionsDefined) return 'missing';
+  const hasIncluded = profile.scopeAssumptions.some((assumption) => assumption.status === 'included');
+  const hasActionable = profile.scopeAssumptions.some(
+    (assumption) => assumption.status === 'excluded' || assumption.status === 'conditional' || assumption.status === 'unknown'
+  );
+  if (hasIncluded && hasActionable) return 'complete';
+  if (hasIncluded || hasActionable) return 'partial';
+  return 'missing';
+}
+
+export function listNationalAverageBenchmarkRecords(): BenchmarkPricingCatalogRecord[] {
+  const entries: Array<{ itemKey: string; average: NationalAverageBudgetSplit }> = [];
+  for (const [itemKey, average] of Object.entries(NATIONAL_AVERAGE_BUDGET_SPLITS)) {
+    entries.push({ itemKey, average });
+  }
+  for (const [itemKey, byUnit] of Object.entries(NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT)) {
+    for (const [unit, average] of Object.entries(byUnit)) {
+      if (NATIONAL_AVERAGE_BUDGET_SPLITS[itemKey] === average) continue;
+      entries.push({ itemKey, average: { ...average, unit: average.unit || unit } });
+    }
+  }
+
+  return entries.map(({ itemKey, average }) => {
+    const profile = buildNationalAverageBenchmarkScopeProfile({
+      itemId: itemKey,
+      average,
+      quantity: 1,
+      total: round2(average.material + average.labor),
+    });
+    const pricingCoverage = pricingCoverageForRecord(average);
+    const scopeProfileCoverage = scopeCoverageForProfile(profile);
+    const freshnessCoverage: BenchmarkPricingCoverageStatus = average.effectiveDate ? 'complete' : 'missing';
+    const sourceCoverage: BenchmarkPricingCoverageStatus = average.sourceLabel ? 'partial' : 'missing';
+    const productionStatus: BenchmarkPricingProductionStatus =
+      average.productionStatus ||
+      (pricingCoverage === 'complete' && scopeProfileCoverage === 'complete'
+        ? 'review_required'
+        : pricingCoverage === 'invalid'
+          ? 'disabled'
+          : 'fallback_only');
+    const materialLabel = nationalAverageMaterialBucketLabel(itemKey, average);
+    const laborLabel = nationalAverageLaborBucketLabel(itemKey, average);
+    return {
+      id: `bps_national:${itemKey}:${average.unit}`,
+      itemKey,
+      trade: tradeForNationalAverageItem(itemKey, average),
+      category: categoryForNationalAverageItem(itemKey, average),
+      pricingMethod:
+        average.pricingMethod ||
+        (average.unit === 'allowance' ? 'allowance' : average.unit === 'lump_sum' ? 'lump_sum' : 'material_labor'),
+      quantityType: average.quantityType || average.unit,
+      unit: average.unit,
+      materialRate: average.material,
+      laborRate: average.labor,
+      equipmentRate: materialLabel.toLowerCase().includes('equipment') ? average.material : null,
+      subcontractorRate: null,
+      combinedRate: round2(average.material + average.labor),
+      rateSource: average.rateSource || 'bps_national_benchmark',
+      rateSourceReference: average.rateSourceReference || 'Build Profit national-average rate table',
+      geographicBasis: 'national',
+      effectiveDate: average.effectiveDate ?? null,
+      verifiedAt: null,
+      scopeProfileSource: profile?.scopeProfileSource || 'unknown',
+      scopeAssumptionsDefined: Boolean(profile?.scopeAssumptionsDefined),
+      scopeAssumptionCount: profile?.scopeAssumptions.length || 0,
+      includedAssumptionCount: profile?.scopeAssumptions.filter((item) => item.status === 'included').length || 0,
+      excludedAssumptionCount: profile?.scopeAssumptions.filter((item) => item.status === 'excluded').length || 0,
+      conditionalAssumptionCount: profile?.scopeAssumptions.filter((item) => item.status === 'conditional').length || 0,
+      freshnessKnown: Boolean(average.effectiveDate),
+      pricingCoverage,
+      scopeProfileCoverage,
+      sourceCoverage,
+      freshnessCoverage,
+      productionStatus,
+      productionReady: productionStatus === 'production_ready',
+      confidence: profile?.confidence || 'low',
+      confidenceReasons: profile?.confidenceReasons || ['national_rate_geographic_basis'],
+      costBucketLabels:
+        average.unit === 'allowance' || average.unit === 'lump_sum'
+          ? ['Allowance']
+          : [materialLabel, laborLabel].filter(Boolean),
+    };
+  });
+}
+
+function buildNationalAverageBenchmarkScopeProfile(params: {
+  itemId: string;
+  average: NationalAverageBudgetSplit | null | undefined;
+  quantity?: number | null;
+  total?: number | null;
+}): BenchmarkScopeAssumptionProfile | undefined {
+  const { itemId, average, quantity, total } = params;
+  if (!average) return undefined;
+  if (average.scopeAssumptions) return average.scopeAssumptions;
+  const definedProfile = buildNationalAverageDefinedScopeProfile({ itemId, average, quantity, total });
+  if (definedProfile) return definedProfile;
+  const undefinedProfile = createUndefinedBenchmarkScopeProfile({
+    itemId,
+    pricingSource: 'national_average',
+    geographicBasis: 'national',
+    effectiveDate: average.effectiveDate ?? null,
+    quantity,
+    unit: average.unit,
+    materialRate: average.material,
+    laborRate: average.labor,
+    equipmentRate: null,
+    total,
+  });
+  return {
+    ...undefinedProfile,
+    rateSource: average.rateSource || 'bps_national_benchmark',
+    rateSourceReference: average.rateSourceReference || 'Build Profit national-average rate table',
+    scopeProfileSource: 'unknown',
+    confidence: 'low',
+    confidenceReasons: ['missing_scope_profile', 'national_rate_geographic_basis', 'freshness_not_verified'],
+    productionStatus: 'fallback_only',
+  };
 }
 
 export function computeNationalAverageBudgetSplit(
@@ -2232,6 +3005,10 @@ export type SuggestedPricingBlock = {
   /** Permit/fees-style flat allowance — hide material row in UI. */
   lumpSumOnly?: boolean;
   basis?: { quantity: number; unit: string } | null;
+  benchmarkScopeProfile?: BenchmarkScopeAssumptionProfile;
+  costBuckets?: SuggestedPricingCostBucket[];
+  pricingRecordId?: string;
+  productionStatus?: BenchmarkPricingProductionStatus;
 };
 
 export type ScopeItemSuggestedPricing = {
@@ -2386,6 +3163,23 @@ export function resolveScopeItemSuggestedPricing(
         helper: copy.suggested,
         mode: 'suggested_price',
         lumpSumOnly: true,
+        benchmarkScopeProfile: buildNationalAverageBenchmarkScopeProfile({
+          itemId,
+          average: flatAverage,
+          quantity: 1,
+          total,
+        }),
+        costBuckets: buildSuggestedPricingCostBuckets({
+          itemId,
+          average: flatAverage,
+          material: 0,
+          labor: total,
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          lumpSumOnly: true,
+        }),
+        pricingRecordId: `bps_national:${itemId}:${unit}`,
+        productionStatus: flatAverage?.productionStatus || 'review_required',
       },
       comparison: null,
     };
@@ -2429,6 +3223,12 @@ export function resolveScopeItemSuggestedPricing(
         mode: 'suggested_price',
         isComparison: true,
         basis,
+        benchmarkScopeProfile: buildNationalAverageBenchmarkScopeProfile({
+          itemId,
+          average,
+          quantity: count,
+          total: round2(material + labor),
+        }),
       },
     };
   }
@@ -2450,6 +3250,15 @@ export function resolveScopeItemSuggestedPricing(
         helper: `${basisHelper} · labor suggested, ${SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL.toLowerCase()}`,
         mode: 'fill_missing',
         basis,
+        benchmarkScopeProfile:
+          laborRateSource === 'national_average'
+            ? buildNationalAverageBenchmarkScopeProfile({
+                itemId,
+                average,
+                quantity: count,
+                total: round2(material + labor),
+              })
+            : undefined,
       },
       comparison: null,
     };
@@ -2474,6 +3283,15 @@ export function resolveScopeItemSuggestedPricing(
         helper: `${basisHelper} · material suggested, ${SCOPE_LABOR_PARSED_FROM_NOTES_LABEL.toLowerCase()}`,
         mode: 'fill_missing',
         basis,
+        benchmarkScopeProfile:
+          materialRateSource === 'national_average'
+            ? buildNationalAverageBenchmarkScopeProfile({
+                itemId,
+                average,
+                quantity: count,
+                total: round2(material + labor),
+              })
+            : undefined,
       },
       comparison: null,
     };
@@ -2517,6 +3335,15 @@ export function resolveScopeItemSuggestedPricing(
         helper: `${basisHelper} · budget split`,
         mode: 'note_total_split',
         basis,
+        benchmarkScopeProfile:
+          materialRateSource === 'national_average'
+            ? buildNationalAverageBenchmarkScopeProfile({
+                itemId,
+                average,
+                quantity: count,
+                total: round2(noteTotal),
+              })
+            : undefined,
       },
       comparison: null,
     };
@@ -2538,6 +3365,27 @@ export function resolveScopeItemSuggestedPricing(
       helper: `${basisHelper} · suggested pricing`,
       mode: 'suggested_price',
       basis,
+      benchmarkScopeProfile:
+        materialRateSource === 'national_average' || laborRateSource === 'national_average'
+          ? buildNationalAverageBenchmarkScopeProfile({
+              itemId,
+              average,
+              quantity: count,
+              total: round2(material + labor),
+            })
+          : undefined,
+      costBuckets: buildSuggestedPricingCostBuckets({
+        itemId,
+        average,
+        material,
+        labor,
+        materialSource: materialRateSource,
+        laborSource: laborRateSource,
+        materialRate,
+        laborRate,
+      }),
+      pricingRecordId: `bps_national:${itemId}:${unit}`,
+      productionStatus: average?.productionStatus || 'review_required',
     },
     comparison: null,
   };
@@ -3067,7 +3915,12 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   { test: /\brock|\bmulch|\bgravel/i, key: 'rock_mulch' },
   { test: /\bsod|\bturf/i, key: 'sod_turf' },
   { test: /\bpaver/i, key: 'pavers' },
-  { test: /\bconcrete\b/i, key: 'pour_flatwork' },
+  {
+    test: /\b(flatwork|slab\s+pour|concrete\s+patio|patio\s+concrete|driveway|sidewalk)\b/i,
+    key: 'pour_flatwork',
+  },
+  { test: /\bfootings?\b|\bpiers?\b|\bfoundation\s+pour\b/i, key: 'pour_foundation' },
+  { test: /\bconcrete\b/i, key: 'concrete' },
   { test: /\bexcavat/i, key: 'excavation' },
   { test: /\brail(?:ing)?\b|\bguardrail\b/i, key: 'railing' },
   { test: /\bshower\b.*\btile\b|\btile\b.*\bshower\b|\bshower\s+wall\s+tile/i, key: 'shower_tile' },
@@ -3099,6 +3952,24 @@ export function lookupRuleKeyForPackage(name: string, scope = ''): string | null
     if (row.test.test(fullBlob)) return row.key;
   }
   return null;
+}
+
+/** Checklist keys that may hold pricing for a package name (primary + concrete aliases). */
+export function ruleKeysToTryForPackage(name: string, scope = ''): string[] {
+  const primary = lookupRuleKeyForPackage(name, scope);
+  const keys: string[] = primary ? [primary] : [];
+  const blob = `${name || ''} ${scope || ''}`.toLowerCase();
+  const concreteFamily =
+    /\bconcrete\b/.test(blob) ||
+    primary === 'concrete' ||
+    primary === 'pour_flatwork' ||
+    primary === 'pour_foundation';
+  if (concreteFamily) {
+    for (const alias of ['concrete', 'pour_flatwork', 'pour_foundation'] as const) {
+      if (!keys.includes(alias)) keys.push(alias);
+    }
+  }
+  return keys;
 }
 
 /** Planning qty when measurements/notes are missing — enables saved template $/sqft on demo/install rows. */
@@ -3306,6 +4177,10 @@ export function scopeMeasurementsToPayload(
       input.pricingAcceptance && Object.keys(input.pricingAcceptance).length
         ? input.pricingAcceptance
         : undefined,
+    scopeGapResolutions:
+      input.scopeGapResolutions && Object.keys(input.scopeGapResolutions).length
+        ? input.scopeGapResolutions
+        : undefined,
   };
   return payload;
 }
@@ -3358,6 +4233,7 @@ export function scopeMeasurementsInputFromPayload(
     wallPaintSqft: measurementFieldString(payload.wallPaintSqft),
     itemQuantities,
     pricingAcceptance: payload.pricingAcceptance,
+    scopeGapResolutions: payload.scopeGapResolutions,
   };
 }
 
@@ -3400,6 +4276,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<typeof emptyQuickMeasure
     { quantity: string; unit: string; quantitySource?: QuantitySource; includesCountertops?: boolean }
   >;
   pricingAcceptance?: Record<string, import('@/utils/estimateAiDraft').ScopePricingAcceptanceMetadata>;
+  scopeGapResolutions?: Record<string, import('@/utils/scopeReviewUi').ScopeGapResolutionRecord>;
 };
 
 export function initialScopeMeasurementInputExtended(
@@ -3603,6 +4480,7 @@ export function initialScopeMeasurementInputExtended(
     wallPaintSqft: pick('wallPaintSqft'),
     itemQuantities,
     pricingAcceptance: saved?.pricingAcceptance,
+    scopeGapResolutions: saved?.scopeGapResolutions,
   };
 
   result = syncDualAllowanceSqftFields(result);

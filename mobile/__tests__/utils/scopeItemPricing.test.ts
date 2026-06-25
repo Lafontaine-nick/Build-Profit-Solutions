@@ -23,6 +23,48 @@ function inputWith(
 
 // National-average flooring rate: material $4/sqft, labor $5/sqft.
 describe('resolveScopeItemSuggestedPricing', () => {
+  it('audits the current excavation national-average suggestion with a defined base-scope profile', () => {
+    const input = inputWith({ excavationCy: '50' });
+    const resolved = {
+      quantity: 50,
+      unit: 'cy',
+      quantitySource: 'inferred' as const,
+    };
+    const { fill } = resolveScopeItemSuggestedPricing('excavation', input, 'addition', resolved);
+    expect(fill).toMatchObject({
+      material: 250,
+      labor: 2250,
+      total: 2500,
+      materialSource: 'national_average',
+      laborSource: 'national_average',
+      basis: { quantity: 50, unit: 'cy' },
+    });
+    expect(fill?.benchmarkScopeProfile).toMatchObject({
+      pricingSource: 'national_average',
+      geographicBasis: 'national',
+      scopeAssumptionsDefined: true,
+      audit: {
+        quantity: 50,
+        unit: 'cy',
+        materialRate: 5,
+        laborRate: 45,
+        equipmentRate: null,
+        total: 2500,
+      },
+    });
+    expect(fill?.benchmarkScopeProfile?.scopeAssumptions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scopeKey: 'excavation', status: 'included' }),
+        expect.objectContaining({ scopeKey: 'haul_off', status: 'excluded' }),
+        expect.objectContaining({ scopeKey: 'dump_fees', status: 'excluded' }),
+        expect.objectContaining({ scopeKey: 'backfill', status: 'excluded' }),
+        expect.objectContaining({ scopeKey: 'compaction', status: 'excluded' }),
+        expect.objectContaining({ scopeKey: 'shoring', status: 'excluded' }),
+      ])
+    );
+    expect(fill?.benchmarkScopeProfile?.audit?.rootCause).toMatch(/base excavation only/i);
+  });
+
   it('splits a lump-sum total into material + labor using the national ratio', () => {
     const input = inputWith({ floorAreaSqft: '1000' });
     const resolved = {

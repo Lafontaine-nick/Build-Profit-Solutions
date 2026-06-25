@@ -58,6 +58,10 @@ function item(overrides: Partial<ScopeItemIntelligence> = {}): ScopeItemIntellig
     overlaps: [],
     dependencies: [],
     canContinue: true,
+    reviewableAssumptionCount: 0,
+    unresolvedAssumptionCount: 0,
+    overlapRisk: { hasOverlapRisk: false, relatedScopeKeys: [] },
+    confidenceReasons: [],
     quantity: {
       value: 100,
       unit: 'sqft',

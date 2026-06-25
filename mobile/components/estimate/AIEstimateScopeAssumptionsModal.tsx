@@ -94,7 +94,7 @@ import {
   type ScopeItemVisualContext,
 } from '@/utils/scopeItemVisualTier';
 import {
-  primaryIntelligenceNotice,
+  buildCardIntelligenceDisplay,
   resolveScopeItemIntelligence,
   type ScopeItemIntelligence,
 } from '@/utils/scopeIntelligence';
@@ -111,7 +111,22 @@ import {
   resolveAcceptedPricingDisplay,
   shouldHideSuggestedPanel,
 } from '@/utils/acceptedPricingSummaryUi';
-import { evaluateProjectScopeGaps } from '@/utils/scopeAssemblyRegistry';
+import { evaluateProjectScopeGaps, type AssemblyComponentStatus } from '@/utils/scopeAssemblyRegistry';
+import {
+  applyParentScopeGapPriceAddon,
+  adjustSuggestedPricingBlock,
+  ensureSeparateScopeItemInChecklist,
+  getScopeGapRecord,
+  scopeGapAddonCostBucketForComponent,
+  setScopeGapResolution,
+  syncScopeGapPricingStatuses,
+  type ScopeGapPricingContext,
+  type ScopeGapResolutionsMap,
+} from '@/utils/scopeReviewUi';
+import type {
+  BenchmarkScopeAssumption,
+  BenchmarkScopeAssumptionProfile,
+} from '@/utils/benchmarkScopeAssumptions';
 
 type Props = {
   visible: boolean;
@@ -427,23 +442,40 @@ function ScopeIntelligenceNotice({
   darkMode,
   onUseCalculatedQuantity,
   compact = false,
+  pricingAccepted = false,
 }: {
   intelligence: ScopeItemIntelligence;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   onUseCalculatedQuantity?: () => void;
   compact?: boolean;
+  pricingAccepted?: boolean;
 }) {
-  const notice = primaryIntelligenceNotice(intelligence);
+  const cardDisplay = buildCardIntelligenceDisplay(intelligence, { pricingAccepted });
   const formula = intelligence.formula;
   const showQuantity =
-    intelligence.quantity.confidence !== 'high' ||
-    intelligence.quantity.source === 'calculated_assumption' ||
-    intelligence.quantity.source === 'benchmark_estimate' ||
-    Boolean(formula);
+    cardDisplay.showQuantityConfidenceLine &&
+    (intelligence.quantity.confidence !== 'high' ||
+      intelligence.quantity.source === 'calculated_assumption' ||
+      intelligence.quantity.source === 'benchmark_estimate' ||
+      Boolean(formula));
   if (compact) {
-    if (!notice && !showQuantity && !formula) return null;
-  } else if (!notice && !showQuantity && !formula) {
+    if (
+      !cardDisplay.conciseBenchmarkWarning &&
+      !cardDisplay.duplicatePricingMessage &&
+      !cardDisplay.otherNotice &&
+      !showQuantity &&
+      !formula
+    ) {
+      return null;
+    }
+  } else if (
+    !cardDisplay.conciseBenchmarkWarning &&
+    !cardDisplay.duplicatePricingMessage &&
+    !cardDisplay.otherNotice &&
+    !showQuantity &&
+    !formula
+  ) {
     return null;
   }
 
@@ -452,7 +484,9 @@ function ScopeIntelligenceNotice({
       ? '#f59e0b'
       : intelligence.validation.status === 'blocked'
         ? '#ef4444'
-        : '#60a5fa';
+        : cardDisplay.confidence === 'low'
+          ? '#f59e0b'
+          : '#60a5fa';
 
   return (
     <View
@@ -466,14 +500,36 @@ function ScopeIntelligenceNotice({
     >
       {showQuantity ? (
         <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
-          <Text style={{ color: accent, fontWeight: '800' }}>{intelligence.quantity.confidenceLabel}</Text>
-          {' · '}
-          {intelligence.quantity.sourceLabel}
+          <Text style={{ color: accent, fontWeight: '800' }}>{cardDisplay.confidenceLabel}</Text>
+          {cardDisplay.conciseBenchmarkWarning ? null : (
+            <>
+              {' · '}
+              {cardDisplay.sourceLabel}
+            </>
+          )}
+        </Text>
+      ) : cardDisplay.conciseBenchmarkWarning ? (
+        <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
+          <Text style={{ color: accent, fontWeight: '800' }}>{cardDisplay.confidenceLabel}</Text>
         </Text>
       ) : null}
-      {notice ? (
+      {cardDisplay.conciseBenchmarkWarning ? (
         <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
-          {notice}
+          {cardDisplay.conciseBenchmarkWarning}
+        </Text>
+      ) : null}
+      {cardDisplay.duplicatePricingMessage ? (
+        <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
+          <Text style={{ color: accent, fontWeight: '800' }}>
+            {cardDisplay.duplicatePricingTitle || 'Possible duplicate pricing'}
+          </Text>
+          {' · '}
+          {cardDisplay.duplicatePricingMessage}
+        </Text>
+      ) : null}
+      {cardDisplay.otherNotice ? (
+        <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
+          {cardDisplay.otherNotice}
         </Text>
       ) : null}
       {formula ? (
@@ -550,6 +606,31 @@ function SuggestedBudgetSplitRows({
         : block.isComparison
           ? `Comparison from ${usesTemplate ? 'your saved rate' : 'National Average'}. Notes pricing remains primary.${usesTemplate && block.templateName ? ` Source: ${block.templateName}.` : ''}`
           : `Suggested from ${usesTemplate ? 'your saved rate' : 'National Average'} because notes only gave a quantity, not pricing.`;
+  const displayBuckets = block.costBuckets?.length
+    ? block.costBuckets
+    : block.lumpSumOnly
+      ? [
+          {
+            key: 'allowance' as const,
+            label: 'Allowance',
+            amount: block.total,
+            source: block.laborSource,
+          },
+        ]
+      : [
+          {
+            key: 'material' as const,
+            label: 'Material',
+            amount: block.material,
+            source: block.materialSource,
+          },
+          {
+            key: 'labor' as const,
+            label: 'Labor',
+            amount: block.labor,
+            source: block.laborSource,
+          },
+        ].filter((bucket) => bucket.amount > 0);
 
   return (
     <View
@@ -572,28 +653,23 @@ function SuggestedBudgetSplitRows({
           />
         </View>
       </View>
-      {!block.lumpSumOnly ? (
+      {displayBuckets.map((bucket) => (
         <PricingSplitRow
-          label="Material"
-          value={formatDraftMoney(block.material)}
-          pill={legSourcePill({ block, leg: 'material' })}
-          helper={unitRateHelper(String(block.material), block.basis)}
+          key={`${bucket.key}:${bucket.label}`}
+          label={bucket.label}
+          value={formatDraftMoney(bucket.amount)}
+          pill={legSourcePill({ block, leg: bucket.key === 'labor' || bucket.key === 'allowance' ? 'labor' : 'material' })}
+          helper={
+            bucket.key === 'allowance'
+              ? 'Flat allowance'
+              : bucket.rate != null
+                ? unitRateHelper(String(bucket.rate * (block.basis?.quantity || 1)), block.basis)
+                : unitRateHelper(String(bucket.amount), block.basis)
+          }
           darkMode={darkMode}
           Colors={Colors}
         />
-      ) : null}
-      <PricingSplitRow
-        label={block.lumpSumOnly ? 'Allowance' : 'Labor'}
-        value={formatDraftMoney(block.lumpSumOnly ? block.total : block.labor)}
-        pill={legSourcePill({ block, leg: 'labor' })}
-        helper={
-          block.lumpSumOnly
-            ? 'Flat allowance'
-            : unitRateHelper(String(block.labor), block.basis)
-        }
-        darkMode={darkMode}
-        Colors={Colors}
-      />
+      ))}
       <PricingSplitRow
         label="Total"
         value={formatDraftMoney(block.total)}
@@ -623,13 +699,18 @@ function SuggestedBudgetSplitRows({
         {explanation}
       </Text>
       {onUsePricing ? (
+        <Text style={[styles.suggestedPricingConfirmHint, { color: Colors.sub }]}>
+          Suggested only - use this price to include it in the estimate.
+        </Text>
+      ) : null}
+      {onUsePricing ? (
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={onUsePricing}
           style={styles.useSuggestedPricingBtn}
         >
           <Text style={styles.useSuggestedPricingBtnText}>
-            {block.lumpSumOnly ? 'Use this allowance' : 'Use this pricing'}
+            {block.lumpSumOnly ? 'Use this allowance in estimate' : 'Use this price in estimate'}
           </Text>
         </TouchableOpacity>
       ) : null}
@@ -1220,6 +1301,12 @@ function buildNormFromInput(
   return buildNormalizedScopeMeasurementsFromInput(input, { notes, templateKey });
 }
 
+type UnconfirmedSuggestedPricing = {
+  itemId: string;
+  label: string;
+  block: SuggestedPricingBlock;
+};
+
 function QuantitySection({
   itemId,
   choiceId,
@@ -1231,6 +1318,12 @@ function QuantitySection({
   onItemQuantityBlur,
   onItemQuantityFocus,
   onApplySuggestedPricing,
+  onScopeGapResolutionsChange,
+  onScopeGapPriceSeparately,
+  onScopeGapIncludeInParentPrice,
+  scopeItemLabel,
+  pricingEditorRequest,
+  onPricingEditorRequestHandled,
   Colors,
   darkMode,
   applying,
@@ -1240,6 +1333,7 @@ function QuantitySection({
   inScope: boolean;
   templateKey?: string | null;
   originalNotes?: string | null;
+  scopeItemLabel: string;
   measurementsInput: ScopeMeasurementsInputExtended;
   onItemQuantityChange: (
     itemId: string,
@@ -1251,6 +1345,22 @@ function QuantitySection({
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   onApplySuggestedPricing?: (itemId: string, block: SuggestedPricingBlock) => void;
+  onScopeGapResolutionsChange?: (next: ScopeGapResolutionsMap) => void;
+  onScopeGapPriceSeparately?: (
+    parentScopeItemId: string,
+    component: AssemblyComponentStatus,
+    benchmarkAssumption?: BenchmarkScopeAssumption | null,
+    benchmarkProfile?: BenchmarkScopeAssumptionProfile | null
+  ) => void;
+  onScopeGapIncludeInParentPrice?: (
+    parentScopeItemId: string,
+    component: AssemblyComponentStatus,
+    addonAmount: number,
+    benchmarkAssumption?: BenchmarkScopeAssumption | null,
+    benchmarkProfile?: BenchmarkScopeAssumptionProfile | null
+  ) => void;
+  pricingEditorRequest?: { itemId: string; token: number } | null;
+  onPricingEditorRequestHandled?: () => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
@@ -1259,7 +1369,21 @@ function QuantitySection({
   const [focusedPricingField, setFocusedPricingField] = useState<string | null>(null);
   const pricingContext = React.useContext(ScopePricingContextValue);
   const assemblyContext = React.useContext(ScopeAssemblyContextValue);
+  const scopeGapPricingContext = React.useMemo<ScopeGapPricingContext>(
+    () => ({
+      itemQuantities: measurementsInput.itemQuantities,
+      pricingAcceptance: measurementsInput.pricingAcceptance,
+    }),
+    [measurementsInput.itemQuantities, measurementsInput.pricingAcceptance]
+  );
   const rule = getChecklistItemQuantityRuleOrDefault(itemId, templateKey);
+
+  React.useEffect(() => {
+    if (pricingEditorRequest?.itemId === itemId) {
+      setPricingEditorOpen(true);
+      onPricingEditorRequestHandled?.();
+    }
+  }, [pricingEditorRequest, itemId, onPricingEditorRequestHandled]);
   if (!inScope) return null;
 
   const norm = buildNormFromInput(measurementsInput, originalNotes, templateKey);
@@ -1361,6 +1485,10 @@ function QuantitySection({
         suggestedPricing: suggestedBudgetSplit,
         activeScopeKeys: assemblyContext.activeScopeKeys,
         excludedScopeKeys: assemblyContext.excludedScopeKeys,
+        pricingAcceptance: measurementsInput.pricingAcceptance,
+        scopeGapResolutions: measurementsInput.scopeGapResolutions,
+        itemQuantities: measurementsInput.itemQuantities,
+        pricingAccepted: Boolean(measurementsInput.pricingAcceptance?.[itemId]),
       });
       const applySuggestedPricingBlock = (block: SuggestedPricingBlock) => {
         if (onApplySuggestedPricing) {
@@ -1432,12 +1560,29 @@ function QuantitySection({
               display={acceptedDisplay}
               intelligence={intelligence}
               scopeKey={itemId}
+              scopeItemLabel={scopeItemLabel}
               resolved={displayResolved}
               suggestedBlock={suggestedBudgetSplit}
               comparisonBlock={suggestedComparisonSplit}
+              scopeGapResolutions={measurementsInput.scopeGapResolutions}
+              scopeGapPricingContext={scopeGapPricingContext}
+              originalNotes={originalNotes}
               Colors={Colors}
               darkMode={darkMode}
               onEditPricing={openPricingEditor}
+              onScopeGapResolutionsChange={onScopeGapResolutionsChange}
+              onScopeGapPriceSeparately={(componentKey, component, benchmarkAssumption, benchmarkProfile) =>
+                onScopeGapPriceSeparately?.(itemId, component, benchmarkAssumption, benchmarkProfile)
+              }
+              onScopeGapIncludeInParentPrice={(componentKey, component, addonAmount, benchmarkAssumption, benchmarkProfile) =>
+                onScopeGapIncludeInParentPrice?.(
+                  itemId,
+                  component,
+                  addonAmount,
+                  benchmarkAssumption,
+                  benchmarkProfile
+                )
+              }
             />
           ) : (
             <>
@@ -1671,6 +1816,10 @@ function QuantitySection({
     suggestedPricing: suggestedBudgetSplit,
     activeScopeKeys: assemblyContext.activeScopeKeys,
     excludedScopeKeys: assemblyContext.excludedScopeKeys,
+    pricingAcceptance: measurementsInput.pricingAcceptance,
+    scopeGapResolutions: measurementsInput.scopeGapResolutions,
+    itemQuantities: measurementsInput.itemQuantities,
+    pricingAccepted: Boolean(measurementsInput.pricingAcceptance?.[itemId]),
   });
   const pricingBasis =
     resolveAllowanceEditorPricingBasis(itemId, measurementsInput, templateKey) ??
@@ -1804,12 +1953,29 @@ function QuantitySection({
                 display={acceptedDisplay}
                 intelligence={intelligence}
                 scopeKey={itemId}
+                scopeItemLabel={scopeItemLabel}
                 resolved={resolved}
                 suggestedBlock={suggestedBudgetSplit}
                 comparisonBlock={suggestedComparisonSplit}
+                scopeGapResolutions={measurementsInput.scopeGapResolutions}
+                scopeGapPricingContext={scopeGapPricingContext}
+                originalNotes={originalNotes}
                 Colors={Colors}
                 darkMode={darkMode}
                 onEditPricing={openPricingEditor}
+                onScopeGapResolutionsChange={onScopeGapResolutionsChange}
+                onScopeGapPriceSeparately={(componentKey, component, benchmarkAssumption, benchmarkProfile) =>
+                  onScopeGapPriceSeparately?.(itemId, component, benchmarkAssumption, benchmarkProfile)
+                }
+                onScopeGapIncludeInParentPrice={(componentKey, component, addonAmount, benchmarkAssumption, benchmarkProfile) =>
+                  onScopeGapIncludeInParentPrice?.(
+                    itemId,
+                    component,
+                    addonAmount,
+                    benchmarkAssumption,
+                    benchmarkProfile
+                  )
+                }
               />
             );
           }
@@ -2125,6 +2291,11 @@ function WetAreaInstallLineCard({
   onItemQuantityBlur,
   onItemQuantityFocus,
   onApplySuggestedPricing,
+  onScopeGapResolutionsChange,
+  onScopeGapPriceSeparately,
+  onScopeGapIncludeInParentPrice,
+  pricingEditorRequest,
+  onPricingEditorRequestHandled,
   onSaveCustomPricing,
   visualCtx,
   Colors,
@@ -2144,6 +2315,22 @@ function WetAreaInstallLineCard({
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   onApplySuggestedPricing?: (itemId: string, block: SuggestedPricingBlock) => void;
+  onScopeGapResolutionsChange?: (next: ScopeGapResolutionsMap) => void;
+  onScopeGapPriceSeparately?: (
+    parentScopeItemId: string,
+    component: AssemblyComponentStatus,
+    benchmarkAssumption?: BenchmarkScopeAssumption | null,
+    benchmarkProfile?: BenchmarkScopeAssumptionProfile | null
+  ) => void;
+  onScopeGapIncludeInParentPrice?: (
+    parentScopeItemId: string,
+    component: AssemblyComponentStatus,
+    addonAmount: number,
+    benchmarkAssumption?: BenchmarkScopeAssumption | null,
+    benchmarkProfile?: BenchmarkScopeAssumptionProfile | null
+  ) => void;
+  pricingEditorRequest?: { itemId: string; token: number } | null;
+  onPricingEditorRequestHandled?: () => void;
   onSaveCustomPricing?: () => void;
   visualCtx: ScopeItemVisualContext;
   Colors: ReturnType<typeof getColors>;
@@ -2182,6 +2369,12 @@ function WetAreaInstallLineCard({
         onItemQuantityBlur={onItemQuantityBlur}
         onItemQuantityFocus={onItemQuantityFocus}
         onApplySuggestedPricing={onApplySuggestedPricing}
+        onScopeGapResolutionsChange={onScopeGapResolutionsChange}
+        onScopeGapPriceSeparately={onScopeGapPriceSeparately}
+        onScopeGapIncludeInParentPrice={onScopeGapIncludeInParentPrice}
+        pricingEditorRequest={pricingEditorRequest}
+        onPricingEditorRequestHandled={onPricingEditorRequestHandled}
+        scopeItemLabel={item.label}
         Colors={Colors}
         darkMode={darkMode}
         applying={applying}
@@ -2202,6 +2395,11 @@ function YesNoRow({
   onItemQuantityBlur,
   onItemQuantityFocus,
   onApplySuggestedPricing,
+  onScopeGapResolutionsChange,
+  onScopeGapPriceSeparately,
+  onScopeGapIncludeInParentPrice,
+  pricingEditorRequest,
+  onPricingEditorRequestHandled,
   onSaveCustomPricing,
   visualCtx,
   Colors,
@@ -2224,6 +2422,22 @@ function YesNoRow({
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   onApplySuggestedPricing?: (itemId: string, block: SuggestedPricingBlock) => void;
+  onScopeGapResolutionsChange?: (next: ScopeGapResolutionsMap) => void;
+  onScopeGapPriceSeparately?: (
+    parentScopeItemId: string,
+    component: AssemblyComponentStatus,
+    benchmarkAssumption?: BenchmarkScopeAssumption | null,
+    benchmarkProfile?: BenchmarkScopeAssumptionProfile | null
+  ) => void;
+  onScopeGapIncludeInParentPrice?: (
+    parentScopeItemId: string,
+    component: AssemblyComponentStatus,
+    addonAmount: number,
+    benchmarkAssumption?: BenchmarkScopeAssumption | null,
+    benchmarkProfile?: BenchmarkScopeAssumptionProfile | null
+  ) => void;
+  pricingEditorRequest?: { itemId: string; token: number } | null;
+  onPricingEditorRequestHandled?: () => void;
   onSaveCustomPricing?: () => void;
   visualCtx: ScopeItemVisualContext;
   Colors: ReturnType<typeof getColors>;
@@ -2380,6 +2594,12 @@ function YesNoRow({
           onItemQuantityBlur={onItemQuantityBlur}
           onItemQuantityFocus={onItemQuantityFocus}
           onApplySuggestedPricing={onApplySuggestedPricing}
+          onScopeGapResolutionsChange={onScopeGapResolutionsChange}
+          onScopeGapPriceSeparately={onScopeGapPriceSeparately}
+          onScopeGapIncludeInParentPrice={onScopeGapIncludeInParentPrice}
+          pricingEditorRequest={pricingEditorRequest}
+          onPricingEditorRequestHandled={onPricingEditorRequestHandled}
+          scopeItemLabel={item.label}
           Colors={Colors}
           darkMode={darkMode}
           applying={applying}
@@ -2399,6 +2619,11 @@ function MultiChoiceRow({
   onItemQuantityBlur,
   onItemQuantityFocus,
   onApplySuggestedPricing,
+  onScopeGapResolutionsChange,
+  onScopeGapPriceSeparately,
+  onScopeGapIncludeInParentPrice,
+  pricingEditorRequest,
+  onPricingEditorRequestHandled,
   visualCtx,
   Colors,
   darkMode,
@@ -2418,6 +2643,22 @@ function MultiChoiceRow({
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   onApplySuggestedPricing?: (itemId: string, block: SuggestedPricingBlock) => void;
+  onScopeGapResolutionsChange?: (next: ScopeGapResolutionsMap) => void;
+  onScopeGapPriceSeparately?: (
+    parentScopeItemId: string,
+    component: AssemblyComponentStatus,
+    benchmarkAssumption?: BenchmarkScopeAssumption | null,
+    benchmarkProfile?: BenchmarkScopeAssumptionProfile | null
+  ) => void;
+  onScopeGapIncludeInParentPrice?: (
+    parentScopeItemId: string,
+    component: AssemblyComponentStatus,
+    addonAmount: number,
+    benchmarkAssumption?: BenchmarkScopeAssumption | null,
+    benchmarkProfile?: BenchmarkScopeAssumptionProfile | null
+  ) => void;
+  pricingEditorRequest?: { itemId: string; token: number } | null;
+  onPricingEditorRequestHandled?: () => void;
   visualCtx: ScopeItemVisualContext;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
@@ -2500,6 +2741,12 @@ function MultiChoiceRow({
         onItemQuantityBlur={onItemQuantityBlur}
         onItemQuantityFocus={onItemQuantityFocus}
         onApplySuggestedPricing={onApplySuggestedPricing}
+        onScopeGapResolutionsChange={onScopeGapResolutionsChange}
+        onScopeGapPriceSeparately={onScopeGapPriceSeparately}
+        onScopeGapIncludeInParentPrice={onScopeGapIncludeInParentPrice}
+        pricingEditorRequest={pricingEditorRequest}
+        onPricingEditorRequestHandled={onPricingEditorRequestHandled}
+        scopeItemLabel={item.label}
         Colors={Colors}
         darkMode={darkMode}
         applying={applying}
@@ -2518,6 +2765,11 @@ function ChoiceRow({
   onItemQuantityBlur,
   onItemQuantityFocus,
   onApplySuggestedPricing,
+  onScopeGapResolutionsChange,
+  onScopeGapPriceSeparately,
+  onScopeGapIncludeInParentPrice,
+  pricingEditorRequest,
+  onPricingEditorRequestHandled,
   visualCtx,
   Colors,
   darkMode,
@@ -2537,6 +2789,22 @@ function ChoiceRow({
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   onApplySuggestedPricing?: (itemId: string, block: SuggestedPricingBlock) => void;
+  onScopeGapResolutionsChange?: (next: ScopeGapResolutionsMap) => void;
+  onScopeGapPriceSeparately?: (
+    parentScopeItemId: string,
+    component: AssemblyComponentStatus,
+    benchmarkAssumption?: BenchmarkScopeAssumption | null,
+    benchmarkProfile?: BenchmarkScopeAssumptionProfile | null
+  ) => void;
+  onScopeGapIncludeInParentPrice?: (
+    parentScopeItemId: string,
+    component: AssemblyComponentStatus,
+    addonAmount: number,
+    benchmarkAssumption?: BenchmarkScopeAssumption | null,
+    benchmarkProfile?: BenchmarkScopeAssumptionProfile | null
+  ) => void;
+  pricingEditorRequest?: { itemId: string; token: number } | null;
+  onPricingEditorRequestHandled?: () => void;
   visualCtx: ScopeItemVisualContext;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
@@ -2619,6 +2887,12 @@ function ChoiceRow({
         onItemQuantityBlur={onItemQuantityBlur}
         onItemQuantityFocus={onItemQuantityFocus}
         onApplySuggestedPricing={onApplySuggestedPricing}
+        onScopeGapResolutionsChange={onScopeGapResolutionsChange}
+        onScopeGapPriceSeparately={onScopeGapPriceSeparately}
+        onScopeGapIncludeInParentPrice={onScopeGapIncludeInParentPrice}
+        pricingEditorRequest={pricingEditorRequest}
+        onPricingEditorRequestHandled={onPricingEditorRequestHandled}
+        scopeItemLabel={item.label}
         Colors={Colors}
         darkMode={darkMode}
         applying={applying}
@@ -2886,6 +3160,10 @@ export default function AIEstimateScopeAssumptionsModal({
   const scrollContentRef = useRef<View>(null);
   const itemRefs = useRef<Record<string, View | null>>({});
   const focusedQuantityRef = useRef<string | null>(null);
+  const [pricingEditorRequest, setPricingEditorRequest] = useState<{ itemId: string; token: number } | null>(
+    null
+  );
+  const clearPricingEditorRequest = useCallback(() => setPricingEditorRequest(null), []);
   const hydratedVisibleSessionRef = useRef(false);
 
   const setMeasurementsSynced = useCallback((update: React.SetStateAction<ScopeMeasurementsInputExtended>) => {
@@ -3120,6 +3398,112 @@ export default function AIEstimateScopeAssumptionsModal({
         })
       ),
     [checklist?.templateKey, scopeAssemblyContext.activeScopeKeys, scopeAssemblyContext.excludedScopeKeys]
+  );
+
+  const unconfirmedSuggestedPricing = useMemo<UnconfirmedSuggestedPricing[]>(() => {
+    const rows: UnconfirmedSuggestedPricing[] = [];
+    for (const item of displayItems) {
+      if (!checklistItemInScope(item)) continue;
+      if (hasAcceptedScopePricing(item.id, measurements.itemQuantities, measurements.pricingAcceptance)) continue;
+      const resolved = resolveChecklistItemQuantity(item.id, normMeasurements, {
+        choiceId: item.choiceId,
+        templateKey: checklist?.templateKey,
+        notes: scopeNotes,
+      });
+      const suggested = resolveScopeItemSuggestedPricing(
+        item.id,
+        measurements,
+        checklist?.templateKey,
+        resolved,
+        pricingContext
+      );
+      if (suggested.fill) {
+        rows.push({ itemId: item.id, label: item.label, block: suggested.fill });
+      }
+    }
+    return rows;
+  }, [displayItems, measurements, normMeasurements, checklist?.templateKey, scopeNotes, pricingContext]);
+
+  const applySuggestedPricingBlocks = useCallback(
+    (rows: UnconfirmedSuggestedPricing[]) => {
+      if (!rows.length) return;
+      hapticTap();
+      selectedPricingRef.current = {
+        ...selectedPricingRef.current,
+        ...Object.fromEntries(rows.map((row) => [row.itemId, row.block])),
+      };
+      setMeasurementsSynced((prev) => {
+        const itemQuantities: Record<string, { quantity: string; unit: string; quantitySource: string }> = {
+          ...prev.itemQuantities,
+        };
+        const pricingAcceptance = {
+          ...(prev.pricingAcceptance || {}),
+        };
+        for (const { itemId, block } of rows) {
+          const rule = getChecklistItemQuantityRuleOrDefault(itemId, checklist?.templateKey);
+          const allowanceKey = rule.dualAllowanceField
+            ? roughAllowanceSubKey(itemId)
+            : allowanceSplitSubKey(itemId, 'allowance');
+          const basisKey = allowanceSplitSubKey(itemId, 'sqft_basis');
+          const materialKey = allowanceSplitSubKey(itemId, 'material');
+          const laborKey = allowanceSplitSubKey(itemId, 'labor');
+          itemQuantities[allowanceKey] = {
+            quantity: String(block.total),
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          };
+          if (block.basis?.quantity && block.basis.unit) {
+            itemQuantities[basisKey] = {
+              quantity: String(block.basis.quantity),
+              unit: block.basis.unit,
+              quantitySource: 'user_entered',
+            };
+          }
+          if (!block.lumpSumOnly) {
+            itemQuantities[materialKey] = {
+              quantity: String(block.material),
+              unit: 'allowance',
+              quantitySource: 'user_entered',
+            };
+            itemQuantities[laborKey] = {
+              quantity: String(block.labor),
+              unit: 'allowance',
+              quantitySource: 'user_entered',
+            };
+          } else if (block.labor > 0) {
+            itemQuantities[laborKey] = {
+              quantity: String(block.labor),
+              unit: 'allowance',
+              quantitySource: 'user_entered',
+            };
+          }
+          if (!rule.dualAllowanceField) {
+            itemQuantities[itemId] = {
+              quantity: String(block.basis?.quantity ?? block.total),
+              unit: block.basis?.unit || 'allowance',
+              quantitySource: 'user_entered',
+            };
+          }
+          pricingAcceptance[itemId] = buildAcceptanceFromSuggestedBlock(block);
+        }
+        return {
+          ...prev,
+          itemQuantities,
+          pricingAcceptance,
+          scopeGapResolutions: syncScopeGapPricingStatuses(prev.scopeGapResolutions, {
+            itemQuantities,
+            pricingAcceptance,
+          }),
+        };
+      });
+      setTimeout(() => persistScopeProgressNow(), 0);
+    },
+    [checklist?.templateKey, persistScopeProgressNow, setMeasurementsSynced]
+  );
+
+  const handleUseAllSuggestedPricing = useCallback(
+    () => applySuggestedPricingBlocks(unconfirmedSuggestedPricing),
+    [applySuggestedPricingBlocks, unconfirmedSuggestedPricing]
   );
 
   const handleItemQuantityChange = (
@@ -3386,11 +3770,151 @@ export default function AIEstimateScopeAssumptionsModal({
             ...(prev.pricingAcceptance || {}),
             [itemId]: acceptance,
           },
+          scopeGapResolutions: syncScopeGapPricingStatuses(prev.scopeGapResolutions, {
+            itemQuantities,
+            pricingAcceptance: {
+              ...(prev.pricingAcceptance || {}),
+              [itemId]: acceptance,
+            },
+          }),
         };
       });
       setTimeout(() => persistScopeProgressNow(), 0);
     },
     [checklist?.templateKey, persistScopeProgressNow, setMeasurementsSynced]
+  );
+
+  const scrollToScopeItem = useCallback((targetItemId: string) => {
+    const group = groupedItems.find((g) => g.items.some((row) => row.id === targetItemId));
+    if (group?.title) {
+      setCollapsedGroups((prev) => ({ ...prev, [group.title]: false }));
+    }
+    const node = itemRefs.current[targetItemId];
+    const content = scrollContentRef.current;
+    if (node && content) {
+      node.measureLayout(content, (_x, y) => {
+        scrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true });
+      });
+    }
+  }, [groupedItems]);
+
+  const handleScopeGapResolutionsChange = useCallback(
+    (next: ScopeGapResolutionsMap) => {
+      setMeasurementsSynced((prev) => {
+        const pricingContext: ScopeGapPricingContext = {
+          itemQuantities: prev.itemQuantities,
+          pricingAcceptance: prev.pricingAcceptance,
+        };
+        return {
+          ...prev,
+          scopeGapResolutions: syncScopeGapPricingStatuses(next, pricingContext),
+        };
+      });
+      setTimeout(() => persistScopeProgressNow(), 0);
+    },
+    [persistScopeProgressNow, setMeasurementsSynced]
+  );
+
+  const handleScopeGapPriceSeparately = useCallback(
+    (
+      parentScopeItemId: string,
+      component: AssemblyComponentStatus,
+      benchmarkAssumption?: BenchmarkScopeAssumption | null,
+      benchmarkProfile?: BenchmarkScopeAssumptionProfile | null
+    ) => {
+      hapticTap();
+      const { items: nextItems, lineItemId } = ensureSeparateScopeItemInChecklist(
+        itemsRef.current,
+        component,
+        parentScopeItemId
+      );
+      setItems(nextItems);
+      setMeasurementsSynced((prev) => {
+        const pricingContext: ScopeGapPricingContext = {
+          itemQuantities: prev.itemQuantities,
+          pricingAcceptance: prev.pricingAcceptance,
+        };
+        return {
+          ...prev,
+          scopeGapResolutions: setScopeGapResolution(
+            prev.scopeGapResolutions,
+            parentScopeItemId,
+            component.key,
+            'price_separately',
+            {
+              linkedLineItemId: lineItemId,
+              parentScopeItemId,
+              pricingContext,
+              benchmarkAssumption,
+              benchmarkProfile,
+            }
+          ),
+        };
+      });
+      setPricingEditorRequest({ itemId: lineItemId, token: Date.now() });
+      setTimeout(() => {
+        scrollToScopeItem(lineItemId);
+        persistScopeProgressNow();
+      }, 150);
+    },
+    [persistScopeProgressNow, scrollToScopeItem, setMeasurementsSynced]
+  );
+
+  const handleScopeGapIncludeInParentPrice = useCallback(
+    (
+      parentScopeItemId: string,
+      component: AssemblyComponentStatus,
+      addonAmount: number,
+      benchmarkAssumption?: BenchmarkScopeAssumption | null,
+      benchmarkProfile?: BenchmarkScopeAssumptionProfile | null
+    ) => {
+      hapticTap();
+      if (!Number.isFinite(addonAmount) || addonAmount <= 0) return;
+      setMeasurementsSynced((prev) => {
+        const previousRecord = getScopeGapRecord(prev.scopeGapResolutions, parentScopeItemId, component.key);
+        const previousAddon = previousRecord?.parentPriceAddon ?? 0;
+        const previousBucket = previousRecord?.parentPriceAddonBucket;
+        const bucket = scopeGapAddonCostBucketForComponent(component.key);
+        const delta = addonAmount - previousAddon;
+        const existingBlock = selectedPricingRef.current[parentScopeItemId];
+        if (existingBlock && delta !== 0) {
+          selectedPricingRef.current = {
+            ...selectedPricingRef.current,
+            [parentScopeItemId]: adjustSuggestedPricingBlock(existingBlock, delta, bucket),
+          };
+        }
+        const { itemQuantities, pricingAcceptance } = applyParentScopeGapPriceAddon({
+          parentScopeItemId,
+          componentKey: component.key,
+          addonAmount,
+          previousAddonAmount: previousAddon,
+          previousAddonBucket: previousBucket,
+          itemQuantities: prev.itemQuantities,
+          pricingAcceptance: prev.pricingAcceptance,
+        });
+        const pricingContext: ScopeGapPricingContext = { itemQuantities, pricingAcceptance };
+        return {
+          ...prev,
+          itemQuantities,
+          pricingAcceptance,
+          scopeGapResolutions: setScopeGapResolution(
+            prev.scopeGapResolutions,
+            parentScopeItemId,
+            component.key,
+            'included',
+            {
+              parentScopeItemId,
+              parentPriceAddon: addonAmount,
+              pricingContext,
+              benchmarkAssumption,
+              benchmarkProfile,
+            }
+          ),
+        };
+      });
+      setTimeout(() => persistScopeProgressNow(), 0);
+    },
+    [persistScopeProgressNow, setMeasurementsSynced]
   );
 
   const handleDeleteCustomItem = (itemId: string) => {
@@ -3424,6 +3948,11 @@ export default function AIEstimateScopeAssumptionsModal({
         onItemQuantityBlur={handleItemQuantityBlur}
         onItemQuantityFocus={handleItemQuantityFocus}
         onApplySuggestedPricing={handleApplySuggestedPricing}
+        onScopeGapResolutionsChange={handleScopeGapResolutionsChange}
+        onScopeGapPriceSeparately={handleScopeGapPriceSeparately}
+        onScopeGapIncludeInParentPrice={handleScopeGapIncludeInParentPrice}
+        pricingEditorRequest={pricingEditorRequest}
+        onPricingEditorRequestHandled={clearPricingEditorRequest}
         visualCtx={visualCtx}
         Colors={Colors}
         darkMode={darkMode}
@@ -3453,6 +3982,11 @@ export default function AIEstimateScopeAssumptionsModal({
         onItemQuantityBlur={handleItemQuantityBlur}
         onItemQuantityFocus={handleItemQuantityFocus}
         onApplySuggestedPricing={handleApplySuggestedPricing}
+        onScopeGapResolutionsChange={handleScopeGapResolutionsChange}
+        onScopeGapPriceSeparately={handleScopeGapPriceSeparately}
+        onScopeGapIncludeInParentPrice={handleScopeGapIncludeInParentPrice}
+        pricingEditorRequest={pricingEditorRequest}
+        onPricingEditorRequestHandled={clearPricingEditorRequest}
         visualCtx={visualCtx}
         Colors={Colors}
         darkMode={darkMode}
@@ -3490,6 +4024,11 @@ export default function AIEstimateScopeAssumptionsModal({
         onItemQuantityBlur={handleItemQuantityBlur}
         onItemQuantityFocus={handleItemQuantityFocus}
         onApplySuggestedPricing={handleApplySuggestedPricing}
+        onScopeGapResolutionsChange={handleScopeGapResolutionsChange}
+        onScopeGapPriceSeparately={handleScopeGapPriceSeparately}
+        onScopeGapIncludeInParentPrice={handleScopeGapIncludeInParentPrice}
+        pricingEditorRequest={pricingEditorRequest}
+        onPricingEditorRequestHandled={clearPricingEditorRequest}
         visualCtx={visualCtx}
         Colors={Colors}
         darkMode={darkMode}
@@ -3521,6 +4060,11 @@ export default function AIEstimateScopeAssumptionsModal({
         onItemQuantityBlur={handleItemQuantityBlur}
         onItemQuantityFocus={handleItemQuantityFocus}
         onApplySuggestedPricing={handleApplySuggestedPricing}
+        onScopeGapResolutionsChange={handleScopeGapResolutionsChange}
+        onScopeGapPriceSeparately={handleScopeGapPriceSeparately}
+        onScopeGapIncludeInParentPrice={handleScopeGapIncludeInParentPrice}
+        pricingEditorRequest={pricingEditorRequest}
+        onPricingEditorRequestHandled={clearPricingEditorRequest}
         visualCtx={visualCtx}
         Colors={Colors}
         darkMode={darkMode}
@@ -3559,6 +4103,30 @@ export default function AIEstimateScopeAssumptionsModal({
       }
       onConfirm(items, payload);
     };
+
+    if (unconfirmedSuggestedPricing.length > 0) {
+      const count = unconfirmedSuggestedPricing.length;
+      Alert.alert(
+        'Use suggested prices?',
+        `${count} included item${count === 1 ? '' : 's'} have suggested pricing that has not been added to the estimate yet.`,
+        [
+          {
+            text: `Use ${count} suggested price${count === 1 ? '' : 's'}`,
+            onPress: () => {
+              applySuggestedPricingBlocks(unconfirmedSuggestedPricing);
+              setTimeout(proceed, 0);
+            },
+          },
+          {
+            text: 'Continue without prices',
+            style: 'destructive',
+            onPress: proceed,
+          },
+          { text: 'Review individually', style: 'cancel' },
+        ]
+      );
+      return;
+    }
 
     if (pricingCounts.needsMeasurement > 0) {
       const count = pricingCounts.needsMeasurement;
@@ -3774,6 +4342,25 @@ export default function AIEstimateScopeAssumptionsModal({
           },
         ]}
       >
+        {unconfirmedSuggestedPricing.length > 0 ? (
+          <TouchableOpacity
+            style={[
+              styles.bulkSuggestedPricingBtn,
+              {
+                borderColor: darkMode ? 'rgba(34,197,94,0.42)' : 'rgba(22,163,74,0.3)',
+                backgroundColor: darkMode ? 'rgba(34,197,94,0.1)' : 'rgba(22,163,74,0.08)',
+              },
+            ]}
+            onPress={handleUseAllSuggestedPricing}
+            disabled={applying}
+            activeOpacity={0.86}
+          >
+            <Text style={styles.bulkSuggestedPricingBtnText}>
+              Use {unconfirmedSuggestedPricing.length} suggested price
+              {unconfirmedSuggestedPricing.length === 1 ? '' : 's'} in estimate
+            </Text>
+          </TouchableOpacity>
+        ) : null}
         <TouchableOpacity
           style={[styles.primaryBtn, applying && styles.primaryBtnDisabled]}
           onPress={handleConfirm}
@@ -4000,6 +4587,12 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     fontSize: 12,
     fontWeight: '800',
+  },
+  suggestedPricingConfirmHint: {
+    marginTop: 10,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '600',
   },
   includedPillRow: {
     marginTop: 10,
@@ -4256,6 +4849,17 @@ const styles = StyleSheet.create({
   },
   primaryBtnDisabled: {
     opacity: 0.7,
+  },
+  bulkSuggestedPricingBtn: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  bulkSuggestedPricingBtnText: {
+    color: '#22c55e',
+    fontWeight: '800',
+    fontSize: 14,
   },
   primaryBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 16 },
 });

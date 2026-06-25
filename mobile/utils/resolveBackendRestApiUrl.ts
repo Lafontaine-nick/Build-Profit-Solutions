@@ -98,6 +98,18 @@ export function resolveBackendRestApiBaseUrl(): string {
 }
 
 function resolveBackendRestApiBaseUrlUncached(): string {
+  // Simulator/emulator: always loopback — baked `extra.apiBaseUrl` LAN IPs go stale after DHCP.
+  if (__DEV__ && Platform.OS === 'ios' && Constants.isDevice === false) {
+    const u = ensureApiSuffix('http://localhost:3001');
+    console.log('🔧 Backend REST API: iOS simulator →', u);
+    return u;
+  }
+  if (__DEV__ && Platform.OS === 'android' && Constants.isDevice === false) {
+    const u = ensureApiSuffix('http://10.0.2.2:3001');
+    console.log('🔧 Backend REST API: Android emulator →', u);
+    return u;
+  }
+
   const envApi = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
   const envDevOnly = process.env.EXPO_PUBLIC_DEV_API_BASE_URL?.trim();
   const extraApi = readExtraString('apiBaseUrl');

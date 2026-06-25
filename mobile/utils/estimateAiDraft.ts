@@ -4,7 +4,7 @@ import {
   parseScopeMeasurementsFromNotes,
 } from '@/utils/scopeMeasurementParser';
 import { resolveScopePackageBudgetBreakdown } from '@/utils/scopeBudgetBreakdown';
-import { lookupRuleKeyForPackage } from '@/utils/scopeItemQuantities';
+import { ruleKeysToTryForPackage } from '@/utils/scopeItemQuantities';
 import {
   SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL,
   SCOPE_LABOR_PARSED_FROM_NOTES_LABEL,
@@ -133,6 +133,8 @@ export type ScopePricingAcceptanceMetadata = {
   lumpSumOnly?: boolean;
   materialAmount?: number;
   laborAmount?: number;
+  allowanceAmount?: number;
+  subcontractorAmount?: number;
   totalAmount: number;
 };
 
@@ -168,6 +170,8 @@ export type ScopeMeasurements = {
   itemQuantities?: Record<string, ScopeItemQuantity>;
   /** Accepted pricing metadata keyed by checklist item id */
   pricingAcceptance?: Record<string, ScopePricingAcceptanceMetadata>;
+  /** Item-specific scope gap resolutions keyed by `${scopeItemId}::${componentKey}` */
+  scopeGapResolutions?: Record<string, import('@/utils/scopeReviewUi').ScopeGapResolutionRecord>;
   /** @deprecated use bathroomFloorSqft */
   sqft?: number | null;
   /** @deprecated use baseboardLf */
@@ -682,19 +686,17 @@ export function getScopePackageForRoom(
   });
 }
 
-function selectedPricingForScopeName(
+function selectedPricingForRuleKey(
   draft: EstimateAiDraft,
-  name: string,
-  scope = ''
+  ruleKey: string
 ): {
   total: number;
   materialPrice: number | null;
   laborPrice: number | null;
   basis: { quantity: number; unit: string } | null;
 } | null {
-  const ruleKey = lookupRuleKeyForPackage(name, scope);
-  if (!ruleKey) return null;
   const itemQuantities = draft.scopeMeasurements?.itemQuantities || {};
+  const acceptance = draft.scopeMeasurements?.pricingAcceptance?.[ruleKey];
   const base = itemQuantities[ruleKey];
   const allowance = itemQuantities[`${ruleKey}__allowance`];
   const material = itemQuantities[`${ruleKey}__material`];
@@ -703,8 +705,30 @@ function selectedPricingForScopeName(
     base?.quantitySource === 'user_entered' ||
     allowance?.quantitySource === 'user_entered' ||
     material?.quantitySource === 'user_entered' ||
-    labor?.quantitySource === 'user_entered';
+    labor?.quantitySource === 'user_entered' ||
+    acceptance?.selectionStatus === 'accepted' ||
+    acceptance?.selectionStatus === 'manual_adjusted';
+
   if (!userSelected) return null;
+
+  if (
+    acceptance &&
+    Number(acceptance.totalAmount) > 0 &&
+    (acceptance.selectionStatus === 'accepted' || acceptance.selectionStatus === 'manual_adjusted')
+  ) {
+    const materialPrice = acceptance.materialAmount ?? (Number(material?.quantity || 0) || null);
+    const laborPrice = acceptance.laborAmount ?? (Number(labor?.quantity || 0) || null);
+    const basis =
+      base?.quantity && base.unit && !['allowance', 'lump_sum'].includes(base.unit)
+        ? { quantity: Number(base.quantity), unit: base.unit }
+        : null;
+    return {
+      total: acceptance.totalAmount,
+      materialPrice: materialPrice != null && materialPrice > 0 ? materialPrice : null,
+      laborPrice: laborPrice != null && laborPrice > 0 ? laborPrice : null,
+      basis,
+    };
+  }
 
   const materialPrice = Number(material?.quantity || 0);
   const laborPrice = Number(labor?.quantity || 0);
@@ -725,6 +749,23 @@ function selectedPricingForScopeName(
     laborPrice: laborPrice > 0 ? laborPrice : null,
     basis,
   };
+}
+
+function selectedPricingForScopeName(
+  draft: EstimateAiDraft,
+  name: string,
+  scope = ''
+): {
+  total: number;
+  materialPrice: number | null;
+  laborPrice: number | null;
+  basis: { quantity: number; unit: string } | null;
+} | null {
+  for (const ruleKey of ruleKeysToTryForPackage(name, scope)) {
+    const selected = selectedPricingForRuleKey(draft, ruleKey);
+    if (selected) return selected;
+  }
+  return null;
 }
 
 function applySelectedPricingToScopePackage(
@@ -775,7 +816,7 @@ function applySelectedPricingToRoom(room: EstimateDraftRoom, draft: EstimateAiDr
 }
 
 export function syncSelectedScopePricing(draft: EstimateAiDraft): EstimateAiDraft {
-  if (!draft?.scopeMeasurements?.itemQuantities) return draft;
+  if (!draft?.scopeMeasurements?.itemQuantities && !draft?.scopeMeasurements?.pricingAcceptance) return draft;
   const nextDraft = { ...draft };
   if (draft.scopePackages?.length) {
     nextDraft.scopePackages = draft.scopePackages.map((pkg) => applySelectedPricingToScopePackage(pkg, draft));

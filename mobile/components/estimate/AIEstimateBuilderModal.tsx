@@ -93,7 +93,7 @@ export default function AIEstimateBuilderModal({
     }
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     const trimmed = notes.trim();
     if (!trimmed || busy) return;
     setLocalGenerating(true);
@@ -102,10 +102,7 @@ export default function AIEstimateBuilderModal({
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
     try {
-      const maybePromise = onGenerate(trimmed) as unknown;
-      if (maybePromise && typeof (maybePromise as Promise<void>).catch === 'function') {
-        (maybePromise as Promise<void>).catch(() => setLocalGenerating(false));
-      }
+      await Promise.resolve(onGenerate(trimmed));
     } catch {
       setLocalGenerating(false);
     }

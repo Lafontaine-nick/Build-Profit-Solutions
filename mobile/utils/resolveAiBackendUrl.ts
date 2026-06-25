@@ -35,7 +35,7 @@ function isNonPublicDevBackendBase(base: string): boolean {
  */
 export function resolveAiBaseUrl(): string {
   const extra = Constants.expoConfig?.extra as
-    | { appEnv?: string; isDevelopment?: boolean; devApiBaseUrl?: string }
+    | { appEnv?: string; isDevelopment?: boolean; devApiBaseUrl?: string; aiApiUrl?: string }
     | undefined;
   const isProductionApp =
     process.env.EXPO_PUBLIC_APP_ENV === 'production' || extra?.appEnv === 'production';
@@ -64,11 +64,7 @@ export function resolveAiBaseUrl(): string {
     return PRODUCTION_AI_ORIGIN;
   }
 
-  const envBase = process.env.EXPO_PUBLIC_AI_API_URL;
-  if (envBase && typeof envBase === 'string') {
-    return stripApiBaseSuffix(envBase);
-  }
-
+  // Simulator/emulator first — baked LAN IPs in .env go stale after DHCP; loopback always works.
   if (Platform.OS === 'ios' && Constants.isDevice === false) {
     return 'http://localhost:3001';
   }
@@ -81,8 +77,28 @@ export function resolveAiBaseUrl(): string {
     return 'http://10.0.2.2:3001';
   }
 
-  // Physical device / Expo Go: match REST API LAN detection (Metro IP can go stale after DHCP changes).
+  const envBase =
+    process.env.EXPO_PUBLIC_AI_API_URL?.trim() ||
+    extra?.aiApiUrl?.trim();
+  if (envBase) {
+    return stripApiBaseSuffix(envBase);
+  }
+
+  // Physical device / Expo Go: prefer explicit .env LAN URL over Metro auto-detect (stale hostUri).
   if (Platform.OS !== 'web' && Constants.isDevice) {
+    const explicitApiBase =
+      process.env.EXPO_PUBLIC_API_BASE_URL?.trim() ||
+      process.env.EXPO_PUBLIC_DEV_API_BASE_URL?.trim() ||
+      (extra as { apiBaseUrl?: string } | undefined)?.apiBaseUrl?.trim() ||
+      extra?.devApiBaseUrl?.trim();
+
+    if (explicitApiBase) {
+      const configured = stripApiBaseSuffix(explicitApiBase);
+      if (isNonPublicDevBackendBase(configured) && !configured.includes('192.168.1.115')) {
+        return configured;
+      }
+    }
+
     try {
       const { recommendedApiUrl } = getNetworkInfo();
       const origin = stripApiBaseSuffix(String(recommendedApiUrl || ''));
@@ -130,33 +146,56 @@ export function resolveAiBaseUrl(): string {
 /** Build candidate URLs for an AI Assistant route (with fallbacks). */
 export function buildAiAssistantEndpointUrls(routePath: string): string[] {
   const path = routePath.startsWith('/') ? routePath : `/${routePath}`;
-  const primaryBase = `${resolveAiBaseUrl()}/api/ai-assistant`;
-  const primaryUrl = `${primaryBase}${path}`;
-  const urls = [primaryUrl];
+  const urls: string[] = [];
+  const extra = Constants.expoConfig?.extra as
+    | { apiBaseUrl?: string; devApiBaseUrl?: string; aiApiUrl?: string }
+    | undefined;
+
+  const pushOrigin = (base: string) => {
+    const origin = stripApiBaseSuffix(String(base || '').trim());
+    if (!origin || origin.includes('192.168.1.115')) return;
+    urls.push(`${origin}/api/ai-assistant${path}`);
+  };
 
   const isSimulator = Platform.OS === 'ios' && Constants.isDevice === false;
   const isWeb = Platform.OS === 'web';
   const isAndroidEmulator = Platform.OS === 'android' && Constants.isDevice === false;
 
-  if (
-    !primaryUrl.includes('localhost') &&
-    !primaryUrl.includes('127.0.0.1') &&
-    (isSimulator || isWeb || isAndroidEmulator)
-  ) {
-    urls.push(`http://localhost:3001/api/ai-assistant${path}`);
+  if (!isSimulator && !isAndroidEmulator) {
+    pushOrigin(process.env.EXPO_PUBLIC_AI_API_URL || extra?.aiApiUrl || '');
+    pushOrigin(process.env.EXPO_PUBLIC_API_BASE_URL || '');
+    pushOrigin(process.env.EXPO_PUBLIC_DEV_API_BASE_URL || '');
+    pushOrigin(extra?.apiBaseUrl || '');
+    pushOrigin(extra?.devApiBaseUrl || '');
   }
 
-  const primaryIsLocalDev =
-    primaryUrl.includes('localhost') ||
-    primaryUrl.includes('127.0.0.1') ||
-    primaryUrl.includes('192.168.') ||
-    primaryUrl.includes('10.0.2.2');
+  pushOrigin(resolveAiBaseUrl());
 
-  // Dev builds targeting a LAN backend should fail fast with "start backend" — not fall
-  // through to hosted Render (often a different/stale OpenAI key and confusing errors).
-  if (primaryIsLocalDev && !__DEV__) {
-    urls.push(`${PRODUCTION_AI_API}${path}`);
+  if (!isSimulator && !isAndroidEmulator) {
+    try {
+      const { recommendedApiUrl } = getNetworkInfo();
+      pushOrigin(String(recommendedApiUrl || ''));
+    } catch {
+      /* ignore */
+    }
   }
+
+  if (isSimulator || isWeb || isAndroidEmulator) {
+    pushOrigin('http://localhost:3001');
+    if (Platform.OS === 'android') pushOrigin('http://10.0.2.2:3001');
+  }
+
+  const deduped = [...new Set(urls)];
+  const hasLanCandidate = deduped.some(
+    (u) =>
+      /192\.168\.|10\.0\.2\.2|localhost|127\.0\.0\.1/i.test(u) && !/render\.com/i.test(u)
+  );
+  // Dev + LAN configured: do not fall through to hosted Render (often missing/stale OPENAI_API_KEY).
+  if (__DEV__ && hasLanCandidate) {
+    return deduped.filter((u) => !/render\.com/i.test(u));
+  }
+
+  pushOrigin(PRODUCTION_AI_ORIGIN);
 
   return [...new Set(urls)];
 }
@@ -249,6 +288,20 @@ export async function fetchBackendWithFallback(
   }
 
   const last = errors[errors.length - 1];
+  const hadLanCandidate = urls.some(
+    (u) => /192\.168\.|10\.0\.2\.2|localhost|127\.0\.0\.1/i.test(u) && !/render\.com/i.test(u)
+  );
+  const lanReachabilityError = errors.find(
+    (e) =>
+      e.message === 'Network request failed' ||
+      /^aborted$/i.test(e.message) ||
+      e.message.includes('AbortError')
+  );
+  if (__DEV__ && hadLanCandidate && lanReachabilityError) {
+    throw new Error(
+      'Could not reach the AI backend. Start the backend on your Mac (npm start in backend/) and confirm your phone is on the same Wi‑Fi.'
+    );
+  }
   if (last?.message === 'Network request failed') {
     throw new Error(
       'Could not reach the AI backend. Start the backend on your Mac (npm start in backend/) and confirm your phone is on the same Wi‑Fi.'
@@ -269,11 +322,20 @@ export function formatEstimateAiError(error: unknown): string {
     return (
       'Could not reach your backend.\n\n' +
       'On your Mac, run: cd backend && npm run dev\n' +
-      'Keep your phone on the same Wi‑Fi, then try again.'
+      'Set EXPO_PUBLIC_API_BASE_URL=http://YOUR_MAC_IP:3001/api in mobile/.env (current Mac IP: check System Settings → Wi‑Fi), restart Expo with npx expo start -c\n' +
+      'Keep your phone on the same Wi‑Fi. On iOS: Settings → Privacy & Security → Local Network → enable this app.'
     );
   }
 
-  if (/premature close|api\.openai\.com/i.test(raw)) {
+  if (/premature close|api\.openai\.com|OPENAI_API_KEY on the server \(Render/i.test(raw)) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      return (
+        'Could not reach your Mac backend on Wi‑Fi.\n\n' +
+        'On your Mac, run: cd backend && npm run dev\n' +
+        'Set EXPO_PUBLIC_API_BASE_URL=http://YOUR_MAC_IP:3001/api in mobile/.env, then restart Expo: npx expo start -c\n' +
+        'Keep your phone on the same Wi‑Fi. On iOS: Settings → Privacy & Security → Local Network → enable this app.'
+      );
+    }
     return (
       'The AI service on the server could not reach OpenAI.\n\n' +
       'If you are on a dev build: start the backend on your Mac (npm run dev in backend/) and stay on the same Wi‑Fi.\n\n' +
@@ -285,34 +347,88 @@ export function formatEstimateAiError(error: unknown): string {
     return 'OpenAI reported a billing or quota issue for the API key on your server. Add credits or update the key on Render.';
   }
 
+  if (/^aborted$/i.test(raw) || raw.includes('AbortError')) {
+    return (
+      'The draft request timed out or could not reach your backend.\n\n' +
+      'On your Mac, run: cd backend && npm run dev\n' +
+      'Confirm your phone is on the same Wi‑Fi and EXPO_PUBLIC_API_BASE_URL uses your Mac’s current LAN IP, then try again.'
+    );
+  }
+
   return raw || 'Something went wrong while parsing your notes. Please try again.';
 }
 
-async function fetchWithFallback(
-  urls: string[],
-  options: RequestInit,
-  timeout = 60000
-): Promise<Response> {
-  return fetchBackendWithFallback(urls, options, timeout);
+function originFromAssistantUrl(url: string): string {
+  return url.replace(/\/api\/ai-assistant.*$/i, '').replace(/\/$/, '');
+}
+
+/** Quick /health probe so unreachable LAN backends fail in ~8s instead of hanging ~90s on POST. */
+async function filterReachableAiAssistantUrls(urls: string[], probeMs = 8000): Promise<string[]> {
+  const byOrigin = new Map<string, string[]>();
+  for (const url of urls) {
+    const origin = originFromAssistantUrl(url);
+    const list = byOrigin.get(origin) || [];
+    list.push(url);
+    byOrigin.set(origin, list);
+  }
+
+  const reachableOrigins: string[] = [];
+  for (const origin of byOrigin.keys()) {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    try {
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort(), probeMs);
+      const res = await fetch(`${origin}/health`, { method: 'GET', signal: controller.signal });
+      if (timeoutId) clearTimeout(timeoutId);
+      if (res.ok) reachableOrigins.push(origin);
+    } catch {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
+  }
+
+  if (reachableOrigins.length === 0) {
+    const lanOnly = [...byOrigin.keys()].every(
+      (o) => /192\.168\.|10\.0\.2\.2|localhost|127\.0\.0\.1/i.test(o) && !/render\.com/i.test(o)
+    );
+    if (lanOnly) {
+      throw new Error(
+        'Could not reach the AI backend. Start the backend on your Mac (npm start in backend/) and confirm your phone is on the same Wi‑Fi.'
+      );
+    }
+    return urls;
+  }
+
+  const reachable = urls.filter((u) => reachableOrigins.includes(originFromAssistantUrl(u)));
+  const unreachable = urls.filter((u) => !reachableOrigins.includes(originFromAssistantUrl(u)));
+  return [...reachable, ...unreachable];
 }
 
 export async function postAiAssistantJson<T>(
   routePath: string,
   body: unknown,
-  timeout = 60000
+  timeout = 90000
 ): Promise<T> {
   const urls = buildAiAssistantEndpointUrls(routePath);
+  const reachableUrls = await filterReachableAiAssistantUrls(urls);
   if (__DEV__) {
-    console.log('🤖 AI POST', routePath, '→', urls[0], urls.length > 1 ? `(+${urls.length - 1} fallbacks)` : '');
+    console.log(
+      '🤖 AI POST',
+      routePath,
+      '→',
+      reachableUrls[0],
+      reachableUrls.length > 1 ? `(+${reachableUrls.length - 1} fallbacks)` : ''
+    );
   }
 
-  const response = await fetchWithFallback(
-    urls,
+  // OpenAI-backed routes often exceed the 8s LAN fail-fast window — use the full timeout.
+  const response = await fetchBackendWithFallback(
+    reachableUrls,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     },
+    timeout,
     timeout
   );
 
