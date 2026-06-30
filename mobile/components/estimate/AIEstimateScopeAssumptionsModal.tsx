@@ -71,6 +71,8 @@ import {
   scopeMeasurementsPayloadForPersist,
   resolveAllowanceEditorPricingBasis,
   resolveAllowanceEditorDefaultBasisUnit,
+  type CalculatedQuantityRevertSnapshot,
+  calculatedQuantityRevertLabel,
   type PricingLegSource,
   type QuantitySource,
   type ScopeMeasurementsInputExtended,
@@ -80,6 +82,7 @@ import {
 import {
   emptyQuickMeasurementInput,
   quickMeasurementRowsForInput,
+  resolveQuickMeasurementDisplayValue,
   type QuickMeasurementFieldKey,
 } from '@/utils/scopeQuickMeasurements';
 import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
@@ -436,11 +439,50 @@ function PricingSplitRow({
   );
 }
 
+function calculatedQuantityAlreadyActive(intelligence: ScopeItemIntelligence): boolean {
+  const formula = intelligence.formula;
+  const current = intelligence.quantity.value;
+  if (!formula || current == null) return false;
+  if (intelligence.quantity.source === 'calculated_confirmed') return true;
+  return Math.abs(Number(current) - formula.roundedValue) < 0.01;
+}
+
+function buildCalculatedQuantityRevertSnapshot(
+  itemId: string,
+  itemQuantities: ScopeMeasurementsInputExtended['itemQuantities'],
+  pricingAcceptance: ScopeMeasurementsInputExtended['pricingAcceptance'],
+  resolved: ReturnType<typeof resolveChecklistItemQuantity>
+): CalculatedQuantityRevertSnapshot | undefined {
+  const quantity = resolved.dualCount?.quantity ?? resolved.quantity;
+  if (quantity == null || !Number.isFinite(Number(quantity)) || Number(quantity) <= 0) {
+    return undefined;
+  }
+  const relatedEntries: NonNullable<CalculatedQuantityRevertSnapshot['relatedEntries']> = {};
+  for (const [key, entry] of Object.entries(itemQuantities)) {
+    if (key === itemId || key.startsWith(`${itemId}__`)) {
+      relatedEntries[key] = {
+        quantity: entry.quantity,
+        unit: entry.unit,
+        quantitySource: entry.quantitySource,
+      };
+    }
+  }
+  return {
+    quantity: String(quantity),
+    unit: resolved.dualCount?.unit ?? resolved.unit ?? 'each',
+    quantitySource: resolved.quantitySource,
+    pricingAcceptanceBeforeCalculated: pricingAcceptance?.[itemId] ?? null,
+    relatedEntries,
+  };
+}
+
 function ScopeIntelligenceNotice({
   intelligence,
   Colors,
   darkMode,
   onUseCalculatedQuantity,
+  onRevertCalculatedQuantity,
+  calculatedRevertLabel,
   compact = false,
   pricingAccepted = false,
 }: {
@@ -448,12 +490,19 @@ function ScopeIntelligenceNotice({
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   onUseCalculatedQuantity?: () => void;
+  onRevertCalculatedQuantity?: () => void;
+  calculatedRevertLabel?: string | null;
   compact?: boolean;
   pricingAccepted?: boolean;
 }) {
   const cardDisplay = buildCardIntelligenceDisplay(intelligence, { pricingAccepted });
   const formula = intelligence.formula;
+  const calculatedActive = calculatedQuantityAlreadyActive(intelligence);
+  const formulaVariance = intelligence.formulaComparison?.variancePercent ?? null;
+  const showFormulaDetails = Boolean(formula && !calculatedActive);
+  const showCalculatedRevert = calculatedActive && Boolean(onRevertCalculatedQuantity && calculatedRevertLabel);
   const showQuantity =
+    !calculatedActive &&
     cardDisplay.showQuantityConfidenceLine &&
     (intelligence.quantity.confidence !== 'high' ||
       intelligence.quantity.source === 'calculated_assumption' ||
@@ -464,8 +513,8 @@ function ScopeIntelligenceNotice({
       !cardDisplay.conciseBenchmarkWarning &&
       !cardDisplay.duplicatePricingMessage &&
       !cardDisplay.otherNotice &&
-      !showQuantity &&
-      !formula
+      !showFormulaDetails &&
+      !showCalculatedRevert
     ) {
       return null;
     }
@@ -474,7 +523,8 @@ function ScopeIntelligenceNotice({
     !cardDisplay.duplicatePricingMessage &&
     !cardDisplay.otherNotice &&
     !showQuantity &&
-    !formula
+    !showFormulaDetails &&
+    !showCalculatedRevert
   ) {
     return null;
   }
@@ -527,39 +577,73 @@ function ScopeIntelligenceNotice({
           {cardDisplay.duplicatePricingMessage}
         </Text>
       ) : null}
-      {cardDisplay.otherNotice ? (
+      {cardDisplay.otherNotice &&
+      !(showFormulaDetails && cardDisplay.otherNotice.startsWith('Calculated comparison:')) ? (
         <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
           {cardDisplay.otherNotice}
         </Text>
       ) : null}
-      {formula ? (
+      {showFormulaDetails ? (
         <View style={styles.formulaNoticeBlock}>
           <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
-            <Text style={{ color: '#22c55e', fontWeight: '800' }}>Calculated quantity</Text>
-            {' · '}
-            {formula.roundedValue.toLocaleString()} {formatUnitLabel(formula.unit)}
-            {' · '}
-            {formula.confidence === 'high' ? 'High' : formula.confidence === 'medium' ? 'Medium' : 'Low'} confidence
+            {formula!.formulaExplanation}
           </Text>
-          <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
-            {formula.formulaExplanation}
-          </Text>
-          {formula.expectedRange ? (
+          {formula!.expectedRange && formulaVariance != null && formulaVariance !== 0 ? (
             <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
-              Expected range: {formula.expectedRange.low.toLocaleString()}-{formula.expectedRange.high.toLocaleString()}{' '}
-              {formatUnitLabel(formula.unit)}
+              Expected range: {formula!.expectedRange.low.toLocaleString()}-
+              {formula!.expectedRange.high.toLocaleString()} {formatUnitLabel(formula!.unit)}
             </Text>
           ) : null}
           {onUseCalculatedQuantity ? (
             <TouchableOpacity
-              activeOpacity={0.75}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={`Use calculated quantity of ${formula!.roundedValue.toLocaleString()} ${formatUnitLabel(formula!.unit)}`}
               onPress={onUseCalculatedQuantity}
-              style={[styles.formulaActionButton, { borderColor: darkMode ? 'rgba(34,197,94,0.35)' : 'rgba(34,197,94,0.3)' }]}
+              style={[
+                styles.formulaActionButton,
+                {
+                  borderColor: darkMode ? 'rgba(34,197,94,0.28)' : 'rgba(22,163,74,0.32)',
+                  backgroundColor: darkMode ? 'rgba(34,197,94,0.05)' : 'rgba(34,197,94,0.04)',
+                },
+              ]}
             >
-              <Text style={styles.formulaActionText}>Use calculated quantity</Text>
+              <Ionicons
+                name="checkmark-circle-outline"
+                size={16}
+                color={darkMode ? 'rgba(110,231,160,0.9)' : '#16a34a'}
+              />
+              <Text
+                style={[
+                  styles.formulaActionText,
+                  { color: darkMode ? 'rgba(110,231,160,0.92)' : '#15803d' },
+                ]}
+              >
+                Use {formula!.roundedValue.toLocaleString()} {formatUnitLabel(formula!.unit)} calculated quantity
+              </Text>
             </TouchableOpacity>
           ) : null}
         </View>
+      ) : null}
+      {showCalculatedRevert ? (
+        <TouchableOpacity
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={calculatedRevertLabel ?? 'Revert to original quantity'}
+          onPress={onRevertCalculatedQuantity}
+          style={[
+            styles.formulaRevertButton,
+            {
+              borderColor: darkMode ? 'rgba(255,255,255,0.18)' : Colors.line,
+              backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(15,23,42,0.03)',
+            },
+          ]}
+        >
+          <Ionicons name="arrow-undo-outline" size={17} color={captionColor(darkMode, Colors)} />
+          <Text style={[styles.formulaRevertText, { color: captionColor(darkMode, Colors) }]}>
+            {calculatedRevertLabel}
+          </Text>
+        </TouchableOpacity>
       ) : null}
     </View>
   );
@@ -597,15 +681,16 @@ function SuggestedBudgetSplitRows({
   const headerPillKind = usesTemplate ? 'template' : 'national';
   const headerPillLabel = block.rateSourceLabel;
 
-  const explanation = block.lumpSumOnly
-    ? 'This is a flat allowance, not a material/labor split.'
-    : block.mode === 'note_total_split'
-      ? `Notes gave one total. Material uses ${usesTemplate ? 'your saved rate' : 'National Average'}; labor is the remaining note total.`
-      : block.mode === 'fill_missing'
-        ? `Notes only priced one side, so the missing side uses ${usesTemplate ? 'your saved rate' : 'National Average'}. Notes pricing stays primary.`
-        : block.isComparison
-          ? `Comparison from ${usesTemplate ? 'your saved rate' : 'National Average'}. Notes pricing remains primary.${usesTemplate && block.templateName ? ` Source: ${block.templateName}.` : ''}`
-          : `Suggested from ${usesTemplate ? 'your saved rate' : 'National Average'} because notes only gave a quantity, not pricing.`;
+  const explanation =
+    block.lumpSumOnly
+      ? 'Flat allowance, not a material/labor split.'
+      : block.mode === 'note_total_split'
+        ? `Notes total split using ${usesTemplate ? 'saved rate' : 'National Average'} material.`
+        : block.mode === 'fill_missing'
+          ? `Missing side filled from ${usesTemplate ? 'saved rate' : 'National Average'}.`
+          : block.isComparison
+            ? `Compare to ${usesTemplate ? 'saved rate' : 'National Average'}. Notes pricing stays primary.`
+            : null;
   const displayBuckets = block.costBuckets?.length
     ? block.costBuckets
     : block.lumpSumOnly
@@ -688,19 +773,16 @@ function SuggestedBudgetSplitRows({
           {block.helper}
         </Text>
       ) : null}
-      <Text
-        style={{
-          color: pricingLabelColor(darkMode, Colors),
-          fontSize: 12,
-          lineHeight: 17,
-          marginTop: 4,
-        }}
-      >
-        {explanation}
-      </Text>
-      {onUsePricing ? (
-        <Text style={[styles.suggestedPricingConfirmHint, { color: Colors.sub }]}>
-          Suggested only - use this price to include it in the estimate.
+      {explanation ? (
+        <Text
+          style={{
+            color: pricingLabelColor(darkMode, Colors),
+            fontSize: 12,
+            lineHeight: 17,
+            marginTop: 4,
+          }}
+        >
+          {explanation}
         </Text>
       ) : null}
       {onUsePricing ? (
@@ -1061,7 +1143,8 @@ function CustomScopePricingSection({
     quantity: string,
     field?: 'count' | 'allowance',
     unit?: string,
-    source?: QuantitySource
+    source?: QuantitySource,
+    calculatedRevertFrom?: CalculatedQuantityRevertSnapshot
   ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
@@ -1321,6 +1404,7 @@ function QuantitySection({
   onScopeGapResolutionsChange,
   onScopeGapPriceSeparately,
   onScopeGapIncludeInParentPrice,
+  onRevertCalculatedQuantity,
   scopeItemLabel,
   pricingEditorRequest,
   onPricingEditorRequestHandled,
@@ -1340,7 +1424,8 @@ function QuantitySection({
     quantity: string,
     field?: 'count' | 'allowance',
     unit?: string,
-    source?: QuantitySource
+    source?: QuantitySource,
+    calculatedRevertFrom?: CalculatedQuantityRevertSnapshot
   ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
@@ -1359,6 +1444,7 @@ function QuantitySection({
     benchmarkAssumption?: BenchmarkScopeAssumption | null,
     benchmarkProfile?: BenchmarkScopeAssumptionProfile | null
   ) => void;
+  onRevertCalculatedQuantity?: (itemId: string) => void;
   pricingEditorRequest?: { itemId: string; token: number } | null;
   onPricingEditorRequestHandled?: () => void;
   Colors: ReturnType<typeof getColors>;
@@ -1548,11 +1634,24 @@ function QuantitySection({
               String(intelligence.formula?.roundedValue ?? ''),
               'count',
               intelligence.formula?.unit,
-              'calculated_confirmed'
+              'calculated_confirmed',
+              buildCalculatedQuantityRevertSnapshot(
+                itemId,
+                measurementsInput.itemQuantities,
+                measurementsInput.pricingAcceptance,
+                displayResolved
+              )
             );
             setTimeout(() => onItemQuantityBlur(itemId), 0);
           }
         : undefined;
+      const calculatedRevertLabel = calculatedQuantityRevertLabel(
+        measurementsInput.itemQuantities[itemId]?.quantityBeforeCalculated
+      );
+      const onRevertCalculated =
+        calculatedRevertLabel && onRevertCalculatedQuantity
+          ? () => onRevertCalculatedQuantity(itemId)
+          : undefined;
       return (
         <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
           {accepted && acceptedDisplay ? (
@@ -1587,9 +1686,13 @@ function QuantitySection({
           ) : (
             <>
               {displayResolved.dualCount ? (
-                <PricingSplitRow
-                  label={fieldLabels?.count || 'Quantity'}
-                  value={`${displayResolved.dualCount.quantity.toLocaleString()} ${fieldLabels?.countUnit || 'each'}`}
+                <PricingAmountRow
+                  value={`${displayResolved.dualCount.quantity.toLocaleString()} ${
+                    fieldLabels?.countUnit || formatUnitLabel(displayResolved.dualCount.unit)
+                  }`}
+                  label={displayResolved.sourceLabel}
+                  pill={displayResolved.quantitySource === 'notes' ? <SourcePill kind="notes" /> : undefined}
+                  emphasized
                   darkMode={darkMode}
                   Colors={Colors}
                 />
@@ -1640,6 +1743,8 @@ function QuantitySection({
                 darkMode={darkMode}
                 compact
                 onUseCalculatedQuantity={onUseCalculatedQuantity}
+                onRevertCalculatedQuantity={onRevertCalculated}
+                calculatedRevertLabel={calculatedRevertLabel}
               />
               {!hideSuggestion && suggestedBudgetSplit ? (
                 <SuggestedBudgetSplitRows
@@ -1942,11 +2047,24 @@ function QuantitySection({
                   String(intelligence.formula?.roundedValue ?? ''),
                   'count',
                   intelligence.formula?.unit,
-                  'calculated_confirmed'
+                  'calculated_confirmed',
+                  buildCalculatedQuantityRevertSnapshot(
+                    itemId,
+                    measurementsInput.itemQuantities,
+                    measurementsInput.pricingAcceptance,
+                    resolved
+                  )
                 );
                 setTimeout(() => onItemQuantityBlur(itemId), 0);
               }
             : undefined;
+          const calculatedRevertLabel = calculatedQuantityRevertLabel(
+            measurementsInput.itemQuantities[itemId]?.quantityBeforeCalculated
+          );
+          const onRevertCalculated =
+            calculatedRevertLabel && onRevertCalculatedQuantity
+              ? () => onRevertCalculatedQuantity(itemId)
+              : undefined;
           if (accepted && acceptedDisplay) {
             return (
               <AcceptedPricingSummary
@@ -2000,6 +2118,8 @@ function QuantitySection({
                 darkMode={darkMode}
                 compact
                 onUseCalculatedQuantity={onUseCalculatedQuantity}
+                onRevertCalculatedQuantity={onRevertCalculated}
+                calculatedRevertLabel={calculatedRevertLabel}
               />
               {!hideSuggestion && suggestedBudgetSplit ? (
                 <SuggestedBudgetSplitRows
@@ -2294,6 +2414,7 @@ function WetAreaInstallLineCard({
   onScopeGapResolutionsChange,
   onScopeGapPriceSeparately,
   onScopeGapIncludeInParentPrice,
+  onRevertCalculatedQuantity,
   pricingEditorRequest,
   onPricingEditorRequestHandled,
   onSaveCustomPricing,
@@ -2310,7 +2431,9 @@ function WetAreaInstallLineCard({
     itemId: string,
     quantity: string,
     field?: 'count' | 'allowance',
-    unit?: string
+    unit?: string,
+    source?: QuantitySource,
+    calculatedRevertFrom?: CalculatedQuantityRevertSnapshot
   ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
@@ -2329,6 +2452,7 @@ function WetAreaInstallLineCard({
     benchmarkAssumption?: BenchmarkScopeAssumption | null,
     benchmarkProfile?: BenchmarkScopeAssumptionProfile | null
   ) => void;
+  onRevertCalculatedQuantity?: (itemId: string) => void;
   pricingEditorRequest?: { itemId: string; token: number } | null;
   onPricingEditorRequestHandled?: () => void;
   onSaveCustomPricing?: () => void;
@@ -2372,6 +2496,7 @@ function WetAreaInstallLineCard({
         onScopeGapResolutionsChange={onScopeGapResolutionsChange}
         onScopeGapPriceSeparately={onScopeGapPriceSeparately}
         onScopeGapIncludeInParentPrice={onScopeGapIncludeInParentPrice}
+        onRevertCalculatedQuantity={onRevertCalculatedQuantity}
         pricingEditorRequest={pricingEditorRequest}
         onPricingEditorRequestHandled={onPricingEditorRequestHandled}
         scopeItemLabel={item.label}
@@ -2398,6 +2523,7 @@ function YesNoRow({
   onScopeGapResolutionsChange,
   onScopeGapPriceSeparately,
   onScopeGapIncludeInParentPrice,
+  onRevertCalculatedQuantity,
   pricingEditorRequest,
   onPricingEditorRequestHandled,
   onSaveCustomPricing,
@@ -2417,7 +2543,9 @@ function YesNoRow({
     itemId: string,
     quantity: string,
     field?: 'count' | 'allowance',
-    unit?: string
+    unit?: string,
+    source?: QuantitySource,
+    calculatedRevertFrom?: CalculatedQuantityRevertSnapshot
   ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
@@ -2436,6 +2564,7 @@ function YesNoRow({
     benchmarkAssumption?: BenchmarkScopeAssumption | null,
     benchmarkProfile?: BenchmarkScopeAssumptionProfile | null
   ) => void;
+  onRevertCalculatedQuantity?: (itemId: string) => void;
   pricingEditorRequest?: { itemId: string; token: number } | null;
   onPricingEditorRequestHandled?: () => void;
   onSaveCustomPricing?: () => void;
@@ -2597,6 +2726,7 @@ function YesNoRow({
           onScopeGapResolutionsChange={onScopeGapResolutionsChange}
           onScopeGapPriceSeparately={onScopeGapPriceSeparately}
           onScopeGapIncludeInParentPrice={onScopeGapIncludeInParentPrice}
+          onRevertCalculatedQuantity={onRevertCalculatedQuantity}
           pricingEditorRequest={pricingEditorRequest}
           onPricingEditorRequestHandled={onPricingEditorRequestHandled}
           scopeItemLabel={item.label}
@@ -2622,6 +2752,7 @@ function MultiChoiceRow({
   onScopeGapResolutionsChange,
   onScopeGapPriceSeparately,
   onScopeGapIncludeInParentPrice,
+  onRevertCalculatedQuantity,
   pricingEditorRequest,
   onPricingEditorRequestHandled,
   visualCtx,
@@ -2638,7 +2769,9 @@ function MultiChoiceRow({
     itemId: string,
     quantity: string,
     field?: 'count' | 'allowance',
-    unit?: string
+    unit?: string,
+    source?: QuantitySource,
+    calculatedRevertFrom?: CalculatedQuantityRevertSnapshot
   ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
@@ -2657,6 +2790,7 @@ function MultiChoiceRow({
     benchmarkAssumption?: BenchmarkScopeAssumption | null,
     benchmarkProfile?: BenchmarkScopeAssumptionProfile | null
   ) => void;
+  onRevertCalculatedQuantity?: (itemId: string) => void;
   pricingEditorRequest?: { itemId: string; token: number } | null;
   onPricingEditorRequestHandled?: () => void;
   visualCtx: ScopeItemVisualContext;
@@ -2744,6 +2878,7 @@ function MultiChoiceRow({
         onScopeGapResolutionsChange={onScopeGapResolutionsChange}
         onScopeGapPriceSeparately={onScopeGapPriceSeparately}
         onScopeGapIncludeInParentPrice={onScopeGapIncludeInParentPrice}
+        onRevertCalculatedQuantity={onRevertCalculatedQuantity}
         pricingEditorRequest={pricingEditorRequest}
         onPricingEditorRequestHandled={onPricingEditorRequestHandled}
         scopeItemLabel={item.label}
@@ -2768,6 +2903,7 @@ function ChoiceRow({
   onScopeGapResolutionsChange,
   onScopeGapPriceSeparately,
   onScopeGapIncludeInParentPrice,
+  onRevertCalculatedQuantity,
   pricingEditorRequest,
   onPricingEditorRequestHandled,
   visualCtx,
@@ -2784,7 +2920,9 @@ function ChoiceRow({
     itemId: string,
     quantity: string,
     field?: 'count' | 'allowance',
-    unit?: string
+    unit?: string,
+    source?: QuantitySource,
+    calculatedRevertFrom?: CalculatedQuantityRevertSnapshot
   ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
@@ -2803,6 +2941,7 @@ function ChoiceRow({
     benchmarkAssumption?: BenchmarkScopeAssumption | null,
     benchmarkProfile?: BenchmarkScopeAssumptionProfile | null
   ) => void;
+  onRevertCalculatedQuantity?: (itemId: string) => void;
   pricingEditorRequest?: { itemId: string; token: number } | null;
   onPricingEditorRequestHandled?: () => void;
   visualCtx: ScopeItemVisualContext;
@@ -2890,6 +3029,7 @@ function ChoiceRow({
         onScopeGapResolutionsChange={onScopeGapResolutionsChange}
         onScopeGapPriceSeparately={onScopeGapPriceSeparately}
         onScopeGapIncludeInParentPrice={onScopeGapIncludeInParentPrice}
+        onRevertCalculatedQuantity={onRevertCalculatedQuantity}
         pricingEditorRequest={pricingEditorRequest}
         onPricingEditorRequestHandled={onPricingEditorRequestHandled}
         scopeItemLabel={item.label}
@@ -2907,7 +3047,8 @@ function choiceIdToState(choiceId: string): ScopeAssumptionState {
   return 'included';
 }
 
-function QuickMeasurementField({
+const QuickMeasurementField = React.memo(function QuickMeasurementField({
+  fieldKey,
   label,
   value,
   onChangeText,
@@ -2916,6 +3057,7 @@ function QuickMeasurementField({
   darkMode,
   applying,
 }: {
+  fieldKey: QuickMeasurementFieldKey;
   label: string;
   value: string;
   onChangeText: (v: string) => void;
@@ -2931,6 +3073,7 @@ function QuickMeasurementField({
     <View style={styles.measurementField}>
       <Text style={[styles.measurementLabel, { color: captionColor(darkMode, Colors) }]}>{label}</Text>
       <TextInput
+        nativeID={`quick-measurement-${fieldKey}`}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -2949,7 +3092,7 @@ function QuickMeasurementField({
       />
     </View>
   );
-}
+});
 
 function CollapsibleQuickMeasurements({
   expanded,
@@ -3012,19 +3155,17 @@ function CollapsibleQuickMeasurements({
 
     return { values: out, keys: noteKeys };
   }, [notes, templateKey, projectType]);
-  const displayMeasurements = { ...noteQuickMeasurements.values };
-  for (const [key, value] of Object.entries(measurements)) {
-    if (key === 'itemQuantities') continue;
-    if (noteQuickMeasurements.keys.includes(key as QuickMeasurementFieldKey)) continue;
-    if (String(value || '').trim()) {
-      displayMeasurements[key as QuickMeasurementFieldKey] = String(value);
-    }
-  }
-  const rows = quickMeasurementRowsForInput(templateKey, projectType, displayMeasurements, noteQuickMeasurements.keys);
+  const rows = useMemo(
+    () => quickMeasurementRowsForInput(templateKey, projectType, measurements, noteQuickMeasurements.keys),
+    [templateKey, projectType, measurements, noteQuickMeasurements.keys]
+  );
 
-  const setField = (key: QuickMeasurementFieldKey, value: string) => {
-    setMeasurements((prev) => ({ ...prev, [key]: value }));
-  };
+  const setField = useCallback(
+    (key: QuickMeasurementFieldKey, value: string) => {
+      setMeasurements((prev) => ({ ...prev, [key]: value }));
+    },
+    [setMeasurements]
+  );
 
   return (
     <View style={[styles.quickMeasurements, estimateFlowCardStyle(Colors, darkMode)]}>
@@ -3049,8 +3190,13 @@ function CollapsibleQuickMeasurements({
               {row.map((field) => (
                 <QuickMeasurementField
                   key={field.key}
+                  fieldKey={field.key}
                   label={field.label}
-                  value={displayMeasurements[field.key] || ''}
+                  value={resolveQuickMeasurementDisplayValue(
+                    field.key,
+                    measurements,
+                    noteQuickMeasurements.values
+                  )}
                   onChangeText={(value) => setField(field.key, value)}
                   placeholder={field.placeholder}
                   Colors={Colors}
@@ -3511,7 +3657,8 @@ export default function AIEstimateScopeAssumptionsModal({
     quantity: string,
     field: 'count' | 'allowance' = 'count',
     unit?: string,
-    source: QuantitySource = 'user_entered'
+    source: QuantitySource = 'user_entered',
+    calculatedRevertFrom?: CalculatedQuantityRevertSnapshot
   ) => {
     const baseItemId = itemId.replace(/__(allowance|sqft_basis|material|labor)$/, '');
     const rule = getChecklistItemQuantityRuleOrDefault(baseItemId, checklist?.templateKey);
@@ -3539,12 +3686,19 @@ export default function AIEstimateScopeAssumptionsModal({
       return;
     }
     setMeasurementsSynced((prev) => {
+      const previousEntry = prev.itemQuantities[itemId];
       const itemQuantities = {
         ...prev.itemQuantities,
         [itemId]: {
           quantity,
           unit: unit || (rule?.dualAllowanceField ? 'each' : rule.defaultUnit),
           quantitySource: source,
+          ...(source === 'calculated_confirmed' && calculatedRevertFrom
+            ? {
+                quantityBeforeCalculated:
+                  previousEntry?.quantityBeforeCalculated ?? calculatedRevertFrom,
+              }
+            : {}),
         },
       };
 
@@ -3552,6 +3706,18 @@ export default function AIEstimateScopeAssumptionsModal({
         const allowanceKey = roughAllowanceSubKey(itemId);
         const materialKey = `${itemId}__material`;
         const laborKey = `${itemId}__labor`;
+        if (source === 'calculated_confirmed') {
+          delete itemQuantities[allowanceKey];
+          delete itemQuantities[materialKey];
+          delete itemQuantities[laborKey];
+          const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+          delete pricingAcceptance[itemId];
+          return {
+            ...prev,
+            itemQuantities,
+            pricingAcceptance,
+          };
+        }
         const hasManualPricing = [allowanceKey, materialKey, laborKey].some((key) => {
           const entry = prev.itemQuantities[key];
           return entry?.quantitySource === 'user_entered' && String(entry.quantity || '').trim();
@@ -3599,14 +3765,20 @@ export default function AIEstimateScopeAssumptionsModal({
         ...prev,
         itemQuantities,
         pricingAcceptance:
-          source === 'user_entered' && /__(allowance|sqft_basis|material|labor)$/.test(itemId)
-            ? markManualPricingAdjustment(
-                prev.pricingAcceptance?.[baseItemId],
-                baseItemId,
-                prev.pricingAcceptance,
-                parsePricingAmount(quantity)
-              )
-            : prev.pricingAcceptance,
+          source === 'calculated_confirmed'
+            ? (() => {
+                const next = { ...(prev.pricingAcceptance || {}) };
+                delete next[itemId];
+                return next;
+              })()
+            : source === 'user_entered' && /__(allowance|sqft_basis|material|labor)$/.test(itemId)
+              ? markManualPricingAdjustment(
+                  prev.pricingAcceptance?.[baseItemId],
+                  baseItemId,
+                  prev.pricingAcceptance,
+                  parsePricingAmount(quantity)
+                )
+              : prev.pricingAcceptance,
       };
     });
   };
@@ -3664,6 +3836,57 @@ export default function AIEstimateScopeAssumptionsModal({
       });
     }, 250);
   };
+
+  const handleRevertCalculatedQuantity = useCallback(
+    (itemId: string) => {
+      hapticTap();
+      setMeasurementsSynced((prev) => {
+        const entry = prev.itemQuantities[itemId];
+        const snapshot = entry?.quantityBeforeCalculated;
+        if (!snapshot) return prev;
+        const itemQuantities = { ...prev.itemQuantities };
+        if (snapshot.relatedEntries && Object.keys(snapshot.relatedEntries).length > 0) {
+          for (const key of Object.keys(itemQuantities)) {
+            if (key === itemId || key.startsWith(`${itemId}__`)) {
+              delete itemQuantities[key];
+            }
+          }
+          for (const [key, saved] of Object.entries(snapshot.relatedEntries)) {
+            itemQuantities[key] = {
+              quantity: saved.quantity != null ? String(saved.quantity) : '',
+              unit: saved.unit,
+              quantitySource: saved.quantitySource ?? 'inferred',
+            };
+          }
+        } else {
+          const { quantityBeforeCalculated: _removed, ...restEntry } = entry;
+          itemQuantities[itemId] = {
+            ...restEntry,
+            quantity: snapshot.quantity != null ? String(snapshot.quantity) : '',
+            unit: snapshot.unit,
+            quantitySource: snapshot.quantitySource ?? 'inferred',
+          };
+        }
+        const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+        if (Object.prototype.hasOwnProperty.call(snapshot, 'pricingAcceptanceBeforeCalculated')) {
+          if (snapshot.pricingAcceptanceBeforeCalculated) {
+            pricingAcceptance[itemId] = snapshot.pricingAcceptanceBeforeCalculated;
+          } else {
+            delete pricingAcceptance[itemId];
+          }
+        } else {
+          delete pricingAcceptance[itemId];
+        }
+        return {
+          ...prev,
+          itemQuantities,
+          pricingAcceptance,
+        };
+      });
+      setTimeout(() => persistScopeProgressNow(), 0);
+    },
+    [persistScopeProgressNow]
+  );
 
   const handleItemQuantityFocus = (itemId: string, field: 'count' | 'allowance' = 'count') => {
     focusedQuantityRef.current = `${itemId}:${field}`;
@@ -3951,6 +4174,7 @@ export default function AIEstimateScopeAssumptionsModal({
         onScopeGapResolutionsChange={handleScopeGapResolutionsChange}
         onScopeGapPriceSeparately={handleScopeGapPriceSeparately}
         onScopeGapIncludeInParentPrice={handleScopeGapIncludeInParentPrice}
+        onRevertCalculatedQuantity={handleRevertCalculatedQuantity}
         pricingEditorRequest={pricingEditorRequest}
         onPricingEditorRequestHandled={clearPricingEditorRequest}
         visualCtx={visualCtx}
@@ -3985,6 +4209,7 @@ export default function AIEstimateScopeAssumptionsModal({
         onScopeGapResolutionsChange={handleScopeGapResolutionsChange}
         onScopeGapPriceSeparately={handleScopeGapPriceSeparately}
         onScopeGapIncludeInParentPrice={handleScopeGapIncludeInParentPrice}
+        onRevertCalculatedQuantity={handleRevertCalculatedQuantity}
         pricingEditorRequest={pricingEditorRequest}
         onPricingEditorRequestHandled={clearPricingEditorRequest}
         visualCtx={visualCtx}
@@ -4027,6 +4252,7 @@ export default function AIEstimateScopeAssumptionsModal({
         onScopeGapResolutionsChange={handleScopeGapResolutionsChange}
         onScopeGapPriceSeparately={handleScopeGapPriceSeparately}
         onScopeGapIncludeInParentPrice={handleScopeGapIncludeInParentPrice}
+        onRevertCalculatedQuantity={handleRevertCalculatedQuantity}
         pricingEditorRequest={pricingEditorRequest}
         onPricingEditorRequestHandled={clearPricingEditorRequest}
         visualCtx={visualCtx}
@@ -4063,6 +4289,7 @@ export default function AIEstimateScopeAssumptionsModal({
         onScopeGapResolutionsChange={handleScopeGapResolutionsChange}
         onScopeGapPriceSeparately={handleScopeGapPriceSeparately}
         onScopeGapIncludeInParentPrice={handleScopeGapIncludeInParentPrice}
+        onRevertCalculatedQuantity={handleRevertCalculatedQuantity}
         pricingEditorRequest={pricingEditorRequest}
         onPricingEditorRequestHandled={clearPricingEditorRequest}
         visualCtx={visualCtx}
@@ -4588,12 +4815,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
-  suggestedPricingConfirmHint: {
-    marginTop: 10,
-    fontSize: 11,
-    lineHeight: 16,
-    fontWeight: '600',
-  },
   includedPillRow: {
     marginTop: 10,
     marginBottom: 2,
@@ -4696,20 +4917,42 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   formulaNoticeBlock: {
-    gap: 4,
+    gap: 6,
   },
   formulaActionButton: {
-    alignSelf: 'flex-start',
-    marginTop: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 8,
+    borderWidth: 1,
   },
   formulaActionText: {
-    color: '#22c55e',
-    fontSize: 10,
-    fontWeight: '800',
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
+    flexShrink: 1,
+  },
+  formulaRevertButton: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  formulaRevertText: {
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+    flexShrink: 1,
   },
   assemblyActionRow: {
     flexDirection: 'row',

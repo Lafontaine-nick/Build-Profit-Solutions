@@ -34,7 +34,8 @@ function extractIpFromSource(src: string): string | null {
   return null;
 }
 
-function getAutoDetectedIP(): string | null {
+/** LAN IP from Metro/Expo hostUri — matches the address your phone uses to load the bundle. */
+export function getAutoDetectedIP(): string | null {
   try {
     // Expo Go / Metro may expose values like:
     // - "192.168.0.11:8081"
@@ -63,6 +64,12 @@ function getAutoDetectedIP(): string | null {
     console.warn('⚠️ Failed to auto-detect IP:', error);
     return null;
   }
+}
+
+/** Backend origin derived from Metro (http://<metro-ip>:3001). */
+export function getMetroBackendOrigin(): string | null {
+  const ip = getAutoDetectedIP();
+  return ip ? `http://${ip}:3001` : null;
 }
 
 /**
@@ -153,7 +160,12 @@ export const getNetworkInfo = (): NetworkInfo => {
     recommendedApiUrl = 'https://build-profit-solutions-backend.onrender.com';
     console.log('✅ Production mode - using Render backend');
   } else if (isExpoGo || isPhysicalDevice) {
-    // Expo Go or physical device — explicit .env LAN URL beats Metro auto-detect (stale hostUri).
+    // Metro host IP first — if the phone loaded JS from this Mac, backend is on the same IP.
+    if (autoDetectedIP) {
+      recommendedApiUrl = `http://${autoDetectedIP}:3001`;
+      console.log('✅ Using Metro-detected LOCAL backend:', recommendedApiUrl);
+    } else {
+    // Expo Go or physical device — explicit .env LAN URL when Metro IP is unavailable.
     const extra = Constants.expoConfig?.extra as
       | { devApiBaseUrl?: string; apiBaseUrl?: string }
       | undefined;
@@ -172,15 +184,13 @@ export const getNetworkInfo = (): NetworkInfo => {
     } else if (envUrl && (envUrl.includes('192.168') || envUrl.includes('10.0.2.2') || envUrl.includes('172.'))) {
       recommendedApiUrl = envUrl;
       console.log('✅ Using LOCAL backend from config:', envUrl);
-    } else if (autoDetectedIP) {
-      recommendedApiUrl = `http://${autoDetectedIP}:3001`;
-      console.log('✅ Using AUTO-DETECTED LOCAL backend:', recommendedApiUrl, '(IP from Expo/Metro)');
     } else if (configuredDevIp) {
       recommendedApiUrl = `http://${configuredDevIp}:3001`;
       console.log('✅ Using configured LOCAL backend:', recommendedApiUrl);
     } else {
       recommendedApiUrl = 'https://build-profit-solutions-backend.onrender.com';
       console.warn('⚠️ Could not detect LAN IP; falling back to Render backend:', recommendedApiUrl);
+    }
     }
   } else {
     // Final fallback - for iOS/Android, default to network IP (iOS) or 10.0.2.2 (Android)

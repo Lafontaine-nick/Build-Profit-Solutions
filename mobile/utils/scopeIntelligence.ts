@@ -32,6 +32,7 @@ import {
 import {
   benchmarkScopeDefinitionQuality,
   buildConciseBenchmarkScopeWarning,
+  NATIONAL_AVERAGE_BASE_SCOPE_NOTE,
   canonicalBenchmarkScopeKey,
   HIGH_IMPACT_FALLBACK_SCOPE_KEYS,
   type BenchmarkScopeAssumptionProfile,
@@ -1507,7 +1508,7 @@ export function benchmarkScopeUndefinedCardMessage(
 ): string | null {
   if (benchmarkScopeDefinitionQuality(profile) !== 'undefined') return null;
   if (pricingSource === 'national_average') {
-    return 'This national-average price does not fully define its inclusions. Review high-impact scope items before using it.';
+    return `${NATIONAL_AVERAGE_BASE_SCOPE_NOTE} Review high-impact scope items before using it.`;
   }
   return 'This price source does not fully define its inclusions. Review high-impact scope items before using it.';
 }
@@ -1594,8 +1595,13 @@ export function primaryIntelligenceNotice(intelligence: ScopeItemIntelligence): 
     return missing ? `Measurement needed: ${missing}` : 'Measurement needed for this scope item.';
   }
   if (intelligence.formulaComparison) {
-    const sign = intelligence.formulaComparison.variancePercent > 0 ? '+' : '';
-    return `Calculated comparison: ${intelligence.formulaComparison.calculatedValue.toLocaleString()} ${formatUnitLabel(intelligence.formulaComparison.calculatedUnit)} (${sign}${intelligence.formulaComparison.variancePercent}% vs current).`;
+    if (
+      intelligence.quantity.source !== 'calculated_confirmed' &&
+      intelligence.formulaComparison.variancePercent !== 0
+    ) {
+      const sign = intelligence.formulaComparison.variancePercent > 0 ? '+' : '';
+      return `Calculated comparison: ${intelligence.formulaComparison.calculatedValue.toLocaleString()} ${formatUnitLabel(intelligence.formulaComparison.calculatedUnit)} (${sign}${intelligence.formulaComparison.variancePercent}% vs current).`;
+    }
   }
   const issue = intelligence.validation.issues.find(
     (i) =>

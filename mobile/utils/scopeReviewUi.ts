@@ -20,6 +20,7 @@ import {
   findBenchmarkAssumption,
   getBenchmarkAssumptionReviewRequirement,
   HIGH_IMPACT_FALLBACK_SCOPE_KEYS,
+  NATIONAL_AVERAGE_BASE_SCOPE_NOTE,
   type BenchmarkScopeAssumption,
   type BenchmarkScopeAssumptionProfile,
   type BenchmarkScopeAssumptionStatus,
@@ -613,15 +614,19 @@ export function benchmarkScopeSummary(profile: BenchmarkScopeAssumptionProfile |
   conditional: string[];
 } {
   if (!profile?.scopeAssumptionsDefined) {
+    const isNationalAverage = profile?.pricingSource === 'national_average';
     return {
-      title: 'Benchmark inclusions not defined',
-      body: 'This source does not specify all included work. Use the guidance below to confirm each high-impact item.',
+      title: isNationalAverage ? 'Base national average only' : 'Benchmark inclusions not defined',
+      body: isNationalAverage
+        ? `${NATIONAL_AVERAGE_BASE_SCOPE_NOTE} Use the guidance below to confirm each high-impact item.`
+        : 'This source does not specify all included work. Use the guidance below to confirm each high-impact item.',
       included: [],
       notIncluded: [],
       conditional: [],
     };
   }
   const source = profile.pricingSource ? profile.pricingSource.replace(/_/g, ' ') : 'benchmark';
+  const isNationalAverage = profile.pricingSource === 'national_average';
   const included = profile.scopeAssumptions
     .filter((item) => item.status === 'included')
     .map((item) => item.displayLabel || getScopeGapDisplayLabel(item.scopeKey, item.scopeKey.replace(/_/g, ' ')))
@@ -638,8 +643,12 @@ export function benchmarkScopeSummary(profile: BenchmarkScopeAssumptionProfile |
     })
     .slice(0, 3);
   return {
-    title: `What the ${priceLabel} suggested price includes`,
-    body: `This ${source} price carries a defined scope-assumption profile.`,
+    title: isNationalAverage
+      ? `Base national average scope for ${priceLabel}`
+      : `What the ${priceLabel} suggested price includes`,
+    body: isNationalAverage
+      ? NATIONAL_AVERAGE_BASE_SCOPE_NOTE
+      : `This ${source} price carries a defined scope-assumption profile.`,
     included,
     notIncluded,
     conditional,
@@ -729,8 +738,8 @@ export function buildScopeReviewSheetTitle(scopeItemLabel: string): string {
 
 export function buildScopeReviewSheetSubtitle(scopeItemLabel: string, priceLabel: string): string {
   const scope = scopeItemLabel.trim().toLowerCase() || 'this';
-  const price = priceLabel.trim() || 'the accepted';
-  return `Confirm whether these items are included in the ${price} ${scope} price.`;
+  const price = priceLabel.trim() || 'accepted';
+  return `${NATIONAL_AVERAGE_BASE_SCOPE_NOTE} Confirm how each item applies to the ${price} ${scope} price.`;
 }
 
 export function buildScopeGapResolutionPrompt(

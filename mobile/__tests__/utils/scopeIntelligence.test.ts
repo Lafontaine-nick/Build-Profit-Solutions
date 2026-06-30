@@ -1064,7 +1064,8 @@ describe('scopeIntelligence', () => {
     const card = buildCardIntelligenceDisplay(intelligence);
     expect(card.confidence).toBe('low');
     expect(card.confidenceLabel).toBe('Low confidence');
-    expect(card.conciseBenchmarkWarning).toMatch(/national-average price covers Base excavation/i);
+    expect(card.conciseBenchmarkWarning).toMatch(/Base national average only/i);
+    expect(card.conciseBenchmarkWarning).toMatch(/haul-off, backfill, pumping, reinforcement, and disposal/i);
     expect(card.conciseBenchmarkWarning).toMatch(/5 scope assumptions/i);
     expect(card.duplicatePricingMessage).toBeNull();
     expect(card.otherNotice).toBeNull();

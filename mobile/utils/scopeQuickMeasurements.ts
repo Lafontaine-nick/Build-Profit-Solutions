@@ -277,6 +277,19 @@ function hasQuickMeasurementValue(value: unknown): boolean {
   return Number.isFinite(n) && n > 0;
 }
 
+/** Live form value for a quick measurement field (note prefill until the user types). */
+export function resolveQuickMeasurementDisplayValue(
+  key: QuickMeasurementFieldKey,
+  measurements: Partial<Record<QuickMeasurementFieldKey, string | undefined>>,
+  noteValues: Partial<Record<QuickMeasurementFieldKey, string>> = {}
+): string {
+  const raw = measurements[key];
+  if (raw != null && String(raw).trim() !== '') {
+    return String(raw);
+  }
+  return noteValues[key] || String(raw ?? '');
+}
+
 function chunkRows(fields: QuickMeasurementFieldDef[]): QuickMeasurementRow[] {
   const rows: QuickMeasurementRow[] = [];
   for (let i = 0; i < fields.length; i += 2) {
@@ -299,12 +312,9 @@ export function quickMeasurementRowsForInput(
     .filter((key) => !baseKeys.has(key) && (!noteKeySet || noteKeySet.has(key)) && hasQuickMeasurementValue(measurements[key]))
     .map((key) => QUICK_MEASUREMENT_FIELD_DEFS[key]);
 
+  // Keep row order stable while typing — dynamic note-only rows caused TextInput focus to jump.
   if (resolvedKey === 'room_remodel') {
-    const valuedBaseFields = baseRows
-      .flatMap((r) => r)
-      .filter((field) => (!noteKeySet || noteKeySet.has(field.key)) && hasQuickMeasurementValue(measurements[field.key]));
-    const noteRows = chunkRows([...valuedBaseFields, ...extraFields]);
-    return noteRows.length ? noteRows : baseRows;
+    return baseRows;
   }
 
   if (!extraFields.length) return baseRows;

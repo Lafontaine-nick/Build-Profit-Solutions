@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import type { getColors } from '@/theme/getColors';
 import type { ScopeItemIntelligence } from '@/utils/scopeIntelligence';
+import { formatUnitLabel } from '@/utils/scopeItemQuantities';
 import type { AssemblyComponentStatus } from '@/utils/scopeAssemblyRegistry';
 import type { ScopeGapNotice } from '@/utils/scopeAssemblyRegistry';
 import {
@@ -21,6 +23,14 @@ import ScopeReviewSheet from '@/components/estimate/ScopeReviewSheet';
 
 function captionColor(darkMode: boolean, Colors: ReturnType<typeof getColors>) {
   return darkMode ? 'rgba(255,255,255,0.62)' : Colors.sub;
+}
+
+function calculatedQuantityAlreadyActive(intelligence: ScopeItemIntelligence): boolean {
+  const formula = intelligence.formula;
+  const current = intelligence.quantity.value;
+  if (!formula || current == null) return false;
+  if (intelligence.quantity.source === 'calculated_confirmed') return true;
+  return Math.abs(Number(current) - formula.roundedValue) < 0.01;
 }
 
 function confidenceBadgeColors(label: NonNullable<AcceptedPricingDisplay['confidenceLabel']>, darkMode: boolean) {
@@ -109,15 +119,38 @@ export function ScopeIntelligenceDetailsPanel({
 
   return (
     <View style={{ gap: 8 }}>
-      {formula ? (
-        <View style={{ gap: 4 }}>
+      {formula && !calculatedQuantityAlreadyActive(intelligence) ? (
+        <View style={{ gap: 6 }}>
           <Text style={[styles.detailText, { color: captionColor(darkMode, Colors) }]}>
-            Calculated quantity: {formula.roundedValue.toLocaleString()} ({formula.confidence} confidence)
+            {formula.formulaExplanation}
           </Text>
-          <Text style={[styles.detailText, { color: captionColor(darkMode, Colors) }]}>{formula.formulaExplanation}</Text>
           {onUseCalculatedQuantity ? (
-            <TouchableOpacity activeOpacity={0.75} onPress={onUseCalculatedQuantity} style={styles.inlineAction}>
-              <Text style={styles.inlineActionText}>Use calculated quantity</Text>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={`Use calculated quantity of ${formula.roundedValue.toLocaleString()} ${formatUnitLabel(formula.unit)}`}
+              onPress={onUseCalculatedQuantity}
+              style={[
+                styles.formulaActionButton,
+                {
+                  borderColor: darkMode ? 'rgba(34,197,94,0.28)' : 'rgba(22,163,74,0.32)',
+                  backgroundColor: darkMode ? 'rgba(34,197,94,0.05)' : 'rgba(34,197,94,0.04)',
+                },
+              ]}
+            >
+              <Ionicons
+                name="checkmark-circle-outline"
+                size={16}
+                color={darkMode ? 'rgba(110,231,160,0.9)' : '#16a34a'}
+              />
+              <Text
+                style={[
+                  styles.formulaActionText,
+                  { color: darkMode ? 'rgba(110,231,160,0.92)' : '#15803d' },
+                ]}
+              >
+                Use {formula.roundedValue.toLocaleString()} {formatUnitLabel(formula.unit)} calculated quantity
+              </Text>
             </TouchableOpacity>
           ) : null}
         </View>
@@ -300,9 +333,24 @@ export function AcceptedPricingSummary({
         <Text style={[styles.subtitleText, { color: captionColor(darkMode, Colors) }]}>{display.subtitleLine}</Text>
       ) : null}
       {includedAddonSummary ? (
-        <Text style={[styles.subtitleText, { color: captionColor(darkMode, Colors) }]}>
-          {includedAddonSummary}
-        </Text>
+        <View
+          style={[
+            styles.includedSummaryRow,
+            {
+              borderColor: darkMode ? 'rgba(34,197,94,0.38)' : 'rgba(22,163,74,0.28)',
+              backgroundColor: darkMode ? 'rgba(34,197,94,0.12)' : 'rgba(34,197,94,0.08)',
+            },
+          ]}
+        >
+          <Text
+            style={[
+              styles.includedSummaryText,
+              { color: darkMode ? '#4ade80' : '#16a34a' },
+            ]}
+          >
+            {includedAddonSummary}
+          </Text>
+        </View>
       ) : null}
       <View style={styles.badgeRow}>
         <PricingSourceBadge label={display.pricingSourceLabel} darkMode={darkMode} />
@@ -464,6 +512,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 17,
   },
+  includedSummaryRow: {
+    alignSelf: 'stretch',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginTop: 2,
+  },
+  includedSummaryText: {
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
   badgeRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -510,18 +571,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
   },
-  inlineAction: {
-    alignSelf: 'flex-start',
+  formulaActionButton: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(34,197,94,0.35)',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
   },
-  inlineActionText: {
-    color: '#22c55e',
+  formulaActionText: {
     fontSize: 11,
     fontWeight: '700',
+    textAlign: 'center',
+    flexShrink: 1,
   },
   projectReviewCard: {
     borderWidth: 1,

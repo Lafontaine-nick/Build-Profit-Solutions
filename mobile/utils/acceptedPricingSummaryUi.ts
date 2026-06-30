@@ -215,11 +215,23 @@ export function hasAcceptedScopePricing(
   if (hasCompleteUserSelectedPricing(itemQuantities as Record<string, ScopeItemQuantityValue>, itemId)) return true;
   const allowanceKey = allowanceSplitSubKey(itemId, 'allowance');
   const roughKey = roughAllowanceSubKey(itemId);
-  const candidates = [itemQuantities[allowanceKey], itemQuantities[roughKey], itemQuantities[itemId]];
-  return candidates.some(
-    (entry) =>
-      entry?.quantitySource === 'user_entered' &&
-      Number(String(entry.quantity ?? '').replace(/,/g, '')) > 0
+  const allowanceCandidates = [itemQuantities[allowanceKey], itemQuantities[roughKey]];
+  if (
+    allowanceCandidates.some(
+      (entry) =>
+        entry?.quantitySource === 'user_entered' &&
+        Number(String(entry.quantity ?? '').replace(/,/g, '')) > 0
+    )
+  ) {
+    return true;
+  }
+
+  const direct = itemQuantities[itemId];
+  const directUnit = String(direct?.unit || '').toLowerCase();
+  return Boolean(
+    direct?.quantitySource === 'user_entered' &&
+      ['allowance', 'lump_sum'].includes(directUnit) &&
+      Number(String(direct.quantity ?? '').replace(/,/g, '')) > 0
   );
 }
 

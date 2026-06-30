@@ -275,6 +275,40 @@ describe('scopeReviewUi refinements', () => {
     expect(summary.body).toMatch(/does not specify all included work/i);
   });
 
+  it('shows base national average copy for undefined national average profiles', () => {
+    const summary = benchmarkScopeSummary(
+      {
+        sourceRecordId: 'legacy',
+        pricingSource: 'national_average',
+        scopeAssumptionsDefined: false,
+        scopeAssumptions: [],
+      },
+      '$2,500'
+    );
+    expect(summary.title).toBe('Base national average only');
+    expect(summary.body).toMatch(/Base national average only/i);
+    expect(summary.body).toMatch(/haul-off, backfill, pumping, reinforcement, and disposal/i);
+  });
+
+  it('shows base national average copy for defined national average profiles', () => {
+    const summary = benchmarkScopeSummary(
+      {
+        sourceRecordId: 'test:excavation',
+        pricingSource: 'national_average',
+        scopeAssumptionsDefined: true,
+        scopeAssumptions: [
+          { scopeKey: 'excavation', status: 'included', displayLabel: 'Base excavation' },
+          { scopeKey: 'haul_off', status: 'excluded', displayLabel: 'Haul-off / export' },
+        ],
+      },
+      '$2,500'
+    );
+    expect(summary.title).toBe('Base national average scope for $2,500');
+    expect(summary.body).toBe(
+      'Base national average only. Related work like haul-off, backfill, pumping, reinforcement, and disposal may need to be added separately.'
+    );
+  });
+
   it('returns five high-impact excavation assumptions when benchmark scope is undefined', () => {
     const reviewable = getReviewableScopeComponents([], 'excavation', null, {
       sourceRecordId: 'legacy',

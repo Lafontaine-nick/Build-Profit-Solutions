@@ -3,7 +3,7 @@
  * Backend source of truth: backend/src/services/scopeItemQuantityCatalog.js
  */
 
-import type { EstimateAiDraft, ScopeMeasurements } from '@/utils/estimateAiDraft';
+import type { EstimateAiDraft, ScopeMeasurements, ScopePricingAcceptanceMetadata } from '@/utils/estimateAiDraft';
 import {
   SCOPE_PARSED_FROM_NOTES_LABEL,
   SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL,
@@ -145,6 +145,21 @@ export type ScopeItemQuantityValue = {
   quantity: number | null;
   unit: string;
   quantitySource?: QuantitySource;
+  /** Saved when the user switches to a formula quantity so they can revert. */
+  quantityBeforeCalculated?: {
+    quantity: number | string | null;
+    unit: string;
+    quantitySource?: QuantitySource;
+    pricingAcceptanceBeforeCalculated?: ScopePricingAcceptanceMetadata | null;
+    relatedEntries?: Record<
+      string,
+      {
+        quantity: number | string | null;
+        unit: string;
+        quantitySource?: QuantitySource;
+      }
+    >;
+  };
   /** Cabinets allowance line in notes also covered countertops. */
   includesCountertops?: boolean;
 };
@@ -1524,6 +1539,26 @@ export function formatUnitLabel(unit: string): string {
   if (unit === 'cy') return 'CY';
   if (unit === 'ton') return 'tons';
   return unit;
+}
+
+export type CalculatedQuantityRevertSnapshot = NonNullable<
+  ScopeItemQuantityValue['quantityBeforeCalculated']
+>;
+
+export function calculatedQuantityRevertLabel(
+  snapshot: CalculatedQuantityRevertSnapshot | null | undefined
+): string | null {
+  if (!snapshot) return null;
+  const qty = Number(String(snapshot.quantity ?? '').replace(/,/g, ''));
+  if (!Number.isFinite(qty) || qty <= 0) return null;
+  const unit = formatUnitLabel(snapshot.unit);
+  const sourceHint =
+    snapshot.quantitySource === 'notes'
+      ? 'from notes'
+      : snapshot.quantitySource === 'user_entered'
+        ? 'entered'
+        : 'original';
+  return `Revert to ${qty.toLocaleString()} ${unit} (${sourceHint})`;
 }
 
 function sumMeasurementKeys(

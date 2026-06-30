@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
-import { getNetworkInfo } from './networkDetection';
+import { getMetroBackendOrigin, getNetworkInfo } from './networkDetection';
 
 /** Hosted backend origin (no path). TestFlight / App Store builds must use this on cellular, not LAN. */
 export const PRODUCTION_AI_ORIGIN = 'https://build-profit-solutions-backend.onrender.com';
@@ -84,8 +84,13 @@ export function resolveAiBaseUrl(): string {
     return stripApiBaseSuffix(envBase);
   }
 
-  // Physical device / Expo Go: prefer explicit .env LAN URL over Metro auto-detect (stale hostUri).
+  // Physical device: Metro host IP is authoritative — phone already reached the Mac at this address.
   if (Platform.OS !== 'web' && Constants.isDevice) {
+    const metroOrigin = getMetroBackendOrigin();
+    if (metroOrigin) {
+      return metroOrigin;
+    }
+
     const explicitApiBase =
       process.env.EXPO_PUBLIC_API_BASE_URL?.trim() ||
       process.env.EXPO_PUBLIC_DEV_API_BASE_URL?.trim() ||
@@ -162,6 +167,9 @@ export function buildAiAssistantEndpointUrls(routePath: string): string[] {
   const isAndroidEmulator = Platform.OS === 'android' && Constants.isDevice === false;
 
   if (!isSimulator && !isAndroidEmulator) {
+    if (Platform.OS !== 'web' && Constants.isDevice) {
+      pushOrigin(getMetroBackendOrigin() || '');
+    }
     pushOrigin(process.env.EXPO_PUBLIC_AI_API_URL || extra?.aiApiUrl || '');
     pushOrigin(process.env.EXPO_PUBLIC_API_BASE_URL || '');
     pushOrigin(process.env.EXPO_PUBLIC_DEV_API_BASE_URL || '');

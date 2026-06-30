@@ -1,4 +1,8 @@
-import { quickMeasurementRowsForTemplate } from '@/utils/scopeQuickMeasurements';
+import {
+  quickMeasurementRowsForInput,
+  quickMeasurementRowsForTemplate,
+  resolveQuickMeasurementDisplayValue,
+} from '@/utils/scopeQuickMeasurements';
 
 describe('scopeQuickMeasurements', () => {
   it('labels addition floor area as ADU/casita sqft for ADU projects', () => {
@@ -21,5 +25,22 @@ describe('scopeQuickMeasurements', () => {
 
     expect(roomAddition?.label).toBe('Room addition sqft');
     expect(garageConversion?.label).toBe('Garage conversion sqft');
+  });
+
+  it('prefers live form state over note prefill for note-backed quick fields', () => {
+    expect(
+      resolveQuickMeasurementDisplayValue('drywallSqft', { drywallSqft: '1205' }, { drywallSqft: '1000' })
+    ).toBe('1205');
+    expect(
+      resolveQuickMeasurementDisplayValue('drywallSqft', { drywallSqft: '' }, { drywallSqft: '1000' })
+    ).toBe('1000');
+  });
+
+  it('keeps addition quick measurement rows stable while typing', () => {
+    const before = quickMeasurementRowsForInput('addition', 'adu', { excavationCy: '50' }, ['excavationCy']);
+    const after = quickMeasurementRowsForInput('addition', 'adu', { excavationCy: '51' }, ['excavationCy']);
+    expect(before.map((row) => row.map((field) => field.key).join('-'))).toEqual(
+      after.map((row) => row.map((field) => field.key).join('-'))
+    );
   });
 });

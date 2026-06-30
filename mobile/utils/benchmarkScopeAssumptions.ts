@@ -209,6 +209,9 @@ export function getBenchmarkAssumptionReviewRequirement(params: {
   };
 }
 
+export const NATIONAL_AVERAGE_BASE_SCOPE_NOTE =
+  'Base national average only. Related work like haul-off, backfill, pumping, reinforcement, and disposal may need to be added separately.';
+
 export function buildConciseBenchmarkScopeWarning(params: {
   profile: BenchmarkScopeAssumptionProfile | null | undefined;
   pricingSource?: string;
@@ -221,23 +224,15 @@ export function buildConciseBenchmarkScopeWarning(params: {
       ? '1 scope assumption'
       : `${params.assumptionCount} scope assumptions`;
   const timing = params.pricingAccepted ? 'before sending the estimate' : 'before applying it';
+  const reviewCallToAction = `Review ${countLabel} ${timing}.`;
+  if (params.pricingSource === 'national_average') {
+    return `${NATIONAL_AVERAGE_BASE_SCOPE_NOTE} ${reviewCallToAction}`;
+  }
   const quality = benchmarkScopeDefinitionQuality(params.profile);
   if (quality === 'undefined') {
-    if (params.pricingSource === 'national_average') {
-      return `This national-average price does not define all included work. Review ${countLabel} ${timing}.`;
-    }
-    return `This price source does not define all included work. Review ${countLabel} ${timing}.`;
+    return `This price source does not define all included work. ${reviewCallToAction}`;
   }
-  if (params.pricingSource !== 'national_average') return null;
-  const included = (params.profile?.scopeAssumptions || [])
-    .filter((assumption) => assumption.status === 'included')
-    .map((assumption) => assumption.displayLabel || assumption.scopeKey.replace(/_/g, ' '))
-    .slice(0, 2);
-  const covered = included.length ? ` covers ${included.join(' + ')}` : ' has a defined included-work profile';
-  if (params.pricingSource === 'national_average') {
-    return `This national-average price${covered}. Review ${countLabel} ${timing}.`;
-  }
-  return `This suggested price${covered}. Review ${countLabel} ${timing}.`;
+  return null;
 }
 
 export function benchmarkScopeDefinitionQuality(

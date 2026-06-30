@@ -10,8 +10,16 @@ import {
   TextInput,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import GradientRingBackInner from '@/components/GradientRingBackInner';
+import {
+  BRAND_FRAME_GRADIENT_COLORS,
+  BRAND_FRAME_GRADIENT_END,
+  BRAND_FRAME_GRADIENT_START,
+} from '@/constants/brandFrameGradient';
 import type { getColors } from '@/theme/getColors';
+import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 import type { AssemblyComponentStatus } from '@/utils/scopeAssemblyRegistry';
 import {
   buildScopeGapResolutionPrompt,
@@ -198,6 +206,8 @@ export default function ScopeReviewSheet({
   };
 
   const caption = darkMode ? 'rgba(255,255,255,0.62)' : Colors.sub;
+  const headerTopPadding =
+    Platform.OS === 'ios' ? 8 : Math.max(insets.top, 8);
 
   const offersIncludeWithCost = (assumptionStatus?: BenchmarkScopeAssumptionStatus) =>
     (assumptionStatus === 'excluded' || assumptionStatus == null) && Boolean(onIncludeInParentPrice);
@@ -260,26 +270,38 @@ export default function ScopeReviewSheet({
       presentationStyle={Platform.OS === 'ios' ? 'pageSheet' : 'fullScreen'}
       onRequestClose={handleClose}
     >
-      <View style={[styles.shell, { backgroundColor: Colors.bg, paddingTop: insets.top }]}>
-        <View style={styles.headerRow}>
+      <View style={[styles.shell, { backgroundColor: Colors.bg }]}>
+        <View style={[styles.headerRow, { paddingTop: headerTopPadding }]}>
+          <View style={styles.headerSide}>
+            <LinearGradient
+              colors={BRAND_FRAME_GRADIENT_COLORS}
+              start={BRAND_FRAME_GRADIENT_START}
+              end={BRAND_FRAME_GRADIENT_END}
+              style={styles.backButtonBorder}
+            >
+              <GradientRingBackInner
+                darkMode={darkMode}
+                onPress={handleClose}
+                accessibilityLabel="Close scope review"
+                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
+              >
+                <MaterialIcons
+                  name="arrow-back"
+                  size={24}
+                  color={darkMode ? '#FFFFFF' : Colors.text}
+                />
+              </GradientRingBackInner>
+            </LinearGradient>
+          </View>
           <View style={styles.headerText}>
             <Text style={[styles.title, { color: Colors.text }]} accessibilityRole="header">
               {buildScopeReviewSheetTitle(scopeItemLabel)}
             </Text>
-            <Text style={[styles.subtitle, { color: caption }]}>
+            <Text style={[styles.subtitle, { color: caption }]} numberOfLines={4}>
               {buildScopeReviewSheetSubtitle(scopeItemLabel, priceLabel)}
             </Text>
           </View>
-          <TouchableOpacity
-            onPress={handleClose}
-            activeOpacity={0.75}
-            accessibilityRole="button"
-            accessibilityLabel="Close scope review"
-            style={styles.closeBtn}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <MaterialIcons name="close" size={22} color={caption} />
-          </TouchableOpacity>
+          <View style={styles.headerSide} />
         </View>
 
         <ScrollView
@@ -290,10 +312,7 @@ export default function ScopeReviewSheet({
           <View
             style={[
               styles.assumptionSummary,
-              {
-                borderColor: darkMode ? 'rgba(96,165,250,0.2)' : 'rgba(96,165,250,0.18)',
-                backgroundColor: darkMode ? 'rgba(15,23,42,0.45)' : Colors.surface2,
-              },
+              estimateFlowCardStyle(Colors, darkMode),
             ]}
           >
             <Text style={[styles.summaryTitle, { color: Colors.text }]}>{summary.title}</Text>
@@ -341,10 +360,8 @@ export default function ScopeReviewSheet({
                 key={component.key}
                 style={[
                   styles.rowCard,
-                  {
-                    borderColor: darkMode ? 'rgba(255,255,255,0.1)' : Colors.line,
-                    backgroundColor: darkMode ? 'rgba(15,23,42,0.55)' : Colors.surface2,
-                  },
+                  estimateFlowCardStyle(Colors, darkMode),
+                  { padding: 0 },
                 ]}
               >
                 <TouchableOpacity
@@ -432,8 +449,8 @@ export default function ScopeReviewSheet({
                               styles.includeCostInput,
                               {
                                 color: Colors.text,
-                                borderColor: darkMode ? 'rgba(255,255,255,0.15)' : Colors.line,
-                                backgroundColor: darkMode ? 'rgba(15,23,42,0.65)' : Colors.surface2,
+                                borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                                backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : Colors.surface2,
                               },
                             ]}
                             accessibilityLabel={`Amount to add for ${displayLabel}`}
@@ -584,27 +601,32 @@ const styles = StyleSheet.create({
   shell: { flex: 1 },
   headerRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 12,
-    gap: 12,
-  },
-  headerText: { flex: 1, gap: 6 },
-  title: { fontSize: 20, fontWeight: '800', letterSpacing: -0.3 },
-  subtitle: { fontSize: 13, lineHeight: 18 },
-  closeBtn: {
-    width: 36,
-    height: 36,
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 2,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
   },
+  headerSide: { width: 52, alignItems: 'flex-start' },
+  backButtonBorder: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    padding: 1,
+    overflow: 'hidden',
+  },
+  backButton: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerText: { flex: 1, alignItems: 'center', paddingHorizontal: 8, gap: 4 },
+  title: { fontSize: 18, fontWeight: '800', letterSpacing: -0.3, textAlign: 'center' },
+  subtitle: { fontSize: 12, lineHeight: 17, textAlign: 'center' },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 16, gap: 8 },
-  rowCard: { borderWidth: 1, borderRadius: 12, overflow: 'hidden' },
-  assumptionSummary: { borderWidth: 1, borderRadius: 12, padding: 12, gap: 5 },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 16, gap: 8 },
+  rowCard: { overflow: 'hidden' },
+  assumptionSummary: { gap: 5 },
   summaryTitle: { fontSize: 13, fontWeight: '800' },
   summaryBody: { fontSize: 12, lineHeight: 17 },
   rowTap: {
