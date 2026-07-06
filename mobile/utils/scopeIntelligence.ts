@@ -1557,6 +1557,7 @@ export function buildCardIntelligenceDisplay(
     pricingSource: intelligence.pricing.source,
     assumptionCount: intelligence.unresolvedAssumptionCount ?? intelligence.reviewableAssumptionCount,
     pricingAccepted: options?.pricingAccepted,
+    scopeKey: intelligence.scopeItemKey,
   });
   const otherNotice = primaryIntelligenceNotice(intelligence);
   const suppressOtherNotice =

@@ -1065,7 +1065,7 @@ describe('scopeIntelligence', () => {
     expect(card.confidence).toBe('low');
     expect(card.confidenceLabel).toBe('Low confidence');
     expect(card.conciseBenchmarkWarning).toMatch(/Base national average only/i);
-    expect(card.conciseBenchmarkWarning).toMatch(/haul-off, backfill, pumping, reinforcement, and disposal/i);
+    expect(card.conciseBenchmarkWarning).toMatch(/haul-off \/ export, dump fees, backfill, and compaction/i);
     expect(card.conciseBenchmarkWarning).toMatch(/5 scope assumptions/i);
     expect(card.duplicatePricingMessage).toBeNull();
     expect(card.otherNotice).toBeNull();

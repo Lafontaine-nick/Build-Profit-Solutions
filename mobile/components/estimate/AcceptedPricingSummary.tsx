@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { getColors } from '@/theme/getColors';
 import type { ScopeItemIntelligence } from '@/utils/scopeIntelligence';
 import { formatUnitLabel } from '@/utils/scopeItemQuantities';
+import { isFormulaQuantityApplyTargetActive, shouldShowFormulaQuantityButton } from '@/utils/scopeFormulaRegistry';
 import type { AssemblyComponentStatus } from '@/utils/scopeAssemblyRegistry';
 import type { ScopeGapNotice } from '@/utils/scopeAssemblyRegistry';
 import {
@@ -29,8 +30,13 @@ function calculatedQuantityAlreadyActive(intelligence: ScopeItemIntelligence): b
   const formula = intelligence.formula;
   const current = intelligence.quantity.value;
   if (!formula || current == null) return false;
-  if (intelligence.quantity.source === 'calculated_confirmed') return true;
-  return Math.abs(Number(current) - formula.roundedValue) < 0.01;
+  return isFormulaQuantityApplyTargetActive({
+    scopeKey: intelligence.scopeItemKey,
+    formula,
+    quantity: current,
+    unit: intelligence.quantity.unit,
+    source: intelligence.quantity.source,
+  });
 }
 
 function confidenceBadgeColors(label: NonNullable<AcceptedPricingDisplay['confidenceLabel']>, darkMode: boolean) {
@@ -124,7 +130,8 @@ export function ScopeIntelligenceDetailsPanel({
           <Text style={[styles.detailText, { color: captionColor(darkMode, Colors) }]}>
             {formula.formulaExplanation}
           </Text>
-          {onUseCalculatedQuantity ? (
+          {onUseCalculatedQuantity &&
+          shouldShowFormulaQuantityButton({ scopeKey, formula }) ? (
             <TouchableOpacity
               activeOpacity={0.85}
               accessibilityRole="button"

@@ -1,4 +1,5 @@
 import type { NormalizedScopeMeasurements } from '@/utils/scopeItemQuantities';
+import { formatUnitLabel, getNationalAverageBudgetSplit } from '@/utils/scopeItemQuantities';
 
 export type FormulaConfidence = 'high' | 'medium' | 'low';
 export type FormulaUnitCode = string;
@@ -354,8 +355,11 @@ const FORMULAS: FormulaDefinition[] = [
       };
     },
     rounding: 'cy',
-    explanation: ({ roundedValue, inputs, assumptions }) =>
-      `Calculated ${roundedValue.toLocaleString()} CY from ${inputs[0]?.value.toLocaleString()} sqft slab area at ${assumptions[0]?.value ?? ''} in thickness.`,
+    explanation: ({ roundedValue, inputs, assumptions }) => {
+      const sqft = inputs[0]?.value.toLocaleString() ?? '';
+      const thickness = assumptions[0]?.value ?? '';
+      return `Slab area ${sqft} sqft at ${thickness} in thick ≈ ${roundedValue.toLocaleString()} CY volume cross-check. Pricing uses the slab sqft at national-average $/sqft rates.`;
+    },
   },
   {
     key: 'trench_volume_cy',
@@ -647,4 +651,90 @@ export function getMissingFormulaInputs(scopeKey: string): Array<{ type: string;
 
 export function getAssumptionsForScope(scopeKey: string): FormulaAssumption[] {
   return Object.values(ASSUMPTIONS).filter((assumption) => assumption.applicableScopes.includes(scopeKey));
+}
+
+export type FormulaQuantityApplyTarget = {
+  quantity: number;
+  unit: string;
+  buttonLabel: string;
+  accessibilityLabel: string;
+};
+
+/**
+ * Flatwork slab formulas output CY volume, but national-average slab pricing uses $/sqft.
+ * Apply the measured slab sqft to pricing instead of the converted CY so totals stay correct.
+ */
+const FLATWORK_SQFT_PRICING_SCOPE_KEYS = new Set([
+  'concrete',
+  'pour_flatwork',
+  'sidewalk',
+  'patio',
+  'driveway',
+]);
+
+export function usesAutoFlatworkSqftPricing(params: {
+  scopeKey: string;
+  formula: Pick<FormulaCalculationResult, 'formulaKey' | 'inputsUsed'>;
+}): boolean {
+  if (params.formula.formulaKey !== 'flatwork_cy_from_area_thickness') return false;
+  if (!FLATWORK_SQFT_PRICING_SCOPE_KEYS.has(params.scopeKey)) return false;
+  const areaInput = params.formula.inputsUsed.find((entry) => entry.key === 'areaSqft' && entry.value > 0);
+  return Boolean(areaInput && getNationalAverageBudgetSplit(params.scopeKey, 'sqft'));
+}
+
+export function shouldShowFormulaQuantityButton(params: {
+  scopeKey: string;
+  formula: Pick<FormulaCalculationResult, 'formulaKey' | 'inputsUsed'>;
+}): boolean {
+  return !usesAutoFlatworkSqftPricing(params);
+}
+
+export function isFormulaQuantityApplyTargetActive(params: {
+  scopeKey: string;
+  formula: Pick<FormulaCalculationResult, 'formulaKey' | 'roundedValue' | 'unit' | 'inputsUsed'>;
+  quantity: number | null | undefined;
+  unit: string | null | undefined;
+  source?: string | null;
+}): boolean {
+  if (params.source === 'calculated_confirmed') return true;
+  const applyTarget = resolveFormulaQuantityApplyTarget({
+    scopeKey: params.scopeKey,
+    formula: params.formula,
+  });
+  const currentQuantity = Number(params.quantity);
+  return (
+    params.unit === applyTarget.unit &&
+    Number.isFinite(currentQuantity) &&
+    Math.abs(currentQuantity - applyTarget.quantity) < 0.01
+  );
+}
+
+export function resolveFormulaQuantityApplyTarget(params: {
+  scopeKey: string;
+  formula: Pick<FormulaCalculationResult, 'formulaKey' | 'roundedValue' | 'unit' | 'inputsUsed'>;
+}): FormulaQuantityApplyTarget {
+  const { formula, scopeKey } = params;
+  const qtyLabel = (value: number) => value.toLocaleString();
+
+  if (formula.formulaKey === 'flatwork_cy_from_area_thickness') {
+    const areaInput = formula.inputsUsed.find((entry) => entry.key === 'areaSqft' && entry.value > 0);
+    if (areaInput && getNationalAverageBudgetSplit(scopeKey, 'sqft')) {
+      const sqft = areaInput.value;
+      const volumeCy = formula.roundedValue;
+      return {
+        quantity: sqft,
+        unit: 'sqft',
+        buttonLabel: `Use ${qtyLabel(sqft)} sqft slab area for pricing`,
+        accessibilityLabel: `Use ${qtyLabel(sqft)} square feet of slab area for pricing. Volume cross-check is about ${qtyLabel(volumeCy)} cubic yards.`,
+      };
+    }
+  }
+
+  const unitLabel = formatUnitLabel(formula.unit);
+  return {
+    quantity: formula.roundedValue,
+    unit: formula.unit,
+    buttonLabel: `Use ${qtyLabel(formula.roundedValue)} ${unitLabel} calculated quantity`,
+    accessibilityLabel: `Use calculated quantity of ${qtyLabel(formula.roundedValue)} ${unitLabel}`,
+  };
 }

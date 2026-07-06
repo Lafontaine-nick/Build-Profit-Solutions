@@ -787,6 +787,7 @@ export function getPricingSourceMessage(
     pricingSource: intelligence.pricing.source,
     assumptionCount: unresolvedAssumptionCount,
     pricingAccepted: acceptance.selectionStatus === 'accepted' || acceptance.selectionStatus === 'manual_adjusted',
+    scopeKey: intelligence.scopeItemKey,
   });
   if (conciseBenchmarkWarning) return conciseBenchmarkWarning;
 

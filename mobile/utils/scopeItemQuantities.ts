@@ -3703,13 +3703,67 @@ function normalizedOverrideUnitForRule(
   unit: string | null | undefined,
   rule: ScopeItemQuantityRule
 ): string {
-  if (templateKey === 'addition' && itemId === 'concrete' && unit === 'sqft') {
-    return rule.defaultUnit;
-  }
+  void itemId;
+  void templateKey;
   return unit || rule.defaultUnit;
 }
 
-export function resolveChecklistItemQuantity(
+const AUTO_FLATWORK_SQFT_PRICING_SCOPE_KEYS = new Set([
+  'concrete',
+  'pour_flatwork',
+  'sidewalk',
+  'patio',
+  'driveway',
+]);
+
+function applyAutoFlatworkSqftPricingQuantity(
+  itemId: string,
+  measurements: NormalizedScopeMeasurements,
+  resolved: ResolvedItemQuantity
+): ResolvedItemQuantity {
+  if (!AUTO_FLATWORK_SQFT_PRICING_SCOPE_KEYS.has(itemId)) return resolved;
+  if (!getNationalAverageBudgetSplit(itemId, 'sqft')) return resolved;
+
+  const sqft = measurements.concreteSqft;
+  if (!sqft || sqft <= 0) return resolved;
+
+  const stored = measurements.itemQuantities[itemId];
+  if (stored?.quantitySource === 'user_entered' || stored?.quantitySource === 'manual_override') {
+    return resolved;
+  }
+  if (
+    stored?.quantitySource === 'calculated_confirmed' &&
+    stored.unit &&
+    stored.unit !== 'sqft'
+  ) {
+    return resolved;
+  }
+
+  if (
+    resolved.unit === 'sqft' &&
+    resolved.quantity != null &&
+    Math.abs(resolved.quantity - sqft) < 0.01
+  ) {
+    return resolved;
+  }
+
+  return {
+    ...resolved,
+    quantity: sqft,
+    unit: 'sqft',
+    quantitySource:
+      stored?.quantitySource === 'calculated_confirmed' ? 'calculated_confirmed' : 'inferred',
+    sourceLabel:
+      resolved.quantitySource === 'notes' || stored?.quantitySource === 'notes'
+        ? 'Slab area · Calculated'
+        : sourceLabel('inferred'),
+    dualCount: resolved.dualCount
+      ? { ...resolved.dualCount, quantity: sqft, unit: 'sqft' }
+      : resolved.dualCount,
+  };
+}
+
+function resolveChecklistItemQuantityCore(
   itemId: string,
   measurements: NormalizedScopeMeasurements,
   ctx: { choiceId?: string | null; templateKey?: string | null; notes?: string | null } = {}
@@ -3922,6 +3976,18 @@ export function resolveChecklistItemQuantity(
     missingMessage: rule.missingMessage,
     showInput: true,
   };
+}
+
+export function resolveChecklistItemQuantity(
+  itemId: string,
+  measurements: NormalizedScopeMeasurements,
+  ctx: { choiceId?: string | null; templateKey?: string | null; notes?: string | null } = {}
+): ResolvedItemQuantity {
+  return applyAutoFlatworkSqftPricingQuantity(
+    itemId,
+    measurements,
+    resolveChecklistItemQuantityCore(itemId, measurements, ctx)
+  );
 }
 
 /** Package name patterns → checklist quantity rule key (mirrors backend catalog). */

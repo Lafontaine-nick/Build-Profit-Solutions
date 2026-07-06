@@ -101,6 +101,7 @@ import {
   resolveScopeItemIntelligence,
   type ScopeItemIntelligence,
 } from '@/utils/scopeIntelligence';
+import { resolveFormulaQuantityApplyTarget, shouldShowFormulaQuantityButton, isFormulaQuantityApplyTargetActive, usesAutoFlatworkSqftPricing } from '@/utils/scopeFormulaRegistry';
 import {
   AcceptedPricingSummary,
   ProjectReviewSummary,
@@ -443,8 +444,69 @@ function calculatedQuantityAlreadyActive(intelligence: ScopeItemIntelligence): b
   const formula = intelligence.formula;
   const current = intelligence.quantity.value;
   if (!formula || current == null) return false;
-  if (intelligence.quantity.source === 'calculated_confirmed') return true;
-  return Math.abs(Number(current) - formula.roundedValue) < 0.01;
+  return isFormulaQuantityApplyTargetActive({
+    scopeKey: intelligence.scopeItemKey,
+    formula,
+    quantity: current,
+    unit: intelligence.quantity.unit,
+    source: intelligence.quantity.source,
+  });
+}
+
+function resolveFormulaTargetSuggestedPricing(params: {
+  itemId: string;
+  measurementsInput: ScopeMeasurementsInputExtended;
+  templateKey: string | null | undefined;
+  resolved: ReturnType<typeof resolveChecklistItemQuantity>;
+  pricingContext?: ScopePricingContext | null;
+  intelligence: ScopeItemIntelligence;
+  suggested: ReturnType<typeof resolveScopeItemSuggestedPricing>;
+}): ReturnType<typeof resolveScopeItemSuggestedPricing> {
+  const formula = params.intelligence.formula;
+  if (!formula || calculatedQuantityAlreadyActive(params.intelligence)) {
+    return params.suggested;
+  }
+
+  // Only auto-preview formula-based pricing for concrete flatwork (no manual apply button).
+  // Drywall and other trades keep suggested pricing on the notes/current quantity until applied.
+  if (!usesAutoFlatworkSqftPricing({ scopeKey: params.itemId, formula })) {
+    return params.suggested;
+  }
+
+  const applyTarget = resolveFormulaQuantityApplyTarget({
+    scopeKey: params.itemId,
+    formula,
+  });
+  const currentQuantity = Number(params.resolved.dualCount?.quantity ?? params.resolved.quantity);
+  const currentUnit = params.resolved.dualCount?.unit ?? params.resolved.unit;
+  if (
+    currentUnit === applyTarget.unit &&
+    Number.isFinite(currentQuantity) &&
+    Math.abs(currentQuantity - applyTarget.quantity) < 0.01
+  ) {
+    return params.suggested;
+  }
+
+  return resolveScopeItemSuggestedPricing(
+    params.itemId,
+    params.measurementsInput,
+    params.templateKey,
+    {
+      ...params.resolved,
+      quantity: applyTarget.quantity,
+      unit: applyTarget.unit,
+      quantitySource: 'calculated_confirmed',
+      dualCount: {
+        quantity: applyTarget.quantity,
+        unit: applyTarget.unit,
+      },
+      // The preview represents the calculated quantity basis, not previously-entered totals.
+      dualMaterial: undefined,
+      dualLabor: undefined,
+      dualAllowance: undefined,
+    },
+    params.pricingContext
+  );
 }
 
 function buildCalculatedQuantityRevertSnapshot(
@@ -498,6 +560,9 @@ function ScopeIntelligenceNotice({
   const cardDisplay = buildCardIntelligenceDisplay(intelligence, { pricingAccepted });
   const formula = intelligence.formula;
   const calculatedActive = calculatedQuantityAlreadyActive(intelligence);
+  const applyTarget = formula
+    ? resolveFormulaQuantityApplyTarget({ scopeKey: intelligence.scopeItemKey, formula })
+    : null;
   const formulaVariance = intelligence.formulaComparison?.variancePercent ?? null;
   const showFormulaDetails = Boolean(formula && !calculatedActive);
   const showCalculatedRevert = calculatedActive && Boolean(onRevertCalculatedQuantity && calculatedRevertLabel);
@@ -594,11 +659,14 @@ function ScopeIntelligenceNotice({
               {formula!.expectedRange.high.toLocaleString()} {formatUnitLabel(formula!.unit)}
             </Text>
           ) : null}
-          {onUseCalculatedQuantity ? (
+          {onUseCalculatedQuantity &&
+          applyTarget &&
+          formula &&
+          shouldShowFormulaQuantityButton({ scopeKey: intelligence.scopeItemKey, formula }) ? (
             <TouchableOpacity
               activeOpacity={0.85}
               accessibilityRole="button"
-              accessibilityLabel={`Use calculated quantity of ${formula!.roundedValue.toLocaleString()} ${formatUnitLabel(formula!.unit)}`}
+              accessibilityLabel={applyTarget.accessibilityLabel}
               onPress={onUseCalculatedQuantity}
               style={[
                 styles.formulaActionButton,
@@ -619,7 +687,7 @@ function ScopeIntelligenceNotice({
                   { color: darkMode ? 'rgba(110,231,160,0.92)' : '#15803d' },
                 ]}
               >
-                Use {formula!.roundedValue.toLocaleString()} {formatUnitLabel(formula!.unit)} calculated quantity
+                {applyTarget.buttonLabel}
               </Text>
             </TouchableOpacity>
           ) : null}
@@ -1551,7 +1619,7 @@ function QuantitySection({
 
     if (resolved.pricingReady && !showEditor) {
       const displayResolved = mergeNotesSplitForDisplay();
-      const suggested = hasUserSelectedPricing
+      const initialSuggested = hasUserSelectedPricing
         ? { fill: null, comparison: null }
         : resolveScopeItemSuggestedPricing(
             itemId,
@@ -1560,15 +1628,15 @@ function QuantitySection({
             displayResolved,
             pricingContext
           );
-      const suggestedBudgetSplit = suggested.fill;
-      const suggestedComparisonSplit = suggested.comparison;
+      let suggestedBudgetSplit = initialSuggested.fill;
+      let suggestedComparisonSplit = initialSuggested.comparison;
       const intelligence = resolveScopeItemIntelligence({
         scopeKey: itemId,
         templateKey,
         notes: originalNotes,
         measurements: norm,
         resolved: displayResolved,
-        suggestedPricing: suggestedBudgetSplit,
+        suggestedPricing: initialSuggested.fill,
         activeScopeKeys: assemblyContext.activeScopeKeys,
         excludedScopeKeys: assemblyContext.excludedScopeKeys,
         pricingAcceptance: measurementsInput.pricingAcceptance,
@@ -1576,6 +1644,19 @@ function QuantitySection({
         itemQuantities: measurementsInput.itemQuantities,
         pricingAccepted: Boolean(measurementsInput.pricingAcceptance?.[itemId]),
       });
+      if (!hasUserSelectedPricing) {
+        const formulaSuggested = resolveFormulaTargetSuggestedPricing({
+          itemId,
+          measurementsInput,
+          templateKey,
+          resolved: displayResolved,
+          pricingContext,
+          intelligence,
+          suggested: initialSuggested,
+        });
+        suggestedBudgetSplit = formulaSuggested.fill;
+        suggestedComparisonSplit = formulaSuggested.comparison;
+      }
       const applySuggestedPricingBlock = (block: SuggestedPricingBlock) => {
         if (onApplySuggestedPricing) {
           onApplySuggestedPricing(itemId, block);
@@ -1629,11 +1710,15 @@ function QuantitySection({
       const onUseCalculatedQuantity = intelligence.formula
         ? () => {
             hapticTap();
+            const applyTarget = resolveFormulaQuantityApplyTarget({
+              scopeKey: itemId,
+              formula: intelligence.formula!,
+            });
             onItemQuantityChange(
               itemId,
-              String(intelligence.formula?.roundedValue ?? ''),
+              String(applyTarget.quantity),
               'count',
-              intelligence.formula?.unit,
+              applyTarget.unit,
               'calculated_confirmed',
               buildCalculatedQuantityRevertSnapshot(
                 itemId,
@@ -1903,22 +1988,22 @@ function QuantitySection({
     QUANTITY_NEEDED_LABELS[itemId] ||
     quantityNeededLabel(itemId, templateKey, rule.defaultUnit);
 
-  const suggested = resolveScopeItemSuggestedPricing(
+  const initialSuggested = resolveScopeItemSuggestedPricing(
     itemId,
     measurementsInput,
     templateKey,
     resolved,
     pricingContext
   );
-  const suggestedBudgetSplit = suggested.fill;
-  const suggestedComparisonSplit = suggested.comparison;
+  let suggestedBudgetSplit = initialSuggested.fill;
+  let suggestedComparisonSplit = initialSuggested.comparison;
   const intelligence = resolveScopeItemIntelligence({
     scopeKey: itemId,
     templateKey,
     notes: originalNotes,
     measurements: norm,
     resolved,
-    suggestedPricing: suggestedBudgetSplit,
+    suggestedPricing: initialSuggested.fill,
     activeScopeKeys: assemblyContext.activeScopeKeys,
     excludedScopeKeys: assemblyContext.excludedScopeKeys,
     pricingAcceptance: measurementsInput.pricingAcceptance,
@@ -1926,6 +2011,17 @@ function QuantitySection({
     itemQuantities: measurementsInput.itemQuantities,
     pricingAccepted: Boolean(measurementsInput.pricingAcceptance?.[itemId]),
   });
+  const formulaSuggested = resolveFormulaTargetSuggestedPricing({
+    itemId,
+    measurementsInput,
+    templateKey,
+    resolved,
+    pricingContext,
+    intelligence,
+    suggested: initialSuggested,
+  });
+  suggestedBudgetSplit = formulaSuggested.fill;
+  suggestedComparisonSplit = formulaSuggested.comparison;
   const pricingBasis =
     resolveAllowanceEditorPricingBasis(itemId, measurementsInput, templateKey) ??
     parseBudgetSplitBasis(suggestedBudgetSplit);
@@ -2042,11 +2138,15 @@ function QuantitySection({
           const onUseCalculatedQuantity = intelligence.formula
             ? () => {
                 hapticTap();
+                const applyTarget = resolveFormulaQuantityApplyTarget({
+                  scopeKey: itemId,
+                  formula: intelligence.formula!,
+                });
                 onItemQuantityChange(
                   itemId,
-                  String(intelligence.formula?.roundedValue ?? ''),
+                  String(applyTarget.quantity),
                   'count',
-                  intelligence.formula?.unit,
+                  applyTarget.unit,
                   'calculated_confirmed',
                   buildCalculatedQuantityRevertSnapshot(
                     itemId,
@@ -3556,19 +3656,42 @@ export default function AIEstimateScopeAssumptionsModal({
         templateKey: checklist?.templateKey,
         notes: scopeNotes,
       });
-      const suggested = resolveScopeItemSuggestedPricing(
+      const initialSuggested = resolveScopeItemSuggestedPricing(
         item.id,
         measurements,
         checklist?.templateKey,
         resolved,
         pricingContext
       );
+      const intelligence = resolveScopeItemIntelligence({
+        scopeKey: item.id,
+        templateKey: checklist?.templateKey,
+        notes: scopeNotes,
+        measurements: normMeasurements,
+        resolved,
+        suggestedPricing: initialSuggested.fill,
+        activeScopeKeys: scopeAssemblyContext.activeScopeKeys,
+        excludedScopeKeys: scopeAssemblyContext.excludedScopeKeys,
+        pricingAcceptance: measurements.pricingAcceptance,
+        scopeGapResolutions: measurements.scopeGapResolutions,
+        itemQuantities: measurements.itemQuantities,
+        pricingAccepted: Boolean(measurements.pricingAcceptance?.[item.id]),
+      });
+      const suggested = resolveFormulaTargetSuggestedPricing({
+        itemId: item.id,
+        measurementsInput: measurements,
+        templateKey: checklist?.templateKey,
+        resolved,
+        pricingContext,
+        intelligence,
+        suggested: initialSuggested,
+      });
       if (suggested.fill) {
         rows.push({ itemId: item.id, label: item.label, block: suggested.fill });
       }
     }
     return rows;
-  }, [displayItems, measurements, normMeasurements, checklist?.templateKey, scopeNotes, pricingContext]);
+  }, [displayItems, measurements, normMeasurements, checklist?.templateKey, scopeNotes, pricingContext, scopeAssemblyContext]);
 
   const applySuggestedPricingBlocks = useCallback(
     (rows: UnconfirmedSuggestedPricing[]) => {

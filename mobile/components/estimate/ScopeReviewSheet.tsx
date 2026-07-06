@@ -147,8 +147,8 @@ export default function ScopeReviewSheet({
     [components.length, unresolvedDecisionCount, reviewedCount, needsPricingCount]
   );
   const summary = useMemo(
-    () => benchmarkScopeSummary(benchmarkProfile, priceLabel),
-    [benchmarkProfile, priceLabel]
+    () => benchmarkScopeSummary(benchmarkProfile, priceLabel, scopeItemId),
+    [benchmarkProfile, priceLabel, scopeItemId]
   );
 
   const openSheet = useCallback(() => {
@@ -298,7 +298,10 @@ export default function ScopeReviewSheet({
               {buildScopeReviewSheetTitle(scopeItemLabel)}
             </Text>
             <Text style={[styles.subtitle, { color: caption }]} numberOfLines={4}>
-              {buildScopeReviewSheetSubtitle(scopeItemLabel, priceLabel)}
+              {buildScopeReviewSheetSubtitle(scopeItemLabel, priceLabel, {
+                scopeKey: scopeItemId,
+                benchmarkProfile,
+              })}
             </Text>
           </View>
           <View style={styles.headerSide} />

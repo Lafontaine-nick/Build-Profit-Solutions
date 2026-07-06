@@ -283,11 +283,12 @@ describe('scopeReviewUi refinements', () => {
         scopeAssumptionsDefined: false,
         scopeAssumptions: [],
       },
-      '$2,500'
+      '$2,500',
+      'excavation'
     );
     expect(summary.title).toBe('Base national average only');
     expect(summary.body).toMatch(/Base national average only/i);
-    expect(summary.body).toMatch(/haul-off, backfill, pumping, reinforcement, and disposal/i);
+    expect(summary.body).toMatch(/haul off, dump fees, backfill, and compaction/i);
   });
 
   it('shows base national average copy for defined national average profiles', () => {
@@ -301,12 +302,32 @@ describe('scopeReviewUi refinements', () => {
           { scopeKey: 'haul_off', status: 'excluded', displayLabel: 'Haul-off / export' },
         ],
       },
-      '$2,500'
+      '$2,500',
+      'excavation'
     );
     expect(summary.title).toBe('Base national average scope for $2,500');
     expect(summary.body).toBe(
-      'Base national average only. Related work like haul-off, backfill, pumping, reinforcement, and disposal may need to be added separately.'
+      'Base national average only. Related work like haul-off / export may need to be added separately.'
     );
+  });
+
+  it('uses permit-specific national average copy instead of excavation defaults', () => {
+    const summary = benchmarkScopeSummary(
+      {
+        sourceRecordId: 'national_average:permits:allowance',
+        pricingSource: 'national_average',
+        scopeAssumptionsDefined: true,
+        scopeAssumptions: [
+          { scopeKey: 'building_permit', status: 'included', displayLabel: 'Building permit allowance' },
+          { scopeKey: 'impact_fees', status: 'excluded', displayLabel: 'Impact fees' },
+          { scopeKey: 'meter_fees', status: 'excluded', displayLabel: 'Meter fees' },
+        ],
+      },
+      '$3,500',
+      'permits'
+    );
+    expect(summary.body).toMatch(/impact fees and meter fees/i);
+    expect(summary.body).not.toMatch(/haul-off|backfill|pumping|reinforcement/i);
   });
 
   it('returns five high-impact excavation assumptions when benchmark scope is undefined', () => {

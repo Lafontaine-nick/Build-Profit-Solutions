@@ -21,6 +21,8 @@ import {
   getBenchmarkAssumptionReviewRequirement,
   HIGH_IMPACT_FALLBACK_SCOPE_KEYS,
   NATIONAL_AVERAGE_BASE_SCOPE_NOTE,
+  buildNationalAverageScopeNote,
+  scopeKeyFromBenchmarkProfile,
   type BenchmarkScopeAssumption,
   type BenchmarkScopeAssumptionProfile,
   type BenchmarkScopeAssumptionStatus,
@@ -606,19 +608,25 @@ export function benchmarkResolutionPrefillStatus(params: {
   return recommended;
 }
 
-export function benchmarkScopeSummary(profile: BenchmarkScopeAssumptionProfile | null | undefined, priceLabel: string): {
+export function benchmarkScopeSummary(
+  profile: BenchmarkScopeAssumptionProfile | null | undefined,
+  priceLabel: string,
+  scopeKey?: string
+): {
   title: string;
   body: string;
   included: string[];
   notIncluded: string[];
   conditional: string[];
 } {
+  const resolvedScopeKey = scopeKey || scopeKeyFromBenchmarkProfile(profile);
   if (!profile?.scopeAssumptionsDefined) {
     const isNationalAverage = profile?.pricingSource === 'national_average';
+    const scopeNote = buildNationalAverageScopeNote({ profile, scopeKey: resolvedScopeKey });
     return {
       title: isNationalAverage ? 'Base national average only' : 'Benchmark inclusions not defined',
       body: isNationalAverage
-        ? `${NATIONAL_AVERAGE_BASE_SCOPE_NOTE} Use the guidance below to confirm each high-impact item.`
+        ? `${scopeNote} Use the guidance below to confirm each high-impact item.`
         : 'This source does not specify all included work. Use the guidance below to confirm each high-impact item.',
       included: [],
       notIncluded: [],
@@ -647,7 +655,7 @@ export function benchmarkScopeSummary(profile: BenchmarkScopeAssumptionProfile |
       ? `Base national average scope for ${priceLabel}`
       : `What the ${priceLabel} suggested price includes`,
     body: isNationalAverage
-      ? NATIONAL_AVERAGE_BASE_SCOPE_NOTE
+      ? buildNationalAverageScopeNote({ profile, scopeKey: resolvedScopeKey })
       : `This ${source} price carries a defined scope-assumption profile.`,
     included,
     notIncluded,
@@ -736,10 +744,21 @@ export function buildScopeReviewSheetTitle(scopeItemLabel: string): string {
   return `Review ${trimmed.toLowerCase()} scope`;
 }
 
-export function buildScopeReviewSheetSubtitle(scopeItemLabel: string, priceLabel: string): string {
+export function buildScopeReviewSheetSubtitle(
+  scopeItemLabel: string,
+  priceLabel: string,
+  options?: {
+    scopeKey?: string;
+    benchmarkProfile?: BenchmarkScopeAssumptionProfile | null;
+  }
+): string {
   const scope = scopeItemLabel.trim().toLowerCase() || 'this';
   const price = priceLabel.trim() || 'accepted';
-  return `${NATIONAL_AVERAGE_BASE_SCOPE_NOTE} Confirm how each item applies to the ${price} ${scope} price.`;
+  const scopeNote = buildNationalAverageScopeNote({
+    profile: options?.benchmarkProfile,
+    scopeKey: options?.scopeKey,
+  });
+  return `${scopeNote} Confirm how each item applies to the ${price} ${scope} price.`;
 }
 
 export function buildScopeGapResolutionPrompt(

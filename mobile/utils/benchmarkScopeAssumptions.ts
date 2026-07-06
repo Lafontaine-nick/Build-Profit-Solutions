@@ -209,14 +209,76 @@ export function getBenchmarkAssumptionReviewRequirement(params: {
   };
 }
 
+/** @deprecated Prefer buildNationalAverageScopeNote({ profile, scopeKey }) for scope-specific copy. */
 export const NATIONAL_AVERAGE_BASE_SCOPE_NOTE =
   'Base national average only. Related work like haul-off, backfill, pumping, reinforcement, and disposal may need to be added separately.';
+
+function humanizeBenchmarkScopeKey(scopeKey: string): string {
+  return scopeKey.replace(/_/g, ' ');
+}
+
+function formatRelatedWorkList(labels: string[]): string {
+  const items = labels
+    .map((label) => label.trim().replace(/\.$/, ''))
+    .filter(Boolean)
+    .slice(0, 4)
+    .map((label) => label.toLowerCase());
+  if (items.length === 0) return '';
+  if (items.length === 1) return items[0];
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+}
+
+export function scopeKeyFromBenchmarkProfile(
+  profile?: BenchmarkScopeAssumptionProfile | null
+): string | undefined {
+  const sourceRecordId = profile?.sourceRecordId || '';
+  const match = sourceRecordId.match(/^national_average:([^:]+):/);
+  return match?.[1];
+}
+
+export function buildNationalAverageScopeNote(params: {
+  profile?: BenchmarkScopeAssumptionProfile | null;
+  scopeKey?: string;
+}): string {
+  const scopeKey = params.scopeKey || scopeKeyFromBenchmarkProfile(params.profile);
+  const relatedLabels: string[] = [];
+  const seenLabels = new Set<string>();
+
+  const pushLabel = (label: string) => {
+    const normalized = label.trim().replace(/\.$/, '').toLowerCase();
+    if (!normalized || seenLabels.has(normalized)) return;
+    seenLabels.add(normalized);
+    relatedLabels.push(label.trim().replace(/\.$/, ''));
+  };
+
+  if (params.profile?.scopeAssumptionsDefined) {
+    for (const assumption of params.profile.scopeAssumptions) {
+      if (assumption.status === 'excluded' || assumption.status === 'conditional') {
+        pushLabel(assumption.displayLabel || humanizeBenchmarkScopeKey(assumption.scopeKey));
+      }
+    }
+  } else if (scopeKey) {
+    const keys = HIGH_IMPACT_FALLBACK_SCOPE_KEYS[scopeKey] || [];
+    for (const key of keys.slice(0, 8)) {
+      pushLabel(humanizeBenchmarkScopeKey(canonicalBenchmarkScopeKey(key)));
+      if (relatedLabels.length >= 5) break;
+    }
+  }
+
+  const related = formatRelatedWorkList(relatedLabels);
+  if (related) {
+    return `Base national average only. Related work like ${related} may need to be added separately.`;
+  }
+  return 'Base national average only. Related scope may need to be added separately.';
+}
 
 export function buildConciseBenchmarkScopeWarning(params: {
   profile: BenchmarkScopeAssumptionProfile | null | undefined;
   pricingSource?: string;
   assumptionCount: number;
   pricingAccepted?: boolean;
+  scopeKey?: string;
 }): string | null {
   if (params.assumptionCount <= 0) return null;
   const countLabel =
@@ -226,7 +288,10 @@ export function buildConciseBenchmarkScopeWarning(params: {
   const timing = params.pricingAccepted ? 'before sending the estimate' : 'before applying it';
   const reviewCallToAction = `Review ${countLabel} ${timing}.`;
   if (params.pricingSource === 'national_average') {
-    return `${NATIONAL_AVERAGE_BASE_SCOPE_NOTE} ${reviewCallToAction}`;
+    return `${buildNationalAverageScopeNote({
+      profile: params.profile,
+      scopeKey: params.scopeKey,
+    })} ${reviewCallToAction}`;
   }
   const quality = benchmarkScopeDefinitionQuality(params.profile);
   if (quality === 'undefined') {
