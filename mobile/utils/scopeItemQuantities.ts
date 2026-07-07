@@ -2211,6 +2211,75 @@ export function syncDualAllowanceSqftFields(
   return next;
 }
 
+const EXPLICIT_ITEM_QUANTITY_SOURCES = new Set<QuantitySource>([
+  'calculated_confirmed',
+  'user_entered',
+  'manual_override',
+]);
+
+function explicitItemQuantityOverride(
+  measurements: NormalizedScopeMeasurements,
+  itemId: string,
+  rule: ScopeItemQuantityRule,
+  ctx: { templateKey?: string | null | undefined; notes?: string | null }
+): ResolvedItemQuantity | null {
+  const override = measurements.itemQuantities[itemId];
+  if (
+    override?.quantity == null ||
+    override.quantity <= 0 ||
+    isPlaceholderAllowancePricing(override.quantity, override.unit, itemId) ||
+    !EXPLICIT_ITEM_QUANTITY_SOURCES.has(override.quantitySource || 'user_entered')
+  ) {
+    return null;
+  }
+  const includesCountertops =
+    Boolean(override.includesCountertops) ||
+    (itemId === 'cabinets' && notesHaveCombinedCabinetsCounters(ctx.notes));
+  const baseLabel = sourceLabel(override.quantitySource || 'user_entered');
+  const combinedCabinetsCounters = itemId === 'cabinets' && includesCountertops;
+  return {
+    quantity: override.quantity,
+    unit: normalizedOverrideUnitForRule(itemId, ctx.templateKey, override.unit, rule),
+    quantitySource: override.quantitySource || 'user_entered',
+    sourceLabel: combinedCabinetsCounters
+      ? `Combined total · cabinets + counters · ${baseLabel}`
+      : baseLabel,
+    pricingReady: true,
+    quantityHelper: rule.quantityHelper,
+    showInput: true,
+    ...(combinedCabinetsCounters
+      ? {
+          combinedAllowanceRole: 'combined_total' as const,
+          combinedAllowanceTotal: override.quantity,
+        }
+      : {}),
+  };
+}
+
+/** Keep quick-measurement fields aligned with explicit Step 2 quantity choices. */
+export function syncItemQuantitiesToMeasurementFields(
+  input: ScopeMeasurementsInputExtended
+): ScopeMeasurementsInputExtended {
+  const next = syncDualAllowanceSqftFields(input);
+  const mappings: Array<[string, keyof ScopeMeasurementsInputExtended]> = [
+    ['drywall', 'drywallSqft'],
+    ['hang', 'drywallSqft'],
+    ['finish_tape', 'drywallSqft'],
+    ['paint', 'wallPaintSqft'],
+    ['interior_paint', 'wallPaintSqft'],
+    ['flooring', 'flooringSqft'],
+    ['concrete', 'concreteSqft'],
+    ['pour_flatwork', 'concreteSqft'],
+  ];
+  for (const [itemId, field] of mappings) {
+    const entry = input.itemQuantities[itemId];
+    if (!entry?.quantity || entry.unit !== 'sqft') continue;
+    if (!EXPLICIT_ITEM_QUANTITY_SOURCES.has(entry.quantitySource || 'user_entered')) continue;
+    next[field] = String(entry.quantity);
+  }
+  return next;
+}
+
 function measurementsForRatePricing(
   measurements: NormalizedScopeMeasurements
 ): Parameters<typeof resolveItemRatePricingFromNotes>[1] {
@@ -3812,6 +3881,9 @@ function resolveChecklistItemQuantityCore(
   if (linkedCountertop) return linkedCountertop;
 
   const override = measurements.itemQuantities[itemId];
+  const explicitOverride = explicitItemQuantityOverride(measurements, itemId, rule, ctx);
+  if (explicitOverride) return explicitOverride;
+
   if (!rule.dualAllowanceField && override?.quantitySource !== 'user_entered' && ctx.notes?.trim()) {
     const parsedAllowance = parseScopeItemAllowancesFromNotes(ctx.notes, {
       templateKey: ctx.templateKey ?? undefined,
@@ -4209,7 +4281,7 @@ export function buildNormalizedScopeMeasurementsFromInput(
   input: ScopeMeasurementsInputExtended,
   options?: { notes?: string | null; templateKey?: string | null }
 ): NormalizedScopeMeasurements {
-  let extended = syncDualAllowanceSqftFields(input);
+  let extended = syncItemQuantitiesToMeasurementFields(input);
   const notes = String(options?.notes || '').trim();
   if (notes) {
     extended = reparseRatePricingIntoItemQuantities(extended, notes, options?.templateKey);
@@ -4222,7 +4294,7 @@ export function scopeMeasurementsPayloadForPersist(
   input: ScopeMeasurementsInputExtended,
   options?: { notes?: string | null; templateKey?: string | null }
 ): ScopeMeasurements {
-  let extended = syncDualAllowanceSqftFields(input);
+  let extended = syncItemQuantitiesToMeasurementFields(input);
   const notes = String(options?.notes || '').trim();
   if (notes) {
     extended = reparseRatePricingIntoItemQuantities(extended, notes, options?.templateKey);

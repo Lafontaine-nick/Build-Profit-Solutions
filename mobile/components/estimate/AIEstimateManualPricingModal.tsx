@@ -27,6 +27,7 @@ import {
   BRAND_FRAME_GRADIENT_START,
 } from '@/constants/brandFrameGradient';
 import { KEYBOARD_SCROLL_DEFAULTS } from '@/constants/keyboardScrollProps';
+import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 import { useKeyboard } from '@/services/MobileOptimization';
 import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimateAiDraft';
 import { formatDraftMoney, getScopePackages } from '@/utils/estimateAiDraft';
@@ -65,22 +66,26 @@ function SegmentedControl({
   value,
   onChange,
   Colors,
+  darkMode,
+  compact = false,
 }: {
   options: { id: ManualPackageMode; label: string }[];
   value: ManualPackageMode;
   onChange: (v: ManualPackageMode) => void;
   Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
+  compact?: boolean;
 }) {
   return (
     <View
-      style={{
-        flexDirection: 'row',
-        borderRadius: 10,
-        borderWidth: 1,
-        borderColor: Colors.line,
-        marginBottom: 10,
-        overflow: 'hidden',
-      }}
+      style={[
+        styles.segmentedTrack,
+        compact && styles.segmentedTrackCompact,
+        {
+          backgroundColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(15, 23, 42, 0.04)',
+          borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+        },
+      ]}
     >
       {options.map((opt) => {
         const active = value === opt.id;
@@ -89,19 +94,22 @@ function SegmentedControl({
             key={opt.id}
             activeOpacity={0.88}
             onPress={() => onChange(opt.id)}
-            style={{
-              flex: 1,
-              paddingVertical: 8,
-              backgroundColor: active ? 'rgba(96, 165, 250, 0.2)' : 'transparent',
-              alignItems: 'center',
-            }}
+            style={[
+              styles.segmentedOption,
+              compact && styles.segmentedOptionCompact,
+              active
+                ? {
+                    backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.22)' : 'rgba(34, 197, 94, 0.14)',
+                  }
+                : null,
+            ]}
           >
             <Text
-              style={{
-                color: active ? '#60a5fa' : Colors.sub,
-                fontSize: 12,
-                fontWeight: active ? '800' : '600',
-              }}
+              style={[
+                styles.segmentedOptionText,
+                compact && styles.segmentedOptionTextCompact,
+                { color: active ? '#22c55e' : Colors.sub, fontWeight: active ? '800' : '600' },
+              ]}
             >
               {opt.label}
             </Text>
@@ -119,6 +127,7 @@ function ManualSplitFields({
   onFieldFocus,
   Colors,
   darkMode,
+  compact = false,
 }: {
   pkg: EstimateDraftScopePackage;
   inp: ManualPricingInputs[string];
@@ -126,6 +135,7 @@ function ManualSplitFields({
   onFieldFocus?: (fieldRef: React.RefObject<View | null>) => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
+  compact?: boolean;
 }) {
   const splitKind = manualSplitInputKind(packageQuantityUnit(pkg));
   const showCaulk = classifyPackageKind(pkg.name) === 'baseboard' && splitKind === 'lf';
@@ -141,6 +151,7 @@ function ManualSplitFields({
           onFieldFocus={onFieldFocus}
           Colors={Colors}
           darkMode={darkMode}
+          compact={compact}
         />
         <RateField
           label="Labor rate"
@@ -150,6 +161,7 @@ function ManualSplitFields({
           onFieldFocus={onFieldFocus}
           Colors={Colors}
           darkMode={darkMode}
+          compact={compact}
         />
       </>
     );
@@ -166,6 +178,7 @@ function ManualSplitFields({
           onFieldFocus={onFieldFocus}
           Colors={Colors}
           darkMode={darkMode}
+          compact={compact}
         />
         <RateField
           label="Labor rate"
@@ -175,6 +188,7 @@ function ManualSplitFields({
           onFieldFocus={onFieldFocus}
           Colors={Colors}
           darkMode={darkMode}
+          compact={compact}
         />
         {showCaulk ? (
           <RateField
@@ -185,6 +199,7 @@ function ManualSplitFields({
             onFieldFocus={onFieldFocus}
             Colors={Colors}
             darkMode={darkMode}
+            compact={compact}
           />
         ) : null}
       </>
@@ -201,6 +216,7 @@ function ManualSplitFields({
         onFieldFocus={onFieldFocus}
         Colors={Colors}
         darkMode={darkMode}
+        compact={compact}
       />
       <RateField
         label="Labor"
@@ -210,6 +226,7 @@ function ManualSplitFields({
         onFieldFocus={onFieldFocus}
         Colors={Colors}
         darkMode={darkMode}
+        compact={compact}
       />
     </>
   );
@@ -225,6 +242,7 @@ function MaterialLaborCard({
   onFieldFocus,
   Colors,
   darkMode,
+  compact = false,
 }: {
   pkg: EstimateDraftScopePackage;
   qtyLabel: string | null;
@@ -235,23 +253,30 @@ function MaterialLaborCard({
   onFieldFocus?: (fieldRef: React.RefObject<View | null>) => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
+  compact?: boolean;
 }) {
   const preview = computeManualPackagePreview(pkg, inp);
-  return (
-    <View
-      style={[
+  const cardStyle = compact
+    ? [estimateFlowCardStyle(Colors, darkMode), styles.compactCard]
+    : [
         styles.card,
         {
           borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
           backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : Colors.surface2,
         },
-      ]}
-    >
-      <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>{pkg.name}</Text>
-      {qtyLabel ? (
-        <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2, marginBottom: 8 }}>
-          Quantity: {qtyLabel}
-        </Text>
+      ];
+
+  return (
+    <View style={cardStyle}>
+      {!compact ? (
+        <>
+          <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>{pkg.name}</Text>
+          {qtyLabel ? (
+            <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2, marginBottom: 8 }}>
+              Quantity: {qtyLabel}
+            </Text>
+          ) : null}
+        </>
       ) : null}
       <SegmentedControl
         options={[
@@ -261,6 +286,8 @@ function MaterialLaborCard({
         value={mode === 'lump_sum' ? 'lump_sum' : 'split'}
         onChange={onSetMode}
         Colors={Colors}
+        darkMode={darkMode}
+        compact={compact}
       />
       {mode === 'lump_sum' ? (
         <RateField
@@ -271,6 +298,8 @@ function MaterialLaborCard({
           onFieldFocus={onFieldFocus}
           Colors={Colors}
           darkMode={darkMode}
+          compact={compact}
+          hero={compact}
         />
       ) : (
         <ManualSplitFields
@@ -280,9 +309,10 @@ function MaterialLaborCard({
           onFieldFocus={onFieldFocus}
           Colors={Colors}
           darkMode={darkMode}
+          compact={compact}
         />
       )}
-      {preview.total > 0 ? (
+      {!compact && preview.total > 0 ? (
         <View
           style={{
             marginTop: 6,
@@ -317,6 +347,8 @@ function RateField({
   Colors,
   darkMode = false,
   onFieldFocus,
+  compact = false,
+  hero = false,
 }: {
   label: string;
   value: string;
@@ -325,14 +357,51 @@ function RateField({
   Colors: ReturnType<typeof getColors>;
   darkMode?: boolean;
   onFieldFocus?: (fieldRef: React.RefObject<View | null>) => void;
+  compact?: boolean;
+  hero?: boolean;
 }) {
   const wrapRef = useRef<View>(null);
   const isEmpty = !value?.trim();
   const placeholderColor = inputPlaceholderColor(darkMode, Colors);
+  const fieldBg = darkMode ? 'rgba(255,255,255,0.06)' : Colors.surface2;
+  const fieldBorder = darkMode ? 'rgba(255,255,255,0.1)' : Colors.line;
+
+  if (hero) {
+    return (
+      <View ref={wrapRef} style={styles.heroFieldWrap} collapsable={false}>
+        <Text style={[styles.fieldLabel, { color: Colors.sub }]}>{label}</Text>
+        <View
+          style={[
+            styles.heroInputRow,
+            {
+              backgroundColor: fieldBg,
+              borderColor: isEmpty ? fieldBorder : 'rgba(34, 197, 94, 0.35)',
+            },
+          ]}
+        >
+          <Text style={[styles.heroCurrency, { color: isEmpty ? placeholderColor : '#22c55e' }]}>$</Text>
+          <TextInput
+            value={value}
+            onChangeText={onChangeText}
+            keyboardType="decimal-pad"
+            placeholder="0"
+            placeholderTextColor={placeholderColor}
+            onFocus={() => onFieldFocus?.(wrapRef)}
+            style={[
+              styles.heroInput,
+              { color: isEmpty ? placeholderColor : Colors.text },
+            ]}
+          />
+        </View>
+      </View>
+    );
+  }
 
   return (
-    <View ref={wrapRef} style={{ marginBottom: 8 }} collapsable={false}>
-      <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 3 }}>{label}</Text>
+    <View ref={wrapRef} style={[styles.fieldWrap, compact && styles.fieldWrapCompact]} collapsable={false}>
+      <Text style={[styles.fieldLabel, compact && styles.fieldLabelCompact, { color: Colors.sub }]}>
+        {label}
+      </Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
@@ -340,16 +409,16 @@ function RateField({
         placeholder={placeholder}
         placeholderTextColor={placeholderColor}
         onFocus={() => onFieldFocus?.(wrapRef)}
-        style={{
-          borderWidth: 1,
-          borderColor: Colors.line,
-          borderRadius: 10,
-          paddingVertical: 10,
-          paddingHorizontal: 12,
-          color: isEmpty ? placeholderColor : Colors.text,
-          fontSize: 16,
-          fontWeight: isEmpty ? '500' : '600',
-        }}
+        style={[
+          styles.fieldInput,
+          compact && styles.fieldInputCompact,
+          {
+            borderColor: fieldBorder,
+            backgroundColor: fieldBg,
+            color: isEmpty ? placeholderColor : Colors.text,
+            fontWeight: isEmpty ? '500' : '600',
+          },
+        ]}
       />
     </View>
   );
@@ -501,8 +570,10 @@ export default function AIEstimateManualPricingModal({
     : isAdjust
       ? 'Adjust rates'
       : 'Add prices manually';
+  const focusPackage = displayPackages[0] ?? null;
+  const focusQtyLabel = focusPackage ? formatScopeQuantity(focusPackage) : null;
   const headerSubtitle = isSingleItem
-    ? 'Enter a lump sum or unit rates for this scope item, then save.'
+    ? null
     : isAdjust
       ? 'Rates start from your proposal — edit any line or bump all, then apply.'
       : 'Enter rates or lump sums — only filled fields are calculated.';
@@ -541,9 +612,21 @@ export default function AIEstimateManualPricingModal({
           </View>
           <View style={styles.headerText}>
             <Text style={[styles.title, { color: Colors.text }]}>{headerTitle}</Text>
-            <Text style={[styles.headerSubtitle, { color: Colors.sub }]} numberOfLines={3}>
-              {headerSubtitle}
-            </Text>
+            {isSingleItem && focusPackage ? (
+              <>
+                <Text style={[styles.scopeName, { color: Colors.text }]} numberOfLines={2}>
+                  {focusPackage.name}
+                </Text>
+                {focusQtyLabel ? (
+                  <Text style={[styles.scopeQty, { color: Colors.sub }]}>{focusQtyLabel}</Text>
+                ) : null}
+              </>
+            ) : null}
+            {headerSubtitle ? (
+              <Text style={[styles.headerSubtitle, { color: Colors.sub }]} numberOfLines={3}>
+                {headerSubtitle}
+              </Text>
+            ) : null}
           </View>
           <View style={styles.headerSide} />
         </View>
@@ -574,9 +657,14 @@ export default function AIEstimateManualPricingModal({
           style={{ flex: 1 }}
           contentContainerStyle={{
             paddingHorizontal: 16,
+            paddingTop: isSingleItem ? 8 : 0,
+            flexGrow: isSingleItem ? 1 : undefined,
+            justifyContent: isSingleItem && !hideFooter ? 'center' : undefined,
             paddingBottom: hideFooter
               ? Math.max(keyboardHeight, Platform.OS === 'ios' ? 320 : 280) + 24
-              : insets.bottom + 200,
+              : isSingleItem
+                ? insets.bottom + 24
+                : insets.bottom + 200,
           }}
           onScroll={(e) => {
             scrollYRef.current = e.nativeEvent.contentOffset.y;
@@ -604,23 +692,33 @@ export default function AIEstimateManualPricingModal({
                   onFieldFocus={handleFieldFocus}
                   Colors={Colors}
                   darkMode={darkMode}
+                  compact={isSingleItem}
                 />
               );
             }
 
             const preview = computeManualPackagePreview(pkg, inp);
-            const cardStyle = {
-              borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
-              backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : Colors.surface2,
-            };
+            const cardStyle = isSingleItem
+              ? [estimateFlowCardStyle(Colors, darkMode), styles.compactCard]
+              : [
+                  styles.card,
+                  {
+                    borderColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+                    backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : Colors.surface2,
+                  },
+                ];
 
             return (
-              <View key={pkg.name} style={[styles.card, cardStyle]}>
-                <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>{pkg.name}</Text>
-                {qtyLabel ? (
-                  <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2, marginBottom: 8 }}>
-                    Quantity: {qtyLabel}
-                  </Text>
+              <View key={pkg.name} style={cardStyle}>
+                {!isSingleItem ? (
+                  <>
+                    <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>{pkg.name}</Text>
+                    {qtyLabel ? (
+                      <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2, marginBottom: 8 }}>
+                        Quantity: {qtyLabel}
+                      </Text>
+                    ) : null}
+                  </>
                 ) : null}
 
                 {kind === 'tile_demo' ? (
@@ -633,6 +731,8 @@ export default function AIEstimateManualPricingModal({
                       value={mode === 'lump_sum' ? 'lump_sum' : 'rate'}
                       onChange={(m) => setMode(pkg.name, m)}
                       Colors={Colors}
+                      darkMode={darkMode}
+                      compact={isSingleItem}
                     />
                     {mode === 'lump_sum' ? (
                       <RateField
@@ -643,6 +743,8 @@ export default function AIEstimateManualPricingModal({
                         onFieldFocus={handleFieldFocus}
                         Colors={Colors}
                         darkMode={darkMode}
+                        compact={isSingleItem}
+                        hero={isSingleItem}
                       />
                     ) : (
                       <RateField
@@ -653,12 +755,13 @@ export default function AIEstimateManualPricingModal({
                         onFieldFocus={handleFieldFocus}
                         Colors={Colors}
                         darkMode={darkMode}
+                        compact={isSingleItem}
                       />
                     )}
                   </>
                 ) : null}
 
-                {preview.total > 0 ? (
+                {!isSingleItem && preview.total > 0 ? (
                   <View
                     style={{
                       marginTop: 6,
@@ -685,7 +788,7 @@ export default function AIEstimateManualPricingModal({
         {!hideFooter ? (
         <View
           style={[
-            styles.footer,
+            isSingleItem ? styles.compactFooter : styles.footer,
             {
               paddingBottom: Math.max(insets.bottom, 16),
               backgroundColor: Colors.bg,
@@ -693,21 +796,49 @@ export default function AIEstimateManualPricingModal({
             },
           ]}
         >
-          <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '800', textAlign: 'center' }}>
-            Estimated total: {formatDraftMoney(grandTotal)}
-          </Text>
+          {isSingleItem ? (
+            <View style={styles.compactTotalRow}>
+              <Text style={{ color: Colors.sub, fontSize: 13, fontWeight: '600' }}>Total</Text>
+              <Text
+                style={{
+                  color: grandTotal > 0 ? '#22c55e' : Colors.sub,
+                  fontSize: 22,
+                  fontWeight: '800',
+                }}
+              >
+                {formatDraftMoney(grandTotal)}
+              </Text>
+            </View>
+          ) : (
+            <Text style={{ color: Colors.text, fontSize: 16, fontWeight: '800', textAlign: 'center' }}>
+              Estimated total: {formatDraftMoney(grandTotal)}
+            </Text>
+          )}
 
           {onToggleSaveToLibrary ? (
-            <View style={styles.toggleBlock}>
+            <View style={[styles.toggleBlock, isSingleItem && styles.toggleBlockCompact]}>
               <View style={{ flex: 1 }}>
-                <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700' }}>
+                <Text
+                  style={{
+                    color: Colors.text,
+                    fontSize: isSingleItem ? 12 : 13,
+                    fontWeight: '700',
+                  }}
+                >
                   Remember these rates for future bids
                 </Text>
-                <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2 }}>
-                  Saved after you apply the estimate.
-                </Text>
+                {!isSingleItem ? (
+                  <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2 }}>
+                    Saved after you apply the estimate.
+                  </Text>
+                ) : null}
               </View>
-              <Switch value={saveToLibrary} onValueChange={onToggleSaveToLibrary} />
+              <Switch
+                value={saveToLibrary}
+                onValueChange={onToggleSaveToLibrary}
+                trackColor={{ false: '#475569', true: '#22c55e' }}
+                thumbColor="#ffffff"
+              />
             </View>
           ) : null}
 
@@ -725,8 +856,17 @@ export default function AIEstimateManualPricingModal({
                   : 'Review calculated draft'}
             </Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={onClose}>
-            <Text style={{ color: Colors.sub, fontWeight: '700', textAlign: 'center' }}>Cancel</Text>
+          <TouchableOpacity onPress={onClose} style={isSingleItem ? styles.compactCancelBtn : undefined}>
+            <Text
+              style={{
+                color: Colors.sub,
+                fontWeight: '700',
+                textAlign: 'center',
+                fontSize: isSingleItem ? 14 : 15,
+              }}
+            >
+              Cancel
+            </Text>
           </TouchableOpacity>
         </View>
         ) : null}
@@ -796,6 +936,8 @@ const styles = StyleSheet.create({
   },
   headerText: { flex: 1, alignItems: 'center', paddingHorizontal: 8, paddingTop: 10 },
   headerSubtitle: { fontSize: 12, marginTop: 4, textAlign: 'center', lineHeight: 17 },
+  scopeName: { fontSize: 17, fontWeight: '800', textAlign: 'center', marginTop: 6, lineHeight: 22 },
+  scopeQty: { fontSize: 12, fontWeight: '600', textAlign: 'center', marginTop: 4 },
   title: { fontSize: 18, fontWeight: '800', textAlign: 'center' },
   card: {
     padding: 12,
@@ -803,16 +945,111 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 10,
   },
+  compactCard: {
+    marginBottom: 0,
+    padding: 16,
+  },
+  segmentedTrack: {
+    flexDirection: 'row',
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 14,
+    padding: 3,
+    overflow: 'hidden',
+  },
+  segmentedTrackCompact: {
+    marginBottom: 16,
+  },
+  segmentedOption: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 9,
+    alignItems: 'center',
+  },
+  segmentedOptionCompact: {
+    paddingVertical: 10,
+  },
+  segmentedOptionText: {
+    fontSize: 12,
+  },
+  segmentedOptionTextCompact: {
+    fontSize: 13,
+  },
+  fieldWrap: {
+    marginBottom: 8,
+  },
+  fieldWrapCompact: {
+    marginBottom: 12,
+  },
+  fieldLabel: {
+    fontSize: 11,
+    marginBottom: 4,
+    fontWeight: '600',
+  },
+  fieldLabelCompact: {
+    fontSize: 12,
+    marginBottom: 6,
+  },
+  fieldInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    fontSize: 16,
+  },
+  fieldInputCompact: {
+    paddingVertical: 14,
+    fontSize: 17,
+  },
+  heroFieldWrap: {
+    marginTop: 4,
+  },
+  heroInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+  },
+  heroCurrency: {
+    fontSize: 28,
+    fontWeight: '800',
+    marginRight: 4,
+  },
+  heroInput: {
+    flex: 1,
+    fontSize: 32,
+    fontWeight: '800',
+    paddingVertical: 10,
+  },
   footer: {
     paddingHorizontal: 16,
     paddingTop: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
     gap: 10,
   },
+  compactFooter: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 12,
+  },
+  compactTotalRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+  },
+  compactCancelBtn: {
+    paddingVertical: 4,
+  },
   toggleBlock: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  toggleBlockCompact: {
+    paddingVertical: 2,
   },
   primaryBtn: {
     backgroundColor: '#22c55e',

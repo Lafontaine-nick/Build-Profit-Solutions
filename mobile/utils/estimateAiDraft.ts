@@ -4,7 +4,7 @@ import {
   parseScopeMeasurementsFromNotes,
 } from '@/utils/scopeMeasurementParser';
 import { resolveScopePackageBudgetBreakdown } from '@/utils/scopeBudgetBreakdown';
-import { ruleKeysToTryForPackage } from '@/utils/scopeItemQuantities';
+import { ruleKeysToTryForPackage, lookupRuleKeyForPackage, normalizeScopeMeasurements, resolveChecklistItemQuantity } from '@/utils/scopeItemQuantities';
 import {
   SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL,
   SCOPE_LABOR_PARSED_FROM_NOTES_LABEL,
@@ -768,12 +768,43 @@ function selectedPricingForScopeName(
   return null;
 }
 
+function resolvedScopeQuantityBasis(
+  draft: EstimateAiDraft,
+  ruleKey: string
+): { quantity: number; unit: string } | null {
+  const resolved = resolveChecklistItemQuantity(
+    ruleKey,
+    normalizeScopeMeasurements(draft.scopeMeasurements),
+    {
+      templateKey: draft.scopeChecklist?.templateKey,
+      notes: draft.originalNotes,
+    }
+  );
+  if (resolved.quantity == null || resolved.quantity <= 0 || !resolved.unit) return null;
+  return { quantity: Number(resolved.quantity), unit: resolved.unit };
+}
+
 function applySelectedPricingToScopePackage(
   pkg: EstimateDraftScopePackage,
   draft: EstimateAiDraft
 ): EstimateDraftScopePackage {
   const selected = selectedPricingForScopeName(draft, pkg.name, pkg.scope);
-  if (!selected) return pkg;
+  const ruleKey = lookupRuleKeyForPackage(pkg.name, pkg.scope || '');
+  const basis =
+    selected?.basis ??
+    (ruleKey ? resolvedScopeQuantityBasis(draft, ruleKey) : null) ??
+    pkg.budgetSplitBasis ??
+    pkg.scopeQuantities?.[0] ??
+    null;
+  if (!selected) {
+    return basis
+      ? {
+          ...pkg,
+          scopeQuantities: [{ quantity: basis.quantity, unit: basis.unit }],
+          budgetSplitBasis: basis,
+        }
+      : pkg;
+  }
   return {
     ...pkg,
     price: selected.total,
@@ -791,7 +822,8 @@ function applySelectedPricingToScopePackage(
     splitIsSuggested: false,
     priceProvidedByUser: true,
     applyEligible: true,
-    budgetSplitBasis: selected.basis ?? pkg.budgetSplitBasis ?? pkg.scopeQuantities?.[0] ?? null,
+    budgetSplitBasis: basis,
+    scopeQuantities: basis ? [{ quantity: basis.quantity, unit: basis.unit }] : pkg.scopeQuantities,
     missingPriceItems: [],
   };
 }

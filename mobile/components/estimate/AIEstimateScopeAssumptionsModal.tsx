@@ -69,6 +69,7 @@ import {
   isPlaceholderAllowancePricing,
   roughAllowanceSubKey,
   scopeMeasurementsPayloadForPersist,
+  syncItemQuantitiesToMeasurementFields,
   resolveAllowanceEditorPricingBasis,
   resolveAllowanceEditorDefaultBasisUnit,
   type CalculatedQuantityRevertSnapshot,
@@ -3835,11 +3836,11 @@ export default function AIEstimateScopeAssumptionsModal({
           delete itemQuantities[laborKey];
           const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
           delete pricingAcceptance[itemId];
-          return {
+          return syncItemQuantitiesToMeasurementFields({
             ...prev,
             itemQuantities,
             pricingAcceptance,
-          };
+          });
         }
         const hasManualPricing = [allowanceKey, materialKey, laborKey].some((key) => {
           const entry = prev.itemQuantities[key];
@@ -3884,25 +3885,30 @@ export default function AIEstimateScopeAssumptionsModal({
         }
       }
 
-      return {
+      const pricingAcceptance =
+        source === 'calculated_confirmed'
+          ? (() => {
+              const next = { ...(prev.pricingAcceptance || {}) };
+              delete next[itemId];
+              return next;
+            })()
+          : source === 'user_entered' && /__(allowance|sqft_basis|material|labor)$/.test(itemId)
+            ? markManualPricingAdjustment(
+                prev.pricingAcceptance?.[baseItemId],
+                baseItemId,
+                prev.pricingAcceptance,
+                parsePricingAmount(quantity)
+              )
+            : prev.pricingAcceptance;
+
+      const nextState = {
         ...prev,
         itemQuantities,
-        pricingAcceptance:
-          source === 'calculated_confirmed'
-            ? (() => {
-                const next = { ...(prev.pricingAcceptance || {}) };
-                delete next[itemId];
-                return next;
-              })()
-            : source === 'user_entered' && /__(allowance|sqft_basis|material|labor)$/.test(itemId)
-              ? markManualPricingAdjustment(
-                  prev.pricingAcceptance?.[baseItemId],
-                  baseItemId,
-                  prev.pricingAcceptance,
-                  parsePricingAmount(quantity)
-                )
-              : prev.pricingAcceptance,
+        pricingAcceptance,
       };
+      return source === 'calculated_confirmed'
+        ? syncItemQuantitiesToMeasurementFields(nextState)
+        : nextState;
     });
   };
 

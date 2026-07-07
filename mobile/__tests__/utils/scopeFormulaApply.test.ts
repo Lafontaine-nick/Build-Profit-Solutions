@@ -8,8 +8,9 @@ import {
   initialScopeMeasurementInputExtended,
   resolveScopeItemSuggestedPricing,
   resolveChecklistItemQuantity,
+  scopeMeasurementsPayloadForPersist,
 } from '@/utils/scopeItemQuantities';
-import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
+import { syncSelectedScopePricing, getScopePackages, type EstimateAiDraft } from '@/utils/estimateAiDraft';
 
 describe('resolveFormulaQuantityApplyTarget', () => {
   it('applies slab sqft for flatwork pricing instead of converted CY volume', () => {
@@ -58,6 +59,38 @@ describe('resolveFormulaQuantityApplyTarget', () => {
     expect(pricing.fill?.material).toBe(1200);
     expect(pricing.fill?.labor).toBe(1800);
     expect(pricing.fill?.basis).toEqual({ quantity: 300, unit: 'sqft' });
+  });
+
+  it('does not auto-preview drywall formula quantity in suggested pricing basis', () => {
+    const formula = executeFormula('surface_area_from_floor_area_benchmark', { floorAreaSqft: 700 });
+    expect(formula).not.toBeNull();
+    expect(formula?.roundedValue).toBe(2450);
+    expect(
+      usesAutoFlatworkSqftPricing({ scopeKey: 'drywall', formula: formula! })
+    ).toBe(false);
+
+    const draft = {
+      scopeChecklist: { templateKey: 'addition' },
+      originalNotes: '1000 sqft drywall patch and hang.',
+      scopeMeasurements: {
+        drywallSqft: 1000,
+        floorAreaSqft: 700,
+        itemQuantities: {},
+      },
+    } as unknown as EstimateAiDraft;
+
+    const input = initialScopeMeasurementInputExtended(draft);
+    const resolved = resolveChecklistItemQuantity('drywall', input, {
+      templateKey: 'addition',
+      notes: draft.originalNotes,
+    });
+    const pricing = resolveScopeItemSuggestedPricing('drywall', input, 'addition', resolved);
+
+    expect(Number(resolved.quantity)).toBe(1000);
+    expect(pricing.fill?.material).toBe(1500);
+    expect(pricing.fill?.labor).toBe(3000);
+    expect(pricing.fill?.total).toBe(4500);
+    expect(pricing.fill?.basis).toEqual({ quantity: 1000, unit: 'sqft' });
   });
 
   it('preserves applied sqft overrides for addition concrete instead of coercing to CY', () => {
@@ -117,35 +150,62 @@ describe('resolveFormulaQuantityApplyTarget', () => {
     ).toBe(true);
   });
 
-  it('does not auto-preview drywall formula quantity in suggested pricing basis', () => {
-    const formula = executeFormula('surface_area_from_floor_area_benchmark', { floorAreaSqft: 700 });
-    expect(formula).not.toBeNull();
-    expect(formula?.roundedValue).toBe(2450);
-    expect(
-      usesAutoFlatworkSqftPricing({ scopeKey: 'drywall', formula: formula! })
-    ).toBe(false);
+  it('keeps calculated_confirmed paint sqft over notes-backed quick measurements', () => {
+    const input = initialScopeMeasurementInputExtended({
+      scopeChecklist: { templateKey: 'addition' },
+      originalNotes: '1000 sqft interior paint.',
+      scopeMeasurements: {
+        wallPaintSqft: 1000,
+        floorAreaSqft: 800,
+        itemQuantities: {
+          paint: { quantity: 2560, unit: 'sqft', quantitySource: 'calculated_confirmed' },
+        },
+      },
+    } as unknown as EstimateAiDraft);
 
+    const resolved = resolveChecklistItemQuantity('paint', input, {
+      templateKey: 'addition',
+      notes: '1000 sqft interior paint.',
+    });
+    const payload = scopeMeasurementsPayloadForPersist(input, {
+      templateKey: 'addition',
+      notes: '1000 sqft interior paint.',
+    });
+
+    expect(Number(resolved.quantity)).toBe(2560);
+    expect(payload.wallPaintSqft).toBe(2560);
+  });
+
+  it('syncs calculated quantities into Step 3 scope package quantities', () => {
     const draft = {
       scopeChecklist: { templateKey: 'addition' },
-      originalNotes: '1000 sqft drywall patch and hang.',
+      originalNotes: '1000 sqft drywall and 1000 sqft paint for ADU.',
+      scopePackages: [
+        {
+          name: 'Interior Painting',
+          scope: 'Prep, labor, and paint for walls/ceiling.',
+          scopeQuantities: [{ quantity: 1000, unit: 'sqft' }],
+          price: 3350,
+          knownSubtotal: 3350,
+          materialPrice: 850,
+          laborPrice: 2500,
+          priceSource: 'user_provided',
+          status: 'user_provided',
+        },
+      ],
       scopeMeasurements: {
+        wallPaintSqft: 1000,
         drywallSqft: 1000,
-        floorAreaSqft: 700,
-        itemQuantities: {},
+        floorAreaSqft: 800,
+        itemQuantities: {
+          paint: { quantity: 2560, unit: 'sqft', quantitySource: 'calculated_confirmed' },
+        },
       },
     } as unknown as EstimateAiDraft;
 
-    const input = initialScopeMeasurementInputExtended(draft);
-    const resolved = resolveChecklistItemQuantity('drywall', input, {
-      templateKey: 'addition',
-      notes: draft.originalNotes,
-    });
-    const pricing = resolveScopeItemSuggestedPricing('drywall', input, 'addition', resolved);
+    const synced = syncSelectedScopePricing(draft);
+    const paintPkg = getScopePackages(synced).find((pkg) => /paint/i.test(pkg.name));
 
-    expect(Number(resolved.quantity)).toBe(1000);
-    expect(pricing.fill?.material).toBe(1500);
-    expect(pricing.fill?.labor).toBe(3000);
-    expect(pricing.fill?.total).toBe(4500);
-    expect(pricing.fill?.basis).toEqual({ quantity: 1000, unit: 'sqft' });
+    expect(paintPkg?.scopeQuantities?.[0]).toEqual({ quantity: 2560, unit: 'sqft' });
   });
 });

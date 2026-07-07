@@ -76,7 +76,6 @@ export default function AIEstimateFlowHeader({
                   name="arrow-back"
                   size={24}
                   color={darkMode ? '#FFFFFF' : Colors.text}
-                  style={disabled ? { opacity: 0.4 } : undefined}
                 />
               </GradientRingBackInner>
             </LinearGradient>
