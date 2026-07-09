@@ -18,6 +18,7 @@ import {
   ruleKeysToTryForPackage,
   resolveChecklistItemQuantity,
   getNationalAverageBudgetSplit,
+  getRegionalAdjustedNationalAverageBudgetSplit,
 } from '@/utils/scopeItemQuantities';
 import {
   lookupRuleKeyForBudgetPackage,
@@ -173,22 +174,198 @@ const NATIONAL_TRADE_AVERAGES_LOCAL: Record<
     laborLabel: 'Full shower install labor',
   },
   kitchen: { unit: 'sqft', material: 55, labor: 95, materialLabel: 'Kitchen materials', laborLabel: 'Kitchen labor' },
-  painting: { unit: 'sqft', material: 0.85, labor: 2.5, materialLabel: 'Paint materials', laborLabel: 'Painting labor' },
   plumbing: { unit: 'hour', material: 75, labor: 125, materialLabel: 'Plumbing materials', laborLabel: 'Plumber labor' },
   plumbing_service: { unit: 'hour', material: 75, labor: 125, materialLabel: 'Plumbing materials', laborLabel: 'Plumber labor' },
   electrical: { unit: 'hour', material: 45, labor: 95, materialLabel: 'Electrical materials', laborLabel: 'Electrician labor' },
-  plumbing_rough: { unit: 'sqft', material: 4, labor: 7, materialLabel: 'Rough plumbing materials', laborLabel: 'Rough plumbing labor' },
-  electrical_rough: { unit: 'sqft', material: 5, labor: 8, materialLabel: 'Rough electrical materials', laborLabel: 'Rough electrical labor' },
+  /** Prefer per rough-in point when count is known; sqft is fallback only. */
+  plumbing_rough: {
+    unit: 'each',
+    material: 150,
+    labor: 350,
+    materialLabel: 'Rough plumbing materials (per point)',
+    laborLabel: 'Rough plumbing labor (per point)',
+  },
+  plumbing_rough_sqft: {
+    unit: 'sqft',
+    material: 4,
+    labor: 7,
+    materialLabel: 'Rough plumbing materials',
+    laborLabel: 'Rough plumbing labor',
+  },
+  /** Prefer per circuit/device when count is known; sqft is fallback only. */
+  electrical_rough: {
+    unit: 'each',
+    material: 50,
+    labor: 125,
+    materialLabel: 'Rough electrical materials (per circuit/device)',
+    laborLabel: 'Rough electrical labor (per circuit/device)',
+  },
+  electrical_rough_sqft: {
+    unit: 'sqft',
+    material: 4.5,
+    labor: 7,
+    materialLabel: 'Rough electrical materials',
+    laborLabel: 'Rough electrical labor',
+  },
+  painting: {
+    unit: 'sqft',
+    material: 0.85,
+    labor: 2.5,
+    materialLabel: 'Paint materials (wall/ceiling surface)',
+    laborLabel: 'Painting labor (wall/ceiling surface)',
+  },
+  drywall: {
+    unit: 'sqft',
+    material: 1.5,
+    labor: 3,
+    materialLabel: 'Drywall materials (wall/ceiling surface)',
+    laborLabel: 'Drywall labor (wall/ceiling surface)',
+  },
   roofing: { unit: 'square', material: 350, labor: 450, materialLabel: 'Roofing materials', laborLabel: 'Roofing labor' },
   concrete: { unit: 'sqft', material: 4, labor: 6, materialLabel: 'Concrete materials', laborLabel: 'Concrete labor' },
   sitework: { unit: 'sqft', material: 1.5, labor: 4, materialLabel: 'Site prep materials/equipment', laborLabel: 'Site prep labor' },
   utility_trenching: { unit: 'lf', material: 8, labor: 22, materialLabel: 'Trenching materials/equipment', laborLabel: 'Trenching labor' },
-  framing: { unit: 'sqft', material: 18, labor: 22, materialLabel: 'Framing materials', laborLabel: 'Framing labor' },
-  hvac: { unit: 'sqft', material: 6, labor: 8, materialLabel: 'HVAC equipment allowance', laborLabel: 'HVAC labor' },
+  /** Standard national planning: $32/sqft ($30–$34 band). High-side ADU/complex uses FRAMING_HIGH_SIDE. */
+  framing: { unit: 'sqft', material: 14, labor: 18, materialLabel: 'Framing materials', laborLabel: 'Framing labor' },
+  /** Standard national planning: ~$10.50/sqft. High-side ADU/small uses HVAC_HIGH_SIDE. */
+  hvac: { unit: 'sqft', material: 4.5, labor: 6, materialLabel: 'HVAC equipment allowance', laborLabel: 'HVAC labor' },
   insulation: { unit: 'sqft', material: 1.25, labor: 1.75, materialLabel: 'Insulation materials', laborLabel: 'Insulation labor' },
   exterior: { unit: 'sqft', material: 7, labor: 9, materialLabel: 'Exterior finish materials', laborLabel: 'Exterior finish labor' },
   windows_doors: { unit: 'each', material: 850, labor: 450, materialLabel: 'Window/door allowance', laborLabel: 'Window/door install labor' },
 };
+
+/** Upper-bound planning for ADU/small projects or complex framing assemblies — not a clean national average. */
+const FRAMING_HIGH_SIDE = {
+  unit: 'sqft',
+  material: 18,
+  labor: 22,
+  materialLabel: 'Framing materials',
+  laborLabel: 'Framing labor',
+} as const;
+
+const HVAC_HIGH_SIDE = {
+  unit: 'sqft',
+  material: 6,
+  labor: 8,
+  materialLabel: 'HVAC equipment allowance',
+  laborLabel: 'HVAC labor',
+} as const;
+
+const HIGH_SIDE_SOURCE = 'national_high_side_planning';
+const HIGH_SIDE_SOURCE_LABEL = 'High-side / ADU-small project estimate';
+const NATIONAL_SOURCE_LABEL = 'National Average';
+const MEP_POINT_PLANNING_NOTE =
+  'MEP priced per rough-in point / circuit / device when counts are available — more accurate than floor sqft for bids.';
+const MEP_SQFT_FALLBACK_NOTE =
+  'MEP used floor-sqft fallback because point/circuit counts were missing — enter rough-in points or circuits in Confirm Scope for better accuracy.';
+const SURFACE_SQFT_NOTE =
+  'Paint and drywall rates apply to wall/ceiling surface sqft, not floor area.';
+
+function isSmallProjectOrAduDraft(draft: EstimateAiDraft): boolean {
+  const typeBlob = `${draft.projectType || ''} ${draft.estimateTier || ''} ${draft.scopeChecklist?.templateKey || ''}`.toLowerCase();
+  if (/\badu\b|casita|addition|accessory\s+dwelling/.test(typeBlob)) return true;
+  const notes = String(draft.originalNotes || '').toLowerCase();
+  if (/\badu\b|casita|accessory\s+dwelling|room\s+addition|home\s+addition/.test(notes)) return true;
+  const floor = inferredProjectFloorSqft(draft);
+  return floor != null && floor > 0 && floor <= 1200;
+}
+
+/** True when framing scope explicitly includes roof structure, sheathing, trusses, hardware, mobilization, or structural complexity. */
+function framingScopeIsComplex(pkg: EstimateDraftScopePackage): boolean {
+  const blob = `${pkg.name || ''} ${pkg.scope || ''}`.toLowerCase();
+  return (
+    /\broof\s*fram|\broof\s*structure\b/.test(blob) ||
+    /\bsheathing\b/.test(blob) ||
+    /\btruss(es)?\b/.test(blob) ||
+    /\bhardware\b/.test(blob) ||
+    /\bmobilization\b|\bsmall[\s-]?project\b/.test(blob) ||
+    /\bstructural\s+complex|\bcomplex\s+fram|\bengineered\s+lumber\b/.test(blob)
+  );
+}
+
+function resolveRoughTradeBand(
+  trade: string,
+  pkg: EstimateDraftScopePackage,
+  draft: EstimateAiDraft,
+  qty: { quantity: number; unit: string } | null = null
+): {
+  band: { unit: string; material: number; labor: number; materialLabel: string; laborLabel: string };
+  priceSource: string;
+  sourceLabel: string;
+  mepMode?: 'point' | 'sqft_fallback' | null;
+} | null {
+  if (trade === 'plumbing_rough' || trade === 'electrical_rough') {
+    const pointBand = NATIONAL_TRADE_AVERAGES_LOCAL[trade];
+    const sqftBand = NATIONAL_TRADE_AVERAGES_LOCAL[`${trade}_sqft`];
+    const hasPointCount = Boolean(qty && qty.quantity > 0 && qty.unit === 'each');
+    if (hasPointCount && pointBand) {
+      return {
+        band: pointBand,
+        priceSource: 'national_trade_average',
+        sourceLabel: NATIONAL_SOURCE_LABEL,
+        mepMode: 'point',
+      };
+    }
+    if (sqftBand) {
+      return {
+        band: sqftBand,
+        priceSource: 'national_trade_average',
+        sourceLabel: NATIONAL_SOURCE_LABEL,
+        mepMode: 'sqft_fallback',
+      };
+    }
+    if (pointBand) {
+      return {
+        band: pointBand,
+        priceSource: 'national_trade_average',
+        sourceLabel: NATIONAL_SOURCE_LABEL,
+        mepMode: 'point',
+      };
+    }
+    return null;
+  }
+
+  const base = NATIONAL_TRADE_AVERAGES_LOCAL[trade];
+  if (!base) return null;
+
+  const useHighSide =
+    (trade === 'framing' && (isSmallProjectOrAduDraft(draft) || framingScopeIsComplex(pkg))) ||
+    (trade === 'hvac' && isSmallProjectOrAduDraft(draft));
+
+  if (useHighSide && trade === 'framing') {
+    return {
+      band: { ...FRAMING_HIGH_SIDE },
+      priceSource: HIGH_SIDE_SOURCE,
+      sourceLabel: HIGH_SIDE_SOURCE_LABEL,
+      mepMode: null,
+    };
+  }
+  if (useHighSide && trade === 'hvac') {
+    return {
+      band: { ...HVAC_HIGH_SIDE },
+      priceSource: HIGH_SIDE_SOURCE,
+      sourceLabel: HIGH_SIDE_SOURCE_LABEL,
+      mepMode: null,
+    };
+  }
+
+  return {
+    band: base,
+    priceSource: 'national_trade_average',
+    sourceLabel: NATIONAL_SOURCE_LABEL,
+    mepMode: null,
+  };
+}
+
+/** Exported for tests — resolves standard vs high-side ADU planning bands. */
+export function resolveRoughNationalTradeBandForTests(
+  trade: string,
+  pkg: EstimateDraftScopePackage,
+  draft: EstimateAiDraft,
+  qty: { quantity: number; unit: string } | null = null
+) {
+  return resolveRoughTradeBand(trade, pkg, draft, qty);
+}
 
 function resolveFixtureKindLocal(scopeName: string): string | null {
   const n = String(scopeName || '').toLowerCase();
@@ -245,6 +422,7 @@ function inferTradeFromPackage(pkg: EstimateDraftScopePackage, draft: EstimateAi
   if (/\b(demo|removal|demolition)\b/.test(scopeBlob) || /\bdemo\b/i.test(pkg.name)) return 'demo';
   if (/\b(baseboard|trim|crown|molding)\b/.test(scopeBlob)) return 'baseboard';
   if (/\b(paint|painting)\b/.test(scopeBlob) && !/\b(floor|tile)\b/.test(scopeBlob)) return 'painting';
+  if (/\b(drywall|sheetrock|hang\s+and\s+finish|tape\s+and\s+mud)\b/.test(scopeBlob)) return 'drywall';
   if (/\b(plumb|plumbing)\b/.test(scopeBlob) && /\b(rough|rough[\s-]?in)\b/.test(scopeBlob)) return 'plumbing_rough';
   if (/\b(electric|electrical)\b/.test(scopeBlob) && /\b(rough|rough[\s-]?in)\b/.test(scopeBlob)) return 'electrical_rough';
   if (/\b(plumb|faucet|toilet|sink)\b/.test(scopeBlob)) return 'plumbing';
@@ -296,6 +474,7 @@ export type PricingProposalLine = {
   confidence: string;
   status: string;
   requiresApproval?: boolean;
+  assumptions?: string[];
 };
 
 export type PricingSourceComparisonRow = {
@@ -413,6 +592,7 @@ const SAVED_BID_TEMPLATE_SOURCES = new Set([
 
 const ROUGH_PLANNING_SOURCES = new Set([
   'national_trade_average',
+  'national_high_side_planning',
   'supplier_pricing',
   'ai_rough_estimate',
   'ai_rough_estimate_fallback',
@@ -549,6 +729,7 @@ export const PRICING_SOURCE_LABELS: Record<string, string> = {
   company_default: 'Vendor',
   supplier_pricing: 'Vendor',
   national_trade_average: 'National Average',
+  national_high_side_planning: 'High-side / ADU-small',
   regional_labor_benchmark: 'Regional',
   construction_cost_database: 'Regional',
   ai_rough_estimate_fallback: 'AI rough',
@@ -565,7 +746,9 @@ export function sourceBadgeColor(source: string): string {
   if (source === 'saved_pricing' || source === 'pricing_history' || source === 'saved_template') {
     return '#60a5fa';
   }
-  if (source === 'national_trade_average' || source === 'regional_labor_benchmark') return '#a78bfa';
+  if (source === 'national_trade_average' || source === 'national_high_side_planning' || source === 'regional_labor_benchmark') {
+    return source === 'national_high_side_planning' ? '#fb923c' : '#a78bfa';
+  }
   if (source === 'supplier_pricing' || source === 'company_default') return '#34d399';
   if (source === 'ai_rough_estimate_fallback' || source === 'ai_rough_estimate') return '#fbbf24';
   return '#94a3b8';
@@ -625,6 +808,14 @@ export function sourceVisual(source: string, mode: 'saved' | 'suggest' = 'saved'
       shortLabel: 'Regional',
       color: '#a78bfa',
       bg: 'rgba(167,139,250,0.14)',
+    };
+  }
+  if (source === 'national_high_side_planning') {
+    return {
+      label: 'High-side / ADU-small project estimate',
+      shortLabel: 'High-side',
+      color: '#fb923c',
+      bg: 'rgba(251,146,60,0.14)',
     };
   }
   if (source === 'national_trade_average') {
@@ -752,15 +943,23 @@ function linesToScopeItems(lines: PricingProposalLine[]): PricingScopeItemPropos
         formula: line.formula,
         source: line.priceSource,
         confidence: line.confidence,
-        assumptions: line.sourceLabel ? [line.sourceLabel] : [],
+        assumptions: [
+          ...(line.sourceLabel ? [line.sourceLabel] : []),
+          ...(line.assumptions || []),
+        ],
         requiresApproval: line.requiresApproval !== false,
       })),
       comparison: {},
       recommended: {
         source,
         sourceLabel: sourceDisplayLabel(source),
-        reason: 'Matched from saved pricing.',
-        confidence: 'medium',
+        reason:
+          source === HIGH_SIDE_SOURCE
+            ? 'Upper-bound planning estimate for ADU/small projects — not a clean national average.'
+            : source === 'national_trade_average' || source === 'ai_rough_estimate'
+              ? 'National planning estimate from trade averages.'
+              : 'Matched from saved pricing.',
+        confidence: source === HIGH_SIDE_SOURCE ? 'low' : 'medium',
       },
       warnings: [],
     };
@@ -775,6 +974,100 @@ export function proposalHasSavedRates(proposal: PricingProposal | null | undefin
   return (proposal.scopeItems || []).some((item) =>
     (item.proposedRates || []).some((r) => (r.total || 0) > 0)
   );
+}
+
+const TEMPLATE_LIBRARY_PRICE_SOURCES = new Set([
+  'saved_template',
+  'saved_pricing',
+  'company_default',
+  'pricing_history',
+]);
+
+function isTemplateLibraryPriceSource(source: string | null | undefined): boolean {
+  return Boolean(source && TEMPLATE_LIBRARY_PRICE_SOURCES.has(source));
+}
+
+/** True when proposal includes rates from saved templates or the pricing library (not scope confirmation). */
+export function proposalHasTemplateOrLibraryRates(
+  proposal: PricingProposal | null | undefined
+): boolean {
+  if (!proposal) return false;
+  if (
+    (proposal.lines || []).some(
+      (line) => (line.total || 0) > 0 && isTemplateLibraryPriceSource(line.priceSource)
+    )
+  ) {
+    return true;
+  }
+  return (proposal.scopeItems || []).some((item) =>
+    (item.proposedRates || []).some(
+      (rate) => (rate.total || 0) > 0 && isTemplateLibraryPriceSource(rate.source)
+    )
+  );
+}
+
+/** Saved-pricing modal: template/library matches only — scope-confirmed prices stay on the review screen. */
+export function filterProposalToTemplateLibraryOnly(proposal: PricingProposal): PricingProposal {
+  const filteredLines = (proposal.lines || []).filter(
+    (line) => (line.total || 0) > 0 && isTemplateLibraryPriceSource(line.priceSource)
+  );
+  const pricedKeys = new Set(
+    filteredLines.map((line) => normalizePackageKey(line.packageName) || line.packageName)
+  );
+  const pricedItems = linesToScopeItems(filteredLines);
+  const unpricedItems = (proposal.scopeItems || [])
+    .filter((item) => {
+      const key = normalizePackageKey(item.scopeName) || item.scopeName;
+      if (pricedKeys.has(key)) return false;
+      const hadTemplateLibrary = (item.proposedRates || []).some(
+        (rate) => (rate.total || 0) > 0 && isTemplateLibraryPriceSource(rate.source)
+      );
+      return !hadTemplateLibrary;
+    })
+    .map((item) => {
+      const hadScopeConfirmationOnly = (item.proposedRates || []).some(
+        (rate) => (rate.total || 0) > 0 && rate.source === 'scope_confirmation'
+      );
+      if (!hadScopeConfirmationOnly) return item;
+      return {
+        ...item,
+        proposedRates: [],
+        recommended: null,
+        reviewStatus: 'needs_price' as PricingReviewStatus,
+      };
+    });
+
+  const primarySource =
+    proposal.primarySource && isTemplateLibraryPriceSource(proposal.primarySource)
+      ? proposal.primarySource
+      : filteredLines[0]?.priceSource &&
+          isTemplateLibraryPriceSource(filteredLines[0].priceSource)
+        ? (filteredLines[0].priceSource as PricingProposal['primarySource'])
+        : undefined;
+
+  return normalizePricingProposal({
+    ...proposal,
+    lines: filteredLines,
+    scopeItems: [...pricedItems, ...unpricedItems],
+    pricingMode: 'saved_only',
+    totalSuggested: filteredLines.reduce((sum, line) => sum + (line.total || 0), 0),
+    empty: filteredLines.length === 0,
+    primarySource,
+  });
+}
+
+/** Whether this draft has any on-device template or library rate matches. */
+export async function draftHasSavedTemplateOrLibraryMatches(
+  draft: EstimateAiDraft,
+  savedTemplates: unknown[] = []
+): Promise<boolean> {
+  const templates = await resolveSavedBidTemplates(savedTemplates);
+  if (templates.length > 0) {
+    const fromTemplates = buildSavedPricingProposalFromTemplates(draft, templates);
+    if (proposalHasTemplateOrLibraryRates(fromTemplates)) return true;
+  }
+  const fromLibrary = await buildSavedPricingProposalLocal(draft);
+  return proposalHasTemplateOrLibraryRates(fromLibrary);
 }
 
 function inferPrimarySource(
@@ -1283,6 +1576,15 @@ function pickPackageQuantity(
     const lf = qs.find((q) => q.unit === 'lf' && validQuantity(q));
     if (lf) return { quantity: lf.quantity, unit: 'lf' };
   }
+  // Prefer point/circuit counts for MEP before floor sqft.
+  if (/\b(plumb|plumbing)\b/.test(n) && /\b(rough|rough[\s-]?in)\b/.test(n)) {
+    const each = qs.find((q) => q.unit === 'each' && validQuantity(q));
+    if (each) return { quantity: Number(each.quantity), unit: 'each' };
+  }
+  if (/\b(electric|electrical)\b/.test(n) && /\b(rough|rough[\s-]?in)\b/.test(n)) {
+    const each = qs.find((q) => q.unit === 'each' && validQuantity(q));
+    if (each) return { quantity: Number(each.quantity), unit: 'each' };
+  }
   for (const unit of ['cy', 'sqft', 'lf', 'squares', 'each', 'allowance', 'lump_sum']) {
     const match = qs.find((q) => q.unit === unit && validQuantity(q));
     if (match) return { quantity: Number(match.quantity), unit };
@@ -1357,6 +1659,57 @@ function roughPlanningQuantityForBand(
   qty: { quantity: number; unit: string } | null
 ): { quantity: number; unit: string } | null {
   if (qty && qty.quantity > 0 && qty.unit === bandUnit) return qty;
+
+  if ((trade === 'plumbing_rough' || trade === 'electrical_rough') && bandUnit === 'each') {
+    if (qty && qty.quantity > 0 && qty.unit === 'each') {
+      return { quantity: qty.quantity, unit: 'each' };
+    }
+    const ruleKey = trade === 'plumbing_rough' ? 'plumbing_rough' : 'electrical_rough';
+    const resolved = resolveChecklistItemQuantity(
+      ruleKey,
+      normalizeScopeMeasurements(draft.scopeMeasurements),
+      {
+        templateKey:
+          draft.scopeChecklist?.templateKey ||
+          draft.estimateTier ||
+          draft.projectType ||
+          null,
+      }
+    );
+    const dualQty = resolved.dualCount?.quantity;
+    if (dualQty != null && dualQty > 0 && (resolved.dualCount?.unit === 'each' || resolved.unit === 'each')) {
+      return { quantity: dualQty, unit: 'each' };
+    }
+    if (resolved.quantity != null && resolved.quantity > 0 && resolved.unit === 'each') {
+      return { quantity: resolved.quantity, unit: 'each' };
+    }
+    return null;
+  }
+
+  if ((trade === 'painting' || trade === 'drywall') && bandUnit === 'sqft') {
+    const measurements = normalizeScopeMeasurements(draft.scopeMeasurements);
+    const parsed = parseScopeMeasurementsFromNotes(String(draft.originalNotes || ''), {
+      templateKey: draft.scopeChecklist?.templateKey || draft.estimateTier || draft.projectType,
+      projectType: draft.projectType,
+    });
+    if (trade === 'painting') {
+      const wall =
+        measurements.wallPaintSqft ||
+        parsed.wallPaintSqft ||
+        (qty?.unit === 'sqft' ? qty.quantity : null);
+      if (wall && wall > 0) return { quantity: wall, unit: 'sqft' };
+    }
+    if (trade === 'drywall') {
+      const surface =
+        measurements.drywallSqft ||
+        parsed.drywallSqft ||
+        (qty?.unit === 'sqft' ? qty.quantity : null);
+      if (surface && surface > 0) return { quantity: surface, unit: 'sqft' };
+    }
+    // Do not silently fall back to floor area for surface trades — that underprices.
+    if (qty && qty.quantity > 0 && qty.unit === 'sqft') return qty;
+    return null;
+  }
 
   const floorSqft = inferredProjectFloorSqft(draft);
   if (bandUnit === 'sqft' && floorSqft && floorSqft > 0) {
@@ -2684,10 +3037,10 @@ export function resolveSavedPricingProposalForDraft(
 export async function fetchRoughPricingProposal(
   draft: EstimateAiDraft,
   savedTemplates: unknown[] = [],
-  location?: { projectLocation?: string; zipCode?: string }
+  location?: { projectLocation?: string; zipCode?: string; state?: string | null; city?: string | null }
 ): Promise<PricingProposal> {
   const templates = await resolveSavedBidTemplates(savedTemplates);
-  const localFallback = buildRoughPricingProposalLocal(draft);
+  const localFallback = buildRoughPricingProposalLocal(draft, location);
   try {
     const fromApi = await fetchEngineProposal(draft, {
       mode: 'suggest',
@@ -2710,7 +3063,10 @@ export async function fetchRoughPricingProposal(
   });
 }
 
-function buildRoughPricingProposalLocal(draft: EstimateAiDraft): PricingProposal {
+function buildRoughPricingProposalLocal(
+  draft: EstimateAiDraft,
+  location?: { state?: string | null; zipCode?: string | null; city?: string | null }
+): PricingProposal {
   const notes = String(draft.originalNotes || '');
   const lines: PricingProposalLine[] = [];
   for (const pkg of getScopePackages(draft)) {
@@ -2722,7 +3078,13 @@ function buildRoughPricingProposalLocal(draft: EstimateAiDraft): PricingProposal
     const qtyInfo = pickPackageQuantity(pkg, notes, draft);
     const qty = qtyInfo ? { quantity: qtyInfo.quantity, unit: qtyInfo.unit } : null;
     const ruleKey = lookupRuleKeyForPackage(pkg.name, pkg.scope || '');
-    const scopeAverage = ruleKey ? getNationalAverageBudgetSplit(ruleKey, qty?.unit) : null;
+    const { average: scopeAverage, regional } = ruleKey
+      ? getRegionalAdjustedNationalAverageBudgetSplit(ruleKey, qty?.unit, location)
+      : { average: null, regional: { multiplier: 1, rateSourceLabel: 'Suggested · National Average', geographicBasis: 'national' as const, stateCode: null } };
+    const scopeAverageLabel =
+      regional.multiplier !== 1
+        ? regional.rateSourceLabel.replace('Suggested · ', '')
+        : 'National Average';
     const scopeAverageQty =
       qty && scopeAverage?.unit === qty.unit
         ? qty
@@ -2749,7 +3111,7 @@ function buildRoughPricingProposalLocal(draft: EstimateAiDraft): PricingProposal
               ? `$${formatMoney(total)} flat allowance`
               : `${scopeAverageQty.quantity.toLocaleString()} ${formatDisplayUnit(scopeAverage.unit)} × $${unitRate}/${formatDisplayUnit(scopeAverage.unit)} = $${formatMoney(total)}`,
           priceSource: 'national_trade_average',
-          sourceLabel: 'National Average',
+          sourceLabel: scopeAverageLabel,
           confidence: lineType === 'labor' ? 'medium' : 'low',
           status: 'rough_price',
           requiresApproval: true,
@@ -2791,7 +3153,7 @@ function buildRoughPricingProposalLocal(draft: EstimateAiDraft): PricingProposal
             total,
             formula: `${quantity.toLocaleString()} each × $${unitRate}/each = $${formatMoney(total)}`,
             priceSource: 'national_trade_average',
-            sourceLabel: 'National Average',
+            sourceLabel: NATIONAL_SOURCE_LABEL,
             confidence: lineType === 'labor' ? 'medium' : 'low',
             status: 'rough_price',
             requiresApproval: true,
@@ -2803,10 +3165,32 @@ function buildRoughPricingProposalLocal(draft: EstimateAiDraft): PricingProposal
       }
     }
 
-    const band = NATIONAL_TRADE_AVERAGES_LOCAL[trade];
-    if (!band) continue;
+    const resolved = resolveRoughTradeBand(trade, pkg, draft, qty);
+    if (!resolved) continue;
+    const { band, priceSource, sourceLabel, mepMode } = resolved;
     const roughQty = roughPlanningQuantityForBand(pkg, draft, trade, band.unit, qty);
     if (!roughQty || roughQty.quantity <= 0) continue;
+
+    const mepAssumptions =
+      trade === 'plumbing_rough' || trade === 'electrical_rough'
+        ? [mepMode === 'point' ? MEP_POINT_PLANNING_NOTE : MEP_SQFT_FALLBACK_NOTE]
+        : trade === 'hvac'
+          ? [MEP_SQFT_FALLBACK_NOTE]
+          : [];
+    const surfaceAssumptions =
+      trade === 'painting' || trade === 'drywall' ? [SURFACE_SQFT_NOTE] : [];
+    const framingAssumptions =
+      trade === 'framing' && priceSource === HIGH_SIDE_SOURCE
+        ? [
+            'High-side framing used for ADU/small project or complex scope (roof framing, sheathing, trusses, hardware, mobilization, or structural complexity). Standard national planning is $30–$34/sqft.',
+          ]
+        : trade === 'framing'
+          ? [
+              'National framing planning range $30–$34/sqft for typical wall/floor shell without roof structure extras.',
+            ]
+          : [];
+    const lineAssumptions = [...mepAssumptions, ...surfaceAssumptions, ...framingAssumptions];
+    let assumptionsAttached = false;
 
     const push = (
       lineType: 'material' | 'labor',
@@ -2816,6 +3200,8 @@ function buildRoughPricingProposalLocal(draft: EstimateAiDraft): PricingProposal
       unitRate: number
     ) => {
       const total = roundMoney(unitRate * quantity);
+      const assumptions = !assumptionsAttached && lineAssumptions.length ? lineAssumptions : undefined;
+      if (assumptions) assumptionsAttached = true;
       lines.push({
         packageName: pkg.name,
         lineType,
@@ -2825,11 +3211,12 @@ function buildRoughPricingProposalLocal(draft: EstimateAiDraft): PricingProposal
         unitRate,
         total,
         formula: `${quantity.toLocaleString()} ${formatDisplayUnit(unitType)} × $${unitRate}/${formatDisplayUnit(unitType)} = $${formatMoney(total)}`,
-        priceSource: 'national_trade_average',
-        sourceLabel: 'National Average',
-        confidence: lineType === 'labor' ? 'medium' : 'low',
+        priceSource,
+        sourceLabel,
+        confidence: priceSource === HIGH_SIDE_SOURCE ? 'low' : lineType === 'labor' ? 'medium' : 'low',
         status: 'rough_price',
         requiresApproval: true,
+        assumptions,
       });
     };
 
@@ -2841,20 +3228,45 @@ function buildRoughPricingProposalLocal(draft: EstimateAiDraft): PricingProposal
     }
   }
 
+  const hasHighSide = lines.some((l) => l.priceSource === HIGH_SIDE_SOURCE);
+  const hasMepPoint = lines.some(
+    (l) =>
+      l.unitType === 'each' &&
+      (/\bplumb/.test(l.packageName.toLowerCase()) || /\belectr/.test(l.packageName.toLowerCase()))
+  );
+  const hasMepSqftFallback = lines.some((l) => {
+    const n = l.packageName.toLowerCase();
+    const isMep =
+      /\bplumb/.test(n) || /\belectr/.test(n) || /\bhvac|mini\s*split|heat\s*pump/.test(n);
+    return isMep && l.unitType === 'sqft';
+  });
+  const hasSurfaceTrade = lines.some((l) => {
+    const n = l.packageName.toLowerCase();
+    return /\bpaint|drywall|sheetrock/.test(n);
+  });
   const totalSuggested = lines.reduce((s, l) => s + l.total, 0);
   return normalizePricingProposal({
     empty: lines.length === 0,
     source: 'ai_rough_estimate',
-    sourceLabel: 'National Average',
+    sourceLabel: hasHighSide ? HIGH_SIDE_SOURCE_LABEL : NATIONAL_SOURCE_LABEL,
     lines,
     totalSuggested,
     message: lines.length === 0 ? 'Could not build per-item rough pricing from scope quantities.' : null,
     assumptions: [
       'Suggested prices use general trade assumptions — not from your notes or saved bids',
       'Review each rate before applying',
+      ...(hasHighSide
+        ? [
+            'Some lines use High-side / ADU-small project estimates (upper-bound planning), not a clean national average.',
+          ]
+        : []),
+      ...(hasMepPoint ? [MEP_POINT_PLANNING_NOTE] : []),
+      ...(hasMepSqftFallback ? [MEP_SQFT_FALLBACK_NOTE] : []),
+      ...(hasSurfaceTrade ? [SURFACE_SQFT_NOTE] : []),
     ],
-    disclaimer:
-      'Indicative only. Approve before applying; line items will be labeled AI Rough Estimate.',
+    disclaimer: hasHighSide
+      ? 'Indicative upper-bound planning estimates for ADU/small projects. Verify scope, rates, and markup before applying; line items will be labeled AI Rough Estimate.'
+      : 'Indicative national planning estimates. Verify scope, rates, and markup before applying; line items will be labeled AI Rough Estimate.',
   });
 }
 
@@ -3266,12 +3678,92 @@ export function applyPricingProposalToDraft(
   options: { approved?: boolean } = {}
 ): EstimateAiDraft {
   const approved = options.approved !== false;
-  const linesByRoom = indexProposalLinesByRoom(draft.rooms || [], proposal.lines || []);
-
   const isRough = proposal.source === 'ai_rough_estimate';
+  const packages = getScopePackages(draft);
+  const linesByPkg = indexProposalLinesByRoom(
+    packages.map((p) => ({ name: p.name })),
+    proposal.lines || []
+  );
+
+  const applyLinesToPackage = (pkg: EstimateDraftScopePackage): EstimateDraftScopePackage => {
+    const pkgLines = linesByPkg.get(pkg.name);
+    if (!pkgLines?.length) return pkg;
+
+    const lump = pkgLines.find((l) => l.lineType === 'lump_sum');
+    const labor = pkgLines
+      .filter((l) => l.lineType === 'labor')
+      .reduce((sum, l) => sum + l.total, 0);
+    const material = pkgLines
+      .filter((l) => l.lineType === 'material')
+      .reduce((sum, l) => sum + l.total, 0);
+    const price = lump ? lump.total : roundMoney(labor + material);
+    if (price <= 0) return pkg;
+
+    const pricingItems = pkgLines.map((l) => ({
+      name: l.label,
+      amount: l.total,
+      unitRate: l.unitRate,
+      quantity: l.quantity,
+      unit: l.unitType,
+      pricingType: l.lineType,
+      priceSource: l.priceSource,
+      status: isRough && !approved ? 'rough_price' : 'confirmed',
+      formula: l.formula,
+      includedInSubtotal: true,
+      approvedByUser: approved,
+    }));
+
+    // Approved proposal pricing is apply-eligible even when source was rough planning.
+    const status: EstimateDraftScopePackage['status'] =
+      isRough && !approved ? 'rough_price' : approved ? 'confirmed' : 'rough_price';
+
+    return {
+      ...pkg,
+      price,
+      knownSubtotal: price,
+      calculatedSubtotal: price,
+      finalApprovedTotal: approved ? price : pkg.finalApprovedTotal ?? null,
+      laborPrice: labor > 0 ? labor : lump ? null : pkg.laborPrice,
+      materialPrice: material > 0 ? material : lump ? null : pkg.materialPrice,
+      includesLabor: labor > 0 || Boolean(lump) ? true : pkg.includesLabor,
+      includesMaterials: material > 0 || Boolean(lump) ? true : pkg.includesMaterials,
+      pricingType: lump ? 'lump_sum' : material > 0 || labor > 0 ? 'split' : pkg.pricingType,
+      priceSource: isRough ? 'ai_rough_estimate' : pkg.priceSource || 'user_provided',
+      status,
+      pricingItems,
+      priceIncludesLaborAndMaterials: Boolean(lump) || (labor > 0 && material > 0),
+      splitIsSuggested: false,
+      priceProvidedByUser: approved && !isRough,
+      applyEligible: approved && price > 0,
+      roughPricePendingApproval: isRough && !approved,
+      missingPriceItems: [],
+    };
+  };
+
+  const nextPackages = packages.map(applyLinesToPackage);
+  const linesByRoom = indexProposalLinesByRoom(draft.rooms || [], proposal.lines || []);
   const rooms = (draft.rooms || []).map((room) => {
     const pkgLines = linesByRoom.get(room.name);
-    if (!pkgLines?.length) return room;
+    if (!pkgLines?.length) {
+      const matchedPkg = nextPackages.find((p) => p.name === room.name);
+      if (matchedPkg && (matchedPkg.price || 0) > 0 && linesByPkg.has(room.name)) {
+        return {
+          ...room,
+          price: matchedPkg.price,
+          laborPrice: matchedPkg.laborPrice,
+          materialPrice: matchedPkg.materialPrice,
+          priceIncludesLaborAndMaterials: matchedPkg.priceIncludesLaborAndMaterials,
+          priceProvidedByUser: matchedPkg.priceProvidedByUser,
+          splitIsSuggested: false,
+          pricingItems: matchedPkg.pricingItems,
+          packageStatus: matchedPkg.status,
+          applyEligible: matchedPkg.applyEligible,
+          roughPricePendingApproval: Boolean(matchedPkg.roughPricePendingApproval),
+          missingPriceItems: [],
+        };
+      }
+      return room;
+    }
 
     const lump = pkgLines.find((l) => l.lineType === 'lump_sum');
     const labor = pkgLines
@@ -3290,7 +3782,7 @@ export function applyPricingProposalToDraft(
       unit: l.unitType,
       pricingType: l.lineType,
       priceSource: l.priceSource,
-      status: isRough ? 'rough_price' : 'confirmed',
+      status: isRough && !approved ? 'rough_price' : 'confirmed',
       formula: l.formula,
       includedInSubtotal: true,
       approvedByUser: approved,
@@ -3302,31 +3794,33 @@ export function applyPricingProposalToDraft(
       laborPrice: labor > 0 ? labor : null,
       materialPrice: material > 0 ? material : null,
       priceIncludesLaborAndMaterials: !lump && labor > 0 && material > 0,
-      priceProvidedByUser: !isRough,
+      priceProvidedByUser: approved && !isRough,
       splitIsSuggested: false,
       pricingItems,
-      packageStatus: isRough ? 'rough_price' : 'confirmed',
+      packageStatus: isRough && !approved ? 'rough_price' : approved ? 'confirmed' : 'rough_price',
       applyEligible: approved && price > 0,
       roughPricePendingApproval: isRough && !approved,
+      missingPriceItems: [],
     };
   });
 
-  const lineTotal = rooms.reduce((sum, r) => sum + (r.price || 0), 0);
-  const laborTotal = rooms.reduce((sum, r) => sum + (r.laborPrice || 0), 0);
-  const materialTotal = rooms.reduce((sum, r) => sum + (r.materialPrice || 0), 0);
-  const pricedRooms = rooms.filter((r) => (r.price || 0) > 0).length;
-  const totalRooms = rooms.length;
-  const allPriced = totalRooms > 0 && pricedRooms === totalRooms;
-  const partial = pricedRooms > 0 && !allPriced;
+  const pricedPackages = nextPackages.filter((p) => (p.price || 0) > 0);
+  const lineTotal = nextPackages.reduce((sum, p) => sum + (p.price || 0), 0);
+  const laborTotal = nextPackages.reduce((sum, p) => sum + (p.laborPrice || 0), 0);
+  const materialTotal = nextPackages.reduce((sum, p) => sum + (p.materialPrice || 0), 0);
+  const pricedCount = pricedPackages.length;
+  const totalCount = nextPackages.length;
+  const allPriced = totalCount > 0 && pricedCount === totalCount;
+  const partial = pricedCount > 0 && !allPriced;
 
   const synced = syncDraftAfterPricingApply(
     {
       ...draft,
       rooms,
-      scopePackages: undefined,
+      scopePackages: nextPackages,
       pendingPricingProposal: proposal,
       pricingProposalApproved: approved,
-      noPricingDetected: pricedRooms === 0,
+      noPricingDetected: pricedCount === 0,
       calculatedLineItemTotal: lineTotal > 0 ? lineTotal : null,
       calculatedLaborTotal: laborTotal > 0 ? laborTotal : null,
       calculatedMaterialTotal: materialTotal > 0 ? materialTotal : null,
@@ -3337,7 +3831,7 @@ export function applyPricingProposalToDraft(
   return {
     ...synced,
     estimateConfidence:
-      approved && pricedRooms > 0
+      approved && pricedCount > 0
         ? {
             level: isRough ? 'medium' : allPriced ? 'high' : 'medium',
             label: isRough ? 'Medium confidence' : allPriced ? 'High confidence' : 'Medium confidence',
@@ -3353,6 +3847,7 @@ export function applyPricingProposalToDraft(
         : draft.estimateConfidence,
   };
 }
+
 
 function packageStatusFromRoom(
   room: EstimateAiDraft['rooms'][number],
@@ -3413,32 +3908,36 @@ function syncDraftAfterPricingApply(
     proposalSource: PricingProposal['source'];
   }
 ): EstimateAiDraft {
-  const scopePackages = (draft.rooms || []).map((room) => {
-    const status = packageStatusFromRoom(room, options.isRough);
-    const price = room.price ?? null;
-    return {
-      name: room.name,
-      scope: room.scope,
-      scopeQuantities: room.scopeQuantities,
-      price,
-      laborPrice: room.laborPrice ?? null,
-      materialPrice: room.materialPrice ?? null,
-      pricingType: price != null ? ('lump_sum' as const) : ('unknown' as const),
-      includesLabor: room.laborPrice != null ? true : null,
-      includesMaterials: room.materialPrice != null ? true : null,
-      priceSource: room.priceProvidedByUser ? ('user_provided' as const) : ('missing' as const),
-      status,
-      knownSubtotal: price != null && price > 0 ? price : null,
-      formula: null,
-      missingInfo: [],
-      missingPriceItems: room.missingPriceItems || [],
-      pricingItems: room.pricingItems || [],
-      priceIncludesLaborAndMaterials: room.priceIncludesLaborAndMaterials,
-      splitIsSuggested: Boolean(room.splitIsSuggested),
-      priceProvidedByUser: Boolean(room.priceProvidedByUser),
-      applyEligible: room.applyEligible ?? (price != null && price > 0),
-    };
-  });
+  // Prefer packages already updated by applyPricingProposalToDraft; only rebuild from rooms when missing.
+  const scopePackages =
+    draft.scopePackages?.length
+      ? draft.scopePackages
+      : (draft.rooms || []).map((room) => {
+          const status = packageStatusFromRoom(room, options.isRough);
+          const price = room.price ?? null;
+          return {
+            name: room.name,
+            scope: room.scope,
+            scopeQuantities: room.scopeQuantities,
+            price,
+            laborPrice: room.laborPrice ?? null,
+            materialPrice: room.materialPrice ?? null,
+            pricingType: price != null ? ('lump_sum' as const) : ('unknown' as const),
+            includesLabor: room.laborPrice != null ? true : null,
+            includesMaterials: room.materialPrice != null ? true : null,
+            priceSource: room.priceProvidedByUser ? ('user_provided' as const) : ('missing' as const),
+            status,
+            knownSubtotal: price != null && price > 0 ? price : null,
+            formula: null,
+            missingInfo: [],
+            missingPriceItems: room.missingPriceItems || [],
+            pricingItems: room.pricingItems || [],
+            priceIncludesLaborAndMaterials: room.priceIncludesLaborAndMaterials,
+            splitIsSuggested: Boolean(room.splitIsSuggested),
+            priceProvidedByUser: Boolean(room.priceProvidedByUser),
+            applyEligible: room.applyEligible ?? (price != null && price > 0),
+          };
+        });
 
   const lineTotal = draft.calculatedLineItemTotal || 0;
   const noteProfile = detectNoteProfileFromPackages(scopePackages, lineTotal);
@@ -3517,9 +4016,18 @@ export function classifyPackageKind(name: string): PackagePricingKind {
   return 'other';
 }
 
-export function defaultManualMode(kind: PackagePricingKind): ManualPackageMode {
+export function defaultManualMode(kind: PackagePricingKind, packageName = ''): ManualPackageMode {
   if (kind === 'tile_demo') return 'rate';
-  if (kind === 'other') return 'lump_sum';
+  // True allowances stay lump sum; trade scopes default to Material + Labor for tracking.
+  const n = packageName.toLowerCase();
+  if (
+    /\bpermit|\bfee|\bcleanup|\bdisposal|\binspection|\ballowance|\bcontingenc|\boverhead|\bprofit\b/.test(
+      n
+    )
+  ) {
+    return 'lump_sum';
+  }
+  if (kind === 'other') return 'split';
   return 'split';
 }
 
@@ -3668,7 +4176,7 @@ export function computeManualPackagePreview(
   inp: ManualPricingInputs[string] | undefined
 ): ManualPackagePreview {
   const kind = classifyPackageKind(pkg.name);
-  const mode = inp?.mode ?? defaultManualMode(kind);
+  const mode = inp?.mode ?? defaultManualMode(kind, pkg.name);
   const qty = pkg.scopeQuantities?.[0];
   const breakdown: string[] = [];
   let total = 0;
@@ -3753,7 +4261,7 @@ export function buildManualPricingProposal(
     };
 
     const kind = classifyPackageKind(pkg.name);
-    const mode = inp.mode ?? defaultManualMode(kind);
+    const mode = inp.mode ?? defaultManualMode(kind, pkg.name);
 
     if (kind === 'tile_demo') {
       const q = qty?.unit === 'sqft' ? qty.quantity : null;
@@ -3862,8 +4370,14 @@ export function manualPricingInputsFromProposal(
     const inp: ManualPricingInputs[string] = {};
     const lump = pkgLines.find((l) => l.lineType === 'lump_sum' && (l.total || 0) > 0);
     if (lump) {
-      inp.mode = 'lump_sum';
-      inp.lumpSum = manualRateInputString(lump.total);
+      // Trade scopes no longer use lump-sum entry — seed as labor total so the user can split.
+      if (kind === 'tile_demo') {
+        inp.mode = 'lump_sum';
+        inp.lumpSum = manualRateInputString(lump.total);
+      } else {
+        inp.mode = 'split';
+        inp.laborTotal = manualRateInputString(lump.total);
+      }
       inputs[pkg.name] = inp;
       continue;
     }

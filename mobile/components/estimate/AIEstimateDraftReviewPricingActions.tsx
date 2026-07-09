@@ -1,10 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimateAiDraft';
 import { formatDraftMoney, getScopePackages } from '@/utils/estimateAiDraft';
 import { draftHasApplyablePricing } from '@/utils/estimateAiDraftPricing';
 import { countDraftPricingReadiness } from '@/utils/scopeItemQuantities';
-import { formatScopeQuantity } from '@/utils/estimateDraftReviewUi';
+import { formatScopeQuantity, scopePackageNeedsManualPrice } from '@/utils/estimateDraftReviewUi';
 import AIEstimateSavedPricingApplySummary from '@/components/estimate/AIEstimateSavedPricingApplySummary';
 import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 
@@ -20,6 +20,7 @@ type Props = {
   Colors: Colors;
   darkMode: boolean;
   busy: boolean;
+  showUseSavedPricing?: boolean;
   onUseSavedPricing?: () => void;
   suggestingMissingPrices?: boolean;
   onSuggestRoughPrices?: () => void;
@@ -64,8 +65,12 @@ function ActionBtn({
   );
 }
 
-function measuredScopeLines(packages: EstimateDraftScopePackage[]): string[] {
+function measuredScopeLines(
+  packages: EstimateDraftScopePackage[],
+  draft: EstimateAiDraft
+): string[] {
   return packages
+    .filter((pkg) => scopePackageNeedsManualPrice(pkg, draft))
     .map((pkg) => {
       const qty = formatScopeQuantity(pkg);
       return qty ? `${pkg.name}: ${qty}` : null;
@@ -99,6 +104,7 @@ export default function AIEstimateDraftReviewPricingActions({
   Colors,
   darkMode,
   busy,
+  showUseSavedPricing = false,
   onUseSavedPricing,
   suggestingMissingPrices,
   onSuggestRoughPrices,
@@ -123,7 +129,7 @@ export default function AIEstimateDraftReviewPricingActions({
 
   const hasPricing = draftHasApplyablePricing(draft);
   const pricingReadiness = countDraftPricingReadiness(draft);
-  const packageMeasurementLines = measuredScopeLines(getScopePackages(draft));
+  const packageMeasurementLines = measuredScopeLines(getScopePackages(draft), draft);
   const measuredLines = packageMeasurementLines.length ? packageMeasurementLines : quickMeasurementLines(draft);
   const roughLabel =
     pricingReadiness.ready > 0
@@ -141,6 +147,7 @@ export default function AIEstimateDraftReviewPricingActions({
   const templateHints = (draft.pricingMemoryMissingSuggestions || []).filter(
     (s) => s.source === 'saved_template'
   );
+  const [showReadyItems, setShowReadyItems] = useState(false);
 
   return (
     <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: 12 })}>
@@ -149,7 +156,9 @@ export default function AIEstimateDraftReviewPricingActions({
       </Text>
       <Text style={{ color: Colors.sub, fontSize: 13, lineHeight: 18, marginBottom: 12 }}>
         {hasPricing
-          ? 'Some scope items still need prices. Use saved template rates, AI rough estimates, or enter manually.'
+          ? showUseSavedPricing
+            ? 'Some scope items still need prices. Apply saved template rates, use AI rough estimates, or enter manually.'
+            : 'Some scope items still need prices. Confirmed scope prices are already applied — use suggested pricing or enter manually.'
           : pricingReadiness.ready > 0
             ? 'I found scope measurements, but no material or labor prices. Use suggested pricing to calculate totals.'
             : 'I found the scope, but pricing needs measurements like sqft, LF, CY, counts, or allowances first.'}
@@ -161,57 +170,79 @@ export default function AIEstimateDraftReviewPricingActions({
             marginBottom: 10,
             padding: 10,
             borderRadius: 10,
-            backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.08)' : 'rgba(34, 197, 94, 0.06)',
+            borderWidth: 1,
+            borderColor: darkMode ? 'rgba(34, 197, 94, 0.22)' : 'rgba(34, 197, 94, 0.2)',
+            backgroundColor: 'transparent',
           }}
         >
-          <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '800', marginBottom: 5 }}>
-            Ready for suggested pricing
-          </Text>
-          {measuredLines.map((line, index) => (
-            <Text key={`measured-${index}`} style={{ color: Colors.text, fontSize: 12, marginBottom: 3 }}>
-              • {line}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <Text style={{ color: '#22c55e', fontSize: 12, fontWeight: '800', flex: 1 }}>
+              Ready for suggested pricing · {measuredLines.length}
             </Text>
-          ))}
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={() => setShowReadyItems((open) => !open)}
+              accessibilityRole="button"
+            >
+              <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '700' }}>
+                {showReadyItems ? 'Hide' : 'Show items'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {showReadyItems
+            ? measuredLines.map((line, index) => (
+                <Text
+                  key={`measured-${index}`}
+                  style={{ color: Colors.text, fontSize: 12, marginTop: index === 0 ? 8 : 3 }}
+                >
+                  • {line}
+                </Text>
+              ))
+            : null}
         </View>
       ) : null}
 
-      <ActionBtn
-        label="Use saved pricing"
-        onPress={onUseSavedPricing}
-        disabled={busy}
-        loading={suggestingMissingPrices}
-      />
-      {templateHints.length > 0 ? (
-        <View
-          style={{
-            marginBottom: 8,
-            marginTop: -4,
-            padding: 10,
-            borderRadius: 10,
-            backgroundColor: darkMode ? 'rgba(96, 165, 250, 0.1)' : 'rgba(59, 130, 246, 0.08)',
-          }}
-        >
-          <Text style={{ color: '#60a5fa', fontSize: 11, fontWeight: '700', marginBottom: 4 }}>
-            Matched from saved bid template
-          </Text>
-          {templateHints.slice(0, 4).map((s, i) => (
-            <Text key={`tpl-${i}`} style={{ color: Colors.sub, fontSize: 11, marginBottom: 2 }}>
-              • {s.scopeItemName}: {formatDraftMoney(s.suggestedAmount)}
-              {s.sourceLabel ? ` (${s.sourceLabel})` : ''}
+      {showUseSavedPricing ? (
+        <>
+          <ActionBtn
+            label="Apply my saved rates"
+            onPress={onUseSavedPricing}
+            disabled={busy}
+            loading={suggestingMissingPrices}
+          />
+          {templateHints.length > 0 ? (
+            <View
+              style={{
+                marginBottom: 8,
+                marginTop: -4,
+                padding: 10,
+                borderRadius: 10,
+                backgroundColor: darkMode ? 'rgba(96, 165, 250, 0.1)' : 'rgba(59, 130, 246, 0.08)',
+              }}
+            >
+              <Text style={{ color: '#60a5fa', fontSize: 11, fontWeight: '700', marginBottom: 4 }}>
+                Matched from saved bid template
+              </Text>
+              {templateHints.slice(0, 4).map((s, i) => (
+                <Text key={`tpl-${i}`} style={{ color: Colors.sub, fontSize: 11, marginBottom: 2 }}>
+                  • {s.scopeItemName}: {formatDraftMoney(s.suggestedAmount)}
+                  {s.sourceLabel ? ` (${s.sourceLabel})` : ''}
+                </Text>
+              ))}
+              <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 4 }}>
+                Tap Apply my saved rates to use unit rates from your template (e.g. tile demo $/sqft).
+              </Text>
+            </View>
+          ) : hasMemorySuggestions ? (
+            <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 8, marginTop: -4 }}>
+              Based on your saved pricing — approve before applying.
             </Text>
-          ))}
-          <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 4 }}>
-            Tap Use saved pricing to apply unit rates from your template (e.g. tile demo $/sqft).
-          </Text>
-        </View>
-      ) : hasMemorySuggestions ? (
-        <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 8, marginTop: -4 }}>
-          Based on your saved pricing — approve before applying.
-        </Text>
-      ) : draft.pricingMemoryMessage ? (
-        <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 8, marginTop: -4 }}>
-          {draft.pricingMemoryMessage}
-        </Text>
+          ) : draft.pricingMemoryMessage ? (
+            <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 8, marginTop: -4 }}>
+              {draft.pricingMemoryMessage}
+            </Text>
+          ) : null}
+        </>
       ) : null}
 
       <ActionBtn

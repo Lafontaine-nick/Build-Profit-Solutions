@@ -50,13 +50,15 @@ import AIEstimateManualPricingModal from '../../components/estimate/AIEstimateMa
 import AIEstimateScopeAssumptionsModal from '../../components/estimate/AIEstimateScopeAssumptionsModal';
 import {
   applyPricingProposalToDraft,
-  buildBudgetSplitProposalFromDraft,
   buildProposalFromMissingSuggestions,
+  draftHasSavedTemplateOrLibraryMatches,
   fetchRoughPricingProposal,
   resolvePricingZipCode,
   fetchSavedPricingProposal,
+  filterProposalToTemplateLibraryOnly,
   normalizePricingProposal,
   proposalHasSavedRates,
+  proposalHasTemplateOrLibraryRates,
   resolveSavedPricingProposalForDraft,
   countSavedPricingScopeItems,
   draftHasApplyablePricing,
@@ -5053,8 +5055,22 @@ export default function EstimateGeneratorScreen() {
     const total = financials.bidPrice;
     const marginRatio = total > 0 ? profit / total : 0;
     const marginPercent = marginRatio * 100;
-    const denom = bid.unitMode === 'sqft' ? Math.max(1, bid.sqft) : bid.unitMode === 'lf' ? 480 : 30;
-    const unitPrice = total / denom;
+    const sqft = Number(bid.sqft) || 0;
+    const lf = Number(bid.lf) || 0;
+    const unitMode = bid.unitMode || 'sqft';
+    const denom =
+      unitMode === 'sqft'
+        ? sqft > 0
+          ? sqft
+          : 0
+        : unitMode === 'lf'
+          ? lf > 0
+            ? lf
+            : 0
+          : 30;
+    const unitPrice = denom > 0 ? total / denom : null;
+    const unitPriceLabel =
+      unitMode === 'lf' ? '/ lf' : unitMode === 'sqft' ? '/ sqft' : '/ unit';
     return {
       materials,
       labor,
@@ -5070,6 +5086,7 @@ export default function EstimateGeneratorScreen() {
       grandTotal: total,
       subtotal,
       unitPrice,
+      unitPriceLabel,
       marginRatio,
       marginPercent,
     };
@@ -5145,8 +5162,19 @@ export default function EstimateGeneratorScreen() {
         materialLineItems: bid?.materialLineItems || [],
         laborLineItems: bid?.laborLineItems || [],
       },
+      state: bid?.customerState || null,
+      zipCode: bid?.customerZip || null,
+      city: bid?.customerCity || null,
     }),
-    [savedBidTemplates, bid?.materialLineItems, bid?.laborLineItems, bid?.title]
+    [
+      savedBidTemplates,
+      bid?.materialLineItems,
+      bid?.laborLineItems,
+      bid?.title,
+      bid?.customerState,
+      bid?.customerZip,
+      bid?.customerCity,
+    ]
   );
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
@@ -5169,6 +5197,7 @@ export default function EstimateGeneratorScreen() {
   const [aiDraftClarifying, setAiDraftClarifying] = useState(false);
   const [aiDraftSuggestingMissing, setAiDraftSuggestingMissing] = useState(false);
   const [aiSavedPricingProposal, setAiSavedPricingProposal] = useState(null);
+  const [aiSavedTemplateMatchesAvailable, setAiSavedTemplateMatchesAvailable] = useState(false);
   const [aiRoughPricingProposal, setAiRoughPricingProposal] = useState(null);
   const [aiBudgetSplitProposal, setAiBudgetSplitProposal] = useState(null);
   const [showAiSavedPricingModal, setShowAiSavedPricingModal] = useState(false);
@@ -5657,8 +5686,9 @@ export default function EstimateGeneratorScreen() {
         const proposal = resolveSavedPricingProposalForDraft(targetDraft, fetched, {
           allowStalePending: false,
         });
+        const templateLibraryProposal = filterProposalToTemplateLibraryOnly(proposal);
 
-        if (!proposalHasSavedRates(proposal)) {
+        if (!proposalHasTemplateOrLibraryRates(templateLibraryProposal)) {
           setAiSavedPricingProposal(null);
           return {
             draft: draftWithoutPendingPricing(targetDraft),
@@ -5666,7 +5696,7 @@ export default function EstimateGeneratorScreen() {
           };
         }
 
-        const finalProposal = normalizePricingProposal(proposal);
+        const finalProposal = normalizePricingProposal(templateLibraryProposal);
         setAiSavedPricingProposal(finalProposal);
         const nextDraft = autoApply
           ? applyPricingProposalToDraft(targetDraft, finalProposal, { approved: true })
@@ -5739,6 +5769,8 @@ export default function EstimateGeneratorScreen() {
             .filter(Boolean)
             .join(', '),
           zipCode: resolvePricingZipCode(syncedDraft, bid),
+          state: bid?.customerState || null,
+          city: bid?.customerCity || null,
         });
         if (!proposal.empty) {
           setAiRoughPricingProposal(proposal);
@@ -6037,6 +6069,26 @@ export default function EstimateGeneratorScreen() {
 
   const savedPricingModalOpenRef = useRef(false);
   useEffect(() => {
+    if (!showAiDraftReviewModal || !aiDraft) {
+      setAiSavedTemplateMatchesAvailable(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const synced = syncDraftWithLatestScopeMeasurements(aiDraft);
+        const matches = await draftHasSavedTemplateOrLibraryMatches(synced, savedBidTemplates);
+        if (!cancelled) setAiSavedTemplateMatchesAvailable(matches);
+      } catch {
+        if (!cancelled) setAiSavedTemplateMatchesAvailable(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showAiDraftReviewModal, aiDraft, savedBidTemplates, syncDraftWithLatestScopeMeasurements]);
+
+  useEffect(() => {
     const opening = showAiSavedPricingModal && !savedPricingModalOpenRef.current;
     savedPricingModalOpenRef.current = showAiSavedPricingModal;
     if (!opening || !aiDraft) return;
@@ -6070,6 +6122,8 @@ export default function EstimateGeneratorScreen() {
           .filter(Boolean)
           .join(', '),
         zipCode: resolvePricingZipCode(aiDraft, bid),
+        state: bid?.customerState || null,
+        city: bid?.customerCity || null,
       });
       if (proposal.empty) {
         if (proposalHasSavedRates(aiRoughPricingProposal)) {
@@ -6281,12 +6335,13 @@ export default function EstimateGeneratorScreen() {
     (proposalOverride) => {
       const proposal = proposalOverride || aiBudgetSplitProposal;
       if (!aiDraft || !proposal || proposal.empty) return;
-      setAiDraft({
-        ...aiDraft,
-        pendingPricingProposal: proposal,
-        pricingProposalApproved: true,
-        applySuggestedSplits: true,
-      });
+      setAiDraft(
+        applyPricingProposalToDraft(
+          { ...aiDraft, applySuggestedSplits: true },
+          proposal,
+          { approved: true }
+        )
+      );
       setShowAiBudgetSplitModal(false);
       resumeDraftReviewAfterPricingModal();
       if (Platform.OS !== 'web') {
@@ -6380,18 +6435,28 @@ export default function EstimateGeneratorScreen() {
       const withApproved = mode === 'with_approved';
 
       const runApply = async (draftOverride = null, forceApplySuggestedSplits = false) => {
-        const draftToApply = draftOverride || aiDraft;
+        let draftToApply = draftOverride || aiDraft;
+        // Merge approved pending proposal into packages so Step 3 totals become labor/material lines.
+        if (
+          draftToApply?.pendingPricingProposal &&
+          !draftToApply.pendingPricingProposal.empty &&
+          draftToApply.pricingProposalApproved
+        ) {
+          draftToApply = applyPricingProposalToDraft(draftToApply, draftToApply.pendingPricingProposal, {
+            approved: true,
+          });
+        }
         setAiDraftApplying(true);
         try {
           const { bid: appliedBid, materialsCart: nextCart } = applyDraftToEstimate(bid, draftToApply, {
             scopeOnly,
+            // Apply Confirmed Only keeps Step 2–3 confirmed splits only.
+            // Do not invent National Average material/labor splits for allowance packages.
             applySuggestedSplits: scopeOnly
               ? false
               : withApproved || forceApplySuggestedSplits
                 ? true
-                : applyConfirmedOnly
-                  ? false
-                  : Boolean(draftToApply.applySuggestedSplits),
+                : Boolean(draftToApply.applySuggestedSplits),
             applyConfirmedOnly: scopeOnly ? false : applyConfirmedOnly,
           });
           const nextBid = {
@@ -6458,45 +6523,34 @@ export default function EstimateGeneratorScreen() {
       }
 
       if (applyConfirmedOnly) {
-        const budgetSplitProposal = buildBudgetSplitProposalFromDraft(aiDraft);
-        if (budgetSplitProposal && !budgetSplitProposal.empty) {
-          const approvedDraft = {
-            ...aiDraft,
-            pendingPricingProposal: budgetSplitProposal,
-            pricingProposalApproved: true,
-            applySuggestedSplits: true,
-          };
-          if (bidHasLineItems) {
-            Alert.alert(
-              'Apply confirmed pricing?',
-              'This applies the note totals and the material/labor budget splits shown in Step 3. Missing scope will not be added as $0 lines.',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Apply confirmed', onPress: () => void runApply(approvedDraft, true) },
-              ]
-            );
-          } else {
-            await runApply(approvedDraft, true);
-          }
-          return;
+        // Do not auto-approve National Average budget splits here.
+        // Step 3 Allowances stay combined; only splits already confirmed in Confirm Scope / Step 3 apply.
+        if (bidHasLineItems) {
+          Alert.alert(
+            'Apply confirmed pricing?',
+            'This applies confirmed note totals and material/labor splits from Steps 2–3. Unsplit packages stay as trade packages. Missing scope will not be added as $0 lines.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Apply confirmed', onPress: () => void runApply() },
+            ]
+          );
+        } else {
+          await runApply();
         }
+        return;
       }
 
       if (bidHasLineItems) {
-        const title = applyConfirmedOnly
-          ? 'Apply confirmed pricing?'
-          : withApproved
-            ? 'Apply with approved suggestions?'
-            : 'Replace line items?';
-        const message = applyConfirmedOnly
-          ? 'Only confirmed and calculated prices from your notes will be applied. Missing scope will not be added as $0 lines.'
-          : withApproved
-            ? 'Applies your notes plus AI splits you approved. Unapproved suggestions are skipped.'
-            : 'Applying this draft will replace your current labor and material line items with the AI-parsed rooms. Other bid fields stay as-is.';
+        const title = withApproved
+          ? 'Apply with approved suggestions?'
+          : 'Replace line items?';
+        const message = withApproved
+          ? 'Applies your notes plus AI splits you approved. Unapproved suggestions are skipped.'
+          : 'Applying this draft will replace your current labor and material line items with the AI-parsed rooms. Other bid fields stay as-is.';
         Alert.alert(title, message, [
           { text: 'Cancel', style: 'cancel' },
           {
-            text: applyConfirmedOnly ? 'Apply confirmed' : withApproved ? 'Apply approved' : 'Apply draft',
+            text: withApproved ? 'Apply approved' : 'Apply draft',
             onPress: () => void runApply(),
           },
         ]);
@@ -6505,7 +6559,7 @@ export default function EstimateGeneratorScreen() {
 
       await runApply();
     },
-    [aiDraft, aiSaveToPricingLibrary, bid, bidHasLineItems, pauseDraftReviewForPricingModal, syncLocalCustomerFromBid]
+    [aiDraft, aiSaveToPricingLibrary, bid, bidHasLineItems, syncLocalCustomerFromBid]
   );
 
   const handleApplyAiDraftConfirmed = useCallback(
@@ -13399,18 +13453,20 @@ export default function EstimateGeneratorScreen() {
                 </Text>
                 
                 <View style={{ flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 22 }}>
-                  <View style={{
-                    backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
-                    paddingHorizontal: 14,
-                    paddingVertical: 8,
-                    borderRadius: 14,
-                    borderWidth: 1,
-                    borderColor: chipBorder,
-                  }}>
-                    <Text style={{ color: summaryMuted, fontSize: 11, fontWeight: '600' }}>
-                      {money(calc.unitPrice)} / sqft
-                    </Text>
-                  </View>
+                  {calc.unitPrice != null ? (
+                    <View style={{
+                      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
+                      paddingHorizontal: 14,
+                      paddingVertical: 8,
+                      borderRadius: 14,
+                      borderWidth: 1,
+                      borderColor: chipBorder,
+                    }}>
+                      <Text style={{ color: summaryMuted, fontSize: 11, fontWeight: '600' }}>
+                        {money(calc.unitPrice)} {calc.unitPriceLabel || '/ sqft'}
+                      </Text>
+                    </View>
+                  ) : null}
                   <View style={{
                     backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
                     paddingHorizontal: 14,
@@ -24273,6 +24329,7 @@ export default function EstimateGeneratorScreen() {
         roughRangeLoading={aiDraftRoughLoading}
         suggestingMissingPrices={aiDraftSuggestingMissing}
         onSuggestMissingPrices={handleSuggestMissingPrices}
+        showUseSavedPricing={aiSavedTemplateMatchesAvailable}
         onUseSavedPricing={handleUseSavedPricing}
         onSuggestRoughPrices={handleSuggestRoughPrices}
         onAddPricesManually={handleAddPricesManually}
@@ -24288,8 +24345,8 @@ export default function EstimateGeneratorScreen() {
         visible={showAiSavedPricingModal}
         proposal={aiSavedPricingProposal}
         pricingMode="saved_only"
-        title="Use Confirmed Pricing"
-        subtitle="Matched saved rates plus prices confirmed in scope."
+        title="Apply my saved rates"
+        subtitle="Matched from saved bid templates and your pricing library."
         onApply={handleApplySavedPricingProposal}
         onAddManually={() => {
           setShowAiSavedPricingModal(false);

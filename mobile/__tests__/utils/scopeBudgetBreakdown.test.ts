@@ -1,6 +1,7 @@
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { applyDraftToEstimate } from '@/utils/estimateAiDraft';
 import {
+  lookupRuleKeyForBudgetPackage,
   packageNeedsSuggestedBudgetSplit,
   resolveScopePackageBudgetBreakdown,
 } from '@/utils/scopeBudgetBreakdown';
@@ -176,6 +177,161 @@ describe('scopeBudgetBreakdown', () => {
       materialSource: 'suggested',
       laborSource: 'suggested',
     });
+  });
+
+  it('shows Framing / shell material+labor from rough pricing even without Confirm Scope keys', () => {
+    const draft = {
+      projectType: 'adu',
+      originalNotes: '800 sqft ADU',
+      scopeMeasurements: { itemQuantities: {} },
+      scopePackages: [
+        {
+          name: 'Framing / shell',
+          scope: 'framing',
+          price: 32000,
+          materialPrice: 14400,
+          laborPrice: 17600,
+          priceSource: 'ai_rough_estimate',
+          status: 'confirmed',
+          knownSubtotal: 32000,
+          scopeQuantities: [{ quantity: 800, unit: 'sqft' }],
+          splitIsSuggested: false,
+          applyEligible: true,
+        },
+      ],
+      rooms: [],
+    } as EstimateAiDraft;
+
+    const framingBreakdown = resolveScopePackageBudgetBreakdown(draft.scopePackages![0], draft);
+    expect(framingBreakdown).toMatchObject({
+      total: 32000,
+      material: 14400,
+      labor: 17600,
+      materialSource: 'suggested',
+      laborSource: 'suggested',
+    });
+  });
+
+  it('shows split from pricingItems when package material/labor fields are empty', () => {
+    const draft = {
+      projectType: 'adu',
+      originalNotes: '800 sqft ADU',
+      scopeMeasurements: { itemQuantities: {} },
+      scopePackages: [
+        {
+          name: 'HVAC',
+          scope: 'hvac',
+          price: 11200,
+          materialPrice: null,
+          laborPrice: null,
+          priceSource: 'ai_rough_estimate',
+          status: 'confirmed',
+          knownSubtotal: 11200,
+          scopeQuantities: [{ quantity: 800, unit: 'sqft' }],
+          pricingItems: [
+            { name: 'HVAC materials', amount: 4800, pricingType: 'material' },
+            { name: 'HVAC labor', amount: 6400, pricingType: 'labor' },
+          ],
+          applyEligible: true,
+        },
+      ],
+      rooms: [],
+    } as EstimateAiDraft;
+
+    expect(resolveScopePackageBudgetBreakdown(draft.scopePackages![0], draft)).toMatchObject({
+      total: 11200,
+      material: 4800,
+      labor: 6400,
+    });
+  });
+
+  it('shows split from pending pricing proposal before packages are updated', () => {
+    const draft = {
+      projectType: 'adu',
+      originalNotes: '800 sqft ADU',
+      scopeMeasurements: { itemQuantities: {} },
+      pendingPricingProposal: {
+        empty: false,
+        source: 'ai_rough_estimate',
+        lines: [
+          {
+            packageName: 'Insulation',
+            lineType: 'material',
+            label: 'Insulation materials',
+            total: 1000,
+            unitType: 'sqft',
+            quantity: 800,
+            unitRate: 1.25,
+          },
+          {
+            packageName: 'Insulation',
+            lineType: 'labor',
+            label: 'Insulation labor',
+            total: 1400,
+            unitType: 'sqft',
+            quantity: 800,
+            unitRate: 1.75,
+          },
+        ],
+      },
+      scopePackages: [
+        {
+          name: 'Insulation',
+          scope: 'insulation',
+          price: null,
+          materialPrice: null,
+          laborPrice: null,
+          priceSource: 'missing',
+          status: 'missing_price',
+          knownSubtotal: null,
+          scopeQuantities: [{ quantity: 800, unit: 'sqft' }],
+        },
+      ],
+      rooms: [],
+    } as EstimateAiDraft;
+
+    expect(resolveScopePackageBudgetBreakdown(draft.scopePackages![0], draft)).toMatchObject({
+      total: 2400,
+      material: 1000,
+      labor: 1400,
+      materialSource: 'suggested',
+    });
+  });
+
+  it('infers labor remainder when only materialPrice is set', () => {
+    const draft = {
+      projectType: 'adu',
+      originalNotes: '800 sqft ADU',
+      scopeMeasurements: { itemQuantities: {} },
+      scopePackages: [
+        {
+          name: 'Drywall',
+          scope: 'drywall',
+          price: 12600,
+          materialPrice: 4200,
+          laborPrice: null,
+          priceSource: 'user_provided',
+          status: 'user_provided',
+          knownSubtotal: 12600,
+          scopeQuantities: [{ quantity: 2800, unit: 'sqft' }],
+        },
+      ],
+      rooms: [],
+    } as EstimateAiDraft;
+
+    expect(resolveScopePackageBudgetBreakdown(draft.scopePackages![0], draft)).toMatchObject({
+      total: 12600,
+      material: 4200,
+      labor: 8400,
+      materialSource: 'manual',
+    });
+  });
+
+  it('maps Roofing / tie-in and Decking package names to budget split keys', () => {
+    expect(lookupRuleKeyForBudgetPackage('Roofing / tie-in')).toBe('shingles_roofing');
+    expect(lookupRuleKeyForBudgetPackage('Decking')).toBe('decking');
+    expect(lookupRuleKeyForBudgetPackage('Framing / shell')).toBe('framing');
+    expect(lookupRuleKeyForBudgetPackage('Windows & doors')).toBe('windows_doors');
   });
 
   it('assigns rock supply lump sums to materials only', () => {

@@ -490,7 +490,12 @@ export default function ScopeReviewSheet({
                               setIncludeCostKey(null);
                               setIncludeCostAmount('');
                             }}
-                            style={styles.cancelBtn}
+                            style={[
+                              styles.cancelBtn,
+                              {
+                                borderColor: darkMode ? 'rgba(148, 163, 184, 0.35)' : Colors.line,
+                              },
+                            ]}
                             accessibilityRole="button"
                           >
                             <Text style={{ color: caption, fontSize: 13, fontWeight: '600' }}>Back</Text>
@@ -561,7 +566,12 @@ export default function ScopeReviewSheet({
                         setIncludeCostAmount('');
                         setMoreOptionsKey(null);
                       }}
-                      style={styles.cancelBtn}
+                      style={[
+                        styles.cancelBtn,
+                        {
+                          borderColor: darkMode ? 'rgba(148, 163, 184, 0.35)' : Colors.line,
+                        },
+                      ]}
                       accessibilityRole="button"
                     >
                       <Text style={{ color: caption, fontSize: 13, fontWeight: '600' }}>Cancel</Text>
@@ -679,7 +689,15 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     minHeight: 40,
   },
-  cancelBtn: { alignItems: 'center', paddingVertical: 8, minHeight: 44, justifyContent: 'center' },
+  cancelBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: 10,
+  },
   footer: { borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16, paddingTop: 12 },
   doneBtn: {
     backgroundColor: '#22c55e',

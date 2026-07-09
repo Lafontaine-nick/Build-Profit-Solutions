@@ -265,6 +265,7 @@ export function AcceptedPricingSummary({
 }) {
   const [secondaryOpen, setSecondaryOpen] = useState(false);
   const [scopeReviewOpen, setScopeReviewOpen] = useState(false);
+  const [warningExpanded, setWarningExpanded] = useState(false);
 
   const reviewableComponents = useMemo(
     () =>
@@ -329,8 +330,46 @@ export function AcceptedPricingSummary({
       ? display.subtitleLine
       : display.pricingTypeLabel;
 
+  // One primary badge: attention/confidence first, else source. Skip source if it
+  // duplicates the price-adjacent selection status (e.g. "User adjusted").
+  const primaryBadge = useMemo(() => {
+    const status = (display.selectionStatusLabel || '').trim().toLowerCase();
+    const source = (display.pricingSourceLabel || '').trim();
+    const confidence = display.showConfidenceBadge ? display.confidenceLabel : null;
+    const attentionConfidence =
+      confidence === 'Scope review pending' ||
+      confidence === 'Low confidence' ||
+      confidence === 'Medium confidence'
+        ? confidence
+        : null;
+    if (attentionConfidence) {
+      return { kind: 'confidence' as const, label: attentionConfidence };
+    }
+    if (source && source.toLowerCase() !== status) {
+      return { kind: 'source' as const, label: source };
+    }
+    if (confidence === 'High confidence') {
+      return { kind: 'confidence' as const, label: confidence };
+    }
+    return null;
+  }, [
+    display.selectionStatusLabel,
+    display.pricingSourceLabel,
+    display.showConfidenceBadge,
+    display.confidenceLabel,
+  ]);
+
+  const warningPreview = useMemo(() => {
+    const full = (display.warningMessage || '').trim();
+    if (!full) return null;
+    const firstSentence = full.split(/(?<=\.)\s+/)[0] || full;
+    const preview =
+      firstSentence.length > 90 ? `${firstSentence.slice(0, 87).trimEnd()}…` : firstSentence;
+    return { full, preview, canExpand: preview !== full };
+  }, [display.warningMessage]);
+
   return (
-    <View style={{ gap: 8 }}>
+    <View style={{ gap: 6 }}>
       <View style={styles.summaryTopRow}>
         <Text style={[styles.totalText, { color: darkMode ? '#F5F7FA' : Colors.text }]}>{display.totalLabel}</Text>
         <Text style={[styles.statusText, { color: captionColor(darkMode, Colors) }]}>{display.selectionStatusLabel}</Text>
@@ -359,14 +398,41 @@ export function AcceptedPricingSummary({
           </Text>
         </View>
       ) : null}
-      <View style={styles.badgeRow}>
-        <PricingSourceBadge label={display.pricingSourceLabel} darkMode={darkMode} />
-        {display.showConfidenceBadge && display.confidenceLabel ? (
-          <PricingConfidenceBadge label={display.confidenceLabel} darkMode={darkMode} />
-        ) : null}
-      </View>
-      {display.warningMessage ? (
-        <Text style={[styles.warningText, { color: darkMode ? '#fbbf24' : '#d97706' }]}>{display.warningMessage}</Text>
+      {primaryBadge ? (
+        <View style={styles.badgeRow}>
+          {primaryBadge.kind === 'confidence' ? (
+            <PricingConfidenceBadge label={primaryBadge.label} darkMode={darkMode} />
+          ) : (
+            <PricingSourceBadge label={primaryBadge.label} darkMode={darkMode} />
+          )}
+        </View>
+      ) : null}
+      {warningPreview ? (
+        <TouchableOpacity
+          activeOpacity={warningPreview.canExpand ? 0.75 : 1}
+          disabled={!warningPreview.canExpand}
+          onPress={() => setWarningExpanded((open) => !open)}
+          accessibilityRole={warningPreview.canExpand ? 'button' : undefined}
+          accessibilityState={warningPreview.canExpand ? { expanded: warningExpanded } : undefined}
+        >
+          <Text
+            style={[
+              styles.warningText,
+              {
+                color: warningExpanded
+                  ? darkMode
+                    ? '#fbbf24'
+                    : '#d97706'
+                  : darkMode
+                    ? 'rgba(251,191,36,0.72)'
+                    : 'rgba(217,119,6,0.85)',
+              },
+            ]}
+          >
+            {warningExpanded ? warningPreview.full : warningPreview.preview}
+            {warningPreview.canExpand && !warningExpanded ? ' More' : ''}
+          </Text>
+        </TouchableOpacity>
       ) : null}
       <View style={[styles.actionLinksRow, !secondaryAction && styles.actionLinksRowSingle]}>
         <TouchableOpacity onPress={onEditPricing} activeOpacity={0.7} accessibilityRole="button">
@@ -540,8 +606,8 @@ const styles = StyleSheet.create({
   badge: {
     borderWidth: 1,
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     maxWidth: '100%',
   },
   warningText: {
@@ -552,14 +618,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
+    marginTop: 2,
   },
   actionLinksRowSingle: {
     justifyContent: 'flex-start',
   },
   editLink: {
     color: '#22c55e',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
   },
   detailsPanel: {

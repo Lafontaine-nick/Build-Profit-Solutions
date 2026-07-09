@@ -14,7 +14,6 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -117,31 +116,15 @@ export default function AIEstimateBuilderModal({
 
   if (!visible) return null;
 
+  const canGenerate = Boolean(notes.trim()) && !busy;
+
   const notesField = (
     <>
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 10,
-          marginBottom: 12,
-          padding: 12,
-          borderRadius: 14,
-          borderWidth: 1,
-          borderColor: 'rgba(45, 255, 196, 0.22)',
-          backgroundColor: darkMode ? 'rgba(45, 255, 196, 0.06)' : 'rgba(34, 197, 94, 0.06)',
-        }}
-      >
-        <MaterialIcons name="auto-awesome" size={20} color="#22c55e" />
-        <Text style={{ color: Colors.sub, fontSize: 13, flex: 1, lineHeight: 18 }}>
-          Paste walkthrough notes — lump sums, $/sqft allowances, sqft, labor/material splits. AI
-          organizes scope, calculates clear formulas, and flags what’s missing. Review before applying.
-        </Text>
-      </View>
+      <Text style={{ color: Colors.sub, fontSize: 13, lineHeight: 18, marginBottom: 14 }}>
+        Paste notes with prices, sqft, and splits — AI drafts scope for review.
+      </Text>
 
-      <AIEstimateDisclaimer variant="compact" />
-
-      <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 8, marginTop: 12 }}>
+      <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 8 }}>
         Job notes
       </Text>
       <TextInput
@@ -166,6 +149,8 @@ export default function AIEstimateBuilderModal({
           },
         ]}
       />
+
+      <AIEstimateDisclaimer variant="compact" />
     </>
   );
 
@@ -184,22 +169,23 @@ export default function AIEstimateBuilderModal({
         activeOpacity={0.88}
         disabled={!notes.trim() || busy}
         onPress={handleGenerate}
+        style={[
+          styles.primaryBtn,
+          { backgroundColor: canGenerate || busy ? '#22c55e' : '#64748b' },
+          !notes.trim() && !busy ? styles.primaryBtnDisabled : null,
+        ]}
       >
-        <LinearGradient
-          colors={notes.trim() && !busy ? ['#2DFFC4', '#00A6FF'] : ['#64748b', '#475569']}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
-          style={styles.primaryBtn}
-        >
-          {busy ? (
+        {busy ? (
+          <>
             <ActivityIndicator color="#0f172a" />
-          ) : (
-            <>
-              <MaterialIcons name="auto-awesome" size={20} color="#0f172a" />
-              <Text style={styles.primaryBtnText}>Generate Estimate Draft</Text>
-            </>
-          )}
-        </LinearGradient>
+            <Text style={styles.primaryBtnText}>Generating…</Text>
+          </>
+        ) : (
+          <>
+            <MaterialIcons name="auto-awesome" size={20} color="#0f172a" />
+            <Text style={styles.primaryBtnText}>Generate Estimate Draft</Text>
+          </>
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -269,12 +255,15 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   primaryBtn: {
-    borderRadius: 14,
+    borderRadius: 12,
     paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+  },
+  primaryBtnDisabled: {
+    opacity: 0.85,
   },
   primaryBtnText: {
     color: '#0f172a',

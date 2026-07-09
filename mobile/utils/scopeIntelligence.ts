@@ -1600,8 +1600,13 @@ export function primaryIntelligenceNotice(intelligence: ScopeItemIntelligence): 
       intelligence.quantity.source !== 'calculated_confirmed' &&
       intelligence.formulaComparison.variancePercent !== 0
     ) {
-      const sign = intelligence.formulaComparison.variancePercent > 0 ? '+' : '';
-      return `Calculated comparison: ${intelligence.formulaComparison.calculatedValue.toLocaleString()} ${formatUnitLabel(intelligence.formulaComparison.calculatedUnit)} (${sign}${intelligence.formulaComparison.variancePercent}% vs current).`;
+      const variance = intelligence.formulaComparison.variancePercent;
+      // Extreme % usually means unit mismatch (e.g. CY vs sqft) — show value only.
+      if (Math.abs(variance) > 150) {
+        return `Calculated comparison: ${intelligence.formulaComparison.calculatedValue.toLocaleString()} ${formatUnitLabel(intelligence.formulaComparison.calculatedUnit)}.`;
+      }
+      const sign = variance > 0 ? '+' : '';
+      return `Calculated comparison: ${intelligence.formulaComparison.calculatedValue.toLocaleString()} ${formatUnitLabel(intelligence.formulaComparison.calculatedUnit)} (${sign}${variance}% vs current).`;
     }
   }
   const issue = intelligence.validation.issues.find(

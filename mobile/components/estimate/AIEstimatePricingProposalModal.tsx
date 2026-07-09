@@ -241,7 +241,6 @@ function RateRow({
         <Text style={[styles.rateTotalInline, { color: Colors.text }]} numberOfLines={1}>
           {line.total != null ? formatDraftMoney(line.total) : '—'}
         </Text>
-        <SourceInlineTag source={line.source} mode={sourceMode} />
       </View>
     </View>
   );
@@ -435,8 +434,8 @@ function ScopeCard({
           styles.card,
           styles.unmatchedCard,
           {
-            borderColor: darkMode ? 'rgba(251,191,36,0.25)' : 'rgba(251,191,36,0.35)',
-            backgroundColor: darkMode ? 'rgba(251,191,36,0.04)' : 'rgba(251,191,36,0.05)',
+            borderColor: darkMode ? 'rgba(251,191,36,0.28)' : 'rgba(251,191,36,0.32)',
+            backgroundColor: 'transparent',
           },
         ]}
       >
@@ -674,7 +673,7 @@ function ScopeCard({
       {canEdit && !isEditing ? (
         <TouchableOpacity
           onPress={onToggleEdit}
-          activeOpacity={0.88}
+          activeOpacity={0.75}
           style={styles.cardAdjustBtn}
         >
           <Text style={styles.cardAdjustBtnText}>Adjust rates</Text>
@@ -886,7 +885,7 @@ export default function AIEstimatePricingProposalModal({
 
   const savedMatchStats = useMemo(() => {
     if (!savedCounts) return null;
-    return `${savedCounts.priced} confirmed price${savedCounts.priced === 1 ? '' : 's'} found • ${savedCounts.needsPricing} still need pricing`;
+    return `${savedCounts.priced} saved rate${savedCounts.priced === 1 ? '' : 's'} found • ${savedCounts.needsPricing} still need pricing`;
   }, [savedCounts]);
 
   const filteredScopeItems = useMemo(() => {
@@ -924,7 +923,7 @@ export default function AIEstimatePricingProposalModal({
   const savedApplyLabel = useMemo(() => {
     if (!isSavedOnly || !savedCounts) return applyLabel || 'Apply saved pricing';
     const n = savedCounts.priced;
-    return n > 0 ? `Apply ${n} confirmed price${n === 1 ? '' : 's'}` : applyLabel || 'Apply saved pricing';
+    return n > 0 ? `Apply ${n} saved rate${n === 1 ? '' : 's'}` : applyLabel || 'Apply saved rates';
   }, [isSavedOnly, savedCounts, applyLabel]);
 
   const savedStillNeedCaption = useMemo(() => {
@@ -1082,10 +1081,10 @@ export default function AIEstimatePricingProposalModal({
               >
                 <Text style={{ color: '#60a5fa', fontSize: 12, lineHeight: 17, flex: 1 }}>
                   <Text style={{ fontWeight: '800' }}>
-                    Saved rates + confirmed scope prices.
+                    Rates from your saved bid templates and pricing library.
                   </Text>
                   {' '}
-                  Use Suggest rough prices for vendor and regional rates.
+                  Scope-confirmed prices are already on your review screen. Use Suggest pricing for regional rates.
                 </Text>
               </View>
             ) : null}
@@ -1371,7 +1370,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 5,
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 3,
     borderRadius: 999,
     borderWidth: 1,
   },
@@ -1386,7 +1385,7 @@ const styles = StyleSheet.create({
   },
   badgeCompact: {
     paddingHorizontal: 6,
-    paddingVertical: 3,
+    paddingVertical: 2,
     gap: 4,
   },
   badgeDotCompact: {
@@ -1439,8 +1438,8 @@ const styles = StyleSheet.create({
   },
   needsPricingBadge: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 999,
     borderWidth: 1,
     marginTop: 4,
@@ -1518,13 +1517,11 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
   cardAdjustBtn: {
-    marginTop: 10,
-    backgroundColor: '#22c55e',
-    borderRadius: 10,
-    paddingVertical: 10,
-    alignItems: 'center',
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
   },
-  cardAdjustBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 14 },
+  cardAdjustBtnText: { color: '#22c55e', fontWeight: '700', fontSize: 13 },
   doneEditBtn: {
     marginTop: 12,
     paddingVertical: 11,

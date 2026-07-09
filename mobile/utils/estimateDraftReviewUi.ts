@@ -43,14 +43,26 @@ export function draftHasUnpricedScope(draft: EstimateAiDraft | null): boolean {
   return getScopePackages(draft).some((p) => scopePackageNeedsManualPrice(p, draft));
 }
 
+/** Effective priced amount for a scope row — includes Confirm Scope budget splits. */
+export function scopePackagePricedAmount(
+  pkg: EstimateDraftScopePackage,
+  draft?: EstimateAiDraft | null
+): number {
+  if (draft) {
+    const breakdown = resolveScopePackageBudgetBreakdown(pkg, draft);
+    if (breakdown?.total && breakdown.total > 0) return breakdown.total;
+  }
+  const amount = pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0;
+  if (amount > 0) return amount;
+  return proposalTotalForScopeName(draft?.pendingPricingProposal, pkg.name);
+}
+
 /** Scope row still needs a user-entered price (tap-to-price on review step 3). */
 export function scopePackageNeedsManualPrice(
   pkg: EstimateDraftScopePackage,
   draft?: EstimateAiDraft | null
 ): boolean {
-  const amount = pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0;
-  if (amount > 0) return false;
-  if (proposalTotalForScopeName(draft?.pendingPricingProposal, pkg.name) > 0) return false;
+  if (scopePackagePricedAmount(pkg, draft) > 0) return false;
   return pkg.status === 'missing_price' || pkg.status === 'partial_pricing' || !pkg.status;
 }
 
@@ -188,14 +200,8 @@ export function compactPackageAmount(
   pkg: EstimateDraftScopePackage,
   draft?: EstimateAiDraft | null
 ): string | null {
-  if (draft) {
-    const breakdown = resolveScopePackageBudgetBreakdown(pkg, draft);
-    if (breakdown?.total && breakdown.total > 0) return formatDraftMoney(breakdown.total);
-  }
-  const amount = pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal;
-  if (amount != null && amount > 0) return formatDraftMoney(amount);
-  const pending = proposalTotalForScopeName(draft?.pendingPricingProposal, pkg.name);
-  if (pending > 0) return formatDraftMoney(pending);
+  const amount = scopePackagePricedAmount(pkg, draft);
+  if (amount > 0) return formatDraftMoney(amount);
   return null;
 }
 

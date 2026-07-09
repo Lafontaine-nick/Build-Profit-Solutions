@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
   },
   sourcePill: {
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 3,
     borderRadius: 999,
     borderWidth: 1,
   },

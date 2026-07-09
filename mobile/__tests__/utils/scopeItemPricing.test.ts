@@ -269,9 +269,9 @@ describe('resolveScopeItemSuggestedPricing', () => {
     const { fill } = resolveScopeItemSuggestedPricing('electrical_rough', input, 'addition', resolved);
     expect(fill).toMatchObject({
       mode: 'suggested_price',
-      material: 140,
-      labor: 360,
-      total: 500,
+      material: 200,
+      labor: 500,
+      total: 700,
       basis: { quantity: 4, unit: 'each' },
     });
   });

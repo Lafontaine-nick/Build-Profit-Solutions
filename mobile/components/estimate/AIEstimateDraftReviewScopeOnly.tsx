@@ -34,6 +34,7 @@ type Props = {
   busy: boolean;
   confStyle: { bg: string; color: string };
   confidenceLevel?: EstimateConfidenceLevel;
+  showUseSavedPricing?: boolean;
   onUseSavedPricing?: () => void;
   suggestingMissingPrices?: boolean;
   onSuggestRoughPrices?: () => void;
@@ -50,6 +51,7 @@ export default function AIEstimateDraftReviewScopeOnly({
   darkMode,
   busy,
   confStyle,
+  showUseSavedPricing = false,
   onUseSavedPricing,
   suggestingMissingPrices,
   onSuggestRoughPrices,
@@ -117,6 +119,7 @@ export default function AIEstimateDraftReviewScopeOnly({
           Colors={Colors}
           darkMode={darkMode}
           busy={busy}
+          showUseSavedPricing={showUseSavedPricing}
           onUseSavedPricing={onUseSavedPricing}
           suggestingMissingPrices={suggestingMissingPrices}
           onSuggestRoughPrices={onSuggestRoughPrices}

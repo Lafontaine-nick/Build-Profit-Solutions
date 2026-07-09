@@ -9,6 +9,12 @@ import {
   SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL,
   SCOPE_LABOR_PARSED_FROM_NOTES_LABEL,
 } from '@/constants/scopeNoteSourceLabels';
+import {
+  applyRegionalMultiplierToBudgetSplit,
+  resolveRegionalPricingMultiplier,
+  type RegionalPricingLocation,
+  type ResolvedRegionalPricing,
+} from '@/utils/regionalPricingMultipliers';
 import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 import { parseScopeItemAllowancesFromNotes } from '@/utils/scopeAllowanceParser';
@@ -192,7 +198,7 @@ export type SuggestedBudgetSplitDisplay = {
   basis?: { quantity: number; unit: string } | null;
 };
 
-type NationalAverageBudgetSplit = {
+export type NationalAverageBudgetSplit = {
   unit: string;
   material: number;
   labor: number;
@@ -209,6 +215,9 @@ type NationalAverageBudgetSplit = {
   rateSourceReference?: string;
   scopeProfileSource?: ScopeProfileSource;
   productionStatus?: 'production_ready' | 'review_required' | 'fallback_only' | 'disabled';
+  geographicBasis?: 'national' | 'state';
+  regionalMultiplier?: number;
+  regionalStateCode?: string | null;
 };
 
 export type SuggestedPricingCostBucketKind =
@@ -251,19 +260,50 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   floor_demo: { unit: 'sqft', material: 0.5, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
   demo: { unit: 'sqft', material: 0.5, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
   backsplash: { unit: 'sqft', material: 8, labor: 14, sourceLabel: 'Suggested budget split · National Average' },
-  paint: { unit: 'sqft', material: 0.85, labor: 2.5, sourceLabel: 'Suggested budget split · National Average' },
-  interior_paint: { unit: 'sqft', material: 0.85, labor: 2.5, sourceLabel: 'Suggested budget split · National Average' },
-  exterior_paint: { unit: 'sqft', material: 0.85, labor: 2.5, sourceLabel: 'Suggested budget split · National Average' },
+  paint: {
+    unit: 'sqft',
+    material: 0.85,
+    labor: 2.5,
+    sourceLabel: 'Suggested · National Average · wall/ceiling surface sqft',
+  },
+  interior_paint: {
+    unit: 'sqft',
+    material: 0.85,
+    labor: 2.5,
+    sourceLabel: 'Suggested · National Average · wall/ceiling surface sqft',
+  },
+  exterior_paint: {
+    unit: 'sqft',
+    material: 0.85,
+    labor: 2.5,
+    sourceLabel: 'Suggested · National Average · exterior surface sqft',
+  },
   shower_tile: { unit: 'sqft', material: 8, labor: 14, sourceLabel: 'Suggested budget split · National Average' },
   floor_tile: { unit: 'sqft', material: 8, labor: 14, sourceLabel: 'Suggested budget split · National Average' },
-  floor_prep: { unit: 'sqft', material: 4, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
+  /** Basic patch/level prep — not full flooring install. Prior $9/sqft was mis-scoped. */
+  floor_prep: {
+    unit: 'sqft',
+    material: 0.75,
+    labor: 1.75,
+    sourceLabel: 'Suggested · National Average · basic floor prep (not flooring)',
+  },
   waterproofing: { unit: 'sqft', material: 5, labor: 7, sourceLabel: 'Suggested budget split · National Average' },
-  plumbing_rough: { unit: 'each', material: 150, labor: 350, sourceLabel: 'Suggested budget split · National Average' },
-  electrical_rough: { unit: 'each', material: 35, labor: 90, sourceLabel: 'Suggested budget split · National Average' },
+  plumbing_rough: { unit: 'each', material: 150, labor: 350, sourceLabel: 'Suggested budget split · National Average · per rough-in point' },
+  electrical_rough: {
+    unit: 'each',
+    material: 50,
+    labor: 125,
+    sourceLabel: 'Suggested budget split · National Average · per circuit/device',
+  },
   railing: { unit: 'lf', material: 15, labor: 25, sourceLabel: 'Suggested budget split · National Average' },
   pour_flatwork: { unit: 'sqft', material: 4, labor: 6, sourceLabel: 'Suggested budget split · National Average' },
   concrete: { unit: 'sqft', material: 4, labor: 6, sourceLabel: 'Suggested budget split · National Average' },
-  drywall: { unit: 'sqft', material: 1.5, labor: 3, sourceLabel: 'Suggested budget split · National Average' },
+  drywall: {
+    unit: 'sqft',
+    material: 1.5,
+    labor: 3,
+    sourceLabel: 'Suggested · National Average · wall/ceiling surface sqft',
+  },
   decking: { unit: 'sqft', material: 8, labor: 12, sourceLabel: 'Suggested budget split · National Average' },
   countertops: { unit: 'sqft', material: 35, labor: 25, sourceLabel: 'Suggested budget split · National Average' },
   cabinets: { unit: 'lf', material: 150, labor: 75, sourceLabel: 'Suggested budget split · National Average' },
@@ -281,6 +321,37 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     material: 0,
     labor: 1000,
     sourceLabel: 'Suggested allowance · National Average',
+  },
+  /** Align with rough Suggested pricing national bands so Step 3 can show splits for note lump sums. */
+  framing: {
+    unit: 'sqft',
+    material: 14,
+    labor: 18,
+    sourceLabel: 'Suggested budget split · National Average · framing/shell',
+  },
+  hvac: {
+    unit: 'sqft',
+    material: 4.5,
+    labor: 6,
+    sourceLabel: 'Suggested budget split · National Average · HVAC',
+  },
+  insulation: {
+    unit: 'sqft',
+    material: 1.25,
+    labor: 1.75,
+    sourceLabel: 'Suggested budget split · National Average · insulation',
+  },
+  excavation: {
+    unit: 'cy',
+    material: 5,
+    labor: 45,
+    sourceLabel: 'Suggested budget split · National Average · excavation',
+  },
+  pour_foundation: {
+    unit: 'sqft',
+    material: 4,
+    labor: 6,
+    sourceLabel: 'Suggested budget split · National Average · foundation',
   },
 };
 
@@ -460,10 +531,14 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   },
   paint: {
     category: 'paint',
-    rootCause: 'Build Profit national-average paint is modeled as standard paint material, labor, and basic prep.',
+    rootCause:
+      'Build Profit national-average paint is modeled per wall/ceiling surface sqft (not floor area) as standard paint material, labor, and basic prep.',
     assumptions: [
       assumption('paint_material', 'included', 'Paint material', 'Standard paint material is included.'),
       assumption('paint_labor', 'included', 'Standard paint labor', 'Standard application labor is included.'),
+      assumption('surface_basis', 'included', 'Wall/ceiling surface basis', 'Rates apply to paintable wall/ceiling surface area, not floor sqft.', {
+        impact: 'medium',
+      }),
       assumption('prep', 'included', 'Basic prep', 'Minor surface prep, masking, and cleanup are included.', { impact: 'medium' }),
       assumption('repairs', 'excluded', 'Wall repairs', 'Drywall/plaster repairs and texture repair are not included.'),
       assumption('doors', 'excluded', 'Doors', 'Door painting is not included unless scoped separately.'),
@@ -476,10 +551,14 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   },
   interior_paint: {
     category: 'paint',
-    rootCause: 'Build Profit national-average interior paint is modeled as standard wall/ceiling paint material, labor, and basic prep.',
+    rootCause:
+      'Build Profit national-average interior paint is modeled per wall/ceiling surface sqft (not floor area) as standard paint material, labor, and basic prep.',
     assumptions: [
       assumption('paint_material', 'included', 'Paint material', 'Standard interior paint material is included.'),
       assumption('paint_labor', 'included', 'Standard paint labor', 'Standard wall/ceiling application labor is included.'),
+      assumption('surface_basis', 'included', 'Wall/ceiling surface basis', 'Rates apply to paintable wall/ceiling surface area, not floor sqft.', {
+        impact: 'medium',
+      }),
       assumption('prep', 'included', 'Basic prep', 'Minor prep, masking, and cleanup are included.', { impact: 'medium' }),
       assumption('repairs', 'excluded', 'Wall repairs', 'Drywall/plaster repairs and texture repair are not included.'),
       assumption('doors', 'excluded', 'Doors', 'Door painting is not included unless scoped separately.'),
@@ -488,10 +567,14 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   },
   exterior_paint: {
     category: 'paint',
-    rootCause: 'Build Profit national-average exterior paint is modeled as standard exterior paint material, labor, and basic prep.',
+    rootCause:
+      'Build Profit national-average exterior paint is modeled per exterior surface sqft (not floor area) as standard exterior paint material, labor, and basic prep.',
     assumptions: [
       assumption('paint_material', 'included', 'Exterior paint material', 'Standard exterior paint material is included.'),
       assumption('paint_labor', 'included', 'Standard paint labor', 'Standard exterior application labor is included.'),
+      assumption('surface_basis', 'included', 'Exterior surface basis', 'Rates apply to exterior painted surface area, not floor sqft.', {
+        impact: 'medium',
+      }),
       assumption('prep', 'included', 'Basic prep', 'Minor prep and cleanup are included.', { impact: 'medium' }),
       assumption('repairs', 'excluded', 'Exterior repairs', 'Siding, trim, stucco, or substrate repairs are not included.'),
       assumption('high_access', 'conditional', 'Access equipment', 'Ladders, lifts, scaffolding, or difficult access require confirmation.', {
@@ -501,12 +584,16 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   },
   drywall: {
     category: 'drywall',
-    rootCause: 'Build Profit national-average drywall is modeled as board, hang, tape, finish, and standard texture.',
+    rootCause:
+      'Build Profit national-average drywall is modeled per wall/ceiling surface sqft (not floor area) as board, hang, tape, finish, and standard texture.',
     assumptions: [
       assumption('drywall_board', 'included', 'Drywall board', 'Standard drywall board material is included.'),
       assumption('hang', 'included', 'Hang drywall', 'Standard drywall hanging labor is included.'),
       assumption('finish_tape', 'included', 'Tape and finish', 'Standard taping and finishing are included.'),
       assumption('texture', 'included', 'Standard texture', 'Standard texture is included where typical for the job.', { impact: 'medium' }),
+      assumption('surface_basis', 'included', 'Wall/ceiling surface basis', 'Rates apply to drywall surface area, not floor sqft.', {
+        impact: 'medium',
+      }),
       assumption('demo', 'excluded', 'Demolition', 'Removal of existing wall/ceiling material is not included.'),
       assumption('disposal', 'excluded', 'Disposal / haul-off', 'Debris disposal is not included.'),
       assumption('insulation', 'excluded', 'Insulation', 'Insulation is not included.'),
@@ -519,10 +606,14 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   },
   plumbing_rough: {
     category: 'plumbing',
-    rootCause: 'Build Profit national-average plumbing rough-in is modeled as standard rough labor and common rough materials.',
+    rootCause:
+      'Build Profit national-average plumbing rough-in is modeled per rough-in point (fixture stub-out), not per floor sqft.',
     assumptions: [
       assumption('rough_labor', 'included', 'Rough-in labor', 'Standard rough-in labor is included.'),
       assumption('standard_fittings', 'included', 'Standard fittings', 'Common rough-in fittings and supplies are included.'),
+      assumption('point_basis', 'included', 'Per rough-in point', 'Rates are per supply/drain rough-in point, not floor sqft.', {
+        impact: 'medium',
+      }),
       assumption('fixtures', 'excluded', 'Fixtures', 'Fixtures and trim-out are not included.'),
       assumption('permits', 'excluded', 'Permits', 'Permits and inspection fees are not included.'),
       assumption('trenching', 'excluded', 'Trenching', 'Trenching, sawcutting, and excavation are not included.'),
@@ -534,10 +625,14 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   },
   electrical_rough: {
     category: 'electrical',
-    rootCause: 'Build Profit national-average electrical rough-in is modeled as standard rough wiring and device-box installation.',
+    rootCause:
+      'Build Profit national-average electrical rough-in is modeled per circuit/device/box, not per floor sqft.',
     assumptions: [
       assumption('wiring', 'included', 'Standard wiring', 'Standard branch wiring is included.'),
       assumption('device_boxes', 'included', 'Boxes / rough devices', 'Standard boxes and rough device installation are included.'),
+      assumption('point_basis', 'included', 'Per circuit/device', 'Rates are per circuit, device, or box affected, not floor sqft.', {
+        impact: 'medium',
+      }),
       assumption('fixtures', 'excluded', 'Fixtures', 'Light fixtures and finish devices are not included.'),
       assumption('permits', 'excluded', 'Permits', 'Permits and utility fees are not included.'),
       assumption('panel_upgrade', 'excluded', 'Panel / service upgrade', 'Panel, service, and meter upgrades are not included.'),
@@ -699,12 +794,15 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   },
   floor_prep: {
     category: 'flooring',
-    rootCause: 'Build Profit national-average floor prep is modeled as basic prep/leveling material plus labor.',
+    rootCause:
+      'Build Profit national-average floor prep is modeled as basic patch/level prep (~$2.50/sqft), not full flooring material and install.',
     assumptions: [
-      assumption('floor_prep', 'included', 'Basic floor prep', 'Basic prep/patching for the measured area is included.'),
-      assumption('leveling', 'conditional', 'Leveling', 'Significant self-leveling requires confirmation.', {
+      assumption('floor_prep', 'included', 'Basic floor prep', 'Basic patching and light leveling for the measured area are included.'),
+      assumption('leveling', 'conditional', 'Heavy self-leveling', 'Significant self-leveling compound and labor require confirmation.', {
         conditionText: 'Price separately when floor flatness requires substantial leveling material/labor.',
       }),
+      assumption('flooring_material', 'excluded', 'Flooring material', 'Finished flooring material is not included — use Flooring scope.'),
+      assumption('flooring_install', 'excluded', 'Flooring install', 'Finished flooring installation is not included — use Flooring scope.'),
       assumption('moisture_mitigation', 'excluded', 'Moisture mitigation', 'Moisture mitigation systems are not included.'),
       assumption('subfloor_repair', 'excluded', 'Subfloor repair', 'Subfloor replacement or structural repair is not included.'),
     ],
@@ -772,17 +870,19 @@ function buildNationalAverageDefinedScopeProfile(params: {
   average: NationalAverageBudgetSplit;
   quantity?: number | null;
   total?: number | null;
+  regional?: ResolvedRegionalPricing | null;
 }): BenchmarkScopeAssumptionProfile | null {
   const profileKey = canonicalNationalAverageItemKey(params.itemId);
   const definition = BPS_STANDARD_SCOPE_PROFILES[profileKey];
   if (!definition) return null;
+  const geographicBasis = params.regional?.geographicBasis || params.average.geographicBasis || 'national';
   return {
     sourceRecordId: `national_average:${params.itemId}:${params.average.unit}`,
     parentPricingRecordId: `bps_national:${profileKey}:${params.average.unit}`,
     pricingSource: 'national_average',
     rateSource: params.average.rateSource || 'bps_national_benchmark',
     rateSourceReference: params.average.rateSourceReference || 'Build Profit national-average rate table',
-    geographicBasis: 'national',
+    geographicBasis,
     effectiveDate: params.average.effectiveDate ?? null,
     verifiedAt: null,
     scopeProfileSource: BPS_SCOPE_SOURCE,
@@ -885,6 +985,15 @@ export function getNationalAverageBudgetSplit(itemId: string, unit?: string | nu
     NATIONAL_AVERAGE_BUDGET_SPLITS[key] ??
     NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT[key]?.[Object.keys(NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT[key] || {})[0]]
   );
+}
+
+/** National-average rates adjusted for the customer's state when available. */
+export function getRegionalAdjustedNationalAverageBudgetSplit(
+  itemId: string,
+  unit?: string | null,
+  location?: RegionalPricingLocation | ScopePricingContext | null
+) {
+  return regionalAdjustedNationalAverage(itemId, unit, location);
 }
 
 export type BenchmarkPricingCatalogRecord = {
@@ -1035,11 +1144,18 @@ function buildNationalAverageBenchmarkScopeProfile(params: {
   average: NationalAverageBudgetSplit | null | undefined;
   quantity?: number | null;
   total?: number | null;
+  regional?: ResolvedRegionalPricing | null;
 }): BenchmarkScopeAssumptionProfile | undefined {
-  const { itemId, average, quantity, total } = params;
+  const { itemId, average, quantity, total, regional } = params;
   if (!average) return undefined;
   if (average.scopeAssumptions) return average.scopeAssumptions;
-  const definedProfile = buildNationalAverageDefinedScopeProfile({ itemId, average, quantity, total });
+  const definedProfile = buildNationalAverageDefinedScopeProfile({
+    itemId,
+    average,
+    quantity,
+    total,
+    regional,
+  });
   if (definedProfile) return definedProfile;
   const undefinedProfile = createUndefinedBenchmarkScopeProfile({
     itemId,
@@ -1468,7 +1584,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     allowedUnits: ['cy', 'sqft', 'lf', 'allowance', 'lump_sum'],
     measurementKey: 'excavationCy',
     requiresUserQuantity: true,
-    quantityHelper: 'Enter excavation CY or lump sum.',
+    quantityHelper: 'Enter excavation CY for material and labor rates.',
     missingMessage: 'Enter excavation quantity.',
   },
 };
@@ -2979,6 +3095,9 @@ export type ScopePricingTemplateSource = {
 export type ScopePricingContext = {
   templates?: ScopePricingTemplateSource[] | null;
   bid?: ScopePricingTemplateSource | null;
+  state?: string | null;
+  zipCode?: string | null;
+  city?: string | null;
 };
 
 export type TemplateRateMatch = {
@@ -3129,11 +3248,42 @@ function round2(n: number): number {
 function rateSourceLabelFor(
   materialSource: PricingLegSource,
   laborSource: PricingLegSource,
-  templateName: string | null
+  templateName: string | null,
+  regional?: ResolvedRegionalPricing | null
 ): string {
   const usesTemplate = materialSource === 'template' || laborSource === 'template';
   if (usesTemplate && templateName) return 'Suggested · Saved rate';
+  if (regional && regional.multiplier !== 1) return regional.rateSourceLabel;
   return 'Suggested · National Average';
+}
+
+function regionalPricingFromContext(
+  pricingContext?: ScopePricingContext | null
+): ResolvedRegionalPricing {
+  return resolveRegionalPricingMultiplier({
+    state: pricingContext?.state,
+    zipCode: pricingContext?.zipCode,
+    city: pricingContext?.city,
+  });
+}
+
+function regionalAdjustedNationalAverage(
+  itemId: string,
+  unit: string | null | undefined,
+  pricingContext?: ScopePricingContext | null
+): {
+  average: NationalAverageBudgetSplit | null | undefined;
+  regional: ResolvedRegionalPricing;
+} {
+  const base = getNationalAverageBudgetSplit(itemId, unit);
+  const regional = regionalPricingFromContext(pricingContext);
+  if (!base || regional.multiplier === 1) {
+    return { average: base, regional };
+  }
+  return {
+    average: applyRegionalMultiplierToBudgetSplit(base, regional),
+    regional,
+  };
 }
 
 function flatAllowanceCopyFor(itemId: string): { fromNotes: string; suggested: string } {
@@ -3196,7 +3346,7 @@ export function resolveScopeItemSuggestedPricing(
     measurementMatch?.unit ||
     rule.defaultUnit ||
     'sqft';
-  const average = getNationalAverageBudgetSplit(itemId, preferredUnit);
+  const { average, regional } = regionalAdjustedNationalAverage(itemId, preferredUnit, pricingContext);
 
   let unit = average?.unit || preferredUnit;
 
@@ -3213,7 +3363,8 @@ export function resolveScopeItemSuggestedPricing(
             ? measurementMatch.quantity
             : firstMeasurementQuantityForRule(rule, measurementsInput);
   if ((!count || count <= 0) && (rule.defaultUnit === 'allowance' || rule.defaultUnit === 'lump_sum')) {
-    const flatAverage = getNationalAverageBudgetSplit(itemId, rule.defaultUnit);
+    const { average: flatAverageBase } = regionalAdjustedNationalAverage(itemId, rule.defaultUnit, pricingContext);
+    const flatAverage = flatAverageBase;
     if (rule.lumpSumOnly && (flatAverage?.labor || flatAverage?.material)) {
       count = 1;
       unit = flatAverage?.unit || rule.defaultUnit;
@@ -3253,7 +3404,8 @@ export function resolveScopeItemSuggestedPricing(
         comparison: null,
       };
     }
-    const flatAverage = getNationalAverageBudgetSplit(itemId, rule.defaultUnit);
+    const { average: flatAverageBase } = regionalAdjustedNationalAverage(itemId, rule.defaultUnit, pricingContext);
+    const flatAverage = flatAverageBase;
     const total = round2((flatAverage?.material ?? 0) + (flatAverage?.labor ?? 0));
     if (total <= 0) return empty;
     return {
@@ -3263,7 +3415,7 @@ export function resolveScopeItemSuggestedPricing(
         total,
         materialSource: 'national_average',
         laborSource: 'national_average',
-        rateSourceLabel: 'Suggested · National Average',
+        rateSourceLabel: rateSourceLabelFor('national_average', 'national_average', null, regional),
         helper: copy.suggested,
         mode: 'suggested_price',
         lumpSumOnly: true,
@@ -3272,6 +3424,7 @@ export function resolveScopeItemSuggestedPricing(
           average: flatAverage,
           quantity: 1,
           total,
+          regional,
         }),
         costBuckets: buildSuggestedPricingCostBuckets({
           itemId,
@@ -3321,7 +3474,7 @@ export function resolveScopeItemSuggestedPricing(
         total: round2(material + labor),
         materialSource: materialRateSource,
         laborSource: laborRateSource,
-        rateSourceLabel: rateSourceLabelFor(materialRateSource, laborRateSource, templateName),
+        rateSourceLabel: rateSourceLabelFor(materialRateSource, laborRateSource, templateName, regional),
         templateName,
         helper: `${basisHelper} · suggested comparison`,
         mode: 'suggested_price',
@@ -3332,6 +3485,7 @@ export function resolveScopeItemSuggestedPricing(
           average,
           quantity: count,
           total: round2(material + labor),
+          regional,
         }),
       },
     };
@@ -3349,7 +3503,7 @@ export function resolveScopeItemSuggestedPricing(
         total: round2(material + labor),
         materialSource: 'notes',
         laborSource: laborRateSource,
-        rateSourceLabel: rateSourceLabelFor('notes', laborRateSource, templateName),
+        rateSourceLabel: rateSourceLabelFor('notes', laborRateSource, templateName, regional),
         templateName,
         helper: `${basisHelper} · labor suggested, ${SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL.toLowerCase()}`,
         mode: 'fill_missing',
@@ -3361,6 +3515,7 @@ export function resolveScopeItemSuggestedPricing(
                 average,
                 quantity: count,
                 total: round2(material + labor),
+                regional,
               })
             : undefined,
       },
@@ -3382,7 +3537,7 @@ export function resolveScopeItemSuggestedPricing(
         total: round2(material + labor),
         materialSource: materialRateSource,
         laborSource: 'notes',
-        rateSourceLabel: rateSourceLabelFor(materialRateSource, 'notes', templateName),
+        rateSourceLabel: rateSourceLabelFor(materialRateSource, 'notes', templateName, regional),
         templateName,
         helper: `${basisHelper} · material suggested, ${SCOPE_LABOR_PARSED_FROM_NOTES_LABEL.toLowerCase()}`,
         mode: 'fill_missing',
@@ -3394,6 +3549,7 @@ export function resolveScopeItemSuggestedPricing(
                 average,
                 quantity: count,
                 total: round2(material + labor),
+                regional,
               })
             : undefined,
       },
@@ -3414,7 +3570,7 @@ export function resolveScopeItemSuggestedPricing(
           total: round2(material + labor),
           materialSource: 'template',
           laborSource: 'template',
-          rateSourceLabel: rateSourceLabelFor('template', 'template', templateName),
+          rateSourceLabel: rateSourceLabelFor('template', 'template', templateName, regional),
           templateName,
           helper: `${basisHelper} · suggested comparison`,
           mode: 'suggested_price',
@@ -3434,7 +3590,7 @@ export function resolveScopeItemSuggestedPricing(
         total: round2(noteTotal),
         materialSource: materialRateSource,
         laborSource: 'notes',
-        rateSourceLabel: rateSourceLabelFor(materialRateSource, materialRateSource, templateName),
+        rateSourceLabel: rateSourceLabelFor(materialRateSource, materialRateSource, templateName, regional),
         templateName,
         helper: `${basisHelper} · budget split`,
         mode: 'note_total_split',
@@ -3446,6 +3602,7 @@ export function resolveScopeItemSuggestedPricing(
                 average,
                 quantity: count,
                 total: round2(noteTotal),
+                regional,
               })
             : undefined,
       },
@@ -3464,7 +3621,7 @@ export function resolveScopeItemSuggestedPricing(
       total: round2(material + labor),
       materialSource: materialRateSource,
       laborSource: laborRateSource,
-      rateSourceLabel: rateSourceLabelFor(materialRateSource, laborRateSource, templateName),
+      rateSourceLabel: rateSourceLabelFor(materialRateSource, laborRateSource, templateName, regional),
       templateName,
       helper: `${basisHelper} · suggested pricing`,
       mode: 'suggested_price',
@@ -3476,6 +3633,7 @@ export function resolveScopeItemSuggestedPricing(
               average,
               quantity: count,
               total: round2(material + labor),
+              regional,
             })
           : undefined,
       costBuckets: buildSuggestedPricingCostBuckets({
@@ -4101,12 +4259,23 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   { test: /\bfloor\b.*\btile\b|\btile\b.*\bfloor\b/i, key: 'floor_tile' },
   { test: /\bvanity\b/i, key: 'vanity' },
   { test: /\btoilet\b/i, key: 'toilet' },
+  { test: /\bframing|\bshell\b/i, key: 'framing' },
+  { test: /\bhvac\b|\bheat(?:ing)?\s*(?:&|and)?\s*air|\bfurnace|\bmini[\s-]?split/i, key: 'hvac' },
+  { test: /\binsulat/i, key: 'insulation' },
+  { test: /\bdeck(?:ing)?\b(?!.*demo|.*removal)/i, key: 'decking' },
+  { test: /\btear[\s-]?off\b/i, key: 'tear_off' },
+  { test: /\bshingle|\broof(?:ing)?\b|\btie[\s-]?in\b/i, key: 'shingles_roofing' },
+  { test: /\bwindow|\bdoor\b/i, key: 'windows_doors' },
+  { test: /\bplant|\btree\b|\bshrub/i, key: 'plants_trees' },
+  { test: /\bsite\s*work|\bgrading\b/i, key: 'excavation' },
+  { test: /\bfoundation\b/i, key: 'pour_foundation' },
+  { test: /\btile\s+flooring\b|\bflooring\s+tile\b/i, key: 'floor_tile' },
   { test: /\bplumb.*\brough|\brough[\s-]?in\b.*\bplumb/i, key: 'plumbing_rough' },
   { test: /\belectrical\b(?!.*trim)|\bnew\s+circuits\b/i, key: 'electrical_rough' },
   { test: /\blight(?:ing)?\s+fix|\bfixture.*\blight/i, key: 'lighting' },
   { test: /\bdrywall\b|\bpatch/i, key: 'drywall' },
   { test: /\bpaint|\bpainting/i, key: 'paint' },
-  { test: /\bbaseboard|\btrim\s+install|\btrim\s+&\s+baseboard/i, key: 'trim' },
+  { test: /\bbaseboard|\btrim\s+install|\btrim\s+&\s+baseboard|\binterior\s+trim\b/i, key: 'trim' },
   { test: /\bshower\s+door|\bglass\s+door|\benclosure/i, key: 'glass_door' },
   { test: /\bplumb.*\btrim|\bplumbing\s+trim|\bfinal\s+plumb/i, key: 'plumbing_trim' },
   { test: /\belectrical\s+trim|\bdevices.*\bplates/i, key: 'electrical_trim' },
@@ -4229,6 +4398,15 @@ export function countScopePricingReadiness(
       notes,
     });
     if (!resolved.showInput && !resolved.pricingReady) continue;
+    // Already has Confirm Scope material/labor or allowance — not "ready for suggested pricing".
+    const mat = Number(resolved.dualMaterial?.quantity || 0);
+    const lab = Number(resolved.dualLabor?.quantity || 0);
+    const allowance = Number(resolved.dualAllowance?.quantity || 0);
+    const alreadyPriced =
+      (mat > 0 && lab > 0) ||
+      allowance > 0 ||
+      (resolved.unit === 'allowance' && Number(resolved.quantity || 0) > 0);
+    if (alreadyPriced) continue;
     if (resolved.pricingReady) ready += 1;
     else needsMeasurement += 1;
   }
@@ -4241,15 +4419,27 @@ function countPackageScopeReadiness(draft: EstimateAiDraft): { ready: number; ne
   const packages = draft.scopePackages?.length
     ? draft.scopePackages
     : (draft.rooms || []).map((room) => ({
+        name: room.name,
+        scope: room.scope,
         scopeQuantities: room.scopeQuantities,
         price: room.price,
         knownSubtotal: room.knownSubtotal,
+        materialPrice: room.materialPrice,
+        laborPrice: room.laborPrice,
+        priceSource: room.priceProvidedByUser ? 'user_provided' : undefined,
+        splitIsSuggested: room.splitIsSuggested,
+        budgetSplitBasis: undefined,
       }));
   for (const pkg of packages) {
     const q = pkg.scopeQuantities?.[0];
-    const priced = (pkg.price ?? 0) > 0 || (pkg.knownSubtotal ?? 0) > 0;
+    // Skip packages that already have a price or Confirm Scope budget split.
+    const packageAmount = Number(pkg.price ?? pkg.knownSubtotal ?? 0);
+    const mat = Number(pkg.materialPrice ?? 0);
+    const lab = Number(pkg.laborPrice ?? 0);
+    const alreadyPriced = packageAmount > 0 || (mat > 0 && lab > 0 && mat + lab > 0);
+    if (alreadyPriced) continue;
     if (q && q.quantity > 0) ready += 1;
-    else if (!priced) needsMeasurement += 1;
+    else needsMeasurement += 1;
   }
   return { ready, needsMeasurement };
 }

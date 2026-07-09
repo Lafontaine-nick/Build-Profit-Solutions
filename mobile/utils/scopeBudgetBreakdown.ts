@@ -32,6 +32,148 @@ function splitMatchesTotal(material: number, labor: number, total: number): bool
   return Math.abs(material + labor - total) <= 1;
 }
 
+function packageSplitSource(pkg: EstimateDraftScopePackage): BudgetSplitSource {
+  if (
+    pkg.priceSource === 'manual' ||
+    pkg.priceSource === 'user' ||
+    pkg.priceSource === 'user_provided'
+  ) {
+    return 'manual';
+  }
+  if (
+    pkg.splitIsSuggested ||
+    pkg.priceSource === 'ai_rough_estimate' ||
+    pkg.priceSource === 'national_trade_average' ||
+    pkg.priceSource === 'national_high_side_planning'
+  ) {
+    return 'suggested';
+  }
+  return 'notes';
+}
+
+/** Sum material/labor from package pricingItems (rough proposal, notes lines, etc.). */
+function splitFromPricingItems(
+  pkg: EstimateDraftScopePackage
+): { material: number; labor: number } | null {
+  const items = pkg.pricingItems || [];
+  if (!items.length) return null;
+  let material = 0;
+  let labor = 0;
+  for (const item of items) {
+    const amount = Number(item.amount || 0);
+    if (amount <= 0) continue;
+    const type = String(item.pricingType || '').toLowerCase();
+    if (type === 'material') material += amount;
+    else if (type === 'labor') labor += amount;
+  }
+  if (material <= 0 && labor <= 0) return null;
+  return { material, labor };
+}
+
+/** Sum material/labor from a pending pricing proposal for this package name. */
+function splitFromPendingProposal(
+  pkg: EstimateDraftScopePackage,
+  draft: EstimateAiDraft
+): { material: number; labor: number; total: number } | null {
+  const lines = draft.pendingPricingProposal?.lines || [];
+  if (!lines.length) return null;
+  const pkgKey = String(pkg.name || '')
+    .trim()
+    .toLowerCase();
+  if (!pkgKey) return null;
+  let material = 0;
+  let labor = 0;
+  let lump = 0;
+  for (const line of lines) {
+    const name = String(line.packageName || '')
+      .trim()
+      .toLowerCase();
+    if (!name || (name !== pkgKey && !name.includes(pkgKey) && !pkgKey.includes(name))) continue;
+    const amount = Number(line.total || 0);
+    if (amount <= 0) continue;
+    if (line.lineType === 'material') material += amount;
+    else if (line.lineType === 'labor') labor += amount;
+    else if (line.lineType === 'lump_sum') lump += amount;
+  }
+  if (material <= 0 && labor <= 0 && lump <= 0) return null;
+  if (lump > 0 && material <= 0 && labor <= 0) return null;
+  return {
+    material,
+    labor,
+    total: material + labor + lump,
+  };
+}
+
+/**
+ * Build a displayable material/labor split from any available package source.
+ * Prefer exact mat+lab; otherwise infer the missing leg from package total.
+ */
+function breakdownFromKnownLegs(params: {
+  total: number;
+  material: number;
+  labor: number;
+  source: BudgetSplitSource;
+  basis?: { quantity: number; unit: string } | null;
+}): ItemBudgetBreakdown | null {
+  const { total, material, labor, source, basis } = params;
+  if (total <= 0) return null;
+
+  if (material > 0 && labor > 0) {
+    // Exact match, or partial confirmed split (remainder stays on labor for display).
+    if (Math.abs(material + labor - total) <= 1) {
+      return {
+        total,
+        material,
+        labor,
+        materialSource: source,
+        laborSource: source,
+        basis: basis ?? null,
+      };
+    }
+    if (material + labor < total - 1) {
+      return {
+        total,
+        material,
+        labor: Math.max(0, total - material),
+        materialSource: source,
+        laborSource: source,
+        basis: basis ?? null,
+      };
+    }
+    // Over-split: still show the known legs against package total.
+    return {
+      total,
+      material,
+      labor,
+      materialSource: source,
+      laborSource: source,
+      basis: basis ?? null,
+    };
+  }
+
+  if (material > 0 && material <= total) {
+    return {
+      total,
+      material,
+      labor: Math.max(0, total - material),
+      materialSource: source,
+      laborSource: source,
+      basis: basis ?? null,
+    };
+  }
+  if (labor > 0 && labor <= total) {
+    return {
+      total,
+      material: Math.max(0, total - labor),
+      labor,
+      materialSource: source,
+      laborSource: source,
+      basis: basis ?? null,
+    };
+  }
+  return null;
+}
+
 export function buildDraftBudgetContext(draft: EstimateAiDraft) {
   const templateKey = draft.scopeChecklist?.templateKey;
   const notes = resolveDraftScopeNotes(draft);
@@ -61,6 +203,12 @@ export function lookupRuleKeyForBudgetPackage(name: string, scope = ''): string 
   if (/\bbacksplash\b/.test(blob)) return 'backsplash';
   if (/\bpaint\b/.test(blob) && !/\bfloor|tile\b/.test(blob)) return 'paint';
   if (/\brail(?:ing)?\b/.test(blob)) return 'railing';
+  if (/\bdeck(?:ing)?\b/.test(blob) && !/\bdemo|removal\b/.test(blob)) return 'decking';
+  if (/\broof(?:ing)?\b|\bshingle|\btie[\s-]?in\b/.test(blob)) return 'shingles_roofing';
+  if (/\bfoundation\b/.test(blob)) return 'pour_foundation';
+  if (/\bwindow|\bdoor\b/.test(blob)) return 'windows_doors';
+  if (/\bplant|\btree\b|\bshrub/.test(blob)) return 'plants_trees';
+  if (/\bsite\s*work|\bgrading\b|\bexcavat/.test(blob)) return 'excavation';
   return null;
 }
 
@@ -196,10 +344,7 @@ export function resolveItemBudgetBreakdown(params: {
   }
 
   if (splitMatchesTotal(pkgMat, pkgLab, total)) {
-    const source: BudgetSplitSource =
-      pkgSplitIsSuggested
-          ? 'suggested'
-          : 'notes';
+    const source: BudgetSplitSource = pkgSplitIsSuggested ? 'suggested' : 'notes';
     return {
       total,
       material: pkgMat,
@@ -270,22 +415,89 @@ export function resolveScopePackageBudgetBreakdown(
   const packageSplitTotal = pkgMat > 0 && pkgLab > 0 ? pkgMat + pkgLab : 0;
   const canUseSplitTotal =
     ruleKey !== 'floor_demo' && (itemSplitTotal > packageTotal || packageSplitTotal > packageTotal);
-  const total = hasUserSelectedItemSplit && itemSplitTotal > 0
-    ? itemSplitTotal
-    : canUseSplitTotal
-    ? Math.max(itemSplitTotal, packageSplitTotal)
-    : packageTotal;
-  if (total <= 0) return null;
 
-  if (packageWasEditedManually && splitMatchesTotal(pkgMat, pkgLab, total)) {
-    return {
+  // Prefer the full package total so partial Confirm Scope splits don't shrink the Step 3 row.
+  const total =
+    packageTotal > 0
+      ? packageTotal
+      : hasUserSelectedItemSplit && itemSplitTotal > 0
+        ? itemSplitTotal
+        : canUseSplitTotal
+          ? Math.max(itemSplitTotal, packageSplitTotal)
+          : packageTotal;
+  if (total <= 0) {
+    const pending = splitFromPendingProposal(pkg, draft);
+    if (pending && (pending.material > 0 || pending.labor > 0)) {
+      return breakdownFromKnownLegs({
+        total: pending.total > 0 ? pending.total : pending.material + pending.labor,
+        material: pending.material,
+        labor: pending.labor,
+        source: 'suggested',
+        basis: pkg.scopeQuantities?.[0] ?? null,
+      });
+    }
+    return null;
+  }
+
+  const basis = pkg.budgetSplitBasis ?? pkg.scopeQuantities?.[0] ?? null;
+
+  if (packageWasEditedManually) {
+    const manual = breakdownFromKnownLegs({
       total,
       material: pkgMat,
       labor: pkgLab,
-      materialSource: 'manual',
-      laborSource: 'manual',
-      basis: pkg.budgetSplitBasis ?? pkg.scopeQuantities?.[0] ?? null,
-    };
+      source: 'manual',
+      basis,
+    });
+    if (manual) return manual;
+  }
+
+  // Confirmed / rough package fields (Framing, HVAC, etc.) — works without a checklist rule key.
+  const fromPackage = breakdownFromKnownLegs({
+    total,
+    material: pkgMat,
+    labor: pkgLab,
+    source: packageSplitSource(pkg),
+    basis,
+  });
+  if (fromPackage && (pkgMat > 0 || pkgLab > 0)) return fromPackage;
+
+  // User-entered Confirm Scope itemQuantities (may be partial vs package total).
+  if (hasUserSelectedItemSplit && (itemMaterial > 0 || itemLabor > 0)) {
+    const fromItems = breakdownFromKnownLegs({
+      total,
+      material: itemMaterial,
+      labor: itemLabor,
+      source: 'manual',
+      basis,
+    });
+    if (fromItems) return fromItems;
+  }
+
+  // pricingItems from approved rough / notes lines.
+  const fromPricingItems = splitFromPricingItems(pkg);
+  if (fromPricingItems) {
+    const fromItems = breakdownFromKnownLegs({
+      total,
+      material: fromPricingItems.material,
+      labor: fromPricingItems.labor,
+      source: packageSplitSource(pkg),
+      basis,
+    });
+    if (fromItems) return fromItems;
+  }
+
+  // Pending suggested pricing proposal (before Apply prices into packages).
+  const pending = splitFromPendingProposal(pkg, draft);
+  if (pending && (pending.material > 0 || pending.labor > 0)) {
+    const fromPending = breakdownFromKnownLegs({
+      total: Math.max(total, pending.total),
+      material: pending.material,
+      labor: pending.labor,
+      source: 'suggested',
+      basis,
+    });
+    if (fromPending) return fromPending;
   }
 
   if (!ruleKey) return null;

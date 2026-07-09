@@ -12,7 +12,6 @@ import {
   Switch,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -60,6 +59,7 @@ type Props = {
   roughRangeLoading?: boolean;
   suggestingMissingPrices?: boolean;
   onSuggestMissingPrices?: () => void;
+  showUseSavedPricing?: boolean;
   onUseSavedPricing?: () => void;
   onSuggestRoughPrices?: () => void;
   onAddPricesManually?: () => void;
@@ -101,6 +101,7 @@ export default function AIEstimateDraftReviewModal({
   roughRangeLoading = false,
   suggestingMissingPrices = false,
   onSuggestMissingPrices,
+  showUseSavedPricing = false,
   onUseSavedPricing,
   onSuggestRoughPrices,
   onAddPricesManually,
@@ -185,7 +186,8 @@ export default function AIEstimateDraftReviewModal({
             busy={busy}
             confStyle={confStyle}
             confidenceLevel={confidenceLevel}
-            onUseSavedPricing={onUseSavedPricing ?? onSuggestMissingPrices}
+            onUseSavedPricing={showUseSavedPricing ? onUseSavedPricing : undefined}
+            showUseSavedPricing={showUseSavedPricing}
             suggestingMissingPrices={suggestingMissingPrices}
             onSuggestRoughPrices={onSuggestRoughPrices ?? onRequestRoughRange}
             roughRangeLoading={roughRangeLoading}
@@ -216,7 +218,8 @@ export default function AIEstimateDraftReviewModal({
                 Colors={Colors}
                 darkMode={darkMode}
                 busy={busy}
-                onUseSavedPricing={onUseSavedPricing ?? onSuggestMissingPrices}
+                showUseSavedPricing={showUseSavedPricing}
+                onUseSavedPricing={onUseSavedPricing}
                 suggestingMissingPrices={suggestingMissingPrices}
                 onSuggestRoughPrices={onSuggestRoughPrices ?? onRequestRoughRange}
                 roughRangeLoading={roughRangeLoading}
@@ -342,76 +345,68 @@ export default function AIEstimateDraftReviewModal({
         ) : null}
 
         {scopeOnly && scopeHasPricing ? (
-          <TouchableOpacity activeOpacity={0.88} disabled={!draft || busy} onPress={onApply}>
-            <LinearGradient
-              colors={draft && !busy ? ['#2DFFC4', '#00A6FF'] : ['#64748b', '#475569']}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 0.5 }}
-              style={styles.primaryBtn}
-            >
-              {applying ? (
-                <ActivityIndicator color="#0f172a" />
-              ) : (
-                <>
-                  <MaterialIcons name="check-circle" size={20} color="#0f172a" />
-                  <Text style={styles.primaryBtnText}>Apply to Estimate</Text>
-                </>
-              )}
-            </LinearGradient>
+          <TouchableOpacity
+            activeOpacity={0.88}
+            disabled={!draft || busy}
+            onPress={onApply}
+            style={[styles.primaryBtn, (!draft || busy) && styles.primaryBtnDisabled]}
+          >
+            {applying ? (
+              <ActivityIndicator color="#0f172a" />
+            ) : (
+              <>
+                <MaterialIcons name="check-circle" size={20} color="#0f172a" />
+                <Text style={styles.primaryBtnText}>Apply to Estimate</Text>
+              </>
+            )}
           </TouchableOpacity>
         ) : scopeOnly && onApplyScopeOnly ? (
-          <TouchableOpacity activeOpacity={0.88} disabled={!draft || busy} onPress={onApplyScopeOnly}>
-            <LinearGradient
-              colors={draft && !busy ? ['#2DFFC4', '#00A6FF'] : ['#64748b', '#475569']}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 0.5 }}
-              style={styles.primaryBtn}
-            >
-              {applying ? (
-                <ActivityIndicator color="#0f172a" />
-              ) : (
-                <>
-                  <MaterialIcons name="save" size={20} color="#0f172a" />
-                  <Text style={styles.primaryBtnText}>Save Scope Draft</Text>
-                </>
-              )}
-            </LinearGradient>
+          <TouchableOpacity
+            activeOpacity={0.88}
+            disabled={!draft || busy}
+            onPress={onApplyScopeOnly}
+            style={[styles.primaryBtn, (!draft || busy) && styles.primaryBtnDisabled]}
+          >
+            {applying ? (
+              <ActivityIndicator color="#0f172a" />
+            ) : (
+              <>
+                <MaterialIcons name="save" size={20} color="#0f172a" />
+                <Text style={styles.primaryBtnText}>Save Scope Draft</Text>
+              </>
+            )}
           </TouchableOpacity>
         ) : onApplyConfirmedOnly ? (
-          <TouchableOpacity activeOpacity={0.88} disabled={!draft || busy} onPress={onApplyConfirmedOnly}>
-            <LinearGradient
-              colors={draft && !busy ? ['#2DFFC4', '#00A6FF'] : ['#64748b', '#475569']}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 0.5 }}
-              style={styles.primaryBtn}
-            >
-              {applying ? (
-                <ActivityIndicator color="#0f172a" />
-              ) : (
-                <>
-                  <MaterialIcons name="check-circle" size={20} color="#0f172a" />
-                  <Text style={styles.primaryBtnText}>Apply Confirmed Only</Text>
-                </>
-              )}
-            </LinearGradient>
+          <TouchableOpacity
+            activeOpacity={0.88}
+            disabled={!draft || busy}
+            onPress={onApplyConfirmedOnly}
+            style={[styles.primaryBtn, (!draft || busy) && styles.primaryBtnDisabled]}
+          >
+            {applying ? (
+              <ActivityIndicator color="#0f172a" />
+            ) : (
+              <>
+                <MaterialIcons name="check-circle" size={20} color="#0f172a" />
+                <Text style={styles.primaryBtnText}>Apply Confirmed Only</Text>
+              </>
+            )}
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity activeOpacity={0.88} disabled={!draft || busy} onPress={onApply}>
-            <LinearGradient
-              colors={draft && !busy ? ['#2DFFC4', '#00A6FF'] : ['#64748b', '#475569']}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 0.5 }}
-              style={styles.primaryBtn}
-            >
-              {applying ? (
-                <ActivityIndicator color="#0f172a" />
-              ) : (
-                <>
-                  <MaterialIcons name="check-circle" size={20} color="#0f172a" />
-                  <Text style={styles.primaryBtnText}>Apply to Estimate</Text>
-                </>
-              )}
-            </LinearGradient>
+          <TouchableOpacity
+            activeOpacity={0.88}
+            disabled={!draft || busy}
+            onPress={onApply}
+            style={[styles.primaryBtn, (!draft || busy) && styles.primaryBtnDisabled]}
+          >
+            {applying ? (
+              <ActivityIndicator color="#0f172a" />
+            ) : (
+              <>
+                <MaterialIcons name="check-circle" size={20} color="#0f172a" />
+                <Text style={styles.primaryBtnText}>Apply to Estimate</Text>
+              </>
+            )}
           </TouchableOpacity>
         )}
 
@@ -481,12 +476,17 @@ const styles = StyleSheet.create({
     elevation: 101,
   },
   primaryBtn: {
-    borderRadius: 14,
+    backgroundColor: '#22c55e',
+    borderRadius: 12,
     paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+  },
+  primaryBtnDisabled: {
+    backgroundColor: '#64748b',
+    opacity: 0.85,
   },
   primaryBtnText: {
     color: '#0f172a',

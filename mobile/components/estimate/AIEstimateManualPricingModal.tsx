@@ -31,7 +31,7 @@ import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 import { useKeyboard } from '@/services/MobileOptimization';
 import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimateAiDraft';
 import { formatDraftMoney, getScopePackages } from '@/utils/estimateAiDraft';
-import { formatScopeQuantity } from '@/utils/estimateDraftReviewUi';
+import { formatScopeQuantity, scopePackageNeedsManualPrice } from '@/utils/estimateDraftReviewUi';
 import {
   buildManualPricingProposal,
   bumpManualInputRates,
@@ -236,8 +236,6 @@ function MaterialLaborCard({
   pkg,
   qtyLabel,
   inp,
-  mode,
-  onSetMode,
   onField,
   onFieldFocus,
   Colors,
@@ -247,15 +245,13 @@ function MaterialLaborCard({
   pkg: EstimateDraftScopePackage;
   qtyLabel: string | null;
   inp: ManualPricingInputs[string];
-  mode: ManualPackageMode;
-  onSetMode: (mode: ManualPackageMode) => void;
   onField: (field: string, value: string) => void;
   onFieldFocus?: (fieldRef: React.RefObject<View | null>) => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   compact?: boolean;
 }) {
-  const preview = computeManualPackagePreview(pkg, inp);
+  const preview = computeManualPackagePreview(pkg, { ...inp, mode: 'split' });
   const cardStyle = compact
     ? [estimateFlowCardStyle(Colors, darkMode), styles.compactCard]
     : [
@@ -278,40 +274,15 @@ function MaterialLaborCard({
           ) : null}
         </>
       ) : null}
-      <SegmentedControl
-        options={[
-          { id: 'split', label: 'Material + Labor' },
-          { id: 'lump_sum', label: 'Lump sum' },
-        ]}
-        value={mode === 'lump_sum' ? 'lump_sum' : 'split'}
-        onChange={onSetMode}
+      <ManualSplitFields
+        pkg={pkg}
+        inp={inp}
+        onField={onField}
+        onFieldFocus={onFieldFocus}
         Colors={Colors}
         darkMode={darkMode}
         compact={compact}
       />
-      {mode === 'lump_sum' ? (
-        <RateField
-          label="Lump sum"
-          placeholder="$0"
-          value={inp.lumpSum || ''}
-          onChangeText={(v) => onField('lumpSum', v)}
-          onFieldFocus={onFieldFocus}
-          Colors={Colors}
-          darkMode={darkMode}
-          compact={compact}
-          hero={compact}
-        />
-      ) : (
-        <ManualSplitFields
-          pkg={pkg}
-          inp={inp}
-          onField={onField}
-          onFieldFocus={onFieldFocus}
-          Colors={Colors}
-          darkMode={darkMode}
-          compact={compact}
-        />
-      )}
       {!compact && preview.total > 0 ? (
         <View
           style={{
@@ -519,22 +490,24 @@ export default function AIEstimateManualPricingModal({
     if (focusPackageName) {
       return packages.filter((p) => p.name === focusPackageName);
     }
-    if (!isAdjust || !draft || !seedProposal) return packages;
-    const seeded = manualPricingInputsFromProposal(draft, seedProposal);
-    return packages.filter((p) => {
-      const inp = seeded[p.name];
-      if (!inp) return false;
-      return Boolean(
-        inp.lumpSum ||
-          inp.demoRateSqft ||
-          inp.materialRateSqft ||
-          inp.laborRateSqft ||
-          inp.materialRateLf ||
-          inp.laborRateLf ||
-          inp.materialTotal ||
-          inp.laborTotal
-      );
-    });
+    if (isAdjust && draft && seedProposal) {
+      const seeded = manualPricingInputsFromProposal(draft, seedProposal);
+      return packages.filter((p) => {
+        const inp = seeded[p.name];
+        if (!inp) return false;
+        return Boolean(
+          inp.lumpSum ||
+            inp.demoRateSqft ||
+            inp.materialRateSqft ||
+            inp.laborRateSqft ||
+            inp.materialRateLf ||
+            inp.laborRateLf ||
+            inp.materialTotal ||
+            inp.laborTotal
+        );
+      });
+    }
+    return packages.filter((p) => scopePackageNeedsManualPrice(p, draft));
   }, [packages, isAdjust, draft, seedProposal, focusPackageName]);
 
   const setField = (pkgName: string, field: string, value: string) => {
@@ -576,7 +549,7 @@ export default function AIEstimateManualPricingModal({
     ? null
     : isAdjust
       ? 'Rates start from your proposal — edit any line or bump all, then apply.'
-      : 'Enter rates or lump sums — only filled fields are calculated.';
+      : 'Enter material and labor amounts — only filled fields are calculated.';
   const headerTopPadding = embedded
     ? 0
     : Math.max(insets.top, Platform.OS === 'ios' ? 8 : 0) + 4;
@@ -676,8 +649,13 @@ export default function AIEstimateManualPricingModal({
           {displayPackages.map((pkg) => {
             const qtyLabel = formatScopeQuantity(pkg);
             const kind = classifyPackageKind(pkg.name);
-            const inp = inputs[pkg.name] || {};
-            const mode = inp.mode ?? (focusPackageName ? 'split' : defaultManualMode(kind));
+            const inp = {
+              ...(inputs[pkg.name] || {}),
+              mode:
+                kind === 'tile_demo'
+                  ? inputs[pkg.name]?.mode ?? defaultManualMode(kind, pkg.name)
+                  : ('split' as const),
+            };
 
             if (kind === 'flooring' || kind === 'baseboard' || kind === 'other') {
               return (
@@ -686,8 +664,6 @@ export default function AIEstimateManualPricingModal({
                   pkg={pkg}
                   qtyLabel={qtyLabel}
                   inp={inp}
-                  mode={mode}
-                  onSetMode={(m) => setMode(pkg.name, m)}
                   onField={(field, value) => setField(pkg.name, field, value)}
                   onFieldFocus={handleFieldFocus}
                   Colors={Colors}
@@ -728,13 +704,13 @@ export default function AIEstimateManualPricingModal({
                         { id: 'rate', label: 'Rate' },
                         { id: 'lump_sum', label: 'Lump sum' },
                       ]}
-                      value={mode === 'lump_sum' ? 'lump_sum' : 'rate'}
+                      value={inp.mode === 'lump_sum' ? 'lump_sum' : 'rate'}
                       onChange={(m) => setMode(pkg.name, m)}
                       Colors={Colors}
                       darkMode={darkMode}
                       compact={isSingleItem}
                     />
-                    {mode === 'lump_sum' ? (
+                    {inp.mode === 'lump_sum' ? (
                       <RateField
                         label="Lump sum"
                         placeholder="$0"
@@ -848,7 +824,12 @@ export default function AIEstimateManualPricingModal({
             disabled={grandTotal <= 0}
             activeOpacity={0.88}
           >
-            <Text style={styles.primaryBtnText}>
+            <Text
+              style={[
+                styles.primaryBtnText,
+                grandTotal <= 0 ? { color: 'rgba(15, 23, 42, 0.55)' } : null,
+              ]}
+            >
               {isSingleItem
                 ? 'Save price'
                 : isAdjust
@@ -940,14 +921,14 @@ const styles = StyleSheet.create({
   scopeQty: { fontSize: 12, fontWeight: '600', textAlign: 'center', marginTop: 4 },
   title: { fontSize: 18, fontWeight: '800', textAlign: 'center' },
   card: {
-    padding: 12,
+    padding: 10,
     borderRadius: 12,
     borderWidth: 1,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   compactCard: {
     marginBottom: 0,
-    padding: 16,
+    padding: 14,
   },
   segmentedTrack: {
     flexDirection: 'row',
@@ -976,30 +957,35 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   fieldWrap: {
-    marginBottom: 8,
+    marginBottom: 6,
   },
   fieldWrapCompact: {
-    marginBottom: 12,
+    marginBottom: 10,
   },
   fieldLabel: {
     fontSize: 11,
-    marginBottom: 4,
+    marginBottom: 3,
     fontWeight: '600',
   },
   fieldLabelCompact: {
     fontSize: 12,
-    marginBottom: 6,
+    marginBottom: 5,
   },
   fieldInput: {
     borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    borderRadius: 10,
+    paddingHorizontal: 12,
     fontSize: 16,
+    lineHeight: 20,
+    minHeight: 42,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
+    ...(Platform.OS === 'android' ? { textAlignVertical: 'center' as const, includeFontPadding: false } : null),
   },
   fieldInputCompact: {
-    paddingVertical: 14,
     fontSize: 17,
+    lineHeight: 24,
+    minHeight: 52,
+    paddingVertical: Platform.OS === 'ios' ? 14 : 12,
   },
   heroFieldWrap: {
     marginTop: 4,
@@ -1010,18 +996,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 16,
     paddingHorizontal: 16,
-    paddingVertical: 6,
+    paddingVertical: 12,
+    minHeight: 64,
   },
   heroCurrency: {
     fontSize: 28,
     fontWeight: '800',
+    lineHeight: 36,
     marginRight: 4,
   },
   heroInput: {
     flex: 1,
     fontSize: 32,
     fontWeight: '800',
-    paddingVertical: 10,
+    lineHeight: 40,
+    paddingVertical: Platform.OS === 'ios' ? 4 : 0,
+    paddingHorizontal: 0,
+    minHeight: 40,
+    ...(Platform.OS === 'android' ? { textAlignVertical: 'center' as const, includeFontPadding: false } : null),
   },
   footer: {
     paddingHorizontal: 16,
@@ -1058,8 +1050,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryBtnDisabled: {
-    backgroundColor: '#475569',
-    opacity: 0.7,
+    backgroundColor: 'rgba(34, 197, 94, 0.28)',
+    opacity: 1,
   },
   primaryBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 16 },
 });

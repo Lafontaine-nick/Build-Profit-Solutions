@@ -558,6 +558,7 @@ function ScopeIntelligenceNotice({
   compact?: boolean;
   pricingAccepted?: boolean;
 }) {
+  const [warningExpanded, setWarningExpanded] = useState(false);
   const cardDisplay = buildCardIntelligenceDisplay(intelligence, { pricingAccepted });
   const formula = intelligence.formula;
   const calculatedActive = calculatedQuantityAlreadyActive(intelligence);
@@ -604,13 +605,27 @@ function ScopeIntelligenceNotice({
           ? '#f59e0b'
           : '#60a5fa';
 
+  const warningFull = (cardDisplay.conciseBenchmarkWarning || '').trim();
+  const warningFirstSentence = warningFull.split(/(?<=\.)\s+/)[0] || warningFull;
+  const warningPreview =
+    warningFirstSentence.length > 88
+      ? `${warningFirstSentence.slice(0, 85).trimEnd()}…`
+      : warningFirstSentence;
+  const warningCanExpand = Boolean(warningFull && warningPreview !== warningFull);
+
+  const otherNotice =
+    cardDisplay.otherNotice &&
+    !(showFormulaDetails && cardDisplay.otherNotice.startsWith('Calculated comparison:'))
+      ? cardDisplay.otherNotice
+      : null;
+
   return (
     <View
       style={[
         styles.intelligenceNotice,
         {
-          borderColor: darkMode ? 'rgba(96,165,250,0.22)' : 'rgba(96,165,250,0.18)',
-          backgroundColor: darkMode ? 'rgba(15,23,42,0.58)' : 'rgba(248,250,252,0.92)',
+          borderColor: darkMode ? 'rgba(96,165,250,0.18)' : 'rgba(96,165,250,0.16)',
+          backgroundColor: 'transparent',
         },
       ]}
     >
@@ -624,15 +639,35 @@ function ScopeIntelligenceNotice({
             </>
           )}
         </Text>
-      ) : cardDisplay.conciseBenchmarkWarning ? (
+      ) : cardDisplay.conciseBenchmarkWarning || cardDisplay.confidenceLabel ? (
         <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
           <Text style={{ color: accent, fontWeight: '800' }}>{cardDisplay.confidenceLabel}</Text>
         </Text>
       ) : null}
-      {cardDisplay.conciseBenchmarkWarning ? (
-        <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
-          {cardDisplay.conciseBenchmarkWarning}
-        </Text>
+      {warningFull ? (
+        <TouchableOpacity
+          activeOpacity={warningCanExpand ? 0.75 : 1}
+          disabled={!warningCanExpand}
+          onPress={() => setWarningExpanded((open) => !open)}
+          accessibilityRole={warningCanExpand ? 'button' : undefined}
+          accessibilityState={warningCanExpand ? { expanded: warningExpanded } : undefined}
+        >
+          <Text
+            style={[
+              styles.intelligenceNoticeText,
+              {
+                color: warningExpanded
+                  ? captionColor(darkMode, Colors)
+                  : darkMode
+                    ? 'rgba(255,255,255,0.55)'
+                    : Colors.sub,
+              },
+            ]}
+          >
+            {warningExpanded ? warningFull : warningPreview}
+            {warningCanExpand && !warningExpanded ? ' More' : ''}
+          </Text>
+        </TouchableOpacity>
       ) : null}
       {cardDisplay.duplicatePricingMessage ? (
         <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
@@ -643,18 +678,27 @@ function ScopeIntelligenceNotice({
           {cardDisplay.duplicatePricingMessage}
         </Text>
       ) : null}
-      {cardDisplay.otherNotice &&
-      !(showFormulaDetails && cardDisplay.otherNotice.startsWith('Calculated comparison:')) ? (
+      {otherNotice && warningExpanded ? (
         <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
-          {cardDisplay.otherNotice}
+          {otherNotice}
+        </Text>
+      ) : otherNotice && !warningFull ? (
+        <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
+          {otherNotice}
         </Text>
       ) : null}
       {showFormulaDetails ? (
         <View style={styles.formulaNoticeBlock}>
-          <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
-            {formula!.formulaExplanation}
-          </Text>
-          {formula!.expectedRange && formulaVariance != null && formulaVariance !== 0 ? (
+          {(warningExpanded || !warningFull) && (
+            <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
+              {formula!.formulaExplanation}
+            </Text>
+          )}
+          {(warningExpanded || !warningFull) &&
+          formula!.expectedRange &&
+          formulaVariance != null &&
+          formulaVariance !== 0 &&
+          Math.abs(formulaVariance) <= 150 ? (
             <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
               Expected range: {formula!.expectedRange.low.toLocaleString()}-
               {formula!.expectedRange.high.toLocaleString()} {formatUnitLabel(formula!.unit)}
@@ -722,7 +766,132 @@ function headerSourcePillLabel(rateSourceLabel: string): string | undefined {
   if (rateSourceLabel.startsWith('Suggested · ')) {
     return rateSourceLabel.slice('Suggested · '.length);
   }
+  if (rateSourceLabel.startsWith('Adjusted · ')) {
+    return rateSourceLabel.slice('Adjusted · '.length);
+  }
   return rateSourceLabel;
+}
+
+/**
+ * When the editor's basis/material/labor diverge from the original suggestion,
+ * rebuild the card so amounts match the live split and title becomes Adjusted pricing.
+ */
+function overlaySuggestedBlockWithEditorValues(
+  block: SuggestedPricingBlock | null | undefined,
+  editor: {
+    materialValue: string;
+    laborValue: string;
+    allowanceValue?: string;
+    pricingBasisValue: string;
+    pricingBasis: { quantity: number; unit: string } | null;
+    basisUnit: string;
+  }
+): SuggestedPricingBlock | null {
+  if (!block) return null;
+  const basisQty =
+    parseMoneyAmount(editor.pricingBasisValue) ||
+    (editor.pricingBasis && editor.pricingBasis.quantity > 0 ? editor.pricingBasis.quantity : 0) ||
+    (block.basis?.quantity && block.basis.quantity > 0 ? block.basis.quantity : 0);
+  const basisUnit = editor.pricingBasis?.unit || editor.basisUnit || block.basis?.unit || 'sqft';
+  const material = parseMoneyAmount(editor.materialValue);
+  const labor = parseMoneyAmount(editor.laborValue);
+  const allowance = parseMoneyAmount(editor.allowanceValue);
+  const hasEditorAmounts = block.lumpSumOnly ? allowance > 0 : material > 0 || labor > 0;
+  if (!hasEditorAmounts) return block;
+
+  const total = block.lumpSumOnly ? allowance : material + labor;
+  if (!(total > 0)) return block;
+
+  const originalBasisQty = block.basis?.quantity && block.basis.quantity > 0 ? block.basis.quantity : 0;
+  const amountsDiffer =
+    Math.abs((block.lumpSumOnly ? block.total : block.material) - (block.lumpSumOnly ? total : material)) >= 0.01 ||
+    (!block.lumpSumOnly && Math.abs(block.labor - labor) >= 0.01) ||
+    Math.abs(block.total - total) >= 0.01 ||
+    (originalBasisQty > 0 && basisQty > 0 && Math.abs(originalBasisQty - basisQty) >= 0.01);
+
+  if (!amountsDiffer) return block;
+
+  const materialRate = basisQty > 0 && material > 0 ? roundMoney2(material / basisQty) : null;
+  const laborRate = basisQty > 0 && labor > 0 ? roundMoney2(labor / basisQty) : null;
+  const unitLabel = formatUnitLabel(basisUnit);
+  const basisHelper =
+    basisQty > 0 ? `Based on ${basisQty.toLocaleString()} ${unitLabel} · adjusted pricing` : 'Adjusted pricing';
+
+  const costBuckets = block.lumpSumOnly
+    ? [
+        {
+          key: 'allowance' as const,
+          label: 'Allowance',
+          amount: roundMoney2(total),
+          rate: null,
+          source: 'notes' as const,
+        },
+      ]
+    : (block.costBuckets?.length
+        ? block.costBuckets.map((bucket) => {
+            if (bucket.key === 'labor') {
+              return {
+                ...bucket,
+                amount: roundMoney2(labor),
+                rate: laborRate,
+                source: 'notes' as const,
+              };
+            }
+            if (
+              bucket.key === 'material' ||
+              bucket.key === 'equipment' ||
+              bucket.key === 'subcontractor' ||
+              bucket.key === 'other_direct_cost'
+            ) {
+              return {
+                ...bucket,
+                amount: roundMoney2(material),
+                rate: materialRate,
+                source: 'notes' as const,
+              };
+            }
+            return bucket;
+          })
+        : [
+            ...(material > 0
+              ? [
+                  {
+                    key: 'material' as const,
+                    label: 'Material',
+                    amount: roundMoney2(material),
+                    rate: materialRate,
+                    source: 'notes' as const,
+                  },
+                ]
+              : []),
+            ...(labor > 0
+              ? [
+                  {
+                    key: 'labor' as const,
+                    label: 'Labor',
+                    amount: roundMoney2(labor),
+                    rate: laborRate,
+                    source: 'notes' as const,
+                  },
+                ]
+              : []),
+          ]
+      ).filter((bucket) => bucket.amount > 0);
+
+  const originalLabel = block.rateSourceLabel.replace(/^Suggested · /, '').replace(/^Adjusted · /, '');
+  return {
+    ...block,
+    material: roundMoney2(material),
+    labor: roundMoney2(labor),
+    total: roundMoney2(total),
+    materialSource: 'notes',
+    laborSource: 'notes',
+    rateSourceLabel: `Adjusted · ${originalLabel || 'User entered'}`,
+    helper: basisHelper,
+    basis: basisQty > 0 ? { quantity: basisQty, unit: basisUnit } : block.basis,
+    costBuckets,
+    isComparison: false,
+  };
 }
 
 function SuggestedBudgetSplitRows({
@@ -730,28 +899,38 @@ function SuggestedBudgetSplitRows({
   Colors,
   darkMode,
   onUsePricing,
+  adjusted = false,
 }: {
   block: SuggestedPricingBlock;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   onUsePricing?: () => void;
+  adjusted?: boolean;
 }) {
   const panelBg = darkMode ? 'rgba(96, 165, 250, 0.08)' : 'rgba(96, 165, 250, 0.06)';
   const panelBorder = darkMode ? 'rgba(96, 165, 250, 0.22)' : 'rgba(96, 165, 250, 0.18)';
   const usesTemplate = block.materialSource === 'template' || block.laborSource === 'template';
+  const isAdjusted = adjusted || block.rateSourceLabel.startsWith('Adjusted · ');
   const headerTitle =
     block.lumpSumOnly
-      ? 'Suggested allowance'
-      : block.mode === 'note_total_split'
+      ? isAdjusted
+        ? 'Adjusted allowance'
+        : 'Suggested allowance'
+      : block.mode === 'note_total_split' && !isAdjusted
         ? 'Budget split'
         : block.isComparison
           ? 'Suggested comparison'
-          : 'Suggested pricing';
-  const headerPillKind = usesTemplate ? 'template' : 'national';
-  const headerPillLabel = block.rateSourceLabel;
+          : isAdjusted
+            ? 'Adjusted pricing'
+            : 'Suggested pricing';
+  const headerPillKind = isAdjusted ? 'notes' : usesTemplate ? 'template' : 'national';
+  const headerPillLabel = isAdjusted
+    ? block.rateSourceLabel.replace(/^Adjusted · /, '') || 'User adjusted'
+    : block.rateSourceLabel;
 
-  const explanation =
-    block.lumpSumOnly
+  const explanation = isAdjusted
+    ? null
+    : block.lumpSumOnly
       ? 'Flat allowance, not a material/labor split.'
       : block.mode === 'note_total_split'
         ? `Notes total split using ${usesTemplate ? 'saved rate' : 'National Average'} material.`
@@ -812,7 +991,6 @@ function SuggestedBudgetSplitRows({
           key={`${bucket.key}:${bucket.label}`}
           label={bucket.label}
           value={formatDraftMoney(bucket.amount)}
-          pill={legSourcePill({ block, leg: bucket.key === 'labor' || bucket.key === 'allowance' ? 'labor' : 'material' })}
           helper={
             bucket.key === 'allowance'
               ? 'Flat allowance'
@@ -856,7 +1034,7 @@ function SuggestedBudgetSplitRows({
       ) : null}
       {onUsePricing ? (
         <TouchableOpacity
-          activeOpacity={0.85}
+          activeOpacity={0.75}
           onPress={onUsePricing}
           style={styles.useSuggestedPricingBtn}
         >
@@ -1459,6 +1637,331 @@ type UnconfirmedSuggestedPricing = {
   block: SuggestedPricingBlock;
 };
 
+function parseMoneyAmount(value: string | number | null | undefined): number {
+  const n = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function roundMoney2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** Unit rates from a suggested pricing block (Material/Labor or Equipment+Labor). */
+function suggestedUnitRatesFromBlock(
+  block: SuggestedPricingBlock | null | undefined,
+  basisQty: number
+): { materialRate: number; laborRate: number } | null {
+  if (!block || !(basisQty > 0)) return null;
+  const materialBucket =
+    block.costBuckets?.find((b) => b.key === 'material' || b.key === 'equipment') ?? null;
+  const laborBucket = block.costBuckets?.find((b) => b.key === 'labor') ?? null;
+  const materialAmount = materialBucket?.amount ?? block.material ?? 0;
+  const laborAmount = laborBucket?.amount ?? block.labor ?? 0;
+  const materialRate =
+    materialBucket?.rate != null && materialBucket.rate > 0
+      ? materialBucket.rate
+      : materialAmount > 0
+        ? roundMoney2(materialAmount / basisQty)
+        : 0;
+  const laborRate =
+    laborBucket?.rate != null && laborBucket.rate > 0
+      ? laborBucket.rate
+      : laborAmount > 0
+        ? roundMoney2(laborAmount / basisQty)
+        : 0;
+  if (materialRate <= 0 && laborRate <= 0) return null;
+  return { materialRate, laborRate };
+}
+
+/**
+ * Material + Labor editor: prefills from Suggested pricing when empty, and keeps
+ * $/unit rates stable when Pricing basis quantity changes.
+ */
+function MaterialLaborSplitEditor({
+  materialValue,
+  laborValue,
+  pricingBasisValue,
+  pricingBasis,
+  basisUnit,
+  basisUnitLabel,
+  suggestedBlock,
+  sqftBasisKey,
+  materialKey,
+  laborKey,
+  onBatchItemQuantityChange,
+  focusQuantityField,
+  blurQuantityField,
+  Colors,
+  darkMode,
+  applying,
+}: {
+  materialValue: string;
+  laborValue: string;
+  pricingBasisValue: string;
+  pricingBasis: { quantity: number; unit: string } | null;
+  basisUnit: string;
+  basisUnitLabel: string;
+  suggestedBlock: SuggestedPricingBlock | null;
+  sqftBasisKey: string;
+  materialKey: string;
+  laborKey: string;
+  onBatchItemQuantityChange: (
+    updates: Array<{ itemId: string; quantity: string; unit?: string }>
+  ) => void;
+  focusQuantityField: (targetItemId: string, field?: 'count' | 'allowance') => void;
+  blurQuantityField: (targetItemId: string, field?: 'count' | 'allowance') => void;
+  Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
+  applying: boolean;
+}) {
+  const lockedRatesRef = useRef<{ material: number | null; labor: number | null }>({
+    material: null,
+    labor: null,
+  });
+  const lastBasisQtyRef = useRef<number | null>(null);
+  const didPrefillRef = useRef(false);
+
+  const effectiveBasisQty =
+    parseMoneyAmount(pricingBasisValue) ||
+    (pricingBasis && pricingBasis.quantity > 0 ? pricingBasis.quantity : 0);
+
+  // Prefill empty Material/Labor from Suggested pricing once per editor open.
+  useEffect(() => {
+    if (didPrefillRef.current) return;
+    const mat = parseMoneyAmount(materialValue);
+    const lab = parseMoneyAmount(laborValue);
+    if (mat > 0 || lab > 0) {
+      didPrefillRef.current = true;
+      if (effectiveBasisQty > 0) {
+        if (mat > 0) lockedRatesRef.current.material = roundMoney2(mat / effectiveBasisQty);
+        if (lab > 0) lockedRatesRef.current.labor = roundMoney2(lab / effectiveBasisQty);
+        lastBasisQtyRef.current = effectiveBasisQty;
+      }
+      return;
+    }
+    const suggestedBasisQty =
+      suggestedBlock?.basis?.quantity && suggestedBlock.basis.quantity > 0
+        ? suggestedBlock.basis.quantity
+        : effectiveBasisQty;
+    const rates = suggestedUnitRatesFromBlock(suggestedBlock, suggestedBasisQty);
+    if (!rates || effectiveBasisQty <= 0) return;
+    didPrefillRef.current = true;
+    lastBasisQtyRef.current = effectiveBasisQty;
+    lockedRatesRef.current = {
+      material: rates.materialRate > 0 ? rates.materialRate : null,
+      labor: rates.laborRate > 0 ? rates.laborRate : null,
+    };
+    const updates: Array<{ itemId: string; quantity: string; unit?: string }> = [];
+    if (!parseMoneyAmount(pricingBasisValue) && effectiveBasisQty > 0) {
+      updates.push({ itemId: sqftBasisKey, quantity: String(effectiveBasisQty), unit: basisUnit });
+    }
+    if (rates.materialRate > 0) {
+      updates.push({
+        itemId: materialKey,
+        quantity: String(roundMoney2(rates.materialRate * effectiveBasisQty)),
+        unit: 'allowance',
+      });
+    }
+    if (rates.laborRate > 0) {
+      updates.push({
+        itemId: laborKey,
+        quantity: String(roundMoney2(rates.laborRate * effectiveBasisQty)),
+        unit: 'allowance',
+      });
+    }
+    if (updates.length) onBatchItemQuantityChange(updates);
+  }, [
+    materialValue,
+    laborValue,
+    pricingBasisValue,
+    effectiveBasisQty,
+    suggestedBlock,
+    sqftBasisKey,
+    materialKey,
+    laborKey,
+    basisUnit,
+    onBatchItemQuantityChange,
+  ]);
+
+  const handleBasisChange = (text: string) => {
+    const nextQty = parseMoneyAmount(text);
+    const prevQty = lastBasisQtyRef.current ?? effectiveBasisQty;
+    const updates: Array<{ itemId: string; quantity: string; unit?: string }> = [
+      { itemId: sqftBasisKey, quantity: text, unit: basisUnit },
+    ];
+
+    if (!(nextQty > 0)) {
+      lastBasisQtyRef.current = null;
+      onBatchItemQuantityChange(updates);
+      return;
+    }
+
+    // Prefer locked rates; otherwise derive from current totals before rescale.
+    let materialRate = lockedRatesRef.current.material;
+    let laborRate = lockedRatesRef.current.labor;
+    if (prevQty && prevQty > 0) {
+      if (materialRate == null) {
+        const mat = parseMoneyAmount(materialValue);
+        if (mat > 0) materialRate = roundMoney2(mat / prevQty);
+      }
+      if (laborRate == null) {
+        const lab = parseMoneyAmount(laborValue);
+        if (lab > 0) laborRate = roundMoney2(lab / prevQty);
+      }
+    }
+    lockedRatesRef.current = {
+      material: materialRate,
+      labor: laborRate,
+    };
+    lastBasisQtyRef.current = nextQty;
+
+    if (materialRate != null && materialRate > 0) {
+      updates.push({
+        itemId: materialKey,
+        quantity: String(roundMoney2(materialRate * nextQty)),
+        unit: 'allowance',
+      });
+    }
+    if (laborRate != null && laborRate > 0) {
+      updates.push({
+        itemId: laborKey,
+        quantity: String(roundMoney2(laborRate * nextQty)),
+        unit: 'allowance',
+      });
+    }
+    const materialTotal =
+      materialRate != null && materialRate > 0 ? roundMoney2(materialRate * nextQty) : parseMoneyAmount(materialValue);
+    const laborTotal =
+      laborRate != null && laborRate > 0 ? roundMoney2(laborRate * nextQty) : parseMoneyAmount(laborValue);
+    const split = materialTotal + laborTotal;
+    if (split > 0) {
+      const allowanceKey = materialKey.replace(/__material$/, '__allowance');
+      updates.push({
+        itemId: allowanceKey,
+        quantity: String(roundMoney2(split)),
+        unit: 'allowance',
+      });
+    }
+    onBatchItemQuantityChange(updates);
+  };
+
+  const handleMaterialChange = (text: string) => {
+    const amount = parseMoneyAmount(text);
+    const laborAmount = parseMoneyAmount(laborValue);
+    const updates: Array<{ itemId: string; quantity: string; unit?: string }> = [
+      { itemId: materialKey, quantity: text, unit: 'allowance' },
+    ];
+    const split = (amount > 0 ? amount : 0) + (laborAmount > 0 ? laborAmount : 0);
+    if (split > 0) {
+      updates.push({
+        itemId: materialKey.replace(/__material$/, '__allowance'),
+        quantity: String(roundMoney2(split)),
+        unit: 'allowance',
+      });
+    }
+    onBatchItemQuantityChange(updates);
+    if (effectiveBasisQty > 0 && amount > 0) {
+      lockedRatesRef.current.material = roundMoney2(amount / effectiveBasisQty);
+    } else if (!text.trim()) {
+      lockedRatesRef.current.material = null;
+    }
+  };
+
+  const handleLaborChange = (text: string) => {
+    const amount = parseMoneyAmount(text);
+    const materialAmount = parseMoneyAmount(materialValue);
+    const updates: Array<{ itemId: string; quantity: string; unit?: string }> = [
+      { itemId: laborKey, quantity: text, unit: 'allowance' },
+    ];
+    const split = (materialAmount > 0 ? materialAmount : 0) + (amount > 0 ? amount : 0);
+    if (split > 0) {
+      updates.push({
+        itemId: laborKey.replace(/__labor$/, '__allowance'),
+        quantity: String(roundMoney2(split)),
+        unit: 'allowance',
+      });
+    }
+    onBatchItemQuantityChange(updates);
+    if (effectiveBasisQty > 0 && amount > 0) {
+      lockedRatesRef.current.labor = roundMoney2(amount / effectiveBasisQty);
+    } else if (!text.trim()) {
+      lockedRatesRef.current.labor = null;
+    }
+  };
+
+  const splitTotal = (() => {
+    const materialNumber = parseMoneyAmount(materialValue);
+    const laborNumber = parseMoneyAmount(laborValue);
+    const total = materialNumber + laborNumber;
+    return total > 0 ? total : null;
+  })();
+
+  const editorBasis =
+    effectiveBasisQty > 0
+      ? { quantity: effectiveBasisQty, unit: pricingBasis?.unit || basisUnit }
+      : pricingBasis;
+
+  return (
+    <>
+      <PricingInputField
+        label="Pricing basis"
+        value={pricingBasisValue}
+        suffix={basisUnitLabel}
+        placeholder={pricingBasis ? String(pricingBasis.quantity) : `Enter ${basisUnitLabel}`}
+        helper={
+          !pricingBasisValue && pricingBasis
+            ? `Using ${pricingBasis.quantity.toLocaleString()} ${basisUnitLabel} from job measurements`
+            : undefined
+        }
+        onFocus={() => focusQuantityField(sqftBasisKey)}
+        onChangeText={handleBasisChange}
+        onBlur={() => blurQuantityField(sqftBasisKey)}
+        Colors={Colors}
+        darkMode={darkMode}
+        applying={applying}
+      />
+      <PricingInputField
+        label="Material"
+        value={materialValue}
+        helper={unitRateHelper(materialValue, editorBasis)}
+        basis={editorBasis}
+        prefix="$"
+        placeholder={editorBasis ? `Material $/${basisUnitLabel}` : 'Material total'}
+        defaultInputMode={editorBasis ? 'rate' : 'total'}
+        onFocus={() => focusQuantityField(materialKey)}
+        onChangeText={handleMaterialChange}
+        onBlur={() => blurQuantityField(materialKey)}
+        Colors={Colors}
+        darkMode={darkMode}
+        applying={applying}
+      />
+      <PricingInputField
+        label="Labor"
+        value={laborValue}
+        helper={unitRateHelper(laborValue, editorBasis)}
+        basis={editorBasis}
+        prefix="$"
+        placeholder={editorBasis ? `Labor $/${basisUnitLabel}` : 'Labor total'}
+        defaultInputMode={editorBasis ? 'rate' : 'total'}
+        onFocus={() => focusQuantityField(laborKey)}
+        onChangeText={handleLaborChange}
+        onBlur={() => blurQuantityField(laborKey)}
+        Colors={Colors}
+        darkMode={darkMode}
+        applying={applying}
+      />
+      {splitTotal ? (
+        <PricingSplitRow
+          label="Split total"
+          value={formatDraftMoney(splitTotal)}
+          darkMode={darkMode}
+          Colors={Colors}
+        />
+      ) : null}
+    </>
+  );
+}
+
 function QuantitySection({
   itemId,
   choiceId,
@@ -1467,6 +1970,7 @@ function QuantitySection({
   originalNotes,
   measurementsInput,
   onItemQuantityChange,
+  onBatchItemQuantityChange,
   onItemQuantityBlur,
   onItemQuantityFocus,
   onApplySuggestedPricing,
@@ -1495,6 +1999,9 @@ function QuantitySection({
     unit?: string,
     source?: QuantitySource,
     calculatedRevertFrom?: CalculatedQuantityRevertSnapshot
+  ) => void;
+  onBatchItemQuantityChange: (
+    updates: Array<{ itemId: string; quantity: string; unit?: string }>
   ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
@@ -2284,14 +2791,18 @@ function QuantitySection({
   const pricingBasisValue = sqftBasisInput?.quantity ?? '';
   const materialValue = materialInput?.quantity ?? '';
   const laborValue = laborInput?.quantity ?? '';
-  const splitTotal = (() => {
-    const materialNumber = Number(String(materialValue || '').replace(/,/g, ''));
-    const laborNumber = Number(String(laborValue || '').replace(/,/g, ''));
-    const total =
-      (Number.isFinite(materialNumber) && materialNumber > 0 ? materialNumber : 0) +
-      (Number.isFinite(laborNumber) && laborNumber > 0 ? laborNumber : 0);
-    return total > 0 ? total : null;
-  })();
+  const displaySuggestedBudgetSplit = overlaySuggestedBlockWithEditorValues(suggestedBudgetSplit, {
+    materialValue,
+    laborValue,
+    allowanceValue: lumpSumValue,
+    pricingBasisValue,
+    pricingBasis,
+    basisUnit,
+  });
+  const suggestedCardIsAdjusted =
+    Boolean(displaySuggestedBudgetSplit) &&
+    displaySuggestedBudgetSplit !== suggestedBudgetSplit &&
+    Boolean(displaySuggestedBudgetSplit?.rateSourceLabel.startsWith('Adjusted · '));
 
   if (rule.lumpSumOnly) {
     return (
@@ -2327,12 +2838,13 @@ function QuantitySection({
           darkMode={darkMode}
           applying={applying}
         />
-        {suggestedBudgetSplit ? (
+        {displaySuggestedBudgetSplit ? (
           <SuggestedBudgetSplitRows
-            block={suggestedBudgetSplit}
+            block={displaySuggestedBudgetSplit}
             Colors={Colors}
             darkMode={darkMode}
-            onUsePricing={() => applySuggestedPricingBlock(suggestedBudgetSplit)}
+            adjusted={suggestedCardIsAdjusted}
+            onUsePricing={() => applySuggestedPricingBlock(displaySuggestedBudgetSplit)}
           />
         ) : null}
         {suggestedComparisonSplit ? (
@@ -2368,81 +2880,31 @@ function QuantitySection({
           Tap card to collapse
         </Text>
       </TouchableOpacity>
-      <PricingInputField
-        label="Lump sum / total"
-        value={lumpSumValue}
-        prefix="$"
-        placeholder="Enter total"
-        onFocus={() => focusQuantityField(allowanceKey)}
-        onChangeText={(text) => onItemQuantityChange(allowanceKey, text, 'count', 'allowance')}
-        onBlur={() => blurQuantityField(allowanceKey)}
+      <MaterialLaborSplitEditor
+        materialValue={materialValue}
+        laborValue={laborValue}
+        pricingBasisValue={pricingBasisValue}
+        pricingBasis={pricingBasis}
+        basisUnit={basisUnit}
+        basisUnitLabel={basisUnitLabel}
+        suggestedBlock={suggestedBudgetSplit}
+        sqftBasisKey={sqftBasisKey}
+        materialKey={materialKey}
+        laborKey={laborKey}
+        onBatchItemQuantityChange={onBatchItemQuantityChange}
+        focusQuantityField={focusQuantityField}
+        blurQuantityField={blurQuantityField}
         Colors={Colors}
         darkMode={darkMode}
         applying={applying}
       />
-      <PricingInputField
-        label="Pricing basis"
-        value={pricingBasisValue}
-        suffix={basisUnitLabel}
-        placeholder={pricingBasis ? String(pricingBasis.quantity) : `Enter ${basisUnitLabel}`}
-        helper={
-          !pricingBasisValue && pricingBasis
-            ? `Using ${pricingBasis.quantity.toLocaleString()} ${basisUnitLabel} from job measurements`
-            : undefined
-        }
-        onFocus={() => focusQuantityField(sqftBasisKey)}
-        onChangeText={(text) =>
-          onItemQuantityChange(sqftBasisKey, text, 'count', basisUnit)
-        }
-        onBlur={() => blurQuantityField(sqftBasisKey)}
-        Colors={Colors}
-        darkMode={darkMode}
-        applying={applying}
-      />
-      <PricingInputField
-        label="Material"
-        value={materialValue}
-        helper={unitRateHelper(materialValue, pricingBasis)}
-        basis={pricingBasis}
-        prefix="$"
-        placeholder={pricingBasis ? `Material $/${basisUnitLabel}` : 'Material total'}
-        defaultInputMode={pricingBasis ? 'rate' : 'total'}
-        onFocus={() => focusQuantityField(materialKey)}
-        onChangeText={(text) => onItemQuantityChange(materialKey, text, 'count', 'allowance')}
-        onBlur={() => blurQuantityField(materialKey)}
-        Colors={Colors}
-        darkMode={darkMode}
-        applying={applying}
-      />
-      <PricingInputField
-        label="Labor"
-        value={laborValue}
-        helper={unitRateHelper(laborValue, pricingBasis)}
-        basis={pricingBasis}
-        prefix="$"
-        placeholder={pricingBasis ? `Labor $/${basisUnitLabel}` : 'Labor total'}
-        defaultInputMode={pricingBasis ? 'rate' : 'total'}
-        onFocus={() => focusQuantityField(laborKey)}
-        onChangeText={(text) => onItemQuantityChange(laborKey, text, 'count', 'allowance')}
-        onBlur={() => blurQuantityField(laborKey)}
-        Colors={Colors}
-        darkMode={darkMode}
-        applying={applying}
-      />
-      {splitTotal ? (
-        <PricingSplitRow
-          label="Split total"
-          value={formatDraftMoney(splitTotal)}
-          darkMode={darkMode}
-          Colors={Colors}
-        />
-      ) : null}
-      {suggestedBudgetSplit ? (
+      {displaySuggestedBudgetSplit ? (
         <SuggestedBudgetSplitRows
-          block={suggestedBudgetSplit}
+          block={displaySuggestedBudgetSplit}
           Colors={Colors}
           darkMode={darkMode}
-          onUsePricing={() => applySuggestedPricingBlock(suggestedBudgetSplit)}
+          adjusted={suggestedCardIsAdjusted}
+          onUsePricing={() => applySuggestedPricingBlock(displaySuggestedBudgetSplit)}
         />
       ) : null}
       {suggestedComparisonSplit ? (
@@ -2509,6 +2971,7 @@ function WetAreaInstallLineCard({
   originalNotes,
   measurementsInput,
   onItemQuantityChange,
+  onBatchItemQuantityChange,
   onItemQuantityBlur,
   onItemQuantityFocus,
   onApplySuggestedPricing,
@@ -2535,6 +2998,9 @@ function WetAreaInstallLineCard({
     unit?: string,
     source?: QuantitySource,
     calculatedRevertFrom?: CalculatedQuantityRevertSnapshot
+  ) => void;
+  onBatchItemQuantityChange: (
+    updates: Array<{ itemId: string; quantity: string; unit?: string }>
   ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
@@ -2591,6 +3057,7 @@ function WetAreaInstallLineCard({
         originalNotes={originalNotes}
         measurementsInput={measurementsInput}
         onItemQuantityChange={onItemQuantityChange}
+        onBatchItemQuantityChange={onBatchItemQuantityChange}
         onItemQuantityBlur={onItemQuantityBlur}
         onItemQuantityFocus={onItemQuantityFocus}
         onApplySuggestedPricing={onApplySuggestedPricing}
@@ -2618,6 +3085,7 @@ function YesNoRow({
   onDelete,
   measurementsInput,
   onItemQuantityChange,
+  onBatchItemQuantityChange,
   onItemQuantityBlur,
   onItemQuantityFocus,
   onApplySuggestedPricing,
@@ -2647,6 +3115,9 @@ function YesNoRow({
     unit?: string,
     source?: QuantitySource,
     calculatedRevertFrom?: CalculatedQuantityRevertSnapshot
+  ) => void;
+  onBatchItemQuantityChange: (
+    updates: Array<{ itemId: string; quantity: string; unit?: string }>
   ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
@@ -2821,6 +3292,7 @@ function YesNoRow({
           originalNotes={originalNotes}
           measurementsInput={measurementsInput}
           onItemQuantityChange={onItemQuantityChange}
+          onBatchItemQuantityChange={onBatchItemQuantityChange}
           onItemQuantityBlur={onItemQuantityBlur}
           onItemQuantityFocus={onItemQuantityFocus}
           onApplySuggestedPricing={onApplySuggestedPricing}
@@ -2847,6 +3319,7 @@ function MultiChoiceRow({
   onToggle,
   measurementsInput,
   onItemQuantityChange,
+  onBatchItemQuantityChange,
   onItemQuantityBlur,
   onItemQuantityFocus,
   onApplySuggestedPricing,
@@ -2873,6 +3346,9 @@ function MultiChoiceRow({
     unit?: string,
     source?: QuantitySource,
     calculatedRevertFrom?: CalculatedQuantityRevertSnapshot
+  ) => void;
+  onBatchItemQuantityChange: (
+    updates: Array<{ itemId: string; quantity: string; unit?: string }>
   ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
@@ -2973,6 +3449,7 @@ function MultiChoiceRow({
         originalNotes={originalNotes}
         measurementsInput={measurementsInput}
         onItemQuantityChange={onItemQuantityChange}
+        onBatchItemQuantityChange={onBatchItemQuantityChange}
         onItemQuantityBlur={onItemQuantityBlur}
         onItemQuantityFocus={onItemQuantityFocus}
         onApplySuggestedPricing={onApplySuggestedPricing}
@@ -2998,6 +3475,7 @@ function ChoiceRow({
   onSelect,
   measurementsInput,
   onItemQuantityChange,
+  onBatchItemQuantityChange,
   onItemQuantityBlur,
   onItemQuantityFocus,
   onApplySuggestedPricing,
@@ -3024,6 +3502,9 @@ function ChoiceRow({
     unit?: string,
     source?: QuantitySource,
     calculatedRevertFrom?: CalculatedQuantityRevertSnapshot
+  ) => void;
+  onBatchItemQuantityChange: (
+    updates: Array<{ itemId: string; quantity: string; unit?: string }>
   ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
@@ -3124,6 +3605,7 @@ function ChoiceRow({
         originalNotes={originalNotes}
         measurementsInput={measurementsInput}
         onItemQuantityChange={onItemQuantityChange}
+        onBatchItemQuantityChange={onBatchItemQuantityChange}
         onItemQuantityBlur={onItemQuantityBlur}
         onItemQuantityFocus={onItemQuantityFocus}
         onApplySuggestedPricing={onApplySuggestedPricing}
@@ -3912,6 +4394,35 @@ export default function AIEstimateScopeAssumptionsModal({
     });
   };
 
+  const handleBatchItemQuantityChange = useCallback(
+    (updates: Array<{ itemId: string; quantity: string; unit?: string }>) => {
+      if (!updates.length) return;
+      setMeasurementsSynced((prev) => {
+        const itemQuantities = { ...prev.itemQuantities };
+        let pricingAcceptance = prev.pricingAcceptance;
+        for (const update of updates) {
+          const baseItemId = update.itemId.replace(/__(allowance|sqft_basis|material|labor)$/, '');
+          const rule = getChecklistItemQuantityRuleOrDefault(baseItemId, checklist?.templateKey);
+          itemQuantities[update.itemId] = {
+            quantity: update.quantity,
+            unit: update.unit || (rule?.dualAllowanceField ? 'each' : rule.defaultUnit),
+            quantitySource: 'user_entered',
+          };
+          if (/__(allowance|sqft_basis|material|labor)$/.test(update.itemId)) {
+            pricingAcceptance = markManualPricingAdjustment(
+              pricingAcceptance?.[baseItemId],
+              baseItemId,
+              pricingAcceptance,
+              parsePricingAmount(update.quantity) ?? undefined
+            );
+          }
+        }
+        return { ...prev, itemQuantities, pricingAcceptance };
+      });
+    },
+    [checklist?.templateKey, setMeasurementsSynced]
+  );
+
   const scrollToFirstMissingMeasurement = useCallback(() => {
     for (const item of displayItems) {
       if (!checklistItemInScope(item)) continue;
@@ -4297,6 +4808,7 @@ export default function AIEstimateScopeAssumptionsModal({
         originalNotes={scopeNotes}
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
+        onBatchItemQuantityChange={handleBatchItemQuantityChange}
         onItemQuantityBlur={handleItemQuantityBlur}
         onItemQuantityFocus={handleItemQuantityFocus}
         onApplySuggestedPricing={handleApplySuggestedPricing}
@@ -4332,6 +4844,7 @@ export default function AIEstimateScopeAssumptionsModal({
         }
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
+        onBatchItemQuantityChange={handleBatchItemQuantityChange}
         onItemQuantityBlur={handleItemQuantityBlur}
         onItemQuantityFocus={handleItemQuantityFocus}
         onApplySuggestedPricing={handleApplySuggestedPricing}
@@ -4375,6 +4888,7 @@ export default function AIEstimateScopeAssumptionsModal({
         }
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
+        onBatchItemQuantityChange={handleBatchItemQuantityChange}
         onItemQuantityBlur={handleItemQuantityBlur}
         onItemQuantityFocus={handleItemQuantityFocus}
         onApplySuggestedPricing={handleApplySuggestedPricing}
@@ -4412,6 +4926,7 @@ export default function AIEstimateScopeAssumptionsModal({
         onSaveCustomPricing={isCustomScopeItem(item) ? persistScopeProgressNow : undefined}
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
+        onBatchItemQuantityChange={handleBatchItemQuantityChange}
         onItemQuantityBlur={handleItemQuantityBlur}
         onItemQuantityFocus={handleItemQuantityFocus}
         onApplySuggestedPricing={handleApplySuggestedPricing}
@@ -4698,25 +5213,6 @@ export default function AIEstimateScopeAssumptionsModal({
           },
         ]}
       >
-        {unconfirmedSuggestedPricing.length > 0 ? (
-          <TouchableOpacity
-            style={[
-              styles.bulkSuggestedPricingBtn,
-              {
-                borderColor: darkMode ? 'rgba(34,197,94,0.42)' : 'rgba(22,163,74,0.3)',
-                backgroundColor: darkMode ? 'rgba(34,197,94,0.1)' : 'rgba(22,163,74,0.08)',
-              },
-            ]}
-            onPress={handleUseAllSuggestedPricing}
-            disabled={applying}
-            activeOpacity={0.86}
-          >
-            <Text style={styles.bulkSuggestedPricingBtnText}>
-              Use {unconfirmedSuggestedPricing.length} suggested price
-              {unconfirmedSuggestedPricing.length === 1 ? '' : 's'} in estimate
-            </Text>
-          </TouchableOpacity>
-        ) : null}
         <TouchableOpacity
           style={[styles.primaryBtn, applying && styles.primaryBtnDisabled]}
           onPress={handleConfirm}
@@ -4730,20 +5226,34 @@ export default function AIEstimateScopeAssumptionsModal({
           )}
         </TouchableOpacity>
 
+        {unconfirmedSuggestedPricing.length > 0 ? (
+          <TouchableOpacity
+            onPress={handleUseAllSuggestedPricing}
+            disabled={applying}
+            activeOpacity={0.75}
+            style={styles.bulkSuggestedPricingLink}
+          >
+            <Text style={styles.bulkSuggestedPricingBtnText}>
+              Use {unconfirmedSuggestedPricing.length} suggested price
+              {unconfirmedSuggestedPricing.length === 1 ? '' : 's'} in estimate
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+
         {onScopeOnly ? (
           <TouchableOpacity
             onPress={handleScopeOnly}
             disabled={applying}
             activeOpacity={0.88}
           >
-            <Text style={{ color: Colors.sub, fontWeight: '700', textAlign: 'center' }}>
+            <Text style={{ color: Colors.sub, fontWeight: '600', fontSize: 13, textAlign: 'center' }}>
               Save scope only
             </Text>
           </TouchableOpacity>
         ) : null}
 
         <TouchableOpacity onPress={handleClose} disabled={applying}>
-          <Text style={{ color: Colors.sub, fontWeight: '600', textAlign: 'center' }}>Cancel</Text>
+          <Text style={{ color: Colors.sub, fontWeight: '600', fontSize: 13, textAlign: 'center' }}>Cancel</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -4931,18 +5441,14 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   useSuggestedPricingBtn: {
-    marginTop: 10,
-    alignSelf: 'stretch',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 10,
-    paddingVertical: 10,
-    backgroundColor: '#22c55e',
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
   },
   useSuggestedPricingBtnText: {
-    color: '#0f172a',
-    fontSize: 12,
-    fontWeight: '800',
+    color: '#22c55e',
+    fontSize: 13,
+    fontWeight: '700',
   },
   includedPillRow: {
     marginTop: 10,
@@ -5126,7 +5632,7 @@ const styles = StyleSheet.create({
   },
   sourcePill: {
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 3,
     borderRadius: 999,
     borderWidth: 1,
   },
@@ -5211,7 +5717,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
-    gap: 10,
+    gap: 8,
   },
   primaryBtn: {
     backgroundColor: '#22c55e',
@@ -5222,16 +5728,15 @@ const styles = StyleSheet.create({
   primaryBtnDisabled: {
     opacity: 0.7,
   },
-  bulkSuggestedPricingBtn: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 12,
+  bulkSuggestedPricingLink: {
     alignItems: 'center',
+    paddingVertical: 4,
   },
   bulkSuggestedPricingBtnText: {
     color: '#22c55e',
-    fontWeight: '800',
-    fontSize: 14,
+    fontWeight: '700',
+    fontSize: 13,
+    textAlign: 'center',
   },
   primaryBtnText: { color: '#0f172a', fontWeight: '800', fontSize: 16 },
 });

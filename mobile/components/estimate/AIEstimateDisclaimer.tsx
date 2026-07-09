@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
@@ -16,9 +16,16 @@ export const AI_ESTIMATE_DISCLAIMER_LINES = [
   'This tool does not replace your professional judgment, local codes, or licensed trade requirements.',
 ] as const;
 
+const COMPACT_DISCLAIMER =
+  'Drafts help organize walkthrough notes. Always review pricing and scope before applying or sending a bid. Suggested labor/material splits are estimates only.';
+
+const COMPACT_PREVIEW =
+  'Always review pricing and scope before applying. Suggested splits are estimates only.';
+
 export default function AIEstimateDisclaimer({ variant = 'compact' }: Props) {
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
+  const [compactExpanded, setCompactExpanded] = useState(false);
 
   const borderColor = darkMode ? 'rgba(251, 191, 36, 0.28)' : 'rgba(180, 83, 9, 0.35)';
   const bg = darkMode ? 'rgba(251, 191, 36, 0.07)' : 'rgba(251, 191, 36, 0.08)';
@@ -37,15 +44,30 @@ export default function AIEstimateDisclaimer({ variant = 'compact' }: Props) {
 
   if (variant === 'compact') {
     return (
-      <View style={[styles.box, { borderColor, backgroundColor: bg }]}>
-        <View style={styles.titleRow}>
-          <MaterialIcons name="info-outline" size={16} color={iconColor} />
-          <Text style={[styles.title, { color: titleColor }]}>AI estimate disclaimer</Text>
-        </View>
-        <Text style={[styles.compactBody, { color: bodyColor }]}>
-          Drafts help organize walkthrough notes. Always review pricing and scope before applying or
-          sending a bid. Suggested labor/material splits are estimates only.
-        </Text>
+      <View style={styles.compactWrap}>
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={() => setCompactExpanded((open) => !open)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: compactExpanded }}
+          style={styles.compactInline}
+        >
+          <MaterialIcons
+            name="info-outline"
+            size={14}
+            color={darkMode ? 'rgba(251,191,36,0.75)' : '#b45309'}
+            style={styles.compactIcon}
+          />
+          <Text style={[styles.compactInlineText, { color: bodyColor }]}>
+            {compactExpanded ? COMPACT_DISCLAIMER : COMPACT_PREVIEW}
+            {!compactExpanded ? (
+              <Text style={{ color: darkMode ? 'rgba(251,191,36,0.85)' : '#b45309', fontWeight: '700' }}>
+                {' '}
+                Disclaimer
+              </Text>
+            ) : null}
+          </Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -85,9 +107,28 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
-  compactBody: {
+  compactWrap: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingHorizontal: 12,
+  },
+  compactInline: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    gap: 6,
+    maxWidth: 320,
+    paddingVertical: 2,
+  },
+  compactIcon: {
+    marginTop: 1,
+  },
+  compactInlineText: {
+    flexShrink: 1,
     fontSize: 12,
     lineHeight: 17,
+    textAlign: 'center',
   },
   bulletRow: {
     flexDirection: 'row',
