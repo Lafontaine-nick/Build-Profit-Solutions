@@ -29,48 +29,73 @@ export type QuickMeasurementFieldKey =
   | 'excavationCy'
   | 'deckSqft';
 
+export type QuickMeasurementGroupId = 'site' | 'structure' | 'interior' | 'exterior' | 'other';
+
 export type QuickMeasurementFieldDef = {
   key: QuickMeasurementFieldKey;
   label: string;
   placeholder: string;
+  unit: string;
+  group: QuickMeasurementGroupId;
+  /** Emphasize as the main driver field (full-width, first). */
+  primary?: boolean;
 };
 
 /** Two fields per row when consecutive defs share a row group. */
 export type QuickMeasurementRow = QuickMeasurementFieldDef[];
+
+export type QuickMeasurementSection = {
+  id: QuickMeasurementGroupId;
+  title: string;
+  rows: QuickMeasurementRow[];
+};
+
+const GROUP_TITLES: Record<QuickMeasurementGroupId, string> = {
+  site: 'Site',
+  structure: 'Structure',
+  interior: 'Interior',
+  exterior: 'Exterior',
+  other: 'Other',
+};
+
+const GROUP_ORDER: QuickMeasurementGroupId[] = ['site', 'structure', 'interior', 'exterior', 'other'];
 
 const row = (...fields: QuickMeasurementFieldDef[]): QuickMeasurementRow => fields;
 
 const F = (
   key: QuickMeasurementFieldKey,
   label: string,
-  placeholder: string
-): QuickMeasurementFieldDef => ({ key, label, placeholder });
+  placeholder: string,
+  unit: string,
+  group: QuickMeasurementGroupId,
+  primary?: boolean
+): QuickMeasurementFieldDef => ({ key, label, placeholder, unit, group, primary });
 
 const QUICK_MEASUREMENT_FIELD_DEFS: Record<QuickMeasurementFieldKey, QuickMeasurementFieldDef> = {
-  bathroomFloorSqft: F('bathroomFloorSqft', 'Bathroom floor sqft', 'e.g. 90'),
-  kitchenFloorSqft: F('kitchenFloorSqft', 'Kitchen floor sqft', 'e.g. 180'),
-  floorAreaSqft: F('floorAreaSqft', 'Floor area sqft', 'e.g. 1200'),
-  backsplashSqft: F('backsplashSqft', 'Backsplash sqft', 'e.g. 40'),
-  countertopSqft: F('countertopSqft', 'Countertop sqft', 'e.g. 55'),
-  cabinetLf: F('cabinetLf', 'Cabinet run LF', 'e.g. 24'),
-  showerWallTileSqft: F('showerWallTileSqft', 'Shower wall sqft', 'e.g. 90'),
-  showerFloorTileSqft: F('showerFloorTileSqft', 'Shower floor sqft', 'e.g. 15'),
-  wallPaintSqft: F('wallPaintSqft', 'Wall/ceiling paint sqft', 'e.g. 320'),
-  exteriorPaintSqft: F('exteriorPaintSqft', 'Exterior paint sqft', 'e.g. 2200'),
-  baseboardLf: F('baseboardLf', 'Baseboard linear feet', 'e.g. 48'),
-  railingLf: F('railingLf', 'Railing linear feet', 'e.g. 48'),
-  landscapeSqft: F('landscapeSqft', 'General coverage sqft', 'e.g. 1200'),
-  sodSqft: F('sodSqft', 'Sod / turf sqft', 'e.g. 900'),
-  paverSqft: F('paverSqft', 'Paver sqft', 'e.g. 180'),
-  rockMulchSqft: F('rockMulchSqft', 'Rock / mulch sqft', 'e.g. 600'),
-  landscapeTons: F('landscapeTons', 'Rock / mulch tons', 'e.g. 12'),
-  roofSquares: F('roofSquares', 'Roof squares', 'e.g. 28'),
-  drywallSqft: F('drywallSqft', 'Drywall sqft', 'e.g. 800'),
-  flooringSqft: F('flooringSqft', 'Flooring sqft', 'e.g. 600'),
-  concreteSqft: F('concreteSqft', 'Concrete sqft', 'e.g. 400'),
-  concreteCy: F('concreteCy', 'Concrete CY', 'e.g. 12'),
-  excavationCy: F('excavationCy', 'Excavation CY', 'e.g. 45'),
-  deckSqft: F('deckSqft', 'Deck surface sqft', 'e.g. 320'),
+  bathroomFloorSqft: F('bathroomFloorSqft', 'Bath floor', '90', 'sqft', 'interior'),
+  kitchenFloorSqft: F('kitchenFloorSqft', 'Kitchen floor', '180', 'sqft', 'interior'),
+  floorAreaSqft: F('floorAreaSqft', 'Floor area', '1200', 'sqft', 'structure', true),
+  backsplashSqft: F('backsplashSqft', 'Backsplash', '40', 'sqft', 'interior'),
+  countertopSqft: F('countertopSqft', 'Counters', '55', 'sqft', 'interior'),
+  cabinetLf: F('cabinetLf', 'Cabinets', '24', 'LF', 'interior'),
+  showerWallTileSqft: F('showerWallTileSqft', 'Shower walls', '90', 'sqft', 'interior'),
+  showerFloorTileSqft: F('showerFloorTileSqft', 'Shower floor', '15', 'sqft', 'interior'),
+  wallPaintSqft: F('wallPaintSqft', 'Interior paint', '320', 'sqft', 'interior'),
+  exteriorPaintSqft: F('exteriorPaintSqft', 'Exterior paint', '2200', 'sqft', 'exterior'),
+  baseboardLf: F('baseboardLf', 'Baseboard', '48', 'LF', 'interior'),
+  railingLf: F('railingLf', 'Railing', '48', 'LF', 'exterior'),
+  landscapeSqft: F('landscapeSqft', 'Coverage', '1200', 'sqft', 'site'),
+  sodSqft: F('sodSqft', 'Sod / turf', '900', 'sqft', 'site'),
+  paverSqft: F('paverSqft', 'Pavers', '180', 'sqft', 'site'),
+  rockMulchSqft: F('rockMulchSqft', 'Rock / mulch', '600', 'sqft', 'site'),
+  landscapeTons: F('landscapeTons', 'Rock / mulch', '12', 'tons', 'site'),
+  roofSquares: F('roofSquares', 'Roof', '28', 'sq', 'structure'),
+  drywallSqft: F('drywallSqft', 'Drywall', '800', 'sqft', 'interior'),
+  flooringSqft: F('flooringSqft', 'Flooring', '600', 'sqft', 'interior'),
+  concreteSqft: F('concreteSqft', 'Flatwork', '400', 'sqft', 'structure'),
+  concreteCy: F('concreteCy', 'Concrete', '12', 'CY', 'structure'),
+  excavationCy: F('excavationCy', 'Excavation', '45', 'CY', 'site'),
+  deckSqft: F('deckSqft', 'Deck', '320', 'sqft', 'exterior'),
 };
 
 const NOTE_BACKED_QUICK_FIELD_ORDER: QuickMeasurementFieldKey[] = [
@@ -103,101 +128,101 @@ const NOTE_BACKED_QUICK_FIELD_ORDER: QuickMeasurementFieldKey[] = [
 export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]> = {
   bathroom: [
     row(
-      F('bathroomFloorSqft', 'Bathroom floor sqft', 'e.g. 90'),
-      F('showerWallTileSqft', 'Shower wall sqft', 'e.g. 90')
+      F('bathroomFloorSqft', 'Bath floor', '90', 'sqft', 'interior', true),
+      F('showerWallTileSqft', 'Shower walls', '90', 'sqft', 'interior')
     ),
     row(
-      F('showerFloorTileSqft', 'Shower floor sqft', 'e.g. 15'),
-      F('wallPaintSqft', 'Wall/ceiling paint sqft', 'e.g. 175')
+      F('showerFloorTileSqft', 'Shower floor', '15', 'sqft', 'interior'),
+      F('wallPaintSqft', 'Paint', '175', 'sqft', 'interior')
     ),
-    row(F('baseboardLf', 'Baseboard linear feet', 'e.g. 24')),
+    row(F('baseboardLf', 'Baseboard', '24', 'LF', 'interior')),
   ],
   kitchen: [
     row(
-      F('kitchenFloorSqft', 'Kitchen floor sqft', 'e.g. 180'),
-      F('backsplashSqft', 'Backsplash sqft', 'e.g. 40')
+      F('kitchenFloorSqft', 'Kitchen floor', '180', 'sqft', 'interior', true),
+      F('backsplashSqft', 'Backsplash', '40', 'sqft', 'interior')
     ),
     row(
-      F('countertopSqft', 'Countertop sqft', 'e.g. 55'),
-      F('cabinetLf', 'Cabinet run LF', 'e.g. 24')
+      F('countertopSqft', 'Counters', '55', 'sqft', 'interior'),
+      F('cabinetLf', 'Cabinets', '24', 'LF', 'interior')
     ),
     row(
-      F('wallPaintSqft', 'Wall/ceiling paint sqft', 'e.g. 320'),
-      F('baseboardLf', 'Trim / baseboard LF', 'e.g. 48')
+      F('wallPaintSqft', 'Paint', '320', 'sqft', 'interior'),
+      F('baseboardLf', 'Trim', '48', 'LF', 'interior')
     ),
   ],
   flooring: [
     row(
-      F('bathroomFloorSqft', 'Main bath floor sqft', 'e.g. 850'),
-      F('kitchenFloorSqft', 'Kitchen floor sqft', 'e.g. 180')
+      F('bathroomFloorSqft', 'Bath floor', '850', 'sqft', 'interior'),
+      F('kitchenFloorSqft', 'Kitchen floor', '180', 'sqft', 'interior')
     ),
     row(
-      F('floorAreaSqft', 'Total floor area sqft', 'e.g. 1030'),
-      F('baseboardLf', 'Baseboard linear feet', 'e.g. 220')
+      F('floorAreaSqft', 'Total floor', '1030', 'sqft', 'structure', true),
+      F('baseboardLf', 'Baseboard', '220', 'LF', 'interior')
     ),
   ],
   landscaping: [
     row(
-      F('sodSqft', 'Sod / turf sqft', 'e.g. 900'),
-      F('rockMulchSqft', 'Rock / mulch sqft', 'e.g. 600')
+      F('sodSqft', 'Sod / turf', '900', 'sqft', 'site', true),
+      F('rockMulchSqft', 'Rock / mulch', '600', 'sqft', 'site')
     ),
     row(
-      F('paverSqft', 'Paver sqft', 'e.g. 180'),
-      F('landscapeTons', 'Rock / mulch tons', 'e.g. 12')
+      F('paverSqft', 'Pavers', '180', 'sqft', 'site'),
+      F('landscapeTons', 'Rock / mulch', '12', 'tons', 'site')
     ),
-    row(F('landscapeSqft', 'General coverage sqft', 'e.g. 1200')),
+    row(F('landscapeSqft', 'Coverage', '1200', 'sqft', 'site')),
   ],
-  roofing: [row(F('roofSquares', 'Roof squares', 'e.g. 28'))],
-  drywall: [row(F('drywallSqft', 'Drywall sqft', 'e.g. 800'))],
+  roofing: [row(F('roofSquares', 'Roof', '28', 'sq', 'structure', true))],
+  drywall: [row(F('drywallSqft', 'Drywall', '800', 'sqft', 'interior', true))],
   painting: [
     row(
-      F('wallPaintSqft', 'Interior paint sqft', 'e.g. 1500'),
-      F('exteriorPaintSqft', 'Exterior paint sqft', 'e.g. 2200')
+      F('wallPaintSqft', 'Interior paint', '1500', 'sqft', 'interior', true),
+      F('exteriorPaintSqft', 'Exterior paint', '2200', 'sqft', 'exterior')
     ),
   ],
   concrete: [
     row(
-      F('concreteSqft', 'Concrete sqft', 'e.g. 400'),
-      F('concreteCy', 'Concrete CY', 'e.g. 12')
+      F('concreteSqft', 'Flatwork', '400', 'sqft', 'structure', true),
+      F('concreteCy', 'Concrete', '12', 'CY', 'structure')
     ),
   ],
   deck_patio: [
     row(
-      F('deckSqft', 'Deck surface sqft', 'e.g. 320'),
-      F('concreteSqft', 'Concrete patio sqft', 'e.g. 180')
+      F('deckSqft', 'Deck', '320', 'sqft', 'exterior', true),
+      F('concreteSqft', 'Patio', '180', 'sqft', 'structure')
     ),
-    row(F('railingLf', 'Railing linear feet', 'e.g. 48')),
+    row(F('railingLf', 'Railing', '48', 'LF', 'exterior')),
   ],
   excavation: [
     row(
-      F('excavationCy', 'Excavation CY', 'e.g. 45'),
-      F('concreteCy', 'Concrete CY', 'e.g. 12')
+      F('excavationCy', 'Excavation', '45', 'CY', 'site', true),
+      F('concreteCy', 'Concrete', '12', 'CY', 'structure')
     ),
   ],
   room_remodel: [
     row(
-      F('bathroomFloorSqft', 'Room floor sqft', 'e.g. 150'),
-      F('wallPaintSqft', 'Wall/ceiling paint sqft', 'e.g. 320')
+      F('bathroomFloorSqft', 'Room floor', '150', 'sqft', 'interior', true),
+      F('wallPaintSqft', 'Paint', '320', 'sqft', 'interior')
     ),
     row(
-      F('drywallSqft', 'Drywall sqft', 'e.g. 200'),
-      F('baseboardLf', 'Trim / baseboard LF', 'e.g. 48')
+      F('drywallSqft', 'Drywall', '200', 'sqft', 'interior'),
+      F('baseboardLf', 'Trim', '48', 'LF', 'interior')
     ),
   ],
   addition: [
+    row(F('floorAreaSqft', 'Building', '650', 'sqft', 'structure', true)),
     row(
-      F('excavationCy', 'Excavation CY', 'e.g. 45'),
-      F('concreteCy', 'Foundation concrete CY', 'e.g. 18')
+      F('excavationCy', 'Excavation', '45', 'CY', 'site'),
+      F('concreteCy', 'Foundation', '18', 'CY', 'structure')
     ),
     row(
-      F('concreteSqft', 'Concrete flatwork sqft', 'e.g. 400'),
-      F('drywallSqft', 'Drywall sqft', 'e.g. 1200')
+      F('concreteSqft', 'Flatwork', '400', 'sqft', 'structure'),
+      F('drywallSqft', 'Drywall', '1200', 'sqft', 'interior')
     ),
     row(
-      F('wallPaintSqft', 'Interior paint sqft', 'e.g. 1500'),
-      F('floorAreaSqft', 'Building sqft', 'e.g. 650')
+      F('wallPaintSqft', 'Paint', '1500', 'sqft', 'interior'),
+      F('flooringSqft', 'Flooring', '600', 'sqft', 'interior')
     ),
-    row(F('flooringSqft', 'Flooring sqft', 'e.g. 600')),
   ],
 };
 
@@ -236,15 +261,15 @@ export function quickMeasurementRowsForTemplate(
 function projectAreaFieldLabel(projectType?: string | null): string | null {
   switch (String(projectType || '').toLowerCase()) {
     case 'adu':
-      return 'ADU / casita sqft';
+      return 'ADU';
     case 'room_addition':
-      return 'Room addition sqft';
+      return 'Room addition';
     case 'home_addition':
-      return 'Addition sqft';
+      return 'Addition';
     case 'garage_conversion':
-      return 'Garage conversion sqft';
+      return 'Garage conversion';
     case 'new_build':
-      return 'Building sqft';
+      return 'Building';
     default:
       return null;
   }
@@ -265,7 +290,8 @@ function applyProjectSpecificQuickMeasurementLabels(
         ? {
             ...field,
             label: floorAreaLabel,
-            placeholder: projectType === 'adu' ? 'e.g. 650' : field.placeholder,
+            placeholder: projectType === 'adu' ? '650' : field.placeholder,
+            primary: true,
           }
         : field
     )
@@ -320,6 +346,57 @@ export function quickMeasurementRowsForInput(
   if (!extraFields.length) return baseRows;
 
   return [...baseRows, ...chunkRows(extraFields)];
+}
+
+/** Group flat rows into Site / Structure / Interior sections; primary fields lead. */
+export function quickMeasurementSectionsForRows(rows: QuickMeasurementRow[]): QuickMeasurementSection[] {
+  const fields = rows.flat();
+  if (!fields.length) return [];
+
+  const byGroup = new Map<QuickMeasurementGroupId, QuickMeasurementFieldDef[]>();
+  for (const field of fields) {
+    const list = byGroup.get(field.group) || [];
+    list.push(field);
+    byGroup.set(field.group, list);
+  }
+
+  const primaryGroup = fields.find((f) => f.primary)?.group;
+  const orderedGroups = primaryGroup
+    ? [primaryGroup, ...GROUP_ORDER.filter((id) => id !== primaryGroup)]
+    : GROUP_ORDER;
+
+  const sections: QuickMeasurementSection[] = [];
+  for (const groupId of orderedGroups) {
+    const groupFields = byGroup.get(groupId);
+    if (!groupFields?.length) continue;
+    const primary = groupFields.filter((f) => f.primary);
+    const rest = groupFields.filter((f) => !f.primary);
+    const sectionRows: QuickMeasurementRow[] = [];
+    for (const field of primary) {
+      sectionRows.push([field]);
+    }
+    sectionRows.push(...chunkRows(rest));
+    sections.push({
+      id: groupId,
+      title: GROUP_TITLES[groupId],
+      rows: sectionRows,
+    });
+  }
+  return sections;
+}
+
+export function countFilledQuickMeasurements(
+  rows: QuickMeasurementRow[],
+  measurements: Partial<Record<QuickMeasurementFieldKey, string | undefined>>,
+  noteValues: Partial<Record<QuickMeasurementFieldKey, string>> = {}
+): { filled: number; total: number } {
+  const fields = rows.flat();
+  let filled = 0;
+  for (const field of fields) {
+    const value = resolveQuickMeasurementDisplayValue(field.key, measurements, noteValues);
+    if (hasQuickMeasurementValue(value)) filled += 1;
+  }
+  return { filled, total: fields.length };
 }
 
 export function emptyQuickMeasurementInput(): Record<QuickMeasurementFieldKey, string> {

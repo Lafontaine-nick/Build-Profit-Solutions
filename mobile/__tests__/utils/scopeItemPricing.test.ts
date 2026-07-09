@@ -1,6 +1,8 @@
 import { emptyQuickMeasurementInput } from '@/utils/scopeQuickMeasurements';
 import {
   buildNormalizedScopeMeasurementsFromInput,
+  DEFAULT_SCOPE_ALLOWANCE_QUANTITY_RULE,
+  getChecklistItemQuantityRuleOrDefault,
   isPlaceholderAllowancePricing,
   resolveAllowanceEditorPricingBasis,
   resolveChecklistItemQuantity,
@@ -408,7 +410,7 @@ describe('resolveScopeItemSuggestedPricing', () => {
     });
   });
 
-  it('treats trim-out, cabinets, and final inspections as flat allowance lines', () => {
+  it('treats soft-cost scopes as flat allowance lines across templates', () => {
     const input = inputWith({ floorAreaSqft: '600' });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
     const flatAllowanceItems = [
@@ -416,17 +418,65 @@ describe('resolveScopeItemSuggestedPricing', () => {
       'electrical_trim',
       'cabinets_counters',
       'final_inspections',
+      'contingency',
+      'plans_engineering',
+      'mobilization',
+      'emergency_fee',
+      'haul_off',
+      'survey',
+      'general_conditions',
+      'supervision',
+      'overhead_profit',
     ] as const;
 
     for (const itemId of flatAllowanceItems) {
+      const rule = getChecklistItemQuantityRuleOrDefault(itemId, 'addition');
+      expect(rule.lumpSumOnly).toBe(true);
+      expect(rule.allowanceOrSplit).toBeFalsy();
+      expect(resolveAllowanceEditorPricingBasis(itemId, input, 'addition')).toBeNull();
       const resolved = resolveChecklistItemQuantity(itemId, measurements, { templateKey: 'addition' });
       expect(resolved.pricingReady).toBe(false);
-      expect(resolveAllowanceEditorPricingBasis(itemId, input, 'addition')).toBeNull();
-      expect(resolveScopeItemSuggestedPricing(itemId, input, 'addition', resolved)).toEqual({
-        fill: null,
-        comparison: null,
-      });
     }
+
+    // Same soft costs should stay allowance-only outside addition templates.
+    expect(getChecklistItemQuantityRuleOrDefault('mobilization', 'excavation').lumpSumOnly).toBe(true);
+    expect(getChecklistItemQuantityRuleOrDefault('overhead_profit', 'ground_up').lumpSumOnly).toBe(true);
+    expect(getChecklistItemQuantityRuleOrDefault('emergency_fee', 'plumbing_service').lumpSumOnly).toBe(true);
+  });
+
+  it('keeps trade scopes on material/labor — allowance toggle only for soft costs', () => {
+    const tradeItems = [
+      'utility_coordination',
+      'utility_trenching',
+      'windows_doors',
+      'hvac',
+      'hvac_startup',
+      'appliances',
+      'appliance_removal',
+      'cabinets',
+      'countertops',
+      'mirror_accessories',
+      'service_call',
+      'parts_materials',
+      'hardware',
+      'materials_package',
+      'utility_taps',
+      'refrigerant',
+      'thermostat',
+      'roof_tie_in',
+    ] as const;
+
+    for (const itemId of tradeItems) {
+      const rule = getChecklistItemQuantityRuleOrDefault(itemId, 'addition');
+      expect(rule.allowanceOrSplit).toBeFalsy();
+      expect(rule.lumpSumOnly).toBeFalsy();
+    }
+
+    expect(getChecklistItemQuantityRuleOrDefault('hvac', 'addition').defaultUnit).toBe('sqft');
+    expect(getChecklistItemQuantityRuleOrDefault('service_call', 'plumbing_service').allowanceOrSplit).toBeFalsy();
+    expect(getChecklistItemQuantityRuleOrDefault('utility_taps', 'ground_up').allowanceOrSplit).toBeFalsy();
+    expect(getChecklistItemQuantityRuleOrDefault('permits', 'addition').lumpSumOnly).toBe(true);
+    expect(DEFAULT_SCOPE_ALLOWANCE_QUANTITY_RULE.allowanceOrSplit).toBeFalsy();
   });
 
   it('uses ADU-specific pricing basis units for missing-price scope cards', () => {

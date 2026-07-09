@@ -81,9 +81,12 @@ import {
   type SuggestedPricingBlock,
 } from '@/utils/scopeItemQuantities';
 import {
+  countFilledQuickMeasurements,
   emptyQuickMeasurementInput,
   quickMeasurementRowsForInput,
+  quickMeasurementSectionsForRows,
   resolveQuickMeasurementDisplayValue,
+  type QuickMeasurementFieldDef,
   type QuickMeasurementFieldKey,
 } from '@/utils/scopeQuickMeasurements';
 import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
@@ -1093,6 +1096,88 @@ function EditQuantityLink({ onPress, label = 'Edit pricing' }: { onPress: () => 
   );
 }
 
+type AllowanceOrSplitMode = 'allowance' | 'split';
+
+function resolveAllowanceOrSplitMode(
+  itemId: string,
+  measurementsInput: ScopeMeasurementsInputExtended,
+  defaultUnit: string
+): AllowanceOrSplitMode {
+  const allowance = measurementsInput.itemQuantities[allowanceSplitSubKey(itemId, 'allowance')];
+  const material = measurementsInput.itemQuantities[allowanceSplitSubKey(itemId, 'material')];
+  const labor = measurementsInput.itemQuantities[allowanceSplitSubKey(itemId, 'labor')];
+  const basis = measurementsInput.itemQuantities[allowanceSplitSubKey(itemId, 'sqft_basis')];
+  const item = measurementsInput.itemQuantities[itemId];
+  const hasSplit =
+    parseMoneyAmount(material?.quantity) > 0 ||
+    parseMoneyAmount(labor?.quantity) > 0 ||
+    parseMoneyAmount(basis?.quantity) > 0;
+  const hasAllowance =
+    parseMoneyAmount(allowance?.quantity) > 0 ||
+    ((item?.unit === 'allowance' || item?.unit === 'lump_sum') && parseMoneyAmount(item?.quantity) > 0);
+  if (hasSplit && !hasAllowance) return 'split';
+  if (hasAllowance && !hasSplit) return 'allowance';
+  if (hasSplit) return 'split';
+  if (hasAllowance) return 'allowance';
+  return defaultUnit === 'allowance' || defaultUnit === 'lump_sum' ? 'allowance' : 'split';
+}
+
+function AllowanceOrSplitModeToggle({
+  mode,
+  onChange,
+  Colors,
+  darkMode,
+  applying,
+}: {
+  mode: AllowanceOrSplitMode;
+  onChange: (next: AllowanceOrSplitMode) => void;
+  Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
+  applying: boolean;
+}) {
+  return (
+    <View style={styles.customPricingModeLinks}>
+      {(
+        [
+          { id: 'allowance' as const, label: 'Allowance' },
+          { id: 'split' as const, label: 'Material + Labor' },
+        ] as const
+      ).map((opt) => {
+        const active = mode === opt.id;
+        return (
+          <TouchableOpacity
+            key={opt.id}
+            activeOpacity={0.75}
+            disabled={applying || active}
+            onPress={() => onChange(opt.id)}
+            style={[
+              styles.customPricingModeChip,
+              {
+                borderColor: active ? '#22c55e' : darkMode ? 'rgba(148, 163, 184, 0.24)' : Colors.line,
+                backgroundColor: active
+                  ? darkMode
+                    ? 'rgba(34, 197, 94, 0.12)'
+                    : 'rgba(34, 197, 94, 0.08)'
+                  : 'transparent',
+              },
+            ]}
+          >
+            <Text
+              style={{
+                color: active ? '#22c55e' : '#60a5fa',
+                fontSize: 11,
+                fontWeight: '700',
+              }}
+            >
+              {opt.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
 function PricingInputField({
   label,
   value,
@@ -1185,24 +1270,11 @@ function PricingInputField({
             color: Colors.sub,
             fontSize: 12,
             fontWeight: '700',
+            flexShrink: 0,
           }}
         >
           {label}
         </Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-        {helperText ? (
-          <View
-            style={[
-              styles.rateChip,
-              {
-                borderColor: darkMode ? 'rgba(96, 165, 250, 0.28)' : 'rgba(59, 130, 246, 0.24)',
-                backgroundColor: darkMode ? 'rgba(96, 165, 250, 0.09)' : 'rgba(59, 130, 246, 0.08)',
-              },
-            ]}
-          >
-            <Text style={{ color: '#60a5fa', fontSize: 11, fontWeight: '700' }}>{helperText}</Text>
-          </View>
-        ) : null}
         {supportsRateMode ? (
           <TouchableOpacity
             activeOpacity={0.75}
@@ -1220,7 +1292,6 @@ function PricingInputField({
             </Text>
           </TouchableOpacity>
         ) : null}
-        </View>
       </View>
       <View
         style={[
@@ -1266,6 +1337,19 @@ function PricingInputField({
           </Text>
         ) : null}
       </View>
+      {helperText ? (
+        <Text
+          style={{
+            color: darkMode ? 'rgba(148, 163, 184, 0.9)' : '#64748b',
+            fontSize: 11,
+            fontWeight: '600',
+            marginTop: 6,
+            lineHeight: 15,
+          }}
+        >
+          {helperText}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -2029,6 +2113,7 @@ function QuantitySection({
 }) {
   const [pricingEditorOpen, setPricingEditorOpen] = useState(false);
   const [focusedPricingField, setFocusedPricingField] = useState<string | null>(null);
+  const [pricingModeOverride, setPricingModeOverride] = useState<AllowanceOrSplitMode | null>(null);
   const pricingContext = React.useContext(ScopePricingContextValue);
   const assemblyContext = React.useContext(ScopeAssemblyContextValue);
   const scopeGapPricingContext = React.useMemo<ScopeGapPricingContext>(
@@ -2804,60 +2889,36 @@ function QuantitySection({
     displaySuggestedBudgetSplit !== suggestedBudgetSplit &&
     Boolean(displaySuggestedBudgetSplit?.rateSourceLabel.startsWith('Adjusted · '));
 
-  if (rule.lumpSumOnly) {
-    return (
-      <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
-        <TouchableOpacity
-          activeOpacity={0.75}
-          onPress={() => {
-            if (focusedPricingField) return;
-            setPricingEditorOpen(false);
-          }}
-        >
-          <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
-            Edit pricing
-          </Text>
-          {rule.quantityHelper ? (
-            <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 4, lineHeight: 15 }}>
-              {rule.quantityHelper}
-            </Text>
-          ) : null}
-          <Text style={{ color: '#60a5fa', fontSize: 11, fontWeight: '700', marginBottom: 8 }}>
-            Tap card to collapse
-          </Text>
-        </TouchableOpacity>
-        <PricingInputField
-          label="Allowance"
-          value={lumpSumValue}
-          prefix="$"
-          placeholder="Enter allowance"
-          onFocus={() => focusQuantityField(allowanceKey)}
-          onChangeText={(text) => onItemQuantityChange(allowanceKey, text, 'count', 'allowance')}
-          onBlur={() => blurQuantityField(allowanceKey)}
-          Colors={Colors}
-          darkMode={darkMode}
-          applying={applying}
-        />
-        {displaySuggestedBudgetSplit ? (
-          <SuggestedBudgetSplitRows
-            block={displaySuggestedBudgetSplit}
-            Colors={Colors}
-            darkMode={darkMode}
-            adjusted={suggestedCardIsAdjusted}
-            onUsePricing={() => applySuggestedPricingBlock(displaySuggestedBudgetSplit)}
-          />
-        ) : null}
-        {suggestedComparisonSplit ? (
-          <ComparisonToggle
-            block={suggestedComparisonSplit}
-            Colors={Colors}
-            darkMode={darkMode}
-            onUsePricing={() => applySuggestedPricingBlock(suggestedComparisonSplit)}
-          />
-        ) : null}
-      </View>
-    );
-  }
+  const inferredPricingMode = rule.allowanceOrSplit
+    ? resolveAllowanceOrSplitMode(itemId, measurementsInput, rule.defaultUnit)
+    : null;
+  const pricingMode: AllowanceOrSplitMode | null = rule.lumpSumOnly
+    ? 'allowance'
+    : rule.allowanceOrSplit
+      ? pricingModeOverride ?? inferredPricingMode
+      : null;
+  const showAllowanceEditor = rule.lumpSumOnly || pricingMode === 'allowance';
+
+  const handlePricingModeChange = (next: AllowanceOrSplitMode) => {
+    setPricingModeOverride(next);
+    if (next === 'allowance') {
+      // Keep any existing allowance total; clear split legs so mode sticks.
+      const updates: Array<{ itemId: string; quantity: string; unit?: string }> = [
+        { itemId: materialKey, quantity: '', unit: 'allowance' },
+        { itemId: laborKey, quantity: '', unit: 'allowance' },
+        { itemId: sqftBasisKey, quantity: '', unit: basisUnit },
+      ];
+      if (!parseMoneyAmount(lumpSumValue)) {
+        updates.push({ itemId: allowanceKey, quantity: '', unit: 'allowance' });
+      }
+      onBatchItemQuantityChange(updates);
+      return;
+    }
+    // Switching to Material + Labor: clear flat allowance so split mode sticks.
+    if (parseMoneyAmount(lumpSumValue)) {
+      onBatchItemQuantityChange([{ itemId: allowanceKey, quantity: '', unit: 'allowance' }]);
+    }
+  };
 
   return (
     <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
@@ -2880,25 +2941,58 @@ function QuantitySection({
           Tap card to collapse
         </Text>
       </TouchableOpacity>
-      <MaterialLaborSplitEditor
-        materialValue={materialValue}
-        laborValue={laborValue}
-        pricingBasisValue={pricingBasisValue}
-        pricingBasis={pricingBasis}
-        basisUnit={basisUnit}
-        basisUnitLabel={basisUnitLabel}
-        suggestedBlock={suggestedBudgetSplit}
-        sqftBasisKey={sqftBasisKey}
-        materialKey={materialKey}
-        laborKey={laborKey}
-        onBatchItemQuantityChange={onBatchItemQuantityChange}
-        focusQuantityField={focusQuantityField}
-        blurQuantityField={blurQuantityField}
-        Colors={Colors}
-        darkMode={darkMode}
-        applying={applying}
-      />
-      {displaySuggestedBudgetSplit ? (
+      {rule.allowanceOrSplit && pricingMode ? (
+        <AllowanceOrSplitModeToggle
+          mode={pricingMode}
+          onChange={handlePricingModeChange}
+          Colors={Colors}
+          darkMode={darkMode}
+          applying={applying}
+        />
+      ) : null}
+      {showAllowanceEditor ? (
+        <PricingInputField
+          label="Allowance"
+          value={lumpSumValue}
+          prefix="$"
+          placeholder="Enter allowance"
+          onFocus={() => focusQuantityField(allowanceKey)}
+          onChangeText={(text) => onItemQuantityChange(allowanceKey, text, 'count', 'allowance')}
+          onBlur={() => blurQuantityField(allowanceKey)}
+          Colors={Colors}
+          darkMode={darkMode}
+          applying={applying}
+        />
+      ) : (
+        <MaterialLaborSplitEditor
+          materialValue={materialValue}
+          laborValue={laborValue}
+          pricingBasisValue={pricingBasisValue}
+          pricingBasis={pricingBasis}
+          basisUnit={basisUnit}
+          basisUnitLabel={basisUnitLabel}
+          suggestedBlock={suggestedBudgetSplit}
+          sqftBasisKey={sqftBasisKey}
+          materialKey={materialKey}
+          laborKey={laborKey}
+          onBatchItemQuantityChange={onBatchItemQuantityChange}
+          focusQuantityField={focusQuantityField}
+          blurQuantityField={blurQuantityField}
+          Colors={Colors}
+          darkMode={darkMode}
+          applying={applying}
+        />
+      )}
+      {displaySuggestedBudgetSplit && !showAllowanceEditor ? (
+        <SuggestedBudgetSplitRows
+          block={displaySuggestedBudgetSplit}
+          Colors={Colors}
+          darkMode={darkMode}
+          adjusted={suggestedCardIsAdjusted}
+          onUsePricing={() => applySuggestedPricingBlock(displaySuggestedBudgetSplit)}
+        />
+      ) : null}
+      {displaySuggestedBudgetSplit && showAllowanceEditor && displaySuggestedBudgetSplit.lumpSumOnly ? (
         <SuggestedBudgetSplitRows
           block={displaySuggestedBudgetSplit}
           Colors={Colors}
@@ -3631,48 +3725,68 @@ function choiceIdToState(choiceId: string): ScopeAssumptionState {
 }
 
 const QuickMeasurementField = React.memo(function QuickMeasurementField({
-  fieldKey,
-  label,
+  field,
   value,
+  fromNotes,
   onChangeText,
-  placeholder,
   Colors,
   darkMode,
   applying,
 }: {
-  fieldKey: QuickMeasurementFieldKey;
-  label: string;
+  field: QuickMeasurementFieldDef;
   value: string;
+  fromNotes?: boolean;
   onChangeText: (v: string) => void;
-  placeholder: string;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
 }) {
   const inputShell = inputShellStyle(Colors, darkMode);
   const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8';
+  const isPrimary = Boolean(field.primary);
 
   return (
-    <View style={styles.measurementField}>
-      <Text style={[styles.measurementLabel, { color: captionColor(darkMode, Colors) }]}>{label}</Text>
-      <TextInput
-        nativeID={`quick-measurement-${fieldKey}`}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={placeholderColor}
-        keyboardType="decimal-pad"
-        {...scopeNumericInputProps}
-        editable={!applying}
+    <View style={[styles.measurementField, isPrimary && styles.measurementFieldPrimary]}>
+      <View style={styles.measurementLabelRow}>
+        <Text style={[styles.measurementLabel, { color: captionColor(darkMode, Colors) }]}>
+          {field.label}
+        </Text>
+        {fromNotes ? (
+          <View
+            style={[
+              styles.measurementFromNotesChip,
+              {
+                borderColor: darkMode ? 'rgba(34, 197, 94, 0.28)' : 'rgba(22, 163, 74, 0.22)',
+                backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.1)' : 'rgba(22, 163, 74, 0.08)',
+              },
+            ]}
+          >
+            <Text style={{ color: '#22c55e', fontSize: 9, fontWeight: '700' }}>Notes</Text>
+          </View>
+        ) : null}
+      </View>
+      <View
         style={[
-          styles.measurementInput,
+          styles.measurementInputRow,
           {
-            color: Colors.text,
             borderColor: inputShell.borderColor,
             backgroundColor: inputShell.backgroundColor,
           },
         ]}
-      />
+      >
+        <TextInput
+          nativeID={`quick-measurement-${field.key}`}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={field.placeholder}
+          placeholderTextColor={placeholderColor}
+          keyboardType="decimal-pad"
+          {...scopeNumericInputProps}
+          editable={!applying}
+          style={[styles.measurementInput, { color: Colors.text }]}
+        />
+        <Text style={[styles.measurementUnit, { color: Colors.sub }]}>{field.unit}</Text>
+      </View>
     </View>
   );
 });
@@ -3685,6 +3799,7 @@ function CollapsibleQuickMeasurements({
   templateKey,
   projectType,
   notes,
+  needsMeasurements = false,
   Colors,
   darkMode,
   applying,
@@ -3696,6 +3811,7 @@ function CollapsibleQuickMeasurements({
   templateKey?: string;
   projectType?: string | null;
   notes?: string | null;
+  needsMeasurements?: boolean;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
@@ -3742,6 +3858,12 @@ function CollapsibleQuickMeasurements({
     () => quickMeasurementRowsForInput(templateKey, projectType, measurements, noteQuickMeasurements.keys),
     [templateKey, projectType, measurements, noteQuickMeasurements.keys]
   );
+  const sections = useMemo(() => quickMeasurementSectionsForRows(rows), [rows]);
+  const fillCounts = useMemo(
+    () => countFilledQuickMeasurements(rows, measurements, noteQuickMeasurements.values),
+    [rows, measurements, noteQuickMeasurements.values]
+  );
+  const noteKeySet = useMemo(() => new Set(noteQuickMeasurements.keys), [noteQuickMeasurements.keys]);
 
   const setField = useCallback(
     (key: QuickMeasurementFieldKey, value: string) => {
@@ -3750,45 +3872,84 @@ function CollapsibleQuickMeasurements({
     [setMeasurements]
   );
 
+  const showDone = expanded && fillCounts.filled > 0;
+
   return (
     <View style={[styles.quickMeasurements, estimateFlowCardStyle(Colors, darkMode)]}>
       <TouchableOpacity style={styles.quickMeasurementsHeader} onPress={onToggle} activeOpacity={0.7}>
-        <View style={{ flex: 1 }}>
-          <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 13, fontWeight: '800' }}>
-            Quick measurements
-          </Text>
-          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 2 }}>
-            Optional — autofill repeated quantities
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <View style={styles.quickMeasurementsTitleRow}>
+            <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 13, fontWeight: '800' }}>
+              Quick measurements
+            </Text>
+            {fillCounts.total > 0 ? (
+              <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, fontWeight: '600' }}>
+                {fillCounts.filled} of {fillCounts.total} filled
+              </Text>
+            ) : null}
+          </View>
+          <Text
+            style={{
+              color: needsMeasurements ? '#fbbf24' : captionColor(darkMode, Colors),
+              fontSize: 11,
+              marginTop: 2,
+              fontWeight: needsMeasurements ? '700' : '400',
+            }}
+          >
+            {needsMeasurements
+              ? 'Fill these to price more scopes'
+              : 'Optional — autofill repeated quantities'}
           </Text>
         </View>
         <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={captionColor(darkMode, Colors)} />
       </TouchableOpacity>
       {expanded ? (
-        <View style={{ marginTop: 10, gap: 10 }}>
-          {rows.map((row, rowIdx) => (
-            <View
-              key={row.map((f) => f.key).join('-') || `row-${rowIdx}`}
-              style={row.length > 1 ? styles.measurementsRow : undefined}
-            >
-              {row.map((field) => (
-                <QuickMeasurementField
-                  key={field.key}
-                  fieldKey={field.key}
-                  label={field.label}
-                  value={resolveQuickMeasurementDisplayValue(
-                    field.key,
-                    measurements,
-                    noteQuickMeasurements.values
-                  )}
-                  onChangeText={(value) => setField(field.key, value)}
-                  placeholder={field.placeholder}
-                  Colors={Colors}
-                  darkMode={darkMode}
-                  applying={applying}
-                />
+        <View style={styles.quickMeasurementsBody}>
+          {sections.map((section) => (
+            <View key={section.id} style={styles.quickMeasurementSection}>
+              {sections.length > 1 ? (
+                <Text style={[styles.quickMeasurementSectionTitle, { color: captionColor(darkMode, Colors) }]}>
+                  {section.title}
+                </Text>
+              ) : null}
+              {section.rows.map((row, rowIdx) => (
+                <View
+                  key={row.map((f) => f.key).join('-') || `${section.id}-${rowIdx}`}
+                  style={row.length > 1 ? styles.measurementsRow : undefined}
+                >
+                  {row.map((field) => {
+                    const displayValue = resolveQuickMeasurementDisplayValue(
+                      field.key,
+                      measurements,
+                      noteQuickMeasurements.values
+                    );
+                    const typed = String(measurements[field.key] ?? '').trim() !== '';
+                    const fromNotes =
+                      !typed &&
+                      noteKeySet.has(field.key) &&
+                      Boolean(noteQuickMeasurements.values[field.key]);
+                    return (
+                      <QuickMeasurementField
+                        key={field.key}
+                        field={field}
+                        value={displayValue}
+                        fromNotes={fromNotes}
+                        onChangeText={(value) => setField(field.key, value)}
+                        Colors={Colors}
+                        darkMode={darkMode}
+                        applying={applying}
+                      />
+                    );
+                  })}
+                </View>
               ))}
             </View>
           ))}
+          {showDone ? (
+            <TouchableOpacity onPress={onToggle} activeOpacity={0.75} style={styles.quickMeasurementsDone}>
+              <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '700' }}>Done</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -3998,13 +4159,18 @@ export default function AIEstimateScopeAssumptionsModal({
       });
       setItems(normalized);
       setMeasurementsSynced(nextMeasurements);
-      setQuickMeasurementsOpen(false);
+      const displayForHydrate = expandWetAreaDerivedScopeItems(normalized);
+      const hydratePricing = countScopePricingReadiness(
+        displayForHydrate,
+        norm,
+        checklist.templateKey,
+        scopeNotes
+      );
+      // Open when scopes still need quantities so users see where to fill them.
+      setQuickMeasurementsOpen(hydratePricing.needsMeasurement > 0);
       setCustomItemLabel('');
       setShowCustomItemInput(false);
-      const grouped = groupScopeChecklistItems(
-        expandWetAreaDerivedScopeItems(normalized),
-        checklist.templateKey
-      );
+      const grouped = groupScopeChecklistItems(displayForHydrate, checklist.templateKey);
       setCollapsedGroups(
         initialScopeGroupCollapse(
           grouped,
@@ -5115,6 +5281,7 @@ export default function AIEstimateScopeAssumptionsModal({
           templateKey={checklist?.templateKey}
           projectType={draft?.projectType}
           notes={scopeNotes}
+          needsMeasurements={summary.needsMeasurement > 0}
           Colors={Colors}
           darkMode={darkMode}
           applying={applying}
@@ -5281,27 +5448,82 @@ const styles = StyleSheet.create({
   quickMeasurementsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
+  },
+  quickMeasurementsTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  quickMeasurementsBody: {
+    marginTop: 12,
+    gap: 14,
+  },
+  quickMeasurementSection: {
+    gap: 8,
+  },
+  quickMeasurementSectionTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  quickMeasurementsDone: {
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+    marginTop: 2,
   },
   measurementsRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
   },
   measurementField: {
     flex: 1,
+    minWidth: 0,
+  },
+  measurementFieldPrimary: {
+    flex: 1,
+  },
+  measurementLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+    marginBottom: 4,
   },
   measurementLabel: {
     fontSize: 10,
     fontWeight: '700',
-    letterSpacing: 0.4,
-    marginBottom: 4,
+    letterSpacing: 0.3,
+    flexShrink: 1,
+  },
+  measurementFromNotesChip: {
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  measurementInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    minHeight: 38,
   },
   measurementInput: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    flex: 1,
+    paddingVertical: Platform.OS === 'ios' ? 8 : 6,
     fontSize: 14,
     fontWeight: '600',
+    minWidth: 0,
+  },
+  measurementUnit: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginLeft: 6,
+    flexShrink: 0,
   },
   groupSection: {
     marginBottom: 6,
@@ -5653,8 +5875,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(245, 158, 11, 0.1)',
   },
   editQuantityLink: {
-    color: '#22c55e',
-    fontSize: 13,
+    color: '#60a5fa',
+    fontSize: 12,
     fontWeight: '700',
     marginTop: 10,
   },
@@ -5672,12 +5894,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 8,
     marginBottom: 7,
-  },
-  rateChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    borderWidth: 1,
   },
   rateModeToggle: {
     paddingHorizontal: 8,

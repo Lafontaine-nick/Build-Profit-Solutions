@@ -4,7 +4,13 @@ import {
   parseScopeMeasurementsFromNotes,
 } from '@/utils/scopeMeasurementParser';
 import { resolveScopePackageBudgetBreakdown } from '@/utils/scopeBudgetBreakdown';
-import { ruleKeysToTryForPackage, lookupRuleKeyForPackage, normalizeScopeMeasurements, resolveChecklistItemQuantity } from '@/utils/scopeItemQuantities';
+import {
+  ruleKeysToTryForPackage,
+  lookupRuleKeyForPackage,
+  normalizeScopeMeasurements,
+  resolveChecklistItemQuantity,
+} from '@/utils/scopeItemQuantities';
+import { isSoftCostScopePackage } from '@/utils/softCostScope';
 import {
   SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL,
   SCOPE_LABOR_PARSED_FROM_NOTES_LABEL,
@@ -418,10 +424,34 @@ export type ApplyDraftResult = {
   materialsCart: Record<string, unknown>[];
 };
 
+export type ClarifyQuestionItem = {
+  id: string;
+  question: string;
+  why?: string | null;
+  kind: 'measurement' | 'pricing' | 'scope' | 'project_info';
+  targetKey?: string | null;
+  targetPackage?: string | null;
+};
+
 export type ClarifyDraftResult = {
   questions: string[];
+  questionItems?: ClarifyQuestionItem[];
   needsReviewCount: number;
   missingInfoCount: number;
+  source?: 'ai' | 'rules';
+};
+
+export type ClarifyAnswer = {
+  question: string;
+  answer: string;
+  targetKey?: string | null;
+  targetPackage?: string | null;
+};
+
+export type ClarifyApplyResult = {
+  draft: EstimateAiDraft;
+  appliedSummary: string[];
+  source: 'ai' | 'rules';
 };
 
 const PROJECT_CATEGORY_SLUGS: Record<string, string> = {
@@ -610,6 +640,25 @@ export async function fetchClarifyDraftQuestions(draft: EstimateAiDraft): Promis
   }
 
   return payload;
+}
+
+export async function applyClarifyAnswersToDraft(
+  draft: EstimateAiDraft,
+  answers: ClarifyAnswer[]
+): Promise<ClarifyApplyResult> {
+  const payload = await postAiAssistantJson<
+    Partial<ClarifyApplyResult> & { error?: string; message?: string }
+  >('/estimate-draft-clarify-apply', { draft, answers }, 90000);
+
+  if (!payload?.draft) {
+    throw new Error(payload?.message || payload?.error || 'Failed to apply answers');
+  }
+
+  return {
+    draft: syncSelectedScopePricing(payload.draft),
+    appliedSummary: payload.appliedSummary || [],
+    source: payload.source === 'ai' ? 'ai' : 'rules',
+  };
 }
 
 export function isComplexEstimateTier(draft: EstimateAiDraft | null | undefined): boolean {
@@ -1113,6 +1162,41 @@ function packageIsApplyEligible(pkg: EstimateDraftScopePackage, applyConfirmedOn
   return amount > 0;
 }
 
+function packageAllowanceAmount(pkg: EstimateDraftScopePackage): number {
+  const amount = Number(pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0);
+  return Number.isFinite(amount) && amount > 0 ? amount : 0;
+}
+
+function allowanceLineItemsFromDraft(
+  draft: EstimateAiDraft,
+  applyConfirmedOnly: boolean
+): Record<string, unknown>[] {
+  const lines: Record<string, unknown>[] = [];
+  if (!draft.scopePackages?.length) return lines;
+
+  for (const pkg of draft.scopePackages) {
+    if (!packageIsApplyEligible(pkg, applyConfirmedOnly)) continue;
+    if (!isSoftCostScopePackage(pkg, draft)) continue;
+    const total = packageAllowanceAmount(pkg);
+    if (total <= 0) continue;
+    const ruleKey = lookupRuleKeyForPackage(pkg.name, pkg.scope || '');
+    lines.push({
+      id: newLineItemId(),
+      name: pkg.name,
+      description: pkg.scope?.trim() || 'Soft-cost allowance',
+      amount: total,
+      total,
+      totalCost: total,
+      category: 'Allowance',
+      section: pkg.name,
+      source: 'ai-draft',
+      sourceItemId: ruleKey || undefined,
+      priceProvidedByUser: true,
+    });
+  }
+  return lines;
+}
+
 function laborDescriptionForPackage(
   pkg: EstimateDraftScopePackage,
   parsedSplit?: { splitIsSuggested?: boolean } | null
@@ -1239,6 +1323,7 @@ function laborLineItemsFromDraft(
   if (draft.scopePackages?.length) {
     for (const pkg of draft.scopePackages) {
       if (!packageIsApplyEligible(pkg, applyConfirmedOnly)) continue;
+      if (isSoftCostScopePackage(pkg, draft)) continue;
 
       const parsedSplit = parsedNoteSplitForPackage(pkg, draft);
       const total = laborAmountForPackage(pkg, parsedSplit, applySuggestedSplits);
@@ -1330,6 +1415,7 @@ function materialLineItemsFromDraft(
   if (draft.scopePackages?.length) {
     for (const pkg of draft.scopePackages) {
       if (!packageIsApplyEligible(pkg, applyConfirmedOnly)) continue;
+      if (isSoftCostScopePackage(pkg, draft)) continue;
 
       const parsedSplit = parsedNoteSplitForPackage(pkg, draft);
       const splitMaterial = materialAmountForPackage(pkg, parsedSplit, applySuggestedSplits);
@@ -1484,6 +1570,7 @@ export function applyDraftToEstimate(
   const scopeDescription = buildScopeDescription(draftForApply);
   const laborLineItems = laborLineItemsFromDraft(draftForApply, applyConfirmedOnly);
   const materialLineItems = materialLineItemsFromDraft(draftForApply, applyConfirmedOnly);
+  const allowanceLineItems = allowanceLineItemsFromDraft(draftForApply, applyConfirmedOnly);
   const materialsCart = materialLineItems.map(cartItemFromMaterialLine);
 
   const nextBid: Record<string, unknown> = {
@@ -1496,6 +1583,7 @@ export function applyDraftToEstimate(
     scopeDescription: scopeDescription || bid.scopeDescription || '',
     laborLineItems,
     materialLineItems,
+    allowanceLineItems,
     aiEstimateOriginalNotes: draftForApply.originalNotes || null,
     aiEstimateDraftSnapshot: {
       savedAt: new Date().toISOString(),

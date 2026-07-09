@@ -342,7 +342,8 @@ export default function BudgetTab({
                 expCategory.includes('labour') ||
                 expCategory === 'subs' ||
                 expCategory.includes('subcontract') ||
-                expCategory.includes('crew')))
+                expCategory.includes('crew'))) ||
+            (lineCategory.includes('allowance') && expCategory.includes('allowance'))
           );
         });
         const actualSpent = categoryExpenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
@@ -396,6 +397,7 @@ export default function BudgetTab({
         n.includes('material') ||
         n.includes('equip') ||
         n.includes('labor') ||
+        n.includes('allowance') ||
         n.includes('overhead')
       );
     });
@@ -995,73 +997,6 @@ export default function BudgetTab({
                 </View>
               </View>
 
-              <View style={[styles.sectionCardContainer, { marginTop: 12 }]}>
-                <View
-                  style={[
-                    styles.sectionCard,
-                    darkMode && styles.sectionCardElevated,
-                    {
-                      backgroundColor: Colors.surface2,
-                      borderWidth: 1,
-                      borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
-                    },
-                  ]}
-                >
-                  <View style={styles.budgetCardHeaderMatch}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
-                      <View style={styles.budgetOverviewIconBadge}>
-                        <MaterialIcons name="analytics" size={16} color="#22c55e" />
-                      </View>
-                      <Text style={[styles.budgetSectionTitleMatch, { color: darkMode ? '#F5F7FA' : theme.text }]}>
-                        Estimate performance
-                      </Text>
-                    </View>
-                    <Text style={{ color: pageCaption, fontSize: 12, fontWeight: '700', textTransform: 'capitalize' }}>
-                      {estimateFeedback.status.replace(/_/g, ' ')}
-                    </Text>
-                  </View>
-                  <View style={styles.totalsContent}>
-                    <Row
-                      label="Actual coverage"
-                      value={`${estimateFeedback.projectSummary.mappedActualCoveragePercent}%`}
-                      theme={budgetTotalsTheme}
-                      variant="book"
-                      metricLabel
-                    />
-                    <Row
-                      label="Direct-cost variance"
-                      value={
-                        estimateFeedback.projectSummary.directCostVariancePercent != null
-                          ? `${estimateFeedback.projectSummary.directCostVariancePercent > 0 ? '+' : ''}${estimateFeedback.projectSummary.directCostVariancePercent}%`
-                          : 'Needs mapped actuals'
-                      }
-                      theme={budgetTotalsTheme}
-                      variant="book"
-                      metricLabel
-                    />
-                    <Row
-                      label="Calibration suggestions"
-                      value={`${estimateFeedback.rateSuggestions.length} rate / ${estimateFeedback.assumptionSuggestions.length} assumption`}
-                      theme={budgetTotalsTheme}
-                      variant="book"
-                      metricLabel
-                    />
-                    {estimateFeedback.unresolvedMappings.length > 0 ? (
-                      <Text style={{ color: '#fbbf24', fontSize: 12, lineHeight: 17, marginTop: 8 }}>
-                        {estimateFeedback.unresolvedMappings.length} actual record{estimateFeedback.unresolvedMappings.length === 1 ? '' : 's'} need mapping review before high-confidence calibration.
-                      </Text>
-                    ) : estimateFeedback.status === 'insufficient_data' ? (
-                      <Text style={{ color: pageCaption, fontSize: 12, lineHeight: 17, marginTop: 8 }}>
-                        Add receipts, invoices, time, or actual costs to compare this estimate after work starts.
-                      </Text>
-                    ) : (
-                      <Text style={{ color: '#22c55e', fontSize: 12, lineHeight: 17, marginTop: 8 }}>
-                        Actuals are mapped well enough for review. Suggestions still require explicit approval.
-                      </Text>
-                    )}
-                  </View>
-                </View>
-              </View>
             </View>
             </LinearGradient>
           </View>
@@ -1120,9 +1055,16 @@ export default function BudgetTab({
                     const spentPercent = Math.min(100, (spent / Math.max(budgetValue, 1)) * 100);
                     const isOverBudget = spent > budgetValue;
                     const itemName = String(item.name || 'Unknown');
-                    const categoryIconName = itemName.toLowerCase().includes('labor') ? 'engineering' : 
-                                        itemName.toLowerCase().includes('materials') || itemName.toLowerCase().includes('equipment') ? 'construction' :
-                                        itemName.toLowerCase().includes('subs') ? 'people' : 'inventory';
+                    const categoryIconName = itemName.toLowerCase().includes('labor')
+                      ? 'engineering'
+                      : itemName.toLowerCase().includes('materials') ||
+                          itemName.toLowerCase().includes('equipment')
+                        ? 'construction'
+                        : itemName.toLowerCase().includes('allowance')
+                          ? 'account-balance-wallet'
+                          : itemName.toLowerCase().includes('subs')
+                            ? 'people'
+                            : 'inventory';
 
                     return (
                       <View key={item.stableId || item.id || `budget-item-${index}`} style={[styles.budgetCardContainer, { marginTop: index === 0 ? 0 : 12 }]}>
@@ -1221,6 +1163,86 @@ export default function BudgetTab({
                   })}
                 </View>
               </LinearGradient>
+
+              {estimateFeedback.status !== 'insufficient_data' &&
+              (Number(estimateFeedback.projectSummary.mappedActualCoveragePercent) > 0 ||
+                estimateFeedback.projectSummary.directCostVariancePercent != null ||
+                estimateFeedback.rateSuggestions.length > 0 ||
+                estimateFeedback.assumptionSuggestions.length > 0) ? (
+                <View style={[styles.sectionCardContainer, { marginTop: 12 }]}>
+                  <View
+                    style={[
+                      styles.sectionCard,
+                      darkMode && styles.sectionCardElevated,
+                      {
+                        backgroundColor: Colors.surface2,
+                        borderWidth: 1,
+                        borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                      },
+                    ]}
+                  >
+                    <View style={styles.budgetCardHeaderMatch}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                        <View style={styles.budgetOverviewIconBadge}>
+                          <MaterialIcons name="analytics" size={16} color="#22c55e" />
+                        </View>
+                        <Text style={[styles.budgetSectionTitleMatch, { color: darkMode ? '#F5F7FA' : theme.text }]}>
+                          Estimate vs actual
+                        </Text>
+                      </View>
+                      <Text style={{ color: pageCaption, fontSize: 12, fontWeight: '700', textTransform: 'capitalize' }}>
+                        {estimateFeedback.status === 'ready_for_review'
+                          ? 'Ready to review'
+                          : estimateFeedback.status === 'partial'
+                            ? 'Partial data'
+                            : estimateFeedback.status === 'reviewed'
+                              ? 'Reviewed'
+                              : estimateFeedback.status === 'calibration_applied'
+                                ? 'Applied'
+                                : estimateFeedback.status.replace(/_/g, ' ')}
+                      </Text>
+                    </View>
+                    <View style={styles.totalsContent}>
+                      <Row
+                        label="Costs tracked"
+                        value={`${estimateFeedback.projectSummary.mappedActualCoveragePercent}%`}
+                        theme={budgetTotalsTheme}
+                        variant="book"
+                        metricLabel
+                      />
+                      <Row
+                        label="Over / under estimate"
+                        value={
+                          estimateFeedback.projectSummary.directCostVariancePercent != null
+                            ? `${estimateFeedback.projectSummary.directCostVariancePercent > 0 ? '+' : ''}${estimateFeedback.projectSummary.directCostVariancePercent}%`
+                            : '—'
+                        }
+                        theme={budgetTotalsTheme}
+                        variant="book"
+                        metricLabel
+                      />
+                      <Row
+                        label="Pricing tips"
+                        value={`${estimateFeedback.rateSuggestions.length + estimateFeedback.assumptionSuggestions.length}`}
+                        theme={budgetTotalsTheme}
+                        variant="book"
+                        metricLabel
+                      />
+                      {estimateFeedback.unresolvedMappings.length > 0 ? (
+                        <Text style={{ color: '#fbbf24', fontSize: 12, lineHeight: 17, marginTop: 8 }}>
+                          {estimateFeedback.unresolvedMappings.length} cost
+                          {estimateFeedback.unresolvedMappings.length === 1 ? '' : 's'} still need review before
+                          tips are reliable.
+                        </Text>
+                      ) : (
+                        <Text style={{ color: '#22c55e', fontSize: 12, lineHeight: 17, marginTop: 8 }}>
+                          Enough job costs are in to compare against the estimate. Tips still need your approval.
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                </View>
+              ) : null}
             </View>
         )}
 

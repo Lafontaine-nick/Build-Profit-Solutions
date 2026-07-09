@@ -569,6 +569,7 @@ function bucketNameIsCostCategory(name) {
     n.includes('equip') ||
     n.includes('labor') ||
     n.includes('labour') ||
+    n.includes('allowance') ||
     n.includes('subcontract') ||
     n.includes('permit') ||
     n.includes('overhead') ||
@@ -611,6 +612,7 @@ function resolveApprovedCostBuckets(project) {
     sumEstimateLineItems(ed.laborLineItems) ||
     Number(ed.laborTotal ?? ed.labor ?? 0) ||
     0;
+  const allowancesFromLines = sumEstimateLineItems(ed.allowanceLineItems);
   const overheadFromEstimate =
     Number(ed.equipment ?? 0) +
     Number(ed.planCost ?? 0) +
@@ -625,6 +627,8 @@ function resolveApprovedCostBuckets(project) {
     materialsFromLines > 0 ? materialsFromLines : bucketBudgetFor(['material', 'equip']);
   const laborBudget =
     laborFromLines > 0 ? laborFromLines : bucketBudgetFor(['labor', 'labour']);
+  const allowancesBudget =
+    allowancesFromLines > 0 ? allowancesFromLines : bucketBudgetFor(['allowance']);
   const overheadBudget =
     overheadFromEstimate > 0 ? overheadFromEstimate : bucketBudgetFor(['overhead', 'permit']);
 
@@ -643,6 +647,14 @@ function resolveApprovedCostBuckets(project) {
       name: 'Labor',
       budget: laborBudget,
       spent: spentFor(['labor', 'labour']),
+    });
+  }
+  if (allowancesBudget > 0 || spentFor(['allowance']) > 0) {
+    derived.push({
+      id: 'allowances',
+      name: 'Allowances',
+      budget: allowancesBudget,
+      spent: spentFor(['allowance']),
     });
   }
   if (overheadBudget > 0) {

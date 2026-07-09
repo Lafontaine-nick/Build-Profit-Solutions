@@ -28,6 +28,8 @@ import AIEstimateDraftReviewScopeOnly from '@/components/estimate/AIEstimateDraf
 import AIEstimateDraftReviewPricingActions from '@/components/estimate/AIEstimateDraftReviewPricingActions';
 import AIEstimateDraftReviewCompact from '@/components/estimate/AIEstimateDraftReviewCompact';
 import AIEstimateDraftReviewDetails from '@/components/estimate/AIEstimateDraftReviewDetails';
+import AIEstimateClarifyQuestionsCard from '@/components/estimate/AIEstimateClarifyQuestionsCard';
+import type { ClarifyAnswer, ClarifyQuestionItem } from '@/utils/estimateAiDraft';
 import {
   dedupeDraftWarnings,
   draftHasUnpricedScope,
@@ -42,6 +44,11 @@ type Props = {
   suggestingSplits?: boolean;
   clarifying?: boolean;
   clarifyQuestions?: string[] | null;
+  clarifyQuestionItems?: ClarifyQuestionItem[] | null;
+  clarifyApplying?: boolean;
+  clarifyAppliedSummary?: string[] | null;
+  onSubmitClarifyAnswers?: (answers: ClarifyAnswer[]) => void;
+  onDismissClarify?: () => void;
   fromAssistant?: boolean;
   embedded?: boolean;
   onClose: () => void;
@@ -84,6 +91,11 @@ export default function AIEstimateDraftReviewModal({
   suggestingSplits = false,
   clarifying = false,
   clarifyQuestions = null,
+  clarifyQuestionItems = null,
+  clarifyApplying = false,
+  clarifyAppliedSummary = null,
+  onSubmitClarifyAnswers,
+  onDismissClarify,
   fromAssistant = false,
   embedded = false,
   onClose,
@@ -129,7 +141,7 @@ export default function AIEstimateDraftReviewModal({
     }
   };
 
-  const busy = applying || suggestingSplits || clarifying || roughRangeLoading;
+  const busy = applying || suggestingSplits || clarifying || roughRangeLoading || clarifyApplying;
   const hasApproved = draftHasApprovedSuggestions(draft);
   const confidenceLevel = draft?.estimateConfidence?.level as EstimateConfidenceLevel | undefined;
   const confidenceColors: Record<EstimateConfidenceLevel, { bg: string; color: string }> = {
@@ -151,6 +163,21 @@ export default function AIEstimateDraftReviewModal({
     : footerExpanded
       ? 280 + insets.bottom
       : 88 + insets.bottom;
+  const clarifyCard =
+    onSubmitClarifyAnswers &&
+    onDismissClarify &&
+    ((clarifyQuestionItems?.length ?? 0) > 0 || (clarifyAppliedSummary?.length ?? 0) > 0) ? (
+      <AIEstimateClarifyQuestionsCard
+        questionItems={clarifyQuestionItems || []}
+        Colors={Colors}
+        darkMode={darkMode}
+        busy={busy && !clarifyApplying}
+        applying={clarifyApplying}
+        appliedSummary={clarifyAppliedSummary}
+        onSubmitAnswers={onSubmitClarifyAnswers}
+        onDismiss={onDismissClarify}
+      />
+    ) : null;
   if (!visible) return null;
 
   const body = (
@@ -176,6 +203,7 @@ export default function AIEstimateDraftReviewModal({
         style={{ flex: 1 }}
         contentContainerStyle={{ padding: 16, paddingBottom: footerScrollPadding }}
       >
+        {draft ? clarifyCard : null}
         {!draft ? (
           <Text style={{ color: Colors.sub, fontSize: 14 }}>No draft to review.</Text>
         ) : scopeOnly ? (
@@ -233,8 +261,6 @@ export default function AIEstimateDraftReviewModal({
             darkMode={darkMode}
             busy={busy}
             confStyle={confStyle}
-            onSuggestMissingPrices={onSuggestMissingPrices}
-            suggestingMissingPrices={suggestingMissingPrices}
             onRegenerate={onRegenerate}
             onPriceScopeItem={onPriceScopeItem}
             onUpdateScopeBudgetSplit={onUpdateScopeBudgetSplit}
@@ -247,7 +273,7 @@ export default function AIEstimateDraftReviewModal({
                 busy={busy}
                 warnings={warnings}
                 needsReview={needsReview}
-                clarifyQuestions={clarifyQuestions}
+                clarifyQuestions={clarifyCard ? null : clarifyQuestions}
                 onApplyScopeOnly={onApplyScopeOnly}
                 onClarifyMissing={onClarifyMissing}
                 onRequestRoughRange={onRequestRoughRange}

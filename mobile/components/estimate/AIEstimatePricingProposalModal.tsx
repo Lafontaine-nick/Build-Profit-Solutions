@@ -184,13 +184,6 @@ function CompareChip({
 
 function ConfidenceBadge({ confidence, compact }: { confidence?: string; compact?: boolean }) {
   const vis = confidenceVisual(confidence);
-  const label = compact
-    ? confidence === 'high'
-      ? 'High'
-      : confidence === 'low'
-        ? 'Low'
-        : 'Medium'
-    : vis.label;
   return (
     <View
       style={[
@@ -203,7 +196,7 @@ function ConfidenceBadge({ confidence, compact }: { confidence?: string; compact
         style={[styles.badgeText, compact && styles.badgeTextCompact, { color: vis.color }]}
         numberOfLines={1}
       >
-        {label}
+        {vis.label}
       </Text>
     </View>
   );
@@ -618,24 +611,22 @@ function ScopeCard({
               {Math.round(item.priceRangeHint.combinedTotal.high).toLocaleString()}
             </Text>
           ) : null}
-          {isSuggestMode && conf ? (
-            <View style={styles.cardMetaRow}>
-              <ConfidenceBadge confidence={conf} compact />
-              {canToggleInclude && !included ? (
-                <Text style={[styles.includeHint, { color: Colors.sub }]} numberOfLines={2}>
-                  {suggestItemIsRoughPlanningItem(item)
-                    ? 'Rough estimate — check to include this price'
-                    : item.reviewStatus === 'needs_approval' || suggestItemNeedsApproval(item)
-                      ? 'Unchecked — confirm scope, then check to include'
-                      : suggestItemIsManualOnly(item)
-                        ? 'Manual pricing recommended — check to include anyway'
-                        : 'Unchecked — check to include this price'}
-                </Text>
-              ) : null}
-            </View>
-          ) : null}
         </View>
       </View>
+      {isSuggestMode && conf ? (
+        <View style={styles.cardMetaRow}>
+          <ConfidenceBadge confidence={conf} compact />
+          {canToggleInclude && !included ? (
+            <Text style={[styles.includeHint, { color: Colors.sub }]} numberOfLines={1}>
+              {item.reviewStatus === 'needs_approval' || suggestItemNeedsApproval(item)
+                ? 'Confirm scope, then check to include'
+                : suggestItemIsManualOnly(item)
+                  ? 'Manual pricing recommended'
+                  : 'Check to include'}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
 
       {isEditing ? (
         <ScopeRateEditor
@@ -670,27 +661,30 @@ function ScopeCard({
         </View>
       ) : null}
 
-      {canEdit && !isEditing ? (
-        <TouchableOpacity
-          onPress={onToggleEdit}
-          activeOpacity={0.75}
-          style={styles.cardAdjustBtn}
-        >
-          <Text style={styles.cardAdjustBtnText}>Adjust rates</Text>
-        </TouchableOpacity>
-      ) : null}
-
-      {hasDetails ? (
-        <TouchableOpacity
-          style={styles.detailsToggle}
-          onPress={() => setExpanded((v) => !v)}
-          activeOpacity={0.7}
-        >
-          <Text style={{ color: Colors.sub, fontSize: 11, fontWeight: '600' }}>
-            {expanded ? 'Hide details' : 'Show details'}
-          </Text>
-          <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color={Colors.sub} />
-        </TouchableOpacity>
+      {(canEdit && !isEditing) || hasDetails ? (
+        <View style={styles.cardActionsRow}>
+          {canEdit && !isEditing ? (
+            <TouchableOpacity onPress={onToggleEdit} activeOpacity={0.75} style={styles.cardActionLink}>
+              <Text style={styles.cardActionLinkText}>Adjust rates</Text>
+            </TouchableOpacity>
+          ) : null}
+          {hasDetails ? (
+            <TouchableOpacity
+              style={styles.cardActionLink}
+              onPress={() => setExpanded((v) => !v)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.cardActionMutedText, { color: Colors.sub }]}>
+                {expanded ? 'Hide details' : 'Show details'}
+              </Text>
+              <Ionicons
+                name={expanded ? 'chevron-up' : 'chevron-down'}
+                size={14}
+                color={Colors.sub}
+              />
+            </TouchableOpacity>
+          ) : null}
+        </View>
       ) : null}
 
       {expanded ? (
@@ -743,13 +737,61 @@ function ScopeCard({
   );
 }
 
-function SourceLegend({ sources, mode = 'saved' }: { sources: string[]; mode?: 'saved' | 'suggest' }) {
+function SourceLegend({
+  sources,
+  mode = 'saved',
+  Colors,
+}: {
+  sources: string[];
+  mode?: 'saved' | 'suggest';
+  Colors: ReturnType<typeof getColors>;
+}) {
   if (!sources.length) return null;
   return (
     <View style={styles.legend}>
+      <Text style={[styles.legendCaption, { color: Colors.sub }]}>Source</Text>
       {sources.map((source) => (
         <SourceBadge key={source} source={source} mode={mode} compact />
       ))}
+    </View>
+  );
+}
+
+function SuggestSelectionBar({
+  allSelected,
+  someSelected,
+  selectableCount,
+  onSelectAll,
+  onClear,
+  Colors,
+}: {
+  allSelected: boolean;
+  someSelected: boolean;
+  selectableCount: number;
+  onSelectAll: () => void;
+  onClear: () => void;
+  Colors: ReturnType<typeof getColors>;
+}) {
+  if (selectableCount <= 1) return null;
+  return (
+    <View style={styles.selectionBar}>
+      <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', flex: 1 }}>
+        {selectableCount} suggested
+      </Text>
+      {allSelected ? (
+        <TouchableOpacity onPress={onClear} activeOpacity={0.75} hitSlop={8}>
+          <Text style={styles.selectionBarLink}>Clear selection</Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity onPress={onSelectAll} activeOpacity={0.75} hitSlop={8}>
+          <Text style={styles.selectionBarLink}>Select all</Text>
+        </TouchableOpacity>
+      )}
+      {someSelected && !allSelected ? (
+        <TouchableOpacity onPress={onClear} activeOpacity={0.75} hitSlop={8}>
+          <Text style={[styles.selectionBarLink, { color: Colors.sub }]}>Clear</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
@@ -932,23 +974,27 @@ export default function AIEstimatePricingProposalModal({
     return `${n} item${n === 1 ? '' : 's'} will still need pricing.`;
   }, [isSavedOnly, savedCounts]);
 
+  const selectableSuggestItems = useMemo(
+    () => (isSuggestMode ? (display.scopeItems || []).filter((item) => suggestItemSelectable(item)) : []),
+    [isSuggestMode, display.scopeItems]
+  );
+
+  const allSuggestSelected =
+    selectableSuggestItems.length > 0 &&
+    selectableSuggestItems.every((item) => includedScopeIds.has(item.scopeItemId));
+  const someSuggestSelected =
+    selectableSuggestItems.some((item) => includedScopeIds.has(item.scopeItemId));
+
   const suggestUncheckedCaption = useMemo(() => {
     if (!isSuggestMode) return null;
-    const selectable = (display.scopeItems || []).filter((item) => suggestItemSelectable(item));
-    if (selectable.length <= 0) return null;
-    const roughUnchecked = selectable.filter(
-      (item) => suggestItemIsRoughPlanningItem(item) && !includedScopeIds.has(item.scopeItemId)
-    ).length;
-    const unchecked = selectable.length - validSelectedSuggestCount;
+    if (selectableSuggestItems.length <= 0) return null;
+    const unchecked = selectableSuggestItems.length - validSelectedSuggestCount;
     if (validSelectedSuggestCount <= 0) {
-      return `${selectable.length} suggested — check items to include before applying.`;
+      return 'Check items above to include before applying.';
     }
     if (unchecked <= 0) return null;
-    if (roughUnchecked > 0) {
-      return `${roughUnchecked} rough estimate${roughUnchecked === 1 ? '' : 's'} unchecked — check to include, or price manually later.`;
-    }
-    return `${unchecked} unchecked — confirm scope, then check to include.`;
-  }, [isSuggestMode, display.scopeItems, validSelectedSuggestCount, includedScopeIds]);
+    return `${unchecked} unchecked — will stay unpriced until included.`;
+  }, [isSuggestMode, selectableSuggestItems, validSelectedSuggestCount]);
 
   const partialTemplateMatch =
     isSavedOnly &&
@@ -1070,7 +1116,22 @@ export default function AIEstimatePricingProposalModal({
               />
             ) : null}
 
-            {!isSavedOnly ? <SourceLegend sources={legendSources} mode="suggest" /> : null}
+            {!isSavedOnly ? (
+              <SourceLegend sources={legendSources} mode="suggest" Colors={Colors} />
+            ) : null}
+
+            {isSuggestMode ? (
+              <SuggestSelectionBar
+                allSelected={allSuggestSelected}
+                someSelected={someSuggestSelected}
+                selectableCount={selectableSuggestItems.length}
+                onSelectAll={() =>
+                  setIncludedScopeIds(new Set(selectableSuggestItems.map((item) => item.scopeItemId)))
+                }
+                onClear={() => setIncludedScopeIds(new Set())}
+                Colors={Colors}
+              />
+            ) : null}
 
             {isSavedOnly ? (
               <View
@@ -1212,40 +1273,34 @@ export default function AIEstimatePricingProposalModal({
               <Text style={{ color: Colors.text, fontSize: 22, fontWeight: '800' }}>
                 {formatDraftMoney(isSuggestMode ? suggestTotalSelected : display.totalSuggested)}
               </Text>
-            </View>
-
-            {display.disclaimer ? (
-              <TouchableOpacity
-                onPress={() => setShowDisclaimer((v) => !v)}
-                style={styles.disclaimerToggle}
-                activeOpacity={0.7}
-              >
-                <Text style={{ color: Colors.sub, fontSize: 11 }}>
-                  Planning estimates — verify before billing
+              {isSuggestMode || display.disclaimer ? (
+                <TouchableOpacity
+                  onPress={() => setShowDisclaimer((v) => !v)}
+                  style={styles.disclaimerToggle}
+                  activeOpacity={0.7}
+                >
+                  <Text style={{ color: Colors.sub, fontSize: 11, flex: 1 }}>
+                    Planning estimates — verify before billing
+                  </Text>
+                  <Ionicons
+                    name={showDisclaimer ? 'chevron-up' : 'chevron-down'}
+                    size={14}
+                    color={Colors.sub}
+                  />
+                </TouchableOpacity>
+              ) : null}
+              {showDisclaimer ? (
+                <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 16 }}>
+                  {display.disclaimer || SUGGESTED_PRICING_DISCLAIMER}
                 </Text>
-                <Ionicons
-                  name={showDisclaimer ? 'chevron-up' : 'chevron-down'}
-                  size={14}
-                  color={Colors.sub}
-                />
-              </TouchableOpacity>
-            ) : null}
-            {showDisclaimer && display.disclaimer ? (
-              <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 16, marginTop: 4 }}>
-                {display.disclaimer}
-              </Text>
-            ) : null}
+              ) : null}
+            </View>
           </ScrollView>
         )}
 
         <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16), borderTopColor: Colors.line }]}>
           {!display.empty && hasContent ? (
             <>
-              {isSuggestMode ? (
-                <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 16, marginBottom: 4 }}>
-                  {SUGGESTED_PRICING_DISCLAIMER}
-                </Text>
-              ) : null}
               <TouchableOpacity
                 style={[
                   styles.primaryBtn,
@@ -1362,8 +1417,25 @@ const styles = StyleSheet.create({
   legend: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 14,
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+  },
+  legendCaption: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginRight: 2,
+  },
+  selectionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginBottom: 12,
+  },
+  selectionBarLink: {
+    color: '#60a5fa',
+    fontSize: 12,
+    fontWeight: '700',
   },
   badge: {
     flexDirection: 'row',
@@ -1498,6 +1570,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: 8,
+    marginBottom: 6,
   },
   includeHint: {
     flex: 1,
@@ -1516,12 +1589,28 @@ const styles = StyleSheet.create({
     padding: 4,
     marginLeft: 2,
   },
-  cardAdjustBtn: {
+  cardActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 16,
     marginTop: 8,
-    alignSelf: 'flex-start',
+  },
+  cardActionLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     paddingVertical: 4,
   },
-  cardAdjustBtnText: { color: '#22c55e', fontWeight: '700', fontSize: 13 },
+  cardActionLinkText: {
+    color: '#60a5fa',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  cardActionMutedText: {
+    fontWeight: '600',
+    fontSize: 12,
+  },
   doneEditBtn: {
     marginTop: 12,
     paddingVertical: 11,
@@ -1607,14 +1696,6 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-  detailsToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    marginTop: 8,
-    paddingVertical: 4,
-  },
   detailsBox: {
     marginTop: 6,
     paddingTop: 6,
@@ -1629,8 +1710,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 10,
-    paddingVertical: 4,
+    marginTop: 6,
+    paddingVertical: 2,
+    gap: 8,
   },
   footer: {
     paddingHorizontal: 16,

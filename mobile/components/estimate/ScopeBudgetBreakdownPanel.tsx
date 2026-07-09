@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { formatDraftMoney } from '@/utils/estimateAiDraft';
 import {
   budgetSplitSourceColor,
@@ -53,8 +53,8 @@ function SourcePill({
       <Text
         style={{
           color: budgetSplitSourceColor(source),
-          fontSize: 11,
-          fontWeight: '700',
+          fontSize: 10,
+          fontWeight: '600',
         }}
       >
         {budgetSplitSourceLabel(source)}
@@ -76,23 +76,12 @@ export default function ScopeBudgetBreakdownPanel({
   showWhyHelper?: boolean;
   style?: object;
 }) {
+  const [whyOpen, setWhyOpen] = useState(false);
   const isSuggested =
     breakdown.materialSource === 'suggested' && breakdown.laborSource === 'suggested';
   const sameSource = breakdown.materialSource === breakdown.laborSource;
-  const panelBg = isSuggested
-    ? darkMode
-      ? 'rgba(96, 165, 250, 0.08)'
-      : 'rgba(96, 165, 250, 0.06)'
-    : darkMode
-      ? 'rgba(255,255,255,0.04)'
-      : Colors.surface2;
-  const panelBorder = isSuggested
-    ? darkMode
-      ? 'rgba(96, 165, 250, 0.22)'
-      : 'rgba(96, 165, 250, 0.18)'
-    : darkMode
-      ? 'rgba(148, 163, 184, 0.16)'
-      : Colors.line;
+  const panelBg = darkMode ? 'rgba(255,255,255,0.035)' : Colors.surface2;
+  const panelBorder = darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line;
 
   const renderLine = (
     lineLabel: string,
@@ -108,7 +97,7 @@ export default function ScopeBudgetBreakdownPanel({
               flex: 1,
               marginRight: 12,
               color: pricingLabelColor(darkMode, Colors),
-              fontSize: 14,
+              fontSize: 13,
               fontWeight: '600',
             }}
           >
@@ -118,7 +107,7 @@ export default function ScopeBudgetBreakdownPanel({
             <Text
               style={{
                 color: pricingTextColor(darkMode, Colors),
-                fontSize: 15,
+                fontSize: 14,
                 fontWeight: '700',
               }}
             >
@@ -149,7 +138,7 @@ export default function ScopeBudgetBreakdownPanel({
       ]}
     >
       <View style={styles.breakdownHeader}>
-        <Text style={{ color: pricingTextColor(darkMode, Colors), fontSize: 14, fontWeight: '700' }}>
+        <Text style={{ color: pricingTextColor(darkMode, Colors), fontSize: 13, fontWeight: '700' }}>
           Budget split
         </Text>
         {sameSource ? <SourcePill source={breakdown.materialSource} /> : null}
@@ -157,17 +146,25 @@ export default function ScopeBudgetBreakdownPanel({
       {renderLine('Material', breakdown.material, breakdown.materialSource)}
       {renderLine('Labor', breakdown.labor, breakdown.laborSource)}
       {showWhyHelper && isSuggested ? (
-        <Text
-          style={{
-            color: pricingLabelColor(darkMode, Colors),
-            fontSize: 12,
-            lineHeight: 17,
-            marginTop: 8,
-          }}
-        >
-          Why this split? Notes only gave one total, so materials use National Average and labor gets
-          the remainder.
-        </Text>
+        <View style={{ marginTop: 8 }}>
+          <TouchableOpacity activeOpacity={0.75} onPress={() => setWhyOpen((open) => !open)}>
+            <Text style={{ color: '#93c5fd', fontSize: 11, fontWeight: '600' }}>
+              {whyOpen ? 'Hide why this split' : 'Why this split?'}
+            </Text>
+          </TouchableOpacity>
+          {whyOpen ? (
+            <Text
+              style={{
+                color: pricingLabelColor(darkMode, Colors),
+                fontSize: 11,
+                lineHeight: 16,
+                marginTop: 6,
+              }}
+            >
+              Notes only gave one total, so materials use National Average and labor gets the remainder.
+            </Text>
+          ) : null}
+        </View>
       ) : null}
     </View>
   );
@@ -175,11 +172,11 @@ export default function ScopeBudgetBreakdownPanel({
 
 const styles = StyleSheet.create({
   breakdownPanel: {
-    marginTop: 10,
+    marginTop: 8,
     alignSelf: 'stretch',
     width: '100%',
     paddingHorizontal: 12,
-    paddingVertical: 11,
+    paddingVertical: 10,
     borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
   },
@@ -202,21 +199,21 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   sourcePill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
     borderRadius: 999,
-    borderWidth: 1,
-  },
-  sourcePillNotes: {
-    borderColor: 'rgba(34, 197, 94, 0.35)',
-    backgroundColor: 'rgba(34, 197, 94, 0.1)',
-  },
-  sourcePillNational: {
-    borderColor: 'rgba(96, 165, 250, 0.35)',
-    backgroundColor: 'rgba(96, 165, 250, 0.1)',
+    borderWidth: StyleSheet.hairlineWidth,
   },
   sourcePillManual: {
-    borderColor: 'rgba(251, 191, 36, 0.35)',
-    backgroundColor: 'rgba(251, 191, 36, 0.1)',
+    borderColor: 'rgba(251, 191, 36, 0.28)',
+    backgroundColor: 'rgba(251, 191, 36, 0.06)',
+  },
+  sourcePillNotes: {
+    borderColor: 'rgba(96, 165, 250, 0.22)',
+    backgroundColor: 'rgba(96, 165, 250, 0.06)',
+  },
+  sourcePillNational: {
+    borderColor: 'rgba(148, 163, 184, 0.22)',
+    backgroundColor: 'rgba(148, 163, 184, 0.06)',
   },
 });

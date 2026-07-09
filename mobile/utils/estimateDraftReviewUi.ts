@@ -22,9 +22,9 @@ export function budgetSplitSourceLabel(source: BudgetSplitSource): string {
 }
 
 export function budgetSplitSourceColor(source: BudgetSplitSource): string {
-  if (source === 'notes') return '#22c55e';
-  if (source === 'manual') return '#fbbf24';
-  return '#60a5fa';
+  if (source === 'notes') return 'rgba(34, 197, 94, 0.85)';
+  if (source === 'manual') return 'rgba(251, 191, 36, 0.85)';
+  return 'rgba(148, 163, 184, 0.95)';
 }
 
 export function isScopeOnlyDraft(draft: EstimateAiDraft | null): boolean {

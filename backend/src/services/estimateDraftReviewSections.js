@@ -99,7 +99,8 @@ function buildTotalValidation(draft) {
 }
 
 function enrichDraftReviewSections(draft) {
-  const projectAddress = extractAddressFromDraft(draft);
+  // An explicitly set address (e.g. from a clarify answer) wins over regex extraction.
+  const projectAddress = draft.projectAddress || extractAddressFromDraft(draft);
   const addressMissing = !projectAddress && (draft.missingInfo || []).some((m) => /address/i.test(m));
 
   return {

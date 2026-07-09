@@ -818,6 +818,15 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
               spent: (bucket.spent || 0) + expense.amount,
             };
           }
+
+          const isAllowancesBucket = bucketName.includes('allowance');
+          const isAllowancesCategory = expenseCategory.includes('allowance');
+          if (isAllowancesBucket && isAllowancesCategory) {
+            return {
+              ...bucket,
+              spent: (bucket.spent || 0) + expense.amount,
+            };
+          }
         }
         return bucket;
       });
@@ -862,7 +871,8 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
               cat === 'subs' ||
               cat.includes('subcontract') ||
               cat.includes('crew'));
-          return isMat || isLab;
+          const isAllow = bn.includes('allowance') && cat.includes('allowance');
+          return isMat || isLab || isAllow;
         });
 
       if (!hasMatchingCategory && expense.category) {
@@ -939,6 +949,14 @@ export function ProjectDataProvider({ children, projectId }: ProjectDataProvider
           
           // Flexible match for Labor
           if (bucketName.includes('labor') && expenseCategory.includes('labor')) {
+            return {
+              ...bucket,
+              spent: Math.max(0, (bucket.spent || 0) - expenseToDelete.amount),
+            };
+          }
+
+          // Flexible match for Allowances
+          if (bucketName.includes('allowance') && expenseCategory.includes('allowance')) {
             return {
               ...bucket,
               spent: Math.max(0, (bucket.spent || 0) - expenseToDelete.amount),

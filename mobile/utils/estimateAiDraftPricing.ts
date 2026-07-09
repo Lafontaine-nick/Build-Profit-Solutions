@@ -185,10 +185,11 @@ const NATIONAL_TRADE_AVERAGES_LOCAL: Record<
     materialLabel: 'Rough plumbing materials (per point)',
     laborLabel: 'Rough plumbing labor (per point)',
   },
+  /** Floor-sqft fallback only — mid of ~$4.50–$8 national rough-in band. Prefer per-point when available. */
   plumbing_rough_sqft: {
     unit: 'sqft',
-    material: 4,
-    labor: 7,
+    material: 2.5,
+    labor: 4,
     materialLabel: 'Rough plumbing materials',
     laborLabel: 'Rough plumbing labor',
   },
@@ -200,10 +201,11 @@ const NATIONAL_TRADE_AVERAGES_LOCAL: Record<
     materialLabel: 'Rough electrical materials (per circuit/device)',
     laborLabel: 'Rough electrical labor (per circuit/device)',
   },
+  /** Floor-sqft fallback only — mid of ~$3.50–$6.50 national rough-in band. Prefer per-circuit when available. */
   electrical_rough_sqft: {
     unit: 'sqft',
-    material: 4.5,
-    labor: 7,
+    material: 2,
+    labor: 3.5,
     materialLabel: 'Rough electrical materials',
     laborLabel: 'Rough electrical labor',
   },
@@ -227,26 +229,27 @@ const NATIONAL_TRADE_AVERAGES_LOCAL: Record<
   utility_trenching: { unit: 'lf', material: 8, labor: 22, materialLabel: 'Trenching materials/equipment', laborLabel: 'Trenching labor' },
   /** Standard national planning: $32/sqft ($30–$34 band). High-side ADU/complex uses FRAMING_HIGH_SIDE. */
   framing: { unit: 'sqft', material: 14, labor: 18, materialLabel: 'Framing materials', laborLabel: 'Framing labor' },
-  /** Standard national planning: ~$10.50/sqft. High-side ADU/small uses HVAC_HIGH_SIDE. */
+  /** Standard national planning: ~$10.50/sqft (NAHB HVAC ~$10–$15). High-side ADU/small uses HVAC_HIGH_SIDE. */
   hvac: { unit: 'sqft', material: 4.5, labor: 6, materialLabel: 'HVAC equipment allowance', laborLabel: 'HVAC labor' },
   insulation: { unit: 'sqft', material: 1.25, labor: 1.75, materialLabel: 'Insulation materials', laborLabel: 'Insulation labor' },
   exterior: { unit: 'sqft', material: 7, labor: 9, materialLabel: 'Exterior finish materials', laborLabel: 'Exterior finish labor' },
   windows_doors: { unit: 'each', material: 850, labor: 450, materialLabel: 'Window/door allowance', laborLabel: 'Window/door install labor' },
 };
 
-/** Upper-bound planning for ADU/small projects or complex framing assemblies — not a clean national average. */
+/** Modest uplift for ADU/small or complex framing — top of national band, not a separate premium market. */
 const FRAMING_HIGH_SIDE = {
   unit: 'sqft',
-  material: 18,
-  labor: 22,
+  material: 16,
+  labor: 20,
   materialLabel: 'Framing materials',
   laborLabel: 'Framing labor',
 } as const;
 
+/** Upper mid of national HVAC band for ADU/small projects (~$12.50 vs $10.50 standard). */
 const HVAC_HIGH_SIDE = {
   unit: 'sqft',
-  material: 6,
-  labor: 8,
+  material: 5.5,
+  labor: 7,
   materialLabel: 'HVAC equipment allowance',
   laborLabel: 'HVAC labor',
 } as const;
@@ -3182,7 +3185,7 @@ function buildRoughPricingProposalLocal(
     const framingAssumptions =
       trade === 'framing' && priceSource === HIGH_SIDE_SOURCE
         ? [
-            'High-side framing used for ADU/small project or complex scope (roof framing, sheathing, trusses, hardware, mobilization, or structural complexity). Standard national planning is $30–$34/sqft.',
+            'High-side framing used for ADU/small project or complex scope (roof framing, sheathing, trusses, hardware, mobilization, or structural complexity). Standard national planning is $30–$34/sqft; high-side is $36/sqft.',
           ]
         : trade === 'framing'
           ? [

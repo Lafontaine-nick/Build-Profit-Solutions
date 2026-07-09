@@ -406,6 +406,12 @@ export default function CategoryDetailModal({
           debugLog(`✅ Labor match`);
           return true;
         }
+
+        // Flexible match for Allowances
+        if (categoryLower.includes('allowance') && expCategory.includes('allowance')) {
+          debugLog(`✅ Allowances match`);
+          return true;
+        }
         
         debugLog(`❌ No match for expense category="${expCategory}"`);
         return false;
@@ -484,10 +490,16 @@ export default function CategoryDetailModal({
   }, [data]);
   
 
-  const categoryIcon = categoryName.toLowerCase().includes('labor') ? '👷' : 
-                       categoryName.toLowerCase().includes('materials') || categoryName.toLowerCase().includes('equipment') ? '🧱' :
-                       categoryName.toLowerCase().includes('equipment') ? '🔧' : 
-                       categoryName.toLowerCase().includes('subs') ? '👥' : '📦';
+  const categoryIcon = categoryName.toLowerCase().includes('labor')
+    ? '👷'
+    : categoryName.toLowerCase().includes('materials') ||
+        categoryName.toLowerCase().includes('equipment')
+      ? '🧱'
+      : categoryName.toLowerCase().includes('allowance')
+        ? '💼'
+        : categoryName.toLowerCase().includes('subs')
+          ? '👥'
+          : '📦';
 
   // Check for duplicate transactions
   const checkForDuplicates = (transaction: any): boolean => {

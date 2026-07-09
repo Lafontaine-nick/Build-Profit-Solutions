@@ -29,6 +29,7 @@ import { draftHasApplyablePricing } from '@/utils/estimateAiDraftPricing';
 import type { EstimateConfidenceLevel } from '@/utils/estimateAiDraft';
 import { evaluateDraftReadiness } from '@/utils/estimateReadiness';
 import { estimateFlowCardStyle, estimateFlowDividerColor } from '@/utils/estimateFlowCardStyle';
+import { isSoftCostScopePackage } from '@/utils/softCostScope';
 import ScopeBudgetBreakdownPanel from '@/components/estimate/ScopeBudgetBreakdownPanel';
 
 type Colors = {
@@ -323,6 +324,56 @@ function ScopeSplitPricingEditor({
   );
 }
 
+/** Soft-cost packages: single lump-sum allowance — never Material/Labor. */
+function ScopeAllowancePricingEditor({
+  packageName,
+  amount,
+  Colors,
+  darkMode,
+  busy,
+  onUpdateScopeBudgetSplit,
+}: {
+  packageName: string;
+  amount: number;
+  Colors: Colors;
+  darkMode: boolean;
+  busy: boolean;
+  onUpdateScopeBudgetSplit: (
+    packageName: string,
+    material: number,
+    labor: number,
+    basis?: ScopePackageBudgetBreakdown['basis']
+  ) => void;
+}) {
+  return (
+    <View style={{ marginTop: 8 }}>
+      <ScopeSplitPricingInput
+        label="Allowance"
+        amount={amount}
+        Colors={Colors}
+        darkMode={darkMode}
+        busy={busy}
+        onAmountChange={(next) => onUpdateScopeBudgetSplit(packageName, 0, Math.max(0, next))}
+      />
+    </View>
+  );
+}
+
+function softCostPackageAmount(pkg: {
+  price?: number | null;
+  knownSubtotal?: number | null;
+  calculatedSubtotal?: number | null;
+  materialPrice?: number | null;
+  laborPrice?: number | null;
+}): number {
+  const total = Math.max(
+    0,
+    Number(pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0) || 0
+  );
+  if (total > 0) return total;
+  return Math.max(0, (Number(pkg.materialPrice) || 0) + (Number(pkg.laborPrice) || 0));
+}
+
 export default function AIEstimateDraftReviewCompact({
   draft,
   Colors,
@@ -338,7 +389,7 @@ export default function AIEstimateDraftReviewCompact({
   const [showDetails, setShowDetails] = useState(false);
   const [showAllScope, setShowAllScope] = useState(false);
   const [editingPricingFor, setEditingPricingFor] = useState<string | null>(null);
-  const [expandedBudgetSplitFor, setExpandedBudgetSplitFor] = useState<string | null>(null);
+  const [expandedBudgetSplits, setExpandedBudgetSplits] = useState<Record<string, true>>({});
   const [readinessExpanded, setReadinessExpanded] = useState(false);
   const scopePackages = getScopePackages(draft);
   if (__DEV__) {
@@ -436,9 +487,35 @@ export default function AIEstimateDraftReviewCompact({
 
   return (
     <>
-      {draft.estimateConfidence ? (
-        <View style={{ marginBottom: 10, paddingHorizontal: 2 }}>
-          <Text style={{ color: confStyle.color, fontSize: 12, fontWeight: '700' }}>
+      <View style={flowCard(Colors, darkMode)}>
+        <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800', marginBottom: 4 }}>
+          {getCompactProjectSummary(draft)}
+        </Text>
+        {draft.projectAddress ? (
+          <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 4 }} numberOfLines={1}>
+            {draft.projectAddress}
+          </Text>
+        ) : null}
+        {statedTotal != null && statedTotal > 0 ? (
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 6 }}>
+            <Text style={{ color: Colors.sub, fontSize: 12 }}>Bid total in notes</Text>
+            <Text style={{ color: '#22c55e', fontSize: 18, fontWeight: '800' }}>
+              {formatDraftMoney(statedTotal)}
+            </Text>
+            {draft.totalMatches === true ? (
+              <MaterialIcons name="check-circle" size={16} color="#22c55e" />
+            ) : null}
+          </View>
+        ) : calculatedTotal != null && calculatedTotal > 0 ? (
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 6 }}>
+            <Text style={{ color: Colors.sub, fontSize: 12 }}>Calculated total</Text>
+            <Text style={{ color: '#22c55e', fontSize: 18, fontWeight: '800' }}>
+              {formatDraftMoney(calculatedTotal)}
+            </Text>
+          </View>
+        ) : null}
+        {draft.estimateConfidence ? (
+          <Text style={{ color: confStyle.color, fontSize: 11, fontWeight: '600', marginTop: 8 }}>
             {draft.estimateConfidence.label}
             <Text style={{ color: Colors.sub, fontWeight: '500' }}>
               {' · '}
@@ -447,8 +524,17 @@ export default function AIEstimateDraftReviewCompact({
                 : 'Confirm items below, then add or apply pricing.'}
             </Text>
           </Text>
-        </View>
-      ) : null}
+        ) : null}
+        {uniformStatusLabel ? (
+          <Text style={{ color: darkMode ? 'rgba(148, 163, 184, 0.85)' : Colors.sub, fontSize: 11, marginTop: 6 }}>
+            {uniformStatusLabel}
+          </Text>
+        ) : partialCount > 0 ? (
+          <Text style={{ color: darkMode ? 'rgba(148, 163, 184, 0.85)' : Colors.sub, fontSize: 11, marginTop: 6 }}>
+            {partialCount} item{partialCount === 1 ? '' : 's'} need more pricing
+          </Text>
+        ) : null}
+      </View>
 
       <TouchableOpacity
         activeOpacity={0.8}
@@ -469,7 +555,7 @@ export default function AIEstimateDraftReviewCompact({
                 : ' · no blockers'}
             </Text>
           </View>
-          <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '700' }}>
+          <Text style={{ color: '#93c5fd', fontSize: 12, fontWeight: '600' }}>
             {readinessExpanded ? 'Hide' : 'Details'}
           </Text>
         </View>
@@ -505,42 +591,6 @@ export default function AIEstimateDraftReviewCompact({
       </TouchableOpacity>
 
       <View style={flowCard(Colors, darkMode)}>
-        <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800', marginBottom: 4 }}>
-          {getCompactProjectSummary(draft)}
-        </Text>
-        {draft.projectAddress ? (
-          <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 4 }} numberOfLines={1}>
-            {draft.projectAddress}
-          </Text>
-        ) : null}
-        {statedTotal != null && statedTotal > 0 ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
-            <Text style={{ color: Colors.sub, fontSize: 13 }}>Bid total in notes:</Text>
-            <Text style={{ color: '#22c55e', fontSize: 15, fontWeight: '800' }}>
-              {formatDraftMoney(statedTotal)}
-            </Text>
-            {draft.totalMatches === true ? (
-              <MaterialIcons name="check-circle" size={16} color="#22c55e" />
-            ) : null}
-          </View>
-        ) : calculatedTotal != null && calculatedTotal > 0 ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
-            <Text style={{ color: Colors.sub, fontSize: 13 }}>Calculated total:</Text>
-            <Text style={{ color: '#22c55e', fontSize: 15, fontWeight: '800' }}>
-              {formatDraftMoney(calculatedTotal)}
-            </Text>
-          </View>
-        ) : null}
-        {uniformStatusLabel ? (
-          <Text style={{ color: '#60a5fa', fontSize: 12, marginTop: 6 }}>{uniformStatusLabel}</Text>
-        ) : partialCount > 0 ? (
-          <Text style={{ color: '#60a5fa', fontSize: 12, marginTop: 6 }}>
-            {partialCount} item{partialCount === 1 ? '' : 's'} need more pricing
-          </Text>
-        ) : null}
-      </View>
-
-      <View style={flowCard(Colors, darkMode)}>
         <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: missingPriceCount > 0 ? 6 : 10 }}>
           Scope ({scopePackages.length})
         </Text>
@@ -552,7 +602,10 @@ export default function AIEstimateDraftReviewCompact({
         {visibleScope.map((pkg, index) => {
           const qty = formatScopeQuantity(pkg);
           const amount = compactPackageAmount(pkg, draft);
-          const budgetBreakdown = amount ? resolveScopePackageBudgetBreakdown(pkg, draft) : null;
+          const isSoftCost = isSoftCostScopePackage(pkg, draft);
+          const resolvedBreakdown = amount ? resolveScopePackageBudgetBreakdown(pkg, draft) : null;
+          // Soft costs are flat allowances — never show a fake Material $0 / Labor split.
+          const budgetBreakdown = isSoftCost ? null : resolvedBreakdown;
           const statusLabel = compactPackageStatusLabel(pkg, draft);
           const hint = !amount ? scopePackagePricingHint(pkg) : null;
           const needsPrice = scopePackageNeedsManualPrice(pkg, draft);
@@ -560,11 +613,12 @@ export default function AIEstimateDraftReviewCompact({
           const canEditInline = Boolean(onUpdateScopeBudgetSplit);
           const showBudgetSplit =
             Boolean(budgetBreakdown) &&
-            (isEditingPricing || expandedBudgetSplitFor === pkg.name);
+            (isEditingPricing || Boolean(expandedBudgetSplits[pkg.name]));
           const editorBreakdown =
-            isEditingPricing && canEditInline
-              ? emptyBudgetBreakdown(pkg, budgetBreakdown)
+            isEditingPricing && canEditInline && !isSoftCost
+              ? emptyBudgetBreakdown(pkg, resolvedBreakdown)
               : null;
+          const showAllowanceEditor = isEditingPricing && canEditInline && isSoftCost;
           const showStatus =
             !hideRowStatus &&
             amount &&
@@ -574,13 +628,23 @@ export default function AIEstimateDraftReviewCompact({
           const openInlinePricing = () => {
             if (canEditInline) {
               setEditingPricingFor(pkg.name);
-              setExpandedBudgetSplitFor(pkg.name);
+              if (!isSoftCost) {
+                setExpandedBudgetSplits((current) => ({ ...current, [pkg.name]: true }));
+              }
               return;
             }
             onPriceScopeItem?.(pkg.name);
           };
           const toggleBudgetSplit = () => {
-            setExpandedBudgetSplitFor((current) => (current === pkg.name ? null : pkg.name));
+            if (!budgetBreakdown) return;
+            setExpandedBudgetSplits((current) => {
+              if (current[pkg.name]) {
+                const next = { ...current };
+                delete next[pkg.name];
+                return next;
+              }
+              return { ...current, [pkg.name]: true };
+            });
           };
           return (
             <View
@@ -589,7 +653,7 @@ export default function AIEstimateDraftReviewCompact({
                 flexDirection: 'row',
                 alignItems: 'flex-start',
                 gap: 10,
-                paddingVertical: 10,
+                paddingVertical: 8,
                 borderTopWidth: index > 0 ? StyleSheet.hairlineWidth : 0,
                 borderTopColor: flowDivider(darkMode),
               }}
@@ -606,8 +670,34 @@ export default function AIEstimateDraftReviewCompact({
                     </Text>
                     {qty ? (
                       <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }}>{qty}</Text>
+                    ) : isSoftCost ? (
+                      <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }}>Allowance</Text>
                     ) : hint ? (
                       <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }}>{hint}</Text>
+                    ) : null}
+                    {!needsPrice && amount && !isEditingPricing ? (
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        disabled={busy}
+                        onPress={openInlinePricing}
+                        style={{ marginTop: 4, alignSelf: 'flex-start' }}
+                      >
+                        <Text style={{ color: '#93c5fd', fontSize: 11, fontWeight: '600' }}>
+                          Edit pricing
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    {needsPrice && !isEditingPricing ? (
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        disabled={busy || (!canEditInline && !onPriceScopeItem)}
+                        onPress={openInlinePricing}
+                        style={{ marginTop: 4, alignSelf: 'flex-start' }}
+                      >
+                        <Text style={{ color: '#93c5fd', fontSize: 11, fontWeight: '600' }}>
+                          Tap to add price
+                        </Text>
+                      </TouchableOpacity>
                     ) : null}
                   </View>
                   <View style={{ alignItems: 'flex-end', flexShrink: 0, marginLeft: 8 }}>
@@ -617,10 +707,28 @@ export default function AIEstimateDraftReviewCompact({
                         disabled={!budgetBreakdown}
                         onPress={toggleBudgetSplit}
                         accessibilityRole={budgetBreakdown ? 'button' : undefined}
+                        accessibilityLabel={
+                          budgetBreakdown
+                            ? showBudgetSplit
+                              ? `Hide budget split for ${pkg.name}`
+                              : `Show budget split for ${pkg.name}`
+                            : undefined
+                        }
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}
                       >
                         <Text style={{ color: '#22c55e', fontSize: 14, fontWeight: '800' }}>
                           {amount}
                         </Text>
+                        {budgetBreakdown ? (
+                          <MaterialIcons
+                            name={showBudgetSplit ? 'expand-less' : 'expand-more'}
+                            size={18}
+                            color="#22c55e"
+                          />
+                        ) : (
+                          // Keep price column aligned with rows that have a chevron.
+                          <View style={{ width: 18, height: 18 }} />
+                        )}
                       </TouchableOpacity>
                     ) : (
                       <Text
@@ -640,40 +748,14 @@ export default function AIEstimateDraftReviewCompact({
                     ) : null}
                   </View>
                 </View>
-                {budgetBreakdown && !showBudgetSplit && !isEditingPricing ? (
-                  <TouchableOpacity
-                    activeOpacity={0.75}
-                    onPress={toggleBudgetSplit}
-                    style={{ marginTop: 8 }}
-                    accessibilityRole="button"
-                  >
-                    <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '700' }}>
-                      Show budget split
-                    </Text>
-                  </TouchableOpacity>
-                ) : null}
                 {showBudgetSplit && budgetBreakdown ? (
-                  <>
-                    <ScopeBudgetBreakdownPanel
-                      breakdown={budgetBreakdown}
-                      Colors={Colors}
-                      darkMode={darkMode}
-                    />
-                    {!isEditingPricing ? (
-                      <TouchableOpacity
-                        activeOpacity={0.75}
-                        onPress={toggleBudgetSplit}
-                        style={{ marginTop: 8 }}
-                        accessibilityRole="button"
-                      >
-                        <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '700' }}>
-                          Hide budget split
-                        </Text>
-                      </TouchableOpacity>
-                    ) : null}
-                  </>
+                  <ScopeBudgetBreakdownPanel
+                    breakdown={budgetBreakdown}
+                    Colors={Colors}
+                    darkMode={darkMode}
+                  />
                 ) : null}
-                {editorBreakdown && onUpdateScopeBudgetSplit ? (
+                {(editorBreakdown || showAllowanceEditor) && onUpdateScopeBudgetSplit ? (
                   <>
                     <TouchableOpacity
                       activeOpacity={0.8}
@@ -681,45 +763,32 @@ export default function AIEstimateDraftReviewCompact({
                       onPress={() => {
                         setEditingPricingFor(null);
                       }}
-                      style={{ marginTop: 12 }}
+                      style={{ marginTop: 10 }}
                     >
-                      <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '700' }}>
+                      <Text style={{ color: '#93c5fd', fontSize: 11, fontWeight: '600' }}>
                         Tap to collapse
                       </Text>
                     </TouchableOpacity>
-                    <ScopeSplitPricingEditor
-                      packageName={pkg.name}
-                      breakdown={editorBreakdown}
-                      Colors={Colors}
-                      darkMode={darkMode}
-                      busy={busy}
-                      onUpdateScopeBudgetSplit={onUpdateScopeBudgetSplit}
-                    />
+                    {showAllowanceEditor ? (
+                      <ScopeAllowancePricingEditor
+                        packageName={pkg.name}
+                        amount={softCostPackageAmount(pkg)}
+                        Colors={Colors}
+                        darkMode={darkMode}
+                        busy={busy}
+                        onUpdateScopeBudgetSplit={onUpdateScopeBudgetSplit}
+                      />
+                    ) : editorBreakdown ? (
+                      <ScopeSplitPricingEditor
+                        packageName={pkg.name}
+                        breakdown={editorBreakdown}
+                        Colors={Colors}
+                        darkMode={darkMode}
+                        busy={busy}
+                        onUpdateScopeBudgetSplit={onUpdateScopeBudgetSplit}
+                      />
+                    ) : null}
                   </>
-                ) : null}
-                {!needsPrice && amount && !isEditingPricing ? (
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    disabled={busy}
-                    onPress={openInlinePricing}
-                    style={{ marginTop: showBudgetSplit || budgetBreakdown ? 10 : 12 }}
-                  >
-                    <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '700' }}>
-                      Edit pricing
-                    </Text>
-                  </TouchableOpacity>
-                ) : null}
-                {needsPrice && !isEditingPricing ? (
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    disabled={busy || (!canEditInline && !onPriceScopeItem)}
-                    onPress={openInlinePricing}
-                    style={{ marginTop: 4 }}
-                  >
-                    <Text style={{ color: '#60a5fa', fontSize: 11, fontWeight: '600' }}>
-                      Tap to add price
-                    </Text>
-                  </TouchableOpacity>
                 ) : null}
               </View>
             </View>

@@ -459,6 +459,14 @@ export default function AssistantScreen() {
                     spent: (bucket.spent || 0) + (action.amount || 0),
                   };
                 }
+
+                // Flexible match for Allowances
+                if (bucketName.includes('allowance') && expenseCategoryLower.includes('allowance')) {
+                  return {
+                    ...bucket,
+                    spent: (bucket.spent || 0) + (action.amount || 0),
+                  };
+                }
                 
                 return bucket;
               });
@@ -518,6 +526,14 @@ export default function AssistantScreen() {
                   
                   // Flexible match for Labor
                   if (bucketName.includes('labor') && expenseCategoryLower.includes('labor')) {
+                    return {
+                      ...bucket,
+                      spent: (bucket.spent || 0) + (action.amount || 0),
+                    };
+                  }
+
+                  // Flexible match for Allowances
+                  if (bucketName.includes('allowance') && expenseCategoryLower.includes('allowance')) {
                     return {
                       ...bucket,
                       spent: (bucket.spent || 0) + (action.amount || 0),

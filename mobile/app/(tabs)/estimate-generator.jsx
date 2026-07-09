@@ -92,11 +92,13 @@ import {
   fetchEstimateDraftFromNotes,
   fetchSuggestedDraftSplits,
   fetchClarifyDraftQuestions,
+  applyClarifyAnswersToDraft,
   fetchRoughEstimateRange,
   getScopePackages,
   isComplexEstimateTier,
   syncSelectedScopePricing,
 } from '../../utils/estimateAiDraft';
+import { getBidAllowanceLineItemsTotal } from '../../utils/estimateAllowances';
 import { formatEstimateAiError } from '../../utils/resolveAiBackendUrl';
 import {
   capturePricingMemory,
@@ -534,7 +536,7 @@ const STEPS = [
   { id: 2, title: 'Project Information', subtitle: 'Title, location, scope & timeline' },
   { id: 3, title: 'Materials & Supplies', subtitle: 'Live pricing and inflation' },
   { id: 4, title: 'Labor & Subs', subtitle: 'Regional wages and subcontractors' },
-  { id: 5, title: 'Project costs, overhead & markup', subtitle: 'Other project costs, company overhead, and markup rate' },
+  { id: 5, title: 'Project costs, overhead & markup', subtitle: 'Job costs, allowances, company overhead, and markup rate' },
   { id: 6, title: 'Project Analysis', subtitle: 'Scenario presets & stress testing' },
   { id: 7, title: 'Payment / Work Schedule', subtitle: 'Payment terms and work scheduling' },
   { id: 8, title: 'Final Proposal & Agreement', subtitle: 'Generate a polished client-facing PDF from this estimate' },
@@ -3285,26 +3287,35 @@ function getEstimateStep5ProfileBehavior(contractorType) {
     normalizedContractorType,
     showDeveloperProjectCosts,
     otherProjectCostsHelperText: showDeveloperProjectCosts
-      ? 'Job-specific costs outside of materials and labor, including permits, engineering, financing, interest, contingency, and other developer/project costs.'
-      : 'Job-specific costs outside of materials and labor, such as equipment rental, plans, permits, engineering, and other project costs.',
+      ? 'Job-specific costs outside of materials and labor: equipment, plans, engineering, financing, interest, and named soft-cost allowances.'
+      : 'Job-specific costs outside of materials and labor: equipment, plans, engineering, and named soft-cost allowances.',
   };
+}
+
+function getEstimateAllowanceLineItemsTotal(bid) {
+  return getBidAllowanceLineItemsTotal(bid);
 }
 
 function getEstimateProjectCostBreakdown(bid) {
   const profileBehavior = getEstimateStep5ProfileBehavior(bid?.contractorType);
-  const permitCosts = (Number(bid?.planCost) || 0) + (Number(bid?.permitCost) || 0);
+  // Plans stay as a dedicated field. Legacy permitCost / otherDirectCost / contingencyAllowance
+  // still count if present on older bids, but those inputs are no longer shown in Step 5.
+  const permitCosts =
+    (Number(bid?.planCost) || 0) + (Number(bid?.permitCost) || 0);
   const equipmentRental = Number(bid?.equipment) || 0;
   const otherDirectCost = Number(bid?.otherDirectCost) || 0;
   const engineering = Number(bid?.engineeringCost) || 0;
   const financingFees = Number(bid?.financingFees) || 0;
   const interest = Number(bid?.interestCost) || 0;
   const contingency = Number(bid?.contingencyAllowance) || 0;
+  const allowances = getEstimateAllowanceLineItemsTotal(bid);
   const developerOnlyProjectCosts = financingFees + interest + contingency;
   const totalProjectCosts =
     permitCosts +
     equipmentRental +
     otherDirectCost +
     engineering +
+    allowances +
     (profileBehavior.showDeveloperProjectCosts ? developerOnlyProjectCosts : 0);
 
   return {
@@ -3312,6 +3323,7 @@ function getEstimateProjectCostBreakdown(bid) {
     equipmentRental,
     otherDirectCost,
     engineering,
+    allowances,
     financingFees,
     interest,
     contingency,
@@ -3339,7 +3351,8 @@ function getEstimateStep5Financials(bid, materials, labor) {
     projectCosts.equipmentRental +
     projectCosts.permitCosts +
     projectCosts.engineering +
-    projectCosts.otherDirectCost;
+    projectCosts.otherDirectCost +
+    (Number(projectCosts.allowances) || 0);
 
   const markupBaseSubtotal = materials + labor + coreMarkupProjectCosts;
   const totalCostBeforeMarkup = materials + labor + projectCosts.totalProjectCosts;
@@ -3418,9 +3431,10 @@ const blankState = () => ({
   otherDirectCost: 0,
   zoning: 'residential',
   
-  // Materials / labor — start empty so first-estimate walkthrough is a clean slate
+  // Materials / labor / soft-cost allowances — start empty so first-estimate walkthrough is a clean slate
   materialLineItems: [],
   laborLineItems: [],
+  allowanceLineItems: [],
   
   // Labor (calculated from line items)
   labor: 0,
@@ -5211,6 +5225,9 @@ export default function EstimateGeneratorScreen() {
   const [pricingFallbackVariant, setPricingFallbackVariant] = useState(null);
   const [aiSaveToPricingLibrary, setAiSaveToPricingLibrary] = useState(true);
   const [aiClarifyQuestions, setAiClarifyQuestions] = useState(null);
+  const [aiClarifyQuestionItems, setAiClarifyQuestionItems] = useState(null);
+  const [aiClarifyApplying, setAiClarifyApplying] = useState(false);
+  const [aiClarifyAppliedSummary, setAiClarifyAppliedSummary] = useState(null);
   const aiSavedPricingAutoRef = useRef(null);
   const aiDraftReviewResumeRef = useRef(false);
   const latestScopeMeasurementsRef = useRef(null);
@@ -5803,6 +5820,8 @@ export default function EstimateGeneratorScreen() {
     setShowAiDraftReviewModal(false);
     setShowAiSavedPricingModal(false);
     setAiClarifyQuestions(null);
+    setAiClarifyQuestionItems(null);
+    setAiClarifyAppliedSummary(null);
     aiSavedPricingAutoRef.current = null;
     try {
       let templates = savedBidTemplates;
@@ -6394,6 +6413,8 @@ export default function EstimateGeneratorScreen() {
     try {
       const result = await fetchClarifyDraftQuestions(aiDraft);
       setAiClarifyQuestions(result.questions);
+      setAiClarifyQuestionItems(result.questionItems || null);
+      setAiClarifyAppliedSummary(null);
       if (Platform.OS !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
@@ -6404,6 +6425,35 @@ export default function EstimateGeneratorScreen() {
       setAiDraftClarifying(false);
     }
   }, [aiDraft, aiDraftClarifying]);
+
+  const handleApplyClarifyAnswers = useCallback(
+    async (answers) => {
+      if (!aiDraft || aiClarifyApplying || !answers?.length) return;
+      setAiClarifyApplying(true);
+      try {
+        const result = await applyClarifyAnswersToDraft(aiDraft, answers);
+        setAiDraft(syncDraftWithLatestScopeMeasurements(result.draft));
+        setAiClarifyQuestions(null);
+        setAiClarifyQuestionItems(null);
+        setAiClarifyAppliedSummary(result.appliedSummary?.length ? result.appliedSummary : ['Draft updated']);
+        if (Platform.OS !== 'web') {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+      } catch (e) {
+        console.warn('handleApplyClarifyAnswers failed', e);
+        Alert.alert('Could not apply answers', e?.message || 'Please try again.');
+      } finally {
+        setAiClarifyApplying(false);
+      }
+    },
+    [aiDraft, aiClarifyApplying, syncDraftWithLatestScopeMeasurements]
+  );
+
+  const handleDismissClarify = useCallback(() => {
+    setAiClarifyQuestions(null);
+    setAiClarifyQuestionItems(null);
+    setAiClarifyAppliedSummary(null);
+  }, []);
 
   const handleToggleApplySuggestedSplits = useCallback(() => {
     setAiDraft((prev) =>
@@ -7424,6 +7474,10 @@ export default function EstimateGeneratorScreen() {
   /** Step 5 Equipment Rental — local string while typing so `updateBid` every keystroke does not remount the screen / break the numeric keyboard. */
   const [equipmentRentalText, setEquipmentRentalText] = useState('');
   const equipmentRentalInputFocusedRef = useRef(false);
+  /** Step 5 Allowances — edit one row at a time; Done commits into bid.allowanceLineItems. */
+  const [editingAllowanceId, setEditingAllowanceId] = useState(null);
+  const [allowanceDraftName, setAllowanceDraftName] = useState('');
+  const [allowanceDraftAmount, setAllowanceDraftAmount] = useState('');
   const markupInputRef = useRef(null);
   const isMarkupFocused = useRef(false);
 
@@ -9314,6 +9368,10 @@ export default function EstimateGeneratorScreen() {
           const materialsSpent = projectData?.buckets?.find(b => 
             b.name === 'Materials/Equipment' || b.name === 'Materials'
           )?.spent || 0;
+          const allowancesSpent = projectData?.buckets?.find(b =>
+            String(b?.name || '').toLowerCase().includes('allowance')
+          )?.spent || 0;
+          const allowancesBudget = getEstimateAllowanceLineItemsTotal(snapshotBid);
           
           // Update or create projectData with correct buckets
           const updatedProjectData = {
@@ -9324,23 +9382,35 @@ export default function EstimateGeneratorScreen() {
             spent: projectData?.spent || 0,
             buckets: [
               {
-                id: '1',
-                name: 'Labor',
-                spent: laborSpent,
-                budget: laborBudget,
-                bidBudget: laborBudget,
-              },
-              {
                 id: '2',
                 name: 'Materials/Equipment',
                 spent: materialsSpent,
                 budget: materialsBudget,
                 bidBudget: materialsBudget,
               },
+              {
+                id: '1',
+                name: 'Labor',
+                spent: laborSpent,
+                budget: laborBudget,
+                bidBudget: laborBudget,
+              },
+              ...(allowancesBudget > 0 || allowancesSpent > 0
+                ? [
+                    {
+                      id: '3',
+                      name: 'Allowances',
+                      spent: allowancesSpent,
+                      budget: allowancesBudget,
+                      bidBudget: allowancesBudget,
+                    },
+                  ]
+                : []),
               ...(projectData?.buckets?.filter(b => 
                 b.name !== 'Labor' && 
                 b.name !== 'Materials/Equipment' && 
-                b.name !== 'Materials'
+                b.name !== 'Materials' &&
+                !String(b?.name || '').toLowerCase().includes('allowance')
               ) || []),
             ],
             expenses: projectData?.expenses || [],
@@ -12547,7 +12617,7 @@ export default function EstimateGeneratorScreen() {
         overheadPct: overheadPct
       }));
     }
-  }, [bid.contractorType, bid.insuranceOverhead, bid.equipment, bid.equipmentMaintenance, bid.facilities, bid.adminOverhead, bid.otherOverhead, bid.planCost, bid.permitCost, bid.otherDirectCost, bid.engineeringCost, bid.financingFees, bid.interestCost, bid.contingencyAllowance, calc.materials, calc.labor]);
+  }, [bid.contractorType, bid.insuranceOverhead, bid.equipment, bid.equipmentMaintenance, bid.facilities, bid.adminOverhead, bid.otherOverhead, bid.planCost, bid.permitCost, bid.otherDirectCost, bid.engineeringCost, bid.financingFees, bid.interestCost, bid.contingencyAllowance, bid.allowanceLineItems, calc.materials, calc.labor]);
 
   
   // Enhanced materials helpers
@@ -13190,6 +13260,8 @@ export default function EstimateGeneratorScreen() {
     setAiDraftNotes('');
     setAiDraft(null);
     setAiClarifyQuestions(null);
+    setAiClarifyQuestionItems(null);
+    setAiClarifyAppliedSummary(null);
     setAiSavedPricingProposal(null);
     setAiRoughPricingProposal(null);
     setShowAiBuilderModal(false);
@@ -15710,7 +15782,7 @@ export default function EstimateGeneratorScreen() {
         const showDeveloperProjectCosts = profileBehavior.showDeveloperProjectCosts;
         const showAdvancedDeveloperCosts = showDeveloperProjectCosts;
         const otherProjectCostsHelperText = profileBehavior.otherProjectCostsHelperText;
-        const markupBaseSummary = 'hard costs + equipment + plans + permits + engineering + other project costs';
+        const markupBaseSummary = 'hard costs + equipment + plans + engineering + allowances';
         const handleSelectStep5Profile = (typeNum) => {
           const currentBid = bidRef.current || bid;
           const updatedBid = {
@@ -16402,31 +16474,6 @@ export default function EstimateGeneratorScreen() {
               </View>
 
               <View style={step5FieldWrapStyle}>
-                <Text style={step5FieldLabelStyle}>Permits</Text>
-                <TextInput
-                  keyboardType="decimal-pad"
-                  {...step5DecimalInputProps}
-                  autoCorrect={false}
-                  spellCheck={false}
-                  style={[s.input, { color: getStepFieldTextColor(bid.permitCost && bid.permitCost !== 0 ? formatStep5NumericInput(String(bid.permitCost)) : '') }]}
-                  placeholder="0"
-                  placeholderTextColor={estimateStepMutedInputColor}
-                  value={bid.permitCost && bid.permitCost !== 0 ? formatStep5NumericInput(String(bid.permitCost)) : ''}
-                  onChangeText={(text) => {
-                    const cleaned = sanitizeStep5NumericInput(text);
-                    if (cleaned === '' || cleaned === '.') {
-                      updateBid('permitCost', 0);
-                    } else {
-                      const num = parseFloat(cleaned);
-                      if (!isNaN(num)) {
-                        updateBid('permitCost', num);
-                      }
-                    }
-                  }}
-                />
-              </View>
-
-              <View style={step5FieldWrapStyle}>
                 <Text style={step5FieldLabelStyle}>Engineering</Text>
                 <TextInput
                   keyboardType="decimal-pad"
@@ -16502,57 +16549,316 @@ export default function EstimateGeneratorScreen() {
                       }}
                     />
                   </View>
-
-                  <View style={step5FieldWrapStyle}>
-                    <Text style={step5FieldLabelStyle}>Contingency</Text>
-                    <TextInput
-                      keyboardType="decimal-pad"
-                      {...step5DecimalInputProps}
-                      autoCorrect={false}
-                      spellCheck={false}
-                      style={[s.input, { color: getStepFieldTextColor(bid.contingencyAllowance && bid.contingencyAllowance !== 0 ? formatStep5NumericInput(String(bid.contingencyAllowance)) : '') }]}
-                      placeholder="0"
-                      placeholderTextColor={estimateStepMutedInputColor}
-                      value={bid.contingencyAllowance && bid.contingencyAllowance !== 0 ? formatStep5NumericInput(String(bid.contingencyAllowance)) : ''}
-                      onChangeText={(text) => {
-                        const cleaned = sanitizeStep5NumericInput(text);
-                        if (cleaned === '' || cleaned === '.') {
-                          updateBid('contingencyAllowance', 0);
-                        } else {
-                          const num = parseFloat(cleaned);
-                          if (!isNaN(num)) {
-                            updateBid('contingencyAllowance', num);
-                          }
-                        }
-                      }}
-                    />
-                  </View>
                 </>
               )}
 
-              <View style={{ ...step5FieldWrapStyle, marginBottom: 18 }}>
-                <Text style={step5FieldLabelStyle}>Other project costs</Text>
-                <TextInput
-                  keyboardType="decimal-pad"
-                  {...step5DecimalInputProps}
-                  autoCorrect={false}
-                  spellCheck={false}
-                  style={[s.input, { color: getStepFieldTextColor(bid.otherDirectCost && bid.otherDirectCost !== 0 ? formatStep5NumericInput(String(bid.otherDirectCost)) : '') }]}
-                  placeholder="0"
-                  placeholderTextColor={estimateStepMutedInputColor}
-                  value={bid.otherDirectCost && bid.otherDirectCost !== 0 ? formatStep5NumericInput(String(bid.otherDirectCost)) : ''}
-                  onChangeText={(text) => {
-                    const cleaned = sanitizeStep5NumericInput(text);
-                    if (cleaned === '' || cleaned === '.') {
-                      updateBid('otherDirectCost', 0);
-                    } else {
-                      const num = parseFloat(cleaned);
-                      if (!isNaN(num)) {
-                        updateBid('otherDirectCost', num);
+              <View
+                style={{
+                  ...step5FieldWrapStyle,
+                  marginBottom: 16,
+                  backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.04)' : Colors.surface2,
+                  borderRadius: 14,
+                  paddingHorizontal: 14,
+                  paddingTop: 14,
+                  paddingBottom: 12,
+                  borderWidth: 1,
+                  borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : Colors.line,
+                }}
+              >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flex: 1, marginRight: 12 }}>
+                    <Text style={{ color: Colors.text, fontSize: ew(14, 16), fontWeight: '800' }}>
+                      Allowances
+                    </Text>
+                    <Text style={{ color: step5MutedSoft, fontSize: ew(11.5, 13), marginTop: 3 }}>
+                      Soft costs like permits, cleanup, or contingency
+                    </Text>
+                  </View>
+                  <Text style={{ color: Colors.text, fontSize: ew(16, 18), fontWeight: '800' }}>
+                    {money(getEstimateAllowanceLineItemsTotal(bid))}
+                  </Text>
+                </View>
+
+                {(Array.isArray(bid.allowanceLineItems) ? bid.allowanceLineItems : []).length === 0 ? (
+                  <Text style={{ color: step5MutedSoft, fontSize: ew(12, 13), marginTop: 14 }}>
+                    No allowances yet
+                  </Text>
+                ) : (
+                  <View style={{ marginTop: 12, gap: 10 }}>
+                    {(bid.allowanceLineItems || []).map((line, index) => {
+                      const lineId = String(line?.id || `${line?.name || 'allowance'}-${index}`);
+                      const isEditing = editingAllowanceId === lineId;
+                      const amountValue = Number(line?.amount ?? line?.total ?? 0);
+                      const nameText = String(line?.name || '').trim();
+
+                      if (isEditing) {
+                        return (
+                          <View
+                            key={lineId}
+                            style={{
+                              borderTopWidth: index > 0 ? StyleSheet.hairlineWidth : 0,
+                              borderTopColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                              paddingTop: index > 0 ? 10 : 0,
+                              gap: 8,
+                            }}
+                          >
+                            <TextInput
+                              autoCorrect={false}
+                              spellCheck={false}
+                              autoFocus
+                              style={[
+                                s.input,
+                                {
+                                  color: getStepFieldTextColor(allowanceDraftName),
+                                  marginBottom: 0,
+                                },
+                              ]}
+                              placeholder="What for? e.g. Contingency"
+                              placeholderTextColor={estimateStepMutedInputColor}
+                              value={allowanceDraftName}
+                              onChangeText={setAllowanceDraftName}
+                            />
+                            <TextInput
+                              keyboardType="decimal-pad"
+                              {...step5DecimalInputProps}
+                              autoCorrect={false}
+                              spellCheck={false}
+                              style={[
+                                s.input,
+                                {
+                                  color: getStepFieldTextColor(allowanceDraftAmount),
+                                  marginBottom: 0,
+                                },
+                              ]}
+                              placeholder="Amount"
+                              placeholderTextColor={estimateStepMutedInputColor}
+                              value={allowanceDraftAmount}
+                              onChangeText={(text) => {
+                                setAllowanceDraftAmount(formatStep5NumericInput(sanitizeStep5NumericInput(text)));
+                              }}
+                            />
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 2 }}>
+                              <TouchableOpacity
+                                activeOpacity={0.8}
+                                onPress={() => {
+                                  const cleanedName = String(allowanceDraftName || '').trim();
+                                  const cleanedAmount = sanitizeStep5NumericInput(allowanceDraftAmount);
+                                  const num =
+                                    cleanedAmount === '' || cleanedAmount === '.'
+                                      ? 0
+                                      : parseFloat(cleanedAmount);
+                                  if (!cleanedName) {
+                                    Alert.alert('Name required', 'Enter what this allowance is for.');
+                                    return;
+                                  }
+                                  if (!Number.isFinite(num) || num <= 0) {
+                                    Alert.alert('Amount required', 'Enter an amount greater than 0.');
+                                    return;
+                                  }
+                                  updateBid(
+                                    'allowanceLineItems',
+                                    (bid.allowanceLineItems || []).map((item, itemIndex) => {
+                                      const itemId = String(item?.id || `${item?.name || 'allowance'}-${itemIndex}`);
+                                      if (itemId !== lineId) return item;
+                                      return {
+                                        ...item,
+                                        name: cleanedName,
+                                        amount: num,
+                                        total: num,
+                                        totalCost: num,
+                                      };
+                                    })
+                                  );
+                                  setEditingAllowanceId(null);
+                                  setAllowanceDraftName('');
+                                  setAllowanceDraftAmount('');
+                                  Keyboard.dismiss();
+                                }}
+                              >
+                                <Text style={{ color: '#22c55e', fontSize: ew(13, 14), fontWeight: '700' }}>
+                                  Done
+                                </Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                activeOpacity={0.8}
+                                onPress={() => {
+                                  const existingName = String(line?.name || '').trim();
+                                  const existingAmount = Number(line?.amount ?? line?.total ?? 0);
+                                  // Cancel a brand-new empty row instead of leaving a blank allowance.
+                                  if (!existingName && !(existingAmount > 0)) {
+                                    updateBid(
+                                      'allowanceLineItems',
+                                      (bid.allowanceLineItems || []).filter((item, itemIndex) => {
+                                        const itemId = String(
+                                          item?.id || `${item?.name || 'allowance'}-${itemIndex}`
+                                        );
+                                        return itemId !== lineId;
+                                      })
+                                    );
+                                  }
+                                  setEditingAllowanceId(null);
+                                  setAllowanceDraftName('');
+                                  setAllowanceDraftAmount('');
+                                  Keyboard.dismiss();
+                                }}
+                              >
+                                <Text style={{ color: step5Muted, fontSize: ew(13, 14), fontWeight: '600' }}>
+                                  Cancel
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        );
                       }
-                    }
+
+                      return (
+                        <View
+                          key={lineId}
+                          style={{
+                            borderTopWidth: index > 0 ? StyleSheet.hairlineWidth : 0,
+                            borderTopColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                            paddingTop: index > 0 ? 10 : 0,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 10,
+                          }}
+                        >
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text
+                              style={{ color: Colors.text, fontSize: ew(14, 15), fontWeight: '700' }}
+                              numberOfLines={1}
+                            >
+                              {nameText || 'Untitled allowance'}
+                            </Text>
+                            <Text style={{ color: '#22c55e', fontSize: ew(13, 14), fontWeight: '700', marginTop: 2 }}>
+                              {money(amountValue)}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            activeOpacity={0.75}
+                            disabled={Boolean(editingAllowanceId)}
+                            onPress={() => {
+                              setEditingAllowanceId(lineId);
+                              setAllowanceDraftName(nameText);
+                              setAllowanceDraftAmount(
+                                amountValue > 0 ? formatStep5NumericInput(String(amountValue)) : ''
+                              );
+                            }}
+                            style={{
+                              borderWidth: 1,
+                              borderColor: editingAllowanceId
+                                ? darkMode
+                                  ? 'rgba(148, 163, 184, 0.25)'
+                                  : 'rgba(148, 163, 184, 0.35)'
+                                : darkMode
+                                  ? 'rgba(255, 255, 255, 0.28)'
+                                  : 'rgba(15, 23, 42, 0.2)',
+                              borderRadius: 8,
+                              paddingHorizontal: 10,
+                              paddingVertical: 5,
+                              opacity: editingAllowanceId ? 0.5 : 1,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: editingAllowanceId
+                                  ? step5MutedSoft
+                                  : darkMode
+                                    ? '#ffffff'
+                                    : Colors.text,
+                                fontSize: ew(12, 13),
+                                fontWeight: '700',
+                              }}
+                            >
+                              Edit
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            activeOpacity={0.75}
+                            disabled={Boolean(editingAllowanceId)}
+                            onPress={() => {
+                              Alert.alert(
+                                'Delete allowance?',
+                                nameText ? `Remove “${nameText}”?` : 'Remove this allowance?',
+                                [
+                                  { text: 'Cancel', style: 'cancel' },
+                                  {
+                                    text: 'Delete',
+                                    style: 'destructive',
+                                    onPress: () => {
+                                      updateBid(
+                                        'allowanceLineItems',
+                                        (bid.allowanceLineItems || []).filter((item, itemIndex) => {
+                                          const itemId = String(
+                                            item?.id || `${item?.name || 'allowance'}-${itemIndex}`
+                                          );
+                                          return itemId !== lineId;
+                                        })
+                                      );
+                                    },
+                                  },
+                                ]
+                              );
+                            }}
+                            style={{
+                              borderWidth: 1,
+                              borderColor: editingAllowanceId
+                                ? darkMode
+                                  ? 'rgba(248, 113, 113, 0.25)'
+                                  : 'rgba(248, 113, 113, 0.3)'
+                                : darkMode
+                                  ? 'rgba(248, 113, 113, 0.55)'
+                                  : 'rgba(239, 68, 68, 0.45)',
+                              borderRadius: 8,
+                              paddingHorizontal: 10,
+                              paddingVertical: 5,
+                              opacity: editingAllowanceId ? 0.5 : 1,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: editingAllowanceId ? step5MutedSoft : '#f87171',
+                                fontSize: ew(12, 13),
+                                fontWeight: '700',
+                              }}
+                            >
+                              Delete
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  disabled={Boolean(editingAllowanceId)}
+                  onPress={() => {
+                    const newId = `allowance-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+                    updateBid('allowanceLineItems', [
+                      ...(Array.isArray(bid.allowanceLineItems) ? bid.allowanceLineItems : []),
+                      {
+                        id: newId,
+                        name: '',
+                        description: 'Manual allowance',
+                        amount: 0,
+                        total: 0,
+                        totalCost: 0,
+                        category: 'Allowance',
+                        source: 'manual',
+                      },
+                    ]);
+                    setEditingAllowanceId(newId);
+                    setAllowanceDraftName('');
+                    setAllowanceDraftAmount('');
                   }}
-                />
+                  style={{ marginTop: 12, alignSelf: 'flex-start', opacity: editingAllowanceId ? 0.45 : 1 }}
+                >
+                  <Text style={{ color: '#60a5fa', fontSize: ew(13, 14), fontWeight: '700' }}>
+                    + Add allowance
+                  </Text>
+                </TouchableOpacity>
               </View>
 
               <View style={{ marginTop: 10, marginBottom: 12 }}>
@@ -16564,7 +16870,7 @@ export default function EstimateGeneratorScreen() {
                   Examples: insurance, office/facilities, admin, equipment upkeep, and general business overhead.
                 </Text>
                 <Text style={[step5SectionHelperStyle, { marginTop: 5 }]}>
-                  Use this section for company operating costs, not job-specific permits, plans, engineering, financing, interest, or contingency.
+                  Use this section for company operating costs, not job-specific plans, engineering, financing, interest, or allowances.
                 </Text>
               </View>
 
@@ -22902,7 +23208,7 @@ export default function EstimateGeneratorScreen() {
           : step === 4
             ? 'Add crew labor or subcontractor costs so the estimate reflects the real cost of the job.'
             : step === 5
-              ? 'Other project costs cover job-specific expenses, company overhead covers business costs, and markup protects your profit.'
+              ? 'Job costs and allowances cover this project, company overhead covers business costs, and markup protects your profit.'
               : step === 6
                 ? 'Check margin, risk, and likely job outcomes before sending the bid.'
                 : step === 7
@@ -24290,6 +24596,11 @@ export default function EstimateGeneratorScreen() {
         suggestingSplits={aiDraftSuggestingSplits}
         clarifying={aiDraftClarifying}
         clarifyQuestions={aiClarifyQuestions}
+        clarifyQuestionItems={aiClarifyQuestionItems}
+        clarifyApplying={aiClarifyApplying}
+        clarifyAppliedSummary={aiClarifyAppliedSummary}
+        onSubmitClarifyAnswers={handleApplyClarifyAnswers}
+        onDismissClarify={handleDismissClarify}
         fromAssistant={aiDraftFromAssistant}
         onSuggestSplits={handleSuggestAiDraftSplits}
         onClarifyMissing={handleClarifyAiDraft}

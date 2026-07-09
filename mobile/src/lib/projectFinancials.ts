@@ -387,6 +387,7 @@ export function computeProjectFinancials(
       (b: any) =>
         (b?.name || '').toLowerCase().includes('labor') ||
         (b?.name || '').toLowerCase().includes('material') ||
+        (b?.name || '').toLowerCase().includes('allowance') ||
         (b?.name || '').toLowerCase().includes('overhead')
     );
     const fromBuckets = costBuckets.reduce(

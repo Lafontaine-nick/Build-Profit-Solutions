@@ -518,4 +518,173 @@ describe('Step 3 pricing syncs into final bid line items', () => {
     expect(laborTotal).toBe(30800);
     expect(laborTotal + materialTotal).toBe(32000);
   });
+
+  it('routes soft-cost lump sums into allowanceLineItems, not labor', () => {
+    const draft = {
+      projectType: 'adu',
+      estimateTier: 'addition',
+      originalNotes: '800 sqft ADU',
+      rooms: [],
+      applySuggestedSplits: false,
+      scopePackages: [
+        {
+          name: 'Permits / fees',
+          scope: 'permits',
+          price: 3500,
+          laborPrice: null,
+          materialPrice: null,
+          pricingType: 'lump_sum',
+          includesLabor: true,
+          includesMaterials: true,
+          priceSource: 'user_provided',
+          status: 'user_provided',
+          knownSubtotal: 3500,
+          formula: null,
+          missingInfo: [],
+          missingPriceItems: [],
+          pricingItems: [],
+          applyEligible: true,
+          priceProvidedByUser: true,
+          splitIsSuggested: false,
+          priceIncludesLaborAndMaterials: true,
+        },
+        {
+          name: 'Cleanup / disposal',
+          scope: 'cleanup',
+          price: 1000,
+          laborPrice: null,
+          materialPrice: null,
+          pricingType: 'lump_sum',
+          includesLabor: true,
+          includesMaterials: true,
+          priceSource: 'user_provided',
+          status: 'user_provided',
+          knownSubtotal: 1000,
+          formula: null,
+          missingInfo: [],
+          missingPriceItems: [],
+          pricingItems: [],
+          applyEligible: true,
+          priceProvidedByUser: true,
+          splitIsSuggested: false,
+          priceIncludesLaborAndMaterials: true,
+        },
+        {
+          name: 'HVAC',
+          scope: 'hvac',
+          price: 11200,
+          laborPrice: null,
+          materialPrice: null,
+          pricingType: 'lump_sum',
+          includesLabor: true,
+          includesMaterials: true,
+          priceSource: 'user_provided',
+          status: 'user_provided',
+          knownSubtotal: 11200,
+          formula: null,
+          missingInfo: [],
+          missingPriceItems: [],
+          pricingItems: [],
+          applyEligible: true,
+          priceProvidedByUser: true,
+          splitIsSuggested: false,
+          priceIncludesLaborAndMaterials: true,
+        },
+      ],
+      scopeMeasurements: {
+        itemQuantities: {
+          permits__allowance: { quantity: 3500, unit: 'allowance', quantitySource: 'user_entered' },
+          cleanup__allowance: { quantity: 1000, unit: 'allowance', quantitySource: 'user_entered' },
+        },
+      },
+    } as unknown as EstimateAiDraft;
+
+    const { bid } = applyDraftToEstimate({}, draft, {
+      applyConfirmedOnly: true,
+      applySuggestedSplits: false,
+    });
+
+    const laborLines = bid.laborLineItems as Array<{ name?: string; total?: number }>;
+    const allowanceLines = bid.allowanceLineItems as Array<{
+      name?: string;
+      amount?: number;
+      total?: number;
+      category?: string;
+    }>;
+
+    expect(laborLines.find((l) => l.name === 'HVAC')?.total).toBe(11200);
+    expect(laborLines.some((l) => /Permit|Cleanup/i.test(String(l.name || '')))).toBe(false);
+    expect(allowanceLines).toHaveLength(2);
+    expect(allowanceLines.find((l) => l.name === 'Permits / fees')?.amount).toBe(3500);
+    expect(allowanceLines.find((l) => l.name === 'Cleanup / disposal')?.amount).toBe(1000);
+    expect(allowanceLines.every((l) => l.category === 'Allowance')).toBe(true);
+  });
+
+  it('routes contingency and mobilization soft costs into allowanceLineItems by name/scope', () => {
+    const draft = {
+      projectType: 'adu',
+      estimateTier: 'addition',
+      originalNotes: '800 sqft ADU',
+      rooms: [],
+      applySuggestedSplits: false,
+      scopePackages: [
+        {
+          name: 'Contingency',
+          scope: 'contingency',
+          price: 5000,
+          laborPrice: null,
+          materialPrice: null,
+          pricingType: 'lump_sum',
+          includesLabor: true,
+          includesMaterials: true,
+          priceSource: 'user_provided',
+          status: 'user_provided',
+          knownSubtotal: 5000,
+          formula: null,
+          missingInfo: [],
+          missingPriceItems: [],
+          pricingItems: [],
+          applyEligible: true,
+          priceProvidedByUser: true,
+          splitIsSuggested: false,
+          priceIncludesLaborAndMaterials: true,
+        },
+        {
+          name: 'Mobilization / job setup',
+          scope: 'mobilization',
+          price: 750,
+          laborPrice: null,
+          materialPrice: null,
+          pricingType: 'lump_sum',
+          includesLabor: true,
+          includesMaterials: true,
+          priceSource: 'user_provided',
+          status: 'user_provided',
+          knownSubtotal: 750,
+          formula: null,
+          missingInfo: [],
+          missingPriceItems: [],
+          pricingItems: [],
+          applyEligible: true,
+          priceProvidedByUser: true,
+          splitIsSuggested: false,
+          priceIncludesLaborAndMaterials: true,
+        },
+      ],
+      scopeMeasurements: { itemQuantities: {} },
+    } as unknown as EstimateAiDraft;
+
+    const { bid } = applyDraftToEstimate({}, draft, {
+      applyConfirmedOnly: true,
+      applySuggestedSplits: false,
+    });
+
+    const laborLines = bid.laborLineItems as Array<{ name?: string }>;
+    const allowanceLines = bid.allowanceLineItems as Array<{ name?: string; amount?: number }>;
+
+    expect(laborLines).toHaveLength(0);
+    expect(allowanceLines).toHaveLength(2);
+    expect(allowanceLines.find((l) => l.name === 'Contingency')?.amount).toBe(5000);
+    expect(allowanceLines.find((l) => /Mobilization/i.test(String(l.name || '')))?.amount).toBe(750);
+  });
 });

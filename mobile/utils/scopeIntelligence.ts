@@ -397,10 +397,7 @@ const SCOPE_UNIT_REGISTRY: Record<string, ScopeRegistryEntry> = {
   mobilization: FLAT_ALLOWANCE('general_conditions'),
   supervision: FLAT_ALLOWANCE('general_conditions'),
   overhead_profit: FLAT_ALLOWANCE('markup'),
-  contingency: ENTRY('allowance', ['percentage'], ['percentage'], ['allowance_amount'], {
-    alternateUnits: ['allowance', 'lump_sum'],
-    requiredMeasurementTypes: ['percentage'],
-  }),
+  contingency: FLAT_ALLOWANCE('allowance'),
 
   // Sitework
   sitework: ENTRY('sitework', ['sqft'], ['site_area'], ['allowance_amount'], {
@@ -570,7 +567,10 @@ const SCOPE_UNIT_REGISTRY: Record<string, ScopeRegistryEntry> = {
   hvac: ENTRY('hvac', ['sqft'], ['conditioned_floor_area', 'building_floor_area'], ['allowance_amount'], {
     alternateUnits: ['each', 'allowance', 'lump_sum'],
   }),
-  hvac_startup: FLAT_ALLOWANCE('hvac'),
+  hvac_startup: ENTRY('hvac', ['allowance'], ['allowance_amount'], ['conditioned_floor_area'], {
+    alternateUnits: ['lump_sum', 'sqft'],
+    requiredMeasurementTypes: ['allowance_amount'],
+  }),
   appliances: EACH_SCOPE('appliances'),
 
   // Exterior and landscaping

@@ -6,6 +6,10 @@ const { createOpenAiClient, getAiModels, getAiRuntimeSettings } = require('../co
 const { createEstimateDraftFromNotes } = require('../services/estimateDraftFromNotes');
 const { suggestLaborMaterialSplits } = require('../services/estimateDraftSuggestSplits');
 const { clarifyEstimateDraft } = require('../services/estimateDraftClarify');
+const {
+  generateClarifyQuestions,
+  applyClarifyAnswers,
+} = require('../services/estimateDraftClarifyAgent');
 const { enrichDraft } = require('../services/estimateDraftEnrichment');
 const { applyScopeAssumptions, buildScopeChecklist } = require('../services/estimateDraftComplexity');
 const { enrichDraftPhase2, buildRoughEstimateRange } = require('../services/estimateDraftPhase2');
@@ -15465,7 +15469,10 @@ router.post('/estimate-draft-apply-scope-assumptions', async (req, res) => {
 
 /**
  * POST /api/ai-assistant/estimate-draft-clarify
- * Follow-up questions for missing / unclear draft fields.
+ * Agentic follow-up questions: an LLM reviews the enriched draft and asks
+ * job-specific questions. Falls back to rule-based trade questions when the
+ * LLM is unavailable. Response stays backward compatible (questions: string[])
+ * and adds questionItems + source for the interactive Q&A flow.
  */
 router.post('/estimate-draft-clarify', async (req, res) => {
   try {
@@ -15473,13 +15480,50 @@ router.post('/estimate-draft-clarify', async (req, res) => {
     if (!draft) {
       return res.status(400).json({ error: 'Draft is required' });
     }
-    const result = await clarifyEstimateDraft(enrichDraft(draft));
+    const result = await generateClarifyQuestions(draft, { openai, aiModels, aiRuntime });
     return res.json(result);
   } catch (err) {
     console.error('Error in /estimate-draft-clarify:', err);
+    // Last-resort fallback to the static question builder.
+    try {
+      const result = await clarifyEstimateDraft(enrichDraft(req.body?.draft));
+      return res.json({ ...result, source: 'rules' });
+    } catch (fallbackErr) {
+      return res.status(500).json({
+        error: 'Clarify failed',
+        message: err?.message || 'Could not build clarification questions',
+      });
+    }
+  }
+});
+
+/**
+ * POST /api/ai-assistant/estimate-draft-clarify-apply
+ * Merge contractor answers to clarifying questions back into the draft.
+ * The LLM converts free-text answers into a structured patch; deterministic
+ * code validates it (whitelisted measurement keys, existing package names,
+ * explicit positive prices) and re-enriches the draft.
+ */
+router.post('/estimate-draft-clarify-apply', async (req, res) => {
+  try {
+    const { draft, answers } = req.body || {};
+    if (!draft) {
+      return res.status(400).json({ error: 'Draft is required' });
+    }
+    if (!Array.isArray(answers) || answers.length === 0) {
+      return res.status(400).json({ error: 'answers array is required' });
+    }
+    const result = await applyClarifyAnswers(draft, answers, { openai, aiModels, aiRuntime });
+    return res.json({
+      draft: result.draft,
+      appliedSummary: result.appliedSummary,
+      source: result.source,
+    });
+  } catch (err) {
+    console.error('Error in /estimate-draft-clarify-apply:', err);
     return res.status(500).json({
-      error: 'Clarify failed',
-      message: err?.message || 'Could not build clarification questions',
+      error: 'Clarify apply failed',
+      message: err?.message || 'Could not apply clarification answers',
     });
   }
 });

@@ -59,7 +59,7 @@ describe('resolveRoughNationalTradeBandForTests', () => {
     expect((resolved?.band.material || 0) + (resolved?.band.labor || 0)).toBe(32);
   });
 
-  it('uses high-side $40/sqft framing for ADU / small projects', () => {
+  it('uses high-side $36/sqft framing for ADU / small projects', () => {
     const resolved = resolveRoughNationalTradeBandForTests(
       'framing',
       pkg('Framing / shell'),
@@ -67,7 +67,7 @@ describe('resolveRoughNationalTradeBandForTests', () => {
     );
     expect(resolved?.priceSource).toBe('national_high_side_planning');
     expect(resolved?.sourceLabel).toMatch(/High-side/i);
-    expect((resolved?.band.material || 0) + (resolved?.band.labor || 0)).toBe(40);
+    expect((resolved?.band.material || 0) + (resolved?.band.labor || 0)).toBe(36);
   });
 
   it('uses high-side framing when scope includes roof framing / sheathing / trusses', () => {
@@ -77,10 +77,10 @@ describe('resolveRoughNationalTradeBandForTests', () => {
       draft({ projectType: 'other', originalNotes: '2500 sqft custom home' })
     );
     expect(resolved?.priceSource).toBe('national_high_side_planning');
-    expect((resolved?.band.material || 0) + (resolved?.band.labor || 0)).toBe(40);
+    expect((resolved?.band.material || 0) + (resolved?.band.labor || 0)).toBe(36);
   });
 
-  it('uses ~$10.50 HVAC nationally and $14 high-side for ADU', () => {
+  it('uses ~$10.50 HVAC nationally and $12.50 high-side for ADU', () => {
     const standard = resolveRoughNationalTradeBandForTests('hvac', pkg('HVAC'), draft());
     expect((standard?.band.material || 0) + (standard?.band.labor || 0)).toBeCloseTo(10.5, 5);
     expect(standard?.priceSource).toBe('national_trade_average');
@@ -90,7 +90,7 @@ describe('resolveRoughNationalTradeBandForTests', () => {
       pkg('HVAC'),
       draft({ projectType: 'adu', originalNotes: '800 sqft ADU' })
     );
-    expect((high?.band.material || 0) + (high?.band.labor || 0)).toBe(14);
+    expect((high?.band.material || 0) + (high?.band.labor || 0)).toBeCloseTo(12.5, 5);
     expect(high?.priceSource).toBe('national_high_side_planning');
   });
 
@@ -116,7 +116,7 @@ describe('resolveRoughNationalTradeBandForTests', () => {
     expect((electrical?.band.material || 0) + (electrical?.band.labor || 0)).toBe(175);
   });
 
-  it('falls back to sqft MEP when point counts are missing', () => {
+  it('falls back to mid-band sqft MEP when point counts are missing', () => {
     const plumbing = resolveRoughNationalTradeBandForTests(
       'plumbing_rough',
       pkg('Rough plumbing'),
@@ -125,7 +125,7 @@ describe('resolveRoughNationalTradeBandForTests', () => {
     );
     expect(plumbing?.band.unit).toBe('sqft');
     expect(plumbing?.mepMode).toBe('sqft_fallback');
-    expect((plumbing?.band.material || 0) + (plumbing?.band.labor || 0)).toBe(11);
+    expect((plumbing?.band.material || 0) + (plumbing?.band.labor || 0)).toBeCloseTo(6.5, 5);
 
     const electrical = resolveRoughNationalTradeBandForTests(
       'electrical_rough',
@@ -135,7 +135,7 @@ describe('resolveRoughNationalTradeBandForTests', () => {
     );
     expect(electrical?.band.unit).toBe('sqft');
     expect(electrical?.mepMode).toBe('sqft_fallback');
-    expect((electrical?.band.material || 0) + (electrical?.band.labor || 0)).toBeCloseTo(11.5, 5);
+    expect((electrical?.band.material || 0) + (electrical?.band.labor || 0)).toBeCloseTo(5.5, 5);
   });
 });
 

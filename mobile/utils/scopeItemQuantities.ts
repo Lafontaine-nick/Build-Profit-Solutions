@@ -63,6 +63,11 @@ export type ScopeItemQuantityRule = {
   dualAllowanceField?: boolean;
   /** Flat allowance lines (permits, cleanup, fees) — no material/labor split in UI or suggestions. */
   lumpSumOnly?: boolean;
+  /**
+   * Deprecated for trade scopes. Soft costs use lumpSumOnly instead.
+   * Kept optional for backward-compatible rule reads.
+   */
+  allowanceOrSplit?: boolean;
   defaultQuantity?: number;
   quantityHelper?: string;
   missingMessage?: string;
@@ -362,6 +367,17 @@ export const PLACEHOLDER_ALLOWANCE_ITEM_IDS = [
   'plumbing_trim',
   'electrical_trim',
   'mirror_accessories',
+  'plans_engineering',
+  'contingency',
+  'final_inspections',
+  'mobilization',
+  'emergency_fee',
+  'haul_off',
+  'survey',
+  'general_conditions',
+  'supervision',
+  'overhead_profit',
+  'cabinets_counters',
 ] as const;
 
 export function isPlaceholderAllowancePricing(
@@ -1345,9 +1361,9 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
   },
   mirror_accessories: {
     defaultUnit: 'allowance',
-    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    allowedUnits: ['each', 'allowance', 'lump_sum', 'sqft'],
     requiresUserQuantity: true,
-    quantityHelper: 'Enter lump sum, or price accessories with material and labor by sqft.',
+    quantityHelper: 'Price accessories by count or sqft with material and labor.',
     missingMessage: 'Enter accessories allowance.',
   },
   floor_prep: {
@@ -1424,13 +1440,13 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     defaultUnit: 'each',
     allowedUnits: ['each', 'lump_sum', 'allowance'],
     defaultQuantity: 1,
-    quantityHelper: 'Assuming 1 appliance set to remove. Edit count if multiple.',
+    quantityHelper: 'Price appliance removal by count with material and labor.',
   },
   appliances: {
     defaultUnit: 'each',
     allowedUnits: ['each', 'allowance', 'lump_sum'],
     requiresUserQuantity: true,
-    quantityHelper: 'Enter appliance count or allowance from notes.',
+    quantityHelper: 'Enter appliance count and price material and labor.',
     missingMessage: 'Enter appliance count or allowance.',
   },
   cabinets: {
@@ -1438,7 +1454,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     allowedUnits: ['lf', 'each', 'allowance', 'lump_sum'],
     measurementKey: 'cabinetLf',
     requiresUserQuantity: true,
-    quantityHelper: 'Enter cabinet run LF or lump sum.',
+    quantityHelper: 'Enter cabinet run LF and price material and labor.',
     missingMessage: 'Enter cabinet LF or allowance.',
   },
   countertops: {
@@ -1446,8 +1462,160 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     allowedUnits: ['sqft', 'lf', 'allowance', 'lump_sum'],
     measurementKey: 'countertopSqft',
     requiresUserQuantity: true,
-    quantityHelper: 'Enter countertop sqft.',
+    quantityHelper: 'Enter countertop sqft and price material and labor.',
     missingMessage: 'Enter countertop sqft.',
+  },
+  cabinets_counters: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    quantityHelper: 'Enter cabinet and counter allowance for this job.',
+    missingMessage: 'Enter cabinet/counter allowance.',
+  },
+  plans_engineering: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    quantityHelper: 'Enter plans and engineering allowance for this job.',
+    missingMessage: 'Enter plans/engineering allowance.',
+  },
+  contingency: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    quantityHelper: 'Enter contingency as a lump-sum allowance for this job.',
+    missingMessage: 'Enter contingency allowance.',
+  },
+  final_inspections: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    quantityHelper: 'Enter final inspection allowance for this job.',
+    missingMessage: 'Enter final inspection allowance.',
+  },
+  mobilization: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    quantityHelper: 'Enter mobilization / job setup allowance.',
+    missingMessage: 'Enter mobilization allowance.',
+  },
+  emergency_fee: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    quantityHelper: 'Enter emergency / after-hours fee as a flat allowance.',
+    missingMessage: 'Enter emergency fee.',
+  },
+  haul_off: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum', 'cy'],
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    quantityHelper: 'Enter haul-off / dumpster allowance for this job.',
+    missingMessage: 'Enter haul-off allowance.',
+  },
+  survey: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    quantityHelper: 'Enter survey allowance for this job.',
+    missingMessage: 'Enter survey allowance.',
+  },
+  general_conditions: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    quantityHelper: 'Enter general conditions allowance for this job.',
+    missingMessage: 'Enter general conditions allowance.',
+  },
+  supervision: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    quantityHelper: 'Enter supervision allowance for this job.',
+    missingMessage: 'Enter supervision allowance.',
+  },
+  overhead_profit: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    quantityHelper: 'Enter overhead and profit as a lump-sum allowance.',
+    missingMessage: 'Enter overhead/profit allowance.',
+  },
+  service_call: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum', 'each', 'hr'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Price the service call by trip or hour with material and labor.',
+    missingMessage: 'Enter service-call pricing.',
+  },
+  parts_materials: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Price parts and materials with material and labor totals.',
+    missingMessage: 'Enter parts/materials pricing.',
+  },
+  hardware: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Price hardware with material and labor totals.',
+    missingMessage: 'Enter hardware pricing.',
+  },
+  materials_package: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum', 'sqft'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Price the materials package by sqft with material and labor.',
+    missingMessage: 'Enter materials-package pricing.',
+  },
+  utility_taps: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum', 'each'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Price utility taps by count with material and labor.',
+    missingMessage: 'Enter utility-tap pricing.',
+  },
+  utility_coordination: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum', 'lf'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Price utility coordination by LF with material and labor.',
+    missingMessage: 'Enter utility coordination pricing.',
+  },
+  hvac_startup: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum', 'sqft'],
+    requiresUserQuantity: true,
+    pricingBasisMeasurementKey: 'floorAreaSqft',
+    quantityHelper: 'Price HVAC startup by floor sqft with material and labor.',
+    missingMessage: 'Enter HVAC startup pricing.',
+  },
+  refrigerant: {
+    defaultUnit: 'lb',
+    allowedUnits: ['lb', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Price refrigerant by pound with material and labor.',
+    missingMessage: 'Enter refrigerant pricing.',
+  },
+  thermostat: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Price thermostat by count with material and labor.',
+    missingMessage: 'Enter thermostat pricing.',
   },
   backsplash: {
     defaultUnit: 'sqft',
@@ -1869,45 +2037,15 @@ const additionFloorAreaRule = (
   missingMessage,
 });
 
-const additionAllowanceByFloorAreaRule = (
-  quantityHelper: string,
-  missingMessage = 'Needs pricing'
-): ScopeItemQuantityRule => ({
-  defaultUnit: 'allowance',
-  allowedUnits: ['allowance', 'lump_sum', 'sqft'],
-  pricingBasisMeasurementKey: 'floorAreaSqft',
-  requiresUserQuantity: true,
-  quantityHelper,
-  missingMessage,
-});
-
-const additionFlatAllowanceRule = (
-  quantityHelper: string,
-  missingMessage = 'Enter allowance.'
-): ScopeItemQuantityRule => ({
-  defaultUnit: 'allowance',
-  allowedUnits: ['allowance', 'lump_sum'],
-  requiresUserQuantity: true,
-  lumpSumOnly: true,
-  quantityHelper,
-  missingMessage,
-});
-
 const ADDITION_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule> = {
-  plans_engineering: additionFlatAllowanceRule(
-    'Enter plans and engineering allowance for this job.',
-    'Enter plans/engineering allowance.'
-  ),
+  plans_engineering: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.plans_engineering,
+  },
   permits: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.permits,
-    quantityHelper: 'Enter permit and inspection allowance for this job.',
   },
   utility_coordination: {
-    defaultUnit: 'lf',
-    allowedUnits: ['lf', 'allowance', 'lump_sum'],
-    requiresUserQuantity: true,
-    quantityHelper: 'Enter utility coordination lump sum, or utility run LF if known.',
-    missingMessage: 'Enter utility coordination pricing.',
+    ...CHECKLIST_ITEM_QUANTITY_RULES.utility_coordination,
   },
   sitework: additionFloorAreaRule(
     'Enter site prep sqft, or price site prep with lump sum/material/labor.',
@@ -1921,7 +2059,7 @@ const ADDITION_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRu
     defaultUnit: 'lf',
     allowedUnits: ['lf', 'cy', 'allowance', 'lump_sum'],
     requiresUserQuantity: true,
-    quantityHelper: 'Utility trenching is usually priced by LF; use CY for trench excavation volume.',
+    quantityHelper: 'Price utility trenching by LF with material and labor.',
     missingMessage: 'Enter utility trenching LF or pricing.',
   },
   foundation: additionFloorAreaRule(
@@ -1939,25 +2077,29 @@ const ADDITION_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRu
     'Enter framed floor area sqft, or price framing with lump sum/material/labor.',
     'Enter framing sqft or pricing.'
   ),
-  roof_tie_in: additionFloorAreaRule(
-    'Enter roof/tie-in area sqft, or price as a lump sum.',
-    'Enter roof/tie-in sqft or pricing.'
-  ),
+  roof_tie_in: {
+    ...additionFloorAreaRule(
+      'Enter roof/tie-in area sqft and price material and labor.',
+      'Enter roof/tie-in sqft or pricing.'
+    ),
+  },
   windows_doors: {
     defaultUnit: 'each',
     allowedUnits: ['each', 'allowance', 'lump_sum', 'sqft'],
     requiresUserQuantity: true,
-    quantityHelper: 'Enter window/door count, or use lump sum/material/labor if count is unknown.',
+    quantityHelper: 'Enter window/door count and price material and labor.',
     missingMessage: 'Enter window/door count or pricing.',
   },
   exterior_finishes: additionFloorAreaRule(
     'Enter exterior finish area sqft, or price with lump sum/material/labor.',
     'Enter exterior finish sqft or pricing.'
   ),
-  hvac: additionFloorAreaRule(
-    'Enter conditioned floor sqft, or price HVAC with lump sum/material/labor.',
-    'Enter HVAC sqft or pricing.'
-  ),
+  hvac: {
+    ...additionFloorAreaRule(
+      'Enter conditioned floor sqft and price HVAC material and labor.',
+      'Enter HVAC sqft or pricing.'
+    ),
+  },
   insulation: additionFloorAreaRule(
     'Enter insulation area sqft, or price insulation with lump sum/material/labor.',
     'Enter insulation sqft or pricing.'
@@ -1977,10 +2119,9 @@ const ADDITION_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRu
     measurementKeys: ['flooringSqft', 'floorAreaSqft'],
     quantityHelper: 'Enter flooring sqft and/or calculated material/labor totals.',
   },
-  cabinets_counters: additionFlatAllowanceRule(
-    'Enter cabinet and counter allowance for this job.',
-    'Enter cabinet/counter allowance.'
-  ),
+  cabinets_counters: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.cabinets_counters,
+  },
   tile: additionFloorAreaRule(
     'Enter tile area sqft, or price tile with lump sum/material/labor.',
     'Enter tile sqft or pricing.'
@@ -1995,36 +2136,29 @@ const ADDITION_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRu
   electrical_trim: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.electrical_trim,
   },
-  hvac_startup: additionAllowanceByFloorAreaRule(
-    'Enter HVAC startup lump sum, or price by conditioned floor sqft.',
-    'Enter HVAC startup pricing.'
-  ),
+  hvac_startup: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.hvac_startup,
+  },
   appliances: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.appliances,
-    defaultUnit: 'each',
-    allowedUnits: ['each', 'allowance', 'lump_sum'],
-    quantityHelper: 'Enter appliance count/allowance, or material/labor totals.',
   },
-  final_inspections: additionFlatAllowanceRule(
-    'Enter final inspection allowance for this job.',
-    'Enter final inspection allowance.'
-  ),
+  final_inspections: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.final_inspections,
+  },
   cleanup: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.cleanup,
-    quantityHelper: 'Enter cleanup and disposal allowance for this job.',
   },
-  contingency: additionAllowanceByFloorAreaRule(
-    'Enter contingency allowance, or budget by ADU floor sqft.',
-    'Enter contingency pricing.'
-  ),
+  contingency: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.contingency,
+  },
 };
 
 /** Fallback when a checklist item has no explicit rule — still show pricing entry in Step 2. */
 export const DEFAULT_SCOPE_ALLOWANCE_QUANTITY_RULE: ScopeItemQuantityRule = {
-  defaultUnit: 'allowance',
-  allowedUnits: ['allowance', 'lump_sum'],
+  defaultUnit: 'sqft',
+  allowedUnits: ['sqft', 'each', 'lf', 'allowance', 'lump_sum'],
   requiresUserQuantity: true,
-  quantityHelper: 'Enter lump sum, or price material and labor by the right job basis.',
+  quantityHelper: 'Enter material and labor pricing for this scope using the right job basis.',
   missingMessage: 'Needs pricing',
 };
 
@@ -2146,7 +2280,6 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
 
 const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<string, Record<string, PricingBasisPreference>> = {
   addition: {
-    utility_coordination: { unit: 'lf' },
     sitework: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     grading: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     utility_trenching: { unit: 'lf' },
@@ -2159,12 +2292,9 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<string, Record<string, PricingB
     insulation: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     tile: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     interior_trim: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
-    hvac_startup: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
-    contingency: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
   },
   ground_up: {
     sitework: { unit: 'sqft', measurementKeys: ['floorAreaSqft', 'landscapeSqft'] },
-    utility_taps: { unit: 'each' },
     foundation: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     framing: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     roofing: { unit: 'squares', measurementKeys: ['roofSquares'] },
@@ -2173,8 +2303,6 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<string, Record<string, PricingB
     insulation: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     tile_flooring: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     paint_trim: { unit: 'sqft', measurementKeys: ['wallPaintSqft', 'floorAreaSqft'] },
-    contingency: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
-    overhead_profit: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
   },
   room_remodel: {
     framing: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
@@ -3312,6 +3440,38 @@ function flatAllowanceCopyFor(itemId: string): { fromNotes: string; suggested: s
       fromNotes: 'Final inspection allowance parsed from notes.',
       suggested: 'Suggested final inspection allowance.',
     },
+    contingency: {
+      fromNotes: 'Contingency allowance parsed from notes.',
+      suggested: 'Suggested contingency allowance.',
+    },
+    mobilization: {
+      fromNotes: 'Mobilization allowance parsed from notes.',
+      suggested: 'Suggested mobilization allowance.',
+    },
+    emergency_fee: {
+      fromNotes: 'Emergency fee parsed from notes.',
+      suggested: 'Suggested emergency fee allowance.',
+    },
+    haul_off: {
+      fromNotes: 'Haul-off allowance parsed from notes.',
+      suggested: 'Suggested haul-off / dumpster allowance.',
+    },
+    survey: {
+      fromNotes: 'Survey allowance parsed from notes.',
+      suggested: 'Suggested survey allowance.',
+    },
+    general_conditions: {
+      fromNotes: 'General conditions allowance parsed from notes.',
+      suggested: 'Suggested general conditions allowance.',
+    },
+    supervision: {
+      fromNotes: 'Supervision allowance parsed from notes.',
+      suggested: 'Suggested supervision allowance.',
+    },
+    overhead_profit: {
+      fromNotes: 'Overhead and profit allowance parsed from notes.',
+      suggested: 'Suggested overhead and profit allowance.',
+    },
   };
   return (
     copyByItem[itemId] ?? {
@@ -4241,8 +4401,18 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   { test: /\bmirror|\baccessories|\btowel\s+bar/i, key: 'mirror_accessories' },
   { test: /\bfloor\s+prep|\bsubfloor|\bunderlayment/i, key: 'floor_prep' },
   { test: /\bback\s*splash/i, key: 'backsplash' },
+  { test: /\bcabinets?\s*(?:&|and|\/)\s*counters?|\bcounters?\s*(?:&|and|\/)\s*cabinets?/i, key: 'cabinets_counters' },
   { test: /\bcabinet/i, key: 'cabinets' },
   { test: /\bcountertop/i, key: 'countertops' },
+  { test: /\bplans?\s*(?:&|and|\/|,)?\s*engineering|\bengineering\s*(?:&|and|\/|,)?\s*plans?/i, key: 'plans_engineering' },
+  { test: /\bcontingenc/i, key: 'contingency' },
+  { test: /\bfinal\s+inspection/i, key: 'final_inspections' },
+  { test: /\bmobiliz|\bjob\s+setup/i, key: 'mobilization' },
+  { test: /\bemergency\s*(?:fee|call|service)|\bafter[\s-]?hours\s+fee/i, key: 'emergency_fee' },
+  { test: /\bsurvey\b/i, key: 'survey' },
+  { test: /\bgeneral\s+conditions/i, key: 'general_conditions' },
+  { test: /\bsupervision|\bsuperintend/i, key: 'supervision' },
+  { test: /\boverhead\s*(?:&|and|\/)?\s*profit|\bprofit\s*(?:&|and|\/)?\s*overhead/i, key: 'overhead_profit' },
   { test: /\brock|\bmulch|\bgravel/i, key: 'rock_mulch' },
   { test: /\bsod|\bturf/i, key: 'sod_turf' },
   { test: /\bpaver/i, key: 'pavers' },

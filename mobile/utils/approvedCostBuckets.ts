@@ -32,9 +32,11 @@ export function mapApprovedCostBucketsToBudgetLines(
       const lower = name.toLowerCase();
       const category = lower.includes('labor')
         ? 'Labor'
-        : lower.includes('overhead') || lower.includes('permit')
-          ? 'Overhead'
-          : 'Materials/Equipment';
+        : lower.includes('allowance')
+          ? 'Allowances'
+          : lower.includes('overhead') || lower.includes('permit')
+            ? 'Overhead'
+            : 'Materials/Equipment';
 
       return {
         id: String(bucket?.id ?? `${category.toLowerCase()}-${index}`),

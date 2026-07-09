@@ -103,6 +103,10 @@ import {
   mapApprovedCostBucketsToBudgetLines,
   mapApprovedCostBucketsToProjectBuckets,
 } from '@/utils/approvedCostBuckets';
+import {
+  getAllowanceLineItemsTotal,
+  isAllowancesCategoryName,
+} from '@/utils/estimateAllowances';
 
 type TabKey = "Overview" | "Budget" | "Timeline" | "Calendar" | "Team";
 
@@ -1138,10 +1142,11 @@ function ProjectDetailContent() {
       return 0;
     };
 
-    /** When estimateData is missing or produced no lines — keep Materials/Labor cards from bucket + spend */
+    /** When estimateData is missing or produced no lines — keep Materials/Labor/Allowances cards from bucket + spend */
     const appendBucketFallbackLines = (targetLines: any[]) => {
       const hasMat = targetLines.some((l) => String(l?.category || '').toLowerCase().includes('material'));
       const hasLab = targetLines.some((l) => String(l?.category || '').toLowerCase() === 'labor');
+      const hasAllow = targetLines.some((l) => isAllowancesCategoryName(l?.category));
       const matB = findBucket('material', 'equip');
       const matBudget = getBucketBudget('material', 'equip');
       const matSpent = getBucketSpend('materials', 'equip');
@@ -1178,6 +1183,26 @@ function ProjectDetailContent() {
           unitCost,
           markupPct: 0,
           spent: labSpent,
+          aiSuggested: false,
+        });
+      }
+      const allowBudget = getBucketBudget('allowance');
+      const allowSpent = getBucketSpend('allowance');
+      const allowExpCtx = ctxExpensesNoCoMirrors.reduce((sum: number, e: any) => {
+        if (isAllowancesCategoryName(e?.category)) return sum + (Number(e?.amount) || 0);
+        return sum;
+      }, 0);
+      if (!hasAllow && (allowBudget > 0 || allowSpent > 0 || allowExpCtx > 0)) {
+        const unitCost = Math.max(allowBudget, allowSpent, allowExpCtx);
+        targetLines.push({
+          id: 'allowances',
+          category: 'Allowances',
+          description: 'Soft-cost allowances',
+          qty: 1,
+          unit: 'lump sum',
+          unitCost,
+          markupPct: 0,
+          spent: allowSpent,
           aiSuggested: false,
         });
       }
@@ -1366,6 +1391,35 @@ function ProjectDetailContent() {
       });
       
       console.log(`📊 Labor budget: estimate=$${laborFromEstimate}, bucket=$${laborBucketBudget}, final=$${laborBudget}`);
+    }
+
+    // Allowances card — soft costs from bid.allowanceLineItems (under Labor)
+    const allowancesBucketBudget = getBucketBudget('allowance');
+    const allowancesSpent = getBucketSpend('allowance');
+    const allowancesFromEstimate = getAllowanceLineItemsTotal(estimate.allowanceLineItems);
+    const allowancesExpensesFromContext = ctxExpensesNoCoMirrors.reduce((sum: number, e: any) => {
+      if (isAllowancesCategoryName(e?.category)) return sum + (Number(e?.amount) || 0);
+      return sum;
+    }, 0);
+    const allowancesBudget =
+      allowancesFromEstimate > 0
+        ? allowancesFromEstimate
+        : allowancesBucketBudget > 0
+          ? allowancesBucketBudget
+          : 0;
+
+    if (allowancesBudget > 0 || allowancesSpent > 0 || allowancesExpensesFromContext > 0) {
+      lines.push({
+        id: 'allowances',
+        category: 'Allowances',
+        description: 'Soft-cost allowances',
+        qty: 1,
+        unit: 'lump sum',
+        unitCost: Math.max(allowancesBudget, allowancesExpensesFromContext),
+        markupPct: 0,
+        spent: allowancesSpent,
+        aiSuggested: false,
+      });
     }
 
     // Note: Overhead and Markup cards removed from BudgetTab as requested
@@ -1576,6 +1630,7 @@ function ProjectDetailContent() {
           n.includes('material') ||
           n.includes('equip') ||
           n.includes('labor') ||
+          n.includes('allowance') ||
           n.includes('overhead') ||
           n.includes('permit')
         ) {
