@@ -320,6 +320,7 @@ const MEASUREMENT_FIELD_TYPES: Record<string, MeasurementType[]> = {
   concreteCy: ['concrete_volume'],
   excavationCy: ['excavation_volume'],
   deckSqft: ['room_floor_area', 'slab_area'],
+  garageSqft: ['building_floor_area', 'room_floor_area'],
   exteriorPaintSqft: ['exterior_wall_area', 'paintable_surface_area'],
   railingLf: ['linear_length'],
   baseboardLf: ['perimeter', 'linear_length'],

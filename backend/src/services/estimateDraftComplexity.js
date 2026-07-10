@@ -893,6 +893,7 @@ function applyScopeMeasurements(draft, measurements) {
     norm.concreteCy ||
     norm.excavationCy ||
     norm.deckSqft ||
+    norm.garageSqft ||
     norm.exteriorPaintSqft ||
     norm.railingLf ||
     norm.baseboardLf ||
@@ -944,6 +945,7 @@ function applyScopeMeasurements(draft, measurements) {
       concreteCy: norm.concreteCy,
       excavationCy: norm.excavationCy,
       deckSqft: norm.deckSqft,
+      garageSqft: norm.garageSqft,
       exteriorPaintSqft: norm.exteriorPaintSqft,
       railingLf: norm.railingLf,
       baseboardLf: norm.baseboardLf,

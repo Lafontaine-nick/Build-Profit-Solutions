@@ -709,6 +709,7 @@ function normalizeScopeMeasurements(measurements = {}) {
   const rockMulchSqft = parseMeasurementNumber(measurements.rockMulchSqft);
   const exteriorPaintSqft = parseMeasurementNumber(measurements.exteriorPaintSqft);
   const deckSqft = parseMeasurementNumber(measurements.deckSqft);
+  const garageSqft = parseMeasurementNumber(measurements.garageSqft);
   const railingLf = parseMeasurementNumber(measurements.railingLf);
 
   return {
@@ -735,6 +736,7 @@ function normalizeScopeMeasurements(measurements = {}) {
     landscapeTons,
     exteriorPaintSqft,
     deckSqft,
+    garageSqft,
     railingLf,
     sqft: bathroomFloorSqft,
     lf: baseboardLf,
@@ -1088,6 +1090,7 @@ function measurementsForRatePricing(measurements) {
     concreteCy: measurements.concreteCy,
     excavationCy: measurements.excavationCy,
     deckSqft: measurements.deckSqft,
+    garageSqft: measurements.garageSqft,
     railingLf: measurements.railingLf,
     baseboardLf: measurements.baseboardLf,
   };

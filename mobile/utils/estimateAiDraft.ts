@@ -172,6 +172,8 @@ export type ScopeMeasurements = {
   concreteCy?: number | null;
   excavationCy?: number | null;
   deckSqft?: number | null;
+  /** Detached/attached garage area from plan schedule (not living SF). */
+  garageSqft?: number | null;
   /** Per-checklist-item overrides keyed by checklist id */
   itemQuantities?: Record<string, ScopeItemQuantity>;
   /** Accepted pricing metadata keyed by checklist item id */

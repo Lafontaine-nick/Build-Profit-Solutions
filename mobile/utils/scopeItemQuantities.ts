@@ -144,6 +144,7 @@ export type NormalizedScopeMeasurements = {
   concreteCy: number | null;
   excavationCy: number | null;
   deckSqft: number | null;
+  garageSqft: number | null;
   exteriorPaintSqft: number | null;
   railingLf: number | null;
   baseboardLf: number | null;
@@ -1809,6 +1810,7 @@ export function normalizeScopeMeasurements(measurements?: ScopeMeasurements | nu
     concreteCy: num(measurements?.concreteCy),
     excavationCy: num(measurements?.excavationCy),
     deckSqft: num(measurements?.deckSqft),
+    garageSqft: num(measurements?.garageSqft),
     exteriorPaintSqft: num(measurements?.exteriorPaintSqft),
     railingLf: num(measurements?.railingLf),
     baseboardLf:
@@ -4824,6 +4826,7 @@ export function scopeMeasurementsToPayload(
     concreteCy: parseScopeMeasurementInput(sanitized.concreteCy),
     excavationCy: parseScopeMeasurementInput(sanitized.excavationCy),
     deckSqft: parseScopeMeasurementInput(sanitized.deckSqft),
+    garageSqft: parseScopeMeasurementInput(sanitized.garageSqft),
     exteriorPaintSqft: parseScopeMeasurementInput(sanitized.exteriorPaintSqft),
     railingLf: parseScopeMeasurementInput(sanitized.railingLf),
     baseboardLf: parseScopeMeasurementInput(sanitized.baseboardLf),
@@ -4885,6 +4888,7 @@ export function scopeMeasurementsInputFromPayload(
     concreteCy: measurementFieldString(payload.concreteCy),
     excavationCy: measurementFieldString(payload.excavationCy),
     deckSqft: measurementFieldString(payload.deckSqft),
+    garageSqft: measurementFieldString(payload.garageSqft),
     exteriorPaintSqft: measurementFieldString(payload.exteriorPaintSqft),
     railingLf: measurementFieldString(payload.railingLf),
     baseboardLf: measurementFieldString(payload.baseboardLf),
@@ -5132,6 +5136,7 @@ export function initialScopeMeasurementInputExtended(
     concreteCy: pick('concreteCy'),
     excavationCy: pick('excavationCy'),
     deckSqft: pick('deckSqft'),
+    garageSqft: pick('garageSqft'),
     exteriorPaintSqft: pick('exteriorPaintSqft'),
     railingLf: pick('railingLf'),
     baseboardLf: pickBaseboardLf(),

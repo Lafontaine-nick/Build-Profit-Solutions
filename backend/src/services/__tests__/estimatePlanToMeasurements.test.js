@@ -1,6 +1,7 @@
 const {
   sanitizeRooms,
   sanitizeMeasurements,
+  sanitizeBuildingAreas,
   mergePlanMeasurementsIntoExisting,
   buildItemQuantities,
 } = require('../estimatePlanToMeasurements');
@@ -10,21 +11,62 @@ describe('estimatePlanToMeasurements', () => {
     const rooms = sanitizeRooms([
       { name: 'Master Bath', lengthFt: 10, widthFt: 8, confidence: 0.9 },
       { name: 'Kitchen', areaSqft: 140, measurementKey: 'kitchenFloorSqft', confidence: 0.8 },
+      { name: 'Living', areaSqft: 200, confidence: 0.9 },
     ]);
     expect(rooms[0].areaSqft).toBe(80);
     expect(rooms[0].measurementKey).toBe('bathroomFloorSqft');
     expect(rooms[1].measurementKey).toBe('kitchenFloorSqft');
+    // Living rooms stay in notes — not mapped to whole-house floorAreaSqft
+    expect(rooms[2].measurementKey).toBeNull();
   });
 
-  test('sanitizeMeasurements aggregates rooms and accepts explicit map', () => {
+  test('sanitizeMeasurements prefers Building Areas schedule over a single room', () => {
     const rooms = sanitizeRooms([
       { name: 'Bath', areaSqft: 40, measurementKey: 'bathroomFloorSqft', confidence: 0.9 },
-      { name: 'Living', areaSqft: 200, measurementKey: 'floorAreaSqft', confidence: 0.9 },
+      { name: 'Living', areaSqft: 200, confidence: 0.9 },
     ]);
-    const measurements = sanitizeMeasurements({ baseboardLf: 180 }, rooms);
+    const buildingAreas = sanitizeBuildingAreas({
+      mainFloorLivingSqft: 1373,
+      upstairsLivingSqft: 1045,
+      garageSqft: 483,
+      coveredPatioSqft: 375,
+      roofDeckSqft: 331,
+    });
+    const measurements = sanitizeMeasurements(
+      {
+        floorAreaSqft: 40,
+        wallPaintSqft: 320,
+        drywallSqft: 200,
+        baseboardLf: 48,
+        bathroomFloorSqft: 40,
+        concreteSqft: 375,
+      },
+      rooms,
+      buildingAreas,
+      []
+    );
+    expect(buildingAreas.totalLivingSqft).toBe(2418);
+    expect(measurements.floorAreaSqft).toBe(2418);
+    expect(measurements.flooringSqft).toBe(2418);
+    expect(measurements.garageSqft).toBe(483);
+    // Covered patio + roof deck → deck, not flatwork
+    expect(measurements.deckSqft).toBe(706);
     expect(measurements.bathroomFloorSqft).toBe(40);
-    expect(measurements.floorAreaSqft).toBe(200);
-    expect(measurements.baseboardLf).toBe(180);
+    expect(measurements.wallPaintSqft).toBeUndefined();
+    expect(measurements.drywallSqft).toBeUndefined();
+    expect(measurements.baseboardLf).toBeUndefined();
+    expect(measurements.concreteSqft).toBeUndefined();
+  });
+
+  test('sanitizeMeasurements keeps labeled concrete flatwork when explicitlyLabeled', () => {
+    const measurements = sanitizeMeasurements(
+      { concreteSqft: 900, wallPaintSqft: 2400 },
+      [],
+      {},
+      ['concreteSqft', 'wallPaintSqft']
+    );
+    expect(measurements.concreteSqft).toBe(900);
+    expect(measurements.wallPaintSqft).toBe(2400);
   });
 
   test('mergePlanMeasurementsIntoExisting does not overwrite filled fields', () => {

@@ -38,6 +38,7 @@ const MEASUREMENT_KEY_WHITELIST = new Set([
   'concreteCy',
   'excavationCy',
   'deckSqft',
+  'garageSqft',
   'exteriorPaintSqft',
   'railingLf',
   'baseboardLf',

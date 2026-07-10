@@ -58,6 +58,7 @@ function emptyMeasurements(overrides: Partial<NormalizedScopeMeasurements> = {})
     concreteCy: null,
     excavationCy: null,
     deckSqft: null,
+    garageSqft: null,
     exteriorPaintSqft: null,
     railingLf: null,
     baseboardLf: null,

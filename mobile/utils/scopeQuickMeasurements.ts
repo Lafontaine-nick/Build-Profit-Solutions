@@ -27,7 +27,8 @@ export type QuickMeasurementFieldKey =
   | 'concreteSqft'
   | 'concreteCy'
   | 'excavationCy'
-  | 'deckSqft';
+  | 'deckSqft'
+  | 'garageSqft';
 
 export type QuickMeasurementGroupId = 'site' | 'structure' | 'interior' | 'exterior' | 'other';
 
@@ -95,7 +96,8 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Record<QuickMeasurementFieldKey, QuickMeasur
   concreteSqft: F('concreteSqft', 'Flatwork', '400', 'sqft', 'structure'),
   concreteCy: F('concreteCy', 'Concrete', '12', 'CY', 'structure'),
   excavationCy: F('excavationCy', 'Excavation', '45', 'CY', 'site'),
-  deckSqft: F('deckSqft', 'Deck', '320', 'sqft', 'exterior'),
+  deckSqft: F('deckSqft', 'Deck / patio', '320', 'sqft', 'exterior'),
+  garageSqft: F('garageSqft', 'Garage', '480', 'sqft', 'structure'),
 };
 
 const NOTE_BACKED_QUICK_FIELD_ORDER: QuickMeasurementFieldKey[] = [
@@ -105,6 +107,7 @@ const NOTE_BACKED_QUICK_FIELD_ORDER: QuickMeasurementFieldKey[] = [
   'landscapeTons',
   'rockMulchSqft',
   'deckSqft',
+  'garageSqft',
   'roofSquares',
   'concreteSqft',
   'concreteCy',
@@ -188,8 +191,8 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
   ],
   deck_patio: [
     row(
-      F('deckSqft', 'Deck', '320', 'sqft', 'exterior', true),
-      F('concreteSqft', 'Patio', '180', 'sqft', 'structure')
+      F('deckSqft', 'Deck / patio', '320', 'sqft', 'exterior', true),
+      F('concreteSqft', 'Concrete flatwork', '180', 'sqft', 'structure')
     ),
     row(F('railingLf', 'Railing', '48', 'LF', 'exterior')),
   ],
@@ -209,19 +212,44 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
       F('baseboardLf', 'Trim', '48', 'LF', 'interior')
     ),
   ],
-  addition: [
-    row(F('floorAreaSqft', 'Building', '650', 'sqft', 'structure', true)),
+  /** New build / ground-up — living SF first, then rooms + outdoor. */
+  ground_up: [
+    row(F('floorAreaSqft', 'Living area', '2400', 'sqft', 'structure', true)),
+    row(
+      F('garageSqft', 'Garage', '480', 'sqft', 'structure'),
+      F('deckSqft', 'Deck / patio', '400', 'sqft', 'exterior')
+    ),
+    row(
+      F('kitchenFloorSqft', 'Kitchen floor', '180', 'sqft', 'interior'),
+      F('bathroomFloorSqft', 'Bath floor', '90', 'sqft', 'interior')
+    ),
+    row(
+      F('concreteSqft', 'Concrete flatwork', '400', 'sqft', 'structure'),
+      F('flooringSqft', 'Flooring', '2400', 'sqft', 'interior')
+    ),
     row(
       F('excavationCy', 'Excavation', '45', 'CY', 'site'),
       F('concreteCy', 'Foundation', '18', 'CY', 'structure')
     ),
+  ],
+  /** Whole-home remodel / addition — same living-first layout as ground_up. */
+  addition: [
+    row(F('floorAreaSqft', 'Living area', '1200', 'sqft', 'structure', true)),
     row(
-      F('concreteSqft', 'Flatwork', '400', 'sqft', 'structure'),
-      F('drywallSqft', 'Drywall', '1200', 'sqft', 'interior')
+      F('garageSqft', 'Garage', '480', 'sqft', 'structure'),
+      F('deckSqft', 'Deck / patio', '320', 'sqft', 'exterior')
     ),
     row(
-      F('wallPaintSqft', 'Paint', '1500', 'sqft', 'interior'),
-      F('flooringSqft', 'Flooring', '600', 'sqft', 'interior')
+      F('kitchenFloorSqft', 'Kitchen floor', '180', 'sqft', 'interior'),
+      F('bathroomFloorSqft', 'Bath floor', '90', 'sqft', 'interior')
+    ),
+    row(
+      F('concreteSqft', 'Concrete flatwork', '400', 'sqft', 'structure'),
+      F('flooringSqft', 'Flooring', '1200', 'sqft', 'interior')
+    ),
+    row(
+      F('excavationCy', 'Excavation', '45', 'CY', 'site'),
+      F('concreteCy', 'Foundation', '18', 'CY', 'structure')
     ),
   ],
 };
@@ -235,6 +263,8 @@ export function resolveQuickMeasurementTemplateKey(
   // Checklist template wins. projectType must not force flooring fields onto a
   // kitchen/bath remodel just because notes also mention floor tile.
   if (tk && SCOPE_QUICK_MEASUREMENT_ROWS[tk]) return tk;
+  if (pt === 'new_build' || pt === 'ground_up') return 'ground_up';
+  if (pt === 'home_addition' || pt === 'whole_home' || pt === 'whole_home_remodel') return 'addition';
   if (pt === 'flooring') return 'flooring';
   if (pt === 'kitchen') return 'kitchen';
   if (pt === 'bathroom') return 'bathroom';
@@ -271,7 +301,7 @@ function projectAreaFieldLabel(projectType?: string | null): string | null {
     case 'garage_conversion':
       return 'Garage conversion';
     case 'new_build':
-      return 'Building';
+      return 'Living area';
     default:
       return null;
   }
@@ -284,6 +314,7 @@ function applyProjectSpecificQuickMeasurementLabels(
 ): QuickMeasurementRow[] {
   if (templateKey !== 'addition' && templateKey !== 'ground_up') return rows;
   const floorAreaLabel = projectAreaFieldLabel(projectType);
+  // new_build / ground_up keep "Living area"; ADU/addition variants override.
   if (!floorAreaLabel) return rows;
 
   return rows.map((measurementRow) =>
@@ -427,5 +458,6 @@ export function emptyQuickMeasurementInput(): Record<QuickMeasurementFieldKey, s
     concreteCy: '',
     excavationCy: '',
     deckSqft: '',
+    garageSqft: '',
   };
 }

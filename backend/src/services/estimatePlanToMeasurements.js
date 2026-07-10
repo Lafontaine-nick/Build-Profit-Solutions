@@ -5,7 +5,7 @@
  * MVP: image pages only (client can render PDF page 1 to PNG). Not pricing.
  */
 
-const MAX_IMAGES = 3;
+const MAX_IMAGES = 8;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
 
@@ -35,7 +35,24 @@ const MEASUREMENT_KEYS = new Set([
   'concreteCy',
   'excavationCy',
   'deckSqft',
+  'garageSqft',
 ]);
+
+/**
+ * Floor plans almost never label paint/drywall/trim SF.
+ * Accepting them caused invented values (e.g. paint 320 on a 1700 SF house).
+ * Keep them out of auto-fill unless the model marks them as explicitly labeled.
+ */
+const LABELED_ONLY_KEYS = new Set([
+  'wallPaintSqft',
+  'exteriorPaintSqft',
+  'drywallSqft',
+  'baseboardLf',
+  'railingLf',
+]);
+
+/** Concrete flatwork only when the sheet labels concrete/slab/driveway — not covered patio. */
+const CONCRETE_EXPLICIT_KEYS = new Set(['concreteSqft', 'concreteCy']);
 
 function normalizeMime(mimeType) {
   const m = String(mimeType || 'image/jpeg').toLowerCase();
@@ -54,28 +71,48 @@ function positive(n) {
 }
 
 function buildSystemPrompt() {
-  return `You are a construction estimator reading architectural floor plans / blueprints.
+  return `You are a construction estimator reading architectural floor plans / blueprints (often photos of printed sheets).
 
-Return ONLY valid JSON (no markdown). Extract labeled room names and dimensions that are clearly printed or dimensioned on the plan.
+Return ONLY valid JSON (no markdown). Read printed labels carefully — title blocks, Building Areas / Area Schedule tables, and room dimension strings like 18'-2" x 14'-7".
+
+Priority (highest first):
+1. Building Areas / Area Schedule / square-footage tables in the title block.
+   - totalLivingSqft = "Total Living Area" or Main Floor Living + Upstairs Living (living only — exclude garage, patio, roof deck unless labeled living).
+   - mainFloorLivingSqft, upstairsLivingSqft, garageSqft, coveredPatioSqft, coveredOutdoorSqft, roofDeckSqft when labeled.
+2. Individual rooms with length×width or labeled SF on floor-plan pages.
+3. Elevations / sections: use for notes (ceiling heights, materials) only — NEVER use elevations to invent floor square footage.
 
 Rules:
-1. Only report dimensions you can read or that are explicitly labeled. Never invent sizes.
-2. Prefer room floor areas in square feet. If length×width are labeled, compute areaSqft = lengthFt × widthFt.
-3. Map rooms into measurement keys when clear:
-   - bathroom / bath / powder → bathroomFloorSqft
+1. Only report numbers you can read on the sheet. Never invent sizes. Never estimate paint, drywall, or trim from floor area.
+2. If length×width are labeled (including feet-inches like 12'-0" x 10'-6"), convert to decimal feet and set areaSqft = lengthFt × widthFt.
+3. Map rooms:
+   - bathroom / bath / powder / M. Bath → bathroomFloorSqft (sum all baths into measurements.bathroomFloorSqft)
    - kitchen → kitchenFloorSqft
-   - living / bedroom / hallway / whole floor / total → floorAreaSqft (and flooringSqft when finish floor)
-   - deck / patio → deckSqft
-   - garage → floorAreaSqft only if labeled
-4. Also extract labeled linear dimensions for baseboardLf, cabinetLf, railingLf when shown.
-5. wallPaintSqft / drywallSqft only if wall/ceiling areas are labeled — do not invent from floor area.
-6. confidence 0–1 per room. Set success false only if the image is not a plan/blueprint (photo of a finished room, selfie, receipt, etc.).
-7. notesBlock: short contractor-readable summary of what was read from the plan.
+   - deck / patio / covered patio / roof deck → deckSqft
+   - bedrooms, living, family, great room, dining, office, laundry, hallway → list in rooms; do NOT put a single bedroom into floorAreaSqft
+4. measurements.floorAreaSqft MUST be total living area from the Building Areas table when present. Do not use one room (e.g. a bath) as floorAreaSqft.
+5. measurements.flooringSqft = same as floorAreaSqft when living SF is known.
+6. measurements.deckSqft = covered patio + roof deck (+ covered outdoor when no patio) from the schedule. NEVER put covered patio / roof deck into concreteSqft.
+7. measurements.garageSqft = Garage Area from the schedule when labeled (not living SF).
+8. measurements.concreteSqft ONLY for labeled concrete slab / driveway / sidewalk / flatwork — omit for covered patio or wood deck. Put concreteSqft in explicitlyLabeled when used.
+9. wallPaintSqft, drywallSqft, exteriorPaintSqft, baseboardLf, railingLf: omit unless the plan explicitly labels that quantity. Set explicitlyLabeled to those keys only when true. Never invent them.
+10. Multi-page sets: merge all floor-plan pages; ignore duplicate title-block totals; elevations do not add living SF.
+11. success false only if none of the images are plans/blueprints.
+12. notesBlock: contractor-readable summary including Building Areas totals and key rooms.
 
 Schema:
 {
   "success": true | false,
   "reason": "string | null",
+  "buildingAreas": {
+    "totalLivingSqft": 2418,
+    "mainFloorLivingSqft": 1373,
+    "upstairsLivingSqft": 1045,
+    "garageSqft": 483,
+    "coveredPatioSqft": 375,
+    "coveredOutdoorSqft": 73,
+    "roofDeckSqft": 331
+  },
   "rooms": [
     {
       "name": "Kitchen",
@@ -88,11 +125,14 @@ Schema:
   ],
   "measurements": {
     "kitchenFloorSqft": 120,
-    "bathroomFloorSqft": 45,
-    "floorAreaSqft": 1100,
-    "baseboardLf": 220
+    "bathroomFloorSqft": 90,
+    "floorAreaSqft": 2418,
+    "flooringSqft": 2418,
+    "deckSqft": 375,
+    "garageSqft": 483
   },
-  "assumptions": ["Areas taken from labeled dimensions on plan page 1"],
+  "explicitlyLabeled": [],
+  "assumptions": ["Total living from Building Areas table on sheet 1"],
   "notesBlock": "string"
 }`;
 }
@@ -114,9 +154,14 @@ function sanitizeRooms(rawRooms) {
       const n = name.toLowerCase();
       if (/bath|powder|toilet/.test(n)) measurementKey = 'bathroomFloorSqft';
       else if (/kitchen/.test(n)) measurementKey = 'kitchenFloorSqft';
-      else if (/deck|patio/.test(n)) measurementKey = 'deckSqft';
-      else if (/garage/.test(n)) measurementKey = null;
-      else measurementKey = 'floorAreaSqft';
+      else if (/deck|patio|roof\s*deck/.test(n)) measurementKey = 'deckSqft';
+      else if (/garage|storage|mechanical|closet|w\.?i\.?c/.test(n)) measurementKey = null;
+      // Living/bedroom/etc. stay in rooms list for notes — do not map a single room to floorAreaSqft
+      else measurementKey = null;
+    }
+    // Never let a single room claim whole-house floor area
+    if (measurementKey === 'floorAreaSqft' || measurementKey === 'flooringSqft') {
+      measurementKey = null;
     }
     out.push({
       name,
@@ -127,33 +172,136 @@ function sanitizeRooms(rawRooms) {
       confidence: Math.max(0, Math.min(1, Number(room.confidence) || 0)),
     });
   }
-  return out.slice(0, 24);
+  return out.slice(0, 40);
 }
 
-function sanitizeMeasurements(raw, rooms) {
+function sanitizeBuildingAreas(raw) {
+  if (!raw || typeof raw !== 'object') return {};
   const out = {};
-  const src = raw && typeof raw === 'object' ? raw : {};
-  for (const key of MEASUREMENT_KEYS) {
-    const v = positive(src[key]);
+  for (const key of [
+    'totalLivingSqft',
+    'mainFloorLivingSqft',
+    'upstairsLivingSqft',
+    'garageSqft',
+    'coveredPatioSqft',
+    'coveredOutdoorSqft',
+    'roofDeckSqft',
+  ]) {
+    const v = positive(raw[key]);
     if (v != null) out[key] = Math.round(v * 10) / 10;
   }
+  if (out.totalLivingSqft == null) {
+    const parts = [out.mainFloorLivingSqft, out.upstairsLivingSqft].filter((v) => v != null);
+    if (parts.length) {
+      out.totalLivingSqft = Math.round(parts.reduce((s, v) => s + v, 0) * 10) / 10;
+    }
+  }
+  return out;
+}
 
-  // Aggregate rooms into keys when vision omitted the measurements map
+function scheduleDeckSqft(buildingAreas) {
+  const patio = positive(buildingAreas.coveredPatioSqft);
+  const roofDeck = positive(buildingAreas.roofDeckSqft);
+  const coveredOutdoor = positive(buildingAreas.coveredOutdoorSqft);
+  const parts = [patio, roofDeck].filter((v) => v != null);
+  if (parts.length) {
+    return Math.round(parts.reduce((s, v) => s + v, 0) * 10) / 10;
+  }
+  return coveredOutdoor;
+}
+
+function isPatioLikeConcreteValue(concreteSqft, buildingAreas) {
+  if (concreteSqft == null) return false;
+  const patioValues = [
+    positive(buildingAreas.coveredPatioSqft),
+    positive(buildingAreas.roofDeckSqft),
+    positive(buildingAreas.coveredOutdoorSqft),
+    scheduleDeckSqft(buildingAreas),
+  ].filter((v) => v != null);
+  return patioValues.some((v) => Math.abs(v - concreteSqft) < 0.6);
+}
+
+function sanitizeMeasurements(raw, rooms, buildingAreas = {}, explicitlyLabeled = []) {
+  const out = {};
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const labeled = new Set(
+    (Array.isArray(explicitlyLabeled) ? explicitlyLabeled : [])
+      .map((k) => String(k || '').trim())
+      .filter((k) => MEASUREMENT_KEYS.has(k))
+  );
+
+  for (const key of MEASUREMENT_KEYS) {
+    const v = positive(src[key]);
+    if (v == null) continue;
+    if (LABELED_ONLY_KEYS.has(key) && !labeled.has(key)) continue;
+    // Concrete flatwork requires explicit label — covered patio must not land here
+    if (CONCRETE_EXPLICIT_KEYS.has(key) && !labeled.has(key)) continue;
+    out[key] = Math.round(v * 10) / 10;
+  }
+
+  // Prefer Building Areas schedule for whole-house living SF
+  const scheduleLiving = positive(buildingAreas.totalLivingSqft);
+  if (scheduleLiving != null) {
+    out.floorAreaSqft = scheduleLiving;
+    if (out.flooringSqft == null) out.flooringSqft = scheduleLiving;
+  }
+
+  const scheduleGarage = positive(buildingAreas.garageSqft);
+  if (scheduleGarage != null) {
+    out.garageSqft = scheduleGarage;
+  }
+
+  const scheduleDeck = scheduleDeckSqft(buildingAreas);
+  if (scheduleDeck != null) {
+    out.deckSqft = scheduleDeck;
+  } else if (out.deckSqft == null) {
+    // keep room-aggregated deck below
+  }
+
+  // If vision stuffed patio SF into concreteSqft, move it to deck
+  if (out.concreteSqft != null && isPatioLikeConcreteValue(out.concreteSqft, buildingAreas)) {
+    if (out.deckSqft == null) out.deckSqft = out.concreteSqft;
+    delete out.concreteSqft;
+  }
+  // Also catch unlabeled concrete that matched patio before we stripped it
+  const rawConcrete = positive(src.concreteSqft);
+  if (
+    out.deckSqft == null &&
+    rawConcrete != null &&
+    isPatioLikeConcreteValue(rawConcrete, buildingAreas)
+  ) {
+    out.deckSqft = rawConcrete;
+  }
+
+  // Aggregate kitchen/bath/deck rooms when vision omitted the measurements map
   const byKey = new Map();
   for (const room of rooms) {
     if (!room.measurementKey || room.areaSqft == null || room.confidence < 0.4) continue;
+    if (LABELED_ONLY_KEYS.has(room.measurementKey) && !labeled.has(room.measurementKey)) continue;
+    if (CONCRETE_EXPLICIT_KEYS.has(room.measurementKey) && !labeled.has(room.measurementKey)) continue;
     byKey.set(room.measurementKey, (byKey.get(room.measurementKey) || 0) + room.areaSqft);
   }
   for (const [key, total] of byKey) {
     if (out[key] == null) out[key] = Math.round(total * 10) / 10;
   }
 
-  // Sum room areas into floorAreaSqft if missing
+  // Only sum rooms into floorAreaSqft when no schedule total exists
   if (out.floorAreaSqft == null) {
     const roomSum = rooms
       .filter((r) => r.areaSqft != null && r.confidence >= 0.4)
+      .filter((r) => {
+        const n = String(r.name || '').toLowerCase();
+        return !/garage|patio|deck|storage|mechanical|closet|w\.?i\.?c/.test(n);
+      })
       .reduce((s, r) => s + r.areaSqft, 0);
-    if (roomSum > 0) out.floorAreaSqft = Math.round(roomSum * 10) / 10;
+    // Require a meaningful multi-room sum (avoid a single 40 SF bath becoming "Room floor")
+    if (roomSum >= 200 && rooms.filter((r) => r.areaSqft != null).length >= 2) {
+      out.floorAreaSqft = Math.round(roomSum * 10) / 10;
+    }
+  }
+
+  if (out.flooringSqft == null && out.floorAreaSqft != null) {
+    out.flooringSqft = out.floorAreaSqft;
   }
 
   return out;
@@ -186,10 +334,25 @@ function buildItemQuantities(measurements) {
   return itemQuantities;
 }
 
-function formatNotesBlock({ notesBlock, rooms, measurements }) {
+function formatNotesBlock({ notesBlock, rooms, measurements, buildingAreas }) {
   if (notesBlock) return String(notesBlock).trim().slice(0, 2000);
   const lines = ['Plan takeoff (confirm measurements):'];
-  for (const room of rooms.slice(0, 12)) {
+  if (buildingAreas?.totalLivingSqft != null) {
+    lines.push(`- Total living: ${buildingAreas.totalLivingSqft} sqft`);
+  }
+  if (buildingAreas?.mainFloorLivingSqft != null) {
+    lines.push(`- Main floor living: ${buildingAreas.mainFloorLivingSqft} sqft`);
+  }
+  if (buildingAreas?.upstairsLivingSqft != null) {
+    lines.push(`- Upstairs living: ${buildingAreas.upstairsLivingSqft} sqft`);
+  }
+  if (buildingAreas?.garageSqft != null) {
+    lines.push(`- Garage: ${buildingAreas.garageSqft} sqft`);
+  }
+  if (buildingAreas?.coveredPatioSqft != null) {
+    lines.push(`- Covered patio: ${buildingAreas.coveredPatioSqft} sqft`);
+  }
+  for (const room of rooms.slice(0, 16)) {
     const dims =
       room.areaSqft != null
         ? `${room.areaSqft} sqft`
@@ -277,8 +440,8 @@ async function analyzePlanForMeasurements({
   const completion = await openai.chat.completions.create({
     model: aiModels.assistant.vision,
     response_format: aiRuntime.assistant.vision.responseFormat,
-    temperature: Math.min(aiRuntime.assistant.vision.temperature ?? 0.2, 0.2),
-    max_tokens: Math.max(aiRuntime.assistant.vision.maxTokens || 900, 1800),
+    temperature: Math.min(aiRuntime.assistant.vision.temperature ?? 0.2, 0.15),
+    max_tokens: Math.max(aiRuntime.assistant.vision.maxTokens || 900, 2500),
     messages: [
       { role: 'system', content: buildSystemPrompt() },
       {
@@ -287,7 +450,10 @@ async function analyzePlanForMeasurements({
           {
             type: 'text',
             text: [
-              'Extract rooms and labeled dimensions from this floor plan / blueprint.',
+              'Extract Building Areas / Area Schedule totals first, then room dimensions from these floor plan / blueprint pages.',
+              'Photos of printed sheets are OK — read the title-block square footage table carefully.',
+              'Do not invent paint, drywall, or trim quantities.',
+              'Covered patio / roof deck → deckSqft. Garage → garageSqft. Never map patio to concrete flatwork.',
               hintBits.length ? hintBits.join('\n\n') : 'No extra context.',
             ].join('\n\n'),
           },
@@ -316,6 +482,7 @@ async function analyzePlanForMeasurements({
       reason: parsed.reason || 'Image does not look like a floor plan or blueprint.',
       rooms: [],
       measurements: {},
+      buildingAreas: {},
       itemQuantities: {},
       assumptions: [],
       notesBlock: '',
@@ -323,7 +490,13 @@ async function analyzePlanForMeasurements({
   }
 
   const rooms = sanitizeRooms(parsed.rooms);
-  const measurements = sanitizeMeasurements(parsed.measurements, rooms);
+  const buildingAreas = sanitizeBuildingAreas(parsed.buildingAreas);
+  const measurements = sanitizeMeasurements(
+    parsed.measurements,
+    rooms,
+    buildingAreas,
+    parsed.explicitlyLabeled
+  );
   const assumptions = Array.isArray(parsed.assumptions)
     ? parsed.assumptions.map((a) => String(a).slice(0, 200)).slice(0, 8)
     : [];
@@ -331,14 +504,16 @@ async function analyzePlanForMeasurements({
     notesBlock: parsed.notesBlock,
     rooms,
     measurements,
+    buildingAreas,
   });
 
-  if (!Object.keys(measurements).length && !rooms.length) {
+  if (!Object.keys(measurements).length && !rooms.length && !Object.keys(buildingAreas).length) {
     return {
       success: false,
       reason: parsed.reason || 'No readable dimensions found on the plan.',
       rooms: [],
       measurements: {},
+      buildingAreas: {},
       itemQuantities: {},
       assumptions,
       notesBlock: '',
@@ -350,6 +525,7 @@ async function analyzePlanForMeasurements({
     reason: null,
     rooms,
     measurements,
+    buildingAreas,
     itemQuantities: buildItemQuantities(measurements),
     assumptions,
     notesBlock,
@@ -381,8 +557,10 @@ module.exports = {
   mergePlanMeasurementsIntoExisting,
   sanitizeRooms,
   sanitizeMeasurements,
+  sanitizeBuildingAreas,
   buildItemQuantities,
   MEASUREMENT_KEYS,
+  LABELED_ONLY_KEYS,
   MAX_IMAGES,
   MAX_IMAGE_BYTES,
 };
