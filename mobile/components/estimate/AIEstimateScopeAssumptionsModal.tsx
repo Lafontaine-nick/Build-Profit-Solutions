@@ -15,6 +15,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystemLegacy from 'expo-file-system/legacy';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
@@ -32,7 +34,13 @@ import type {
   ScopeChecklistItem,
   ScopeMeasurements,
 } from '@/utils/estimateAiDraft';
-import { formatDraftMoney, resolveDraftScopeNotes, repairDraftRatePricingFromNotes } from '@/utils/estimateAiDraft';
+import {
+  formatDraftMoney,
+  resolveDraftScopeNotes,
+  repairDraftRatePricingFromNotes,
+  fetchPlanToMeasurements,
+} from '@/utils/estimateAiDraft';
+import { mergePlanMeasurementsIntoInput } from '@/utils/planTakeoffMerge';
 import {
   checklistDisplayHelper,
   choiceIdsToScopeState,
@@ -3805,6 +3813,7 @@ function CollapsibleQuickMeasurements({
   Colors,
   darkMode,
   applying,
+  onPlanNotesMerged,
 }: {
   expanded: boolean;
   onToggle: () => void;
@@ -3817,7 +3826,9 @@ function CollapsibleQuickMeasurements({
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
+  onPlanNotesMerged?: (mergedNotes: string) => void;
 }) {
+  const [planImporting, setPlanImporting] = useState(false);
   const noteQuickMeasurements = useMemo(() => {
     const parsed = parseScopeMeasurementsFromNotes(notes || '', { templateKey, projectType: projectType ?? undefined });
     const out: Partial<Record<QuickMeasurementFieldKey, string>> = {};
@@ -3867,6 +3878,91 @@ function CollapsibleQuickMeasurements({
   );
   const noteKeySet = useMemo(() => new Set(noteQuickMeasurements.keys), [noteQuickMeasurements.keys]);
 
+  const importFromPlan = useCallback(async () => {
+    if (planImporting || applying) return;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Allow photo library access to import a floor plan image.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.85,
+        base64: false,
+      });
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+
+      const asset = result.assets[0];
+      setPlanImporting(true);
+      if (!expanded) onToggle();
+
+      const base64 = await FileSystemLegacy.readAsStringAsync(asset.uri, { encoding: 'base64' });
+      const mimeType =
+        asset.mimeType && asset.mimeType.startsWith('image/')
+          ? asset.mimeType
+          : asset.uri.toLowerCase().endsWith('.png')
+            ? 'image/png'
+            : 'image/jpeg';
+
+      const takeoff = await fetchPlanToMeasurements({
+        images: [{ base64, mimeType }],
+        existingNotes: notes || '',
+        templateKeyHint: templateKey || null,
+        projectTypeHint: projectType || null,
+      });
+
+      if (!takeoff.success) {
+        Alert.alert('Could not read plan', takeoff.reason || 'Try a clearer floor-plan image.');
+        return;
+      }
+
+      setMeasurements((prev) => {
+        const { next, filled } = mergePlanMeasurementsIntoInput(prev, takeoff.measurements, {
+          overwrite: false,
+        });
+        if (filled === 0 && Object.keys(takeoff.measurements).length > 0) {
+          Alert.alert(
+            'Measurements already filled',
+            'Plan dimensions were found but Quick measurements already had values. Clear a field to import from the plan.'
+          );
+        } else if (filled > 0) {
+          Alert.alert(
+            'Plan measurements imported',
+            `Filled ${filled} Quick measurement field${filled === 1 ? '' : 's'} from the plan. Review before continuing.`
+          );
+        } else {
+          Alert.alert(
+            'No dimensions mapped',
+            takeoff.notesBlock || 'The plan was read but no Quick measurement fields could be filled.'
+          );
+        }
+        return next as ScopeMeasurementsInputExtended;
+      });
+
+      if (takeoff.mergedNotes && onPlanNotesMerged) {
+        onPlanNotesMerged(takeoff.mergedNotes);
+      }
+      if (Platform.OS === 'ios') {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch (e) {
+      Alert.alert('Plan import failed', e instanceof Error ? e.message : 'Try again with a clearer image.');
+    } finally {
+      setPlanImporting(false);
+    }
+  }, [
+    planImporting,
+    applying,
+    expanded,
+    onToggle,
+    notes,
+    templateKey,
+    projectType,
+    setMeasurements,
+    onPlanNotesMerged,
+  ]);
+
   const setField = useCallback(
     (key: QuickMeasurementFieldKey, value: string) => {
       setMeasurements((prev) => ({ ...prev, [key]: value }));
@@ -3907,6 +4003,38 @@ function CollapsibleQuickMeasurements({
       </TouchableOpacity>
       {expanded ? (
         <View style={styles.quickMeasurementsBody}>
+          <TouchableOpacity
+            onPress={importFromPlan}
+            disabled={planImporting || applying}
+            activeOpacity={0.75}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+              marginBottom: 12,
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: darkMode ? 'rgba(148,163,184,0.25)' : Colors.line,
+              backgroundColor: darkMode ? 'rgba(34,197,94,0.08)' : 'rgba(34,197,94,0.06)',
+              opacity: planImporting || applying ? 0.55 : 1,
+            }}
+          >
+            {planImporting ? (
+              <ActivityIndicator size="small" color="#22c55e" />
+            ) : (
+              <Ionicons name="map-outline" size={18} color="#22c55e" />
+            )}
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 13, fontWeight: '700' }}>
+                {planImporting ? 'Reading plan…' : 'Import from plan'}
+              </Text>
+              <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 2 }}>
+                Upload a floor-plan image to fill empty measurement fields
+              </Text>
+            </View>
+          </TouchableOpacity>
           {sections.map((section) => (
             <View key={section.id} style={styles.quickMeasurementSection}>
               {sections.length > 1 ? (
@@ -4033,9 +4161,10 @@ export default function AIEstimateScopeAssumptionsModal({
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const checklist = draft?.scopeChecklist;
+  const [planNotesOverride, setPlanNotesOverride] = useState<string | null>(null);
   const scopeNotes = useMemo(() => {
-    return chooseBestScopeNotes(draft, notesFallback);
-  }, [draft, notesFallback]);
+    return planNotesOverride || chooseBestScopeNotes(draft, notesFallback);
+  }, [draft, notesFallback, planNotesOverride]);
   const [items, setItems] = useState<ScopeChecklistItem[]>([]);
   const [measurements, setMeasurements] = useState<ScopeMeasurementsInputExtended>({
     ...emptyQuickMeasurementInput(),
@@ -4192,6 +4321,7 @@ export default function AIEstimateScopeAssumptionsModal({
   useEffect(() => {
     if (visible) return;
     hydratedVisibleSessionRef.current = false;
+    setPlanNotesOverride(null);
     setItems([]);
     // Do not clear measurementsRef here. A hidden persist effect runs after
     // this cleanup; clearing the ref first can overwrite the just-confirmed
@@ -5252,6 +5382,9 @@ export default function AIEstimateScopeAssumptionsModal({
           Colors={Colors}
           darkMode={darkMode}
           applying={applying}
+          onPlanNotesMerged={(merged) => {
+            if (merged?.trim()) setPlanNotesOverride(merged);
+          }}
         />
 
         {groupedItems.map((group) => (

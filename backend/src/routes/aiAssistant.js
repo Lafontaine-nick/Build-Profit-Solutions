@@ -18,6 +18,10 @@ const {
   analyzeSitePhotosForScope,
   mergePhotoNotesIntoJobNotes,
 } = require('../services/estimatePhotoToScope');
+const {
+  analyzePlanForMeasurements,
+  mergePlanNotesIntoJobNotes,
+} = require('../services/estimatePlanToMeasurements');
 
 // Additive: persistent per-user memory. All calls are best-effort and wrapped
 // in try/catch so existing request logic is never blocked if this fails.
@@ -15774,6 +15778,76 @@ router.post('/photo-to-scope', async (req, res) => {
     return res.status(status).json({
       error: 'Photo scope analysis failed',
       message: err?.message || 'Could not analyze site photos',
+    });
+  }
+});
+
+/**
+ * POST /api/ai-assistant/plan-to-measurements
+ * Floor plan / blueprint image → rooms + Quick Measurement fields (vision).
+ * Client merges into Confirm Scope Quick measurements (non-destructive).
+ */
+router.post('/plan-to-measurements', async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(503).json({
+        error: 'Vision service unavailable',
+        message: 'OpenAI API key not configured',
+      });
+    }
+
+    const {
+      images,
+      existingNotes,
+      templateKeyHint,
+      projectTypeHint,
+      mergeIntoNotes,
+    } = req.body || {};
+
+    const result = await analyzePlanForMeasurements({
+      images,
+      existingNotes,
+      templateKeyHint,
+      projectTypeHint,
+      openai,
+      aiModels,
+      aiRuntime,
+    });
+
+    if (!result.success) {
+      return res.json({
+        success: false,
+        reason: result.reason,
+        rooms: [],
+        measurements: {},
+        itemQuantities: {},
+        assumptions: result.assumptions || [],
+        notesBlock: '',
+        mergedNotes: String(existingNotes || '').trim(),
+      });
+    }
+
+    const mergedNotes =
+      mergeIntoNotes === false
+        ? String(existingNotes || '').trim()
+        : mergePlanNotesIntoJobNotes(existingNotes, result.notesBlock);
+
+    return res.json({
+      success: true,
+      reason: null,
+      rooms: result.rooms,
+      measurements: result.measurements,
+      itemQuantities: result.itemQuantities,
+      assumptions: result.assumptions,
+      notesBlock: result.notesBlock,
+      mergedNotes,
+    });
+  } catch (err) {
+    console.error('Error in /plan-to-measurements:', err);
+    const status = err?.status && Number.isFinite(err.status) ? err.status : 500;
+    return res.status(status).json({
+      error: 'Plan takeoff failed',
+      message: err?.message || 'Could not read dimensions from the plan',
     });
   }
 });

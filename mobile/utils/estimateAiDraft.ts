@@ -750,6 +750,67 @@ export async function fetchPhotoToScope(params: {
   };
 }
 
+export type PlanToMeasurementsResult = {
+  success: boolean;
+  reason?: string | null;
+  rooms: Array<{
+    name: string;
+    lengthFt?: number | null;
+    widthFt?: number | null;
+    areaSqft?: number | null;
+    measurementKey?: string | null;
+    confidence: number;
+  }>;
+  measurements: Record<string, number>;
+  itemQuantities: Record<string, { quantity: number; unit: string; quantitySource?: string }>;
+  assumptions: string[];
+  notesBlock: string;
+  mergedNotes: string;
+};
+
+/** Analyze floor plan / blueprint image → Quick Measurement fields. */
+export async function fetchPlanToMeasurements(params: {
+  images: PhotoScopeImage[];
+  existingNotes?: string;
+  projectTypeHint?: string | null;
+  templateKeyHint?: string | null;
+}): Promise<PlanToMeasurementsResult> {
+  const payload = await postAiAssistantJson<
+    Partial<PlanToMeasurementsResult> & { error?: string; message?: string }
+  >(
+    '/plan-to-measurements',
+    {
+      images: params.images,
+      existingNotes: params.existingNotes || '',
+      projectTypeHint: params.projectTypeHint || null,
+      templateKeyHint: params.templateKeyHint || null,
+      mergeIntoNotes: true,
+    },
+    120000
+  );
+
+  if (payload?.error && payload.success !== true && payload.success !== false) {
+    throw new Error(payload.message || payload.error || 'Plan takeoff failed');
+  }
+
+  return {
+    success: payload.success !== false,
+    reason: payload.reason ?? null,
+    rooms: Array.isArray(payload.rooms) ? payload.rooms : [],
+    measurements:
+      payload.measurements && typeof payload.measurements === 'object'
+        ? (payload.measurements as Record<string, number>)
+        : {},
+    itemQuantities:
+      payload.itemQuantities && typeof payload.itemQuantities === 'object'
+        ? (payload.itemQuantities as PlanToMeasurementsResult['itemQuantities'])
+        : {},
+    assumptions: Array.isArray(payload.assumptions) ? payload.assumptions.map(String) : [],
+    notesBlock: payload.notesBlock || '',
+    mergedNotes: payload.mergedNotes || params.existingNotes || '',
+  };
+}
+
 const PHOTO_DETECTION_MIN_CONFIDENCE = 0.45;
 
 /**

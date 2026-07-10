@@ -116,12 +116,12 @@ describe('supplierPricing', () => {
     const mat = bb.proposedRates.find((p) => p.pricingType === 'material');
     const lab = bb.proposedRates.find((p) => p.pricingType === 'labor');
     expect(mat?.source).toBe('supplier_pricing');
-    expect(lab?.source).toBe('national_trade_average');
-    // National $5/LF midpoint region-adjusted for Las Vegas metro (zip 89141).
+    expect(lab?.source).toBe('construction_cost_database');
+    // National $5/LF midpoint location-adjusted for Las Vegas metro (zip 89141).
     expect(lab?.rate).toBe(5.29);
   });
 
-  it('falls through to national_trade_average when supplier mock/empty', async () => {
+  it('falls through to construction_cost_database when supplier mock/empty and ZIP known', async () => {
     searchSkuLive.mockResolvedValue({
       results: [],
       metadata: { dataSource: 'mock', isMockData: true },
@@ -143,7 +143,7 @@ describe('supplierPricing', () => {
 
     const result = await getPricingProposal({ draft, userId: 'test-supplier-empty-baseboard', zipCode: '89109', mode: 'suggest' });
     const bb = result.scopeItems.find((s) => /baseboard/i.test(s.scopeName));
-    expect(bb?.recommended?.source).toBe('national_trade_average');
+    expect(bb?.recommended?.source).toBe('construction_cost_database');
     expect(bb?.comparison?.supplier_pricing?.available).toBe(false);
   });
 
@@ -176,13 +176,13 @@ describe('supplierPricing', () => {
     const result = await getPricingProposal({ draft, userId: 'test-supplier-tile-comparison', mode: 'suggest' });
     const tile = result.scopeItems.find((s) => /tile/i.test(s.scopeName));
     expect(tile?.comparison?.supplier_pricing?.available).toBe(true);
-    expect(tile?.recommended?.source).toBe('national_trade_average');
+    expect(tile?.recommended?.source).toBe('construction_cost_database');
     const mat = tile.proposedRates.find((p) => p.pricingType === 'material');
     const lab = tile.proposedRates.find((p) => p.pricingType === 'labor');
-    expect(mat?.source).toBe('national_trade_average');
-    // National $4/sqft flooring-material midpoint region-adjusted for Las Vegas metro (zip 89141).
+    expect(mat?.source).toBe('construction_cost_database');
+    // National $4/sqft flooring-material midpoint location-adjusted for Las Vegas metro (zip 89141).
     expect(mat?.rate).toBe(4.1);
-    expect(lab?.source).toBe('national_trade_average');
+    expect(lab?.source).toBe('construction_cost_database');
     expect(tile?.recommended?.reason).toMatch(/HD reference/i);
   });
 });

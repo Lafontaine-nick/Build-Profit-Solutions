@@ -124,7 +124,7 @@ async function getPricingProposal(params) {
           ? { available: false, rates: [] }
           : supplierLookups[i] || { available: false, rates: [] },
       national_trade_average: lookupNationalTradeAverage(scopeItem, { ...context, draft }),
-      construction_cost_database: lookupCostDatabase(scopeItem, context),
+      construction_cost_database: lookupCostDatabase(scopeItem, { ...context, draft }),
       ai_rough_estimate_fallback: lookupAiFallback(scopeItem),
     };
 
@@ -257,8 +257,8 @@ async function getPricingProposal(params) {
     'saved_template',
     'company_default',
     'supplier_pricing',
-    'national_trade_average',
     'construction_cost_database',
+    'national_trade_average',
     'ai_rough_estimate_fallback',
   ];
   const primarySource =

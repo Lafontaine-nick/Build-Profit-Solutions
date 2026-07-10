@@ -191,8 +191,8 @@ function pickRecommended(scopeItem, lookups, options = {}) {
         'saved_template',
         'company_default',
         'supplier_pricing',
-        'national_trade_average',
         'construction_cost_database',
+        'national_trade_average',
         'ai_rough_estimate_fallback',
       ];
 
@@ -203,8 +203,8 @@ function pickRecommended(scopeItem, lookups, options = {}) {
         'saved_template',
         'company_default',
         'supplier_pricing',
-        'national_trade_average',
         'construction_cost_database',
+        'national_trade_average',
         'ai_rough_estimate_fallback',
       ];
 
@@ -247,7 +247,7 @@ function pickRecommended(scopeItem, lookups, options = {}) {
 
       let laborRates = [];
       let laborSource = null;
-      for (const ls of ['saved_pricing', 'saved_template', 'company_default', 'national_trade_average']) {
+      for (const ls of ['saved_pricing', 'saved_template', 'company_default', 'construction_cost_database', 'national_trade_average']) {
         const laborLookup = lookups[ls];
         if (!laborLookup?.available || !laborLookup.rates?.length) continue;
         const found = laborLookup.rates.filter((r) => r.pricingType === 'labor');
@@ -262,7 +262,7 @@ function pickRecommended(scopeItem, lookups, options = {}) {
       blendedMaterialSource = 'supplier_pricing';
 
       if (highVarianceMaterial) {
-        for (const ms of ['saved_pricing', 'saved_template', 'company_default', 'national_trade_average']) {
+        for (const ms of ['saved_pricing', 'saved_template', 'company_default', 'construction_cost_database', 'national_trade_average']) {
           const matLookup = lookups[ms];
           if (!matLookup?.available || !matLookup.rates?.length) continue;
           const found = matLookup.rates.filter((r) => r.pricingType === 'material');
@@ -334,7 +334,7 @@ function pickRecommended(scopeItem, lookups, options = {}) {
         reason =
           'National trade average for material and labor from your scope — planning only. Use saved bids when you have them; verify before billing.';
       } else if (src === 'construction_cost_database') {
-        reason = 'Location-adjusted construction cost database.';
+        reason = 'Location-adjusted construction cost database (county/metro index) — planning only. Verify before bidding.';
       } else {
         reason =
           'No saved pricing or live source found. AI fallback assumptions for planning only.';

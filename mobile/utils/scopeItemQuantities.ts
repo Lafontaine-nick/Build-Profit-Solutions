@@ -46,7 +46,8 @@ export type QuantitySource =
   | 'inferred'
   | 'default_assumption'
   | 'missing'
-  | 'not_applicable';
+  | 'not_applicable'
+  | 'plan_vision';
 
 export type ScopeItemQuantityRule = {
   defaultUnit: string;

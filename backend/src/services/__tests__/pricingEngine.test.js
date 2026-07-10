@@ -54,14 +54,14 @@ describe('pricingEngine', () => {
     expect(result.scopeItems.length).toBe(3);
   });
 
-  it('baseboard rough pricing uses national $/LF midpoints not wage÷productivity', async () => {
+  it('baseboard rough pricing uses location-adjusted cost database when state known', async () => {
     const result = await getPricingProposal({ draft, userId: 'test-pricing-isolated', mode: 'suggest' });
     const bb = result.scopeItems.find((s) => /baseboard/i.test(s.scopeName));
     expect(bb).toBeDefined();
-    expect(bb.recommended.source).toBe('national_trade_average');
+    expect(bb.recommended.source).toBe('construction_cost_database');
     const lab = bb.proposedRates.find((p) => p.pricingType === 'labor');
     const mat = bb.proposedRates.find((p) => p.pricingType === 'material');
-    // National midpoints ($5/LF labor, $2/LF material) region-adjusted for NV (customerState).
+    // National midpoints ($5/LF labor, $2/LF material) adjusted for NV (customerState).
     expect(lab?.rate).toBe(5.11);
     expect(mat?.rate).toBe(2.02);
     expect(lab?.total).toBe(2555);

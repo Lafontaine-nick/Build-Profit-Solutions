@@ -5,8 +5,8 @@ const SOURCE_PRIORITY = {
   saved_template: 3,
   company_default: 4,
   supplier_pricing: 5,
-  national_trade_average: 6,
-  construction_cost_database: 7,
+  construction_cost_database: 6,
+  national_trade_average: 7,
   ai_rough_estimate_fallback: 8,
 };
 

@@ -146,14 +146,29 @@ function matchMetro(blob, zipCode) {
 }
 
 /**
- * Resolve a location to regional cost factors.
- * @param {string} [projectLocation] free-text location (city, state, address)
- * @param {string} [zipCode] 5-digit ZIP or ZIP3
- * @returns {{region:string,label:string,costIndex:number,laborFactor:number,materialFactor:number,source:string,isDefault:boolean}}
+ * Resolve a location to regional cost factors (state/metro).
+ * Kept for nationalTradeAverage fallback and existing callers.
  */
 function resolveRegionalCostFactor(projectLocation = '', zipCode = '') {
-  const blob = ` ${String(projectLocation || '').toLowerCase()} `;
+  const county = resolveCountyCostFactor(projectLocation, zipCode);
+  return {
+    region: county.region,
+    label: county.label,
+    costIndex: county.costIndex,
+    laborFactor: county.laborFactor,
+    materialFactor: county.materialFactor,
+    source: county.source,
+    isDefault: county.isDefault,
+  };
+}
 
+/**
+ * Resolve the best available location factor for the construction cost database.
+ * Prefers metro/county precision over state; returns geographicPrecision for
+ * recommend.js to prefer this source over plain national averages.
+ */
+function resolveCountyCostFactor(projectLocation = '', zipCode = '') {
+  const blob = ` ${String(projectLocation || '').toLowerCase()} `;
   const metro = matchMetro(blob, zipCode);
   if (metro) {
     return {
@@ -161,6 +176,90 @@ function resolveRegionalCostFactor(projectLocation = '', zipCode = '') {
       label: metro.label,
       ...factorsFromIndex(metro.costIndex),
       source: 'metro_override',
+      geographicPrecision: 'metro',
+      isDefault: false,
+    };
+  }
+
+  // County-name match in free text (common contractor address patterns)
+  const COUNTY_NAME_INDEX = {
+    'clark county': { region: 'clark_nv', label: 'Clark County, NV', costIndex: 1.05, state: 'NV' },
+    'maricopa county': { region: 'maricopa_az', label: 'Maricopa County, AZ', costIndex: 1.0, state: 'AZ' },
+    'denver county': { region: 'denver_co', label: 'Denver County, CO', costIndex: 1.07, state: 'CO' },
+    'los angeles county': { region: 'la_ca', label: 'Los Angeles County, CA', costIndex: 1.22, state: 'CA' },
+    'orange county': { region: 'orange_ca', label: 'Orange County, CA', costIndex: 1.2, state: 'CA' },
+    'king county': { region: 'king_wa', label: 'King County, WA', costIndex: 1.18, state: 'WA' },
+    'cook county': { region: 'cook_il', label: 'Cook County, IL', costIndex: 1.14, state: 'IL' },
+    'harris county': { region: 'harris_tx', label: 'Harris County, TX', costIndex: 0.94, state: 'TX' },
+    'miami-dade': { region: 'miami_dade_fl', label: 'Miami-Dade County, FL', costIndex: 0.98, state: 'FL' },
+    'salt lake county': { region: 'salt_lake_ut', label: 'Salt Lake County, UT', costIndex: 0.98, state: 'UT' },
+  };
+  for (const [name, meta] of Object.entries(COUNTY_NAME_INDEX)) {
+    if (blob.includes(name)) {
+      return {
+        region: meta.region,
+        label: meta.label,
+        ...factorsFromIndex(meta.costIndex),
+        source: 'county_index',
+        geographicPrecision: 'county',
+        isDefault: false,
+      };
+    }
+  }
+
+  // ZIP3 → county-ish metro bands for common contractor markets
+  const zip3 = (String(zipCode || '').match(/\b(\d{5})\b/) || String(zipCode || '').match(/^(\d{3})/) || [])[1];
+  const zip3str = zip3 ? String(zip3).slice(0, 3) : null;
+  const ZIP3_COUNTY = {
+    '889': { region: 'clark_nv', label: 'Clark County, NV', costIndex: 1.05 },
+    '890': { region: 'clark_nv', label: 'Clark County, NV', costIndex: 1.05 },
+    '891': { region: 'clark_nv', label: 'Clark County, NV', costIndex: 1.05 },
+    '850': { region: 'maricopa_az', label: 'Maricopa County, AZ', costIndex: 1.0 },
+    '851': { region: 'maricopa_az', label: 'Maricopa County, AZ', costIndex: 1.0 },
+    '852': { region: 'maricopa_az', label: 'Maricopa County, AZ', costIndex: 1.0 },
+    '853': { region: 'maricopa_az', label: 'Maricopa County, AZ', costIndex: 1.0 },
+    '800': { region: 'denver_co', label: 'Denver metro, CO', costIndex: 1.07 },
+    '801': { region: 'denver_co', label: 'Denver metro, CO', costIndex: 1.07 },
+    '802': { region: 'denver_co', label: 'Denver metro, CO', costIndex: 1.07 },
+    '900': { region: 'la_ca', label: 'Los Angeles County, CA', costIndex: 1.22 },
+    '901': { region: 'la_ca', label: 'Los Angeles County, CA', costIndex: 1.22 },
+    '902': { region: 'la_ca', label: 'Los Angeles County, CA', costIndex: 1.22 },
+    '903': { region: 'la_ca', label: 'Los Angeles County, CA', costIndex: 1.22 },
+    '904': { region: 'la_ca', label: 'Los Angeles County, CA', costIndex: 1.22 },
+    '905': { region: 'la_ca', label: 'Los Angeles County, CA', costIndex: 1.22 },
+    '906': { region: 'la_ca', label: 'Los Angeles County, CA', costIndex: 1.22 },
+    '907': { region: 'la_ca', label: 'Los Angeles County, CA', costIndex: 1.22 },
+    '908': { region: 'la_ca', label: 'Los Angeles County, CA', costIndex: 1.22 },
+    '910': { region: 'la_ca', label: 'Los Angeles County, CA', costIndex: 1.22 },
+    '911': { region: 'la_ca', label: 'Los Angeles County, CA', costIndex: 1.22 },
+    '912': { region: 'la_ca', label: 'Los Angeles County, CA', costIndex: 1.22 },
+    '913': { region: 'la_ca', label: 'Los Angeles County, CA', costIndex: 1.22 },
+    '914': { region: 'la_ca', label: 'Los Angeles County, CA', costIndex: 1.22 },
+    '915': { region: 'la_ca', label: 'Los Angeles County, CA', costIndex: 1.22 },
+    '916': { region: 'la_ca', label: 'Los Angeles County, CA', costIndex: 1.22 },
+    '917': { region: 'la_ca', label: 'Los Angeles County, CA', costIndex: 1.22 },
+    '918': { region: 'la_ca', label: 'Los Angeles County, CA', costIndex: 1.22 },
+    '980': { region: 'king_wa', label: 'King County, WA', costIndex: 1.18 },
+    '981': { region: 'king_wa', label: 'King County, WA', costIndex: 1.18 },
+    '606': { region: 'cook_il', label: 'Cook County, IL', costIndex: 1.14 },
+    '607': { region: 'cook_il', label: 'Cook County, IL', costIndex: 1.14 },
+    '770': { region: 'harris_tx', label: 'Harris County, TX', costIndex: 0.94 },
+    '771': { region: 'harris_tx', label: 'Harris County, TX', costIndex: 0.94 },
+    '772': { region: 'harris_tx', label: 'Harris County, TX', costIndex: 0.94 },
+    '330': { region: 'miami_dade_fl', label: 'Miami-Dade County, FL', costIndex: 0.98 },
+    '331': { region: 'miami_dade_fl', label: 'Miami-Dade County, FL', costIndex: 0.98 },
+    '332': { region: 'miami_dade_fl', label: 'Miami-Dade County, FL', costIndex: 0.98 },
+    '840': { region: 'salt_lake_ut', label: 'Salt Lake County, UT', costIndex: 0.98 },
+    '841': { region: 'salt_lake_ut', label: 'Salt Lake County, UT', costIndex: 0.98 },
+  };
+  if (zip3str && ZIP3_COUNTY[zip3str]) {
+    const meta = ZIP3_COUNTY[zip3str];
+    return {
+      region: meta.region,
+      label: meta.label,
+      ...factorsFromIndex(meta.costIndex),
+      source: 'county_zip3',
+      geographicPrecision: 'county',
       isDefault: false,
     };
   }
@@ -172,11 +271,15 @@ function resolveRegionalCostFactor(projectLocation = '', zipCode = '') {
       label: `${state} state average`,
       ...factorsFromIndex(STATE_COST_INDEX[state]),
       source: 'state_index',
+      geographicPrecision: 'state',
       isDefault: STATE_COST_INDEX[state] === 1.0,
     };
   }
 
-  return { ...NATIONAL_FACTOR };
+  return {
+    ...NATIONAL_FACTOR,
+    geographicPrecision: 'national',
+  };
 }
 
 /** Percent delta string for assumptions, e.g. "+5%" / "-14%". */
@@ -187,6 +290,7 @@ function factorToPercentLabel(factor) {
 
 module.exports = {
   resolveRegionalCostFactor,
+  resolveCountyCostFactor,
   factorToPercentLabel,
   factorsFromIndex,
   zip3ToState,
