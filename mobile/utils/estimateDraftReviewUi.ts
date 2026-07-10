@@ -8,6 +8,7 @@ import {
   type BudgetSplitSource,
   type ItemBudgetBreakdown,
 } from '@/utils/scopeBudgetBreakdown';
+import { isSoftCostScopePackage } from '@/utils/softCostScope';
 
 export type ScopePackageBudgetBreakdown = ItemBudgetBreakdown;
 export type { BudgetSplitSource };
@@ -75,10 +76,16 @@ export function scopePackagePricingHint(pkg: EstimateDraftScopePackage): string 
   return 'needs pricing';
 }
 
-export function formatScopeQuantity(pkg: EstimateDraftScopePackage): string | null {
+export function formatScopeQuantity(
+  pkg: EstimateDraftScopePackage,
+  draft?: EstimateAiDraft | null
+): string | null {
   const q = pkg.scopeQuantities?.[0];
   if (!q) return null;
-  return `${q.quantity.toLocaleString()} ${formatDisplayUnit(q.unit)}`;
+  // Trade dollar lumps are not soft-cost allowances — show "lump sum" on Step 3.
+  const unit =
+    q.unit === 'allowance' && draft && !isSoftCostScopePackage(pkg, draft) ? 'lump_sum' : q.unit;
+  return `${q.quantity.toLocaleString()} ${formatDisplayUnit(unit)}`;
 }
 
 export function getStillNeededList(draft: EstimateAiDraft): string[] {

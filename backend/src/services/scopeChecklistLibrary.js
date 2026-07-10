@@ -577,13 +577,13 @@ const CHECKLIST_YES_HINTS = {
   demo: /\b(demo|demolition|tear\s*out|gut|remove)\b/,
   appliance_removal:
     /\b(remove|disconnect|pull|haul).*\b(appliance|ridge|dishwasher|range|refrigerator|oven|microwave|hood)\b|\b(appliance|ridge|dishwasher|range|refrigerator)\b.*\b(remove|disconnect|pull|haul)\b/,
-  floor_demo:
-    /\b(floor\s+demo|demo\s+(?:existing\s+)?(?:floor|tile|lvp|vinyl|flooring)|remove\s+(?:floor|tile|lvp|vinyl|flooring|kitchen\s+floor))\b/,
   flooring:
     /\bflooring\b|\b(lvp|laminate|vinyl|carpet|floor\s+tile|tile\s+floor)\b.*\binstall(?:ation)?\b|\binstall(?:ation)?\b.*\b(lvp|laminate|vinyl|carpet|flooring|floor\s+tile|tile\s+floor)\b/,
-  tub_demo: /\b(remove|demo|tear[\s-]?out|rip[\s-]?out).*\b(tub|bathtub)\b|\b(tub|bathtub)\b.*\b(remove|demo|tear[\s-]?out)\b/,
+  // Same-clause proximity — "demo the existing tile and tub ... install tile shower pan"
+  // must not read as tub/pan demo of things being installed, or cross sentences.
+  tub_demo: /\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,60}\b(tub|bathtub)\b|\b(tub|bathtub)\b[^.]{0,60}\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b/,
   shower_floor_demo:
-    /\b(remove|demo|tear[\s-]?out).*\b(shower\s+(?:pan|floor|base)|pan\s+insert|mud\s+pan)\b|\b(shower\s+(?:pan|floor|base)|prefab\s+pan)\b.*\b(remove|demo|tear[\s-]?out)\b/,
+    /\b(remove|demo|tear[\s-]?out)\b[^.]{0,50}\b(shower\s+(?:pan|floor|base)|pan\s+insert|mud\s+pan)\b|\b(shower\s+(?:pan|floor|base)|prefab\s+pan)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out)\b/,
   shower_tile: /\b(shower\s+wall\s+tile|shower\s+tile|tile\s+shower|new\s+shower\s+tile)\b/,
   wet_area_install: /\b(tub\s+install|new\s+tub|shower\s+pan|prefab\s+pan|tile\s+pan|mud\s+pan|tub[\s-]to[\s-]shower)\b/,
   shower_floor_tile: /\b(shower\s+floor\s+tile|tile\s+shower\s+floor)\b/,
@@ -597,7 +597,7 @@ const CHECKLIST_YES_HINTS = {
   countertops: /\b(countertops?|counters|quartz|granite|install\s+new\s+countertops?)\b/,
   backsplash: /\b(backsplash)\b/,
   appliances:
-    /\b(appliance\s+install|install\s+appliances?|appliance\s+allowance|hookup\s+appliances?|reconnect\s+appliances?|appliance\s+hookup)\b/,
+    /\b(appliance\s+reinstall|reinstall(?:ing)?\s+(?:old\s+|existing\s+)?appliances?|appliance\s+install|install\s+appliances?|appliance\s+allowance|hookup\s+appliances?|reconnect\s+appliances?|appliance\s+hookup|appliances?\s+(?:&|and)?\s*hookup)\b/,
   island: /\b(island)\b/,
   paint: /\b(paint(?:ing)?|bathroom\s+paint)\b/,
   lighting: /\b(new\s+lighting|lighting|light\s+fixtures?)\b/,
@@ -663,6 +663,9 @@ const CHECKLIST_YES_HINTS = {
 
 const CHECKLIST_NO_HINTS = {
   appliances: /\b(no\s+appliances|appliances\s+not\s+included|owner\s+appliances)\b/,
+  // Already out of the house — removal is not in this bid.
+  appliance_removal:
+    /\b(appliances?\s+have\s+(?:all\s+)?(?:already\s+)?been\s+removed|appliances?\s+already\s+(?:been\s+)?(?:removed|out|gone)|already\s+(?:been\s+)?removed\s+(?:the\s+)?appliances?|appliances?\s+(?:are|were)\s+already\s+(?:removed|out|gone))\b/,
   permits: /\b(no\s+permits|permits\s+not\s+included|owner\s+pulls?\s+permits)\b/,
   foundation:
     /\b(no|without|not\s+including)\s+(?:new\s+)?(?:foundation|footings?|slab)\b|\b(?:foundation|footings?|slab)\s+(?:not\s+included|excluded)\b/,
@@ -689,8 +692,20 @@ function checklistTemplateKey(draft, estimateTier) {
     return 'room_remodel';
   }
 
-  if (projectType === 'bathroom' || /\bbath(?:room)?\s+remodel\b/i.test(notes)) return 'bathroom';
-  if (projectType === 'kitchen' || /\bkitchen\s+remodel\b/i.test(notes)) return 'kitchen';
+  if (
+    projectType === 'bathroom' ||
+    /\bbath(?:room)?\s+remodel\b/i.test(notes) ||
+    /\b(shower(?:\s+pan)?|bathtubs?|tubs?|vanity|toilet|tile\s+shower)\b/i.test(notes)
+  ) {
+    return 'bathroom';
+  }
+  if (
+    projectType === 'kitchen' ||
+    /\bkitchen(?:\s+remodel)?\b/i.test(notes) ||
+    /\b(countertops?|backsplash|kitchen\s+island)\b/i.test(notes)
+  ) {
+    return 'kitchen';
+  }
   if (
     projectType === 'flooring' ||
     /\b(lvp|laminate|vinyl|carpet|flooring\s+(?:install|job)|floor\s+demo|baseboards?)\b/i.test(notes)
@@ -709,7 +724,12 @@ function checklistTemplateKey(draft, estimateTier) {
   if (projectType === 'framing' || /\b(fram(?:e|ing)\s+(?:wall|house|addition))\b/i.test(notes)) {
     return 'framing';
   }
-  if (projectType === 'roofing' || /\b(roof(?:ing)?\s+(?:replace|install|tear)|\d+\s*squares?|\bshingle)\b/i.test(notes)) {
+  // Roofing "squares" must not match "60 square feet" / "sq ft" area language.
+  if (
+    projectType === 'roofing' ||
+    /\b(roof(?:ing)?\s+(?:replace|install|tear)|\bshingle)\b/i.test(notes) ||
+    /\b\d+\s*squares?\b(?!\s*(?:feet|foot|ft)\b)/i.test(notes)
+  ) {
     return 'roofing';
   }
   if (projectType === 'hvac' || /\b(hvac|furnace|air\s+condition|heat\s+pump|duct(?:work)?)\b/i.test(notes)) {
@@ -744,9 +764,28 @@ function checklistTemplateKey(draft, estimateTier) {
   return 'room_remodel';
 }
 
+/**
+ * Flooring demo requires floor-specific language. Bare "tile" demo only counts
+ * when the job has no shower/tub context — "demo the existing tile and tub"
+ * means shower wall tile, not flooring.
+ */
+function floorDemoNotesHint(n) {
+  if (/\bfloor\s+demo\b/.test(n)) return true;
+  const verbs = '(?:demo|demolition|remove|removal|tear[\\s-]?out)';
+  const floorish = '(?:floor(?:ing)?|lvp|vinyl|laminate|carpet|kitchen\\s+floor|floor\\s+tile|tile\\s+floor)';
+  if (
+    new RegExp(`\\b${verbs}\\b[^.]{0,80}\\b${floorish}\\b|\\b${floorish}\\b[^.]{0,80}\\b${verbs}\\b`).test(n)
+  ) {
+    return true;
+  }
+  const bareTileDemo = new RegExp(`\\b${verbs}\\b[^.]{0,60}\\btile\\b|\\btile\\b[^.]{0,60}\\b${verbs}\\b`);
+  return bareTileDemo.test(n) && !/\b(shower|tub|bathtub|wet\s+area)\b/.test(n);
+}
+
 function inferItemStateFromNotes(itemId, notes) {
   const n = String(notes || '').toLowerCase();
   if (CHECKLIST_NO_HINTS[itemId]?.test(n)) return 'excluded';
+  if (itemId === 'floor_demo') return floorDemoNotesHint(n) ? 'included' : 'unsure';
   if (CHECKLIST_YES_HINTS[itemId]?.test(n)) return 'included';
   return 'unsure';
 }

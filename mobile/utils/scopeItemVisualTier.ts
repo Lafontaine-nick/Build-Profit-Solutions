@@ -12,7 +12,20 @@ import {
 
 export type ScopeItemVisualTier = 'primary' | 'secondary' | 'muted';
 
-export type ScopeItemNoteBadge = 'prefilled' | 'mentioned' | 'review';
+export type ScopeItemNoteBadge = 'prefilled' | 'mentioned' | 'from_photo' | 'review';
+
+function notesIncludeSitePhotos(notes: string | null | undefined): boolean {
+  const n = String(notes || '');
+  return /---\s*Site photos\s*---|Detected from site photos/i.test(n);
+}
+
+function maybePhotoBadge(
+  badge: ScopeItemNoteBadge,
+  notes: string | null | undefined
+): ScopeItemNoteBadge {
+  if (badge === 'mentioned' && notesIncludeSitePhotos(notes)) return 'from_photo';
+  return badge;
+}
 
 export const SCOPE_ITEM_TIER_OPACITY: Record<ScopeItemVisualTier, number> = {
   primary: 1,
@@ -85,23 +98,29 @@ export function scopeItemNoteBadge(
     return 'review';
   }
 
-  if (item.noteBacked && checklistItemInScope(item)) return 'mentioned';
+  if (item.noteBacked && checklistItemInScope(item)) return maybePhotoBadge('mentioned', notes);
 
-  if (itemIsExcluded(item) && inferItemStateFromNotes(item.id, notes) === 'excluded') return 'mentioned';
+  if (itemIsExcluded(item) && inferItemStateFromNotes(item.id, notes) === 'excluded') {
+    return maybePhotoBadge('mentioned', notes);
+  }
 
   if (item.inputType === 'choice' && item.choiceId && item.choiceId !== 'unsure') {
     const inferred = inferChoiceFromNotes(item.id, notes);
-    if (inferred && inferred === item.choiceId) return 'mentioned';
+    if (inferred && inferred === item.choiceId) return maybePhotoBadge('mentioned', notes);
   }
 
   if (item.inputType === 'multi_choice') {
     const inferred = inferChoicesFromNotes(item.id, notes);
     const choiceIds = item.choiceIds ?? [];
-    if (inferred.length && inferred.some((id) => choiceIds.includes(id))) return 'mentioned';
+    if (inferred.length && inferred.some((id) => choiceIds.includes(id))) {
+      return maybePhotoBadge('mentioned', notes);
+    }
   }
 
   if (item.state === 'included' && inferItemStateFromNotes(item.id, notes) === 'included') {
-    return itemPricingFromNotes(item, ctx) ? 'prefilled' : 'mentioned';
+    return itemPricingFromNotes(item, ctx)
+      ? 'prefilled'
+      : maybePhotoBadge('mentioned', notes);
   }
 
   if (
@@ -110,7 +129,7 @@ export function scopeItemNoteBadge(
     item.state === 'included' &&
     inferItemStateFromNotes('appliances', notes) === 'included'
   ) {
-    return 'mentioned';
+    return maybePhotoBadge('mentioned', notes);
   }
 
   return null;

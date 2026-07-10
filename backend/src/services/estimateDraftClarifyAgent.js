@@ -168,7 +168,7 @@ function mergePatchQuantities(basePatch, extra) {
     const seen = new Map();
     for (const item of combined) {
       const id =
-        key === 'packageQuantities'
+        key === 'packageQuantities' || key === 'packagePrices'
           ? normalizeName(item.packageName)
           : key === 'addPackages'
             ? normalizeName(item.name)
@@ -180,6 +180,7 @@ function mergePatchQuantities(basePatch, extra) {
   };
   mergeArr('packageQuantities');
   mergeArr('measurements');
+  mergeArr('packagePrices');
   if (extra.addPackages?.length) mergeArr('addPackages');
   if (extra.removePackages?.length) {
     patch.removePackages = [
@@ -189,13 +190,36 @@ function mergePatchQuantities(basePatch, extra) {
   return patch;
 }
 
+function parseCommandMoney(raw) {
+  if (raw == null) return null;
+  const text = String(raw).trim().toLowerCase();
+  if (!text) return null;
+  const k = text.match(/^([\d,]+(?:\.\d+)?)\s*k$/i);
+  if (k) return Number(String(k[1]).replace(/,/g, '')) * 1000;
+  const n = Number(text.replace(/[$,\s]/g, ''));
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function cleanPackageNameFromCommand(raw) {
+  return String(raw || '')
+    .replace(
+      /\b(can you|please|make|set|add|for|the|a|an|to|be|is|are|price|pricing|cost|total|amount)\b/gi,
+      ' '
+    )
+    .replace(/^[\s\-–,.:]+|[\s\-–,.:]+$/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+    .slice(0, 120);
+}
+
 /**
- * Lightweight deterministic parse for common add/remove commands so "add X"
- * works even if the LLM omits addPackages.
+ * Lightweight deterministic parse for common add/remove/price commands so
+ * "add X" and "$300 material / $900 labor" work even if the LLM omits fields
+ * or invents fake sqft quantities from dollar amounts.
  */
 function buildDeterministicRefinePatchFromCommand(command) {
   const text = String(command || '').trim();
-  const patch = { addPackages: [], removePackages: [] };
+  const patch = { addPackages: [], removePackages: [], packagePrices: [] };
   if (!text) return patch;
 
   const removeMatch = text.match(
@@ -205,6 +229,71 @@ function buildDeterministicRefinePatchFromCommand(command) {
     const name = removeMatch[1].replace(/\b(please|from\s+bid|from\s+scope)\b/gi, '').trim();
     if (name && name.length <= 120) patch.removePackages.push(name);
     return patch;
+  }
+
+  // "cabinet hardware $300 material and $900 labor" / "make hardware 300 for material and 900 for labor"
+  const splitMatch = text.match(
+    /(?:for\s+)?(.+?)\s+(?:can you\s+)?(?:make|set|use|change|update)?\s*\$?\s*([\d,]+(?:\.\d+)?\s*k?)\s*(?:for\s+)?materials?\s+(?:and\s+|&\s*)\$?\s*([\d,]+(?:\.\d+)?\s*k?)\s*(?:for\s+)?labou?r/i
+  );
+  if (splitMatch) {
+    const name = cleanPackageNameFromCommand(splitMatch[1]);
+    const material = parseCommandMoney(splitMatch[2]);
+    const labor = parseCommandMoney(splitMatch[3]);
+    if (name && material != null && labor != null) {
+      patch.packagePrices.push(
+        { packageName: name, amount: material, kind: 'material' },
+        { packageName: name, amount: labor, kind: 'labor' }
+      );
+      return patch;
+    }
+  }
+
+  // Reverse order: "$900 labor and $300 material for cabinet hardware"
+  const splitMatchReverse = text.match(
+    /\$?\s*([\d,]+(?:\.\d+)?\s*k?)\s*(?:for\s+)?labou?r\s+(?:and\s+|&\s*)\$?\s*([\d,]+(?:\.\d+)?\s*k?)\s*(?:for\s+)?materials?\s+(?:for\s+)?(.+)$/i
+  );
+  if (splitMatchReverse) {
+    const labor = parseCommandMoney(splitMatchReverse[1]);
+    const material = parseCommandMoney(splitMatchReverse[2]);
+    const name = cleanPackageNameFromCommand(splitMatchReverse[3]);
+    if (name && material != null && labor != null) {
+      patch.packagePrices.push(
+        { packageName: name, amount: material, kind: 'material' },
+        { packageName: name, amount: labor, kind: 'labor' }
+      );
+      return patch;
+    }
+  }
+
+  // "demo $500 labor" / "add for kitchen demo $500 labor" / "cabinet hardware $1200"
+  const pricedMatch = text.match(
+    /(?:add\s+(?:for\s+)?|for\s+|set\s+|make\s+)?(.+?)\s+\$?\s*([\d,]+(?:\.\d+)?\s*k?)\s*(?:dollars?)?\s*(labou?r|materials?|lump(?:\s*sum)?|total|allowance)?\s*[.?!]*$/i
+  );
+  if (pricedMatch) {
+    const name = cleanPackageNameFromCommand(pricedMatch[1]);
+    const amount = parseCommandMoney(pricedMatch[2]);
+    const kindRaw = String(pricedMatch[3] || '').toLowerCase();
+    let kind = 'lump_sum';
+    if (/labou?r/.test(kindRaw)) kind = 'labor';
+    else if (/material/.test(kindRaw)) kind = 'material';
+    if (name && amount != null && amount > 0 && !/\b(sqft|lf|cy|squares?)\b/i.test(pricedMatch[0])) {
+      patch.packagePrices.push({ packageName: name, amount, kind });
+      // "add X $N" should also ensure the package exists.
+      if (/^add\b/i.test(text)) {
+        const titled = name
+          .split(/\s+/)
+          .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+          .join(' ');
+        patch.addPackages.push({
+          name: titled,
+          scope: titled,
+          quantity: null,
+          unit: null,
+          amount,
+        });
+      }
+      return patch;
+    }
   }
 
   const addMatch = text.match(
@@ -247,6 +336,9 @@ function buildDeterministicRefinePatchFromCommand(command) {
         unit,
         amount: Number.isFinite(amount) && amount > 0 ? amount : null,
       });
+      if (Number.isFinite(amount) && amount > 0) {
+        patch.packagePrices.push({ packageName: titled, amount, kind: 'lump_sum' });
+      }
     }
   }
   return patch;
@@ -377,13 +469,14 @@ You will receive the current draft summary (with package names and prices) and o
 
 CRITICAL RULES:
 1. Never invent facts not stated or clearly implied by the command.
-2. Numbers with sqft/LF/CY/squares are QUANTITIES, never dollar amounts.
-3. For price changes ("$2k cheaper", "cut flooring by 500"), compute the NEW absolute amount from the current package price in the summary. Put that absolute amount in packagePrices — do not invent a package that isn't in the draft.
-4. For "remove X" / "exclude X" / "customer doing X" / "delete X": add to removePackages (exact package name from the draft) AND exclusions.
-5. For "add X" / "include X" / "add scope item X": put a new entry in addPackages with a clear contractor-facing name. Optionally include quantity/unit and amount if the command states them.
-6. packageName / removePackages names must match draft package names exactly (or the closest clear match).
-7. If the command is unclear or cannot change the draft, return empty arrays and notesAddendum explaining what you need.
-8. Prefer packageQuantities for measurements tied to a named package. Square footage → unit "sqft", never "squares" unless the command says squares.
+2. Numbers with sqft, LF, CY, squares are QUANTITIES, never dollar amounts. Do NOT put a dollar total into packageQuantities.
+3. Dollar amounts ("$1200", "$300 material", "$900 labor", "500 labor") go ONLY in packagePrices with kind lump_sum|material|labor. Never invent a matching packageQuantities row like quantity=1200 unit=sqft.
+4. For price changes ("$2k cheaper", "cut flooring by 500"), compute the NEW absolute amount from the current package price in the summary. Put that absolute amount in packagePrices — do not invent a package that isn't in the draft.
+5. For "remove X" / "exclude X" / "customer doing X" / "delete X": add to removePackages (exact package name from the draft) AND exclusions.
+6. For "add X" / "include X" / "add scope item X": put a new entry in addPackages with a clear contractor-facing name. Optionally include quantity/unit and amount if the command states them.
+7. packageName / removePackages names must match draft package names exactly (or the closest clear match).
+8. If the command is unclear or cannot change the draft, return empty arrays and notesAddendum explaining what you need.
+9. Prefer packageQuantities for measurements tied to a named package. Square footage → unit "sqft", never "squares" unless the command says squares.
 
 Return ONLY valid JSON:
 {
@@ -584,48 +677,146 @@ function applyClarifyPatch(draftInput, patch, options = {}) {
   }
 
   // 1. Package prices → rooms (enrichDraft rebuilds scopePackages from rooms).
+  // Also stamp Confirm Scope itemQuantities as dollar allowances so Step 3 does
+  // not invent fake sqft quantities (e.g. $1,200 → "1,200 sqft").
   const priceUpdates = Array.isArray(patch?.packagePrices) ? patch.packagePrices : [];
+  const pricedPackageNames = new Set();
+  const priceAmountsByPackage = new Map();
   let rooms = [...(draft.rooms || [])];
+  const priceItemQuantities = {
+    ...(draft.scopeMeasurements?.itemQuantities || {}),
+  };
   for (const update of priceUpdates) {
     const amount = Number(update?.amount);
     if (!Number.isFinite(amount) || amount < 0) continue;
     const room = findRoomForPackageName({ rooms }, update?.packageName);
     if (!room) continue;
     const kind = update?.kind === 'labor' || update?.kind === 'material' ? update.kind : 'lump_sum';
+    const pkgKey = normalizeName(room.name);
+    pricedPackageNames.add(pkgKey);
+    const prior = priceAmountsByPackage.get(pkgKey) || { material: 0, labor: 0, lump: 0 };
+    if (kind === 'material') prior.material = amount;
+    else if (kind === 'labor') prior.labor = amount;
+    else prior.lump = amount;
+    priceAmountsByPackage.set(pkgKey, prior);
+
     rooms = rooms.map((r) => {
       if (r !== room) return r;
+      let next;
       if (kind === 'labor') {
         const material = Number(r.materialPrice) || 0;
-        return {
+        next = {
           ...r,
           laborPrice: amount,
           price: material > 0 ? Math.round((material + amount) * 100) / 100 : amount,
           priceIncludesLaborAndMaterials: false,
           priceProvidedByUser: true,
         };
-      }
-      if (kind === 'material') {
+      } else if (kind === 'material') {
         const labor = Number(r.laborPrice) || 0;
-        return {
+        next = {
           ...r,
           materialPrice: amount,
           price: labor > 0 ? Math.round((labor + amount) * 100) / 100 : amount,
           priceIncludesLaborAndMaterials: false,
           priceProvidedByUser: true,
         };
+      } else {
+        next = {
+          ...r,
+          price: amount,
+          laborPrice: null,
+          materialPrice: null,
+          priceIncludesLaborAndMaterials: true,
+          priceProvidedByUser: true,
+        };
       }
-      return {
-        ...r,
-        price: amount,
-        laborPrice: null,
-        materialPrice: null,
-        priceIncludesLaborAndMaterials: true,
-        priceProvidedByUser: true,
-      };
+      // Keep display as 1 lump sum — never turn the dollar total into sqft/LF qty.
+      const total = Number(next.price) || amount;
+      next.scopeQuantities = [
+        {
+          label: r.name,
+          quantity: 1,
+          unit: 'lump_sum',
+          quantitySource: 'user_entered',
+        },
+      ];
+      next.budgetSplitBasis = null;
+      next.knownSubtotal = total;
+      next.calculatedSubtotal = total;
+      return next;
     });
+
+    const ruleKey = lookupRuleKeyForPackage(room.name, room.scope || '');
+    if (ruleKey) {
+      if (kind === 'material') {
+        priceItemQuantities[`${ruleKey}__material`] = {
+          quantity: amount,
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        };
+      } else if (kind === 'labor') {
+        priceItemQuantities[`${ruleKey}__labor`] = {
+          quantity: amount,
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        };
+      }
+      // Preserve the other leg from the room / prior stamps so a labor-only
+      // update does not wipe an existing material amount (and vice versa).
+      const mat =
+        kind === 'material'
+          ? amount
+          : Number(
+              priceItemQuantities[`${ruleKey}__material`]?.quantity ||
+                room.materialPrice ||
+                0
+            );
+      const lab =
+        kind === 'labor'
+          ? amount
+          : Number(
+              priceItemQuantities[`${ruleKey}__labor`]?.quantity || room.laborPrice || 0
+            );
+      if (mat > 0) {
+        priceItemQuantities[`${ruleKey}__material`] = {
+          quantity: mat,
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        };
+      }
+      if (lab > 0) {
+        priceItemQuantities[`${ruleKey}__labor`] = {
+          quantity: lab,
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        };
+      }
+      const total = mat + lab > 0 ? mat + lab : amount;
+      priceItemQuantities[`${ruleKey}__allowance`] = {
+        quantity: total,
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+      };
+      priceItemQuantities[ruleKey] = {
+        quantity: total,
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+      };
+    }
+
     appliedSummary.push(`${room.name}: ${formatMoney(amount)}${kind === 'lump_sum' ? '' : ` ${kind}`}`);
   }
   draft.rooms = rooms;
+  if (priceUpdates.length) {
+    draft.scopeMeasurements = {
+      ...(draft.scopeMeasurements || {}),
+      itemQuantities: {
+        ...(draft.scopeMeasurements?.itemQuantities || {}),
+        ...priceItemQuantities,
+      },
+    };
+  }
 
   // 2. Inclusions / exclusions.
   const addStrings = (existing, incoming, label) => {
@@ -679,6 +870,8 @@ function applyClarifyPatch(draftInput, patch, options = {}) {
 
   // 5. Package quantities — stamp directly onto matching rooms so Step 3 scope
   // rows show "50 LF" / "1,100 sqft" even when there is no top-level measurement key.
+  // Skip rows that are clearly dollar totals mistaken for measurements (Ask AI
+  // "$1,200 for hardware" must not become "1,200 sqft").
   const measurementPatchFromPackages = {};
   const itemQuantities = {
     ...(draft.scopeMeasurements?.itemQuantities || {}),
@@ -690,6 +883,27 @@ function applyClarifyPatch(draftInput, patch, options = {}) {
     if (!Number.isFinite(quantity) || quantity <= 0) continue;
     const room = findRoomForPackageName({ rooms: roomsForQty }, entry?.packageName);
     if (!room) continue;
+
+    const pkgKey = normalizeName(room.name);
+    const priced = priceAmountsByPackage.get(pkgKey);
+    const pricedTotal =
+      priced && (priced.material > 0 || priced.labor > 0)
+        ? priced.material + priced.labor
+        : priced?.lump || Number(room.price) || 0;
+    const looksLikeDollarQty =
+      pricedPackageNames.has(pkgKey) &&
+      (Math.abs(quantity - pricedTotal) < 0.01 ||
+        Math.abs(quantity - (priced?.material || 0)) < 0.01 ||
+        Math.abs(quantity - (priced?.labor || 0)) < 0.01 ||
+        Math.abs(quantity - (priced?.lump || 0)) < 0.01);
+    const measurementUnit = ['sqft', 'sf', 'lf', 'cy', 'squares', 'square', 'tons', 'each'].includes(unit);
+    if (looksLikeDollarQty && measurementUnit && unit !== 'each') {
+      continue;
+    }
+    if (pricedPackageNames.has(pkgKey) && (unit === 'sqft' || unit === 'sf') && !entry?.unit) {
+      // Defaulted unit with a priced package — treat as price, not area.
+      continue;
+    }
 
     // Guard: never treat roofing sqft as roofing "squares".
     if (unit === 'squares' && quantity >= 100 && /roof/i.test(room.name)) {
@@ -791,6 +1005,24 @@ function applyClarifyPatch(draftInput, patch, options = {}) {
       if (unit === 'squares' && quantity >= 100) unit = 'sqft';
       const room = findRoomForPackageName({ rooms: stampedRooms }, entry?.packageName);
       if (!room) continue;
+      const pkgKey = normalizeName(room.name);
+      const priced = priceAmountsByPackage.get(pkgKey);
+      const pricedTotal =
+        priced && (priced.material > 0 || priced.labor > 0)
+          ? priced.material + priced.labor
+          : priced?.lump || 0;
+      if (
+        pricedPackageNames.has(pkgKey) &&
+        (Math.abs(quantity - pricedTotal) < 0.01 ||
+          Math.abs(quantity - (priced?.material || 0)) < 0.01 ||
+          Math.abs(quantity - (priced?.labor || 0)) < 0.01 ||
+          Math.abs(quantity - (priced?.lump || 0)) < 0.01) &&
+        unit !== 'each' &&
+        unit !== 'allowance' &&
+        unit !== 'lump_sum'
+      ) {
+        continue;
+      }
       const idx = stampedRooms.indexOf(room);
       if (idx < 0) continue;
       stampedRooms[idx] = {

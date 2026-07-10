@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
+import AIEstimateDisclaimer from '@/components/estimate/AIEstimateDisclaimer';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { aiFlowStepTotal, isComplexEstimateTier } from '@/utils/estimateAiDraft';
 import {
@@ -399,6 +400,8 @@ export default function AIEstimateDraftReviewModal({
             </View>
           </>
         ) : null}
+
+        {!scopeOnly || scopeHasPricing ? <AIEstimateDisclaimer variant="compact" /> : null}
 
         {scopeOnly && scopeHasPricing ? (
           <TouchableOpacity

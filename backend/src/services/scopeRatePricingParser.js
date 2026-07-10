@@ -18,6 +18,9 @@ const RATE_UNIT = new RegExp(
 );
 const PER = '(?:\\/|per|a|@)\\s*(?:the\\s+)?';
 const MONEY = '[\\$]?';
+// Dictated filler between label and amount: "material is going to be three dollars…"
+const VERB_FILLER =
+  '(?:(?:is|are|will|runs?|costs?)\\s*)?(?:going\\s+to\\s+be\\s*|gonna\\s+be\\s*|be\\s*)?(?:about\\s*|around\\s*|approximately\\s*|roughly\\s*)?';
 const NUMBER_WORDS = {
   one: 1,
   two: 2,
@@ -137,7 +140,7 @@ function extractUnitRates(clause, unit = 'sqft') {
   pushRateMatches(
     clause,
     new RegExp(
-      `\\b(?:materials?|material\\s+(?:cost|price))\\s*(?:is\\s*)?${MONEY}\\s*(${RATE_AMOUNT})\\s*(?:dollars?\\s*)?(?:${PER}${denom}|${denom})\\b`,
+      `\\b(?:materials?|material\\s+(?:cost|price))\\s*${VERB_FILLER}${MONEY}\\s*(${RATE_AMOUNT})\\s*(?:dollars?\\s*)?(?:${PER}${denom}|${denom})\\b`,
       'gi'
     ),
     materialRates
@@ -145,7 +148,7 @@ function extractUnitRates(clause, unit = 'sqft') {
   pushRateMatches(
     clause,
     new RegExp(
-      `\\blabor(?:\\s+(?:cost|price))?\\s*(?:is\\s*)?${MONEY}\\s*(${RATE_AMOUNT})\\s*(?:dollars?\\s*)?(?:${PER})?${denom}\\b`,
+      `\\blabor(?:\\s+(?:cost|price))?\\s*${VERB_FILLER}${MONEY}\\s*(${RATE_AMOUNT})\\s*(?:dollars?\\s*)?(?:${PER})?${denom}\\b`,
       'gi'
     ),
     laborBeforePrice
@@ -259,18 +262,43 @@ function ratePricingItemIdFromKey(key) {
 
 function mergeRatePricingEntries(out, itemId, entries) {
   const allowanceKey = ITEM_RATE_MEASUREMENT[itemId]?.split ? `${itemId}__allowance` : itemId;
+  const matKey = `${itemId}__material`;
+  const labKey = `${itemId}__labor`;
   const nextTotal = Number(entries[allowanceKey]?.quantity || 0);
   const prevTotal = Number(out[allowanceKey]?.quantity || 0);
-  const prevLabor = Number(out[`${itemId}__labor`]?.quantity || 0);
-  const nextLabor = Number(entries[`${itemId}__labor`]?.quantity || 0);
+  const prevMaterial = Number(out[matKey]?.quantity || 0);
+  const prevLabor = Number(out[labKey]?.quantity || 0);
+  const nextMaterial = Number(entries[matKey]?.quantity || 0);
+  const nextLabor = Number(entries[labKey]?.quantity || 0);
+
+  // Complementary clauses ("tile material $3/sqft" + "tile labor $5/sqft") combine
+  // instead of the later clause replacing the earlier one.
+  const complementary =
+    prevTotal > 0 &&
+    nextTotal > 0 &&
+    ((prevMaterial > 0 && !prevLabor && nextLabor > 0 && !nextMaterial) ||
+      (prevLabor > 0 && !prevMaterial && nextMaterial > 0 && !nextLabor));
+  if (complementary) {
+    const material = prevMaterial || nextMaterial;
+    const labor = prevLabor || nextLabor;
+    out[matKey] = { quantity: material, unit: 'allowance', quantitySource: 'notes' };
+    out[labKey] = { quantity: labor, unit: 'allowance', quantitySource: 'notes' };
+    out[allowanceKey] = {
+      quantity: roundMoney(material + labor),
+      unit: 'allowance',
+      quantitySource: 'notes',
+    };
+    return out;
+  }
+
   const shouldReplace =
     !prevTotal ||
     nextTotal > prevTotal ||
     (nextLabor > 0 && nextLabor !== prevLabor) ||
     (nextTotal === prevTotal && nextLabor > prevLabor);
   if (!shouldReplace) return out;
-  delete out[`${itemId}__material`];
-  delete out[`${itemId}__labor`];
+  delete out[matKey];
+  delete out[labKey];
   delete out[allowanceKey];
   delete out[itemId];
   return Object.assign(out, entries);
@@ -371,6 +399,27 @@ const RATE_PRICING_MATCHERS = [
 ];
 
 /**
+ * Bathroom/shower jobs often price "tile" without repeating "shower tile" in the
+ * rate clause ("Tile material is $3 a square foot"). Map bare tile → shower_tile
+ * only in shower context; floor tile / backsplash clauses stay excluded.
+ */
+function ratePricingMatchersForContext(notes, ctx = {}) {
+  const showerContext =
+    ctx.templateKey === 'bathroom' ||
+    ctx.projectType === 'bathroom' ||
+    /\bshower\b/i.test(String(notes || ''));
+  if (!showerContext) return RATE_PRICING_MATCHERS;
+  return [
+    ...RATE_PRICING_MATCHERS,
+    {
+      id: 'shower_tile',
+      match: /\btile\b/i,
+      exclude: /\b(floors?|flooring|backsplash|demo|demolition|remove|removal|tear[\s-]?out)\b/i,
+    },
+  ];
+}
+
+/**
  * @param {string} notes
  * @param {Record<string, number|undefined>} measurements parsed sqft fields
  * @param {{ templateKey?: string, projectType?: string }} [ctx]
@@ -380,11 +429,12 @@ function parseScopeItemRatePricingFromNotes(notes, measurements = {}, ctx = {}) 
   if (!text) return {};
 
   const out = {};
+  const matchers = ratePricingMatchersForContext(text, ctx);
   const clauses = splitRateClauses(text);
   for (const clause of clauses) {
     if (!RATE_UNIT.test(clause)) continue;
 
-    for (const matcher of RATE_PRICING_MATCHERS) {
+    for (const matcher of matchers) {
       if (!clauseMatchesMatcher(clause, matcher)) continue;
 
       const { quantity, unit } =

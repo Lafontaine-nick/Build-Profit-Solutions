@@ -440,4 +440,56 @@ describe('applyDraftToEstimate budget splits', () => {
       { name: 'Baseboard', total: 1100 },
     ]);
   });
+
+  it('treats appliance reinstall lump as labor, not a soft-cost allowance', () => {
+    const draft = {
+      projectType: 'kitchen',
+      estimateTier: 'room_remodel',
+      originalNotes: 'Reinstall old appliances $300',
+      scopeChecklist: { templateKey: 'kitchen' },
+      scopeMeasurements: { itemQuantities: {} },
+      rooms: [],
+      scopePackages: [
+        {
+          name: 'Appliance reinstall & hookup',
+          scope: 'Reconnect and install appliances after cabinets.',
+          price: 300,
+          laborPrice: null,
+          materialPrice: null,
+          status: 'user_provided',
+          priceSource: 'user_provided',
+          applyEligible: true,
+          scopeQuantities: [{ quantity: 300, unit: 'allowance' }],
+        },
+        {
+          name: 'Permits / fees',
+          scope: 'permits',
+          price: 500,
+          laborPrice: null,
+          materialPrice: null,
+          status: 'user_provided',
+          priceSource: 'user_provided',
+          applyEligible: true,
+          scopeQuantities: [{ quantity: 500, unit: 'allowance' }],
+        },
+      ],
+    } as unknown as EstimateAiDraft;
+
+    const appliances = resolveScopePackageBudgetBreakdown(draft.scopePackages![0], draft);
+    expect(appliances).toMatchObject({
+      total: 300,
+      material: 0,
+      labor: 300,
+    });
+
+    // Soft costs stay unsplittable so Step 3 can put them in Allowances.
+    expect(resolveScopePackageBudgetBreakdown(draft.scopePackages![1], draft)).toBeNull();
+
+    const { bid } = applyDraftToEstimate({}, draft, { applyConfirmedOnly: true });
+    const laborLines = bid.laborLineItems as Array<{ name?: string; total?: number }>;
+    const allowanceLines = bid.allowanceLineItems as Array<{ name?: string; amount?: number }>;
+    expect(laborLines.find((l) => /Appliance/i.test(String(l.name)))?.total).toBe(300);
+    expect(allowanceLines.find((l) => /Permit/i.test(String(l.name)))?.amount).toBe(500);
+    expect(allowanceLines.some((l) => /Appliance/i.test(String(l.name)))).toBe(false);
+  });
 });

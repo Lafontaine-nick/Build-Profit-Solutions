@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Modal,
   View,
@@ -12,6 +12,7 @@ import {
   KeyboardAvoidingView,
   ScrollView,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -20,6 +21,12 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
 import AIEstimateDisclaimer from '@/components/estimate/AIEstimateDisclaimer';
+import EstimateVoiceDictationButton from '@/components/estimate/EstimateVoiceDictationButton';
+import EstimateSitePhotosStrip, {
+  type EstimateSitePhotosStripHandle,
+  type SitePhotoState,
+} from '@/components/estimate/EstimateSitePhotosStrip';
+import type { PhotoScopeDetection } from '@/utils/estimateAiDraft';
 
 type Props = {
   visible: boolean;
@@ -30,7 +37,7 @@ type Props = {
   embedded?: boolean;
   onClose: () => void;
   onBack?: () => void;
-  onGenerate: (notes: string) => void;
+  onGenerate: (notes: string, photoDetections?: PhotoScopeDetection[]) => void;
 };
 
 export default function AIEstimateBuilderModal({
@@ -46,7 +53,13 @@ export default function AIEstimateBuilderModal({
   const insets = useSafeAreaInsets();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
+  const photosStripRef = useRef<EstimateSitePhotosStripHandle>(null);
   const [notes, setNotes] = useState('');
+  const [photoDetections, setPhotoDetections] = useState<PhotoScopeDetection[]>([]);
+  const [photoState, setPhotoState] = useState<SitePhotoState>({
+    photoCount: 0,
+    hasAnalyzed: false,
+  });
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [localGenerating, setLocalGenerating] = useState(false);
   const busy = generating || localGenerating;
@@ -54,6 +67,8 @@ export default function AIEstimateBuilderModal({
   useEffect(() => {
     if (visible) {
       setNotes(initialNotes || '');
+      setPhotoDetections([]);
+      setPhotoState({ photoCount: 0, hasAnalyzed: false });
     } else {
       setKeyboardVisible(false);
       setLocalGenerating(false);
@@ -92,7 +107,37 @@ export default function AIEstimateBuilderModal({
     }
   };
 
-  const handleGenerate = async () => {
+  const handleTranscript = (text: string) => {
+    setNotes((prev) => {
+      const existing = prev.trim();
+      return existing ? `${existing}\n${text}` : text;
+    });
+  };
+
+  const handlePhotoNotesMerged = (
+    mergedNotes: string,
+    detectionCount: number,
+    detections: PhotoScopeDetection[]
+  ) => {
+    setNotes(mergedNotes);
+    setPhotoDetections(detections || []);
+    // Defer alert so it doesn't fight the modal / picker dismiss animation.
+    setTimeout(() => {
+      if (detectionCount > 0) {
+        Alert.alert(
+          'Scope from photos',
+          `${detectionCount} item${detectionCount === 1 ? '' : 's'} detected and added to Job notes. Review the text, then Generate.`
+        );
+      } else {
+        Alert.alert(
+          'Photo notes added',
+          'Observations were added to Job notes. Review the text, then Generate.'
+        );
+      }
+    }, 0);
+  };
+
+  const runGenerate = async () => {
     const trimmed = notes.trim();
     if (!trimmed || busy) return;
     setLocalGenerating(true);
@@ -101,10 +146,32 @@ export default function AIEstimateBuilderModal({
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
     try {
-      await Promise.resolve(onGenerate(trimmed));
+      await Promise.resolve(onGenerate(trimmed, photoDetections));
     } catch {
       setLocalGenerating(false);
     }
+  };
+
+  const handleGenerate = () => {
+    const trimmed = notes.trim();
+    if (!trimmed || busy) return;
+    // Photos attached but Detect never run — remind so users don't skip vision scope.
+    if (photoState.photoCount > 0 && !photoState.hasAnalyzed) {
+      const n = photoState.photoCount;
+      Alert.alert(
+        'Detect scope from photos?',
+        `You added ${n} photo${n === 1 ? '' : 's'} but haven't run Detect scope yet. That step finds finishes and likely work from the pictures — worth doing before generating.`,
+        [
+          { text: 'Generate anyway', style: 'cancel', onPress: () => void runGenerate() },
+          {
+            text: 'Detect first',
+            onPress: () => photosStripRef.current?.detectScope(),
+          },
+        ]
+      );
+      return;
+    }
+    void runGenerate();
   };
 
   const placeholderColor = darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub;
@@ -121,12 +188,35 @@ export default function AIEstimateBuilderModal({
   const notesField = (
     <>
       <Text style={{ color: Colors.sub, fontSize: 13, lineHeight: 18, marginBottom: 14 }}>
-        Paste notes with prices, sqft, and splits — AI drafts scope for review.
+        Type, paste, dictate, or add site photos — AI drafts scope for review.
       </Text>
 
-      <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 8 }}>
-        Job notes
-      </Text>
+      <EstimateSitePhotosStrip
+        ref={photosStripRef}
+        Colors={Colors}
+        darkMode={darkMode}
+        disabled={busy}
+        existingNotes={notes}
+        onNotesMerged={handlePhotoNotesMerged}
+        onPhotoStateChange={setPhotoState}
+      />
+
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 8,
+        }}
+      >
+        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>Job notes</Text>
+        <EstimateVoiceDictationButton
+          Colors={Colors}
+          darkMode={darkMode}
+          disabled={busy}
+          onTranscript={handleTranscript}
+        />
+      </View>
       <TextInput
         value={notes}
         onChangeText={setNotes}
@@ -199,7 +289,7 @@ export default function AIEstimateBuilderModal({
       <View style={{ flex: 1 }}>
         <AIEstimateFlowHeader
           title="Build with AI"
-          subtitle="Paste walkthrough notes"
+          subtitle="Notes, dictate, or site photos"
           step={1}
           fromAssistant={fromAssistant}
           omitTopSafeArea={embedded}

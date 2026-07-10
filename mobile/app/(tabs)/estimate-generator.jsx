@@ -88,6 +88,7 @@ import {
 } from '../../utils/estimateSavedBidTemplates';
 import {
   applyDraftToEstimate,
+  applyPhotoDetectionsToDraft,
   applyScopeAssumptionsToDraft,
   fetchEstimateDraftFromNotes,
   fetchSuggestedDraftSplits,
@@ -5837,7 +5838,7 @@ export default function EstimateGeneratorScreen() {
     ]
   );
 
-  const handleGenerateAiDraft = useCallback(async (notes) => {
+  const handleGenerateAiDraft = useCallback(async (notes, photoDetections) => {
     if (aiDraftGenerating) return;
     setAiDraftGenerating(true);
     setAiDraftNotes(notes);
@@ -5861,7 +5862,12 @@ export default function EstimateGeneratorScreen() {
       } catch {
         templates = savedBidTemplates;
       }
-      const draft = await fetchEstimateDraftFromNotes(notes, templates);
+      let draft = await fetchEstimateDraftFromNotes(notes, templates);
+      // Photo detections apply directly to the Step 2 checklist (structured vision
+      // output, not notes-regex re-parsing) — only fills items still "unsure".
+      if (photoDetections?.length) {
+        draft = applyPhotoDetectionsToDraft(draft, photoDetections);
+      }
       const draftTitle = `${draft.projectTitle || ''} ${draft.customerName || ''}`.toLowerCase();
       setAiSaveToPricingLibrary(!/\b(test|demo|sample|example)\b/.test(draftTitle));
       setAiDraft(draft);
@@ -5900,12 +5906,13 @@ export default function EstimateGeneratorScreen() {
     setAiDraft((prev) => {
       if (!prev) return prev;
       const scopeNotes = prev.originalNotes || aiDraftNotes;
+      const safeMeasurements = measurements || { itemQuantities: {} };
       const repairedMeasurements = scopeNotes.trim()
-        ? scopeMeasurementsPayloadForPersist(measurements, {
+        ? scopeMeasurementsPayloadForPersist(safeMeasurements, {
             notes: scopeNotes,
             templateKey: prev.scopeChecklist?.templateKey,
           })
-        : measurements;
+        : safeMeasurements;
       latestScopeMeasurementsRef.current = repairedMeasurements || null;
       const nextDraft = syncDraftWithLatestScopeMeasurements(
         mergeScopeProgressIntoDraft(prev, items, repairedMeasurements, {

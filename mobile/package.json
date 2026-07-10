@@ -135,7 +135,7 @@
       "<rootDir>/jest.setup.js"
     ],
     "transformIgnorePatterns": [
-      "node_modules/(?!(expo|react-native|@react-native|@react-navigation|@expo|expo-router|@react-native-community|react-native-.*|@react-native-.*)/)"
+      "node_modules/(?!(expo|expo-.*|react-native|@react-native|@react-navigation|@expo|expo-router|@react-native-community|react-native-.*|@react-native-.*)/)"
     ]
   }
 }

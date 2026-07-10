@@ -66,4 +66,21 @@ describe('scopeQuickMeasurements', () => {
     expect(counts.total).toBeGreaterThan(0);
     expect(counts.filled).toBe(2);
   });
+
+  it('keeps kitchen quick fields when checklist is kitchen even if projectType is flooring', () => {
+    const rows = quickMeasurementRowsForTemplate('kitchen', 'flooring');
+    const keys = rows.flat().map((field) => field.key);
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'kitchenFloorSqft',
+        'backsplashSqft',
+        'countertopSqft',
+        'cabinetLf',
+        'wallPaintSqft',
+        'baseboardLf',
+      ])
+    );
+    expect(keys).not.toContain('floorAreaSqft');
+    expect(keys).not.toContain('bathroomFloorSqft');
+  });
 });

@@ -19,8 +19,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
+import AIEstimateDisclaimer from '@/components/estimate/AIEstimateDisclaimer';
 import {
   SCOPE_MENTIONED_IN_NOTES_LABEL,
+  SCOPE_DETECTED_FROM_PHOTOS_LABEL,
   SCOPE_PARSED_FROM_NOTES_LABEL,
   scopeLinkedToNotesSummary,
 } from '@/constants/scopeNoteSourceLabels';
@@ -108,18 +110,16 @@ import {
 import { resolveFormulaQuantityApplyTarget, shouldShowFormulaQuantityButton, isFormulaQuantityApplyTargetActive, usesAutoFlatworkSqftPricing } from '@/utils/scopeFormulaRegistry';
 import {
   AcceptedPricingSummary,
-  ProjectReviewSummary,
 } from '@/components/estimate/AcceptedPricingSummary';
 import {
   buildAcceptanceFromSuggestedBlock,
-  collectProjectWideScopeGaps,
   hasAcceptedScopePricing,
   markManualPricingAdjustment,
   parsePricingAmount,
   resolveAcceptedPricingDisplay,
   shouldHideSuggestedPanel,
 } from '@/utils/acceptedPricingSummaryUi';
-import { evaluateProjectScopeGaps, type AssemblyComponentStatus } from '@/utils/scopeAssemblyRegistry';
+import { type AssemblyComponentStatus } from '@/utils/scopeAssemblyRegistry';
 import {
   applyParentScopeGapPriceAddon,
   adjustSuggestedPricingBlock,
@@ -222,11 +222,13 @@ function ScopeItemTitleRow({
   const badgeLabel =
     noteBadge === 'prefilled'
       ? 'Prefilled'
-      : noteBadge === 'mentioned'
-        ? SCOPE_MENTIONED_IN_NOTES_LABEL
-        : noteBadge === 'review'
-          ? 'Review'
-          : null;
+      : noteBadge === 'from_photo'
+        ? SCOPE_DETECTED_FROM_PHOTOS_LABEL
+        : noteBadge === 'mentioned'
+          ? SCOPE_MENTIONED_IN_NOTES_LABEL
+          : noteBadge === 'review'
+            ? 'Review'
+            : null;
   const badgeColor = noteBadge === 'review' ? '#f59e0b' : '#22c55e';
 
   return (
@@ -4283,17 +4285,6 @@ export default function AIEstimateScopeAssumptionsModal({
     }),
     [displayItems]
   );
-  const projectReviewGaps = useMemo(
-    () =>
-      collectProjectWideScopeGaps(
-        evaluateProjectScopeGaps({
-          projectContext: checklist?.templateKey,
-          activeScopeKeys: scopeAssemblyContext.activeScopeKeys,
-          excludedScopeKeys: scopeAssemblyContext.excludedScopeKeys,
-        })
-      ),
-    [checklist?.templateKey, scopeAssemblyContext.activeScopeKeys, scopeAssemblyContext.excludedScopeKeys]
-  );
 
   const unconfirmedSuggestedPricing = useMemo<UnconfirmedSuggestedPricing[]>(() => {
     const rows: UnconfirmedSuggestedPricing[] = [];
@@ -5165,29 +5156,6 @@ export default function AIEstimateScopeAssumptionsModal({
       return;
     }
 
-    if (pricingCounts.needsMeasurement > 0) {
-      const count = pricingCounts.needsMeasurement;
-      Alert.alert(
-        'Measurements still needed',
-        `${count} included item${count === 1 ? '' : 's'} still need measurements.`,
-        [
-          { text: 'Enter missing measurements', style: 'cancel', onPress: scrollToFirstMissingMeasurement },
-          {
-            text: 'Continue anyway',
-            onPress: proceed,
-          },
-          onScopeOnly
-            ? {
-                text: 'Save scope only',
-                onPress: () =>
-                  onScopeOnly(scopeMeasurementsPayloadForCurrentState()),
-              }
-            : { text: 'Cancel', style: 'cancel' },
-        ]
-      );
-      return;
-    }
-
     proceed();
   };
 
@@ -5242,6 +5210,7 @@ export default function AIEstimateScopeAssumptionsModal({
         showsVerticalScrollIndicator={false}
       >
         <View ref={scrollContentRef} collapsable={false}>
+        <AIEstimateDisclaimer variant="review" />
         <Text
           style={{
             color: captionColor(darkMode, Colors),
@@ -5270,8 +5239,6 @@ export default function AIEstimateScopeAssumptionsModal({
             </>
           ) : null}
         </Text>
-
-        <ProjectReviewSummary gaps={projectReviewGaps} Colors={Colors} darkMode={darkMode} />
 
         <CollapsibleQuickMeasurements
           expanded={quickMeasurementsOpen}

@@ -206,6 +206,35 @@ Demo old cabinets and haul off $850 lump sum`;
     expect(parsed.rock_mulch).toMatchObject({ quantity: 1140, unit: 'allowance' });
   });
 
+  test('dictated shower job: spelled-out split rates parse and demo hints stay accurate', () => {
+    const { parseScopeItemRatePricingFromNotes } = require('../scopeRatePricingParser');
+    const { inferItemStateFromNotes } = require('../scopeChecklistLibrary');
+    const notes =
+      'Okay, this shower is about 100 square feet. I need to demo the existing tile and tub, install new Denshield for backer, and then tile the shower walls and install tile shower pan, reinstall new shower trim, and do some rough plumbing. I also need to do waterproofing including red guard. Tile material is going to be three dollars a square foot and tile install Labor is going to be five dollars a square foot';
+
+    const parsed = parseScopeItemRatePricingFromNotes(
+      notes,
+      { showerWallTileSqft: 100 },
+      { templateKey: 'bathroom' }
+    );
+    expect(parsed.shower_tile__material).toMatchObject({ quantity: 300, unit: 'allowance' });
+    expect(parsed.shower_tile__labor).toMatchObject({ quantity: 500, unit: 'allowance' });
+    expect(parsed.shower_tile__allowance).toMatchObject({ quantity: 800, unit: 'allowance' });
+
+    // "demo the existing tile and tub" is shower tile + tub — not flooring demo,
+    // and "install tile shower pan" is a new pan — not pan demo.
+    expect(inferItemStateFromNotes('floor_demo', notes)).toBe('unsure');
+    expect(inferItemStateFromNotes('shower_floor_demo', notes)).toBe('unsure');
+    expect(inferItemStateFromNotes('tub_demo', notes)).toBe('included');
+    expect(inferItemStateFromNotes('shower_tile', notes)).toBe('included');
+
+    // Legit cases still detect.
+    expect(inferItemStateFromNotes('shower_floor_demo', 'Remove existing shower pan and rebuild')).toBe('included');
+    expect(
+      inferItemStateFromNotes('floor_demo', 'Demo existing tile in main bath 850 sqft lump sum $2,550.')
+    ).toBe('included');
+  });
+
   test('flooring scope preserves material and labor splits for final estimate apply', () => {
     const notes =
       'Flooring job. Demo existing tile 850 sqft at $3 per sqft. Install LVP 850 sqft material $4.50 per sqft labor $3.25 per sqft. Baseboard 220 linear feet $7 per linear foot.';

@@ -254,7 +254,7 @@ export type KitchenScopeInferenceCtx = {
   measurements?: NormalizedScopeMeasurements;
 };
 
-/** Kitchen: reinstalling appliances implies removal; combined cabinets+counters implies countertops. */
+/** Kitchen: reinstalling appliances implies removal unless notes say already removed; combined cabinets+counters implies countertops. */
 export function applyKitchenScopeInferences(
   items: ScopeChecklistItem[],
   templateKey?: string | null,
@@ -265,11 +265,14 @@ export function applyKitchenScopeInferences(
   const next = items.map((item) => ({ ...item }));
   const removalIdx = next.findIndex((i) => i.id === 'appliance_removal');
   const reinstallIdx = next.findIndex((i) => i.id === 'appliances');
+  const notesSayAlreadyRemoved =
+    inferItemStateFromNotes('appliance_removal', ctx?.notes) === 'excluded';
   if (
     removalIdx >= 0 &&
     reinstallIdx >= 0 &&
     next[reinstallIdx].state === 'included' &&
-    next[removalIdx].state === 'unsure'
+    next[removalIdx].state === 'unsure' &&
+    !notesSayAlreadyRemoved
   ) {
     next[removalIdx] = { ...next[removalIdx], state: 'included' };
   }

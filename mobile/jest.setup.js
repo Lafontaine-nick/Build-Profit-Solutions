@@ -34,8 +34,23 @@ jest.mock('expo-haptics', () => ({
   selectionAsync: jest.fn(),
 }));
 
-jest.mock('expo-document-picker', () => ({
-  getDocumentAsync: jest.fn(),
+try {
+  require.resolve('expo-document-picker');
+  jest.mock('expo-document-picker', () => ({
+    getDocumentAsync: jest.fn(),
+  }));
+} catch (error) {
+  // expo-document-picker not installed, skip mock
+}
+
+// expo-constants pulls in expo-modules-core native setup that crashes under jest.
+jest.mock('expo-constants', () => ({
+  __esModule: true,
+  default: {
+    expoConfig: { extra: {}, hostUri: null },
+    executionEnvironment: 'bare',
+    appOwnership: null,
+  },
 }));
 
 jest.mock('expo-file-system', () => ({

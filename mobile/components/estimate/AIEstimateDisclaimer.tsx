@@ -5,22 +5,22 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 
 type Props = {
-  /** compact: Step 1 intro. review: Step 2 scroll. apply: above Apply button. */
+  /** compact: quiet one-liner (Step 1 / Step 3 footer). review: Step 2 box. apply: liability above Apply. */
   variant?: 'compact' | 'review' | 'apply';
 };
 
 export const AI_ESTIMATE_DISCLAIMER_LINES = [
-  'AI organizes your notes into a draft for review — not a finished bid.',
+  'Suggested prices are a planning guide only — not a finished bid or quote.',
   'You are responsible for verifying prices, scope, markup, and totals before sending to a client.',
-  'Suggested labor/material splits use standard trade ratios, not numbers from your notes.',
+  'National averages and suggested labor/material splits are estimates, not numbers from your notes.',
   'This tool does not replace your professional judgment, local codes, or licensed trade requirements.',
 ] as const;
 
 const COMPACT_DISCLAIMER =
-  'Drafts help organize walkthrough notes. Always review pricing and scope before applying or sending a bid. Suggested labor/material splits are estimates only.';
+  'Suggested prices are a planning guide only. Always review pricing and scope before applying or sending a bid.';
 
 const COMPACT_PREVIEW =
-  'Always review pricing and scope before applying. Suggested splits are estimates only.';
+  'Suggested prices are a planning guide — always review before applying.';
 
 export default function AIEstimateDisclaimer({ variant = 'compact' }: Props) {
   const { theme, darkMode } = useTheme();
@@ -76,7 +76,7 @@ export default function AIEstimateDisclaimer({ variant = 'compact' }: Props) {
     <View style={[styles.box, styles.reviewBox, { borderColor, backgroundColor: bg }]}>
       <View style={styles.titleRow}>
         <MaterialIcons name="info-outline" size={17} color={iconColor} />
-        <Text style={[styles.title, { color: titleColor }]}>Important — review before applying</Text>
+        <Text style={[styles.title, { color: titleColor }]}>Pricing is a guide — review before applying</Text>
       </View>
       {AI_ESTIMATE_DISCLAIMER_LINES.map((line) => (
         <View key={line} style={styles.bulletRow}>
@@ -110,15 +110,16 @@ const styles = StyleSheet.create({
   compactWrap: {
     width: '100%',
     alignItems: 'center',
-    marginTop: 12,
-    paddingHorizontal: 12,
+    marginTop: 4,
+    marginBottom: 2,
+    paddingHorizontal: 4,
   },
   compactInline: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'center',
     gap: 6,
-    maxWidth: 320,
+    maxWidth: 340,
     paddingVertical: 2,
   },
   compactIcon: {
@@ -126,8 +127,8 @@ const styles = StyleSheet.create({
   },
   compactInlineText: {
     flexShrink: 1,
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 11,
+    lineHeight: 15,
     textAlign: 'center',
   },
   bulletRow: {

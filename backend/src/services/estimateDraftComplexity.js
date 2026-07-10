@@ -307,11 +307,13 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
   if (templateKey === 'kitchen') {
     const removalIdx = items.findIndex((i) => i.id === 'appliance_removal');
     const reinstallIdx = items.findIndex((i) => i.id === 'appliances');
+    const notesSayAlreadyRemoved = inferItemStateFromNotes('appliance_removal', notes) === 'excluded';
     if (
       removalIdx >= 0 &&
       reinstallIdx >= 0 &&
       items[reinstallIdx].state === 'included' &&
-      items[removalIdx].state === 'unsure'
+      items[removalIdx].state === 'unsure' &&
+      !notesSayAlreadyRemoved
     ) {
       items[removalIdx] = { ...items[removalIdx], state: 'included' };
     }

@@ -14,6 +14,10 @@ const {
 const { enrichDraft } = require('../services/estimateDraftEnrichment');
 const { applyScopeAssumptions, buildScopeChecklist } = require('../services/estimateDraftComplexity');
 const { enrichDraftPhase2, buildRoughEstimateRange } = require('../services/estimateDraftPhase2');
+const {
+  analyzeSitePhotosForScope,
+  mergePhotoNotesIntoJobNotes,
+} = require('../services/estimatePhotoToScope');
 
 // Additive: persistent per-user memory. All calls are best-effort and wrapped
 // in try/catch so existing request logic is never blocked if this fails.
@@ -15700,6 +15704,76 @@ router.post('/transcribe', async (req, res) => {
       error: 'Transcription failed',
       message: error.message || 'Failed to transcribe audio',
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+    });
+  }
+});
+
+/**
+ * POST /api/ai-assistant/photo-to-scope
+ * Site photos → contractor-readable scope notes + checklist detections (vision).
+ * Does not create a draft — client merges notes then calls estimate-draft-from-notes.
+ */
+router.post('/photo-to-scope', async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(503).json({
+        error: 'Vision service unavailable',
+        message: 'OpenAI API key not configured',
+      });
+    }
+
+    const { images, existingNotes, projectTypeHint, templateKeyHint, mergeIntoNotes } = req.body || {};
+    const result = await analyzeSitePhotosForScope({
+      images,
+      existingNotes,
+      projectTypeHint,
+      templateKeyHint,
+      openai,
+      aiModels,
+      aiRuntime,
+    });
+
+    if (!result.success) {
+      return res.json({
+        success: false,
+        reason: result.reason,
+        scopeText: '',
+        notesBlock: '',
+        mergedNotes: String(existingNotes || '').trim(),
+        detections: [],
+        templateKey: result.templateKey,
+      });
+    }
+
+    const mergedNotes =
+      mergeIntoNotes === false
+        ? String(existingNotes || '').trim()
+        : mergePhotoNotesIntoJobNotes(existingNotes, result.notesBlock);
+
+    return res.json({
+      success: true,
+      reason: null,
+      scopeText: result.scopeText,
+      notesBlock: result.notesBlock,
+      mergedNotes,
+      detections: result.detections,
+      templateKey: result.templateKey,
+      projectTypeHint: result.projectTypeHint,
+    });
+  } catch (err) {
+    console.error('Error in /photo-to-scope:', err);
+    const openaiCode = err?.code || err?.error?.code;
+    if (openaiCode === 'invalid_image_format') {
+      return res.status(400).json({
+        error: 'Unsupported photo format',
+        message:
+          'One of the photos is in a format OpenAI cannot read (often HEIC). Re-take or re-select the photo and try Detect again.',
+      });
+    }
+    const status = err?.status && Number.isFinite(err.status) ? err.status : 500;
+    return res.status(status).json({
+      error: 'Photo scope analysis failed',
+      message: err?.message || 'Could not analyze site photos',
     });
   }
 });

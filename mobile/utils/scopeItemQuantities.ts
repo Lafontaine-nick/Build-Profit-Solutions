@@ -1436,18 +1436,18 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     quantityHelper: 'Enter cleanup and disposal allowance for this job.',
     missingMessage: 'Enter cleanup/disposal allowance.',
   },
-  appliance_removal: {
-    defaultUnit: 'each',
-    allowedUnits: ['each', 'lump_sum', 'allowance'],
-    defaultQuantity: 1,
-    quantityHelper: 'Price appliance removal by count with material and labor.',
-  },
   appliances: {
     defaultUnit: 'each',
-    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    allowedUnits: ['each', 'lump_sum'],
     requiresUserQuantity: true,
     quantityHelper: 'Enter appliance count and price material and labor.',
-    missingMessage: 'Enter appliance count or allowance.',
+    missingMessage: 'Enter appliance count or a labor lump sum.',
+  },
+  appliance_removal: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'lump_sum'],
+    defaultQuantity: 1,
+    quantityHelper: 'Price appliance removal by count with material and labor.',
   },
   cabinets: {
     defaultUnit: 'lf',
@@ -1456,6 +1456,13 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     requiresUserQuantity: true,
     quantityHelper: 'Enter cabinet run LF and price material and labor.',
     missingMessage: 'Enter cabinet LF or allowance.',
+  },
+  cabinet_hardware: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter hardware count or allowance (pulls/knobs).',
+    missingMessage: 'Enter cabinet hardware count or allowance.',
   },
   countertops: {
     defaultUnit: 'sqft',
@@ -2504,7 +2511,11 @@ function explicitItemQuantityOverride(
 export function syncItemQuantitiesToMeasurementFields(
   input: ScopeMeasurementsInputExtended
 ): ScopeMeasurementsInputExtended {
-  const next = syncDualAllowanceSqftFields(input);
+  const safeInput: ScopeMeasurementsInputExtended = {
+    ...(input || {}),
+    itemQuantities: input?.itemQuantities || {},
+  };
+  const next = syncDualAllowanceSqftFields(safeInput);
   const mappings: Array<[string, keyof ScopeMeasurementsInputExtended]> = [
     ['drywall', 'drywallSqft'],
     ['hang', 'drywallSqft'],
@@ -2516,7 +2527,7 @@ export function syncItemQuantitiesToMeasurementFields(
     ['pour_flatwork', 'concreteSqft'],
   ];
   for (const [itemId, field] of mappings) {
-    const entry = input.itemQuantities[itemId];
+    const entry = safeInput.itemQuantities?.[itemId];
     if (!entry?.quantity || entry.unit !== 'sqft') continue;
     if (!EXPLICIT_ITEM_QUANTITY_SOURCES.has(entry.quantitySource || 'user_entered')) continue;
     next[field] = String(entry.quantity);
@@ -4380,30 +4391,84 @@ export function resolveChecklistItemQuantity(
   );
 }
 
-/** Package name patterns → checklist quantity rule key (mirrors backend catalog). */
+/** Package name patterns → checklist quantity rule key (mirrors backend catalog).
+ * Order matters: specific trade+action rows MUST win before broad word matchers,
+ * or unrelated Step 3 packages inherit the wrong LF/sqft and national rates
+ * (same class of bug as cabinet hardware / appliance reinstall → cabinets).
+ */
 const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   { test: /\bbath(?:room)?\s+demo\b|\bdemo\b.*\bbath/i, key: 'demo' },
+  // Flooring / tile demo before any install matcher (carpet alone used to → flooring $).
+  {
+    test: /\b(carpet|lvp|laminate|vinyl|tile|flooring|floor)\b[^.]{0,40}\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b|\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,40}\b(carpet|lvp|laminate|vinyl|tile|flooring|floor)\b/i,
+    key: 'floor_demo',
+  },
   { test: /\btile\s+demo|\btile\s+removal|\btile\s+demolition/i, key: 'floor_demo' },
   { test: /\bfloor\s+demo|\bflooring\s+demo/i, key: 'floor_demo' },
   {
     test: /\b(lvp|laminate|vinyl|carpet|flooring)\b.*\b(install|installation)\b|\b(install|installation)\b.*\b(lvp|laminate|vinyl|carpet|flooring)\b/i,
     key: 'flooring',
   },
-  { test: /\b(lvp|laminate|vinyl|carpet)\b|\bflooring\s+install/i, key: 'flooring' },
+  { test: /\b(lvp|laminate|vinyl)\b|\bflooring\s+install/i, key: 'flooring' },
   { test: /\bshower\s+floor\s+tile|\btile\s+shower\s+floor/i, key: 'shower_floor_tile' },
   { test: /\bprefab\s+shower\s+pan|\bshower\s+pan\s+install/i, key: 'prefab_shower_pan' },
   { test: /\btile\s+shower\s+pan|\bmud\s+pan/i, key: 'shower_pan' },
   { test: /\bshower\s+pan|\btile\s+pan/i, key: 'shower_pan' },
-  { test: /\btub\s+install|\btub\s+installation|\bbathtub/i, key: 'tub_install' },
-  { test: /\bshower\s+niche|\bniche/i, key: 'shower_niche' },
-  { test: /\bshower\s+bench|\bcurb/i, key: 'shower_bench_curb' },
-  { test: /\bexhaust\s+fan|\bbath\s+fan|\bventilation/i, key: 'exhaust_fan' },
-  { test: /\bmirror|\baccessories|\btowel\s+bar/i, key: 'mirror_accessories' },
-  { test: /\bfloor\s+prep|\bsubfloor|\bunderlayment/i, key: 'floor_prep' },
+  // Tub demo before tub install (bare "bathtub" used to → tub_install).
+  {
+    test: /\b(tub|bathtub)\b[^.]{0,40}\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b|\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,40}\b(tub|bathtub)\b/i,
+    key: 'tub_demo',
+  },
+  { test: /\btub\s+install|\btub\s+installation|\b(?:new\s+)?bathtub\s+install/i, key: 'tub_install' },
+  { test: /\bshower\s+niche\b/i, key: 'shower_niche' },
+  { test: /\bshower\s+bench\b|\bshower\s+curb\b/i, key: 'shower_bench_curb' },
+  // HVAC ventilation before bath exhaust fan.
+  {
+    test: /\b(hvac|furnace|duct|mechanical)\b[^.]{0,40}\bventilation\b|\bventilation\b[^.]{0,40}\b(hvac|duct|mechanical)\b/i,
+    key: 'ventilation',
+  },
+  { test: /\bexhaust\s+fan\b|\bbath(?:room)?\s+fan\b|\bbath(?:room)?\s+ventilation\b/i, key: 'exhaust_fan' },
+  { test: /\bmirror\b|\btowel\s+bar\b|\bbath(?:room)?\s+accessories\b/i, key: 'mirror_accessories' },
+  // Roof underlayment before floor_prep (shared "underlayment" word).
+  {
+    test: /\b(roof|shingle|ice\s*(?:&|and)\s*water|felt|synthetic)\b[^.]{0,40}\bunderlayment\b|\bunderlayment\b[^.]{0,40}\b(roof|shingle|ice\s*(?:&|and)\s*water)\b|\bice\s*(?:&|and)\s*water\b/i,
+    key: 'underlayment',
+  },
+  { test: /\bfloor\s+prep\b|\bsubfloor\b|\bfloor\s+underlayment\b/i, key: 'floor_prep' },
   { test: /\bback\s*splash/i, key: 'backsplash' },
+  // Specific kitchen lines must win before the broad cabinet matcher —
+  // otherwise "Cabinet hardware" and scope text like "after cabinets" steal
+  // cabinet LF + national cabinet rates ($150+$75).
+  { test: /\bcabinet\s*hardware\b|\bhardware\b.*\b(?:pulls?|knobs?)\b|\bpulls?\s*(?:&|and|,)?\s*knobs?\b/i, key: 'cabinet_hardware' },
+  { test: /\bappliance\s*removal\b|\bremove\s+(?:existing\s+)?appliances?\b/i, key: 'appliance_removal' },
+  {
+    test: /\bappliance\s*reinstall\b|\breinstall\b.*\bappliances?\b|\bappliances?\s*(?:&|and)?\s*hookup\b|\bappliance\s+hookup\b|\bappliances?\b/i,
+    key: 'appliances',
+  },
+  {
+    test: /\bcabinet[s\s&/,]*counter.*\bdemo\b|\bdemo\b.*\bcabinets?\b|\bkitchen\s+demo\b/i,
+    key: 'demo',
+  },
+  // Cabinet paint before cabinets LF rates.
+  {
+    test: /\b(?:paint|painting|stain|refinish)\b[^.]{0,40}\bcabinets?\b|\bcabinets?\b[^.]{0,40}\b(?:paint|painting|stain|refinish)\b/i,
+    key: 'trim_paint',
+  },
+  { test: /\bkitchen\s+island\b|\bisland\b.*\bcabinet|\bcabinet\b.*\bisland\b/i, key: 'island' },
   { test: /\bcabinets?\s*(?:&|and|\/)\s*counters?|\bcounters?\s*(?:&|and|\/)\s*cabinets?/i, key: 'cabinets_counters' },
-  { test: /\bcabinet/i, key: 'cabinets' },
+  // Real cabinet install only — not "after cabinets" incidental mentions in other scopes.
+  { test: /(?<!after\s)(?<!before\s)\b(?:new\s+)?cabinets?\b(?!\s*hardware)/i, key: 'cabinets' },
+  // Countertop demo before countertop install rates.
+  {
+    test: /\bcountertops?\b[^.]{0,40}\b(demo|demolition|removal|remove|tear[\s-]?out)\b|\b(demo|demolition|removal|remove|tear[\s-]?out)\b[^.]{0,40}\bcountertops?\b/i,
+    key: 'demo',
+  },
   { test: /\bcountertop/i, key: 'countertops' },
+  // Sink/faucet before cleanup (bare "disposal" used to → cleanup $).
+  {
+    test: /\bsink\b|\bfaucet\b|\bgarbage\s+disposal\b|\bdisposals?\b.*\b(sink|faucet|garbage)\b|\bsink[,\s]+faucet/i,
+    key: 'sink_faucet',
+  },
   { test: /\bplans?\s*(?:&|and|\/|,)?\s*engineering|\bengineering\s*(?:&|and|\/|,)?\s*plans?/i, key: 'plans_engineering' },
   { test: /\bcontingenc/i, key: 'contingency' },
   { test: /\bfinal\s+inspection/i, key: 'final_inspections' },
@@ -4421,40 +4486,83 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
     key: 'pour_flatwork',
   },
   { test: /\bfootings?\b|\bpiers?\b|\bfoundation\s+pour\b/i, key: 'pour_foundation' },
+  // Concrete demo/removal before concrete install rates.
+  {
+    test: /\bconcrete\b[^.]{0,40}\b(demo|demolition|removal|remove|tear[\s-]?out|break[\s-]?out)\b|\b(demo|demolition|removal|remove|tear[\s-]?out|break[\s-]?out)\b[^.]{0,40}\bconcrete\b/i,
+    key: 'demo_removal',
+  },
   { test: /\bconcrete\b/i, key: 'concrete' },
+  { test: /\butility\s+trench|\btrench(?:ing)?\b/i, key: 'utility_trenching' },
+  { test: /\bgrading\b/i, key: 'grading' },
+  { test: /\bsite\s*(?:prep|work)\b/i, key: 'sitework' },
   { test: /\bexcavat/i, key: 'excavation' },
   { test: /\brail(?:ing)?\b|\bguardrail\b/i, key: 'railing' },
-  { test: /\bshower\b.*\btile\b|\btile\b.*\bshower\b|\bshower\s+wall\s+tile/i, key: 'shower_tile' },
+  { test: /\bshower\s+wall\s+tile\b|\bshower\b[^.]{0,30}\bwall\b[^.]{0,20}\btile\b|\btile\b[^.]{0,30}\bshower\s+wall\b/i, key: 'shower_tile' },
   { test: /\bwaterproof|\bbacker\s+board/i, key: 'waterproofing' },
-  { test: /\bfloor\b.*\btile\b|\btile\b.*\bfloor\b/i, key: 'floor_tile' },
+  { test: /\bfloor\s+tile\b|\btile\s+floor\b|\bfloor\b[^.]{0,20}\btile\b|\btile\b[^.]{0,20}\bfloor\b/i, key: 'floor_tile' },
   { test: /\bvanity\b/i, key: 'vanity' },
   { test: /\btoilet\b/i, key: 'toilet' },
-  { test: /\bframing|\bshell\b/i, key: 'framing' },
+  // Framing hardware before framing $/sqft.
+  {
+    test: /\b(framing|structural|connector|fastener|hurricane|simpson)\b[^.]{0,40}\bhardware\b|\bhardware\b[^.]{0,40}\b(connector|framing|structural|fastener)\b/i,
+    key: 'hardware',
+  },
+  { test: /\bframing\b(?!\s*hardware)|\bshell\b/i, key: 'framing' },
   { test: /\bhvac\b|\bheat(?:ing)?\s*(?:&|and)?\s*air|\bfurnace|\bmini[\s-]?split/i, key: 'hvac' },
   { test: /\binsulat/i, key: 'insulation' },
-  { test: /\bdeck(?:ing)?\b(?!.*demo|.*removal)/i, key: 'decking' },
-  { test: /\btear[\s-]?off\b/i, key: 'tear_off' },
-  { test: /\bshingle|\broof(?:ing)?\b|\btie[\s-]?in\b/i, key: 'shingles_roofing' },
-  { test: /\bwindow|\bdoor\b/i, key: 'windows_doors' },
+  // Deck demo / stain / roof decking before deck surface install.
+  {
+    test: /\b(deck|patio)\b[^.]{0,40}\b(demo|demolition|removal|remove|tear[\s-]?out)\b|\b(demo|demolition|removal|remove|tear[\s-]?out)\b[^.]{0,40}\b(deck|patio)\b/i,
+    key: 'demo_removal',
+  },
+  {
+    test: /\b(roof|shingle)\b[^.]{0,40}\bdeck(?:ing)?\b|\bdeck(?:ing)?\b[^.]{0,40}\b(repair|replace|sheath|sheathing)\b/i,
+    key: 'decking_repair',
+  },
+  {
+    test: /\bstain\b[^.]{0,40}\bdeck\b|\bseal\b[^.]{0,40}\bdeck\b|\bdeck\b[^.]{0,40}\b(stain|seal|finish)\b/i,
+    key: 'staining_sealing',
+  },
+  {
+    test: /\bdeck(?:ing)?\b[^.]{0,40}\b(install|surface|boards?|composite|wood)\b|\b(?:install|build|replace)\b[^.]{0,40}\bdeck(?:ing)?\b/i,
+    key: 'decking',
+  },
+  { test: /\btear[\s-]?off\b|\bremove\b[^.]{0,30}\bshingles?\b/i, key: 'tear_off' },
+  { test: /\broof(?:ing)?\s*(?:\/\s*)?tie[\s-]?in\b|\btie[\s-]?in\b[^.]{0,30}\broof\b/i, key: 'roof_tie_in' },
+  {
+    test: /\bshingles?\b[^.]{0,40}\b(install|installation|replace)\b|\broof(?:ing)?\b[^.]{0,40}\b(install|installation|replace)\b|\bshingle\b|\broof(?:ing)?\b/i,
+    key: 'shingles_roofing',
+  },
+  // Shower/glass door BEFORE bare window/door (was stealing glass_door → windows_doors).
+  { test: /\bshower\s+door\b|\bglass\s+(?:shower\s+)?door\b|\bshower\s+enclosure\b|\bglass\s+door\b/i, key: 'glass_door' },
+  { test: /\b(?:interior|exterior|entry|patio|sliding|french)\s+doors?\b|\bwindows?\b|\bdoor\b/i, key: 'windows_doors' },
   { test: /\bplant|\btree\b|\bshrub/i, key: 'plants_trees' },
-  { test: /\bsite\s*work|\bgrading\b/i, key: 'excavation' },
   { test: /\bfoundation\b/i, key: 'pour_foundation' },
   { test: /\btile\s+flooring\b|\bflooring\s+tile\b/i, key: 'floor_tile' },
   { test: /\bplumb.*\brough|\brough[\s-]?in\b.*\bplumb/i, key: 'plumbing_rough' },
   { test: /\belectrical\b(?!.*trim)|\bnew\s+circuits\b/i, key: 'electrical_rough' },
   { test: /\blight(?:ing)?\s+fix|\bfixture.*\blight/i, key: 'lighting' },
-  { test: /\bdrywall\b|\bpatch/i, key: 'drywall' },
+  // Drywall hang/finish/patch before bare drywall/patch.
+  { test: /\bhang\b[^.]{0,30}\bdrywall\b|\bdrywall\b[^.]{0,30}\bhang\b/i, key: 'hang' },
+  { test: /\b(tape|mud|finish)\b[^.]{0,30}\bdrywall\b|\bdrywall\b[^.]{0,30}\b(tape|mud|finish)\b/i, key: 'finish_tape' },
+  { test: /\bpatch\b[^.]{0,30}\b(drywall|sheetrock|gypsum)\b|\b(drywall|sheetrock)\b[^.]{0,30}\bpatch\b/i, key: 'patch_repair' },
+  { test: /\bdrywall\b/i, key: 'drywall' },
   // Exterior/interior must win over the generic paint key so Confirm Scope rates
   // for interior paint are not copied onto an "add exterior painting" package.
-  { test: /\bexterior[\s-]*(?:paint|painting)\b|\b(?:paint|painting)[\s-]*exterior\b/i, key: 'exterior_paint' },
-  { test: /\binterior[\s-]*(?:paint|painting)\b|\b(?:paint|painting)[\s-]*interior\b/i, key: 'interior_paint' },
+  { test: /\bexterior[\s-]*(?:paint|painting)\b|\b(?:paint|painting)[\s-]*exterior\b|\b(siding|stucco|soffit|fascia)\b[^.]{0,30}\b(?:paint|painting)\b/i, key: 'exterior_paint' },
+  { test: /\binterior[\s-]*(?:paint|painting)\b|\b(?:paint|painting)[\s-]*interior\b|\bceiling\b[^.]{0,20}\b(?:paint|painting)\b/i, key: 'interior_paint' },
+  {
+    test: /\btrim\b[^.]{0,30}\b(?:paint|painting)\b|\b(?:paint|painting)\b[^.]{0,30}\btrim\b|\bdoors?\b[^.]{0,20}\b(?:paint|painting)\b/i,
+    key: 'trim_paint',
+  },
   { test: /\bpaint|\bpainting/i, key: 'paint' },
   { test: /\bbaseboard|\btrim\s+install|\btrim\s+&\s+baseboard|\binterior\s+trim\b/i, key: 'trim' },
-  { test: /\bshower\s+door|\bglass\s+door|\benclosure/i, key: 'glass_door' },
-  { test: /\bplumb.*\btrim|\bplumbing\s+trim|\bfinal\s+plumb/i, key: 'plumbing_trim' },
+  { test: /\bplumb.*\btrim|\bplumbing\s+trim|\bfinal\s+plumb|\bfixture\s+hookup\b/i, key: 'plumbing_trim' },
+  { test: /\bplumbing\s+connections?\b/i, key: 'plumbing' },
   { test: /\belectrical\s+trim|\bdevices.*\bplates/i, key: 'electrical_trim' },
   { test: /\bpermit|\binspection/i, key: 'permits' },
-  { test: /\bcleanup|\bdisposal|\bhaul[\s-]?off|\bdumpster/i, key: 'cleanup' },
+  // Cleanup: drop bare "disposal" (conflicts with garbage disposal).
+  { test: /\bcleanup\b|\bhaul[\s-]?off\b|\bdumpster\b|\bfinal\s+clean\b|\bjob\s+cleanup\b/i, key: 'cleanup' },
   { test: /\bplumb(?!.*trim)/i, key: 'plumbing_rough' },
 ];
 
@@ -4648,10 +4756,14 @@ export function countDraftPricingReadiness(draft: EstimateAiDraft | null | undef
 }
 
 export function buildNormalizedScopeMeasurementsFromInput(
-  input: ScopeMeasurementsInputExtended,
+  input: ScopeMeasurementsInputExtended | null | undefined,
   options?: { notes?: string | null; templateKey?: string | null }
 ): NormalizedScopeMeasurements {
-  let extended = syncItemQuantitiesToMeasurementFields(input);
+  const safeInput: ScopeMeasurementsInputExtended = {
+    ...(input || {}),
+    itemQuantities: input?.itemQuantities || {},
+  };
+  let extended = syncItemQuantitiesToMeasurementFields(safeInput);
   const notes = String(options?.notes || '').trim();
   if (notes) {
     extended = reparseRatePricingIntoItemQuantities(extended, notes, options?.templateKey);
@@ -4661,10 +4773,14 @@ export function buildNormalizedScopeMeasurementsFromInput(
 
 /** Persist scope measurements with rate-pricing subkeys baked from notes when available. */
 export function scopeMeasurementsPayloadForPersist(
-  input: ScopeMeasurementsInputExtended,
+  input: ScopeMeasurementsInputExtended | null | undefined,
   options?: { notes?: string | null; templateKey?: string | null }
 ): ScopeMeasurements {
-  let extended = syncItemQuantitiesToMeasurementFields(input);
+  const safeInput: ScopeMeasurementsInputExtended = {
+    ...(input || {}),
+    itemQuantities: input?.itemQuantities || {},
+  };
+  let extended = syncItemQuantitiesToMeasurementFields(safeInput);
   const notes = String(options?.notes || '').trim();
   if (notes) {
     extended = reparseRatePricingIntoItemQuantities(extended, notes, options?.templateKey);

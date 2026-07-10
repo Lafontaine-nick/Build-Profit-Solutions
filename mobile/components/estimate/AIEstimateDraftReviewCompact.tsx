@@ -26,9 +26,9 @@ import {
   shouldHidePerRowStatus,
 } from '@/utils/estimateDraftReviewUi';
 import { draftHasApplyablePricing } from '@/utils/estimateAiDraftPricing';
+import { isSoftCostScopePackage } from '@/utils/softCostScope';
 import type { EstimateConfidenceLevel } from '@/utils/estimateAiDraft';
 import { estimateFlowCardStyle, estimateFlowDividerColor } from '@/utils/estimateFlowCardStyle';
-import { isSoftCostScopePackage } from '@/utils/softCostScope';
 import ScopeBudgetBreakdownPanel from '@/components/estimate/ScopeBudgetBreakdownPanel';
 
 type Colors = {
@@ -431,14 +431,16 @@ export default function AIEstimateDraftReviewCompact({
   const hasRoughOnScope = scopePackages.some((p) => p.status === 'rough_price');
   const scopeBudgetTotals = scopePackages.reduce(
     (sum, pkg) => {
-      const breakdown = resolveScopePackageBudgetBreakdown(pkg, draft);
+      const isSoftCost = isSoftCostScopePackage(pkg, draft);
+      const breakdown = isSoftCost ? null : resolveScopePackageBudgetBreakdown(pkg, draft);
       const amount = compactPackageAmount(pkg, draft);
       const numericAmount = amount ? parseMoneyInput(amount) : 0;
-      if (!breakdown) {
-        return {
-          ...sum,
-          allowance: sum.allowance + numericAmount,
-        };
+      if (numericAmount <= 0) return sum;
+      // Soft costs only in Allowances. Unsplit trades count as Labor (same as apply-to-bid).
+      if (isSoftCost || !breakdown) {
+        return isSoftCost
+          ? { ...sum, allowance: sum.allowance + numericAmount }
+          : { ...sum, labor: sum.labor + numericAmount };
       }
       const allowance = Math.max(0, numericAmount - breakdown.material - breakdown.labor);
       return {
@@ -539,7 +541,7 @@ export default function AIEstimateDraftReviewCompact({
           </Text>
         ) : null}
         {visibleScope.map((pkg, index) => {
-          const qty = formatScopeQuantity(pkg);
+          const qty = formatScopeQuantity(pkg, draft);
           const amount = compactPackageAmount(pkg, draft);
           const isSoftCost = isSoftCostScopePackage(pkg, draft);
           const resolvedBreakdown = amount ? resolveScopePackageBudgetBreakdown(pkg, draft) : null;

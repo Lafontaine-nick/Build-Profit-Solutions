@@ -1,6 +1,7 @@
 import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimateAiDraft';
 import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
 import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
+import { isSoftCostScopePackage } from '@/utils/softCostScope';
 import {
   buildNormalizedScopeMeasurementsFromInput,
   computeNationalAverageBudgetSplit,
@@ -506,9 +507,20 @@ export function resolveScopePackageBudgetBreakdown(
     if (fromPending) return fromPending;
   }
 
-  if (!ruleKey) return null;
+  if (!ruleKey) {
+    // Soft costs stay in Step 3 Allowances; trade packages without a rule key → labor.
+    if (isSoftCostScopePackage(pkg, draft)) return null;
+    return {
+      total,
+      material: 0,
+      labor: total,
+      materialSource: packageSplitSource(pkg),
+      laborSource: packageSplitSource(pkg),
+      basis,
+    };
+  }
 
-  return resolveItemBudgetBreakdown({
+  const fromRule = resolveItemBudgetBreakdown({
     ruleKey,
     total,
     ...ctx,
@@ -519,6 +531,18 @@ export function resolveScopePackageBudgetBreakdown(
     pkgBudgetSplitBasis: pkg.budgetSplitBasis,
     scopeQuantity: pkg.scopeQuantities?.[0] ?? null,
   });
+  if (fromRule) return fromRule;
+
+  // No inventable mat/lab split. Soft costs → Allowances; trades → Labor (matches apply-to-bid).
+  if (isSoftCostScopePackage(pkg, draft)) return null;
+  return {
+    total,
+    material: 0,
+    labor: total,
+    materialSource: packageSplitSource(pkg),
+    laborSource: packageSplitSource(pkg),
+    basis,
+  };
 }
 
 export function packageNeedsSuggestedBudgetSplit(

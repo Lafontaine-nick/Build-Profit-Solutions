@@ -6,7 +6,6 @@ import type { ScopeItemIntelligence } from '@/utils/scopeIntelligence';
 import { formatUnitLabel } from '@/utils/scopeItemQuantities';
 import { isFormulaQuantityApplyTargetActive, shouldShowFormulaQuantityButton } from '@/utils/scopeFormulaRegistry';
 import type { AssemblyComponentStatus } from '@/utils/scopeAssemblyRegistry';
-import type { ScopeGapNotice } from '@/utils/scopeAssemblyRegistry';
 import {
   buildSecondaryDisclosureContent,
   getPricingSecondaryAction,
@@ -512,52 +511,6 @@ export function AcceptedPricingSummary({
   );
 }
 
-export function ProjectReviewSummary({
-  gaps,
-  Colors,
-  darkMode,
-}: {
-  gaps: ScopeGapNotice[];
-  Colors: ReturnType<typeof getColors>;
-  darkMode: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  if (!gaps.length) return null;
-  return (
-    <View
-      style={[
-        styles.projectReviewCard,
-        {
-          borderColor: darkMode ? 'rgba(245,158,11,0.28)' : 'rgba(245,158,11,0.22)',
-          backgroundColor: darkMode ? 'rgba(245,158,11,0.06)' : 'rgba(245,158,11,0.05)',
-        },
-      ]}
-    >
-      <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 14, fontWeight: '800' }}>
-        Items needing review
-      </Text>
-      <Text style={{ color: captionColor(darkMode, Colors), fontSize: 12, marginTop: 4 }}>
-        {gaps.length} item{gaps.length === 1 ? '' : 's'} need review
-      </Text>
-      <View style={{ marginTop: 8, gap: 4 }}>
-        {(open ? gaps : gaps.slice(0, 3)).map((gap) => (
-          <Text key={gap.key} style={{ color: captionColor(darkMode, Colors), fontSize: 12 }}>
-            • {gap.label}
-          </Text>
-        ))}
-      </View>
-      <TouchableOpacity
-        activeOpacity={0.75}
-        onPress={() => setOpen((value) => !value)}
-        style={{ marginTop: 10 }}
-        accessibilityRole="button"
-      >
-        <Text style={styles.editLink}>{open ? 'Hide items' : 'Review items'}</Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   summaryTopRow: {
     flexDirection: 'row',
@@ -661,11 +614,5 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
     flexShrink: 1,
-  },
-  projectReviewCard: {
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 12,
   },
 });

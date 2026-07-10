@@ -153,12 +153,12 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
   ],
   flooring: [
     row(
-      F('bathroomFloorSqft', 'Bath floor', '850', 'sqft', 'interior'),
-      F('kitchenFloorSqft', 'Kitchen floor', '180', 'sqft', 'interior')
+      F('bathroomFloorSqft', 'Bath floor', 'e.g. 90', 'sqft', 'interior'),
+      F('kitchenFloorSqft', 'Kitchen floor', 'e.g. 180', 'sqft', 'interior')
     ),
     row(
-      F('floorAreaSqft', 'Total floor', '1030', 'sqft', 'structure', true),
-      F('baseboardLf', 'Baseboard', '220', 'LF', 'interior')
+      F('floorAreaSqft', 'Total floor', 'e.g. 1000', 'sqft', 'structure', true),
+      F('baseboardLf', 'Baseboard', 'e.g. 200', 'LF', 'interior')
     ),
   ],
   landscaping: [
@@ -232,8 +232,10 @@ export function resolveQuickMeasurementTemplateKey(
 ): string {
   const tk = String(templateKey || '').toLowerCase();
   const pt = String(projectType || '').toLowerCase();
+  // Checklist template wins. projectType must not force flooring fields onto a
+  // kitchen/bath remodel just because notes also mention floor tile.
+  if (tk && SCOPE_QUICK_MEASUREMENT_ROWS[tk]) return tk;
   if (pt === 'flooring') return 'flooring';
-  if (SCOPE_QUICK_MEASUREMENT_ROWS[tk]) return tk;
   if (pt === 'kitchen') return 'kitchen';
   if (pt === 'bathroom') return 'bathroom';
   if (pt === 'landscaping') return 'landscaping';

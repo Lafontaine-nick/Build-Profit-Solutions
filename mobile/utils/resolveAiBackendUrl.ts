@@ -287,6 +287,11 @@ export async function fetchBackendWithFallback(
       } catch {
         /* ignore */
       }
+      // 4xx (except 404) means this backend handled the request — don't keep
+      // trying other URLs and accidentally mask the real error as "unreachable".
+      if (response.status >= 400 && response.status < 500 && response.status !== 404) {
+        throw new Error(errMsg);
+      }
       errors.push(new Error(errMsg));
     } catch (error: unknown) {
       if (timeoutId) clearTimeout(timeoutId);

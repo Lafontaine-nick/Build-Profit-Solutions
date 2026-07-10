@@ -5,6 +5,7 @@ const {
   applyClarifyPatch,
   buildDraftStateSummary,
   buildDeterministicQuantityPatchFromAnswers,
+  buildDeterministicRefinePatchFromCommand,
   sanitizeQuestionItems,
   MEASUREMENT_KEY_WHITELIST,
 } = require('../estimateDraftClarifyAgent');
@@ -381,10 +382,14 @@ describe('refineEstimateDraft', () => {
     await expect(refineEstimateDraft(baseDraft(), '  ', { openai: null })).rejects.toThrow(/command/i);
   });
 
-  test('no-LLM fallback appends revision to notes', async () => {
+  test('no-LLM fallback applies deterministic permit price', async () => {
     const result = await refineEstimateDraft(baseDraft(), 'make permits $2000', { openai: null });
     expect(result.source).toBe('rules');
-    expect(result.draft.originalNotes).toMatch(/Revised: make permits \$2000/);
+    const permits = result.draft.rooms.find((r) => /permit/i.test(r.name));
+    expect(permits.price).toBe(2000);
+    expect(permits.scopeQuantities?.[0]?.unit).not.toBe('sqft');
+    expect(['lump_sum', 'allowance']).toContain(permits.scopeQuantities?.[0]?.unit);
+    expect(result.appliedSummary.some((s) => /\$2,000/.test(s))).toBe(true);
   });
 
   test('no-LLM add command creates a new scope package', async () => {
@@ -393,7 +398,102 @@ describe('refineEstimateDraft', () => {
     const landscaping = result.draft.rooms.find((r) => /landscap/i.test(r.name));
     expect(landscaping).toBeTruthy();
     expect(landscaping.price).toBe(3500);
-    expect(result.appliedSummary.some((s) => /Added:.*Landscap/i.test(s))).toBe(true);
+    expect(result.appliedSummary.some((s) => /Added:.*Landscap/i.test(s) || /\$3,500/.test(s))).toBe(
+      true
+    );
+  });
+
+  test('Ask AI material/labor split stamps allowance units, not fake sqft', () => {
+    const kitchen = enrichDraft({
+      projectType: 'kitchen',
+      originalNotes: 'Kitchen remodel cabinets and hardware',
+      rooms: [
+        {
+          name: 'Cabinet hardware',
+          scope: 'Pulls, knobs, and install.',
+          price: null,
+          laborPrice: null,
+          materialPrice: null,
+          priceIncludesLaborAndMaterials: false,
+          priceProvidedByUser: false,
+          pricingItems: [],
+          missingPriceItems: [],
+        },
+        {
+          name: 'Kitchen Demo',
+          scope: 'Cabinet & countertop demo',
+          price: null,
+          laborPrice: null,
+          materialPrice: null,
+          priceIncludesLaborAndMaterials: false,
+          priceProvidedByUser: false,
+          pricingItems: [],
+          missingPriceItems: [],
+        },
+      ],
+    });
+
+    // Simulate LLM wrongly also emitting quantity=1200 sqft for a $1200 price.
+    const { draft, appliedSummary } = applyClarifyPatch(kitchen, {
+      packagePrices: [
+        { packageName: 'Cabinet hardware', amount: 300, kind: 'material' },
+        { packageName: 'Cabinet hardware', amount: 900, kind: 'labor' },
+        { packageName: 'Kitchen Demo', amount: 500, kind: 'labor' },
+      ],
+      packageQuantities: [
+        { packageName: 'Cabinet hardware', quantity: 1200, unit: 'sqft' },
+        { packageName: 'Kitchen Demo', quantity: 500, unit: 'lump_sum' },
+      ],
+    });
+
+    const hardware = draft.rooms.find((r) => /hardware/i.test(r.name));
+    expect(hardware.materialPrice).toBe(300);
+    expect(hardware.laborPrice).toBe(900);
+    expect(hardware.price).toBe(1200);
+    expect(hardware.scopeQuantities?.[0]?.unit).not.toBe('sqft');
+    expect(['lump_sum', 'allowance']).toContain(hardware.scopeQuantities?.[0]?.unit);
+
+    const iq = draft.scopeMeasurements?.itemQuantities || {};
+    expect(iq.cabinet_hardware__material).toMatchObject({
+      quantity: 300,
+      unit: 'allowance',
+    });
+    expect(iq.cabinet_hardware__labor).toMatchObject({
+      quantity: 900,
+      unit: 'allowance',
+    });
+    expect(iq.cabinet_hardware?.unit).toBe('allowance');
+    expect(iq.cabinet_hardware?.quantity).toBe(1200);
+
+    const demo = draft.rooms.find((r) => /demo/i.test(r.name));
+    expect(demo.laborPrice).toBe(500);
+    expect(demo.price).toBe(500);
+    expect(demo.scopeQuantities?.[0]?.unit).not.toBe('sqft');
+    expect(['lump_sum', 'allowance']).toContain(demo.scopeQuantities?.[0]?.unit);
+
+    expect(appliedSummary.some((s) => /\$300.*material/i.test(s))).toBe(true);
+    expect(appliedSummary.some((s) => /\$900.*labor/i.test(s))).toBe(true);
+    expect(appliedSummary.some((s) => /\$500.*labor/i.test(s))).toBe(true);
+  });
+
+  test('deterministic refine parses material/labor split commands', () => {
+    const patch = buildDeterministicRefinePatchFromCommand(
+      'For cabinet hardware can you make $300 for material and $900 for Labor'
+    );
+    expect(patch.packagePrices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ amount: 300, kind: 'material' }),
+        expect.objectContaining({ amount: 900, kind: 'labor' }),
+      ])
+    );
+    expect(patch.packageQuantities || []).toHaveLength(0);
+  });
+
+  test('deterministic refine parses demo labor dollars', () => {
+    const patch = buildDeterministicRefinePatchFromCommand('Can you add for demo $500 Labor?');
+    expect(patch.packagePrices).toEqual(
+      expect.arrayContaining([expect.objectContaining({ amount: 500, kind: 'labor' })])
+    );
   });
 
   test('LLM refine path applies price cut and package removal', async () => {

@@ -499,6 +499,16 @@ function inferProjectTypeFromNotes(notes, projectType) {
   if (/\b(basement\s+finish(?:ing)?|finished\s+basement|insurance\s+(?:repair|restoration)|restoration|mixed\s+repair)\b/.test(n)) {
     return 'other';
   }
+  // Kitchen remodel signals beat floor-tile language ("kitchen floor tile install").
+  if (
+    /\bkitchen(?:\s+remodel)?\b/.test(n) ||
+    /\b(countertops?|backsplash|kitchen\s+cabinets?|cabinet\s+install)\b/.test(n)
+  ) {
+    return 'kitchen';
+  }
+  if (/\bbath(?:room)?\s+remodel\b|\b(shower(?:\s+pan)?|vanity|toilet|bathtub)\b/.test(n)) {
+    return 'bathroom';
+  }
   const floorHeavy =
     /\b(floor\s*job|flooring|laminate\s+flooring|tile\s+demo|lvp|baseboard\s+install)/.test(n) ||
     (/\b(tile demo|laminate|baseboard)\b/.test(n) && /\b(sqft|sq\s*ft|ft²|linear\s*feet|lf)\b/.test(n));

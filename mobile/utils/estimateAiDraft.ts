@@ -688,6 +688,120 @@ export async function refineDraftWithCommand(
   };
 }
 
+export type PhotoScopeImage = {
+  base64: string;
+  mimeType?: string;
+};
+
+export type PhotoScopeDetection = {
+  itemId: string;
+  label?: string;
+  state: 'included' | 'excluded' | 'unsure';
+  choiceId?: string | null;
+  confidence: number;
+  evidence?: string | null;
+};
+
+export type PhotoToScopeResult = {
+  success: boolean;
+  reason?: string | null;
+  scopeText: string;
+  notesBlock: string;
+  mergedNotes: string;
+  detections: PhotoScopeDetection[];
+  templateKey?: string | null;
+  projectTypeHint?: string | null;
+};
+
+/** Analyze site photos → scope notes block (client merges into Job notes before Generate). */
+export async function fetchPhotoToScope(params: {
+  images: PhotoScopeImage[];
+  existingNotes?: string;
+  projectTypeHint?: string | null;
+  templateKeyHint?: string | null;
+}): Promise<PhotoToScopeResult> {
+  const payload = await postAiAssistantJson<
+    Partial<PhotoToScopeResult> & { error?: string; message?: string }
+  >(
+    '/photo-to-scope',
+    {
+      images: params.images,
+      existingNotes: params.existingNotes || '',
+      projectTypeHint: params.projectTypeHint || null,
+      templateKeyHint: params.templateKeyHint || null,
+      mergeIntoNotes: true,
+    },
+    120000
+  );
+
+  if (payload?.error && payload.success !== true && payload.success !== false) {
+    throw new Error(payload.message || payload.error || 'Photo analysis failed');
+  }
+
+  return {
+    success: payload.success !== false,
+    reason: payload.reason ?? null,
+    scopeText: payload.scopeText || '',
+    notesBlock: payload.notesBlock || '',
+    mergedNotes: payload.mergedNotes || params.existingNotes || '',
+    detections: Array.isArray(payload.detections) ? (payload.detections as PhotoScopeDetection[]) : [],
+    templateKey: payload.templateKey ?? null,
+    projectTypeHint: payload.projectTypeHint ?? null,
+  };
+}
+
+const PHOTO_DETECTION_MIN_CONFIDENCE = 0.45;
+
+/**
+ * Apply structured vision detections directly onto the draft's Step 2 checklist,
+ * so photo scope doesn't depend on notes-text regex re-parsing. Only fills items
+ * the notes/AI left "unsure" — never overrides explicit states.
+ */
+export function applyPhotoDetectionsToDraft(
+  draft: EstimateAiDraft,
+  detections: PhotoScopeDetection[] | null | undefined
+): EstimateAiDraft {
+  const items = draft?.scopeChecklist?.items;
+  if (!items?.length || !detections?.length) return draft;
+
+  const byId = new Map<string, PhotoScopeDetection>();
+  for (const d of detections) {
+    if (!d?.itemId || (d.confidence ?? 0) < PHOTO_DETECTION_MIN_CONFIDENCE) continue;
+    if (d.state !== 'included' && d.state !== 'excluded') continue;
+    if (!byId.has(d.itemId)) byId.set(d.itemId, d);
+  }
+  if (!byId.size) return draft;
+
+  let changed = false;
+  const nextItems = items.map((item) => {
+    const detection = byId.get(item.id);
+    if (!detection) return item;
+
+    if (item.inputType === 'choice') {
+      if (item.choiceId && item.choiceId !== 'unsure') return item;
+      const validChoice =
+        detection.choiceId && (item.options || []).some((o) => o.id === detection.choiceId)
+          ? detection.choiceId
+          : null;
+      if (!validChoice) return item;
+      changed = true;
+      return { ...item, choiceId: validChoice, state: 'included' as const, noteBacked: true };
+    }
+
+    if (item.inputType === 'multi_choice') return item;
+
+    if (item.state !== 'unsure') return item;
+    changed = true;
+    return { ...item, state: detection.state, noteBacked: true };
+  });
+
+  if (!changed) return draft;
+  return {
+    ...draft,
+    scopeChecklist: { ...draft.scopeChecklist!, items: nextItems },
+  };
+}
+
 /** Whether Step 3 should prefetch clarifying questions without waiting for a tap. */
 export function shouldAutoClarifyDraft(draft: EstimateAiDraft | null | undefined): boolean {
   if (!draft) return false;
