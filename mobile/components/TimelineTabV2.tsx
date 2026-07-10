@@ -61,6 +61,13 @@ function fireCloseoutCalibration(project: any, projectFromList: any, projectData
       if (__DEV__) {
         console.log('📊 Close-out calibration', result?.status, result?.message);
       }
+      const tips = result?.pendingSuggestionCount || 0;
+      if (tips > 0) {
+        Alert.alert(
+          'Rate tips ready',
+          `${tips} pricing tip${tips === 1 ? '' : 's'} from this job’s actual costs. Open the Budget tab → Estimate vs actual → Review rate tips to approve.`
+        );
+      }
     });
   } catch (e) {
     if (__DEV__) {

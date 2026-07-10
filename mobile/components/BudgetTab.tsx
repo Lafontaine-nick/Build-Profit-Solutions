@@ -34,6 +34,8 @@ import {
   type ProfitForecastOutput,
 } from '../src/lib/profitForecast';
 import { deriveEstimateFeedbackFromBudgetData } from '@/utils/estimateFeedback';
+import CalibrationReviewModal from '@/components/CalibrationReviewModal';
+import { DEFAULT_BUILD_WITH_AI_FEATURE_FLAGS } from '@/utils/buildWithAiProductionHardening';
 import {
   computeProjectFinancials,
   sumPlannedCostFromBuckets,
@@ -225,6 +227,7 @@ export default function BudgetTab({
   const [editingPO, setEditingPO] = useState<any>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [pendingChangeOrderEditId, setPendingChangeOrderEditId] = useState<string | null>(null);
+  const [showCalibrationReview, setShowCalibrationReview] = useState(false);
   const [newExpense, setNewExpense] = useState({ vendor: '', amount: '', category: '', notes: '' });
   const [newChangeOrder, setNewChangeOrder] = useState({ title: '', amount: '', materialsAmount: '', laborAmount: '', notes: '' });
   const [editingChangeOrder, setEditingChangeOrder] = useState<any>(null);
@@ -1239,6 +1242,27 @@ export default function BudgetTab({
                           Enough job costs are in to compare against the estimate. Tips still need your approval.
                         </Text>
                       )}
+                      {DEFAULT_BUILD_WITH_AI_FEATURE_FLAGS.calibrationApproval ? (
+                        <Pressable
+                          onPress={() => setShowCalibrationReview(true)}
+                          style={{
+                            marginTop: 12,
+                            backgroundColor: '#22c55e',
+                            borderRadius: 10,
+                            paddingVertical: 11,
+                            alignItems: 'center',
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel="Review rate tips"
+                        >
+                          <Text style={{ color: '#04140C', fontWeight: '800', fontSize: 14 }}>
+                            Review rate tips
+                            {estimateFeedback.rateSuggestions.length
+                              ? ` (${estimateFeedback.rateSuggestions.length})`
+                              : ''}
+                          </Text>
+                        </Pressable>
+                      ) : null}
                     </View>
                   </View>
                 </View>
@@ -1981,6 +2005,25 @@ export default function BudgetTab({
         onCancel={(id) => {
           cancelPO(id);
           setEditingPO(null);
+        }}
+      />
+
+      <CalibrationReviewModal
+        visible={showCalibrationReview}
+        onClose={() => setShowCalibrationReview(false)}
+        projectLike={{
+          ...(projectFromList || {}),
+          id: projectId,
+          projectData: projectData || contextProjectData,
+          contractValue: financials.adjustedContractValue,
+          budget: financials.plannedCostBudget || financials.adjustedCostBudget,
+        }}
+        clientSuggestions={estimateFeedback.rateSuggestions}
+        budgetAccessMode={budgetAccessMode}
+        darkMode={darkMode}
+        onApproved={() => {
+          setShowCalibrationReview(false);
+          onRefetch?.();
         }}
       />
     </View>

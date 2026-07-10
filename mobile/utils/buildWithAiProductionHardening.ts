@@ -180,7 +180,7 @@ export const DEFAULT_BUILD_WITH_AI_FEATURE_FLAGS: BuildWithAiFeatureFlags = {
   pricingIntelligence: true,
   readinessScoring: true,
   actualVsEstimatedFeedback: true,
-  calibrationApproval: false,
+  calibrationApproval: true,
   advancedScopeGapDetection: true,
 };
 

@@ -12,6 +12,8 @@
     "test": "jest",
     "test:ai": "jest --runInBand src/config/__tests__/aiConfig.test.js src/services/__tests__/aiAssistantCore.test.js src/services/__tests__/aiDashboardService.test.js src/services/__tests__/leadScoring.test.js src/routes/__tests__/promptSystem.test.js src/routes/__tests__/ocr.test.js",
     "test:ai:watch": "jest --watch --runInBand src/config/__tests__/aiConfig.test.js src/services/__tests__/aiAssistantCore.test.js src/services/__tests__/aiDashboardService.test.js src/services/__tests__/leadScoring.test.js src/routes/__tests__/promptSystem.test.js src/routes/__tests__/ocr.test.js",
+    "test:eval": "jest --runInBand src/services/__tests__/estimateEvalHarness.test.js src/services/__tests__/scopeGoldenNotesCorpus.test.js",
+    "smoke:closeout": "node scripts/smoke-closeout-calibration.js",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "build": "echo 'No build step required for Node.js'",
