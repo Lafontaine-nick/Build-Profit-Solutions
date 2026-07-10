@@ -61,10 +61,11 @@ describe('pricingEngine', () => {
     expect(bb.recommended.source).toBe('national_trade_average');
     const lab = bb.proposedRates.find((p) => p.pricingType === 'labor');
     const mat = bb.proposedRates.find((p) => p.pricingType === 'material');
-    expect(lab?.rate).toBe(5);
-    expect(mat?.rate).toBe(2);
-    expect(lab?.total).toBe(2500);
-    expect(mat?.total).toBe(1000);
+    // National midpoints ($5/LF labor, $2/LF material) region-adjusted for NV (customerState).
+    expect(lab?.rate).toBe(5.11);
+    expect(mat?.rate).toBe(2.02);
+    expect(lab?.total).toBe(2555);
+    expect(mat?.total).toBe(1010);
     expect(bb.proposedRates.find((p) => p.formula?.includes('$1.91'))).toBeUndefined();
   });
 

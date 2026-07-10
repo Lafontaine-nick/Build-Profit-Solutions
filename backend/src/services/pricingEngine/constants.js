@@ -63,8 +63,22 @@ const AI_FALLBACK_RATES = {
 };
 
 /**
+ * Provenance for the benchmark pricing tables below. Surfaced so the app can
+ * be honest that these are planning midpoints, not live/regional quotes, and
+ * so we know when the data was last reviewed.
+ */
+const BENCHMARK_PRICING_META = {
+  region: 'national',
+  currency: 'USD',
+  basis:
+    'Planning midpoints (material + labor per unit) blended from national trade cost references and contractor-reported ranges. Not live supplier, regional, or county-level quotes.',
+  lastReviewed: '2026-07',
+  disclaimer: 'Planning only — verify against supplier quotes and your labor burden before bidding.',
+};
+
+/**
  * Planning-only national midpoints by trade (material + labor per unit).
- * Not live supplier data — updated via product releases.
+ * Not live supplier data — updated via product releases. See BENCHMARK_PRICING_META.
  */
 const NATIONAL_TRADE_AVERAGES = {
   demo: {
@@ -195,6 +209,7 @@ module.exports = {
   PRODUCTIVITY_LF_PER_HR,
   NATIONAL_BASEBOARD_LF_DEFAULTS,
   NATIONAL_TRADE_AVERAGES,
+  BENCHMARK_PRICING_META,
   REGIONAL_MATERIAL_DEFAULTS,
   AI_FALLBACK_RATES,
   REGIONAL_DEFAULTS_BY_TRADE,

@@ -250,3 +250,124 @@ export async function fetchSuggestMissingPrices(
   });
   return { suggestions: res.suggestions || [], message: res.message };
 }
+
+export type CloseoutCalibrationResult = {
+  success?: boolean;
+  status?: string;
+  message?: string;
+  pendingSuggestionCount?: number;
+  rateSuggestions?: Array<Record<string, unknown>>;
+  summary?: Record<string, unknown>;
+  memoryWrite?: { updated?: number };
+  capture?: { captured?: number; skipped?: string };
+};
+
+/** Build budget lines from project buckets for close-out calibration. */
+export function buildCloseoutLinesFromProject(projectLike: Record<string, unknown> | null | undefined) {
+  const pd = (projectLike?.projectData as Record<string, unknown>) || projectLike || {};
+  const buckets = (pd.buckets as Array<Record<string, unknown>>) || [];
+  return buckets.map((b, i) => ({
+    id: String(b.id || `bucket-${i}`),
+    category: String(b.category || b.name || 'other'),
+    description: String(b.description || b.category || b.name || 'Budget line'),
+    qty: Number(b.qty) > 0 ? Number(b.qty) : 1,
+    unit: String(b.unit || 'lump_sum'),
+    unitCost: Number(b.budget ?? b.planned ?? b.amount ?? 0) || undefined,
+    estimatedTotal: Number(b.budget ?? b.planned ?? b.amount ?? 0) || undefined,
+  }));
+}
+
+export function buildCloseoutPayloadFromProject(
+  projectLike: Record<string, unknown> | null | undefined,
+  extras: {
+    completionConfirmed?: boolean;
+    role?: string;
+  } = {}
+) {
+  const pd = ((projectLike?.projectData as Record<string, unknown>) || projectLike || {}) as Record<
+    string,
+    unknown
+  >;
+  const expenses = ((pd.expenses as Array<Record<string, unknown>>) || []).map((expense) => ({
+    id: String(expense.id),
+    category: expense.category,
+    description: expense.description ?? expense.notes,
+    vendor: expense.vendor,
+    amount: expense.amount,
+    date: expense.date,
+    receiptUri: expense.receiptUri,
+    aiConfidence: expense.aiConfidence,
+    linkedLineId: expense.linkedLineId,
+  }));
+  const changeOrders = ((pd.changeOrders as Array<Record<string, unknown>>) || []).map((co) => ({
+    id: String(co.id),
+    title: co.title,
+    amount: co.amount,
+    status: co.status,
+    approved: co.approved,
+    materialsAmount: co.materialsAmount,
+    laborAmount: co.laborAmount,
+    excludeFromCalibration: true,
+  }));
+
+  const contract =
+    Number(projectLike?.contractValue) ||
+    Number(projectLike?.adjustedContractValue) ||
+    Number(pd.contractValue) ||
+    Number((pd.estimateData as Record<string, unknown>)?.total) ||
+    null;
+
+  return {
+    projectId: String(projectLike?.id || pd.id || ''),
+    completionConfirmed: extras.completionConfirmed !== false,
+    lines: buildCloseoutLinesFromProject(projectLike),
+    expenses,
+    changeOrders,
+    finalCustomerPrice: contract,
+    plannedBudget: Number(pd.budget) || Number(projectLike?.budget) || null,
+    estimateId: String((pd.estimateData as Record<string, unknown>)?.id || projectLike?.estimateId || '') || null,
+    projectType: String(projectLike?.projectType || pd.projectType || 'other'),
+    projectTitle: String(projectLike?.name || projectLike?.title || pd.name || ''),
+    bid: (pd.estimateData as Record<string, unknown>) || undefined,
+  };
+}
+
+/**
+ * Fire-and-forget close-out calibration when a job is marked complete.
+ * Writes actualJobCost into pricing memory; does not auto-change rates.
+ */
+export async function submitCloseoutCalibration(
+  projectLike: Record<string, unknown> | null | undefined
+): Promise<CloseoutCalibrationResult> {
+  try {
+    const payload = buildCloseoutPayloadFromProject(projectLike, { completionConfirmed: true });
+    if (!payload.projectId) {
+      return { success: false, message: 'Missing projectId' };
+    }
+    const res = await pricingMemoryFetch<CloseoutCalibrationResult>('/closeout-calibration', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return res;
+  } catch (e) {
+    if (__DEV__) {
+      console.warn('submitCloseoutCalibration failed (non-blocking)', e);
+    }
+    return { success: false, message: e instanceof Error ? e.message : 'network_error' };
+  }
+}
+
+export async function approveCloseoutCalibration(payload: {
+  suggestions: Array<Record<string, unknown>>;
+  suggestionIds?: string[];
+  role?: string;
+}): Promise<{ approved: number; message?: string }> {
+  const res = await pricingMemoryFetch<{ approved: number; message?: string }>(
+    '/calibration/approve',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
+  return res;
+}

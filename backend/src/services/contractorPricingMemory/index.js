@@ -11,6 +11,10 @@ const {
 const { buildSuggestionsForDraft, buildActualCostInsights } = require('./suggest');
 const { buildMissingPriceSuggestions } = require('./suggestMissing');
 const { buildSavedPricingProposal, buildRoughPricingProposal } = require('./proposal');
+const {
+  runCloseoutCalibration,
+  approveCalibrationSuggestions,
+} = require('./closeoutCalibration');
 
 function shouldLearnForEvent(settings, bidStatus) {
   if (!settings.pricingMemoryEnabled) return false;
@@ -102,4 +106,7 @@ module.exports = {
   buildSavedPricingProposal,
   buildRoughPricingProposal,
   extractCaptureEntries,
+  runCloseoutCalibration,
+  approveCalibrationSuggestions,
+  buildActualCostInsights,
 };

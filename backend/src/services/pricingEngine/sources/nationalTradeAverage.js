@@ -2,6 +2,11 @@ const { NATIONAL_TRADE_AVERAGES, SOURCE_LABELS } = require('../constants');
 const { classifyTradeForPricing } = require('../tradeClassifier');
 const { lookupFixturePlanningRates } = require('../planningQuantities');
 const { normalizeUnit } = require('../pricingRangeCatalog');
+const { resolveRegionalCostFactor, factorToPercentLabel } = require('../regionalCostFactors');
+
+function round2(n) {
+  return Math.round(Number(n) * 100) / 100;
+}
 
 function unitsCompatible(scopeUnit, bandUnit) {
   const su = normalizeUnit(scopeUnit);
@@ -85,18 +90,30 @@ function lookupNationalTradeAverage(scopeItem, context = {}) {
     return { available: false, rates: [], trade };
   }
 
+  // Phase 2 interim: multiplier layer OVER the national averages by region,
+  // until licensed county-level cost data is wired into costDatabase.js.
+  // Never let the fallback Home Depot supplier ZIP drive the cost region —
+  // only a user-provided ZIP or project location should.
+  const regionZip = context.supplierZipIsFallback ? '' : context.zipCode;
+  const region = resolveRegionalCostFactor(context.projectLocation, regionZip);
+
   const assumptions = [
     `National trade average for ${trade.replace(/_/g, ' ')} (planning only, not live pricing)`,
     `Typical ${band.unit} rates — verify with supplier quotes and your labor burden`,
     'Your saved bids and templates override these when they match',
   ];
+  if (!region.isDefault) {
+    assumptions.push(
+      `Adjusted for ${region.label} — labor ${factorToPercentLabel(region.laborFactor)}, material ${factorToPercentLabel(region.materialFactor)} vs national (regional cost factor, planning only)`
+    );
+  }
 
   const rates = [];
   if (band.material != null && band.material > 0) {
     rates.push({
       pricingType: 'material',
       label: band.materialLabel || `${scopeItem.scopeName} material`,
-      rate: band.material,
+      rate: round2(band.material * region.materialFactor),
       unit: resolved.unit,
       quantity: resolved.quantity,
       confidence: 'low',
@@ -107,7 +124,7 @@ function lookupNationalTradeAverage(scopeItem, context = {}) {
     rates.push({
       pricingType: 'labor',
       label: band.laborLabel || `${scopeItem.scopeName} labor`,
-      rate: band.labor,
+      rate: round2(band.labor * region.laborFactor),
       unit: resolved.unit,
       quantity: resolved.quantity,
       confidence: 'medium',
@@ -119,6 +136,9 @@ function lookupNationalTradeAverage(scopeItem, context = {}) {
     available: rates.length > 0,
     rates,
     trade,
+    region: region.region,
+    regionLabel: region.label,
+    regionFactor: { labor: region.laborFactor, material: region.materialFactor, source: region.source },
     sourceLabel: SOURCE_LABELS.national_trade_average,
   };
 }

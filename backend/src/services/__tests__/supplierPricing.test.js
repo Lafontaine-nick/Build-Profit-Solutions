@@ -117,7 +117,8 @@ describe('supplierPricing', () => {
     const lab = bb.proposedRates.find((p) => p.pricingType === 'labor');
     expect(mat?.source).toBe('supplier_pricing');
     expect(lab?.source).toBe('national_trade_average');
-    expect(lab?.rate).toBe(5);
+    // National $5/LF midpoint region-adjusted for Las Vegas metro (zip 89141).
+    expect(lab?.rate).toBe(5.29);
   });
 
   it('falls through to national_trade_average when supplier mock/empty', async () => {
@@ -179,7 +180,8 @@ describe('supplierPricing', () => {
     const mat = tile.proposedRates.find((p) => p.pricingType === 'material');
     const lab = tile.proposedRates.find((p) => p.pricingType === 'labor');
     expect(mat?.source).toBe('national_trade_average');
-    expect(mat?.rate).toBe(4);
+    // National $4/sqft flooring-material midpoint region-adjusted for Las Vegas metro (zip 89141).
+    expect(mat?.rate).toBe(4.1);
     expect(lab?.source).toBe('national_trade_average');
     expect(tile?.recommended?.reason).toMatch(/HD reference/i);
   });

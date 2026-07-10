@@ -136,6 +136,9 @@ function upsertEntries(userId, incoming) {
       if (entry.quantity != null) existing.quantity = entry.quantity;
       if (entry.totalAmount != null) existing.totalAmount = entry.totalAmount;
       if (entry.bidStatus) existing.bidStatus = entry.bidStatus;
+      if (entry.actualJobCost != null) existing.actualJobCost = entry.actualJobCost;
+      if (entry.finalProfitMargin != null) existing.finalProfitMargin = entry.finalProfitMargin;
+      if (entry.projectId) existing.projectId = entry.projectId;
       updated++;
     } else {
       byKey.set(key, entry);

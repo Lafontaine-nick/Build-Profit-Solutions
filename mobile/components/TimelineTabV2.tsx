@@ -26,6 +26,7 @@ import { businessWorkspaceService } from "@/services/businessWorkspaceService";
 import { mergeArrayResource } from "@/utils/workspaceResourceMerge";
 import { invalidateWorkspaceTimelineProgressCache } from "@/utils/workspaceTimelineProgress";
 import { useWorkspaceProjectPermissions } from "@/hooks/useWorkspaceProjectPermissions";
+import { submitCloseoutCalibration } from "@/utils/contractorPricingMemory";
 
 /** Merge list + live ProjectData so change orders match Budget tab. */
 function mergeProjectRecordForTimelineCo(project: any, projectFromList: any, projectData: any) {
@@ -50,6 +51,22 @@ function mergeProjectRecordForTimelineCo(project: any, projectFromList: any, pro
       projectFromList?.changeOrders ??
       projectFromList?.projectData?.changeOrders,
   };
+}
+
+/** Non-blocking: feed actuals into pricing memory when job is marked complete. */
+function fireCloseoutCalibration(project: any, projectFromList: any, projectData: any) {
+  try {
+    const merged = mergeProjectRecordForTimelineCo(project, projectFromList, projectData);
+    void submitCloseoutCalibration(merged).then((result) => {
+      if (__DEV__) {
+        console.log('📊 Close-out calibration', result?.status, result?.message);
+      }
+    });
+  } catch (e) {
+    if (__DEV__) {
+      console.warn('Close-out calibration failed to start', e);
+    }
+  }
 }
 
 /** Append approved CO payment rows so All Payments sums to adjusted contract (same $ as Overview/Budget). */
@@ -1842,6 +1859,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                   setTimeout(() => {
                     console.log('🔄 Updating project status to completed');
                     updateProject(project.id, { status: 'completed', progress: 100, overallProgressPct: 100 });
+                    fireCloseoutCalibration(project, projectFromList, projectData);
                     if (typeof window.alert === 'function') {
                       window.alert('Project is now marked as completed.');
                     } else {
@@ -1875,6 +1893,7 @@ export default function TimelineTabV2({ project, embedded = false }: TimelineTab
                           if (project?.id && updateProject) {
                             console.log('🔄 Updating project status to completed');
                             updateProject(project.id, { status: 'completed', progress: 100, overallProgressPct: 100 });
+                            fireCloseoutCalibration(project, projectFromList, projectData);
                             if (Platform.OS === 'ios') {
                               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                             }

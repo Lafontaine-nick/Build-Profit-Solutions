@@ -10,6 +10,8 @@ const {
   buildSuggestionsForDraft,
   buildMissingPriceSuggestions,
   DEFAULT_SETTINGS,
+  runCloseoutCalibration,
+  approveCalibrationSuggestions,
 } = require('../services/contractorPricingMemory');
 const { getPricingProposal, toLegacyProposal } = require('../services/pricingEngine');
 const { updateEntry, deleteEntry, deleteEntriesForProject, getLibraryGrouped } = require('../services/contractorPricingMemory/storage');
@@ -223,6 +225,47 @@ router.post('/suggest-missing', (req, res) => {
   } catch (err) {
     console.error('pricing memory suggest-missing:', err);
     res.status(500).json({ error: 'Suggest missing failed', message: err.message });
+  }
+});
+
+/**
+ * POST /closeout-calibration — run after the contractor confirms the job is complete.
+ * Body: {
+ *   projectId, completionConfirmed: true,
+ *   lines?, expenses?, changeOrders?,
+ *   finalCustomerPrice?, plannedBudget?, estimateId?, projectType?,
+ *   draft?, bid?, applyActualsToMemory?, captureCompleted?
+ * }
+ */
+router.post('/closeout-calibration', (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const result = runCloseoutCalibration(userId, req.body || {});
+    res.json({ success: true, ...result });
+  } catch (err) {
+    const status = /required|must be true/i.test(err.message) ? 400 : 500;
+    console.error('closeout-calibration:', err);
+    res.status(status).json({ error: 'Close-out calibration failed', message: err.message });
+  }
+});
+
+/**
+ * POST /calibration/approve — apply rate suggestions from close-out (manager+).
+ * Body: { suggestions: [...], suggestionIds?: string[], role?: string }
+ */
+router.post('/calibration/approve', (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const result = approveCalibrationSuggestions(userId, {
+      suggestions: req.body?.suggestions || [],
+      suggestionIds: req.body?.suggestionIds || [],
+      role: req.body?.role || 'manager',
+    });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    const status = /cannot approve/i.test(err.message) ? 403 : 500;
+    console.error('calibration/approve:', err);
+    res.status(status).json({ error: 'Calibration approve failed', message: err.message });
   }
 });
 
