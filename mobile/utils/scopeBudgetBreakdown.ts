@@ -201,7 +201,13 @@ export function lookupRuleKeyForBudgetPackage(name: string, scope = ''): string 
   if (/\b(lvp|laminate|vinyl|carpet)\b/.test(blob) && !/\bdemo|removal\b/.test(blob)) return 'flooring';
   if (/\bflooring\s+install\b/.test(blob)) return 'flooring';
   if (/\bbacksplash\b/.test(blob)) return 'backsplash';
-  if (/\bpaint\b/.test(blob) && !/\bfloor|tile\b/.test(blob)) return 'paint';
+  if (/\bexterior[\s-]*(?:paint|painting)\b|\b(?:paint|painting)[\s-]*exterior\b/.test(blob)) {
+    return 'exterior_paint';
+  }
+  if (/\binterior[\s-]*(?:paint|painting)\b|\b(?:paint|painting)[\s-]*interior\b/.test(blob)) {
+    return 'interior_paint';
+  }
+  if (/\bpaint\b/.test(blob) && !/\bfloor|tile|exterior\b/.test(blob)) return 'paint';
   if (/\brail(?:ing)?\b/.test(blob)) return 'railing';
   if (/\bdeck(?:ing)?\b/.test(blob) && !/\bdemo|removal\b/.test(blob)) return 'decking';
   if (/\broof(?:ing)?\b|\bshingle|\btie[\s-]?in\b/.test(blob)) return 'shingles_roofing';

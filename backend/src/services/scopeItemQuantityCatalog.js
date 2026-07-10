@@ -554,6 +554,10 @@ const PACKAGE_NAME_TO_RULE_KEY = [
   { test: /\bpaver/i, key: 'pavers' },
   { test: /\bconcrete\b/i, key: 'concrete' },
   { test: /\bexcavat/i, key: 'excavation' },
+  { test: /\butility\s+trench|\btrench(?:ing)?\b/i, key: 'utility_trenching' },
+  { test: /\broof(?:ing)?\s*(?:\/\s*)?tie[\s-]?in|\btie[\s-]?in\b.*\broof|\broofing\b/i, key: 'roof_tie_in' },
+  { test: /\bframing\b|\bshell\b/i, key: 'framing' },
+  { test: /\bfooting|\bslab\b|\bfoundation\b/i, key: 'foundation' },
   { test: /\brail(?:ing)?\b|\bguardrail\b/i, key: 'railing' },
   { test: /\bshower\b.*\btile\b|\btile\b.*\bshower\b|\bshower\s+wall\s+tile/i, key: 'shower_tile' },
   { test: /\bwaterproof|\bbacker\s+board/i, key: 'waterproofing' },
@@ -564,6 +568,8 @@ const PACKAGE_NAME_TO_RULE_KEY = [
   { test: /\belectrical\b(?!.*trim)|\bnew\s+circuits\b/i, key: 'electrical_rough' },
   { test: /\blight(?:ing)?\s+fix|\bfixture.*\blight/i, key: 'lighting' },
   { test: /\bdrywall\b|\bpatch/i, key: 'drywall' },
+  { test: /\bexterior[\s-]*(?:paint|painting)\b|\b(?:paint|painting)[\s-]*exterior\b/i, key: 'exterior_paint' },
+  { test: /\binterior[\s-]*(?:paint|painting)\b|\b(?:paint|painting)[\s-]*interior\b/i, key: 'interior_paint' },
   { test: /\bpaint|\bpainting/i, key: 'paint' },
   { test: /\bbaseboard|\btrim\s+install|\btrim\s+&\s+baseboard/i, key: 'trim' },
   { test: /\bshower\s+door|\bglass\s+door|\benclosure/i, key: 'glass_door' },
@@ -848,9 +854,9 @@ function getRuleForChecklistItem(itemId, templateKey) {
   return CHECKLIST_ITEM_QUANTITY_RULES[itemId] || DEFAULT_SCOPE_ITEM_RULE;
 }
 
-function getRuleForPackage(name, scope = '') {
+function getRuleForPackage(name, scope = '', templateKey = null) {
   const key = lookupRuleKeyForPackage(name, scope);
-  return key ? CHECKLIST_ITEM_QUANTITY_RULES[key] : null;
+  return key ? getRuleForChecklistItem(key, templateKey) : null;
 }
 
 function notesHaveCombinedCabinetsCounters(notes) {

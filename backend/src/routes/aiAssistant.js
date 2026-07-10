@@ -9,6 +9,7 @@ const { clarifyEstimateDraft } = require('../services/estimateDraftClarify');
 const {
   generateClarifyQuestions,
   applyClarifyAnswers,
+  refineEstimateDraft,
 } = require('../services/estimateDraftClarifyAgent');
 const { enrichDraft } = require('../services/estimateDraftEnrichment');
 const { applyScopeAssumptions, buildScopeChecklist } = require('../services/estimateDraftComplexity');
@@ -15524,6 +15525,36 @@ router.post('/estimate-draft-clarify-apply', async (req, res) => {
     return res.status(500).json({
       error: 'Clarify apply failed',
       message: err?.message || 'Could not apply clarification answers',
+    });
+  }
+});
+
+/**
+ * POST /api/ai-assistant/estimate-draft-refine
+ * Free-form revision command → validated draft patch (same safety model as clarify-apply).
+ */
+router.post('/estimate-draft-refine', async (req, res) => {
+  try {
+    const { draft, command } = req.body || {};
+    if (!draft) {
+      return res.status(400).json({ error: 'Draft is required' });
+    }
+    const trimmed = String(command || '').trim();
+    if (!trimmed) {
+      return res.status(400).json({ error: 'command is required' });
+    }
+    const result = await refineEstimateDraft(draft, trimmed, { openai, aiModels, aiRuntime });
+    return res.json({
+      draft: result.draft,
+      appliedSummary: result.appliedSummary,
+      source: result.source,
+      command: result.command,
+    });
+  } catch (err) {
+    console.error('Error in /estimate-draft-refine:', err);
+    return res.status(500).json({
+      error: 'Refine failed',
+      message: err?.message || 'Could not apply revision command',
     });
   }
 });

@@ -27,7 +27,6 @@ import {
 } from '@/utils/estimateDraftReviewUi';
 import { draftHasApplyablePricing } from '@/utils/estimateAiDraftPricing';
 import type { EstimateConfidenceLevel } from '@/utils/estimateAiDraft';
-import { evaluateDraftReadiness } from '@/utils/estimateReadiness';
 import { estimateFlowCardStyle, estimateFlowDividerColor } from '@/utils/estimateFlowCardStyle';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
 import ScopeBudgetBreakdownPanel from '@/components/estimate/ScopeBudgetBreakdownPanel';
@@ -390,7 +389,6 @@ export default function AIEstimateDraftReviewCompact({
   const [showAllScope, setShowAllScope] = useState(false);
   const [editingPricingFor, setEditingPricingFor] = useState<string | null>(null);
   const [expandedBudgetSplits, setExpandedBudgetSplits] = useState<Record<string, true>>({});
-  const [readinessExpanded, setReadinessExpanded] = useState(false);
   const scopePackages = getScopePackages(draft);
   if (__DEV__) {
     const q = draft.scopeMeasurements?.itemQuantities || {};
@@ -468,7 +466,6 @@ export default function AIEstimateDraftReviewCompact({
         ? roundedMoney((materialTotal || 0) + (laborTotal || 0) + (allowanceTotal || 0))
         : null;
   const normalizedMarkupPct = Math.max(0, Number(markupPct) || 0);
-  const readiness = evaluateDraftReadiness(draft, { markupPct: normalizedMarkupPct });
   const estimatedBidWithMarkup =
     directSubtotal != null && directSubtotal > 0 && normalizedMarkupPct > 0
       ? roundedMoney(directSubtotal * (1 + normalizedMarkupPct / 100))
@@ -477,13 +474,6 @@ export default function AIEstimateDraftReviewCompact({
     (calculatedTotal != null && calculatedTotal > 0) ||
     allowanceTotal != null ||
     statedTotal != null;
-  const stillNeededScopeItems = scopePackages
-    .filter((pkg) => scopePackageNeedsManualPrice(pkg, draft))
-    .map((pkg) => `Pricing for ${pkg.name}`);
-  const stillNeededDisplay = {
-    items: stillNeededScopeItems.slice(0, 5),
-    overflow: Math.max(0, stillNeededScopeItems.length - 5),
-  };
 
   return (
     <>
@@ -515,7 +505,10 @@ export default function AIEstimateDraftReviewCompact({
           </View>
         ) : null}
         {draft.estimateConfidence ? (
-          <Text style={{ color: confStyle.color, fontSize: 11, fontWeight: '600', marginTop: 8 }}>
+          <Text
+            style={{ color: confStyle.color, fontSize: 11, fontWeight: '600', marginTop: 8 }}
+            numberOfLines={2}
+          >
             {draft.estimateConfidence.label}
             <Text style={{ color: Colors.sub, fontWeight: '500' }}>
               {' · '}
@@ -535,60 +528,6 @@ export default function AIEstimateDraftReviewCompact({
           </Text>
         ) : null}
       </View>
-
-      <TouchableOpacity
-        activeOpacity={0.8}
-        onPress={() => setReadinessExpanded((open) => !open)}
-        style={flowCard(Colors, darkMode)}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: readinessExpanded }}
-      >
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800' }}>
-              Estimate readiness
-            </Text>
-            <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 3 }} numberOfLines={1}>
-              {readiness.score}% · {readiness.status.replace(/_/g, ' ')}
-              {readiness.highPriorityReviews.length
-                ? ` · ${readiness.highPriorityReviews.length} need review`
-                : ' · no blockers'}
-            </Text>
-          </View>
-          <Text style={{ color: '#93c5fd', fontSize: 12, fontWeight: '600' }}>
-            {readinessExpanded ? 'Hide' : 'Details'}
-          </Text>
-        </View>
-        {readinessExpanded ? (
-          <View style={{ marginTop: 10 }}>
-            <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 8 }}>
-              Suitable for: {readiness.summary.suitableFor}
-            </Text>
-            {readiness.highPriorityReviews.length ? (
-              <View style={{ gap: 4 }}>
-                <Text style={{ color: darkMode ? 'rgba(251,191,36,0.9)' : '#d97706', fontSize: 12, fontWeight: '700' }}>
-                  {readiness.highPriorityReviews.length} high-priority item
-                  {readiness.highPriorityReviews.length === 1 ? '' : 's'} need review
-                </Text>
-                {readiness.highPriorityReviews.slice(0, 3).map((risk) => (
-                  <Text key={risk.key} style={{ color: Colors.sub, fontSize: 12, lineHeight: 16 }}>
-                    - {risk.title}: {risk.recommendedAction || risk.explanation}
-                  </Text>
-                ))}
-              </View>
-            ) : (
-              <Text style={{ color: '#22c55e', fontSize: 12, fontWeight: '700' }}>
-                No high-priority readiness blockers detected.
-              </Text>
-            )}
-            {!readiness.canMarkBidReady ? (
-              <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 8, lineHeight: 15 }}>
-                Bid-ready is disabled until gating risks are resolved. Save draft and budgetary review remain available.
-              </Text>
-            ) : null}
-          </View>
-        ) : null}
-      </TouchableOpacity>
 
       <View style={flowCard(Colors, darkMode)}>
         <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: missingPriceCount > 0 ? 6 : 10 }}>
@@ -683,7 +622,7 @@ export default function AIEstimateDraftReviewCompact({
                         style={{ marginTop: 4, alignSelf: 'flex-start' }}
                       >
                         <Text style={{ color: '#93c5fd', fontSize: 11, fontWeight: '600' }}>
-                          Edit pricing
+                          Edit
                         </Text>
                       </TouchableOpacity>
                     ) : null}
@@ -695,7 +634,7 @@ export default function AIEstimateDraftReviewCompact({
                         style={{ marginTop: 4, alignSelf: 'flex-start' }}
                       >
                         <Text style={{ color: '#93c5fd', fontSize: 11, fontWeight: '600' }}>
-                          Tap to add price
+                          Add price
                         </Text>
                       </TouchableOpacity>
                     ) : null}
@@ -868,26 +807,6 @@ export default function AIEstimateDraftReviewCompact({
               • {line}
             </Text>
           ))}
-        </View>
-      ) : null}
-
-      {stillNeededDisplay.items.length > 0 ? (
-        <View style={flowCard(Colors, darkMode)}>
-          <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: 8 }}>
-            Still needed
-          </Text>
-          {stillNeededDisplay.items
-            .filter((item) => !/finish pricing on partial scope/i.test(item))
-            .map((item, i) => (
-              <Text key={`need-${i}`} style={{ color: Colors.sub, fontSize: 13, marginBottom: 4, lineHeight: 18 }}>
-                • {item}
-              </Text>
-            ))}
-          {stillNeededDisplay.overflow > 0 ? (
-            <Text style={{ color: '#60a5fa', fontSize: 12, marginTop: 2 }}>
-              + {stillNeededDisplay.overflow} more item{stillNeededDisplay.overflow === 1 ? '' : 's'}
-            </Text>
-          ) : null}
         </View>
       ) : null}
 

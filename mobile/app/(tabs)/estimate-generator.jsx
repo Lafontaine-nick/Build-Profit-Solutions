@@ -93,6 +93,8 @@ import {
   fetchSuggestedDraftSplits,
   fetchClarifyDraftQuestions,
   applyClarifyAnswersToDraft,
+  refineDraftWithCommand,
+  shouldAutoClarifyDraft,
   fetchRoughEstimateRange,
   getScopePackages,
   isComplexEstimateTier,
@@ -5228,6 +5230,9 @@ export default function EstimateGeneratorScreen() {
   const [aiClarifyQuestionItems, setAiClarifyQuestionItems] = useState(null);
   const [aiClarifyApplying, setAiClarifyApplying] = useState(false);
   const [aiClarifyAppliedSummary, setAiClarifyAppliedSummary] = useState(null);
+  const [aiDraftRefining, setAiDraftRefining] = useState(false);
+  const [aiRefineAppliedSummary, setAiRefineAppliedSummary] = useState(null);
+  const [aiRefineLastCommand, setAiRefineLastCommand] = useState(null);
   const aiSavedPricingAutoRef = useRef(null);
   const aiDraftReviewResumeRef = useRef(false);
   const latestScopeMeasurementsRef = useRef(null);
@@ -5744,6 +5749,19 @@ export default function EstimateGeneratorScreen() {
     }
   }, []);
 
+  const prefetchClarifyForDraft = useCallback(async (draft) => {
+    if (!draft || !shouldAutoClarifyDraft(draft)) return;
+    try {
+      const result = await fetchClarifyDraftQuestions(draft);
+      setAiClarifyQuestions(result.questions);
+      setAiClarifyQuestionItems(result.questionItems || null);
+      setAiClarifyAppliedSummary(null);
+    } catch (e) {
+      // Quiet fail — user can still tap "What's missing?"
+      console.warn('prefetchClarifyForDraft failed', e);
+    }
+  }, []);
+
   const advanceComplexDraftAfterScope = useCallback(
     async (enrichedDraft, { skipPricing = false } = {}) => {
       const syncedDraft = syncDraftWithLatestScopeMeasurements(enrichedDraft);
@@ -5755,6 +5773,7 @@ export default function EstimateGeneratorScreen() {
 
       if (skipPricing || notePricingComplete) {
         setShowAiDraftReviewModal(true);
+        prefetchClarifyForDraft(syncedDraft);
         return;
       }
 
@@ -5766,6 +5785,7 @@ export default function EstimateGeneratorScreen() {
         setAiDraft(syncDraftWithLatestScopeMeasurements(withSaved));
         aiDraftReviewResumeRef.current = true;
         setShowAiSavedPricingModal(true);
+        prefetchClarifyForDraft(withSaved);
         if (Platform.OS !== 'web') {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
@@ -5798,15 +5818,23 @@ export default function EstimateGeneratorScreen() {
           }
         } else {
           setShowAiDraftReviewModal(true);
+          prefetchClarifyForDraft(syncedDraft);
         }
       } catch (e) {
         console.warn('advanceComplexDraftAfterScope rough pricing failed', e);
         setShowAiDraftReviewModal(true);
+        prefetchClarifyForDraft(syncedDraft);
       } finally {
         setAiDraftRoughLoading(false);
       }
     },
-    [applySavedPricingToDraftState, savedBidTemplates, bid, syncDraftWithLatestScopeMeasurements]
+    [
+      applySavedPricingToDraftState,
+      savedBidTemplates,
+      bid,
+      syncDraftWithLatestScopeMeasurements,
+      prefetchClarifyForDraft,
+    ]
   );
 
   const handleGenerateAiDraft = useCallback(async (notes) => {
@@ -5822,6 +5850,8 @@ export default function EstimateGeneratorScreen() {
     setAiClarifyQuestions(null);
     setAiClarifyQuestionItems(null);
     setAiClarifyAppliedSummary(null);
+    setAiRefineAppliedSummary(null);
+    setAiRefineLastCommand(null);
     aiSavedPricingAutoRef.current = null;
     try {
       let templates = savedBidTemplates;
@@ -5841,6 +5871,7 @@ export default function EstimateGeneratorScreen() {
         setShowAiScopeAssumptionsModal(true);
       } else {
         setShowAiDraftReviewModal(true);
+        prefetchClarifyForDraft(draft);
         const { draft: draftWithProposal, hasProposal } = await applySavedPricingToDraftState(draft, {
           autoApply: false,
           showLoading: false,
@@ -5863,7 +5894,7 @@ export default function EstimateGeneratorScreen() {
     } finally {
       setAiDraftGenerating(false);
     }
-  }, [aiDraftGenerating, savedBidTemplates, applySavedPricingToDraftState]);
+  }, [aiDraftGenerating, savedBidTemplates, applySavedPricingToDraftState, prefetchClarifyForDraft]);
 
   const handlePersistScopeProgress = useCallback((items, measurements) => {
     setAiDraft((prev) => {
@@ -6433,9 +6464,18 @@ export default function EstimateGeneratorScreen() {
       try {
         const result = await applyClarifyAnswersToDraft(aiDraft, answers);
         setAiDraft(syncDraftWithLatestScopeMeasurements(result.draft));
-        setAiClarifyQuestions(null);
-        setAiClarifyQuestionItems(null);
-        setAiClarifyAppliedSummary(result.appliedSummary?.length ? result.appliedSummary : ['Draft updated']);
+
+        const answeredKeys = new Set(
+          answers.map((a) => String(a.question || '').trim().toLowerCase()).filter(Boolean)
+        );
+        const remaining = (aiClarifyQuestionItems || []).filter(
+          (q) => !answeredKeys.has(String(q.question || '').trim().toLowerCase())
+        );
+        setAiClarifyQuestionItems(remaining.length ? remaining : null);
+        setAiClarifyQuestions(remaining.length ? remaining.map((q) => q.question) : null);
+        setAiClarifyAppliedSummary(
+          result.appliedSummary?.length ? result.appliedSummary : ['Draft updated']
+        );
         if (Platform.OS !== 'web') {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
@@ -6446,13 +6486,51 @@ export default function EstimateGeneratorScreen() {
         setAiClarifyApplying(false);
       }
     },
-    [aiDraft, aiClarifyApplying, syncDraftWithLatestScopeMeasurements]
+    [
+      aiDraft,
+      aiClarifyApplying,
+      aiClarifyQuestionItems,
+      syncDraftWithLatestScopeMeasurements,
+    ]
   );
 
   const handleDismissClarify = useCallback(() => {
     setAiClarifyQuestions(null);
     setAiClarifyQuestionItems(null);
     setAiClarifyAppliedSummary(null);
+  }, []);
+
+  const handleDismissClarifyApplied = useCallback(() => {
+    setAiClarifyAppliedSummary(null);
+  }, []);
+
+  const handleRefineAiDraft = useCallback(
+    async (command) => {
+      if (!aiDraft || aiDraftRefining || !String(command || '').trim()) return;
+      setAiDraftRefining(true);
+      try {
+        const result = await refineDraftWithCommand(aiDraft, command);
+        setAiDraft(syncDraftWithLatestScopeMeasurements(result.draft));
+        setAiRefineLastCommand(result.command || command);
+        setAiRefineAppliedSummary(
+          result.appliedSummary?.length ? result.appliedSummary : ['Draft updated']
+        );
+        if (Platform.OS !== 'web') {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+      } catch (e) {
+        console.warn('handleRefineAiDraft failed', e);
+        Alert.alert('Could not revise draft', e?.message || 'Please try again.');
+      } finally {
+        setAiDraftRefining(false);
+      }
+    },
+    [aiDraft, aiDraftRefining, syncDraftWithLatestScopeMeasurements]
+  );
+
+  const handleDismissRefineSummary = useCallback(() => {
+    setAiRefineAppliedSummary(null);
+    setAiRefineLastCommand(null);
   }, []);
 
   const handleToggleApplySuggestedSplits = useCallback(() => {
@@ -13262,6 +13340,8 @@ export default function EstimateGeneratorScreen() {
     setAiClarifyQuestions(null);
     setAiClarifyQuestionItems(null);
     setAiClarifyAppliedSummary(null);
+    setAiRefineAppliedSummary(null);
+    setAiRefineLastCommand(null);
     setAiSavedPricingProposal(null);
     setAiRoughPricingProposal(null);
     setShowAiBuilderModal(false);
@@ -24601,6 +24681,12 @@ export default function EstimateGeneratorScreen() {
         clarifyAppliedSummary={aiClarifyAppliedSummary}
         onSubmitClarifyAnswers={handleApplyClarifyAnswers}
         onDismissClarify={handleDismissClarify}
+        onDismissClarifyApplied={handleDismissClarifyApplied}
+        refining={aiDraftRefining}
+        refineAppliedSummary={aiRefineAppliedSummary}
+        refineLastCommand={aiRefineLastCommand}
+        onSubmitRefineCommand={handleRefineAiDraft}
+        onDismissRefineSummary={handleDismissRefineSummary}
         fromAssistant={aiDraftFromAssistant}
         onSuggestSplits={handleSuggestAiDraftSplits}
         onClarifyMissing={handleClarifyAiDraft}

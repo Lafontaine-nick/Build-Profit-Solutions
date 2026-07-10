@@ -454,6 +454,13 @@ export type ClarifyApplyResult = {
   source: 'ai' | 'rules';
 };
 
+export type RefineDraftResult = {
+  draft: EstimateAiDraft;
+  appliedSummary: string[];
+  source: 'ai' | 'rules';
+  command?: string;
+};
+
 const PROJECT_CATEGORY_SLUGS: Record<string, string> = {
   kitchen: 'kitchen-remodel',
   bathroom: 'bathroom-remodel',
@@ -659,6 +666,41 @@ export async function applyClarifyAnswersToDraft(
     appliedSummary: payload.appliedSummary || [],
     source: payload.source === 'ai' ? 'ai' : 'rules',
   };
+}
+
+export async function refineDraftWithCommand(
+  draft: EstimateAiDraft,
+  command: string
+): Promise<RefineDraftResult> {
+  const payload = await postAiAssistantJson<
+    Partial<RefineDraftResult> & { error?: string; message?: string }
+  >('/estimate-draft-refine', { draft, command }, 90000);
+
+  if (!payload?.draft) {
+    throw new Error(payload?.message || payload?.error || 'Failed to apply revision');
+  }
+
+  return {
+    draft: syncSelectedScopePricing(payload.draft),
+    appliedSummary: payload.appliedSummary || [],
+    source: payload.source === 'ai' ? 'ai' : 'rules',
+    command: payload.command,
+  };
+}
+
+/** Whether Step 3 should prefetch clarifying questions without waiting for a tap. */
+export function shouldAutoClarifyDraft(draft: EstimateAiDraft | null | undefined): boolean {
+  if (!draft) return false;
+  if (draft.noPricingDetected) return true;
+  if (draft.estimateConfidence?.level === 'low') return true;
+  const packages = draft.scopePackages || draft.rooms || [];
+  const unpriced = packages.some((p) => {
+    const price = Number(p.price ?? p.knownSubtotal ?? p.calculatedSubtotal ?? 0) || 0;
+    return price <= 0;
+  });
+  if (unpriced) return true;
+  if ((draft.missingInfo || []).length >= 2) return true;
+  return false;
 }
 
 export function isComplexEstimateTier(draft: EstimateAiDraft | null | undefined): boolean {

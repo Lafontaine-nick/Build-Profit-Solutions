@@ -17,6 +17,7 @@
 const { enrichDraft } = require('./estimateDraftEnrichment');
 const { applyScopeMeasurements } = require('./estimateDraftComplexity');
 const { buildClarifyQuestions } = require('./estimateDraftClarify');
+const { lookupRuleKeyForPackage } = require('./scopeItemQuantityCatalog');
 
 /** Top-level measurement keys accepted from LLM patches (mirrors applyScopeMeasurements). */
 const MEASUREMENT_KEY_WHITELIST = new Set([
@@ -70,6 +71,185 @@ function findRoomForPackageName(draft, packageName) {
 
 function formatMoney(amount) {
   return `$${Math.round(Number(amount) || 0).toLocaleString()}`;
+}
+
+function formatQuantityLabel(quantity, unit) {
+  const q = Number(quantity);
+  const formatted = Number.isFinite(q)
+    ? q.toLocaleString(undefined, { maximumFractionDigits: 2 })
+    : String(quantity);
+  const u = String(unit || '').toLowerCase();
+  if (u === 'lf') return `${formatted} LF`;
+  if (u === 'cy') return `${formatted} CY`;
+  if (u === 'sqft' || u === 'sf') return `${formatted} sqft`;
+  if (u === 'squares' || u === 'square') return `${formatted} squares`;
+  if (u === 'tons' || u === 'ton') return `${formatted} tons`;
+  if (u === 'each') return `${formatted} each`;
+  return unit ? `${formatted} ${unit}` : formatted;
+}
+
+function measurementKeyLabel(key) {
+  const labels = {
+    drywallSqft: 'Drywall',
+    floorAreaSqft: 'Floor area',
+    bathroomFloorSqft: 'Bathroom floor',
+    kitchenFloorSqft: 'Kitchen floor',
+    roofSquares: 'Roofing',
+    cabinetLf: 'Cabinets',
+    baseboardLf: 'Baseboard',
+    concreteCy: 'Concrete',
+    excavationCy: 'Excavation',
+    wallPaintSqft: 'Paint',
+    showerWallTileSqft: 'Shower wall tile',
+  };
+  return labels[key] || key;
+}
+
+function inferUnitFromQuestion(question, targetKey) {
+  const text = String(question || '').toLowerCase();
+  const key = String(targetKey || '').toLowerCase();
+  if (/\blinear\s*(foot|feet|footage)\b|\blf\b/.test(text) || key.endsWith('lf')) return 'lf';
+  if (/\bsquare\s*(foot|feet|footage)\b|\bsq\.?\s*ft\b|\bsqft\b/.test(text)) return 'sqft';
+  if (/\broof(?:ing)?\s*squares?\b|\b\d+\s*squares?\b/.test(text) || key === 'roofsquares') return 'squares';
+  if (/\bcubic\s*yards?\b|\bcy\b/.test(text) || key.includes('cy')) return 'cy';
+  if (/\btons?\b/.test(text) || key.includes('ton')) return 'tons';
+  if (key.includes('sqft') || key.endsWith('sqft')) return 'sqft';
+  return 'sqft';
+}
+
+function parseQuantityFromAnswer(answer) {
+  const raw = String(answer || '').trim();
+  if (!raw) return null;
+  // Ignore clear price-only answers for quantity extraction.
+  if (/^\$/.test(raw) && !/\b(sqft|lf|cy|square)/i.test(raw)) return null;
+  const match = raw.replace(/,/g, '').match(/(\d+(?:\.\d+)?)/);
+  if (!match) return null;
+  const quantity = Number(match[1]);
+  if (!Number.isFinite(quantity) || quantity <= 0) return null;
+  return quantity;
+}
+
+/**
+ * Deterministic Q&A → package quantities. Does not rely on the LLM for
+ * "50" / "1100" style measurement answers tied to a targetPackage.
+ */
+function buildDeterministicQuantityPatchFromAnswers(answers) {
+  const packageQuantities = [];
+  const measurements = [];
+  for (const a of answers || []) {
+    const quantity = parseQuantityFromAnswer(a.answer);
+    if (quantity == null) continue;
+    const unit = inferUnitFromQuestion(a.question, a.targetKey);
+    if (a.targetPackage) {
+      packageQuantities.push({
+        packageName: a.targetPackage,
+        quantity,
+        unit,
+      });
+    }
+    if (a.targetKey && MEASUREMENT_KEY_WHITELIST.has(a.targetKey)) {
+      let key = a.targetKey;
+      let qty = quantity;
+      // Question asked for sqft but key is roofSquares → convert (1 square = 100 sqft).
+      if (key === 'roofSquares' && unit === 'sqft') {
+        qty = Math.round((quantity / 100) * 100) / 100;
+      }
+      measurements.push({ key, quantity: qty, unit: key === 'roofSquares' ? 'squares' : unit });
+    }
+  }
+  return { packageQuantities, measurements };
+}
+
+function mergePatchQuantities(basePatch, extra) {
+  const patch = { ...(basePatch || {}) };
+  const mergeArr = (key) => {
+    const combined = [...(Array.isArray(patch[key]) ? patch[key] : []), ...(extra[key] || [])];
+    // Prefer later entries for same package/key (deterministic overrides LLM).
+    const seen = new Map();
+    for (const item of combined) {
+      const id =
+        key === 'packageQuantities'
+          ? normalizeName(item.packageName)
+          : key === 'addPackages'
+            ? normalizeName(item.name)
+            : String(item.key || '');
+      if (!id) continue;
+      seen.set(id, item);
+    }
+    patch[key] = [...seen.values()];
+  };
+  mergeArr('packageQuantities');
+  mergeArr('measurements');
+  if (extra.addPackages?.length) mergeArr('addPackages');
+  if (extra.removePackages?.length) {
+    patch.removePackages = [
+      ...new Set([...(patch.removePackages || []), ...extra.removePackages]),
+    ];
+  }
+  return patch;
+}
+
+/**
+ * Lightweight deterministic parse for common add/remove commands so "add X"
+ * works even if the LLM omits addPackages.
+ */
+function buildDeterministicRefinePatchFromCommand(command) {
+  const text = String(command || '').trim();
+  const patch = { addPackages: [], removePackages: [] };
+  if (!text) return patch;
+
+  const removeMatch = text.match(
+    /^(?:remove|delete|exclude)\s+(?:scope\s+item\s+|the\s+)?(.+?)(?:\s*,.*)?$/i
+  );
+  if (removeMatch) {
+    const name = removeMatch[1].replace(/\b(please|from\s+bid|from\s+scope)\b/gi, '').trim();
+    if (name && name.length <= 120) patch.removePackages.push(name);
+    return patch;
+  }
+
+  const addMatch = text.match(
+    /^(?:add|include)\s+(?:scope\s+item\s+|a\s+|an\s+|the\s+)?(.+)$/i
+  );
+  if (addMatch) {
+    let rest = addMatch[1].trim();
+    let amount = null;
+    const money = rest.match(
+      /(?:\$\s*([\d,]+(?:\.\d+)?)|([\d,]+(?:\.\d+)?)\s*k\b)/i
+    );
+    if (money) {
+      if (money[1]) amount = Number(String(money[1]).replace(/,/g, ''));
+      else if (money[2]) amount = Number(String(money[2]).replace(/,/g, '')) * 1000;
+      rest = rest.replace(money[0], '').replace(/\bat\b|\bfor\b|\ballowance\b/gi, '').trim();
+    }
+    let quantity = null;
+    let unit = null;
+    const qty = rest.match(/(\d[\d,]*(?:\.\d+)?)\s*(lf|sqft|sq\s*ft|cy|squares?|each)\b/i);
+    if (qty) {
+      quantity = Number(String(qty[1]).replace(/,/g, ''));
+      unit = qty[2].toLowerCase().replace(/\s+/g, '');
+      if (unit === 'sqft' || unit === 'sqft') unit = 'sqft';
+      if (unit.startsWith('square')) unit = 'squares';
+      rest = rest.replace(qty[0], '').trim();
+    }
+    const name = rest
+      .replace(/^[\s\-–,]+|[\s\-–,]+$/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .slice(0, 120);
+    if (name) {
+      const titled = name
+        .split(/\s+/)
+        .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+        .join(' ');
+      patch.addPackages.push({
+        name: titled,
+        scope: titled,
+        quantity,
+        unit,
+        amount: Number.isFinite(amount) && amount > 0 ? amount : null,
+      });
+    }
+  }
+  return patch;
 }
 
 /**
@@ -128,17 +308,21 @@ const QUESTION_SYSTEM_PROMPT = `You are a senior construction estimator reviewin
 
 You will receive a structured summary of the draft: scope packages with their pricing/measurement status, known measurements, allowances, and the original job notes.
 
-Ask ONLY the highest-impact clarifying questions — the ones whose answers would most improve this specific estimate. Prioritize:
-1. Missing measurements that block pricing (sqft, LF, CY) for scopes marked NO MEASUREMENT
-2. Missing prices on significant scopes marked NO PRICE (ask for the price or allowance)
-3. Genuine scope ambiguity from the notes (e.g. "cabinets" — stock or custom? supplied by whom?)
-4. Missing project info only if nothing more important remains
+Ask ONLY the highest-impact clarifying questions — the ones whose answers would most improve this specific estimate. Prioritize in this order:
+1. Missing measurements that unlock pricing (sqft, LF, CY, squares) for scopes marked NO MEASUREMENT — ask for the quantity, not the dollar price
+2. Genuine scope ambiguity from the notes (e.g. "cabinets" — stock or custom? who supplies? is demo included?)
+3. Soft-cost / allowance packages with NO PRICE (permits, cleanup, haul-off) — ask for a budget or allowance once
+4. Missing project info (phone, address) only if nothing more important remains
 
 Rules:
-- Maximum ${MAX_QUESTIONS} questions. Fewer is better if the draft is mostly complete.
+- Maximum ${MAX_QUESTIONS} questions. Prefer 2–3. Fewer is better if the draft is mostly complete.
+- Do NOT ask "What is the price for X?" for every unpriced package. That is too generic.
+- Prefer one measurement question that unlocks pricing over asking for a lump-sum price.
+- If floor/building sqft is already in the notes, do not re-ask it — ask for the trade-specific quantity (e.g. drywall surface sqft, shower wall tile sqft).
 - Every question must reference this specific job. Never ask generic checklist questions.
 - Never ask about something already answered in the notes or summary.
 - One fact per question. Answerable in a short phrase or number.
+- For measurement questions, always set targetKey to the matching whitelisted key.
 
 Return ONLY valid JSON:
 {
@@ -165,13 +349,54 @@ CRITICAL RULES (same as the estimate parser):
 Return ONLY valid JSON:
 {
   "measurements": [{ "key": "whitelisted measurement key", "quantity": number, "unit": "sqft|lf|cy|squares|tons" }],
+  "packageQuantities": [{ "packageName": "exact scope package name", "quantity": number, "unit": "sqft|lf|cy|squares|each|tons" }],
   "packagePrices": [{ "packageName": "string", "amount": number, "kind": "lump_sum" | "labor" | "material" }],
+  "addPackages": [],
+  "removePackages": [],
   "inclusions": ["short statements now confirmed included"],
   "exclusions": ["short statements now confirmed excluded"],
   "projectInfo": { "customerName": "string or null", "projectAddress": "string or null", "customerPhone": "string or null" },
   "notesAddendum": "one or two sentences capturing any remaining clarified facts, or null"
 }
-Use empty arrays / null when a section has nothing. Omit nothing that the answers clearly state.`;
+Use empty arrays / null when a section has nothing. Omit nothing that the answers clearly state.
+
+PACKAGE QUANTITY RULES:
+- Prefer packageQuantities when the answer is a measurement for a named scope package (trenching LF, roofing sqft, cabinet LF).
+- If the question asks for square footage, unit MUST be "sqft" — never "squares".
+- Roofing "squares" (1 square = 100 sqft) only when the question explicitly says squares, not square footage.
+- Utility trenching / cabinets / baseboard → unit "lf".`;
+
+const REFINE_SYSTEM_PROMPT = `You convert a contractor's free-form revision command into a structured patch for a draft estimate.
+
+You will receive the current draft summary (with package names and prices) and one revision command like:
+- "make the kitchen $2k cheaper"
+- "remove demo, customer is doing it"
+- "set drywall to 1800 sqft"
+- "permits are $2500"
+- "customer is Bob at 12 Main St"
+
+CRITICAL RULES:
+1. Never invent facts not stated or clearly implied by the command.
+2. Numbers with sqft/LF/CY/squares are QUANTITIES, never dollar amounts.
+3. For price changes ("$2k cheaper", "cut flooring by 500"), compute the NEW absolute amount from the current package price in the summary. Put that absolute amount in packagePrices — do not invent a package that isn't in the draft.
+4. For "remove X" / "exclude X" / "customer doing X" / "delete X": add to removePackages (exact package name from the draft) AND exclusions.
+5. For "add X" / "include X" / "add scope item X": put a new entry in addPackages with a clear contractor-facing name. Optionally include quantity/unit and amount if the command states them.
+6. packageName / removePackages names must match draft package names exactly (or the closest clear match).
+7. If the command is unclear or cannot change the draft, return empty arrays and notesAddendum explaining what you need.
+8. Prefer packageQuantities for measurements tied to a named package. Square footage → unit "sqft", never "squares" unless the command says squares.
+
+Return ONLY valid JSON:
+{
+  "measurements": [{ "key": "whitelisted measurement key", "quantity": number, "unit": "sqft|lf|cy|squares|tons" }],
+  "packageQuantities": [{ "packageName": "exact scope package name", "quantity": number, "unit": "sqft|lf|cy|squares|each|tons" }],
+  "packagePrices": [{ "packageName": "string", "amount": number, "kind": "lump_sum" | "labor" | "material" }],
+  "addPackages": [{ "name": "new scope package name", "scope": "short description or null", "quantity": number | null, "unit": "sqft|lf|cy|each|lump_sum|null", "amount": number | null }],
+  "removePackages": ["exact package name to remove from the bid"],
+  "inclusions": ["short statements now confirmed included"],
+  "exclusions": ["short statements now confirmed excluded"],
+  "projectInfo": { "customerName": "string or null", "projectAddress": "string or null", "customerPhone": "string or null" },
+  "notesAddendum": "one sentence capturing the revision, or null"
+}`;
 
 function sanitizeQuestionItems(rawItems, draft) {
   if (!Array.isArray(rawItems)) return [];
@@ -268,17 +493,102 @@ async function generateClarifyQuestions(draftInput, deps = {}) {
  * Deterministically apply a validated patch to the draft, then re-enrich.
  * Returns { draft, appliedSummary } — appliedSummary lists what changed so
  * the mobile UI can show "Applied: drywall 1,200 sqft, Permits $2,000".
+ *
+ * @param {object} draftInput
+ * @param {object} patch
+ * @param {{ overwriteProjectInfo?: boolean }} [options]
  */
-function applyClarifyPatch(draftInput, patch) {
+function applyClarifyPatch(draftInput, patch, options = {}) {
   const draft = { ...(draftInput || {}) };
   const appliedSummary = [];
+  const overwriteProjectInfo = Boolean(options.overwriteProjectInfo);
+
+  // 0. Remove packages (refine: "remove demo").
+  const removeNames = (Array.isArray(patch?.removePackages) ? patch.removePackages : [])
+    .map((n) => String(n || '').trim())
+    .filter(Boolean);
+  if (removeNames.length) {
+    const before = draft.rooms || [];
+    const kept = [];
+    for (const room of before) {
+      const match = removeNames.some((name) => {
+        const a = normalizeName(name);
+        const b = normalizeName(room.name);
+        return a && b && (a === b || a.includes(b) || b.includes(a));
+      });
+      if (match) {
+        appliedSummary.push(`Removed: ${room.name}`);
+      } else {
+        kept.push(room);
+      }
+    }
+    draft.rooms = kept;
+    if (Array.isArray(draft.scopePackages)) {
+      draft.scopePackages = draft.scopePackages.filter((pkg) =>
+        kept.some((r) => normalizeName(r.name) === normalizeName(pkg.name))
+      );
+    }
+  }
+
+  // 0b. Add packages (refine: "add landscaping", "add scope item fencing").
+  const addEntries = Array.isArray(patch?.addPackages) ? patch.addPackages : [];
+  if (addEntries.length) {
+    let rooms = [...(draft.rooms || [])];
+    for (const entry of addEntries) {
+      const name = String(entry?.name || '').trim().slice(0, 120);
+      if (!name) continue;
+      if (findRoomForPackageName({ rooms }, name)) {
+        // Already exists — skip create; later price/qty steps can still update it.
+        continue;
+      }
+      const scope = String(entry?.scope || name).trim().slice(0, 300);
+      const quantity = Number(entry?.quantity);
+      const unit = String(entry?.unit || '').toLowerCase() || null;
+      const amount = Number(entry?.amount);
+      const hasQty = Number.isFinite(quantity) && quantity > 0 && unit;
+      const hasAmount = Number.isFinite(amount) && amount > 0;
+
+      const room = {
+        name,
+        scope,
+        price: hasAmount ? amount : null,
+        laborPrice: null,
+        materialPrice: null,
+        priceIncludesLaborAndMaterials: hasAmount,
+        priceProvidedByUser: hasAmount,
+        pricingItems: [],
+        missingPriceItems: [],
+        ...(hasQty
+          ? {
+              scopeQuantities: [
+                {
+                  label: name,
+                  quantity,
+                  unit: unit === 'square' ? 'squares' : unit,
+                  quantitySource: 'user_entered',
+                },
+              ],
+            }
+          : {}),
+      };
+      rooms.push(room);
+      appliedSummary.push(
+        hasAmount
+          ? `Added: ${name} (${formatMoney(amount)})`
+          : hasQty
+            ? `Added: ${name} (${formatQuantityLabel(quantity, unit)})`
+            : `Added: ${name}`
+      );
+    }
+    draft.rooms = rooms;
+  }
 
   // 1. Package prices → rooms (enrichDraft rebuilds scopePackages from rooms).
   const priceUpdates = Array.isArray(patch?.packagePrices) ? patch.packagePrices : [];
   let rooms = [...(draft.rooms || [])];
   for (const update of priceUpdates) {
     const amount = Number(update?.amount);
-    if (!Number.isFinite(amount) || amount <= 0) continue;
+    if (!Number.isFinite(amount) || amount < 0) continue;
     const room = findRoomForPackageName({ rooms }, update?.packageName);
     if (!room) continue;
     const kind = update?.kind === 'labor' || update?.kind === 'material' ? update.kind : 'lump_sum';
@@ -329,48 +639,177 @@ function applyClarifyPatch(draftInput, patch) {
   draft.inclusions = addStrings(draft.inclusions, patch?.inclusions, 'inclusion(s)');
   draft.exclusions = addStrings(draft.exclusions, patch?.exclusions, 'exclusion(s)');
 
-  // 3. Project info — only fill blanks; never overwrite what the user set.
+  // 3. Project info — clarify fills blanks; refine may overwrite.
   const info = patch?.projectInfo || {};
-  if (!draft.customerName && typeof info.customerName === 'string' && info.customerName.trim()) {
-    draft.customerName = info.customerName.trim().slice(0, 120);
-    appliedSummary.push(`Customer: ${draft.customerName}`);
+  if (typeof info.customerName === 'string' && info.customerName.trim()) {
+    const next = info.customerName.trim().slice(0, 120);
+    if (overwriteProjectInfo || !draft.customerName) {
+      if (draft.customerName !== next) {
+        draft.customerName = next;
+        appliedSummary.push(`Customer: ${draft.customerName}`);
+      }
+    }
   }
-  if (!draft.projectAddress && typeof info.projectAddress === 'string' && info.projectAddress.trim()) {
-    draft.projectAddress = info.projectAddress.trim().slice(0, 200);
-    appliedSummary.push('Project address added');
+  if (typeof info.projectAddress === 'string' && info.projectAddress.trim()) {
+    const next = info.projectAddress.trim().slice(0, 200);
+    if (overwriteProjectInfo || !draft.projectAddress) {
+      if (draft.projectAddress !== next) {
+        draft.projectAddress = next;
+        appliedSummary.push('Project address updated');
+      }
+    }
   }
-  if (!draft.customerPhone && typeof info.customerPhone === 'string' && info.customerPhone.trim()) {
-    draft.customerPhone = info.customerPhone.trim().slice(0, 40);
-    appliedSummary.push('Customer phone added');
+  if (typeof info.customerPhone === 'string' && info.customerPhone.trim()) {
+    const next = info.customerPhone.trim().slice(0, 40);
+    if (overwriteProjectInfo || !draft.customerPhone) {
+      if (draft.customerPhone !== next) {
+        draft.customerPhone = next;
+        appliedSummary.push('Customer phone updated');
+      }
+    }
   }
 
   // 4. Notes addendum — traceability plus re-parse fodder for enrichment.
   const addendum = typeof patch?.notesAddendum === 'string' ? patch.notesAddendum.trim().slice(0, 600) : '';
   if (addendum) {
     const existingNotes = String(draft.originalNotes || '').trim();
-    draft.originalNotes = existingNotes ? `${existingNotes}\nClarified: ${addendum}` : `Clarified: ${addendum}`;
+    const prefix = overwriteProjectInfo ? 'Revised' : 'Clarified';
+    draft.originalNotes = existingNotes ? `${existingNotes}\n${prefix}: ${addendum}` : `${prefix}: ${addendum}`;
   }
 
-  // 5. Measurements — whitelisted keys only. applyScopeMeasurements replaces
-  // draft.scopeMeasurements wholesale, so merge over the existing values to
-  // preserve prior (including user-entered) measurements and itemQuantities.
-  const measurementPatch = {};
+  // 5. Package quantities — stamp directly onto matching rooms so Step 3 scope
+  // rows show "50 LF" / "1,100 sqft" even when there is no top-level measurement key.
+  const measurementPatchFromPackages = {};
+  const itemQuantities = {
+    ...(draft.scopeMeasurements?.itemQuantities || {}),
+  };
+  let roomsForQty = [...(draft.rooms || [])];
+  for (const entry of Array.isArray(patch?.packageQuantities) ? patch.packageQuantities : []) {
+    let quantity = Number(entry?.quantity);
+    let unit = String(entry?.unit || 'sqft').toLowerCase();
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    const room = findRoomForPackageName({ rooms: roomsForQty }, entry?.packageName);
+    if (!room) continue;
+
+    // Guard: never treat roofing sqft as roofing "squares".
+    if (unit === 'squares' && quantity >= 100 && /roof/i.test(room.name)) {
+      unit = 'sqft';
+    }
+    if (unit === 'square') unit = 'squares';
+
+    roomsForQty = roomsForQty.map((r) => {
+      if (r !== room) return r;
+      return {
+        ...r,
+        scopeQuantities: [
+          {
+            label: r.name,
+            quantity,
+            unit,
+            quantitySource: 'user_entered',
+          },
+        ],
+      };
+    });
+
+    const ruleKey = lookupRuleKeyForPackage(room.name, room.scope || '');
+    if (ruleKey) {
+      itemQuantities[ruleKey] = {
+        quantity,
+        unit,
+        quantitySource: 'user_entered',
+      };
+    }
+
+    // Also map common packages onto top-level measurement keys when possible.
+    if (ruleKey === 'cabinets' && unit === 'lf') {
+      measurementPatchFromPackages.cabinetLf = quantity;
+    }
+    if (ruleKey === 'roof_tie_in' && unit === 'sqft') {
+      // Keep package as sqft; also store approximate squares for roofing engines.
+      measurementPatchFromPackages.roofSquares = Math.round((quantity / 100) * 100) / 100;
+    }
+    if (ruleKey === 'roof_tie_in' && unit === 'squares') {
+      measurementPatchFromPackages.roofSquares = quantity;
+    }
+
+    appliedSummary.push(`${room.name}: ${formatQuantityLabel(quantity, unit)}`);
+  }
+  draft.rooms = roomsForQty;
+
+  // 6. Top-level measurements — whitelisted keys only.
+  const measurementPatch = { ...measurementPatchFromPackages };
   for (const entry of Array.isArray(patch?.measurements) ? patch.measurements : []) {
-    const key = String(entry?.key || '');
-    const quantity = Number(entry?.quantity);
+    let key = String(entry?.key || '');
+    let quantity = Number(entry?.quantity);
+    let unit = String(entry?.unit || '').toLowerCase();
     if (!MEASUREMENT_KEY_WHITELIST.has(key)) continue;
     if (!Number.isFinite(quantity) || quantity <= 0) continue;
+
+    // If LLM put sqft into roofSquares without converting, fix it.
+    if (key === 'roofSquares' && (unit === 'sqft' || quantity >= 200)) {
+      // Heuristic: values >= 200 are almost certainly sqft, not squares.
+      if (unit === 'sqft' || quantity >= 200) {
+        quantity = Math.round((quantity / 100) * 100) / 100;
+        unit = 'squares';
+      }
+    }
+
     measurementPatch[key] = quantity;
-    appliedSummary.push(`${key}: ${quantity.toLocaleString()}`);
+    // Avoid duplicate summary lines when packageQuantities already covered this.
+    const alreadyNoted = appliedSummary.some((s) =>
+      key === 'roofSquares' ? /roof/i.test(s) : s.includes(measurementKeyLabel(key))
+    );
+    if (!alreadyNoted) {
+      appliedSummary.push(
+        `${measurementKeyLabel(key)}: ${formatQuantityLabel(quantity, unit || (key.endsWith('Lf') ? 'lf' : key.includes('Cy') ? 'cy' : key === 'roofSquares' ? 'squares' : 'sqft'))}`
+      );
+    }
   }
 
-  const withMeasurements = Object.keys(measurementPatch).length
+  const hasMeasurementUpdates =
+    Object.keys(measurementPatch).length > 0 || Object.keys(itemQuantities).length > 0;
+
+  const withMeasurements = hasMeasurementUpdates
     ? applyScopeMeasurements(draft, {
         ...(draft.scopeMeasurements || {}),
         ...measurementPatch,
-        itemQuantities: draft.scopeMeasurements?.itemQuantities || {},
+        itemQuantities: {
+          ...(draft.scopeMeasurements?.itemQuantities || {}),
+          ...itemQuantities,
+        },
       })
     : draft;
+
+  // Re-stamp room scopeQuantities after applyScopeMeasurements (it may rebuild rooms).
+  if (Array.isArray(patch?.packageQuantities) && patch.packageQuantities.length) {
+    const stampedRooms = [...(withMeasurements.rooms || [])];
+    for (const entry of patch.packageQuantities) {
+      let quantity = Number(entry?.quantity);
+      let unit = String(entry?.unit || 'sqft').toLowerCase();
+      if (!Number.isFinite(quantity) || quantity <= 0) continue;
+      if (unit === 'squares' && quantity >= 100) unit = 'sqft';
+      const room = findRoomForPackageName({ rooms: stampedRooms }, entry?.packageName);
+      if (!room) continue;
+      const idx = stampedRooms.indexOf(room);
+      if (idx < 0) continue;
+      stampedRooms[idx] = {
+        ...room,
+        scopeQuantities: [
+          {
+            label: room.name,
+            quantity,
+            unit: unit === 'square' ? 'squares' : unit,
+            quantitySource: 'user_entered',
+          },
+        ],
+      };
+    }
+    return {
+      draft: enrichDraft({ ...withMeasurements, rooms: stampedRooms }),
+      appliedSummary,
+    };
+  }
 
   return { draft: enrichDraft(withMeasurements), appliedSummary };
 }
@@ -396,19 +835,22 @@ async function applyClarifyAnswers(draftInput, answersInput, deps = {}) {
     throw new Error('At least one answered question is required');
   }
   const enriched = enrichDraft(draftInput);
+  const deterministic = buildDeterministicQuantityPatchFromAnswers(answers);
 
-  // No-LLM fallback: append Q&A to notes and re-enrich. The measurement
-  // parser picks quantities (sqft/LF/CY) out of the appended text.
+  // No-LLM fallback: apply deterministic quantities, then append Q&A to notes.
   const fallback = () => {
     const qaLines = answers.map((a) => `Clarified — ${a.question}: ${a.answer}`).join('\n');
     const existingNotes = String(enriched.originalNotes || '').trim();
-    const draft = enrichDraft({
+    const withNotes = {
       ...enriched,
       originalNotes: existingNotes ? `${existingNotes}\n${qaLines}` : qaLines,
-    });
+    };
+    const { draft, appliedSummary } = applyClarifyPatch(withNotes, deterministic);
     return {
       draft,
-      appliedSummary: [`${answers.length} answer(s) added to job notes`],
+      appliedSummary: appliedSummary.length
+        ? appliedSummary
+        : [`${answers.length} answer(s) added to job notes`],
       source: 'rules',
     };
   };
@@ -440,7 +882,9 @@ async function applyClarifyAnswers(draftInput, answersInput, deps = {}) {
 
     const content = completion.choices?.[0]?.message?.content;
     if (!content) return fallback();
-    const patch = JSON.parse(content);
+    const llmPatch = JSON.parse(content);
+    // Deterministic package quantities win over LLM (fixes trenching/roofing unit bugs).
+    const patch = mergePatchQuantities(llmPatch, deterministic);
     const { draft, appliedSummary } = applyClarifyPatch(enriched, patch);
     if (!appliedSummary.length) return fallback();
     return { draft, appliedSummary, source: 'ai' };
@@ -450,11 +894,79 @@ async function applyClarifyAnswers(draftInput, answersInput, deps = {}) {
   }
 }
 
+/**
+ * Free-form conversational refine: "make kitchen $2k cheaper", "remove demo".
+ * Reuses the same validated patch path as clarify answers.
+ */
+async function refineEstimateDraft(draftInput, commandInput, deps = {}) {
+  const { openai, aiModels, aiRuntime } = deps;
+  const command = String(commandInput || '').trim().slice(0, 500);
+  if (!command) throw new Error('A revision command is required');
+
+  const enriched = enrichDraft(draftInput);
+  const deterministic = buildDeterministicRefinePatchFromCommand(command);
+
+  const fallback = () => {
+    const { draft, appliedSummary } = applyClarifyPatch(enriched, deterministic, {
+      overwriteProjectInfo: true,
+    });
+    if (appliedSummary.length) {
+      return { draft, appliedSummary, source: 'rules', command };
+    }
+    const existingNotes = String(enriched.originalNotes || '').trim();
+    const withNotes = enrichDraft({
+      ...enriched,
+      originalNotes: existingNotes ? `${existingNotes}\nRevised: ${command}` : `Revised: ${command}`,
+    });
+    return {
+      draft: withNotes,
+      appliedSummary: ['Revision noted in job notes'],
+      source: 'rules',
+      command,
+    };
+  };
+
+  if (!openai || !aiModels?.assistant?.estimate) return fallback();
+
+  try {
+    const summary = buildDraftStateSummary(enriched);
+    const completion = await openai.chat.completions.create({
+      model: aiModels.assistant.estimate,
+      response_format: aiRuntime?.assistant?.estimate?.responseFormat || { type: 'json_object' },
+      temperature: 0.1,
+      max_tokens: 1200,
+      messages: [
+        { role: 'system', content: REFINE_SYSTEM_PROMPT },
+        {
+          role: 'user',
+          content: `Measurement keys allowed: ${[...MEASUREMENT_KEY_WHITELIST].join(', ')}\n\nCurrent draft:\n\n${summary}\n\nRevision command:\n${command}`,
+        },
+      ],
+    });
+
+    const content = completion.choices?.[0]?.message?.content;
+    if (!content) return fallback();
+    const llmPatch = JSON.parse(content);
+    const patch = mergePatchQuantities(llmPatch, deterministic);
+    const { draft, appliedSummary } = applyClarifyPatch(enriched, patch, {
+      overwriteProjectInfo: true,
+    });
+    if (!appliedSummary.length) return fallback();
+    return { draft, appliedSummary, source: 'ai', command };
+  } catch (err) {
+    console.warn('refineEstimateDraft LLM pass failed, appending to notes instead:', err?.message);
+    return fallback();
+  }
+}
+
 module.exports = {
   generateClarifyQuestions,
   applyClarifyAnswers,
+  refineEstimateDraft,
   applyClarifyPatch,
   buildDraftStateSummary,
+  buildDeterministicQuantityPatchFromAnswers,
+  buildDeterministicRefinePatchFromCommand,
   sanitizeQuestionItems,
   MEASUREMENT_KEY_WHITELIST,
 };

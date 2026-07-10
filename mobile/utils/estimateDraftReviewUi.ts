@@ -207,9 +207,24 @@ export function compactPackageAmount(
 
 export function getCompactProjectSummary(draft: EstimateAiDraft): string {
   const parts: string[] = [];
-  if (draft.projectTitle?.trim()) parts.push(draft.projectTitle.trim());
+  const formatLabel = (raw: string) => {
+    const text = raw.trim();
+    if (!text) return '';
+    if (/^adu$/i.test(text)) return 'ADU';
+    if (/_/.test(text)) {
+      return text
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+    // Preserve intentional casing for titles; only fix all-lowercase labels.
+    if (text === text.toLowerCase() && text.length <= 24) {
+      return text.replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+    return text;
+  };
+  if (draft.projectTitle?.trim()) parts.push(formatLabel(draft.projectTitle));
   else if (draft.projectType && draft.projectType !== 'other') {
-    parts.push(draft.projectType.replace(/_/g, ' '));
+    parts.push(formatLabel(draft.projectType));
   }
   if (draft.customerName?.trim()) parts.push(draft.customerName.trim());
   const pkgs = getScopePackages(draft);

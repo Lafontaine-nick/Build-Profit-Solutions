@@ -4444,6 +4444,10 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   { test: /\belectrical\b(?!.*trim)|\bnew\s+circuits\b/i, key: 'electrical_rough' },
   { test: /\blight(?:ing)?\s+fix|\bfixture.*\blight/i, key: 'lighting' },
   { test: /\bdrywall\b|\bpatch/i, key: 'drywall' },
+  // Exterior/interior must win over the generic paint key so Confirm Scope rates
+  // for interior paint are not copied onto an "add exterior painting" package.
+  { test: /\bexterior[\s-]*(?:paint|painting)\b|\b(?:paint|painting)[\s-]*exterior\b/i, key: 'exterior_paint' },
+  { test: /\binterior[\s-]*(?:paint|painting)\b|\b(?:paint|painting)[\s-]*interior\b/i, key: 'interior_paint' },
   { test: /\bpaint|\bpainting/i, key: 'paint' },
   { test: /\bbaseboard|\btrim\s+install|\btrim\s+&\s+baseboard|\binterior\s+trim\b/i, key: 'trim' },
   { test: /\bshower\s+door|\bglass\s+door|\benclosure/i, key: 'glass_door' },
@@ -4478,6 +4482,12 @@ export function ruleKeysToTryForPackage(name: string, scope = ''): string[] {
     primary === 'pour_foundation';
   if (concreteFamily) {
     for (const alias of ['concrete', 'pour_flatwork', 'pour_foundation'] as const) {
+      if (!keys.includes(alias)) keys.push(alias);
+    }
+  }
+  // Interior / generic paint share Confirm Scope keys; exterior must stay isolated.
+  if (primary === 'interior_paint' || primary === 'paint') {
+    for (const alias of ['interior_paint', 'paint'] as const) {
       if (!keys.includes(alias)) keys.push(alias);
     }
   }

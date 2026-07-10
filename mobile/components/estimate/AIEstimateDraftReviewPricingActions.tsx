@@ -29,16 +29,18 @@ type Props = {
   onContinueUnpriced?: () => void;
 };
 
-function PrimaryActionBtn({
+function SuggestPricingBtn({
   label,
   onPress,
   disabled,
   loading,
+  darkMode,
 }: {
   label: string;
   onPress?: () => void;
   disabled?: boolean;
   loading?: boolean;
+  darkMode: boolean;
 }) {
   return (
     <TouchableOpacity
@@ -46,17 +48,19 @@ function PrimaryActionBtn({
       disabled={disabled || !onPress}
       onPress={onPress}
       style={{
-        paddingVertical: 13,
+        paddingVertical: 12,
         paddingHorizontal: 14,
         borderRadius: 12,
-        backgroundColor: disabled ? 'rgba(34, 197, 94, 0.28)' : '#22c55e',
+        borderWidth: 1.5,
+        borderColor: disabled ? 'rgba(34, 197, 94, 0.28)' : 'rgba(34, 197, 94, 0.55)',
+        backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.06)' : 'rgba(34, 197, 94, 0.04)',
         marginBottom: 10,
         opacity: disabled ? 0.55 : 1,
       }}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-        {loading ? <ActivityIndicator size="small" color="#052e16" /> : null}
-        <Text style={{ color: '#052e16', fontSize: 14, fontWeight: '800', textAlign: 'center' }}>
+        {loading ? <ActivityIndicator size="small" color="#22c55e" /> : null}
+        <Text style={{ color: '#22c55e', fontSize: 14, fontWeight: '700', textAlign: 'center' }}>
           {label}
         </Text>
       </View>
@@ -164,37 +168,36 @@ export default function AIEstimateDraftReviewPricingActions({
         ? `Suggest pricing for ${pricingReadiness.ready} measured items`
         : 'Suggest pricing from measurements'
       : 'Add measurements to suggest pricing';
-  const roughHint =
-    pricingReadiness.ready === 0
-      ? 'Enter measurements in Confirm Scope first, then suggest pricing.'
-      : pricingReadiness.needsMeasurement > 0
-      ? `${pricingReadiness.needsMeasurement} item${pricingReadiness.needsMeasurement === 1 ? '' : 's'} need measurements first.`
-      : 'Suggested pricing stays review-only until you approve.';
   const hasMemorySuggestions = (draft.pricingMemorySuggestions?.length ?? 0) > 0;
   const templateHints = (draft.pricingMemoryMissingSuggestions || []).filter(
     (s) => s.source === 'saved_template'
   );
   const [showReadyItems, setShowReadyItems] = useState(false);
-  const headerCopy = hasPricing
-    ? 'Some items still need prices.'
-    : pricingReadiness.ready > 0
-      ? 'Measurements found — suggest pricing to calculate totals.'
-      : 'Add measurements in Confirm Scope to unlock suggested pricing.';
+  const statusLine =
+    pricingReadiness.ready > 0
+      ? pricingReadiness.needsMeasurement > 0
+        ? `${pricingReadiness.ready} ready · ${pricingReadiness.needsMeasurement} need measurements`
+        : `${pricingReadiness.ready} ready for suggested pricing`
+      : 'Add measurements in Confirm Scope to unlock pricing';
 
   return (
     <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: 12 })}>
-      <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800', marginBottom: 4 }}>
-        {hasPricing ? 'Finish pricing' : 'No pricing found yet'}
-      </Text>
-      <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 17, marginBottom: 12 }}>
-        {headerCopy}
+      <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: 6 }}>
+        {hasPricing ? 'Finish pricing' : 'Add pricing'}
       </Text>
 
       {measuredLines.length > 0 ? (
-        <View style={{ marginBottom: 12 }}>
+        <View style={{ marginBottom: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <Text style={{ color: darkMode ? 'rgba(148, 163, 184, 0.9)' : Colors.sub, fontSize: 12, fontWeight: '600', flex: 1 }}>
-              Ready for suggested pricing · {measuredLines.length}
+            <Text
+              style={{
+                color: darkMode ? 'rgba(148, 163, 184, 0.9)' : Colors.sub,
+                fontSize: 12,
+                fontWeight: '600',
+                flex: 1,
+              }}
+            >
+              {statusLine}
             </Text>
             <TouchableOpacity
               activeOpacity={0.75}
@@ -202,7 +205,7 @@ export default function AIEstimateDraftReviewPricingActions({
               accessibilityRole="button"
             >
               <Text style={{ color: '#93c5fd', fontSize: 12, fontWeight: '600' }}>
-                {showReadyItems ? 'Hide' : 'Show items'}
+                {showReadyItems ? 'Hide' : 'Show'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -217,56 +220,64 @@ export default function AIEstimateDraftReviewPricingActions({
               ))
             : null}
         </View>
-      ) : null}
+      ) : (
+        <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 17, marginBottom: 10 }}>
+          {statusLine}
+        </Text>
+      )}
 
-      <PrimaryActionBtn
+      <SuggestPricingBtn
         label={roughLabel}
         onPress={onSuggestRoughPrices}
         disabled={busy || pricingReadiness.ready === 0}
         loading={roughRangeLoading}
+        darkMode={darkMode}
       />
       {draft.roughEstimate ? (
-        <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 8, marginTop: -4 }}>
+        <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6, marginTop: -2 }}>
           Rough range: {formatDraftMoney(draft.roughEstimate.low)} –{' '}
-          {formatDraftMoney(draft.roughEstimate.high)} (review required)
+          {formatDraftMoney(draft.roughEstimate.high)}
         </Text>
-      ) : (
-        <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 8, marginTop: -4 }}>
-          {roughHint}
-        </Text>
-      )}
+      ) : null}
 
-      <View style={{ gap: 2, marginTop: 2 }}>
+      <View
+        style={{
+          flexDirection: 'row',
+          flexWrap: 'wrap',
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: 14,
+          marginTop: 2,
+        }}
+      >
         {showUseSavedPricing ? (
-          <>
-            <SecondaryLink
-              label="Apply my saved rates"
-              onPress={onUseSavedPricing}
-              disabled={busy}
-              loading={suggestingMissingPrices}
-            />
-            {templateHints.length > 0 ? (
-              <Text style={{ color: Colors.sub, fontSize: 11, textAlign: 'center', marginBottom: 2 }}>
-                {templateHints.length} match{templateHints.length === 1 ? '' : 'es'} from your saved template
-              </Text>
-            ) : hasMemorySuggestions ? (
-              <Text style={{ color: Colors.sub, fontSize: 11, textAlign: 'center', marginBottom: 2 }}>
-                Based on your saved pricing — approve before applying
-              </Text>
-            ) : draft.pricingMemoryMessage ? (
-              <Text style={{ color: Colors.sub, fontSize: 11, textAlign: 'center', marginBottom: 2 }}>
-                {draft.pricingMemoryMessage}
-              </Text>
-            ) : null}
-          </>
+          <SecondaryLink
+            label="Saved rates"
+            onPress={onUseSavedPricing}
+            disabled={busy}
+            loading={suggestingMissingPrices}
+          />
         ) : null}
         <SecondaryLink
-          label="Add prices manually"
+          label="Add manually"
           onPress={onAddPricesManually}
           disabled={busy}
           color={darkMode ? 'rgba(226, 232, 240, 0.85)' : Colors.text}
         />
       </View>
+      {showUseSavedPricing && templateHints.length > 0 ? (
+        <Text style={{ color: Colors.sub, fontSize: 11, textAlign: 'center', marginTop: 4 }}>
+          {templateHints.length} match{templateHints.length === 1 ? '' : 'es'} from your saved template
+        </Text>
+      ) : showUseSavedPricing && hasMemorySuggestions ? (
+        <Text style={{ color: Colors.sub, fontSize: 11, textAlign: 'center', marginTop: 4 }}>
+          Based on your saved pricing — approve before applying
+        </Text>
+      ) : showUseSavedPricing && draft.pricingMemoryMessage ? (
+        <Text style={{ color: Colors.sub, fontSize: 11, textAlign: 'center', marginTop: 4 }}>
+          {draft.pricingMemoryMessage}
+        </Text>
+      ) : null}
     </View>
   );
 }

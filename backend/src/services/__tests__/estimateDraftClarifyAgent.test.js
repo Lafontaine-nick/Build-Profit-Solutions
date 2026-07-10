@@ -1,8 +1,10 @@
 const {
   generateClarifyQuestions,
   applyClarifyAnswers,
+  refineEstimateDraft,
   applyClarifyPatch,
   buildDraftStateSummary,
+  buildDeterministicQuantityPatchFromAnswers,
   sanitizeQuestionItems,
   MEASUREMENT_KEY_WHITELIST,
 } = require('../estimateDraftClarifyAgent');
@@ -166,7 +168,7 @@ describe('applyClarifyPatch', () => {
     });
     expect(draft.scopeMeasurements.drywallSqft).toBe(1200);
     expect(draft.scopeMeasurements.evil_key).toBeUndefined();
-    expect(appliedSummary.some((s) => /drywallSqft/.test(s))).toBe(true);
+    expect(appliedSummary.some((s) => /Drywall: 1,200 sqft/i.test(s))).toBe(true);
   });
 
   test('rejects non-positive or non-numeric measurement quantities', () => {
@@ -229,6 +231,196 @@ describe('applyClarifyPatch', () => {
       notesAddendum: 'Cabinets are stock, supplied by contractor.',
     });
     expect(draft.originalNotes).toMatch(/Clarified: Cabinets are stock/);
+  });
+
+  test('removes matching packages and records summary', () => {
+    const { draft, appliedSummary } = applyClarifyPatch(enrichDraft(baseDraft()), {
+      removePackages: ['Drywall'],
+      exclusions: ['Drywall — customer doing hang/tape'],
+    });
+    expect(draft.rooms.some((r) => /drywall/i.test(r.name))).toBe(false);
+    expect(draft.rooms.some((r) => /permit/i.test(r.name))).toBe(true);
+    expect(appliedSummary.some((s) => /Removed: Drywall/i.test(s))).toBe(true);
+    expect(draft.exclusions.some((e) => /drywall/i.test(e))).toBe(true);
+  });
+
+  test('refine mode can overwrite project info', () => {
+    const named = baseDraft({ customerName: 'Ruth' });
+    const { draft } = applyClarifyPatch(
+      enrichDraft(named),
+      { projectInfo: { customerName: 'Bob' } },
+      { overwriteProjectInfo: true }
+    );
+    expect(draft.customerName).toBe('Bob');
+  });
+
+  test('packageQuantities stamp LF onto utility trenching room', () => {
+    const adu = {
+      projectType: 'adu',
+      originalNotes: 'ADU with utility trenching and roofing',
+      rooms: [
+        {
+          name: 'Utility trenching',
+          scope: 'Water and sewer trench',
+          price: null,
+          laborPrice: null,
+          materialPrice: null,
+          priceIncludesLaborAndMaterials: false,
+          priceProvidedByUser: false,
+        },
+        {
+          name: 'Roofing / tie-in',
+          scope: 'Roofing for ADU',
+          price: null,
+          laborPrice: null,
+          materialPrice: null,
+          priceIncludesLaborAndMaterials: false,
+          priceProvidedByUser: false,
+        },
+      ],
+      allowances: [],
+      inclusions: [],
+      exclusions: [],
+      missingInfo: [],
+    };
+    const { draft, appliedSummary } = applyClarifyPatch(enrichDraft(adu), {
+      packageQuantities: [
+        { packageName: 'Utility trenching', quantity: 50, unit: 'lf' },
+        { packageName: 'Roofing / tie-in', quantity: 1100, unit: 'sqft' },
+      ],
+    });
+    const trench = draft.rooms.find((r) => /trench/i.test(r.name));
+    const roof = draft.rooms.find((r) => /roof/i.test(r.name));
+    expect(trench.scopeQuantities?.[0]).toMatchObject({ quantity: 50, unit: 'lf' });
+    expect(roof.scopeQuantities?.[0]).toMatchObject({ quantity: 1100, unit: 'sqft' });
+    expect(appliedSummary.some((s) => /Utility trenching: 50 LF/i.test(s))).toBe(true);
+    expect(appliedSummary.some((s) => /Roofing.*1,100 sqft/i.test(s))).toBe(true);
+    // Must not show 1,100 squares
+    expect(roof.scopeQuantities?.[0].unit).not.toBe('squares');
+  });
+
+  test('rejects roofing squares when quantity looks like sqft', () => {
+    const adu = {
+      projectType: 'adu',
+      originalNotes: 'ADU roofing',
+      rooms: [
+        {
+          name: 'Roofing / tie-in',
+          scope: 'Roofing',
+          price: null,
+          laborPrice: null,
+          materialPrice: null,
+          priceIncludesLaborAndMaterials: false,
+          priceProvidedByUser: false,
+        },
+      ],
+      allowances: [],
+      inclusions: [],
+      exclusions: [],
+      missingInfo: [],
+    };
+    const { draft } = applyClarifyPatch(enrichDraft(adu), {
+      packageQuantities: [{ packageName: 'Roofing / tie-in', quantity: 1100, unit: 'squares' }],
+    });
+    const roof = draft.rooms.find((r) => /roof/i.test(r.name));
+    expect(roof.scopeQuantities?.[0]).toMatchObject({ quantity: 1100, unit: 'sqft' });
+  });
+
+  test('addPackages creates a new room with optional price', () => {
+    const { draft, appliedSummary } = applyClarifyPatch(enrichDraft(baseDraft()), {
+      addPackages: [{ name: 'Landscaping', scope: 'Front yard landscaping', amount: 3500 }],
+    });
+    const landscaping = draft.rooms.find((r) => /landscap/i.test(r.name));
+    expect(landscaping).toBeTruthy();
+    expect(landscaping.price).toBe(3500);
+    expect(landscaping.priceProvidedByUser).toBe(true);
+    expect(appliedSummary.some((s) => /Added: Landscaping/i.test(s))).toBe(true);
+  });
+
+  test('addPackages does not duplicate an existing package', () => {
+    const { draft, appliedSummary } = applyClarifyPatch(enrichDraft(baseDraft()), {
+      addPackages: [{ name: 'Drywall', amount: 1000 }],
+    });
+    expect(draft.rooms.filter((r) => /drywall/i.test(r.name))).toHaveLength(1);
+    expect(appliedSummary.some((s) => /Added:/i.test(s))).toBe(false);
+  });
+});
+
+describe('buildDeterministicQuantityPatchFromAnswers', () => {
+  test('builds package quantities from numeric answers', () => {
+    const patch = buildDeterministicQuantityPatchFromAnswers([
+      {
+        question: 'What is the linear footage for utility trenching?',
+        answer: '50',
+        targetPackage: 'Utility trenching',
+      },
+      {
+        question: 'What is the square footage of roofing required?',
+        answer: '1100',
+        targetPackage: 'Roofing / tie-in',
+        targetKey: 'roofSquares',
+      },
+    ]);
+    expect(patch.packageQuantities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ packageName: 'Utility trenching', quantity: 50, unit: 'lf' }),
+        expect.objectContaining({ packageName: 'Roofing / tie-in', quantity: 1100, unit: 'sqft' }),
+      ])
+    );
+    // roofSquares from sqft question should be converted to squares (11)
+    expect(patch.measurements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'roofSquares', quantity: 11 }),
+      ])
+    );
+  });
+});
+
+describe('refineEstimateDraft', () => {
+  test('requires a command', async () => {
+    await expect(refineEstimateDraft(baseDraft(), '  ', { openai: null })).rejects.toThrow(/command/i);
+  });
+
+  test('no-LLM fallback appends revision to notes', async () => {
+    const result = await refineEstimateDraft(baseDraft(), 'make permits $2000', { openai: null });
+    expect(result.source).toBe('rules');
+    expect(result.draft.originalNotes).toMatch(/Revised: make permits \$2000/);
+  });
+
+  test('no-LLM add command creates a new scope package', async () => {
+    const result = await refineEstimateDraft(baseDraft(), 'add landscaping $3500', { openai: null });
+    expect(result.source).toBe('rules');
+    const landscaping = result.draft.rooms.find((r) => /landscap/i.test(r.name));
+    expect(landscaping).toBeTruthy();
+    expect(landscaping.price).toBe(3500);
+    expect(result.appliedSummary.some((s) => /Added:.*Landscap/i.test(s))).toBe(true);
+  });
+
+  test('LLM refine path applies price cut and package removal', async () => {
+    const openai = fakeOpenAi({
+      measurements: [],
+      packagePrices: [{ packageName: 'Permits / fees', amount: 1500, kind: 'lump_sum' }],
+      removePackages: ['Drywall'],
+      inclusions: [],
+      exclusions: ['Drywall excluded — customer doing it'],
+      projectInfo: { customerName: null, projectAddress: null, customerPhone: null },
+      notesAddendum: 'Removed drywall; permits set to $1500',
+    });
+    const priced = baseDraft();
+    priced.rooms[1].price = 2500;
+    priced.rooms[1].priceProvidedByUser = true;
+    priced.rooms[1].priceIncludesLaborAndMaterials = true;
+
+    const result = await refineEstimateDraft(priced, 'remove drywall, set permits to $1500', {
+      openai,
+      aiModels: AI_DEPS_MODELS,
+      aiRuntime: AI_DEPS_RUNTIME,
+    });
+    expect(result.source).toBe('ai');
+    expect(result.draft.rooms.some((r) => /drywall/i.test(r.name))).toBe(false);
+    const permits = result.draft.rooms.find((r) => /permit/i.test(r.name));
+    expect(permits.price).toBe(1500);
+    expect(result.appliedSummary.some((s) => /Removed/i.test(s))).toBe(true);
   });
 });
 
