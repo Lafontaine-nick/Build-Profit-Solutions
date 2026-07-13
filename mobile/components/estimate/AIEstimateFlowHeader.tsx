@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -42,97 +42,62 @@ export default function AIEstimateFlowHeader({
       ? 6
       : 4
     : Math.max(insets.top, Platform.OS === 'ios' ? 12 : 0) + 8;
-  const showFlowChrome = fromAssistant || step != null;
-
-  if (showFlowChrome) {
-    return (
-      <View
-        style={[
-          styles.assistantHeader,
-          {
-            paddingTop: headerTopPadding,
-            backgroundColor: Colors.bg,
-            borderBottomColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
-          },
-        ]}
-      >
-        <View style={styles.assistantHeaderRow}>
-          <View style={styles.headerSide}>
-            <LinearGradient
-              colors={BRAND_FRAME_GRADIENT_COLORS}
-              start={BRAND_FRAME_GRADIENT_START}
-              end={BRAND_FRAME_GRADIENT_END}
-              style={styles.backButtonBorder}
-            >
-              <GradientRingBackInner
-                darkMode={darkMode}
-                onPress={() => {
-                  if (!disabled) onBack();
-                }}
-                accessibilityLabel={fromAssistant ? 'Back to AI Assistant' : 'Back'}
-                style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
-              >
-                <MaterialIcons
-                  name="arrow-back"
-                  size={24}
-                  color={darkMode ? '#FFFFFF' : Colors.text}
-                />
-              </GradientRingBackInner>
-            </LinearGradient>
-          </View>
-          <View style={{ flex: 1, alignItems: 'center' }}>
-            {step != null ? (
-              <Text style={[styles.stepLabel, { color: Colors.sub }]}>
-                Step {step} of {stepTotal}
-              </Text>
-            ) : null}
-            <Text style={[styles.assistantTitle, { color: Colors.text }]}>{title}</Text>
-            {subtitle ? (
-              <Text style={[styles.assistantSubtitle, { color: Colors.sub }]} numberOfLines={1}>
-                {subtitle}
-              </Text>
-            ) : null}
-          </View>
-          <View style={styles.headerSide} />
-        </View>
-      </View>
-    );
-  }
-
+  // Always use Build with AI chrome: theme bg + gradient-ring back (not the old teal bar + X).
   return (
-    <LinearGradient
-      colors={BRAND_FRAME_GRADIENT_COLORS}
-      start={BRAND_FRAME_GRADIENT_START}
-      end={BRAND_FRAME_GRADIENT_END}
-      style={[styles.gradientHeader, { paddingTop: headerTopPadding }]}
+    <View
+      style={[
+        styles.assistantHeader,
+        {
+          paddingTop: headerTopPadding,
+          backgroundColor: Colors.bg,
+          borderBottomColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+        },
+      ]}
     >
-      <GradientRingBackInner style={styles.headerInner}>
-        <View style={styles.assistantHeaderRow}>
-          <TouchableOpacity onPress={onBack} disabled={disabled} style={styles.iconBtn}>
-            <MaterialIcons name="close" size={24} color={Colors.text} />
-          </TouchableOpacity>
-          <View style={{ flex: 1, alignItems: 'center' }}>
-            <Text style={[styles.assistantTitle, { color: Colors.text }]}>{title}</Text>
-            {subtitle ? (
-              <Text style={[styles.assistantSubtitle, { color: Colors.sub }]}>{subtitle}</Text>
-            ) : null}
-          </View>
-          <View style={styles.iconBtn} />
+      <View style={styles.assistantHeaderRow}>
+        <View style={styles.headerSide}>
+          <LinearGradient
+            colors={BRAND_FRAME_GRADIENT_COLORS}
+            start={BRAND_FRAME_GRADIENT_START}
+            end={BRAND_FRAME_GRADIENT_END}
+            style={styles.backButtonBorder}
+          >
+            <GradientRingBackInner
+              darkMode={darkMode}
+              onPress={() => {
+                if (!disabled) onBack();
+              }}
+              accessibilityLabel={fromAssistant ? 'Back to AI Assistant' : 'Back'}
+              style={[styles.backButton, { backgroundColor: darkMode ? '#000000' : Colors.bg }]}
+            >
+              <MaterialIcons
+                name="arrow-back"
+                size={24}
+                color={darkMode ? '#FFFFFF' : Colors.text}
+              />
+            </GradientRingBackInner>
+          </LinearGradient>
         </View>
-      </GradientRingBackInner>
-    </LinearGradient>
+        <View style={{ flex: 1, alignItems: 'center' }}>
+          {step != null ? (
+            <Text style={[styles.stepLabel, { color: Colors.sub }]}>
+              Step {step} of {stepTotal}
+            </Text>
+          ) : null}
+          <Text style={[styles.assistantTitle, { color: Colors.text }]}>{title}</Text>
+          {subtitle ? (
+            <Text style={[styles.assistantSubtitle, { color: Colors.sub }]} numberOfLines={1}>
+              {subtitle}
+            </Text>
+          ) : null}
+        </View>
+        <View style={styles.headerSide} />
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  gradientHeader: {
-    paddingHorizontal: 12,
-    paddingBottom: 12,
-  },
-  headerInner: {
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
   assistantHeader: {
     paddingHorizontal: 12,
     paddingBottom: 12,
@@ -158,12 +123,6 @@ const styles = StyleSheet.create({
     borderRadius: 19,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   stepLabel: {
     fontSize: 11,

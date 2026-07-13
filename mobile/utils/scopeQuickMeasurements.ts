@@ -432,6 +432,13 @@ export function countFilledQuickMeasurements(
   return { filled, total: fields.length };
 }
 
+/** Contractor-friendly label + unit for a quick-measurement key (plan takeoff review, alerts). */
+export function quickMeasurementFieldMeta(key: string): { label: string; unit: string } {
+  const def = QUICK_MEASUREMENT_FIELD_DEFS[key as QuickMeasurementFieldKey];
+  if (def) return { label: def.label, unit: def.unit };
+  return { label: key, unit: '' };
+}
+
 export function emptyQuickMeasurementInput(): Record<QuickMeasurementFieldKey, string> {
   return {
     bathroomFloorSqft: '',

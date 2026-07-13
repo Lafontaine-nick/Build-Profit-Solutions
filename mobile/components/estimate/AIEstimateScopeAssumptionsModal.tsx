@@ -15,8 +15,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import * as ImagePicker from 'expo-image-picker';
-import * as FileSystemLegacy from 'expo-file-system/legacy';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
@@ -30,17 +28,27 @@ import {
 } from '@/constants/scopeNoteSourceLabels';
 import type {
   EstimateAiDraft,
+  PhotoScopeDetection,
+  PlanToMeasurementsResult,
   ScopeAssumptionState,
   ScopeChecklistItem,
   ScopeMeasurements,
 } from '@/utils/estimateAiDraft';
 import {
+  applyScopeDetectionsToChecklistItems,
   formatDraftMoney,
   resolveDraftScopeNotes,
   repairDraftRatePricingFromNotes,
-  fetchPlanToMeasurements,
 } from '@/utils/estimateAiDraft';
-import { mergePlanMeasurementsIntoInput } from '@/utils/planTakeoffMerge';
+import PlanTakeoffReviewModal from '@/components/estimate/PlanTakeoffReviewModal';
+import {
+  imagesFromPickerAssets,
+  pickPlanFromLibrary,
+  pickPlanPdf,
+  promptPlanImportSource,
+  runPlanTakeoff,
+  takePlanPhoto,
+} from '@/utils/planImportRunner';
 import {
   checklistDisplayHelper,
   choiceIdsToScopeState,
@@ -3814,6 +3822,7 @@ function CollapsibleQuickMeasurements({
   darkMode,
   applying,
   onPlanNotesMerged,
+  onPlanScopeDetections,
 }: {
   expanded: boolean;
   onToggle: () => void;
@@ -3827,8 +3836,10 @@ function CollapsibleQuickMeasurements({
   darkMode: boolean;
   applying: boolean;
   onPlanNotesMerged?: (mergedNotes: string) => void;
+  onPlanScopeDetections?: (detections: PhotoScopeDetection[]) => void;
 }) {
   const [planImporting, setPlanImporting] = useState(false);
+  const [planReview, setPlanReview] = useState<PlanToMeasurementsResult | null>(null);
   const noteQuickMeasurements = useMemo(() => {
     const parsed = parseScopeMeasurementsFromNotes(notes || '', { templateKey, projectType: projectType ?? undefined });
     const out: Partial<Record<QuickMeasurementFieldKey, string>> = {};
@@ -3879,92 +3890,19 @@ function CollapsibleQuickMeasurements({
   );
   const noteKeySet = useMemo(() => new Set(noteQuickMeasurements.keys), [noteQuickMeasurements.keys]);
 
-  const processPlanImages = useCallback(
-    async (assets: ImagePicker.ImagePickerAsset[]) => {
-      const list = (assets || []).filter((a) => a?.uri).slice(0, 8);
-      if (!list.length) return;
-
+  const executePlanTakeoff = useCallback(
+    async (pages: Array<{ base64: string; mimeType: string; name?: string }>) => {
+      if (!pages.length) return;
       setPlanImporting(true);
       if (!expanded) onToggle();
       try {
-        const images = [];
-        for (const asset of list) {
-          const base64 = await FileSystemLegacy.readAsStringAsync(asset.uri, { encoding: 'base64' });
-          const mimeType =
-            asset.mimeType && asset.mimeType.startsWith('image/')
-              ? asset.mimeType
-              : asset.uri.toLowerCase().endsWith('.png')
-                ? 'image/png'
-                : 'image/jpeg';
-          images.push({ base64, mimeType });
-        }
-
-        const takeoff = await fetchPlanToMeasurements({
-          images,
+        const takeoff = await runPlanTakeoff(pages, {
           existingNotes: notes || '',
           templateKeyHint: templateKey || null,
           projectTypeHint: projectType || null,
         });
-
-        if (!takeoff.success) {
-          Alert.alert('Could not read plan', takeoff.reason || 'Try a clearer floor-plan image.');
-          return;
-        }
-
-        setMeasurements((prev) => {
-          const { next, filled, filledKeys } = mergePlanMeasurementsIntoInput(prev, takeoff.measurements, {
-            overwrite: false,
-          });
-          const pageNote = list.length > 1 ? ` from ${list.length} plan pages` : '';
-          const labelFor = (key: string) =>
-            (
-              {
-                floorAreaSqft: 'Living area',
-                flooringSqft: 'Flooring',
-                kitchenFloorSqft: 'Kitchen floor',
-                bathroomFloorSqft: 'Bath floor',
-                deckSqft: 'Deck / patio',
-                garageSqft: 'Garage',
-                concreteSqft: 'Concrete flatwork',
-                wallPaintSqft: 'Paint',
-                drywallSqft: 'Drywall',
-                baseboardLf: 'Trim',
-                cabinetLf: 'Cabinets',
-                countertopSqft: 'Countertops',
-              } as Record<string, string>
-            )[key] || key;
-          const valueLines = filledKeys
-            .slice(0, 8)
-            .map((key) => {
-              const v = (next as Record<string, unknown>)[key];
-              return `• ${labelFor(key)}: ${v}`;
-            })
-            .join('\n');
-          if (filled === 0 && Object.keys(takeoff.measurements).length > 0) {
-            Alert.alert(
-              'Measurements already filled',
-              'Plan dimensions were found but Quick measurements already had values. Clear a field to import from the plan.'
-            );
-          } else if (filled > 0) {
-            const notesHint = takeoff.notesBlock
-              ? `\n\n${String(takeoff.notesBlock).split('\n').slice(0, 4).join('\n')}`
-              : '';
-            Alert.alert(
-              'Plan measurements imported',
-              `Filled ${filled} field${filled === 1 ? '' : 's'}${pageNote}:\n${valueLines}${notesHint}\n\nScroll Quick measurements to review.`
-            );
-          } else {
-            Alert.alert(
-              'No dimensions mapped',
-              takeoff.notesBlock || 'The plan was read but no Quick measurement fields could be filled.'
-            );
-          }
-          return next as ScopeMeasurementsInputExtended;
-        });
-
-        if (takeoff.mergedNotes && onPlanNotesMerged) {
-          onPlanNotesMerged(takeoff.mergedNotes);
-        }
+        if (!takeoff) return;
+        setPlanReview(takeoff);
         if (Platform.OS === 'ios') {
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
@@ -3974,75 +3912,103 @@ function CollapsibleQuickMeasurements({
         setPlanImporting(false);
       }
     },
-    [expanded, onToggle, notes, templateKey, projectType, setMeasurements, onPlanNotesMerged]
+    [expanded, onToggle, notes, templateKey, projectType]
   );
 
-  const takePlanPhoto = useCallback(async () => {
-    if (planImporting || applying) return;
-    try {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Camera needed', 'Allow camera access to photograph a floor plan.');
-        return;
-      }
-      if (Platform.OS !== 'web') {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      }
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: false,
-        quality: 0.85,
-        exif: false,
-        base64: false,
-      });
-      if (result.canceled || !result.assets?.[0]?.uri) return;
-      await processPlanImages([result.assets[0]]);
-    } catch (e) {
-      Alert.alert('Camera failed', e instanceof Error ? e.message : 'Could not take a photo. Try Library instead.');
-    }
-  }, [planImporting, applying, processPlanImages]);
+  const applyPlanReview = useCallback(
+    (values: Record<string, string>, scopeDetections: PhotoScopeDetection[]) => {
+      const takeoff = planReview;
+      setPlanReview(null);
+      if (!takeoff) return;
 
-  const pickPlanFromLibrary = useCallback(async () => {
-    if (planImporting || applying) return;
-    try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Allow photo library access to import a floor plan image.');
-        return;
+      if (Object.keys(values).length || takeoff.rooms?.length) {
+        setMeasurements((prev) => {
+          const next = { ...prev, ...values } as ScopeMeasurementsInputExtended;
+          if (takeoff.rooms?.length) {
+            const rooms = takeoff.rooms
+              .map((r) => ({
+                name: String(r.name || '').trim(),
+                areaSqft: r.areaSqft != null && Number(r.areaSqft) > 0 ? Number(r.areaSqft) : null,
+                lengthFt: r.lengthFt != null ? Number(r.lengthFt) : null,
+                widthFt: r.widthFt != null ? Number(r.widthFt) : null,
+              }))
+              .filter((r) => r.name);
+            (next as ScopeMeasurementsInputExtended & { planRooms?: typeof rooms }).planRooms = rooms;
+            // Fill empty kitchen/bath/garage/deck from named rooms.
+            const kitchen = rooms
+              .filter((r) => /\bkitchen\b/i.test(r.name) && r.areaSqft)
+              .reduce((s, r) => s + (r.areaSqft || 0), 0);
+            const baths = rooms
+              .filter((r) => /\b(bath|powder)\b/i.test(r.name) && r.areaSqft)
+              .reduce((s, r) => s + (r.areaSqft || 0), 0);
+            const garage = rooms
+              .filter((r) => /\bgarage\b/i.test(r.name) && r.areaSqft)
+              .reduce((s, r) => s + (r.areaSqft || 0), 0);
+            const deck = rooms
+              .filter((r) => /\b(deck|patio|porch)\b/i.test(r.name) && r.areaSqft)
+              .reduce((s, r) => s + (r.areaSqft || 0), 0);
+            if (kitchen > 0 && !Number(next.kitchenFloorSqft)) next.kitchenFloorSqft = String(Math.round(kitchen * 10) / 10);
+            if (baths > 0 && !Number(next.bathroomFloorSqft)) next.bathroomFloorSqft = String(Math.round(baths * 10) / 10);
+            if (garage > 0 && !Number(next.garageSqft)) next.garageSqft = String(Math.round(garage * 10) / 10);
+            if (deck > 0 && !Number(next.deckSqft)) next.deckSqft = String(Math.round(deck * 10) / 10);
+          }
+          return next;
+        });
       }
-      if (Platform.OS !== 'web') {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      if (takeoff.mergedNotes && onPlanNotesMerged) {
+        onPlanNotesMerged(takeoff.mergedNotes);
       }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsMultipleSelection: true,
-        selectionLimit: 8,
-        quality: 0.85,
-        allowsEditing: false,
-        exif: false,
-        base64: false,
-        preferredAssetRepresentationMode:
-          ImagePicker.UIImagePickerPreferredAssetRepresentationMode?.Compatible,
-      });
-      if (result.canceled || !result.assets?.length) return;
-      await processPlanImages(result.assets);
-    } catch (e) {
-      Alert.alert('Library failed', e instanceof Error ? e.message : 'Could not open photos. Please try again.');
-    }
-  }, [planImporting, applying, processPlanImages]);
+      if (scopeDetections.length && onPlanScopeDetections) {
+        onPlanScopeDetections(scopeDetections);
+      }
+      if (Platform.OS === 'ios') {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    },
+    [planReview, setMeasurements, onPlanNotesMerged, onPlanScopeDetections]
+  );
 
   const importFromPlan = useCallback(() => {
     if (planImporting || applying) return;
-    Alert.alert(
-      'Import from plan',
-      'Photograph a floor plan or choose up to 8 plan pages from your library.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Take photo', onPress: () => void takePlanPhoto() },
-        { text: 'Choose from library', onPress: () => void pickPlanFromLibrary() },
-      ]
-    );
-  }, [planImporting, applying, takePlanPhoto, pickPlanFromLibrary]);
+    promptPlanImportSource({
+      title: 'Update from plan',
+      message:
+        'Re-read plan photos or a PDF to update Quick measurements. Prefer importing on the first Build with AI step when starting a new bid.',
+      onCamera: () => {
+        void (async () => {
+          try {
+            const assets = await takePlanPhoto();
+            if (!assets?.length) return;
+            await executePlanTakeoff(await imagesFromPickerAssets(assets));
+          } catch (e) {
+            Alert.alert('Camera failed', e instanceof Error ? e.message : 'Could not take a photo.');
+          }
+        })();
+      },
+      onLibrary: () => {
+        void (async () => {
+          try {
+            const assets = await pickPlanFromLibrary();
+            if (!assets?.length) return;
+            await executePlanTakeoff(await imagesFromPickerAssets(assets));
+          } catch (e) {
+            Alert.alert('Library failed', e instanceof Error ? e.message : 'Could not open photos.');
+          }
+        })();
+      },
+      onPdf: () => {
+        void (async () => {
+          try {
+            const pages = await pickPlanPdf();
+            if (!pages?.length) return;
+            await executePlanTakeoff(pages);
+          } catch (e) {
+            Alert.alert('PDF import failed', e instanceof Error ? e.message : 'Could not read the PDF.');
+          }
+        })();
+      },
+    });
+  }, [planImporting, applying, executePlanTakeoff]);
 
   const setField = useCallback(
     (key: QuickMeasurementFieldKey, value: string) => {
@@ -4109,10 +4075,10 @@ function CollapsibleQuickMeasurements({
             )}
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 13, fontWeight: '700' }}>
-                {planImporting ? 'Reading plan…' : 'Import from plan'}
+                {planImporting ? 'Reading plan…' : 'Update from plan'}
               </Text>
               <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 2 }}>
-                Take a photo or choose up to 8 plan pages to fill empty fields
+                Re-import photos or PDF to refresh these fields — primary import is on Build with AI
               </Text>
             </View>
           </TouchableOpacity>
@@ -4156,6 +4122,50 @@ function CollapsibleQuickMeasurements({
               ))}
             </View>
           ))}
+          {Array.isArray(measurements.planRooms) && measurements.planRooms.length > 0 ? (
+            <View style={styles.quickMeasurementSection}>
+              <Text style={[styles.quickMeasurementSectionTitle, { color: captionColor(darkMode, Colors) }]}>
+                Rooms from plan
+              </Text>
+              {measurements.planRooms.map((room, idx) => {
+                const area =
+                  room.areaSqft != null && Number(room.areaSqft) > 0
+                    ? `${Number(room.areaSqft).toLocaleString()} sqft`
+                    : room.lengthFt != null && room.widthFt != null
+                      ? `${room.lengthFt}×${room.widthFt} ft`
+                      : 'size unclear';
+                return (
+                  <View
+                    key={`${room.name}-${idx}`}
+                    style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      paddingVertical: 8,
+                      borderBottomWidth: StyleSheet.hairlineWidth,
+                      borderBottomColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: darkMode ? '#F5F7FA' : Colors.text,
+                        fontSize: 13,
+                        fontWeight: '600',
+                        flex: 1,
+                        paddingRight: 12,
+                      }}
+                      numberOfLines={1}
+                    >
+                      {room.name}
+                    </Text>
+                    <Text style={{ color: captionColor(darkMode, Colors), fontSize: 13, fontWeight: '600' }}>
+                      {area}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
           {showDone ? (
             <TouchableOpacity onPress={onToggle} activeOpacity={0.75} style={styles.quickMeasurementsDone}>
               <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '700' }}>Done</Text>
@@ -4163,6 +4173,13 @@ function CollapsibleQuickMeasurements({
           ) : null}
         </View>
       ) : null}
+      <PlanTakeoffReviewModal
+        visible={planReview != null}
+        takeoff={planReview}
+        currentValues={measurements as unknown as Record<string, unknown>}
+        onApply={applyPlanReview}
+        onCancel={() => setPlanReview(null)}
+      />
     </View>
   );
 }
@@ -4276,6 +4293,32 @@ export default function AIEstimateScopeAssumptionsModal({
         : update;
     measurementsRef.current = next;
     setMeasurements(next);
+  }, []);
+
+  /** Plan-derived scope suggestions (already user-confirmed in the review screen). */
+  const handlePlanScopeDetections = useCallback((detections: PhotoScopeDetection[]) => {
+    if (!detections?.length) return;
+    setItems((prev) => {
+      const { items: nextItems, appliedCount, appliedLabels } = applyScopeDetectionsToChecklistItems(
+        prev,
+        detections
+      );
+      if (appliedCount > 0) {
+        Alert.alert(
+          'Scope updated from plans',
+          `Set ${appliedCount} checklist item${appliedCount === 1 ? '' : 's'}:\n${appliedLabels
+            .slice(0, 8)
+            .map((l) => `• ${l}`)
+            .join('\n')}`
+        );
+      } else {
+        Alert.alert(
+          'Scope already set',
+          'The plan suggestions matched items you had already answered, so nothing was changed.'
+        );
+      }
+      return nextItems;
+    });
   }, []);
 
   useEffect(() => {
@@ -5466,6 +5509,7 @@ export default function AIEstimateScopeAssumptionsModal({
           onPlanNotesMerged={(merged) => {
             if (merged?.trim()) setPlanNotesOverride(merged);
           }}
+          onPlanScopeDetections={handlePlanScopeDetections}
         />
 
         {groupedItems.map((group) => (

@@ -175,6 +175,40 @@ describe('scopeItemQuantityCatalog', () => {
     expect(sqft.pricingReady).toBe(true);
   });
 
+  test('ground_up shell items use living floorAreaSqft from plan takeoff', () => {
+    const measurements = normalizeScopeMeasurements({ floorAreaSqft: 1879, flooringSqft: 1879 });
+    const ctx = { measurements, templateKey: 'ground_up' };
+
+    for (const id of ['foundation', 'framing', 'sitework', 'mep_rough', 'exterior', 'insulation']) {
+      const q = resolveQuantityForChecklistItem(id, ctx);
+      expect(q.quantity).toBe(1879);
+      expect(q.unit).toBe('sqft');
+      expect(q.pricingReady).toBe(true);
+    }
+
+    const flooring = resolveQuantityForChecklistItem('tile_flooring', ctx);
+    expect(flooring.quantity).toBe(1879);
+    expect(flooring.pricingReady).toBe(true);
+
+    const paint = resolveQuantityForChecklistItem('paint_trim', ctx);
+    expect(paint.quantity).toBe(1879);
+    expect(paint.pricingReady).toBe(true);
+
+    const drywall = resolveQuantityForChecklistItem('drywall', ctx);
+    expect(drywall.quantity).toBe(1879);
+    expect(drywall.pricingReady).toBe(true);
+    expect(String(drywall.missingMessage || drywall.rule?.quantityHelper || '')).not.toMatch(/repair/i);
+  });
+
+  test('addition framing also uses floorAreaSqft when present', () => {
+    const q = resolveQuantityForChecklistItem('framing', {
+      measurements: normalizeScopeMeasurements({ floorAreaSqft: 240 }),
+      templateKey: 'addition',
+    });
+    expect(q.quantity).toBe(240);
+    expect(q.pricingReady).toBe(true);
+  });
+
   test('shower floor tile uses shower floor sqft not bathroom floor', () => {
     const measurements = normalizeScopeMeasurements({
       bathroomFloorSqft: 50,

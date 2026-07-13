@@ -782,8 +782,10 @@ function additionFloorAreaRule(quantityHelper, missingMessage = 'Enter pricing b
   return {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['floorAreaSqft'],
     pricingBasisMeasurementKey: 'floorAreaSqft',
-    requiresUserQuantity: true,
+    canUseRoomSqft: true,
+    requiresUserQuantity: false,
     pricingMethod: 'unit_rate',
     quantityHelper,
     missingMessage,
@@ -943,7 +945,104 @@ const ADDITION_CHECKLIST_QUANTITY_RULES = {
   ),
 };
 
+/**
+ * Ground-up new construction — same living-SF basis as addition for shell/MEP/finishes,
+ * with ground_up checklist ids (exterior, mep_rough, roofing, paint_trim, tile_flooring).
+ */
+const GROUND_UP_CHECKLIST_QUANTITY_RULES = {
+  plans_engineering: ADDITION_CHECKLIST_QUANTITY_RULES.plans_engineering,
+  permits: ADDITION_CHECKLIST_QUANTITY_RULES.permits,
+  sitework: additionFloorAreaRule(
+    'Uses living area from the plan for sitework basis — edit if needed.',
+    'Enter sitework sqft or pricing.'
+  ),
+  foundation: additionFloorAreaRule(
+    'Uses living area from the plan as slab/foundation footprint basis — edit if needed.',
+    'Enter foundation sqft or pricing.'
+  ),
+  framing: additionFloorAreaRule(
+    'Uses living area from the plan as framed floor area — edit if needed.',
+    'Enter framing sqft or pricing.'
+  ),
+  roofing: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'squares', 'allowance', 'lump_sum'],
+    measurementKeys: ['roofSquares', 'floorAreaSqft'],
+    pricingBasisMeasurementKey: 'floorAreaSqft',
+    canUseRoomSqft: true,
+    requiresUserQuantity: false,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Uses roof squares when known, otherwise living area from the plan — edit if needed.',
+    missingMessage: 'Enter roofing sqft/squares or pricing.',
+  },
+  exterior: additionFloorAreaRule(
+    'Uses living area from the plan as exterior finish basis — edit if needed.',
+    'Enter exterior finish sqft or pricing.'
+  ),
+  mep_rough: additionFloorAreaRule(
+    'Uses living area from the plan as MEP rough-in basis — edit if needed.',
+    'Enter MEP rough-in sqft or pricing.'
+  ),
+  insulation: additionFloorAreaRule(
+    'Uses living area from the plan as insulation basis — edit if needed.',
+    'Enter insulation sqft or pricing.'
+  ),
+  drywall: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['drywallSqft', 'floorAreaSqft'],
+    pricingBasisMeasurementKey: 'floorAreaSqft',
+    canUseRoomSqft: true,
+    requiresUserQuantity: false,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Uses drywall sqft when known, otherwise living area from the plan — edit if needed.',
+    missingMessage: 'Enter drywall sqft or pricing.',
+  },
+  cabinets_counters: ADDITION_CHECKLIST_QUANTITY_RULES.cabinets_counters,
+  tile_flooring: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['flooringSqft', 'floorAreaSqft'],
+    pricingBasisMeasurementKey: 'floorAreaSqft',
+    canUseRoomSqft: true,
+    requiresUserQuantity: false,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Uses flooring / living area from the plan — edit if needed.',
+    missingMessage: 'Enter flooring sqft or pricing.',
+  },
+  paint_trim: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['wallPaintSqft', 'floorAreaSqft'],
+    pricingBasisMeasurementKey: 'floorAreaSqft',
+    canUseRoomSqft: true,
+    requiresUserQuantity: false,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Uses paint sqft when known, otherwise living area from the plan — edit if needed.',
+    missingMessage: 'Enter paint/trim sqft or pricing.',
+  },
+  appliances: ADDITION_CHECKLIST_QUANTITY_RULES.appliances,
+  utility_taps: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum', 'each'],
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    pricingMethod: 'allowance',
+    quantityHelper: 'Enter utility tap / connection allowance for this job.',
+    missingMessage: 'Enter utility tap pricing.',
+  },
+  contingency: ADDITION_CHECKLIST_QUANTITY_RULES.contingency,
+  overhead_profit: additionFlatAllowanceRule(
+    'Enter builder overhead & profit allowance for this job.',
+    'Enter overhead & profit allowance.'
+  ),
+  cleanup: ADDITION_CHECKLIST_QUANTITY_RULES.cleanup,
+};
+
 function getRuleForChecklistItem(itemId, templateKey) {
+  if (templateKey === 'ground_up' && GROUND_UP_CHECKLIST_QUANTITY_RULES[itemId]) {
+    return GROUND_UP_CHECKLIST_QUANTITY_RULES[itemId];
+  }
   if (templateKey === 'addition' && ADDITION_CHECKLIST_QUANTITY_RULES[itemId]) {
     return ADDITION_CHECKLIST_QUANTITY_RULES[itemId];
   }
@@ -1793,6 +1892,7 @@ module.exports = {
   CHECKLIST_ITEM_QUANTITY_RULES,
   KITCHEN_CHECKLIST_QUANTITY_RULES,
   ADDITION_CHECKLIST_QUANTITY_RULES,
+  GROUND_UP_CHECKLIST_QUANTITY_RULES,
   normalizeScopeMeasurements,
   getRuleForChecklistItem,
   getRuleForPackage,

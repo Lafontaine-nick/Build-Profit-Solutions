@@ -2,8 +2,12 @@ const {
   sanitizeRooms,
   sanitizeMeasurements,
   sanitizeBuildingAreas,
+  sanitizeFieldConfidence,
+  sanitizeUnreadableFields,
+  applyConfidenceFloor,
   mergePlanMeasurementsIntoExisting,
   buildItemQuantities,
+  MIN_FIELD_CONFIDENCE,
 } = require('../estimatePlanToMeasurements');
 
 describe('estimatePlanToMeasurements', () => {
@@ -69,6 +73,18 @@ describe('estimatePlanToMeasurements', () => {
     expect(measurements.wallPaintSqft).toBe(2400);
   });
 
+  test('sanitizeMeasurements drops concrete when it duplicates deck / patio SF', () => {
+    const measurements = sanitizeMeasurements(
+      { concreteSqft: 247, deckSqft: 247, floorAreaSqft: 1879 },
+      [],
+      { coveredPatioSqft: 247, totalLivingSqft: 1879 },
+      ['concreteSqft']
+    );
+    expect(measurements.deckSqft).toBe(247);
+    expect(measurements.concreteSqft).toBeUndefined();
+    expect(measurements.floorAreaSqft).toBe(1879);
+  });
+
   test('mergePlanMeasurementsIntoExisting does not overwrite filled fields', () => {
     const { measurements, filled } = mergePlanMeasurementsIntoExisting(
       { floorAreaSqft: 1000, kitchenFloorSqft: null },
@@ -84,5 +100,47 @@ describe('estimatePlanToMeasurements', () => {
     const iq = buildItemQuantities({ flooringSqft: 850, baseboardLf: 200 });
     expect(iq.flooring.quantitySource).toBe('plan_vision');
     expect(iq.trim.quantity).toBe(200);
+  });
+
+  test('sanitizeFieldConfidence keeps only known keys and clamps to [0,1]', () => {
+    const conf = sanitizeFieldConfidence({
+      floorAreaSqft: 0.95,
+      kitchenFloorSqft: 1.7,
+      bogusKey: 0.9,
+      deckSqft: -0.2,
+      garageSqft: 'not a number',
+    });
+    expect(conf.floorAreaSqft).toBe(0.95);
+    expect(conf.kitchenFloorSqft).toBe(1);
+    expect(conf.deckSqft).toBe(0);
+    expect(conf.bogusKey).toBeUndefined();
+    expect(conf.garageSqft).toBeUndefined();
+  });
+
+  test('applyConfidenceFloor withholds low-confidence fields instead of auto-filling', () => {
+    const { measurements, lowConfidence } = applyConfidenceFloor(
+      { floorAreaSqft: 2418, kitchenFloorSqft: 120, garageSqft: 483 },
+      { floorAreaSqft: 0.95, kitchenFloorSqft: MIN_FIELD_CONFIDENCE - 0.1 }
+    );
+    expect(measurements.floorAreaSqft).toBe(2418);
+    // No confidence reported (e.g. schedule-derived) → kept; other gating already applied
+    expect(measurements.garageSqft).toBe(483);
+    expect(measurements.kitchenFloorSqft).toBeUndefined();
+    expect(lowConfidence).toEqual([
+      { field: 'kitchenFloorSqft', value: 120, confidence: 0.5 },
+    ]);
+  });
+
+  test('sanitizeUnreadableFields normalizes entries and caps reasons', () => {
+    const out = sanitizeUnreadableFields([
+      { field: 'garageSqft', reason: 'Dimension string blurry' },
+      { key: 'deckSqft' },
+      { reason: 'no field name' },
+      'garbage',
+    ]);
+    expect(out).toEqual([
+      { field: 'garageSqft', reason: 'Dimension string blurry' },
+      { field: 'deckSqft', reason: 'Not legible on the plan' },
+    ]);
   });
 });

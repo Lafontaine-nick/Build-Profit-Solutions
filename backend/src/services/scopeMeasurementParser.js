@@ -236,8 +236,31 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   ]);
   if (landscapeSqft) out.landscapeSqft = landscapeSqft;
 
+  // Floor / living area — prefer explicit schedule language over install/demo clauses.
+  const livingAreaSqft = (() => {
+    for (const clause of clauses) {
+      const c = clause.toLowerCase();
+      if (
+        !/\b(living\s+area|total\s+living|main\s+living|conditioned\s+(?:floor\s+)?area|building\s+areas?|total\s+(?:floor|heated)\s+area|heated\s+area)\b/i.test(
+          c
+        )
+      ) {
+        continue;
+      }
+      const q = firstQty(clause, SQFT_RE);
+      if (q && q >= 200) return q;
+    }
+    return (
+      pickSqftNearPattern(text, /\bliving\s+area\b/) ||
+      pickSqftNearPattern(text, /\btotal\s+living\b/) ||
+      pickSqftNearPattern(text, /\bmain\s+living\b/) ||
+      null
+    );
+  })();
+
   // Flooring / floor-area jobs (tile demo, laminate install, etc.)
   const floorAreaSqft = (() => {
+    if (livingAreaSqft) return livingAreaSqft;
     let max = 0;
     for (const clause of clauses) {
       const c = clause.toLowerCase();

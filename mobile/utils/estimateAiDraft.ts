@@ -144,6 +144,13 @@ export type ScopePricingAcceptanceMetadata = {
   totalAmount: number;
 };
 
+export type PlanRoomMeasurement = {
+  name: string;
+  areaSqft: number | null;
+  lengthFt?: number | null;
+  widthFt?: number | null;
+};
+
 export type ScopeMeasurements = {
   /** Bathroom floor sqft — used for floor tile, demo, etc. */
   bathroomFloorSqft?: number | null;
@@ -174,6 +181,8 @@ export type ScopeMeasurements = {
   deckSqft?: number | null;
   /** Detached/attached garage area from plan schedule (not living SF). */
   garageSqft?: number | null;
+  /** Named rooms read from the plan (for Quick measurements display). */
+  planRooms?: PlanRoomMeasurement[];
   /** Per-checklist-item overrides keyed by checklist id */
   itemQuantities?: Record<string, ScopeItemQuantity>;
   /** Accepted pricing metadata keyed by checklist item id */
@@ -693,6 +702,8 @@ export async function refineDraftWithCommand(
 export type PhotoScopeImage = {
   base64: string;
   mimeType?: string;
+  /** Filename hint — used for PDF plan uploads. */
+  name?: string;
 };
 
 export type PhotoScopeDetection = {
@@ -752,9 +763,27 @@ export async function fetchPhotoToScope(params: {
   };
 }
 
+export type PlanLowConfidenceField = {
+  field: string;
+  value: number;
+  confidence: number;
+};
+
+export type PlanUnreadableField = {
+  field: string;
+  reason: string;
+};
+
+export type PlanScopeResult = {
+  scopeText: string;
+  detections: PhotoScopeDetection[];
+};
+
 export type PlanToMeasurementsResult = {
   success: boolean;
   reason?: string | null;
+  /** Vision's own read of the pages: good | partial | unreadable. */
+  imageQuality?: string | null;
   rooms: Array<{
     name: string;
     lengthFt?: number | null;
@@ -764,18 +793,27 @@ export type PlanToMeasurementsResult = {
     confidence: number;
   }>;
   measurements: Record<string, number>;
+  /** Per-field 0-1 confidence that the value was read (not guessed). */
+  fieldConfidence: Record<string, number>;
+  /** Fields the AI read but withheld because confidence was too low. */
+  lowConfidence: PlanLowConfidenceField[];
+  /** Fields the AI saw on the plan but could not read (blurry/cut off). */
+  unreadableFields: PlanUnreadableField[];
   itemQuantities: Record<string, { quantity: number; unit: string; quantitySource?: string }>;
   assumptions: string[];
   notesBlock: string;
   mergedNotes: string;
+  /** Draft scope detections read from the plan sheets (confirm before applying). */
+  scope: PlanScopeResult | null;
 };
 
-/** Analyze floor plan / blueprint image → Quick Measurement fields. */
+/** Analyze floor plan / blueprint pages (images or PDF) → Quick Measurement fields + draft scope. */
 export async function fetchPlanToMeasurements(params: {
   images: PhotoScopeImage[];
   existingNotes?: string;
   projectTypeHint?: string | null;
   templateKeyHint?: string | null;
+  includeScope?: boolean;
 }): Promise<PlanToMeasurementsResult> {
   const payload = await postAiAssistantJson<
     Partial<PlanToMeasurementsResult> & { error?: string; message?: string }
@@ -787,8 +825,9 @@ export async function fetchPlanToMeasurements(params: {
       projectTypeHint: params.projectTypeHint || null,
       templateKeyHint: params.templateKeyHint || null,
       mergeIntoNotes: true,
+      includeScope: params.includeScope !== false,
     },
-    120000
+    180000
   );
 
   if (payload?.error && payload.success !== true && payload.success !== false) {
@@ -798,11 +837,22 @@ export async function fetchPlanToMeasurements(params: {
   return {
     success: payload.success !== false,
     reason: payload.reason ?? null,
+    imageQuality: payload.imageQuality ?? null,
     rooms: Array.isArray(payload.rooms) ? payload.rooms : [],
     measurements:
       payload.measurements && typeof payload.measurements === 'object'
         ? (payload.measurements as Record<string, number>)
         : {},
+    fieldConfidence:
+      payload.fieldConfidence && typeof payload.fieldConfidence === 'object'
+        ? (payload.fieldConfidence as Record<string, number>)
+        : {},
+    lowConfidence: Array.isArray(payload.lowConfidence)
+      ? (payload.lowConfidence as PlanLowConfidenceField[])
+      : [],
+    unreadableFields: Array.isArray(payload.unreadableFields)
+      ? (payload.unreadableFields as PlanUnreadableField[])
+      : [],
     itemQuantities:
       payload.itemQuantities && typeof payload.itemQuantities === 'object'
         ? (payload.itemQuantities as PlanToMeasurementsResult['itemQuantities'])
@@ -810,10 +860,56 @@ export async function fetchPlanToMeasurements(params: {
     assumptions: Array.isArray(payload.assumptions) ? payload.assumptions.map(String) : [],
     notesBlock: payload.notesBlock || '',
     mergedNotes: payload.mergedNotes || params.existingNotes || '',
+    scope:
+      payload.scope && typeof payload.scope === 'object' && Array.isArray((payload.scope as PlanScopeResult).detections)
+        ? (payload.scope as PlanScopeResult)
+        : null,
   };
 }
 
 const PHOTO_DETECTION_MIN_CONFIDENCE = 0.45;
+
+/**
+ * Plan/photo detections sometimes use sibling ids from another checklist
+ * template (e.g. exterior_finishes vs exterior). Remap onto ids that exist
+ * in the current Confirm Scope checklist before applying.
+ */
+const PLAN_SCOPE_ID_ALIASES: Record<string, string[]> = {
+  exterior_finishes: ['exterior', 'exterior_finishes'],
+  exterior: ['exterior', 'exterior_finishes'],
+  roof_tie_in: ['roofing', 'roof_tie_in', 'shingles_roofing'],
+  roofing: ['roofing', 'roof_tie_in', 'shingles_roofing'],
+  framing_structure: ['framing', 'framing_structure', 'wall_framing'],
+  framing: ['framing', 'framing_structure'],
+  electrical_rough: ['mep_rough', 'electrical_rough', 'electrical'],
+  plumbing_rough: ['mep_rough', 'plumbing_rough', 'plumbing'],
+  hvac: ['mep_rough', 'hvac'],
+  mep_rough: ['mep_rough', 'electrical_rough', 'plumbing_rough', 'hvac'],
+  paint: ['paint_trim', 'paint', 'exterior_paint'],
+  paint_trim: ['paint_trim', 'paint', 'interior_trim'],
+  interior_trim: ['paint_trim', 'interior_trim'],
+  flooring: ['tile_flooring', 'flooring'],
+  tile: ['tile_flooring', 'tile', 'flooring'],
+  tile_flooring: ['tile_flooring', 'flooring', 'tile'],
+  site_prep: ['sitework', 'site_prep', 'excavation'],
+  sitework: ['sitework', 'site_prep', 'excavation'],
+  excavation: ['sitework', 'excavation'],
+  grading: ['sitework', 'grading'],
+  cabinets: ['cabinets_counters', 'cabinets'],
+  countertops: ['cabinets_counters', 'countertops'],
+  cabinets_counters: ['cabinets_counters', 'cabinets', 'countertops'],
+  windows_doors: ['windows_doors', 'exterior'],
+  concrete: ['foundation', 'concrete'],
+  pour_foundation: ['foundation', 'pour_foundation'],
+};
+
+function remapDetectionItemId(itemId: string, allowedIds: Set<string>): string | null {
+  if (allowedIds.has(itemId)) return itemId;
+  for (const alt of PLAN_SCOPE_ID_ALIASES[itemId] || []) {
+    if (allowedIds.has(alt)) return alt;
+  }
+  return null;
+}
 
 /**
  * Apply structured vision detections directly onto the draft's Step 2 checklist,
@@ -865,6 +961,215 @@ export function applyPhotoDetectionsToDraft(
   };
 }
 
+/**
+ * Apply plan/photo scope detections to a local checklist items array (Confirm
+ * Scope modal state). Same rules as applyPhotoDetectionsToDraft: only fills
+ * "unsure" items, never overrides explicit states. Remaps cross-template ids
+ * so ground_up jobs receive exterior / mep_rough / paint_trim / etc.
+ */
+export function applyScopeDetectionsToChecklistItems(
+  items: ScopeChecklistItem[],
+  detections: PhotoScopeDetection[] | null | undefined
+): { items: ScopeChecklistItem[]; appliedCount: number; appliedLabels: string[] } {
+  if (!items?.length || !detections?.length) {
+    return { items, appliedCount: 0, appliedLabels: [] };
+  }
+
+  const allowedIds = new Set(items.map((i) => i.id));
+  const byId = new Map<string, PhotoScopeDetection>();
+  for (const d of detections) {
+    if (!d?.itemId || (d.confidence ?? 0) < PHOTO_DETECTION_MIN_CONFIDENCE) continue;
+    if (d.state !== 'included' && d.state !== 'excluded') continue;
+    const mappedId = remapDetectionItemId(d.itemId, allowedIds);
+    if (!mappedId || byId.has(mappedId)) continue;
+    byId.set(mappedId, { ...d, itemId: mappedId });
+  }
+  if (!byId.size) return { items, appliedCount: 0, appliedLabels: [] };
+
+  const appliedLabels: string[] = [];
+  const nextItems = items.map((item) => {
+    const detection = byId.get(item.id);
+    if (!detection) return item;
+
+    if (item.inputType === 'choice') {
+      if (item.choiceId && item.choiceId !== 'unsure') return item;
+      const validChoice =
+        detection.choiceId && (item.options || []).some((o) => o.id === detection.choiceId)
+          ? detection.choiceId
+          : null;
+      if (!validChoice) return item;
+      appliedLabels.push(item.label);
+      return { ...item, choiceId: validChoice, state: 'included' as const, noteBacked: true };
+    }
+
+    if (item.inputType === 'multi_choice') return item;
+
+    if (item.state !== 'unsure') return item;
+    appliedLabels.push(item.label);
+    return { ...item, state: detection.state, noteBacked: true };
+  });
+
+  return { items: nextItems, appliedCount: appliedLabels.length, appliedLabels };
+}
+
+export type PlanImportPayload = {
+  measurements?: Record<string, number | string>;
+  scopeDetections?: PhotoScopeDetection[];
+  rooms?: PlanRoomMeasurement[];
+};
+
+/** Normalize vision room list for Quick measurements + field mapping. */
+export function normalizePlanRooms(
+  rooms: Array<{
+    name?: string;
+    areaSqft?: number | null;
+    lengthFt?: number | null;
+    widthFt?: number | null;
+  }> | null | undefined
+): PlanRoomMeasurement[] {
+  const out: PlanRoomMeasurement[] = [];
+  for (const room of rooms || []) {
+    const name = String(room?.name || '').trim();
+    if (!name) continue;
+    let areaSqft =
+      room?.areaSqft != null && Number.isFinite(Number(room.areaSqft)) && Number(room.areaSqft) > 0
+        ? Math.round(Number(room.areaSqft) * 10) / 10
+        : null;
+    const lengthFt =
+      room?.lengthFt != null && Number.isFinite(Number(room.lengthFt)) && Number(room.lengthFt) > 0
+        ? Number(room.lengthFt)
+        : null;
+    const widthFt =
+      room?.widthFt != null && Number.isFinite(Number(room.widthFt)) && Number(room.widthFt) > 0
+        ? Number(room.widthFt)
+        : null;
+    if (areaSqft == null && lengthFt != null && widthFt != null) {
+      areaSqft = Math.round(lengthFt * widthFt * 10) / 10;
+    }
+    out.push({ name, areaSqft, lengthFt, widthFt });
+  }
+  return out.slice(0, 24);
+}
+
+/** Fold named plan rooms into kitchen/bath/garage/deck quick fields when empty. */
+export function applyPlanRoomsToScopeMeasurements(
+  scopeMeasurements: ScopeMeasurements,
+  rooms: PlanRoomMeasurement[]
+): ScopeMeasurements {
+  if (!rooms.length) return scopeMeasurements;
+  const next: ScopeMeasurements = {
+    ...scopeMeasurements,
+    planRooms: rooms,
+  };
+  const sumMatching = (test: RegExp) => {
+    let sum = 0;
+    let hits = 0;
+    for (const room of rooms) {
+      if (!test.test(room.name) || !(Number(room.areaSqft) > 0)) continue;
+      sum += Number(room.areaSqft);
+      hits += 1;
+    }
+    return hits ? Math.round(sum * 10) / 10 : null;
+  };
+
+  if (!(Number(next.kitchenFloorSqft) > 0)) {
+    const kitchen = sumMatching(/\bkitchen\b/i);
+    if (kitchen) next.kitchenFloorSqft = kitchen;
+  }
+  if (!(Number(next.bathroomFloorSqft) > 0)) {
+    const baths = sumMatching(/\b(bath|powder|primary\s+bath|master\s+bath)\b/i);
+    if (baths) next.bathroomFloorSqft = baths;
+  }
+  if (!(Number(next.garageSqft) > 0)) {
+    const garage = sumMatching(/\bgarage\b/i);
+    if (garage) next.garageSqft = garage;
+  }
+  if (!(Number(next.deckSqft) > 0)) {
+    const deck = sumMatching(/\b(deck|patio|porch)\b/i);
+    if (deck) next.deckSqft = deck;
+  }
+  return next;
+}
+
+/** Convert plan review string/number map into ScopeMeasurements numbers. */
+export function planMeasurementsToScopeMeasurements(
+  measurements: Record<string, number | string> | null | undefined
+): ScopeMeasurements {
+  const out: ScopeMeasurements = {};
+  if (!measurements) return out;
+  for (const [key, value] of Object.entries(measurements)) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    (out as Record<string, number>)[key] = n;
+  }
+  // Living SF from plans also drives flooring when the takeoff didn't send a separate field.
+  const living = Number(out.floorAreaSqft);
+  if (Number.isFinite(living) && living > 0) {
+    if (!(Number(out.flooringSqft) > 0)) {
+      out.flooringSqft = living;
+    }
+  }
+  return out;
+}
+
+/**
+ * When plan takeoff has living SF, seed itemQuantities for included ground-up
+ * (or addition) checklist items so Confirm Scope no longer shows "Needs sqft".
+ */
+export function seedPlanFloorAreaItemQuantities(
+  draft: EstimateAiDraft,
+  scopeMeasurements: ScopeMeasurements
+): ScopeMeasurements {
+  const living = Number(scopeMeasurements.floorAreaSqft);
+  if (!Number.isFinite(living) || living <= 0) return scopeMeasurements;
+
+  const includedIds = new Set(
+    (draft.scopeChecklist?.items || [])
+      .filter((i) => i.state === 'included')
+      .map((i) => i.id)
+  );
+  if (!includedIds.size) return scopeMeasurements;
+
+  const FLOOR_AREA_ITEMS = [
+    'sitework',
+    'foundation',
+    'framing',
+    'roofing',
+    'exterior',
+    'exterior_finishes',
+    'mep_rough',
+    'insulation',
+    'drywall',
+    'tile_flooring',
+    'flooring',
+    'hvac',
+  ] as const;
+
+  const nextIq = { ...(scopeMeasurements.itemQuantities || {}) };
+  for (const id of FLOOR_AREA_ITEMS) {
+    if (!includedIds.has(id)) continue;
+    if (nextIq[id]?.quantity && Number(nextIq[id].quantity) > 0) continue;
+
+    let qty = living;
+    let unit = 'sqft';
+    if (id === 'tile_flooring' || id === 'flooring') {
+      qty = Number(scopeMeasurements.flooringSqft) > 0 ? Number(scopeMeasurements.flooringSqft) : living;
+    } else if (id === 'drywall' && Number(scopeMeasurements.drywallSqft) > 0) {
+      qty = Number(scopeMeasurements.drywallSqft);
+    } else if (id === 'roofing' && Number(scopeMeasurements.roofSquares) > 0) {
+      qty = Number(scopeMeasurements.roofSquares);
+      unit = 'squares';
+    }
+    nextIq[id] = {
+      quantity: qty,
+      unit,
+      quantitySource: 'plan_vision',
+    };
+  }
+
+  return { ...scopeMeasurements, itemQuantities: nextIq };
+}
+
 /** Whether Step 3 should prefetch clarifying questions without waiting for a tap. */
 export function shouldAutoClarifyDraft(draft: EstimateAiDraft | null | undefined): boolean {
   if (!draft) return false;
@@ -898,12 +1203,50 @@ function overlayScopeMeasurements(
     scopeMeasurements: {
       ...(draft.scopeMeasurements || {}),
       ...scopeMeasurements,
+      planRooms: scopeMeasurements.planRooms?.length
+        ? scopeMeasurements.planRooms
+        : draft.scopeMeasurements?.planRooms,
       itemQuantities: {
         ...(draft.scopeMeasurements?.itemQuantities || {}),
         ...(scopeMeasurements.itemQuantities || {}),
       },
     },
   };
+}
+
+/**
+ * Apply Step 1 plan import onto a freshly generated draft: seed Quick
+ * measurements and fill unsure checklist items from plan scope detections.
+ */
+export function applyPlanImportToDraft(
+  draft: EstimateAiDraft,
+  payload: PlanImportPayload | null | undefined
+): EstimateAiDraft {
+  if (!draft || !payload) return draft;
+  let next = draft;
+
+  let scopeMeasurements = planMeasurementsToScopeMeasurements(payload.measurements);
+  const rooms = normalizePlanRooms(payload.rooms);
+  if (rooms.length) {
+    scopeMeasurements = applyPlanRoomsToScopeMeasurements(scopeMeasurements, rooms);
+  }
+
+  const detections = payload.scopeDetections;
+  const items = next.scopeChecklist?.items;
+  if (detections?.length && items?.length) {
+    const { items: nextItems } = applyScopeDetectionsToChecklistItems(items, detections);
+    next = {
+      ...next,
+      scopeChecklist: { ...next.scopeChecklist!, items: nextItems },
+    };
+  }
+
+  if (Object.keys(scopeMeasurements).length || rooms.length) {
+    scopeMeasurements = seedPlanFloorAreaItemQuantities(next, scopeMeasurements);
+    next = overlayScopeMeasurements(next, scopeMeasurements);
+  }
+
+  return next;
 }
 
 export async function applyScopeAssumptionsToDraft(

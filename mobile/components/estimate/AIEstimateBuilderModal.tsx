@@ -26,7 +26,10 @@ import EstimateSitePhotosStrip, {
   type EstimateSitePhotosStripHandle,
   type SitePhotoState,
 } from '@/components/estimate/EstimateSitePhotosStrip';
-import type { PhotoScopeDetection } from '@/utils/estimateAiDraft';
+import EstimatePlanImportStrip, {
+  type PlanImportApplyResult,
+} from '@/components/estimate/EstimatePlanImportStrip';
+import type { PhotoScopeDetection, PlanImportPayload } from '@/utils/estimateAiDraft';
 
 type Props = {
   visible: boolean;
@@ -37,7 +40,11 @@ type Props = {
   embedded?: boolean;
   onClose: () => void;
   onBack?: () => void;
-  onGenerate: (notes: string, photoDetections?: PhotoScopeDetection[]) => void;
+  onGenerate: (
+    notes: string,
+    photoDetections?: PhotoScopeDetection[],
+    planImport?: PlanImportPayload | null
+  ) => void;
 };
 
 export default function AIEstimateBuilderModal({
@@ -60,6 +67,7 @@ export default function AIEstimateBuilderModal({
     photoCount: 0,
     hasAnalyzed: false,
   });
+  const [planImport, setPlanImport] = useState<PlanImportPayload | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [localGenerating, setLocalGenerating] = useState(false);
   const busy = generating || localGenerating;
@@ -69,6 +77,7 @@ export default function AIEstimateBuilderModal({
       setNotes(initialNotes || '');
       setPhotoDetections([]);
       setPhotoState({ photoCount: 0, hasAnalyzed: false });
+      setPlanImport(null);
     } else {
       setKeyboardVisible(false);
       setLocalGenerating(false);
@@ -137,6 +146,31 @@ export default function AIEstimateBuilderModal({
     }, 0);
   };
 
+  const handlePlanApplied = (result: PlanImportApplyResult) => {
+    if (result.mergedNotes?.trim()) {
+      setNotes(result.mergedNotes);
+    }
+    setPlanImport({
+      measurements: result.measurements,
+      scopeDetections: result.scopeDetections,
+      rooms: result.rooms || [],
+    });
+    setTimeout(() => {
+      const meas = Object.keys(result.measurements || {}).length;
+      const scope = result.scopeDetections?.length || 0;
+      Alert.alert(
+        'Plan ready',
+        [
+          meas ? `${meas} measurement${meas === 1 ? '' : 's'} ready` : null,
+          scope ? `${scope} scope item${scope === 1 ? '' : 's'} ready` : null,
+          'Review Job notes, then Generate.',
+        ]
+          .filter(Boolean)
+          .join('. ')
+      );
+    }, 0);
+  };
+
   const runGenerate = async () => {
     const trimmed = notes.trim();
     if (!trimmed || busy) return;
@@ -146,7 +180,7 @@ export default function AIEstimateBuilderModal({
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
     try {
-      await Promise.resolve(onGenerate(trimmed, photoDetections));
+      await Promise.resolve(onGenerate(trimmed, photoDetections, planImport));
     } catch {
       setLocalGenerating(false);
     }
@@ -188,8 +222,16 @@ export default function AIEstimateBuilderModal({
   const notesField = (
     <>
       <Text style={{ color: Colors.sub, fontSize: 13, lineHeight: 18, marginBottom: 14 }}>
-        Type, paste, dictate, or add site photos — AI drafts scope for review.
+        Type, paste, dictate, add site photos, or import plans — AI drafts scope for review.
       </Text>
+
+      <EstimatePlanImportStrip
+        Colors={Colors}
+        darkMode={darkMode}
+        disabled={busy}
+        existingNotes={notes}
+        onApplied={handlePlanApplied}
+      />
 
       <EstimateSitePhotosStrip
         ref={photosStripRef}
@@ -289,7 +331,7 @@ export default function AIEstimateBuilderModal({
       <View style={{ flex: 1 }}>
         <AIEstimateFlowHeader
           title="Build with AI"
-          subtitle="Notes, dictate, or site photos"
+          subtitle="Notes, photos, or plans"
           step={1}
           fromAssistant={fromAssistant}
           omitTopSafeArea={embedded}

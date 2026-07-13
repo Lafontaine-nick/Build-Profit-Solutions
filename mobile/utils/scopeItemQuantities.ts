@@ -1778,6 +1778,8 @@ function sourceLabel(source: QuantitySource): string {
       return 'Manual override';
     case 'inferred':
       return 'Calculated';
+    case 'plan_vision':
+      return 'From plan takeoff';
     case 'default_assumption':
       return 'AI assumption';
     case 'missing':
@@ -2041,8 +2043,10 @@ const additionFloorAreaRule = (
 ): ScopeItemQuantityRule => ({
   defaultUnit: 'sqft',
   allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+  measurementKeys: ['floorAreaSqft'],
   pricingBasisMeasurementKey: 'floorAreaSqft',
-  requiresUserQuantity: true,
+  canUseRoomSqft: true,
+  requiresUserQuantity: false,
   quantityHelper,
   missingMessage,
 });
@@ -2161,6 +2165,86 @@ const ADDITION_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRu
   contingency: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.contingency,
   },
+};
+
+/** Ground-up: living SF from plan takeoff drives shell / MEP / finish quantity basis. */
+const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule> = {
+  plans_engineering: ADDITION_CHECKLIST_ITEM_QUANTITY_RULES.plans_engineering,
+  permits: ADDITION_CHECKLIST_ITEM_QUANTITY_RULES.permits,
+  sitework: additionFloorAreaRule(
+    'Uses living area from the plan for sitework basis — edit if needed.',
+    'Enter sitework sqft or pricing.'
+  ),
+  foundation: additionFloorAreaRule(
+    'Uses living area from the plan as slab/foundation footprint basis — edit if needed.',
+    'Enter foundation sqft or pricing.'
+  ),
+  framing: additionFloorAreaRule(
+    'Uses living area from the plan as framed floor area — edit if needed.',
+    'Enter framing sqft or pricing.'
+  ),
+  roofing: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'squares', 'allowance', 'lump_sum'],
+    measurementKeys: ['roofSquares', 'floorAreaSqft'],
+    pricingBasisMeasurementKey: 'floorAreaSqft',
+    canUseRoomSqft: true,
+    requiresUserQuantity: false,
+    quantityHelper: 'Uses roof squares when known, otherwise living area from the plan — edit if needed.',
+    missingMessage: 'Enter roofing sqft/squares or pricing.',
+  },
+  exterior: additionFloorAreaRule(
+    'Uses living area from the plan as exterior finish basis — edit if needed.',
+    'Enter exterior finish sqft or pricing.'
+  ),
+  mep_rough: additionFloorAreaRule(
+    'Uses living area from the plan as MEP rough-in basis — edit if needed.',
+    'Enter MEP rough-in sqft or pricing.'
+  ),
+  insulation: additionFloorAreaRule(
+    'Uses living area from the plan as insulation basis — edit if needed.',
+    'Enter insulation sqft or pricing.'
+  ),
+  drywall: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['drywallSqft', 'floorAreaSqft'],
+    pricingBasisMeasurementKey: 'floorAreaSqft',
+    canUseRoomSqft: true,
+    requiresUserQuantity: false,
+    quantityHelper: 'Uses drywall sqft when known, otherwise living area from the plan — edit if needed.',
+    missingMessage: 'Enter drywall sqft or pricing.',
+  },
+  cabinets_counters: ADDITION_CHECKLIST_ITEM_QUANTITY_RULES.cabinets_counters,
+  tile_flooring: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['flooringSqft', 'floorAreaSqft'],
+    pricingBasisMeasurementKey: 'floorAreaSqft',
+    canUseRoomSqft: true,
+    requiresUserQuantity: false,
+    quantityHelper: 'Uses flooring / living area from the plan — edit if needed.',
+    missingMessage: 'Enter flooring sqft or pricing.',
+  },
+  paint_trim: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['wallPaintSqft', 'floorAreaSqft'],
+    pricingBasisMeasurementKey: 'floorAreaSqft',
+    canUseRoomSqft: true,
+    requiresUserQuantity: false,
+    quantityHelper: 'Uses paint sqft when known, otherwise living area from the plan — edit if needed.',
+    missingMessage: 'Enter paint/trim sqft or pricing.',
+  },
+  appliances: ADDITION_CHECKLIST_ITEM_QUANTITY_RULES.appliances,
+  utility_taps: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.utility_taps,
+  },
+  contingency: ADDITION_CHECKLIST_ITEM_QUANTITY_RULES.contingency,
+  overhead_profit: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.overhead_profit,
+  },
+  cleanup: ADDITION_CHECKLIST_ITEM_QUANTITY_RULES.cleanup,
 };
 
 /** Fallback when a checklist item has no explicit rule — still show pricing entry in Step 2. */
@@ -2404,6 +2488,9 @@ export function getChecklistItemQuantityRule(
   itemId: string,
   templateKey?: string | null
 ): ScopeItemQuantityRule | undefined {
+  if (templateKey === 'ground_up' && GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES[itemId]) {
+    return GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES[itemId];
+  }
   if (templateKey === 'addition' && ADDITION_CHECKLIST_ITEM_QUANTITY_RULES[itemId]) {
     return ADDITION_CHECKLIST_ITEM_QUANTITY_RULES[itemId];
   }
@@ -2469,6 +2556,7 @@ const EXPLICIT_ITEM_QUANTITY_SOURCES = new Set<QuantitySource>([
   'calculated_confirmed',
   'user_entered',
   'manual_override',
+  'plan_vision',
 ]);
 
 function explicitItemQuantityOverride(
@@ -4829,6 +4917,7 @@ export function scopeMeasurementsToPayload(
     garageSqft: parseScopeMeasurementInput(sanitized.garageSqft),
     exteriorPaintSqft: parseScopeMeasurementInput(sanitized.exteriorPaintSqft),
     railingLf: parseScopeMeasurementInput(sanitized.railingLf),
+    planRooms: Array.isArray(sanitized.planRooms) ? sanitized.planRooms : undefined,
     baseboardLf: parseScopeMeasurementInput(sanitized.baseboardLf),
     showerWallTileSqft: parseScopeMeasurementInput(sanitized.showerWallTileSqft),
     showerFloorTileSqft: parseScopeMeasurementInput(sanitized.showerFloorTileSqft),
@@ -4895,6 +4984,7 @@ export function scopeMeasurementsInputFromPayload(
     showerWallTileSqft: measurementFieldString(payload.showerWallTileSqft),
     showerFloorTileSqft: measurementFieldString(payload.showerFloorTileSqft),
     wallPaintSqft: measurementFieldString(payload.wallPaintSqft),
+    planRooms: Array.isArray(payload.planRooms) ? payload.planRooms : undefined,
     itemQuantities,
     pricingAcceptance: payload.pricingAcceptance,
     scopeGapResolutions: payload.scopeGapResolutions,
@@ -4941,6 +5031,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<typeof emptyQuickMeasure
   >;
   pricingAcceptance?: Record<string, import('@/utils/estimateAiDraft').ScopePricingAcceptanceMetadata>;
   scopeGapResolutions?: Record<string, import('@/utils/scopeReviewUi').ScopeGapResolutionRecord>;
+  planRooms?: import('@/utils/estimateAiDraft').PlanRoomMeasurement[];
 };
 
 export function initialScopeMeasurementInputExtended(
@@ -5146,7 +5237,20 @@ export function initialScopeMeasurementInputExtended(
     itemQuantities,
     pricingAcceptance: saved?.pricingAcceptance,
     scopeGapResolutions: saved?.scopeGapResolutions,
+    planRooms: saved?.planRooms?.length ? saved.planRooms : suggested?.planRooms,
   };
+
+  // Living SF must not masquerade as paint when notes never priced paint.
+  const livingN = parseScopeMeasurementInput(result.floorAreaSqft);
+  const paintN = parseScopeMeasurementInput(result.wallPaintSqft);
+  if (
+    livingN &&
+    paintN &&
+    livingN === paintN &&
+    !/\bpaint(?:ing)?\b/i.test(scopeNotes)
+  ) {
+    result.wallPaintSqft = '';
+  }
 
   result = syncDualAllowanceSqftFields(result);
   result = sanitizeMistakenUnitRateAllowances(result);

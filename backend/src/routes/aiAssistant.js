@@ -15802,6 +15802,7 @@ router.post('/plan-to-measurements', async (req, res) => {
       templateKeyHint,
       projectTypeHint,
       mergeIntoNotes,
+      includeScope,
     } = req.body || {};
 
     const result = await analyzePlanForMeasurements({
@@ -15809,6 +15810,7 @@ router.post('/plan-to-measurements', async (req, res) => {
       existingNotes,
       templateKeyHint,
       projectTypeHint,
+      includeScope: includeScope !== false,
       openai,
       aiModels,
       aiRuntime,
@@ -15818,12 +15820,17 @@ router.post('/plan-to-measurements', async (req, res) => {
       return res.json({
         success: false,
         reason: result.reason,
+        imageQuality: result.imageQuality || null,
         rooms: [],
         measurements: {},
+        fieldConfidence: {},
+        lowConfidence: result.lowConfidence || [],
+        unreadableFields: result.unreadableFields || [],
         itemQuantities: {},
         assumptions: result.assumptions || [],
         notesBlock: '',
         mergedNotes: String(existingNotes || '').trim(),
+        scope: result.scope || null,
       });
     }
 
@@ -15835,12 +15842,17 @@ router.post('/plan-to-measurements', async (req, res) => {
     return res.json({
       success: true,
       reason: null,
+      imageQuality: result.imageQuality || 'good',
       rooms: result.rooms,
       measurements: result.measurements,
+      fieldConfidence: result.fieldConfidence || {},
+      lowConfidence: result.lowConfidence || [],
+      unreadableFields: result.unreadableFields || [],
       itemQuantities: result.itemQuantities,
       assumptions: result.assumptions,
       notesBlock: result.notesBlock,
       mergedNotes,
+      scope: result.scope || null,
     });
   } catch (err) {
     console.error('Error in /plan-to-measurements:', err);

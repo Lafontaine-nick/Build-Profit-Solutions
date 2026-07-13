@@ -89,6 +89,7 @@ import {
 import {
   applyDraftToEstimate,
   applyPhotoDetectionsToDraft,
+  applyPlanImportToDraft,
   applyScopeAssumptionsToDraft,
   fetchEstimateDraftFromNotes,
   fetchSuggestedDraftSplits,
@@ -5838,7 +5839,7 @@ export default function EstimateGeneratorScreen() {
     ]
   );
 
-  const handleGenerateAiDraft = useCallback(async (notes, photoDetections) => {
+  const handleGenerateAiDraft = useCallback(async (notes, photoDetections, planImport) => {
     if (aiDraftGenerating) return;
     setAiDraftGenerating(true);
     setAiDraftNotes(notes);
@@ -5867,6 +5868,13 @@ export default function EstimateGeneratorScreen() {
       // output, not notes-regex re-parsing) — only fills items still "unsure".
       if (photoDetections?.length) {
         draft = applyPhotoDetectionsToDraft(draft, photoDetections);
+      }
+      // Step 1 plan import: seed Quick measurements + draft scope detections.
+      if (planImport?.measurements || planImport?.scopeDetections?.length) {
+        draft = applyPlanImportToDraft(draft, planImport);
+        if (draft.scopeMeasurements) {
+          latestScopeMeasurementsRef.current = draft.scopeMeasurements;
+        }
       }
       const draftTitle = `${draft.projectTitle || ''} ${draft.customerName || ''}`.toLowerCase();
       setAiSaveToPricingLibrary(!/\b(test|demo|sample|example)\b/.test(draftTitle));

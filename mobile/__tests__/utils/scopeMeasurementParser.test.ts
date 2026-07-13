@@ -12,6 +12,15 @@ const SMITH_NOTES =
   'Floor job at Smith residence. Demo existing tile in main bath 850 sqft lump sum $2,550. Demo kitchen vinyl 180 sqft allowance $900. Install LVP in both areas 1030 total sqft not priced yet. Baseboards throughout 220 LF lump sum $1,540. Final clean and haul off $650 lump sum.';
 
 describe('mobile scope measurement parser', () => {
+  it('parses plan takeoff living area language into floorAreaSqft', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      '--- Plan takeoff ---\nMain Living Area is 1879 Sq Ft with a garage of 994 Sq Ft and a covered patio of 247 Sq Ft.',
+      { templateKey: 'ground_up', projectType: 'new_build' }
+    );
+    expect(parsed.floorAreaSqft).toBe(1879);
+    expect(parsed.wallPaintSqft).toBeUndefined();
+  });
+
   it('parses Smith flooring notes for Step 2 without duplicating bath sqft into kitchen/floor area', () => {
     const parsed = parseScopeMeasurementsFromNotes(SMITH_NOTES, {
       templateKey: 'flooring',
