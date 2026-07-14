@@ -763,7 +763,14 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     { title: 'MEP & Envelope', itemIds: ['mep_rough', 'insulation'] },
     {
       title: 'Finishes',
-      itemIds: ['drywall', 'cabinets_counters', 'tile_flooring', 'paint_trim', 'appliances'],
+      itemIds: [
+        'interior_finishes',
+        'drywall',
+        'cabinets_counters',
+        'tile_flooring',
+        'paint_trim',
+        'appliances',
+      ],
     },
     { title: 'Closeout', itemIds: ['contingency', 'overhead_profit', 'cleanup'] },
   ],

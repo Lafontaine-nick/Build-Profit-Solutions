@@ -30,6 +30,12 @@ import EstimatePlanImportStrip, {
   type PlanImportApplyResult,
 } from '@/components/estimate/EstimatePlanImportStrip';
 import type { PhotoScopeDetection, PlanImportPayload } from '@/utils/estimateAiDraft';
+import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
+import {
+  buildImportedPlanSummaryText,
+  importedPlanSummaryCollapsedSubtitle,
+  stripPlanTakeoffFromNotes,
+} from '@/utils/planTakeoffReviewUi';
 
 type Props = {
   visible: boolean;
@@ -68,20 +74,28 @@ export default function AIEstimateBuilderModal({
     hasAnalyzed: false,
   });
   const [planImport, setPlanImport] = useState<PlanImportPayload | null>(null);
+  const [planSummaryExpanded, setPlanSummaryExpanded] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [localGenerating, setLocalGenerating] = useState(false);
   const busy = generating || localGenerating;
+  const semanticsOn = measurementSemanticsV1Enabled();
 
+  const wasVisibleRef = useRef(false);
   useEffect(() => {
-    if (visible) {
+    if (visible && !wasVisibleRef.current) {
+      // Reset only when the modal opens — not when initialNotes identity changes mid-session
+      // (that was wiping planImport after Apply to bid).
       setNotes(initialNotes || '');
       setPhotoDetections([]);
       setPhotoState({ photoCount: 0, hasAnalyzed: false });
       setPlanImport(null);
-    } else {
+      setPlanSummaryExpanded(false);
+    }
+    if (!visible) {
       setKeyboardVisible(false);
       setLocalGenerating(false);
     }
+    wasVisibleRef.current = visible;
   }, [visible, initialNotes]);
 
   useEffect(() => {
@@ -147,13 +161,20 @@ export default function AIEstimateBuilderModal({
   };
 
   const handlePlanApplied = (result: PlanImportApplyResult) => {
-    if (result.mergedNotes?.trim()) {
+    if (semanticsOn) {
+      // Keep Job notes user-editable; structured plan data is authoritative.
+      setNotes(stripPlanTakeoffFromNotes(result.mergedNotes || ''));
+      // Collapse by default after review; user can expand manually.
+      setPlanSummaryExpanded(false);
+    } else if (result.mergedNotes?.trim()) {
       setNotes(result.mergedNotes);
     }
     setPlanImport({
       measurements: result.measurements,
       scopeDetections: result.scopeDetections,
       rooms: result.rooms || [],
+      notesBlock: result.notesBlock || null,
+      areaReconciliation: result.areaReconciliation ?? null,
     });
     setTimeout(() => {
       const meas = Object.keys(result.measurements || {}).length;
@@ -163,7 +184,9 @@ export default function AIEstimateBuilderModal({
         [
           meas ? `${meas} measurement${meas === 1 ? '' : 's'} ready` : null,
           scope ? `${scope} scope item${scope === 1 ? '' : 's'} ready` : null,
-          'Review Job notes, then Generate.',
+          semanticsOn
+            ? 'Review the imported plan summary, then Generate.'
+            : 'Review Job notes, then Generate.',
         ]
           .filter(Boolean)
           .join('. ')
@@ -171,16 +194,48 @@ export default function AIEstimateBuilderModal({
     }, 0);
   };
 
+  const hasPlanImport =
+    Boolean(planImport) &&
+    (Object.keys(planImport?.measurements || {}).length > 0 ||
+      (planImport?.rooms?.length || 0) > 0 ||
+      (planImport?.scopeDetections?.length || 0) > 0);
+
+  const importedPlanSummary = useMemo(() => {
+    if (!semanticsOn || !planImport) return '';
+    return buildImportedPlanSummaryText({
+      notesBlock: planImport.notesBlock,
+      measurements: planImport.measurements || null,
+      rooms: planImport.rooms || null,
+      scopeLabels: (planImport.scopeDetections || [])
+        .map((d) => d.label || d.itemId)
+        .filter(Boolean),
+    });
+  }, [semanticsOn, planImport]);
+
+  const importedPlanCollapsedSubtitle = useMemo(() => {
+    if (!semanticsOn || !planImport) return '';
+    return importedPlanSummaryCollapsedSubtitle({
+      livingSf: Number(planImport.measurements?.floorAreaSqft) || null,
+      spaceCount: planImport.rooms?.length || 0,
+      scopeCount: planImport.scopeDetections?.length || 0,
+    });
+  }, [semanticsOn, planImport]);
+
   const runGenerate = async () => {
     const trimmed = notes.trim();
-    if (!trimmed || busy) return;
+    const canRun = Boolean(trimmed || (semanticsOn && hasPlanImport));
+    if (!canRun || busy) return;
     setLocalGenerating(true);
     Keyboard.dismiss();
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
     try {
-      await Promise.resolve(onGenerate(trimmed, photoDetections, planImport));
+      // Prefer user notes; when empty with semantics + plan import, pass summary as notes context.
+      const notesForGenerate =
+        trimmed ||
+        (semanticsOn && importedPlanSummary ? importedPlanSummary : trimmed);
+      await Promise.resolve(onGenerate(notesForGenerate, photoDetections, planImport));
     } catch {
       setLocalGenerating(false);
     }
@@ -188,7 +243,8 @@ export default function AIEstimateBuilderModal({
 
   const handleGenerate = () => {
     const trimmed = notes.trim();
-    if (!trimmed || busy) return;
+    const canRun = Boolean(trimmed || (semanticsOn && hasPlanImport));
+    if (!canRun || busy) return;
     // Photos attached but Detect never run — remind so users don't skip vision scope.
     if (photoState.photoCount > 0 && !photoState.hasAnalyzed) {
       const n = photoState.photoCount;
@@ -217,7 +273,7 @@ export default function AIEstimateBuilderModal({
 
   if (!visible) return null;
 
-  const canGenerate = Boolean(notes.trim()) && !busy;
+  const canGenerate = (Boolean(notes.trim()) || (semanticsOn && hasPlanImport)) && !busy;
 
   const notesField = (
     <>
@@ -242,6 +298,56 @@ export default function AIEstimateBuilderModal({
         onNotesMerged={handlePhotoNotesMerged}
         onPhotoStateChange={setPhotoState}
       />
+
+      {semanticsOn && importedPlanSummary ? (
+        <View style={{ marginBottom: 16 }}>
+          <TouchableOpacity
+            onPress={() => setPlanSummaryExpanded((v) => !v)}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: planSummaryExpanded ? 8 : 0,
+            }}
+            activeOpacity={0.7}
+          >
+            <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
+              <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
+                Imported plan summary
+              </Text>
+              {!planSummaryExpanded && importedPlanCollapsedSubtitle ? (
+                <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 3 }} numberOfLines={1}>
+                  {importedPlanCollapsedSubtitle}
+                </Text>
+              ) : null}
+            </View>
+            <MaterialIcons
+              name={planSummaryExpanded ? 'expand-less' : 'expand-more'}
+              size={22}
+              color={Colors.sub}
+            />
+          </TouchableOpacity>
+          {planSummaryExpanded ? (
+            <View
+              style={[
+                styles.notesInput,
+                inputShell,
+                {
+                  opacity: 0.95,
+                },
+              ]}
+            >
+              <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 17, marginBottom: 8 }}>
+                Read-only. Structured plan measurements stay authoritative — editing Job notes
+                below does not change imported numbers unless you re-run plan import.
+              </Text>
+              <Text style={{ color: Colors.text, fontSize: 14, lineHeight: 20 }}>
+                {importedPlanSummary}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       <View
         style={{
@@ -299,12 +405,12 @@ export default function AIEstimateBuilderModal({
     >
       <TouchableOpacity
         activeOpacity={0.88}
-        disabled={!notes.trim() || busy}
+        disabled={!canGenerate}
         onPress={handleGenerate}
         style={[
           styles.primaryBtn,
           { backgroundColor: canGenerate || busy ? '#22c55e' : '#64748b' },
-          !notes.trim() && !busy ? styles.primaryBtnDisabled : null,
+          !canGenerate && !busy ? styles.primaryBtnDisabled : null,
         ]}
       >
         {busy ? (

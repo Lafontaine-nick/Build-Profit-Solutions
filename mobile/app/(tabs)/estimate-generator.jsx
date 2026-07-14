@@ -5870,7 +5870,11 @@ export default function EstimateGeneratorScreen() {
         draft = applyPhotoDetectionsToDraft(draft, photoDetections);
       }
       // Step 1 plan import: seed Quick measurements + draft scope detections.
-      if (planImport?.measurements || planImport?.scopeDetections?.length) {
+      if (
+        (planImport?.measurements && Object.keys(planImport.measurements).length) ||
+        planImport?.rooms?.length ||
+        planImport?.scopeDetections?.length
+      ) {
         draft = applyPlanImportToDraft(draft, planImport);
         if (draft.scopeMeasurements) {
           latestScopeMeasurementsRef.current = draft.scopeMeasurements;

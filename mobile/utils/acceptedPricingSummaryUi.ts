@@ -24,6 +24,7 @@ export type ScopePricingAcceptanceMetadata = {
   pricingSourceLabel: string;
   pricingSourceKind:
     | 'national_average'
+    | 'local_benchmark'
     | 'saved_rate'
     | 'parsed_from_notes'
     | 'user_entered'
@@ -40,6 +41,7 @@ export type ScopePricingAcceptanceMetadata = {
   allowanceAmount?: number;
   subcontractorAmount?: number;
   totalAmount: number;
+  benchmarkProvenance?: import('@/utils/benchmarkEngine').BenchmarkProvenance;
 };
 
 export type PricingSecondaryActionKind =
@@ -108,6 +110,9 @@ const PROJECT_WIDE_SCOPE_KEYS = new Set([
 const GEOGRAPHIC_CONFIDENCE_VALUES = new Set(['low', 'medium', 'high', 'unknown']);
 
 export function pricingSourceLabelFromBlock(block: SuggestedPricingBlock): string {
+  if (block.materialSource === 'local_benchmark' || block.laborSource === 'local_benchmark') {
+    return 'Southern Utah benchmark';
+  }
   const usesTemplate = block.materialSource === 'template' || block.laborSource === 'template';
   if (usesTemplate) return 'Saved company pricing';
   if (block.materialSource === 'notes' || block.laborSource === 'notes') return 'Parsed from notes';
@@ -116,6 +121,7 @@ export function pricingSourceLabelFromBlock(block: SuggestedPricingBlock): strin
 }
 
 export function pricingSourceKindFromBlock(block: SuggestedPricingBlock): ScopePricingAcceptanceMetadata['pricingSourceKind'] {
+  if (block.materialSource === 'local_benchmark' || block.laborSource === 'local_benchmark') return 'local_benchmark';
   if (block.materialSource === 'template' || block.laborSource === 'template') return 'saved_rate';
   if (block.materialSource === 'notes' || block.laborSource === 'notes') return 'parsed_from_notes';
   return 'national_average';
@@ -126,6 +132,7 @@ export function geographicBasisFromSourceKind(
   intelligence?: ScopeItemIntelligence
 ): string {
   if (kind === 'national_average') return 'National';
+  if (kind === 'local_benchmark') return 'Southern Utah';
   if (kind === 'parsed_from_notes') return 'Not applicable';
   if (kind === 'user_entered') return 'Not applicable';
   if (kind === 'saved_rate') {
@@ -203,6 +210,7 @@ export function buildAcceptanceFromSuggestedBlock(block: SuggestedPricingBlock):
     materialAmount: block.material > 0 ? block.material : undefined,
     laborAmount: block.labor > 0 ? block.labor : undefined,
     totalAmount: block.total,
+    benchmarkProvenance: block.benchmarkProvenance,
   };
 }
 
@@ -982,6 +990,9 @@ export function markManualPricingAdjustment(
       totalAmount: nextAmount ?? current.totalAmount,
       originalPricingSourceLabel: current.originalPricingSourceLabel || current.pricingSourceLabel,
       originalSuggestionLabel: current.originalSuggestionLabel || current.rateSourceLabel,
+      benchmarkProvenance: current.benchmarkProvenance
+        ? { ...current.benchmarkProvenance, overriddenByUser: true }
+        : undefined,
     },
   };
 }

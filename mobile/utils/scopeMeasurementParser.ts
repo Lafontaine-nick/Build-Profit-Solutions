@@ -303,8 +303,61 @@ export function parseScopeMeasurementsFromNotes(
   })();
   if (floorAreaSqft) out.floorAreaSqft = floorAreaSqft;
 
-  const deckSqft = pickSqftFromClauses([/\bdeck(?:ing)?\b/]);
+  const deckSqft = (() => {
+    // Prefer outdoor deck/patio language; never steal "concrete patio" flatwork SF.
+    for (const clause of clauses) {
+      const c = clause.toLowerCase();
+      if (/\bconcrete\b/.test(c) && !/\bcovered\s+(?:patio|porch)\b|\bdeck(?:ing)?\b/.test(c)) {
+        continue;
+      }
+      if (!/\b(?:covered\s+patio|covered\s+porch|roof\s+deck|deck(?:ing)?|patio|porch)\b/.test(c)) {
+        continue;
+      }
+      const near =
+        pickSqftNearPattern(clause, /\bcovered\s+patio\b/) ||
+        pickSqftNearPattern(clause, /\bcovered\s+porch\b/) ||
+        pickSqftNearPattern(clause, /\broof\s+deck\b/) ||
+        pickSqftNearPattern(clause, /\bdeck(?:ing)?\b/) ||
+        pickSqftNearPattern(clause, /\bpatio\b/) ||
+        pickSqftNearPattern(clause, /\bporch\b/);
+      if (near) return near;
+    }
+    return (
+      pickSqftNearPattern(text, /\bcovered\s+patio\b/) ||
+      pickSqftNearPattern(text, /\bcovered\s+porch\b/) ||
+      pickSqftNearPattern(text, /\broof\s+deck\b/) ||
+      pickSqftNearPattern(text, /\bdeck(?:ing)?\b/) ||
+      null
+    );
+  })();
   if (deckSqft) out.deckSqft = deckSqft;
+
+  const garageSqft = (() => {
+    // Prefer the number immediately after "garage", not an earlier living-area SF in the same sentence.
+    const after = text.match(
+      /\bgarages?\b(?:\s+area)?\s*(?:is|:|of|=)?\s*([\d,]+(?:\.\d+)?)\s*sq\.?\s*ft/i
+    );
+    if (after) {
+      const n = Number(String(after[1]).replace(/,/g, ''));
+      if (Number.isFinite(n) && n >= 100) return n;
+    }
+    for (const clause of clauses) {
+      if (!/\bgarages?\b/i.test(clause)) continue;
+      const near = pickSqftNearPattern(clause, /\bgarages?\b/);
+      if (near && near >= 100) return near;
+    }
+    return null;
+  })();
+  if (garageSqft) out.garageSqft = garageSqft;
+
+  // Plan takeoff room inventory lines: "- Kitchen: 194.1 sqft"
+  const kitchenFromRoomList = (() => {
+    const m = text.match(/^\s*[-•]\s*Kitchen\s*:\s*([\d,]+(?:\.\d+)?)\s*sq\.?\s*ft/im);
+    if (!m) return null;
+    const n = Number(String(m[1]).replace(/,/g, ''));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })();
+  if (!out.kitchenFloorSqft && kitchenFromRoomList) out.kitchenFloorSqft = kitchenFromRoomList;
 
   const railingLf = (() => {
     for (const clause of clauses) {
@@ -343,7 +396,15 @@ export function parseScopeMeasurementsFromNotes(
     }
   }
 
-  const concreteSqft = pickSqftFromClauses([/\bconcrete\b/, /\bflatwork\b/, /\bslab\b/, /\bpatio\b/, /\bdriveway\b/]);
+  // Do not map covered patio / porch into concrete — those belong on deckSqft.
+  const concreteSqft = pickSqftFromClauses([
+    /\bconcrete\s+flatwork\b/,
+    /\bconcrete\b/,
+    /\bflatwork\b/,
+    /\bslab\b/,
+    /\bdriveway\b/,
+    /\bsidewalk\b/,
+  ]);
   if (concreteSqft) out.concreteSqft = concreteSqft;
 
   for (const clause of clauses) {

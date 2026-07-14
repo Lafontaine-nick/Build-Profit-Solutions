@@ -16,6 +16,8 @@ import {
   runPlanTakeoff,
   takePlanPhoto,
 } from '@/utils/planImportRunner';
+import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
+import { readyStateSummary } from '@/utils/planTakeoffReviewUi';
 
 type Colors = {
   text: string;
@@ -34,6 +36,7 @@ export type PlanImportApplyResult = {
     lengthFt?: number | null;
     widthFt?: number | null;
   }>;
+  areaReconciliation?: import('@/utils/measurementSemantics').AreaReconciliation | null;
 };
 
 type Props = {
@@ -129,24 +132,46 @@ export default function EstimatePlanImportStrip({
   }, [importing, disabled, onCamera, onLibrary, onPdf]);
 
   const handleApply = useCallback(
-    (values: Record<string, string>, scopeDetections: PhotoScopeDetection[]) => {
+    (
+      values: Record<string, string>,
+      scopeDetections: PhotoScopeDetection[],
+      rooms: Array<{
+        name: string;
+        areaSqft: number | null;
+        lengthFt: number | null;
+        widthFt: number | null;
+      }>
+    ) => {
       const takeoff = planReview;
       setPlanReview(null);
       if (!takeoff) return;
 
       const measCount = Object.keys(values).length;
+      const roomCount = rooms.length;
       const scopeCount = scopeDetections.length;
-      const bits: string[] = [];
-      if (measCount) bits.push(`${measCount} measurement${measCount === 1 ? '' : 's'}`);
-      if (scopeCount) bits.push(`${scopeCount} scope item${scopeCount === 1 ? '' : 's'}`);
-      setAppliedSummary(bits.length ? bits.join(' · ') : 'Plan reviewed');
+      if (measurementSemanticsV1Enabled()) {
+        setAppliedSummary(
+          readyStateSummary({
+            measurementCount: measCount,
+            spaceCount: roomCount,
+            scopeCount,
+          }).replace(/^Ready ·\s*/, '')
+        );
+      } else {
+        const bits: string[] = [];
+        if (measCount) bits.push(`${measCount} measurement${measCount === 1 ? '' : 's'}`);
+        if (roomCount) bits.push(`${roomCount} room${roomCount === 1 ? '' : 's'}`);
+        if (scopeCount) bits.push(`${scopeCount} scope item${scopeCount === 1 ? '' : 's'}`);
+        setAppliedSummary(bits.length ? bits.join(' · ') : 'Plan reviewed');
+      }
 
       onApplied({
         measurements: values,
         scopeDetections,
         mergedNotes: takeoff.mergedNotes || existingNotes,
         notesBlock: takeoff.notesBlock || '',
-        rooms: takeoff.rooms || [],
+        rooms,
+        areaReconciliation: takeoff.areaReconciliation ?? null,
       });
 
       if (Platform.OS === 'ios') {

@@ -2,6 +2,7 @@
  * Quick measurement fields shown per scope checklist template.
  * All fields render for the job type; values prefill from notes when parsed.
  */
+import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 
 export type QuickMeasurementFieldKey =
   | 'bathroomFloorSqft'
@@ -437,6 +438,26 @@ export function quickMeasurementFieldMeta(key: string): { label: string; unit: s
   const def = QUICK_MEASUREMENT_FIELD_DEFS[key as QuickMeasurementFieldKey];
   if (def) return { label: def.label, unit: def.unit };
   return { label: key, unit: '' };
+}
+
+/**
+ * Example numeric placeholders look like calculated values in Confirm Scope.
+ * With measurement-semantics on, show Enter / Not measured instead.
+ */
+export function quickMeasurementPlaceholder(field: QuickMeasurementFieldDef): string {
+  if (!measurementSemanticsV1Enabled()) return field.placeholder;
+  if (field.key === 'floorAreaSqft' || field.key === 'garageSqft' || field.key === 'deckSqft') {
+    return 'Enter';
+  }
+  if (field.key === 'flooringSqft') return 'Not measured';
+  return 'Enter';
+}
+
+export function quickMeasurementDisplayLabel(field: QuickMeasurementFieldDef): string {
+  if (!measurementSemanticsV1Enabled()) return field.label;
+  if (field.key === 'flooringSqft') return 'Gross interior floor area';
+  if (field.key === 'floorAreaSqft' && field.label === 'Floor area') return 'Living area';
+  return field.label;
 }
 
 export function emptyQuickMeasurementInput(): Record<QuickMeasurementFieldKey, string> {

@@ -91,6 +91,7 @@ const teamMessagingRoutes = require('./routes/teamMessaging');
 const betaFeedbackRoutes = require('./routes/betaFeedback');
 const telemetryRoutes = require('./routes/telemetry');
 const workspaceRoutes = require('./routes/workspaces');
+const benchmarkRoutes = require('./routes/benchmarks');
 const { initializeDatabase } = require('./services/database');
 
 const app = express();
@@ -343,6 +344,7 @@ app.use('/api/team', teamMessagingRoutes);
 app.use('/api/workspaces', workspaceRoutes);
 app.use('/api/beta-feedback', betaFeedbackRoutes);
 app.use('/api/telemetry', telemetryRoutes);
+app.use('/api/benchmarks', benchmarkRoutes);
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err);

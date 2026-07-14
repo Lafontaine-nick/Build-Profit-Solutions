@@ -16,6 +16,14 @@ import {
   SCOPE_LABOR_PARSED_FROM_NOTES_LABEL,
   SCOPE_PARSED_FROM_NOTES_LABEL,
 } from '@/constants/scopeNoteSourceLabels';
+import {
+  NO_LIVING_SF_PRIMARY_SEED_KEYS,
+  buildAreaReconciliation,
+  buildSemanticsStateForScope,
+  measurementSemanticsV1Enabled,
+  preferredPrimaryUnit,
+  type MeasurementUnit,
+} from '@/utils/measurementSemantics';
 
 export type DraftItemStatus =
   | 'confirmed'
@@ -115,9 +123,16 @@ export type ScopeItemQuantity = {
     | 'inferred'
     | 'default_assumption'
     | 'missing'
-    | 'not_applicable';
+    | 'not_applicable'
+    | 'plan_vision';
   /** Cabinets allowance in notes also covered countertops on the same line. */
   includesCountertops?: boolean;
+  /**
+   * Optional durable measurement roles (primary / pricing / benchmark).
+   * Present only when BUILD_AI_MEASUREMENT_SEMANTICS_V1 is enabled for new writes.
+   * Legacy records without this field continue to load unchanged.
+   */
+  measurementState?: import('@/utils/measurementSemantics').ScopeMeasurementState | null;
 };
 
 /** Persisted accepted-pricing metadata for Confirm Scope cards. */
@@ -126,6 +141,7 @@ export type ScopePricingAcceptanceMetadata = {
   pricingSourceLabel: string;
   pricingSourceKind:
     | 'national_average'
+    | 'local_benchmark'
     | 'saved_rate'
     | 'parsed_from_notes'
     | 'user_entered'
@@ -142,6 +158,7 @@ export type ScopePricingAcceptanceMetadata = {
   allowanceAmount?: number;
   subcontractorAmount?: number;
   totalAmount: number;
+  benchmarkProvenance?: import('@/utils/benchmarkEngine').BenchmarkProvenance;
 };
 
 export type PlanRoomMeasurement = {
@@ -149,6 +166,10 @@ export type PlanRoomMeasurement = {
   areaSqft: number | null;
   lengthFt?: number | null;
   widthFt?: number | null;
+  sourcePage?: number | null;
+  sourceSheet?: string | null;
+  sourceLabel?: string | null;
+  sourceType?: 'plan_explicit' | 'plan_derived' | 'user_entered' | 'unknown';
 };
 
 export type ScopeMeasurements = {
@@ -183,12 +204,16 @@ export type ScopeMeasurements = {
   garageSqft?: number | null;
   /** Named rooms read from the plan (for Quick measurements display). */
   planRooms?: PlanRoomMeasurement[];
+  /** Declared vs detected living/garage reconciliation (measurement-semantics). */
+  areaReconciliation?: import('@/utils/measurementSemantics').AreaReconciliation | null;
   /** Per-checklist-item overrides keyed by checklist id */
   itemQuantities?: Record<string, ScopeItemQuantity>;
   /** Accepted pricing metadata keyed by checklist item id */
   pricingAcceptance?: Record<string, ScopePricingAcceptanceMetadata>;
   /** Item-specific scope gap resolutions keyed by `${scopeItemId}::${componentKey}` */
   scopeGapResolutions?: Record<string, import('@/utils/scopeReviewUi').ScopeGapResolutionRecord>;
+  /** Explicit pricing override confirmations (measurement-semantics). */
+  pricingOverrideLog?: import('@/utils/measurementSemantics').PricingOverrideLog[];
   /** @deprecated use bathroomFloorSqft */
   sqft?: number | null;
   /** @deprecated use baseboardLf */
@@ -805,6 +830,8 @@ export type PlanToMeasurementsResult = {
   mergedNotes: string;
   /** Draft scope detections read from the plan sheets (confirm before applying). */
   scope: PlanScopeResult | null;
+  /** Declared vs detected living/garage reconciliation (measurement-semantics). */
+  areaReconciliation?: import('@/utils/measurementSemantics').AreaReconciliation | null;
 };
 
 /** Analyze floor plan / blueprint pages (images or PDF) → Quick Measurement fields + draft scope. */
@@ -863,6 +890,10 @@ export async function fetchPlanToMeasurements(params: {
     scope:
       payload.scope && typeof payload.scope === 'object' && Array.isArray((payload.scope as PlanScopeResult).detections)
         ? (payload.scope as PlanScopeResult)
+        : null,
+    areaReconciliation:
+      payload.areaReconciliation && typeof payload.areaReconciliation === 'object'
+        ? (payload.areaReconciliation as PlanToMeasurementsResult['areaReconciliation'])
         : null,
   };
 }
@@ -1016,6 +1047,9 @@ export type PlanImportPayload = {
   measurements?: Record<string, number | string>;
   scopeDetections?: PhotoScopeDetection[];
   rooms?: PlanRoomMeasurement[];
+  /** Read-only plan takeoff summary text (kept separate from editable Job notes). */
+  notesBlock?: string | null;
+  areaReconciliation?: import('@/utils/measurementSemantics').AreaReconciliation | null;
 };
 
 /** Normalize vision room list for Quick measurements + field mapping. */
@@ -1048,7 +1082,7 @@ export function normalizePlanRooms(
     }
     out.push({ name, areaSqft, lengthFt, widthFt });
   }
-  return out.slice(0, 24);
+  return out.slice(0, 48);
 }
 
 /** Fold named plan rooms into kitchen/bath/garage/deck quick fields when empty. */
@@ -1115,6 +1149,10 @@ export function planMeasurementsToScopeMeasurements(
 /**
  * When plan takeoff has living SF, seed itemQuantities for included ground-up
  * (or addition) checklist items so Confirm Scope no longer shows "Needs sqft".
+ *
+ * When measurement-semantics is enabled, living SF is NOT copied into primary
+ * takeoff for physical trades — it is stored as benchmark (+ optional pricing)
+ * roles and physical quantities only when truly available.
  */
 export function seedPlanFloorAreaItemQuantities(
   draft: EstimateAiDraft,
@@ -1145,10 +1183,84 @@ export function seedPlanFloorAreaItemQuantities(
     'hvac',
   ] as const;
 
+  const semanticsOn = measurementSemanticsV1Enabled();
+  const areaReconciliation = semanticsOn
+    ? buildAreaReconciliation({
+        declaredLivingSf: living,
+        declaredGarageSf: scopeMeasurements.garageSqft,
+        patioDeckSf: scopeMeasurements.deckSqft,
+        rooms: scopeMeasurements.planRooms,
+      })
+    : scopeMeasurements.areaReconciliation ?? null;
+
   const nextIq = { ...(scopeMeasurements.itemQuantities || {}) };
   for (const id of FLOOR_AREA_ITEMS) {
     if (!includedIds.has(id)) continue;
-    if (nextIq[id]?.quantity && Number(nextIq[id].quantity) > 0) continue;
+    const existing = nextIq[id];
+    const hasExistingPrimary = Boolean(existing?.quantity && Number(existing.quantity) > 0);
+
+    if (semanticsOn && NO_LIVING_SF_PRIMARY_SEED_KEYS.has(id)) {
+      let primaryQuantity: number | null = null;
+      let primaryUnit: MeasurementUnit | null = null;
+      if (id === 'drywall' && Number(scopeMeasurements.drywallSqft) > 0) {
+        primaryQuantity = Number(scopeMeasurements.drywallSqft);
+        primaryUnit = 'surface_sqft';
+      } else if (id === 'roofing' && Number(scopeMeasurements.roofSquares) > 0) {
+        primaryQuantity = Number(scopeMeasurements.roofSquares);
+        primaryUnit = 'roof_square';
+      } else if (
+        (id === 'tile_flooring' || id === 'flooring') &&
+        Number(scopeMeasurements.flooringSqft) > 0
+      ) {
+        primaryQuantity = Number(scopeMeasurements.flooringSqft);
+        primaryUnit = 'floor_sqft';
+      } else if (hasExistingPrimary && String(existing.unit || '') !== 'sqft') {
+        // Preserve non-living physical quantities already present.
+        primaryQuantity = Number(existing.quantity);
+        primaryUnit = String(existing.unit || preferredPrimaryUnit(id)) as MeasurementUnit;
+      } else if (
+        hasExistingPrimary &&
+        existing?.quantitySource === 'user_entered'
+      ) {
+        primaryQuantity = Number(existing.quantity);
+        primaryUnit = String(existing.unit || 'unknown') as MeasurementUnit;
+      }
+
+      const measurementState = buildSemanticsStateForScope({
+        scopeKey: id,
+        livingSf: living,
+        primaryQuantity,
+        primaryUnit,
+        drywallSf: scopeMeasurements.drywallSqft,
+        roofSquares: scopeMeasurements.roofSquares,
+        flooringSf: scopeMeasurements.flooringSqft,
+        primarySourceType: 'plan_explicit',
+        primarySourceLabel:
+          primaryQuantity != null ? 'Detected from plan' : 'Needs takeoff',
+      });
+
+      // Do not seed living SF into legacy quantity for these scopes.
+      if (primaryQuantity != null && primaryQuantity > 0) {
+        nextIq[id] = {
+          quantity: primaryQuantity,
+          unit: primaryUnit || preferredPrimaryUnit(id),
+          quantitySource: existing?.quantitySource || 'plan_vision',
+          measurementState,
+          includesCountertops: existing?.includesCountertops,
+        };
+      } else {
+        nextIq[id] = {
+          quantity: null,
+          unit: preferredPrimaryUnit(id),
+          quantitySource: 'missing',
+          measurementState,
+          includesCountertops: existing?.includesCountertops,
+        };
+      }
+      continue;
+    }
+
+    if (hasExistingPrimary) continue;
 
     let qty = living;
     let unit = 'sqft';
@@ -1167,7 +1279,11 @@ export function seedPlanFloorAreaItemQuantities(
     };
   }
 
-  return { ...scopeMeasurements, itemQuantities: nextIq };
+  return {
+    ...scopeMeasurements,
+    itemQuantities: nextIq,
+    areaReconciliation: areaReconciliation ?? undefined,
+  };
 }
 
 /** Whether Step 3 should prefetch clarifying questions without waiting for a tap. */

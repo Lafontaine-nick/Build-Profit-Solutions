@@ -1,0 +1,2884 @@
+{
+  "schemaVersion": "1.0.0",
+  "datasetId": "southern-utah-residential-benchmark-v1",
+  "datasetName": "Southern Utah Residential Build Cost Benchmark",
+  "currency": "USD",
+  "geography": {
+    "country": "US",
+    "state": "UT",
+    "market": "St. George / Southern Utah"
+  },
+  "dataStatus": "planning_benchmark",
+  "sourceQualityNote": "Local values are preliminary builder budgets and subcontractor allowances, not completed actual costs. Use them as comparable evidence rather than guaranteed prices.",
+  "projects": [
+    {
+      "projectId": "silver-leaf",
+      "name": "Silver Leaf",
+      "buildingType": "twin_home",
+      "homesInSource": 2,
+      "livingSfPerHome": 2171.5,
+      "livingSfFullBuilding": 4343,
+      "stories": 2,
+      "preliminaryBuildCostPerHome": 285750.835,
+      "preliminaryBuildCostPerLivingSf": 131.5914506101773,
+      "comparableClass": "twin_home",
+      "includeInDetachedMedian": false,
+      "notes": [
+        "The source budget covers one building containing two homes.",
+        "All building-level costs were divided by two before per-home comparison.",
+        "Retain the full-building and per-home values separately."
+      ]
+    },
+    {
+      "projectId": "lot-39",
+      "name": "Lot 39",
+      "buildingType": "detached",
+      "homesInSource": 1,
+      "livingSfPerHome": 3098,
+      "garageSf": 972,
+      "patioPorchSf": 1281,
+      "stories": 2,
+      "preliminaryBuildCostPerHome": 519300,
+      "preliminaryBuildCostPerLivingSf": 167.62427372498385,
+      "comparableClass": "detached",
+      "includeInDetachedMedian": true,
+      "notes": [
+        "Cover sheet controls at 3,098 SF; floor sheets total approximately 3,101 SF."
+      ]
+    },
+    {
+      "projectId": "lot-41",
+      "name": "Lot 41",
+      "buildingType": "detached",
+      "homesInSource": 1,
+      "livingSfPerHome": 1879,
+      "garageSf": 994,
+      "patioPorchSf": 247,
+      "stories": 1,
+      "preliminaryBuildCostPerHome": 367700,
+      "preliminaryBuildCostPerLivingSf": 195.68919638105376,
+      "comparableClass": "detached",
+      "includeInDetachedMedian": true,
+      "notes": [
+        "One-story plan with standard and RV garage."
+      ]
+    },
+    {
+      "projectId": "lot-49",
+      "name": "Lot 49",
+      "buildingType": "detached",
+      "homesInSource": 1,
+      "livingSfPerHome": 2571,
+      "garageSf": 1427,
+      "patioPorchSf": 322,
+      "stories": 1,
+      "preliminaryBuildCostPerHome": 484000,
+      "preliminaryBuildCostPerLivingSf": 188.2535978218592,
+      "comparableClass": "detached",
+      "includeInDetachedMedian": true,
+      "notes": [
+        "Cover sheet states 2,571 SF; another floor-plan sheet states 2,527 SF."
+      ]
+    },
+    {
+      "projectId": "lot-58",
+      "name": "Lot 58",
+      "buildingType": "detached",
+      "homesInSource": 1,
+      "livingSfPerHome": 3660,
+      "garageSf": 781,
+      "patioPorchSf": 297,
+      "stories": 2,
+      "preliminaryBuildCostPerHome": 502100,
+      "preliminaryBuildCostPerLivingSf": 137.18579234972677,
+      "comparableClass": "detached",
+      "includeInDetachedMedian": true,
+      "notes": [
+        "Floor levels reconcile to 3,660 SF."
+      ]
+    }
+  ],
+  "weightPolicy": {
+    "fourOrMoreLocalSamples": 0.6,
+    "threeLocalSamples": 0.55,
+    "twoLocalSamples": 0.45,
+    "oneLocalSample": 0.3,
+    "zeroLocalSamples": 0.0,
+    "nationalWeightFormula": "1 - localWeight",
+    "localCenterStatistic": "median",
+    "excludeTwinHomeFromDetachedMedian": true
+  },
+  "nationalBenchmark": {
+    "sourceName": "NAHB Cost of Constructing a Home — 2024",
+    "averageFinishedAreaSf": 2647,
+    "averageConstructionCost": 428215,
+    "constructionCostPerFinishedSf": 161.7737060823574,
+    "sourceUrl": "https://www.nahb.org/news-and-economics/housing-economics-plus/special-studies/special-studies-pages/cost-of-constructing-a-home-in-2024",
+    "sourceYear": 2024,
+    "responseCount": 41,
+    "limitations": [
+      "National average rather than Southern Utah-specific.",
+      "Small survey sample.",
+      "Construction cost excludes finished lot, financing, overhead/general expenses, marketing, sales commission and builder profit."
+    ]
+  },
+  "laborContext": {
+    "sourceName": "BLS Occupational Employment and Wages — St. George, May 2024",
+    "stGeorgeConstructionMeanHourlyWage": 25.22,
+    "nationalConstructionMeanHourlyWage": 30.73,
+    "stGeorgeToNationalFactor": 0.8206963878945656,
+    "applyToInstalledTotalsByDefault": false,
+    "sourceUrl": "https://www.bls.gov/regions/mountain-plains/news-release/occupationalemploymentandwages_stgeorge.htm",
+    "notes": [
+      "Employee wage data are not contractor billable rates.",
+      "Do not apply this factor to installed lump sums without a documented labor share."
+    ]
+  },
+  "stageBenchmarks": [
+    {
+      "stageId": "site-preconstruction",
+      "stageName": "Site Work / Preconstruction",
+      "localDetachedMedianPerLivingSf": 13.70104525347152,
+      "localDetachedMeanPerLivingSf": 13.901527841112667,
+      "localSampleCount": 4,
+      "nationalPerLivingSf": 12.360785795239893,
+      "defaultLocalWeight": 0.6,
+      "defaultBlendedPerLivingSf": 13.16494147017887
+    },
+    {
+      "stageId": "foundations",
+      "stageName": "Foundations",
+      "localDetachedMedianPerLivingSf": 10.529411582813132,
+      "localDetachedMeanPerLivingSf": 10.496475977147906,
+      "localSampleCount": 4,
+      "nationalPerLivingSf": 16.905175670570458,
+      "defaultLocalWeight": 0.6,
+      "defaultBlendedPerLivingSf": 13.079717217916063
+    },
+    {
+      "stageId": "framing",
+      "stageName": "Framing",
+      "localDetachedMedianPerLivingSf": 22.82136955398886,
+      "localDetachedMeanPerLivingSf": 22.341191499265605,
+      "localSampleCount": 4,
+      "nationalPerLivingSf": 26.816018133736303,
+      "defaultLocalWeight": 0.6,
+      "defaultBlendedPerLivingSf": 24.419228985887834
+    },
+    {
+      "stageId": "exterior-finishes",
+      "stageName": "Exterior Finishes",
+      "localDetachedMedianPerLivingSf": 32.41013951360446,
+      "localDetachedMeanPerLivingSf": 31.930811126034207,
+      "localSampleCount": 4,
+      "nationalPerLivingSf": 21.726482810729127,
+      "defaultLocalWeight": 0.6,
+      "defaultBlendedPerLivingSf": 28.136676832454327
+    },
+    {
+      "stageId": "major-systems-rough-ins",
+      "stageName": "Major Systems Rough-ins",
+      "localDetachedMedianPerLivingSf": 21.43096674207196,
+      "localDetachedMeanPerLivingSf": 21.04548610473051,
+      "localSampleCount": 4,
+      "nationalPerLivingSf": 31.098979977332828,
+      "defaultLocalWeight": 0.6,
+      "defaultBlendedPerLivingSf": 25.298172036176304
+    },
+    {
+      "stageId": "interior-finishes",
+      "stageName": "Interior Finishes",
+      "localDetachedMedianPerLivingSf": 56.210911595516265,
+      "localDetachedMeanPerLivingSf": 54.90276179996253,
+      "localSampleCount": 4,
+      "nationalPerLivingSf": 39.059690215338115,
+      "defaultLocalWeight": 0.6,
+      "defaultBlendedPerLivingSf": 49.350423043445005
+    },
+    {
+      "stageId": "final-steps",
+      "stageName": "Final Steps",
+      "localDetachedMedianPerLivingSf": 12.12802402002906,
+      "localDetachedMeanPerLivingSf": 13.112921345541306,
+      "localSampleCount": 4,
+      "nationalPerLivingSf": 10.468454854552323,
+      "defaultLocalWeight": 0.6,
+      "defaultBlendedPerLivingSf": 11.464196353838364
+    },
+    {
+      "stageId": "other-construction",
+      "stageName": "Other Construction",
+      "localDetachedMedianPerLivingSf": null,
+      "localDetachedMeanPerLivingSf": null,
+      "localSampleCount": 0,
+      "nationalPerLivingSf": 3.337740838685304,
+      "defaultLocalWeight": 0.0,
+      "defaultBlendedPerLivingSf": 3.337740838685304
+    }
+  ],
+  "supplementalPlanningRates": {
+    "generalConditionsPerLivingSf": 1.6514267974755439,
+    "projectInsurancePerLivingSfDefault": 0.0,
+    "contingencyAndReservesPerLivingSf": 2.7517408126948064,
+    "builderFeeAndOverheadPerLivingSfDefault": 0.0
+  },
+  "summaryBaselines": {
+    "localDetachedMedianBuildCostPerLivingSf": 177.93893577342152,
+    "nationalConstructionCostPerLivingSf": 161.7737060823574,
+    "coreBlendedConstructionPerLivingSf": 168.25109677858208,
+    "planningBuildBaselinePerLivingSf": 172.65426438875244,
+    "builderContractBaselinePerLivingSfDefault": 172.65426438875244
+  },
+  "scopeBenchmarks": [
+    {
+      "scopeId": "B01",
+      "category": "Builder Fee",
+      "scopeName": "Builder fee",
+      "primaryMeasurementUnit": "LS / %",
+      "recommendedPricingBasis": "Builder fee",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 15000,
+          "costPerLivingSf": 6.907667510937141
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 15000,
+      "allProjectMedianCostPerLivingSf": 6.907667510937141,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Fee / reserve",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "R01",
+      "category": "Contingency & Reserves",
+      "scopeName": "Contingency",
+      "primaryMeasurementUnit": "LS / %",
+      "recommendedPricingBasis": "Reserve",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 12703.855,
+          "costPerLivingSf": 5.850267096477089
+        },
+        "lot39": {
+          "costPerHome": 5000,
+          "costPerLivingSf": 1.6139444803098772
+        },
+        "lot41": {
+          "costPerHome": 7500,
+          "costPerLivingSf": 3.991484832357637
+        },
+        "lot49": {
+          "costPerHome": 10000,
+          "costPerLivingSf": 3.8895371450797356
+        },
+        "lot58": {
+          "costPerHome": 5000,
+          "costPerLivingSf": 1.366120218579235
+        }
+      },
+      "detachedMedianCost": 6250,
+      "detachedMedianCostPerLivingSf": 2.7517408126948064,
+      "allProjectMedianCost": 7500,
+      "allProjectMedianCostPerLivingSf": 3.8895371450797356,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Fee / reserve",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "R02",
+      "category": "Contingency & Reserves",
+      "scopeName": "Warranty reserve",
+      "primaryMeasurementUnit": "LS / %",
+      "recommendedPricingBasis": "Reserve",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 2000,
+          "costPerLivingSf": 0.9210223347916187
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 2000,
+      "allProjectMedianCostPerLivingSf": 0.9210223347916187,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Fee / reserve",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H11",
+      "category": "Direct Hard Costs",
+      "scopeName": "Excavation, backfill, grading & retaining wall",
+      "primaryMeasurementUnit": "CY / LS",
+      "recommendedPricingBasis": "Plan/site takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 2500,
+          "costPerLivingSf": 1.1512779184895234
+        },
+        "lot39": {
+          "costPerHome": 5000,
+          "costPerLivingSf": 1.6139444803098772
+        },
+        "lot41": {
+          "costPerHome": 2000,
+          "costPerLivingSf": 1.06439595529537
+        },
+        "lot49": {
+          "costPerHome": 5000,
+          "costPerLivingSf": 1.9447685725398678
+        },
+        "lot58": {
+          "costPerHome": 1500,
+          "costPerLivingSf": 0.4098360655737705
+        }
+      },
+      "detachedMedianCost": 3500,
+      "detachedMedianCostPerLivingSf": 1.3391702178026237,
+      "allProjectMedianCost": 2500,
+      "allProjectMedianCostPerLivingSf": 1.1512779184895234,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H13",
+      "category": "Direct Hard Costs",
+      "scopeName": "Compaction testing & certification",
+      "primaryMeasurementUnit": "EA / LS",
+      "recommendedPricingBasis": "Testing allowance",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 625,
+          "costPerLivingSf": 0.28781947962238086
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 625,
+      "allProjectMedianCostPerLivingSf": 0.28781947962238086,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H15",
+      "category": "Direct Hard Costs",
+      "scopeName": "Drainage, French drains & steel wells",
+      "primaryMeasurementUnit": "LS",
+      "recommendedPricingBasis": "Allowance",
+      "livingSfRole": "Benchmark only",
+      "projects": {},
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": null,
+      "allProjectMedianCostPerLivingSf": null,
+      "reportedSamples": 0,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H16",
+      "category": "Direct Hard Costs",
+      "scopeName": "Landscaping, exterior walls, fences & gates",
+      "primaryMeasurementUnit": "SF / LF / EA / LS",
+      "recommendedPricingBasis": "Site-plan takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 8300,
+          "costPerLivingSf": 3.8222426893852175
+        },
+        "lot39": {
+          "costPerHome": 15500,
+          "costPerLivingSf": 5.00322788896062
+        },
+        "lot41": {
+          "costPerHome": 9800,
+          "costPerLivingSf": 5.215540180947312
+        },
+        "lot49": {
+          "costPerHome": 10500,
+          "costPerLivingSf": 4.084014002333722
+        },
+        "lot58": {
+          "costPerHome": 15500,
+          "costPerLivingSf": 4.2349726775956285
+        }
+      },
+      "detachedMedianCost": 13000,
+      "detachedMedianCostPerLivingSf": 4.619100283278124,
+      "allProjectMedianCost": 10500,
+      "allProjectMedianCostPerLivingSf": 4.2349726775956285,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H17",
+      "category": "Direct Hard Costs",
+      "scopeName": "Flatwork, driveway & walks",
+      "primaryMeasurementUnit": "SF + CY",
+      "recommendedPricingBasis": "Flatwork takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 12500,
+          "costPerLivingSf": 5.756389592447617
+        },
+        "lot39": {
+          "costPerHome": 9000,
+          "costPerLivingSf": 2.905100064557779
+        },
+        "lot41": {
+          "costPerHome": 7500,
+          "costPerLivingSf": 3.991484832357637
+        },
+        "lot49": {
+          "costPerHome": 13500,
+          "costPerLivingSf": 5.250875145857643
+        },
+        "lot58": {
+          "costPerHome": 10500,
+          "costPerLivingSf": 2.8688524590163933
+        }
+      },
+      "detachedMedianCost": 9750,
+      "detachedMedianCostPerLivingSf": 3.4482924484577078,
+      "allProjectMedianCost": 10500,
+      "allProjectMedianCostPerLivingSf": 3.991484832357637,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H18",
+      "category": "Direct Hard Costs",
+      "scopeName": "Decks & waterproof decking",
+      "primaryMeasurementUnit": "SF / LS",
+      "recommendedPricingBasis": "Deck takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "lot39": {
+          "costPerHome": 12500,
+          "costPerLivingSf": 4.034861200774693
+        },
+        "lot49": {
+          "costPerHome": 7500,
+          "costPerLivingSf": 2.9171528588098017
+        },
+        "lot58": {
+          "costPerHome": 4500,
+          "costPerLivingSf": 1.2295081967213115
+        }
+      },
+      "detachedMedianCost": 7500,
+      "detachedMedianCostPerLivingSf": 2.9171528588098017,
+      "allProjectMedianCost": 7500,
+      "allProjectMedianCostPerLivingSf": 2.9171528588098017,
+      "reportedSamples": 3,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H19",
+      "category": "Direct Hard Costs",
+      "scopeName": "Exterior stairs & railings",
+      "primaryMeasurementUnit": "EA / LS",
+      "recommendedPricingBasis": "Installed package",
+      "livingSfRole": "No",
+      "projects": {
+        "lot49": {
+          "costPerHome": 7500,
+          "costPerLivingSf": 2.9171528588098017
+        }
+      },
+      "detachedMedianCost": 7500,
+      "detachedMedianCostPerLivingSf": 2.9171528588098017,
+      "allProjectMedianCost": 7500,
+      "allProjectMedianCostPerLivingSf": 2.9171528588098017,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H20",
+      "category": "Direct Hard Costs",
+      "scopeName": "Epoxy garage floor",
+      "primaryMeasurementUnit": "SF",
+      "recommendedPricingBasis": "Garage-floor area",
+      "livingSfRole": "No",
+      "projects": {
+        "lot39": {
+          "costPerHome": 4000,
+          "costPerLivingSf": 1.2911555842479019
+        },
+        "lot49": {
+          "costPerHome": 6000,
+          "costPerLivingSf": 2.3337222870478413
+        },
+        "lot58": {
+          "costPerHome": 4000,
+          "costPerLivingSf": 1.092896174863388
+        }
+      },
+      "detachedMedianCost": 4000,
+      "detachedMedianCostPerLivingSf": 1.2911555842479019,
+      "allProjectMedianCost": 4000,
+      "allProjectMedianCostPerLivingSf": 1.2911555842479019,
+      "reportedSamples": 3,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H21",
+      "category": "Direct Hard Costs",
+      "scopeName": "Termite pretreatment",
+      "primaryMeasurementUnit": "SF",
+      "recommendedPricingBasis": "Treated footprint",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 252,
+          "costPerLivingSf": 0.11604881418374395
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 252,
+      "allProjectMedianCostPerLivingSf": 0.11604881418374395,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H22",
+      "category": "Direct Hard Costs",
+      "scopeName": "Foundation walls",
+      "primaryMeasurementUnit": "LF / wall SF / CY",
+      "recommendedPricingBasis": "Structural takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "lot41": {
+          "costPerHome": 3500,
+          "costPerLivingSf": 1.8626929217668973
+        },
+        "lot49": {
+          "costPerHome": 4500,
+          "costPerLivingSf": 1.750291715285881
+        }
+      },
+      "detachedMedianCost": 4000,
+      "detachedMedianCostPerLivingSf": 1.8064923185263893,
+      "allProjectMedianCost": 4000,
+      "allProjectMedianCostPerLivingSf": 1.8064923185263893,
+      "reportedSamples": 2,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H23",
+      "category": "Direct Hard Costs",
+      "scopeName": "Footings, slabs & concrete stairs",
+      "primaryMeasurementUnit": "SF + LF + CY",
+      "recommendedPricingBasis": "Structural takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 12576.25,
+          "costPerLivingSf": 5.791503568961548
+        },
+        "lot39": {
+          "costPerHome": 12500,
+          "costPerLivingSf": 4.034861200774693
+        },
+        "lot41": {
+          "costPerHome": 15500,
+          "costPerLivingSf": 8.249068653539117
+        },
+        "lot49": {
+          "costPerHome": 19500,
+          "costPerLivingSf": 7.584597432905484
+        },
+        "lot58": {
+          "costPerHome": 19500,
+          "costPerLivingSf": 5.327868852459017
+        }
+      },
+      "detachedMedianCost": 17500,
+      "detachedMedianCostPerLivingSf": 6.456233142682251,
+      "allProjectMedianCost": 15500,
+      "allProjectMedianCostPerLivingSf": 5.791503568961548,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H24",
+      "category": "Direct Hard Costs",
+      "scopeName": "Garage floor / suspended slabs",
+      "primaryMeasurementUnit": "SF + CY",
+      "recommendedPricingBasis": "Garage/slab takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "lot39": {
+          "costPerHome": 8500,
+          "costPerLivingSf": 2.7437056165267917
+        },
+        "lot41": {
+          "costPerHome": 2800,
+          "costPerLivingSf": 1.4901543374135178
+        },
+        "lot49": {
+          "costPerHome": 3800,
+          "costPerLivingSf": 1.4780241151302995
+        },
+        "lot58": {
+          "costPerHome": 8900,
+          "costPerLivingSf": 2.431693989071038
+        }
+      },
+      "detachedMedianCost": 6150,
+      "detachedMedianCostPerLivingSf": 1.9609241632422778,
+      "allProjectMedianCost": 6150,
+      "allProjectMedianCostPerLivingSf": 1.9609241632422778,
+      "reportedSamples": 4,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H25",
+      "category": "Direct Hard Costs",
+      "scopeName": "Foundation damp proofing / waterproofing",
+      "primaryMeasurementUnit": "SF / LF",
+      "recommendedPricingBasis": "Foundation takeoff",
+      "livingSfRole": "No",
+      "projects": {},
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": null,
+      "allProjectMedianCostPerLivingSf": null,
+      "reportedSamples": 0,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H26",
+      "category": "Direct Hard Costs",
+      "scopeName": "Structural steel / misc. metals / micro pillars",
+      "primaryMeasurementUnit": "EA / LB / LS",
+      "recommendedPricingBasis": "Structural takeoff",
+      "livingSfRole": "No",
+      "projects": {},
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": null,
+      "allProjectMedianCostPerLivingSf": null,
+      "reportedSamples": 0,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H27",
+      "category": "Direct Hard Costs",
+      "scopeName": "Framing lumber material",
+      "primaryMeasurementUnit": "Package / board feet",
+      "recommendedPricingBasis": "Supplier takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 17372,
+          "costPerLivingSf": 8
+        },
+        "lot39": {
+          "costPerHome": 24500,
+          "costPerLivingSf": 7.908327953518399
+        },
+        "lot41": {
+          "costPerHome": 17500,
+          "costPerLivingSf": 9.313464608834487
+        },
+        "lot49": {
+          "costPerHome": 21500,
+          "costPerLivingSf": 8.362504861921431
+        },
+        "lot58": {
+          "costPerHome": 25500,
+          "costPerLivingSf": 6.967213114754099
+        }
+      },
+      "detachedMedianCost": 23000,
+      "detachedMedianCostPerLivingSf": 8.135416407719916,
+      "allProjectMedianCost": 21500,
+      "allProjectMedianCostPerLivingSf": 8,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Explicit material/package",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H28",
+      "category": "Direct Hard Costs",
+      "scopeName": "Floor & roof trusses",
+      "primaryMeasurementUnit": "Package / EA",
+      "recommendedPricingBasis": "Truss quote",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 8008.51,
+          "costPerLivingSf": 3.6880082892010133
+        },
+        "lot39": {
+          "costPerHome": 17500,
+          "costPerLivingSf": 5.64880568108457
+        },
+        "lot41": {
+          "costPerHome": 10500,
+          "costPerLivingSf": 5.588078765300692
+        },
+        "lot49": {
+          "costPerHome": 14500,
+          "costPerLivingSf": 5.639828860365617
+        },
+        "lot58": {
+          "costPerHome": 15500,
+          "costPerLivingSf": 4.2349726775956285
+        }
+      },
+      "detachedMedianCost": 15000,
+      "detachedMedianCostPerLivingSf": 5.613953812833154,
+      "allProjectMedianCost": 14500,
+      "allProjectMedianCostPerLivingSf": 5.588078765300692,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Explicit material/package",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H29",
+      "category": "Direct Hard Costs",
+      "scopeName": "Framing labor",
+      "primaryMeasurementUnit": "LS / wall takeoff",
+      "recommendedPricingBasis": "Framing labor bid",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 16058.75,
+          "costPerLivingSf": 7.395233709417453
+        },
+        "lot39": {
+          "costPerHome": 26500,
+          "costPerLivingSf": 8.55390574564235
+        },
+        "lot41": {
+          "costPerHome": 19500,
+          "costPerLivingSf": 10.377860564129856
+        },
+        "lot49": {
+          "costPerHome": 24500,
+          "costPerLivingSf": 9.529366005445352
+        },
+        "lot58": {
+          "costPerHome": 26500,
+          "costPerLivingSf": 7.240437158469946
+        }
+      },
+      "detachedMedianCost": 25500,
+      "detachedMedianCostPerLivingSf": 9.04163587554385,
+      "allProjectMedianCost": 24500,
+      "allProjectMedianCostPerLivingSf": 8.55390574564235,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Explicit labor",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H30",
+      "category": "Direct Hard Costs",
+      "scopeName": "Firewall / specialty framing",
+      "primaryMeasurementUnit": "LS",
+      "recommendedPricingBasis": "Specialty framing",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 2500,
+          "costPerLivingSf": 1.1512779184895234
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 2500,
+      "allProjectMedianCostPerLivingSf": 1.1512779184895234,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Explicit labor",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H31",
+      "category": "Direct Hard Costs",
+      "scopeName": "Roofing",
+      "primaryMeasurementUnit": "Roof square / roof SF",
+      "recommendedPricingBasis": "Roof takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 9250,
+          "costPerLivingSf": 4.259728298411236
+        },
+        "lot39": {
+          "costPerHome": 18500,
+          "costPerLivingSf": 5.971594577146546
+        },
+        "lot41": {
+          "costPerHome": 14500,
+          "costPerLivingSf": 7.716870675891432
+        },
+        "lot49": {
+          "costPerHome": 17500,
+          "costPerLivingSf": 6.806690003889537
+        },
+        "lot58": {
+          "costPerHome": 21500,
+          "costPerLivingSf": 5.8743169398907105
+        }
+      },
+      "detachedMedianCost": 18000,
+      "detachedMedianCostPerLivingSf": 6.389142290518041,
+      "allProjectMedianCost": 17500,
+      "allProjectMedianCostPerLivingSf": 5.971594577146546,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H32",
+      "category": "Direct Hard Costs",
+      "scopeName": "Gutters / roof drains",
+      "primaryMeasurementUnit": "LF",
+      "recommendedPricingBasis": "Gutter takeoff",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 892.5,
+          "costPerLivingSf": 0.41100621690075984
+        },
+        "lot39": {
+          "costPerHome": 1500,
+          "costPerLivingSf": 0.4841833440929632
+        },
+        "lot41": {
+          "costPerHome": 1000,
+          "costPerLivingSf": 0.532197977647685
+        },
+        "lot49": {
+          "costPerHome": 1000,
+          "costPerLivingSf": 0.38895371450797356
+        },
+        "lot58": {
+          "costPerHome": 1500,
+          "costPerLivingSf": 0.4098360655737705
+        }
+      },
+      "detachedMedianCost": 1250,
+      "detachedMedianCostPerLivingSf": 0.4470097048333669,
+      "allProjectMedianCost": 1000,
+      "allProjectMedianCostPerLivingSf": 0.41100621690075984,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H33",
+      "category": "Direct Hard Costs",
+      "scopeName": "Stucco, masonry & siding",
+      "primaryMeasurementUnit": "Exterior wall SF",
+      "recommendedPricingBasis": "Elevation takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 12720,
+          "costPerLivingSf": 5.857702049274695
+        },
+        "lot39": {
+          "costPerHome": 29300,
+          "costPerLivingSf": 9.45771465461588
+        },
+        "lot41": {
+          "costPerHome": 25000,
+          "costPerLivingSf": 13.304949441192123
+        },
+        "lot49": {
+          "costPerHome": 27000,
+          "costPerLivingSf": 10.501750291715286
+        },
+        "lot58": {
+          "costPerHome": 29000,
+          "costPerLivingSf": 7.923497267759563
+        }
+      },
+      "detachedMedianCost": 28000,
+      "detachedMedianCostPerLivingSf": 9.979732473165583,
+      "allProjectMedianCost": 27000,
+      "allProjectMedianCostPerLivingSf": 9.45771465461588,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H34",
+      "category": "Direct Hard Costs",
+      "scopeName": "Windows",
+      "primaryMeasurementUnit": "EA / glazing SF",
+      "recommendedPricingBasis": "Window schedule",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 5557.28,
+          "costPerLivingSf": 2.5591895003453833
+        },
+        "lot39": {
+          "costPerHome": 12500,
+          "costPerLivingSf": 4.034861200774693
+        },
+        "lot41": {
+          "costPerHome": 7800,
+          "costPerLivingSf": 4.151144225651943
+        },
+        "lot49": {
+          "costPerHome": 12500,
+          "costPerLivingSf": 4.8619214313496695
+        },
+        "lot58": {
+          "costPerHome": 11500,
+          "costPerLivingSf": 3.1420765027322406
+        }
+      },
+      "detachedMedianCost": 12000,
+      "detachedMedianCostPerLivingSf": 4.093002713213318,
+      "allProjectMedianCost": 11500,
+      "allProjectMedianCostPerLivingSf": 4.034861200774693,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Explicit material/package, Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H35",
+      "category": "Direct Hard Costs",
+      "scopeName": "Exterior sliding doors",
+      "primaryMeasurementUnit": "EA / SF",
+      "recommendedPricingBasis": "Door schedule",
+      "livingSfRole": "No",
+      "projects": {
+        "lot39": {
+          "costPerHome": 16500,
+          "costPerLivingSf": 5.3260167850225955
+        },
+        "lot41": {
+          "costPerHome": 9800,
+          "costPerLivingSf": 5.215540180947312
+        },
+        "lot49": {
+          "costPerHome": 4800,
+          "costPerLivingSf": 1.866977829638273
+        }
+      },
+      "detachedMedianCost": 9800,
+      "detachedMedianCostPerLivingSf": 5.215540180947312,
+      "allProjectMedianCost": 9800,
+      "allProjectMedianCostPerLivingSf": 5.215540180947312,
+      "reportedSamples": 3,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H36",
+      "category": "Direct Hard Costs",
+      "scopeName": "Exterior doors / iron door",
+      "primaryMeasurementUnit": "EA / size",
+      "recommendedPricingBasis": "Door schedule",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 1692.87,
+          "costPerLivingSf": 0.7795855399493438
+        },
+        "lot39": {
+          "costPerHome": 6500,
+          "costPerLivingSf": 2.0981278244028405
+        },
+        "lot41": {
+          "costPerHome": 4000,
+          "costPerLivingSf": 2.12879191059074
+        },
+        "lot49": {
+          "costPerHome": 6000,
+          "costPerLivingSf": 2.3337222870478413
+        },
+        "lot58": {
+          "costPerHome": 6000,
+          "costPerLivingSf": 1.639344262295082
+        }
+      },
+      "detachedMedianCost": 6000,
+      "detachedMedianCostPerLivingSf": 2.11345986749679,
+      "allProjectMedianCost": 6000,
+      "allProjectMedianCostPerLivingSf": 2.0981278244028405,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Explicit labor, Explicit material/package, Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H37",
+      "category": "Direct Hard Costs",
+      "scopeName": "Garage doors",
+      "primaryMeasurementUnit": "EA / size",
+      "recommendedPricingBasis": "Garage-door schedule",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 2363.65,
+          "costPerLivingSf": 1.0884872208151049
+        },
+        "lot39": {
+          "costPerHome": 11500,
+          "costPerLivingSf": 3.7120723047127178
+        },
+        "lot41": {
+          "costPerHome": 10700,
+          "costPerLivingSf": 5.694518360830229
+        },
+        "lot49": {
+          "costPerHome": 10700,
+          "costPerLivingSf": 4.161804745235317
+        },
+        "lot58": {
+          "costPerHome": 11500,
+          "costPerLivingSf": 3.1420765027322406
+        }
+      },
+      "detachedMedianCost": 11100,
+      "detachedMedianCostPerLivingSf": 3.9369385249740176,
+      "allProjectMedianCost": 10700,
+      "allProjectMedianCostPerLivingSf": 3.7120723047127178,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Explicit material/package, Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H38",
+      "category": "Direct Hard Costs",
+      "scopeName": "Exterior railings",
+      "primaryMeasurementUnit": "LF / LS",
+      "recommendedPricingBasis": "Railing takeoff",
+      "livingSfRole": "No",
+      "projects": {
+        "lot39": {
+          "costPerHome": 4500,
+          "costPerLivingSf": 1.4525500322788896
+        }
+      },
+      "detachedMedianCost": 4500,
+      "detachedMedianCostPerLivingSf": 1.4525500322788896,
+      "allProjectMedianCost": 4500,
+      "allProjectMedianCostPerLivingSf": 1.4525500322788896,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H39",
+      "category": "Direct Hard Costs",
+      "scopeName": "Fireplace exterior finishes",
+      "primaryMeasurementUnit": "EA / SF",
+      "recommendedPricingBasis": "Installed finish",
+      "livingSfRole": "No",
+      "projects": {
+        "lot41": {
+          "costPerHome": 1500,
+          "costPerLivingSf": 0.7982969664715274
+        },
+        "lot49": {
+          "costPerHome": 3500,
+          "costPerLivingSf": 1.3613380007779075
+        },
+        "lot58": {
+          "costPerHome": 4500,
+          "costPerLivingSf": 1.2295081967213115
+        }
+      },
+      "detachedMedianCost": 3500,
+      "detachedMedianCostPerLivingSf": 1.2295081967213115,
+      "allProjectMedianCost": 3500,
+      "allProjectMedianCostPerLivingSf": 1.2295081967213115,
+      "reportedSamples": 3,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H40",
+      "category": "Direct Hard Costs",
+      "scopeName": "Insulation",
+      "primaryMeasurementUnit": "Insulated surface SF",
+      "recommendedPricingBasis": "Envelope takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 4000,
+          "costPerLivingSf": 1.8420446695832373
+        },
+        "lot39": {
+          "costPerHome": 7500,
+          "costPerLivingSf": 2.420916720464816
+        },
+        "lot41": {
+          "costPerHome": 5500,
+          "costPerLivingSf": 2.927088877062267
+        },
+        "lot49": {
+          "costPerHome": 6500,
+          "costPerLivingSf": 2.528199144301828
+        },
+        "lot58": {
+          "costPerHome": 7800,
+          "costPerLivingSf": 2.1311475409836067
+        }
+      },
+      "detachedMedianCost": 7000,
+      "detachedMedianCostPerLivingSf": 2.474557932383322,
+      "allProjectMedianCost": 6500,
+      "allProjectMedianCostPerLivingSf": 2.420916720464816,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H41",
+      "category": "Direct Hard Costs",
+      "scopeName": "Drywall / gypsum board",
+      "primaryMeasurementUnit": "Wall + ceiling SF",
+      "recommendedPricingBasis": "Drywall takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 11000,
+          "costPerLivingSf": 5.065622841353902
+        },
+        "lot39": {
+          "costPerHome": 22500,
+          "costPerLivingSf": 7.262750161394448
+        },
+        "lot41": {
+          "costPerHome": 15500,
+          "costPerLivingSf": 8.249068653539117
+        },
+        "lot49": {
+          "costPerHome": 21500,
+          "costPerLivingSf": 8.362504861921431
+        },
+        "lot58": {
+          "costPerHome": 24500,
+          "costPerLivingSf": 6.693989071038251
+        }
+      },
+      "detachedMedianCost": 22000,
+      "detachedMedianCostPerLivingSf": 7.755909407466783,
+      "allProjectMedianCost": 21500,
+      "allProjectMedianCostPerLivingSf": 7.262750161394448,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H42",
+      "category": "Direct Hard Costs",
+      "scopeName": "Interior paint / stain",
+      "primaryMeasurementUnit": "Paintable surface SF",
+      "recommendedPricingBasis": "Paint takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 7675,
+          "costPerLivingSf": 3.5344232097628367
+        },
+        "lot39": {
+          "costPerHome": 8900,
+          "costPerLivingSf": 2.8728211749515817
+        },
+        "lot41": {
+          "costPerHome": 7400,
+          "costPerLivingSf": 3.9382650345928685
+        },
+        "lot49": {
+          "costPerHome": 8900,
+          "costPerLivingSf": 3.4616880591209647
+        },
+        "lot58": {
+          "costPerHome": 8900,
+          "costPerLivingSf": 2.431693989071038
+        }
+      },
+      "detachedMedianCost": 8900,
+      "detachedMedianCostPerLivingSf": 3.1672546170362734,
+      "allProjectMedianCost": 8900,
+      "allProjectMedianCostPerLivingSf": 3.4616880591209647,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H43",
+      "category": "Direct Hard Costs",
+      "scopeName": "Finish trim, interior doors & shelving labor",
+      "primaryMeasurementUnit": "LF / EA / LS",
+      "recommendedPricingBasis": "Finish-carpentry labor",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 3500,
+          "costPerLivingSf": 1.6117890858853328
+        },
+        "lot39": {
+          "costPerHome": 3000,
+          "costPerLivingSf": 0.9683666881859264
+        },
+        "lot41": {
+          "costPerHome": 2500,
+          "costPerLivingSf": 1.3304949441192124
+        },
+        "lot49": {
+          "costPerHome": 2500,
+          "costPerLivingSf": 0.9723842862699339
+        },
+        "lot58": {
+          "costPerHome": 3000,
+          "costPerLivingSf": 0.819672131147541
+        }
+      },
+      "detachedMedianCost": 2750,
+      "detachedMedianCostPerLivingSf": 0.9703754872279302,
+      "allProjectMedianCost": 3000,
+      "allProjectMedianCostPerLivingSf": 0.9723842862699339,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Explicit labor",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H44",
+      "category": "Direct Hard Costs",
+      "scopeName": "Finish trim, interior doors & shelving material",
+      "primaryMeasurementUnit": "LF / EA / package",
+      "recommendedPricingBasis": "Finish material takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 4371.23,
+          "costPerLivingSf": 2.0130002302555834
+        },
+        "lot39": {
+          "costPerHome": 3000,
+          "costPerLivingSf": 0.9683666881859264
+        },
+        "lot41": {
+          "costPerHome": 2500,
+          "costPerLivingSf": 1.3304949441192124
+        },
+        "lot49": {
+          "costPerHome": 2500,
+          "costPerLivingSf": 0.9723842862699339
+        },
+        "lot58": {
+          "costPerHome": 3000,
+          "costPerLivingSf": 0.819672131147541
+        }
+      },
+      "detachedMedianCost": 2750,
+      "detachedMedianCostPerLivingSf": 0.9703754872279302,
+      "allProjectMedianCost": 3000,
+      "allProjectMedianCostPerLivingSf": 0.9723842862699339,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Explicit material/package, Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H45",
+      "category": "Direct Hard Costs",
+      "scopeName": "Door & bath hardware",
+      "primaryMeasurementUnit": "EA / set",
+      "recommendedPricingBasis": "Hardware schedule",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 796.37,
+          "costPerLivingSf": 0.3667372783790007
+        },
+        "lot39": {
+          "costPerHome": 1800,
+          "costPerLivingSf": 0.5810200129115558
+        },
+        "lot41": {
+          "costPerHome": 1500,
+          "costPerLivingSf": 0.7982969664715274
+        },
+        "lot49": {
+          "costPerHome": 1800,
+          "costPerLivingSf": 0.7001166861143524
+        },
+        "lot58": {
+          "costPerHome": 1500,
+          "costPerLivingSf": 0.4098360655737705
+        }
+      },
+      "detachedMedianCost": 1650,
+      "detachedMedianCostPerLivingSf": 0.6405683495129542,
+      "allProjectMedianCost": 1500,
+      "allProjectMedianCostPerLivingSf": 0.5810200129115558,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Explicit material/package",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H46",
+      "category": "Direct Hard Costs",
+      "scopeName": "Closets",
+      "primaryMeasurementUnit": "LF / LS",
+      "recommendedPricingBasis": "Closet takeoff",
+      "livingSfRole": "No",
+      "projects": {
+        "lot39": {
+          "costPerHome": 7500,
+          "costPerLivingSf": 2.420916720464816
+        },
+        "lot41": {
+          "costPerHome": 3500,
+          "costPerLivingSf": 1.8626929217668973
+        },
+        "lot49": {
+          "costPerHome": 4500,
+          "costPerLivingSf": 1.750291715285881
+        },
+        "lot58": {
+          "costPerHome": 3500,
+          "costPerLivingSf": 0.9562841530054644
+        }
+      },
+      "detachedMedianCost": 4000,
+      "detachedMedianCostPerLivingSf": 1.8064923185263893,
+      "allProjectMedianCost": 4000,
+      "allProjectMedianCostPerLivingSf": 1.8064923185263893,
+      "reportedSamples": 4,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H47",
+      "category": "Direct Hard Costs",
+      "scopeName": "Interior railings",
+      "primaryMeasurementUnit": "LF / LS",
+      "recommendedPricingBasis": "Railing takeoff",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 1000,
+          "costPerLivingSf": 0.46051116739580933
+        },
+        "lot39": {
+          "costPerHome": 2500,
+          "costPerLivingSf": 0.8069722401549386
+        },
+        "lot58": {
+          "costPerHome": 2500,
+          "costPerLivingSf": 0.6830601092896175
+        }
+      },
+      "detachedMedianCost": 2500,
+      "detachedMedianCostPerLivingSf": 0.7450161747222781,
+      "allProjectMedianCost": 2500,
+      "allProjectMedianCostPerLivingSf": 0.6830601092896175,
+      "reportedSamples": 3,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H48",
+      "category": "Direct Hard Costs",
+      "scopeName": "Cabinets & hardware",
+      "primaryMeasurementUnit": "LF / cabinet count / LS",
+      "recommendedPricingBasis": "Cabinet takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 9671.825,
+          "costPerLivingSf": 4.453983421597974
+        },
+        "lot39": {
+          "costPerHome": 26500,
+          "costPerLivingSf": 8.55390574564235
+        },
+        "lot41": {
+          "costPerHome": 17500,
+          "costPerLivingSf": 9.313464608834487
+        },
+        "lot49": {
+          "costPerHome": 22500,
+          "costPerLivingSf": 8.751458576429405
+        },
+        "lot58": {
+          "costPerHome": 26500,
+          "costPerLivingSf": 7.240437158469946
+        }
+      },
+      "detachedMedianCost": 24500,
+      "detachedMedianCostPerLivingSf": 8.652682161035877,
+      "allProjectMedianCost": 22500,
+      "allProjectMedianCostPerLivingSf": 8.55390574564235,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Explicit material/package, Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H49",
+      "category": "Direct Hard Costs",
+      "scopeName": "Countertops",
+      "primaryMeasurementUnit": "Countertop SF",
+      "recommendedPricingBasis": "Countertop takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 5000,
+          "costPerLivingSf": 2.302555836979047
+        },
+        "lot39": {
+          "costPerHome": 16500,
+          "costPerLivingSf": 5.3260167850225955
+        },
+        "lot41": {
+          "costPerHome": 9800,
+          "costPerLivingSf": 5.215540180947312
+        },
+        "lot49": {
+          "costPerHome": 9800,
+          "costPerLivingSf": 3.811746402178141
+        },
+        "lot58": {
+          "costPerHome": 14500,
+          "costPerLivingSf": 3.9617486338797816
+        }
+      },
+      "detachedMedianCost": 12150,
+      "detachedMedianCostPerLivingSf": 4.588644407413547,
+      "allProjectMedianCost": 9800,
+      "allProjectMedianCostPerLivingSf": 3.9617486338797816,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H50",
+      "category": "Direct Hard Costs",
+      "scopeName": "Tile & bath surrounds",
+      "primaryMeasurementUnit": "Tile SF + EA",
+      "recommendedPricingBasis": "Tile takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 8418.13,
+          "costPerLivingSf": 3.876642873589684
+        },
+        "lot39": {
+          "costPerHome": 15500,
+          "costPerLivingSf": 5.00322788896062
+        },
+        "lot41": {
+          "costPerHome": 9800,
+          "costPerLivingSf": 5.215540180947312
+        },
+        "lot49": {
+          "costPerHome": 11500,
+          "costPerLivingSf": 4.472967716841696
+        },
+        "lot58": {
+          "costPerHome": 12000,
+          "costPerLivingSf": 3.278688524590164
+        }
+      },
+      "detachedMedianCost": 11750,
+      "detachedMedianCostPerLivingSf": 4.738097802901158,
+      "allProjectMedianCost": 11500,
+      "allProjectMedianCostPerLivingSf": 4.472967716841696,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H51",
+      "category": "Direct Hard Costs",
+      "scopeName": "LVP / hard flooring allowance",
+      "primaryMeasurementUnit": "Finish-floor SF",
+      "recommendedPricingBasis": "Room finish takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 6183.75,
+          "costPerLivingSf": 2.847685931383836
+        },
+        "lot39": {
+          "costPerHome": 25800,
+          "costPerLivingSf": 8.327953518398967
+        },
+        "lot41": {
+          "costPerHome": 15500,
+          "costPerLivingSf": 8.249068653539117
+        },
+        "lot49": {
+          "costPerHome": 21500,
+          "costPerLivingSf": 8.362504861921431
+        },
+        "lot58": {
+          "costPerHome": 25500,
+          "costPerLivingSf": 6.967213114754099
+        }
+      },
+      "detachedMedianCost": 23500,
+      "detachedMedianCostPerLivingSf": 8.288511085969041,
+      "allProjectMedianCost": 21500,
+      "allProjectMedianCostPerLivingSf": 8.249068653539117,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H52",
+      "category": "Direct Hard Costs",
+      "scopeName": "Carpet",
+      "primaryMeasurementUnit": "Finish-floor SF",
+      "recommendedPricingBasis": "Room finish takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 2573.46,
+          "costPerLivingSf": 1.1851070688464196
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 2573.46,
+      "allProjectMedianCostPerLivingSf": 1.1851070688464196,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H54",
+      "category": "Direct Hard Costs",
+      "scopeName": "Mirrors, shower doors & butted glass",
+      "primaryMeasurementUnit": "EA / glazing SF",
+      "recommendedPricingBasis": "Opening schedule",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 3023.25,
+          "costPerLivingSf": 1.3922403868293807
+        },
+        "lot39": {
+          "costPerHome": 7500,
+          "costPerLivingSf": 2.420916720464816
+        },
+        "lot41": {
+          "costPerHome": 4500,
+          "costPerLivingSf": 2.394890899414582
+        },
+        "lot49": {
+          "costPerHome": 6500,
+          "costPerLivingSf": 2.528199144301828
+        },
+        "lot58": {
+          "costPerHome": 6000,
+          "costPerLivingSf": 1.639344262295082
+        }
+      },
+      "detachedMedianCost": 6250,
+      "detachedMedianCostPerLivingSf": 2.407903809939699,
+      "allProjectMedianCost": 6000,
+      "allProjectMedianCostPerLivingSf": 2.394890899414582,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H55",
+      "category": "Direct Hard Costs",
+      "scopeName": "Appliances",
+      "primaryMeasurementUnit": "EA",
+      "recommendedPricingBasis": "Appliance schedule",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 1899.515,
+          "costPerLivingSf": 0.8747478701358509
+        },
+        "lot39": {
+          "costPerHome": 12500,
+          "costPerLivingSf": 4.034861200774693
+        },
+        "lot41": {
+          "costPerHome": 9500,
+          "costPerLivingSf": 5.055880787653007
+        },
+        "lot49": {
+          "costPerHome": 10500,
+          "costPerLivingSf": 4.084014002333722
+        },
+        "lot58": {
+          "costPerHome": 12500,
+          "costPerLivingSf": 3.4153005464480874
+        }
+      },
+      "detachedMedianCost": 11500,
+      "detachedMedianCostPerLivingSf": 4.059437601554208,
+      "allProjectMedianCost": 10500,
+      "allProjectMedianCostPerLivingSf": 4.034861200774693,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H56",
+      "category": "Direct Hard Costs",
+      "scopeName": "Fireplace units",
+      "primaryMeasurementUnit": "EA",
+      "recommendedPricingBasis": "Equipment count",
+      "livingSfRole": "No",
+      "projects": {
+        "lot41": {
+          "costPerHome": 4500,
+          "costPerLivingSf": 2.394890899414582
+        },
+        "lot49": {
+          "costPerHome": 4500,
+          "costPerLivingSf": 1.750291715285881
+        },
+        "lot58": {
+          "costPerHome": 4500,
+          "costPerLivingSf": 1.2295081967213115
+        }
+      },
+      "detachedMedianCost": 4500,
+      "detachedMedianCostPerLivingSf": 1.750291715285881,
+      "allProjectMedianCost": 4500,
+      "allProjectMedianCostPerLivingSf": 1.750291715285881,
+      "reportedSamples": 3,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H57",
+      "category": "Direct Hard Costs",
+      "scopeName": "Mantels",
+      "primaryMeasurementUnit": "EA / LS",
+      "recommendedPricingBasis": "Installed finish",
+      "livingSfRole": "No",
+      "projects": {
+        "lot41": {
+          "costPerHome": 1000,
+          "costPerLivingSf": 0.532197977647685
+        },
+        "lot49": {
+          "costPerHome": 1500,
+          "costPerLivingSf": 0.5834305717619603
+        },
+        "lot58": {
+          "costPerHome": 1500,
+          "costPerLivingSf": 0.4098360655737705
+        }
+      },
+      "detachedMedianCost": 1500,
+      "detachedMedianCostPerLivingSf": 0.532197977647685,
+      "allProjectMedianCost": 1500,
+      "allProjectMedianCostPerLivingSf": 0.532197977647685,
+      "reportedSamples": 3,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H58",
+      "category": "Direct Hard Costs",
+      "scopeName": "Outdoor kitchen",
+      "primaryMeasurementUnit": "LS / LF",
+      "recommendedPricingBasis": "Installed package",
+      "livingSfRole": "No",
+      "projects": {
+        "lot49": {
+          "costPerHome": 5000,
+          "costPerLivingSf": 1.9447685725398678
+        },
+        "lot58": {
+          "costPerHome": 1500,
+          "costPerLivingSf": 0.4098360655737705
+        }
+      },
+      "detachedMedianCost": 3250,
+      "detachedMedianCostPerLivingSf": 1.1773023190568193,
+      "allProjectMedianCost": 3250,
+      "allProjectMedianCostPerLivingSf": 1.1773023190568193,
+      "reportedSamples": 2,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H60",
+      "category": "Direct Hard Costs",
+      "scopeName": "Plumbing rough & labor",
+      "primaryMeasurementUnit": "Fixture count / LS",
+      "recommendedPricingBasis": "Plumbing scope",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 6842.5,
+          "costPerLivingSf": 3.1510476629058255
+        },
+        "lot39": {
+          "costPerHome": 22500,
+          "costPerLivingSf": 7.262750161394448
+        },
+        "lot41": {
+          "costPerHome": 16500,
+          "costPerLivingSf": 8.781266631186801
+        },
+        "lot49": {
+          "costPerHome": 20500,
+          "costPerLivingSf": 7.973551147413458
+        },
+        "lot58": {
+          "costPerHome": 23500,
+          "costPerLivingSf": 6.420765027322404
+        }
+      },
+      "detachedMedianCost": 21500,
+      "detachedMedianCostPerLivingSf": 7.618150654403953,
+      "allProjectMedianCost": 20500,
+      "allProjectMedianCostPerLivingSf": 7.262750161394448,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H61",
+      "category": "Direct Hard Costs",
+      "scopeName": "Plumbing fixtures & finish hardware",
+      "primaryMeasurementUnit": "EA",
+      "recommendedPricingBasis": "Fixture schedule",
+      "livingSfRole": "No",
+      "projects": {
+        "lot39": {
+          "costPerHome": 2500,
+          "costPerLivingSf": 0.8069722401549386
+        },
+        "lot41": {
+          "costPerHome": 2000,
+          "costPerLivingSf": 1.06439595529537
+        },
+        "lot49": {
+          "costPerHome": 2500,
+          "costPerLivingSf": 0.9723842862699339
+        },
+        "lot58": {
+          "costPerHome": 2800,
+          "costPerLivingSf": 0.7650273224043715
+        }
+      },
+      "detachedMedianCost": 2500,
+      "detachedMedianCostPerLivingSf": 0.8896782632124363,
+      "allProjectMedianCost": 2500,
+      "allProjectMedianCostPerLivingSf": 0.8896782632124363,
+      "reportedSamples": 4,
+      "sourceSplitTreatment": "Explicit material/package",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H62",
+      "category": "Direct Hard Costs",
+      "scopeName": "Water softener",
+      "primaryMeasurementUnit": "EA",
+      "recommendedPricingBasis": "Equipment count",
+      "livingSfRole": "No",
+      "projects": {
+        "lot39": {
+          "costPerHome": 1200,
+          "costPerLivingSf": 0.38734667527437056
+        },
+        "lot49": {
+          "costPerHome": 1200,
+          "costPerLivingSf": 0.46674445740956827
+        },
+        "lot58": {
+          "costPerHome": 1200,
+          "costPerLivingSf": 0.32786885245901637
+        }
+      },
+      "detachedMedianCost": 1200,
+      "detachedMedianCostPerLivingSf": 0.38734667527437056,
+      "allProjectMedianCost": 1200,
+      "allProjectMedianCostPerLivingSf": 0.38734667527437056,
+      "reportedSamples": 3,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H63",
+      "category": "Direct Hard Costs",
+      "scopeName": "Soaker / jetted tub",
+      "primaryMeasurementUnit": "EA",
+      "recommendedPricingBasis": "Fixture count",
+      "livingSfRole": "No",
+      "projects": {
+        "lot39": {
+          "costPerHome": 1500,
+          "costPerLivingSf": 0.4841833440929632
+        },
+        "lot49": {
+          "costPerHome": 1500,
+          "costPerLivingSf": 0.5834305717619603
+        },
+        "lot58": {
+          "costPerHome": 1500,
+          "costPerLivingSf": 0.4098360655737705
+        }
+      },
+      "detachedMedianCost": 1500,
+      "detachedMedianCostPerLivingSf": 0.4841833440929632,
+      "allProjectMedianCost": 1500,
+      "allProjectMedianCostPerLivingSf": 0.4841833440929632,
+      "reportedSamples": 3,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H64",
+      "category": "Direct Hard Costs",
+      "scopeName": "HVAC",
+      "primaryMeasurementUnit": "Ton / zone / LS",
+      "recommendedPricingBasis": "HVAC load and equipment",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 11400,
+          "costPerLivingSf": 5.249827308312226
+        },
+        "lot39": {
+          "costPerHome": 18500,
+          "costPerLivingSf": 5.971594577146546
+        },
+        "lot41": {
+          "costPerHome": 11500,
+          "costPerLivingSf": 6.120276742948377
+        },
+        "lot49": {
+          "costPerHome": 16500,
+          "costPerLivingSf": 6.417736289381564
+        },
+        "lot58": {
+          "costPerHome": 18500,
+          "costPerLivingSf": 5.054644808743169
+        }
+      },
+      "detachedMedianCost": 17500,
+      "detachedMedianCostPerLivingSf": 6.045935660047462,
+      "allProjectMedianCost": 16500,
+      "allProjectMedianCostPerLivingSf": 5.971594577146546,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H65",
+      "category": "Direct Hard Costs",
+      "scopeName": "Electrical rough & labor",
+      "primaryMeasurementUnit": "Device count / circuit / LS",
+      "recommendedPricingBasis": "Electrical takeoff",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 10545,
+          "costPerLivingSf": 4.856090260188809
+        },
+        "lot39": {
+          "costPerHome": 22500,
+          "costPerLivingSf": 7.262750161394448
+        },
+        "lot41": {
+          "costPerHome": 15500,
+          "costPerLivingSf": 8.249068653539117
+        },
+        "lot49": {
+          "costPerHome": 20500,
+          "costPerLivingSf": 7.973551147413458
+        },
+        "lot58": {
+          "costPerHome": 24500,
+          "costPerLivingSf": 6.693989071038251
+        }
+      },
+      "detachedMedianCost": 21500,
+      "detachedMedianCostPerLivingSf": 7.618150654403953,
+      "allProjectMedianCost": 20500,
+      "allProjectMedianCostPerLivingSf": 7.262750161394448,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H66",
+      "category": "Direct Hard Costs",
+      "scopeName": "Electrical / lighting fixtures",
+      "primaryMeasurementUnit": "EA",
+      "recommendedPricingBasis": "Fixture schedule",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 2506,
+          "costPerLivingSf": 1.1540409854938982
+        },
+        "lot39": {
+          "costPerHome": 2300,
+          "costPerLivingSf": 0.7424144609425436
+        },
+        "lot41": {
+          "costPerHome": 2300,
+          "costPerLivingSf": 1.2240553485896755
+        },
+        "lot49": {
+          "costPerHome": 2500,
+          "costPerLivingSf": 0.9723842862699339
+        },
+        "lot58": {
+          "costPerHome": 4000,
+          "costPerLivingSf": 1.092896174863388
+        }
+      },
+      "detachedMedianCost": 2400,
+      "detachedMedianCostPerLivingSf": 1.032640230566661,
+      "allProjectMedianCost": 2500,
+      "allProjectMedianCostPerLivingSf": 1.092896174863388,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Explicit material/package",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H67",
+      "category": "Direct Hard Costs",
+      "scopeName": "Low voltage / sound / theater wiring",
+      "primaryMeasurementUnit": "EA / drop / LS",
+      "recommendedPricingBasis": "Low-voltage takeoff",
+      "livingSfRole": "No",
+      "projects": {},
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": null,
+      "allProjectMedianCostPerLivingSf": null,
+      "reportedSamples": 0,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H68",
+      "category": "Direct Hard Costs",
+      "scopeName": "Central vacuum",
+      "primaryMeasurementUnit": "EA / LS",
+      "recommendedPricingBasis": "Equipment count",
+      "livingSfRole": "No",
+      "projects": {},
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": null,
+      "allProjectMedianCostPerLivingSf": null,
+      "reportedSamples": 0,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H69",
+      "category": "Direct Hard Costs",
+      "scopeName": "Gas service / piping",
+      "primaryMeasurementUnit": "LF / EA / LS",
+      "recommendedPricingBasis": "Gas piping takeoff",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 1250,
+          "costPerLivingSf": 0.5756389592447617
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 1250,
+      "allProjectMedianCostPerLivingSf": 0.5756389592447617,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H71",
+      "category": "Direct Hard Costs",
+      "scopeName": "Elevator / lift",
+      "primaryMeasurementUnit": "EA",
+      "recommendedPricingBasis": "Equipment package",
+      "livingSfRole": "No",
+      "projects": {},
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": null,
+      "allProjectMedianCostPerLivingSf": null,
+      "reportedSamples": 0,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H02",
+      "category": "General Conditions",
+      "scopeName": "Temporary utilities",
+      "primaryMeasurementUnit": "LS / month",
+      "recommendedPricingBasis": "Temporary utility allowance",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 600,
+          "costPerLivingSf": 0.2763067004374856
+        },
+        "lot39": {
+          "costPerHome": 500,
+          "costPerLivingSf": 0.16139444803098774
+        },
+        "lot41": {
+          "costPerHome": 500,
+          "costPerLivingSf": 0.2660989888238425
+        },
+        "lot49": {
+          "costPerHome": 500,
+          "costPerLivingSf": 0.19447685725398678
+        },
+        "lot58": {
+          "costPerHome": 500,
+          "costPerLivingSf": 0.1366120218579235
+        }
+      },
+      "detachedMedianCost": 500,
+      "detachedMedianCostPerLivingSf": 0.17793565264248726,
+      "allProjectMedianCost": 500,
+      "allProjectMedianCostPerLivingSf": 0.19447685725398678,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H03",
+      "category": "General Conditions",
+      "scopeName": "Dumpsters, portable toilets & rough clean",
+      "primaryMeasurementUnit": "LS / month",
+      "recommendedPricingBasis": "Installed general-conditions allowance",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 1200,
+          "costPerLivingSf": 0.5526134008749712
+        },
+        "lot39": {
+          "costPerHome": 5500,
+          "costPerLivingSf": 1.7753389283408652
+        },
+        "lot41": {
+          "costPerHome": 2000,
+          "costPerLivingSf": 1.06439595529537
+        },
+        "lot49": {
+          "costPerHome": 5500,
+          "costPerLivingSf": 2.1392454297938546
+        },
+        "lot58": {
+          "costPerHome": 4500,
+          "costPerLivingSf": 1.2295081967213115
+        }
+      },
+      "detachedMedianCost": 5000,
+      "detachedMedianCostPerLivingSf": 1.5024235625310882,
+      "allProjectMedianCost": 4500,
+      "allProjectMedianCostPerLivingSf": 1.2295081967213115,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H04",
+      "category": "General Conditions",
+      "scopeName": "Construction cleaning & SWPPP maintenance",
+      "primaryMeasurementUnit": "LS",
+      "recommendedPricingBasis": "Construction-cleaning allowance",
+      "livingSfRole": "Benchmark only",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 1500,
+          "costPerLivingSf": 0.690766751093714
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 1500,
+      "allProjectMedianCostPerLivingSf": 0.690766751093714,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H05",
+      "category": "General Conditions",
+      "scopeName": "Final cleaning",
+      "primaryMeasurementUnit": "LS or living SF",
+      "recommendedPricingBasis": "Final-clean allowance",
+      "livingSfRole": "May price by living SF",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 1085.75,
+          "costPerLivingSf": 0.5
+        },
+        "lot39": {
+          "costPerHome": 1500,
+          "costPerLivingSf": 0.4841833440929632
+        },
+        "lot41": {
+          "costPerHome": 2500,
+          "costPerLivingSf": 1.3304949441192124
+        },
+        "lot49": {
+          "costPerHome": 1500,
+          "costPerLivingSf": 0.5834305717619603
+        },
+        "lot58": {
+          "costPerHome": 2500,
+          "costPerLivingSf": 0.6830601092896175
+        }
+      },
+      "detachedMedianCost": 2000,
+      "detachedMedianCostPerLivingSf": 0.633245340525789,
+      "allProjectMedianCost": 1500,
+      "allProjectMedianCostPerLivingSf": 0.5834305717619603,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H06",
+      "category": "General Conditions",
+      "scopeName": "Signs, safety & temporary fencing",
+      "primaryMeasurementUnit": "LS",
+      "recommendedPricingBasis": "General conditions",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 250,
+          "costPerLivingSf": 0.11512779184895233
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 250,
+      "allProjectMedianCostPerLivingSf": 0.11512779184895233,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H07",
+      "category": "General Conditions",
+      "scopeName": "Equipment / crane rental",
+      "primaryMeasurementUnit": "LS / day",
+      "recommendedPricingBasis": "Equipment allowance",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 500,
+          "costPerLivingSf": 0.23025558369790466
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 500,
+      "allProjectMedianCostPerLivingSf": 0.23025558369790466,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "H08",
+      "category": "General Conditions",
+      "scopeName": "Misc. construction materials & labor",
+      "primaryMeasurementUnit": "LS",
+      "recommendedPricingBasis": "Miscellaneous allowance",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 500,
+          "costPerLivingSf": 0.23025558369790466
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 500,
+      "allProjectMedianCostPerLivingSf": 0.23025558369790466,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Explicit labor",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "S01",
+      "category": "Soft Costs",
+      "scopeName": "Architectural plan design",
+      "primaryMeasurementUnit": "LS",
+      "recommendedPricingBasis": "Allowance / plan fee",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 1500,
+          "costPerLivingSf": 0.690766751093714
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 1500,
+      "allProjectMedianCostPerLivingSf": 0.690766751093714,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "S02",
+      "category": "Soft Costs",
+      "scopeName": "Design / interior design",
+      "primaryMeasurementUnit": "LS or %",
+      "recommendedPricingBasis": "Allowance / design fee",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 2750,
+          "costPerLivingSf": 1.2664057103384756
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 2750,
+      "allProjectMedianCostPerLivingSf": 1.2664057103384756,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "S03",
+      "category": "Soft Costs",
+      "scopeName": "Engineering plans",
+      "primaryMeasurementUnit": "LS",
+      "recommendedPricingBasis": "Engineering allowance",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 375,
+          "costPerLivingSf": 0.1726916877734285
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 375,
+      "allProjectMedianCostPerLivingSf": 0.1726916877734285,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "S04",
+      "category": "Soft Costs",
+      "scopeName": "Plan printing / reprographics",
+      "primaryMeasurementUnit": "LS",
+      "recommendedPricingBasis": "Reprographics allowance",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 125,
+          "costPerLivingSf": 0.057563895924476166
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 125,
+      "allProjectMedianCostPerLivingSf": 0.057563895924476166,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "S05",
+      "category": "Soft Costs",
+      "scopeName": "Survey & staking",
+      "primaryMeasurementUnit": "LS",
+      "recommendedPricingBasis": "Survey allowance",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 500,
+          "costPerLivingSf": 0.23025558369790466
+        },
+        "lot39": {
+          "costPerHome": 1500,
+          "costPerLivingSf": 0.4841833440929632
+        },
+        "lot41": {
+          "costPerHome": 1000,
+          "costPerLivingSf": 0.532197977647685
+        },
+        "lot49": {
+          "costPerHome": 1500,
+          "costPerLivingSf": 0.5834305717619603
+        },
+        "lot58": {
+          "costPerHome": 1000,
+          "costPerLivingSf": 0.273224043715847
+        }
+      },
+      "detachedMedianCost": 1250,
+      "detachedMedianCostPerLivingSf": 0.508190660870324,
+      "allProjectMedianCost": 1000,
+      "allProjectMedianCostPerLivingSf": 0.4841833440929632,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "S06",
+      "category": "Soft Costs",
+      "scopeName": "Soils / geotechnical engineering",
+      "primaryMeasurementUnit": "LS",
+      "recommendedPricingBasis": "Geotechnical allowance",
+      "livingSfRole": "No",
+      "projects": {
+        "lot39": {
+          "costPerHome": 2000,
+          "costPerLivingSf": 0.6455777921239509
+        },
+        "lot41": {
+          "costPerHome": 1000,
+          "costPerLivingSf": 0.532197977647685
+        },
+        "lot49": {
+          "costPerHome": 2000,
+          "costPerLivingSf": 0.7779074290159471
+        },
+        "lot58": {
+          "costPerHome": 1000,
+          "costPerLivingSf": 0.273224043715847
+        }
+      },
+      "detachedMedianCost": 1500,
+      "detachedMedianCostPerLivingSf": 0.5888878848858179,
+      "allProjectMedianCost": 1500,
+      "allProjectMedianCostPerLivingSf": 0.5888878848858179,
+      "reportedSamples": 4,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "S07",
+      "category": "Soft Costs",
+      "scopeName": "Energy code / RES check",
+      "primaryMeasurementUnit": "LS",
+      "recommendedPricingBasis": "Energy-code service",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 90,
+          "costPerLivingSf": 0.04144600506562284
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 90,
+      "allProjectMedianCostPerLivingSf": 0.04144600506562284,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Explicit labor",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "S08",
+      "category": "Soft Costs",
+      "scopeName": "SWPPP plan, application & fees",
+      "primaryMeasurementUnit": "LS",
+      "recommendedPricingBasis": "SWPPP allowance",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 165,
+          "costPerLivingSf": 0.07598434262030854
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 165,
+      "allProjectMedianCostPerLivingSf": 0.07598434262030854,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Explicit labor, Fee / reserve",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "S09",
+      "category": "Soft Costs",
+      "scopeName": "Permit submission / administration",
+      "primaryMeasurementUnit": "LS",
+      "recommendedPricingBasis": "Permit administration",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 75,
+          "costPerLivingSf": 0.0345383375546857
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 75,
+      "allProjectMedianCostPerLivingSf": 0.0345383375546857,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Explicit labor",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "S10",
+      "category": "Soft Costs",
+      "scopeName": "Building permit / city impact fees",
+      "primaryMeasurementUnit": "LS / EA",
+      "recommendedPricingBasis": "Permit and impact fee",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 16000,
+          "costPerLivingSf": 7.368178678332949
+        },
+        "lot39": {
+          "costPerHome": 35000,
+          "costPerLivingSf": 11.29761136216914
+        },
+        "lot41": {
+          "costPerHome": 32000,
+          "costPerLivingSf": 17.03033528472592
+        },
+        "lot49": {
+          "costPerHome": 35000,
+          "costPerLivingSf": 13.613380007779075
+        },
+        "lot58": {
+          "costPerHome": 35000,
+          "costPerLivingSf": 9.562841530054644
+        }
+      },
+      "detachedMedianCost": 35000,
+      "detachedMedianCostPerLivingSf": 12.455495684974107,
+      "allProjectMedianCost": 35000,
+      "allProjectMedianCostPerLivingSf": 11.29761136216914,
+      "reportedSamples": 5,
+      "sourceSplitTreatment": "Fee / reserve",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "S11",
+      "category": "Soft Costs",
+      "scopeName": "Fire impact fee",
+      "primaryMeasurementUnit": "EA",
+      "recommendedPricingBasis": "Impact fee",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 1067.76,
+          "costPerLivingSf": 0.49171540409854936
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 1067.76,
+      "allProjectMedianCostPerLivingSf": 0.49171540409854936,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Fee / reserve",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "S12",
+      "category": "Soft Costs",
+      "scopeName": "Water / WCWCD impact fee",
+      "primaryMeasurementUnit": "EA",
+      "recommendedPricingBasis": "Water impact fee",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 5720,
+          "costPerLivingSf": 2.6341238775040297
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 5720,
+      "allProjectMedianCostPerLivingSf": 2.6341238775040297,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Fee / reserve",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "S13",
+      "category": "Soft Costs",
+      "scopeName": "Sewer impact / connection fee",
+      "primaryMeasurementUnit": "EA",
+      "recommendedPricingBasis": "Sewer impact fee",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 4990,
+          "costPerLivingSf": 2.2979507253050886
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 4990,
+      "allProjectMedianCostPerLivingSf": 2.2979507253050886,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Fee / reserve",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "S14",
+      "category": "Soft Costs",
+      "scopeName": "Other permit / impact / SCR fees",
+      "primaryMeasurementUnit": "LS / EA",
+      "recommendedPricingBasis": "Other permit fee",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 8.75,
+          "costPerLivingSf": 0.004029472714713332
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 8.75,
+      "allProjectMedianCostPerLivingSf": 0.004029472714713332,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Fee / reserve",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "S15",
+      "category": "Soft Costs",
+      "scopeName": "Blower door / energy certification",
+      "primaryMeasurementUnit": "EA",
+      "recommendedPricingBasis": "Certification",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 250,
+          "costPerLivingSf": 0.11512779184895233
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 250,
+      "allProjectMedianCostPerLivingSf": 0.11512779184895233,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Installed lump sum / allowance",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "S16",
+      "category": "Soft Costs",
+      "scopeName": "Builder's risk insurance",
+      "primaryMeasurementUnit": "LS / %",
+      "recommendedPricingBasis": "Project insurance",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 700,
+          "costPerLivingSf": 0.3223578171770665
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 700,
+      "allProjectMedianCostPerLivingSf": 0.3223578171770665,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Fee / reserve",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    },
+    {
+      "scopeId": "S17",
+      "category": "Soft Costs",
+      "scopeName": "General liability / project insurance",
+      "primaryMeasurementUnit": "LS / %",
+      "recommendedPricingBasis": "Project insurance",
+      "livingSfRole": "No",
+      "projects": {
+        "silverLeaf": {
+          "costPerHome": 1269.88,
+          "costPerLivingSf": 0.5847939212525904
+        }
+      },
+      "detachedMedianCost": null,
+      "detachedMedianCostPerLivingSf": null,
+      "allProjectMedianCost": 1269.88,
+      "allProjectMedianCostPerLivingSf": 0.5847939212525904,
+      "reportedSamples": 1,
+      "sourceSplitTreatment": "Fee / reserve",
+      "nationalBenchmark": null,
+      "nationalUnit": null,
+      "blendedBaseline": null,
+      "reviewNote": "Preliminary budgets; validate inclusions and trade quantity before applying."
+    }
+  ]
+}

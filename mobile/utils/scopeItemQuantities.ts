@@ -37,6 +37,31 @@ import {
   type BenchmarkScopeAssumptionProfile,
   type ScopeProfileSource,
 } from '@/utils/benchmarkScopeAssumptions';
+import {
+  benchmarkEngineV1Enabled,
+  buildBenchmarkProvenance,
+  getCachedBenchmarkSuggestion,
+  type BenchmarkProvenance,
+  type BenchmarkSuggestion,
+} from '@/utils/benchmarkEngine';
+import {
+  benchmarkActionForBlock,
+  benchmarkApplicationKey,
+  canApplyStageBenchmarkFill,
+  classifyBenchmarkLevel,
+  coversLabelList,
+  getTradeMeasurementProfile,
+  isGrossFlooringDerivedFromLiving,
+  isIncludedInStageChild,
+  measurementSemanticsV1Enabled,
+  missingStatusDisplayLabel,
+  NO_LIVING_SF_PRIMARY_SEED_KEYS,
+  preferredPrimaryUnit,
+  STAGE_COVERS_SCOPE_KEYS,
+  stageTitle,
+  type BenchmarkCardAction,
+  type BenchmarkLevel,
+} from '@/utils/measurementSemantics';
 
 export type QuantitySource =
   | 'notes'
@@ -175,6 +200,8 @@ export type ScopeItemQuantityValue = {
   };
   /** Cabinets allowance line in notes also covered countertops. */
   includesCountertops?: boolean;
+  /** Optional durable primary/pricing/benchmark roles (measurement-semantics). */
+  measurementState?: import('@/utils/measurementSemantics').ScopeMeasurementState | null;
 };
 
 export type ResolvedItemQuantity = {
@@ -1438,6 +1465,15 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     quantityHelper: 'Enter cleanup and disposal allowance for this job.',
     missingMessage: 'Enter cleanup/disposal allowance.',
   },
+  interior_finishes: {
+    defaultUnit: 'lump_sum',
+    allowedUnits: ['lump_sum', 'allowance'],
+    requiresUserQuantity: false,
+    lumpSumOnly: true,
+    quantityHelper:
+      'Stage planning benchmark for related finish trades. Apply once, then replace with takeoffs/quotes.',
+    missingMessage: 'Planning benchmark available for Interior Finishes.',
+  },
   appliances: {
     defaultUnit: 'each',
     allowedUnits: ['each', 'lump_sum'],
@@ -2488,16 +2524,66 @@ export function getChecklistItemQuantityRule(
   itemId: string,
   templateKey?: string | null
 ): ScopeItemQuantityRule | undefined {
+  let rule: ScopeItemQuantityRule | undefined;
   if (templateKey === 'ground_up' && GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES[itemId]) {
-    return GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES[itemId];
+    rule = GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES[itemId];
+  } else if (templateKey === 'addition' && ADDITION_CHECKLIST_ITEM_QUANTITY_RULES[itemId]) {
+    rule = ADDITION_CHECKLIST_ITEM_QUANTITY_RULES[itemId];
+  } else if (templateKey === 'kitchen' && KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES[itemId]) {
+    rule = KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES[itemId];
+  } else {
+    rule = CHECKLIST_ITEM_QUANTITY_RULES[itemId];
   }
-  if (templateKey === 'addition' && ADDITION_CHECKLIST_ITEM_QUANTITY_RULES[itemId]) {
-    return ADDITION_CHECKLIST_ITEM_QUANTITY_RULES[itemId];
+  if (!rule) return undefined;
+
+  // Measurement-semantics: do not resolve primary takeoff from living SF for physical trades.
+  if (measurementSemanticsV1Enabled() && NO_LIVING_SF_PRIMARY_SEED_KEYS.has(itemId)) {
+    const keys = (rule.measurementKeys || (rule.measurementKey ? [rule.measurementKey] : [])).filter(
+      (key) => key !== 'floorAreaSqft'
+    );
+    const physicalKey =
+      itemId === 'drywall'
+        ? 'drywallSqft'
+        : itemId === 'roofing'
+          ? 'roofSquares'
+          : itemId === 'excavation'
+            ? 'excavationCy'
+            : itemId === 'tile_flooring' || itemId === 'flooring'
+              ? 'flooringSqft'
+              : keys[0];
+    const preferred = preferredPrimaryUnit(itemId);
+    return {
+      ...rule,
+      measurementKey: physicalKey as ScopeItemQuantityRule['measurementKey'],
+      measurementKeys: physicalKey
+        ? ([physicalKey] as ScopeItemQuantityRule['measurementKeys'])
+        : undefined,
+      pricingBasisMeasurementKey: undefined,
+      defaultUnit:
+        itemId === 'excavation'
+          ? 'cy'
+          : itemId === 'roofing'
+            ? 'squares'
+            : preferred === 'package' || preferred === 'unknown'
+              ? rule.defaultUnit
+              : preferred === 'surface_sqft' || preferred === 'floor_sqft'
+                ? 'sqft'
+                : rule.defaultUnit,
+      requiresUserQuantity: true,
+      quantityHelper:
+        itemId === 'framing'
+          ? 'Needs detailed framing takeoff. Living SF may be used only for benchmark pricing.'
+          : itemId === 'foundation'
+            ? 'Needs structural takeoff (slab/footings/walls/CY). Living SF is not foundation quantity.'
+            : itemId === 'insulation'
+              ? 'Enter insulated surface SF. Living SF is benchmark-only.'
+              : itemId === 'tile_flooring' || itemId === 'flooring'
+                ? 'Gross interior floor area may display for planning — finish allocation (LVP/carpet/tile) still required.'
+                : rule.quantityHelper,
+      missingMessage: missingStatusDisplayLabel(itemId),
+    };
   }
-  if (templateKey === 'kitchen' && KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES[itemId]) {
-    return KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES[itemId];
-  }
-  return CHECKLIST_ITEM_QUANTITY_RULES[itemId];
+  return rule;
 }
 
 export function getChecklistItemQuantityRuleOrDefault(
@@ -3154,20 +3240,34 @@ function measurementUnitForKey(key: keyof Omit<NormalizedScopeMeasurements, 'ite
   return fallbackUnit;
 }
 
+function shouldIgnoreFlooringMeasurementKey(
+  key: string,
+  measurementsInput: ScopeMeasurementsInputExtended
+): boolean {
+  if (!measurementSemanticsV1Enabled() || key !== 'flooringSqft') return false;
+  return isGrossFlooringDerivedFromLiving({
+    flooringSqft: parseScopeMeasurementInput(String(measurementsInput.flooringSqft ?? '')),
+    floorAreaSqft: parseScopeMeasurementInput(String(measurementsInput.floorAreaSqft ?? '')),
+  });
+}
+
 function firstMeasurementForRule(
   rule: ScopeItemQuantityRule,
   measurementsInput: ScopeMeasurementsInputExtended
 ): { quantity: number; unit: string } | null {
   if (rule.measurementKey) {
-    const quantity = parseScopeMeasurementInput(
-      String(measurementsInput[rule.measurementKey as keyof ScopeMeasurementsInputExtended] ?? '')
-    );
-    if (quantity && quantity > 0) {
-      return { quantity, unit: measurementUnitForKey(rule.measurementKey, rule.defaultUnit) };
+    if (!shouldIgnoreFlooringMeasurementKey(rule.measurementKey, measurementsInput)) {
+      const quantity = parseScopeMeasurementInput(
+        String(measurementsInput[rule.measurementKey as keyof ScopeMeasurementsInputExtended] ?? '')
+      );
+      if (quantity && quantity > 0) {
+        return { quantity, unit: measurementUnitForKey(rule.measurementKey, rule.defaultUnit) };
+      }
     }
   }
   if (rule.measurementKeys?.length) {
     for (const key of rule.measurementKeys) {
+      if (shouldIgnoreFlooringMeasurementKey(key, measurementsInput)) continue;
       const quantity = parseScopeMeasurementInput(
         String(measurementsInput[key as keyof ScopeMeasurementsInputExtended] ?? '')
       );
@@ -3297,7 +3397,7 @@ export function resolveSuggestedBudgetSplitDisplay(
 // trade family) -> national average. Handles lump-sum split, material-only
 // fill, labor-only fill, and a comparison split when notes priced both legs.
 
-export type PricingLegSource = 'notes' | 'template' | 'national_average';
+export type PricingLegSource = 'notes' | 'template' | 'local_benchmark' | 'national_average';
 
 export type ScopePricingLineItem = {
   name?: string | null;
@@ -3462,6 +3562,18 @@ export type SuggestedPricingBlock = {
   costBuckets?: SuggestedPricingCostBucket[];
   pricingRecordId?: string;
   productionStatus?: BenchmarkPricingProductionStatus;
+  benchmarkEvidence?: BenchmarkSuggestion;
+  benchmarkProvenance?: BenchmarkProvenance;
+  /** Presentation/application metadata for stage vs scope benchmarks. */
+  benchmarkLevel?: BenchmarkLevel;
+  benchmarkStageKey?: string | null;
+  benchmarkScopeKey?: string | null;
+  coversScopeKeys?: string[];
+  benchmarkAction?: BenchmarkCardAction;
+  benchmarkApplicationKey?: string | null;
+  includedInStageLabel?: string | null;
+  /** Exact total retained for apply; UI may round for display. */
+  storedTotalExact?: number | null;
 };
 
 export type ScopeItemSuggestedPricing = {
@@ -3473,6 +3585,237 @@ export type ScopeItemSuggestedPricing = {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+function medianPositive(values: number[]): number | null {
+  const sorted = values.filter((n) => Number.isFinite(n) && n > 0).sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : round2((sorted[mid - 1] + sorted[mid]) / 2);
+}
+
+/** Plans/engineering should use local component refs (~$1–2k), not the full site stage. */
+function plansEngineeringComponentTotal(evidence: BenchmarkSuggestion): number | null {
+  const fromDetached = (evidence.detachedComparables || [])
+    .map((p) => Number(p.scopeCost))
+    .filter((n) => Number.isFinite(n) && n > 0 && n < 20000);
+  const fromAll = (evidence.comparables || [])
+    .map((p) => Number(p.scopeCost))
+    .filter((n) => Number.isFinite(n) && n > 0 && n < 20000);
+  return medianPositive(fromDetached.length ? fromDetached : fromAll);
+}
+
+function benchmarkSuggestedPricingBlock(
+  itemId: string,
+  comparison: boolean
+): SuggestedPricingBlock | null {
+  if (!benchmarkEngineV1Enabled()) return null;
+  const evidence = getCachedBenchmarkSuggestion(itemId);
+  const selected = evidence?.selectedSuggestion;
+  const stageTotal = evidence?.blendedBenchmark.total;
+  if (!evidence || !selected || stageTotal == null || stageTotal <= 0) return null;
+
+  const stageId = evidence.stageId;
+  const level = classifyBenchmarkLevel({ itemId, stageId });
+  const includedChild = isIncludedInStageChild(itemId, stageId);
+  const isStageHost = canApplyStageBenchmarkFill(itemId, stageId);
+
+  // Plans/engineering: component references only — not Site Work / Preconstruction stage.
+  // Must run before included-child short-circuit (plans is listed under that stage's covers).
+  if (itemId === 'plans_engineering' && measurementSemanticsV1Enabled()) {
+    const componentTotal = plansEngineeringComponentTotal(evidence);
+    if (componentTotal == null) {
+      return {
+        material: 0,
+        labor: 0,
+        total: 0,
+        materialSource: 'local_benchmark',
+        laborSource: 'local_benchmark',
+        rateSourceLabel: 'Suggested · Southern Utah benchmark',
+        helper:
+          'Included in Site Work / Preconstruction stage benchmark. Enter a plans/engineering allowance or use local project references.',
+        mode: 'suggested_price',
+        isComparison: true,
+        lumpSumOnly: true,
+        basis: null,
+        benchmarkLevel: 'component',
+        benchmarkStageKey: stageId,
+        benchmarkScopeKey: itemId,
+        benchmarkAction: 'comparison_only',
+        includedInStageLabel: stageTitle(stageId),
+        storedTotalExact: null,
+        benchmarkEvidence: {
+          ...evidence,
+          benchmarkIsComparisonOnly: true,
+          benchmarkLevel: 'component',
+        } as BenchmarkSuggestion,
+      };
+    }
+    const action = benchmarkActionForBlock({
+      isLocalBenchmark: true,
+      hasPrimaryTakeoff: false,
+      isComparisonOnly: comparison || evidence.benchmarkIsComparisonOnly,
+    });
+    return {
+      material: 0,
+      labor: round2(componentTotal),
+      total: round2(componentTotal),
+      materialSource: 'local_benchmark',
+      laborSource: 'local_benchmark',
+      rateSourceLabel: 'Suggested · Southern Utah benchmark',
+      helper: `Local plans/engineering references (~$${Math.round(componentTotal).toLocaleString()}). Full site/preconstruction stage is shown on Sitework.`,
+      mode: 'suggested_price',
+      isComparison: action === 'comparison_only',
+      lumpSumOnly: true,
+      basis: { quantity: 1, unit: 'ls' },
+      pricingRecordId: `${evidence.datasetId}:plans_component:${evidence.datasetVersion}`,
+      productionStatus: 'review_required',
+      benchmarkLevel: 'component',
+      benchmarkStageKey: stageId,
+      benchmarkScopeKey: itemId,
+      coversScopeKeys: ['plans_engineering'],
+      benchmarkAction: action === 'comparison_only' ? 'comparison_only' : 'benchmark_only',
+      benchmarkApplicationKey: benchmarkApplicationKey({
+        datasetId: evidence.datasetId,
+        benchmarkLevel: 'component',
+        benchmarkStageKey: `plans_engineering`,
+      }),
+      storedTotalExact: round2(componentTotal),
+      benchmarkEvidence: {
+        ...evidence,
+        benchmarkIsComparisonOnly: action === 'comparison_only',
+        benchmarkLevel: 'component',
+        selectedSuggestion: {
+          total: round2(componentTotal),
+          rate: null,
+          unit: 'ls',
+          source: 'Local plans/engineering references',
+        },
+        blendedBenchmark: {
+          ...evidence.blendedBenchmark,
+          total: round2(componentTotal),
+          rate: round2(componentTotal),
+          appliedQuantity: 1,
+          unit: 'living_sqft',
+        },
+      } as BenchmarkSuggestion,
+    };
+  }
+
+  // Child scopes: never repeat the full stage dollar amount.
+  if (includedChild && measurementSemanticsV1Enabled()) {
+    const title = stageTitle(stageId);
+    return {
+      material: 0,
+      labor: 0,
+      total: 0,
+      materialSource: 'local_benchmark',
+      laborSource: 'local_benchmark',
+      rateSourceLabel: 'Suggested · Southern Utah benchmark',
+      helper: `Included in ${title} stage benchmark. Detailed takeoff still required.`,
+      mode: 'suggested_price',
+      isComparison: true,
+      lumpSumOnly: true,
+      basis: null,
+      pricingRecordId: `${evidence.datasetId}:included:${itemId}`,
+      productionStatus: 'review_required',
+      benchmarkLevel: 'component',
+      benchmarkStageKey: stageId,
+      benchmarkScopeKey: itemId,
+      coversScopeKeys: [],
+      benchmarkAction: 'included_in_stage',
+      benchmarkApplicationKey: null,
+      includedInStageLabel: title,
+      storedTotalExact: null,
+      benchmarkEvidence: {
+        ...evidence,
+        benchmarkIsComparisonOnly: true,
+        benchmarkLevel: 'component',
+        benchmarkStageKey: stageId,
+        coversScopeKeys: [],
+      } as BenchmarkSuggestion,
+    };
+  }
+
+  const canApplyFill = isStageHost && !evidence.benchmarkIsComparisonOnly && !comparison;
+  const comparisonOnly = !canApplyFill || evidence.benchmarkIsComparisonOnly || comparison;
+  const action = benchmarkActionForBlock({
+    isLocalBenchmark: true,
+    hasPrimaryTakeoff: Boolean(evidence.quantityRoles?.primaryTakeoff?.quantity),
+    isComparisonOnly: comparisonOnly,
+  });
+  const appKey = benchmarkApplicationKey({
+    datasetId: evidence.datasetId,
+    benchmarkLevel: level === 'stage' ? 'stage' : level,
+    benchmarkStageKey: stageId,
+  });
+  const title = stageTitle(stageId);
+  const covers = level === 'stage' ? coversLabelList(stageId) : '';
+
+  const benchmarkProvenance = comparisonOnly
+    ? null
+    : buildBenchmarkProvenance({
+        ...evidence,
+        benchmarkIsComparisonOnly: false,
+        selectedSuggestion: {
+          total: stageTotal,
+          rate: evidence.blendedBenchmark.rate,
+          unit: evidence.blendedBenchmark.unit,
+          source: selected.source,
+        },
+      });
+
+  return {
+    material: 0,
+    labor: round2(stageTotal),
+    total: round2(stageTotal),
+    materialSource: 'local_benchmark',
+    laborSource: 'local_benchmark',
+    rateSourceLabel: 'Suggested · Southern Utah benchmark',
+    helper:
+      level === 'stage'
+        ? `${title} planning benchmark · ${Number(evidence.blendedBenchmark.appliedQuantity || 0).toLocaleString()} living SF · covers ${covers}`
+        : `Based on ${Number(evidence.blendedBenchmark.appliedQuantity || 0).toLocaleString()} living SF · planning benchmark`,
+    mode: 'suggested_price',
+    isComparison: comparisonOnly || action === 'comparison_only',
+    lumpSumOnly: true,
+    basis: evidence.blendedBenchmark.appliedQuantity
+      ? {
+          quantity: evidence.blendedBenchmark.appliedQuantity,
+          unit: 'living_sqft',
+        }
+      : null,
+    pricingRecordId: `${evidence.datasetId}:${stageId || itemId}:${evidence.datasetVersion}`,
+    productionStatus: 'review_required',
+    benchmarkLevel: level,
+    benchmarkStageKey: stageId,
+    benchmarkScopeKey: itemId,
+    coversScopeKeys:
+      level === 'stage' ? STAGE_COVERS_SCOPE_KEYS[stageId || ''] || [itemId] : [itemId],
+    benchmarkAction: action,
+    benchmarkApplicationKey: appKey,
+    storedTotalExact: round2(stageTotal),
+    benchmarkEvidence: {
+      ...evidence,
+      benchmarkIsComparisonOnly: comparisonOnly || evidence.benchmarkIsComparisonOnly,
+      benchmarkLevel: level,
+      benchmarkStageKey: stageId,
+      coversScopeKeys:
+        level === 'stage' ? STAGE_COVERS_SCOPE_KEYS[stageId || ''] || [itemId] : [itemId],
+    } as BenchmarkSuggestion,
+    benchmarkProvenance: benchmarkProvenance || undefined,
+  };
+}
+
+/** When primary takeoff is missing, still surface cached living-SF benchmark evidence. */
+function benchmarkFillWithoutPrimaryTakeoff(itemId: string): ScopeItemSuggestedPricing | null {
+  if (!benchmarkEngineV1Enabled() || !measurementSemanticsV1Enabled()) return null;
+  const profile = getTradeMeasurementProfile(itemId);
+  if (!profile?.canUseLivingSfAsBenchmark) return null;
+  const block = benchmarkSuggestedPricingBlock(itemId, false);
+  if (!block) return null;
+  if (block.isComparison) return { fill: null, comparison: block };
+  return { fill: block, comparison: null };
 }
 
 function rateSourceLabelFor(
@@ -3632,7 +3975,13 @@ export function resolveScopeItemSuggestedPricing(
       unit = flatAverage?.unit || rule.defaultUnit;
     }
   }
-  if (!count || count <= 0) return empty;
+  if (!count || count <= 0) {
+    // Measurement-semantics: missing primary takeoff must not hide read-only/planning
+    // benchmark evidence (living SF × stage rate). Do not invent a national $/sqft fill.
+    const benchmarkOnly = benchmarkFillWithoutPrimaryTakeoff(itemId);
+    if (benchmarkOnly) return benchmarkOnly;
+    return empty;
+  }
 
   const basis = { quantity: count, unit };
   const basisHelper = rule.lumpSumOnly
@@ -3725,6 +4074,12 @@ export function resolveScopeItemSuggestedPricing(
 
   // Case A: notes priced both legs -> collapsible comparison only.
   if (noteMaterial != null && noteLabor != null) {
+    const benchmarkComparison = !template
+      ? benchmarkSuggestedPricingBlock(itemId, true)
+      : null;
+    if (benchmarkComparison) {
+      return { fill: null, comparison: benchmarkComparison };
+    }
     if (!materialRate || !laborRate) return empty;
     const material = round2(count * materialRate);
     const labor = round2(count * laborRate);
@@ -3841,6 +4196,10 @@ export function resolveScopeItemSuggestedPricing(
         },
       };
     }
+    const benchmarkComparison = benchmarkSuggestedPricingBlock(itemId, true);
+    if (benchmarkComparison) {
+      return { fill: null, comparison: benchmarkComparison };
+    }
     if (!materialRate) return empty;
     const material = Math.min(noteTotal, round2(count * materialRate));
     const labor = round2(noteTotal - material);
@@ -3873,6 +4232,15 @@ export function resolveScopeItemSuggestedPricing(
   }
 
   // Case D: quantity only, no notes pricing -> full suggested price.
+  if (!template) {
+    const benchmarkFill = benchmarkSuggestedPricingBlock(itemId, false);
+    if (benchmarkFill) {
+      if (benchmarkFill.isComparison) {
+        return { fill: null, comparison: benchmarkFill };
+      }
+      return { fill: benchmarkFill, comparison: null };
+    }
+  }
   if (!materialRate || !laborRate) return empty;
   const material = round2(count * materialRate);
   const labor = round2(count * laborRate);
@@ -4387,6 +4755,17 @@ function resolveChecklistItemQuantityCore(
   }
 
   for (const key of rule.measurementKeys || (rule.measurementKey ? [rule.measurementKey] : [])) {
+    if (
+      measurementSemanticsV1Enabled() &&
+      key === 'flooringSqft' &&
+      isGrossFlooringDerivedFromLiving({
+        flooringSqft: Number(measurements.flooringSqft),
+        floorAreaSqft: Number(measurements.floorAreaSqft),
+      })
+    ) {
+      // Gross interior floor area copied from living SF is planning-only, not finish takeoff.
+      continue;
+    }
     const val = Number(measurements[key]);
     if (Number.isFinite(val) && val > 0) {
       const resolved: ResolvedItemQuantity = {
@@ -5011,12 +5390,21 @@ export function prepareScopeMeasurementsInputForUi(
   }
   clearStalePricingWhenNotesUnpriced(itemQuantities, notes, parsed.itemQuantities);
 
+  // Notes fill gaps only — never wipe plan/user quick-measurement fields already on payload.
+  const mergedFields: ScopeMeasurements = { ...parsed, ...payload, itemQuantities };
+  for (const [key, value] of Object.entries(payload)) {
+    if (key === 'itemQuantities' || key === 'planRooms' || key === 'pricingAcceptance') continue;
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) {
+      (mergedFields as Record<string, unknown>)[key] = n;
+    }
+  }
+  if (Array.isArray(payload.planRooms) && payload.planRooms.length) {
+    mergedFields.planRooms = payload.planRooms;
+  }
+
   const reparsed = reparseRatePricingIntoItemQuantities(
-    scopeMeasurementsInputFromPayload({
-      ...payload,
-      ...parsed,
-      itemQuantities,
-    }),
+    scopeMeasurementsInputFromPayload(mergedFields),
     notes,
     options?.templateKey
   );
@@ -5027,11 +5415,21 @@ export function prepareScopeMeasurementsInputForUi(
 export type ScopeMeasurementsInputExtended = ReturnType<typeof emptyQuickMeasurementInput> & {
   itemQuantities: Record<
     string,
-    { quantity: string; unit: string; quantitySource?: QuantitySource; includesCountertops?: boolean }
+    {
+      quantity: string;
+      unit: string;
+      quantitySource?: QuantitySource;
+      includesCountertops?: boolean;
+      measurementState?: import('@/utils/measurementSemantics').ScopeMeasurementState | null;
+    }
   >;
   pricingAcceptance?: Record<string, import('@/utils/estimateAiDraft').ScopePricingAcceptanceMetadata>;
   scopeGapResolutions?: Record<string, import('@/utils/scopeReviewUi').ScopeGapResolutionRecord>;
   planRooms?: import('@/utils/estimateAiDraft').PlanRoomMeasurement[];
+  areaReconciliation?: import('@/utils/measurementSemantics').AreaReconciliation | null;
+  pricingOverrideLog?: import('@/utils/measurementSemantics').PricingOverrideLog[];
+  /** Applied stage/component benchmark keys — blocks double application. */
+  appliedBenchmarkKeys?: string[];
 };
 
 export function initialScopeMeasurementInputExtended(
@@ -5172,6 +5570,8 @@ export function initialScopeMeasurementInputExtended(
     const s = saved?.[key as keyof ScopeMeasurements];
     const backsplashFromNotes = parsedFromNotes.backsplashSqft;
 
+    // Explicit note values beat stale draft fields when regenerating from edited notes.
+    // When notes omit a field (common for plan takeoff), fall through to saved plan import.
     if (parsedNoteValue != null && Number(parsedNoteValue) > 0) {
       return String(parsedNoteValue);
     }

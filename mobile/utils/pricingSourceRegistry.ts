@@ -14,6 +14,7 @@ export type PricingExpandedSourceType =
   | 'supplier'
   | 'subcontractor'
   | 'labor_dataset'
+  | 'local_benchmark'
   | 'localized_benchmark'
   | 'national_average'
   | 'internal_calibrated'
@@ -464,6 +465,18 @@ export const PRICING_SOURCE_REGISTRY: PricingSourceDefinition[] = [
     featureFlag: 'internalCalibratedRates',
     fallbackSourceKeys: ['localized_benchmark', 'national_average'],
     privateToCompany: true,
+  },
+  {
+    key: 'local_benchmark',
+    name: 'Southern Utah residential benchmark',
+    sourceType: 'local_benchmark',
+    priority: 58,
+    updateMethod: 'scheduled',
+    freshnessPolicyKey: 'national_benchmark',
+    enabled: true,
+    featureFlag: 'benchmarkEngine',
+    fallbackSourceKeys: ['localized_benchmark', 'national_average'],
+    notes: ['Preliminary planning benchmark; detailed trade takeoff and quotes remain authoritative.'],
   },
   {
     key: 'localized_benchmark',

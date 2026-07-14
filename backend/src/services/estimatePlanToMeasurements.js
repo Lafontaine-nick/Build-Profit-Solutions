@@ -88,12 +88,21 @@ function buildSystemPrompt() {
 
 Return ONLY valid JSON (no markdown). Read printed labels carefully — title blocks, Building Areas / Area Schedule tables, and room dimension strings like 18'-2" x 14'-7".
 
-Priority (highest first):
+Extract BOTH:
 1. Building Areas / Area Schedule / square-footage tables in the title block.
    - totalLivingSqft = "Total Living Area" or Main Floor Living + Upstairs Living (living only — exclude garage, patio, roof deck unless labeled living).
    - mainFloorLivingSqft, upstairsLivingSqft, garageSqft, coveredPatioSqft, coveredOutdoorSqft, roofDeckSqft when labeled.
-2. Individual rooms with length×width or labeled SF on floor-plan pages.
+2. EVERY individual room / space with a readable length×width or labeled SF on floor-plan pages — not a sample. Estimators need per-room SF when finishes differ (tile vs carpet, etc.).
 3. Elevations / sections: use for notes (ceiling heights, materials) only — NEVER use elevations to invent floor square footage.
+
+Exhaustive rooms (required):
+- Include every labeled room you can read: bedrooms, primary suite, den/office, great room / living / family, dining, kitchen, pantry, laundry, mud, foyer/entry, hallways (when dimensioned), closets / WIC, powder, every bathroom (primary bath, guest bath, Jack & Jill, etc.), garage / RV garage / shop, covered patio / porch / deck, and similarly labeled spaces.
+- Do NOT stop after a few "key" rooms. Prefer a complete rooms[] list over a short summary.
+- Pair each room name with the L×W printed under/inside THAT room only. Never swap dims between Kitchen/Den/Bedrooms/Garage/RV Garage.
+- Take room L×W from floor-plan / main-floor layout sheets. Do NOT use foundation-plan overall garage envelopes (e.g. a single ~31'×23' "GARAGE" box) when the floor plan labels separate Garage and RV Garage bays.
+- Each bathroom is its OWN rooms[] entry (Primary Bath, Bath 2, Powder, …) AND you also sum all bath areas into measurements.bathroomFloorSqft ONLY when those baths have readable L×W. If baths have no dimensions, omit bathroomFloorSqft (do not invent ~90 SF).
+- Rooms without a readable L×W or SF: omit area/length/width (do not invent) and add the room name to unreadableFields with reason "No dimension label on plan" (or blurry/cut off). Still skip inventing sizes.
+- If a "PDF text layer" block is provided in the user message, treat those schedule totals and room L×W as ground truth — keep them, do not replace with different numbers.
 
 Readability contract (most important):
 - Only report a number when you can actually READ it printed on the sheet. If a dimension string, table cell, or label is blurry, cut off, too small, or ambiguous — OMIT that value entirely and list the field key (or room name) in unreadableFields with a short reason. NEVER estimate, round from visual proportions, or fill a typical value.
@@ -104,20 +113,20 @@ Readability contract (most important):
 Rules:
 1. Only report numbers you can read on the sheet. Never invent sizes. Never estimate paint, drywall, or trim from floor area.
 2. If length×width are labeled (including feet-inches like 12'-0" x 10'-6"), convert to decimal feet and set areaSqft = lengthFt × widthFt.
-3. Map rooms:
-   - bathroom / bath / powder / M. Bath → bathroomFloorSqft (sum all baths into measurements.bathroomFloorSqft)
+3. Map rooms (still list EVERY room in rooms[] even when mapped):
+   - bathroom / bath / powder / M. Bath / Primary Bath → measurementKey bathroomFloorSqft; also sum all baths into measurements.bathroomFloorSqft
    - kitchen → kitchenFloorSqft
    - deck / patio / covered patio / roof deck → deckSqft
-   - bedrooms, living, family, great room, dining, office, laundry, hallway → list in rooms; do NOT put a single bedroom into floorAreaSqft
+   - bedrooms, living, family, great room, dining, office, laundry, hallway, pantry, closet, garage → list in rooms with measurementKey null; do NOT put a single bedroom into floorAreaSqft
 4. measurements.floorAreaSqft MUST be total living area from the Building Areas table when present. Do not use one room (e.g. a bath) as floorAreaSqft.
 5. measurements.flooringSqft = same as floorAreaSqft when living SF is known.
 6. measurements.deckSqft = covered patio + roof deck (+ covered outdoor when no patio) from the schedule. NEVER put covered patio / roof deck into concreteSqft.
-7. measurements.garageSqft = Garage Area from the schedule when labeled (not living SF).
+7. measurements.garageSqft = Garage Area from the schedule when labeled (not living SF). Still list Garage / RV Garage as separate rooms[] entries with their L×W when labeled.
 8. measurements.concreteSqft ONLY for labeled concrete slab / driveway / sidewalk / flatwork — omit for covered patio or wood deck. Put concreteSqft in explicitlyLabeled when used.
 9. wallPaintSqft, drywallSqft, exteriorPaintSqft, baseboardLf, railingLf: omit unless the plan explicitly labels that quantity. Set explicitlyLabeled to those keys only when true. Never invent them.
 10. Multi-page sets: merge all floor-plan pages; ignore duplicate title-block totals; elevations do not add living SF.
 11. success false if none of the images are plans/blueprints, OR if imageQuality is "unreadable".
-12. notesBlock: contractor-readable summary including Building Areas totals and key rooms.
+12. notesBlock: short contractor-readable summary of Building Areas totals (room-by-room SF will be listed separately by the app).
 
 Schema:
 {
@@ -136,16 +145,40 @@ Schema:
   "rooms": [
     {
       "name": "Kitchen",
-      "lengthFt": 12,
-      "widthFt": 10,
-      "areaSqft": 120,
+      "lengthFt": 12.083,
+      "widthFt": 14.167,
+      "areaSqft": 171.2,
       "measurementKey": "kitchenFloorSqft",
+      "confidence": 0.9
+    },
+    {
+      "name": "Primary Bath",
+      "lengthFt": 10,
+      "widthFt": 8,
+      "areaSqft": 80,
+      "measurementKey": "bathroomFloorSqft",
       "confidence": 0.85
+    },
+    {
+      "name": "Great Room",
+      "lengthFt": 14.833,
+      "widthFt": 17.5,
+      "areaSqft": 259.6,
+      "measurementKey": null,
+      "confidence": 0.9
+    },
+    {
+      "name": "Bed 2",
+      "lengthFt": 10.333,
+      "widthFt": 10.25,
+      "areaSqft": 105.9,
+      "measurementKey": null,
+      "confidence": 0.9
     }
   ],
   "measurements": {
-    "kitchenFloorSqft": 120,
-    "bathroomFloorSqft": 90,
+    "kitchenFloorSqft": 171.2,
+    "bathroomFloorSqft": 80,
     "floorAreaSqft": 2418,
     "flooringSqft": 2418,
     "deckSqft": 375,
@@ -156,7 +189,7 @@ Schema:
     "floorAreaSqft": 0.95
   },
   "unreadableFields": [
-    { "field": "garageSqft", "reason": "Garage dimension string is blurry" }
+    { "field": "Guest Bath", "reason": "No dimension label on plan" }
   ],
   "explicitlyLabeled": [],
   "assumptions": ["Total living from Building Areas table on sheet 1"],
@@ -190,16 +223,89 @@ function sanitizeRooms(rawRooms) {
     if (measurementKey === 'floorAreaSqft' || measurementKey === 'flooringSqft') {
       measurementKey = null;
     }
-    out.push({
+    const entry = {
       name,
       lengthFt,
       widthFt,
       areaSqft,
       measurementKey,
       confidence: Math.max(0, Math.min(1, Number(room.confidence) || 0)),
-    });
+    };
+    if (room.source) entry.source = String(room.source).slice(0, 40);
+    out.push(entry);
   }
-  return out.slice(0, 40);
+  return out.slice(0, 60);
+}
+
+function roomNameKey(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+/** Prefer spatially paired PDF rooms; add vision-only rooms that don't collide. */
+function mergeRoomsPreferPdf(pdfRooms, visionRooms) {
+  const out = [...(Array.isArray(pdfRooms) ? pdfRooms : [])];
+  const seen = new Set(out.map((r) => roomNameKey(r.name)));
+  for (const room of Array.isArray(visionRooms) ? visionRooms : []) {
+    const key = roomNameKey(room.name);
+    if (!key || seen.has(key)) continue;
+    // Don't let vision re-add a vague "Garage" envelope when PDF already has garage bays
+    if (/^garage$/.test(key) && [...seen].some((k) => /garage/.test(k))) continue;
+    out.push(room);
+    seen.add(key);
+  }
+  return out.slice(0, 60);
+}
+
+function isPlainGarageName(name) {
+  return /^garages?$/i.test(String(name || '').trim());
+}
+
+/**
+ * Drop foundation-style combined garage envelopes when individual bays exist.
+ * e.g. 31'×23' "Garage" alongside a normal bay / RV garage.
+ * Do not drop long thin RV bays (12'×42').
+ */
+function pruneEnvelopeGarageRooms(rooms) {
+  const list = Array.isArray(rooms) ? rooms : [];
+  const garageLike = list.filter((r) => /\bgarage\b/i.test(r.name || ''));
+  if (garageLike.length < 2) return list;
+  const hasNamedBay = garageLike.some((r) => !isPlainGarageName(r.name) || (r.areaSqft != null && r.areaSqft < 700));
+  if (!hasNamedBay) return list;
+  return list.filter((r) => {
+    if (!isPlainGarageName(r.name)) return true;
+    const lengthFt = Number(r.lengthFt) || 0;
+    const widthFt = Number(r.widthFt) || 0;
+    const longSide = Math.max(lengthFt, widthFt);
+    const shortSide = Math.min(lengthFt, widthFt) || 0;
+    // Combined footprint: both sides large (foundation "GARAGE" box)
+    if (longSide >= 28 && shortSide >= 18) return false;
+    if (r.areaSqft != null && r.areaSqft >= 700) return false;
+    return true;
+  });
+}
+
+/** Never keep bath SF the model invented when no bath rooms have readable area. */
+function reconcileBathroomMeasurement(measurements, rooms, unreadableFields = []) {
+  const next = { ...measurements };
+  const bathRooms = (rooms || []).filter(
+    (r) => r.measurementKey === 'bathroomFloorSqft' && r.areaSqft != null && r.areaSqft > 0
+  );
+  if (!bathRooms.length) {
+    if (next.bathroomFloorSqft != null) {
+      unreadableFields.push({
+        field: 'bathroomFloorSqft',
+        reason: 'No bathroom dimensions labeled on plan',
+      });
+      delete next.bathroomFloorSqft;
+    }
+    return next;
+  }
+  const sum = Math.round(bathRooms.reduce((s, r) => s + r.areaSqft, 0) * 10) / 10;
+  next.bathroomFloorSqft = sum;
+  return next;
 }
 
 function sanitizeFieldConfidence(raw) {
@@ -224,7 +330,7 @@ function sanitizeUnreadableFields(raw) {
       reason: String(entry?.reason || 'Not legible on the plan').trim().slice(0, 160),
     });
   }
-  return out.slice(0, 16);
+  return out.slice(0, 40);
 }
 
 function sanitizeImageQuality(raw) {
@@ -418,25 +524,9 @@ function buildItemQuantities(measurements) {
   return itemQuantities;
 }
 
-function formatNotesBlock({ notesBlock, rooms, measurements, buildingAreas }) {
-  if (notesBlock) return String(notesBlock).trim().slice(0, 2000);
-  const lines = ['Plan takeoff (confirm measurements):'];
-  if (buildingAreas?.totalLivingSqft != null) {
-    lines.push(`- Total living: ${buildingAreas.totalLivingSqft} sqft`);
-  }
-  if (buildingAreas?.mainFloorLivingSqft != null) {
-    lines.push(`- Main floor living: ${buildingAreas.mainFloorLivingSqft} sqft`);
-  }
-  if (buildingAreas?.upstairsLivingSqft != null) {
-    lines.push(`- Upstairs living: ${buildingAreas.upstairsLivingSqft} sqft`);
-  }
-  if (buildingAreas?.garageSqft != null) {
-    lines.push(`- Garage: ${buildingAreas.garageSqft} sqft`);
-  }
-  if (buildingAreas?.coveredPatioSqft != null) {
-    lines.push(`- Covered patio: ${buildingAreas.coveredPatioSqft} sqft`);
-  }
-  for (const room of rooms.slice(0, 16)) {
+function formatRoomInventoryLines(rooms) {
+  const lines = [];
+  for (const room of (Array.isArray(rooms) ? rooms : []).slice(0, 48)) {
     const dims =
       room.areaSqft != null
         ? `${room.areaSqft} sqft`
@@ -445,11 +535,45 @@ function formatNotesBlock({ notesBlock, rooms, measurements, buildingAreas }) {
           : 'size unclear';
     lines.push(`- ${room.name}: ${dims}`);
   }
-  const keys = Object.keys(measurements);
-  if (keys.length) {
+  return lines;
+}
+
+function formatNotesBlock({ notesBlock, rooms, measurements, buildingAreas }) {
+  const lines = [];
+  const summary = notesBlock ? String(notesBlock).trim() : '';
+  if (summary) {
+    lines.push(summary);
+  } else {
+    lines.push('Plan takeoff (confirm measurements):');
+    if (buildingAreas?.totalLivingSqft != null) {
+      lines.push(`- Total living: ${buildingAreas.totalLivingSqft} sqft`);
+    }
+    if (buildingAreas?.mainFloorLivingSqft != null) {
+      lines.push(`- Main floor living: ${buildingAreas.mainFloorLivingSqft} sqft`);
+    }
+    if (buildingAreas?.upstairsLivingSqft != null) {
+      lines.push(`- Upstairs living: ${buildingAreas.upstairsLivingSqft} sqft`);
+    }
+    if (buildingAreas?.garageSqft != null) {
+      lines.push(`- Garage: ${buildingAreas.garageSqft} sqft`);
+    }
+    if (buildingAreas?.coveredPatioSqft != null) {
+      lines.push(`- Covered patio: ${buildingAreas.coveredPatioSqft} sqft`);
+    }
+  }
+
+  const roomLines = formatRoomInventoryLines(rooms);
+  if (roomLines.length && !/Room measurements:/i.test(summary)) {
+    if (lines.length) lines.push('');
+    lines.push('Room measurements:');
+    lines.push(...roomLines);
+  }
+
+  const keys = Object.keys(measurements || {});
+  if (keys.length && !summary) {
     lines.push(`Mapped fields: ${keys.join(', ')}`);
   }
-  return lines.join('\n');
+  return lines.join('\n').trim().slice(0, 4000);
 }
 
 /**
@@ -548,18 +672,40 @@ async function analyzePlanForMeasurements({
     compatible.push(await ensureCompatibleImage(img));
   }
 
+  // Deterministic PDF text takeoff (schedule + spatially paired rooms) when bytes are PDFs.
+  let pdfTakeoff = null;
+  try {
+    const {
+      extractPlanTakeoffFromPdfBuffers,
+      formatPdfEvidenceForVision,
+    } = require('./planPdfTextTakeoff');
+    const pdfBuffers = compatible
+      .filter((p) => p.mimeType === PDF_MIME && p.base64)
+      .map((p) => Buffer.from(String(p.base64).replace(/^data:[^;]+;base64,/, ''), 'base64'));
+    if (pdfBuffers.length) {
+      pdfTakeoff = await extractPlanTakeoffFromPdfBuffers(pdfBuffers);
+      if (pdfTakeoff) pdfTakeoff.evidenceText = formatPdfEvidenceForVision(pdfTakeoff);
+    }
+  } catch (err) {
+    console.warn('PDF text takeoff skipped:', err?.message || err);
+    pdfTakeoff = null;
+  }
+
   const hintBits = [];
   if (templateKeyHint) hintBits.push(`template: ${templateKeyHint}`);
   if (projectTypeHint) hintBits.push(`project type: ${projectTypeHint}`);
   if (existingNotes?.trim()) {
     hintBits.push(`job notes (context only):\n${String(existingNotes).trim().slice(0, 1200)}`);
   }
+  if (pdfTakeoff?.evidenceText) {
+    hintBits.push(pdfTakeoff.evidenceText);
+  }
 
   const measurementsPromise = openai.chat.completions.create({
     model: aiModels.assistant.vision,
     response_format: aiRuntime.assistant.vision.responseFormat,
     temperature: Math.min(aiRuntime.assistant.vision.temperature ?? 0.2, 0.15),
-    max_tokens: Math.max(aiRuntime.assistant.vision.maxTokens || 900, 2500),
+    max_tokens: Math.max(aiRuntime.assistant.vision.maxTokens || 900, 4000),
     messages: [
       { role: 'system', content: buildSystemPrompt() },
       {
@@ -568,11 +714,14 @@ async function analyzePlanForMeasurements({
           {
             type: 'text',
             text: [
-              'Extract Building Areas / Area Schedule totals first, then room dimensions from these floor plan / blueprint pages.',
+              'Extract Building Areas / Area Schedule totals AND every labeled room with length×width or SF from these floor plan / blueprint pages.',
+              'Include all bedrooms, baths, kitchen, dining, great room/living, laundry, pantry, closets, garage/RV garage, patio/porch — not just a few key rooms.',
+              'Pair each room label with the dimension string printed for that room only — never swap Kitchen/Den/Bedroom/Garage/RV dims.',
+              'Use floor-plan sheets for room L×W, not foundation overall garage envelopes. Each bath needs its own readable L×W; otherwise omit bathroomFloorSqft.',
               'Photos of printed sheets are OK — read the title-block square footage table carefully.',
               'Only report numbers you can actually read. If a value is blurry or illegible, omit it and list it in unreadableFields — never guess.',
               'Do not invent paint, drywall, or trim quantities.',
-              'Covered patio / roof deck → deckSqft. Garage → garageSqft. Never map patio to concrete flatwork.',
+              'Covered patio / roof deck → deckSqft. Garage schedule → garageSqft. Never map patio to concrete flatwork.',
               hintBits.length ? hintBits.join('\n\n') : 'No extra context.',
             ].join('\n\n'),
           },
@@ -640,29 +789,60 @@ async function analyzePlanForMeasurements({
     scope,
   });
 
-  if (imageQuality === 'unreadable') {
+  const pdfRoomsEarly = sanitizeRooms(pdfTakeoff?.rooms || []);
+  const pdfHasTakeoff =
+    pdfRoomsEarly.length >= 3 || Object.keys(pdfTakeoff?.buildingAreas || {}).length > 0;
+
+  // Vision may fail on weird renders; PDF text takeoff can still succeed.
+  if (imageQuality === 'unreadable' && !pdfHasTakeoff) {
     return failurePayload(UNCLEAR_PLAN_REASON);
   }
 
-  if (parsed?.success === false) {
+  if (parsed?.success === false && !pdfHasTakeoff) {
     return failurePayload(
       parsed.reason || 'Image does not look like a floor plan or blueprint.'
     );
   }
 
-  const rooms = sanitizeRooms(parsed.rooms);
-  const buildingAreas = sanitizeBuildingAreas(parsed.buildingAreas);
+  const visionRooms = pruneEnvelopeGarageRooms(sanitizeRooms(parsed?.rooms));
+  const pdfRooms = pdfRoomsEarly;
+  const rooms =
+    pdfRooms.length >= 3
+      ? mergeRoomsPreferPdf(pdfRooms, visionRooms)
+      : pruneEnvelopeGarageRooms(visionRooms);
+
+  const buildingAreas = sanitizeBuildingAreas({
+    ...(parsed.buildingAreas || {}),
+    ...(pdfTakeoff?.buildingAreas || {}),
+  });
   const fieldConfidence = sanitizeFieldConfidence(parsed.fieldConfidence);
-  const rawMeasurements = sanitizeMeasurements(
+  // PDF schedule totals are authoritative — mark high confidence so they are kept.
+  if (pdfTakeoff?.buildingAreas?.totalLivingSqft != null) fieldConfidence.floorAreaSqft = 1;
+  if (pdfTakeoff?.buildingAreas?.garageSqft != null) fieldConfidence.garageSqft = 1;
+  if (
+    pdfTakeoff?.buildingAreas?.coveredPatioSqft != null ||
+    pdfTakeoff?.buildingAreas?.roofDeckSqft != null
+  ) {
+    fieldConfidence.deckSqft = 1;
+  }
+
+  let rawMeasurements = sanitizeMeasurements(
     parsed.measurements,
     rooms,
     buildingAreas,
     parsed.explicitlyLabeled
   );
+  rawMeasurements = reconcileBathroomMeasurement(rawMeasurements, rooms, unreadableFields);
   const { measurements, lowConfidence } = applyConfidenceFloor(rawMeasurements, fieldConfidence);
-  const assumptions = Array.isArray(parsed.assumptions)
-    ? parsed.assumptions.map((a) => String(a).slice(0, 200)).slice(0, 8)
-    : [];
+  const assumptions = [
+    ...(Array.isArray(pdfTakeoff?.assumptions) ? pdfTakeoff.assumptions : []),
+    ...(Array.isArray(parsed.assumptions)
+      ? parsed.assumptions.map((a) => String(a).slice(0, 200))
+      : []),
+  ]
+    .map((a) => String(a).slice(0, 200))
+    .filter(Boolean)
+    .slice(0, 10);
   let notesBlock = formatNotesBlock({
     notesBlock: parsed.notesBlock,
     rooms,
@@ -684,16 +864,32 @@ async function analyzePlanForMeasurements({
     return failure;
   }
 
+  let areaReconciliation = null;
+  try {
+    const { measurementSemanticsV1Enabled, buildAreaReconciliation } = require('./measurementSemantics');
+    if (measurementSemanticsV1Enabled()) {
+      areaReconciliation = buildAreaReconciliation({
+        declaredLivingSf: measurements.floorAreaSqft ?? buildingAreas?.totalLivingSqft,
+        declaredGarageSf: measurements.garageSqft ?? buildingAreas?.garageSqft,
+        patioDeckSf: measurements.deckSqft ?? buildingAreas?.patioPorchSqft,
+        rooms,
+      });
+    }
+  } catch {
+    areaReconciliation = null;
+  }
+
   return {
     success: true,
     reason: null,
-    imageQuality: imageQuality || 'good',
+    imageQuality: imageQuality || (pdfRooms.length ? 'good' : 'partial'),
     rooms,
     measurements,
     fieldConfidence,
     lowConfidence,
     unreadableFields,
     buildingAreas,
+    areaReconciliation,
     itemQuantities: buildItemQuantities(measurements),
     assumptions,
     notesBlock,
@@ -731,6 +927,10 @@ module.exports = {
   sanitizeUnreadableFields,
   applyConfidenceFloor,
   buildItemQuantities,
+  formatNotesBlock,
+  mergeRoomsPreferPdf,
+  pruneEnvelopeGarageRooms,
+  reconcileBathroomMeasurement,
   MEASUREMENT_KEYS,
   LABELED_ONLY_KEYS,
   MAX_IMAGES,

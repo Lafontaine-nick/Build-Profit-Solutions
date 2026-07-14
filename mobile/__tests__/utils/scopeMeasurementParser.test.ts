@@ -18,7 +18,46 @@ describe('mobile scope measurement parser', () => {
       { templateKey: 'ground_up', projectType: 'new_build' }
     );
     expect(parsed.floorAreaSqft).toBe(1879);
+    expect(parsed.garageSqft).toBe(994);
+    expect(parsed.deckSqft).toBe(247);
+    expect(parsed.concreteSqft).toBeUndefined();
     expect(parsed.wallPaintSqft).toBeUndefined();
+  });
+
+  it('parses Kitchen room-list lines and keeps plan import fields on hydrate', () => {
+    const notes = [
+      '--- Plan takeoff ---',
+      'Main living area is 1879 SqFt with a garage of 994 SqFt and a covered patio of 247 SqFt.',
+      'Room measurements:',
+      '- Kitchen: 194.1 sqft',
+      '- Garage: 443.7 sqft',
+    ].join('\n');
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'ground_up',
+      projectType: 'new_build',
+    });
+    expect(parsed.kitchenFloorSqft).toBe(194.1);
+    expect(parsed.garageSqft).toBe(994);
+
+    const input = initialScopeMeasurementInputExtended({
+      projectType: 'new_build',
+      originalNotes: notes,
+      scopeChecklist: { templateKey: 'ground_up' },
+      scopeMeasurements: {
+        floorAreaSqft: 1879,
+        garageSqft: 994,
+        deckSqft: 247,
+        kitchenFloorSqft: 194.1,
+        flooringSqft: 1879,
+        planRooms: [{ name: 'Kitchen', areaSqft: 194.1 }],
+      },
+    });
+    expect(input.garageSqft).toBe('994');
+    expect(input.deckSqft).toBe('247');
+    expect(input.kitchenFloorSqft).toBe('194.1');
+    expect(input.flooringSqft).toBe('1879');
+    expect(input.concreteSqft).toBe('');
+    expect(input.planRooms?.map((r) => r.name)).toEqual(['Kitchen']);
   });
 
   it('parses Smith flooring notes for Step 2 without duplicating bath sqft into kitchen/floor area', () => {

@@ -28,27 +28,15 @@ import {
 } from '@/constants/scopeNoteSourceLabels';
 import type {
   EstimateAiDraft,
-  PhotoScopeDetection,
-  PlanToMeasurementsResult,
   ScopeAssumptionState,
   ScopeChecklistItem,
   ScopeMeasurements,
 } from '@/utils/estimateAiDraft';
 import {
-  applyScopeDetectionsToChecklistItems,
   formatDraftMoney,
   resolveDraftScopeNotes,
   repairDraftRatePricingFromNotes,
 } from '@/utils/estimateAiDraft';
-import PlanTakeoffReviewModal from '@/components/estimate/PlanTakeoffReviewModal';
-import {
-  imagesFromPickerAssets,
-  pickPlanFromLibrary,
-  pickPlanPdf,
-  promptPlanImportSource,
-  runPlanTakeoff,
-  takePlanPhoto,
-} from '@/utils/planImportRunner';
 import {
   checklistDisplayHelper,
   choiceIdsToScopeState,
@@ -101,6 +89,8 @@ import {
 import {
   countFilledQuickMeasurements,
   emptyQuickMeasurementInput,
+  quickMeasurementDisplayLabel,
+  quickMeasurementPlaceholder,
   quickMeasurementRowsForInput,
   quickMeasurementSectionsForRows,
   resolveQuickMeasurementDisplayValue,
@@ -151,6 +141,33 @@ import type {
   BenchmarkScopeAssumption,
   BenchmarkScopeAssumptionProfile,
 } from '@/utils/benchmarkScopeAssumptions';
+import {
+  benchmarkEngineV1Enabled,
+  fetchBenchmarkSuggestions,
+  type BenchmarkReasonableness,
+} from '@/utils/benchmarkEngine';
+import {
+  assertBenchmarkDoesNotOverwritePrimary,
+  benchmarkActionButtonLabel,
+  coversLabelList,
+  FOOTER_PLANNING_BENCHMARK_INFO,
+  footerSuggestedPricingSummary,
+  formatDisplayMoneyNearest100,
+  isGrossFlooringDerivedFromLiving,
+  livingSfBenchmarkRecord,
+  livingSfPricingRecord,
+  measurementSemanticsV1Enabled,
+  measurementStatusLabel,
+  measurementValidationRequiredForBenchmark,
+  missingStatusDisplayLabel,
+  missingStatusForScope,
+  preferredPrimaryUnit,
+  stageTitle,
+  validatePricingBasis,
+  type ScopeMeasurementState,
+} from '@/utils/measurementSemantics';
+import BenchmarkPricingEvidence from '@/components/estimate/BenchmarkPricingEvidence';
+import BenchmarkReasonablenessCard from '@/components/estimate/BenchmarkReasonablenessCard';
 
 type Props = {
   visible: boolean;
@@ -307,9 +324,10 @@ function pricingLabelColor(darkMode: boolean, Colors: ReturnType<typeof getColor
 }
 
 /** Maps a per-leg pricing source to the small pill shown next to that line. */
-function legPillKind(source: PricingLegSource): 'notes' | 'template' | 'national' {
+function legPillKind(source: PricingLegSource): 'notes' | 'template' | 'benchmark' | 'national' {
   if (source === 'notes') return 'notes';
   if (source === 'template') return 'template';
+  if (source === 'local_benchmark') return 'benchmark';
   return 'national';
 }
 
@@ -331,7 +349,7 @@ function SourcePill({
   kind,
   label,
 }: {
-  kind: 'notes' | 'national' | 'template' | 'remainder';
+  kind: 'notes' | 'national' | 'template' | 'benchmark' | 'remainder';
   label?: string;
 }) {
   const defaultText =
@@ -339,6 +357,8 @@ function SourcePill({
       ? SCOPE_PARSED_FROM_NOTES_LABEL
       : kind === 'template'
         ? 'Saved rate'
+        : kind === 'benchmark'
+          ? 'Local benchmark'
         : kind === 'remainder'
           ? 'Remainder'
           : 'National Average';
@@ -348,6 +368,8 @@ function SourcePill({
       ? '#22c55e'
       : kind === 'template'
         ? '#a78bfa'
+        : kind === 'benchmark'
+          ? '#0f766e'
         : kind === 'remainder'
           ? '#f59e0b'
           : '#60a5fa';
@@ -932,41 +954,95 @@ function SuggestedBudgetSplitRows({
   const panelBorder = darkMode ? 'rgba(96, 165, 250, 0.22)' : 'rgba(96, 165, 250, 0.18)';
   const usesTemplate = block.materialSource === 'template' || block.laborSource === 'template';
   const isAdjusted = adjusted || block.rateSourceLabel.startsWith('Adjusted · ');
+  const usesBenchmark =
+    block.materialSource === 'local_benchmark' || block.laborSource === 'local_benchmark';
+  const semantics = measurementSemanticsV1Enabled();
+  const action = block.benchmarkAction;
+  const includedInStage = action === 'included_in_stage' || Boolean(block.includedInStageLabel);
+
+  if (semantics && includedInStage) {
+    const stageName = block.includedInStageLabel || stageTitle(block.benchmarkStageKey);
+    return (
+      <View
+        style={[
+          styles.budgetSplitPanel,
+          { backgroundColor: panelBg, borderColor: panelBorder },
+        ]}
+      >
+        <Text style={{ color: pricingTextColor(darkMode, Colors), fontSize: 13, fontWeight: '800' }}>
+          Included in {stageName}
+        </Text>
+        <Text
+          style={{
+            color: pricingLabelColor(darkMode, Colors),
+            fontSize: 12,
+            lineHeight: 17,
+            marginTop: 4,
+          }}
+        >
+          Detailed takeoff still required. Stage total is on the {stageName} card.
+        </Text>
+      </View>
+    );
+  }
+
   const headerTitle =
-    block.lumpSumOnly
-      ? isAdjusted
-        ? 'Adjusted allowance'
-        : 'Suggested allowance'
-      : block.mode === 'note_total_split' && !isAdjusted
-        ? 'Budget split'
-        : block.isComparison
-          ? 'Suggested comparison'
-          : isAdjusted
-            ? 'Adjusted pricing'
-            : 'Suggested pricing';
-  const headerPillKind = isAdjusted ? 'notes' : usesTemplate ? 'template' : 'national';
+    semantics && usesBenchmark && block.benchmarkLevel === 'stage'
+      ? stageTitle(block.benchmarkStageKey)
+      : block.lumpSumOnly
+        ? isAdjusted
+          ? 'Adjusted allowance'
+          : 'Suggested allowance'
+        : block.mode === 'note_total_split' && !isAdjusted
+          ? 'Budget split'
+          : block.isComparison
+            ? 'Suggested comparison'
+            : isAdjusted
+              ? 'Adjusted pricing'
+              : 'Suggested pricing';
+  const headerPillKind = isAdjusted
+    ? 'notes'
+    : usesTemplate
+      ? 'template'
+      : usesBenchmark
+        ? 'benchmark'
+        : 'national';
   const headerPillLabel = isAdjusted
     ? block.rateSourceLabel.replace(/^Adjusted · /, '') || 'User adjusted'
     : block.rateSourceLabel;
 
   const explanation = isAdjusted
     ? null
-    : block.lumpSumOnly
-      ? 'Flat allowance, not a material/labor split.'
-      : block.mode === 'note_total_split'
-        ? `Notes total split using ${usesTemplate ? 'saved rate' : 'National Average'} material.`
-        : block.mode === 'fill_missing'
-          ? `Missing side filled from ${usesTemplate ? 'saved rate' : 'National Average'}.`
-          : block.isComparison
-            ? `Compare to ${usesTemplate ? 'saved rate' : 'National Average'}. Notes pricing stays primary.`
-            : null;
+    : semantics && usesBenchmark
+      ? block.basis?.unit === 'living_sqft'
+        ? `${Number(block.basis.quantity || 0).toLocaleString()} living SF × blended $/SF`
+        : block.helper || null
+      : block.lumpSumOnly
+        ? 'Flat allowance, not a material/labor split.'
+        : block.mode === 'note_total_split'
+          ? `Notes total split using ${usesTemplate ? 'saved rate' : 'National Average'} material.`
+          : block.mode === 'fill_missing'
+            ? `Missing side filled from ${usesTemplate ? 'saved rate' : 'National Average'}.`
+            : block.isComparison
+              ? `Compare to ${usesTemplate ? 'saved rate' : 'National Average'}. Notes pricing stays primary.`
+              : null;
+
+  const displayTotal =
+    semantics && usesBenchmark ? formatDisplayMoneyNearest100(block.total) : formatDraftMoney(block.total);
+  const rateHelper =
+    semantics && usesBenchmark && block.benchmarkEvidence?.blendedBenchmark.rate != null
+      ? `$${block.benchmarkEvidence.blendedBenchmark.rate.toFixed(2)} / living SF`
+      : semantics && usesBenchmark && block.basis?.unit === 'living_sqft'
+        ? `${Number(block.basis.quantity || 0).toLocaleString()} living SF · planning benchmark`
+        : null;
+
   const displayBuckets = block.costBuckets?.length
     ? block.costBuckets
     : block.lumpSumOnly
       ? [
           {
             key: 'allowance' as const,
-            label: 'Allowance',
+            label: semantics && usesBenchmark ? 'Planning total' : 'Allowance',
             amount: block.total,
             source: block.laborSource,
           },
@@ -985,6 +1061,27 @@ function SuggestedBudgetSplitRows({
             source: block.laborSource,
           },
         ].filter((bucket) => bucket.amount > 0);
+
+  const actionLabel =
+    semantics && action
+      ? benchmarkActionButtonLabel(action)
+      : semantics && block.lumpSumOnly
+        ? 'Use as temporary allowance'
+        : block.lumpSumOnly
+          ? 'Use this allowance in estimate'
+          : 'Use this price in estimate';
+  const canWritePrice =
+    Boolean(onUsePricing) &&
+    action !== 'comparison_only' &&
+    action !== 'included_in_stage' &&
+    !(block.isComparison && usesBenchmark && semantics);
+  const coversHint =
+    semantics &&
+    usesBenchmark &&
+    block.benchmarkLevel === 'stage' &&
+    block.benchmarkStageKey
+      ? coversLabelList(block.benchmarkStageKey)
+      : '';
 
   return (
     <View
@@ -1007,29 +1104,66 @@ function SuggestedBudgetSplitRows({
           />
         </View>
       </View>
-      {displayBuckets.map((bucket) => (
-        <PricingSplitRow
-          key={`${bucket.key}:${bucket.label}`}
-          label={bucket.label}
-          value={formatDraftMoney(bucket.amount)}
-          helper={
-            bucket.key === 'allowance'
-              ? 'Flat allowance'
-              : bucket.rate != null
-                ? unitRateHelper(String(bucket.rate * (block.basis?.quantity || 1)), block.basis)
-                : unitRateHelper(String(bucket.amount), block.basis)
-          }
-          darkMode={darkMode}
-          Colors={Colors}
-        />
-      ))}
-      <PricingSplitRow
-        label="Total"
-        value={formatDraftMoney(block.total)}
-        darkMode={darkMode}
-        Colors={Colors}
-      />
-      {block.helper ? (
+      {semantics && usesBenchmark ? (
+        <>
+          <Text
+            style={{
+              color: pricingTextColor(darkMode, Colors),
+              fontSize: 22,
+              fontWeight: '800',
+              marginTop: 4,
+            }}
+          >
+            {displayTotal}
+          </Text>
+          {rateHelper ? (
+            <Text style={{ color: pricingLabelColor(darkMode, Colors), fontSize: 12, marginTop: 4 }}>
+              {rateHelper}
+              {block.benchmarkEvidence?.localSampleCount
+                ? ` · ${block.benchmarkEvidence.localSampleCount} local projects`
+                : ''}
+            </Text>
+          ) : null}
+          {coversHint ? (
+            <Text
+              style={{
+                color: pricingLabelColor(darkMode, Colors),
+                fontSize: 12,
+                lineHeight: 17,
+                marginTop: 6,
+              }}
+            >
+              Covers {coversHint}
+            </Text>
+          ) : null}
+        </>
+      ) : (
+        <>
+          {displayBuckets.map((bucket) => (
+            <PricingSplitRow
+              key={`${bucket.key}:${bucket.label}`}
+              label={bucket.label}
+              value={formatDraftMoney(bucket.amount)}
+              helper={
+                bucket.key === 'allowance'
+                  ? 'Flat allowance'
+                  : bucket.rate != null
+                    ? unitRateHelper(String(bucket.rate * (block.basis?.quantity || 1)), block.basis)
+                    : unitRateHelper(String(bucket.amount), block.basis)
+              }
+              darkMode={darkMode}
+              Colors={Colors}
+            />
+          ))}
+          <PricingSplitRow
+            label="Total"
+            value={formatDraftMoney(block.total)}
+            darkMode={darkMode}
+            Colors={Colors}
+          />
+        </>
+      )}
+      {explanation ? (
         <Text
           style={{
             color: pricingLabelColor(darkMode, Colors),
@@ -1038,10 +1172,10 @@ function SuggestedBudgetSplitRows({
             marginTop: 8,
           }}
         >
-          {block.helper}
+          {explanation}
         </Text>
       ) : null}
-      {explanation ? (
+      {block.helper && !(semantics && usesBenchmark) ? (
         <Text
           style={{
             color: pricingLabelColor(darkMode, Colors),
@@ -1050,18 +1184,30 @@ function SuggestedBudgetSplitRows({
             marginTop: 4,
           }}
         >
-          {explanation}
+          {block.helper}
         </Text>
       ) : null}
-      {onUsePricing ? (
+      {block.benchmarkEvidence ? (
+        <BenchmarkPricingEvidence
+          evidence={block.benchmarkEvidence}
+          darkMode={darkMode}
+          showTotals={false}
+          defaultExpanded={false}
+          scopeLabel={
+            block.benchmarkLevel === 'stage'
+              ? null
+              : block.benchmarkScopeKey || block.benchmarkStageKey || null
+          }
+        />
+      ) : null}
+      {canWritePrice && actionLabel ? (
         <TouchableOpacity
           activeOpacity={0.75}
           onPress={onUsePricing}
           style={styles.useSuggestedPricingBtn}
+          accessibilityLabel={actionLabel}
         >
-          <Text style={styles.useSuggestedPricingBtnText}>
-            {block.lumpSumOnly ? 'Use this allowance in estimate' : 'Use this price in estimate'}
-          </Text>
+          <Text style={styles.useSuggestedPricingBtnText}>{actionLabel}</Text>
         </TouchableOpacity>
       ) : null}
     </View>
@@ -1081,17 +1227,45 @@ function ComparisonToggle({
   onUsePricing?: () => void;
 }) {
   const usesTemplate = block.materialSource === 'template' || block.laborSource === 'template';
-  const [open, setOpen] = useState(usesTemplate);
+  const hasBenchmark = Boolean(block.benchmarkEvidence);
+  const includedInStage =
+    block.benchmarkAction === 'included_in_stage' || Boolean(block.includedInStageLabel);
+  const comparisonOnly = Boolean(
+    block.isComparison || block.benchmarkEvidence?.benchmarkIsComparisonOnly || includedInStage
+  );
+  // Included-in-stage notices stay visible; other comparisons collapse by default under semantics.
+  const [open, setOpen] = useState(
+    includedInStage || usesTemplate || (hasBenchmark && !measurementSemanticsV1Enabled())
+  );
 
   useEffect(() => {
-    if (usesTemplate) setOpen(true);
-  }, [usesTemplate, block.templateName]);
+    if (includedInStage || usesTemplate) setOpen(true);
+  }, [includedInStage, usesTemplate, block.templateName]);
+
+  if (includedInStage) {
+    return (
+      <View style={{ marginTop: 8 }}>
+        <SuggestedBudgetSplitRows
+          block={block}
+          Colors={Colors}
+          darkMode={darkMode}
+          onUsePricing={undefined}
+        />
+      </View>
+    );
+  }
+
+  const compareLabel = hasBenchmark
+    ? 'Southern Utah benchmark'
+    : usesTemplate
+      ? 'saved rate'
+      : 'National Average';
 
   return (
     <View style={{ marginTop: 8 }}>
       <TouchableOpacity activeOpacity={0.7} onPress={() => setOpen((prev) => !prev)}>
         <Text style={styles.editQuantityLink}>
-          {open ? 'Hide comparison' : `Compare to ${usesTemplate ? 'saved rate' : 'National Average'}`}
+          {open ? 'Hide comparison' : `Compare to ${compareLabel}`}
         </Text>
       </TouchableOpacity>
       {open ? (
@@ -1099,7 +1273,7 @@ function ComparisonToggle({
           block={block}
           Colors={Colors}
           darkMode={darkMode}
-          onUsePricing={onUsePricing}
+          onUsePricing={comparisonOnly ? undefined : onUsePricing}
         />
       ) : null}
     </View>
@@ -2594,10 +2768,14 @@ function QuantitySection({
   const allowanceInput = measurementsInput.itemQuantities[allowanceKey];
   const sqftBasisInput = measurementsInput.itemQuantities[sqftBasisKey];
   const showEditor = pricingEditorOpen || focusedPricingField != null;
-  const neededLabel =
-    (templateKey && QUANTITY_NEEDED_LABELS_BY_TEMPLATE[templateKey]?.[itemId]) ||
-    QUANTITY_NEEDED_LABELS[itemId] ||
-    quantityNeededLabel(itemId, templateKey, rule.defaultUnit);
+  const neededLabel = measurementSemanticsV1Enabled()
+    ? missingStatusDisplayLabel(itemId).replace(/^Needs\s+/i, '')
+    : (templateKey && QUANTITY_NEEDED_LABELS_BY_TEMPLATE[templateKey]?.[itemId]) ||
+      QUANTITY_NEEDED_LABELS[itemId] ||
+      quantityNeededLabel(itemId, templateKey, rule.defaultUnit);
+  const neededStatusLine = measurementSemanticsV1Enabled()
+    ? missingStatusDisplayLabel(itemId)
+    : `Needs ${neededLabel}`;
 
   const initialSuggested = resolveScopeItemSuggestedPricing(
     itemId,
@@ -2857,12 +3035,33 @@ function QuantitySection({
   }
 
   if (!showEditor) {
+    const livingSf = Number(norm.floorAreaSqft);
+    const flooringSf = Number(norm.flooringSqft);
+    const showGrossFloorPlanning =
+      measurementSemanticsV1Enabled() &&
+      (itemId === 'tile_flooring' || itemId === 'flooring') &&
+      isGrossFlooringDerivedFromLiving({ flooringSqft: flooringSf, floorAreaSqft: livingSf });
+
     return (
       <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
-        <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
-          Needs {neededLabel}
-        </Text>
-        {rule.quantityHelper ? (
+        {showGrossFloorPlanning ? (
+          <View style={{ marginBottom: 8 }}>
+            <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 13, fontWeight: '700' }}>
+              Gross interior floor area: {livingSf.toLocaleString()} SF
+            </Text>
+            <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 2 }}>
+              Source: Derived from declared living area
+            </Text>
+            <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginTop: 4 }}>
+              Status: Needs finish allocation and material-specific takeoff
+            </Text>
+          </View>
+        ) : (
+          <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
+            {neededStatusLine}
+          </Text>
+        )}
+        {!showGrossFloorPlanning && rule.quantityHelper ? (
           <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 4, lineHeight: 15 }}>
             {rule.quantityHelper}
           </Text>
@@ -2872,7 +3071,11 @@ function QuantitySection({
             block={suggestedBudgetSplit}
             Colors={Colors}
             darkMode={darkMode}
-            onUsePricing={() => applySuggestedPricingBlock(suggestedBudgetSplit)}
+            onUsePricing={
+              suggestedBudgetSplit.isComparison
+                ? undefined
+                : () => applySuggestedPricingBlock(suggestedBudgetSplit)
+            }
           />
         ) : null}
         {suggestedComparisonSplit ? (
@@ -3767,7 +3970,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
     <View style={[styles.measurementField, isPrimary && styles.measurementFieldPrimary]}>
       <View style={styles.measurementLabelRow}>
         <Text style={[styles.measurementLabel, { color: captionColor(darkMode, Colors) }]}>
-          {field.label}
+          {quickMeasurementDisplayLabel(field)}
         </Text>
         {fromNotes ? (
           <View
@@ -3796,7 +3999,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
           nativeID={`quick-measurement-${field.key}`}
           value={value}
           onChangeText={onChangeText}
-          placeholder={field.placeholder}
+          placeholder={quickMeasurementPlaceholder(field)}
           placeholderTextColor={placeholderColor}
           keyboardType="decimal-pad"
           {...scopeNumericInputProps}
@@ -3821,8 +4024,6 @@ function CollapsibleQuickMeasurements({
   Colors,
   darkMode,
   applying,
-  onPlanNotesMerged,
-  onPlanScopeDetections,
 }: {
   expanded: boolean;
   onToggle: () => void;
@@ -3835,11 +4036,7 @@ function CollapsibleQuickMeasurements({
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
-  onPlanNotesMerged?: (mergedNotes: string) => void;
-  onPlanScopeDetections?: (detections: PhotoScopeDetection[]) => void;
 }) {
-  const [planImporting, setPlanImporting] = useState(false);
-  const [planReview, setPlanReview] = useState<PlanToMeasurementsResult | null>(null);
   const noteQuickMeasurements = useMemo(() => {
     const parsed = parseScopeMeasurementsFromNotes(notes || '', { templateKey, projectType: projectType ?? undefined });
     const out: Partial<Record<QuickMeasurementFieldKey, string>> = {};
@@ -3890,126 +4087,6 @@ function CollapsibleQuickMeasurements({
   );
   const noteKeySet = useMemo(() => new Set(noteQuickMeasurements.keys), [noteQuickMeasurements.keys]);
 
-  const executePlanTakeoff = useCallback(
-    async (pages: Array<{ base64: string; mimeType: string; name?: string }>) => {
-      if (!pages.length) return;
-      setPlanImporting(true);
-      if (!expanded) onToggle();
-      try {
-        const takeoff = await runPlanTakeoff(pages, {
-          existingNotes: notes || '',
-          templateKeyHint: templateKey || null,
-          projectTypeHint: projectType || null,
-        });
-        if (!takeoff) return;
-        setPlanReview(takeoff);
-        if (Platform.OS === 'ios') {
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        }
-      } catch (e) {
-        Alert.alert('Plan import failed', e instanceof Error ? e.message : 'Try again with a clearer image.');
-      } finally {
-        setPlanImporting(false);
-      }
-    },
-    [expanded, onToggle, notes, templateKey, projectType]
-  );
-
-  const applyPlanReview = useCallback(
-    (values: Record<string, string>, scopeDetections: PhotoScopeDetection[]) => {
-      const takeoff = planReview;
-      setPlanReview(null);
-      if (!takeoff) return;
-
-      if (Object.keys(values).length || takeoff.rooms?.length) {
-        setMeasurements((prev) => {
-          const next = { ...prev, ...values } as ScopeMeasurementsInputExtended;
-          if (takeoff.rooms?.length) {
-            const rooms = takeoff.rooms
-              .map((r) => ({
-                name: String(r.name || '').trim(),
-                areaSqft: r.areaSqft != null && Number(r.areaSqft) > 0 ? Number(r.areaSqft) : null,
-                lengthFt: r.lengthFt != null ? Number(r.lengthFt) : null,
-                widthFt: r.widthFt != null ? Number(r.widthFt) : null,
-              }))
-              .filter((r) => r.name);
-            (next as ScopeMeasurementsInputExtended & { planRooms?: typeof rooms }).planRooms = rooms;
-            // Fill empty kitchen/bath/garage/deck from named rooms.
-            const kitchen = rooms
-              .filter((r) => /\bkitchen\b/i.test(r.name) && r.areaSqft)
-              .reduce((s, r) => s + (r.areaSqft || 0), 0);
-            const baths = rooms
-              .filter((r) => /\b(bath|powder)\b/i.test(r.name) && r.areaSqft)
-              .reduce((s, r) => s + (r.areaSqft || 0), 0);
-            const garage = rooms
-              .filter((r) => /\bgarage\b/i.test(r.name) && r.areaSqft)
-              .reduce((s, r) => s + (r.areaSqft || 0), 0);
-            const deck = rooms
-              .filter((r) => /\b(deck|patio|porch)\b/i.test(r.name) && r.areaSqft)
-              .reduce((s, r) => s + (r.areaSqft || 0), 0);
-            if (kitchen > 0 && !Number(next.kitchenFloorSqft)) next.kitchenFloorSqft = String(Math.round(kitchen * 10) / 10);
-            if (baths > 0 && !Number(next.bathroomFloorSqft)) next.bathroomFloorSqft = String(Math.round(baths * 10) / 10);
-            if (garage > 0 && !Number(next.garageSqft)) next.garageSqft = String(Math.round(garage * 10) / 10);
-            if (deck > 0 && !Number(next.deckSqft)) next.deckSqft = String(Math.round(deck * 10) / 10);
-          }
-          return next;
-        });
-      }
-      if (takeoff.mergedNotes && onPlanNotesMerged) {
-        onPlanNotesMerged(takeoff.mergedNotes);
-      }
-      if (scopeDetections.length && onPlanScopeDetections) {
-        onPlanScopeDetections(scopeDetections);
-      }
-      if (Platform.OS === 'ios') {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-    },
-    [planReview, setMeasurements, onPlanNotesMerged, onPlanScopeDetections]
-  );
-
-  const importFromPlan = useCallback(() => {
-    if (planImporting || applying) return;
-    promptPlanImportSource({
-      title: 'Update from plan',
-      message:
-        'Re-read plan photos or a PDF to update Quick measurements. Prefer importing on the first Build with AI step when starting a new bid.',
-      onCamera: () => {
-        void (async () => {
-          try {
-            const assets = await takePlanPhoto();
-            if (!assets?.length) return;
-            await executePlanTakeoff(await imagesFromPickerAssets(assets));
-          } catch (e) {
-            Alert.alert('Camera failed', e instanceof Error ? e.message : 'Could not take a photo.');
-          }
-        })();
-      },
-      onLibrary: () => {
-        void (async () => {
-          try {
-            const assets = await pickPlanFromLibrary();
-            if (!assets?.length) return;
-            await executePlanTakeoff(await imagesFromPickerAssets(assets));
-          } catch (e) {
-            Alert.alert('Library failed', e instanceof Error ? e.message : 'Could not open photos.');
-          }
-        })();
-      },
-      onPdf: () => {
-        void (async () => {
-          try {
-            const pages = await pickPlanPdf();
-            if (!pages?.length) return;
-            await executePlanTakeoff(pages);
-          } catch (e) {
-            Alert.alert('PDF import failed', e instanceof Error ? e.message : 'Could not read the PDF.');
-          }
-        })();
-      },
-    });
-  }, [planImporting, applying, executePlanTakeoff]);
-
   const setField = useCallback(
     (key: QuickMeasurementFieldKey, value: string) => {
       setMeasurements((prev) => ({ ...prev, [key]: value }));
@@ -4050,38 +4127,6 @@ function CollapsibleQuickMeasurements({
       </TouchableOpacity>
       {expanded ? (
         <View style={styles.quickMeasurementsBody}>
-          <TouchableOpacity
-            onPress={importFromPlan}
-            disabled={planImporting || applying}
-            activeOpacity={0.75}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 8,
-              marginBottom: 12,
-              paddingVertical: 10,
-              paddingHorizontal: 12,
-              borderRadius: 10,
-              borderWidth: 1,
-              borderColor: darkMode ? 'rgba(148,163,184,0.25)' : Colors.line,
-              backgroundColor: darkMode ? 'rgba(34,197,94,0.08)' : 'rgba(34,197,94,0.06)',
-              opacity: planImporting || applying ? 0.55 : 1,
-            }}
-          >
-            {planImporting ? (
-              <ActivityIndicator size="small" color="#22c55e" />
-            ) : (
-              <Ionicons name="map-outline" size={18} color="#22c55e" />
-            )}
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 13, fontWeight: '700' }}>
-                {planImporting ? 'Reading plan…' : 'Update from plan'}
-              </Text>
-              <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 2 }}>
-                Re-import photos or PDF to refresh these fields — primary import is on Build with AI
-              </Text>
-            </View>
-          </TouchableOpacity>
           {sections.map((section) => (
             <View key={section.id} style={styles.quickMeasurementSection}>
               {sections.length > 1 ? (
@@ -4173,13 +4218,6 @@ function CollapsibleQuickMeasurements({
           ) : null}
         </View>
       ) : null}
-      <PlanTakeoffReviewModal
-        visible={planReview != null}
-        takeoff={planReview}
-        currentValues={measurements as unknown as Record<string, unknown>}
-        onApply={applyPlanReview}
-        onCancel={() => setPlanReview(null)}
-      />
     </View>
   );
 }
@@ -4259,10 +4297,7 @@ export default function AIEstimateScopeAssumptionsModal({
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const checklist = draft?.scopeChecklist;
-  const [planNotesOverride, setPlanNotesOverride] = useState<string | null>(null);
-  const scopeNotes = useMemo(() => {
-    return planNotesOverride || chooseBestScopeNotes(draft, notesFallback);
-  }, [draft, notesFallback, planNotesOverride]);
+  const scopeNotes = useMemo(() => chooseBestScopeNotes(draft, notesFallback), [draft, notesFallback]);
   const [items, setItems] = useState<ScopeChecklistItem[]>([]);
   const [measurements, setMeasurements] = useState<ScopeMeasurementsInputExtended>({
     ...emptyQuickMeasurementInput(),
@@ -4272,11 +4307,104 @@ export default function AIEstimateScopeAssumptionsModal({
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [customItemLabel, setCustomItemLabel] = useState('');
   const [showCustomItemInput, setShowCustomItemInput] = useState(false);
+  const [benchmarkReasonableness, setBenchmarkReasonableness] =
+    useState<BenchmarkReasonableness | null>(null);
+  const [benchmarkRefresh, setBenchmarkRefresh] = useState(0);
   const itemsRef = useRef(items);
   const measurementsRef = useRef(measurements);
   const selectedPricingRef = useRef<Record<string, SuggestedPricingBlock>>({});
   const scrollRef = useRef<ScrollView>(null);
   const scrollContentRef = useRef<View>(null);
+  const benchmarkFetchKey = useMemo(
+    () =>
+      JSON.stringify({
+        visible,
+        itemIds: items.filter((item) => item.inScope !== false).map((item) => item.id),
+        livingSf: Number(measurements.floorAreaSqft || 0),
+        garageSf: Number(measurements.garageSqft || 0),
+        patioPorchSf: Number(measurements.deckSqft || 0),
+        drywallSf: Number(measurements.drywallSqft || 0),
+        roofSquares: Number(measurements.roofSquares || 0),
+        estimateTotal: Number(
+          draft?.calculatedTotal || draft?.statedTotal || draft?.calculatedLineItemTotal || 0
+        ),
+      }),
+    [
+      visible,
+      items,
+      measurements.floorAreaSqft,
+      measurements.garageSqft,
+      measurements.deckSqft,
+      measurements.drywallSqft,
+      measurements.roofSquares,
+      draft?.calculatedTotal,
+      draft?.statedTotal,
+      draft?.calculatedLineItemTotal,
+    ]
+  );
+
+  useEffect(() => {
+    if (!benchmarkEngineV1Enabled()) {
+      setBenchmarkReasonableness(null);
+      return;
+    }
+    const context = JSON.parse(benchmarkFetchKey) as {
+      visible: boolean;
+      itemIds: string[];
+      livingSf: number;
+      garageSf: number;
+      patioPorchSf: number;
+      drywallSf: number;
+      roofSquares: number;
+      estimateTotal: number;
+    };
+    if (!context.visible || !context.itemIds.length || !(context.livingSf > 0)) return;
+    let cancelled = false;
+    void fetchBenchmarkSuggestions({
+      itemIds: context.itemIds,
+      livingSf: context.livingSf,
+      garageSf: context.garageSf || undefined,
+      patioPorchSf: context.patioPorchSf || undefined,
+      buildingType: 'detached',
+      estimateTotal: context.estimateTotal || undefined,
+      primaryTakeoffs: {
+        ...(context.drywallSf > 0
+          ? {
+              insulation: {
+                quantity: context.drywallSf,
+                unit: 'surface_sqft',
+                source: 'plan_takeoff',
+              },
+              drywall: {
+                quantity: context.drywallSf,
+                unit: 'surface_sqft',
+                source: 'plan_takeoff',
+              },
+            }
+          : {}),
+        ...(context.roofSquares > 0
+          ? {
+              roofing: {
+                quantity: context.roofSquares,
+                unit: 'roof_square',
+                source: 'plan_takeoff',
+              },
+            }
+          : {}),
+      },
+    })
+      .then((response) => {
+        if (cancelled) return;
+        setBenchmarkReasonableness(response?.reasonableness || null);
+        setBenchmarkRefresh((value) => value + 1);
+      })
+      .catch(() => {
+        if (!cancelled) setBenchmarkReasonableness(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [benchmarkFetchKey]);
   const itemRefs = useRef<Record<string, View | null>>({});
   const focusedQuantityRef = useRef<string | null>(null);
   const [pricingEditorRequest, setPricingEditorRequest] = useState<{ itemId: string; token: number } | null>(
@@ -4293,32 +4421,6 @@ export default function AIEstimateScopeAssumptionsModal({
         : update;
     measurementsRef.current = next;
     setMeasurements(next);
-  }, []);
-
-  /** Plan-derived scope suggestions (already user-confirmed in the review screen). */
-  const handlePlanScopeDetections = useCallback((detections: PhotoScopeDetection[]) => {
-    if (!detections?.length) return;
-    setItems((prev) => {
-      const { items: nextItems, appliedCount, appliedLabels } = applyScopeDetectionsToChecklistItems(
-        prev,
-        detections
-      );
-      if (appliedCount > 0) {
-        Alert.alert(
-          'Scope updated from plans',
-          `Set ${appliedCount} checklist item${appliedCount === 1 ? '' : 's'}:\n${appliedLabels
-            .slice(0, 8)
-            .map((l) => `• ${l}`)
-            .join('\n')}`
-        );
-      } else {
-        Alert.alert(
-          'Scope already set',
-          'The plan suggestions matched items you had already answered, so nothing was changed.'
-        );
-      }
-      return nextItems;
-    });
   }, []);
 
   useEffect(() => {
@@ -4445,7 +4547,6 @@ export default function AIEstimateScopeAssumptionsModal({
   useEffect(() => {
     if (visible) return;
     hydratedVisibleSessionRef.current = false;
-    setPlanNotesOverride(null);
     setItems([]);
     // Do not clear measurementsRef here. A hidden persist effect runs after
     // this cleanup; clearing the ref first can overwrite the just-confirmed
@@ -4481,7 +4582,44 @@ export default function AIEstimateScopeAssumptionsModal({
     );
   }, [visible, onPersistProgress, applying, scopeMeasurementsPayloadForCurrentState]);
 
-  const displayItems = useMemo(() => expandWetAreaDerivedScopeItems(items), [items]);
+  const displayItems = useMemo(() => {
+    let expanded = expandWetAreaDerivedScopeItems(items).map((row) =>
+      row.id === 'exterior' && row.label === 'Exterior finishes'
+        ? { ...row, label: 'Exterior Envelope' }
+        : row
+    );
+    if (!measurementSemanticsV1Enabled() || !benchmarkEngineV1Enabled()) return expanded;
+    if (expanded.some((row) => row.id === 'interior_finishes')) return expanded;
+    const finishChildIds = new Set([
+      'insulation',
+      'drywall',
+      'paint_trim',
+      'cabinets_counters',
+      'tile_flooring',
+      'appliances',
+    ]);
+    const hasFinishChild = expanded.some(
+      (row) => finishChildIds.has(row.id) && checklistItemInScope(row)
+    );
+    if (!hasFinishChild) return expanded;
+    const stageCard: ScopeChecklistItem = {
+      id: 'interior_finishes',
+      label: 'Interior Finishes',
+      helperText:
+        'Planning benchmark for related finish trades. Child scopes stay for takeoff and quotes.',
+      state: 'included',
+      category: 'Finishes',
+    };
+    const drywallIdx = expanded.findIndex((row) => row.id === 'drywall');
+    if (drywallIdx >= 0) {
+      return [
+        ...expanded.slice(0, drywallIdx),
+        stageCard,
+        ...expanded.slice(drywallIdx),
+      ];
+    }
+    return [...expanded, stageCard];
+  }, [items]);
 
   const normMeasurements = useMemo(
     () => buildNormFromInput(measurements, scopeNotes, checklist?.templateKey),
@@ -4580,12 +4718,35 @@ export default function AIEstimateScopeAssumptionsModal({
         intelligence,
         suggested: initialSuggested,
       });
-      if (suggested.fill) {
+      // Applyable fills only — never included-in-stage or comparison-only cards.
+      if (
+        suggested.fill &&
+        !suggested.fill.isComparison &&
+        suggested.fill.benchmarkAction !== 'included_in_stage' &&
+        suggested.fill.benchmarkAction !== 'comparison_only' &&
+        suggested.fill.total > 0
+      ) {
         rows.push({ itemId: item.id, label: item.label, block: suggested.fill });
       }
     }
     return rows;
-  }, [displayItems, measurements, normMeasurements, checklist?.templateKey, scopeNotes, pricingContext, scopeAssemblyContext]);
+  }, [displayItems, measurements, normMeasurements, checklist?.templateKey, scopeNotes, pricingContext, scopeAssemblyContext, benchmarkRefresh]);
+
+  const suggestedPricingFooterBreakdown = useMemo(() => {
+    let readyCount = 0;
+    let benchmarkOnlyCount = 0;
+    for (const row of unconfirmedSuggestedPricing) {
+      const isBenchmark =
+        row.block.laborSource === 'local_benchmark' || Boolean(row.block.benchmarkEvidence);
+      const action = row.block.benchmarkAction;
+      if (measurementSemanticsV1Enabled() && (action === 'benchmark_only' || (isBenchmark && !row.block.benchmarkEvidence?.quantityRoles?.primaryTakeoff?.quantity))) {
+        benchmarkOnlyCount += 1;
+      } else {
+        readyCount += 1;
+      }
+    }
+    return { readyCount, benchmarkOnlyCount };
+  }, [unconfirmedSuggestedPricing]);
 
   const applySuggestedPricingBlocks = useCallback(
     (rows: UnconfirmedSuggestedPricing[]) => {
@@ -4602,7 +4763,16 @@ export default function AIEstimateScopeAssumptionsModal({
         const pricingAcceptance = {
           ...(prev.pricingAcceptance || {}),
         };
+        const appliedBenchmarkKeys = [...(prev.appliedBenchmarkKeys || [])];
         for (const { itemId, block } of rows) {
+          const appKey = block.benchmarkApplicationKey;
+          if (
+            measurementSemanticsV1Enabled() &&
+            appKey &&
+            appliedBenchmarkKeys.includes(appKey)
+          ) {
+            continue;
+          }
           const rule = getChecklistItemQuantityRuleOrDefault(itemId, checklist?.templateKey);
           const allowanceKey = rule.dualAllowanceField
             ? roughAllowanceSubKey(itemId)
@@ -4611,7 +4781,7 @@ export default function AIEstimateScopeAssumptionsModal({
           const materialKey = allowanceSplitSubKey(itemId, 'material');
           const laborKey = allowanceSplitSubKey(itemId, 'labor');
           itemQuantities[allowanceKey] = {
-            quantity: String(block.total),
+            quantity: String(block.storedTotalExact ?? block.total),
             unit: 'allowance',
             quantitySource: 'user_entered',
           };
@@ -4642,17 +4812,21 @@ export default function AIEstimateScopeAssumptionsModal({
           }
           if (!rule.dualAllowanceField) {
             itemQuantities[itemId] = {
-              quantity: String(block.basis?.quantity ?? block.total),
+              quantity: String(block.basis?.quantity ?? block.storedTotalExact ?? block.total),
               unit: block.basis?.unit || 'allowance',
               quantitySource: 'user_entered',
             };
           }
           pricingAcceptance[itemId] = buildAcceptanceFromSuggestedBlock(block);
+          if (appKey && !appliedBenchmarkKeys.includes(appKey)) {
+            appliedBenchmarkKeys.push(appKey);
+          }
         }
         return {
           ...prev,
           itemQuantities,
           pricingAcceptance,
+          appliedBenchmarkKeys,
           scopeGapResolutions: syncScopeGapPricingStatuses(prev.scopeGapResolutions, {
             itemQuantities,
             pricingAcceptance,
@@ -4665,7 +4839,66 @@ export default function AIEstimateScopeAssumptionsModal({
   );
 
   const handleUseAllSuggestedPricing = useCallback(
-    () => applySuggestedPricingBlocks(unconfirmedSuggestedPricing),
+    () => {
+      const needsReview = unconfirmedSuggestedPricing.filter(({ itemId, block }) => {
+        const evidence = block.benchmarkEvidence;
+        if (!evidence) return false;
+        const unitMismatch = Boolean(
+          evidence.primaryTakeoff?.unit &&
+            evidence.primaryTakeoff.unit !== evidence.benchmarkBasis.unit
+        );
+        const validation = measurementValidationRequiredForBenchmark()
+          ? validatePricingBasis({
+              itemId,
+              primaryQuantity: evidence.primaryTakeoff?.quantity,
+              primaryUnit: evidence.primaryTakeoff?.unit,
+              pricingQuantity: evidence.blendedBenchmark.appliedQuantity,
+              pricingUnit: evidence.blendedBenchmark.unit,
+              rate: evidence.blendedBenchmark.rate,
+              rateUnit: evidence.blendedBenchmark.unit,
+              calculatedTotal: block.total,
+              measurementStatus: missingStatusForScope(itemId),
+              selectedSource: 'local_benchmark',
+            })
+          : null;
+        return Boolean(
+          evidence.priceConfidence === 'low' ||
+            evidence.quantityConfidence === 'low' ||
+            unitMismatch ||
+            validation?.requiresExplicitOverride
+        );
+      });
+
+      if (!needsReview.length) {
+        applySuggestedPricingBlocks(unconfirmedSuggestedPricing);
+        return;
+      }
+
+      // Measurement-semantics: one confirmation cannot approve multiple unrelated mismatches.
+      if (measurementValidationRequiredForBenchmark()) {
+        const autoApply = unconfirmedSuggestedPricing.filter(
+          (row) => !needsReview.some((review) => review.itemId === row.itemId)
+        );
+        if (autoApply.length) applySuggestedPricingBlocks(autoApply);
+        Alert.alert(
+          'Confirm individually',
+          `${needsReview.length} suggestion${needsReview.length === 1 ? '' : 's'} need${needsReview.length === 1 ? 's' : ''} separate confirmation because of unit mismatch or low confidence. Open each item and use “Use this price”.`
+        );
+        return;
+      }
+
+      Alert.alert(
+        'Confirm benchmark prices',
+        `${needsReview.length} benchmark suggestion${needsReview.length === 1 ? '' : 's'} use low-confidence or different-unit planning evidence. Apply all suggested prices?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Apply all',
+            onPress: () => applySuggestedPricingBlocks(unconfirmedSuggestedPricing),
+          },
+        ]
+      );
+    },
     [applySuggestedPricingBlocks, unconfirmedSuggestedPricing]
   );
 
@@ -4975,14 +5208,18 @@ export default function AIEstimateScopeAssumptionsModal({
     });
   };
 
-  const handleApplySuggestedPricing = useCallback(
-    (itemId: string, block: SuggestedPricingBlock) => {
+  const applySuggestedPricingNow = useCallback(
+    (itemId: string, block: SuggestedPricingBlock, overrideConfirmed = false) => {
       hapticTap();
       selectedPricingRef.current = {
         ...selectedPricingRef.current,
         [itemId]: block,
       };
       const acceptance = buildAcceptanceFromSuggestedBlock(block);
+      const semanticsOn = measurementSemanticsV1Enabled();
+      const isBenchmarkBlock =
+        block.materialSource === 'local_benchmark' || block.laborSource === 'local_benchmark';
+
       setMeasurementsSynced((prev) => {
         const rule = getChecklistItemQuantityRuleOrDefault(itemId, checklist?.templateKey);
         const allowanceKey = rule.dualAllowanceField
@@ -4991,7 +5228,18 @@ export default function AIEstimateScopeAssumptionsModal({
         const basisKey = allowanceSplitSubKey(itemId, 'sqft_basis');
         const materialKey = allowanceSplitSubKey(itemId, 'material');
         const laborKey = allowanceSplitSubKey(itemId, 'labor');
-        const itemQuantities: Record<string, { quantity: string; unit: string; quantitySource: string }> = {
+        const existingEntry = prev.itemQuantities[itemId] as
+          | { quantity?: string; unit?: string; quantitySource?: string; measurementState?: ScopeMeasurementState }
+          | undefined;
+        const itemQuantities: Record<
+          string,
+          {
+            quantity: string;
+            unit: string;
+            quantitySource: string;
+            measurementState?: ScopeMeasurementState | null;
+          }
+        > = {
           ...prev.itemQuantities,
           [allowanceKey]: {
             quantity: String(block.total),
@@ -5024,7 +5272,63 @@ export default function AIEstimateScopeAssumptionsModal({
             quantitySource: 'user_entered',
           };
         }
-        if (!rule.dualAllowanceField) {
+
+        if (semanticsOn && isBenchmarkBlock) {
+          const livingQty = Number(block.basis?.quantity || block.benchmarkEvidence?.benchmarkBasis.quantity || 0);
+          const previousPrimaryQty = Number(existingEntry?.quantity);
+          const previousPrimaryUnit = existingEntry?.unit || null;
+          const preservePrimary =
+            existingEntry?.measurementState?.primaryTakeoff?.quantity != null ||
+            (Number.isFinite(previousPrimaryQty) &&
+              previousPrimaryQty > 0 &&
+              previousPrimaryUnit &&
+              previousPrimaryUnit !== 'living_sqft' &&
+              previousPrimaryUnit !== 'sqft') ||
+            existingEntry?.quantitySource === 'user_entered';
+
+          const primaryTakeoff = preservePrimary
+            ? existingEntry?.measurementState?.primaryTakeoff || {
+                role: 'primary_takeoff' as const,
+                quantity: Number.isFinite(previousPrimaryQty) ? previousPrimaryQty : null,
+                unit: (previousPrimaryUnit as any) || preferredPrimaryUnit(itemId),
+                sourceType: 'user_entered' as const,
+                confidence: 'medium' as const,
+                requiresReview: false,
+                isUserConfirmed: true,
+              }
+            : null;
+
+          const guard = assertBenchmarkDoesNotOverwritePrimary({
+            previousPrimaryQuantity: primaryTakeoff?.quantity ?? null,
+            previousPrimaryUnit: primaryTakeoff?.unit ?? null,
+            nextPrimaryQuantity: livingQty,
+            nextPrimaryUnit: 'living_sqft',
+            appliedPricingUnit: 'living_sqft',
+          });
+          if (!guard.ok) {
+            // Keep primary empty / previous; never write living SF into primary.
+          }
+
+          const measurementState: ScopeMeasurementState = {
+            primaryTakeoff,
+            pricing: livingQty > 0 ? livingSfPricingRecord(livingQty, 'local_benchmark') : null,
+            benchmark: livingQty > 0 ? livingSfBenchmarkRecord(livingQty) : null,
+            status: primaryTakeoff?.quantity != null ? 'partially_measured' : missingStatusForScope(itemId),
+          };
+
+          itemQuantities[itemId] = {
+            quantity:
+              primaryTakeoff?.quantity != null
+                ? String(primaryTakeoff.quantity)
+                : '',
+            unit: primaryTakeoff?.unit || preferredPrimaryUnit(itemId),
+            quantitySource:
+              primaryTakeoff?.quantity != null
+                ? existingEntry?.quantitySource || 'user_entered'
+                : 'missing',
+            measurementState,
+          };
+        } else if (!rule.dualAllowanceField) {
           itemQuantities[itemId] = {
             quantity: String(block.basis?.quantity ?? block.total),
             unit: block.basis?.unit || 'allowance',
@@ -5037,9 +5341,34 @@ export default function AIEstimateScopeAssumptionsModal({
             quantitySource: 'user_entered',
           };
         }
+
+        const pricingOverrideLog = [...(prev.pricingOverrideLog || [])];
+        if (overrideConfirmed && isBenchmarkBlock) {
+          pricingOverrideLog.push({
+            itemId,
+            reason: 'benchmark_apply_confirmed',
+            confirmedAt: new Date().toISOString(),
+            pricingUnit: block.basis?.unit || 'living_sqft',
+            rateUnit: 'living_sqft',
+            pricingQuantity: block.basis?.quantity ?? null,
+            rate: block.benchmarkEvidence?.blendedBenchmark.rate ?? null,
+            calculatedTotal: block.storedTotalExact ?? block.total,
+          });
+        }
+
+        const appliedBenchmarkKeys = [...(prev.appliedBenchmarkKeys || [])];
+        if (
+          block.benchmarkApplicationKey &&
+          !appliedBenchmarkKeys.includes(block.benchmarkApplicationKey)
+        ) {
+          appliedBenchmarkKeys.push(block.benchmarkApplicationKey);
+        }
+
         return {
           ...prev,
           itemQuantities,
+          pricingOverrideLog,
+          appliedBenchmarkKeys,
           pricingAcceptance: {
             ...(prev.pricingAcceptance || {}),
             [itemId]: acceptance,
@@ -5056,6 +5385,90 @@ export default function AIEstimateScopeAssumptionsModal({
       setTimeout(() => persistScopeProgressNow(), 0);
     },
     [checklist?.templateKey, persistScopeProgressNow, setMeasurementsSynced]
+  );
+
+  const handleApplySuggestedPricing = useCallback(
+    (itemId: string, block: SuggestedPricingBlock) => {
+      if (
+        block.benchmarkAction === 'comparison_only' ||
+        block.benchmarkAction === 'included_in_stage'
+      ) {
+        return;
+      }
+
+      const appKey = block.benchmarkApplicationKey;
+      if (
+        measurementSemanticsV1Enabled() &&
+        appKey &&
+        (measurements.appliedBenchmarkKeys || []).includes(appKey)
+      ) {
+        Alert.alert(
+          'Already applied',
+          'This stage planning benchmark is already applied on another scope. Child scopes stay available for takeoff and quotes.'
+        );
+        return;
+      }
+
+      const evidence = block.benchmarkEvidence;
+      const unitMismatch = Boolean(
+        evidence?.primaryTakeoff?.unit &&
+          evidence.benchmarkBasis.unit !== evidence.primaryTakeoff.unit
+      );
+      const validation =
+        measurementValidationRequiredForBenchmark() && evidence
+          ? validatePricingBasis({
+              itemId,
+              primaryQuantity: evidence.primaryTakeoff?.quantity,
+              primaryUnit: evidence.primaryTakeoff?.unit,
+              pricingQuantity: evidence.blendedBenchmark.appliedQuantity,
+              pricingUnit: evidence.blendedBenchmark.unit,
+              rate: evidence.blendedBenchmark.rate,
+              rateUnit: evidence.blendedBenchmark.unit,
+              calculatedTotal: block.storedTotalExact ?? block.total,
+              measurementStatus: missingStatusForScope(itemId),
+              selectedSource: 'local_benchmark',
+            })
+          : null;
+
+      const isTemporary =
+        measurementSemanticsV1Enabled() &&
+        (block.benchmarkAction === 'benchmark_only' ||
+          (Boolean(evidence) && !evidence?.quantityRoles?.primaryTakeoff?.quantity));
+
+      const needsConfirmation =
+        isTemporary ||
+        (evidence &&
+          (evidence.priceConfidence === 'low' ||
+            evidence.quantityConfidence === 'low' ||
+            unitMismatch)) ||
+        Boolean(validation?.requiresExplicitOverride);
+
+      if (!needsConfirmation) {
+        applySuggestedPricingNow(itemId, block);
+        return;
+      }
+      const detail = isTemporary
+        ? 'This is a temporary planning allowance. Detailed takeoff or a current quote is still required before final bidding.'
+        : unitMismatch
+          ? `The takeoff uses ${evidence?.primaryTakeoff?.unit}, while this planning benchmark uses living SF.`
+          : validation?.warnings?.[0] ||
+            'This benchmark has low confidence for the current project context.';
+      const statusNote = measurementSemanticsV1Enabled()
+        ? `\n\n${missingStatusDisplayLabel(itemId)}.`
+        : '';
+      Alert.alert(
+        isTemporary ? 'Use temporary allowance?' : 'Confirm benchmark price',
+        `${detail}${statusNote}\n\nApply ${formatDisplayMoneyNearest100(block.total)} now? (Exact stored amount: ${formatDraftMoney(block.storedTotalExact ?? block.total)}.)`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: isTemporary ? 'Use temporary allowance' : 'Use price',
+            onPress: () => applySuggestedPricingNow(itemId, block, true),
+          },
+        ]
+      );
+    },
+    [applySuggestedPricingNow, measurements.appliedBenchmarkKeys]
   );
 
   const scrollToScopeItem = useCallback((targetItemId: string) => {
@@ -5506,11 +5919,11 @@ export default function AIEstimateScopeAssumptionsModal({
           Colors={Colors}
           darkMode={darkMode}
           applying={applying}
-          onPlanNotesMerged={(merged) => {
-            if (merged?.trim()) setPlanNotesOverride(merged);
-          }}
-          onPlanScopeDetections={handlePlanScopeDetections}
         />
+
+        {benchmarkEngineV1Enabled() && benchmarkReasonableness ? (
+          <BenchmarkReasonablenessCard value={benchmarkReasonableness} darkMode={darkMode} />
+        ) : null}
 
         {groupedItems.map((group) => (
           <ScopeGroupSection
@@ -5619,17 +6032,44 @@ export default function AIEstimateScopeAssumptionsModal({
         </TouchableOpacity>
 
         {unconfirmedSuggestedPricing.length > 0 ? (
-          <TouchableOpacity
-            onPress={handleUseAllSuggestedPricing}
-            disabled={applying}
-            activeOpacity={0.75}
-            style={styles.bulkSuggestedPricingLink}
-          >
-            <Text style={styles.bulkSuggestedPricingBtnText}>
-              Use {unconfirmedSuggestedPricing.length} suggested price
-              {unconfirmedSuggestedPricing.length === 1 ? '' : 's'} in estimate
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.bulkSuggestedPricingLink}>
+            <TouchableOpacity
+              onPress={handleUseAllSuggestedPricing}
+              disabled={applying}
+              activeOpacity={0.75}
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              accessibilityLabel={
+                footerSuggestedPricingSummary({
+                  readyCount: suggestedPricingFooterBreakdown.readyCount,
+                  benchmarkOnlyCount: suggestedPricingFooterBreakdown.benchmarkOnlyCount,
+                }) || 'Suggested pricing'
+              }
+            >
+              <Text style={styles.bulkSuggestedPricingBtnText}>
+                {measurementSemanticsV1Enabled()
+                  ? footerSuggestedPricingSummary({
+                      readyCount: suggestedPricingFooterBreakdown.readyCount,
+                      benchmarkOnlyCount: suggestedPricingFooterBreakdown.benchmarkOnlyCount,
+                    }) ||
+                    `${unconfirmedSuggestedPricing.length} suggested`
+                  : `Use ${unconfirmedSuggestedPricing.length} suggested price${
+                      unconfirmedSuggestedPricing.length === 1 ? '' : 's'
+                    } in estimate`}
+              </Text>
+              {measurementSemanticsV1Enabled() &&
+              suggestedPricingFooterBreakdown.benchmarkOnlyCount > 0 ? (
+                <TouchableOpacity
+                  onPress={() =>
+                    Alert.alert('Planning benchmarks', FOOTER_PLANNING_BENCHMARK_INFO)
+                  }
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityLabel="Planning benchmark info"
+                >
+                  <Ionicons name="information-circle-outline" size={16} color="#22c55e" />
+                </TouchableOpacity>
+              ) : null}
+            </TouchableOpacity>
+          </View>
         ) : null}
 
         {onScopeOnly ? (

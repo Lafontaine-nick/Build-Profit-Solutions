@@ -556,7 +556,7 @@ const CHECKLIST_TEMPLATES = {
       { id: 'foundation', inputType: 'yes_no', label: 'Foundation', category: 'structural' },
       { id: 'framing', inputType: 'yes_no', label: 'Framing', category: 'structural' },
       { id: 'roofing', inputType: 'yes_no', label: 'Roofing', category: 'exterior' },
-      { id: 'exterior', inputType: 'yes_no', label: 'Exterior finishes', category: 'exterior' },
+      { id: 'exterior', inputType: 'yes_no', label: 'Exterior Envelope', category: 'exterior' },
       { id: 'mep_rough', inputType: 'yes_no', label: 'MEP rough-in', category: 'mep' },
       { id: 'insulation', inputType: 'yes_no', label: 'Insulation', category: 'envelope' },
       { id: 'drywall', inputType: 'yes_no', label: 'Drywall', category: 'finishes' },

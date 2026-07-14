@@ -41,7 +41,9 @@ export type BuildWithAiFeatureFlagKey =
   | 'readinessScoring'
   | 'actualVsEstimatedFeedback'
   | 'calibrationApproval'
-  | 'advancedScopeGapDetection';
+  | 'advancedScopeGapDetection'
+  | 'benchmarkEngine'
+  | 'measurementSemantics';
 
 export type BuildWithAiFeatureFlags = Record<BuildWithAiFeatureFlagKey, boolean>;
 
@@ -182,7 +184,25 @@ export const DEFAULT_BUILD_WITH_AI_FEATURE_FLAGS: BuildWithAiFeatureFlags = {
   actualVsEstimatedFeedback: true,
   calibrationApproval: true,
   advancedScopeGapDetection: true,
+  benchmarkEngine: false,
+  measurementSemantics: false,
 };
+
+/** Benchmark rollout is explicitly opt-in and independent of existing production flags. */
+export function isBuildWithAiBenchmarkEngineEnabled(
+  flags?: Partial<BuildWithAiFeatureFlags> | null
+): boolean {
+  if (typeof flags?.benchmarkEngine === 'boolean') return flags.benchmarkEngine;
+  return String(process.env.EXPO_PUBLIC_BUILD_AI_BENCHMARK_ENGINE_V1 || '').toLowerCase() === 'true';
+}
+
+/** Measurement-semantics foundation is opt-in and independent of the benchmark engine flag. */
+export function isBuildWithAiMeasurementSemanticsEnabled(
+  flags?: Partial<BuildWithAiFeatureFlags> | null
+): boolean {
+  if (typeof flags?.measurementSemantics === 'boolean') return flags.measurementSemantics;
+  return String(process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 || '').toLowerCase() === 'true';
+}
 
 export const BUILD_WITH_AI_PERFORMANCE_BUDGETS: BuildWithAiPerformanceBudgets = {
   confirmScopeInitialRenderMs: 1000,
