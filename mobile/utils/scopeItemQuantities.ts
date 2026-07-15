@@ -15,6 +15,9 @@ import {
   type RegionalPricingLocation,
   type ResolvedRegionalPricing,
 } from '@/utils/regionalPricingMultipliers';
+import {
+  applyBuilderBudgetBarometer,
+} from '@/utils/southernUtahCalibratedRates';
 import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 import { parseScopeItemAllowancesFromNotes } from '@/utils/scopeAllowanceParser';
@@ -47,10 +50,12 @@ import {
 import {
   benchmarkActionForBlock,
   benchmarkApplicationKey,
+  benchmarkStageForScopeKey,
   canApplyStageBenchmarkFill,
   classifyBenchmarkLevel,
   coversLabelList,
   getTradeMeasurementProfile,
+  isGroundUpStageComparisonOnly,
   isGrossFlooringDerivedFromLiving,
   isIncludedInStageChild,
   measurementSemanticsV1Enabled,
@@ -58,6 +63,8 @@ import {
   NO_LIVING_SF_PRIMARY_SEED_KEYS,
   preferredPrimaryUnit,
   STAGE_COVERS_SCOPE_KEYS,
+  STAGE_SEPARATE_TRADE_SCOPE_KEYS,
+  stageHasAcceptedTradePricing,
   stageTitle,
   type BenchmarkCardAction,
   type BenchmarkLevel,
@@ -245,11 +252,11 @@ export type NationalAverageBudgetSplit = {
   quantityType?: string;
   materialBucketLabel?: string;
   laborBucketLabel?: string;
-  rateSource?: 'bps_national_benchmark';
+  rateSource?: 'bps_national_benchmark' | 'bps_southern_utah_calibrated';
   rateSourceReference?: string;
   scopeProfileSource?: ScopeProfileSource;
   productionStatus?: 'production_ready' | 'review_required' | 'fallback_only' | 'disabled';
-  geographicBasis?: 'national' | 'state';
+  geographicBasis?: 'national' | 'state' | 'southern_utah';
   regionalMultiplier?: number;
   regionalStateCode?: string | null;
 };
@@ -322,13 +329,8 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     sourceLabel: 'Suggested · National Average · basic floor prep (not flooring)',
   },
   waterproofing: { unit: 'sqft', material: 5, labor: 7, sourceLabel: 'Suggested budget split · National Average' },
+  electrical_rough: { unit: 'each', material: 50, labor: 125, sourceLabel: 'Suggested budget split · National Average · per circuit/device' },
   plumbing_rough: { unit: 'each', material: 150, labor: 350, sourceLabel: 'Suggested budget split · National Average · per rough-in point' },
-  electrical_rough: {
-    unit: 'each',
-    material: 50,
-    labor: 125,
-    sourceLabel: 'Suggested budget split · National Average · per circuit/device',
-  },
   railing: { unit: 'lf', material: 15, labor: 25, sourceLabel: 'Suggested budget split · National Average' },
   pour_flatwork: { unit: 'sqft', material: 4, labor: 6, sourceLabel: 'Suggested budget split · National Average' },
   concrete: { unit: 'sqft', material: 4, labor: 6, sourceLabel: 'Suggested budget split · National Average' },
@@ -342,6 +344,12 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   countertops: { unit: 'sqft', material: 35, labor: 25, sourceLabel: 'Suggested budget split · National Average' },
   cabinets: { unit: 'lf', material: 150, labor: 75, sourceLabel: 'Suggested budget split · National Average' },
   shingles_roofing: { unit: 'squares', material: 350, labor: 450, sourceLabel: 'Suggested budget split · National Average' },
+  stucco: {
+    unit: 'sqft',
+    material: 3.5,
+    labor: 5.5,
+    sourceLabel: 'Suggested budget split · National Average · exterior wall surface',
+  },
   tear_off: { unit: 'squares', material: 50, labor: 200, sourceLabel: 'Suggested budget split · National Average' },
   pavers: { unit: 'sqft', material: 6, labor: 8, sourceLabel: 'Suggested budget split · National Average' },
   permits: {
@@ -443,12 +451,71 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
     sqft: { unit: 'sqft', material: 0.5, labor: 2.5, sourceLabel: 'Suggested budget split · National Average' },
     lf: { unit: 'lf', material: 1, labor: 8, sourceLabel: 'Suggested budget split · National Average' },
   },
+  hvac: {
+    each: {
+      unit: 'each',
+      material: 5500,
+      labor: 4500,
+      sourceLabel: 'Suggested budget split · National Average · per HVAC system',
+    },
+    ton: {
+      unit: 'ton',
+      material: 2800,
+      labor: 2200,
+      sourceLabel: 'Suggested budget split · National Average · per ton',
+    },
+    sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.hvac,
+  },
+  windows_doors: {
+    each: {
+      unit: 'each',
+      material: 450,
+      labor: 275,
+      sourceLabel: 'Suggested budget split · National Average · per opening',
+    },
+    sqft: {
+      unit: 'sqft',
+      material: 2.55,
+      labor: 1.55,
+      sourceLabel: 'Suggested budget split · National Average · openings per living SF',
+    },
+  },
+  plumbing_rough: {
+    each: NATIONAL_AVERAGE_BUDGET_SPLITS.plumbing_rough,
+    sqft: {
+      unit: 'sqft',
+      material: 3.3,
+      labor: 7.7,
+      sourceLabel: 'Suggested budget split · National Average · plumbing rough per living SF',
+    },
+  },
+  electrical_rough: {
+    each: NATIONAL_AVERAGE_BUDGET_SPLITS.electrical_rough,
+    sqft: {
+      unit: 'sqft',
+      material: 3.2,
+      labor: 7.8,
+      sourceLabel: 'Suggested budget split · National Average · electrical rough per living SF',
+    },
+  },
 };
 
 const NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES: Record<string, string> = {
   hang: 'drywall',
   finish_tape: 'drywall',
   patch_repair: 'drywall',
+  /** Ground-up foundation CY uses the concrete CY national band. */
+  foundation: 'concrete',
+  pour_foundation: 'concrete',
+  /** Shower floor tile uses the same $/SF band as shower wall tile. */
+  shower_floor_tile: 'shower_tile',
+  /** Ground-up roofing squares use the shingles national band. */
+  roofing: 'shingles_roofing',
+  roof_tie_in: 'shingles_roofing',
+  /** Ground-up paint & trim surface SF uses interior paint rates. */
+  paint_trim: 'paint',
+  /** Combined tile & flooring line uses the flooring $/SF band. */
+  tile_flooring: 'flooring',
 };
 
 const BPS_SCOPE_SOURCE: ScopeProfileSource = 'bps_standard_assumption';
@@ -2203,7 +2270,7 @@ const ADDITION_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRu
   },
 };
 
-/** Ground-up: living SF from plan takeoff drives shell / MEP / finish quantity basis. */
+/** Ground-up: living SF drives stage benchmarks; physical QM keys drive material/labor when present. */
 const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule> = {
   plans_engineering: ADDITION_CHECKLIST_ITEM_QUANTITY_RULES.plans_engineering,
   permits: ADDITION_CHECKLIST_ITEM_QUANTITY_RULES.permits,
@@ -2211,32 +2278,77 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityR
     'Uses living area from the plan for sitework basis — edit if needed.',
     'Enter sitework sqft or pricing.'
   ),
-  foundation: additionFloorAreaRule(
-    'Uses living area from the plan as slab/foundation footprint basis — edit if needed.',
-    'Enter foundation sqft or pricing.'
-  ),
+  excavation: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.excavation,
+    quantityHelper:
+      'Planning material + labor from living-SF pad/trench CY until excavation takeoff is entered.',
+    missingMessage: 'Needs excavation CY',
+  },
+  foundation: {
+    defaultUnit: 'cy',
+    allowedUnits: ['cy', 'sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['concreteCy', 'concreteSqft'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter foundation / slab concrete CY for material and labor.',
+    missingMessage: 'Needs structural takeoff (slab/footings/walls/CY). Living SF is not foundation quantity.',
+  },
   framing: additionFloorAreaRule(
     'Uses living area from the plan as framed floor area — edit if needed.',
     'Enter framing sqft or pricing.'
   ),
   roofing: {
-    defaultUnit: 'sqft',
-    allowedUnits: ['sqft', 'squares', 'allowance', 'lump_sum'],
-    measurementKeys: ['roofSquares', 'floorAreaSqft'],
-    pricingBasisMeasurementKey: 'floorAreaSqft',
-    canUseRoomSqft: true,
-    requiresUserQuantity: false,
-    quantityHelper: 'Uses roof squares when known, otherwise living area from the plan — edit if needed.',
-    missingMessage: 'Enter roofing sqft/squares or pricing.',
+    defaultUnit: 'squares',
+    allowedUnits: ['squares', 'sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['roofSquares'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter roof squares for material and labor.',
+    missingMessage: 'Enter roof squares or pricing.',
   },
   exterior: additionFloorAreaRule(
     'Uses living area from the plan as exterior finish basis — edit if needed.',
     'Enter exterior finish sqft or pricing.'
   ),
+  stucco: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['exteriorPaintSqft'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter exterior wall surface SF for stucco material and labor.',
+    missingMessage: 'Needs exterior wall surface SF for stucco.',
+  },
   mep_rough: additionFloorAreaRule(
     'Uses living area from the plan as MEP rough-in basis — edit if needed.',
     'Enter MEP rough-in sqft or pricing.'
   ),
+  plumbing_rough: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.plumbing_rough,
+    quantityHelper:
+      'Enter plumbing rough-in points for material and labor — planning from living SF when count is missing.',
+    missingMessage: 'Enter plumbing rough-in points or pricing.',
+  },
+  electrical_rough: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.electrical_rough,
+    quantityHelper:
+      'Enter circuit / box / device count for material and labor — planning from living SF when count is missing.',
+    missingMessage: 'Enter electrical rough-in count or pricing.',
+  },
+  hvac: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'ton', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper: 'Enter HVAC system count (or tons) for material and labor — not living SF.',
+    missingMessage: 'Enter HVAC system count, tons, or pricing.',
+  },
+  windows_doors: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'sqft', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Enter window/door opening count for material and labor — planning from living SF when count is missing.',
+    missingMessage: 'Enter window/door count or pricing.',
+  },
   insulation: additionFloorAreaRule(
     'Uses living area from the plan as insulation basis — edit if needed.',
     'Enter insulation sqft or pricing.'
@@ -2244,14 +2356,28 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityR
   drywall: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
-    measurementKeys: ['drywallSqft', 'floorAreaSqft'],
-    pricingBasisMeasurementKey: 'floorAreaSqft',
-    canUseRoomSqft: true,
-    requiresUserQuantity: false,
-    quantityHelper: 'Uses drywall sqft when known, otherwise living area from the plan — edit if needed.',
-    missingMessage: 'Enter drywall sqft or pricing.',
+    measurementKeys: ['drywallSqft'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter wall/ceiling drywall surface sqft for material and labor.',
+    missingMessage: 'Enter drywall surface sqft or pricing.',
   },
+  cabinets: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.cabinets,
+  },
+  countertops: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.countertops,
+  },
+  /** Legacy combined line — prefer cabinets + countertops when both measurements exist. */
   cabinets_counters: ADDITION_CHECKLIST_ITEM_QUANTITY_RULES.cabinets_counters,
+  shower_tile: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.shower_tile,
+  },
+  shower_floor_tile: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.shower_floor_tile,
+  },
+  floor_tile: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.floor_tile,
+  },
   tile_flooring: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
@@ -2265,12 +2391,10 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityR
   paint_trim: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
-    measurementKeys: ['wallPaintSqft', 'floorAreaSqft'],
-    pricingBasisMeasurementKey: 'floorAreaSqft',
-    canUseRoomSqft: true,
-    requiresUserQuantity: false,
-    quantityHelper: 'Uses paint sqft when known, otherwise living area from the plan — edit if needed.',
-    missingMessage: 'Enter paint/trim sqft or pricing.',
+    measurementKeys: ['wallPaintSqft'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter wall/ceiling paint surface sqft for material and labor.',
+    missingMessage: 'Enter paint surface sqft or pricing.',
   },
   appliances: ADDITION_CHECKLIST_ITEM_QUANTITY_RULES.appliances,
   utility_taps: {
@@ -2429,7 +2553,11 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<string, Record<string, PricingB
     framing: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     roofing: { unit: 'squares', measurementKeys: ['roofSquares'] },
     exterior: { unit: 'sqft', measurementKeys: ['floorAreaSqft', 'exteriorPaintSqft'] },
+    windows_doors: { unit: 'each' },
     mep_rough: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    plumbing_rough: { unit: 'each' },
+    electrical_rough: { unit: 'each' },
+    hvac: { unit: 'each' },
     insulation: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     tile_flooring: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     paint_trim: { unit: 'sqft', measurementKeys: ['wallPaintSqft', 'floorAreaSqft'] },
@@ -2546,11 +2674,27 @@ export function getChecklistItemQuantityRule(
         ? 'drywallSqft'
         : itemId === 'roofing'
           ? 'roofSquares'
-          : itemId === 'excavation'
-            ? 'excavationCy'
-            : itemId === 'tile_flooring' || itemId === 'flooring'
-              ? 'flooringSqft'
-              : keys[0];
+          : itemId === 'stucco'
+            ? 'exteriorPaintSqft'
+          : itemId === 'paint_trim' || itemId === 'paint' || itemId === 'interior_paint'
+            ? 'wallPaintSqft'
+            : itemId === 'excavation'
+              ? 'excavationCy'
+              : itemId === 'foundation'
+                ? 'concreteCy'
+                : itemId === 'cabinets'
+                  ? 'cabinetLf'
+                  : itemId === 'countertops'
+                    ? 'countertopSqft'
+                    : itemId === 'shower_tile'
+                      ? 'showerWallTileSqft'
+                      : itemId === 'shower_floor_tile'
+                        ? 'showerFloorTileSqft'
+                        : itemId === 'floor_tile'
+                          ? 'bathroomFloorSqft'
+                          : itemId === 'tile_flooring' || itemId === 'flooring'
+                            ? 'flooringSqft'
+                            : keys[0];
     const preferred = preferredPrimaryUnit(itemId);
     return {
       ...rule,
@@ -2560,26 +2704,42 @@ export function getChecklistItemQuantityRule(
         : undefined,
       pricingBasisMeasurementKey: undefined,
       defaultUnit:
-        itemId === 'excavation'
+        itemId === 'excavation' || itemId === 'foundation'
           ? 'cy'
           : itemId === 'roofing'
             ? 'squares'
-            : preferred === 'package' || preferred === 'unknown'
-              ? rule.defaultUnit
-              : preferred === 'surface_sqft' || preferred === 'floor_sqft'
+            : itemId === 'cabinets'
+              ? 'lf'
+              : itemId === 'paint_trim' ||
+                  itemId === 'paint' ||
+                  itemId === 'interior_paint' ||
+                  itemId === 'drywall' ||
+                  itemId === 'stucco'
                 ? 'sqft'
-                : rule.defaultUnit,
+                : preferred === 'package' || preferred === 'unknown'
+                  ? rule.defaultUnit
+                  : preferred === 'surface_sqft' || preferred === 'floor_sqft'
+                    ? 'sqft'
+                    : rule.defaultUnit,
       requiresUserQuantity: true,
       quantityHelper:
         itemId === 'framing'
-          ? 'Needs detailed framing takeoff. Living SF may be used only for benchmark pricing.'
+          ? 'Planning material + labor from living SF until a board-foot / package takeoff is entered.'
+          : itemId === 'stucco'
+            ? 'Enter exterior wall surface SF for stucco material and labor.'
           : itemId === 'foundation'
             ? 'Needs structural takeoff (slab/footings/walls/CY). Living SF is not foundation quantity.'
             : itemId === 'insulation'
-              ? 'Enter insulated surface SF. Living SF is benchmark-only.'
-              : itemId === 'tile_flooring' || itemId === 'flooring'
-                ? 'Gross interior floor area may display for planning — finish allocation (LVP/carpet/tile) still required.'
-                : rule.quantityHelper,
+              ? 'Planning material + labor from living SF until envelope surface SF is entered.'
+              : itemId === 'roofing'
+                ? 'Enter roof squares for material and labor.'
+                : itemId === 'drywall'
+                  ? 'Enter wall/ceiling drywall surface sqft for material and labor.'
+                  : itemId === 'paint_trim'
+                    ? 'Enter wall/ceiling paint surface sqft for material and labor.'
+                    : itemId === 'tile_flooring' || itemId === 'flooring'
+                      ? 'Gross interior floor area may display for planning — finish allocation (LVP/carpet/tile) still required.'
+                      : rule.quantityHelper,
       missingMessage: missingStatusDisplayLabel(itemId),
     };
   }
@@ -2693,7 +2853,7 @@ export function syncItemQuantitiesToMeasurementFields(
     itemQuantities: input?.itemQuantities || {},
   };
   const next = syncDualAllowanceSqftFields(safeInput);
-  const mappings: Array<[string, keyof ScopeMeasurementsInputExtended]> = [
+  const mappings: Array<[string, QuickMeasurementFieldKey]> = [
     ['drywall', 'drywallSqft'],
     ['hang', 'drywallSqft'],
     ['finish_tape', 'drywallSqft'],
@@ -3607,7 +3767,9 @@ function plansEngineeringComponentTotal(evidence: BenchmarkSuggestion): number |
 
 function benchmarkSuggestedPricingBlock(
   itemId: string,
-  comparison: boolean
+  comparison: boolean,
+  pricingAcceptance?: ScopeMeasurementsInputExtended['pricingAcceptance'],
+  templateKey?: string | null
 ): SuggestedPricingBlock | null {
   if (!benchmarkEngineV1Enabled()) return null;
   const evidence = getCachedBenchmarkSuggestion(itemId);
@@ -3619,6 +3781,18 @@ function benchmarkSuggestedPricingBlock(
   const level = classifyBenchmarkLevel({ itemId, stageId });
   const includedChild = isIncludedInStageChild(itemId, stageId);
   const isStageHost = canApplyStageBenchmarkFill(itemId, stageId);
+  const isSeparateTrade = Boolean(
+    stageId && (STAGE_SEPARATE_TRADE_SCOPE_KEYS[stageId] || []).includes(itemId)
+  );
+  const groundUpLocked = isGroundUpStageComparisonOnly(stageId, templateKey);
+  const tradeModeActive =
+    level === 'stage' &&
+    (groundUpLocked || stageHasAcceptedTradePricing(stageId, pricingAcceptance));
+
+  // Separate trades never inherit the living-SF stage lump (fill or comparison).
+  if (isSeparateTrade && !isStageHost && measurementSemanticsV1Enabled()) {
+    return null;
+  }
 
   // Plans/engineering: component references only — not Site Work / Preconstruction stage.
   // Must run before included-child short-circuit (plans is listed under that stage's covers).
@@ -3633,7 +3807,7 @@ function benchmarkSuggestedPricingBlock(
         laborSource: 'local_benchmark',
         rateSourceLabel: 'Suggested · Southern Utah benchmark',
         helper:
-          'Included in Site Work / Preconstruction stage benchmark. Enter a plans/engineering allowance or use local project references.',
+          'Plans/engineering is a separate soft-cost allowance — not part of the Sitework living-SF package. Enter an allowance or use local project references.',
         mode: 'suggested_price',
         isComparison: true,
         lumpSumOnly: true,
@@ -3642,7 +3816,7 @@ function benchmarkSuggestedPricingBlock(
         benchmarkStageKey: stageId,
         benchmarkScopeKey: itemId,
         benchmarkAction: 'comparison_only',
-        includedInStageLabel: stageTitle(stageId),
+        includedInStageLabel: undefined,
         storedTotalExact: null,
         benchmarkEvidence: {
           ...evidence,
@@ -3663,7 +3837,7 @@ function benchmarkSuggestedPricingBlock(
       materialSource: 'local_benchmark',
       laborSource: 'local_benchmark',
       rateSourceLabel: 'Suggested · Southern Utah benchmark',
-      helper: `Local plans/engineering references (~$${Math.round(componentTotal).toLocaleString()}). Full site/preconstruction stage is shown on Sitework.`,
+      helper: `Local plans/engineering references (~$${Math.round(componentTotal).toLocaleString()}). Sitework living-SF package is separate.`,
       mode: 'suggested_price',
       isComparison: action === 'comparison_only',
       lumpSumOnly: true,
@@ -3737,8 +3911,16 @@ function benchmarkSuggestedPricingBlock(
     };
   }
 
-  const canApplyFill = isStageHost && !evidence.benchmarkIsComparisonOnly && !comparison;
-  const comparisonOnly = !canApplyFill || evidence.benchmarkIsComparisonOnly || comparison;
+  const canApplyFill =
+    isStageHost &&
+    !tradeModeActive &&
+    !evidence.benchmarkIsComparisonOnly &&
+    !comparison;
+  const comparisonOnly =
+    tradeModeActive ||
+    !canApplyFill ||
+    evidence.benchmarkIsComparisonOnly ||
+    comparison;
   const action = benchmarkActionForBlock({
     isLocalBenchmark: true,
     hasPrimaryTakeoff: Boolean(evidence.quantityRoles?.primaryTakeoff?.quantity),
@@ -3773,7 +3955,11 @@ function benchmarkSuggestedPricingBlock(
     laborSource: 'local_benchmark',
     rateSourceLabel: 'Suggested · Southern Utah benchmark',
     helper:
-      level === 'stage'
+      tradeModeActive
+        ? groundUpLocked
+          ? `${title} planning comparison only · price separate trades (not this living-SF package)`
+          : `${title} planning comparison only · separate trade pricing is active`
+        : level === 'stage'
         ? `${title} planning benchmark · ${Number(evidence.blendedBenchmark.appliedQuantity || 0).toLocaleString()} living SF · covers ${covers}`
         : `Based on ${Number(evidence.blendedBenchmark.appliedQuantity || 0).toLocaleString()} living SF · planning benchmark`,
     mode: 'suggested_price',
@@ -3808,11 +3994,15 @@ function benchmarkSuggestedPricingBlock(
 }
 
 /** When primary takeoff is missing, still surface cached living-SF benchmark evidence. */
-function benchmarkFillWithoutPrimaryTakeoff(itemId: string): ScopeItemSuggestedPricing | null {
+function benchmarkFillWithoutPrimaryTakeoff(
+  itemId: string,
+  pricingAcceptance?: ScopeMeasurementsInputExtended['pricingAcceptance'],
+  templateKey?: string | null
+): ScopeItemSuggestedPricing | null {
   if (!benchmarkEngineV1Enabled() || !measurementSemanticsV1Enabled()) return null;
   const profile = getTradeMeasurementProfile(itemId);
   if (!profile?.canUseLivingSfAsBenchmark) return null;
-  const block = benchmarkSuggestedPricingBlock(itemId, false);
+  const block = benchmarkSuggestedPricingBlock(itemId, false, pricingAcceptance, templateKey);
   if (!block) return null;
   if (block.isComparison) return { fill: null, comparison: block };
   return { fill: block, comparison: null };
@@ -3822,11 +4012,18 @@ function rateSourceLabelFor(
   materialSource: PricingLegSource,
   laborSource: PricingLegSource,
   templateName: string | null,
-  regional?: ResolvedRegionalPricing | null
+  regional?: ResolvedRegionalPricing | null,
+  average?: NationalAverageBudgetSplit | null
 ): string {
   const usesTemplate = materialSource === 'template' || laborSource === 'template';
   if (usesTemplate && templateName) return 'Suggested · Saved rate';
   if (regional && regional.multiplier !== 1) return regional.rateSourceLabel;
+  if (
+    (materialSource === 'national_average' || laborSource === 'national_average') &&
+    average?.sourceLabel
+  ) {
+    return average.sourceLabel;
+  }
   return 'Suggested · National Average';
 }
 
@@ -3850,11 +4047,19 @@ function regionalAdjustedNationalAverage(
 } {
   const base = getNationalAverageBudgetSplit(itemId, unit);
   const regional = regionalPricingFromContext(pricingContext);
-  if (!base || regional.multiplier === 1) {
+  if (!base) {
     return { average: base, regional };
   }
+
+  // Nationwide baseline: national rates nudged by the builder-budget barometer,
+  // then scaled by state multiplier (CA, NY, etc.).
+  const withBarometer = applyBuilderBudgetBarometer(itemId, unit || base.unit, base) || base;
+
+  if (regional.multiplier === 1) {
+    return { average: withBarometer, regional };
+  }
   return {
-    average: applyRegionalMultiplierToBudgetSplit(base, regional),
+    average: applyRegionalMultiplierToBudgetSplit(withBarometer, regional),
     regional,
   };
 }
@@ -3951,7 +4156,12 @@ export function resolveScopeItemSuggestedPricing(
     measurementMatch?.unit ||
     rule.defaultUnit ||
     'sqft';
-  const { average, regional } = regionalAdjustedNationalAverage(itemId, preferredUnit, pricingContext);
+  const { average: averageInitial, regional } = regionalAdjustedNationalAverage(
+    itemId,
+    preferredUnit,
+    pricingContext
+  );
+  let average = averageInitial;
 
   let unit = average?.unit || preferredUnit;
 
@@ -3975,10 +4185,182 @@ export function resolveScopeItemSuggestedPricing(
       unit = flatAverage?.unit || rule.defaultUnit;
     }
   }
+  // Ground-up framing: living SF is a planning quantity for mat+labor until package takeoff exists.
+  // Primary takeoff stays empty (needs_takeoff); rates come from national + builder-budget barometer.
+  if (
+    (!count || count <= 0) &&
+    itemId === 'framing' &&
+    String(templateKey || '').toLowerCase() === 'ground_up'
+  ) {
+    const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+    if (livingSf && livingSf > 0) {
+      const reframed = regionalAdjustedNationalAverage(itemId, 'sqft', pricingContext);
+      if (reframed.average?.material != null && reframed.average?.labor != null) {
+        count = livingSf;
+        unit = 'sqft';
+        average = reframed.average;
+      }
+    }
+  }
+  // Windows/doors: prefer opening count; otherwise plan from living SF × calibrated $/SF.
+  if (
+    (!count || count <= 0) &&
+    itemId === 'windows_doors' &&
+    String(templateKey || '').toLowerCase() === 'ground_up'
+  ) {
+    const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+    if (livingSf && livingSf > 0) {
+      const reframed = regionalAdjustedNationalAverage(itemId, 'sqft', pricingContext);
+      if (reframed.average?.material != null && reframed.average?.labor != null) {
+        count = livingSf;
+        unit = 'sqft';
+        average = reframed.average;
+      }
+    }
+  }
+  // Plumbing / electrical rough: plan from living SF when point/device counts are missing.
+  if (
+    (!count || count <= 0) &&
+    (itemId === 'plumbing_rough' || itemId === 'electrical_rough') &&
+    String(templateKey || '').toLowerCase() === 'ground_up'
+  ) {
+    const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+    if (livingSf && livingSf > 0) {
+      const reframed = regionalAdjustedNationalAverage(itemId, 'sqft', pricingContext);
+      if (reframed.average?.material != null && reframed.average?.labor != null) {
+        count = livingSf;
+        unit = 'sqft';
+        average = reframed.average;
+      }
+    }
+  }
+  // Excavation: plan shallow pad + footing trench CY from living SF when CY takeoff is missing.
+  if (
+    (!count || count <= 0) &&
+    itemId === 'excavation' &&
+    String(templateKey || '').toLowerCase() === 'ground_up'
+  ) {
+    const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+    if (livingSf && livingSf > 0) {
+      // Same shallow-pad + footing-trench planning basis as Quick Measurements (~Lot 41 ~100–130 CY).
+      const perimeter = 4 * Math.sqrt(livingSf);
+      const trenchCy = (perimeter * 3 * 3) / 27;
+      const padCutCy = (livingSf * 0.5) / 27;
+      const planningCy = Math.max(1, Math.round(trenchCy + padCutCy + trenchCy * 0.1));
+      const reframed = regionalAdjustedNationalAverage(itemId, 'cy', pricingContext);
+      if (reframed.average?.material != null && reframed.average?.labor != null) {
+        count = planningCy;
+        unit = 'cy';
+        average = reframed.average;
+      }
+    }
+  }
+  // HVAC: default to 1 system when included and no count/tons entered.
+  if (
+    (!count || count <= 0) &&
+    itemId === 'hvac' &&
+    String(templateKey || '').toLowerCase() === 'ground_up'
+  ) {
+    const reframed = regionalAdjustedNationalAverage(itemId, 'each', pricingContext);
+    if (reframed.average?.material != null && reframed.average?.labor != null) {
+      count = 1;
+      unit = 'each';
+      average = reframed.average;
+    }
+  }
+  // Stucco: exterior wall SF from Quick Measurements, else planning ~1.05 × living SF.
+  if (
+    (!count || count <= 0) &&
+    itemId === 'stucco' &&
+    String(templateKey || '').toLowerCase() === 'ground_up'
+  ) {
+    const wallSf =
+      parseScopeMeasurementInput(measurementsInput.exteriorPaintSqft) ||
+      (() => {
+        const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+        return livingSf && livingSf > 0 ? Math.round(livingSf * 1.05) : null;
+      })();
+    if (wallSf && wallSf > 0) {
+      const reframed = regionalAdjustedNationalAverage(itemId, 'sqft', pricingContext);
+      if (reframed.average?.material != null && reframed.average?.labor != null) {
+        count = wallSf;
+        unit = 'sqft';
+        average = reframed.average;
+      }
+    }
+  }
+  // Cabinets: plan LF ≈ living SF / 25 until run takeoff exists (same basis as barometer).
+  if (
+    (!count || count <= 0) &&
+    itemId === 'cabinets' &&
+    String(templateKey || '').toLowerCase() === 'ground_up'
+  ) {
+    const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+    if (livingSf && livingSf > 0) {
+      const planningLf = Math.max(1, Math.round(livingSf / 25));
+      const reframed = regionalAdjustedNationalAverage(itemId, 'lf', pricingContext);
+      if (reframed.average?.material != null && reframed.average?.labor != null) {
+        count = planningLf;
+        unit = 'lf';
+        average = reframed.average;
+      }
+    }
+  }
+  // Counters: plan ~80 SF kitchen tops when countertop takeoff is missing.
+  if (
+    (!count || count <= 0) &&
+    itemId === 'countertops' &&
+    String(templateKey || '').toLowerCase() === 'ground_up'
+  ) {
+    const reframed = regionalAdjustedNationalAverage(itemId, 'sqft', pricingContext);
+    if (reframed.average?.material != null && reframed.average?.labor != null) {
+      count = 80;
+      unit = 'sqft';
+      average = reframed.average;
+    }
+  }
+  // Tile & flooring: plan from living/floor area when finish allocation takeoff is missing.
+  if (
+    (!count || count <= 0) &&
+    (itemId === 'tile_flooring' || itemId === 'flooring') &&
+    String(templateKey || '').toLowerCase() === 'ground_up'
+  ) {
+    const floorSf =
+      parseScopeMeasurementInput(measurementsInput.flooringSqft) ||
+      parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+    if (floorSf && floorSf > 0) {
+      const reframed = regionalAdjustedNationalAverage(itemId, 'sqft', pricingContext);
+      if (reframed.average?.material != null && reframed.average?.labor != null) {
+        count = floorSf;
+        unit = 'sqft';
+        average = reframed.average;
+      }
+    }
+  }
+  // Insulation: plan from living SF × calibrated $/SF until envelope surface takeoff exists.
+  if (
+    (!count || count <= 0) &&
+    itemId === 'insulation' &&
+    String(templateKey || '').toLowerCase() === 'ground_up'
+  ) {
+    const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+    if (livingSf && livingSf > 0) {
+      const reframed = regionalAdjustedNationalAverage(itemId, 'sqft', pricingContext);
+      if (reframed.average?.material != null && reframed.average?.labor != null) {
+        count = livingSf;
+        unit = 'sqft';
+        average = reframed.average;
+      }
+    }
+  }
   if (!count || count <= 0) {
     // Measurement-semantics: missing primary takeoff must not hide read-only/planning
     // benchmark evidence (living SF × stage rate). Do not invent a national $/sqft fill.
-    const benchmarkOnly = benchmarkFillWithoutPrimaryTakeoff(itemId);
+    const benchmarkOnly = benchmarkFillWithoutPrimaryTakeoff(
+      itemId,
+      measurementsInput.pricingAcceptance,
+      templateKey
+    );
     if (benchmarkOnly) return benchmarkOnly;
     return empty;
   }
@@ -4026,7 +4408,7 @@ export function resolveScopeItemSuggestedPricing(
         total,
         materialSource: 'national_average',
         laborSource: 'national_average',
-        rateSourceLabel: rateSourceLabelFor('national_average', 'national_average', null, regional),
+        rateSourceLabel: rateSourceLabelFor('national_average', 'national_average', null, regional, flatAverage),
         helper: copy.suggested,
         mode: 'suggested_price',
         lumpSumOnly: true,
@@ -4075,7 +4457,12 @@ export function resolveScopeItemSuggestedPricing(
   // Case A: notes priced both legs -> collapsible comparison only.
   if (noteMaterial != null && noteLabor != null) {
     const benchmarkComparison = !template
-      ? benchmarkSuggestedPricingBlock(itemId, true)
+      ? benchmarkSuggestedPricingBlock(
+          itemId,
+          true,
+          measurementsInput.pricingAcceptance,
+          templateKey
+        )
       : null;
     if (benchmarkComparison) {
       return { fill: null, comparison: benchmarkComparison };
@@ -4196,7 +4583,12 @@ export function resolveScopeItemSuggestedPricing(
         },
       };
     }
-    const benchmarkComparison = benchmarkSuggestedPricingBlock(itemId, true);
+    const benchmarkComparison = benchmarkSuggestedPricingBlock(
+      itemId,
+      true,
+      measurementsInput.pricingAcceptance,
+      templateKey
+    );
     if (benchmarkComparison) {
       return { fill: null, comparison: benchmarkComparison };
     }
@@ -4232,8 +4624,21 @@ export function resolveScopeItemSuggestedPricing(
   }
 
   // Case D: quantity only, no notes pricing -> full suggested price.
-  if (!template) {
-    const benchmarkFill = benchmarkSuggestedPricingBlock(itemId, false);
+  // Prefer physical takeoff × national/template rates over living-SF stage lumps so
+  // Confirm Scope can produce material+labor for project cost tracking.
+  const isPhysicalTakeoffUnit = !['allowance', 'lump_sum', 'living_sqft', 'ls'].includes(
+    String(unit || '').toLowerCase()
+  );
+  const hasPhysicalTakeoffRates = Boolean(
+    isPhysicalTakeoffUnit && count > 0 && materialRate && laborRate
+  );
+  if (!template && !hasPhysicalTakeoffRates) {
+    const benchmarkFill = benchmarkSuggestedPricingBlock(
+      itemId,
+      false,
+      measurementsInput.pricingAcceptance,
+      templateKey
+    );
     if (benchmarkFill) {
       if (benchmarkFill.isComparison) {
         return { fill: null, comparison: benchmarkFill };
@@ -4244,42 +4649,66 @@ export function resolveScopeItemSuggestedPricing(
   if (!materialRate || !laborRate) return empty;
   const material = round2(count * materialRate);
   const labor = round2(count * laborRate);
-  return {
-    fill: {
+  const takeoffFill: SuggestedPricingBlock = {
+    material,
+    labor,
+    total: round2(material + labor),
+    materialSource: materialRateSource,
+    laborSource: laborRateSource,
+    rateSourceLabel: rateSourceLabelFor(
+      materialRateSource,
+      laborRateSource,
+      templateName,
+      regional,
+      average
+    ),
+    templateName,
+    helper: `${basisHelper} · suggested pricing`,
+    mode: 'suggested_price',
+    basis,
+    benchmarkScopeProfile:
+      materialRateSource === 'national_average' || laborRateSource === 'national_average'
+        ? buildNationalAverageBenchmarkScopeProfile({
+            itemId,
+            average,
+            quantity: count,
+            total: round2(material + labor),
+            regional,
+          })
+        : undefined,
+    costBuckets: buildSuggestedPricingCostBuckets({
+      itemId,
+      average,
       material,
       labor,
-      total: round2(material + labor),
       materialSource: materialRateSource,
       laborSource: laborRateSource,
-      rateSourceLabel: rateSourceLabelFor(materialRateSource, laborRateSource, templateName, regional),
-      templateName,
-      helper: `${basisHelper} · suggested pricing`,
-      mode: 'suggested_price',
-      basis,
-      benchmarkScopeProfile:
-        materialRateSource === 'national_average' || laborRateSource === 'national_average'
-          ? buildNationalAverageBenchmarkScopeProfile({
-              itemId,
-              average,
-              quantity: count,
-              total: round2(material + labor),
-              regional,
-            })
-          : undefined,
-      costBuckets: buildSuggestedPricingCostBuckets({
-        itemId,
-        average,
-        material,
-        labor,
-        materialSource: materialRateSource,
-        laborSource: laborRateSource,
-        materialRate,
-        laborRate,
-      }),
-      pricingRecordId: `bps_national:${itemId}:${unit}`,
-      productionStatus: average?.productionStatus || 'review_required',
-    },
-    comparison: null,
+      materialRate,
+      laborRate,
+    }),
+    pricingRecordId: `bps_national:${itemId}:${unit}`,
+    productionStatus: average?.productionStatus || 'review_required',
+    benchmarkLevel: 'component',
+    benchmarkStageKey: benchmarkStageForScopeKey(itemId),
+    benchmarkScopeKey: itemId,
+    benchmarkAction: 'price_ready',
+  };
+  // Keep stage lump as comparison when takeoff rates win on a stage host (not included children).
+  const stageComparison =
+    hasPhysicalTakeoffRates && !template
+      ? benchmarkSuggestedPricingBlock(
+          itemId,
+          true,
+          measurementsInput.pricingAcceptance,
+          templateKey
+        )
+      : null;
+  return {
+    fill: takeoffFill,
+    comparison:
+      stageComparison?.isComparison && stageComparison.benchmarkAction !== 'included_in_stage'
+        ? stageComparison
+        : null,
   };
 }
 
@@ -5057,15 +5486,26 @@ export function ruleKeysToTryForPackage(name: string, scope = ''): string[] {
     /\bconcrete\b/.test(blob) ||
     primary === 'concrete' ||
     primary === 'pour_flatwork' ||
-    primary === 'pour_foundation';
+    primary === 'pour_foundation' ||
+    primary === 'foundation';
   if (concreteFamily) {
-    for (const alias of ['concrete', 'pour_flatwork', 'pour_foundation'] as const) {
+    for (const alias of ['foundation', 'concrete', 'pour_flatwork', 'pour_foundation'] as const) {
+      if (!keys.includes(alias)) keys.push(alias);
+    }
+  }
+  const roofingFamily =
+    /\broof|\bshingle/.test(blob) ||
+    primary === 'roofing' ||
+    primary === 'shingles_roofing' ||
+    primary === 'roof_tie_in';
+  if (roofingFamily) {
+    for (const alias of ['roofing', 'shingles_roofing', 'roof_tie_in'] as const) {
       if (!keys.includes(alias)) keys.push(alias);
     }
   }
   // Interior / generic paint share Confirm Scope keys; exterior must stay isolated.
-  if (primary === 'interior_paint' || primary === 'paint') {
-    for (const alias of ['interior_paint', 'paint'] as const) {
+  if (primary === 'interior_paint' || primary === 'paint' || primary === 'paint_trim') {
+    for (const alias of ['paint_trim', 'interior_paint', 'paint'] as const) {
       if (!keys.includes(alias)) keys.push(alias);
     }
   }
@@ -5230,6 +5670,7 @@ export function buildNormalizedScopeMeasurementsFromInput(
   options?: { notes?: string | null; templateKey?: string | null }
 ): NormalizedScopeMeasurements {
   const safeInput: ScopeMeasurementsInputExtended = {
+    ...emptyQuickMeasurementInput(),
     ...(input || {}),
     itemQuantities: input?.itemQuantities || {},
   };
@@ -5247,6 +5688,7 @@ export function scopeMeasurementsPayloadForPersist(
   options?: { notes?: string | null; templateKey?: string | null }
 ): ScopeMeasurements {
   const safeInput: ScopeMeasurementsInputExtended = {
+    ...emptyQuickMeasurementInput(),
     ...(input || {}),
     itemQuantities: input?.itemQuantities || {},
   };
@@ -5297,6 +5739,24 @@ export function scopeMeasurementsToPayload(
     exteriorPaintSqft: parseScopeMeasurementInput(sanitized.exteriorPaintSqft),
     railingLf: parseScopeMeasurementInput(sanitized.railingLf),
     planRooms: Array.isArray(sanitized.planRooms) ? sanitized.planRooms : undefined,
+    wetAreaFinish:
+      sanitized.wetAreaFinish === 'tile' ||
+      sanitized.wetAreaFinish === 'tub' ||
+      sanitized.wetAreaFinish === 'prefab'
+        ? sanitized.wetAreaFinish
+        : null,
+    bathCount:
+      sanitized.bathCount != null && Number(sanitized.bathCount) > 0
+        ? Math.round(Number(sanitized.bathCount))
+        : null,
+    prefabBathCount:
+      sanitized.prefabBathCount != null && Number(sanitized.prefabBathCount) > 0
+        ? Math.round(Number(sanitized.prefabBathCount))
+        : null,
+    tubBathCount:
+      sanitized.tubBathCount != null && Number(sanitized.tubBathCount) > 0
+        ? Math.round(Number(sanitized.tubBathCount))
+        : null,
     baseboardLf: parseScopeMeasurementInput(sanitized.baseboardLf),
     showerWallTileSqft: parseScopeMeasurementInput(sanitized.showerWallTileSqft),
     showerFloorTileSqft: parseScopeMeasurementInput(sanitized.showerFloorTileSqft),
@@ -5312,6 +5772,26 @@ export function scopeMeasurementsToPayload(
       input.scopeGapResolutions && Object.keys(input.scopeGapResolutions).length
         ? input.scopeGapResolutions
         : undefined,
+    quickMeasurementSources:
+      input.quickMeasurementSources && Object.keys(input.quickMeasurementSources).length
+        ? input.quickMeasurementSources
+        : undefined,
+    quickMeasurementUserOverrides:
+      input.quickMeasurementUserOverrides && Object.keys(input.quickMeasurementUserOverrides).length
+        ? input.quickMeasurementUserOverrides
+        : undefined,
+    planFacts: input.planFacts,
+    quickMeasurementSuggestionMetadata:
+      input.quickMeasurementSuggestionMetadata &&
+      Object.keys(input.quickMeasurementSuggestionMetadata).length
+        ? input.quickMeasurementSuggestionMetadata
+        : undefined,
+    quickMeasurementFieldConfidence:
+      input.quickMeasurementFieldConfidence &&
+      Object.keys(input.quickMeasurementFieldConfidence).length
+        ? input.quickMeasurementFieldConfidence
+        : undefined,
+    areaReconciliation: input.areaReconciliation,
   };
   return payload;
 }
@@ -5364,9 +5844,33 @@ export function scopeMeasurementsInputFromPayload(
     showerFloorTileSqft: measurementFieldString(payload.showerFloorTileSqft),
     wallPaintSqft: measurementFieldString(payload.wallPaintSqft),
     planRooms: Array.isArray(payload.planRooms) ? payload.planRooms : undefined,
+    wetAreaFinish:
+      payload.wetAreaFinish === 'tile' ||
+      payload.wetAreaFinish === 'tub' ||
+      payload.wetAreaFinish === 'prefab'
+        ? payload.wetAreaFinish
+        : null,
+    bathCount:
+      payload.bathCount != null && Number(payload.bathCount) > 0
+        ? Math.round(Number(payload.bathCount))
+        : null,
+    prefabBathCount:
+      payload.prefabBathCount != null && Number(payload.prefabBathCount) > 0
+        ? Math.round(Number(payload.prefabBathCount))
+        : null,
+    tubBathCount:
+      payload.tubBathCount != null && Number(payload.tubBathCount) > 0
+        ? Math.round(Number(payload.tubBathCount))
+        : null,
     itemQuantities,
     pricingAcceptance: payload.pricingAcceptance,
     scopeGapResolutions: payload.scopeGapResolutions,
+    quickMeasurementSources: payload.quickMeasurementSources,
+    quickMeasurementUserOverrides: payload.quickMeasurementUserOverrides,
+    planFacts: payload.planFacts,
+    quickMeasurementSuggestionMetadata: payload.quickMeasurementSuggestionMetadata,
+    quickMeasurementFieldConfidence: payload.quickMeasurementFieldConfidence,
+    areaReconciliation: payload.areaReconciliation,
   };
 }
 
@@ -5426,10 +5930,21 @@ export type ScopeMeasurementsInputExtended = ReturnType<typeof emptyQuickMeasure
   pricingAcceptance?: Record<string, import('@/utils/estimateAiDraft').ScopePricingAcceptanceMetadata>;
   scopeGapResolutions?: Record<string, import('@/utils/scopeReviewUi').ScopeGapResolutionRecord>;
   planRooms?: import('@/utils/estimateAiDraft').PlanRoomMeasurement[];
+  wetAreaFinish?: import('@/utils/planBathRooms').WetAreaFinishChoice | null;
+  bathCount?: number | null;
+  prefabBathCount?: number | null;
+  tubBathCount?: number | null;
   areaReconciliation?: import('@/utils/measurementSemantics').AreaReconciliation | null;
   pricingOverrideLog?: import('@/utils/measurementSemantics').PricingOverrideLog[];
   /** Applied stage/component benchmark keys — blocks double application. */
   appliedBenchmarkKeys?: string[];
+  quickMeasurementSources?: import('@/utils/quickMeasurementProvenance').QuickMeasurementSourceMap;
+  quickMeasurementUserOverrides?: import('@/utils/quickMeasurementProvenance').QuickMeasurementOverrideMap;
+  planFacts?: import('@/utils/planMeasurementFacts').PlanFacts;
+  quickMeasurementSuggestionMetadata?: Partial<
+    Record<string, import('@/utils/planMeasurementFacts').MeasurementSuggestion>
+  >;
+  quickMeasurementFieldConfidence?: Record<string, number>;
 };
 
 export function initialScopeMeasurementInputExtended(
@@ -5638,6 +6153,16 @@ export function initialScopeMeasurementInputExtended(
     pricingAcceptance: saved?.pricingAcceptance,
     scopeGapResolutions: saved?.scopeGapResolutions,
     planRooms: saved?.planRooms?.length ? saved.planRooms : suggested?.planRooms,
+    wetAreaFinish: saved?.wetAreaFinish ?? suggested?.wetAreaFinish ?? null,
+    bathCount: saved?.bathCount ?? suggested?.bathCount ?? null,
+    prefabBathCount: saved?.prefabBathCount ?? suggested?.prefabBathCount ?? null,
+    tubBathCount: saved?.tubBathCount ?? suggested?.tubBathCount ?? null,
+    planFacts: saved?.planFacts || suggested?.planFacts,
+    quickMeasurementSources: saved?.quickMeasurementSources,
+    quickMeasurementUserOverrides: saved?.quickMeasurementUserOverrides,
+    quickMeasurementSuggestionMetadata: saved?.quickMeasurementSuggestionMetadata,
+    quickMeasurementFieldConfidence: saved?.quickMeasurementFieldConfidence,
+    areaReconciliation: saved?.areaReconciliation,
   };
 
   // Living SF must not masquerade as paint when notes never priced paint.

@@ -112,6 +112,13 @@ export function buildSemanticsStateForScope(input: {
   drywallSf?: number | null;
   roofSquares?: number | null;
   flooringSf?: number | null;
+  concreteCy?: number | null;
+  excavationCy?: number | null;
+  cabinetLf?: number | null;
+  countertopSqft?: number | null;
+  showerWallTileSqft?: number | null;
+  showerFloorTileSqft?: number | null;
+  bathroomFloorSqft?: number | null;
 }): ScopeMeasurementState {
   const profile = getTradeMeasurementProfile(input.scopeKey);
   const living = Number(input.livingSf);
@@ -127,6 +134,27 @@ export function buildSemanticsStateForScope(input: {
   } else if (input.scopeKey === 'roofing' && Number(input.roofSquares) > 0) {
     primaryQty = Number(input.roofSquares);
     primaryUnit = 'roof_square';
+  } else if (input.scopeKey === 'foundation' && Number(input.concreteCy) > 0) {
+    primaryQty = Number(input.concreteCy);
+    primaryUnit = 'cy';
+  } else if (input.scopeKey === 'excavation' && Number(input.excavationCy) > 0) {
+    primaryQty = Number(input.excavationCy);
+    primaryUnit = 'cy';
+  } else if (input.scopeKey === 'cabinets' && Number(input.cabinetLf) > 0) {
+    primaryQty = Number(input.cabinetLf);
+    primaryUnit = 'lf';
+  } else if (input.scopeKey === 'countertops' && Number(input.countertopSqft) > 0) {
+    primaryQty = Number(input.countertopSqft);
+    primaryUnit = 'sqft';
+  } else if (input.scopeKey === 'shower_tile' && Number(input.showerWallTileSqft) > 0) {
+    primaryQty = Number(input.showerWallTileSqft);
+    primaryUnit = 'sqft';
+  } else if (input.scopeKey === 'shower_floor_tile' && Number(input.showerFloorTileSqft) > 0) {
+    primaryQty = Number(input.showerFloorTileSqft);
+    primaryUnit = 'sqft';
+  } else if (input.scopeKey === 'floor_tile' && Number(input.bathroomFloorSqft) > 0) {
+    primaryQty = Number(input.bathroomFloorSqft);
+    primaryUnit = 'floor_sqft';
   } else if (
     (input.scopeKey === 'flooring' || input.scopeKey === 'tile_flooring') &&
     Number(input.flooringSf) > 0

@@ -1,0 +1,292 @@
+/**
+ * Builder-budget barometer for national average unit rates.
+ *
+ * Local evidence (barometer only — not a market-locked price book):
+ * SHV Lots 39 / 41 / 49 / 58 Iron Mesa preliminary budgets (detached median).
+ * Silver Leaf twin-home scopes stay in the stage benchmark dataset but are
+ * excluded from detached medians (same policy as southern_utah_residential_benchmark_v1).
+ *
+ * Method:
+ * 1. Reverse-engineer installed $/unit from each lot's bid line ÷ planning qty.
+ * 2. Take the 4-lot detached median as the barometer reading.
+ * 3. Blend with national mat+labor at 60% barometer / 40% national when we have
+ *    four detached samples (same weight policy as the stage benchmark dataset).
+ *    Still applied nationwide — not a Utah-only price book.
+ * 4. Split blended totals into material/labor using the national ratio.
+ * 5. Apply state regional multipliers on top of this nationwide baseline.
+ */
+
+import type { NationalAverageBudgetSplit } from '@/utils/scopeItemQuantities';
+
+/** Barometer weight with 4+ detached bid samples — pulls hard when national overstates. */
+export const BUILDER_BUDGET_BAROMETER_LOCAL_WEIGHT = 0.6;
+export const BUILDER_BUDGET_BAROMETER_NATIONAL_WEIGHT = 0.4;
+export const BUILDER_BUDGET_BAROMETER_SAMPLE_COUNT = 4;
+
+/** @deprecated Use BUILDER_BUDGET_BAROMETER_LOCAL_WEIGHT */
+export const SOUTHERN_UTAH_LOCAL_WEIGHT = BUILDER_BUDGET_BAROMETER_LOCAL_WEIGHT;
+/** @deprecated Use BUILDER_BUDGET_BAROMETER_NATIONAL_WEIGHT */
+export const SOUTHERN_UTAH_NATIONAL_WEIGHT = BUILDER_BUDGET_BAROMETER_NATIONAL_WEIGHT;
+/** @deprecated Use BUILDER_BUDGET_BAROMETER_SAMPLE_COUNT */
+export const SOUTHERN_UTAH_SAMPLE_COUNT = BUILDER_BUDGET_BAROMETER_SAMPLE_COUNT;
+
+export type CalibratedUnitRateKey =
+  | 'excavation:cy'
+  | 'concrete:cy'
+  | 'foundation:cy'
+  | 'shingles_roofing:squares'
+  | 'roofing:squares'
+  | 'framing:sqft'
+  | 'drywall:sqft'
+  | 'paint:sqft'
+  | 'paint_trim:sqft'
+  | 'interior_paint:sqft'
+  | 'cabinets:lf'
+  | 'countertops:sqft'
+  | 'flooring:sqft'
+  | 'tile_flooring:sqft'
+  | 'hvac:each'
+  | 'hvac:sqft'
+  | 'insulation:sqft'
+  | 'stucco:sqft'
+  | 'windows_doors:each'
+  | 'windows_doors:sqft'
+  | 'plumbing_rough:sqft'
+  | 'electrical_rough:sqft';
+
+/** Detached median installed $/unit before national blend (documentation / tests). */
+export const SOUTHERN_UTAH_LOCAL_INSTALLED_UNIT_RATES: Record<
+  CalibratedUnitRateKey,
+  { unit: string; installed: number; note: string }
+> = {
+  'excavation:cy': {
+    unit: 'cy',
+    installed: 22.7,
+    note: 'Excav/backfill bid ÷ planning trench+pad CY (Lots 39/41/49/58)',
+  },
+  'concrete:cy': {
+    unit: 'cy',
+    installed: 321.76,
+    note: 'Foundation walls + slabs + garage floor ÷ planning foundation CY',
+  },
+  'foundation:cy': {
+    unit: 'cy',
+    installed: 321.76,
+    note: 'Alias of concrete:cy',
+  },
+  'shingles_roofing:squares': {
+    unit: 'squares',
+    installed: 395.13,
+    note: 'Roofing bid ÷ planning roof squares (footprint × pitch + waste)',
+  },
+  'roofing:squares': {
+    unit: 'squares',
+    installed: 395.13,
+    note: 'Alias of shingles_roofing:squares',
+  },
+  'framing:sqft': {
+    unit: 'sqft',
+    installed: 22.82,
+    note: 'Lumber + trusses + framing labor ÷ living SF (mat/lab split below)',
+  },
+  'drywall:sqft': {
+    unit: 'sqft',
+    installed: 2.21,
+    note: 'Drywall bid ÷ (living SF × 3.5 surface fallback)',
+  },
+  'paint:sqft': {
+    unit: 'sqft',
+    installed: 0.9,
+    note: 'Interior paint bid ÷ same surface SF as drywall fallback',
+  },
+  'paint_trim:sqft': {
+    unit: 'sqft',
+    installed: 0.9,
+    note: 'Alias of paint:sqft',
+  },
+  'interior_paint:sqft': {
+    unit: 'sqft',
+    installed: 0.9,
+    note: 'Alias of paint:sqft',
+  },
+  'cabinets:lf': {
+    unit: 'lf',
+    installed: 216.15,
+    note: 'Cabinet bid ÷ (living SF / 25) planning LF',
+  },
+  'countertops:sqft': {
+    unit: 'sqft',
+    installed: 151.88,
+    note: 'Countertop bid ÷ 80 SF typical kitchen tops',
+  },
+  'flooring:sqft': {
+    unit: 'sqft',
+    installed: 8.29,
+    note: 'Flooring allowance ÷ living SF (Lots 39/41/49/58 detached median)',
+  },
+  'tile_flooring:sqft': {
+    unit: 'sqft',
+    installed: 8.29,
+    note: 'Alias of flooring:sqft',
+  },
+  'hvac:each': {
+    unit: 'each',
+    installed: 17500,
+    note: 'Detached median HVAC lump (1 system)',
+  },
+  'hvac:sqft': {
+    unit: 'sqft',
+    installed: 6.05,
+    note: 'Detached median HVAC ÷ living SF',
+  },
+  'insulation:sqft': {
+    unit: 'sqft',
+    installed: 2.47,
+    note: 'Detached median insulation ÷ living SF',
+  },
+  'stucco:sqft': {
+    unit: 'sqft',
+    installed: 7.76,
+    note: 'Stucco bid ÷ planning exterior wall SF (Lots 39/41/49/58)',
+  },
+  'windows_doors:each': {
+    unit: 'each',
+    installed: 750,
+    note: 'Windows bid ÷ ~16 openings planning count',
+  },
+  'windows_doors:sqft': {
+    unit: 'sqft',
+    installed: 4.09,
+    note: 'Windows bid ÷ living SF (planning when opening count missing)',
+  },
+  'plumbing_rough:sqft': {
+    unit: 'sqft',
+    installed: 7.62,
+    note: 'Plumbing rough bid ÷ living SF (planning when points missing)',
+  },
+  'electrical_rough:sqft': {
+    unit: 'sqft',
+    installed: 7.62,
+    note: 'Electrical rough bid ÷ living SF (planning when device count missing)',
+  },
+};
+
+/** Framing keeps explicit local mat vs labor from bid lines (not national ratio). */
+const FRAMING_LOCAL_MAT_PER_LIVING_SF = 13.78; // lumber + trusses
+const FRAMING_LOCAL_LAB_PER_LIVING_SF = 9.04;
+
+function round2(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function blendInstalled(localInstalled: number, nationalTotal: number): number {
+  return (
+    localInstalled * BUILDER_BUDGET_BAROMETER_LOCAL_WEIGHT +
+    nationalTotal * BUILDER_BUDGET_BAROMETER_NATIONAL_WEIGHT
+  );
+}
+
+function splitByNationalRatio(
+  blendedTotal: number,
+  national: Pick<NationalAverageBudgetSplit, 'material' | 'labor'>
+): { material: number; labor: number } {
+  const nationalTotal = national.material + national.labor;
+  if (!(nationalTotal > 0)) {
+    return { material: round2(blendedTotal), labor: 0 };
+  }
+  return {
+    material: round2(blendedTotal * (national.material / nationalTotal)),
+    labor: round2(blendedTotal * (national.labor / nationalTotal)),
+  };
+}
+
+function calibrationKey(itemId: string, unit: string | null | undefined): CalibratedUnitRateKey | null {
+  const id = String(itemId || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  const u = String(unit || '')
+    .trim()
+    .toLowerCase();
+  const normalizedUnit =
+    u === 'sq' || u === 'square' ? 'squares' : u === 'sf' || u === 'sq.ft' ? 'sqft' : u;
+
+  const candidates: CalibratedUnitRateKey[] = [
+    `${id}:${normalizedUnit}` as CalibratedUnitRateKey,
+  ];
+  if (id === 'foundation' || id === 'pour_foundation') {
+    candidates.push('concrete:cy', 'foundation:cy');
+  }
+  if (id === 'roofing' || id === 'roof_tie_in') {
+    candidates.push('shingles_roofing:squares', 'roofing:squares');
+  }
+  if (id === 'paint_trim' || id === 'interior_paint') {
+    candidates.push('paint:sqft');
+  }
+  if (id === 'tile_flooring' || id === 'flooring') {
+    candidates.push('flooring:sqft', 'tile_flooring:sqft');
+  }
+
+  for (const key of candidates) {
+    if (SOUTHERN_UTAH_LOCAL_INSTALLED_UNIT_RATES[key]) return key;
+  }
+  return null;
+}
+
+/**
+ * @deprecated Barometer rates apply nationwide; market gating is no longer used.
+ * Kept for tests/docs that still name the evidence geography.
+ */
+export function isSouthernUtahCalibrationMarket(_location?: {
+  state?: string | null;
+  zipCode?: string | null;
+  city?: string | null;
+} | null): boolean {
+  return true;
+}
+
+/**
+ * Nudge national mat/labor unit rates with the builder-budget barometer.
+ * Returns null when this item/unit has no barometer evidence.
+ */
+export function applySouthernUtahCalibration(
+  itemId: string,
+  unit: string | null | undefined,
+  national: NationalAverageBudgetSplit
+): NationalAverageBudgetSplit | null {
+  const key = calibrationKey(itemId, unit || national.unit);
+  if (!key) return null;
+
+  const local = SOUTHERN_UTAH_LOCAL_INSTALLED_UNIT_RATES[key];
+  if (!local) return null;
+
+  let material: number;
+  let labor: number;
+
+  if (key === 'framing:sqft') {
+    material = round2(
+      blendInstalled(FRAMING_LOCAL_MAT_PER_LIVING_SF, national.material)
+    );
+    labor = round2(blendInstalled(FRAMING_LOCAL_LAB_PER_LIVING_SF, national.labor));
+  } else {
+    const blended = blendInstalled(local.installed, national.material + national.labor);
+    const split = splitByNationalRatio(blended, national);
+    material = split.material;
+    labor = split.labor;
+  }
+
+  return {
+    ...national,
+    unit: local.unit || national.unit,
+    material,
+    labor,
+    sourceLabel: 'Suggested · National Average (builder-budget calibrated)',
+    rateSource: 'bps_southern_utah_calibrated',
+    rateSourceReference:
+      'National unit rates blended 60/40 with SHV Lots 39/41/49/58 detached medians (barometer); state multipliers still apply',
+    geographicBasis: 'national',
+  };
+}
+
+/** Alias for clarity at call sites. */
+export const applyBuilderBudgetBarometer = applySouthernUtahCalibration;

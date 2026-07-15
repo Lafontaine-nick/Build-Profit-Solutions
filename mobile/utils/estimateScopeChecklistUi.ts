@@ -358,8 +358,250 @@ export function normalizeScopeChecklistItems(
   templateKey?: string | null,
   inferenceCtx?: KitchenScopeInferenceCtx
 ): ScopeChecklistItem[] {
-  const migrated = migrateLegacyBathroomScopeItems(items).map(normalizeScopeChecklistItem);
+  const migrated = migrateGroundUpTakeoffScopeItems(
+    migrateLegacyBathroomScopeItems(items),
+    templateKey
+  ).map(normalizeScopeChecklistItem);
   return applyKitchenScopeInferences(migrated, templateKey, inferenceCtx);
+}
+
+/** Split legacy cabinets_counters and inject takeoff-priced ground-up lines. */
+function migrateGroundUpTakeoffScopeItems(
+  items: ScopeChecklistItem[],
+  templateKey?: string | null
+): ScopeChecklistItem[] {
+  if (templateKey !== 'ground_up') return items;
+  let next = [...items];
+
+  const combinedIdx = next.findIndex((i) => i.id === 'cabinets_counters');
+  if (combinedIdx >= 0) {
+    const combined = next[combinedIdx];
+    const hasCabinets = next.some((i) => i.id === 'cabinets');
+    const hasCounters = next.some((i) => i.id === 'countertops');
+    next.splice(combinedIdx, 1);
+    if (!hasCabinets) {
+      next.splice(combinedIdx, 0, {
+        ...combined,
+        id: 'cabinets',
+        label: 'Cabinets / vanity',
+        helperText: 'Cabinet and vanity LF — kitchen, baths, laundry.',
+      });
+    }
+    if (!hasCounters) {
+      const insertAt = next.findIndex((i) => i.id === 'cabinets') + 1;
+      next.splice(insertAt > 0 ? insertAt : combinedIdx, 0, {
+        ...combined,
+        id: 'countertops',
+        label: 'Counters',
+        helperText: 'Countertop sqft — kitchen, baths, and elsewhere.',
+      });
+    }
+  }
+
+  const ensure = (
+    id: string,
+    label: string,
+    helperText: string,
+    category: string,
+    afterId?: string
+  ) => {
+    if (next.some((i) => i.id === id)) return;
+    const item: ScopeChecklistItem = {
+      id,
+      label,
+      helperText,
+      inputType: 'yes_no',
+      state: 'unsure',
+      category,
+    };
+    const afterIdx = afterId ? next.findIndex((i) => i.id === afterId) : -1;
+    if (afterIdx >= 0) next.splice(afterIdx + 1, 0, item);
+    else next.push(item);
+  };
+
+  ensure('excavation', 'Excavation', 'Excavation CY for material and labor.', 'sitework', 'sitework');
+  ensure(
+    'windows_doors',
+    'Windows & doors',
+    'Opening count for material and labor.',
+    'exterior',
+    'exterior'
+  );
+  ensure(
+    'stucco',
+    'Stucco / exterior wall finish',
+    'Exterior wall surface SF for material and labor.',
+    'exterior',
+    'windows_doors'
+  );
+  ensure(
+    'plumbing_rough',
+    'Plumbing rough-in',
+    'Rough-in points (supply/drain) for material and labor.',
+    'mep',
+    'mep_rough'
+  );
+  ensure(
+    'electrical_rough',
+    'Electrical rough-in',
+    'Circuits / boxes / devices for material and labor.',
+    'mep',
+    'plumbing_rough'
+  );
+  ensure('hvac', 'HVAC', 'System count (or tons) for material and labor.', 'mep', 'electrical_rough');
+  ensure('cabinets', 'Cabinets / vanity', 'Cabinet and vanity LF — kitchen, baths, laundry.', 'finishes', 'drywall');
+  ensure('countertops', 'Counters', 'Countertop sqft — kitchen, baths, and elsewhere.', 'finishes', 'cabinets');
+  ensure('floor_tile', 'Bath floor tile', 'Bathroom floor tile labor and materials.', 'finishes', 'tile_flooring');
+  ensure(
+    'shower_tile',
+    'Shower wall tile',
+    'Shower wall tile labor and materials.',
+    'finishes',
+    'floor_tile'
+  );
+  ensure(
+    'shower_floor_tile',
+    'Shower floor tile',
+    'Shower floor tile labor and materials.',
+    'finishes',
+    'shower_tile'
+  );
+
+  next = next.map((i) => {
+    if (i.id === 'sitework' && /excavation/i.test(i.label || '')) {
+      return { ...i, label: 'Sitework' };
+    }
+    return i;
+  });
+
+  return applyGroundUpStageHostDemotions(next, templateKey);
+}
+
+/**
+ * Demote living-SF stage hosts and promote sellable child trades.
+ * Re-run after note inferences so drywall/paint Yes can pull cabinets/tile with them.
+ */
+export function applyGroundUpStageHostDemotions(
+  items: ScopeChecklistItem[],
+  templateKey?: string | null
+): ScopeChecklistItem[] {
+  if (templateKey !== 'ground_up') return items;
+
+  const exteriorChildIds = ['roofing', 'windows_doors', 'stucco'];
+  const mepChildIds = ['plumbing_rough', 'electrical_rough', 'hvac'];
+  const siteChildIds = ['excavation'];
+  const finishChildIds = [
+    'drywall',
+    'paint_trim',
+    'cabinets',
+    'countertops',
+    'tile_flooring',
+    'floor_tile',
+    'shower_tile',
+    'shower_floor_tile',
+    'insulation',
+  ];
+  const exteriorChildrenIncluded = exteriorChildIds.some((id) =>
+    items.some((i) => i.id === id && i.state === 'included')
+  );
+  const exteriorWasIncluded = items.some((i) => i.id === 'exterior' && i.state === 'included');
+  const mepWasIncluded = items.some((i) => i.id === 'mep_rough' && i.state === 'included');
+  const mepChildrenIncluded = mepChildIds.some((id) =>
+    items.some((i) => i.id === id && i.state === 'included')
+  );
+  const siteWasIncluded = items.some((i) => i.id === 'sitework' && i.state === 'included');
+  const siteChildrenIncluded = siteChildIds.some((id) =>
+    items.some((i) => i.id === id && i.state === 'included')
+  );
+  const demoteSiteHost = siteWasIncluded || siteChildrenIncluded;
+  const interiorWasIncluded = items.some(
+    (i) => i.id === 'interior_finishes' && i.state === 'included'
+  );
+  const finishChildrenIncluded = finishChildIds.some((id) =>
+    items.some((i) => i.id === id && i.state === 'included')
+  );
+  const demoteMepHost = mepWasIncluded || mepChildrenIncluded;
+  const demoteInteriorHost = interiorWasIncluded || finishChildrenIncluded;
+  const promoteFinishChildren =
+    interiorWasIncluded ||
+    items.some(
+      (i) => ['drywall', 'paint_trim', 'tile_flooring'].includes(i.id) && i.state === 'included'
+    );
+
+  return items.map((i) => {
+    if (i.id === 'sitework') {
+      return {
+        ...i,
+        label: i.label || 'Sitework',
+        helperText:
+          'Planning comparison only — price excavation and other site trades separately.',
+        state: demoteSiteHost ? 'excluded' : i.state,
+      };
+    }
+    if (siteChildIds.includes(i.id)) {
+      return {
+        ...i,
+        state: siteWasIncluded && i.state === 'unsure' ? 'included' : i.state,
+      };
+    }
+    if (i.id === 'mep_rough') {
+      return {
+        ...i,
+        label: i.label || 'MEP rough-in',
+        helperText:
+          'Planning comparison only — price plumbing / electrical / HVAC trades separately.',
+        state: demoteMepHost ? 'excluded' : i.state,
+      };
+    }
+    if (mepChildIds.includes(i.id)) {
+      return {
+        ...i,
+        state: mepWasIncluded && i.state === 'unsure' ? 'included' : i.state,
+      };
+    }
+    if (i.id === 'interior_finishes') {
+      return {
+        ...i,
+        helperText:
+          'Planning comparison only — price drywall, paint, cabinets, counters, and tile separately.',
+        state: demoteInteriorHost ? 'excluded' : i.state,
+      };
+    }
+    if (finishChildIds.includes(i.id)) {
+      return {
+        ...i,
+        state: promoteFinishChildren && i.state === 'unsure' ? 'included' : i.state,
+      };
+    }
+    if (i.id === 'exterior') {
+      return {
+        ...i,
+        helperText:
+          'Planning comparison only — price roofing, windows/doors, and stucco separately.',
+        state: exteriorChildrenIncluded || exteriorWasIncluded ? 'excluded' : i.state,
+      };
+    }
+    if (exteriorChildIds.includes(i.id)) {
+      return {
+        ...i,
+        label:
+          i.id === 'stucco'
+            ? i.label || 'Stucco / exterior wall finish'
+            : i.id === 'windows_doors'
+              ? i.label || 'Windows & doors'
+              : i.label,
+        helperText:
+          i.id === 'stucco'
+            ? i.helperText || 'Exterior wall surface SF for material and labor.'
+            : i.id === 'windows_doors'
+              ? i.helperText ||
+                'Opening count for material and labor — planning from living SF when count is missing.'
+              : i.helperText,
+        state: exteriorWasIncluded && i.state === 'unsure' ? 'included' : i.state,
+      };
+    }
+    return i;
+  });
 }
 
 const NOTE_BACKED_SCOPE_COPY: Record<string, { label: string; helperText: string; category?: string }> = {
@@ -451,7 +693,9 @@ export function hydrateScopeChecklistFromNotes(
   const scopedItems = items.filter((item) => !shouldSuppressGenericDemo(item, templateKey, measurements));
   const withNoteBacked = injectNoteBackedPricedItems(scopedItems, measurements);
   const normalized = normalizeScopeChecklistItems(withNoteBacked, templateKey, { notes, measurements });
-  return applyScopeInferencesFromNotes(normalized, notes, templateKey, measurements);
+  // Notes may flip drywall/paint/tile to Yes after structural migrate — re-promote children.
+  const inferred = applyScopeInferencesFromNotes(normalized, notes, templateKey, measurements);
+  return applyGroundUpStageHostDemotions(inferred, templateKey);
 }
 
 /** Strip UI-only derived lines before saving scope back to the draft. */
@@ -591,6 +835,20 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   trim: 'Trim/baseboard labor and materials.',
   glass_door: 'Door unit + install.',
   drywall: 'Wall/ceiling surface sqft (not floor area). Patch or replace after layout changes.',
+  cabinets: 'Cabinet and vanity LF — kitchen, baths, laundry.',
+  countertops: 'Countertop sqft — kitchen, baths, and elsewhere.',
+  mep_rough: 'Planning comparison only — price plumbing / electrical / HVAC trades separately.',
+  exterior: 'Planning comparison only — price roofing, windows/doors, and stucco separately.',
+  interior_finishes: 'Planning comparison only — price drywall, paint, cabinets, counters, and tile separately.',
+  sitework: 'Planning comparison only — price excavation and other site trades separately.',
+  plumbing_rough: 'Rough-in points (supply/drain) for material and labor.',
+  electrical_rough: 'Circuits / boxes / devices for material and labor.',
+  hvac: 'System count (or tons) for material and labor — not living SF.',
+  windows_doors: 'Opening count for material and labor.',
+  excavation: 'Excavation CY for material and labor.',
+  foundation: 'Foundation / slab concrete CY for material and labor.',
+  roofing: 'Roof squares for material and labor.',
+  paint_trim: 'Wall/ceiling paint surface sqft for material and labor.',
   plumbing_trim: 'Set fixtures and finish connections.',
   electrical_trim: 'Devices, plates, and bulbs.',
   permits: 'Permit fees and inspections in your price.',
@@ -758,16 +1016,23 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
   ],
   ground_up: [
     { title: 'Preconstruction', itemIds: ['plans_engineering', 'permits'] },
-    { title: 'Sitework', itemIds: ['sitework', 'utility_taps'] },
-    { title: 'Structure', itemIds: ['foundation', 'framing', 'roofing', 'exterior'] },
-    { title: 'MEP & Envelope', itemIds: ['mep_rough', 'insulation'] },
+    { title: 'Sitework', itemIds: ['sitework', 'excavation', 'utility_taps'] },
+    { title: 'Structure', itemIds: ['foundation', 'framing', 'roofing', 'exterior', 'windows_doors', 'stucco'] },
+    {
+      title: 'MEP & Envelope',
+      itemIds: ['mep_rough', 'plumbing_rough', 'electrical_rough', 'hvac', 'insulation'],
+    },
     {
       title: 'Finishes',
       itemIds: [
         'interior_finishes',
         'drywall',
-        'cabinets_counters',
+        'cabinets',
+        'countertops',
         'tile_flooring',
+        'floor_tile',
+        'shower_tile',
+        'shower_floor_tile',
         'paint_trim',
         'appliances',
       ],

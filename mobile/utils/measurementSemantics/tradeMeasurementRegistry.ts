@@ -87,8 +87,33 @@ export const TRADE_MEASUREMENT_REGISTRY: Record<string, TradeMeasurementProfile>
   exterior_finishes: profile('exterior_finishes', SURFACE, {
     missingQuantityBehavior: 'needs_takeoff',
   }),
+  stucco: profile('stucco', SURFACE, {
+    preferredPrimaryUnits: ['surface_sqft', 'sqft'],
+    canUseLivingSfAsPricing: false,
+    missingQuantityBehavior: 'needs_takeoff',
+    quantityStrategy: 'derived_formula',
+  }),
+  windows_doors: profile('windows_doors', ['ea', 'ls'], {
+    preferredPrimaryUnits: ['ea'],
+    allowedPricingUnits: ['ea', 'living_sqft', 'ls'],
+    canUseLivingSfAsPricing: true,
+    missingQuantityBehavior: 'needs_count',
+    quantityStrategy: 'count_from_plan',
+  }),
   mep_rough: profile('mep_rough', ['ea', 'fixture', 'ls'], {
     allowedPricingUnits: ['living_sqft', 'ls', 'ea', 'fixture'],
+    missingQuantityBehavior: 'needs_count',
+    quantityStrategy: 'count_from_plan',
+  }),
+  plumbing_rough: profile('plumbing_rough', ['ea', 'fixture', 'ls'], {
+    preferredPrimaryUnits: ['ea', 'fixture'],
+    canUseLivingSfAsPricing: false,
+    missingQuantityBehavior: 'needs_count',
+    quantityStrategy: 'count_from_plan',
+  }),
+  electrical_rough: profile('electrical_rough', ['ea', 'ls'], {
+    preferredPrimaryUnits: ['ea'],
+    canUseLivingSfAsPricing: false,
     missingQuantityBehavior: 'needs_count',
     quantityStrategy: 'count_from_plan',
   }),
@@ -116,7 +141,7 @@ export const TRADE_MEASUREMENT_REGISTRY: Record<string, TradeMeasurementProfile>
   }),
   cabinets: profile('cabinets', ['lf', 'ea', 'ls'], {
     canUseLivingSfAsPricing: false,
-    missingQuantityBehavior: 'needs_allowance',
+    missingQuantityBehavior: 'needs_takeoff',
   }),
   countertops: profile('countertops', FLOOR, {
     preferredPrimaryUnits: ['sqft'],
@@ -127,6 +152,21 @@ export const TRADE_MEASUREMENT_REGISTRY: Record<string, TradeMeasurementProfile>
     missingQuantityBehavior: 'needs_takeoff',
   }),
   flooring: profile('flooring', FLOOR, { missingQuantityBehavior: 'needs_takeoff' }),
+  floor_tile: profile('floor_tile', FLOOR, {
+    preferredPrimaryUnits: ['floor_sqft', 'sqft'],
+    canUseLivingSfAsPricing: false,
+    missingQuantityBehavior: 'needs_takeoff',
+  }),
+  shower_tile: profile('shower_tile', SURFACE, {
+    preferredPrimaryUnits: ['sqft', 'surface_sqft'],
+    canUseLivingSfAsPricing: false,
+    missingQuantityBehavior: 'needs_takeoff',
+  }),
+  shower_floor_tile: profile('shower_floor_tile', FLOOR, {
+    preferredPrimaryUnits: ['sqft', 'floor_sqft'],
+    canUseLivingSfAsPricing: false,
+    missingQuantityBehavior: 'needs_takeoff',
+  }),
   appliances: profile('appliances', EA, {
     allowedPricingUnits: ['ea', 'ls'],
     canUseLivingSfAsPricing: false,
@@ -137,11 +177,6 @@ export const TRADE_MEASUREMENT_REGISTRY: Record<string, TradeMeasurementProfile>
     allowedPricingUnits: ['ton', 'ea', 'ls', 'living_sqft'],
     missingQuantityBehavior: 'needs_count',
     quantityStrategy: 'installed_package',
-  }),
-  windows_doors: profile('windows_doors', EA, {
-    preferredPrimaryUnits: ['opening', 'ea'],
-    canUseLivingSfAsPricing: false,
-    missingQuantityBehavior: 'needs_count',
   }),
   cleanup: profile('cleanup', LS, {
     allowedBenchmarkUnits: LIVING_BENCHMARK,
@@ -188,7 +223,10 @@ export const NO_LIVING_SF_PRIMARY_SEED_KEYS = new Set([
   'roofing',
   'exterior',
   'exterior_finishes',
+  'stucco',
   'mep_rough',
+  'plumbing_rough',
+  'electrical_rough',
   'insulation',
   'drywall',
   'paint',
@@ -196,11 +234,15 @@ export const NO_LIVING_SF_PRIMARY_SEED_KEYS = new Set([
   'trim',
   'interior_trim',
   'hvac',
+  'windows_doors',
   'cabinets',
   'cabinets_counters',
   'countertops',
   'tile',
   'tile_flooring',
   'flooring',
+  'floor_tile',
+  'shower_tile',
+  'shower_floor_tile',
   'appliances',
 ]);

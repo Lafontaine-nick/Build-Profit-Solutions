@@ -69,7 +69,7 @@ describe('measurement semantics foundation', () => {
     expect(measurementSemanticsV1Enabled()).toBe(false);
   });
 
-  it('preserves legacy living-SF seeding when measurement semantics is off', () => {
+  it('preserves legacy living-SF seeding for framing when measurement semantics is off', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'false';
     const next = seedPlanFloorAreaItemQuantities(draftWithIncluded(['framing', 'foundation']), {
       floorAreaSqft: 1879,
@@ -79,7 +79,8 @@ describe('measurement semantics foundation', () => {
       quantity: 1879,
       unit: 'sqft',
     });
-    expect(next.itemQuantities?.foundation?.quantity).toBe(1879);
+    // Foundation never seeds living SF as quantity (needs CY takeoff).
+    expect(next.itemQuantities?.foundation?.quantity).toBeUndefined();
   });
 
   it('does not seed living SF as primary takeoff when measurement semantics is on', () => {

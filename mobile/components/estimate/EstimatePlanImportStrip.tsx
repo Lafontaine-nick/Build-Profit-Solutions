@@ -37,6 +37,9 @@ export type PlanImportApplyResult = {
     widthFt?: number | null;
   }>;
   areaReconciliation?: import('@/utils/measurementSemantics').AreaReconciliation | null;
+  buildingAreas?: import('@/utils/planMeasurementFacts').PlanBuildingAreas;
+  planFacts?: import('@/utils/planMeasurementFacts').PlanFacts;
+  fieldConfidence?: Record<string, number>;
 };
 
 type Props = {
@@ -172,6 +175,9 @@ export default function EstimatePlanImportStrip({
         notesBlock: takeoff.notesBlock || '',
         rooms,
         areaReconciliation: takeoff.areaReconciliation ?? null,
+        buildingAreas: takeoff.buildingAreas,
+        planFacts: takeoff.planFacts,
+        fieldConfidence: takeoff.fieldConfidence,
       });
 
       if (Platform.OS === 'ios') {

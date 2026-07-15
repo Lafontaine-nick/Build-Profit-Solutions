@@ -5873,7 +5873,9 @@ export default function EstimateGeneratorScreen() {
       if (
         (planImport?.measurements && Object.keys(planImport.measurements).length) ||
         planImport?.rooms?.length ||
-        planImport?.scopeDetections?.length
+        planImport?.scopeDetections?.length ||
+        planImport?.planFacts ||
+        planImport?.buildingAreas
       ) {
         draft = applyPlanImportToDraft(draft, planImport);
         if (draft.scopeMeasurements) {

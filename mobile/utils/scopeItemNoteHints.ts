@@ -21,6 +21,9 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   mirror_accessories: /\b(mirror|towel\s+bar|accessories|robe\s+hook)\b/,
   cabinets: /\b(cabinets?|new\s+cabinets)\b/,
   countertops: /\b(countertops?|counters|quartz|granite|install\s+new\s+countertops?)\b/,
+  drywall: /\b(drywall|sheetrock|gypsum|hang\s+and\s+finish)\b/,
+  paint_trim: /\b(paint|trim|baseboards?|interior\s+paint)\b/,
+  tile_flooring: /\b(tile\s+(?:and\s+)?flooring|flooring|lvp|laminate|vinyl\s+plank|carpet)\b/,
   backsplash: /\b(backsplash)\b/,
   appliances:
     /\b(appliance\s+reinstall|reinstall(?:ing)?\s+(?:old\s+|existing\s+)?appliances?|appliance\s+install|install\s+appliances?|appliance\s+allowance|hookup\s+appliances?|reconnect\s+appliances?|appliance\s+hookup|appliances?\s+(?:&|and)?\s*hookup)\b/,

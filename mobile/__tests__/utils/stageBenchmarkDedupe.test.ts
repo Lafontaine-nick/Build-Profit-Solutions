@@ -5,10 +5,14 @@ import {
 } from '@/utils/benchmarkEngine';
 import {
   benchmarkApplicationKey,
+  acceptedTradeScopeKeysForStage,
   canApplyStageBenchmarkFill,
+  coversLabelList,
   formatDisplayMoneyNearest100,
   isIncludedInStageChild,
   roundDisplayTotalToNearest100,
+  stageHasAcceptedBenchmarkPricing,
+  stageHasAcceptedTradePricing,
 } from '@/utils/measurementSemantics';
 import {
   resolveChecklistItemQuantity,
@@ -154,10 +158,12 @@ describe('stage benchmark dedupe and card presentation', () => {
 
     expect(canApplyStageBenchmarkFill('interior_finishes', 'interior-finishes')).toBe(true);
     expect(canApplyStageBenchmarkFill('insulation', 'interior-finishes')).toBe(false);
-    expect(isIncludedInStageChild('insulation', 'interior-finishes')).toBe(true);
-    expect(isIncludedInStageChild('drywall', 'interior-finishes')).toBe(true);
-    expect(isIncludedInStageChild('cabinets_counters', 'interior-finishes')).toBe(true);
-    expect(isIncludedInStageChild('paint_trim', 'interior-finishes')).toBe(true);
+    expect(isIncludedInStageChild('insulation', 'interior-finishes')).toBe(false);
+    expect(isIncludedInStageChild('drywall', 'interior-finishes')).toBe(false);
+    expect(isIncludedInStageChild('cabinets_counters', 'interior-finishes')).toBe(false);
+    expect(isIncludedInStageChild('paint_trim', 'interior-finishes')).toBe(false);
+    // Appliances stay stage-covered without separate trade pricing yet.
+    expect(isIncludedInStageChild('appliances', 'interior-finishes')).toBe(true);
 
     const host = resolveScopeItemSuggestedPricing(
       'interior_finishes',
@@ -165,10 +171,16 @@ describe('stage benchmark dedupe and card presentation', () => {
       'ground_up',
       resolveChecklistItemQuantity('interior_finishes', lot41(), { templateKey: 'ground_up' })
     );
-    expect(host.fill?.total).toBeCloseTo(92729.44, 0);
-    expect(host.fill?.benchmarkLevel).toBe('stage');
-    expect(host.fill?.benchmarkAction).toBe('benchmark_only');
+    expect(host.fill).toBeNull();
+    expect(host.comparison).toMatchObject({
+      benchmarkLevel: 'stage',
+      benchmarkAction: 'comparison_only',
+      isComparison: true,
+      total: 92729.44,
+    });
+    expect(host.comparison?.helper).toMatch(/price separate trades/i);
 
+    // Separate finish trades price themselves — no "Included in Interior Finishes".
     for (const child of ['insulation', 'drywall', 'cabinets_counters', 'paint_trim', 'tile_flooring'] as const) {
       const suggested = resolveScopeItemSuggestedPricing(
         child,
@@ -176,11 +188,20 @@ describe('stage benchmark dedupe and card presentation', () => {
         'ground_up',
         resolveChecklistItemQuantity(child, lot41(), { templateKey: 'ground_up' })
       );
-      expect(suggested.fill).toBeNull();
-      expect(suggested.comparison?.benchmarkAction).toBe('included_in_stage');
-      expect(suggested.comparison?.total).toBe(0);
-      expect(suggested.comparison?.includedInStageLabel).toMatch(/Interior Finishes/i);
+      expect(suggested.comparison?.benchmarkAction).not.toBe('included_in_stage');
+      expect(suggested.comparison?.includedInStageLabel || null).toBeNull();
     }
+
+    const insulation = resolveScopeItemSuggestedPricing(
+      'insulation',
+      lot41(),
+      'ground_up',
+      resolveChecklistItemQuantity('insulation', lot41(), { templateKey: 'ground_up' })
+    );
+    expect(insulation.fill?.basis).toEqual({ quantity: 1879, unit: 'sqft' });
+    expect(insulation.fill!.material).toBeGreaterThan(0);
+    expect(insulation.fill!.labor).toBeGreaterThan(0);
+    expect(insulation.fill!.total).toBeGreaterThan(2000);
   });
 
   it('does not apply Exterior Finishes separately through roofing and exterior', () => {
@@ -201,10 +222,15 @@ describe('stage benchmark dedupe and card presentation', () => {
       resolveChecklistItemQuantity('roofing', lot41(), { templateKey: 'ground_up' })
     );
 
-    expect(exterior.fill?.total).toBeCloseTo(52868.82, 0);
-    expect(roofing.fill).toBeNull();
-    expect(roofing.comparison?.benchmarkAction).toBe('included_in_stage');
-    expect(roofing.comparison?.total).toBe(0);
+    expect(exterior.fill).toBeNull();
+    expect(exterior.comparison).toMatchObject({
+      benchmarkAction: 'comparison_only',
+      isComparison: true,
+      total: 52868.82,
+    });
+    // Roofing is a separate trade — no "Included in Exterior Envelope" stage child card.
+    expect(roofing.comparison?.benchmarkAction).not.toBe('included_in_stage');
+    expect(roofing.comparison?.includedInStageLabel || null).toBeNull();
   });
 
   it('does not apply Site Work / Preconstruction through both plans and sitework', () => {
@@ -225,10 +251,128 @@ describe('stage benchmark dedupe and card presentation', () => {
       resolveChecklistItemQuantity('plans_engineering', lot41(), { templateKey: 'ground_up' })
     );
 
-    expect(sitework.fill?.total).toBeCloseTo(24736.92, 0);
+    expect(sitework.fill).toBeNull();
+    expect(sitework.comparison).toMatchObject({
+      benchmarkAction: 'comparison_only',
+      isComparison: true,
+      total: 24736.92,
+    });
     expect(plans.fill?.total).toBeCloseTo(1000, 0);
     expect(plans.fill?.benchmarkLevel).toBe('component');
     expect(plans.fill?.total).toBeLessThan(5000);
+  });
+
+  it('makes a broad stage comparison-only after a covered trade price is accepted', () => {
+    jest.spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion').mockImplementation((id: string) =>
+      stageSuggestion(id, 'site-preconstruction', 24736.92)
+    );
+    const input = lot41();
+    input.pricingAcceptance = {
+      excavation: {
+        selectionStatus: 'accepted',
+        pricingSourceLabel: 'National average',
+        pricingSourceKind: 'national_average',
+        pricingTypeLabel: 'Material + labor',
+        totalAmount: 6600,
+      },
+    };
+
+    expect(
+      acceptedTradeScopeKeysForStage(
+        'site-preconstruction',
+        input.pricingAcceptance
+      )
+    ).toEqual(['excavation']);
+    expect(
+      stageHasAcceptedTradePricing(
+        'site-preconstruction',
+        input.pricingAcceptance
+      )
+    ).toBe(true);
+
+    const sitework = resolveScopeItemSuggestedPricing(
+      'sitework',
+      input,
+      'ground_up',
+      resolveChecklistItemQuantity('sitework', input, {
+        templateKey: 'ground_up',
+      })
+    );
+    expect(sitework.fill).toBeNull();
+    expect(sitework.comparison).toMatchObject({
+      benchmarkAction: 'comparison_only',
+      isComparison: true,
+      total: 24736.92,
+    });
+    expect(sitework.comparison?.helper).toMatch(/price separate trades|separate trade pricing is active/i);
+  });
+
+  it('prices Framing as living-SF material + labor on ground-up; stage benchmark is comparison only', () => {
+    jest.spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion').mockImplementation((id: string) =>
+      stageSuggestion(id, 'framing', 45883.73)
+    );
+    const framing = resolveScopeItemSuggestedPricing(
+      'framing',
+      lot41(),
+      'ground_up',
+      resolveChecklistItemQuantity('framing', lot41(), { templateKey: 'ground_up' })
+    );
+    expect(framing.fill?.material).toBeGreaterThan(0);
+    expect(framing.fill?.labor).toBeGreaterThan(0);
+    expect(framing.fill?.basis).toEqual({ quantity: 1879, unit: 'sqft' });
+    expect(framing.fill?.benchmarkAction).toBe('price_ready');
+    expect(framing.comparison).toMatchObject({
+      benchmarkLevel: 'stage',
+      benchmarkAction: 'comparison_only',
+      isComparison: true,
+    });
+    expect(framing.comparison?.total).toBeCloseTo(45883.73, 0);
+  });
+
+  it('locks MEP rough-in as comparison-only on ground-up', () => {
+    jest.spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion').mockImplementation((id: string) =>
+      stageSuggestion(id, 'major-systems-rough-ins', 47500)
+    );
+    const mep = resolveScopeItemSuggestedPricing(
+      'mep_rough',
+      lot41(),
+      'ground_up',
+      resolveChecklistItemQuantity('mep_rough', lot41(), { templateKey: 'ground_up' })
+    );
+    expect(mep.fill).toBeNull();
+    expect(mep.comparison).toMatchObject({
+      benchmarkAction: 'comparison_only',
+      isComparison: true,
+    });
+  });
+
+  it('does not claim sitework stage covers plans or excavation', () => {
+    expect(coversLabelList('site-preconstruction')).toBe(
+      'general sitework · excavation priced separately'
+    );
+    expect(coversLabelList('site-preconstruction')).not.toMatch(/plans/i);
+  });
+
+  it('detects an accepted stage benchmark separately from trade pricing', () => {
+    const pricingAcceptance = {
+      sitework: {
+        selectionStatus: 'accepted',
+        pricingSourceKind: 'local_benchmark',
+        totalAmount: 24736.92,
+      },
+    } as any;
+    expect(
+      stageHasAcceptedBenchmarkPricing(
+        'site-preconstruction',
+        pricingAcceptance
+      )
+    ).toBe(true);
+    expect(
+      stageHasAcceptedTradePricing(
+        'site-preconstruction',
+        pricingAcceptance
+      )
+    ).toBe(false);
   });
 
   it('builds a stable benchmarkApplicationKey and rounds display only', () => {
@@ -245,7 +389,7 @@ describe('stage benchmark dedupe and card presentation', () => {
     expect(roundDisplayTotalToNearest100(45883.73)).not.toBe(45883.73);
   });
 
-  it('marks comparison-only / included cards as non-writing', () => {
+  it('does not mark separate finish trades as included-in-stage cards', () => {
     jest.spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion').mockImplementation((id: string) =>
       stageSuggestion(id, 'interior-finishes', 92729.44)
     );
@@ -255,11 +399,11 @@ describe('stage benchmark dedupe and card presentation', () => {
       'ground_up',
       resolveChecklistItemQuantity('drywall', lot41(), { templateKey: 'ground_up' })
     );
-    expect(drywall.comparison?.benchmarkAction).toBe('included_in_stage');
-    expect(drywall.comparison?.isComparison).toBe(true);
+    expect(drywall.comparison?.benchmarkAction).not.toBe('included_in_stage');
+    expect(drywall.comparison?.includedInStageLabel || null).toBeNull();
   });
 
-  it('keeps exact stored totals while display rounding differs', () => {
+  it('keeps exact stored totals on stage comparison while display rounding differs', () => {
     jest.spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion').mockImplementation((id: string) =>
       stageSuggestion(id, 'framing', 45883.73)
     );
@@ -269,9 +413,11 @@ describe('stage benchmark dedupe and card presentation', () => {
       'ground_up',
       resolveChecklistItemQuantity('framing', lot41(), { templateKey: 'ground_up' })
     );
-    expect(framing.fill?.storedTotalExact).toBeCloseTo(45883.73, 1);
-    expect(framing.fill?.total).toBeCloseTo(45883.73, 1);
-    expect(roundDisplayTotalToNearest100(framing.fill?.total)).toBe(45900);
+    expect(framing.comparison?.storedTotalExact).toBeCloseTo(45883.73, 1);
+    expect(framing.comparison?.total).toBeCloseTo(45883.73, 1);
+    expect(roundDisplayTotalToNearest100(framing.comparison?.total)).toBe(45900);
+    expect(framing.fill?.material).toBeGreaterThan(0);
+    expect(framing.fill?.labor).toBeGreaterThan(0);
   });
 
   it('detects exact source match reasons for Lot 41 living SF', () => {

@@ -41,6 +41,8 @@ export type QuickMeasurementFieldDef = {
   group: QuickMeasurementGroupId;
   /** Emphasize as the main driver field (full-width, first). */
   primary?: boolean;
+  /** Short clarifying line shown under the label (e.g. what's included/excluded). */
+  helperText?: string;
 };
 
 /** Two fields per row when consecutive defs share a row group. */
@@ -70,8 +72,12 @@ const F = (
   placeholder: string,
   unit: string,
   group: QuickMeasurementGroupId,
-  primary?: boolean
-): QuickMeasurementFieldDef => ({ key, label, placeholder, unit, group, primary });
+  primary?: boolean,
+  helperText?: string
+): QuickMeasurementFieldDef => ({ key, label, placeholder, unit, group, primary, helperText });
+
+const EXTERIOR_FLATWORK_LABEL = 'Exterior concrete flatwork';
+const EXTERIOR_FLATWORK_HELPER = 'Driveway, walkways, porch, and exterior patio slabs — not the house or garage slab.';
 
 const QUICK_MEASUREMENT_FIELD_DEFS: Record<QuickMeasurementFieldKey, QuickMeasurementFieldDef> = {
   bathroomFloorSqft: F('bathroomFloorSqft', 'Bath floor', '90', 'sqft', 'interior'),
@@ -79,7 +85,7 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Record<QuickMeasurementFieldKey, QuickMeasur
   floorAreaSqft: F('floorAreaSqft', 'Floor area', '1200', 'sqft', 'structure', true),
   backsplashSqft: F('backsplashSqft', 'Backsplash', '40', 'sqft', 'interior'),
   countertopSqft: F('countertopSqft', 'Counters', '55', 'sqft', 'interior'),
-  cabinetLf: F('cabinetLf', 'Cabinets', '24', 'LF', 'interior'),
+  cabinetLf: F('cabinetLf', 'Cabinets / vanity', '24', 'LF', 'interior'),
   showerWallTileSqft: F('showerWallTileSqft', 'Shower walls', '90', 'sqft', 'interior'),
   showerFloorTileSqft: F('showerFloorTileSqft', 'Shower floor', '15', 'sqft', 'interior'),
   wallPaintSqft: F('wallPaintSqft', 'Interior paint', '320', 'sqft', 'interior'),
@@ -93,8 +99,16 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Record<QuickMeasurementFieldKey, QuickMeasur
   landscapeTons: F('landscapeTons', 'Rock / mulch', '12', 'tons', 'site'),
   roofSquares: F('roofSquares', 'Roof', '28', 'sq', 'structure'),
   drywallSqft: F('drywallSqft', 'Drywall', '800', 'sqft', 'interior'),
-  flooringSqft: F('flooringSqft', 'Flooring', '600', 'sqft', 'interior'),
-  concreteSqft: F('concreteSqft', 'Flatwork', '400', 'sqft', 'structure'),
+  flooringSqft: F(
+    'flooringSqft',
+    'Flooring',
+    '600',
+    'sqft',
+    'interior',
+    undefined,
+    'Usually matches living area unless unfinished space differs.'
+  ),
+  concreteSqft: F('concreteSqft', EXTERIOR_FLATWORK_LABEL, '400', 'sqft', 'structure', undefined, EXTERIOR_FLATWORK_HELPER),
   concreteCy: F('concreteCy', 'Concrete', '12', 'CY', 'structure'),
   excavationCy: F('excavationCy', 'Excavation', '45', 'CY', 'site'),
   deckSqft: F('deckSqft', 'Deck / patio', '320', 'sqft', 'exterior'),
@@ -148,7 +162,7 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
     ),
     row(
       F('countertopSqft', 'Counters', '55', 'sqft', 'interior'),
-      F('cabinetLf', 'Cabinets', '24', 'LF', 'interior')
+      F('cabinetLf', 'Cabinets / vanity', '24', 'LF', 'interior')
     ),
     row(
       F('wallPaintSqft', 'Paint', '320', 'sqft', 'interior'),
@@ -186,14 +200,14 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
   ],
   concrete: [
     row(
-      F('concreteSqft', 'Flatwork', '400', 'sqft', 'structure', true),
+      F('concreteSqft', EXTERIOR_FLATWORK_LABEL, '400', 'sqft', 'structure', true, EXTERIOR_FLATWORK_HELPER),
       F('concreteCy', 'Concrete', '12', 'CY', 'structure')
     ),
   ],
   deck_patio: [
     row(
       F('deckSqft', 'Deck / patio', '320', 'sqft', 'exterior', true),
-      F('concreteSqft', 'Concrete flatwork', '180', 'sqft', 'structure')
+      F('concreteSqft', EXTERIOR_FLATWORK_LABEL, '180', 'sqft', 'structure', undefined, EXTERIOR_FLATWORK_HELPER)
     ),
     row(F('railingLf', 'Railing', '48', 'LF', 'exterior')),
   ],
@@ -213,7 +227,13 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
       F('baseboardLf', 'Trim', '48', 'LF', 'interior')
     ),
   ],
-  /** New build / ground-up — living SF first, then rooms + outdoor. */
+  /**
+   * New build / ground-up — living SF first, then structure/site, then
+   * room finishes (bath/shower/kitchen) and envelope quantities needed to
+   * price a fuller preliminary build. Confirm Scope shows each empty field's
+   * source-aware state (Detected / Estimate available / Needs confirmation)
+   * rather than a blanket "Recommended" flag.
+   */
   ground_up: [
     row(F('floorAreaSqft', 'Living area', '2400', 'sqft', 'structure', true)),
     row(
@@ -221,16 +241,32 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
       F('deckSqft', 'Deck / patio', '400', 'sqft', 'exterior')
     ),
     row(
+      F('concreteSqft', EXTERIOR_FLATWORK_LABEL, '400', 'sqft', 'structure', undefined, EXTERIOR_FLATWORK_HELPER),
+      F('roofSquares', 'Roof', '28', 'sq', 'structure')
+    ),
+    row(
+      F('excavationCy', 'Excavation', '45', 'CY', 'site'),
+      F('concreteCy', 'Foundation and building slabs', '18', 'CY', 'structure')
+    ),
+    row(
       F('kitchenFloorSqft', 'Kitchen floor', '180', 'sqft', 'interior'),
       F('bathroomFloorSqft', 'Bath floor', '90', 'sqft', 'interior')
     ),
     row(
-      F('concreteSqft', 'Concrete flatwork', '400', 'sqft', 'structure'),
+      F('showerWallTileSqft', 'Shower walls', '90', 'sqft', 'interior'),
+      F('showerFloorTileSqft', 'Shower floor', '15', 'sqft', 'interior')
+    ),
+    row(
+      F('cabinetLf', 'Cabinets / vanity', '24', 'LF', 'interior'),
+      F('countertopSqft', 'Counters', '55', 'sqft', 'interior')
+    ),
+    row(
+      F('drywallSqft', 'Drywall', '800', 'sqft', 'interior'),
       F('flooringSqft', 'Flooring', '2400', 'sqft', 'interior')
     ),
     row(
-      F('excavationCy', 'Excavation', '45', 'CY', 'site'),
-      F('concreteCy', 'Foundation', '18', 'CY', 'structure')
+      F('wallPaintSqft', 'Interior paint', '3200', 'sqft', 'interior'),
+      F('exteriorPaintSqft', 'Exterior paint', '2200', 'sqft', 'exterior')
     ),
   ],
   /** Whole-home remodel / addition — same living-first layout as ground_up. */
@@ -241,16 +277,32 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
       F('deckSqft', 'Deck / patio', '320', 'sqft', 'exterior')
     ),
     row(
+      F('concreteSqft', EXTERIOR_FLATWORK_LABEL, '400', 'sqft', 'structure', undefined, EXTERIOR_FLATWORK_HELPER),
+      F('roofSquares', 'Roof', '22', 'sq', 'structure')
+    ),
+    row(
+      F('excavationCy', 'Excavation', '45', 'CY', 'site'),
+      F('concreteCy', 'Foundation and building slabs', '18', 'CY', 'structure')
+    ),
+    row(
       F('kitchenFloorSqft', 'Kitchen floor', '180', 'sqft', 'interior'),
       F('bathroomFloorSqft', 'Bath floor', '90', 'sqft', 'interior')
     ),
     row(
-      F('concreteSqft', 'Concrete flatwork', '400', 'sqft', 'structure'),
+      F('showerWallTileSqft', 'Shower walls', '90', 'sqft', 'interior'),
+      F('showerFloorTileSqft', 'Shower floor', '15', 'sqft', 'interior')
+    ),
+    row(
+      F('cabinetLf', 'Cabinets / vanity', '24', 'LF', 'interior'),
+      F('countertopSqft', 'Counters', '55', 'sqft', 'interior')
+    ),
+    row(
+      F('drywallSqft', 'Drywall', '800', 'sqft', 'interior'),
       F('flooringSqft', 'Flooring', '1200', 'sqft', 'interior')
     ),
     row(
-      F('excavationCy', 'Excavation', '45', 'CY', 'site'),
-      F('concreteCy', 'Foundation', '18', 'CY', 'structure')
+      F('wallPaintSqft', 'Interior paint', '2400', 'sqft', 'interior'),
+      F('exteriorPaintSqft', 'Exterior paint', '1800', 'sqft', 'exterior')
     ),
   ],
 };
@@ -332,7 +384,7 @@ function applyProjectSpecificQuickMeasurementLabels(
   );
 }
 
-function hasQuickMeasurementValue(value: unknown): boolean {
+export function hasQuickMeasurementValue(value: unknown): boolean {
   const n = Number(String(value ?? '').replace(/,/g, '').trim());
   return Number.isFinite(n) && n > 0;
 }
@@ -458,6 +510,24 @@ export function quickMeasurementDisplayLabel(field: QuickMeasurementFieldDef): s
   if (field.key === 'flooringSqft') return 'Gross interior floor area';
   if (field.key === 'floorAreaSqft' && field.label === 'Floor area') return 'Living area';
   return field.label;
+}
+
+/** Short clarifying line under a field label (Living vs Gross interior, flatwork exclusions, etc.). */
+export function quickMeasurementHelperText(field: QuickMeasurementFieldDef): string | undefined {
+  if (field.helperText) return field.helperText;
+  if (field.key === 'flooringSqft') {
+    return 'Usually matches living area unless unfinished space differs.';
+  }
+  if (field.key === 'floorAreaSqft') {
+    return 'Heated living area from the plan.';
+  }
+  if (field.key === 'cabinetLf') {
+    return 'Total for kitchen, bathrooms, laundry, and other cabinetry/vanities.';
+  }
+  if (field.key === 'countertopSqft') {
+    return 'Total for kitchen, bathrooms, and other countertops.';
+  }
+  return undefined;
 }
 
 export function emptyQuickMeasurementInput(): Record<QuickMeasurementFieldKey, string> {

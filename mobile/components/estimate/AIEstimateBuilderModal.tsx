@@ -175,6 +175,9 @@ export default function AIEstimateBuilderModal({
       rooms: result.rooms || [],
       notesBlock: result.notesBlock || null,
       areaReconciliation: result.areaReconciliation ?? null,
+      buildingAreas: result.buildingAreas,
+      planFacts: result.planFacts,
+      fieldConfidence: result.fieldConfidence,
     });
     setTimeout(() => {
       const meas = Object.keys(result.measurements || {}).length;

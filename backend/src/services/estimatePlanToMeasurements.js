@@ -94,6 +94,7 @@ Extract BOTH:
    - mainFloorLivingSqft, upstairsLivingSqft, garageSqft, coveredPatioSqft, coveredOutdoorSqft, roofDeckSqft when labeled.
 2. EVERY individual room / space with a readable length×width or labeled SF on floor-plan pages — not a sample. Estimators need per-room SF when finishes differ (tile vs carpet, etc.).
 3. Elevations / sections: use for notes (ceiling heights, materials) only — NEVER use elevations to invent floor square footage.
+4. Structured planFacts with evidence for each fact. Include only printed/labeled facts: story count/floor evidence, roof pitch, wall or plate heights, exterior/foundation perimeter LF, non-painted exterior finish percent (stone/brick/stucco/masonry), covered-patio roof status, page/sheet, and supplied geometry. Never infer geometry or fabricate a quantity.
 
 Exhaustive rooms (required):
 - Include every labeled room you can read: bedrooms, primary suite, den/office, great room / living / family, dining, kitchen, pantry, laundry, mud, foyer/entry, hallways (when dimensioned), closets / WIC, powder, every bathroom (primary bath, guest bath, Jack & Jill, etc.), garage / RV garage / shop, covered patio / porch / deck, and similarly labeled spaces.
@@ -141,6 +142,25 @@ Schema:
     "coveredPatioSqft": 375,
     "coveredOutdoorSqft": 73,
     "roofDeckSqft": 331
+  },
+  "planFacts": {
+    "storyCount": 2,
+    "roofPitch": "5:12",
+    "wallHeightFt": 9,
+    "plateHeightFt": 9,
+    "exteriorPerimeterLf": 214,
+    "foundationPerimeterLf": 214,
+    "nonPaintedExteriorPercent": 25,
+    "coveredPatioRoofed": true,
+    "geometry": [],
+    "fieldEvidence": {
+      "storyCount": {
+        "value": 2,
+        "sourceType": "detected_from_plan",
+        "confidence": "high",
+        "evidence": [{ "page": 2, "sheet": "A1.1", "label": "Upper Floor", "sourceText": "UPPER FLOOR LIVING 1209 SF", "sourceType": "plan_vision", "confidence": 0.95 }]
+      }
+    }
   },
   "rooms": [
     {
@@ -232,6 +252,11 @@ function sanitizeRooms(rawRooms) {
       confidence: Math.max(0, Math.min(1, Number(room.confidence) || 0)),
     };
     if (room.source) entry.source = String(room.source).slice(0, 40);
+    const sourcePage = Number(room.sourcePage);
+    if (Number.isInteger(sourcePage) && sourcePage > 0 && sourcePage <= 1000) {
+      entry.sourcePage = sourcePage;
+    }
+    if (room.sourceSheet) entry.sourceSheet = String(room.sourceSheet).trim().slice(0, 20);
     out.push(entry);
   }
   return out.slice(0, 60);
@@ -372,13 +397,180 @@ function sanitizeBuildingAreas(raw) {
     const v = positive(raw[key]);
     if (v != null) out[key] = Math.round(v * 10) / 10;
   }
+  const additional = (Array.isArray(raw.additionalFloorAreas) ? raw.additionalFloorAreas : [])
+    .map(positive)
+    .filter((v) => v != null)
+    .map((v) => Math.round(v * 10) / 10)
+    .slice(0, 4);
+  if (additional.length) out.additionalFloorAreas = additional;
   if (out.totalLivingSqft == null) {
-    const parts = [out.mainFloorLivingSqft, out.upstairsLivingSqft].filter((v) => v != null);
+    const parts = [
+      out.mainFloorLivingSqft,
+      out.upstairsLivingSqft,
+      ...(out.additionalFloorAreas || []),
+    ].filter((v) => v != null);
     if (parts.length) {
       out.totalLivingSqft = Math.round(parts.reduce((s, v) => s + v, 0) * 10) / 10;
     }
   }
   return out;
+}
+
+const EVIDENCE_SOURCE_TYPES = new Set(['pdf_text', 'plan_vision', 'user', 'unknown']);
+const FACT_SOURCE_TYPES = new Set([
+  'detected_from_plan',
+  'measured_from_geometry',
+  'user_entered',
+  'needs_confirmation',
+]);
+const FACT_CONFIDENCE = new Set(['high', 'medium', 'low', 'unresolved']);
+const GEOMETRY_KINDS = new Set([
+  'living_footprint',
+  'garage_footprint',
+  'covered_patio',
+  'roof_plane',
+  'foundation',
+  'courtyard',
+  'detached_structure',
+  'other',
+]);
+
+function sanitizeEvidence(raw) {
+  const out = [];
+  for (const item of Array.isArray(raw) ? raw : []) {
+    if (!item || typeof item !== 'object') continue;
+    const entry = {};
+    const page = Number(item.page ?? item.sourcePage);
+    if (Number.isInteger(page) && page > 0 && page <= 1000) entry.page = page;
+    const sheet = String(item.sheet ?? item.sourceSheet ?? '').trim();
+    if (sheet) entry.sheet = sheet.slice(0, 20);
+    const label = String(item.label || '').trim();
+    if (label) entry.label = label.slice(0, 80);
+    const sourceText = String(item.sourceText || '').trim();
+    if (sourceText) entry.sourceText = sourceText.slice(0, 200);
+    const sourceType = String(item.sourceType || '').trim();
+    entry.sourceType = EVIDENCE_SOURCE_TYPES.has(sourceType) ? sourceType : 'unknown';
+    const confidence = Number(item.confidence);
+    if (Number.isFinite(confidence)) entry.confidence = Math.max(0, Math.min(1, confidence));
+    if (entry.page || entry.sheet || entry.label || entry.sourceText) out.push(entry);
+  }
+  return out.slice(0, 12);
+}
+
+function sanitizeGeometry(raw) {
+  const regions = [];
+  for (const region of Array.isArray(raw) ? raw : []) {
+    const id = String(region?.id || '').trim().slice(0, 60);
+    const kind = String(region?.kind || '').trim();
+    if (!id || !GEOMETRY_KINDS.has(kind)) continue;
+    const entry = { id, kind };
+    for (const key of ['areaSqft', 'perimeterLf']) {
+      const value = positive(region[key]);
+      if (value != null) entry[key] = Math.round(value * 100) / 100;
+    }
+    if (typeof region.pitch === 'string' && /^\d{1,2}\s*[:/]\s*12$/.test(region.pitch.trim())) {
+      entry.pitch = region.pitch.trim().replace('/', ':').replace(/\s+/g, '');
+    }
+    for (const key of ['isRoofed', 'isIncluded']) {
+      if (typeof region[key] === 'boolean') entry[key] = region[key];
+    }
+    const points = (Array.isArray(region.points) ? region.points : [])
+      .map((point) => ({ x: Number(point?.x), y: Number(point?.y) }))
+      .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+      .slice(0, 500);
+    if (points.length >= 3) entry.points = points;
+    const evidence = sanitizeEvidence(region.evidence);
+    if (evidence.length) entry.evidence = evidence;
+    // Geometry is accepted only when it contains supplied dimensions or points.
+    if (entry.areaSqft != null || entry.perimeterLf != null || entry.points) regions.push(entry);
+  }
+  return regions.slice(0, 100);
+}
+
+function sanitizePlanFacts(raw, buildingAreas = {}) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const fieldEvidence = {};
+  for (const [key, fact] of Object.entries(src.fieldEvidence || {})) {
+    if (!fact || typeof fact !== 'object') continue;
+    const evidence = sanitizeEvidence(fact.evidence);
+    if (!evidence.length) continue;
+    const sourceType = String(fact.sourceType || '');
+    const confidence = String(fact.confidence || '');
+    fieldEvidence[String(key).slice(0, 80)] = {
+      value:
+        ['string', 'number', 'boolean'].includes(typeof fact.value) ? fact.value : null,
+      sourceType: FACT_SOURCE_TYPES.has(sourceType) ? sourceType : 'detected_from_plan',
+      confidence: FACT_CONFIDENCE.has(confidence) ? confidence : 'medium',
+      evidence,
+    };
+  }
+  const out = { buildingAreas: sanitizeBuildingAreas(buildingAreas), fieldEvidence };
+  const hasEvidence = (key) => Boolean(fieldEvidence[key]?.evidence?.length);
+  const storyCount = Number(src.storyCount);
+  if (hasEvidence('storyCount') && Number.isInteger(storyCount) && storyCount >= 1 && storyCount <= 10) {
+    out.storyCount = storyCount;
+  }
+  if (hasEvidence('roofPitch')) {
+    const pitch = String(src.roofPitch || '').trim().toLowerCase();
+    if (/^\d{1,2}\s*[:/]\s*12$/.test(pitch)) out.roofPitch = pitch.replace('/', ':').replace(/\s+/g, '');
+    else if (pitch === 'low-slope') out.roofPitch = pitch;
+  }
+  for (const key of ['wallHeightFt', 'plateHeightFt']) {
+    const value = positive(src[key]);
+    if (hasEvidence(key) && value != null && value <= 40) out[key] = Math.round(value * 1000) / 1000;
+  }
+  for (const key of ['exteriorPerimeterLf', 'foundationPerimeterLf', 'foundationFootprintSqft', 'roofedFootprintSqft']) {
+    const value = positive(src[key]);
+    if (hasEvidence(key) && value != null && value <= 50000) {
+      out[key] = Math.round(value * 10) / 10;
+    }
+  }
+  for (const key of ['nonPaintedExteriorPercent', 'openingsPercent', 'roofWastePercent']) {
+    const value = Number(src[key]);
+    if (hasEvidence(key) && Number.isFinite(value) && value >= 0 && value <= 100) {
+      out[key] = Math.round(value * 10) / 10;
+    }
+  }
+  if (hasEvidence('coveredPatioRoofed') && typeof src.coveredPatioRoofed === 'boolean') {
+    out.coveredPatioRoofed = src.coveredPatioRoofed;
+  }
+  if (hasEvidence('includeCoveredPatioSlab') && typeof src.includeCoveredPatioSlab === 'boolean') {
+    out.includeCoveredPatioSlab = src.includeCoveredPatioSlab;
+  }
+  const geometry = sanitizeGeometry(src.geometry);
+  if (geometry.length) out.geometry = geometry;
+  const warnings = (Array.isArray(src.warnings) ? src.warnings : [])
+    .map((warning) => String(warning || '').trim().slice(0, 200))
+    .filter(Boolean)
+    .slice(0, 10);
+  if (warnings.length) out.warnings = warnings;
+  return out;
+}
+
+function reconcileLabeledLivingAreas(buildingAreas, current = null) {
+  const floors = [
+    positive(buildingAreas.mainFloorLivingSqft),
+    positive(buildingAreas.upstairsLivingSqft),
+    ...(buildingAreas.additionalFloorAreas || []).map(positive),
+  ].filter((value) => value != null);
+  const cover = positive(buildingAreas.totalLivingSqft);
+  if (!cover || !floors.length) return current;
+  const floorLivingSqft = Math.round(floors.reduce((sum, value) => sum + value, 0) * 10) / 10;
+  const floorDeltaSqft = Math.round((floorLivingSqft - cover) * 10) / 10;
+  return {
+    ...(current || {}),
+    coverTotalLivingSqft: cover,
+    floorLivingSqft,
+    floorDeltaSqft,
+    floorAreaStatus: Math.abs(floorDeltaSqft) < 0.6 ? 'reconciled' : 'review',
+    warnings:
+      Math.abs(floorDeltaSqft) < 0.6
+        ? current?.warnings || []
+        : [
+            ...(current?.warnings || []),
+            `Labeled floor areas differ from the cover total by ${floorDeltaSqft} sqft.`,
+          ],
+  };
 }
 
 function scheduleDeckSqft(buildingAreas) {
@@ -781,6 +973,8 @@ async function analyzePlanForMeasurements({
     lowConfidence: [],
     unreadableFields,
     buildingAreas: {},
+    planFacts: { buildingAreas: {}, fieldEvidence: {} },
+    areaReconciliation: null,
     itemQuantities: {},
     assumptions: [],
     notesBlock: '',
@@ -815,6 +1009,21 @@ async function analyzePlanForMeasurements({
     ...(parsed.buildingAreas || {}),
     ...(pdfTakeoff?.buildingAreas || {}),
   });
+  const pdfPlanFacts = pdfTakeoff?.planFacts || {};
+  const visionPlanFacts = parsed.planFacts || {};
+  const planFacts = sanitizePlanFacts(
+    {
+      ...visionPlanFacts,
+      ...pdfPlanFacts,
+      geometry: visionPlanFacts.geometry,
+      warnings: [...(visionPlanFacts.warnings || []), ...(pdfPlanFacts.warnings || [])],
+      fieldEvidence: {
+        ...(visionPlanFacts.fieldEvidence || {}),
+        ...(pdfPlanFacts.fieldEvidence || {}),
+      },
+    },
+    buildingAreas
+  );
   const fieldConfidence = sanitizeFieldConfidence(parsed.fieldConfidence);
   // PDF schedule totals are authoritative — mark high confidence so they are kept.
   if (pdfTakeoff?.buildingAreas?.totalLivingSqft != null) fieldConfidence.floorAreaSqft = 1;
@@ -871,13 +1080,17 @@ async function analyzePlanForMeasurements({
       areaReconciliation = buildAreaReconciliation({
         declaredLivingSf: measurements.floorAreaSqft ?? buildingAreas?.totalLivingSqft,
         declaredGarageSf: measurements.garageSqft ?? buildingAreas?.garageSqft,
-        patioDeckSf: measurements.deckSqft ?? buildingAreas?.patioPorchSqft,
+        patioDeckSf:
+          measurements.deckSqft ??
+          buildingAreas?.coveredPatioSqft ??
+          buildingAreas?.coveredOutdoorSqft,
         rooms,
       });
     }
   } catch {
     areaReconciliation = null;
   }
+  areaReconciliation = reconcileLabeledLivingAreas(buildingAreas, areaReconciliation);
 
   return {
     success: true,
@@ -889,6 +1102,7 @@ async function analyzePlanForMeasurements({
     lowConfidence,
     unreadableFields,
     buildingAreas,
+    planFacts,
     areaReconciliation,
     itemQuantities: buildItemQuantities(measurements),
     assumptions,
@@ -923,6 +1137,10 @@ module.exports = {
   sanitizeRooms,
   sanitizeMeasurements,
   sanitizeBuildingAreas,
+  sanitizePlanFacts,
+  sanitizeEvidence,
+  sanitizeGeometry,
+  reconcileLabeledLivingAreas,
   sanitizeFieldConfidence,
   sanitizeUnreadableFields,
   applyConfidenceFloor,

@@ -3,10 +3,12 @@ const {
   parseDimensionString,
   normalizeRoomLabel,
   parseScheduleFromText,
+  parsePageFactsFromText,
   extractRoomsFromPhrases,
   dedupeRoomsByName,
   formatPdfEvidenceForVision,
 } = require('../planPdfTextTakeoff');
+const shvPlanFacts = require('../testFixtures/shvPlanFacts');
 
 describe('planPdfTextTakeoff', () => {
   test('collapseDoubledGlyphs undoes CAD double-draw text', () => {
@@ -43,9 +45,77 @@ describe('planPdfTextTakeoff', () => {
       'Sand Hollow Village Lot 41 Square Footage: Main Living Area: 1,879 SqFt Garages: 994 SqFt Covered Patio: 247 SqFt';
     expect(parseScheduleFromText(text)).toEqual({
       totalLivingSqft: 1879,
+      mainFloorLivingSqft: 1879,
       garageSqft: 994,
       coveredPatioSqft: 247,
     });
+  });
+
+  test.each(shvPlanFacts)('extracts labeled facts and evidence for SHV Lot $lot', ({ text, expected }) => {
+    const { buildingAreas, planFacts, sourceSheet } = parsePageFactsFromText(text, { page: 2 });
+    for (const key of [
+      'totalLivingSqft',
+      'mainFloorLivingSqft',
+      'upstairsLivingSqft',
+      'garageSqft',
+      'coveredPatioSqft',
+    ]) {
+      if (expected[key] != null) expect(buildingAreas[key]).toBe(expected[key]);
+    }
+    expect(planFacts.storyCount).toBe(expected.storyCount);
+    expect(planFacts.roofPitch).toBe(expected.roofPitch);
+    expect(planFacts.coveredPatioRoofed).toBe(true);
+    if (expected.wallHeightFt != null) expect(planFacts.wallHeightFt).toBe(expected.wallHeightFt);
+    if (expected.plateHeightFt != null) expect(planFacts.plateHeightFt).toBe(expected.plateHeightFt);
+    if (expected.exteriorPerimeterLf != null) {
+      expect(planFacts.exteriorPerimeterLf).toBe(expected.exteriorPerimeterLf);
+    }
+    if (expected.foundationPerimeterLf != null) {
+      expect(planFacts.foundationPerimeterLf).toBe(expected.foundationPerimeterLf);
+    }
+    if (expected.nonPaintedExteriorPercent != null) {
+      expect(planFacts.nonPaintedExteriorPercent).toBe(expected.nonPaintedExteriorPercent);
+    }
+    expect(sourceSheet).toMatch(/^A/);
+    expect(planFacts.fieldEvidence.roofPitch.evidence[0]).toMatchObject({
+      page: 2,
+      sheet: sourceSheet,
+      sourceType: 'pdf_text',
+    });
+  });
+
+  test('parseLabeledHeight and perimeter/finish helpers read elevation notes', () => {
+    const {
+      parseLabeledHeight,
+      parseLabeledPerimeter,
+      parseNonPaintedExteriorPercent,
+      parsePitch,
+      parseOverallEnvelopePerimeter,
+      normalizeCadCallouts,
+    } = require('../planPdfTextTakeoff');
+    expect(parseLabeledHeight("PLATE HEIGHT 10'-0\"", 'plate')?.value).toBe(10);
+    expect(parseLabeledHeight("CEILING HEIGHT 9'-1\"", 'wall')?.value).toBeCloseTo(9.083, 3);
+    expect(parseLabeledHeight("TOPOFPLATE 10.2'", 'plate')?.value).toBe(10.2);
+    expect(parseLabeledHeight('TOP OF PLATE 10.2\'', 'plate')?.value).toBe(10.2);
+    expect(parseLabeledPerimeter('EXTERIOR PERIMETER 214 LF', 'exterior')?.value).toBe(214);
+    expect(parseLabeledPerimeter("FOUNDATION PERIMETER 198'-6\"", 'foundation')?.value).toBeCloseTo(
+      198.5,
+      1
+    );
+    expect(parseNonPaintedExteriorPercent('STONE 20% BRICK 10%')?.value).toBe(30);
+    expect(parsePitch('ROOF PLAN 5:12 5:12 5:12')?.value).toBe('5:12');
+    expect(normalizeCadCallouts('TOPOFPLATE 10.2\'')).toContain('TOP OF PLATE');
+    expect(
+      parseOverallEnvelopePerimeter(
+        "FOUNDATION PLAN 70'-6\" 45'-8\" 26'-8\" 13'-6\" 70'-6\" 45'-8\""
+      )?.value
+    ).toBe(232.4);
+    expect(
+      parseOverallEnvelopePerimeter("FOUNDATION PLAN 70'-6\" 45'-8\" 26'-8\" 13'-6\"")
+    ).toBeNull();
+    expect(
+      parseOverallEnvelopePerimeter("FOUNDATION PLAN GARAGE 31'-1\"X23'-4\" 70'-6\" 70'-6\"")
+    ).toBeNull();
   });
 
   test('extractRoomsFromPhrases pairs each label with nearest L×W (SHV-like)', () => {
@@ -75,7 +145,7 @@ describe('planPdfTextTakeoff', () => {
       { str: 'BED2/OFFICE', x: 788, y: 546 },
       { str: "10'-9\"X10'-2\"", x: 799, y: 534 },
     ];
-    const rooms = extractRoomsFromPhrases(phrases);
+    const rooms = extractRoomsFromPhrases(phrases, { sourcePage: 3, sourceSheet: 'A1.1' });
     const byName = Object.fromEntries(rooms.map((r) => [r.name, r]));
     expect(byName.Kitchen.areaSqft).toBe(194.1);
     expect(byName.Dining.areaSqft).toBe(112.3);
@@ -88,6 +158,7 @@ describe('planPdfTextTakeoff', () => {
     expect(byName['Bed 3'].areaSqft).toBe(106.8);
     expect(byName['Bed 2/Office'].areaSqft).toBe(109.3);
     expect(rooms).toHaveLength(12);
+    expect(rooms[0]).toMatchObject({ sourcePage: 3, sourceSheet: 'A1.1' });
   });
 
   test('dedupeRoomsByName keeps higher confidence', () => {

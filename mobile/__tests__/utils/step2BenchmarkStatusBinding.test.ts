@@ -117,7 +117,7 @@ describe('Step 2 benchmark + measurement-status binding', () => {
     jest.restoreAllMocks();
   });
 
-  it('shows benchmark evidence when primary takeoff is missing for framing', () => {
+  it('shows framing mat+labor when primary takeoff is missing; stage benchmark is comparison', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
     process.env.EXPO_PUBLIC_BUILD_AI_BENCHMARK_ENGINE_V1 = 'true';
     jest
@@ -135,13 +135,16 @@ describe('Step 2 benchmark + measurement-status binding', () => {
       'ground_up',
       resolved
     );
-    expect(suggested.fill?.laborSource).toBe('local_benchmark');
-    expect(suggested.fill?.total).toBeCloseTo(45883.73, 0);
-    expect(suggested.fill?.benchmarkEvidence).toBeTruthy();
-    expect(suggested.fill?.basis?.unit).toBe('living_sqft');
+    expect(suggested.fill?.materialSource).toBe('national_average');
+    expect(suggested.fill?.laborSource).toBe('national_average');
+    expect(suggested.fill?.material).toBeGreaterThan(0);
+    expect(suggested.fill?.labor).toBeGreaterThan(0);
+    expect(suggested.fill?.basis).toEqual({ quantity: 1879, unit: 'sqft' });
+    expect(suggested.comparison?.total).toBeCloseTo(45883.73, 0);
+    expect(suggested.comparison?.benchmarkAction).toBe('comparison_only');
   });
 
-  it('keeps framing primary takeoff empty while benchmark total ~$45,884', () => {
+  it('prices framing from living SF as material + labor (benchmark is comparison only)', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
     process.env.EXPO_PUBLIC_BUILD_AI_BENCHMARK_ENGINE_V1 = 'true';
     jest.spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion').mockReturnValue(framingSuggestion());
@@ -149,6 +152,7 @@ describe('Step 2 benchmark + measurement-status binding', () => {
     const resolved = resolveChecklistItemQuantity('framing', lot41Measurements(), {
       templateKey: 'ground_up',
     });
+    // Primary takeoff stays empty until package/board-foot takeoff exists.
     expect(resolved.quantity).toBeNull();
     expect(resolved.quantitySource).toBe('missing');
 
@@ -158,7 +162,14 @@ describe('Step 2 benchmark + measurement-status binding', () => {
       'ground_up',
       resolved
     );
-    expect(suggested.fill?.total).toBeCloseTo(45883.73, 0);
+    expect(suggested.fill?.material).toBeGreaterThan(0);
+    expect(suggested.fill?.labor).toBeGreaterThan(0);
+    expect(suggested.fill?.basis).toEqual({ quantity: 1879, unit: 'sqft' });
+    expect(suggested.fill?.rateSourceLabel).toMatch(/National Average/i);
+    expect(suggested.fill?.benchmarkAction).toBe('price_ready');
+    // Southern Utah stage lump remains comparison-only.
+    expect(suggested.comparison?.total).toBeCloseTo(45883.73, 0);
+    expect(suggested.comparison?.benchmarkAction).toBe('comparison_only');
   });
 
   it('does not use living SF as foundation concrete quantity', () => {
@@ -167,7 +178,8 @@ describe('Step 2 benchmark + measurement-status binding', () => {
       templateKey: 'ground_up',
     });
     expect(foundation.quantity).toBeNull();
-    expect(foundation.unit).not.toBe('cy');
+    // Default unit may be cy for the foundation rule; living SF must not become the quantity.
+    expect(foundation.quantity).toBeNull();
     const rule = getChecklistItemQuantityRule('foundation', 'ground_up');
     expect(rule?.measurementKeys || []).not.toContain('floorAreaSqft');
   });
@@ -267,8 +279,9 @@ describe('Step 2 benchmark + measurement-status binding', () => {
       'ground_up',
       resolved
     );
-    // Saved contractor price is comparison-only — do not emit an applyable overwrite fill.
-    expect(suggested.fill).toBeNull();
+    // Planning mat+labor remains available; saved contractor total stays on comparison.
+    expect(suggested.fill?.material).toBeGreaterThan(0);
+    expect(suggested.fill?.labor).toBeGreaterThan(0);
     expect(suggested.comparison?.benchmarkEvidence?.selectedSuggestion?.total).toBe(47500);
     expect(suggested.comparison?.isComparison).toBe(true);
   });

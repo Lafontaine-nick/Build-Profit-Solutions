@@ -11,8 +11,11 @@ const {
   mergeRoomsPreferPdf,
   pruneEnvelopeGarageRooms,
   reconcileBathroomMeasurement,
+  sanitizePlanFacts,
+  reconcileLabeledLivingAreas,
   MIN_FIELD_CONFIDENCE,
 } = require('../estimatePlanToMeasurements');
+const shvPlanFacts = require('../testFixtures/shvPlanFacts');
 
 describe('estimatePlanToMeasurements', () => {
   test('sanitizeRooms computes area and maps bathroom keys', () => {
@@ -27,6 +30,84 @@ describe('estimatePlanToMeasurements', () => {
     // Living rooms stay in notes — not mapped to whole-house floorAreaSqft
     expect(rooms[2].measurementKey).toBeNull();
   });
+
+  test('sanitizeRooms preserves bounded PDF page and sheet evidence', () => {
+    const [room] = sanitizeRooms([
+      { name: 'Kitchen', areaSqft: 120, confidence: 1, sourcePage: 4, sourceSheet: 'A1.2' },
+    ]);
+    expect(room).toMatchObject({ sourcePage: 4, sourceSheet: 'A1.2' });
+  });
+
+  test('sanitizePlanFacts requires evidence and rejects fabricated geometry', () => {
+    const facts = sanitizePlanFacts(
+      {
+        storyCount: 2,
+        roofPitch: '5/12',
+        wallHeightFt: 9,
+        exteriorPerimeterLf: 214,
+        nonPaintedExteriorPercent: 25,
+        coveredPatioRoofed: true,
+        fieldEvidence: {
+          storyCount: {
+            value: 2,
+            sourceType: 'detected_from_plan',
+            confidence: 'high',
+            evidence: [{ page: 2, sheet: 'A1.1', sourceText: 'UPPER FLOOR' }],
+          },
+          roofPitch: {
+            value: '5:12',
+            sourceType: 'detected_from_plan',
+            confidence: 'high',
+            evidence: [{ page: 5, label: 'ROOF PITCH 5:12' }],
+          },
+          exteriorPerimeterLf: {
+            value: 214,
+            sourceType: 'detected_from_plan',
+            confidence: 'high',
+            evidence: [{ page: 5, sourceText: 'EXTERIOR PERIMETER 214 LF' }],
+          },
+          nonPaintedExteriorPercent: {
+            value: 25,
+            sourceType: 'detected_from_plan',
+            confidence: 'medium',
+            evidence: [{ page: 6, sourceText: 'STONE 25%' }],
+          },
+        },
+        geometry: [
+          { id: 'invented', kind: 'roof_plane' },
+          {
+            id: 'supplied-plane',
+            kind: 'roof_plane',
+            areaSqft: 500,
+            pitch: '5/12',
+            points: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }],
+          },
+        ],
+      },
+      { totalLivingSqft: 1879 }
+    );
+    expect(facts.storyCount).toBe(2);
+    expect(facts.roofPitch).toBe('5:12');
+    expect(facts.wallHeightFt).toBeUndefined();
+    expect(facts.exteriorPerimeterLf).toBe(214);
+    expect(facts.nonPaintedExteriorPercent).toBe(25);
+    expect(facts.coveredPatioRoofed).toBeUndefined();
+    expect(facts.geometry).toHaveLength(1);
+    expect(facts.geometry[0].id).toBe('supplied-plane');
+  });
+
+  test.each(shvPlanFacts.filter((fixture) => fixture.expected.floorDeltaSqft != null))(
+    'reconciles cover and floor labels for SHV Lot $lot',
+    ({ expected }) => {
+      const result = reconcileLabeledLivingAreas({
+        totalLivingSqft: expected.totalLivingSqft,
+        mainFloorLivingSqft: expected.mainFloorLivingSqft,
+        upstairsLivingSqft: expected.upstairsLivingSqft,
+      });
+      expect(result.floorDeltaSqft).toBe(expected.floorDeltaSqft);
+      expect(result.floorAreaStatus).toBe(expected.floorDeltaSqft === 0 ? 'reconciled' : 'review');
+    }
+  );
 
   test('sanitizeRooms keeps a full labeled-room inventory including baths and closets', () => {
     const rooms = sanitizeRooms([

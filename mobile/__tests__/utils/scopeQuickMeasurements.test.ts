@@ -1,5 +1,7 @@
 import {
   countFilledQuickMeasurements,
+  quickMeasurementDisplayLabel,
+  quickMeasurementHelperText,
   quickMeasurementRowsForInput,
   quickMeasurementRowsForTemplate,
   quickMeasurementSectionsForRows,
@@ -44,10 +46,17 @@ describe('scopeQuickMeasurements', () => {
         'deckSqft',
         'kitchenFloorSqft',
         'bathroomFloorSqft',
+        'showerWallTileSqft',
+        'showerFloorTileSqft',
         'concreteSqft',
+        'roofSquares',
+        'drywallSqft',
+        'cabinetLf',
+        'countertopSqft',
+        'wallPaintSqft',
+        'exteriorPaintSqft',
       ])
     );
-    expect(keys).not.toContain('wallPaintSqft');
     const living = quickMeasurementRowsForTemplate('ground_up', 'new_build')
       .flat()
       .find((field) => field.key === 'floorAreaSqft');
@@ -61,7 +70,15 @@ describe('scopeQuickMeasurements', () => {
       .flat()
       .map((field) => field.key);
     expect(keys).toEqual(
-      expect.arrayContaining(['floorAreaSqft', 'garageSqft', 'deckSqft', 'kitchenFloorSqft'])
+      expect.arrayContaining([
+        'floorAreaSqft',
+        'garageSqft',
+        'deckSqft',
+        'kitchenFloorSqft',
+        'bathroomFloorSqft',
+        'showerWallTileSqft',
+        'showerFloorTileSqft',
+      ])
     );
   });
 
@@ -119,5 +136,41 @@ describe('scopeQuickMeasurements', () => {
     );
     expect(keys).not.toContain('floorAreaSqft');
     expect(keys).not.toContain('bathroomFloorSqft');
+  });
+
+  it('relabels concrete flatwork as exterior-only with a clarifying helper (excludes house/garage slab)', () => {
+    const rows = quickMeasurementRowsForTemplate('ground_up', 'new_build');
+    const flatwork = rows.flat().find((field) => field.key === 'concreteSqft');
+    expect(flatwork?.label).toBe('Exterior concrete flatwork');
+    expect(flatwork?.helperText).toMatch(/driveway/i);
+    expect(flatwork?.helperText).toMatch(/not the house or garage slab/i);
+  });
+
+  it('labels foundation quantity to match included building slabs', () => {
+    const rows = quickMeasurementRowsForTemplate('ground_up', 'new_build');
+    const foundation = rows.flat().find((field) => field.key === 'concreteCy');
+    expect(foundation?.label).toMatch(/Foundation and building slabs/i);
+  });
+
+  it('clarifies Living vs Gross interior floor area', () => {
+    const living = {
+      key: 'floorAreaSqft' as const,
+      label: 'Living area',
+      placeholder: '',
+      unit: 'sqft',
+      group: 'structure' as const,
+    };
+    const gross = {
+      key: 'flooringSqft' as const,
+      label: 'Flooring',
+      placeholder: '',
+      unit: 'sqft',
+      group: 'interior' as const,
+    };
+    expect(quickMeasurementHelperText(living)).toMatch(/living area/i);
+    expect(quickMeasurementHelperText(gross)).toMatch(/matches living area/i);
+    // Display label rename is behind measurement-semantics flag; helper always applies.
+    const labeled = quickMeasurementDisplayLabel(gross);
+    expect(labeled === 'Gross interior floor area' || labeled === 'Flooring').toBe(true);
   });
 });
