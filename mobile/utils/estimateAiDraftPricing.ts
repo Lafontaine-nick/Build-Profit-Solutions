@@ -227,8 +227,12 @@ const NATIONAL_TRADE_AVERAGES_LOCAL: Record<
   concrete: { unit: 'sqft', material: 4, labor: 6, materialLabel: 'Concrete materials', laborLabel: 'Concrete labor' },
   sitework: { unit: 'sqft', material: 1.5, labor: 4, materialLabel: 'Site prep materials/equipment', laborLabel: 'Site prep labor' },
   utility_trenching: { unit: 'lf', material: 8, labor: 22, materialLabel: 'Trenching materials/equipment', laborLabel: 'Trenching labor' },
-  /** Standard national planning: $32/sqft ($30–$34 band). High-side ADU/complex uses FRAMING_HIGH_SIDE. */
-  framing: { unit: 'sqft', material: 14, labor: 18, materialLabel: 'Framing materials', laborLabel: 'Framing labor' },
+  /**
+   * National framing planning on applicable framed/covered SF (typically living + garage).
+   * Labor ~$5–$10/framed SF (mid $7.50); material is lumber+trusses package planning.
+   * High-side ADU/complex uses FRAMING_HIGH_SIDE (labor at top of band).
+   */
+  framing: { unit: 'sqft', material: 10, labor: 7.5, materialLabel: 'Framing materials', laborLabel: 'Framing labor' },
   /** Standard national planning: ~$10.50/sqft (NAHB HVAC ~$10–$15). High-side ADU/small uses HVAC_HIGH_SIDE. */
   hvac: { unit: 'sqft', material: 4.5, labor: 6, materialLabel: 'HVAC equipment allowance', laborLabel: 'HVAC labor' },
   insulation: { unit: 'sqft', material: 1.25, labor: 1.75, materialLabel: 'Insulation materials', laborLabel: 'Insulation labor' },
@@ -236,11 +240,11 @@ const NATIONAL_TRADE_AVERAGES_LOCAL: Record<
   windows_doors: { unit: 'each', material: 850, labor: 450, materialLabel: 'Window/door allowance', laborLabel: 'Window/door install labor' },
 };
 
-/** Modest uplift for ADU/small or complex framing — top of national band, not a separate premium market. */
+/** Top of framed-SF labor band + modest material uplift for ADU/small or complex framing scope. */
 const FRAMING_HIGH_SIDE = {
   unit: 'sqft',
-  material: 16,
-  labor: 20,
+  material: 11,
+  labor: 10,
   materialLabel: 'Framing materials',
   laborLabel: 'Framing labor',
 } as const;
@@ -3185,11 +3189,11 @@ function buildRoughPricingProposalLocal(
     const framingAssumptions =
       trade === 'framing' && priceSource === HIGH_SIDE_SOURCE
         ? [
-            'High-side framing used for ADU/small project or complex scope (roof framing, sheathing, trusses, hardware, mobilization, or structural complexity). Standard national planning is $30–$34/sqft; high-side is $36/sqft.',
+            'High-side framing used for ADU/small project or complex scope (roof framing, sheathing, trusses, hardware, mobilization, or structural complexity). National framing labor planning is ~$5–$10/framed SF; high-side uses $10/framed SF labor.',
           ]
         : trade === 'framing'
           ? [
-              'National framing planning range $30–$34/sqft for typical wall/floor shell without roof structure extras.',
+              'National framing labor planning ~$5–$10 per applicable framed/covered SF (mid $7.50). Material is lumber+trusses package planning. Confirm whether labor includes walls, truss set, sheathing, blocking, hardware, and covered exterior areas.',
             ]
           : [];
     const lineAssumptions = [...mepAssumptions, ...surfaceAssumptions, ...framingAssumptions];

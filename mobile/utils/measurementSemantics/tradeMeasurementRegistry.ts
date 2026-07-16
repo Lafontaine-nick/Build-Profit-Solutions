@@ -195,6 +195,10 @@ export const TRADE_MEASUREMENT_REGISTRY: Record<string, TradeMeasurementProfile>
     missingQuantityBehavior: 'needs_allowance',
     quantityStrategy: 'allowance_required',
   }),
+  permits: profile('permits', LS, {
+    missingQuantityBehavior: 'needs_allowance',
+    quantityStrategy: 'allowance_required',
+  }),
 };
 
 export function getTradeMeasurementProfile(scopeKey: string): TradeMeasurementProfile | null {

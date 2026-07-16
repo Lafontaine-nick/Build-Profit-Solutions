@@ -3,7 +3,6 @@ import {
   countUnresolvedScopeDecisions,
   countUnresolvedScopeGaps,
   formatNeedsSeparatePricingLabel,
-  formatReviewScopeItemsLabel,
   getReviewableScopeComponents,
   type ScopeGapPricingContext,
   type ScopeGapResolutionsMap,
@@ -111,13 +110,15 @@ const GEOGRAPHIC_CONFIDENCE_VALUES = new Set(['low', 'medium', 'high', 'unknown'
 
 export function pricingSourceLabelFromBlock(block: SuggestedPricingBlock): string {
   if (block.materialSource === 'local_benchmark' || block.laborSource === 'local_benchmark') {
-    return 'Southern Utah benchmark';
+    return 'Local benchmark';
   }
   const usesTemplate = block.materialSource === 'template' || block.laborSource === 'template';
-  if (usesTemplate) return 'Saved company pricing';
-  if (block.materialSource === 'notes' || block.laborSource === 'notes') return 'Parsed from notes';
-  if (block.rateSourceLabel.includes('National')) return 'National average';
-  return 'National average';
+  if (usesTemplate) return 'Saved rate';
+  if (block.materialSource === 'notes' || block.laborSource === 'notes') return 'From notes';
+  if (block.rateSourceLabel.includes('National') || /builder-budget/i.test(block.rateSourceLabel)) {
+    return 'BPS national benchmark';
+  }
+  return 'BPS national benchmark';
 }
 
 export function pricingSourceKindFromBlock(block: SuggestedPricingBlock): ScopePricingAcceptanceMetadata['pricingSourceKind'] {
@@ -336,7 +337,7 @@ function selectionStatusLabel(
   acceptance: ScopePricingAcceptanceMetadata,
   resolved: ResolvedItemQuantity
 ): string {
-  if (acceptance.selectionStatus === 'accepted') return 'Accepted';
+  if (acceptance.selectionStatus === 'accepted') return 'Applied';
   if (acceptance.selectionStatus === 'manual_adjusted') return 'User adjusted';
   if (resolved.quantitySource === 'notes') return 'From notes';
   if (acceptance.selectionStatus === 'user_entered') return 'User entered';
@@ -348,7 +349,7 @@ function buildFallbackAcceptance(resolved: ResolvedItemQuantity, total: number):
   const kind = fromNotes ? 'parsed_from_notes' : 'user_entered';
   return {
     selectionStatus: 'user_entered',
-    pricingSourceLabel: fromNotes ? 'Parsed from notes' : 'User entered',
+    pricingSourceLabel: fromNotes ? 'From notes' : 'User entered',
     pricingSourceKind: kind,
     pricingTypeLabel: pricingTypeLabelFromContext({
       lumpSumOnly: resolved.unit === 'allowance' || resolved.unit === 'lump_sum',
@@ -441,10 +442,7 @@ export function getPricingSecondaryAction(params: {
   if (unresolvedDecisionCount > 0) {
     return {
       kind: 'review_missing_scope',
-      label:
-        unresolvedDecisionCount === 1
-          ? 'Review 1 scope assumption'
-          : `Review ${unresolvedDecisionCount} scope assumptions`,
+      label: 'Review assumptions',
       unresolvedScopeGapCount: unresolvedDecisionCount,
     };
   }
@@ -472,7 +470,7 @@ export function getPricingSecondaryAction(params: {
   if (fullyUnresolvedCount > 0) {
     return {
       kind: 'review_missing_scope',
-      label: formatReviewScopeItemsLabel(fullyUnresolvedCount),
+      label: 'Review assumptions',
       unresolvedScopeGapCount: fullyUnresolvedCount,
     };
   }
@@ -491,7 +489,7 @@ export function getPricingSecondaryAction(params: {
   }
 
   if (hasMultiplePricingSources(params.suggestedBlock, params.comparisonBlock, acceptance)) {
-    return { kind: 'compare_sources', label: 'Compare sources' };
+    return { kind: 'compare_sources', label: 'Compare benchmarks' };
   }
 
   if (pricingModel === 'unit_pricing' && hasUnitPricingCalculation(params.resolved, params.suggestedBlock, params.intelligence)) {

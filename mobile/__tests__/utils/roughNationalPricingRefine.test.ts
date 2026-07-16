@@ -53,13 +53,14 @@ describe('rough national pricing refine labels', () => {
 });
 
 describe('resolveRoughNationalTradeBandForTests', () => {
-  it('uses $32/sqft framing as standard national average', () => {
+  it('uses $17.50/framed sqft framing as standard national average', () => {
     const resolved = resolveRoughNationalTradeBandForTests('framing', pkg('Framing / shell'), draft());
     expect(resolved?.priceSource).toBe('national_trade_average');
-    expect((resolved?.band.material || 0) + (resolved?.band.labor || 0)).toBe(32);
+    expect(resolved?.band.labor).toBe(7.5);
+    expect((resolved?.band.material || 0) + (resolved?.band.labor || 0)).toBe(17.5);
   });
 
-  it('uses high-side $36/sqft framing for ADU / small projects', () => {
+  it('uses high-side $21/framed sqft framing for ADU / small projects', () => {
     const resolved = resolveRoughNationalTradeBandForTests(
       'framing',
       pkg('Framing / shell'),
@@ -67,7 +68,8 @@ describe('resolveRoughNationalTradeBandForTests', () => {
     );
     expect(resolved?.priceSource).toBe('national_high_side_planning');
     expect(resolved?.sourceLabel).toMatch(/High-side/i);
-    expect((resolved?.band.material || 0) + (resolved?.band.labor || 0)).toBe(36);
+    expect(resolved?.band.labor).toBe(10);
+    expect((resolved?.band.material || 0) + (resolved?.band.labor || 0)).toBe(21);
   });
 
   it('uses high-side framing when scope includes roof framing / sheathing / trusses', () => {
@@ -77,7 +79,7 @@ describe('resolveRoughNationalTradeBandForTests', () => {
       draft({ projectType: 'other', originalNotes: '2500 sqft custom home' })
     );
     expect(resolved?.priceSource).toBe('national_high_side_planning');
-    expect((resolved?.band.material || 0) + (resolved?.band.labor || 0)).toBe(36);
+    expect((resolved?.band.material || 0) + (resolved?.band.labor || 0)).toBe(21);
   });
 
   it('uses ~$10.50 HVAC nationally and $12.50 high-side for ADU', () => {

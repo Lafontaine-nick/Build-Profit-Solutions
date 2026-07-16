@@ -17,6 +17,7 @@ import {
 } from '@/utils/regionalPricingMultipliers';
 import {
   applyBuilderBudgetBarometer,
+  getBuilderBudgetSoftCostAllowance,
 } from '@/utils/southernUtahCalibratedRates';
 import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
@@ -364,11 +365,15 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     labor: 1000,
     sourceLabel: 'Suggested allowance · National Average',
   },
-  /** Align with rough Suggested pricing national bands so Step 3 can show splits for note lump sums. */
+  /**
+   * Framing national planning on applicable framed/covered SF (living + garage).
+   * Labor band ~$5–$10/framed SF (mid $7.50); material is package lumber+trusses planning.
+   * Do not treat $18/living SF as a national labor default.
+   */
   framing: {
     unit: 'sqft',
-    material: 14,
-    labor: 18,
+    material: 10,
+    labor: 7.5,
     sourceLabel: 'Suggested budget split · National Average · framing/shell',
   },
   hvac: {
@@ -1521,8 +1526,8 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     allowedUnits: ['allowance', 'lump_sum'],
     requiresUserQuantity: true,
     lumpSumOnly: true,
-    quantityHelper: 'Enter permit and inspection allowance for this job.',
-    missingMessage: 'Enter permit allowance.',
+    quantityHelper: 'Confirm permit and impact fees for the project jurisdiction.',
+    missingMessage: 'Needs local fee confirmation',
   },
   cleanup: {
     defaultUnit: 'lump_sum',
@@ -1590,8 +1595,8 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     allowedUnits: ['allowance', 'lump_sum'],
     requiresUserQuantity: true,
     lumpSumOnly: true,
-    quantityHelper: 'Enter plans and engineering allowance for this job.',
-    missingMessage: 'Enter plans/engineering allowance.',
+    quantityHelper: 'Enter a plans and engineering allowance for this job.',
+    missingMessage: 'Needs allowance',
   },
   contingency: {
     defaultUnit: 'allowance',
@@ -2293,7 +2298,7 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityR
     missingMessage: 'Needs structural takeoff (slab/footings/walls/CY). Living SF is not foundation quantity.',
   },
   framing: additionFloorAreaRule(
-    'Uses living area from the plan as framed floor area — edit if needed.',
+    'Uses covered framed area (living + garage) for planning — edit if deck/patio framing is included.',
     'Enter framing sqft or pricing.'
   ),
   roofing: {
@@ -2550,7 +2555,7 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<string, Record<string, PricingB
   ground_up: {
     sitework: { unit: 'sqft', measurementKeys: ['floorAreaSqft', 'landscapeSqft'] },
     foundation: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
-    framing: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    framing: { unit: 'sqft', measurementKeys: ['floorAreaSqft', 'garageSqft'] },
     roofing: { unit: 'squares', measurementKeys: ['roofSquares'] },
     exterior: { unit: 'sqft', measurementKeys: ['floorAreaSqft', 'exteriorPaintSqft'] },
     windows_doors: { unit: 'each' },
@@ -2724,7 +2729,7 @@ export function getChecklistItemQuantityRule(
       requiresUserQuantity: true,
       quantityHelper:
         itemId === 'framing'
-          ? 'Planning material + labor from living SF until a board-foot / package takeoff is entered.'
+          ? 'Planning material + labor from covered framed SF (living + garage) until a board-foot / package takeoff is entered.'
           : itemId === 'stucco'
             ? 'Enter exterior wall surface SF for stucco material and labor.'
           : itemId === 'foundation'
@@ -3754,8 +3759,17 @@ function medianPositive(values: number[]): number | null {
   return sorted.length % 2 ? sorted[mid] : round2((sorted[mid - 1] + sorted[mid]) / 2);
 }
 
-/** Plans/engineering should use local component refs (~$1–2k), not the full site stage. */
-function plansEngineeringComponentTotal(evidence: BenchmarkSuggestion): number | null {
+/**
+ * Plans/engineering soft cost — prefer builder-budget architectural allowance (~$3k),
+ * not the full site stage or Silver Leaf twin-home $1.5k seed line alone.
+ */
+function plansEngineeringComponentTotal(
+  evidence: BenchmarkSuggestion,
+  templateKey?: string | null
+): number | null {
+  const soft = getBuilderBudgetSoftCostAllowance('plans_engineering', templateKey);
+  if (soft?.amount) return soft.amount;
+
   const fromDetached = (evidence.detachedComparables || [])
     .map((p) => Number(p.scopeCost))
     .filter((n) => Number.isFinite(n) && n > 0 && n < 20000);
@@ -3794,10 +3808,11 @@ function benchmarkSuggestedPricingBlock(
     return null;
   }
 
-  // Plans/engineering: component references only — not Site Work / Preconstruction stage.
+  // Plans/engineering: soft-cost allowance — not Site Work / Preconstruction stage.
   // Must run before included-child short-circuit (plans is listed under that stage's covers).
   if (itemId === 'plans_engineering' && measurementSemanticsV1Enabled()) {
-    const componentTotal = plansEngineeringComponentTotal(evidence);
+    const soft = getBuilderBudgetSoftCostAllowance('plans_engineering', templateKey);
+    const componentTotal = plansEngineeringComponentTotal(evidence, templateKey);
     if (componentTotal == null) {
       return {
         material: 0,
@@ -3830,14 +3845,19 @@ function benchmarkSuggestedPricingBlock(
       hasPrimaryTakeoff: false,
       isComparisonOnly: comparison || evidence.benchmarkIsComparisonOnly,
     });
+    const rateLabel =
+      soft?.sourceLabel || 'Suggested · Southern Utah benchmark';
+    const helper = soft
+      ? `${soft.note} Sitework living-SF package is separate.`
+      : `Local plans/engineering references (~$${Math.round(componentTotal).toLocaleString()}). Sitework living-SF package is separate.`;
     return {
       material: 0,
       labor: round2(componentTotal),
       total: round2(componentTotal),
       materialSource: 'local_benchmark',
       laborSource: 'local_benchmark',
-      rateSourceLabel: 'Suggested · Southern Utah benchmark',
-      helper: `Local plans/engineering references (~$${Math.round(componentTotal).toLocaleString()}). Sitework living-SF package is separate.`,
+      rateSourceLabel: rateLabel,
+      helper,
       mode: 'suggested_price',
       isComparison: action === 'comparison_only',
       lumpSumOnly: true,
@@ -3863,7 +3883,7 @@ function benchmarkSuggestedPricingBlock(
           total: round2(componentTotal),
           rate: null,
           unit: 'ls',
-          source: 'Local plans/engineering references',
+          source: soft ? 'Builder-budget architectural plan allowance' : 'Local plans/engineering references',
         },
         blendedBenchmark: {
           ...evidence.blendedBenchmark,
@@ -4185,18 +4205,20 @@ export function resolveScopeItemSuggestedPricing(
       unit = flatAverage?.unit || rule.defaultUnit;
     }
   }
-  // Ground-up framing: living SF is a planning quantity for mat+labor until package takeoff exists.
-  // Primary takeoff stays empty (needs_takeoff); rates come from national + builder-budget barometer.
+  // Ground-up framing: always prefer covered framed SF (living + garage) for planning rates.
+  // Living-only SF would inflate $/SF vs the $5–$10/framed labor band. Package takeoff still wins when entered.
   if (
-    (!count || count <= 0) &&
     itemId === 'framing' &&
-    String(templateKey || '').toLowerCase() === 'ground_up'
+    String(templateKey || '').toLowerCase() === 'ground_up' &&
+    !(resolved.quantity != null && resolved.quantity > 0 && resolved.quantitySource === 'user_entered')
   ) {
     const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
-    if (livingSf && livingSf > 0) {
+    const garageSf = parseScopeMeasurementInput(measurementsInput.garageSqft) || 0;
+    const framedSf = livingSf && livingSf > 0 ? livingSf + Math.max(0, garageSf) : null;
+    if (framedSf && framedSf > 0) {
       const reframed = regionalAdjustedNationalAverage(itemId, 'sqft', pricingContext);
       if (reframed.average?.material != null && reframed.average?.labor != null) {
-        count = livingSf;
+        count = framedSf;
         unit = 'sqft';
         average = reframed.average;
       }
@@ -4354,6 +4376,28 @@ export function resolveScopeItemSuggestedPricing(
     }
   }
   if (!count || count <= 0) {
+    // Ground-up soft costs (plans / permits) even when no qty or stage evidence is cached.
+    const softMissing = getBuilderBudgetSoftCostAllowance(itemId, templateKey);
+    if (softMissing?.amount) {
+      const total = round2(softMissing.amount);
+      return {
+        fill: {
+          material: 0,
+          labor: total,
+          total,
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: softMissing.sourceLabel,
+          helper: softMissing.note,
+          mode: 'suggested_price',
+          lumpSumOnly: true,
+          pricingRecordId: `bps_soft_cost:${itemId}:allowance`,
+          productionStatus: 'review_required',
+          benchmarkAction: 'benchmark_only',
+        },
+        comparison: null,
+      };
+    }
     // Measurement-semantics: missing primary takeoff must not hide read-only/planning
     // benchmark evidence (living SF × stage rate). Do not invent a national $/sqft fill.
     const benchmarkOnly = benchmarkFillWithoutPrimaryTakeoff(
@@ -4393,6 +4437,28 @@ export function resolveScopeItemSuggestedPricing(
           helper: copy.fromNotes,
           mode: 'suggested_price',
           lumpSumOnly: true,
+        },
+        comparison: null,
+      };
+    }
+    // Ground-up soft costs (permits / plans): use bid barometer, not remodel-scale national.
+    const softCost = getBuilderBudgetSoftCostAllowance(itemId, templateKey);
+    if (softCost?.amount) {
+      const total = round2(softCost.amount);
+      return {
+        fill: {
+          material: 0,
+          labor: total,
+          total,
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: softCost.sourceLabel,
+          helper: softCost.note,
+          mode: 'suggested_price',
+          lumpSumOnly: true,
+          pricingRecordId: `bps_soft_cost:${itemId}:allowance`,
+          productionStatus: 'review_required',
+          benchmarkAction: 'benchmark_only',
         },
         comparison: null,
       };

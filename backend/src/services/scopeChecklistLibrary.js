@@ -551,7 +551,14 @@ const CHECKLIST_TEMPLATES = {
     intro: 'New construction — mark Yes only for work in this bid.',
     items: [
       { id: 'plans_engineering', inputType: 'yes_no', label: 'Plans / engineering', category: 'precon' },
-      { id: 'permits', inputType: 'yes_no', label: 'Permits / fees', category: 'precon' },
+      {
+        id: 'permits',
+        inputType: 'yes_no',
+        label: 'Permits / fees (incl. impact)',
+        helperText:
+          'Inclusive of city impact fee — not permit-only. Fees swing hard by state/city; confirm locally. Water/sewer/fire often extra.',
+        category: 'precon',
+      },
       { id: 'sitework', inputType: 'yes_no', label: 'Sitework', category: 'sitework' },
       { id: 'excavation', inputType: 'yes_no', label: 'Excavation', category: 'sitework' },
       { id: 'utility_taps', inputType: 'yes_no', label: 'Utility taps / connections', category: 'sitework' },

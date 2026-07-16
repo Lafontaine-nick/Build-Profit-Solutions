@@ -566,7 +566,7 @@ describe('estimateDraftComplexity', () => {
     expect(packageNames).toEqual(
       expect.arrayContaining([
         'Plans / engineering',
-        'Permits / fees',
+        'Permits / fees (incl. impact)',
         'Sitework & excavation',
         'Foundation',
         'Framing',

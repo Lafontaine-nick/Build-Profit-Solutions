@@ -29,6 +29,7 @@ function lot41(): ScopeMeasurementsInputExtended {
   return {
     ...emptyQuickMeasurementInput(),
     floorAreaSqft: '1879',
+    garageSqft: '994',
     flooringSqft: '1879',
     itemQuantities: {},
   } as ScopeMeasurementsInputExtended;
@@ -257,9 +258,10 @@ describe('stage benchmark dedupe and card presentation', () => {
       isComparison: true,
       total: 24736.92,
     });
-    expect(plans.fill?.total).toBeCloseTo(1000, 0);
-    expect(plans.fill?.benchmarkLevel).toBe('component');
-    expect(plans.fill?.total).toBeLessThan(5000);
+    // Architectural plan design barometer (~$3k), not Silver Leaf twin $1.5k / survey $1k.
+    expect(plans.fill?.total).toBe(3000);
+    expect(plans.fill?.helper).toMatch(/architectural plan design/i);
+    expect(plans.fill?.total).toBeLessThan(Number(sitework.comparison?.total || 0));
   });
 
   it('makes a broad stage comparison-only after a covered trade price is accepted', () => {
@@ -307,7 +309,7 @@ describe('stage benchmark dedupe and card presentation', () => {
     expect(sitework.comparison?.helper).toMatch(/price separate trades|separate trade pricing is active/i);
   });
 
-  it('prices Framing as living-SF material + labor on ground-up; stage benchmark is comparison only', () => {
+  it('prices Framing as covered framed-SF material + labor on ground-up; stage benchmark is comparison only', () => {
     jest.spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion').mockImplementation((id: string) =>
       stageSuggestion(id, 'framing', 45883.73)
     );
@@ -319,7 +321,9 @@ describe('stage benchmark dedupe and card presentation', () => {
     );
     expect(framing.fill?.material).toBeGreaterThan(0);
     expect(framing.fill?.labor).toBeGreaterThan(0);
-    expect(framing.fill?.basis).toEqual({ quantity: 1879, unit: 'sqft' });
+    // Living 1,879 + garage 994 = 2,873 covered framed SF
+    expect(framing.fill?.basis).toEqual({ quantity: 2873, unit: 'sqft' });
+    expect(framing.fill?.labor).toBeCloseTo(19513, -2); // ~$6.79/framed SF × 2873
     expect(framing.fill?.benchmarkAction).toBe('price_ready');
     expect(framing.comparison).toMatchObject({
       benchmarkLevel: 'stage',

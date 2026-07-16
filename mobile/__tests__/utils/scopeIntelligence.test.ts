@@ -108,13 +108,13 @@ describe('scopeIntelligence', () => {
         quantity: 50,
         unit: 'cy',
         quantitySource: 'notes',
-        sourceLabel: 'Parsed from notes',
+        sourceLabel: 'From notes',
       }),
     });
 
     expect(intelligence.quantity).toMatchObject({
       source: 'from_notes',
-      sourceLabel: 'Parsed from notes',
+      sourceLabel: 'From notes',
       confidence: 'high',
     });
   });
@@ -496,7 +496,7 @@ describe('scopeIntelligence', () => {
         quantity: 25,
         unit: 'cy',
         quantitySource: 'notes',
-        sourceLabel: 'Parsed from notes',
+        sourceLabel: 'From notes',
       }),
     });
 
@@ -1028,7 +1028,7 @@ describe('scopeIntelligence', () => {
         quantity: 50,
         unit: 'cy',
         quantitySource: 'notes',
-        sourceLabel: 'Parsed from notes',
+        sourceLabel: 'From notes',
         pricingReady: true,
         showInput: false,
       }),
@@ -1060,7 +1060,8 @@ describe('scopeIntelligence', () => {
     expect(cardConfidenceForIntelligence(intelligence)).toBe('low');
     expect(intelligence.confidenceReasons).not.toContain('missing_scope_profile');
     expect(intelligence.overlapRisk.hasOverlapRisk).toBe(false);
-    expect(primaryIntelligenceNotice(intelligence)).toBeNull();
+    // Raw notice may mention national average; card display suppresses the duplicate.
+    expect(primaryIntelligenceNotice(intelligence)).toMatch(/national average/i);
 
     const card = buildCardIntelligenceDisplay(intelligence);
     expect(card.confidence).toBe('low');
@@ -1071,6 +1072,7 @@ describe('scopeIntelligence', () => {
     expect(card.duplicatePricingMessage).toBeNull();
     expect(card.otherNotice).toBeNull();
     expect(card.showQuantityConfidenceLine).toBe(true);
+    expect(card.sourceLabel).toBe('From notes');
   });
 
   it('shows duplicate-pricing warnings only when related scopes have accepted prices', () => {

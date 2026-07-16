@@ -851,7 +851,7 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   paint_trim: 'Wall/ceiling paint surface sqft for material and labor.',
   plumbing_trim: 'Set fixtures and finish connections.',
   electrical_trim: 'Devices, plates, and bulbs.',
-  permits: 'Permit fees and inspections in your price.',
+  permits: 'Confirm permit and impact fees for the project jurisdiction.',
   cleanup: 'Final clean, debris haul-off, dump fees.',
 };
 

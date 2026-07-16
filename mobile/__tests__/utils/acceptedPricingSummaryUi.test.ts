@@ -45,6 +45,14 @@ function allowanceResolved(overrides: Partial<ResolvedItemQuantity> = {}): Resol
   };
 }
 
+/** Resolve all TRADE_PRIORITY_GAP_KEYS for a scope so secondary actions beyond review can be tested. */
+function resolvePriorityGaps(scopeKey: string, keys: string[]) {
+  const now = '2026-01-01T00:00:00.000Z';
+  return Object.fromEntries(
+    keys.map((key) => [`${scopeKey}::${key}`, { status: 'included' as const, updatedAt: now }])
+  );
+}
+
 function intelligence(overrides: Partial<ScopeItemIntelligence> = {}): ScopeItemIntelligence {
   return {
     scopeItemKey: 'permits',
@@ -106,22 +114,27 @@ function displayForPermits(acceptance = buildAcceptanceFromSuggestedBlock(sugges
 describe('acceptedPricingSummaryUi', () => {
   it('builds national-average acceptance metadata from suggested block', () => {
     const acceptance = buildAcceptanceFromSuggestedBlock(suggestedBlock());
-    expect(acceptance.pricingSourceLabel).toBe('National average');
+    expect(acceptance.pricingSourceLabel).toBe('BPS national benchmark');
     expect(acceptance.pricingSourceKind).toBe('national_average');
     expect(acceptance.selectionStatus).toBe('accepted');
     expect(acceptance.pricingTypeLabel).toBe('Flat allowance');
     expect(acceptance.geographicBasis).toBe('National');
   });
 
-  it('does not show a secondary action for flat allowance cards', () => {
+  it('shows Review assumptions for flat allowance cards with priority scope gaps', () => {
     const display = displayForPermits();
-    expect(getPricingSecondaryAction({
+    const action = getPricingSecondaryAction({
       display,
       intelligence: intelligence(),
       resolved: allowanceResolved(),
       suggestedBlock: suggestedBlock(),
       scopeKey: 'permits',
-    })).toBeNull();
+    });
+    expect(action).toEqual({
+      kind: 'review_missing_scope',
+      label: 'Review assumptions',
+      unresolvedScopeGapCount: 2,
+    });
   });
 
   it('does not show confidence badge for purely user-entered pricing', () => {
@@ -145,8 +158,8 @@ describe('acceptedPricingSummaryUi', () => {
 
   it('keeps accepted source, confidence, source message, and edit metadata without generic disclosure', () => {
     const display = displayForPermits();
-    expect(display.selectionStatusLabel).toBe('Accepted');
-    expect(display.pricingSourceLabel).toBe('National average');
+    expect(display.selectionStatusLabel).toBe('Applied');
+    expect(display.pricingSourceLabel).toBe('BPS national benchmark');
     expect(display.confidenceLabel).toBe('Low confidence');
     expect(display.warningMessage).toBe(
       'Based on national average pricing. Review before sending the estimate.'
@@ -158,18 +171,13 @@ describe('acceptedPricingSummaryUi', () => {
       intelligence: intelligence(),
       resolved: allowanceResolved(),
       scopeKey: 'permits',
-    })).toBeNull();
+    })?.label).toBe('Review assumptions');
   });
 
   it('does not show Last updated on confirm scope cards for unknown freshness', () => {
     const display = displayForPermits();
     expect(display.warningMessage).not.toMatch(/Update date unavailable/);
-    expect(getPricingSecondaryAction({
-      display,
-      intelligence: intelligence(),
-      resolved: allowanceResolved(),
-      scopeKey: 'permits',
-    })).toBeNull();
+    expect(display.warningMessage || '').not.toMatch(/Update date unavailable/);
   });
 
   it('shows stale saved-rate source message when pricing is outdated', () => {
@@ -242,6 +250,7 @@ describe('acceptedPricingSummaryUi', () => {
       resolved,
       suggestedBlock: block,
       scopeKey: 'flooring',
+      scopeGapResolutions: resolvePriorityGaps('flooring', ['floor_prep', 'disposal']),
     });
     expect(action?.label).toBe('View calculation');
     const disclosure = buildSecondaryDisclosureContent({
@@ -290,6 +299,7 @@ describe('acceptedPricingSummaryUi', () => {
       intelligence: intelligence(),
       resolved,
       scopeKey: 'drywall',
+      scopeGapResolutions: resolvePriorityGaps('drywall', ['texture', 'patching']),
     });
     expect(action?.label).toBe('View breakdown');
   });
@@ -326,6 +336,7 @@ describe('acceptedPricingSummaryUi', () => {
       resolved: allowanceResolved({ quantity: 4000 }),
       suggestedBlock: suggestedBlock(),
       scopeKey: 'permits',
+      scopeGapResolutions: resolvePriorityGaps('permits', ['meter_fees', 'plan_check']),
     });
     expect(action?.label).toBe('View original suggestion');
   });
@@ -373,8 +384,9 @@ describe('acceptedPricingSummaryUi', () => {
       suggestedBlock: fill,
       comparisonBlock: comparison,
       scopeKey: 'flooring',
+      scopeGapResolutions: resolvePriorityGaps('flooring', ['floor_prep', 'disposal']),
     });
-    expect(action?.label).toBe('Compare sources');
+    expect(action?.label).toBe('Compare benchmarks');
   });
 
   it('shows count-based review action for item-specific unresolved components', () => {
@@ -406,7 +418,7 @@ describe('acceptedPricingSummaryUi', () => {
       scopeKey: 'permits',
     });
     expect(action?.kind).toBe('review_missing_scope');
-    expect(action?.label).toBe('Review 1 scope assumption');
+    expect(action?.label).toBe('Review assumptions');
     expect(
       buildSecondaryDisclosureContent({
         action: action!,
@@ -440,9 +452,7 @@ describe('acceptedPricingSummaryUi', () => {
         includedComponents: [],
       },
     });
-    const scopeGapResolutions = {
-      'permits::plan_check': { status: 'included' as const, updatedAt: '2026-01-01T00:00:00.000Z' },
-    };
+    const scopeGapResolutions = resolvePriorityGaps('permits', ['meter_fees', 'plan_check']);
     expect(
       getPricingSecondaryAction({
         display,
@@ -489,11 +499,20 @@ describe('acceptedPricingSummaryUi', () => {
       },
     });
     const scopeGapResolutions = {
+      ...resolvePriorityGaps('excavation', [
+        'haul_off',
+        'spoils_export',
+        'dump_fees',
+        'backfill',
+        'compaction',
+        'shoring',
+      ]),
       'excavation::export': {
         status: 'price_separately' as const,
         pricingStatus: 'needs_pricing' as const,
         linkedLineItemId: 'haul_off',
         parentScopeItemId: 'excavation',
+        updatedAt: '2026-01-01T00:00:00.000Z',
       },
     };
     const action = getPricingSecondaryAction({
@@ -569,13 +588,13 @@ describe('acceptedPricingSummaryUi', () => {
       },
       scopeKey: 'excavation',
     });
-    expect(action?.label).toBe('Review 2 scope assumptions');
+    expect(action?.label).toBe('Review assumptions');
   });
 
   it('preserves pricing acceptance metadata after removing generic disclosure', () => {
     const acceptance = buildAcceptanceFromSuggestedBlock(suggestedBlock());
     expect(acceptance.totalAmount).toBe(3500);
-    expect(acceptance.originalPricingSourceLabel).toBe('National average');
+    expect(acceptance.originalPricingSourceLabel).toBe('BPS national benchmark');
     expect(acceptance.geographicBasis).toBe('National');
   });
 
@@ -620,12 +639,12 @@ describe('acceptedPricingSummaryUi', () => {
   });
 
   it('labels retail and national sources from suggested block', () => {
-    expect(pricingSourceLabelFromBlock(suggestedBlock())).toBe('National average');
+    expect(pricingSourceLabelFromBlock(suggestedBlock())).toBe('BPS national benchmark');
     expect(
       pricingSourceLabelFromBlock(
         suggestedBlock({ materialSource: 'template', laborSource: 'template', templateName: 'My saved bid' })
       )
-    ).toBe('Saved company pricing');
+    ).toBe('Saved rate');
   });
 
   it('uses pricing intelligence confidence for national average', () => {
@@ -732,7 +751,7 @@ describe('acceptedPricingSummaryUi', () => {
     it('returns only one source-related message and keeps badge consistency', () => {
       const display = displayForPermits();
       expect(display.warningMessage?.split('.').length).toBeLessThanOrEqual(3);
-      expect(display.pricingSourceLabel).toBe('National average');
+      expect(display.pricingSourceLabel).toBe('BPS national benchmark');
       expect(display.warningMessage).toContain('national average pricing');
     });
   });

@@ -139,12 +139,12 @@ describe('Step 2 benchmark + measurement-status binding', () => {
     expect(suggested.fill?.laborSource).toBe('national_average');
     expect(suggested.fill?.material).toBeGreaterThan(0);
     expect(suggested.fill?.labor).toBeGreaterThan(0);
-    expect(suggested.fill?.basis).toEqual({ quantity: 1879, unit: 'sqft' });
+    expect(suggested.fill?.basis).toEqual({ quantity: 2873, unit: 'sqft' });
     expect(suggested.comparison?.total).toBeCloseTo(45883.73, 0);
     expect(suggested.comparison?.benchmarkAction).toBe('comparison_only');
   });
 
-  it('prices framing from living SF as material + labor (benchmark is comparison only)', () => {
+  it('prices framing from covered framed SF as material + labor (benchmark is comparison only)', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
     process.env.EXPO_PUBLIC_BUILD_AI_BENCHMARK_ENGINE_V1 = 'true';
     jest.spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion').mockReturnValue(framingSuggestion());
@@ -164,7 +164,7 @@ describe('Step 2 benchmark + measurement-status binding', () => {
     );
     expect(suggested.fill?.material).toBeGreaterThan(0);
     expect(suggested.fill?.labor).toBeGreaterThan(0);
-    expect(suggested.fill?.basis).toEqual({ quantity: 1879, unit: 'sqft' });
+    expect(suggested.fill?.basis).toEqual({ quantity: 2873, unit: 'sqft' });
     expect(suggested.fill?.rateSourceLabel).toMatch(/National Average/i);
     expect(suggested.fill?.benchmarkAction).toBe('price_ready');
     // Southern Utah stage lump remains comparison-only.
@@ -322,7 +322,7 @@ describe('Step 2 benchmark + measurement-status binding', () => {
       lot41Measurements(),
       { templateKey: 'ground_up' }
     );
-    // Legacy may still resolve living SF as quantity for framing.
+    // Legacy (flags off) may resolve living SF; semantics mode keeps primary takeoff empty.
     expect(framing.quantity === 1879 || framing.quantity == null).toBe(true);
   });
 });

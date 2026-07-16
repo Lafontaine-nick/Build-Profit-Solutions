@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -171,7 +171,6 @@ import {
 } from '@/utils/benchmarkEngine';
 import {
   assertBenchmarkDoesNotOverwritePrimary,
-  benchmarkActionButtonLabel,
   benchmarkStageForScopeKey,
   coversLabelList,
   FOOTER_PLANNING_BENCHMARK_INFO,
@@ -195,6 +194,10 @@ import {
 } from '@/utils/measurementSemantics';
 import BenchmarkPricingEvidence from '@/components/estimate/BenchmarkPricingEvidence';
 import BenchmarkReasonablenessCard from '@/components/estimate/BenchmarkReasonablenessCard';
+import {
+  buildSuggestedPricingCardDisplay,
+  displayPriceSourceLabel,
+} from '@/utils/suggestedPricingCardUi';
 
 type Props = {
   visible: boolean;
@@ -388,15 +391,15 @@ function SourcePill({
           ? 'Local benchmark'
         : kind === 'remainder'
           ? 'Remainder'
-          : 'National Average';
-  const text = label || defaultText;
+          : 'BPS national benchmark';
+  const text = displayPriceSourceLabel(label || defaultText);
   const color =
     kind === 'notes'
       ? '#22c55e'
       : kind === 'template'
         ? '#a78bfa'
         : kind === 'benchmark'
-          ? '#0f766e'
+          ? '#60a5fa'
         : kind === 'remainder'
           ? '#f59e0b'
           : '#60a5fa';
@@ -411,7 +414,7 @@ function SourcePill({
   return (
     <View style={[styles.sourcePill, pillStyle, { maxWidth: '100%' }]}>
       <Text
-        numberOfLines={2}
+        numberOfLines={1}
         style={{ color, fontSize: 11, fontWeight: '700', flexShrink: 1 }}
       >
         {text}
@@ -675,7 +678,10 @@ function ScopeIntelligenceNotice({
           ? '#f59e0b'
           : '#60a5fa';
 
-  const warningFull = (cardDisplay.conciseBenchmarkWarning || '').trim();
+  // Suggested-price cards own "Base national average / low confidence" status — avoid duplicate vague copy.
+  const warningFullRaw = (cardDisplay.conciseBenchmarkWarning || '').trim();
+  const warningFull =
+    compact && /^Base national average/i.test(warningFullRaw) ? '' : warningFullRaw;
   const warningFirstSentence = warningFull.split(/(?<=\.)\s+/)[0] || warningFull;
   const warningPreview =
     warningFirstSentence.length > 88
@@ -690,15 +696,7 @@ function ScopeIntelligenceNotice({
       : null;
 
   return (
-    <View
-      style={[
-        styles.intelligenceNotice,
-        {
-          borderColor: darkMode ? 'rgba(96,165,250,0.18)' : 'rgba(96,165,250,0.16)',
-          backgroundColor: 'transparent',
-        },
-      ]}
-    >
+    <View style={[styles.intelligenceNotice, { backgroundColor: 'transparent' }]}>
       {showQuantity ? (
         <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
           <Text style={{ color: accent, fontWeight: '800' }}>{cardDisplay.confidenceLabel}</Text>
@@ -735,7 +733,9 @@ function ScopeIntelligenceNotice({
             ]}
           >
             {warningExpanded ? warningFull : warningPreview}
-            {warningCanExpand && !warningExpanded ? ' More' : ''}
+            {warningCanExpand && !warningExpanded ? (
+              <Text style={{ color: '#60a5fa', fontWeight: '700' }}> View details</Text>
+            ) : null}
           </Text>
         </TouchableOpacity>
       ) : null}
@@ -970,254 +970,166 @@ function SuggestedBudgetSplitRows({
   darkMode,
   onUsePricing,
   adjusted = false,
+  itemId,
+  quantitySource,
+  hasPrimaryTakeoff,
+  livingSf,
+  confidenceLabel,
 }: {
   block: SuggestedPricingBlock;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   onUsePricing?: () => void;
   adjusted?: boolean;
+  itemId?: string;
+  quantitySource?: string | null;
+  hasPrimaryTakeoff?: boolean;
+  livingSf?: number | null;
+  confidenceLabel?: string | null;
 }) {
-  const panelBg = darkMode ? 'rgba(96, 165, 250, 0.08)' : 'rgba(96, 165, 250, 0.06)';
-  const panelBorder = darkMode ? 'rgba(96, 165, 250, 0.22)' : 'rgba(96, 165, 250, 0.18)';
-  const usesTemplate = block.materialSource === 'template' || block.laborSource === 'template';
-  const isAdjusted = adjusted || block.rateSourceLabel.startsWith('Adjusted · ');
+  const panelBg = darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(15,23,42,0.03)';
   const usesBenchmark =
     block.materialSource === 'local_benchmark' || block.laborSource === 'local_benchmark';
   const semantics = measurementSemanticsV1Enabled();
   const action = block.benchmarkAction;
   const includedInStage = action === 'included_in_stage' || Boolean(block.includedInStageLabel);
+  const caption = pricingLabelColor(darkMode, Colors);
+  const text = pricingTextColor(darkMode, Colors);
+  const statusAmber = '#fbbf24';
 
   if (semantics && includedInStage) {
     const stageName = block.includedInStageLabel || stageTitle(block.benchmarkStageKey);
     return (
-      <View
-        style={[
-          styles.budgetSplitPanel,
-          { backgroundColor: panelBg, borderColor: panelBorder },
-        ]}
-      >
-        <Text style={{ color: pricingTextColor(darkMode, Colors), fontSize: 13, fontWeight: '800' }}>
-          Included in {stageName}
-        </Text>
-        <Text
-          style={{
-            color: pricingLabelColor(darkMode, Colors),
-            fontSize: 12,
-            lineHeight: 17,
-            marginTop: 4,
-          }}
-        >
+      <View style={[styles.budgetSplitPanel, { backgroundColor: panelBg }]}>
+        <Text style={{ color: text, fontSize: 13, fontWeight: '700' }}>Included in {stageName}</Text>
+        <Text style={{ color: caption, fontSize: 12, lineHeight: 17, marginTop: 4 }}>
           Detailed takeoff still required. Stage total is on the {stageName} card.
         </Text>
       </View>
     );
   }
 
+  const display = buildSuggestedPricingCardDisplay({
+    itemId: itemId || block.benchmarkScopeKey || '',
+    block,
+    quantitySource,
+    hasPrimaryTakeoff,
+    livingSf,
+    confidenceLabel,
+    adjusted,
+  });
+
   const headerTitle =
     semantics && usesBenchmark && block.benchmarkLevel === 'stage'
       ? action === 'comparison_only'
         ? `${stageTitle(block.benchmarkStageKey)} comparison`
         : stageTitle(block.benchmarkStageKey)
-      : block.lumpSumOnly
-        ? isAdjusted
-          ? 'Adjusted allowance'
-          : 'Suggested allowance'
-        : block.mode === 'note_total_split' && !isAdjusted
-          ? 'Budget split'
-          : block.isComparison
-            ? 'Suggested comparison'
-            : isAdjusted
-              ? 'Adjusted pricing'
-              : 'Suggested pricing';
-  const headerPillKind = isAdjusted
-    ? 'notes'
-    : usesTemplate
-      ? 'template'
-      : usesBenchmark
-        ? 'benchmark'
-        : 'national';
-  const headerPillLabel = isAdjusted
-    ? block.rateSourceLabel.replace(/^Adjusted · /, '') || 'User adjusted'
-    : block.rateSourceLabel;
-
-  const explanation = isAdjusted
-    ? null
-    : semantics && usesBenchmark
-      ? action === 'comparison_only' && block.benchmarkLevel === 'stage'
-        ? block.helper || 'Planning comparison only — price separate trades, not this living-SF package.'
-        : block.basis?.unit === 'living_sqft'
-        ? `${Number(block.basis.quantity || 0).toLocaleString()} living SF × blended $/SF`
-        : block.helper || null
-      : block.lumpSumOnly
-        ? 'Flat allowance, not a material/labor split.'
-        : block.mode === 'note_total_split'
-          ? `Notes total split using ${usesTemplate ? 'saved rate' : 'National Average'} material.`
-          : block.mode === 'fill_missing'
-            ? `Missing side filled from ${usesTemplate ? 'saved rate' : 'National Average'}.`
-            : block.isComparison
-              ? `Compare to ${usesTemplate ? 'saved rate' : 'National Average'}. Notes pricing stays primary.`
-              : null;
+      : display.title;
 
   const displayTotal =
-    semantics && usesBenchmark ? formatDisplayMoneyNearest100(block.total) : formatDraftMoney(block.total);
-  const rateHelper =
-    semantics && usesBenchmark && block.benchmarkEvidence?.blendedBenchmark.rate != null
-      ? `$${block.benchmarkEvidence.blendedBenchmark.rate.toFixed(2)} / living SF`
-      : semantics && usesBenchmark && block.basis?.unit === 'living_sqft'
-        ? `${Number(block.basis.quantity || 0).toLocaleString()} living SF · planning benchmark`
-        : null;
+    semantics && usesBenchmark && !display.isFallbackPricing && !block.lumpSumOnly
+      ? formatDisplayMoneyNearest100(block.total)
+      : display.displayTotal;
 
-  const displayBuckets = block.costBuckets?.length
-    ? block.costBuckets
-    : block.lumpSumOnly
-      ? [
-          {
-            key: 'allowance' as const,
-            label: semantics && usesBenchmark ? 'Planning total' : 'Allowance',
-            amount: block.total,
-            source: block.laborSource,
-          },
-        ]
-      : [
-          {
-            key: 'material' as const,
-            label: 'Material',
-            amount: block.material,
-            source: block.materialSource,
-          },
-          {
-            key: 'labor' as const,
-            label: 'Labor',
-            amount: block.labor,
-            source: block.laborSource,
-          },
-        ].filter((bucket) => bucket.amount > 0);
+  const coversHint =
+    semantics && usesBenchmark && block.benchmarkLevel === 'stage' && block.benchmarkStageKey
+      ? coversLabelList(block.benchmarkStageKey)
+      : '';
 
   const actionLabel =
-    semantics && action
-      ? benchmarkActionButtonLabel(action)
-      : semantics && block.lumpSumOnly
-        ? 'Use as temporary allowance'
-        : block.lumpSumOnly
-          ? 'Use this allowance in estimate'
-          : 'Use this price in estimate';
+    action === 'comparison_only'
+      ? 'Compare benchmarks'
+      : display.actionLabel;
+
   const canWritePrice =
     Boolean(onUsePricing) &&
     action !== 'comparison_only' &&
     action !== 'included_in_stage' &&
     !(block.isComparison && usesBenchmark && semantics);
-  const coversHint =
-    semantics &&
-    usesBenchmark &&
-    block.benchmarkLevel === 'stage' &&
-    block.benchmarkStageKey
-      ? coversLabelList(block.benchmarkStageKey)
-      : '';
 
   return (
-    <View
-      style={[
-        styles.budgetSplitPanel,
-        { backgroundColor: panelBg, borderColor: panelBorder },
-      ]}
-    >
-      <View style={styles.budgetSplitHeader}>
-        <Text
-          style={[styles.budgetSplitHeaderTitle, { color: pricingTextColor(darkMode, Colors) }]}
-          numberOfLines={2}
-        >
-          {headerTitle}
-        </Text>
-        <View style={styles.budgetSplitHeaderPill}>
-          <SourcePill
-            kind={headerPillKind}
-            label={headerSourcePillLabel(headerPillLabel)}
-          />
-        </View>
-      </View>
-      {semantics && usesBenchmark ? (
-        <>
-          <Text
-            style={{
-              color: pricingTextColor(darkMode, Colors),
-              fontSize: 22,
-              fontWeight: '800',
-              marginTop: 4,
-            }}
-          >
-            {displayTotal}
-          </Text>
-          {rateHelper ? (
-            <Text style={{ color: pricingLabelColor(darkMode, Colors), fontSize: 12, marginTop: 4 }}>
-              {rateHelper}
-              {block.benchmarkEvidence?.localSampleCount
-                ? ` · ${block.benchmarkEvidence.localSampleCount} local projects`
-                : ''}
-            </Text>
-          ) : null}
-          {coversHint ? (
-            <Text
-              style={{
-                color: pricingLabelColor(darkMode, Colors),
-                fontSize: 12,
-                lineHeight: 17,
-                marginTop: 6,
-              }}
-            >
-              {coversHint.includes('priced separately') ? coversHint : `Covers ${coversHint}`}
-            </Text>
-          ) : null}
-        </>
-      ) : (
-        <>
-          {displayBuckets.map((bucket) => (
-            <PricingSplitRow
-              key={`${bucket.key}:${bucket.label}`}
-              label={bucket.label}
-              value={formatDraftMoney(bucket.amount)}
-              helper={
-                bucket.key === 'allowance'
-                  ? 'Flat allowance'
-                  : bucket.rate != null
-                    ? unitRateHelper(String(bucket.rate * (block.basis?.quantity || 1)), block.basis)
-                    : unitRateHelper(String(bucket.amount), block.basis)
-              }
-              darkMode={darkMode}
-              Colors={Colors}
-            />
-          ))}
-          <PricingSplitRow
-            label="Total"
-            value={formatDraftMoney(block.total)}
-            darkMode={darkMode}
-            Colors={Colors}
-          />
-        </>
-      )}
-      {explanation ? (
-        <Text
-          style={{
-            color: pricingLabelColor(darkMode, Colors),
-            fontSize: 12,
-            lineHeight: 17,
-            marginTop: 8,
-          }}
-        >
-          {explanation}
+    <View style={[styles.budgetSplitPanel, { backgroundColor: panelBg }]}>
+      {display.missingMeasurementTitle ? (
+        <Text style={{ color: statusAmber, fontSize: 12, fontWeight: '700', marginBottom: 2 }}>
+          {display.missingMeasurementTitle}
         </Text>
       ) : null}
-      {block.helper && !(semantics && usesBenchmark) ? (
-        <Text
-          style={{
-            color: pricingLabelColor(darkMode, Colors),
-            fontSize: 12,
-            lineHeight: 17,
-            marginTop: 4,
-          }}
-        >
-          {block.helper}
+      {display.missingMeasurementHint ? (
+        <Text style={{ color: caption, fontSize: 12, lineHeight: 16, marginBottom: 6 }}>
+          {display.missingMeasurementHint}
         </Text>
       ) : null}
+
+      {display.quantityLine ? (
+        <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '600', marginBottom: 6 }}>
+          {display.quantityLine}
+        </Text>
+      ) : null}
+
+      <Text
+        style={[styles.budgetSplitHeaderTitle, { color: text }]}
+        numberOfLines={2}
+        ellipsizeMode="tail"
+      >
+        {headerTitle}
+      </Text>
+
+      <Text
+        style={{
+          color: text,
+          fontSize: 26,
+          fontWeight: '700',
+          letterSpacing: -0.4,
+          marginTop: 6,
+        }}
+        accessibilityLabel={`Suggested total ${displayTotal}`}
+      >
+        {displayTotal}
+      </Text>
+
+      {display.splitLine ? (
+        <Text style={{ color: caption, fontSize: 13, fontWeight: '500', marginTop: 6, lineHeight: 18 }}>
+          {display.splitLine}
+        </Text>
+      ) : null}
+
+      {display.unitRateLine ? (
+        <Text style={{ color: caption, fontSize: 12, marginTop: 2 }}>{display.unitRateLine}</Text>
+      ) : null}
+
+      {display.fallbackBasisLine ? (
+        <Text style={{ color: caption, fontSize: 12, marginTop: 4 }}>{display.fallbackBasisLine}</Text>
+      ) : null}
+
+      <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '600', marginTop: 8, lineHeight: 16 }}>
+        {display.sourceLine}
+      </Text>
+      {display.statusLine ? (
+        <Text
+          style={{
+            color: display.statusTone === 'amber' ? statusAmber : caption,
+            fontSize: 12,
+            fontWeight: '600',
+            marginTop: 2,
+            lineHeight: 16,
+          }}
+        >
+          {display.statusLine}
+        </Text>
+      ) : null}
+
+      {display.allowanceExtraNote ? (
+        <Text style={{ color: caption, fontSize: 12, lineHeight: 16, marginTop: 4 }}>
+          {display.allowanceExtraNote}
+        </Text>
+      ) : null}
+
+      {coversHint ? (
+        <Text style={{ color: caption, fontSize: 12, lineHeight: 17, marginTop: 6 }}>
+          {coversHint.includes('priced separately') ? coversHint : `Includes ${coversHint}`}
+        </Text>
+      ) : null}
+
       {block.benchmarkEvidence ? (
         <BenchmarkPricingEvidence
           evidence={block.benchmarkEvidence}
@@ -1231,12 +1143,14 @@ function SuggestedBudgetSplitRows({
           }
         />
       ) : null}
+
       {canWritePrice && actionLabel ? (
         <TouchableOpacity
           activeOpacity={0.75}
           onPress={onUsePricing}
           style={styles.useSuggestedPricingBtn}
           accessibilityLabel={actionLabel}
+          accessibilityRole="button"
         >
           <Text style={styles.useSuggestedPricingBtnText}>{actionLabel}</Text>
         </TouchableOpacity>
@@ -1251,11 +1165,21 @@ function ComparisonToggle({
   Colors,
   darkMode,
   onUsePricing,
+  itemId,
+  quantitySource,
+  hasPrimaryTakeoff,
+  livingSf,
+  confidenceLabel,
 }: {
   block: SuggestedPricingBlock;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   onUsePricing?: () => void;
+  itemId?: string;
+  quantitySource?: string | null;
+  hasPrimaryTakeoff?: boolean;
+  livingSf?: number | null;
+  confidenceLabel?: string | null;
 }) {
   const usesTemplate = block.materialSource === 'template' || block.laborSource === 'template';
   const hasBenchmark = Boolean(block.benchmarkEvidence);
@@ -1273,6 +1197,14 @@ function ComparisonToggle({
     if (includedInStage || usesTemplate) setOpen(true);
   }, [includedInStage, usesTemplate, block.templateName]);
 
+  const cardProps = {
+    itemId,
+    quantitySource,
+    hasPrimaryTakeoff,
+    livingSf,
+    confidenceLabel,
+  };
+
   if (includedInStage) {
     return (
       <View style={{ marginTop: 8 }}>
@@ -1281,22 +1213,17 @@ function ComparisonToggle({
           Colors={Colors}
           darkMode={darkMode}
           onUsePricing={undefined}
+          {...cardProps}
         />
       </View>
     );
   }
 
-  const compareLabel = hasBenchmark
-    ? 'Southern Utah benchmark'
-    : usesTemplate
-      ? 'saved rate'
-      : 'National Average';
-
   return (
     <View style={{ marginTop: 8 }}>
-      <TouchableOpacity activeOpacity={0.7} onPress={() => setOpen((prev) => !prev)}>
+      <TouchableOpacity activeOpacity={0.7} onPress={() => setOpen((prev) => !prev)} accessibilityRole="button">
         <Text style={styles.editQuantityLink}>
-          {open ? 'Hide comparison' : `Compare to ${compareLabel}`}
+          {open ? 'Hide comparison' : 'Compare benchmarks'}
         </Text>
       </TouchableOpacity>
       {open ? (
@@ -1305,16 +1232,17 @@ function ComparisonToggle({
           Colors={Colors}
           darkMode={darkMode}
           onUsePricing={comparisonOnly ? undefined : onUsePricing}
+          {...cardProps}
         />
       ) : null}
     </View>
   );
 }
 
-function EditQuantityLink({ onPress, label = 'Edit pricing' }: { onPress: () => void; label?: string }) {
+function EditQuantityLink({ onPress, label = 'Edit' }: { onPress: () => void; label?: string }) {
   return (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
-      <Text style={styles.editQuantityLink}>{label}</Text>
+    <TouchableOpacity onPress={onPress} activeOpacity={0.7} accessibilityRole="button" hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
+      <Text style={styles.editQuantityLink}>{label === 'Edit pricing' ? 'Edit' : label}</Text>
     </TouchableOpacity>
   );
 }
@@ -1807,7 +1735,7 @@ function CustomScopePricingSection({
         onPress={() => (hasSplitPricing || hasTotalOnlyPricing) && setPricingEditorOpen(false)}
       >
         <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
-          Edit pricing
+          Edit
         </Text>
         <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 4, lineHeight: 15 }}>
           Enter a quantity basis, then material and labor totals.
@@ -2653,6 +2581,16 @@ function QuantitySection({
                   Colors={Colors}
                   darkMode={darkMode}
                   onUsePricing={() => applySuggestedPricingBlock(suggestedBudgetSplit)}
+                  itemId={itemId}
+                  quantitySource={displayResolved.quantitySource}
+                  hasPrimaryTakeoff={Boolean(
+                    displayResolved.quantity != null &&
+                      displayResolved.quantity > 0 &&
+                      displayResolved.quantitySource !== 'missing' &&
+                      displayResolved.quantitySource !== 'default_assumption'
+                  )}
+                  livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
+                  confidenceLabel={intelligence?.pricing?.confidenceLabel}
                 />
               ) : null}
               {suggestedComparisonSplit ? (
@@ -2661,6 +2599,16 @@ function QuantitySection({
                   Colors={Colors}
                   darkMode={darkMode}
                   onUsePricing={() => applySuggestedPricingBlock(suggestedComparisonSplit)}
+                  itemId={itemId}
+                  quantitySource={displayResolved.quantitySource}
+                  hasPrimaryTakeoff={Boolean(
+                    displayResolved.quantity != null &&
+                      displayResolved.quantity > 0 &&
+                      displayResolved.quantitySource !== 'missing' &&
+                      displayResolved.quantitySource !== 'default_assumption'
+                  )}
+                  livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
+                  confidenceLabel={intelligence?.pricing?.confidenceLabel}
                 />
               ) : null}
               <EditQuantityLink onPress={openPricingEditor} />
@@ -2716,6 +2664,19 @@ function QuantitySection({
       const neededStatusLine = measurementSemanticsV1Enabled()
         ? missingStatusDisplayLabel(itemId)
         : resolved.missingMessage || 'Enter quantity and/or allowance';
+      const softCostAllowance =
+        Boolean(rule.lumpSumOnly) || itemId === 'permits' || itemId === 'plans_engineering';
+      const cardOwnsMissingCopy =
+        Boolean(planningFill) &&
+        (softCostAllowance ||
+          ['windows_doors', 'plumbing_rough', 'electrical_rough', 'hvac', 'insulation'].includes(
+            itemId
+          ));
+      const planningHelperLine = softCostAllowance
+        ? rule.quantityHelper
+        : planningFill
+          ? `Planning price until ${neededStatusLine.replace(/^Needs\s+/i, '').toLowerCase()} is entered.`
+          : rule.quantityHelper;
       const applyPlanningBlock = (block: SuggestedPricingBlock) => {
         if (onApplySuggestedPricing) {
           onApplySuggestedPricing(itemId, block);
@@ -2734,14 +2695,14 @@ function QuantitySection({
       };
       return (
         <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
-          <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
-            {neededStatusLine}
-          </Text>
-          {rule.quantityHelper ? (
+          {cardOwnsMissingCopy ? null : (
+            <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
+              {neededStatusLine}
+            </Text>
+          )}
+          {!cardOwnsMissingCopy && planningHelperLine ? (
             <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 4, lineHeight: 15 }}>
-              {planningFill
-                ? `Planning material + labor until ${neededStatusLine.replace(/^Needs\s+/i, '').toLowerCase()} is entered.`
-                : rule.quantityHelper}
+              {planningHelperLine}
             </Text>
           ) : null}
           <ScopeIntelligenceNotice
@@ -2756,6 +2717,11 @@ function QuantitySection({
               Colors={Colors}
               darkMode={darkMode}
               onUsePricing={() => applyPlanningBlock(planningFill)}
+              itemId={itemId}
+              quantitySource={resolved.quantitySource}
+              hasPrimaryTakeoff={false}
+              livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
+              confidenceLabel={planningIntelligence?.pricing?.confidenceLabel}
             />
           ) : null}
           {planningComparison ? (
@@ -2764,6 +2730,11 @@ function QuantitySection({
               Colors={Colors}
               darkMode={darkMode}
               onUsePricing={() => applyPlanningBlock(planningComparison)}
+              itemId={itemId}
+              quantitySource={resolved.quantitySource}
+              hasPrimaryTakeoff={false}
+              livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
+              confidenceLabel={planningIntelligence?.pricing?.confidenceLabel}
             />
           ) : null}
           <EditQuantityLink onPress={() => setPricingEditorOpen(true)} />
@@ -2781,7 +2752,7 @@ function QuantitySection({
           }}
         >
           <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
-            Edit pricing
+            Edit
           </Text>
           {rule.quantityHelper ? (
             <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 4, lineHeight: 15 }}>
@@ -3132,6 +3103,16 @@ function QuantitySection({
                   Colors={Colors}
                   darkMode={darkMode}
                   onUsePricing={() => applySuggestedPricingBlock(suggestedBudgetSplit)}
+                  itemId={itemId}
+                  quantitySource={resolved.quantitySource}
+                  hasPrimaryTakeoff={Boolean(
+                    resolved.quantity != null &&
+                      resolved.quantity > 0 &&
+                      resolved.quantitySource !== 'missing' &&
+                      resolved.quantitySource !== 'default_assumption'
+                  )}
+                  livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
+                  confidenceLabel={intelligence?.pricing?.confidenceLabel}
                 />
               ) : null}
               {suggestedComparisonSplit ? (
@@ -3140,6 +3121,16 @@ function QuantitySection({
                   Colors={Colors}
                   darkMode={darkMode}
                   onUsePricing={() => applySuggestedPricingBlock(suggestedComparisonSplit)}
+                  itemId={itemId}
+                  quantitySource={resolved.quantitySource}
+                  hasPrimaryTakeoff={Boolean(
+                    resolved.quantity != null &&
+                      resolved.quantity > 0 &&
+                      resolved.quantitySource !== 'missing' &&
+                      resolved.quantitySource !== 'default_assumption'
+                  )}
+                  livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
+                  confidenceLabel={intelligence?.pricing?.confidenceLabel}
                 />
               ) : null}
               <EditQuantityLink onPress={openPricingEditor} />
@@ -3192,6 +3183,11 @@ function QuantitySection({
                 ? undefined
                 : () => applySuggestedPricingBlock(suggestedBudgetSplit)
             }
+            itemId={itemId}
+            quantitySource={resolved.quantitySource}
+            hasPrimaryTakeoff={false}
+            livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
+            confidenceLabel={intelligence?.pricing?.confidenceLabel}
           />
         ) : null}
         {suggestedComparisonSplit ? (
@@ -3200,6 +3196,11 @@ function QuantitySection({
             Colors={Colors}
             darkMode={darkMode}
             onUsePricing={() => applySuggestedPricingBlock(suggestedComparisonSplit)}
+            itemId={itemId}
+            quantitySource={resolved.quantitySource}
+            hasPrimaryTakeoff={false}
+            livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
+            confidenceLabel={intelligence?.pricing?.confidenceLabel}
           />
         ) : null}
         <EditQuantityLink onPress={() => setPricingEditorOpen(true)} />
@@ -3267,7 +3268,7 @@ function QuantitySection({
         }}
       >
         <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
-          Edit pricing
+          Edit
         </Text>
         {rule.quantityHelper ? (
           <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 4, lineHeight: 15 }}>
@@ -3327,6 +3328,16 @@ function QuantitySection({
           darkMode={darkMode}
           adjusted={suggestedCardIsAdjusted}
           onUsePricing={() => applySuggestedPricingBlock(displaySuggestedBudgetSplit)}
+          itemId={itemId}
+          quantitySource={resolved.quantitySource}
+          hasPrimaryTakeoff={Boolean(
+            resolved.quantity != null &&
+              resolved.quantity > 0 &&
+              resolved.quantitySource !== 'missing' &&
+              resolved.quantitySource !== 'default_assumption'
+          )}
+          livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
+          confidenceLabel={intelligence?.pricing?.confidenceLabel}
         />
       ) : null}
       {displaySuggestedBudgetSplit && showAllowanceEditor && displaySuggestedBudgetSplit.lumpSumOnly ? (
@@ -3336,6 +3347,16 @@ function QuantitySection({
           darkMode={darkMode}
           adjusted={suggestedCardIsAdjusted}
           onUsePricing={() => applySuggestedPricingBlock(displaySuggestedBudgetSplit)}
+          itemId={itemId}
+          quantitySource={resolved.quantitySource}
+          hasPrimaryTakeoff={Boolean(
+            resolved.quantity != null &&
+              resolved.quantity > 0 &&
+              resolved.quantitySource !== 'missing' &&
+              resolved.quantitySource !== 'default_assumption'
+          )}
+          livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
+          confidenceLabel={intelligence?.pricing?.confidenceLabel}
         />
       ) : null}
       {suggestedComparisonSplit ? (
@@ -3344,6 +3365,16 @@ function QuantitySection({
           Colors={Colors}
           darkMode={darkMode}
           onUsePricing={() => applySuggestedPricingBlock(suggestedComparisonSplit)}
+          itemId={itemId}
+          quantitySource={resolved.quantitySource}
+          hasPrimaryTakeoff={Boolean(
+            resolved.quantity != null &&
+              resolved.quantity > 0 &&
+              resolved.quantitySource !== 'missing' &&
+              resolved.quantitySource !== 'default_assumption'
+          )}
+          livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
+          confidenceLabel={intelligence?.pricing?.confidenceLabel}
         />
       ) : null}
     </View>
@@ -4323,6 +4354,8 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
 function CollapsibleQuickMeasurements({
   expanded,
   onToggle,
+  onDone,
+  containerRef,
   measurements,
   setMeasurements,
   templateKey,
@@ -4337,6 +4370,9 @@ function CollapsibleQuickMeasurements({
 }: {
   expanded: boolean;
   onToggle: () => void;
+  /** Collapse Quick Measurements and settle on Plans / first precon card. */
+  onDone?: () => void;
+  containerRef?: React.Ref<View>;
   measurements: ScopeMeasurementsInputExtended;
   setMeasurements: React.Dispatch<React.SetStateAction<ScopeMeasurementsInputExtended>>;
   templateKey?: string;
@@ -4488,85 +4524,100 @@ function CollapsibleQuickMeasurements({
   const clampBathCount = (next: number | null) =>
     next != null && Number.isFinite(next) && next > 0 ? Math.min(12, Math.round(next)) : null;
 
-  const displayTileBathCount = measurements.bathCount ?? null;
-  const displayPrefabBathCount = measurements.prefabBathCount ?? null;
-  const displayTubBathCount = measurements.tubBathCount ?? null;
+  // Optimistic stepper display so +/- paints immediately; parent measurements sync in a transition.
+  const [stepperCounts, setStepperCounts] = useState<{
+    bathCount: number | null;
+    prefabBathCount: number | null;
+    tubBathCount: number | null;
+  }>({
+    bathCount: measurements.bathCount ?? null,
+    prefabBathCount: measurements.prefabBathCount ?? null,
+    tubBathCount: measurements.tubBathCount ?? null,
+  });
+  const stepperGenRef = useRef(0);
+  const stepperAppliedGenRef = useRef(0);
+  const latestStepperRef = useRef(stepperCounts);
+  useEffect(() => {
+    // Skip stale parent catch-up while rapid taps are still committing.
+    if (stepperGenRef.current !== stepperAppliedGenRef.current) return;
+    setStepperCounts({
+      bathCount: measurements.bathCount ?? null,
+      prefabBathCount: measurements.prefabBathCount ?? null,
+      tubBathCount: measurements.tubBathCount ?? null,
+    });
+  }, [measurements.bathCount, measurements.prefabBathCount, measurements.tubBathCount]);
 
-  const syncWetAreaFinishFromCounts = useCallback(
+  const displayTileBathCount = stepperCounts.bathCount;
+  const displayPrefabBathCount = stepperCounts.prefabBathCount;
+  const displayTubBathCount = stepperCounts.tubBathCount;
+
+  const scheduleWetAreaCommit = useCallback(
     (next: {
-      bathCount?: number | null;
-      prefabBathCount?: number | null;
-      tubBathCount?: number | null;
-      wetAreaFinish?: WetAreaFinishChoice | null;
-    }) => {
-      const finish = resolveEffectiveWetAreaFinish(next);
-      onWetAreaFinishChange?.(finish);
-      return finish;
+      bathCount: number | null;
+      prefabBathCount: number | null;
+      tubBathCount: number | null;
+    }, gen: number) => {
+      latestStepperRef.current = next;
+      queueMicrotask(() => {
+        if (gen !== stepperGenRef.current) return; // superseded by a newer tap
+        const latest = latestStepperRef.current;
+        const wetAreaFinish = resolveEffectiveWetAreaFinish(latest);
+        startTransition(() => {
+          setMeasurements((prev) => ({
+            ...prev,
+            bathCount: latest.bathCount,
+            prefabBathCount: latest.prefabBathCount,
+            tubBathCount: latest.tubBathCount,
+            wetAreaFinish,
+          }));
+          stepperAppliedGenRef.current = stepperGenRef.current;
+          onWetAreaFinishChange?.(wetAreaFinish);
+        });
+      });
     },
-    [onWetAreaFinishChange]
+    [onWetAreaFinishChange, setMeasurements]
   );
 
   const adjustTileBathCount = useCallback(
     (delta: number) => {
-      const current = displayTileBathCount ?? 0;
-      const cleaned = clampBathCount(current + delta < 1 ? null : current + delta);
-      setMeasurements((prev) => {
-        const draft = {
-          ...prev,
-          bathCount: cleaned,
-        };
-        draft.wetAreaFinish = syncWetAreaFinishFromCounts({
-          bathCount: cleaned,
-          prefabBathCount: prev.prefabBathCount,
-          tubBathCount: prev.tubBathCount,
-          wetAreaFinish: cleaned ? 'tile' : prev.wetAreaFinish === 'tile' ? null : prev.wetAreaFinish,
-        });
-        return draft;
+      const gen = ++stepperGenRef.current;
+      setStepperCounts((prev) => {
+        const current = prev.bathCount ?? 0;
+        const cleaned = clampBathCount(current + delta < 1 ? null : current + delta);
+        const next = { ...prev, bathCount: cleaned };
+        scheduleWetAreaCommit(next, gen);
+        return next;
       });
     },
-    [displayTileBathCount, setMeasurements, syncWetAreaFinishFromCounts]
+    [scheduleWetAreaCommit]
   );
 
   const adjustPrefabBathCount = useCallback(
     (delta: number) => {
-      const current = displayPrefabBathCount ?? 0;
-      const cleaned = clampBathCount(current + delta < 1 ? null : current + delta);
-      setMeasurements((prev) => {
-        const draft = {
-          ...prev,
-          prefabBathCount: cleaned,
-        };
-        draft.wetAreaFinish = syncWetAreaFinishFromCounts({
-          bathCount: prev.bathCount,
-          prefabBathCount: cleaned,
-          tubBathCount: prev.tubBathCount,
-          wetAreaFinish: prev.wetAreaFinish,
-        });
-        return draft;
+      const gen = ++stepperGenRef.current;
+      setStepperCounts((prev) => {
+        const current = prev.prefabBathCount ?? 0;
+        const cleaned = clampBathCount(current + delta < 1 ? null : current + delta);
+        const next = { ...prev, prefabBathCount: cleaned };
+        scheduleWetAreaCommit(next, gen);
+        return next;
       });
     },
-    [displayPrefabBathCount, setMeasurements, syncWetAreaFinishFromCounts]
+    [scheduleWetAreaCommit]
   );
 
   const adjustTubBathCount = useCallback(
     (delta: number) => {
-      const current = displayTubBathCount ?? 0;
-      const cleaned = clampBathCount(current + delta < 1 ? null : current + delta);
-      setMeasurements((prev) => {
-        const draft = {
-          ...prev,
-          tubBathCount: cleaned,
-        };
-        draft.wetAreaFinish = syncWetAreaFinishFromCounts({
-          bathCount: prev.bathCount,
-          prefabBathCount: prev.prefabBathCount,
-          tubBathCount: cleaned,
-          wetAreaFinish: prev.wetAreaFinish,
-        });
-        return draft;
+      const gen = ++stepperGenRef.current;
+      setStepperCounts((prev) => {
+        const current = prev.tubBathCount ?? 0;
+        const cleaned = clampBathCount(current + delta < 1 ? null : current + delta);
+        const next = { ...prev, tubBathCount: cleaned };
+        scheduleWetAreaCommit(next, gen);
+        return next;
       });
     },
-    [displayTubBathCount, setMeasurements, syncWetAreaFinishFromCounts]
+    [scheduleWetAreaCommit]
   );
 
   const renderBathCountStepper = (
@@ -4597,7 +4648,8 @@ function CollapsibleQuickMeasurements({
         <TouchableOpacity
           onPress={() => onAdjust(-1)}
           disabled={applying || !value}
-          activeOpacity={0.75}
+          activeOpacity={0.6}
+          delayPressIn={0}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           style={{
             width: 32,
@@ -4626,7 +4678,8 @@ function CollapsibleQuickMeasurements({
         <TouchableOpacity
           onPress={() => onAdjust(1)}
           disabled={applying || (value != null && value >= 12)}
-          activeOpacity={0.75}
+          activeOpacity={0.6}
+          delayPressIn={0}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           style={{
             width: 32,
@@ -4832,7 +4885,11 @@ function CollapsibleQuickMeasurements({
   );
 
   return (
-    <View style={[styles.quickMeasurements, estimateFlowCardStyle(Colors, darkMode)]}>
+    <View
+      ref={containerRef}
+      collapsable={false}
+      style={[styles.quickMeasurements, estimateFlowCardStyle(Colors, darkMode)]}
+    >
       <TouchableOpacity style={styles.quickMeasurementsHeader} onPress={onToggle} activeOpacity={0.7}>
         <View style={{ flex: 1, minWidth: 0 }}>
           <View style={styles.quickMeasurementsTitleRow}>
@@ -5058,7 +5115,11 @@ function CollapsibleQuickMeasurements({
             </View>
           ) : null}
           {showDone ? (
-            <TouchableOpacity onPress={onToggle} activeOpacity={0.75} style={styles.quickMeasurementsDone}>
+            <TouchableOpacity
+              onPress={onDone || onToggle}
+              activeOpacity={0.75}
+              style={styles.quickMeasurementsDone}
+            >
               <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '700' }}>Done</Text>
             </TouchableOpacity>
           ) : null}
@@ -5168,6 +5229,7 @@ export default function AIEstimateScopeAssumptionsModal({
   const selectedPricingRef = useRef<Record<string, SuggestedPricingBlock>>({});
   const scrollRef = useRef<ScrollView>(null);
   const scrollContentRef = useRef<View>(null);
+  const quickMeasurementsRef = useRef<View>(null);
   const benchmarkFetchKey = useMemo(
     () =>
       JSON.stringify({
@@ -6422,12 +6484,12 @@ export default function AIEstimateScopeAssumptionsModal({
         ? `\n\n${missingStatusDisplayLabel(itemId)}.`
         : '';
       Alert.alert(
-        isTemporary ? 'Use temporary allowance?' : 'Confirm benchmark price',
+        isTemporary ? 'Apply allowance?' : 'Apply price?',
         `${detail}${statusNote}\n\nApply ${formatDisplayMoneyNearest100(block.total)} now? (Exact stored amount: ${formatDraftMoney(block.storedTotalExact ?? block.total)}.)`,
         [
           { text: 'Cancel', style: 'cancel' },
           {
-            text: isTemporary ? 'Use temporary allowance' : 'Use price',
+            text: isTemporary ? 'Apply allowance' : 'Apply price',
             onPress: () => applySuggestedPricingNow(itemId, block, true),
           },
         ]
@@ -6453,6 +6515,49 @@ export default function AIEstimateScopeAssumptionsModal({
       });
     }
   }, [groupedItems]);
+
+  /** After Quick Measurements Done: collapse panel and land Plans at the top (Permits stays visible below). */
+  const handleQuickMeasurementsDone = useCallback(() => {
+    const preferredIds = ['plans_engineering', 'permits', 'sitework', 'excavation'];
+    const targetId =
+      preferredIds.find((id) => displayItems.some((row) => row.id === id)) ||
+      displayItems.find((row) => checklistItemInScope(row))?.id;
+    const group = targetId
+      ? groupedItems.find((g) => g.items.some((row) => row.id === targetId))
+      : null;
+    if (group?.title) {
+      setCollapsedGroups((prev) => ({ ...prev, [group.title]: false }));
+    }
+
+    const content = scrollContentRef.current;
+    const qm = quickMeasurementsRef.current;
+    const node = targetId ? itemRefs.current[targetId] : null;
+    const COLLAPSED_QM_H = 64;
+
+    const collapseAndScroll = (targetY: number) => {
+      setQuickMeasurementsOpen(false);
+      // Snap once using pre-collapse math — avoids stale post-collapse measure overshoot.
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollTo({ y: targetY, animated: false });
+      });
+    };
+
+    if (!targetId || !node || !content || !qm) {
+      setQuickMeasurementsOpen(false);
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollTo({ y: 0, animated: false });
+      });
+      return;
+    }
+
+    qm.measureLayout(content, (_x, _qmY, _w, qmH) => {
+      node.measureLayout(content, (_x2, itemY) => {
+        const shrink = Math.max(0, Number(qmH) - COLLAPSED_QM_H);
+        const targetY = Math.max(0, Number(itemY) - shrink - 8);
+        collapseAndScroll(targetY);
+      });
+    });
+  }, [displayItems, groupedItems]);
 
   const handleScopeGapResolutionsChange = useCallback(
     (next: ScopeGapResolutionsMap) => {
@@ -6885,6 +6990,8 @@ export default function AIEstimateScopeAssumptionsModal({
         <CollapsibleQuickMeasurements
           expanded={quickMeasurementsOpen}
           onToggle={() => setQuickMeasurementsOpen((v) => !v)}
+          onDone={handleQuickMeasurementsDone}
+          containerRef={quickMeasurementsRef}
           measurements={measurements}
           setMeasurements={setMeasurementsSynced}
           templateKey={checklist?.templateKey}
@@ -7368,13 +7475,21 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   useSuggestedPricingBtn: {
-    marginTop: 8,
-    alignSelf: 'flex-start',
-    paddingVertical: 4,
+    marginTop: 10,
+    alignSelf: 'stretch',
+    minHeight: 44,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(34, 197, 94, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.35)',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
   },
   useSuggestedPricingBtnText: {
     color: '#22c55e',
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '700',
   },
   includedPillRow: {
@@ -7466,11 +7581,12 @@ const styles = StyleSheet.create({
     opacity: 0.82,
   },
   intelligenceNotice: {
-    marginTop: 9,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
+    // Compact metadata strip — not a nested card.
+    marginTop: 8,
+    paddingHorizontal: 0,
+    paddingVertical: 2,
+    borderRadius: 0,
+    borderWidth: 0,
     gap: 3,
   },
   intelligenceNoticeText: {
@@ -7536,9 +7652,8 @@ const styles = StyleSheet.create({
   budgetSplitPanel: {
     marginTop: 10,
     paddingHorizontal: 12,
-    paddingVertical: 11,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 12,
+    borderRadius: 12,
   },
   budgetSplitHeader: {
     flexDirection: 'row',
@@ -7547,10 +7662,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   budgetSplitHeaderTitle: {
-    flex: 1,
-    flexShrink: 1,
-    minWidth: 0,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
   },
   budgetSplitHeaderPill: {

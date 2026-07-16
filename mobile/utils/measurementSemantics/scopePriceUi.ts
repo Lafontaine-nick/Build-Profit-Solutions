@@ -229,6 +229,10 @@ export function formatDisplayMoneyNearest100(total: number | null | undefined): 
 }
 
 export function missingStatusDisplayLabel(scopeKey: string): string {
+  // Soft-cost allowances — always user-facing fee/allowance language (never "Needs takeoff").
+  if (scopeKey === 'permits') return 'Needs local fee confirmation';
+  if (scopeKey === 'plans_engineering' || scopeKey === 'cleanup') return 'Needs allowance';
+
   if (!measurementSemanticsV1Enabled()) {
     return measurementStatusLabel(missingStatusForScope(scopeKey));
   }
@@ -272,8 +276,6 @@ export function missingStatusDisplayLabel(scopeKey: string): string {
       return 'Needs finish allocation and material-specific takeoff';
     case 'cabinets_counters':
     case 'cabinets':
-    case 'cleanup':
-    case 'plans_engineering':
       return 'Needs allowance';
     case 'interior_finishes':
       return 'Planning benchmark — takeoff still required';
@@ -332,19 +334,16 @@ export function benchmarkActionForBlock(input: {
   return 'price_ready';
 }
 
-export function benchmarkActionButtonLabel(action: BenchmarkCardAction): string | null {
-  switch (action) {
-    case 'price_ready':
-      return 'Use price';
-    case 'benchmark_only':
-      return 'Use as temporary allowance';
-    case 'comparison_only':
-      return 'View benchmark';
-    case 'included_in_stage':
-      return null;
-    default:
-      return null;
-  }
+export function benchmarkActionButtonLabel(
+  action: BenchmarkCardAction,
+  options?: { isFallbackPricing?: boolean; lumpSumOnly?: boolean }
+): string | null {
+  if (action === 'included_in_stage') return null;
+  if (action === 'comparison_only') return 'Compare benchmarks';
+  if (options?.lumpSumOnly || action === 'benchmark_only') return 'Apply allowance';
+  if (options?.isFallbackPricing) return 'Use planning price';
+  if (action === 'price_ready') return 'Apply price';
+  return 'Apply price';
 }
 
 export function footerSuggestedPricingSummary(input: {

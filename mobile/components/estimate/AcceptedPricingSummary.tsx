@@ -429,13 +429,15 @@ export function AcceptedPricingSummary({
             ]}
           >
             {warningExpanded ? warningPreview.full : warningPreview.preview}
-            {warningPreview.canExpand && !warningExpanded ? ' More' : ''}
+            {warningPreview.canExpand && !warningExpanded ? (
+              <Text style={{ color: '#60a5fa', fontWeight: '700' }}> View details</Text>
+            ) : null}
           </Text>
         </TouchableOpacity>
       ) : null}
       <View style={[styles.actionLinksRow, !secondaryAction && styles.actionLinksRowSingle]}>
         <TouchableOpacity onPress={onEditPricing} activeOpacity={0.7} accessibilityRole="button">
-          <Text style={styles.editLink}>Edit pricing</Text>
+          <Text style={styles.editLink}>Edit</Text>
         </TouchableOpacity>
         {secondaryAction ? (
           <TouchableOpacity

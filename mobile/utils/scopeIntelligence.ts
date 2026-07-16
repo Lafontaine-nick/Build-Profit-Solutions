@@ -857,7 +857,7 @@ function quantitySourceMetadata(params: {
   if (noteMatched) {
     return {
       source: 'from_notes',
-      sourceLabel: 'Parsed from notes',
+      sourceLabel: 'From notes',
       confidence: 'high',
       reason: 'The quantity or directly usable measurement was found in the walkthrough notes.',
     };

@@ -86,8 +86,9 @@ export const SOUTHERN_UTAH_LOCAL_INSTALLED_UNIT_RATES: Record<
   },
   'framing:sqft': {
     unit: 'sqft',
-    installed: 22.82,
-    note: 'Lumber + trusses + framing labor ÷ living SF (mat/lab split below)',
+    // Detached median on covered framed SF (living + garage): mat+lab ≈ $15.81/SF.
+    installed: 15.81,
+    note: 'Lumber + trusses + framing labor ÷ covered framed SF (living + garage)',
   },
   'drywall:sqft': {
     unit: 'sqft',
@@ -171,9 +172,13 @@ export const SOUTHERN_UTAH_LOCAL_INSTALLED_UNIT_RATES: Record<
   },
 };
 
-/** Framing keeps explicit local mat vs labor from bid lines (not national ratio). */
-const FRAMING_LOCAL_MAT_PER_LIVING_SF = 13.78; // lumber + trusses
-const FRAMING_LOCAL_LAB_PER_LIVING_SF = 9.04;
+/**
+ * Framing keeps explicit local mat vs labor from bid lines (not national ratio).
+ * Basis: covered framed SF = living + garage (patio/deck excluded until confirmed in shell).
+ * Lot 41 example: labor $19,500 ÷ 2,873 SF ≈ $6.79/framed SF (competitive in the $5–$10 band).
+ */
+const FRAMING_LOCAL_MAT_PER_FRAMED_SF = 9.49; // lumber + trusses
+const FRAMING_LOCAL_LAB_PER_FRAMED_SF = 6.32;
 
 function round2(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
@@ -265,9 +270,9 @@ export function applySouthernUtahCalibration(
 
   if (key === 'framing:sqft') {
     material = round2(
-      blendInstalled(FRAMING_LOCAL_MAT_PER_LIVING_SF, national.material)
+      blendInstalled(FRAMING_LOCAL_MAT_PER_FRAMED_SF, national.material)
     );
-    labor = round2(blendInstalled(FRAMING_LOCAL_LAB_PER_LIVING_SF, national.labor));
+    labor = round2(blendInstalled(FRAMING_LOCAL_LAB_PER_FRAMED_SF, national.labor));
   } else {
     const blended = blendInstalled(local.installed, national.material + national.labor);
     const split = splitByNationalRatio(blended, national);
@@ -290,3 +295,40 @@ export function applySouthernUtahCalibration(
 
 /** Alias for clarity at call sites. */
 export const applyBuilderBudgetBarometer = applySouthernUtahCalibration;
+
+/**
+ * Soft-cost allowances for ground-up Confirm Scope (flat $ / job).
+ * Evidence: SHV Iron Mesa Lots 39/41/49/58 + Silver Leaf fee schedules.
+ * These are planning allowances — jurisdiction fees still need verification.
+ */
+export const BUILDER_BUDGET_SOFT_COST_ALLOWANCES: Record<
+  string,
+  { amount: number; note: string; sourceLabel: string }
+> = {
+  plans_engineering: {
+    // Lot 41 / SL detail: Architectural Plan Design $3,000 (eng often separate ~$750).
+    amount: 3000,
+    note: 'Architectural plan design from SHV detached budgets (~$3,000). Engineering / soils often separate.',
+    sourceLabel: 'Suggested · National Average (builder-budget calibrated)',
+  },
+  permits: {
+    // Lot 41 Permits & Fees / city impact $32,000; detached median city impact $35,000.
+    // Excludes water/sewer/fire impact add-ons (Silver Leaf itemizes those separately).
+    amount: 32000,
+    note:
+      'Inclusive of city impact fee (not permit-only). Varies widely by state/jurisdiction — confirm locally. Water/sewer/fire impact often extra.',
+    sourceLabel: 'Suggested · National Average (builder-budget calibrated)',
+  },
+};
+
+export function getBuilderBudgetSoftCostAllowance(
+  itemId: string,
+  templateKey?: string | null
+): { amount: number; note: string; sourceLabel: string } | null {
+  if (String(templateKey || '').toLowerCase() !== 'ground_up') return null;
+  const id = String(itemId || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  return BUILDER_BUDGET_SOFT_COST_ALLOWANCES[id] || null;
+}
