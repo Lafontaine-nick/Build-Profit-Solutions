@@ -656,12 +656,30 @@ function canonicalScopeKey(text) {
   if (/\b(rail(?:ing)?|guardrail|metal\s+railing)\b/.test(t)) return 'railing';
   if (/\b(rock|mulch|gravel)\b/.test(t)) return 'rock_mulch';
   if (/\b(deck(?:ing)?|composite\s+deck)\b/.test(t)) return 'decking';
-  if (/\b(concrete|flatwork|slab|driveway|sidewalk)\b/.test(t)) return 'concrete';
+  // Landscaping helpers say "Not driveway flatwork" — must not collapse into concrete.
+  if (/\blandscap|\bsite\s+walls?\b|\bfences?\s*(?:&|and|\/)\s*gates?\b/.test(t)) return 'landscaping';
+  if (/\bexterior\s+concrete\s+flatwork\b|\bpour_flatwork\b/.test(t)) return 'pour_flatwork';
+  if (
+    /\b(concrete|flatwork|slab|driveway|sidewalk)\b/.test(t) &&
+    !/\bnot\b.{0,60}\b(driveway|flatwork)\b/.test(t)
+  ) {
+    return 'concrete';
+  }
+  if (/\bfinish\s+carpentry\b|\binterior\s+trim\b/.test(t)) return 'interior_trim';
   if (/\b(baseboard|trim|crown|moulding|molding|casing)\b/.test(t)) return 'trim';
   return null;
 }
 
 function roomExistsForChecklistItem(rooms, item) {
+  const itemId = String(item?.id || '').trim();
+  if (itemId) {
+    const byId = (rooms || []).some(
+      (room) =>
+        String(room.checklistItemId || '').trim() === itemId ||
+        String(room.costCode || '').trim() === itemId
+    );
+    if (byId) return true;
+  }
   const itemKey = canonicalScopeKey(`${item.id} ${item.label || ''} ${item.helperText || ''}`);
   if (!itemKey) return false;
   return (rooms || []).some((room) => {
@@ -868,6 +886,8 @@ function addScopePackagesFromConfirmedChecklist(draft, confirmedItems, scopeMeas
     rooms.push({
       name,
       scope: item.helperText || item.label || name,
+      checklistItemId: item.id || null,
+      costCode: item.id || null,
       price: null,
       laborPrice: null,
       materialPrice: null,
@@ -912,7 +932,8 @@ function applyScopeMeasurements(draft, measurements) {
     norm.showerWallTileSqft ||
     norm.showerFloorTileSqft ||
     norm.wallPaintSqft ||
-    Object.keys(norm.itemQuantities || {}).length > 0;
+    Object.keys(norm.itemQuantities || {}).length > 0 ||
+    Object.keys(measurements?.pricingAcceptance || draft.scopeMeasurements?.pricingAcceptance || {}).length > 0;
   if (!hasAny) return draft;
 
   let originalNotes = String(draft.originalNotes || '').trim();
@@ -933,11 +954,21 @@ function applyScopeMeasurements(draft, measurements) {
     originalNotes = originalNotes ? `${originalNotes}\n${noteParts.join(', ')}` : noteParts.join(', ');
   }
 
-  const ctx = { measurements: norm, notes: originalNotes };
+  const prevMeasurements = draft.scopeMeasurements || {};
+  const pricingAcceptance =
+    measurements?.pricingAcceptance ||
+    norm.pricingAcceptance ||
+    prevMeasurements.pricingAcceptance;
+  const measurementsForStamp = {
+    ...norm,
+    pricingAcceptance,
+  };
+  const ctx = { measurements: measurementsForStamp, notes: originalNotes };
 
   return {
     ...draft,
     scopeMeasurements: {
+      ...prevMeasurements,
       sqft: norm.bathroomFloorSqft,
       lf: norm.baseboardLf,
       bathroomFloorSqft: norm.bathroomFloorSqft,
@@ -964,7 +995,13 @@ function applyScopeMeasurements(draft, measurements) {
       showerWallTileSqft: norm.showerWallTileSqft,
       showerFloorTileSqft: norm.showerFloorTileSqft,
       wallPaintSqft: norm.wallPaintSqft,
-      itemQuantities: norm.itemQuantities,
+      itemQuantities: {
+        ...(prevMeasurements.itemQuantities || {}),
+        ...(norm.itemQuantities || {}),
+      },
+      pricingAcceptance,
+      planRooms: measurements?.planRooms || prevMeasurements.planRooms,
+      planFacts: measurements?.planFacts || prevMeasurements.planFacts,
     },
     originalNotes,
     scopePackages: (draft.scopePackages || []).map((pkg) => stampPackageWithCatalogRules(pkg, ctx)),

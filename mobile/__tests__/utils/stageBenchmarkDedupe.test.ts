@@ -312,7 +312,7 @@ describe('stage benchmark dedupe and card presentation', () => {
     expect(sitework.comparison?.helper).toMatch(/price separate trades|separate trade pricing is active/i);
   });
 
-  it('prices Framing as covered framed-SF material + labor on ground-up; stage benchmark is comparison only', () => {
+  it('prices Framing as covered framed-SF material + labor on ground-up; national average is comparison', () => {
     jest.spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion').mockImplementation((id: string) =>
       stageSuggestion(id, 'framing', 45883.73)
     );
@@ -328,12 +328,15 @@ describe('stage benchmark dedupe and card presentation', () => {
     expect(framing.fill?.basis).toEqual({ quantity: 2873, unit: 'sqft' });
     expect(framing.fill?.labor).toBeCloseTo(19513, -2); // ~$6.79/framed SF × 2873
     expect(framing.fill?.benchmarkAction).toBe('price_ready');
+    // Pure national on same framed SF (2873 × $17.50), not living-SF stage lump.
     expect(framing.comparison).toMatchObject({
-      benchmarkLevel: 'stage',
+      benchmarkLevel: 'component',
       benchmarkAction: 'comparison_only',
       isComparison: true,
+      basis: { quantity: 2873, unit: 'sqft' },
     });
-    expect(framing.comparison?.total).toBeCloseTo(45883.73, 0);
+    expect(framing.comparison?.total).toBeCloseTo(50277.5, 0);
+    expect(framing.comparison?.rateSourceLabel).toMatch(/national average comparison/i);
   });
 
   it('locks MEP rough-in as comparison-only on ground-up', () => {
@@ -355,7 +358,7 @@ describe('stage benchmark dedupe and card presentation', () => {
 
   it('does not claim sitework stage covers plans or excavation', () => {
     expect(coversLabelList('site-preconstruction')).toBe(
-      'general sitework · excavation priced separately'
+      'general sitework · excavation, landscaping / site walls priced separately'
     );
     expect(coversLabelList('site-preconstruction')).not.toMatch(/plans/i);
   });
@@ -410,7 +413,7 @@ describe('stage benchmark dedupe and card presentation', () => {
     expect(drywall.comparison?.includedInStageLabel || null).toBeNull();
   });
 
-  it('keeps exact stored totals on stage comparison while display rounding differs', () => {
+  it('keeps exact stored totals on national comparison while display rounding differs', () => {
     jest.spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion').mockImplementation((id: string) =>
       stageSuggestion(id, 'framing', 45883.73)
     );
@@ -420,9 +423,10 @@ describe('stage benchmark dedupe and card presentation', () => {
       'ground_up',
       resolveChecklistItemQuantity('framing', lot41(), { templateKey: 'ground_up' })
     );
-    expect(framing.comparison?.storedTotalExact).toBeCloseTo(45883.73, 1);
-    expect(framing.comparison?.total).toBeCloseTo(45883.73, 1);
-    expect(roundDisplayTotalToNearest100(framing.comparison?.total)).toBe(45900);
+    // Pure national: 2,873 framed SF × $17.50
+    expect(framing.comparison?.storedTotalExact).toBeCloseTo(50277.5, 1);
+    expect(framing.comparison?.total).toBeCloseTo(50277.5, 1);
+    expect(roundDisplayTotalToNearest100(framing.comparison?.total)).toBe(50300);
     expect(framing.fill?.material).toBeGreaterThan(0);
     expect(framing.fill?.labor).toBeGreaterThan(0);
   });

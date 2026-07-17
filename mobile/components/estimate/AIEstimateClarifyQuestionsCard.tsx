@@ -69,8 +69,8 @@ export default function AIEstimateClarifyQuestionsCard({
   onDismissApplied,
 }: Props) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  /** First visit with questions starts open; collapses after answers are applied. */
-  const [expanded, setExpanded] = useState(() => !(appliedSummary?.length));
+  /** Collapsed by default so Step 3 opens on the bid — expand only when needed. */
+  const [expanded, setExpanded] = useState(false);
 
   const answeredCount = questionItems.filter((q) => (answers[q.id] || '').trim()).length;
   const hasApplied = Boolean(appliedSummary?.length);
@@ -232,29 +232,29 @@ export default function AIEstimateClarifyQuestionsCard({
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'space-between',
-              paddingVertical: 8,
-              paddingHorizontal: 10,
-              borderRadius: 10,
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              borderRadius: 12,
               backgroundColor: darkMode ? 'rgba(96, 165, 250, 0.08)' : 'rgba(59, 130, 246, 0.06)',
             }}
           >
             <TouchableOpacity
               activeOpacity={0.85}
               onPress={() => setExpanded(true)}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, paddingRight: 8 }}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, paddingRight: 8 }}
               accessibilityRole="button"
               accessibilityLabel="Show clarifying questions"
             >
               <MaterialIcons name="live-help" size={15} color="#60a5fa" />
-              <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700', flexShrink: 1 }}>
+              <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '600', flexShrink: 1 }}>
                 {hasApplied
                   ? `${count} still open`
-                  : `${count} question${count === 1 ? '' : 's'} about this job`}
+                  : `${count} question${count === 1 ? '' : 's'}`}
               </Text>
-              <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '700' }}>Show</Text>
+              <Text style={{ color: '#60a5fa', fontSize: 13, fontWeight: '600' }}>Show</Text>
             </TouchableOpacity>
-            <TouchableOpacity activeOpacity={0.75} disabled={applying} onPress={onDismiss}>
-              <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600' }}>Dismiss</Text>
+            <TouchableOpacity activeOpacity={0.75} disabled={applying} onPress={onDismiss} hitSlop={8}>
+              <Text style={{ color: Colors.sub, fontSize: 13, fontWeight: '600' }}>Dismiss</Text>
             </TouchableOpacity>
           </View>
         )

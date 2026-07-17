@@ -48,8 +48,10 @@ describe('builderBudgetBarometer', () => {
     const national = getNationalAverageBudgetSplit('roofing', 'squares')!;
     const calibrated = applySouthernUtahCalibration('roofing', 'squares', national)!;
     const nationalTotal = national.material + national.labor;
+    // National shingles mid ~$575/sq; local barometer lower — blend lands ~$450–$550/sq.
+    expect(nationalTotal).toBeCloseTo(575, 0);
     expect(calibrated.material + calibrated.labor).toBeLessThan(nationalTotal);
-    expect(calibrated.material + calibrated.labor).toBeGreaterThan(500);
+    expect(calibrated.material + calibrated.labor).toBeGreaterThan(450);
   });
 
   it('keeps framing mat/lab from local bid lines blended with national (framed SF)', () => {
@@ -129,13 +131,13 @@ describe('Confirm Scope nationwide barometer + state multiplier', () => {
     expect(priced.fill?.total).toBeLessThan(24150);
   });
 
-  it('prices roofing squares below raw national $800/square', () => {
+  it('prices roofing squares near the NAHB package band (not old $800/sq re-roof mid)', () => {
     const input = inputWith({ roofSquares: '37.2' });
     const resolved = resolveChecklistItemQuantity('roofing', input, { templateKey: 'ground_up' });
     const priced = resolveScopeItemSuggestedPricing('roofing', input, 'ground_up', resolved);
-    // National 37.2 × $800 = $29,760; barometer pulls toward local ~$395/sq.
-    expect(priced.fill?.total).toBeGreaterThan(20000);
-    expect(priced.fill?.total).toBeLessThan(29760);
+    // National 37.2 × $575 ≈ $21.4k; barometer (~$395/sq) pulls toward ~$17k.
+    expect(priced.fill?.total).toBeGreaterThan(15000);
+    expect(priced.fill?.total).toBeLessThan(21400);
   });
 
   it('uses ground-up soft-cost allowances for plans (~$3k) and permits (~$32k)', () => {

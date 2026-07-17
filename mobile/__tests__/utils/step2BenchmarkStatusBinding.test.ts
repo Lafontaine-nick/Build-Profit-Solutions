@@ -140,11 +140,13 @@ describe('Step 2 benchmark + measurement-status binding', () => {
     expect(suggested.fill?.material).toBeGreaterThan(0);
     expect(suggested.fill?.labor).toBeGreaterThan(0);
     expect(suggested.fill?.basis).toEqual({ quantity: 2873, unit: 'sqft' });
-    expect(suggested.comparison?.total).toBeCloseTo(45883.73, 0);
+    // Pure national on same framed SF (2873 × $17.50).
+    expect(suggested.comparison?.total).toBeCloseTo(50277.5, 0);
     expect(suggested.comparison?.benchmarkAction).toBe('comparison_only');
+    expect(suggested.comparison?.rateSourceLabel).toMatch(/national average comparison/i);
   });
 
-  it('prices framing from covered framed SF as material + labor (benchmark is comparison only)', () => {
+  it('prices framing from covered framed SF as material + labor (national average is comparison)', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
     process.env.EXPO_PUBLIC_BUILD_AI_BENCHMARK_ENGINE_V1 = 'true';
     jest.spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion').mockReturnValue(framingSuggestion());
@@ -167,9 +169,10 @@ describe('Step 2 benchmark + measurement-status binding', () => {
     expect(suggested.fill?.basis).toEqual({ quantity: 2873, unit: 'sqft' });
     expect(suggested.fill?.rateSourceLabel).toMatch(/National Average/i);
     expect(suggested.fill?.benchmarkAction).toBe('price_ready');
-    // Southern Utah stage lump remains comparison-only.
-    expect(suggested.comparison?.total).toBeCloseTo(45883.73, 0);
+    // Pure national on same framed SF (2873 × $17.50), not living-SF stage lump.
+    expect(suggested.comparison?.total).toBeCloseTo(50277.5, 0);
     expect(suggested.comparison?.benchmarkAction).toBe('comparison_only');
+    expect(suggested.comparison?.rateSourceLabel).toMatch(/national average comparison/i);
   });
 
   it('does not use living SF as foundation concrete quantity', () => {
@@ -221,7 +224,7 @@ describe('Step 2 benchmark + measurement-status binding', () => {
     expect(missingStatusDisplayLabel('mep_rough')).toBe(
       'Needs trade counts or installed-package pricing'
     );
-    expect(missingStatusDisplayLabel('insulation')).toBe('Needs envelope surface SF');
+    expect(missingStatusDisplayLabel('insulation')).toBe('Needs thermal-envelope insulation SF');
     expect(missingStatusDisplayLabel('drywall')).toBe('Needs wall and ceiling surface SF');
     expect(missingStatusDisplayLabel('paint_trim')).toBe('Needs paintable wall and ceiling SF');
     expect(missingStatusDisplayLabel('appliances')).toBe('Needs appliance count');
@@ -254,7 +257,7 @@ describe('Step 2 benchmark + measurement-status binding', () => {
     expect(canApplyStageBenchmarkFill('tile_flooring', 'interior-finishes')).toBe(false);
   });
 
-  it('keeps saved framing price selected over benchmark fill', () => {
+  it('keeps framing planning fill with national average comparison (not stage lump)', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
     process.env.EXPO_PUBLIC_BUILD_AI_BENCHMARK_ENGINE_V1 = 'true';
     const saved = {
@@ -279,11 +282,12 @@ describe('Step 2 benchmark + measurement-status binding', () => {
       'ground_up',
       resolved
     );
-    // Planning mat+labor remains available; saved contractor total stays on comparison.
+    // Planning mat+labor remains available; comparison is pure national on same framed SF.
     expect(suggested.fill?.material).toBeGreaterThan(0);
     expect(suggested.fill?.labor).toBeGreaterThan(0);
-    expect(suggested.comparison?.benchmarkEvidence?.selectedSuggestion?.total).toBe(47500);
+    expect(suggested.comparison?.total).toBeCloseTo(50277.5, 0);
     expect(suggested.comparison?.isComparison).toBe(true);
+    expect(suggested.comparison?.rateSourceLabel).toMatch(/national average comparison/i);
   });
 
   it('footer separates ready prices from planning benchmarks', () => {

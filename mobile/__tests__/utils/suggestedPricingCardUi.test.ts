@@ -86,16 +86,16 @@ describe('suggestedPricingCardUi', () => {
     );
   });
 
-  it('selects CTA by pricing status', () => {
+  it('uses a single Apply CTA across pricing statuses', () => {
     expect(resolveSuggestedActionType({ lumpSumOnly: true })).toBe('apply_allowance');
     expect(resolveSuggestedActionType({ isFallbackPricing: true })).toBe('use_planning_price');
     expect(resolveSuggestedActionType({})).toBe('apply_price');
-    expect(suggestedActionLabel('use_planning_price')).toBe('Use planning price');
-    expect(applyPriceActionLabel({ isFallbackPricing: true })).toBe('Use planning price');
-    expect(benchmarkActionButtonLabel('price_ready', { isFallbackPricing: true })).toBe(
-      'Use planning price'
-    );
-    expect(benchmarkActionButtonLabel('benchmark_only')).toBe('Apply allowance');
+    expect(suggestedActionLabel('use_planning_price')).toBe('Apply');
+    expect(suggestedActionLabel('apply_allowance')).toBe('Apply');
+    expect(suggestedActionLabel('apply_price')).toBe('Apply');
+    expect(applyPriceActionLabel({ isFallbackPricing: true })).toBe('Apply');
+    expect(benchmarkActionButtonLabel('price_ready', { isFallbackPricing: true })).toBe('Apply');
+    expect(benchmarkActionButtonLabel('benchmark_only')).toBe('Apply');
   });
 
   it('uses permit allowance terminology', () => {
@@ -113,12 +113,14 @@ describe('suggestedPricingCardUi', () => {
     });
     expect(display.title).toBe('Suggested allowance');
     expect(display.splitLine).toBe('Allowance · Flat amount');
-    expect(display.statusLine).toBe('Planning allowance · Confirm locally');
-    expect(display.missingMeasurementTitle).toBe('Needs local fee confirmation');
-    expect(display.missingMeasurementHint).toMatch(/Confirm permit and impact fees/i);
-    expect(display.actionLabel).toBe('Apply allowance');
+    expect(display.statusLine).toBe('Confirm local permit fees');
+    expect(display.missingMeasurementTitle).toBeNull();
+    expect(display.missingMeasurementHint).toBeNull();
+    expect(display.actionLabel).toBe('Apply');
     expect(display.sourceLine).toBe('BPS national benchmark');
     expect(display.allowanceExtraNote).toMatch(/Water, sewer, fire/i);
+    expect(display.whyThisPriceLines.join(' ')).toMatch(/BPS national benchmark/);
+    expect(display.whyThisPriceLines.join(' ')).toMatch(/Water, sewer, fire/);
   });
 
   it('rounds component and total displays while preserving exact internals', () => {
@@ -141,7 +143,7 @@ describe('suggestedPricingCardUi', () => {
     expect(raw.material).toBe(443.52);
   });
 
-  it('separates pricing source from status and builds fallback card display', () => {
+  it('uses one status line for fallback cards (no stacked title/hint)', () => {
     const display = buildSuggestedPricingCardDisplay({
       itemId: 'windows_doors',
       block: block({
@@ -162,13 +164,16 @@ describe('suggestedPricingCardUi', () => {
     expect(display.isFallbackPricing).toBe(true);
     expect(display.quantityLine).toBeNull();
     expect(display.fallbackBasisLine).toBe('Fallback basis: 1,879 sqft living area');
-    expect(display.missingMeasurementTitle).toBe('Opening count needed');
-    expect(display.sourceLine).toBe('BPS national benchmark');
-    expect(display.statusLine).toBe('Planning price · Opening count not provided');
+    expect(display.missingMeasurementTitle).toBeNull();
+    expect(display.missingMeasurementHint).toBeNull();
+    expect(display.statusLine).toMatch(/window and door count/i);
     expect(display.statusTone).toBe('amber');
     expect(display.actionType).toBe('use_planning_price');
-    expect(display.actionLabel).toBe('Use planning price');
+    expect(display.actionLabel).toBe('Apply');
     expect(display.splitLine).toBe('Material $4,790 · Labor $2,910');
+    expect(display.whyThisPriceLines).toEqual(
+      expect.arrayContaining(['Fallback basis: 1,879 sqft living area', 'BPS national benchmark'])
+    );
   });
 
   it('keeps notes provenance on measurement-ready trade cards', () => {
@@ -190,9 +195,10 @@ describe('suggestedPricingCardUi', () => {
     });
     expect(display.quantityLine).toBe('132 CY · From notes');
     expect(display.sourceLine).toBe('BPS national benchmark');
-    expect(display.statusLine).toBe('Low confidence · Local pricing not verified');
-    expect(display.actionLabel).toBe('Apply price');
+    expect(display.statusLine).toBe('Local pricing not verified');
+    expect(display.actionLabel).toBe('Apply');
     expect(display.title).toBe('Suggested pricing');
+    expect(display.whyThisPriceLines).toContain('BPS national benchmark');
   });
 
   it('keeps Suggested pricing title readable', () => {
@@ -213,7 +219,7 @@ describe('suggestedPricingCardUi', () => {
     expect(pricingBasisFieldLabel('unknown_scope', 'sqft')).toBe('Area (sqft)');
   });
 
-  it('uses compact Use suggested presentation when a current allowance already exists', () => {
+  it('uses compact Apply presentation when a current allowance already exists', () => {
     expect(
       shouldUseCompactSuggestedAlternative({ currentTotal: 3500, suggestedTotal: 3000 })
     ).toBe(true);
@@ -237,11 +243,11 @@ describe('suggestedPricingCardUi', () => {
     expect(display.presentation).toBe('compact');
     expect(display.missingMeasurementTitle).toBeNull();
     expect(display.missingMeasurementHint).toBeNull();
-    expect(display.actionLabel).toBe('Use suggested');
+    expect(display.actionLabel).toBe('Apply');
     expect(display.compactLine).toBe('Suggested $3,000');
   });
 
-  it('forceCompact collapses soft-cost idle cards while keeping Apply allowance', () => {
+  it('forceCompact collapses soft-cost idle cards while keeping Apply', () => {
     const display = buildSuggestedPricingCardDisplay({
       itemId: 'plans_engineering',
       block: block({
@@ -255,7 +261,28 @@ describe('suggestedPricingCardUi', () => {
       forceCompact: true,
     });
     expect(display.presentation).toBe('compact');
-    expect(display.actionLabel).toBe('Apply allowance');
+    expect(display.actionLabel).toBe('Apply');
     expect(display.compactLine).toBe('Suggested $3,000');
+  });
+
+  it('collapses landscaping installed-package prose into Why this price', () => {
+    const display = buildSuggestedPricingCardDisplay({
+      itemId: 'landscaping',
+      block: block({
+        lumpSumOnly: true,
+        installedBudgetBenchmark: true,
+        material: 0,
+        labor: 0,
+        total: 13000,
+        splitSource: 'none',
+        basis: null,
+        comparisonRange: { low: 8300, high: 15500 },
+        costBuckets: [],
+      }),
+    });
+    expect(display.statusLine).toBe('Installed site package');
+    expect(display.allowanceExtraNote).toMatch(/Local range/);
+    expect(display.whyThisPriceLines.join(' ')).toMatch(/walls\/gates/i);
+    expect(display.actionLabel).toBe('Apply');
   });
 });

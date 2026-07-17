@@ -59,6 +59,12 @@ const PLAN_SCOPE_ID_ALIASES = {
   garage_doors: ['garage_doors', 'exterior'],
   concrete: ['foundation', 'concrete'],
   pour_foundation: ['foundation', 'pour_foundation'],
+  pour_flatwork: ['pour_flatwork'],
+  flatwork: ['pour_flatwork'],
+  landscaping: ['landscaping'],
+  landscape: ['landscaping'],
+  plumbing_trim: ['plumbing_trim'],
+  electrical_trim: ['electrical_trim'],
   // Remodel-only "demo existing" has no ground_up equivalent — drop on remap.
   demo: [],
 };
@@ -77,11 +83,15 @@ const SOFT_COST_IDS = new Set([
  */
 const GROUND_UP_CORE_IDS = [
   'sitework',
+  'landscaping',
   'foundation',
+  'pour_flatwork',
   'framing',
   'roofing',
   'exterior',
   'mep_rough',
+  'plumbing_trim',
+  'electrical_trim',
   'insulation',
   'drywall',
   'cabinets_counters',

@@ -77,6 +77,7 @@ type Props = {
   showUseSavedPricing?: boolean;
   onUseSavedPricing?: () => void;
   onSuggestRoughPrices?: () => void;
+  roughPricingUnavailable?: boolean;
   onAddPricesManually?: () => void;
   onPriceScopeItem?: (packageName: string) => void;
   onUpdateScopeBudgetSplit?: (
@@ -85,6 +86,7 @@ type Props = {
     labor: number,
     basis?: { quantity: number; unit: string } | null
   ) => void;
+  onRemoveScopeItem?: (packageName: string) => void;
   onContinueUnpriced?: () => void;
   saveToPricingLibrary?: boolean;
   onToggleSaveToPricingLibrary?: (value: boolean) => void;
@@ -130,9 +132,11 @@ export default function AIEstimateDraftReviewModal({
   showUseSavedPricing = false,
   onUseSavedPricing,
   onSuggestRoughPrices,
+  roughPricingUnavailable = false,
   onAddPricesManually,
   onPriceScopeItem,
   onUpdateScopeBudgetSplit,
+  onRemoveScopeItem,
   onContinueUnpriced,
   saveToPricingLibrary = true,
   onToggleSaveToPricingLibrary,
@@ -250,6 +254,7 @@ export default function AIEstimateDraftReviewModal({
             suggestingMissingPrices={suggestingMissingPrices}
             onSuggestRoughPrices={onSuggestRoughPrices ?? onRequestRoughRange}
             roughRangeLoading={roughRangeLoading}
+            roughPricingUnavailable={roughPricingUnavailable}
             onAddPricesManually={onAddPricesManually}
             onContinueUnpriced={onContinueUnpriced}
             onRegenerate={onRegenerate}
@@ -282,6 +287,7 @@ export default function AIEstimateDraftReviewModal({
                 suggestingMissingPrices={suggestingMissingPrices}
                 onSuggestRoughPrices={onSuggestRoughPrices ?? onRequestRoughRange}
                 roughRangeLoading={roughRangeLoading}
+                roughPricingUnavailable={roughPricingUnavailable}
                 onAddPricesManually={onAddPricesManually}
                 onContinueUnpriced={onContinueUnpriced}
               />
@@ -295,6 +301,7 @@ export default function AIEstimateDraftReviewModal({
               onRegenerate={onRegenerate}
               onPriceScopeItem={onPriceScopeItem}
               onUpdateScopeBudgetSplit={onUpdateScopeBudgetSplit}
+              onRemoveScopeItem={onRemoveScopeItem}
               markupPct={markupPct}
               showDetailsContent={
                 <AIEstimateDraftReviewDetails

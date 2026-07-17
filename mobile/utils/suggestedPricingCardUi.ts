@@ -45,7 +45,9 @@ export type SuggestedPricingCardDisplay = {
   title: string;
   quantityLine: string | null;
   fallbackBasisLine: string | null;
+  /** @deprecated Prefer a single statusLine — kept null for new cards. */
   missingMeasurementTitle: string | null;
+  /** @deprecated Prefer a single statusLine — kept null for new cards. */
   missingMeasurementHint: string | null;
   displayTotal: string;
   splitLine: string | null;
@@ -55,6 +57,8 @@ export type SuggestedPricingCardDisplay = {
   statusTone: 'amber' | 'neutral';
   actionLabel: string | null;
   allowanceExtraNote: string | null;
+  /** Provenance / range / notes — shown under “Why this price?” */
+  whyThisPriceLines: string[];
   /** Compact alternative under an already-entered current price. */
   presentation: 'full' | 'compact';
   compactLine: string | null;
@@ -93,12 +97,12 @@ const FALLBACK_MEASUREMENT_COPY: Record<
   },
   exterior_doors: {
     title: 'Exterior door count needed',
-    hint: 'Add exterior swing door count for more accurate pricing.',
+    hint: 'Planning package available — add swing door count for per-door pricing.',
     statusDetail: 'Exterior door count not provided',
   },
   sliding_doors: {
     title: 'Sliding door count needed',
-    hint: 'Add sliding / patio door count for more accurate pricing.',
+    hint: 'Planning package available — add sliding / patio door count for per-door pricing.',
     statusDetail: 'Sliding door count not provided',
   },
   garage_doors: {
@@ -138,6 +142,13 @@ export function displayPriceSourceLabel(rateSourceLabel: string | null | undefin
   const raw = String(rateSourceLabel || '').trim();
   const stripped = raw.replace(/^Suggested · /, '').replace(/^Adjusted · /, '').trim();
   if (!stripped) return 'BPS national benchmark';
+  // Keep full blended barometer labels (e.g. "Blended national + barometer · Plan 41 · CA").
+  if (/blended\s*national\s*\+\s*barometer/i.test(stripped)) {
+    return stripped.length > 52 ? `${stripped.slice(0, 49).trimEnd()}…` : stripped;
+  }
+  if (/national\s*average\s*comparison/i.test(stripped)) {
+    return 'National average';
+  }
   if (/national/i.test(stripped) || /builder-budget/i.test(stripped)) {
     return 'BPS national benchmark';
   }
@@ -295,7 +306,12 @@ export function suggestedCardTitle(input: {
   if (input.lumpSumOnly) return adjusted ? 'Adjusted allowance' : 'Suggested allowance';
   if (input.isFallbackPricing) return adjusted ? 'Adjusted planning price' : 'Suggested planning price';
   if (input.mode === 'note_total_split' && !adjusted) return 'Budget split';
-  if (input.isComparison) return 'Suggested comparison';
+  if (input.isComparison) {
+    if (/national\s*average\s*comparison/i.test(String(input.rateSourceLabel || ''))) {
+      return 'National comparison';
+    }
+    return 'Suggested comparison';
+  }
   return adjusted ? 'Adjusted pricing' : 'Suggested pricing';
 }
 
@@ -314,16 +330,15 @@ export function resolveSuggestedActionType(input: {
   return 'apply_price';
 }
 
+/** One CTA verb across ready / planning / allowance — status lives in the title/chip. */
 export function suggestedActionLabel(actionType: SuggestedPricingActionType): string {
   switch (actionType) {
     case 'apply_allowance':
-      return 'Apply allowance';
     case 'use_planning_price':
-      return 'Use planning price';
     case 'use_suggested':
-      return 'Use suggested';
+    case 'apply_price':
     default:
-      return 'Apply price';
+      return 'Apply';
   }
 }
 
@@ -497,66 +512,61 @@ export function buildSuggestedPricingCardDisplay(input: {
   let statusTone: 'amber' | 'neutral' = 'neutral';
   let allowanceExtraNote: string | null = null;
 
-  let missingMeasurementTitle: string | null = null;
-  let missingMeasurementHint: string | null = null;
+  const whyThisPriceLines: string[] = [];
 
   if (block.installedBudgetBenchmark) {
     statusTone = 'amber';
     statusLine =
-      'Installed house budget (not × paintable SF). Material and labor were not separated in the source.';
+      itemId === 'landscaping'
+        ? 'Installed site package'
+        : itemId === 'plumbing_trim' || itemId === 'electrical_trim'
+          ? 'Installed fixture package'
+          : 'Installed house budget';
+    whyThisPriceLines.push(
+      itemId === 'landscaping'
+        ? 'Landscaping + walls/gates. Material and labor were not separated in the source.'
+        : itemId === 'plumbing_trim' || itemId === 'electrical_trim'
+          ? 'Fixture package. Material and labor were not separated in the source.'
+          : 'House match budget (not × paintable SF). Material and labor were not separated in the source.'
+    );
     if (block.comparisonRange) {
-      allowanceExtraNote = `Local five-project range: $${block.comparisonRange.low.toLocaleString()}–$${block.comparisonRange.high.toLocaleString()}`;
+      allowanceExtraNote = `Local range: $${block.comparisonRange.low.toLocaleString()}–$${block.comparisonRange.high.toLocaleString()}`;
     }
   } else if (itemId === 'exterior_paint') {
     statusTone = 'amber';
-    statusLine = 'No separately verified Southern Utah exterior-paint samples.';
+    statusLine = 'Local exterior samples not verified';
   } else if (itemId === 'interior_trim' && block.splitSource === 'source') {
     statusTone = 'amber';
-    statusLine = 'Needs detailed trim/door/shelving takeoff';
+    statusLine = 'Needs detailed trim takeoff';
   } else if (lumpSumOnly) {
     statusTone = 'amber';
     if (itemId === 'permits') {
-      statusLine = 'Planning allowance · Confirm locally';
+      statusLine = 'Confirm local permit fees';
       allowanceExtraNote = 'Water, sewer, fire, or utility fees may be separate.';
-      missingMeasurementTitle = 'Needs local fee confirmation';
-      missingMeasurementHint = 'Confirm permit and impact fees for the project jurisdiction.';
     } else if (itemId === 'plans_engineering') {
-      statusLine = 'Planning allowance · Engineering and soils may be separate';
-      missingMeasurementTitle = 'Needs allowance';
-      missingMeasurementHint = 'Enter a plans and engineering allowance for this job.';
+      statusLine = 'Planning allowance · Engineering/soils may be separate';
     } else if (itemId === 'cleanup') {
       statusLine = 'Planning allowance · Confirm locally';
-      missingMeasurementTitle = 'Needs allowance';
-      missingMeasurementHint = 'Enter cleanup and disposal allowance for this job.';
     } else {
       statusLine = 'Planning allowance';
-      missingMeasurementTitle = 'Needs allowance';
-      missingMeasurementHint = 'Enter an allowance for this job.';
     }
   } else if (isFallbackPricing) {
     statusTone = 'amber';
-    statusLine = fallbackCopy
-      ? `Planning price · ${fallbackCopy.statusDetail}`
-      : 'Planning price · Uses living-area fallback';
-    missingMeasurementTitle = fallbackCopy?.title || 'Measurement needed';
-    missingMeasurementHint =
+    // One amber ask — title/hint stacks were duplicating this on Windows etc.
+    statusLine =
       fallbackCopy?.hint || 'Add the correct measurement for more accurate pricing.';
   } else if (confidenceLevel === 'low') {
     statusTone = 'amber';
-    statusLine = 'Low confidence · Local pricing not verified';
+    statusLine = 'Local pricing not verified';
   } else if (input.confidenceLabel) {
     statusLine = String(input.confidenceLabel).trim();
   }
 
-  // Current amount already exists — never show "Needs allowance / measurement" warnings.
-  if (hasCurrentPricing) {
-    missingMeasurementTitle = null;
-    missingMeasurementHint = null;
-    if (lumpSumOnly) {
-      statusTone = 'neutral';
-      statusLine = null;
-      allowanceExtraNote = null;
-    }
+  // Current amount already exists — never show soft-cost “needs allowance” status.
+  if (hasCurrentPricing && lumpSumOnly) {
+    statusTone = 'neutral';
+    statusLine = null;
+    allowanceExtraNote = null;
   }
 
   const displayTotal = isAdjusted
@@ -575,6 +585,14 @@ export function buildSuggestedPricingCardDisplay(input: {
 
   const fallbackBasisLine = isFallbackPricing ? formatFallbackBasisLine({ livingSf }) : null;
   const compactLine = formatCompactSuggestedLine(block.total);
+  const unitRateLine = isFallbackPricing ? null : formatSuggestedUnitRateLine(block);
+
+  if (fallbackBasisLine) whyThisPriceLines.push(fallbackBasisLine);
+  if (pricingSource) whyThisPriceLines.push(pricingSource);
+  if (allowanceExtraNote) whyThisPriceLines.push(allowanceExtraNote);
+  if (unitRateLine && /reference only/i.test(unitRateLine)) {
+    whyThisPriceLines.push(unitRateLine);
+  }
 
   return {
     quantitySource: isFallbackPricing ? 'fallback' : quantitySource,
@@ -595,8 +613,8 @@ export function buildSuggestedPricingCardDisplay(input: {
     }),
     quantityLine,
     fallbackBasisLine,
-    missingMeasurementTitle,
-    missingMeasurementHint,
+    missingMeasurementTitle: null,
+    missingMeasurementHint: null,
     displayTotal,
     splitLine:
       block.installedBudgetBenchmark || block.splitSource === 'none'
@@ -604,7 +622,8 @@ export function buildSuggestedPricingCardDisplay(input: {
         : lumpSumOnly
           ? 'Allowance · Flat amount'
           : formatSuggestedSplitLine(block),
-    unitRateLine: isFallbackPricing ? null : formatSuggestedUnitRateLine(block),
+    unitRateLine:
+      unitRateLine && /reference only/i.test(unitRateLine) ? null : unitRateLine,
     sourceLine: pricingSource,
     statusLine,
     statusTone,
@@ -613,6 +632,7 @@ export function buildSuggestedPricingCardDisplay(input: {
         ? null
         : suggestedActionLabel(actionType),
     allowanceExtraNote,
+    whyThisPriceLines: [...new Set(whyThisPriceLines.filter(Boolean))],
     presentation,
     compactLine,
   };

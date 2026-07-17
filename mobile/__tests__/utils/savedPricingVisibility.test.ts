@@ -198,5 +198,57 @@ describe('syncSelectedScopePricing keeps scope-confirmed prices on review', () =
     const pkg = synced.scopePackages?.[0];
     expect(pkg?.knownSubtotal).toBe(3500);
     expect(pkg?.status).toBe('user_provided');
+    expect(synced.calculatedLineItemTotal).toBe(3500);
+  });
+
+  it('does not overwrite Ask AI trash haul-off $3k with cleanup $1k', () => {
+    const draft = {
+      scopePackages: [
+        {
+          name: 'Cleanup & disposal',
+          scope: 'Final clean',
+          price: 1000,
+          knownSubtotal: 1000,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+          checklistItemId: 'cleanup',
+        },
+        {
+          name: 'Trash Haul Off',
+          scope: 'Trash Haul Off',
+          price: 3000,
+          knownSubtotal: 3000,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+        },
+      ],
+      rooms: [
+        {
+          name: 'Trash Haul Off',
+          scope: 'Trash Haul Off',
+          price: 3000,
+          priceProvidedByUser: true,
+          priceIncludesLaborAndMaterials: true,
+        },
+      ],
+      scopeMeasurements: {
+        itemQuantities: {
+          cleanup: { quantity: 1000, unit: 'allowance', quantitySource: 'user_entered' },
+          cleanup__allowance: { quantity: 1000, unit: 'allowance', quantitySource: 'user_entered' },
+          haul_off: { quantity: 3000, unit: 'allowance', quantitySource: 'user_entered' },
+          haul_off__allowance: { quantity: 3000, unit: 'allowance', quantitySource: 'user_entered' },
+        },
+      },
+      calculatedLineItemTotal: 305000,
+    } as unknown as EstimateAiDraft;
+
+    const synced = syncSelectedScopePricing(draft);
+    const trash = synced.scopePackages?.find((p) => p.name === 'Trash Haul Off');
+    const cleanup = synced.scopePackages?.find((p) => p.name === 'Cleanup & disposal');
+    expect(trash?.price).toBe(3000);
+    expect(cleanup?.price).toBe(1000);
+    expect(synced.rooms?.[0]?.price).toBe(3000);
+    // Header total must refresh from live package prices (not stale 305k).
+    expect(synced.calculatedLineItemTotal).toBe(4000);
   });
 });

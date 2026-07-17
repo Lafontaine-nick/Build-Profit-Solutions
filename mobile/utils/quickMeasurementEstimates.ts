@@ -25,6 +25,7 @@ import {
   type PlanMeasurementConfidence,
   type PlanMeasurementSourceType,
 } from '@/utils/planMeasurementFacts';
+import { enrichPlanFactsWithSouthernUtahBarometer } from '@/utils/southernUtahPlanFacts';
 
 export type QuickMeasurementEstimate = MeasurementSuggestion & {
   key: QuickMeasurementFieldKey;
@@ -40,6 +41,10 @@ type MeasurementLookup = Partial<Record<QuickMeasurementFieldKey, string | numbe
   bathCount?: number | null;
   prefabBathCount?: number | null;
   tubBathCount?: number | null;
+  itemQuantities?: Record<
+    string,
+    { quantity?: string | number | null; unit?: string; quantitySource?: string }
+  >;
 };
 
 function n(value: unknown): number | null {
@@ -294,13 +299,129 @@ function finishPaintDeductions(measurements: MeasurementLookup): {
  * are empty candidates for a derived quantity — callers should only surface
  * this when the field itself has no value yet.
  */
+/** True when stored squares match the bad total-living + garage + patio @ 5:12 path. */
+export function isLegacyTotalLivingRoofSquares(
+  roofSquares: number,
+  measurements: MeasurementLookup
+): boolean {
+  const living = n(measurements.floorAreaSqft);
+  if (living == null || !(roofSquares > 0)) return false;
+  const garage = n(measurements.planFacts?.buildingAreas?.garageSqft) ?? n(measurements.garageSqft) ?? 0;
+  const patio =
+    n(measurements.planFacts?.buildingAreas?.coveredPatioSqft) ?? n(measurements.deckSqft) ?? 0;
+  const legacy =
+    ((living + garage + patio) * pitchMultiplier(DEFAULT_ROOF_PITCH) * (1 + ROOF_WASTE_FACTOR)) / 100;
+  return Math.abs(roofSquares - legacy) < 0.35;
+}
+
+/**
+ * True when stored drywall SF is living-area (or near it) instead of wall+ceiling
+ * surface — e.g. Plan 39 4,056 SF (~1.3× living) vs ~10.8k (3.5×).
+ */
+export function isUndercountedDrywallSurface(
+  drywallSqft: number,
+  livingSf: number | null | undefined
+): boolean {
+  const living = n(livingSf);
+  if (!(drywallSqft > 0) || living == null) return false;
+  if (Math.abs(drywallSqft - living) < 0.51) return true;
+  return drywallSqft / living < 2.5;
+}
+
+function asMeasurementNumber<T extends MeasurementLookup>(
+  measurements: T,
+  key: 'roofSquares' | 'drywallSqft' | 'wallPaintSqft',
+  value: number
+): string | number {
+  const unit = key === 'roofSquares' ? 'sq' : 'sqft';
+  const rounded = roundSuggestedDisplayNumber(value, unit);
+  return typeof measurements[key] === 'string' ? String(rounded) : rounded;
+}
+
+/**
+ * Attach SHV barometer floor/pitch facts; replace bad roof squares and
+ * undercounted drywall/paint surface SF (Plan 39 4,056 → ~10.8k @ ~$2.10/SF blend).
+ */
+export function syncMeasurementsWithSouthernUtahPlanFacts<T extends MeasurementLookup>(
+  measurements: T,
+  options?: { templateKey?: string | null }
+): T {
+  const living = n(measurements.floorAreaSqft);
+  const enriched = enrichPlanFactsWithSouthernUtahBarometer(measurements.planFacts, living);
+  let next: T = enriched ? { ...measurements, planFacts: enriched } : { ...measurements };
+
+  const roofEstimate = getQuickMeasurementEstimate('roofSquares', next, next.planFacts);
+  const currentRoof = n(measurements.roofSquares);
+  // Only rewrite the bad total-living roof path — leave empty for QM "estimate available".
+  if (
+    roofEstimate &&
+    currentRoof != null &&
+    isLegacyTotalLivingRoofSquares(currentRoof, measurements)
+  ) {
+    next = {
+      ...next,
+      roofSquares: asMeasurementNumber(next, 'roofSquares', roofEstimate.value),
+    };
+  }
+
+  const isGroundUp = String(options?.templateKey || '').toLowerCase() === 'ground_up';
+  const currentDrywall = n(measurements.drywallSqft);
+  // Ground-up only: rewrite thin notes drywall SF (4,056) to living×3.5 (10,843). Leave empty for QM.
+  const formulaSurface = living != null ? Math.round(living * 3.5) : null;
+  if (
+    isGroundUp &&
+    formulaSurface != null &&
+    currentDrywall != null &&
+    isUndercountedDrywallSurface(currentDrywall, living)
+  ) {
+    const drywallValue = asMeasurementNumber(next, 'drywallSqft', formulaSurface);
+    next = { ...next, drywallSqft: drywallValue };
+    const currentPaint = n(measurements.wallPaintSqft);
+    if (
+      currentPaint != null &&
+      (Math.abs(currentPaint - currentDrywall) < 1 ||
+        isUndercountedDrywallSurface(currentPaint, living))
+    ) {
+      next = {
+        ...next,
+        wallPaintSqft: asMeasurementNumber(next, 'wallPaintSqft', formulaSurface),
+      };
+    }
+    // Drop undercounted notes itemQuantities so resolve/pricing cannot keep $8.8k on 4,056 SF.
+    if (next.itemQuantities) {
+      const itemQuantities = { ...next.itemQuantities };
+      for (const itemId of ['drywall', 'hang', 'finish_tape'] as const) {
+        const entry = itemQuantities[itemId];
+        const qty = n(entry?.quantity);
+        if (
+          entry &&
+          entry.quantitySource !== 'user_entered' &&
+          entry.quantitySource !== 'manual_override' &&
+          qty != null &&
+          isUndercountedDrywallSurface(qty, living)
+        ) {
+          delete itemQuantities[itemId];
+        }
+      }
+      next = { ...next, itemQuantities };
+    }
+  }
+
+  return next;
+}
+
 export function getQuickMeasurementEstimate(
   key: QuickMeasurementFieldKey,
   measurements: MeasurementLookup,
   suppliedFacts?: PlanFacts
 ): QuickMeasurementEstimate | null {
-  const facts = suppliedFacts || measurements.planFacts;
   const living = n(measurements.floorAreaSqft);
+  const baseFacts = suppliedFacts || measurements.planFacts;
+  // Roof footprint needs main-floor + pitch; cover sheets often omit those.
+  const facts =
+    key === 'roofSquares'
+      ? enrichPlanFactsWithSouthernUtahBarometer(baseFacts, living) || baseFacts
+      : baseFacts;
   const totalLiving = planTotalLivingSqft(facts, living);
   const firstFloorLiving = planFirstFloorLivingSqft(facts, living);
   const garage = n(facts?.buildingAreas?.garageSqft) ?? n(measurements.garageSqft) ?? 0;

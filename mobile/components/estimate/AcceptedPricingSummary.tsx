@@ -230,6 +230,7 @@ export function AcceptedPricingSummary({
   Colors,
   darkMode,
   onEditPricing,
+  onClearPricing,
   onScopeGapResolutionsChange,
   onScopeGapPriceSeparately,
   onScopeGapIncludeInParentPrice,
@@ -247,6 +248,8 @@ export function AcceptedPricingSummary({
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   onEditPricing: () => void;
+  /** Clears applied price and restores the original Suggest / Apply card. */
+  onClearPricing?: () => void;
   onScopeGapResolutionsChange?: (next: ScopeGapResolutionsMap) => void;
   onScopeGapPriceSeparately?: (
     componentKey: string,
@@ -435,10 +438,20 @@ export function AcceptedPricingSummary({
           </Text>
         </TouchableOpacity>
       ) : null}
-      <View style={[styles.actionLinksRow, !secondaryAction && styles.actionLinksRowSingle]}>
+      <View style={[styles.actionLinksRow, !secondaryAction && !onClearPricing && styles.actionLinksRowSingle]}>
         <TouchableOpacity onPress={onEditPricing} activeOpacity={0.7} accessibilityRole="button">
           <Text style={styles.editLink}>Edit</Text>
         </TouchableOpacity>
+        {onClearPricing ? (
+          <TouchableOpacity
+            onPress={onClearPricing}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Change pricing"
+          >
+            <Text style={styles.changePricingLink}>Change pricing</Text>
+          </TouchableOpacity>
+        ) : null}
         {secondaryAction ? (
           <TouchableOpacity
             onPress={() => {
@@ -581,6 +594,11 @@ const styles = StyleSheet.create({
   },
   editLink: {
     color: '#22c55e',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  changePricingLink: {
+    color: '#fbbf24',
     fontSize: 12,
     fontWeight: '700',
   },

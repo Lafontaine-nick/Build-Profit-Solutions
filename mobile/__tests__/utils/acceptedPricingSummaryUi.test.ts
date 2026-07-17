@@ -1,6 +1,7 @@
 import {
   buildAcceptanceFromSuggestedBlock,
   buildSecondaryDisclosureContent,
+  clearAcceptedScopeItemPricing,
   collectProjectWideScopeGaps,
   confidenceBadgeLabel,
   currentScopePricingTotal,
@@ -10,6 +11,7 @@ import {
   hasAcceptedScopePricing,
   inferPricingModel,
   isItemSpecificAssemblyComponent,
+  liveScopeMoneyFromQuantities,
   markManualPricingAdjustment,
   moneyTotalAfterQuantityEdit,
   pricingSourceLabelFromBlock,
@@ -19,7 +21,11 @@ import {
   shouldShowConfidenceBadge,
 } from '@/utils/acceptedPricingSummaryUi';
 import type { ScopeItemIntelligence } from '@/utils/scopeIntelligence';
-import type { ResolvedItemQuantity, SuggestedPricingBlock } from '@/utils/scopeItemQuantities';
+import {
+  isNationalAverageComparisonBlock,
+  type ResolvedItemQuantity,
+  type SuggestedPricingBlock,
+} from '@/utils/scopeItemQuantities';
 
 function suggestedBlock(overrides: Partial<SuggestedPricingBlock> = {}): SuggestedPricingBlock {
   return {
@@ -615,6 +621,185 @@ describe('acceptedPricingSummaryUi', () => {
         suggestedTotal: 3500,
       })
     ).toBe(true);
+  });
+
+  it('clears applied price so the original Suggest card can return', () => {
+    const itemQuantities = {
+      excavation: { quantity: '132', unit: 'cy', quantitySource: 'user_entered' as const },
+      excavation__sqft_basis: { quantity: '132', unit: 'cy', quantitySource: 'user_entered' as const },
+      excavation__material: { quantity: '440', unit: 'allowance', quantitySource: 'user_entered' as const },
+      excavation__labor: { quantity: '3990', unit: 'allowance', quantitySource: 'user_entered' as const },
+      excavation__allowance: { quantity: '4430', unit: 'allowance', quantitySource: 'user_entered' as const },
+    };
+    const pricingAcceptance = {
+      excavation: buildAcceptanceFromSuggestedBlock(
+        suggestedBlock({
+          material: 440,
+          labor: 3990,
+          total: 4430,
+          lumpSumOnly: false,
+          isComparison: false,
+        })
+      ),
+    };
+    const cleared = clearAcceptedScopeItemPricing({
+      itemId: 'excavation',
+      itemQuantities,
+      pricingAcceptance,
+    });
+    expect(cleared.pricingAcceptance.excavation).toBeUndefined();
+    expect(cleared.itemQuantities.excavation__material).toBeUndefined();
+    expect(cleared.itemQuantities.excavation__labor).toBeUndefined();
+    expect(cleared.itemQuantities.excavation__allowance).toBeUndefined();
+    expect(cleared.itemQuantities.excavation__sqft_basis).toBeUndefined();
+    // Keep physical CY takeoff on the item id.
+    expect(cleared.itemQuantities.excavation).toEqual({
+      quantity: '132',
+      unit: 'cy',
+      quantitySource: 'user_entered',
+    });
+    expect(hasAcceptedScopePricing('excavation', cleared.itemQuantities, cleared.pricingAcceptance)).toBe(
+      false
+    );
+  });
+
+  it('clears sticky acceptance when the user deletes an edited allowance back to empty', () => {
+    const acceptance = buildAcceptanceFromSuggestedBlock(
+      suggestedBlock({ total: 500, material: 0, labor: 500, lumpSumOnly: true })
+    );
+    // Digits deleted 500 → 50 → 5 → 2 → '' — last non-empty update left totalAmount at 2.
+    const stuckAtTwo = markManualPricingAdjustment(acceptance, 'appliances', { appliances: acceptance }, 2);
+    expect(stuckAtTwo?.appliances?.totalAmount).toBe(2);
+
+    const afterClear = markManualPricingAdjustment(
+      stuckAtTwo?.appliances,
+      'appliances',
+      stuckAtTwo,
+      moneyTotalAfterQuantityEdit(
+        'appliances',
+        { appliances__allowance: { quantity: '', unit: 'allowance' } },
+        'appliances__allowance',
+        ''
+      )
+    );
+    expect(afterClear?.appliances).toBeUndefined();
+    expect(
+      hasAcceptedScopePricing(
+        'appliances',
+        { appliances__allowance: { quantity: '', unit: 'allowance', quantitySource: 'user_entered' } },
+        afterClear
+      )
+    ).toBe(false);
+    expect(
+      resolveAcceptedMoneyTotal({
+        resolved: allowanceResolved({ quantity: null as unknown as number }),
+        acceptance: afterClear?.appliances,
+      })
+    ).toBe(0);
+  });
+
+  it('does not keep a $2 card when quantities are empty but acceptance is still sticky', () => {
+    const sticky = {
+      appliances: {
+        selectionStatus: 'manual_adjusted' as const,
+        pricingSourceLabel: 'User entered',
+        pricingSourceKind: 'user_entered' as const,
+        pricingTypeLabel: 'Flat allowance',
+        totalAmount: 2,
+      },
+    };
+    expect(hasAcceptedScopePricing('appliances', {}, sticky)).toBe(false);
+    expect(currentScopePricingTotal('appliances', {}, sticky)).toBeNull();
+  });
+
+  it('prefers live labor dollars over a stale acceptance total', () => {
+    expect(
+      resolveAcceptedMoneyTotal({
+        resolved: {
+          quantity: undefined,
+          unit: 'each',
+          quantitySource: 'user_entered',
+          sourceLabel: 'User entered',
+          pricingReady: true,
+          showInput: true,
+          dualLabor: { quantity: 2000, unit: 'allowance' },
+        },
+        acceptance: {
+          selectionStatus: 'manual_adjusted',
+          pricingSourceLabel: 'User entered',
+          pricingSourceKind: 'user_entered',
+          pricingTypeLabel: 'Flat allowance',
+          totalAmount: 2,
+        },
+      })
+    ).toBe(2000);
+  });
+
+  it('does not keep $2 from stale __allowance when Labor is deleted to empty', () => {
+    // Repro: Labor $2000 → delete digits → "" but appliances__allowance still "2".
+    const itemQuantities = {
+      appliances__labor: { quantity: '', unit: 'allowance', quantitySource: 'user_entered' as const },
+      appliances__allowance: { quantity: '2', unit: 'allowance', quantitySource: 'user_entered' as const },
+    };
+    expect(
+      moneyTotalAfterQuantityEdit(
+        'appliances',
+        itemQuantities,
+        'appliances__labor',
+        ''
+      )
+    ).toBeNull();
+    expect(liveScopeMoneyFromQuantities('appliances', itemQuantities)).toBeNull();
+    expect(
+      hasAcceptedScopePricing('appliances', itemQuantities, {
+        appliances: {
+          selectionStatus: 'manual_adjusted',
+          pricingSourceLabel: 'User entered',
+          pricingSourceKind: 'user_entered',
+          pricingTypeLabel: 'Flat allowance',
+          totalAmount: 2,
+        },
+      })
+    ).toBe(false);
+
+    const after = markManualPricingAdjustment(
+      {
+        selectionStatus: 'manual_adjusted',
+        pricingSourceLabel: 'User entered',
+        pricingSourceKind: 'user_entered',
+        pricingTypeLabel: 'Flat allowance',
+        totalAmount: 2,
+      },
+      'appliances',
+      {
+        appliances: {
+          selectionStatus: 'manual_adjusted',
+          pricingSourceLabel: 'User entered',
+          pricingSourceKind: 'user_entered',
+          pricingTypeLabel: 'Flat allowance',
+          totalAmount: 2,
+        },
+      },
+      moneyTotalAfterQuantityEdit('appliances', itemQuantities, 'appliances__labor', '')
+    );
+    expect(after?.appliances).toBeUndefined();
+  });
+
+  it('recognizes pure national comparison blocks as applyable', () => {
+    expect(
+      isNationalAverageComparisonBlock({
+        isComparison: true,
+        rateSourceLabel: 'National average comparison',
+        pricingRecordId: 'bps_national_comparison:excavation:cy',
+      })
+    ).toBe(true);
+    expect(
+      isNationalAverageComparisonBlock({
+        isComparison: true,
+        rateSourceLabel: 'Southern Utah benchmark',
+        pricingRecordId: 'stage::sitework',
+      })
+    ).toBe(false);
   });
 
   it('keeps suggestion panel when user edited away from suggested amount', () => {

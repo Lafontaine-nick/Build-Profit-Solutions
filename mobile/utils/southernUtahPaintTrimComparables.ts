@@ -7,7 +7,15 @@
  *
  * Interior paint sources are installed lump sums — never invent a real
  * material/labor split. Finish-carpentry sources have explicit mat/labor.
+ *
+ * Suggested totals blend 60% barometer + 40% NAHB national, then × state.
  */
+
+import {
+  blendBarometerLump,
+  resolveBlendedLump,
+  scaleSplitLumpForState,
+} from '@/utils/builderBudgetLumpBlend';
 
 export type SouthernUtahProjectId = 'silverLeaf' | 'lot39' | 'lot41' | 'lot49' | 'lot58';
 
@@ -38,6 +46,8 @@ export const INTERIOR_PAINT_INSTALLED_BY_PROJECT: Record<SouthernUtahProjectId, 
 
 export const INTERIOR_PAINT_DETACHED_MEDIAN_TOTAL = 8900;
 export const INTERIOR_PAINT_ALL_PROJECT_RANGE = { low: 7400, high: 8900 } as const;
+/** NAHB 2024 — X. Painting (~$11,150). */
+export const INTERIOR_PAINT_NATIONAL_AVERAGE_TOTAL = 11150;
 
 /**
  * Door hardware planning adder on top of H43+H44 trim/doors/shelving.
@@ -87,6 +97,9 @@ export const FINISH_CARPENTRY_DETACHED_MEDIAN = {
   labor: 2750 + DOOR_HARDWARE_PLANNING_ADDER.labor,
   total: 5500 + DOOR_HARDWARE_PLANNING_ADDER.total,
 } as const;
+
+/** NAHB 2024 — W. Interior Trims, Doors, and Mirrors (~$12,920). */
+export const FINISH_CARPENTRY_NATIONAL_AVERAGE_TOTAL = 12920;
 
 export const FINISH_CARPENTRY_SOURCE_SCOPE =
   'Finish trim, interior doors, door hardware & shelving';
@@ -151,52 +164,42 @@ function round2(n: number): number {
 export function resolveInteriorPaintComparable(params: {
   livingSf?: number | null;
   paintableSf?: number | null;
+  state?: string | null;
 }): InteriorPaintComparable {
   const project = matchSouthernUtahProjectByLivingSf(params.livingSf);
   const paintable = Number(params.paintableSf);
   const hasPaintable = Number.isFinite(paintable) && paintable > 0;
-
-  if (project) {
-    const total = INTERIOR_PAINT_INSTALLED_BY_PROJECT[project.id];
-    const implied =
-      hasPaintable && project.id === 'lot41' ? round2(total / paintable) : null;
-    return {
-      total,
-      projectId: project.id,
-      projectLabel: project.label,
-      matchKind: 'exact_project',
-      livingSfBenchmark: project.livingSf,
-      paintableSf: hasPaintable ? paintable : null,
-      impliedPerPaintableSf: implied,
-      impliedRateLabel:
-        implied != null
-          ? `Implied from ${project.label} comparable · ~$${implied.toFixed(2)}/paintable SF`
-          : null,
-      range: { ...INTERIOR_PAINT_ALL_PROJECT_RANGE },
-      sampleCount: 5,
-      sourceSplitTreatment: 'installed_lump_sum',
-      rateSourceLabel: `Southern Utah comparable · ${project.label}`,
-      helper: `Installed paint budget from ${project.label}. Matched on living SF — changing paintable SF does not change this price.`,
-      warning:
-        'Installed house budget (not × paintable SF). Material and labor were not separated in the source.',
-    };
-  }
+  const local = project
+    ? INTERIOR_PAINT_INSTALLED_BY_PROJECT[project.id]
+    : INTERIOR_PAINT_DETACHED_MEDIAN_TOTAL;
+  const barometerLabel = project ? project.label : 'detached mid';
+  const blended = resolveBlendedLump({
+    local,
+    national: INTERIOR_PAINT_NATIONAL_AVERAGE_TOTAL,
+    barometerLabel,
+    state: params.state,
+    scopeNoun: 'interior paint',
+  });
+  const implied =
+    hasPaintable && project?.id === 'lot41' ? round2(blended.total / paintable) : null;
 
   return {
-    total: INTERIOR_PAINT_DETACHED_MEDIAN_TOTAL,
-    projectId: null,
-    projectLabel: 'Local five-project median',
-    matchKind: 'detached_median',
-    livingSfBenchmark: Number(params.livingSf) > 0 ? Number(params.livingSf) : null,
+    total: blended.total,
+    projectId: project?.id ?? null,
+    projectLabel: project?.label ?? 'Local five-project median',
+    matchKind: project ? 'exact_project' : 'detached_median',
+    livingSfBenchmark: project?.livingSf ?? (Number(params.livingSf) > 0 ? Number(params.livingSf) : null),
     paintableSf: hasPaintable ? paintable : null,
-    impliedPerPaintableSf: null,
-    impliedRateLabel: null,
+    impliedPerPaintableSf: implied,
+    impliedRateLabel:
+      implied != null
+        ? `Implied from blended ${barometerLabel} · ~$${implied.toFixed(2)}/paintable SF`
+        : null,
     range: { ...INTERIOR_PAINT_ALL_PROJECT_RANGE },
     sampleCount: 5,
     sourceSplitTreatment: 'installed_lump_sum',
-    rateSourceLabel: 'Southern Utah comparable · 5 preliminary budgets',
-    helper:
-      'Detached median installed interior paint/stain budget from Silver Leaf + Plans 39/41/49/58. Not a surface-SF unit rate — changing paintable SF does not change this price.',
+    rateSourceLabel: blended.rateSourceLabel,
+    helper: `${blended.blendHelper} Changing paintable SF does not change this installed package.`,
     warning:
       'Installed house budget (not × paintable SF). Material and labor were not separated in the source.',
   };
@@ -204,34 +207,34 @@ export function resolveInteriorPaintComparable(params: {
 
 export function resolveFinishCarpentryComparable(params: {
   livingSf?: number | null;
+  state?: string | null;
 }): FinishCarpentryComparable {
   const project = matchSouthernUtahProjectByLivingSf(params.livingSf);
-  if (project) {
-    const pkg = FINISH_CARPENTRY_BY_PROJECT[project.id];
-    return {
-      ...pkg,
-      projectId: project.id,
-      projectLabel: project.label,
-      matchKind: 'exact_project',
-      sourceScope: FINISH_CARPENTRY_SOURCE_SCOPE,
-      sampleCount: 5,
-      rateSourceLabel: `Southern Utah comparable · ${project.label}`,
-      helper: `${FINISH_CARPENTRY_SOURCE_SCOPE} package from ${project.label}. Includes +$${DOOR_HARDWARE_PLANNING_ADDER.total.toLocaleString()} door hardware ($${DOOR_HARDWARE_PLANNING_ADDER.material.toLocaleString()} mat / $${DOOR_HARDWARE_PLANNING_ADDER.labor.toLocaleString()} labor) — national mid for ~15–20 doors; local materials often floor near $1,500.`,
-      warning: 'Package allowance until detailed trim/door/shelving/hardware takeoff exists.',
-      splitSource: 'source',
-      splitConfidence: 'high',
-    };
-  }
+  const pkg = project ? FINISH_CARPENTRY_BY_PROJECT[project.id] : FINISH_CARPENTRY_DETACHED_MEDIAN;
+  const barometerLabel = project ? project.label : 'detached mid';
+  const blendedTotal = blendBarometerLump(pkg.total, FINISH_CARPENTRY_NATIONAL_AVERAGE_TOTAL);
+  const matRatio = pkg.total > 0 ? pkg.material / pkg.total : 0.5;
+  const blendedMaterial = round2(blendedTotal * matRatio);
+  const blendedLabor = round2(blendedTotal - blendedMaterial);
+  const scaled = scaleSplitLumpForState(blendedMaterial, blendedLabor, { state: params.state });
+  const stateSuffix =
+    scaled.stateCode && scaled.multiplier !== 1 ? ` · ${scaled.stateCode}` : '';
 
   return {
-    ...FINISH_CARPENTRY_DETACHED_MEDIAN,
-    projectId: null,
-    projectLabel: 'Local detached median',
-    matchKind: 'detached_median',
+    material: scaled.material,
+    labor: scaled.labor,
+    total: scaled.total,
+    projectId: project?.id ?? null,
+    projectLabel: project?.label ?? 'Local detached median',
+    matchKind: project ? 'exact_project' : 'detached_median',
     sourceScope: FINISH_CARPENTRY_SOURCE_SCOPE,
-    sampleCount: 4,
-    rateSourceLabel: 'Southern Utah comparable · 5 preliminary budgets',
-    helper: `${FINISH_CARPENTRY_SOURCE_SCOPE} — detached median package. Includes +$${DOOR_HARDWARE_PLANNING_ADDER.total.toLocaleString()} door hardware planning adder (national mid ~$2,500–$3,500 installed for a typical home).`,
+    sampleCount: project ? 5 : 4,
+    rateSourceLabel: `Blended national + barometer · ${barometerLabel}${stateSuffix}`,
+    helper: `${FINISH_CARPENTRY_SOURCE_SCOPE}: 60% ${barometerLabel} ($${pkg.total.toLocaleString()}) + 40% NAHB interior trim ($${FINISH_CARPENTRY_NATIONAL_AVERAGE_TOTAL.toLocaleString()})${
+      scaled.multiplier !== 1 && scaled.stateCode
+        ? ` · ${scaled.stateCode} regional ${scaled.multiplier.toFixed(2)}×`
+        : ''
+    }. Includes +$${DOOR_HARDWARE_PLANNING_ADDER.total.toLocaleString()} door hardware in the local leg.`,
     warning: 'Package allowance until detailed trim/door/shelving/hardware takeoff exists.',
     splitSource: 'source',
     splitConfidence: 'high',

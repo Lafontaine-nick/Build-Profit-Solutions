@@ -2,7 +2,7 @@ module.exports = [
   {
     lot: 41,
     text:
-      "SHEET A0.1 Sand Hollow Village Lot 41 Main Living Area: 1,879 Sq Ft Garages: 994 Sq Ft Covered Patio: 247 Sq Ft ROOF PITCH 5:12 WALL HEIGHT 9'-0\" FOUNDATION PERIMETER 214 LF STONE 20%",
+      "SHEET A0.1 Sand Hollow Village Lot 41 Main Living Area: 1,879 Sq Ft Main Floor Living Area: 1,879 Sq Ft Garages: 994 Sq Ft Covered Patio: 247 Sq Ft ROOF PITCH 5:12 WALL HEIGHT 9'-0\" FOUNDATION PERIMETER 214 LF STONE 20%",
     expected: {
       totalLivingSqft: 1879,
       mainFloorLivingSqft: 1879,

@@ -2,7 +2,10 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimateAiDraft';
 import { formatDraftMoney, getScopePackages } from '@/utils/estimateAiDraft';
-import { draftHasApplyablePricing } from '@/utils/estimateAiDraftPricing';
+import {
+  draftHasApplyablePricing,
+  packageHasRoughNationalAverage,
+} from '@/utils/estimateAiDraftPricing';
 import { countDraftPricingReadiness } from '@/utils/scopeItemQuantities';
 import { formatScopeQuantity, scopePackageNeedsManualPrice } from '@/utils/estimateDraftReviewUi';
 import AIEstimateSavedPricingApplySummary from '@/components/estimate/AIEstimateSavedPricingApplySummary';
@@ -25,9 +28,14 @@ type Props = {
   suggestingMissingPrices?: boolean;
   onSuggestRoughPrices?: () => void;
   roughRangeLoading?: boolean;
+  /** True after suggest failed, or when unpriced items have no national average. */
+  roughPricingUnavailable?: boolean;
   onAddPricesManually?: () => void;
   onContinueUnpriced?: () => void;
 };
+
+const ROUGH_UNAVAILABLE_COPY =
+  'Rough pricing not available, please enter amount manually';
 
 function SuggestPricingBtn({
   label,
@@ -140,6 +148,7 @@ export default function AIEstimateDraftReviewPricingActions({
   suggestingMissingPrices,
   onSuggestRoughPrices,
   roughRangeLoading,
+  roughPricingUnavailable = false,
   onAddPricesManually,
   onContinueUnpriced,
 }: Props) {
@@ -160,25 +169,51 @@ export default function AIEstimateDraftReviewPricingActions({
 
   const hasPricing = draftHasApplyablePricing(draft);
   const pricingReadiness = countDraftPricingReadiness(draft);
+  const unpricedPackages = getScopePackages(draft).filter((pkg) =>
+    scopePackageNeedsManualPrice(pkg, draft)
+  );
+  const unpricedCount = unpricedPackages.length;
+  // Suggest only when a national average (or ground-up soft-cost allowance) exists.
+  const suggestableUnpriced = unpricedPackages.filter((pkg) =>
+    packageHasRoughNationalAverage(pkg, draft)
+  );
+  const suggestableCount = suggestableUnpriced.length;
+  const manualOnlyUnpriced = unpricedPackages.filter(
+    (pkg) => !packageHasRoughNationalAverage(pkg, draft)
+  );
+  const showRoughUnavailable =
+    unpricedCount > 0 &&
+    (roughPricingUnavailable || (suggestableCount === 0 && manualOnlyUnpriced.length > 0));
   const packageMeasurementLines = measuredScopeLines(getScopePackages(draft), draft);
   const measuredLines = packageMeasurementLines.length ? packageMeasurementLines : quickMeasurementLines(draft);
+  const suggestCount =
+    unpricedCount > 0 ? suggestableCount : pricingReadiness.ready;
   const roughLabel =
-    pricingReadiness.ready > 0
-      ? pricingReadiness.needsMeasurement > 0
-        ? `Suggest pricing for ${pricingReadiness.ready} measured items`
-        : 'Suggest pricing from measurements'
+    suggestCount > 0
+      ? hasPricing
+        ? suggestCount === 1
+          ? 'Suggest pricing for 1 item still missing a price'
+          : `Suggest pricing for ${suggestCount} items still missing a price`
+        : pricingReadiness.needsMeasurement > 0
+          ? `Suggest pricing for ${suggestCount} measured items`
+          : 'Suggest pricing from measurements'
       : 'Add measurements to suggest pricing';
   const hasMemorySuggestions = (draft.pricingMemorySuggestions?.length ?? 0) > 0;
   const templateHints = (draft.pricingMemoryMissingSuggestions || []).filter(
     (s) => s.source === 'saved_template'
   );
   const [showReadyItems, setShowReadyItems] = useState(false);
-  const statusLine =
-    pricingReadiness.ready > 0
-      ? pricingReadiness.needsMeasurement > 0
+  const statusLine = showRoughUnavailable
+    ? ROUGH_UNAVAILABLE_COPY
+    : unpricedCount > 0
+      ? pricingReadiness.needsMeasurement > 0 && !hasPricing
         ? `${pricingReadiness.ready} ready · ${pricingReadiness.needsMeasurement} need measurements`
-        : `${pricingReadiness.ready} ready for suggested pricing`
-      : 'Add measurements in Confirm Scope to unlock pricing';
+        : unpricedCount === 1
+          ? '1 item still needs a price'
+          : `${unpricedCount} items still need a price`
+      : pricingReadiness.ready > 0
+        ? `${pricingReadiness.ready} ready for suggested pricing`
+        : 'Add measurements in Confirm Scope to unlock pricing';
 
   return (
     <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: 12 })}>
@@ -186,7 +221,7 @@ export default function AIEstimateDraftReviewPricingActions({
         {hasPricing ? 'Finish pricing' : 'Add pricing'}
       </Text>
 
-      {measuredLines.length > 0 ? (
+      {measuredLines.length > 0 && !showRoughUnavailable ? (
         <View style={{ marginBottom: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <Text
@@ -221,18 +256,32 @@ export default function AIEstimateDraftReviewPricingActions({
             : null}
         </View>
       ) : (
-        <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 17, marginBottom: 10 }}>
+        <Text
+          style={{
+            color: showRoughUnavailable
+              ? darkMode
+                ? 'rgba(251, 191, 36, 0.95)'
+                : '#b45309'
+              : Colors.sub,
+            fontSize: 12,
+            lineHeight: 17,
+            marginBottom: 10,
+            fontWeight: showRoughUnavailable ? '600' : '400',
+          }}
+        >
           {statusLine}
         </Text>
       )}
 
-      <SuggestPricingBtn
-        label={roughLabel}
-        onPress={onSuggestRoughPrices}
-        disabled={busy || pricingReadiness.ready === 0}
-        loading={roughRangeLoading}
-        darkMode={darkMode}
-      />
+      {showRoughUnavailable ? null : (
+        <SuggestPricingBtn
+          label={roughLabel}
+          onPress={suggestCount > 0 ? onSuggestRoughPrices : onAddPricesManually}
+          disabled={busy || (suggestCount === 0 && !onAddPricesManually)}
+          loading={roughRangeLoading}
+          darkMode={darkMode}
+        />
+      )}
       {draft.roughEstimate ? (
         <Text style={{ color: Colors.sub, fontSize: 11, marginBottom: 6, marginTop: -2 }}>
           Rough range: {formatDraftMoney(draft.roughEstimate.low)} –{' '}
@@ -259,7 +308,7 @@ export default function AIEstimateDraftReviewPricingActions({
           />
         ) : null}
         <SecondaryLink
-          label="Add manually"
+          label={showRoughUnavailable ? 'Enter amount manually' : 'Add manually'}
           onPress={onAddPricesManually}
           disabled={busy}
           color={darkMode ? 'rgba(226, 232, 240, 0.85)' : Colors.text}

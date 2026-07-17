@@ -812,6 +812,15 @@ export function shouldShowFormulaQuantityButton(params: {
   ) {
     return false;
   }
+  // Ground-up auto-replaces thin notes drywall SF with living×3.5 — no manual "Use calculated".
+  if (
+    (params.scopeKey === 'drywall' ||
+      params.scopeKey === 'hang' ||
+      params.scopeKey === 'finish_tape') &&
+    params.formula.formulaKey === 'surface_area_from_floor_area_benchmark'
+  ) {
+    return false;
+  }
   return true;
 }
 

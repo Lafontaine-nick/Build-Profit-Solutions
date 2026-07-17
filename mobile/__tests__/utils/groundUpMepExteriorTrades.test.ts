@@ -54,7 +54,7 @@ describe('ground-up MEP / exterior count gates', () => {
         'plumbing_rough',
         'electrical_rough',
         'hvac',
-        'windows_doors',
+        'windows',
         'stucco',
         'mep_rough',
       ])
@@ -156,8 +156,9 @@ describe('ground-up MEP / exterior count gates', () => {
 
     expect(plumbing.fill).toMatchObject({ material: 12 * 150, labor: 12 * 350, total: 6000 });
     expect(electrical.fill).toMatchObject({ material: 40 * 50, labor: 40 * 125, total: 7000 });
-    expect(hvac.fill!.total).toBeGreaterThan(10000);
-    expect(hvac.fill!.total).toBeLessThan(17500);
+    // 60% local ~$18.5k + 40% national ~$16k/system ≈ $17.5k.
+    expect(hvac.fill!.total).toBeGreaterThan(16000);
+    expect(hvac.fill!.total).toBeLessThan(20000);
     // Windows openings use bid-calibrated $/each (~$750 local vs $725 national).
     expect(openings.fill!.total).toBeGreaterThan(13000);
     expect(openings.fill!.total).toBeLessThan(14000);
@@ -167,7 +168,8 @@ describe('ground-up MEP / exterior count gates', () => {
     const each = getNationalAverageBudgetSplit('hvac', 'each');
     const sqft = getNationalAverageBudgetSplit('hvac', 'sqft');
     expect(each?.unit).toBe('each');
-    expect(each?.material).toBe(5500);
+    expect(each?.material).toBe(8500);
+    expect(each?.labor).toBe(7500);
     expect(sqft?.unit).toBe('sqft');
   });
 

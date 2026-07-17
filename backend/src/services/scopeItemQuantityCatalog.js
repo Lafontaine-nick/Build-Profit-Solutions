@@ -596,7 +596,7 @@ const PACKAGE_NAME_TO_RULE_KEY = [
     test: /\bcountertops?\b[^.]{0,40}\b(demo|demolition|removal|remove|tear[\s-]?out)\b|\b(demo|demolition|removal|remove|tear[\s-]?out)\b[^.]{0,40}\bcountertops?\b/i,
     key: 'demo',
   },
-  { test: /\bcountertop/i, key: 'countertops' },
+  { test: /\bcounters?\b|\bcounter\s*tops?\b|\bcountertop/i, key: 'countertops' },
   {
     test: /\bsink\b|\bfaucet\b|\bgarbage\s+disposal\b|\bdisposals?\b.*\b(sink|faucet|garbage)\b|\bsink[,\s]+faucet/i,
     key: 'sink_faucet',
@@ -605,7 +605,11 @@ const PACKAGE_NAME_TO_RULE_KEY = [
   { test: /\bsod|\bturf/i, key: 'sod_turf' },
   { test: /\bpaver/i, key: 'pavers' },
   {
-    test: /\b(flatwork|slab\s+pour|concrete\s+patio|patio\s+concrete|driveway|sidewalk)\b/i,
+    test: /\blandscap|\bsite\s+walls?\b|\bfences?\s*(?:&|and|\/)\s*gates?\b/i,
+    key: 'landscaping',
+  },
+  {
+    test: /\bexterior\s+concrete\s+flatwork\b|\b(flatwork|slab\s+pour|concrete\s+patio|patio\s+concrete|driveway|sidewalk)\b/i,
     key: 'pour_flatwork',
   },
   { test: /\bfootings?\b|\bpiers?\b|\bfoundation\s+pour\b/i, key: 'pour_foundation' },
@@ -621,7 +625,14 @@ const PACKAGE_NAME_TO_RULE_KEY = [
   { test: /\brail(?:ing)?\b|\bguardrail\b/i, key: 'railing' },
   { test: /\bshower\s+wall\s+tile\b|\bshower\b[^.]{0,30}\bwall\b[^.]{0,20}\btile\b|\btile\b[^.]{0,30}\bshower\s+wall\b/i, key: 'shower_tile' },
   { test: /\bwaterproof|\bbacker\s+board/i, key: 'waterproofing' },
-  { test: /\bfloor\s+tile\b|\btile\s+floor\b|\bfloor\b[^.]{0,20}\btile\b|\btile\b[^.]{0,20}\bfloor\b/i, key: 'floor_tile' },
+  {
+    test: /\btile\s*(?:&|and|\/)\s*flooring\b|\btile\s+flooring\b|\bflooring\s+tile\b/i,
+    key: 'tile_flooring',
+  },
+  {
+    test: /\bbath(?:room)?\s+floor\s+tile\b|\bfloor\s+tile\b|\btile\s+floor\b/i,
+    key: 'floor_tile',
+  },
   { test: /\bvanity\b/i, key: 'vanity' },
   { test: /\btoilet\b/i, key: 'toilet' },
   {
@@ -655,6 +666,10 @@ const PACKAGE_NAME_TO_RULE_KEY = [
   { test: /\b(?:interior|exterior|entry|patio|sliding|french)\s+doors?\b|\bwindows?\b|\bdoor\b/i, key: 'windows_doors' },
   { test: /\bfooting|\bslab\b|\bfoundation\b/i, key: 'foundation' },
   { test: /\bplumb.*\brough|\brough[\s-]?in\b.*\bplumb/i, key: 'plumbing_rough' },
+  {
+    test: /\belectrical\s+fixtures?\b|\belectrical\s+trim\b|\bdevices?.*\bplates?\b/i,
+    key: 'electrical_trim',
+  },
   { test: /\belectrical\b(?!.*trim)|\bnew\s+circuits\b/i, key: 'electrical_rough' },
   { test: /\blight(?:ing)?\s+fix|\bfixture.*\blight/i, key: 'lighting' },
   { test: /\bhang\b[^.]{0,30}\bdrywall\b|\bdrywall\b[^.]{0,30}\bhang\b/i, key: 'hang' },
@@ -668,10 +683,10 @@ const PACKAGE_NAME_TO_RULE_KEY = [
     key: 'trim_paint',
   },
   { test: /\bpaint|\bpainting/i, key: 'paint' },
+  { test: /\bfinish\s+carpentry\b|\binterior\s+trim\b/i, key: 'interior_trim' },
   { test: /\bbaseboard|\btrim\s+install|\btrim\s+&\s+baseboard/i, key: 'trim' },
   { test: /\bplumb.*\btrim|\bplumbing\s+trim|\bfinal\s+plumb|\bfixture\s+hookup\b/i, key: 'plumbing_trim' },
   { test: /\bplumbing\s+connections?\b/i, key: 'plumbing' },
-  { test: /\belectrical\s+trim|\bdevices.*\bplates/i, key: 'electrical_trim' },
   { test: /\bpermit|\binspection/i, key: 'permits' },
   { test: /\bcleanup\b|\bhaul[\s-]?off\b|\bdumpster\b|\bfinal\s+clean\b|\bjob\s+cleanup\b/i, key: 'cleanup' },
   { test: /\bplumb(?!.*trim)/i, key: 'plumbing_rough' },
@@ -741,6 +756,8 @@ function normalizeScopeMeasurements(measurements = {}) {
     sqft: bathroomFloorSqft,
     lf: baseboardLf,
     itemQuantities: measurements.itemQuantities || {},
+    // Confirm Scope Applied totals — keep so stamp can sync M/L without a takeoff qty.
+    pricingAcceptance: measurements.pricingAcceptance || undefined,
   };
 }
 
@@ -965,6 +982,16 @@ const GROUND_UP_CHECKLIST_QUANTITY_RULES = {
     'Uses living area from the plan as slab/foundation footprint basis — edit if needed.',
     'Enter foundation sqft or pricing.'
   ),
+  pour_flatwork: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'cy', 'allowance', 'lump_sum'],
+    measurementKeys: ['concreteSqft'],
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper:
+      'Enter exterior flatwork SF (driveway, walks, porch) — not house/garage slab. Local allowance when SF is unknown.',
+    missingMessage: 'Needs exterior flatwork SF (driveway / walks / porch), or use local allowance.',
+  },
   framing: additionFloorAreaRule(
     'Uses living area from the plan as framed floor area — edit if needed.',
     'Enter framing sqft or pricing.'
@@ -1759,40 +1786,103 @@ function parsedTotalForPackage(name, scope, measurements = {}) {
   return null;
 }
 
-function selectedPricingForPackage(name, scope, measurements = {}) {
-  const ruleKey = lookupRuleKeyForPackage(name, scope);
+function selectedPricingForPackage(name, scope, measurements = {}, checklistItemId = null) {
+  const ruleKey = checklistItemId || lookupRuleKeyForPackage(name, scope);
   if (!ruleKey) return null;
 
-  const itemQuantities = normalizeScopeMeasurements(measurements).itemQuantities || {};
+  const normalized = normalizeScopeMeasurements(measurements);
+  const itemQuantities = normalized.itemQuantities || {};
+  const acceptance = normalized.pricingAcceptance?.[ruleKey] || measurements.pricingAcceptance?.[ruleKey];
   const base = itemQuantities[ruleKey];
   const allowance = itemQuantities[`${ruleKey}__allowance`];
   const material = itemQuantities[`${ruleKey}__material`];
   const labor = itemQuantities[`${ruleKey}__labor`];
+  const materialPrice = Number(material?.quantity || 0);
+  const laborPrice = Number(labor?.quantity || 0);
+  const splitTotal = materialPrice + laborPrice;
+  const hasSplitLegs = Boolean(material || labor);
+  const splitLegsEmpty = !(materialPrice > 0) && !(laborPrice > 0);
   const userSelected =
     base?.quantitySource === QUANTITY_SOURCES.user_entered ||
     allowance?.quantitySource === QUANTITY_SOURCES.user_entered ||
     material?.quantitySource === QUANTITY_SOURCES.user_entered ||
-    labor?.quantitySource === QUANTITY_SOURCES.user_entered;
+    labor?.quantitySource === QUANTITY_SOURCES.user_entered ||
+    acceptance?.selectionStatus === 'accepted' ||
+    acceptance?.selectionStatus === 'manual_adjusted';
   if (!userSelected) return null;
 
-  const materialPrice = Number(material?.quantity || 0);
-  const laborPrice = Number(labor?.quantity || 0);
-  const splitTotal = materialPrice + laborPrice;
-  const allowanceTotal = Number(allowance?.quantity || 0);
-  const baseTotal = ['allowance', 'lump_sum'].includes(base?.unit || '') ? Number(base?.quantity || 0) : 0;
-  const total = allowanceTotal || baseTotal || splitTotal;
-  if (!Number.isFinite(total) || total <= 0) return null;
-
-  const basis =
+  const physicalBasis =
     base?.quantity > 0 && base.unit && !['allowance', 'lump_sum'].includes(base.unit)
       ? { quantity: Number(base.quantity), unit: base.unit }
       : null;
+
+  if (
+    acceptance &&
+    Number(acceptance.totalAmount) > 0 &&
+    (acceptance.selectionStatus === 'accepted' || acceptance.selectionStatus === 'manual_adjusted')
+  ) {
+    // Orphan sticky acceptance after Material/Labor wipe — do not stamp stale dollars.
+    if (hasSplitLegs && splitLegsEmpty && !(splitTotal > 0)) {
+      return null;
+    }
+    const acceptedMaterial =
+      materialPrice > 0 ? materialPrice : acceptance.materialAmount != null ? Number(acceptance.materialAmount) : null;
+    const acceptedLabor =
+      laborPrice > 0 ? laborPrice : acceptance.laborAmount != null ? Number(acceptance.laborAmount) : null;
+    // Prefer live Confirm Scope M+L so Step 3 totals match the split editors.
+    const liveTotal = splitTotal > 0 ? splitTotal : Number(acceptance.totalAmount);
+    return {
+      total: liveTotal,
+      materialPrice: acceptedMaterial != null && acceptedMaterial > 0 ? acceptedMaterial : null,
+      laborPrice: acceptedLabor != null && acceptedLabor > 0 ? acceptedLabor : null,
+      basis: physicalBasis,
+    };
+  }
+
+  const allowanceTotal = Number(allowance?.quantity || 0);
+  const baseTotal = ['allowance', 'lump_sum'].includes(base?.unit || '') ? Number(base?.quantity || 0) : 0;
+  // Split legs present but empty → ignore orphan __allowance leftover.
+  const total =
+    splitTotal > 0
+      ? splitTotal
+      : hasSplitLegs && splitLegsEmpty
+        ? 0
+        : allowanceTotal || baseTotal;
+  if (!Number.isFinite(total) || total <= 0) return null;
 
   return {
     total,
     materialPrice: materialPrice > 0 ? materialPrice : null,
     laborPrice: laborPrice > 0 ? laborPrice : null,
-    basis,
+    basis: physicalBasis,
+  };
+}
+
+function applySelectedPricingFields(pkg, selectedPricing) {
+  return {
+    ...pkg,
+    price: selectedPricing.total,
+    knownSubtotal: selectedPricing.total,
+    calculatedSubtotal: selectedPricing.total,
+    finalApprovedTotal: selectedPricing.total,
+    materialPrice: selectedPricing.materialPrice,
+    laborPrice: selectedPricing.laborPrice,
+    priceIncludesLaborAndMaterials: Boolean(
+      selectedPricing.total && !(selectedPricing.materialPrice && selectedPricing.laborPrice)
+    ),
+    priceProvidedByUser: true,
+    pricedFromSqftAllowances: false,
+    status: 'user_provided',
+    packageStatus: 'user_provided',
+    pricingType: selectedPricing.materialPrice || selectedPricing.laborPrice ? 'split' : 'lump_sum',
+    priceSource: 'user_provided',
+    applyEligible: true,
+    missingPriceItems: [],
+    budgetSplitBasis: selectedPricing.basis,
+    scopeQuantities: selectedPricing.basis
+      ? [{ quantity: selectedPricing.basis.quantity, unit: selectedPricing.basis.unit }]
+      : pkg.scopeQuantities,
+    splitIsSuggested: false,
   };
 }
 
@@ -1801,14 +1891,36 @@ function stampPackageWithCatalogRules(pkg, ctx = {}) {
   const scope = pkg.scope || '';
   const existing = pkg.scopeQuantities || [];
   const parsedTotal = parsedTotalForPackage(name, scope, ctx.measurements);
-  const selectedPricing = selectedPricingForPackage(name, scope, ctx.measurements);
+  const selectedPricing = selectedPricingForPackage(
+    name,
+    scope,
+    ctx.measurements,
+    pkg.checklistItemId || null
+  );
 
   const resolved = resolveQuantityForPackage(name, scope, {
     ...ctx,
     existingQuantities: existing,
   });
 
+  // Soft-cost / allowance scopes often have Applied M/L without a takeoff qty.
+  // Still stamp Confirm Scope pricing so Step 3 stays accurate.
   if (!resolved.pricingReady || resolved.quantity == null) {
+    if (selectedPricing) {
+      const kept = existing.filter((q) => q.quantity > 0);
+      return applySelectedPricingFields(
+        {
+          ...pkg,
+          checklistItemId: pkg.checklistItemId || lookupRuleKeyForPackage(name, scope) || null,
+          scopeQuantities: selectedPricing.basis
+            ? [{ quantity: selectedPricing.basis.quantity, unit: selectedPricing.basis.unit }]
+            : kept.length
+              ? kept
+              : undefined,
+        },
+        selectedPricing
+      );
+    }
     const kept = existing.filter((q) => q.quantity > 0);
     return kept.length ? { ...pkg, scopeQuantities: kept } : { ...pkg, scopeQuantities: undefined };
   }
@@ -1832,26 +1944,7 @@ function stampPackageWithCatalogRules(pkg, ctx = {}) {
   };
 
   if (selectedPricing) {
-    next.price = selectedPricing.total;
-    next.knownSubtotal = selectedPricing.total;
-    next.calculatedSubtotal = selectedPricing.total;
-    next.finalApprovedTotal = selectedPricing.total;
-    next.materialPrice = selectedPricing.materialPrice;
-    next.laborPrice = selectedPricing.laborPrice;
-    next.priceIncludesLaborAndMaterials = Boolean(
-      selectedPricing.total && !(selectedPricing.materialPrice && selectedPricing.laborPrice)
-    );
-    next.priceProvidedByUser = true;
-    next.pricedFromSqftAllowances = false;
-    next.status = 'user_provided';
-    next.packageStatus = 'user_provided';
-    next.pricingType = selectedPricing.materialPrice || selectedPricing.laborPrice ? 'split' : 'lump_sum';
-    next.priceSource = 'user_provided';
-    next.applyEligible = true;
-    next.missingPriceItems = [];
-    next.budgetSplitBasis = selectedPricing.basis;
-    next.splitIsSuggested = false;
-    return next;
+    return applySelectedPricingFields(next, selectedPricing);
   }
 
   const currentTotal = Number(pkg.price || pkg.knownSubtotal || pkg.calculatedSubtotal || 0);

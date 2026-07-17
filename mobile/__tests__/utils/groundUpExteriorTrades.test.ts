@@ -51,6 +51,8 @@ describe('ground-up exterior trades', () => {
     expect(byId.roofing.state).toBe('included');
     expect(byId.windows.state).toBe('included');
     expect(byId.garage_doors).toBeTruthy();
+    expect(byId.pour_flatwork).toBeTruthy();
+    expect(byId.pour_flatwork.label).toMatch(/flatwork/i);
   });
 
   it('promotes opening trades and stucco when Exterior Envelope was Yes', () => {

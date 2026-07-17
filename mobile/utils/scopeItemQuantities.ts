@@ -30,9 +30,17 @@ import {
   EXTERIOR_OPENING_NATIONAL_RATES,
   inferDefaultGarageDoorCounts,
   normalizeGarageDoorCounts,
+  resolveExteriorDoorsLumpSuggestedFill,
   resolveGarageDoorSuggestedPricing,
+  resolveSlidingDoorsLumpSuggestedFill,
   totalGarageDoorCount,
 } from '@/utils/exteriorOpeningsPricing';
+import { resolveExteriorFlatworkLumpSuggestedFill } from '@/utils/exteriorFlatworkPricing';
+import { resolveGroundUpFinishPackageLump } from '@/utils/groundUpFinishPackages';
+import {
+  isUndercountedDrywallSurface,
+  syncMeasurementsWithSouthernUtahPlanFacts,
+} from '@/utils/quickMeasurementEstimates';
 import {
   insulationEnvelopeInputsFromPlanFacts,
   resolveInsulationEnvelopePlanningQuantity,
@@ -98,7 +106,9 @@ export type QuantitySource =
   | 'default_assumption'
   | 'missing'
   | 'not_applicable'
-  | 'plan_vision';
+  | 'plan_vision'
+  /** Edit editor seed from Suggest — not accepted until the user edits or Applies. */
+  | 'suggested_prefill';
 
 export type ScopeItemQuantityRule = {
   defaultUnit: string;
@@ -574,14 +584,26 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   concrete: { unit: 'sqft', material: 4, labor: 6, sourceLabel: 'Suggested budget split · National Average' },
   drywall: {
     unit: 'sqft',
-    material: 1.5,
-    labor: 3,
+    // New-construction hang/finish band (~$2.10/SF). Prior $4.50/SF made living×3.5
+    // planning qty price ~$34k on Plan 39 vs SHV H41 ~$22.5k.
+    material: 0.85,
+    labor: 1.25,
     sourceLabel: 'Suggested · National Average · wall/ceiling surface sqft',
   },
   decking: { unit: 'sqft', material: 8, labor: 12, sourceLabel: 'Suggested budget split · National Average' },
   countertops: { unit: 'sqft', material: 35, labor: 25, sourceLabel: 'Suggested budget split · National Average' },
   cabinets: { unit: 'lf', material: 150, labor: 75, sourceLabel: 'Suggested budget split · National Average' },
-  shingles_roofing: { unit: 'squares', material: 350, labor: 450, sourceLabel: 'Suggested budget split · National Average' },
+  /**
+   * New-construction shingle roof (mat + install). Anchored near NAHB 2024 roofing
+   * package (~$16.7k on the survey home) rather than a full re-roof mid (~$800/sq),
+   * which was pulling Plan 41–sized planning bids to ~$20k.
+   */
+  shingles_roofing: {
+    unit: 'squares',
+    material: 250,
+    labor: 325,
+    sourceLabel: 'Suggested budget split · National Average · new-construction roofing',
+  },
   stucco: {
     unit: 'sqft',
     material: 3.5,
@@ -601,6 +623,20 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     material: 0,
     labor: 1000,
     sourceLabel: 'Suggested allowance · National Average',
+  },
+  /** Appliance delivery/hookup install package (not appliance purchase). */
+  appliances: {
+    unit: 'allowance',
+    material: 0,
+    labor: 500,
+    sourceLabel: 'Suggested allowance · National Average · appliance install/hookup',
+  },
+  // Contingency is job-specific — never auto-suggest a national average allowance.
+  haul_off: {
+    unit: 'lump_sum',
+    material: 0,
+    labor: 1000,
+    sourceLabel: 'Suggested allowance · National Average · haul-off / dumpster',
   },
   /**
    * Framing national planning on applicable framed/covered SF (living + garage).
@@ -696,8 +732,10 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
   hvac: {
     each: {
       unit: 'each',
-      material: 5500,
-      labor: 4500,
+      // New-construction full system (equip + duct + install). Prior $10k/system
+      // pulled the 60/40 blend ~$4k under Plan 39 / detached mid HVAC packages.
+      material: 8500,
+      labor: 7500,
       sourceLabel: 'Suggested budget split · National Average · per HVAC system',
     },
     ton: {
@@ -1240,7 +1278,8 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   },
   shingles_roofing: {
     category: 'roofing',
-    rootCause: 'Build Profit national-average roofing is modeled as new roofing material and standard installation.',
+    rootCause:
+      'Build Profit national-average roofing is modeled as new-construction shingle material and standard installation (~$575/square planning), aligned with the NAHB roofing package band—not a full re-roof mid.',
     assumptions: [
       assumption('roofing_material', 'included', 'Roofing material', 'Standard shingle roofing material is included.'),
       assumption('underlayment', 'included', 'Underlayment', 'Standard underlayment is included.'),
@@ -2669,10 +2708,14 @@ const ADDITION_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRu
     quantityHelper: 'Price utility trenching by LF with material and labor.',
     missingMessage: 'Enter utility trenching LF or pricing.',
   },
-  foundation: additionFloorAreaRule(
-    'Enter foundation/slab footprint sqft, or use concrete CY on the concrete line.',
-    'Enter foundation sqft or pricing.'
-  ),
+  foundation: {
+    defaultUnit: 'cy',
+    allowedUnits: ['cy', 'sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['concreteCy'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter foundation / slab concrete CY for material and labor.',
+    missingMessage: 'Needs structural takeoff (slab/footings/walls/CY). Living SF is not foundation quantity.',
+  },
   concrete: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.concrete,
     defaultUnit: 'cy',
@@ -2685,10 +2728,12 @@ const ADDITION_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRu
     'Enter framing sqft or pricing.'
   ),
   roof_tie_in: {
-    ...additionFloorAreaRule(
-      'Enter roof/tie-in area sqft and price material and labor.',
-      'Enter roof/tie-in sqft or pricing.'
-    ),
+    defaultUnit: 'squares',
+    allowedUnits: ['squares', 'sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['roofSquares'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter roof squares for tie-in material and labor.',
+    missingMessage: 'Enter roof squares or pricing.',
   },
   windows_doors: {
     defaultUnit: 'each',
@@ -2786,6 +2831,16 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityR
     requiresUserQuantity: true,
     quantityHelper: 'Enter foundation / slab concrete CY for material and labor.',
     missingMessage: 'Needs structural takeoff (slab/footings/walls/CY). Living SF is not foundation quantity.',
+  },
+  pour_flatwork: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'cy', 'allowance', 'lump_sum'],
+    measurementKeys: ['concreteSqft'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Enter exterior flatwork SF (driveway, walks, porch) — not house/garage slab. Local allowance when SF is unknown.',
+    missingMessage: 'Needs exterior flatwork SF (driveway / walks / porch), or use local allowance.',
   },
   framing: additionFloorAreaRule(
     'Uses covered framed area (living + garage) for planning — edit if deck/patio framing is included.',
@@ -2949,13 +3004,42 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityR
     missingMessage: 'Enter exterior paint surface sqft or pricing.',
   },
   interior_trim: {
+    // Finish-carpentry barometer returns material + labor — keep as a trade split, not a soft-cost lump.
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    lumpSumOnly: false,
+    requiresUserQuantity: false,
+    quantityHelper:
+      'Finish trim, interior doors, door hardware & shelving package until baseboard/casing/door takeoff exists.',
+    missingMessage: 'Apply the finish-carpentry package or enter an allowance.',
+  },
+  plumbing_trim: {
     defaultUnit: 'allowance',
     allowedUnits: ['allowance', 'lump_sum'],
     lumpSumOnly: true,
     requiresUserQuantity: false,
     quantityHelper:
-      'Finish trim, interior doors, door hardware & shelving package until baseboard/casing/door takeoff exists.',
-    missingMessage: 'Apply the finish-carpentry package or enter an allowance.',
+      'Plumbing fixtures & trim package until fixture schedule takeoff. Not plumbing rough-in.',
+    missingMessage: 'Apply the plumbing fixtures package or enter an allowance.',
+  },
+  electrical_trim: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    lumpSumOnly: true,
+    requiresUserQuantity: false,
+    quantityHelper:
+      'Electrical fixtures package (mat + install) until lighting schedule takeoff. Not electrical rough-in.',
+    missingMessage: 'Apply the electrical fixtures package or enter an allowance.',
+  },
+  landscaping: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum', 'sqft'],
+    measurementKeys: ['landscapeSqft'],
+    lumpSumOnly: false,
+    requiresUserQuantity: false,
+    quantityHelper:
+      'Landscaping / site walls / fences & gates package (material + labor) until site-plan takeoff. Not driveway flatwork.',
+    missingMessage: 'Apply the landscaping package or enter material and labor.',
   },
   appliances: ADDITION_CHECKLIST_ITEM_QUANTITY_RULES.appliances,
   utility_taps: {
@@ -2984,6 +3068,8 @@ export function usesAllowanceSplitEditor(rule: ScopeItemQuantityRule): boolean {
 type PricingBasisPreference = {
   unit: string;
   measurementKeys?: Array<keyof Omit<NormalizedScopeMeasurements, 'itemQuantities'>>;
+  /** When true, sum all preferred measurement keys (e.g. framing living + garage). */
+  sumMeasurementKeys?: boolean;
   useFloorAreaFallback?: boolean;
 };
 
@@ -2999,10 +3085,10 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
   finish_tape: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
   texture: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
   patch_repair: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
-  paint: { unit: 'sqft', measurementKeys: ['wallPaintSqft', 'floorAreaSqft'] },
-  interior_paint: { unit: 'sqft', measurementKeys: ['wallPaintSqft', 'floorAreaSqft'] },
+  paint: { unit: 'sqft', measurementKeys: ['wallPaintSqft'] },
+  interior_paint: { unit: 'sqft', measurementKeys: ['wallPaintSqft'] },
   exterior_paint: { unit: 'sqft', measurementKeys: ['exteriorPaintSqft'] },
-  prep: { unit: 'sqft', measurementKeys: ['wallPaintSqft', 'floorAreaSqft'] },
+  prep: { unit: 'sqft', measurementKeys: ['wallPaintSqft'] },
   trim: { unit: 'lf', measurementKeys: ['baseboardLf'] },
   trim_paint: { unit: 'lf', measurementKeys: ['baseboardLf'] },
   baseboard: { unit: 'lf', measurementKeys: ['baseboardLf'] },
@@ -3029,7 +3115,8 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
   clearing: { unit: 'sqft', measurementKeys: ['landscapeSqft', 'floorAreaSqft'] },
   demo_clearing: { unit: 'sqft', measurementKeys: ['landscapeSqft'] },
   backfill: { unit: 'cy', measurementKeys: ['excavationCy'] },
-  haul_off: { unit: 'cy', measurementKeys: ['excavationCy'] },
+  // Soft-cost dumpster / trash haul — never excavator CY.
+  haul_off: { unit: 'allowance' },
   imported_fill: { unit: 'cy', measurementKeys: ['excavationCy'] },
   railing: { unit: 'lf', measurementKeys: ['railingLf'] },
   decking: { unit: 'sqft', measurementKeys: ['deckSqft'] },
@@ -3098,22 +3185,39 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<string, Record<string, PricingB
     sitework: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     grading: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     utility_trenching: { unit: 'lf' },
-    foundation: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    // Same class of bug as ground-up: never pair living SF with $/CY foundation rates.
+    foundation: { unit: 'cy', measurementKeys: ['concreteCy'] },
+    concrete: { unit: 'cy', measurementKeys: ['concreteCy', 'concreteSqft'] },
     framing: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
-    roof_tie_in: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    roof_tie_in: { unit: 'squares', measurementKeys: ['roofSquares'] },
     windows_doors: { unit: 'each' },
     exterior_finishes: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
-    hvac: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
-    insulation: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    hvac: { unit: 'each' },
+    // Insulation Edit must use thermal envelope — never living SF (Suggest rewrites living).
+    insulation: { unit: 'sqft', measurementKeys: [] },
     tile: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     interior_trim: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
   },
   ground_up: {
     sitework: { unit: 'sqft', measurementKeys: ['floorAreaSqft', 'landscapeSqft'] },
-    foundation: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
-    framing: { unit: 'sqft', measurementKeys: ['floorAreaSqft', 'garageSqft'] },
+    // Foundation / excavation: CY only — living SF × $/CY produced ~$1M on Plan 39.
+    foundation: { unit: 'cy', measurementKeys: ['concreteCy'] },
+    excavation: { unit: 'cy', measurementKeys: ['excavationCy'] },
+    pour_flatwork: { unit: 'sqft', measurementKeys: ['concreteSqft'] },
+    // Covered framed SF = living + garage (must match suggest card; never living alone).
+    framing: {
+      unit: 'sqft',
+      measurementKeys: ['floorAreaSqft', 'garageSqft'],
+      sumMeasurementKeys: true,
+    },
     roofing: { unit: 'squares', measurementKeys: ['roofSquares'] },
-    exterior: { unit: 'sqft', measurementKeys: ['floorAreaSqft', 'exteriorPaintSqft'] },
+    exterior: { unit: 'sqft', measurementKeys: ['exteriorPaintSqft', 'floorAreaSqft'] },
+    stucco: { unit: 'sqft', measurementKeys: ['exteriorPaintSqft'] },
+    drywall: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
+    hang: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
+    finish_tape: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
+    cabinets: { unit: 'lf', measurementKeys: ['cabinetLf'] },
+    countertops: { unit: 'sqft', measurementKeys: ['countertopSqft'] },
     windows_doors: { unit: 'each' },
     windows: { unit: 'each' },
     exterior_doors: { unit: 'each' },
@@ -3123,17 +3227,21 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<string, Record<string, PricingB
     plumbing_rough: { unit: 'each' },
     electrical_rough: { unit: 'each' },
     hvac: { unit: 'each' },
-    insulation: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
-    tile_flooring: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
-    paint_trim: { unit: 'sqft', measurementKeys: ['wallPaintSqft', 'floorAreaSqft'] },
+    // Envelope planning — never seed living SF into Edit.
+    insulation: { unit: 'sqft', measurementKeys: [] },
+    tile_flooring: { unit: 'sqft', measurementKeys: ['flooringSqft', 'floorAreaSqft'] },
+    // Paintable SF only — living SF must not become paint Edit basis.
+    paint_trim: { unit: 'sqft', measurementKeys: ['wallPaintSqft'] },
+    interior_paint: { unit: 'sqft', measurementKeys: ['wallPaintSqft'] },
+    exterior_paint: { unit: 'sqft', measurementKeys: ['exteriorPaintSqft'] },
   },
   room_remodel: {
     framing: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     plumbing: { unit: 'each' },
     electrical: { unit: 'each' },
-    hvac: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    hvac: { unit: 'each' },
     drywall: { unit: 'sqft', measurementKeys: ['drywallSqft', 'floorAreaSqft'] },
-    flooring: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
+    flooring: { unit: 'sqft', measurementKeys: ['flooringSqft', 'floorAreaSqft'] },
     paint: { unit: 'sqft', measurementKeys: ['wallPaintSqft', 'floorAreaSqft'] },
     trim: { unit: 'lf', measurementKeys: ['baseboardLf'] },
   },
@@ -3145,6 +3253,231 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<string, Record<string, PricingB
     backsplash: { unit: 'sqft', measurementKeys: ['backsplashSqft'] },
   },
 };
+
+/** Units that must never use raw living SF as an Edit pricing basis. */
+const NON_LIVING_SF_BASIS_UNITS = new Set(['cy', 'squares', 'each', 'lf', 'ton', 'hr', 'lb']);
+
+function normalizeBasisUnit(unit: string | null | undefined): string {
+  const u = String(unit || 'sqft').toLowerCase();
+  if (u === 'sf' || u === 'sq.ft' || u === 'living_sqft' || u === 'floor_sqft') return 'sqft';
+  if (u === 'sq' || u === 'square') return 'squares';
+  if (u === 'ea' || u === 'count') return 'each';
+  return u;
+}
+
+/**
+ * True when a stored `__sqft_basis` is living SF (or wrong unit) for a trade that
+ * prices on CY / squares / each / LF — the Foundation ~$1M class of bug.
+ * Also true for ground-up framing when stored qty is living-only but garage exists
+ * (suggest uses covered framed SF = living + garage).
+ */
+export function isStaleLivingSfPricingBasis(params: {
+  itemId: string;
+  storedQty: number;
+  storedUnit?: string | null;
+  livingSf?: number | null;
+  garageSf?: number | null;
+  preferredUnit?: string | null;
+  preferredMeasurementKeys?: string[] | null;
+  sumMeasurementKeys?: boolean;
+  defaultUnit?: string | null;
+}): boolean {
+  const storedUnit = normalizeBasisUnit(params.storedUnit);
+  const preferredUnit = normalizeBasisUnit(
+    params.preferredUnit || params.defaultUnit || 'sqft'
+  );
+  const living = Number(params.livingSf);
+  const garage = Number(params.garageSf);
+  const qty = Number(params.storedQty);
+  if (!(qty > 0)) return false;
+
+  const looksLikeLivingSf =
+    Number.isFinite(living) &&
+    living > 0 &&
+    storedUnit === 'sqft' &&
+    Math.abs(qty - living) < 0.51;
+
+  if (NON_LIVING_SF_BASIS_UNITS.has(preferredUnit)) {
+    if (storedUnit !== preferredUnit) return true;
+    if (looksLikeLivingSf) return true;
+  }
+
+  // Preferred physical keys omit floorAreaSqft — don't keep a living-SF proxy.
+  const keys = params.preferredMeasurementKeys || [];
+  if (
+    looksLikeLivingSf &&
+    keys.length > 0 &&
+    !keys.includes('floorAreaSqft')
+  ) {
+    return true;
+  }
+
+  // Framing (and any summed basis): living-only is stale when garage SF is available.
+  if (
+    looksLikeLivingSf &&
+    params.sumMeasurementKeys &&
+    keys.includes('garageSqft') &&
+    Number.isFinite(garage) &&
+    garage > 0
+  ) {
+    return true;
+  }
+
+  const id = String(params.itemId || '').toLowerCase();
+  // Insulation Suggest uses thermal envelope — living or living×3.5 proxies are stale.
+  if (
+    id === 'insulation' &&
+    Number.isFinite(living) &&
+    living > 0 &&
+    storedUnit === 'sqft' &&
+    (looksLikeLivingSf || Math.abs(qty - Math.round(living * 3.5)) < 1)
+  ) {
+    return true;
+  }
+  // Ground-up drywall Suggest expands living / thin takeoffs to living×3.5 surface.
+  if (
+    (id === 'drywall' || id === 'hang' || id === 'finish_tape') &&
+    Number.isFinite(living) &&
+    living > 0 &&
+    storedUnit === 'sqft' &&
+    (looksLikeLivingSf || isUndercountedDrywallSurface(qty, living))
+  ) {
+    return true;
+  }
+  // Interior paint: living SF is never a valid Edit basis (installed lump or paintable SF).
+  if (
+    (id === 'interior_paint' || id === 'paint' || id === 'paint_trim') &&
+    looksLikeLivingSf
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Edit pricing basis that matches Confirm Scope Suggest planning quantities.
+ * Used when physical takeoff is missing or known-wrong (living proxy, thin drywall, etc.).
+ */
+export function resolveSuggestAlignedEditorPricingBasis(
+  itemId: string,
+  measurementsInput: ScopeMeasurementsInputExtended,
+  templateKey?: string | null
+): { quantity: number; unit: string } | null {
+  const id = String(itemId || '').toLowerCase();
+  const tk = String(templateKey || '').toLowerCase();
+  const livingSf = parseScopeMeasurementInput(String(measurementsInput.floorAreaSqft ?? ''));
+  const garageSf = parseScopeMeasurementInput(String(measurementsInput.garageSqft ?? '')) || 0;
+
+  if (id === 'framing' && tk === 'ground_up' && livingSf && livingSf > 0) {
+    return { quantity: livingSf + Math.max(0, garageSf), unit: 'sqft' };
+  }
+
+  if ((id === 'drywall' || id === 'hang' || id === 'finish_tape') && tk === 'ground_up' && livingSf && livingSf > 0) {
+    const drywallSf = parseScopeMeasurementInput(String(measurementsInput.drywallSqft ?? ''));
+    const needsSurface =
+      !drywallSf ||
+      drywallSf <= 0 ||
+      Math.abs(drywallSf - livingSf) < 0.51 ||
+      isUndercountedDrywallSurface(drywallSf, livingSf);
+    if (needsSurface) {
+      return { quantity: Math.round(livingSf * 3.5), unit: 'sqft' };
+    }
+    return { quantity: drywallSf, unit: 'sqft' };
+  }
+
+  if (id === 'insulation') {
+    const envelope = resolveInsulationEnvelopePlanningQuantity(
+      insulationEnvelopeInputsFromPlanFacts(measurementsInput.planFacts, livingSf)
+    );
+    const envelopeSf = envelope?.totalInsulationEnvelopeSqft;
+    if (envelopeSf && envelopeSf > 0) {
+      return { quantity: envelopeSf, unit: 'sqft' };
+    }
+    return null;
+  }
+
+  if (tk !== 'ground_up') return null;
+
+  if (id === 'excavation') {
+    const cy = parseScopeMeasurementInput(String(measurementsInput.excavationCy ?? ''));
+    if (cy && cy > 0) return { quantity: cy, unit: 'cy' };
+    if (livingSf && livingSf > 0) {
+      const perimeter = 4 * Math.sqrt(livingSf);
+      const trenchCy = (perimeter * 3 * 3) / 27;
+      const padCutCy = (livingSf * 0.5) / 27;
+      return {
+        quantity: Math.max(1, Math.round(trenchCy + padCutCy + trenchCy * 0.1)),
+        unit: 'cy',
+      };
+    }
+    return null;
+  }
+
+  if (id === 'hvac') {
+    return { quantity: 1, unit: 'each' };
+  }
+
+  if (id === 'stucco') {
+    const wallSf =
+      parseScopeMeasurementInput(String(measurementsInput.exteriorPaintSqft ?? '')) ||
+      (livingSf && livingSf > 0 ? Math.round(livingSf * 1.05) : null);
+    if (wallSf && wallSf > 0) return { quantity: wallSf, unit: 'sqft' };
+    return null;
+  }
+
+  if (id === 'cabinets') {
+    const lf = parseScopeMeasurementInput(String(measurementsInput.cabinetLf ?? ''));
+    if (lf && lf > 0) return { quantity: lf, unit: 'lf' };
+    if (livingSf && livingSf > 0) {
+      return { quantity: Math.max(1, Math.round(livingSf / 25)), unit: 'lf' };
+    }
+    return null;
+  }
+
+  if (id === 'countertops') {
+    const tops = parseScopeMeasurementInput(String(measurementsInput.countertopSqft ?? ''));
+    if (tops && tops > 0) return { quantity: tops, unit: 'sqft' };
+    return { quantity: 80, unit: 'sqft' };
+  }
+
+  if (id === 'plumbing_rough' || id === 'electrical_rough') {
+    const countEntry = measurementsInput.itemQuantities[itemId];
+    const countQty = parseScopeMeasurementInput(String(countEntry?.quantity ?? ''));
+    const countUnit = normalizeBasisUnit(countEntry?.unit);
+    if (countQty && countQty > 0 && countUnit === 'each') {
+      return { quantity: countQty, unit: 'each' };
+    }
+    // Suggest plans from living SF when point/device counts are missing.
+    if (livingSf && livingSf > 0) return { quantity: livingSf, unit: 'sqft' };
+    return null;
+  }
+
+  if (id === 'windows' || id === 'windows_doors') {
+    const countEntry = measurementsInput.itemQuantities[itemId];
+    const countQty = parseScopeMeasurementInput(String(countEntry?.quantity ?? ''));
+    const countUnit = normalizeBasisUnit(countEntry?.unit);
+    if (countQty && countQty > 0 && countUnit === 'each') {
+      return { quantity: countQty, unit: 'each' };
+    }
+    if (livingSf && livingSf > 0) return { quantity: livingSf, unit: 'sqft' };
+    return null;
+  }
+
+  if (id === 'interior_paint' || id === 'paint' || id === 'paint_trim') {
+    const paintSf = parseScopeMeasurementInput(String(measurementsInput.wallPaintSqft ?? ''));
+    if (paintSf && paintSf > 0) return { quantity: paintSf, unit: 'sqft' };
+    return null;
+  }
+
+  if (id === 'exterior_paint') {
+    const paintSf = parseScopeMeasurementInput(String(measurementsInput.exteriorPaintSqft ?? ''));
+    if (paintSf && paintSf > 0) return { quantity: paintSf, unit: 'sqft' };
+    return null;
+  }
+
+  return null;
+}
 
 function pricingBasisPreferenceFor(
   itemId: string,
@@ -3175,34 +3508,178 @@ export function resolveAllowanceEditorPricingBasis(
   templateKey?: string | null
 ): { quantity: number; unit: string } | null {
   const rule = getChecklistItemQuantityRuleOrDefault(itemId, templateKey);
+  const livingSf = parseScopeMeasurementInput(String(measurementsInput.floorAreaSqft ?? ''));
+  const garageSf = parseScopeMeasurementInput(String(measurementsInput.garageSqft ?? ''));
+  const preferred = pricingBasisPreferenceFor(itemId, templateKey);
+  const preferredUnit = preferred?.unit || rule.defaultUnit;
   const basisKey = allowanceSplitSubKey(itemId, 'sqft_basis');
   const stored = measurementsInput.itemQuantities[basisKey];
   const storedQty = parseScopeMeasurementInput(String(stored?.quantity ?? ''));
-  if (storedQty && storedQty > 0) {
+  const storedUnit = String(stored?.unit || 'sqft').toLowerCase();
+  const storedIsStale = isStaleLivingSfPricingBasis({
+    itemId,
+    storedQty: storedQty ?? 0,
+    storedUnit,
+    livingSf,
+    garageSf,
+    preferredUnit,
+    preferredMeasurementKeys: preferred?.measurementKeys as string[] | undefined,
+    sumMeasurementKeys: preferred?.sumMeasurementKeys,
+    defaultUnit: rule.defaultUnit,
+  });
+  if (storedQty && storedQty > 0 && !storedIsStale) {
     return { quantity: storedQty, unit: stored?.unit || 'sqft' };
   }
-  const preferred = pricingBasisPreferenceFor(itemId, templateKey);
+
+  // Prefer Suggest-aligned planning qty before raw measurement keys that can be
+  // living SF / thin drywall / wrong proxies (same class of bug as Framing Edit).
+  const suggestAligned = resolveSuggestAlignedEditorPricingBasis(
+    itemId,
+    measurementsInput,
+    templateKey
+  );
+  const id = String(itemId || '').toLowerCase();
+  const prefersSuggestAlignedFirst =
+    id === 'framing' ||
+    id === 'drywall' ||
+    id === 'hang' ||
+    id === 'finish_tape' ||
+    id === 'insulation' ||
+    id === 'excavation' ||
+    id === 'hvac' ||
+    id === 'stucco' ||
+    id === 'cabinets' ||
+    id === 'countertops' ||
+    id === 'plumbing_rough' ||
+    id === 'electrical_rough' ||
+    id === 'windows' ||
+    id === 'windows_doors' ||
+    id === 'interior_paint' ||
+    id === 'paint' ||
+    id === 'paint_trim' ||
+    id === 'exterior_paint';
+  if (suggestAligned && prefersSuggestAlignedFirst) {
+    return suggestAligned;
+  }
+
   if (preferred?.measurementKeys?.length) {
+    if (preferred.sumMeasurementKeys) {
+      let sum = 0;
+      let found = false;
+      for (const key of preferred.measurementKeys) {
+        if (
+          key === 'floorAreaSqft' &&
+          NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferred.unit))
+        ) {
+          continue;
+        }
+        const quantity = parseScopeMeasurementInput(
+          String(measurementsInput[key as keyof ScopeMeasurementsInputExtended] ?? '')
+        );
+        if (quantity && quantity > 0) {
+          sum += quantity;
+          found = true;
+        }
+      }
+      if (found && sum > 0) {
+        return { quantity: sum, unit: preferred.unit };
+      }
+    }
     for (const key of preferred.measurementKeys) {
+      // Never seed CY/squares/each/LF trades from living SF via a preferred key list.
+      if (
+        key === 'floorAreaSqft' &&
+        NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferred.unit))
+      ) {
+        continue;
+      }
       const quantity = parseScopeMeasurementInput(
         String(measurementsInput[key as keyof ScopeMeasurementsInputExtended] ?? '')
       );
       if (quantity && quantity > 0) {
+        // Undercounted drywall takeoff must not win over living×3.5 planning.
+        if (
+          (id === 'drywall' || id === 'hang' || id === 'finish_tape') &&
+          key === 'drywallSqft' &&
+          livingSf &&
+          isUndercountedDrywallSurface(quantity, livingSf) &&
+          suggestAligned
+        ) {
+          return suggestAligned;
+        }
         return { quantity, unit: measurementUnitForKey(key, preferred.unit) };
       }
     }
   }
+  if (suggestAligned) return suggestAligned;
+
   const fromPricingBasis = firstPricingBasisMeasurementForRule(rule, measurementsInput);
-  if (fromPricingBasis) return fromPricingBasis;
+  if (fromPricingBasis) {
+    if (
+      !(
+        fromPricingBasis.unit === 'sqft' &&
+        livingSf != null &&
+        Math.abs(fromPricingBasis.quantity - livingSf) < 0.51 &&
+        (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit)) ||
+          id === 'insulation' ||
+          id === 'interior_paint' ||
+          id === 'paint' ||
+          id === 'paint_trim' ||
+          id === 'drywall' ||
+          id === 'hang' ||
+          id === 'finish_tape')
+      )
+    ) {
+      return fromPricingBasis;
+    }
+  }
   const fromRule = firstMeasurementForRule(rule, measurementsInput);
-  if (fromRule) return fromRule;
-  if (rule.defaultUnit && rule.defaultUnit !== 'sqft' && rule.defaultUnit !== 'allowance' && rule.defaultUnit !== 'lump_sum') {
+  if (fromRule) {
+    if (
+      !(
+        fromRule.unit === 'sqft' &&
+        livingSf != null &&
+        Math.abs(fromRule.quantity - livingSf) < 0.51 &&
+        (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit)) ||
+          id === 'insulation' ||
+          id === 'interior_paint' ||
+          id === 'paint' ||
+          id === 'paint_trim' ||
+          id === 'drywall' ||
+          id === 'hang' ||
+          id === 'finish_tape')
+      )
+    ) {
+      return fromRule;
+    }
+  }
+  if (
+    rule.defaultUnit &&
+    rule.defaultUnit !== 'sqft' &&
+    rule.defaultUnit !== 'allowance' &&
+    rule.defaultUnit !== 'lump_sum'
+  ) {
+    return null;
+  }
+  if (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit))) {
+    return null;
+  }
+  // Never fall back to living SF for scopes that Suggest prices on a different basis.
+  if (
+    id === 'insulation' ||
+    id === 'interior_paint' ||
+    id === 'paint' ||
+    id === 'paint_trim' ||
+    id === 'exterior_paint' ||
+    id === 'drywall' ||
+    id === 'hang' ||
+    id === 'finish_tape'
+  ) {
     return null;
   }
   const canUseFloorFallback = preferred?.useFloorAreaFallback || rule.canUseRoomSqft || rule.defaultUnit === 'sqft';
   if (!canUseFloorFallback) return null;
-  const floor = parseScopeMeasurementInput(String(measurementsInput.floorAreaSqft ?? ''));
-  if (floor && floor > 0) return { quantity: floor, unit: 'sqft' };
+  if (livingSf && livingSf > 0) return { quantity: livingSf, unit: 'sqft' };
   return null;
 }
 
@@ -3247,6 +3724,8 @@ export function getChecklistItemQuantityRule(
               ? 'excavationCy'
               : itemId === 'foundation'
                 ? 'concreteCy'
+                : itemId === 'pour_flatwork'
+                  ? 'concreteSqft'
                 : itemId === 'cabinets'
                   ? 'cabinetLf'
                   : itemId === 'countertops'
@@ -3279,7 +3758,8 @@ export function getChecklistItemQuantityRule(
                   itemId === 'paint' ||
                   itemId === 'interior_paint' ||
                   itemId === 'drywall' ||
-                  itemId === 'stucco'
+                  itemId === 'stucco' ||
+                  itemId === 'pour_flatwork'
                 ? 'sqft'
                 : preferred === 'package' || preferred === 'unknown'
                   ? rule.defaultUnit
@@ -3294,6 +3774,8 @@ export function getChecklistItemQuantityRule(
             ? 'Enter exterior wall surface SF for stucco material and labor.'
           : itemId === 'foundation'
             ? 'Needs structural takeoff (slab/footings/walls/CY). Living SF is not foundation quantity.'
+            : itemId === 'pour_flatwork'
+              ? 'Enter exterior flatwork SF (driveway, walks, porch) — not house/garage slab. Local allowance when SF is unknown.'
             : itemId === 'insulation'
               ? 'Planning estimate from exterior walls + conditioned attic/ceiling. Verify openings, garage scope, and R-values.'
               : itemId === 'roofing'
@@ -3370,13 +3852,28 @@ const EXPLICIT_ITEM_QUANTITY_SOURCES = new Set<QuantitySource>([
   'plan_vision',
 ]);
 
+function itemQuantityEntryForId(
+  measurements: NormalizedScopeMeasurements,
+  itemId: string
+): ScopeItemQuantityValue | undefined {
+  const direct = measurements.itemQuantities[itemId];
+  if (direct) return direct;
+  if (itemId === 'interior_paint' || itemId === 'paint' || itemId === 'paint_trim') {
+    for (const alias of ['paint', 'interior_paint', 'paint_trim'] as const) {
+      const entry = measurements.itemQuantities[alias];
+      if (entry) return entry;
+    }
+  }
+  return undefined;
+}
+
 function explicitItemQuantityOverride(
   measurements: NormalizedScopeMeasurements,
   itemId: string,
   rule: ScopeItemQuantityRule,
   ctx: { templateKey?: string | null | undefined; notes?: string | null }
 ): ResolvedItemQuantity | null {
-  const override = measurements.itemQuantities[itemId];
+  const override = itemQuantityEntryForId(measurements, itemId);
   if (
     override?.quantity == null ||
     override.quantity <= 0 ||
@@ -3632,6 +4129,54 @@ export function hasCompleteUserSelectedPricing(
     Number(labor.quantity || 0) > 0 &&
     Number(allowance.quantity || 0) > 0
   );
+}
+
+/** True when Edit only seeded Suggest values (user has not committed a price). */
+export function hasOnlySuggestedPrefillPricing(
+  itemQuantities: Record<string, ScopeItemQuantityLike>,
+  itemId: string
+): boolean {
+  const keys = [
+    `${itemId}__material`,
+    `${itemId}__labor`,
+    `${itemId}__allowance`,
+    allowanceSplitSubKey(itemId, 'sqft_basis'),
+    roughAllowanceSubKey(itemId),
+  ];
+  let sawPrefill = false;
+  for (const key of keys) {
+    const entry = itemQuantities[key];
+    if (!entry?.quantity || !(Number(entry.quantity) > 0)) continue;
+    if (entry.quantitySource === 'suggested_prefill') {
+      sawPrefill = true;
+      continue;
+    }
+    if (entry.quantitySource === 'user_entered' || entry.quantitySource === 'manual_override') {
+      return false;
+    }
+  }
+  return sawPrefill;
+}
+
+/** Drop Edit-only Suggest seeds so the Apply card returns after Done without edits. */
+export function clearSuggestedPrefillPricing(
+  itemQuantities: Record<string, ScopeItemQuantityValue>,
+  itemId: string
+): Record<string, ScopeItemQuantityValue> {
+  const next = { ...itemQuantities };
+  const keys = [
+    `${itemId}__material`,
+    `${itemId}__labor`,
+    `${itemId}__allowance`,
+    allowanceSplitSubKey(itemId, 'sqft_basis'),
+    roughAllowanceSubKey(itemId),
+  ];
+  for (const key of keys) {
+    if (next[key]?.quantitySource === 'suggested_prefill') {
+      delete next[key];
+    }
+  }
+  return next;
 }
 
 function stripRatePricingSubkeys(
@@ -4657,6 +5202,98 @@ function regionalAdjustedNationalAverage(
   };
 }
 
+/** True when Confirm Scope comparison is pure national (eligible to Apply / Use this pricing). */
+export function isNationalAverageComparisonBlock(
+  block: Pick<SuggestedPricingBlock, 'isComparison' | 'rateSourceLabel' | 'pricingRecordId'> | null | undefined
+): boolean {
+  if (!block?.isComparison) return false;
+  if (/national\s*average\s*comparison/i.test(String(block.rateSourceLabel || ''))) return true;
+  return String(block.pricingRecordId || '').startsWith('bps_national_comparison:');
+}
+
+/**
+ * Confirm Scope comparison card: pure national average on the same qty/unit as the
+ * suggested fill (no local barometer, no living-SF stage lump). Lets contractors
+ * see how the blended suggest compares to national.
+ */
+export function buildPureNationalAverageComparisonBlock(params: {
+  itemId: string;
+  basis: { quantity: number; unit: string } | null | undefined;
+  /** When fill is already within ~2% of pure national, skip a redundant card. */
+  fillTotal?: number | null;
+}): SuggestedPricingBlock | null {
+  const qty = Number(params.basis?.quantity);
+  const unit = String(params.basis?.unit || '').toLowerCase();
+  if (!(qty > 0) || !unit) return null;
+  if (unit === 'allowance' || unit === 'lump_sum' || unit === 'ls' || unit === 'living_sqft') {
+    return null;
+  }
+
+  const average = getNationalAverageBudgetSplit(params.itemId, unit);
+  if (
+    !average ||
+    average.material == null ||
+    average.labor == null ||
+    !(average.material >= 0) ||
+    !(average.labor >= 0) ||
+    average.material + average.labor <= 0
+  ) {
+    return null;
+  }
+
+  const material = round2(qty * average.material);
+  const labor = round2(qty * average.labor);
+  const total = round2(material + labor);
+  if (!(total > 0)) return null;
+
+  const fillTotal = Number(params.fillTotal);
+  if (Number.isFinite(fillTotal) && fillTotal > 0 && Math.abs(total - fillTotal) / fillTotal < 0.02) {
+    return null;
+  }
+
+  const unitLabel = formatUnitLabel(unit);
+  const qtyLabel =
+    Math.abs(qty - Math.round(qty)) < 0.05
+      ? Math.round(qty).toLocaleString()
+      : qty.toLocaleString(undefined, { maximumFractionDigits: 1 });
+
+  return {
+    material,
+    labor,
+    total,
+    materialSource: 'national_average',
+    laborSource: 'national_average',
+    rateSourceLabel: 'National average comparison',
+    helper: `Based on ${qtyLabel} ${unitLabel} · national average (no local barometer)`,
+    mode: 'suggested_price',
+    isComparison: true,
+    basis: { quantity: qty, unit },
+    costBuckets: [
+      {
+        key: 'material',
+        label: 'Material',
+        amount: material,
+        rate: average.material,
+        source: 'national_average',
+      },
+      {
+        key: 'labor',
+        label: 'Labor',
+        amount: labor,
+        rate: average.labor,
+        source: 'national_average',
+      },
+    ],
+    pricingRecordId: `bps_national_comparison:${params.itemId}:${unit}`,
+    productionStatus: average.productionStatus || 'review_required',
+    benchmarkLevel: 'component',
+    benchmarkStageKey: benchmarkStageForScopeKey(params.itemId),
+    benchmarkScopeKey: params.itemId,
+    benchmarkAction: 'comparison_only',
+    storedTotalExact: total,
+  };
+}
+
 function flatAllowanceCopyFor(itemId: string): { fromNotes: string; suggested: string } {
   const copyByItem: Record<string, { fromNotes: string; suggested: string }> = {
     cleanup: {
@@ -4730,6 +5367,7 @@ function resolveSouthernUtahPaintTrimSuggestedFill(params: {
   measurementsInput: ScopeMeasurementsInputExtended;
   paintableOrCount?: number | null;
   unit?: string | null;
+  pricingContext?: ScopePricingContext | null;
 }): SuggestedPricingBlock | null {
   const id = String(params.itemId || '')
     .trim()
@@ -4740,6 +5378,7 @@ function resolveSouthernUtahPaintTrimSuggestedFill(params: {
     (params.unit === 'sqft' && Number(params.paintableOrCount) > 0
       ? Number(params.paintableOrCount)
       : null);
+  const state = params.pricingContext?.state;
 
   if (id === 'interior_paint' || id === 'paint' || id === 'paint_trim') {
     const isGroundUp = String(params.templateKey || '').toLowerCase() === 'ground_up';
@@ -4747,7 +5386,7 @@ function resolveSouthernUtahPaintTrimSuggestedFill(params: {
     // Remodel / non-ground-up: only use local when living SF exactly matches a source project.
     if (!isGroundUp && !hasExactProject) return null;
     // Combined paint_trim legacy line: price interior paint only (trim is separate).
-    const comparable = resolveInteriorPaintComparable({ livingSf, paintableSf });
+    const comparable = resolveInteriorPaintComparable({ livingSf, paintableSf, state });
     const total = round2(comparable.total);
     return {
       material: 0,
@@ -4791,7 +5430,7 @@ function resolveSouthernUtahPaintTrimSuggestedFill(params: {
     const isGroundUp = String(params.templateKey || '').toLowerCase() === 'ground_up';
     const hasExactProject = Boolean(livingSf && matchSouthernUtahProjectByLivingSf(livingSf));
     if (!isGroundUp && !hasExactProject) return null;
-    const comparable = resolveFinishCarpentryComparable({ livingSf });
+    const comparable = resolveFinishCarpentryComparable({ livingSf, state });
     return {
       material: round2(comparable.material),
       labor: round2(comparable.labor),
@@ -4859,6 +5498,119 @@ export function resolveScopeItemSuggestedPricing(
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule) return empty;
+
+  // Ground-up fixture packages — blended barometer + national × state as flat installed
+  // allowance unless the user already entered pricing. Landscaping uses Material/Labor below.
+  if (
+    String(templateKey || '').toLowerCase() === 'ground_up' &&
+    (itemId === 'plumbing_trim' || itemId === 'electrical_trim') &&
+    !hasUserEnteredFlatAllowancePricing(measurementsInput.itemQuantities || {}, itemId)
+  ) {
+    const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+    const lump = resolveGroundUpFinishPackageLump({
+      itemId,
+      livingSf,
+      state: pricingContext?.state,
+    });
+    if (lump) {
+      const allowanceLabel =
+        itemId === 'plumbing_trim'
+          ? 'Installed plumbing fixtures budget'
+          : 'Installed electrical fixtures budget';
+      return {
+        fill: {
+          material: lump.material,
+          labor: lump.labor,
+          total: lump.total,
+          materialSource: 'local_benchmark',
+          laborSource: 'local_benchmark',
+          rateSourceLabel: lump.rateSourceLabel,
+          helper: lump.helper,
+          mode: 'suggested_price',
+          lumpSumOnly: true,
+          installedBudgetBenchmark: true,
+          splitSource: 'none',
+          splitConfidence: 'none',
+          comparisonRange: lump.comparisonRange,
+          basis: null,
+          costBuckets: [
+            {
+              key: 'allowance',
+              label: allowanceLabel,
+              amount: lump.total,
+              rate: null,
+              source: 'local_benchmark',
+            },
+          ],
+          pricingRecordId: `su_${itemId}:${lump.projectId || 'median'}:installed`,
+          productionStatus: 'review_required',
+          benchmarkLevel: 'component',
+          benchmarkScopeKey: itemId,
+          benchmarkAction: 'price_ready',
+          storedTotalExact: lump.total,
+        },
+        comparison: null,
+      };
+    }
+  }
+
+  // Ground-up landscaping — same blended package total, with national Material/Labor share.
+  if (
+    String(templateKey || '').toLowerCase() === 'ground_up' &&
+    itemId === 'landscaping' &&
+    !hasUserEnteredFlatAllowancePricing(measurementsInput.itemQuantities || {}, itemId)
+  ) {
+    const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+    const lump = resolveGroundUpFinishPackageLump({
+      itemId: 'landscaping',
+      livingSf,
+      state: pricingContext?.state,
+    });
+    if (lump && lump.material > 0 && lump.labor > 0) {
+      return {
+        fill: {
+          material: lump.material,
+          labor: lump.labor,
+          total: lump.total,
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: lump.rateSourceLabel,
+          helper: lump.helper,
+          mode: 'suggested_price',
+          lumpSumOnly: false,
+          installedBudgetBenchmark: false,
+          splitSource: 'estimated',
+          splitConfidence: 'medium',
+          comparisonRange: lump.comparisonRange,
+          basis: null,
+          costBuckets: [
+            {
+              key: 'material',
+              label: 'Material',
+              amount: lump.material,
+              rate: null,
+              source: 'national_average',
+            },
+            {
+              key: 'labor',
+              label: 'Labor',
+              amount: lump.labor,
+              rate: null,
+              source: 'national_average',
+            },
+          ],
+          pricingRecordId: `su_landscaping:${lump.projectId || 'median'}:split`,
+          productionStatus: 'review_required',
+          benchmarkLevel: 'component',
+          benchmarkScopeKey: 'landscaping',
+          benchmarkAction: 'price_ready',
+          storedTotalExact: lump.total,
+        },
+        comparison: null,
+      };
+    }
+  }
+
   const measurementMatch = firstMeasurementForRule(rule, measurementsInput);
   const preferredUnit =
     resolved.dualCount?.unit ||
@@ -4935,7 +5687,104 @@ export function resolveScopeItemSuggestedPricing(
     }
   }
 
-  // Garage doors: type-based package (single / double / RV), not flat $/each × count.
+  // Exterior flatwork: blended H17 barometer + NAHB driveway when SF takeoff is missing.
+  if (
+    (!count || count <= 0) &&
+    itemId === 'pour_flatwork' &&
+    String(templateKey || '').toLowerCase() === 'ground_up'
+  ) {
+    const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+    const lump = resolveExteriorFlatworkLumpSuggestedFill({
+      livingSf,
+      state: pricingContext?.state,
+    });
+    return {
+      fill: {
+        material: lump.material,
+        labor: lump.labor,
+        total: lump.total,
+        materialSource: 'local_benchmark',
+        laborSource: 'local_benchmark',
+        rateSourceLabel: lump.rateSourceLabel,
+        helper: lump.helper,
+        mode: 'suggested_price',
+        lumpSumOnly: true,
+        installedBudgetBenchmark: true,
+        splitSource: 'none',
+        splitConfidence: 'none',
+        comparisonRange: lump.comparisonRange,
+        basis: null,
+        costBuckets: [
+          {
+            key: 'allowance',
+            label: 'Installed flatwork budget',
+            amount: lump.total,
+            rate: null,
+            source: 'local_benchmark',
+          },
+        ],
+        pricingRecordId: `su_flatwork:${lump.projectId || 'median'}:installed`,
+        productionStatus: 'review_required',
+        benchmarkLevel: 'component',
+        benchmarkScopeKey: 'pour_flatwork',
+        benchmarkAction: 'price_ready',
+        storedTotalExact: lump.total,
+      },
+      comparison: null,
+    };
+  }
+
+  // Exterior swing / sliding doors: blended H36 / H35 packages when door count is missing.
+  if (
+    (!count || count <= 0) &&
+    (itemId === 'exterior_doors' || itemId === 'sliding_doors') &&
+    String(templateKey || '').toLowerCase() === 'ground_up'
+  ) {
+    const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+    const lump =
+      itemId === 'exterior_doors'
+        ? resolveExteriorDoorsLumpSuggestedFill({ livingSf, state: pricingContext?.state })
+        : resolveSlidingDoorsLumpSuggestedFill({ livingSf, state: pricingContext?.state });
+    return {
+      fill: {
+        material: lump.material,
+        labor: lump.labor,
+        total: lump.total,
+        materialSource: 'local_benchmark',
+        laborSource: 'local_benchmark',
+        rateSourceLabel: lump.rateSourceLabel,
+        helper: lump.helper,
+        mode: 'suggested_price',
+        lumpSumOnly: true,
+        installedBudgetBenchmark: true,
+        splitSource: 'none',
+        splitConfidence: 'none',
+        comparisonRange: lump.comparisonRange,
+        basis: null,
+        costBuckets: [
+          {
+            key: 'allowance',
+            label:
+              itemId === 'exterior_doors'
+                ? 'Installed exterior door budget'
+                : 'Installed sliding door budget',
+            amount: lump.total,
+            rate: null,
+            source: 'local_benchmark',
+          },
+        ],
+        pricingRecordId: `su_${itemId}:${lump.projectId || 'median'}:installed`,
+        productionStatus: 'review_required',
+        benchmarkLevel: 'component',
+        benchmarkScopeKey: itemId,
+        benchmarkAction: 'price_ready',
+        storedTotalExact: lump.total,
+      },
+      comparison: null,
+    };
+  }
+
+  // Garage doors: type-based package (single / double / RV), scaled by state.
   if (itemId === 'garage_doors' && String(templateKey || '').toLowerCase() === 'ground_up') {
     let counts = normalizeGarageDoorCounts(measurementsInput);
     if (totalGarageDoorCount(counts) <= 0) {
@@ -4944,7 +5793,9 @@ export function resolveScopeItemSuggestedPricing(
       );
       if (inferred) counts = inferred;
     }
-    const garagePkg = resolveGarageDoorSuggestedPricing(counts);
+    const garagePkg = resolveGarageDoorSuggestedPricing(counts, {
+      state: pricingContext?.state,
+    });
     if (garagePkg) {
       return {
         fill: {
@@ -5053,9 +5904,12 @@ export function resolveScopeItemSuggestedPricing(
     }
   }
   // Counters: plan ~80 SF kitchen tops when takeoff is missing.
-  // Do not price on whole-home cabinet LF × 25" depth (e.g. 120 LF → 250 SF).
+  // Do not price on whole-home cabinet LF × 25" depth (e.g. 120 LF → 250 SF)
+  // or living SF wrongly seeded onto the package (e.g. 3,098 SF → ~$465k).
   if (itemId === 'countertops' && String(templateKey || '').toLowerCase() === 'ground_up') {
     const cabinetLf = parseScopeMeasurementInput(measurementsInput.cabinetLf);
+    const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+    const countertopTakeoff = parseScopeMeasurementInput(measurementsInput.countertopSqft);
     const COUNTERTOP_DEPTH_FT = 2.083;
     const GROUND_UP_PLANNING_TOPS_SF = 80;
     const lfDepthProxy =
@@ -5065,10 +5919,19 @@ export function resolveScopeItemSuggestedPricing(
       count > 0 &&
       Math.abs(count - cabinetLf * COUNTERTOP_DEPTH_FT) <
         Math.max(2, cabinetLf * COUNTERTOP_DEPTH_FT * 0.03);
+    const looksLikeLivingSf =
+      livingSf != null &&
+      livingSf > 0 &&
+      count != null &&
+      count > 0 &&
+      Math.abs(count - livingSf) < Math.max(1, livingSf * 0.02) &&
+      !(countertopTakeoff != null && countertopTakeoff > 0);
     const source = resolved.quantitySource;
     const trustTakeoff =
-      source === 'user_entered' || source === 'plan_vision' || source === 'notes';
-    const usePlanning = !count || count <= 0 || (lfDepthProxy && !trustTakeoff);
+      !looksLikeLivingSf &&
+      (source === 'user_entered' || source === 'plan_vision' || source === 'notes');
+    const usePlanning =
+      !count || count <= 0 || looksLikeLivingSf || (lfDepthProxy && !trustTakeoff);
     if (usePlanning) {
       const reframed = regionalAdjustedNationalAverage(itemId, 'sqft', pricingContext);
       if (reframed.average?.material != null && reframed.average?.labor != null) {
@@ -5096,7 +5959,7 @@ export function resolveScopeItemSuggestedPricing(
       }
     }
   }
-  // Drywall/hang/finish: when qty is only living SF, expand with drywall 3.5× surface multiplier.
+  // Drywall/hang/finish: expand living SF or thin notes takeoffs (e.g. 4,056) with 3.5× surface.
   if (
     (itemId === 'drywall' || itemId === 'hang' || itemId === 'finish_tape') &&
     String(templateKey || '').toLowerCase() === 'ground_up'
@@ -5104,7 +5967,11 @@ export function resolveScopeItemSuggestedPricing(
     const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
     const SURFACE_MULTIPLIER = 3.5;
     if (livingSf && livingSf > 0) {
-      const floorProxy = !count || count <= 0 || Math.abs(count - livingSf) < 0.51;
+      const floorProxy =
+        !count ||
+        count <= 0 ||
+        Math.abs(count - livingSf) < 0.51 ||
+        isUndercountedDrywallSurface(count, livingSf);
       if (floorProxy) {
         const surfaceSf = Math.round(livingSf * SURFACE_MULTIPLIER);
         const reframed = regionalAdjustedNationalAverage(itemId, 'sqft', pricingContext);
@@ -5152,9 +6019,19 @@ export function resolveScopeItemSuggestedPricing(
       measurementsInput,
       paintableOrCount: null,
       unit: preferredUnit,
+      pricingContext,
     });
     if (paintTrimMissing) {
-      return { fill: paintTrimMissing, comparison: null };
+      const paintItemId =
+        itemId === 'paint_trim' || itemId === 'paint' ? 'interior_paint' : itemId;
+      return {
+        fill: paintTrimMissing,
+        comparison: buildPureNationalAverageComparisonBlock({
+          itemId: paintItemId,
+          basis: paintTrimMissing.basis,
+          fillTotal: paintTrimMissing.total,
+        }),
+      };
     }
     // Ground-up soft costs (plans / permits) even when no qty or stage evidence is cached.
     const softMissing = getBuilderBudgetSoftCostAllowance(itemId, templateKey);
@@ -5201,9 +6078,19 @@ export function resolveScopeItemSuggestedPricing(
       measurementsInput,
       paintableOrCount: count,
       unit,
+      pricingContext,
     });
     if (paintTrimPackage) {
-      return { fill: paintTrimPackage, comparison: null };
+      const paintItemId =
+        itemId === 'paint_trim' || itemId === 'paint' ? 'interior_paint' : itemId;
+      return {
+        fill: paintTrimPackage,
+        comparison: buildPureNationalAverageComparisonBlock({
+          itemId: paintItemId,
+          basis: paintTrimPackage.basis,
+          fillTotal: paintTrimPackage.total,
+        }),
+      };
     }
     // Keep the benchmark/suggested allowance available after the user edits so they
     // can switch back via Apply / Use suggested. Do not treat user-entered amounts
@@ -5484,8 +6371,7 @@ export function resolveScopeItemSuggestedPricing(
     };
   }
 
-  // Southern Utah paint / finish-carpentry packages beat national surface-SF rates
-  // when local installed budgets exist (Plan 41 paint $7,400 — not ~$10,300 national).
+  // Blended barometer paint / finish-carpentry packages beat bare national $/SF rates.
   const localPaintTrim =
     !template &&
     resolveSouthernUtahPaintTrimSuggestedFill({
@@ -5494,9 +6380,19 @@ export function resolveScopeItemSuggestedPricing(
       measurementsInput,
       paintableOrCount: count,
       unit,
+      pricingContext,
     });
   if (localPaintTrim) {
-    return { fill: localPaintTrim, comparison: null };
+    const paintItemId =
+      itemId === 'paint_trim' || itemId === 'paint' ? 'interior_paint' : itemId;
+    return {
+      fill: localPaintTrim,
+      comparison: buildPureNationalAverageComparisonBlock({
+        itemId: paintItemId,
+        basis: localPaintTrim.basis,
+        fillTotal: localPaintTrim.total,
+      }),
+    };
   }
 
   // Case D: quantity only, no notes pricing -> full suggested price.
@@ -5572,27 +6468,19 @@ export function resolveScopeItemSuggestedPricing(
     benchmarkScopeKey: itemId,
     benchmarkAction: 'price_ready',
   };
-  // Keep stage lump as comparison when takeoff rates win on a stage host (not
-  // separate child trades — e.g. exterior_paint must not show Exterior Envelope ~$50k).
-  const stageIdForItem = benchmarkStageForScopeKey(itemId);
-  const isSeparateTradeChild = Boolean(
-    stageIdForItem && (STAGE_SEPARATE_TRADE_SCOPE_KEYS[stageIdForItem] || []).includes(itemId)
-  );
-  const stageComparison =
-    hasPhysicalTakeoffRates && !template && !isSeparateTradeChild
-      ? benchmarkSuggestedPricingBlock(
+  // Comparison = pure national on the same qty/unit as fill (not living-SF stage lump).
+  // Stage living-SF packages stay on hosts without unit-rate fills (sitework / exterior / MEP).
+  const nationalComparison =
+    hasPhysicalTakeoffRates && !template
+      ? buildPureNationalAverageComparisonBlock({
           itemId,
-          true,
-          measurementsInput.pricingAcceptance,
-          templateKey
-        )
+          basis: takeoffFill.basis,
+          fillTotal: takeoffFill.total,
+        })
       : null;
   return {
     fill: takeoffFill,
-    comparison:
-      stageComparison?.isComparison && stageComparison.benchmarkAction !== 'included_in_stage'
-        ? stageComparison
-        : null,
+    comparison: nationalComparison,
   };
 }
 
@@ -5894,8 +6782,8 @@ function applyAutoFlatworkSqftPricingQuantity(
   if (!AUTO_FLATWORK_SQFT_PRICING_SCOPE_KEYS.has(itemId)) return resolved;
   if (!getNationalAverageBudgetSplit(itemId, 'sqft')) return resolved;
 
-  const sqft = measurements.concreteSqft;
-  if (!sqft || sqft <= 0) return resolved;
+  const sqft = Number(measurements.concreteSqft);
+  if (!Number.isFinite(sqft) || sqft <= 0) return resolved;
 
   const stored = measurements.itemQuantities[itemId];
   if (stored?.quantitySource === 'user_entered' || stored?.quantitySource === 'manual_override') {
@@ -5912,9 +6800,16 @@ function applyAutoFlatworkSqftPricingQuantity(
   if (
     resolved.unit === 'sqft' &&
     resolved.quantity != null &&
-    Math.abs(resolved.quantity - sqft) < 0.01
+    Math.abs(Number(resolved.quantity) - sqft) < 0.01
   ) {
-    return resolved;
+    // Normalize string QM values (e.g. concreteSqft: '800') to numeric quantity.
+    return {
+      ...resolved,
+      quantity: sqft,
+      dualCount: resolved.dualCount
+        ? { ...resolved.dualCount, quantity: sqft, unit: 'sqft' }
+        : resolved.dualCount,
+    };
   }
 
   return {
@@ -5929,6 +6824,54 @@ function applyAutoFlatworkSqftPricingQuantity(
         : sourceLabel('inferred'),
     dualCount: resolved.dualCount
       ? { ...resolved.dualCount, quantity: sqft, unit: 'sqft' }
+      : resolved.dualCount,
+  };
+}
+
+const AUTO_DRYWALL_SURFACE_ITEM_IDS = new Set(['drywall', 'hang', 'finish_tape']);
+
+/**
+ * Ground-up: drop thin notes drywall SF (Plan 39 4,056 → $8.8k) and use the approved
+ * living×3.5 surface qty so Confirm Scope defaults to ~$23k, not the wrong notes total.
+ */
+function applyAutoDrywallSurfaceQuantity(
+  itemId: string,
+  measurements: NormalizedScopeMeasurements,
+  resolved: ResolvedItemQuantity,
+  ctx: { templateKey?: string | null } = {}
+): ResolvedItemQuantity {
+  if (!AUTO_DRYWALL_SURFACE_ITEM_IDS.has(itemId)) return resolved;
+  if (String(ctx.templateKey || '').toLowerCase() !== 'ground_up') return resolved;
+
+  const stored = measurements.itemQuantities[itemId];
+  if (stored?.quantitySource === 'user_entered' || stored?.quantitySource === 'manual_override') {
+    return resolved;
+  }
+
+  const living = Number(measurements.floorAreaSqft);
+  if (!Number.isFinite(living) || living <= 0) return resolved;
+
+  const current = Number(resolved.quantity);
+  const needsSurface =
+    !Number.isFinite(current) ||
+    current <= 0 ||
+    resolved.unit !== 'sqft' ||
+    isUndercountedDrywallSurface(current, living);
+  if (!needsSurface) return resolved;
+
+  // Same 3.5× as surface_area_from_floor_area_benchmark (avoid importing formula registry here).
+  const surfaceSf = Math.round(living * 3.5);
+  if (!(surfaceSf > 0)) return resolved;
+
+  return {
+    ...resolved,
+    quantity: surfaceSf,
+    unit: 'sqft',
+    quantitySource:
+      stored?.quantitySource === 'calculated_confirmed' ? 'calculated_confirmed' : 'inferred',
+    sourceLabel: 'Calculated',
+    dualCount: resolved.dualCount
+      ? { ...resolved.dualCount, quantity: surfaceSf, unit: 'sqft' }
       : resolved.dualCount,
   };
 }
@@ -6228,10 +7171,15 @@ export function resolveChecklistItemQuantity(
   measurements: NormalizedScopeMeasurements,
   ctx: { choiceId?: string | null; templateKey?: string | null; notes?: string | null } = {}
 ): ResolvedItemQuantity {
-  return applyAutoFlatworkSqftPricingQuantity(
+  return applyAutoDrywallSurfaceQuantity(
     itemId,
     measurements,
-    resolveChecklistItemQuantityCore(itemId, measurements, ctx)
+    applyAutoFlatworkSqftPricingQuantity(
+      itemId,
+      measurements,
+      resolveChecklistItemQuantityCore(itemId, measurements, ctx)
+    ),
+    ctx
   );
 }
 
@@ -6307,7 +7255,9 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
     test: /\bcountertops?\b[^.]{0,40}\b(demo|demolition|removal|remove|tear[\s-]?out)\b|\b(demo|demolition|removal|remove|tear[\s-]?out)\b[^.]{0,40}\bcountertops?\b/i,
     key: 'demo',
   },
-  { test: /\bcountertop/i, key: 'countertops' },
+  // "Counters" (ground-up package label) must map here — `\bcountertop` alone misses it,
+  // so Step 3 fell through to kitchen $/living-SF rates (~$55+$95 × living SF).
+  { test: /\bcounters?\b|\bcounter\s*tops?\b|\bcountertop/i, key: 'countertops' },
   // Sink/faucet before cleanup (bare "disposal" used to → cleanup $).
   {
     test: /\bsink\b|\bfaucet\b|\bgarbage\s+disposal\b|\bdisposals?\b.*\b(sink|faucet|garbage)\b|\bsink[,\s]+faucet/i,
@@ -6325,8 +7275,13 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   { test: /\brock|\bmulch|\bgravel/i, key: 'rock_mulch' },
   { test: /\bsod|\bturf/i, key: 'sod_turf' },
   { test: /\bpaver/i, key: 'pavers' },
+  // Before flatwork: landscaping helpers say "Not driveway flatwork" and used to steal $8.5k.
   {
-    test: /\b(flatwork|slab\s+pour|concrete\s+patio|patio\s+concrete|driveway|sidewalk)\b/i,
+    test: /\blandscap|\bsite\s+walls?\b|\bfences?\s*(?:&|and|\/)\s*gates?\b/i,
+    key: 'landscaping',
+  },
+  {
+    test: /\bexterior\s+concrete\s+flatwork\b|\b(flatwork|slab\s+pour|concrete\s+patio|patio\s+concrete|driveway|sidewalk)\b/i,
     key: 'pour_flatwork',
   },
   { test: /\bfootings?\b|\bpiers?\b|\bfoundation\s+pour\b/i, key: 'pour_foundation' },
@@ -6343,7 +7298,15 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   { test: /\brail(?:ing)?\b|\bguardrail\b/i, key: 'railing' },
   { test: /\bshower\s+wall\s+tile\b|\bshower\b[^.]{0,30}\bwall\b[^.]{0,20}\btile\b|\btile\b[^.]{0,30}\bshower\s+wall\b/i, key: 'shower_tile' },
   { test: /\bwaterproof|\bbacker\s+board/i, key: 'waterproofing' },
-  { test: /\bfloor\s+tile\b|\btile\s+floor\b|\bfloor\b[^.]{0,20}\btile\b|\btile\b[^.]{0,20}\bfloor\b/i, key: 'floor_tile' },
+  // Ground-up "Tile & flooring" must not fall through unmapped (or map to bath floor_tile).
+  {
+    test: /\btile\s*(?:&|and|\/)\s*flooring\b|\btile\s+flooring\b|\bflooring\s+tile\b/i,
+    key: 'tile_flooring',
+  },
+  {
+    test: /\bbath(?:room)?\s+floor\s+tile\b|\bfloor\s+tile\b|\btile\s+floor\b/i,
+    key: 'floor_tile',
+  },
   { test: /\bvanity\b/i, key: 'vanity' },
   { test: /\btoilet\b/i, key: 'toilet' },
   // Framing hardware before framing $/sqft.
@@ -6391,8 +7354,12 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   { test: /\b(?:interior|french)\s+doors?\b|\bdoor\b/i, key: 'windows_doors' },
   { test: /\bplant|\btree\b|\bshrub/i, key: 'plants_trees' },
   { test: /\bfoundation\b/i, key: 'pour_foundation' },
-  { test: /\btile\s+flooring\b|\bflooring\s+tile\b/i, key: 'floor_tile' },
   { test: /\bplumb.*\brough|\brough[\s-]?in\b.*\bplumb/i, key: 'plumbing_rough' },
+  // Before electrical_rough — "Electrical fixtures" is electrical_trim ($4k), not rough-in.
+  {
+    test: /\belectrical\s+fixtures?\b|\belectrical\s+trim\b|\bdevices?.*\bplates?\b/i,
+    key: 'electrical_trim',
+  },
   { test: /\belectrical\b(?!.*trim)|\bnew\s+circuits\b/i, key: 'electrical_rough' },
   { test: /\blight(?:ing)?\s+fix|\bfixture.*\blight/i, key: 'lighting' },
   // Drywall hang/finish/patch before bare drywall/patch.
@@ -6402,31 +7369,43 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   { test: /\bdrywall\b/i, key: 'drywall' },
   // Exterior/interior must win over the generic paint key so Confirm Scope rates
   // for interior paint are not copied onto an "add exterior painting" package.
+  // Stucco+paint must win before bare stucco install.
   { test: /\bexterior[\s-]*(?:paint|painting)\b|\b(?:paint|painting)[\s-]*exterior\b|\b(siding|stucco|soffit|fascia)\b[^.]{0,30}\b(?:paint|painting)\b/i, key: 'exterior_paint' },
+  // "Stucco / exterior wall finish" — without this, Step 3 used exterior trade $7+$9 × living SF.
+  { test: /\bstucco\b/i, key: 'stucco' },
   { test: /\binterior[\s-]*(?:paint|painting)\b|\b(?:paint|painting)[\s-]*interior\b|\bceiling\b[^.]{0,20}\b(?:paint|painting)\b/i, key: 'interior_paint' },
   {
     test: /\btrim\b[^.]{0,30}\b(?:paint|painting)\b|\b(?:paint|painting)\b[^.]{0,30}\btrim\b|\bdoors?\b[^.]{0,20}\b(?:paint|painting)\b/i,
     key: 'trim_paint',
   },
   { test: /\bpaint|\bpainting/i, key: 'paint' },
-  { test: /\bbaseboard|\btrim\s+install|\btrim\s+&\s+baseboard|\binterior\s+trim\b/i, key: 'trim' },
+  // Finish carpentry package stores acceptance under interior_trim — not generic trim.
+  { test: /\bfinish\s+carpentry\b|\binterior\s+trim\b/i, key: 'interior_trim' },
+  { test: /\bbaseboard|\btrim\s+install|\btrim\s+&\s+baseboard/i, key: 'trim' },
   { test: /\bplumb.*\btrim|\bplumbing\s+trim|\bfinal\s+plumb|\bfixture\s+hookup\b/i, key: 'plumbing_trim' },
   { test: /\bplumbing\s+connections?\b/i, key: 'plumbing' },
-  { test: /\belectrical\s+trim|\bdevices.*\bplates/i, key: 'electrical_trim' },
   { test: /\bpermit|\binspection/i, key: 'permits' },
-  // Cleanup: drop bare "disposal" (conflicts with garbage disposal).
-  { test: /\bcleanup\b|\bhaul[\s-]?off\b|\bdumpster\b|\bfinal\s+clean\b|\bjob\s+cleanup\b/i, key: 'cleanup' },
+  // Cleanup first when the name is cleanup-led (e.g. "Job cleanup / haul-off").
+  { test: /\bcleanup\b|\bfinal\s+clean\b|\bjob\s+cleanup\b/i, key: 'cleanup' },
+  // Trash / haul-off / dumpster is its own soft-cost — must not share cleanup's $1k allowance.
+  { test: /\btrash\s+haul|\bhaul[\s-]?off\b|\bdumpster\b/i, key: 'haul_off' },
   { test: /\bplumb(?!.*trim)/i, key: 'plumbing_rough' },
 ];
 
 export function lookupRuleKeyForPackage(name: string, scope = ''): string | null {
   const nameStr = String(name || '');
-  const fullBlob = `${nameStr} ${scope || ''}`;
+  // Strip exclusionary helper phrases so "Not driveway flatwork" cannot steal landscaping.
+  const scopeStr = String(scope || '')
+    .replace(/\bnot\b[^.!?]{0,80}\b(driveway|flatwork|iron\s+entry|house\/garage|stucco\s+install)\b[^.!?]*/gi, ' ')
+    .trim();
+  const fullBlob = `${nameStr} ${scopeStr}`.trim();
   for (const row of PACKAGE_NAME_TO_RULE_KEY) {
     if (row.test.test(nameStr)) return row.key;
   }
-  for (const row of PACKAGE_NAME_TO_RULE_KEY) {
-    if (row.test.test(fullBlob)) return row.key;
+  if (scopeStr) {
+    for (const row of PACKAGE_NAME_TO_RULE_KEY) {
+      if (row.test.test(fullBlob)) return row.key;
+    }
   }
   return null;
 }
@@ -6436,14 +7415,21 @@ export function ruleKeysToTryForPackage(name: string, scope = ''): string[] {
   const primary = lookupRuleKeyForPackage(name, scope);
   const keys: string[] = primary ? [primary] : [];
   const blob = `${name || ''} ${scope || ''}`.toLowerCase();
+  // Landscaping must never inherit concrete/flatwork Confirm Scope totals.
   const concreteFamily =
-    /\bconcrete\b/.test(blob) ||
-    primary === 'concrete' ||
-    primary === 'pour_flatwork' ||
-    primary === 'pour_foundation' ||
-    primary === 'foundation';
+    primary !== 'landscaping' &&
+    (/\bconcrete\b/.test(blob) ||
+      primary === 'concrete' ||
+      primary === 'pour_flatwork' ||
+      primary === 'pour_foundation' ||
+      primary === 'foundation');
   if (concreteFamily) {
     for (const alias of ['foundation', 'concrete', 'pour_flatwork', 'pour_foundation'] as const) {
+      if (!keys.includes(alias)) keys.push(alias);
+    }
+  }
+  if (primary === 'tile_flooring' || primary === 'flooring') {
+    for (const alias of ['tile_flooring', 'flooring'] as const) {
       if (!keys.includes(alias)) keys.push(alias);
     }
   }
@@ -6554,10 +7540,17 @@ export function countScopePricingReadiness(
     const mat = Number(resolved.dualMaterial?.quantity || 0);
     const lab = Number(resolved.dualLabor?.quantity || 0);
     const allowance = Number(resolved.dualAllowance?.quantity || 0);
+    const acceptanceTotal = Number(
+      (measurements as { pricingAcceptance?: Record<string, { totalAmount?: number }> })
+        ?.pricingAcceptance?.[item.id]?.totalAmount || 0
+    );
     const alreadyPriced =
-      (mat > 0 && lab > 0) ||
+      mat > 0 ||
+      lab > 0 ||
       allowance > 0 ||
-      (resolved.unit === 'allowance' && Number(resolved.quantity || 0) > 0);
+      acceptanceTotal > 0 ||
+      (['allowance', 'lump_sum'].includes(String(resolved.unit || '').toLowerCase()) &&
+        Number(resolved.quantity || 0) > 0);
     if (alreadyPriced) continue;
     if (resolved.pricingReady) ready += 1;
     else needsMeasurement += 1;
@@ -6576,19 +7569,23 @@ function countPackageScopeReadiness(draft: EstimateAiDraft): { ready: number; ne
         scopeQuantities: room.scopeQuantities,
         price: room.price,
         knownSubtotal: room.knownSubtotal,
+        calculatedSubtotal: room.calculatedSubtotal,
         materialPrice: room.materialPrice,
         laborPrice: room.laborPrice,
         priceSource: room.priceProvidedByUser ? 'user_provided' : undefined,
         splitIsSuggested: room.splitIsSuggested,
         budgetSplitBasis: undefined,
+        status: room.price != null && room.price > 0 ? 'user_provided' : 'missing_price',
       }));
   for (const pkg of packages) {
     const q = pkg.scopeQuantities?.[0];
     // Skip packages that already have a price or Confirm Scope budget split.
-    const packageAmount = Number(pkg.price ?? pkg.knownSubtotal ?? 0);
+    const packageAmount = Number(
+      pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0
+    );
     const mat = Number(pkg.materialPrice ?? 0);
     const lab = Number(pkg.laborPrice ?? 0);
-    const alreadyPriced = packageAmount > 0 || (mat > 0 && lab > 0 && mat + lab > 0);
+    const alreadyPriced = packageAmount > 0 || mat > 0 || lab > 0;
     if (alreadyPriced) continue;
     if (q && q.quantity > 0) ready += 1;
     else needsMeasurement += 1;
@@ -6601,22 +7598,23 @@ export function countDraftPricingReadiness(draft: EstimateAiDraft | null | undef
   needsMeasurement: number;
 } {
   if (!draft) return { ready: 0, needsMeasurement: 0 };
+  const hasScopePackages = Boolean(
+    (draft.scopePackages && draft.scopePackages.length > 0) || (draft.rooms && draft.rooms.length > 0)
+  );
+  // Step 3 review always has scope packages. Prefer that count — checklist
+  // "ready" counts measured items even when Confirm Scope already priced them,
+  // which produced "Suggest pricing for 24 measured items" on a nearly-priced bid.
+  if (hasScopePackages) {
+    return countPackageScopeReadiness(draft);
+  }
   const items = draft.confirmedAssumptions || draft.scopeChecklist?.items || [];
   const norm = normalizeScopeMeasurements(draft.scopeMeasurements);
-  const fromChecklist = countScopePricingReadiness(
+  return countScopePricingReadiness(
     items,
     norm,
     draft.scopeChecklist?.templateKey,
     draft.originalNotes
   );
-  const fromPackages = countPackageScopeReadiness(draft);
-  return {
-    ready: Math.max(fromChecklist.ready, fromPackages.ready),
-    needsMeasurement:
-      fromPackages.ready > fromChecklist.ready
-        ? fromPackages.needsMeasurement
-        : fromChecklist.needsMeasurement,
-  };
 }
 
 export function buildNormalizedScopeMeasurementsFromInput(
@@ -6899,7 +7897,9 @@ export function prepareScopeMeasurementsInputForUi(
     options?.templateKey
   );
 
-  return reparsed;
+  return syncMeasurementsWithSouthernUtahPlanFacts(reparsed, {
+    templateKey: options?.templateKey,
+  });
 }
 
 export type ScopeMeasurementsInputExtended = ReturnType<typeof emptyQuickMeasurementInput> & {
@@ -7178,6 +8178,9 @@ export function initialScopeMeasurementInputExtended(
     scopeNotes,
     draft?.scopeChecklist?.templateKey
   );
+  result = syncMeasurementsWithSouthernUtahPlanFacts(result, {
+    templateKey: draft?.scopeChecklist?.templateKey,
+  });
 
   if (result.itemQuantities.cabinets) {
     const combinedFlag =

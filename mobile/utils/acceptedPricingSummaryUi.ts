@@ -215,18 +215,91 @@ export function buildAcceptanceFromSuggestedBlock(block: SuggestedPricingBlock):
   };
 }
 
+/**
+ * Clear an applied Suggest / national / Edit price so the original Apply card returns.
+ * Keeps physical takeoff counts (CY, SF, each) on the item id when present.
+ */
+export function clearAcceptedScopeItemPricing(params: {
+  itemId: string;
+  itemQuantities: Record<string, ScopeItemQuantityValue>;
+  pricingAcceptance?: Record<string, ScopePricingAcceptanceMetadata>;
+}): {
+  itemQuantities: Record<string, ScopeItemQuantityValue>;
+  pricingAcceptance: Record<string, ScopePricingAcceptanceMetadata>;
+} {
+  const itemId = params.itemId;
+  const itemQuantities = { ...params.itemQuantities };
+  const pricingAcceptance = { ...(params.pricingAcceptance || {}) };
+  delete pricingAcceptance[itemId];
+  for (const key of [
+    `${itemId}__material`,
+    `${itemId}__labor`,
+    allowanceSplitSubKey(itemId, 'allowance'),
+    allowanceSplitSubKey(itemId, 'sqft_basis'),
+    roughAllowanceSubKey(itemId),
+  ]) {
+    delete itemQuantities[key];
+  }
+  const direct = itemQuantities[itemId];
+  const unit = String(direct?.unit || '').toLowerCase();
+  if (direct && (unit === 'allowance' || unit === 'lump_sum')) {
+    delete itemQuantities[itemId];
+  }
+  return { itemQuantities, pricingAcceptance };
+}
+
+/** Live dollars from quantity fields only — ignores sticky pricingAcceptance. */
+export function liveScopeMoneyFromQuantities(
+  itemId: string,
+  itemQuantities: Record<string, ScopeItemQuantityValue | { quantity: string; unit: string; quantitySource?: string }>
+): number | null {
+  const parseQty = (entry?: { quantity?: string | number | null }) => {
+    const n = Number(String(entry?.quantity ?? '').replace(/,/g, ''));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  const materialEntry = itemQuantities[allowanceSplitSubKey(itemId, 'material')];
+  const laborEntry = itemQuantities[allowanceSplitSubKey(itemId, 'labor')];
+  const material = parseQty(materialEntry) || 0;
+  const labor = parseQty(laborEntry) || 0;
+  if (material + labor > 0) return material + labor;
+
+  // Split editor wiped Material + Labor but left __allowance at the last typed
+  // digit (e.g. $2). Do not treat that orphan total as live pricing.
+  const splitLegsPresent = Boolean(materialEntry || laborEntry);
+  const splitLegsEmpty = !(material > 0) && !(labor > 0);
+  if (splitLegsPresent && splitLegsEmpty) {
+    return null;
+  }
+
+  const allowance = parseQty(itemQuantities[allowanceSplitSubKey(itemId, 'allowance')]);
+  if (allowance != null) return allowance;
+  const rough = parseQty(itemQuantities[roughAllowanceSubKey(itemId)]);
+  if (rough != null) return rough;
+  const direct = itemQuantities[itemId];
+  const unit = String(direct?.unit || '').toLowerCase();
+  if (['allowance', 'lump_sum'].includes(unit)) return parseQty(direct);
+  return null;
+}
+
 export function hasAcceptedScopePricing(
   itemId: string,
   itemQuantities: Record<string, ScopeItemQuantityValue | { quantity: string; unit: string; quantitySource?: string }>,
   pricingAcceptance?: Record<string, ScopePricingAcceptanceMetadata>
 ): boolean {
-  if (pricingAcceptance?.[itemId]) return true;
   if (hasCompleteUserSelectedPricing(itemQuantities as Record<string, ScopeItemQuantityValue>, itemId)) return true;
-  const allowanceKey = allowanceSplitSubKey(itemId, 'allowance');
-  const roughKey = roughAllowanceSubKey(itemId);
-  const allowanceCandidates = [itemQuantities[allowanceKey], itemQuantities[roughKey]];
+
+  // Single source of truth: orphan __allowance after wiped Material/Labor does not count.
+  const live = liveScopeMoneyFromQuantities(itemId, itemQuantities);
+  if (!(live != null && live > 0)) return false;
+
+  const moneyEntries = [
+    itemQuantities[allowanceSplitSubKey(itemId, 'material')],
+    itemQuantities[allowanceSplitSubKey(itemId, 'labor')],
+    itemQuantities[allowanceSplitSubKey(itemId, 'allowance')],
+    itemQuantities[roughAllowanceSubKey(itemId)],
+  ];
   if (
-    allowanceCandidates.some(
+    moneyEntries.some(
       (entry) =>
         entry?.quantitySource === 'user_entered' &&
         Number(String(entry.quantity ?? '').replace(/,/g, '')) > 0
@@ -237,11 +310,16 @@ export function hasAcceptedScopePricing(
 
   const direct = itemQuantities[itemId];
   const directUnit = String(direct?.unit || '').toLowerCase();
-  return Boolean(
+  if (
     direct?.quantitySource === 'user_entered' &&
-      ['allowance', 'lump_sum'].includes(directUnit) &&
-      Number(String(direct.quantity ?? '').replace(/,/g, '')) > 0
-  );
+    ['allowance', 'lump_sum'].includes(directUnit) &&
+    Number(String(direct.quantity ?? '').replace(/,/g, '')) > 0
+  ) {
+    return true;
+  }
+
+  // Applied suggestion: live dollars present and acceptance recorded.
+  return Boolean(pricingAcceptance?.[itemId]);
 }
 
 /** Dollar total for display/acceptance — never treat physical takeoff (sqft/lf/…) as money. */
@@ -249,39 +327,29 @@ export function resolveAcceptedMoneyTotal(params: {
   resolved: ResolvedItemQuantity;
   acceptance?: ScopePricingAcceptanceMetadata | null;
 }): number {
-  const material =
-    Number(params.acceptance?.materialAmount ?? params.resolved.dualMaterial?.quantity ?? 0) || 0;
-  const labor = Number(params.acceptance?.laborAmount ?? params.resolved.dualLabor?.quantity ?? 0) || 0;
-  const splitTotal = material + labor > 0 ? material + labor : null;
-  const accepted = Number(params.acceptance?.totalAmount);
-  const unit = String(params.resolved.unit || '').toLowerCase();
-  const physicalQty = Number(params.resolved.quantity ?? 0);
-
-  // Prefer an explicit acceptance total, but recover when Edit seeded living/floor SF
-  // into totalAmount while material + labor still hold the real dollars.
-  if (Number.isFinite(accepted) && accepted > 0) {
-    const looksLikePhysicalQtyAsMoney =
-      splitTotal != null &&
-      material > 0 &&
-      labor > 0 &&
-      !['allowance', 'lump_sum'].includes(unit) &&
-      Number.isFinite(physicalQty) &&
-      physicalQty > 0 &&
-      Math.abs(accepted - physicalQty) < 0.01 &&
-      Math.abs(accepted - splitTotal) >= 0.01;
-    if (looksLikePhysicalQtyAsMoney) return splitTotal!;
-    return accepted;
-  }
-
-  if (splitTotal != null) return splitTotal;
+  // Live editor quantities win over stale acceptance (e.g. deleted 2000→2 left in totalAmount
+  // while Labor still holds 2000, or fields wiped empty while acceptance still says $2).
+  const liveMaterial = Number(params.resolved.dualMaterial?.quantity ?? 0) || 0;
+  const liveLabor = Number(params.resolved.dualLabor?.quantity ?? 0) || 0;
+  const liveSplit = liveMaterial + liveLabor > 0 ? liveMaterial + liveLabor : null;
+  if (liveSplit != null) return liveSplit;
 
   const dualAllowance = Number(params.resolved.dualAllowance?.quantity);
   if (Number.isFinite(dualAllowance) && dualAllowance > 0) return dualAllowance;
 
+  const unit = String(params.resolved.unit || '').toLowerCase();
   if ((unit === 'allowance' || unit === 'lump_sum') && params.resolved.quantity != null) {
     const qty = Number(params.resolved.quantity);
     if (Number.isFinite(qty) && qty > 0) return qty;
   }
+
+  const acceptedMaterial = Number(params.acceptance?.materialAmount ?? 0) || 0;
+  const acceptedLabor = Number(params.acceptance?.laborAmount ?? 0) || 0;
+  if (acceptedMaterial + acceptedLabor > 0) return acceptedMaterial + acceptedLabor;
+
+  const accepted = Number(params.acceptance?.totalAmount);
+  if (Number.isFinite(accepted) && accepted > 0) return accepted;
+
   return 0;
 }
 
@@ -321,6 +389,13 @@ export function moneyTotalAfterQuantityEdit(
   ) {
     return parsePricingAmount(editedQuantity);
   }
+
+  // Editing Material/Labor to empty must not resurrect a stale __allowance total
+  // (classic path: delete $2000 → $2 left in __allowance while Labor is blank).
+  if (editedItemId === materialKey || editedItemId === laborKey) {
+    return null;
+  }
+
   return read(allowanceKey) ?? read(roughKey);
 }
 
@@ -1046,28 +1121,10 @@ export function currentScopePricingTotal(
   itemQuantities: Record<string, ScopeItemQuantityValue | { quantity: string; unit: string; quantitySource?: string }>,
   pricingAcceptance?: Record<string, ScopePricingAcceptanceMetadata>
 ): number | null {
-  const parseQty = (entry?: { quantity?: string | number | null }) => {
-    const n = Number(String(entry?.quantity ?? '').replace(/,/g, ''));
-    return Number.isFinite(n) && n > 0 ? n : null;
-  };
-
-  // Prefer material + labor over acceptance/allowance so a corrupted acceptance
-  // total (e.g. living SF written as dollars) cannot win over the real split.
-  const material = parseQty(itemQuantities[allowanceSplitSubKey(itemId, 'material')]) || 0;
-  const labor = parseQty(itemQuantities[allowanceSplitSubKey(itemId, 'labor')]) || 0;
-  if (material + labor > 0) return material + labor;
-
-  const allowance = parseQty(itemQuantities[allowanceSplitSubKey(itemId, 'allowance')]);
-  if (allowance != null) return allowance;
-  const rough = parseQty(itemQuantities[roughAllowanceSubKey(itemId)]);
-  if (rough != null) return rough;
-
-  const accepted = Number(pricingAcceptance?.[itemId]?.totalAmount);
-  if (Number.isFinite(accepted) && accepted > 0) return accepted;
-
-  const direct = itemQuantities[itemId];
-  const unit = String(direct?.unit || '').toLowerCase();
-  if (['allowance', 'lump_sum'].includes(unit)) return parseQty(direct);
+  const live = liveScopeMoneyFromQuantities(itemId, itemQuantities);
+  if (live != null && live > 0) return live;
+  // Do not fall back to sticky acceptance when quantity fields were cleared.
+  void pricingAcceptance;
   return null;
 }
 
@@ -1100,8 +1157,22 @@ export function markManualPricingAdjustment(
   acceptance: ScopePricingAcceptanceMetadata | undefined,
   itemId: string,
   pricingAcceptance: Record<string, ScopePricingAcceptanceMetadata> | undefined,
-  nextAmount?: number
+  /**
+   * New money total after the edit.
+   * - `number > 0`: update acceptance total
+   * - `null` / `0`: user cleared dollars — drop acceptance (do not keep stale $2, etc.)
+   * - `undefined`: leave totalAmount unchanged (metadata-only adjustment)
+   */
+  nextAmount?: number | null
 ): Record<string, ScopePricingAcceptanceMetadata> | undefined {
+  // Cleared allowance/split fields must not leave a sticky accepted total on Step 2.
+  if (nextAmount === null || nextAmount === 0) {
+    if (!pricingAcceptance?.[itemId] && !acceptance) return pricingAcceptance;
+    const next = { ...(pricingAcceptance || {}) };
+    delete next[itemId];
+    return next;
+  }
+
   const current = acceptance || pricingAcceptance?.[itemId];
   if (!current) return pricingAcceptance;
   if (nextAmount != null && Math.abs(nextAmount - current.totalAmount) < 0.01) {

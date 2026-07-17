@@ -4,7 +4,20 @@
  * Garage doors are priced by type (single / double / RV), not a flat each:
  * - Double ~$2,400 matches Silver Leaf + national mid steel insulated
  * - Double + RV ~$10,700 matches SHV Lots 41/49
+ *
+ * Exterior swing / sliding: count × national each when known; when count is
+ * missing on ground-up, use SHV H36 / H35 installed packages (or planning
+ * count of 2 × national each outside a matched project).
  */
+
+import {
+  resolveBlendedLump,
+  scaleSplitLumpForState,
+} from '@/utils/builderBudgetLumpBlend';
+import {
+  matchSouthernUtahProjectByLivingSf,
+  type SouthernUtahProjectId,
+} from '@/utils/southernUtahPaintTrimComparables';
 
 export type GarageDoorType = 'single' | 'double' | 'rv';
 
@@ -31,14 +44,14 @@ export const EXTERIOR_OPENING_NATIONAL_RATES = {
   },
   exterior_doors: {
     unit: 'each' as const,
-    material: 1100,
-    labor: 700,
+    material: 1400,
+    labor: 900,
     sourceLabel: 'Suggested budget split · National Average · exterior swing door (mid-market)',
   },
   sliding_doors: {
     unit: 'each' as const,
-    material: 1900,
-    labor: 900,
+    material: 1700,
+    labor: 800,
     sourceLabel: 'Suggested budget split · National Average · sliding patio door (mid-market)',
   },
 } as const;
@@ -95,7 +108,10 @@ export function totalGarageDoorCount(counts: GarageDoorCounts): number {
   return counts.single + counts.double + counts.rv;
 }
 
-export function resolveGarageDoorSuggestedPricing(counts: GarageDoorCounts): {
+export function resolveGarageDoorSuggestedPricing(
+  counts: GarageDoorCounts,
+  location?: { state?: string | null } | null
+): {
   material: number;
   labor: number;
   total: number;
@@ -131,19 +147,21 @@ export function resolveGarageDoorSuggestedPricing(counts: GarageDoorCounts): {
     });
   });
 
+  const scaled = scaleSplitLumpForState(material, labor, location);
   const parts = breakdown.map(
     (b) => `${b.count}× ${GARAGE_DOOR_TYPE_RATES[b.type].label.replace(/ garage door$/i, '')} @ $${b.unitTotal.toLocaleString()}`
   );
+  const stateSuffix =
+    scaled.stateCode && scaled.multiplier !== 1 ? ` · ${scaled.stateCode}` : '';
 
   return {
-    material,
-    labor,
-    total: material + labor,
+    material: scaled.material,
+    labor: scaled.labor,
+    total: scaled.total,
     quantity,
     unit: 'each',
     breakdown,
-    sourceLabel:
-      'Suggested budget split · National Average + local garage schedule (Silver Leaf double / SHV RV)',
+    sourceLabel: `Suggested budget split · National Average + local garage schedule${stateSuffix}`,
     helper: parts.join(' · '),
   };
 }
@@ -157,4 +175,120 @@ export function inferDefaultGarageDoorCounts(garageSqft?: number | null): Garage
   const sf = Number(garageSqft);
   if (!(Number.isFinite(sf) && sf >= 200)) return null;
   return { single: 0, double: 1, rv: 0 };
+}
+
+/** Typical new-construction planning count when the door schedule is missing. */
+export const EXTERIOR_DOOR_PLANNING_COUNT = 2;
+export const SLIDING_DOOR_PLANNING_COUNT = 2;
+
+/**
+ * Exterior doors package = SHV "Exterior Doors" (8100) + "Iron Door" (16300).
+ * Iron here is the specialty iron/wrought entry door — not site gates (those are H16).
+ * Silver Leaf H36 is already per-home exterior door mat + install (no separate iron line).
+ */
+export const EXTERIOR_DOORS_INSTALLED_BY_PROJECT: Record<SouthernUtahProjectId, number> = {
+  silverLeaf: 1693,
+  lot39: 2000 + 4500, // Exterior Doors + Iron Door
+  lot41: 2000 + 2000,
+  lot49: 3000 + 3000,
+  lot58: 3000 + 3000,
+};
+export const EXTERIOR_DOORS_DETACHED_MEDIAN_TOTAL = 6000;
+export const EXTERIOR_DOORS_ALL_PROJECT_RANGE = { low: 1693, high: 6500 } as const;
+/** National package when count missing: planning count × mid-market each. */
+export const EXTERIOR_DOORS_NATIONAL_PACKAGE_TOTAL =
+  EXTERIOR_DOOR_PLANNING_COUNT *
+  (EXTERIOR_OPENING_NATIONAL_RATES.exterior_doors.material +
+    EXTERIOR_OPENING_NATIONAL_RATES.exterior_doors.labor);
+
+/**
+ * H35 — Exterior sliding doors (SHV line 8075).
+ * Lot 39 ($16.5k) is a large multi-panel package — keep for exact match only.
+ * Unmatched planning uses the mid of Lot 41 + Lot 49 (~$7.3k), not the $16.5k outlier.
+ */
+export const SLIDING_DOORS_INSTALLED_BY_PROJECT: Partial<Record<SouthernUtahProjectId, number>> = {
+  lot39: 16500,
+  lot41: 9800,
+  lot49: 4800,
+};
+export const SLIDING_DOORS_DETACHED_MEDIAN_TOTAL = 7300;
+export const SLIDING_DOORS_ALL_PROJECT_RANGE = { low: 4800, high: 16500 } as const;
+/** National package when count missing: planning count × mid-market each. */
+export const SLIDING_DOORS_NATIONAL_PACKAGE_TOTAL =
+  SLIDING_DOOR_PLANNING_COUNT *
+  (EXTERIOR_OPENING_NATIONAL_RATES.sliding_doors.material +
+    EXTERIOR_OPENING_NATIONAL_RATES.sliding_doors.labor);
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+export type ExteriorDoorOpeningLumpFill = {
+  material: number;
+  labor: number;
+  total: number;
+  rateSourceLabel: string;
+  helper: string;
+  comparisonRange: { low: number; high: number };
+  projectId: SouthernUtahProjectId | null;
+  scopeKey: 'exterior_doors' | 'sliding_doors';
+};
+
+/** SHV H36 planning lump when exterior swing door count is missing — blended + state. */
+export function resolveExteriorDoorsLumpSuggestedFill(params: {
+  livingSf?: number | null;
+  state?: string | null;
+}): ExteriorDoorOpeningLumpFill {
+  const project = matchSouthernUtahProjectByLivingSf(params.livingSf);
+  const local = project
+    ? EXTERIOR_DOORS_INSTALLED_BY_PROJECT[project.id]
+    : EXTERIOR_DOORS_DETACHED_MEDIAN_TOTAL;
+  const barometerLabel = project ? project.label : 'detached mid';
+  const blended = resolveBlendedLump({
+    local,
+    national: EXTERIOR_DOORS_NATIONAL_PACKAGE_TOTAL,
+    barometerLabel,
+    state: params.state,
+    scopeNoun: 'exterior + iron entry doors',
+  });
+  return {
+    material: 0,
+    labor: blended.total,
+    total: blended.total,
+    rateSourceLabel: blended.rateSourceLabel,
+    helper: `${blended.blendHelper} Enter door count for per-door pricing. Site gates stay under landscaping.`,
+    comparisonRange: { ...EXTERIOR_DOORS_ALL_PROJECT_RANGE },
+    projectId: project?.id ?? null,
+    scopeKey: 'exterior_doors',
+  };
+}
+
+/** SHV H35 planning lump when sliding / patio door count is missing — blended + state. */
+export function resolveSlidingDoorsLumpSuggestedFill(params: {
+  livingSf?: number | null;
+  state?: string | null;
+}): ExteriorDoorOpeningLumpFill {
+  const project = matchSouthernUtahProjectByLivingSf(params.livingSf);
+  const projectTotal =
+    project != null ? SLIDING_DOORS_INSTALLED_BY_PROJECT[project.id] : undefined;
+  const local =
+    projectTotal != null ? projectTotal : SLIDING_DOORS_DETACHED_MEDIAN_TOTAL;
+  const barometerLabel = project && projectTotal != null ? project.label : 'detached mid';
+  const blended = resolveBlendedLump({
+    local,
+    national: SLIDING_DOORS_NATIONAL_PACKAGE_TOTAL,
+    barometerLabel,
+    state: params.state,
+    scopeNoun: 'sliding / patio doors',
+  });
+  return {
+    material: 0,
+    labor: blended.total,
+    total: blended.total,
+    rateSourceLabel: blended.rateSourceLabel,
+    helper: `${blended.blendHelper} Enter sliding door count for per-door national pricing.`,
+    comparisonRange: { ...SLIDING_DOORS_ALL_PROJECT_RANGE },
+    projectId: project && projectTotal != null ? project.id : null,
+    scopeKey: 'sliding_doors',
+  };
 }

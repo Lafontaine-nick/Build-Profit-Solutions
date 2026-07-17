@@ -90,9 +90,10 @@ describe('resolveFormulaQuantityApplyTarget', () => {
     const pricing = resolveScopeItemSuggestedPricing('drywall', input, 'addition', resolved);
 
     expect(Number(resolved.quantity)).toBe(1000);
-    expect(pricing.fill?.material).toBe(1500);
-    expect(pricing.fill?.labor).toBe(3000);
-    expect(pricing.fill?.total).toBe(4500);
+    // National hang/finish ~$2.10/SF (+ light geo) — not the old $4.50/SF band.
+    expect(pricing.fill?.material).toBe(880);
+    expect(pricing.fill?.labor).toBe(1290);
+    expect(pricing.fill?.total).toBe(2170);
     expect(pricing.fill?.basis).toEqual({ quantity: 1000, unit: 'sqft' });
   });
 
@@ -269,6 +270,19 @@ describe('resolveFormulaQuantityApplyTarget', () => {
     expect(
       shouldShowFormulaQuantityButton({
         scopeKey: 'paint',
+        formula: formula!,
+      })
+    ).toBe(false);
+  });
+
+  it('hides drywall surface-multiplier button (auto-applied on ground-up)', () => {
+    const formula = executeFormula('surface_area_from_floor_area_benchmark', {
+      floorAreaSqft: 3098,
+    });
+    expect(formula?.roundedValue).toBe(10843);
+    expect(
+      shouldShowFormulaQuantityButton({
+        scopeKey: 'drywall',
         formula: formula!,
       })
     ).toBe(false);

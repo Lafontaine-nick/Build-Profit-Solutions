@@ -117,11 +117,23 @@ export function planFirstFloorLivingSqft(
   facts: PlanFacts | null | undefined,
   fallbackLivingSqft?: number | null
 ): number | null {
-  return (
-    positive(facts?.buildingAreas?.mainFloorLivingSqft) ??
-    (facts?.storyCount && facts.storyCount > 1 ? null : positive(facts?.buildingAreas?.totalLivingSqft)) ??
-    (facts?.storyCount && facts.storyCount > 1 ? null : positive(fallbackLivingSqft))
-  );
+  const main = positive(facts?.buildingAreas?.mainFloorLivingSqft);
+  const upstairs = positive(facts?.buildingAreas?.upstairsLivingSqft);
+  const total =
+    positive(facts?.buildingAreas?.totalLivingSqft) ?? positive(fallbackLivingSqft);
+  const multiStory =
+    (facts?.storyCount != null && facts.storyCount > 1) || upstairs != null;
+
+  // Cover sheets often label total living as "Main Living Area" — ignore when it
+  // equals the cover total on a multi-story plan.
+  if (main != null && !(multiStory && total != null && Math.abs(main - total) < 1)) {
+    return main;
+  }
+  if (multiStory && total != null && upstairs != null && total > upstairs) {
+    return Math.round((total - upstairs) * 10) / 10;
+  }
+  if (multiStory) return null;
+  return total;
 }
 
 export function planTotalLivingSqft(

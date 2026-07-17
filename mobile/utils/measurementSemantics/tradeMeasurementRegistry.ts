@@ -71,6 +71,14 @@ export const TRADE_MEASUREMENT_REGISTRY: Record<string, TradeMeasurementProfile>
     quantityStrategy: 'hybrid',
     requiredInputs: ['slab_sf', 'footing_lf', 'concrete_cy'],
   }),
+  pour_flatwork: profile('pour_flatwork', ['sqft', 'floor_sqft'], {
+    preferredPrimaryUnits: ['sqft'],
+    allowedPricingUnits: ['sqft', 'ls'],
+    canUseLivingSfAsPricing: false,
+    missingQuantityBehavior: 'needs_takeoff',
+    quantityStrategy: 'plan_geometry',
+    requiredInputs: ['exterior_flatwork_sf'],
+  }),
   framing: profile('framing', ['package', 'ls', 'unknown'], {
     allowedPricingUnits: ['living_sqft', 'ls', 'package'],
     missingQuantityBehavior: 'needs_takeoff',
@@ -223,6 +231,7 @@ export const NO_LIVING_SF_PRIMARY_SEED_KEYS = new Set([
   'sitework',
   'excavation',
   'foundation',
+  'pour_flatwork',
   'framing',
   'roofing',
   'exterior',

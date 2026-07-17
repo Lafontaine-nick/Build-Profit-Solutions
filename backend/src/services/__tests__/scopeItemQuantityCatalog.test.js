@@ -73,6 +73,48 @@ describe('scopeItemQuantityCatalog', () => {
     expect(next.scopeQuantities || []).toHaveLength(0);
   });
 
+  test('stampPackageWithCatalogRules applies Confirm Scope M/L when takeoff is not pricingReady', () => {
+    const pkg = {
+      name: 'Finish carpentry / interior trim',
+      scope: 'Finish trim package',
+      checklistItemId: 'interior_trim',
+      scopeQuantities: [],
+    };
+    const ctx = {
+      measurements: normalizeScopeMeasurements({
+        itemQuantities: {
+          interior_trim__material: {
+            quantity: 5519,
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+          interior_trim__labor: {
+            quantity: 4599,
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+        },
+        pricingAcceptance: {
+          interior_trim: {
+            selectionStatus: 'accepted',
+            totalAmount: 10118,
+            materialAmount: 5519,
+            laborAmount: 4599,
+          },
+        },
+      }),
+      templateKey: 'ground_up',
+    };
+    const next = stampPackageWithCatalogRules(pkg, ctx);
+    expect(next).toMatchObject({
+      price: 10118,
+      materialPrice: 5519,
+      laborPrice: 4599,
+      pricingType: 'split',
+      priceSource: 'user_provided',
+    });
+  });
+
   test('stampPackageWithCatalogRules applies lf to baseboard only', () => {
     const pkg = { name: 'Baseboard Installation', scope: 'Install baseboard', scopeQuantities: [] };
     const ctx = { measurements: normalizeScopeMeasurements({ sqft: 90, lf: 24 }) };

@@ -51,6 +51,7 @@ import {
   scopeChecklistItemsForEditing,
   scopeChecklistItemsForPersist,
   expandWetAreaDerivedScopeItems,
+  ensureGroundUpFlatworkScopeCard,
   ensureGroundUpOpeningScopeCards,
   toggleWallLayoutChoiceIds,
   WET_AREA_DERIVED_ITEM_IDS,
@@ -67,6 +68,9 @@ import {
   getChecklistItemQuantityRule,
   getChecklistItemQuantityRuleOrDefault,
   hasCompleteUserSelectedPricing,
+  hasOnlySuggestedPrefillPricing,
+  clearSuggestedPrefillPricing,
+  isNationalAverageComparisonBlock,
   initialScopeMeasurementInputExtended,
   isDualAllowanceItem,
   overlayDualRatePricingDisplay,
@@ -149,7 +153,9 @@ import {
 } from '@/components/estimate/AcceptedPricingSummary';
 import {
   buildAcceptanceFromSuggestedBlock,
+  clearAcceptedScopeItemPricing,
   hasAcceptedScopePricing,
+  liveScopeMoneyFromQuantities,
   markManualPricingAdjustment,
   moneyTotalAfterQuantityEdit,
   parsePricingAmount,
@@ -553,8 +559,8 @@ function resolveFormulaTargetSuggestedPricing(params: {
     return params.suggested;
   }
 
-  // Only auto-preview formula-based pricing for concrete flatwork (no manual apply button).
-  // Drywall and other trades keep suggested pricing on the notes/current quantity until applied.
+  // Auto-preview formula qty for concrete flatwork. Drywall surface undercounts are corrected in
+  // resolveChecklistItemQuantity (living×3.5) so suggested pricing already uses the surface qty.
   if (!usesAutoFlatworkSqftPricing({ scopeKey: params.itemId, formula })) {
     return params.suggested;
   }
@@ -633,6 +639,8 @@ function ScopeIntelligenceNotice({
   calculatedRevertLabel,
   compact = false,
   pricingAccepted = false,
+  /** Pricing card below already shows the one status line — hide duplicate confidence. */
+  pricingCardOwnsStatus = false,
 }: {
   intelligence: ScopeItemIntelligence;
   Colors: ReturnType<typeof getColors>;
@@ -642,6 +650,7 @@ function ScopeIntelligenceNotice({
   calculatedRevertLabel?: string | null;
   compact?: boolean;
   pricingAccepted?: boolean;
+  pricingCardOwnsStatus?: boolean;
 }) {
   const [warningExpanded, setWarningExpanded] = useState(false);
   const cardDisplay = buildCardIntelligenceDisplay(intelligence, { pricingAccepted });
@@ -654,17 +663,25 @@ function ScopeIntelligenceNotice({
   const showFormulaDetails = Boolean(formula && !calculatedActive);
   const showCalculatedRevert = calculatedActive && Boolean(onRevertCalculatedQuantity && calculatedRevertLabel);
   const showQuantity =
+    !pricingCardOwnsStatus &&
     !calculatedActive &&
     cardDisplay.showQuantityConfidenceLine &&
     (intelligence.quantity.confidence !== 'high' ||
       intelligence.quantity.source === 'calculated_assumption' ||
       intelligence.quantity.source === 'benchmark_estimate' ||
       Boolean(formula));
+  // Measurement-needed essays duplicate the pricing card’s single amber status.
+  const otherNoticeRaw =
+    pricingCardOwnsStatus &&
+    (intelligence.validation.status === 'measurement_needed' ||
+      /^Measurement needed/i.test(cardDisplay.otherNotice || ''))
+      ? null
+      : cardDisplay.otherNotice;
   if (compact) {
     if (
       !cardDisplay.conciseBenchmarkWarning &&
       !cardDisplay.duplicatePricingMessage &&
-      !cardDisplay.otherNotice &&
+      !otherNoticeRaw &&
       !showFormulaDetails &&
       !showCalculatedRevert
     ) {
@@ -673,7 +690,7 @@ function ScopeIntelligenceNotice({
   } else if (
     !cardDisplay.conciseBenchmarkWarning &&
     !cardDisplay.duplicatePricingMessage &&
-    !cardDisplay.otherNotice &&
+    !otherNoticeRaw &&
     !showQuantity &&
     !showFormulaDetails &&
     !showCalculatedRevert
@@ -702,10 +719,15 @@ function ScopeIntelligenceNotice({
   const warningCanExpand = Boolean(warningFull && warningPreview !== warningFull);
 
   const otherNotice =
-    cardDisplay.otherNotice &&
-    !(showFormulaDetails && cardDisplay.otherNotice.startsWith('Calculated comparison:'))
-      ? cardDisplay.otherNotice
+    otherNoticeRaw &&
+    !(showFormulaDetails && otherNoticeRaw.startsWith('Calculated comparison:'))
+      ? otherNoticeRaw
       : null;
+
+  const showConfidenceLine =
+    !pricingCardOwnsStatus &&
+    (showQuantity ||
+      Boolean(cardDisplay.conciseBenchmarkWarning || cardDisplay.confidenceLabel));
 
   return (
     <View style={[styles.intelligenceNotice, { backgroundColor: 'transparent' }]}>
@@ -719,7 +741,7 @@ function ScopeIntelligenceNotice({
             </>
           )}
         </Text>
-      ) : cardDisplay.conciseBenchmarkWarning || cardDisplay.confidenceLabel ? (
+      ) : showConfidenceLine ? (
         <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
           <Text style={{ color: accent, fontWeight: '800' }}>{cardDisplay.confidenceLabel}</Text>
         </Text>
@@ -1000,12 +1022,12 @@ function SuggestedBudgetSplitRows({
   hasPrimaryTakeoff?: boolean;
   livingSf?: number | null;
   confidenceLabel?: string | null;
-  /** Current entered/applied amount exists — render compact Use suggested row. */
+  /** Current entered/applied amount exists — render compact Apply row. */
   hasCurrentPricing?: boolean;
   /** Collapse full Needs/Apply card to one-line suggested row (soft-cost idle). */
   forceCompact?: boolean;
 }) {
-  const panelBg = darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(15,23,42,0.03)';
+  const [whyOpen, setWhyOpen] = useState(false);
   const usesBenchmark =
     block.materialSource === 'local_benchmark' || block.laborSource === 'local_benchmark';
   const semantics = measurementSemanticsV1Enabled();
@@ -1014,11 +1036,12 @@ function SuggestedBudgetSplitRows({
   const caption = pricingLabelColor(darkMode, Colors);
   const text = pricingTextColor(darkMode, Colors);
   const statusAmber = '#fbbf24';
+  const divider = darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.1)';
 
   if (semantics && includedInStage) {
     const stageName = block.includedInStageLabel || stageTitle(block.benchmarkStageKey);
     return (
-      <View style={[styles.budgetSplitPanel, { backgroundColor: panelBg }]}>
+      <View style={[styles.budgetSplitPanel, { borderTopColor: divider }]}>
         <Text style={{ color: text, fontSize: 13, fontWeight: '700' }}>Included in {stageName}</Text>
         <Text style={{ color: caption, fontSize: 12, lineHeight: 17, marginTop: 4 }}>
           Detailed takeoff still required. Stage total is on the {stageName} card.
@@ -1039,40 +1062,40 @@ function SuggestedBudgetSplitRows({
     forceCompact,
   });
 
+  const isNationalComparison = /national\s*average\s*comparison/i.test(
+    String(block.rateSourceLabel || '')
+  );
+  // National comparison is opt-in (secondary CTA). Stage lumps stay view-only.
   const canWritePrice =
     Boolean(onUsePricing) &&
-    action !== 'comparison_only' &&
     action !== 'included_in_stage' &&
-    !(block.isComparison && usesBenchmark && semantics);
+    (isNationalComparison ||
+      (action !== 'comparison_only' && !(block.isComparison && usesBenchmark && semantics)));
+
+  const writeActionLabel = isNationalComparison
+    ? 'Use this pricing'
+    : display.actionLabel;
 
   if (display.presentation === 'compact') {
     return (
-      <View
-        style={[
-          styles.compactSuggestedRow,
-          {
-            backgroundColor: panelBg,
-            borderColor: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.08)',
-          },
-        ]}
-      >
+      <View style={[styles.compactSuggestedRow, { borderTopColor: divider }]}>
         <View style={{ flex: 1, paddingRight: 10 }}>
           <Text style={{ color: text, fontSize: 14, fontWeight: '700' }}>
             {display.compactLine || display.displayTotal}
           </Text>
-          <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '600', marginTop: 2 }}>
+          <Text style={{ color: caption, fontSize: 12, fontWeight: '500', marginTop: 2 }}>
             {display.sourceLine}
           </Text>
         </View>
-        {canWritePrice && display.actionLabel ? (
+        {canWritePrice && writeActionLabel ? (
           <TouchableOpacity
             activeOpacity={0.75}
             onPress={onUsePricing}
             style={styles.compactSuggestedBtn}
-            accessibilityLabel={display.actionLabel}
+            accessibilityLabel={writeActionLabel}
             accessibilityRole="button"
           >
-            <Text style={styles.compactSuggestedBtnText}>{display.actionLabel}</Text>
+            <Text style={styles.compactSuggestedBtnText}>{writeActionLabel}</Text>
           </TouchableOpacity>
         ) : null}
       </View>
@@ -1097,25 +1120,20 @@ function SuggestedBudgetSplitRows({
       : '';
 
   const actionLabel =
-    action === 'comparison_only'
-      ? 'Compare benchmarks'
-      : display.actionLabel;
+    writeActionLabel ||
+    (action === 'comparison_only' ? 'Compare benchmarks' : display.actionLabel);
+
+  const whyLines = [
+    ...display.whyThisPriceLines,
+    ...(coversHint
+      ? [coversHint.includes('priced separately') ? coversHint : `Includes ${coversHint}`]
+      : []),
+  ];
 
   return (
-    <View style={[styles.budgetSplitPanel, { backgroundColor: panelBg }]}>
-      {display.missingMeasurementTitle ? (
-        <Text style={{ color: statusAmber, fontSize: 12, fontWeight: '700', marginBottom: 2 }}>
-          {display.missingMeasurementTitle}
-        </Text>
-      ) : null}
-      {display.missingMeasurementHint ? (
-        <Text style={{ color: caption, fontSize: 12, lineHeight: 16, marginBottom: 6 }}>
-          {display.missingMeasurementHint}
-        </Text>
-      ) : null}
-
+    <View style={[styles.budgetSplitPanel, { borderTopColor: divider }]}>
       {display.quantityLine ? (
-        <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '600', marginBottom: 6 }}>
+        <Text style={{ color: caption, fontSize: 12, fontWeight: '600', marginBottom: 8 }}>
           {display.quantityLine}
         </Text>
       ) : null}
@@ -1151,20 +1169,13 @@ function SuggestedBudgetSplitRows({
         <Text style={{ color: caption, fontSize: 12, marginTop: 2 }}>{display.unitRateLine}</Text>
       ) : null}
 
-      {display.fallbackBasisLine ? (
-        <Text style={{ color: caption, fontSize: 12, marginTop: 4 }}>{display.fallbackBasisLine}</Text>
-      ) : null}
-
-      <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '600', marginTop: 8, lineHeight: 16 }}>
-        {display.sourceLine}
-      </Text>
       {display.statusLine ? (
         <Text
           style={{
             color: display.statusTone === 'amber' ? statusAmber : caption,
             fontSize: 12,
             fontWeight: '600',
-            marginTop: 2,
+            marginTop: 8,
             lineHeight: 16,
           }}
         >
@@ -1172,41 +1183,67 @@ function SuggestedBudgetSplitRows({
         </Text>
       ) : null}
 
-      {display.allowanceExtraNote ? (
-        <Text style={{ color: caption, fontSize: 12, lineHeight: 16, marginTop: 4 }}>
-          {display.allowanceExtraNote}
-        </Text>
+      {whyLines.length || block.benchmarkEvidence ? (
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={() => setWhyOpen((v) => !v)}
+          accessibilityRole="button"
+          accessibilityLabel={whyOpen ? 'Hide price details' : 'Why this price?'}
+          style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+        >
+          <Text style={{ color: caption, fontSize: 12, fontWeight: '600' }}>Why this price?</Text>
+          <Ionicons
+            name={whyOpen ? 'chevron-up' : 'chevron-down'}
+            size={14}
+            color={caption}
+          />
+        </TouchableOpacity>
       ) : null}
 
-      {coversHint ? (
-        <Text style={{ color: caption, fontSize: 12, lineHeight: 17, marginTop: 6 }}>
-          {coversHint.includes('priced separately') ? coversHint : `Includes ${coversHint}`}
-        </Text>
-      ) : null}
-
-      {block.benchmarkEvidence ? (
-        <BenchmarkPricingEvidence
-          evidence={block.benchmarkEvidence}
-          darkMode={darkMode}
-          showTotals={false}
-          defaultExpanded={false}
-          scopeLabel={
-            block.benchmarkLevel === 'stage'
-              ? null
-              : block.benchmarkScopeKey || block.benchmarkStageKey || null
-          }
-        />
+      {whyOpen ? (
+        <View style={{ marginTop: 6, gap: 4 }}>
+          {whyLines.map((line) => (
+            <Text key={line} style={{ color: caption, fontSize: 12, lineHeight: 16 }}>
+              {line}
+            </Text>
+          ))}
+          {block.benchmarkEvidence ? (
+            <BenchmarkPricingEvidence
+              evidence={block.benchmarkEvidence}
+              darkMode={darkMode}
+              showTotals={false}
+              defaultExpanded
+              scopeLabel={
+                block.benchmarkLevel === 'stage'
+                  ? null
+                  : block.benchmarkScopeKey || block.benchmarkStageKey || null
+              }
+            />
+          ) : null}
+        </View>
       ) : null}
 
       {canWritePrice && actionLabel ? (
         <TouchableOpacity
           activeOpacity={0.75}
           onPress={onUsePricing}
-          style={styles.useSuggestedPricingBtn}
+          style={
+            isNationalComparison
+              ? styles.useComparisonPricingBtn
+              : styles.useSuggestedPricingBtn
+          }
           accessibilityLabel={actionLabel}
           accessibilityRole="button"
         >
-          <Text style={styles.useSuggestedPricingBtnText}>{actionLabel}</Text>
+          <Text
+            style={
+              isNationalComparison
+                ? styles.useComparisonPricingBtnText
+                : styles.useSuggestedPricingBtnText
+            }
+          >
+            {actionLabel}
+          </Text>
         </TouchableOpacity>
       ) : null}
     </View>
@@ -1273,11 +1310,21 @@ function ComparisonToggle({
     );
   }
 
+  const isNationalComparison = /national\s*average\s*comparison/i.test(
+    String(block.rateSourceLabel || '')
+  );
+
   return (
     <View style={{ marginTop: 8 }}>
       <TouchableOpacity activeOpacity={0.7} onPress={() => setOpen((prev) => !prev)} accessibilityRole="button">
-        <Text style={styles.editQuantityLink}>
-          {open ? 'Hide comparison' : 'Compare benchmarks'}
+        <Text style={styles.compareQuantityLink}>
+          {open
+            ? isNationalComparison
+              ? 'Hide national comparison'
+              : 'Hide comparison'
+            : isNationalComparison
+              ? 'Compare to national average'
+              : 'Compare benchmarks'}
         </Text>
       </TouchableOpacity>
       {open ? (
@@ -1285,7 +1332,10 @@ function ComparisonToggle({
           block={block}
           Colors={Colors}
           darkMode={darkMode}
-          onUsePricing={comparisonOnly ? undefined : onUsePricing}
+          // National average comparison can be applied; stage lumps stay view-only.
+          onUsePricing={
+            isNationalComparison || !comparisonOnly ? onUsePricing : undefined
+          }
           {...cardProps}
         />
       ) : null}
@@ -2040,7 +2090,12 @@ function MaterialLaborSplitEditor({
   materialKey: string;
   laborKey: string;
   onBatchItemQuantityChange: (
-    updates: Array<{ itemId: string; quantity: string; unit?: string }>
+    updates: Array<{
+      itemId: string;
+      quantity: string;
+      unit?: string;
+      quantitySource?: 'user_entered' | 'suggested_prefill';
+    }>
   ) => void;
   focusQuantityField: (targetItemId: string, field?: 'count' | 'allowance') => void;
   blurQuantityField: (targetItemId: string, field?: 'count' | 'allowance') => void;
@@ -2076,31 +2131,76 @@ function MaterialLaborSplitEditor({
     const suggestedBasisQty =
       suggestedBlock?.basis?.quantity && suggestedBlock.basis.quantity > 0
         ? suggestedBlock.basis.quantity
-        : effectiveBasisQty;
-    const rates = suggestedUnitRatesFromBlock(suggestedBlock, suggestedBasisQty);
-    if (!rates || effectiveBasisQty <= 0) return;
+        : 0;
+    const suggestedUnit = String(suggestedBlock?.basis?.unit || '').toLowerCase();
+    const editorUnit = String(basisUnit || pricingBasis?.unit || '').toLowerCase();
+    const unitsCompatible =
+      !suggestedUnit ||
+      !editorUnit ||
+      suggestedUnit === editorUnit ||
+      (suggestedUnit === 'living_sqft' && editorUnit === 'sqft') ||
+      (suggestedUnit === 'sqft' && editorUnit === 'living_sqft');
+    // Prefer Suggest card qty/unit when seeding empty Edit (covers framing living+garage).
+    // Never apply $/CY or $/square rates onto living SF (Foundation ~$1M class of bug).
+    const qtyForPrefill =
+      suggestedBasisQty > 0 && unitsCompatible
+        ? suggestedBasisQty
+        : unitsCompatible && effectiveBasisQty > 0
+          ? effectiveBasisQty
+          : suggestedBasisQty > 0
+            ? suggestedBasisQty
+            : effectiveBasisQty;
+    const unitForPrefill =
+      suggestedBasisQty > 0 && suggestedUnit
+        ? suggestedBlock?.basis?.unit || basisUnit
+        : unitsCompatible || !suggestedUnit
+          ? basisUnit || pricingBasis?.unit || 'sqft'
+          : suggestedBlock?.basis?.unit || basisUnit;
+    const rates = suggestedUnitRatesFromBlock(
+      suggestedBlock,
+      suggestedBasisQty > 0 ? suggestedBasisQty : qtyForPrefill
+    );
+    if (!rates || !(qtyForPrefill > 0)) return;
     didPrefillRef.current = true;
-    lastBasisQtyRef.current = effectiveBasisQty;
+    lastBasisQtyRef.current = qtyForPrefill;
     lockedRatesRef.current = {
       material: rates.materialRate > 0 ? rates.materialRate : null,
       labor: rates.laborRate > 0 ? rates.laborRate : null,
     };
-    const updates: Array<{ itemId: string; quantity: string; unit?: string }> = [];
-    if (!parseMoneyAmount(pricingBasisValue) && effectiveBasisQty > 0) {
-      updates.push({ itemId: sqftBasisKey, quantity: String(effectiveBasisQty), unit: basisUnit });
+    const updates: Array<{
+      itemId: string;
+      quantity: string;
+      unit?: string;
+      quantitySource?: 'user_entered' | 'suggested_prefill';
+    }> = [];
+    const basisNeedsSeed =
+      !parseMoneyAmount(pricingBasisValue) ||
+      !unitsCompatible ||
+      (suggestedBasisQty > 0 &&
+        effectiveBasisQty > 0 &&
+        Math.abs(suggestedBasisQty - effectiveBasisQty) / suggestedBasisQty > 0.02);
+    if (basisNeedsSeed) {
+      updates.push({
+        itemId: sqftBasisKey,
+        quantity: String(qtyForPrefill),
+        unit: unitForPrefill,
+        quantitySource: 'suggested_prefill',
+      });
     }
     if (rates.materialRate > 0) {
       updates.push({
         itemId: materialKey,
-        quantity: String(roundMoney2(rates.materialRate * effectiveBasisQty)),
+        quantity: String(roundMoney2(rates.materialRate * qtyForPrefill)),
         unit: 'allowance',
+        quantitySource: 'suggested_prefill',
       });
     }
     if (rates.laborRate > 0) {
       updates.push({
         itemId: laborKey,
-        quantity: String(roundMoney2(rates.laborRate * effectiveBasisQty)),
+        quantity: String(roundMoney2(rates.laborRate * qtyForPrefill)),
         unit: 'allowance',
+        quantitySource: 'suggested_prefill',
       });
     }
     if (updates.length) onBatchItemQuantityChange(updates);
@@ -2110,6 +2210,7 @@ function MaterialLaborSplitEditor({
     pricingBasisValue,
     effectiveBasisQty,
     suggestedBlock,
+    pricingBasis,
     sqftBasisKey,
     materialKey,
     laborKey,
@@ -2182,17 +2283,18 @@ function MaterialLaborSplitEditor({
   const handleMaterialChange = (text: string) => {
     const amount = parseMoneyAmount(text);
     const laborAmount = parseMoneyAmount(laborValue);
+    const allowanceKey = materialKey.replace(/__material$/, '__allowance');
     const updates: Array<{ itemId: string; quantity: string; unit?: string }> = [
       { itemId: materialKey, quantity: text, unit: 'allowance' },
     ];
     const split = (amount > 0 ? amount : 0) + (laborAmount > 0 ? laborAmount : 0);
-    if (split > 0) {
-      updates.push({
-        itemId: materialKey.replace(/__material$/, '__allowance'),
-        quantity: String(roundMoney2(split)),
-        unit: 'allowance',
-      });
-    }
+    // Always sync __allowance. Leaving the last digit (e.g. $2 from $2000) when
+    // Material/Labor are cleared kept a phantom Flat allowance card on Done.
+    updates.push({
+      itemId: allowanceKey,
+      quantity: split > 0 ? String(roundMoney2(split)) : '',
+      unit: 'allowance',
+    });
     onBatchItemQuantityChange(updates);
     if (effectiveBasisQty > 0 && amount > 0) {
       lockedRatesRef.current.material = roundMoney2(amount / effectiveBasisQty);
@@ -2204,17 +2306,16 @@ function MaterialLaborSplitEditor({
   const handleLaborChange = (text: string) => {
     const amount = parseMoneyAmount(text);
     const materialAmount = parseMoneyAmount(materialValue);
+    const allowanceKey = laborKey.replace(/__labor$/, '__allowance');
     const updates: Array<{ itemId: string; quantity: string; unit?: string }> = [
       { itemId: laborKey, quantity: text, unit: 'allowance' },
     ];
     const split = (materialAmount > 0 ? materialAmount : 0) + (amount > 0 ? amount : 0);
-    if (split > 0) {
-      updates.push({
-        itemId: laborKey.replace(/__labor$/, '__allowance'),
-        quantity: String(roundMoney2(split)),
-        unit: 'allowance',
-      });
-    }
+    updates.push({
+      itemId: allowanceKey,
+      quantity: split > 0 ? String(roundMoney2(split)) : '',
+      unit: 'allowance',
+    });
     onBatchItemQuantityChange(updates);
     if (effectiveBasisQty > 0 && amount > 0) {
       lockedRatesRef.current.labor = roundMoney2(amount / effectiveBasisQty);
@@ -2305,9 +2406,11 @@ function QuantitySection({
   measurementsInput,
   onItemQuantityChange,
   onBatchItemQuantityChange,
+  onClearSuggestedPrefill,
   onItemQuantityBlur,
   onItemQuantityFocus,
   onApplySuggestedPricing,
+  onClearAcceptedPricing,
   onScopeGapResolutionsChange,
   onScopeGapPriceSeparately,
   onScopeGapIncludeInParentPrice,
@@ -2335,8 +2438,15 @@ function QuantitySection({
     calculatedRevertFrom?: CalculatedQuantityRevertSnapshot
   ) => void;
   onBatchItemQuantityChange: (
-    updates: Array<{ itemId: string; quantity: string; unit?: string }>
+    updates: Array<{
+      itemId: string;
+      quantity: string;
+      unit?: string;
+      quantitySource?: 'user_entered' | 'suggested_prefill';
+    }>
   ) => void;
+  onClearSuggestedPrefill?: (itemId: string) => void;
+  onClearAcceptedPricing?: (itemId: string) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   onApplySuggestedPricing?: (itemId: string, block: SuggestedPricingBlock) => void;
@@ -2408,6 +2518,9 @@ function QuantitySection({
     setFocusedPricingField(null);
     setPricingEditorOpen(false);
     Keyboard.dismiss();
+    // Opening Edit seeds Suggest values as suggested_prefill — discard if user
+    // never committed so the Apply card returns unchanged.
+    onClearSuggestedPrefill?.(itemId);
   };
 
   if (rule.dualAllowanceField) {
@@ -2610,6 +2723,9 @@ function QuantitySection({
                 Colors={Colors}
                 darkMode={darkMode}
                 onEditPricing={openPricingEditor}
+                onClearPricing={
+                  onClearAcceptedPricing ? () => onClearAcceptedPricing(itemId) : undefined
+                }
                 onScopeGapResolutionsChange={onScopeGapResolutionsChange}
                 onScopeGapPriceSeparately={(componentKey, component, benchmarkAssumption, benchmarkProfile) =>
                   onScopeGapPriceSeparately?.(itemId, component, benchmarkAssumption, benchmarkProfile)
@@ -2703,6 +2819,7 @@ function QuantitySection({
                 Colors={Colors}
                 darkMode={darkMode}
                 compact
+                pricingCardOwnsStatus={!hideSuggestion && Boolean(suggestedBudgetSplit)}
                 onUseCalculatedQuantity={onUseCalculatedQuantity}
                 onRevertCalculatedQuantity={onRevertCalculated}
                 calculatedRevertLabel={calculatedRevertLabel}
@@ -2798,16 +2915,25 @@ function QuantitySection({
         ? missingStatusDisplayLabel(itemId)
         : resolved.missingMessage || 'Enter quantity and/or allowance';
       const softCostAllowance = isSoftCostAllowanceScope(itemId, rule.lumpSumOnly);
+      // Pricing card owns the single “needs count” / planning status — don’t stack outer copy.
       const cardOwnsMissingCopy =
         Boolean(planningFill) &&
         (softCostAllowance ||
-          ['windows_doors', 'plumbing_rough', 'electrical_rough', 'hvac', 'insulation'].includes(
-            itemId
-          ));
+          [
+            'windows',
+            'windows_doors',
+            'exterior_doors',
+            'sliding_doors',
+            'garage_doors',
+            'plumbing_rough',
+            'electrical_rough',
+            'hvac',
+            'insulation',
+          ].includes(itemId));
       const planningHelperLine = softCostAllowance
         ? rule.quantityHelper
         : planningFill
-          ? `Planning price until ${neededStatusLine.replace(/^Needs\s+/i, '').toLowerCase()} is entered.`
+          ? null
           : rule.quantityHelper;
       const applyPlanningBlock = (block: SuggestedPricingBlock) => {
         if (onApplySuggestedPricing) {
@@ -2837,12 +2963,14 @@ function QuantitySection({
               {planningHelperLine}
             </Text>
           ) : null}
-          <ScopeIntelligenceNotice
-            intelligence={planningIntelligence}
-            Colors={Colors}
-            darkMode={darkMode}
-            compact
-          />
+          {cardOwnsMissingCopy ? null : (
+            <ScopeIntelligenceNotice
+              intelligence={planningIntelligence}
+              Colors={Colors}
+              darkMode={darkMode}
+              compact
+            />
+          )}
           {!hidePlanningSuggestion && planningFill ? (
             <SuggestedBudgetSplitRows
               block={planningFill}
@@ -3191,6 +3319,9 @@ function QuantitySection({
                   Colors={Colors}
                   darkMode={darkMode}
                   onEditPricing={openPricingEditor}
+                  onClearPricing={
+                    onClearAcceptedPricing ? () => onClearAcceptedPricing(itemId) : undefined
+                  }
                   onScopeGapResolutionsChange={onScopeGapResolutionsChange}
                   onScopeGapPriceSeparately={(componentKey, component, benchmarkAssumption, benchmarkProfile) =>
                     onScopeGapPriceSeparately?.(itemId, component, benchmarkAssumption, benchmarkProfile)
@@ -3247,6 +3378,7 @@ function QuantitySection({
                 Colors={Colors}
                 darkMode={darkMode}
                 compact
+                pricingCardOwnsStatus={!hideSuggestion && Boolean(suggestedBudgetSplit)}
                 onUseCalculatedQuantity={onUseCalculatedQuantity}
                 onRevertCalculatedQuantity={onRevertCalculated}
                 calculatedRevertLabel={calculatedRevertLabel}
@@ -3585,9 +3717,11 @@ function WetAreaInstallLineCard({
   measurementsInput,
   onItemQuantityChange,
   onBatchItemQuantityChange,
+  onClearSuggestedPrefill,
   onItemQuantityBlur,
   onItemQuantityFocus,
   onApplySuggestedPricing,
+  onClearAcceptedPricing,
   onScopeGapResolutionsChange,
   onScopeGapPriceSeparately,
   onScopeGapIncludeInParentPrice,
@@ -3613,11 +3747,18 @@ function WetAreaInstallLineCard({
     calculatedRevertFrom?: CalculatedQuantityRevertSnapshot
   ) => void;
   onBatchItemQuantityChange: (
-    updates: Array<{ itemId: string; quantity: string; unit?: string }>
+    updates: Array<{
+      itemId: string;
+      quantity: string;
+      unit?: string;
+      quantitySource?: 'user_entered' | 'suggested_prefill';
+    }>
   ) => void;
+  onClearSuggestedPrefill?: (itemId: string) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   onApplySuggestedPricing?: (itemId: string, block: SuggestedPricingBlock) => void;
+  onClearAcceptedPricing?: (itemId: string) => void;
   onScopeGapResolutionsChange?: (next: ScopeGapResolutionsMap) => void;
   onScopeGapPriceSeparately?: (
     parentScopeItemId: string,
@@ -3671,9 +3812,11 @@ function WetAreaInstallLineCard({
         measurementsInput={measurementsInput}
         onItemQuantityChange={onItemQuantityChange}
         onBatchItemQuantityChange={onBatchItemQuantityChange}
+        onClearSuggestedPrefill={onClearSuggestedPrefill}
         onItemQuantityBlur={onItemQuantityBlur}
         onItemQuantityFocus={onItemQuantityFocus}
         onApplySuggestedPricing={onApplySuggestedPricing}
+        onClearAcceptedPricing={onClearAcceptedPricing}
         onScopeGapResolutionsChange={onScopeGapResolutionsChange}
         onScopeGapPriceSeparately={onScopeGapPriceSeparately}
         onScopeGapIncludeInParentPrice={onScopeGapIncludeInParentPrice}
@@ -3699,9 +3842,11 @@ function YesNoRow({
   measurementsInput,
   onItemQuantityChange,
   onBatchItemQuantityChange,
+  onClearSuggestedPrefill,
   onItemQuantityBlur,
   onItemQuantityFocus,
   onApplySuggestedPricing,
+  onClearAcceptedPricing,
   onScopeGapResolutionsChange,
   onScopeGapPriceSeparately,
   onScopeGapIncludeInParentPrice,
@@ -3730,11 +3875,18 @@ function YesNoRow({
     calculatedRevertFrom?: CalculatedQuantityRevertSnapshot
   ) => void;
   onBatchItemQuantityChange: (
-    updates: Array<{ itemId: string; quantity: string; unit?: string }>
+    updates: Array<{
+      itemId: string;
+      quantity: string;
+      unit?: string;
+      quantitySource?: 'user_entered' | 'suggested_prefill';
+    }>
   ) => void;
+  onClearSuggestedPrefill?: (itemId: string) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   onApplySuggestedPricing?: (itemId: string, block: SuggestedPricingBlock) => void;
+  onClearAcceptedPricing?: (itemId: string) => void;
   onScopeGapResolutionsChange?: (next: ScopeGapResolutionsMap) => void;
   onScopeGapPriceSeparately?: (
     parentScopeItemId: string,
@@ -3914,9 +4066,11 @@ function YesNoRow({
           measurementsInput={measurementsInput}
           onItemQuantityChange={onItemQuantityChange}
           onBatchItemQuantityChange={onBatchItemQuantityChange}
+          onClearSuggestedPrefill={onClearSuggestedPrefill}
           onItemQuantityBlur={onItemQuantityBlur}
           onItemQuantityFocus={onItemQuantityFocus}
           onApplySuggestedPricing={onApplySuggestedPricing}
+          onClearAcceptedPricing={onClearAcceptedPricing}
           onScopeGapResolutionsChange={onScopeGapResolutionsChange}
           onScopeGapPriceSeparately={onScopeGapPriceSeparately}
           onScopeGapIncludeInParentPrice={onScopeGapIncludeInParentPrice}
@@ -3941,9 +4095,11 @@ function MultiChoiceRow({
   measurementsInput,
   onItemQuantityChange,
   onBatchItemQuantityChange,
+  onClearSuggestedPrefill,
   onItemQuantityBlur,
   onItemQuantityFocus,
   onApplySuggestedPricing,
+  onClearAcceptedPricing,
   onScopeGapResolutionsChange,
   onScopeGapPriceSeparately,
   onScopeGapIncludeInParentPrice,
@@ -3969,11 +4125,18 @@ function MultiChoiceRow({
     calculatedRevertFrom?: CalculatedQuantityRevertSnapshot
   ) => void;
   onBatchItemQuantityChange: (
-    updates: Array<{ itemId: string; quantity: string; unit?: string }>
+    updates: Array<{
+      itemId: string;
+      quantity: string;
+      unit?: string;
+      quantitySource?: 'user_entered' | 'suggested_prefill';
+    }>
   ) => void;
+  onClearSuggestedPrefill?: (itemId: string) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   onApplySuggestedPricing?: (itemId: string, block: SuggestedPricingBlock) => void;
+  onClearAcceptedPricing?: (itemId: string) => void;
   onScopeGapResolutionsChange?: (next: ScopeGapResolutionsMap) => void;
   onScopeGapPriceSeparately?: (
     parentScopeItemId: string,
@@ -4071,9 +4234,11 @@ function MultiChoiceRow({
         measurementsInput={measurementsInput}
         onItemQuantityChange={onItemQuantityChange}
         onBatchItemQuantityChange={onBatchItemQuantityChange}
+        onClearSuggestedPrefill={onClearSuggestedPrefill}
         onItemQuantityBlur={onItemQuantityBlur}
         onItemQuantityFocus={onItemQuantityFocus}
         onApplySuggestedPricing={onApplySuggestedPricing}
+        onClearAcceptedPricing={onClearAcceptedPricing}
         onScopeGapResolutionsChange={onScopeGapResolutionsChange}
         onScopeGapPriceSeparately={onScopeGapPriceSeparately}
         onScopeGapIncludeInParentPrice={onScopeGapIncludeInParentPrice}
@@ -4097,9 +4262,11 @@ function ChoiceRow({
   measurementsInput,
   onItemQuantityChange,
   onBatchItemQuantityChange,
+  onClearSuggestedPrefill,
   onItemQuantityBlur,
   onItemQuantityFocus,
   onApplySuggestedPricing,
+  onClearAcceptedPricing,
   onScopeGapResolutionsChange,
   onScopeGapPriceSeparately,
   onScopeGapIncludeInParentPrice,
@@ -4125,11 +4292,18 @@ function ChoiceRow({
     calculatedRevertFrom?: CalculatedQuantityRevertSnapshot
   ) => void;
   onBatchItemQuantityChange: (
-    updates: Array<{ itemId: string; quantity: string; unit?: string }>
+    updates: Array<{
+      itemId: string;
+      quantity: string;
+      unit?: string;
+      quantitySource?: 'user_entered' | 'suggested_prefill';
+    }>
   ) => void;
+  onClearSuggestedPrefill?: (itemId: string) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   onApplySuggestedPricing?: (itemId: string, block: SuggestedPricingBlock) => void;
+  onClearAcceptedPricing?: (itemId: string) => void;
   onScopeGapResolutionsChange?: (next: ScopeGapResolutionsMap) => void;
   onScopeGapPriceSeparately?: (
     parentScopeItemId: string,
@@ -4227,9 +4401,11 @@ function ChoiceRow({
         measurementsInput={measurementsInput}
         onItemQuantityChange={onItemQuantityChange}
         onBatchItemQuantityChange={onBatchItemQuantityChange}
+        onClearSuggestedPrefill={onClearSuggestedPrefill}
         onItemQuantityBlur={onItemQuantityBlur}
         onItemQuantityFocus={onItemQuantityFocus}
         onApplySuggestedPricing={onApplySuggestedPricing}
+        onClearAcceptedPricing={onClearAcceptedPricing}
         onScopeGapResolutionsChange={onScopeGapResolutionsChange}
         onScopeGapPriceSeparately={onScopeGapPriceSeparately}
         onScopeGapIncludeInParentPrice={onScopeGapIncludeInParentPrice}
@@ -4439,6 +4615,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
             placeholder={estimate ? 'Or enter your own' : quickMeasurementPlaceholder(field)}
             placeholderTextColor={placeholderColor}
             keyboardType="decimal-pad"
+            blurOnSubmit={false}
             {...scopeNumericInputProps}
             editable={!applying}
             style={[styles.measurementInput, { color: Colors.text }]}
@@ -4500,6 +4677,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
           placeholder={quickMeasurementPlaceholder(field)}
           placeholderTextColor={placeholderColor}
           keyboardType="decimal-pad"
+          blurOnSubmit={false}
           {...scopeNumericInputProps}
           editable={!applying}
           style={[styles.measurementInput, { color: Colors.text }]}
@@ -4562,6 +4740,12 @@ function CollapsibleQuickMeasurements({
   >(null);
   const editingFieldKeyRef = useRef<QuickMeasurementFieldKey | null>(null);
   const editingEstimateRef = useRef<QuickMeasurementEstimate | null>(null);
+  const editingPinActiveRef = useRef(false);
+  const editingHomeRef = useRef<{
+    homeGroup: QuickMeasurementGroupId | null;
+    homeIndex: number | null;
+    variant: 'calm' | 'needs_confirmation' | 'suggestion' | 'more' | null;
+  }>({ homeGroup: null, homeIndex: null, variant: null });
   const noteQuickMeasurements = useMemo(() => {
     const parsed = parseScopeMeasurementsFromNotes(notes || '', { templateKey, projectType: projectType ?? undefined });
     const out: Partial<Record<QuickMeasurementFieldKey, string>> = {};
@@ -4632,12 +4816,21 @@ function CollapsibleQuickMeasurements({
     [rows, measurements, noteQuickMeasurements.values, noteQuickMeasurements.keys, includedScopeKeys]
   );
   const groups = useMemo(() => {
-    const pinned = pinQuickMeasurementFieldInGroup(
-      groupQuickMeasurementFields(fieldResults),
-      editingFieldKey,
-      editingHomeGroup,
-      editingHomeIndex
-    );
+    const grouped = groupQuickMeasurementFields(fieldResults);
+    // Pin only after typing has moved a field out of its home section. Applying pin on
+    // focus alone reorders Needs confirmation (pre-split indexes ≠ post-split indexes)
+    // and makes the yellow inputs jump / remount when tapped.
+    const shouldPin =
+      Boolean(editingFieldKey && editingHomeGroup) &&
+      !grouped[editingHomeGroup!].some((result) => result.key === editingFieldKey);
+    const pinned = shouldPin
+      ? pinQuickMeasurementFieldInGroup(
+          grouped,
+          editingFieldKey,
+          editingHomeGroup,
+          editingHomeIndex
+        )
+      : grouped;
     return splitWetAreaQuickMeasurementFields(pinned);
   }, [fieldResults, editingFieldKey, editingHomeGroup, editingHomeIndex]);
   const displayGroups = groups.groups;
@@ -4682,7 +4875,20 @@ function CollapsibleQuickMeasurements({
     );
   }, [fieldResults, includedScopeKeys]);
 
+  const summarySentRef = useRef<QuickMeasurementSummary | null>(null);
   useEffect(() => {
+    const prev = summarySentRef.current;
+    if (
+      prev &&
+      prev.detected === summary.detected &&
+      prev.estimateAvailable === summary.estimateAvailable &&
+      prev.needsConfirmation === summary.needsConfirmation &&
+      prev.confirmed === summary.confirmed &&
+      prev.relevantTotal === summary.relevantTotal
+    ) {
+      return;
+    }
+    summarySentRef.current = summary;
     onSummaryChange?.(summary);
   }, [summary, onSummaryChange]);
 
@@ -4824,12 +5030,18 @@ function CollapsibleQuickMeasurements({
     [scheduleWetAreaCommit]
   );
 
+  // Optimistic garage steppers — never call parent setMeasurements inside the updater
+  // (that triggers "Cannot update a component while rendering a different component").
   const [garageDoorSteppers, setGarageDoorSteppers] = useState({
     single: measurements.garageDoorSingleCount ?? 0,
     double: measurements.garageDoorDoubleCount ?? 0,
     rv: measurements.garageDoorRvCount ?? 0,
   });
+  const garageDoorGenRef = useRef(0);
+  const garageDoorAppliedGenRef = useRef(0);
+  const latestGarageDoorRef = useRef(garageDoorSteppers);
   useEffect(() => {
+    if (garageDoorGenRef.current !== garageDoorAppliedGenRef.current) return;
     setGarageDoorSteppers({
       single: measurements.garageDoorSingleCount ?? 0,
       double: measurements.garageDoorDoubleCount ?? 0,
@@ -4841,37 +5053,56 @@ function CollapsibleQuickMeasurements({
     measurements.garageDoorRvCount,
   ]);
 
+  const scheduleGarageDoorCommit = useCallback(
+    (
+      next: { single: number; double: number; rv: number },
+      gen: number
+    ) => {
+      latestGarageDoorRef.current = next;
+      queueMicrotask(() => {
+        if (gen !== garageDoorGenRef.current) return;
+        const latest = latestGarageDoorRef.current;
+        const total = latest.single + latest.double + latest.rv;
+        startTransition(() => {
+          setMeasurements((m) => {
+            const itemQuantities = { ...(m.itemQuantities || {}) };
+            if (total > 0) {
+              itemQuantities.garage_doors = {
+                quantity: String(total),
+                unit: 'each',
+                quantitySource: 'user_entered',
+              };
+            } else {
+              delete itemQuantities.garage_doors;
+            }
+            return {
+              ...m,
+              garageDoorSingleCount: latest.single > 0 ? latest.single : null,
+              garageDoorDoubleCount: latest.double > 0 ? latest.double : null,
+              garageDoorRvCount: latest.rv > 0 ? latest.rv : null,
+              itemQuantities,
+            };
+          });
+          garageDoorAppliedGenRef.current = garageDoorGenRef.current;
+          onGarageDoorCountsChange?.(total > 0 ? total : null);
+        });
+      });
+    },
+    [onGarageDoorCountsChange, setMeasurements]
+  );
+
   const adjustGarageDoorType = useCallback(
     (type: GarageDoorType, delta: number) => {
+      const gen = ++garageDoorGenRef.current;
       setGarageDoorSteppers((prev) => {
         const current = prev[type] ?? 0;
         const nextVal = Math.max(0, Math.min(6, current + delta));
         const next = { ...prev, [type]: nextVal };
-        const total = next.single + next.double + next.rv;
-        setMeasurements((m) => {
-          const itemQuantities = { ...(m.itemQuantities || {}) };
-          if (total > 0) {
-            itemQuantities.garage_doors = {
-              quantity: String(total),
-              unit: 'each',
-              quantitySource: 'user_entered',
-            };
-          } else {
-            delete itemQuantities.garage_doors;
-          }
-          return {
-            ...m,
-            garageDoorSingleCount: next.single > 0 ? next.single : null,
-            garageDoorDoubleCount: next.double > 0 ? next.double : null,
-            garageDoorRvCount: next.rv > 0 ? next.rv : null,
-            itemQuantities,
-          };
-        });
-        onGarageDoorCountsChange?.(total > 0 ? total : null);
+        scheduleGarageDoorCommit(next, gen);
         return next;
       });
     },
-    [onGarageDoorCountsChange, setMeasurements]
+    [scheduleGarageDoorCommit]
   );
 
   const showGarageDoorSteppers =
@@ -5048,6 +5279,21 @@ function CollapsibleQuickMeasurements({
 
   const setField = useCallback(
     (key: QuickMeasurementFieldKey, value: string) => {
+      // Activate section-pinning only when the user types — never on bare focus/tap.
+      const home = editingHomeRef.current;
+      if (
+        editingFieldKeyRef.current === key &&
+        !editingPinActiveRef.current &&
+        home.homeGroup &&
+        home.homeIndex != null &&
+        home.variant
+      ) {
+        editingPinActiveRef.current = true;
+        setEditingFieldKey(key);
+        setEditingHomeGroup(home.homeGroup);
+        setEditingHomeIndex(home.homeIndex);
+        setEditingVariant(home.variant);
+      }
       setMeasurements((prev) => ({
         ...prev,
         [key]: value,
@@ -5160,12 +5406,14 @@ function CollapsibleQuickMeasurements({
       variant: 'calm' | 'needs_confirmation' | 'suggestion' | 'more',
       estimate: QuickMeasurementEstimate | null
     ) => {
+      // Refs only — setState on focus re-renders the list and glitches the yellow inputs.
+      const switchingField = editingFieldKeyRef.current !== key;
       editingFieldKeyRef.current = key;
       editingEstimateRef.current = estimate;
-      setEditingFieldKey(key);
-      setEditingHomeGroup(homeGroup);
-      setEditingHomeIndex(homeIndex);
-      setEditingVariant(variant);
+      editingHomeRef.current = { homeGroup, homeIndex, variant };
+      if (switchingField) {
+        editingPinActiveRef.current = false;
+      }
     },
     []
   );
@@ -5174,6 +5422,8 @@ function CollapsibleQuickMeasurements({
     if (editingFieldKeyRef.current !== key) return;
     editingFieldKeyRef.current = null;
     editingEstimateRef.current = null;
+    editingPinActiveRef.current = false;
+    editingHomeRef.current = { homeGroup: null, homeIndex: null, variant: null };
     setEditingFieldKey(null);
     setEditingHomeGroup(null);
     setEditingHomeIndex(null);
@@ -5402,10 +5652,10 @@ function CollapsibleQuickMeasurements({
 
           {showGarageDoorSteppers ? (
             <View style={[styles.quickMeasurementSection, { marginTop: 4 }]}>
-              {sectionTitle('Garage doors')}
+              {sectionTitle('Garage doors', darkMode ? '#F5F7FA' : Colors.text)}
               <Text
                 style={{
-                  color: captionColor(darkMode, Colors),
+                  color: darkMode ? 'rgba(245,247,250,0.78)' : Colors.sub,
                   fontSize: 11,
                   lineHeight: 15,
                   marginBottom: 6,
@@ -5644,6 +5894,27 @@ export default function AIEstimateScopeAssumptionsModal({
   const scrollRef = useRef<ScrollView>(null);
   const scrollContentRef = useRef<View>(null);
   const quickMeasurementsRef = useRef<View>(null);
+
+  /** Sum of Applied Confirm Scope prices — used for $/living SF before Step 3 sync. */
+  const step2AppliedEstimateTotal = useMemo(() => {
+    let total = 0;
+    for (const item of items) {
+      if (!checklistItemInScope(item)) continue;
+      if (
+        !hasAcceptedScopePricing(
+          item.id,
+          measurements.itemQuantities,
+          measurements.pricingAcceptance
+        )
+      ) {
+        continue;
+      }
+      const live = liveScopeMoneyFromQuantities(item.id, measurements.itemQuantities);
+      if (live != null && live > 0) total += live;
+    }
+    return Math.round(total * 100) / 100;
+  }, [items, measurements.itemQuantities, measurements.pricingAcceptance]);
+
   const benchmarkFetchKey = useMemo(
     () =>
       JSON.stringify({
@@ -5654,9 +5925,7 @@ export default function AIEstimateScopeAssumptionsModal({
         patioPorchSf: Number(measurements.deckSqft || 0),
         drywallSf: Number(measurements.drywallSqft || 0),
         roofSquares: Number(measurements.roofSquares || 0),
-        estimateTotal: Number(
-          draft?.calculatedTotal || draft?.statedTotal || draft?.calculatedLineItemTotal || 0
-        ),
+        estimateTotal: step2AppliedEstimateTotal,
       }),
     [
       visible,
@@ -5666,9 +5935,7 @@ export default function AIEstimateScopeAssumptionsModal({
       measurements.deckSqft,
       measurements.drywallSqft,
       measurements.roofSquares,
-      draft?.calculatedTotal,
-      draft?.statedTotal,
-      draft?.calculatedLineItemTotal,
+      step2AppliedEstimateTotal,
     ]
   );
 
@@ -5688,6 +5955,11 @@ export default function AIEstimateScopeAssumptionsModal({
       estimateTotal: number;
     };
     if (!context.visible || !context.itemIds.length || !(context.livingSf > 0)) return;
+    // Wait until Confirm Scope has Applied dollars before computing $/living SF.
+    if (!(context.estimateTotal > 0)) {
+      setBenchmarkReasonableness(null);
+      return;
+    }
     let cancelled = false;
     void fetchBenchmarkSuggestions({
       itemIds: context.itemIds,
@@ -5932,6 +6204,7 @@ export default function AIEstimateScopeAssumptionsModal({
         : row
     );
     if (String(checklist?.templateKey || '').toLowerCase() === 'ground_up') {
+      expanded = ensureGroundUpFlatworkScopeCard(expanded);
       expanded = ensureGroundUpOpeningScopeCards(expanded);
     }
     if (!measurementSemanticsV1Enabled() || !benchmarkEngineV1Enabled()) return expanded;
@@ -5972,7 +6245,12 @@ export default function AIEstimateScopeAssumptionsModal({
     return [...expanded, stageCard];
   }, [items, checklist?.templateKey]);
 
-  // Keep Garage doors Yes + Structure open when QM type counts are set.
+  // Keep Garage doors Yes when QM type counts are set.
+  // Never expand Structure while Quick measurements is open — that reflows the
+  // ScrollView, steals TextInput focus, and makes Needs confirmation feel glitchy.
+  // Read open-state from a ref so toggling QM does not re-run item sync.
+  const quickMeasurementsOpenRef = useRef(quickMeasurementsOpen);
+  quickMeasurementsOpenRef.current = quickMeasurementsOpen;
   useEffect(() => {
     if (!visible) return;
     if (String(checklist?.templateKey || '').toLowerCase() !== 'ground_up') return;
@@ -5980,19 +6258,18 @@ export default function AIEstimateScopeAssumptionsModal({
       (Number(measurements.garageDoorSingleCount) || 0) +
       (Number(measurements.garageDoorDoubleCount) || 0) +
       (Number(measurements.garageDoorRvCount) || 0);
+    if (total <= 0) return;
     setItems((prev) => {
       let next = ensureGroundUpOpeningScopeCards(prev);
-      if (total > 0) {
-        next = next.map((row) =>
-          row.id === 'garage_doors' ? { ...row, state: 'included' as const } : row
-        );
-      }
+      next = next.map((row) =>
+        row.id === 'garage_doors' ? { ...row, state: 'included' as const } : row
+      );
       const same =
         next.length === prev.length &&
         next.every((row, idx) => row.id === prev[idx]?.id && row.state === prev[idx]?.state);
       return same ? prev : next;
     });
-    if (total > 0) {
+    if (!quickMeasurementsOpenRef.current) {
       setCollapsedGroups((prev) =>
         prev.Structure === false ? prev : { ...prev, Structure: false }
       );
@@ -6004,6 +6281,29 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.garageDoorDoubleCount,
     measurements.garageDoorRvCount,
   ]);
+
+  // Keep Exterior concrete flatwork Yes when QM SF is set (no Structure expand during QM edit).
+  useEffect(() => {
+    if (!visible) return;
+    if (String(checklist?.templateKey || '').toLowerCase() !== 'ground_up') return;
+    const flatworkSf = Number(measurements.concreteSqft) || 0;
+    if (flatworkSf <= 0) return;
+    setItems((prev) => {
+      let next = ensureGroundUpFlatworkScopeCard(prev);
+      next = next.map((row) =>
+        row.id === 'pour_flatwork' ? { ...row, state: 'included' as const } : row
+      );
+      const same =
+        next.length === prev.length &&
+        next.every((row, idx) => row.id === prev[idx]?.id && row.state === prev[idx]?.state);
+      return same ? prev : next;
+    });
+    if (!quickMeasurementsOpenRef.current) {
+      setCollapsedGroups((prev) =>
+        prev.Structure === false ? prev : { ...prev, Structure: false }
+      );
+    }
+  }, [visible, checklist?.templateKey, measurements.concreteSqft]);
 
   const normMeasurements = useMemo(
     () => buildNormFromInput(measurements, scopeNotes, checklist?.templateKey),
@@ -6356,7 +6656,7 @@ export default function AIEstimateScopeAssumptionsModal({
                   },
                   roughAllowanceSubKey(itemId),
                   quantity
-                ) ?? undefined
+                )
               )
             : prev.pricingAcceptance,
       }));
@@ -6450,8 +6750,7 @@ export default function AIEstimateScopeAssumptionsModal({
                 prev.pricingAcceptance?.[baseItemId],
                 baseItemId,
                 prev.pricingAcceptance,
-                moneyTotalAfterQuantityEdit(baseItemId, itemQuantities, itemId, quantity) ??
-                  undefined
+                moneyTotalAfterQuantityEdit(baseItemId, itemQuantities, itemId, quantity)
               )
             : prev.pricingAcceptance;
 
@@ -6467,7 +6766,14 @@ export default function AIEstimateScopeAssumptionsModal({
   };
 
   const handleBatchItemQuantityChange = useCallback(
-    (updates: Array<{ itemId: string; quantity: string; unit?: string }>) => {
+    (
+      updates: Array<{
+        itemId: string;
+        quantity: string;
+        unit?: string;
+        quantitySource?: 'user_entered' | 'suggested_prefill';
+      }>
+    ) => {
       if (!updates.length) return;
       setMeasurementsSynced((prev) => {
         const itemQuantities = { ...prev.itemQuantities };
@@ -6475,12 +6781,17 @@ export default function AIEstimateScopeAssumptionsModal({
         for (const update of updates) {
           const baseItemId = update.itemId.replace(/__(allowance|sqft_basis|material|labor)$/, '');
           const rule = getChecklistItemQuantityRuleOrDefault(baseItemId, checklist?.templateKey);
+          const quantitySource = update.quantitySource || 'user_entered';
           itemQuantities[update.itemId] = {
             quantity: update.quantity,
             unit: update.unit || (rule?.dualAllowanceField ? 'each' : rule.defaultUnit),
-            quantitySource: 'user_entered',
+            quantitySource,
           };
-          if (/__(allowance|sqft_basis|material|labor)$/.test(update.itemId)) {
+          // Prefill from Suggest must not create acceptance / hide the Apply card.
+          if (
+            quantitySource !== 'suggested_prefill' &&
+            /__(allowance|sqft_basis|material|labor)$/.test(update.itemId)
+          ) {
             pricingAcceptance = markManualPricingAdjustment(
               pricingAcceptance?.[baseItemId],
               baseItemId,
@@ -6490,7 +6801,7 @@ export default function AIEstimateScopeAssumptionsModal({
                 itemQuantities,
                 update.itemId,
                 update.quantity
-              ) ?? undefined
+              )
             );
           }
         }
@@ -6498,6 +6809,55 @@ export default function AIEstimateScopeAssumptionsModal({
       });
     },
     [checklist?.templateKey, setMeasurementsSynced]
+  );
+
+  const handleClearSuggestedPrefill = useCallback(
+    (itemId: string) => {
+      setMeasurementsSynced((prev) => {
+        let itemQuantities = { ...(prev.itemQuantities || {}) };
+        let pricingAcceptance = prev.pricingAcceptance;
+        if (hasOnlySuggestedPrefillPricing(itemQuantities, itemId)) {
+          itemQuantities = clearSuggestedPrefillPricing(itemQuantities, itemId);
+        }
+        // Done after wiping Material + Labor: drop a leftover __allowance total
+        // (e.g. $2 from deleting $2000) so the priced card cannot stick.
+        const materialQty = parsePricingAmount(
+          itemQuantities[`${itemId}__material`]?.quantity
+        );
+        const laborQty = parsePricingAmount(itemQuantities[`${itemId}__labor`]?.quantity);
+        const splitEmpty = !(materialQty > 0) && !(laborQty > 0);
+        if (splitEmpty) {
+          const allowanceKey = `${itemId}__allowance`;
+          const hasLeftoverAllowance = Boolean(
+            parsePricingAmount(itemQuantities[allowanceKey]?.quantity) ||
+              pricingAcceptance?.[itemId]
+          );
+          if (hasLeftoverAllowance || !(liveScopeMoneyFromQuantities(itemId, itemQuantities) > 0)) {
+            const cleared = clearAcceptedScopeItemPricing({
+              itemId,
+              itemQuantities,
+              pricingAcceptance,
+            });
+            itemQuantities = cleared.itemQuantities;
+            pricingAcceptance = cleared.pricingAcceptance;
+          }
+        } else if (!(liveScopeMoneyFromQuantities(itemId, itemQuantities) > 0)) {
+          const cleared = clearAcceptedScopeItemPricing({
+            itemId,
+            itemQuantities,
+            pricingAcceptance,
+          });
+          itemQuantities = cleared.itemQuantities;
+          pricingAcceptance = cleared.pricingAcceptance;
+        }
+        return {
+          ...prev,
+          itemQuantities,
+          pricingAcceptance,
+        };
+      });
+    },
+    [setMeasurementsSynced]
   );
 
   const scrollToFirstMissingMeasurement = useCallback(() => {
@@ -6549,7 +6909,16 @@ export default function AIEstimateScopeAssumptionsModal({
         if (current?.quantity?.trim()) return prev;
         const itemQuantities = { ...prev.itemQuantities };
         delete itemQuantities[key];
-        return { ...prev, itemQuantities };
+        const baseItemId = key.replace(/__(allowance|sqft_basis|material|labor)$/, '');
+        let pricingAcceptance = prev.pricingAcceptance;
+        if (
+          pricingAcceptance?.[baseItemId] &&
+          !(liveScopeMoneyFromQuantities(baseItemId, itemQuantities) > 0)
+        ) {
+          pricingAcceptance = { ...pricingAcceptance };
+          delete pricingAcceptance[baseItemId];
+        }
+        return { ...prev, itemQuantities, pricingAcceptance };
       });
     }, 250);
   };
@@ -6852,11 +7221,37 @@ export default function AIEstimateScopeAssumptionsModal({
     [checklist?.templateKey, persistScopeProgressNow, setMeasurementsSynced]
   );
 
+  const handleClearAcceptedPricing = useCallback(
+    (itemId: string) => {
+      hapticTap();
+      const nextSelected = { ...selectedPricingRef.current };
+      delete nextSelected[itemId];
+      selectedPricingRef.current = nextSelected;
+      setMeasurementsSynced((prev) => {
+        const cleared = clearAcceptedScopeItemPricing({
+          itemId,
+          itemQuantities: prev.itemQuantities || {},
+          pricingAcceptance: prev.pricingAcceptance,
+        });
+        return {
+          ...prev,
+          itemQuantities: cleared.itemQuantities,
+          pricingAcceptance: cleared.pricingAcceptance,
+        };
+      });
+    },
+    [setMeasurementsSynced]
+  );
+
   const handleApplySuggestedPricing = useCallback(
     (itemId: string, block: SuggestedPricingBlock) => {
+      // Stage lumps stay view-only; pure national comparison may be applied.
+      if (block.benchmarkAction === 'included_in_stage') {
+        return;
+      }
       if (
-        block.benchmarkAction === 'comparison_only' ||
-        block.benchmarkAction === 'included_in_stage'
+        block.benchmarkAction === 'comparison_only' &&
+        !isNationalAverageComparisonBlock(block)
       ) {
         return;
       }
@@ -6961,12 +7356,12 @@ export default function AIEstimateScopeAssumptionsModal({
         ? `\n\n${missingStatusDisplayLabel(itemId)}.`
         : '';
       Alert.alert(
-        isTemporary ? 'Apply allowance?' : 'Apply price?',
+        'Apply suggested amount?',
         `${detail}${statusNote}\n\nApply ${formatDisplayMoneyNearest100(block.total)} now? (Exact stored amount: ${formatDraftMoney(block.storedTotalExact ?? block.total)}.)`,
         [
           { text: 'Cancel', style: 'cancel' },
           {
-            text: isTemporary ? 'Apply allowance' : 'Apply price',
+            text: 'Apply',
             onPress: () => applySuggestedPricingNow(itemId, block, true),
           },
         ]
@@ -7184,9 +7579,11 @@ export default function AIEstimateScopeAssumptionsModal({
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
         onBatchItemQuantityChange={handleBatchItemQuantityChange}
+        onClearSuggestedPrefill={handleClearSuggestedPrefill}
         onItemQuantityBlur={handleItemQuantityBlur}
         onItemQuantityFocus={handleItemQuantityFocus}
         onApplySuggestedPricing={handleApplySuggestedPricing}
+        onClearAcceptedPricing={handleClearAcceptedPricing}
         onScopeGapResolutionsChange={handleScopeGapResolutionsChange}
         onScopeGapPriceSeparately={handleScopeGapPriceSeparately}
         onScopeGapIncludeInParentPrice={handleScopeGapIncludeInParentPrice}
@@ -7220,9 +7617,11 @@ export default function AIEstimateScopeAssumptionsModal({
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
         onBatchItemQuantityChange={handleBatchItemQuantityChange}
+        onClearSuggestedPrefill={handleClearSuggestedPrefill}
         onItemQuantityBlur={handleItemQuantityBlur}
         onItemQuantityFocus={handleItemQuantityFocus}
         onApplySuggestedPricing={handleApplySuggestedPricing}
+        onClearAcceptedPricing={handleClearAcceptedPricing}
         onScopeGapResolutionsChange={handleScopeGapResolutionsChange}
         onScopeGapPriceSeparately={handleScopeGapPriceSeparately}
         onScopeGapIncludeInParentPrice={handleScopeGapIncludeInParentPrice}
@@ -7270,9 +7669,11 @@ export default function AIEstimateScopeAssumptionsModal({
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
         onBatchItemQuantityChange={handleBatchItemQuantityChange}
+        onClearSuggestedPrefill={handleClearSuggestedPrefill}
         onItemQuantityBlur={handleItemQuantityBlur}
         onItemQuantityFocus={handleItemQuantityFocus}
         onApplySuggestedPricing={handleApplySuggestedPricing}
+        onClearAcceptedPricing={handleClearAcceptedPricing}
         onScopeGapResolutionsChange={handleScopeGapResolutionsChange}
         onScopeGapPriceSeparately={handleScopeGapPriceSeparately}
         onScopeGapIncludeInParentPrice={handleScopeGapIncludeInParentPrice}
@@ -7308,9 +7709,11 @@ export default function AIEstimateScopeAssumptionsModal({
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
         onBatchItemQuantityChange={handleBatchItemQuantityChange}
+        onClearSuggestedPrefill={handleClearSuggestedPrefill}
         onItemQuantityBlur={handleItemQuantityBlur}
         onItemQuantityFocus={handleItemQuantityFocus}
         onApplySuggestedPricing={handleApplySuggestedPricing}
+        onClearAcceptedPricing={handleClearAcceptedPricing}
         onScopeGapResolutionsChange={handleScopeGapResolutionsChange}
         onScopeGapPriceSeparately={handleScopeGapPriceSeparately}
         onScopeGapIncludeInParentPrice={handleScopeGapIncludeInParentPrice}
@@ -7429,8 +7832,9 @@ export default function AIEstimateScopeAssumptionsModal({
           paddingHorizontal: 16,
           paddingBottom: insets.bottom + (showCustomItemInput ? 220 : 120),
         }}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
         keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets={false}
         showsVerticalScrollIndicator={false}
       >
         <View ref={scrollContentRef} collapsable={false}>
@@ -7546,10 +7950,6 @@ export default function AIEstimateScopeAssumptionsModal({
           applying={applying}
         />
 
-        {benchmarkEngineV1Enabled() && benchmarkReasonableness ? (
-          <BenchmarkReasonablenessCard value={benchmarkReasonableness} darkMode={darkMode} />
-        ) : null}
-
         {groupedItems.map((group) => (
           <ScopeGroupSection
             key={group.title || 'all'}
@@ -7565,6 +7965,13 @@ export default function AIEstimateScopeAssumptionsModal({
             darkMode={darkMode}
           />
         ))}
+
+        {benchmarkEngineV1Enabled() &&
+        benchmarkReasonableness &&
+        unconfirmedSuggestedPricing.length === 0 &&
+        step2AppliedEstimateTotal > 0 ? (
+          <BenchmarkReasonablenessCard value={benchmarkReasonableness} darkMode={darkMode} />
+        ) : null}
 
         <TouchableOpacity
           style={[
@@ -7822,7 +8229,9 @@ const styles = StyleSheet.create({
     minWidth: 72,
   },
   measurementField: {
-    flex: 1,
+    // Stacked full-width fields — avoid flex:1 so keyboard show/hide does not
+    // stretch/shrink rows and make Needs confirmation feel like it jumps.
+    width: '100%',
     minWidth: 0,
   },
   measurementFieldPrimary: {
@@ -8023,6 +8432,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
+  /** Secondary opt-in for national comparison (distinct from green Apply). */
+  useComparisonPricingBtn: {
+    marginTop: 10,
+    alignSelf: 'stretch',
+    minHeight: 44,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(251, 191, 36, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(251, 191, 36, 0.4)',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  useComparisonPricingBtnText: {
+    color: '#fbbf24',
+    fontSize: 15,
+    fontWeight: '700',
+  },
   includedPillRow: {
     marginTop: 10,
     marginBottom: 2,
@@ -8182,16 +8610,13 @@ const styles = StyleSheet.create({
   },
   budgetSplitPanel: {
     marginTop: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   compactSuggestedRow: {
     marginTop: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -8285,6 +8710,13 @@ const styles = StyleSheet.create({
   },
   editQuantityLink: {
     color: '#60a5fa',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 10,
+  },
+  /** Amber disclosure — distinct from blue Edit. */
+  compareQuantityLink: {
+    color: '#fbbf24',
     fontSize: 12,
     fontWeight: '700',
     marginTop: 10,

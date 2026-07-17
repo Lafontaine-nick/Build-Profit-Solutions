@@ -445,19 +445,25 @@ function parsePageFactsFromText(text, { page = null, sheet = null } = {}) {
     /Roof\s*Deck\s*:\s*([\d,]+(?:\.\d+)?)\s*(?:Sq\.?\s*Ft|SF|SQFT)\b/i,
   ]);
 
-  // "Main Living Area" is a cover total, but on a plan with no separate floor
-  // labels it is also explicit evidence of the only labeled living floor.
+  // "Main Living Area" on cover sheets is usually the *total* living SF (also
+  // captured above). Only treat it as the first-floor footprint when it differs
+  // from the cover total — otherwise 2-story plans double-count upstairs as roof.
   const mainLiving = labeledNumber(t, [
     /Main\s*Living\s*Area\s*:\s*([\d,]+(?:\.\d+)?)\s*(?:Sq\.?\s*Ft|SF|SQFT)\b/i,
   ]);
   if (mainLiving && buildingAreas.mainFloorLivingSqft == null) {
-    buildingAreas.mainFloorLivingSqft = mainLiving.value;
-    fieldEvidence['buildingAreas.mainFloorLivingSqft'] = {
-      value: mainLiving.value,
-      sourceType: 'detected_from_plan',
-      confidence: 'high',
-      evidence: [evidenceFor('mainFloorLivingSqft', mainLiving.sourceText, page, sourceSheet)],
-    };
+    const coverTotal = buildingAreas.totalLivingSqft;
+    const isCoverTotalAlias =
+      coverTotal != null && Math.abs(Number(coverTotal) - mainLiving.value) < 1;
+    if (!isCoverTotalAlias) {
+      buildingAreas.mainFloorLivingSqft = mainLiving.value;
+      fieldEvidence['buildingAreas.mainFloorLivingSqft'] = {
+        value: mainLiving.value,
+        sourceType: 'detected_from_plan',
+        confidence: 'high',
+        evidence: [evidenceFor('mainFloorLivingSqft', mainLiving.sourceText, page, sourceSheet)],
+      };
+    }
   }
 
   const roofPitch = parsePitch(t);

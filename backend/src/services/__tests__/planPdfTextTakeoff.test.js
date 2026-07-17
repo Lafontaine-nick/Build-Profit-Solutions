@@ -43,9 +43,10 @@ describe('planPdfTextTakeoff', () => {
   test('parseScheduleFromText reads cover-sheet square footage', () => {
     const text =
       'Sand Hollow Village Lot 41 Square Footage: Main Living Area: 1,879 SqFt Garages: 994 SqFt Covered Patio: 247 SqFt';
+    // Cover "Main Living Area" is the total — not promoted to mainFloor (avoids
+    // 2-story plans treating cover total as the roof footprint).
     expect(parseScheduleFromText(text)).toEqual({
       totalLivingSqft: 1879,
-      mainFloorLivingSqft: 1879,
       garageSqft: 994,
       coveredPatioSqft: 247,
     });

@@ -39,6 +39,7 @@ type Props = {
   suggestingMissingPrices?: boolean;
   onSuggestRoughPrices?: () => void;
   roughRangeLoading?: boolean;
+  roughPricingUnavailable?: boolean;
   onAddPricesManually?: () => void;
   onContinueUnpriced?: () => void;
   onRegenerate: () => void;
@@ -56,6 +57,7 @@ export default function AIEstimateDraftReviewScopeOnly({
   suggestingMissingPrices,
   onSuggestRoughPrices,
   roughRangeLoading,
+  roughPricingUnavailable = false,
   onAddPricesManually,
   onContinueUnpriced,
   onRegenerate,
@@ -124,6 +126,7 @@ export default function AIEstimateDraftReviewScopeOnly({
           suggestingMissingPrices={suggestingMissingPrices}
           onSuggestRoughPrices={onSuggestRoughPrices}
           roughRangeLoading={roughRangeLoading}
+          roughPricingUnavailable={roughPricingUnavailable}
           onAddPricesManually={onAddPricesManually}
           onContinueUnpriced={onContinueUnpriced}
         />

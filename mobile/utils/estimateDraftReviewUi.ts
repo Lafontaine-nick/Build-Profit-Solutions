@@ -212,6 +212,17 @@ export function compactPackageAmount(
   return null;
 }
 
+/** Live sum of what Step 3 rows display — preferred over stale calculatedLineItemTotal. */
+export function sumLiveScopePackageTotals(draft: EstimateAiDraft | null | undefined): number {
+  if (!draft) return 0;
+  let total = 0;
+  for (const pkg of getScopePackages(draft)) {
+    const amount = scopePackagePricedAmount(pkg, draft);
+    if (amount > 0) total += amount;
+  }
+  return Math.round(total * 100) / 100;
+}
+
 export function getCompactProjectSummary(draft: EstimateAiDraft): string {
   const parts: string[] = [];
   const formatLabel = (raw: string) => {
@@ -401,6 +412,7 @@ export function getUniformStatusLabel(packages: EstimateDraftScopePackage[]): st
   if (!shouldHidePerRowStatus(packages)) return null;
   const status = packages[0].status;
   if (status === 'partial_pricing') return 'Partial pricing on all items';
-  if (status === 'user_provided' || status === 'confirmed') return 'Totals from your notes';
+  // Confirm Scope / Suggested Pricing also mark packages user_provided — not "from notes".
+  if (status === 'user_provided' || status === 'confirmed') return 'All items have prices';
   return null;
 }

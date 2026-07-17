@@ -444,7 +444,7 @@ function migrateGroundUpTakeoffScopeItems(
     inject(
       'exterior_doors',
       'Exterior doors',
-      'Swing entry/exit doors — material and install. Not sliding or garage.',
+      'Swing entry/exit doors including iron/specialty entry — material and install. Not sliding, garage, or site gates.',
       hasExtDoors
     );
     inject(
@@ -546,11 +546,25 @@ function migrateGroundUpTakeoffScopeItems(
   };
 
   ensure('excavation', 'Excavation', 'Excavation CY for material and labor.', 'sitework', 'sitework');
+  ensure(
+    'landscaping',
+    'Landscaping / site walls & gates',
+    'Landscaping, exterior site walls, fences & gates package. Not driveway flatwork or iron entry doors.',
+    'sitework',
+    'utility_taps'
+  );
+  ensure(
+    'pour_flatwork',
+    'Exterior concrete flatwork',
+    'Driveway, walkways, porch, and exterior patio slabs — not the house or garage slab. SF takeoff preferred; local allowance when SF is unknown.',
+    'structural',
+    'foundation'
+  );
   ensure('windows', 'Windows', 'Window count for material and labor.', 'exterior', 'exterior');
   ensure(
     'exterior_doors',
     'Exterior doors',
-    'Swing entry/exit doors — material and install. Not sliding or garage.',
+    'Swing entry/exit doors including iron/specialty entry — material and install. Not sliding, garage, or site gates.',
     'exterior',
     'windows'
   );
@@ -590,6 +604,20 @@ function migrateGroundUpTakeoffScopeItems(
     'plumbing_rough'
   );
   ensure('hvac', 'HVAC', 'System count (or tons) for material and labor.', 'mep', 'electrical_rough');
+  ensure(
+    'plumbing_trim',
+    'Plumbing fixtures & trim',
+    'Plumbing fixtures and trim-out package (toilets, faucets, trim). Not plumbing rough-in.',
+    'mep',
+    'hvac'
+  );
+  ensure(
+    'electrical_trim',
+    'Electrical fixtures',
+    'Light fixtures and finish electrical — material and install. Not electrical rough-in.',
+    'mep',
+    'plumbing_trim'
+  );
   ensure('cabinets', 'Cabinets / vanity', 'Cabinet and vanity LF — kitchen, baths, laundry.', 'finishes', 'drywall');
   ensure('countertops', 'Counters', 'Countertop sqft — kitchen, baths, and elsewhere.', 'finishes', 'cabinets');
   ensure('floor_tile', 'Bath floor tile', 'Bathroom floor tile labor and materials.', 'finishes', 'tile_flooring');
@@ -640,11 +668,67 @@ function migrateGroundUpTakeoffScopeItems(
     if (i.id === 'sitework' && /excavation/i.test(i.label || '')) {
       return { ...i, label: 'Sitework' };
     }
+    if (i.id === 'pour_flatwork') {
+      return {
+        ...i,
+        label: 'Exterior concrete flatwork',
+        helperText:
+          'Driveway, walkways, porch, and exterior patio slabs — not the house or garage slab. SF takeoff preferred; local allowance when SF is unknown.',
+        category: i.category || 'structural',
+      };
+    }
+    if (i.id === 'landscaping') {
+      return {
+        ...i,
+        label: 'Landscaping / site walls & gates',
+        helperText:
+          'Landscaping, exterior site walls, fences & gates package. Not driveway flatwork or iron entry doors.',
+        category: i.category || 'sitework',
+      };
+    }
+    if (i.id === 'plumbing_trim') {
+      return {
+        ...i,
+        label: 'Plumbing fixtures & trim',
+        helperText:
+          'Plumbing fixtures and trim-out package (toilets, faucets, trim). Not plumbing rough-in.',
+        category: i.category || 'mep',
+      };
+    }
+    if (i.id === 'electrical_trim') {
+      return {
+        ...i,
+        label: 'Electrical fixtures',
+        helperText:
+          'Light fixtures and finish electrical — material and install. Not electrical rough-in.',
+        category: i.category || 'mep',
+      };
+    }
     return i;
   });
 
+  next = ensureGroundUpFlatworkScopeCard(next);
   next = ensureGroundUpOpeningScopeCards(next);
   return applyGroundUpStageHostDemotions(next, templateKey);
+}
+
+/** Guarantee exterior flatwork card exists for ground-up UI (after Foundation). */
+export function ensureGroundUpFlatworkScopeCard(items: ScopeChecklistItem[]): ScopeChecklistItem[] {
+  if (items.some((i) => i.id === 'pour_flatwork')) return items;
+  const next = [...items];
+  const item: ScopeChecklistItem = {
+    id: 'pour_flatwork',
+    label: 'Exterior concrete flatwork',
+    helperText:
+      'Driveway, walkways, porch, and exterior patio slabs — not the house or garage slab. SF takeoff preferred; local allowance when SF is unknown.',
+    inputType: 'yes_no',
+    state: 'unsure',
+    category: 'structural',
+  };
+  const afterIdx = next.findIndex((i) => i.id === 'foundation');
+  if (afterIdx >= 0) next.splice(afterIdx + 1, 0, item);
+  else next.push(item);
+  return next;
 }
 
 /** Guarantee windows / exterior / sliding / garage door cards exist for ground-up UI. */
@@ -673,7 +757,7 @@ export function ensureGroundUpOpeningScopeCards(items: ScopeChecklistItem[]): Sc
   ensure(
     'exterior_doors',
     'Exterior doors',
-    'Swing entry/exit doors — material and install. Not sliding or garage.',
+    'Swing entry/exit doors including iron/specialty entry — material and install. Not sliding, garage, or site gates.',
     'windows'
   );
   ensure(
@@ -706,8 +790,14 @@ export function applyGroundUpStageHostDemotions(
     'windows_doors',
     'stucco',
   ];
-  const mepChildIds = ['plumbing_rough', 'electrical_rough', 'hvac'];
-  const siteChildIds = ['excavation'];
+  const mepChildIds = [
+    'plumbing_rough',
+    'electrical_rough',
+    'hvac',
+    'plumbing_trim',
+    'electrical_trim',
+  ];
+  const siteChildIds = ['excavation', 'landscaping'];
   const finishChildIds = [
     'drywall',
     'paint_trim',
@@ -1071,13 +1161,21 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   electrical_rough: 'Circuits / boxes / devices for material and labor.',
   hvac: 'System count (or tons) for material and labor — not living SF.',
   windows: 'Window count for material and labor.',
-  exterior_doors: 'Swing entry/exit doors — material and install. Not sliding or garage.',
-  sliding_doors: 'Patio / multi-panel sliding doors — material and install.',
+  exterior_doors:
+    'Swing entry/exit doors including iron/specialty entry — material and install. Not sliding, garage, or site gates.',
+  sliding_doors:
+    'Patio / multi-panel sliding doors — material and install. Large multi-panel packages vary widely.',
   garage_doors:
     'Priced by type: single (~$1,800), double (~$2,400), RV (~$8,300). Double+RV ≈ $10,700 locally.',
   windows_doors: 'Opening count for material and labor.',
   excavation: 'Excavation CY for material and labor.',
+  landscaping:
+    'Landscaping, exterior site walls, fences & gates package. Not driveway flatwork or iron entry doors.',
   foundation: 'Foundation / slab concrete CY for material and labor.',
+  pour_flatwork:
+    'Driveway, walkways, porch, and exterior patio slabs — not the house or garage slab.',
+  plumbing_trim: 'Plumbing fixtures and trim-out package. Not plumbing rough-in.',
+  electrical_trim: 'Light fixtures and finish electrical — material and install. Not electrical rough-in.',
   roofing: 'Roof squares for material and labor.',
   paint_trim: 'Wall/ceiling paint surface sqft for material and labor.',
   interior_paint: 'Paintable wall/ceiling SF (physical). Local budgets are installed lump sums.',
@@ -1252,11 +1350,15 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
   ],
   ground_up: [
     { title: 'Preconstruction', itemIds: ['plans_engineering', 'permits'] },
-    { title: 'Sitework', itemIds: ['sitework', 'excavation', 'utility_taps'] },
+    {
+      title: 'Sitework',
+      itemIds: ['sitework', 'excavation', 'utility_taps', 'landscaping'],
+    },
     {
       title: 'Structure',
       itemIds: [
         'foundation',
+        'pour_flatwork',
         'framing',
         'roofing',
         'exterior',
@@ -1269,7 +1371,15 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     },
     {
       title: 'MEP & Envelope',
-      itemIds: ['mep_rough', 'plumbing_rough', 'electrical_rough', 'hvac', 'insulation'],
+      itemIds: [
+        'mep_rough',
+        'plumbing_rough',
+        'electrical_rough',
+        'hvac',
+        'plumbing_trim',
+        'electrical_trim',
+        'insulation',
+      ],
     },
     {
       title: 'Finishes',

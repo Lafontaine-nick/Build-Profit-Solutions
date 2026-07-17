@@ -247,6 +247,26 @@ describe('pinQuickMeasurementFieldInGroup', () => {
     expect(pinned.confirmed.map((r) => r.key)).not.toContain('bathroomFloorSqft');
     expect(pinned.needsConfirmation[bathIndex].key).toBe('bathroomFloorSqft');
   });
+
+  test('returns the same groups object when the field is already pinned in place', () => {
+    const rows = groundUpRows();
+    const results = resolveQuickMeasurementFields({
+      rows,
+      measurements: { ...emptyQuickMeasurementInput(), floorAreaSqft: '1879' },
+      includedScopeKeys: ['tile_flooring', 'cabinets', 'pour_flatwork'],
+    });
+    const groups = groupQuickMeasurementFields(results);
+    const concreteIndex = groups.needsConfirmation.findIndex((r) => r.key === 'concreteSqft');
+    expect(concreteIndex).toBeGreaterThanOrEqual(0);
+
+    const pinned = pinQuickMeasurementFieldInGroup(
+      groups,
+      'concreteSqft',
+      'needsConfirmation',
+      concreteIndex
+    );
+    expect(pinned).toBe(groups);
+  });
 });
 
 describe('tagPlanDetectedQuickMeasurementKeys', () => {

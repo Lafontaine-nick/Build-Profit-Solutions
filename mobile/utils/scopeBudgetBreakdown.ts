@@ -141,11 +141,14 @@ function breakdownFromKnownLegs(params: {
         basis: basis ?? null,
       };
     }
-    // Over-split: still show the known legs against package total.
+    // Over-split: scale legs to the package total so Step 3 Materials + Labor
+    // never exceeds the row / Calculated total.
+    const scale = total / (material + labor);
+    const scaledMaterial = Math.round(material * scale * 100) / 100;
     return {
       total,
-      material,
-      labor,
+      material: scaledMaterial,
+      labor: Math.max(0, Math.round((total - scaledMaterial) * 100) / 100),
       materialSource: source,
       laborSource: source,
       basis: basis ?? null,

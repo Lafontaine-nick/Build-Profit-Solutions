@@ -20,6 +20,7 @@ import {
   getNationalAverageBudgetSplit,
   getRegionalAdjustedNationalAverageBudgetSplit,
 } from '@/utils/scopeItemQuantities';
+import { getBuilderBudgetSoftCostAllowance } from '@/utils/southernUtahCalibratedRates';
 import {
   lookupRuleKeyForBudgetPackage,
   packageNeedsSuggestedBudgetSplit,
@@ -239,12 +240,18 @@ const NATIONAL_TRADE_AVERAGES_LOCAL: Record<
   },
   drywall: {
     unit: 'sqft',
-    material: 1.5,
-    labor: 3,
+    material: 0.85,
+    labor: 1.25,
     materialLabel: 'Drywall materials (wall/ceiling surface)',
     laborLabel: 'Drywall labor (wall/ceiling surface)',
   },
-  roofing: { unit: 'square', material: 350, labor: 450, materialLabel: 'Roofing materials', laborLabel: 'Roofing labor' },
+  roofing: {
+    unit: 'square',
+    material: 250,
+    labor: 325,
+    materialLabel: 'Roofing materials',
+    laborLabel: 'Roofing labor',
+  },
   concrete: { unit: 'sqft', material: 4, labor: 6, materialLabel: 'Concrete materials', laborLabel: 'Concrete labor' },
   sitework: { unit: 'sqft', material: 1.5, labor: 4, materialLabel: 'Site prep materials/equipment', laborLabel: 'Site prep labor' },
   utility_trenching: { unit: 'lf', material: 8, labor: 22, materialLabel: 'Trenching materials/equipment', laborLabel: 'Trenching labor' },
@@ -466,10 +473,12 @@ function inferTradeFromPackage(pkg: EstimateDraftScopePackage, draft: EstimateAi
   if (/\b(hvac|mini\s*split|heat\s*pump)\b/.test(scopeBlob)) return 'hvac';
   if (/\binsulation|insulate\b/.test(scopeBlob)) return 'insulation';
   if (/\bwindow|door\b/.test(scopeBlob)) return 'windows_doors';
-  if (/\b(exterior|siding|stucco|finish)\b/.test(scopeBlob)) return 'exterior';
+  if (/\bstucco\b/.test(scopeBlob) && !/\b(?:paint|painting)\b/.test(scopeBlob)) return 'stucco';
+  if (/\b(exterior|siding|finish)\b/.test(scopeBlob)) return 'exterior';
   if (/\b(roof|shingle)\b/.test(scopeBlob)) return 'roofing';
   if (/\b(concrete|slab|foundation|footing|deck|patio)\b/.test(scopeBlob)) return 'concrete';
-  if (/\b(kitchen|cabinet|counter)\b/.test(scopeBlob)) return 'kitchen';
+  if (/\b(counters?|counter\s*tops?|countertops?)\b/.test(scopeBlob)) return 'countertops';
+  if (/\b(kitchen|cabinet)\b/.test(scopeBlob)) return 'kitchen';
   if (/\b(bath|shower|vanity)\b/.test(scopeBlob)) {
     if (isShowerWaterproofingPackage(pkg.name, pkg.scope || '')) return 'shower_waterproofing';
     if (isShowerTilePackage(pkg.name, pkg.scope || '')) return 'shower_tile';
@@ -1574,6 +1583,17 @@ function isCloseoutScopePackage(name: string, scope = ''): boolean {
   return isCleanupPackage(name) || isPermitsPackage(name) || isCleanupPackage(blob) || isPermitsPackage(blob);
 }
 
+/** Scopes that must not silently price on whole-home living SF from package qty stamps. */
+const PLANNING_BASIS_RULE_KEYS = new Set([
+  'countertops',
+  'stucco',
+  'cabinets',
+  'excavation',
+  'foundation',
+  'pour_foundation',
+  'hvac',
+]);
+
 function pickPackageQuantity(
   pkg: EstimateDraftScopePackage,
   originalNotes = '',
@@ -1605,6 +1625,48 @@ function pickPackageQuantity(
     if (!q || q.quantity == null || Number(q.quantity) <= 0 || !q.unit) return false;
     return !isPlaceholderAllowancePricing(Number(q.quantity), q.unit, ruleKey);
   };
+
+  // Prefer Confirm Scope / Suggest planning basis before stamped living-SF package qty
+  // (Counters used to inherit 3,098 living SF → kitchen $/SF → ~$465k).
+  if (draft && ruleKey && PLANNING_BASIS_RULE_KEYS.has(ruleKey)) {
+    const measurements = normalizeScopeMeasurements(draft.scopeMeasurements);
+    const resolved = resolveChecklistItemQuantity(ruleKey, measurements, { templateKey });
+    const living = Number(measurements.floorAreaSqft);
+    const looksLikeLiving = (qty: number) =>
+      Number.isFinite(living) &&
+      living > 0 &&
+      Math.abs(qty - living) < Math.max(1, living * 0.02);
+    if (
+      resolved.pricingReady &&
+      resolved.quantity != null &&
+      resolved.quantity > 0 &&
+      !(ruleKey === 'countertops' && looksLikeLiving(Number(resolved.quantity)))
+    ) {
+      return { quantity: resolved.quantity, unit: resolved.unit };
+    }
+    if (String(templateKey || '').toLowerCase() === 'ground_up') {
+      if (ruleKey === 'countertops') {
+        const tops = Number(measurements.countertopSqft);
+        if (Number.isFinite(tops) && tops > 0) return { quantity: tops, unit: 'sqft' };
+        return { quantity: 80, unit: 'sqft' };
+      }
+      if (ruleKey === 'stucco') {
+        const wall = Number(measurements.exteriorPaintSqft);
+        if (Number.isFinite(wall) && wall > 0) return { quantity: wall, unit: 'sqft' };
+        if (Number.isFinite(living) && living > 0) {
+          return { quantity: Math.round(living * 1.05), unit: 'sqft' };
+        }
+      }
+      if (ruleKey === 'cabinets') {
+        const lf = Number(measurements.cabinetLf);
+        if (Number.isFinite(lf) && lf > 0) return { quantity: lf, unit: 'lf' };
+        if (Number.isFinite(living) && living > 0) {
+          return { quantity: Math.max(1, Math.round(living / 25)), unit: 'lf' };
+        }
+      }
+    }
+  }
+
   if (/baseboard|trim/.test(n)) {
     const lf = qs.find((q) => q.unit === 'lf' && validQuantity(q));
     if (lf) return { quantity: lf.quantity, unit: 'lf' };
@@ -1772,7 +1834,13 @@ function roughPricingLineAllowed(line: PricingProposalLine): boolean {
   const name = `${line.packageName} ${line.label || ''}`.toLowerCase();
   const unit = normalizeLineUnit(line.unitType);
 
-  if (roughAutoPricingBlockedName(name)) {
+  // National-average / allowance lines are allowed even for cabinets/appliances/permits.
+  // Only block invented living-SF kitchen/exterior fallbacks for those names.
+  if (
+    roughAutoPricingBlockedName(name) &&
+    line.priceSource !== 'national_trade_average' &&
+    line.priceSource !== 'local_benchmark'
+  ) {
     return false;
   }
   if (/\butility\s+trench|trenching\b/.test(name)) return unit === 'lf';
@@ -1782,9 +1850,57 @@ function roughPricingLineAllowed(line: PricingProposalLine): boolean {
 }
 
 function roughAutoPricingBlockedName(name: string): boolean {
-  return /\b(plans?|engineering|cabinet|counter|appliance|contingency|trim[-\s]?out|final\s+inspection|permit|cleanup|disposal)\b/.test(
+  // Blocks living-SF trade fallback only — national averages still apply via rule keys.
+  // `\bcounter\b` does not match "Counters".
+  return /\b(plans?|engineering|cabinets?|counters?|counter\s*tops?|countertops?|appliances?|contingency|trim[-\s]?out|final\s+inspection|permit|cleanup|disposal)\b/.test(
     name
   );
+}
+
+/**
+ * True when rough/suggest can price this package from a national average or
+ * ground-up soft-cost allowance. False only when no catalog rate exists.
+ */
+export function packageHasRoughNationalAverage(
+  pkg: Pick<EstimateDraftScopePackage, 'name' | 'scope'>,
+  draft?: EstimateAiDraft | null
+): boolean {
+  const ruleKey = lookupRuleKeyForPackage(pkg.name, pkg.scope || '');
+  if (!ruleKey) return false;
+  if (getNationalAverageBudgetSplit(ruleKey)) return true;
+  const templateKey =
+    draft?.scopeChecklist?.templateKey ||
+    draft?.estimateTier ||
+    draft?.projectType ||
+    null;
+  return Boolean(getBuilderBudgetSoftCostAllowance(ruleKey, templateKey));
+}
+
+/** @deprecated Use packageHasRoughNationalAverage — kept for call-site compatibility. */
+export function isRoughAutoPricingBlockedPackage(
+  pkg: Pick<EstimateDraftScopePackage, 'name' | 'scope'>,
+  draft?: EstimateAiDraft | null
+): boolean {
+  return !packageHasRoughNationalAverage(pkg, draft);
+}
+
+function roughEmptyProposalMessage(draft: EstimateAiDraft): string {
+  const unpricedNoAverage = getScopePackages(draft).filter((pkg) => {
+    const amount = pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0;
+    if (amount > 0) return false;
+    if (scopePricingLinesForPackage(pkg, draft).length > 0) return false;
+    return !packageHasRoughNationalAverage(pkg, draft);
+  });
+  if (unpricedNoAverage.length > 0) {
+    const names = unpricedNoAverage
+      .slice(0, 3)
+      .map((p) => p.name)
+      .join(', ');
+    const more =
+      unpricedNoAverage.length > 3 ? ` (+${unpricedNoAverage.length - 3} more)` : '';
+    return `No national-average rate for ${names}${more}. Enter a price on the row or Add manually.`;
+  }
+  return 'Could not build per-item rough pricing from scope quantities.';
 }
 
 function roughScopeItemAllowed(item: PricingScopeItemProposal): boolean {
@@ -3096,34 +3212,110 @@ export async function fetchRoughPricingProposal(
   });
 }
 
+function resolveRoughNationalAverageQuantity(
+  ruleKey: string | null,
+  scopeAverage: { unit: string } | null | undefined,
+  qty: { quantity: number; unit: string } | null,
+  draft: EstimateAiDraft
+): { quantity: number; unit: string } | null {
+  if (!scopeAverage) return null;
+  const avgUnit = String(scopeAverage.unit || '').toLowerCase();
+  if (['allowance', 'lump_sum'].includes(avgUnit)) {
+    return { quantity: 1, unit: avgUnit };
+  }
+  if (qty && String(qty.unit || '').toLowerCase() === avgUnit && qty.quantity > 0) {
+    return qty;
+  }
+  if (!ruleKey) return null;
+  const templateKey =
+    draft.scopeChecklist?.templateKey || draft.estimateTier || draft.projectType || null;
+  const measurements = normalizeScopeMeasurements(draft.scopeMeasurements);
+  const resolved = resolveChecklistItemQuantity(ruleKey, measurements, { templateKey });
+  if (
+    resolved.quantity != null &&
+    resolved.quantity > 0 &&
+    String(resolved.unit || '').toLowerCase() === avgUnit
+  ) {
+    return { quantity: Number(resolved.quantity), unit: avgUnit };
+  }
+  if (
+    resolved.dualCount?.quantity &&
+    resolved.dualCount.quantity > 0 &&
+    String(resolved.dualCount.unit || '').toLowerCase() === avgUnit
+  ) {
+    return { quantity: Number(resolved.dualCount.quantity), unit: avgUnit };
+  }
+  return null;
+}
+
 function buildRoughPricingProposalLocal(
   draft: EstimateAiDraft,
   location?: { state?: string | null; zipCode?: string | null; city?: string | null }
 ): PricingProposal {
   const notes = String(draft.originalNotes || '');
+  const templateKey =
+    draft.scopeChecklist?.templateKey || draft.estimateTier || draft.projectType || null;
   const lines: PricingProposalLine[] = [];
   for (const pkg of getScopePackages(draft)) {
     const amount = pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0;
     if (amount > 0) continue;
     if (scopePricingLinesForPackage(pkg, draft).length > 0) continue;
-    if (roughAutoPricingBlockedName(`${pkg.name} ${pkg.scope || ''}`.toLowerCase())) continue;
 
     const qtyInfo = pickPackageQuantity(pkg, notes, draft);
     const qty = qtyInfo ? { quantity: qtyInfo.quantity, unit: qtyInfo.unit } : null;
     const ruleKey = lookupRuleKeyForPackage(pkg.name, pkg.scope || '');
-    const { average: scopeAverage, regional } = ruleKey
+
+    // Ground-up soft-cost barometer (permits / plans) beats remodel-scale national.
+    if (ruleKey) {
+      const soft = getBuilderBudgetSoftCostAllowance(ruleKey, templateKey);
+      if (soft && soft.amount > 0) {
+        lines.push({
+          packageName: pkg.name,
+          lineType: 'lump_sum',
+          label: `${pkg.name} allowance`,
+          unitType: 'lump_sum',
+          quantity: 1,
+          unitRate: soft.amount,
+          total: soft.amount,
+          formula: `$${formatMoney(soft.amount)} flat allowance`,
+          priceSource: 'national_trade_average',
+          sourceLabel: soft.sourceLabel.replace(/^Suggested ·\s*/i, '') || 'National Average',
+          confidence: 'medium',
+          status: 'rough_price',
+          requiresApproval: true,
+        });
+        continue;
+      }
+    }
+
+    // Prefer catalog unit when package qty unit doesn't match (e.g. appliances stamped as living SF).
+    const matched = ruleKey
       ? getRegionalAdjustedNationalAverageBudgetSplit(ruleKey, qty?.unit, location)
-      : { average: null, regional: { multiplier: 1, rateSourceLabel: 'Suggested · National Average', geographicBasis: 'national' as const, stateCode: null } };
+      : {
+          average: null,
+          regional: {
+            multiplier: 1,
+            rateSourceLabel: 'Suggested · National Average',
+            geographicBasis: 'national' as const,
+            stateCode: null,
+          },
+        };
+    const fallback =
+      ruleKey && (!matched.average || (qty && matched.average.unit !== qty.unit))
+        ? getRegionalAdjustedNationalAverageBudgetSplit(ruleKey, null, location)
+        : matched;
+    const scopeAverage = fallback.average || matched.average;
+    const regional = (fallback.average ? fallback : matched).regional;
     const scopeAverageLabel =
       regional.multiplier !== 1
         ? regional.rateSourceLabel.replace('Suggested · ', '')
         : 'National Average';
-    const scopeAverageQty =
-      qty && scopeAverage?.unit === qty.unit
-        ? qty
-        : scopeAverage && ['allowance', 'lump_sum'].includes(scopeAverage.unit)
-          ? { quantity: 1, unit: scopeAverage.unit }
-          : null;
+    const scopeAverageQty = resolveRoughNationalAverageQuantity(
+      ruleKey,
+      scopeAverage,
+      qty,
+      draft
+    );
     if (scopeAverage && scopeAverageQty && scopeAverageQty.quantity > 0) {
       const pushScopeAverage = (
         lineType: 'material' | 'labor' | 'lump_sum',
@@ -3167,6 +3359,9 @@ function buildRoughPricingProposalLocal(
       }
       if (scopeAverage.material > 0 || scopeAverage.labor > 0) continue;
     }
+    // Spec-heavy names: block living-SF kitchen/exterior fallback AFTER rule-key national rates.
+    // `\bcounter\b` never matched "Counters", so it used to fall through to $55+$95 × living SF.
+    if (roughAutoPricingBlockedName(`${pkg.name} ${pkg.scope || ''}`.toLowerCase())) continue;
     const trade = inferTradeFromPackage(pkg, draft);
 
     if (trade === 'bathroom_fixture' && qty?.unit === 'each') {
@@ -3284,7 +3479,7 @@ function buildRoughPricingProposalLocal(
     sourceLabel: hasHighSide ? HIGH_SIDE_SOURCE_LABEL : NATIONAL_SOURCE_LABEL,
     lines,
     totalSuggested,
-    message: lines.length === 0 ? 'Could not build per-item rough pricing from scope quantities.' : null,
+    message: lines.length === 0 ? roughEmptyProposalMessage(draft) : null,
     assumptions: [
       'Suggested prices use general trade assumptions — not from your notes or saved bids',
       'Review each rate before applying',

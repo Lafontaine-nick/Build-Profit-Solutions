@@ -1,6 +1,9 @@
+import { blendBarometerLump } from '@/utils/builderBudgetLumpBlend';
 import {
   FINISH_CARPENTRY_BY_PROJECT,
+  FINISH_CARPENTRY_NATIONAL_AVERAGE_TOTAL,
   INTERIOR_PAINT_INSTALLED_BY_PROJECT,
+  INTERIOR_PAINT_NATIONAL_AVERAGE_TOTAL,
   exteriorPaintLocalCalibrationMessage,
   exteriorPaintLocalSampleCount,
   matchSouthernUtahProjectByLivingSf,
@@ -35,36 +38,43 @@ describe('southernUtahPaintTrimComparables', () => {
     expect(matchSouthernUtahProjectByLivingSf(1879)?.label).toBe('Plan 41');
   });
 
-  it('returns Plan 41 interior paint $7,400 as exact comparable', () => {
+  it('returns blended Plan 41 interior paint as exact comparable', () => {
+    const expected = blendBarometerLump(7400, INTERIOR_PAINT_NATIONAL_AVERAGE_TOTAL);
     const comparable = resolveInteriorPaintComparable({
       livingSf: 1879,
       paintableSf: 5469,
     });
     expect(comparable).toMatchObject({
-      total: 7400,
+      total: expected,
       matchKind: 'exact_project',
       projectId: 'lot41',
       sourceSplitTreatment: 'installed_lump_sum',
     });
-    expect(comparable.impliedPerPaintableSf).toBeCloseTo(1.35, 2);
+    expect(comparable.impliedPerPaintableSf).toBeCloseTo(expected / 5469, 2);
     expect(comparable.livingSfBenchmark).toBe(1879);
     expect(comparable.paintableSf).toBe(5469);
-    expect(comparable.rateSourceLabel).toMatch(/Plan 41/);
+    expect(comparable.rateSourceLabel).toMatch(/Blended national \+ barometer · Plan 41/);
+
+    const ca = resolveInteriorPaintComparable({ livingSf: 1879, state: 'CA' });
+    expect(ca.total).toBeCloseTo(expected * 1.38, 1);
   });
 
-  it('returns Plan 41 finish carpentry $4,000 + $3,250 (incl. door hardware)', () => {
+  it('returns blended Plan 41 finish carpentry (incl. door hardware in local leg)', () => {
+    const local = FINISH_CARPENTRY_BY_PROJECT.lot41;
+    const blendedTotal = blendBarometerLump(local.total, FINISH_CARPENTRY_NATIONAL_AVERAGE_TOTAL);
     const comparable = resolveFinishCarpentryComparable({ livingSf: 1879 });
+    expect(comparable.total).toBe(blendedTotal);
+    expect(comparable.material + comparable.labor).toBeCloseTo(blendedTotal, 1);
     expect(comparable).toMatchObject({
-      material: 4000,
-      labor: 3250,
-      total: 7250,
       matchKind: 'exact_project',
       splitSource: 'source',
       sourceScope: 'Finish trim, interior doors, door hardware & shelving',
     });
+    expect(comparable.rateSourceLabel).toMatch(/Blended national/);
   });
 
   it('does not invent a real material/labor split for installed paint lumps', () => {
+    const expected = blendBarometerLump(7400, INTERIOR_PAINT_NATIONAL_AVERAGE_TOTAL);
     const input = {
       ...emptyQuickMeasurementInput(),
       floorAreaSqft: '1879',
@@ -81,16 +91,15 @@ describe('southernUtahPaintTrimComparables', () => {
       resolved
     );
     expect(pricing.fill).toMatchObject({
-      total: 7400,
+      total: expected,
       lumpSumOnly: true,
       installedBudgetBenchmark: true,
       splitSource: 'none',
       material: 0,
-      labor: 7400,
+      labor: expected,
     });
-    expect(pricing.fill?.total).toBe(7400);
-    // Must not use national ~$10,300 surface-SF path.
-    expect(pricing.fill?.total).not.toBeGreaterThan(8000);
+    // Blended package — not the bare national surface-SF path (~$10k+ from $/SF × paintable).
+    expect(pricing.fill?.rateSourceLabel).toMatch(/Blended national/);
   });
 
   it('keeps paintable SF separate from living-SF benchmark denominator', () => {
@@ -211,6 +220,7 @@ describe('southernUtahPaintTrimComparables', () => {
   });
 
   it('does not let national surface rates override Plan 41 paint without user action', () => {
+    const expected = blendBarometerLump(7400, INTERIOR_PAINT_NATIONAL_AVERAGE_TOTAL);
     const input = {
       ...emptyQuickMeasurementInput(),
       floorAreaSqft: '1879',
@@ -226,8 +236,9 @@ describe('southernUtahPaintTrimComparables', () => {
       'ground_up',
       resolved
     );
-    expect(pricing.fill?.total).toBe(7400);
+    expect(pricing.fill?.total).toBe(expected);
     expect(pricing.fill?.materialSource).toBe('local_benchmark');
+    expect(pricing.fill?.rateSourceLabel).toMatch(/Blended national/);
   });
 
   it('splits legacy paint_trim into interior paint, exterior paint, and interior trim', () => {
@@ -250,7 +261,9 @@ describe('southernUtahPaintTrimComparables', () => {
     expect(items.find((i) => i.id === 'interior_paint')?.state).toBe('included');
   });
 
-  it('shows Plan 41 finish carpentry package with source mat/labor', () => {
+  it('shows Plan 41 finish carpentry package with blended mat/labor', () => {
+    const local = FINISH_CARPENTRY_BY_PROJECT.lot41;
+    const blendedTotal = blendBarometerLump(local.total, FINISH_CARPENTRY_NATIONAL_AVERAGE_TOTAL);
     const input = {
       ...emptyQuickMeasurementInput(),
       floorAreaSqft: '1879',
@@ -266,22 +279,22 @@ describe('southernUtahPaintTrimComparables', () => {
       resolved
     );
     expect(pricing.fill).toMatchObject({
-      material: 4000,
-      labor: 3250,
-      total: 7250,
+      total: blendedTotal,
       splitSource: 'source',
-      rateSourceLabel: expect.stringMatching(/Plan 41/),
+      rateSourceLabel: expect.stringMatching(/Blended national.*Plan 41/),
     });
+    expect((pricing.fill?.material || 0) + (pricing.fill?.labor || 0)).toBeCloseTo(blendedTotal, 1);
     const display = buildSuggestedPricingCardDisplay({
       itemId: 'interior_trim',
       block: pricing.fill!,
     });
-    expect(display.displayTotal).toMatch(/7,250/);
+    expect(display.displayTotal).toMatch(/9,5\d{2}/);
     expect(display.splitLine).toMatch(/Material/);
     expect(display.splitLine).toMatch(/Labor/);
   });
 
   it('reconciles displayed paint total with selected source total', () => {
+    const expected = blendBarometerLump(7400, INTERIOR_PAINT_NATIONAL_AVERAGE_TOTAL);
     const input = {
       ...emptyQuickMeasurementInput(),
       floorAreaSqft: '1879',
@@ -303,17 +316,18 @@ describe('southernUtahPaintTrimComparables', () => {
       quantitySource: 'calculated',
       hasPrimaryTakeoff: true,
     });
-    expect(pricing.fill?.total).toBe(7400);
-    expect(display.displayTotal).toBe('$7,400');
-    expect(display.pricingSource).toMatch(/Plan 41|Southern Utah comparable/i);
+    expect(pricing.fill?.total).toBe(expected);
+    expect(display.displayTotal).toBe(`$${expected.toLocaleString()}`);
+    expect(display.pricingSource).toMatch(/Blended national|Plan 41/i);
     expect(display.splitLine).toMatch(/not separated/i);
     // Price basis is living-SF house match — not paintable SF × rate.
     expect(display.quantityLine).toMatch(/1,879 living SF/);
-    expect(display.unitRateLine).toMatch(/Reference only/i);
-    expect(display.unitRateLine).toMatch(/1\.35/);
+    expect(display.unitRateLine).toBeNull();
+    expect(display.whyThisPriceLines.join(' ')).toMatch(/Reference only/i);
   });
 
-  it('keeps Plan 41 paint at $7,400 when paintable SF changes to calculated 6,013', () => {
+  it('keeps blended Plan 41 paint fixed when paintable SF changes to calculated 6,013', () => {
+    const expected = blendBarometerLump(7400, INTERIOR_PAINT_NATIONAL_AVERAGE_TOTAL);
     const input = {
       ...emptyQuickMeasurementInput(),
       floorAreaSqft: '1879',
@@ -337,7 +351,7 @@ describe('southernUtahPaintTrimComparables', () => {
       'ground_up',
       resolved
     );
-    expect(pricing.fill?.total).toBe(7400);
-    expect(pricing.fill?.helper).toMatch(/does not change this price/i);
+    expect(pricing.fill?.total).toBe(expected);
+    expect(pricing.fill?.helper).toMatch(/does not change this installed package/i);
   });
 });

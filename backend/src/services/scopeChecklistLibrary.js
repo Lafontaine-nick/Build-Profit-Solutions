@@ -564,7 +564,23 @@ const CHECKLIST_TEMPLATES = {
       { id: 'sitework', inputType: 'yes_no', label: 'Sitework', category: 'sitework' },
       { id: 'excavation', inputType: 'yes_no', label: 'Excavation', category: 'sitework' },
       { id: 'utility_taps', inputType: 'yes_no', label: 'Utility taps / connections', category: 'sitework' },
+      {
+        id: 'landscaping',
+        inputType: 'yes_no',
+        label: 'Landscaping / site walls & gates',
+        helperText:
+          'Landscaping, exterior site walls, fences & gates package. Not driveway flatwork or iron entry doors.',
+        category: 'sitework',
+      },
       { id: 'foundation', inputType: 'yes_no', label: 'Foundation', category: 'structural' },
+      {
+        id: 'pour_flatwork',
+        inputType: 'yes_no',
+        label: 'Exterior concrete flatwork',
+        helperText:
+          'Driveway, walkways, porch, and exterior patio slabs — not the house or garage slab. SF takeoff preferred; local allowance when SF is unknown.',
+        category: 'structural',
+      },
       { id: 'framing', inputType: 'yes_no', label: 'Framing', category: 'structural' },
       { id: 'roofing', inputType: 'yes_no', label: 'Roofing', category: 'exterior' },
       {
@@ -578,7 +594,8 @@ const CHECKLIST_TEMPLATES = {
         id: 'exterior_doors',
         inputType: 'yes_no',
         label: 'Exterior doors',
-        helperText: 'Swing entry/exit doors — material and install. Not sliding or garage.',
+        helperText:
+          'Swing entry/exit doors including iron/specialty entry — material and install. Not sliding, garage, or site gates.',
         category: 'exterior',
       },
       {
@@ -602,6 +619,22 @@ const CHECKLIST_TEMPLATES = {
       { id: 'plumbing_rough', inputType: 'yes_no', label: 'Plumbing rough-in', helperText: 'Rough-in points (supply/drain) for material and labor.', category: 'mep' },
       { id: 'electrical_rough', inputType: 'yes_no', label: 'Electrical rough-in', helperText: 'Circuits / boxes / devices for material and labor.', category: 'mep' },
       { id: 'hvac', inputType: 'yes_no', label: 'HVAC', helperText: 'System count (or tons) for material and labor.', category: 'mep' },
+      {
+        id: 'plumbing_trim',
+        inputType: 'yes_no',
+        label: 'Plumbing fixtures & trim',
+        helperText:
+          'Plumbing fixtures and trim-out package (toilets, faucets, trim). Not plumbing rough-in.',
+        category: 'mep',
+      },
+      {
+        id: 'electrical_trim',
+        inputType: 'yes_no',
+        label: 'Electrical fixtures',
+        helperText:
+          'Light fixtures and finish electrical — material and install. Not electrical rough-in.',
+        category: 'mep',
+      },
       { id: 'insulation', inputType: 'yes_no', label: 'Insulation', category: 'envelope' },
       { id: 'drywall', inputType: 'yes_no', label: 'Drywall', category: 'finishes' },
       { id: 'cabinets', inputType: 'yes_no', label: 'Cabinets / vanity', category: 'finishes' },
@@ -686,6 +719,8 @@ const CHECKLIST_YES_HINTS = {
   plans_engineering: /\b(plans?|drawings?|engineering|architect(?:ural)?|design\s+docs?)\b/,
   utility_coordination: /\b(utility\s+coordination|utility\s+coord|coordinate\s+utilities|utility\s+company)\b/,
   sitework: /\b(site\s*work|site\s+prep|lot\s+prep|clearing|grubbing)\b/,
+  landscaping:
+    /\b(landscap(?:e|ing)|sod|irrigation|site\s+walls?|fence(?:s|ing)?|gates?)\b/,
   excavation: /\b(excavat(?:e|ion)|dig(?:ging)?|trench(?:ing)?|cut\s+foundation)\b/,
   grading: /\b(grading|grade\s+site|rough\s+grade|final\s+grade)\b/,
   utility_trenching: /\b(utility\s+trench(?:ing)?|trench(?:ing)?\s+(?:for\s+)?utilities|water\s+line|sewer\s+line|gas\s+line)\b/,

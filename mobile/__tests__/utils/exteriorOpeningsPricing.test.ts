@@ -2,10 +2,18 @@ jest.mock('@/utils/resolveAiBackendUrl', () => ({
   resolveAiBaseUrl: () => 'http://localhost:3001',
 }));
 
+import { blendBarometerLump } from '@/utils/builderBudgetLumpBlend';
 import {
+  EXTERIOR_DOORS_INSTALLED_BY_PROJECT,
+  EXTERIOR_DOORS_NATIONAL_PACKAGE_TOTAL,
   GARAGE_DOOR_TYPE_RATES,
+  SLIDING_DOORS_DETACHED_MEDIAN_TOTAL,
+  SLIDING_DOORS_INSTALLED_BY_PROJECT,
+  SLIDING_DOORS_NATIONAL_PACKAGE_TOTAL,
   inferDefaultGarageDoorCounts,
+  resolveExteriorDoorsLumpSuggestedFill,
   resolveGarageDoorSuggestedPricing,
+  resolveSlidingDoorsLumpSuggestedFill,
 } from '@/utils/exteriorOpeningsPricing';
 import {
   resolveChecklistItemQuantity,
@@ -67,6 +75,14 @@ describe('exterior openings split + garage door types', () => {
     expect(pkg).toMatchObject({ material: 1700, labor: 700, total: 2400, quantity: 1 });
   });
 
+  it('scales garage door package by CA regional multiplier', () => {
+    const ut = resolveGarageDoorSuggestedPricing({ single: 0, double: 1, rv: 0 }, { state: 'UT' });
+    const ca = resolveGarageDoorSuggestedPricing({ single: 0, double: 1, rv: 0 }, { state: 'CA' });
+    expect(ut?.total).toBe(2400);
+    expect(ca?.total).toBeCloseTo(2400 * 1.38, 1);
+    expect(ca?.sourceLabel).toMatch(/· CA$/);
+  });
+
   it('prices SHV-style double + RV near $10,700', () => {
     const pkg = resolveGarageDoorSuggestedPricing({ single: 0, double: 1, rv: 1 });
     expect(pkg?.total).toBe(2400 + 8300);
@@ -93,6 +109,48 @@ describe('exterior openings split + garage door types', () => {
     expect(fill?.total).toBe(10700);
     expect(fill?.helper).toMatch(/Double/i);
     expect(fill?.helper).toMatch(/RV/i);
+  });
+
+  it('plans exterior / sliding doors from blended lumps when counts are missing', () => {
+    expect(EXTERIOR_DOORS_INSTALLED_BY_PROJECT.lot41).toBe(4000);
+    expect(SLIDING_DOORS_INSTALLED_BY_PROJECT.lot41).toBe(9800);
+    const exteriorExpected = blendBarometerLump(4000, EXTERIOR_DOORS_NATIONAL_PACKAGE_TOTAL);
+    const slidingExpected = blendBarometerLump(9800, SLIDING_DOORS_NATIONAL_PACKAGE_TOTAL);
+    const slidingMid = blendBarometerLump(
+      SLIDING_DOORS_DETACHED_MEDIAN_TOTAL,
+      SLIDING_DOORS_NATIONAL_PACKAGE_TOTAL
+    );
+    expect(resolveExteriorDoorsLumpSuggestedFill({ livingSf: 1879 }).total).toBe(exteriorExpected);
+    expect(resolveSlidingDoorsLumpSuggestedFill({ livingSf: 1879 }).total).toBe(slidingExpected);
+    expect(resolveSlidingDoorsLumpSuggestedFill({ livingSf: 2200 }).total).toBe(slidingMid);
+
+    const input = inputWith({});
+    const doorResolved = resolveChecklistItemQuantity('exterior_doors', input, {
+      templateKey: 'ground_up',
+    });
+    const doorPriced = resolveScopeItemSuggestedPricing(
+      'exterior_doors',
+      input,
+      'ground_up',
+      doorResolved
+    );
+    expect(doorPriced.fill?.total).toBe(exteriorExpected);
+    expect(doorPriced.fill?.lumpSumOnly).toBe(true);
+    expect(doorPriced.fill?.rateSourceLabel).toMatch(/Blended national.*Plan 41/);
+    expect(doorPriced.fill?.helper).toMatch(/iron/i);
+
+    const slidingResolved = resolveChecklistItemQuantity('sliding_doors', input, {
+      templateKey: 'ground_up',
+    });
+    const slidingPriced = resolveScopeItemSuggestedPricing(
+      'sliding_doors',
+      input,
+      'ground_up',
+      slidingResolved
+    );
+    expect(slidingPriced.fill?.total).toBe(slidingExpected);
+    expect(slidingPriced.fill?.lumpSumOnly).toBe(true);
+    expect(slidingPriced.fill?.rateSourceLabel).toMatch(/Blended national.*Plan 41/);
   });
 
   it('prices windows from opening count and exterior/sliding from each rates', () => {
@@ -128,9 +186,9 @@ describe('exterior openings split + garage door types', () => {
       'ground_up',
       doorResolved
     );
-    // National $1,800 × 2, barometer may nudge toward ~$2,000/ea
-    expect(doorPriced.fill!.total).toBeGreaterThan(3000);
-    expect(doorPriced.fill!.total).toBeLessThan(5000);
+    // National ~$2,300 × 2, barometer nudges toward ~$2,500/ea
+    expect(doorPriced.fill!.total).toBeGreaterThan(4000);
+    expect(doorPriced.fill!.total).toBeLessThan(6000);
 
     const slidingInput = inputWith({
       itemQuantities: {
@@ -146,8 +204,8 @@ describe('exterior openings split + garage door types', () => {
       'ground_up',
       slidingResolved
     );
-    // National $2,800 × 2 blended with local ~$4,900/ea
+    // National ~$2,500 × 2 blended with local ~$4,000/ea
     expect(slidingPriced.fill!.total).toBeGreaterThan(5000);
-    expect(slidingPriced.fill!.total).toBeLessThan(12000);
+    expect(slidingPriced.fill!.total).toBeLessThan(10000);
   });
 });

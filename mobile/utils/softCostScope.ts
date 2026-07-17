@@ -4,22 +4,53 @@ import {
   ruleKeysToTryForPackage,
 } from '@/utils/scopeItemQuantities';
 
+/** True soft-cost / fee allowances — never Materials/Labor on Step 3. */
+const SOFT_COST_RULE_KEYS = new Set([
+  'permits',
+  'cleanup',
+  'haul_off',
+  'contingency',
+  'plans_engineering',
+  'mobilization',
+  'emergency_fee',
+  'final_inspections',
+  'survey',
+  'general_conditions',
+  'supervision',
+  'overhead_profit',
+]);
+
 /** Soft-cost scopes (permits, cleanup, contingency, etc.) — flat allowance, not Materials/Labor. */
 export function isSoftCostScopePackage(
-  pkg: Pick<EstimateDraftScopePackage, 'name' | 'scope'>,
+  pkg: Pick<EstimateDraftScopePackage, 'name' | 'scope' | 'materialPrice' | 'laborPrice' | 'checklistItemId'>,
   draft?: Pick<EstimateAiDraft, 'scopeChecklist' | 'estimateTier'> | null
 ): boolean {
+  // Applied trade splits (e.g. finish carpentry mat+lab) must stay expandable on Step 3
+  // even if the checklist rule historically used an allowance unit.
+  const mat = Number(pkg.materialPrice || 0);
+  const lab = Number(pkg.laborPrice || 0);
+  if (mat > 0 && lab > 0) return false;
+
   const templateKey = draft?.scopeChecklist?.templateKey || draft?.estimateTier || null;
   const candidates = [
+    pkg.checklistItemId,
     ...ruleKeysToTryForPackage(pkg.name, pkg.scope || ''),
     // Scope field often stores the checklist id directly (e.g. "contingency").
     String(pkg.scope || '').trim(),
-  ].filter(Boolean);
+  ].filter(Boolean) as string[];
   const seen = new Set<string>();
   for (const ruleKey of candidates) {
     if (seen.has(ruleKey)) continue;
     seen.add(ruleKey);
-    if (getChecklistItemQuantityRuleOrDefault(ruleKey, templateKey).lumpSumOnly) {
+    if (SOFT_COST_RULE_KEYS.has(ruleKey)) return true;
+    // Legacy: lumpSumOnly rules that are not trade packages (keep plumbing/electrical fixtures
+    // as allowances when they have no mat/lab legs).
+    if (
+      getChecklistItemQuantityRuleOrDefault(ruleKey, templateKey).lumpSumOnly &&
+      ruleKey !== 'interior_trim' &&
+      ruleKey !== 'finish_carpentry' &&
+      ruleKey !== 'landscaping'
+    ) {
       return true;
     }
   }

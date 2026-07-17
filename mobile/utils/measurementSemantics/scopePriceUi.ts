@@ -40,8 +40,8 @@ export const STAGE_DISPLAY_TITLES: Record<string, string> = {
 export const STAGE_COVERS_SCOPE_KEYS: Record<string, string[]> = {
   // Excavation stays here for mutual exclusion only — it is priced as its own trade.
   // Plans/engineering are soft costs with their own allowance, not part of this living-SF package.
-  'site-preconstruction': ['sitework', 'excavation'],
-  foundations: ['foundation'],
+  'site-preconstruction': ['sitework', 'excavation', 'landscaping'],
+  foundations: ['foundation', 'pour_flatwork'],
   framing: ['framing'],
   'exterior-finishes': [
     'roofing',
@@ -53,7 +53,14 @@ export const STAGE_COVERS_SCOPE_KEYS: Record<string, string[]> = {
     'windows_doors',
     'stucco',
   ],
-  'major-systems-rough-ins': ['mep_rough', 'plumbing_rough', 'electrical_rough', 'hvac'],
+  'major-systems-rough-ins': [
+    'mep_rough',
+    'plumbing_rough',
+    'electrical_rough',
+    'hvac',
+    'plumbing_trim',
+    'electrical_trim',
+  ],
   'interior-finishes': [
     'insulation',
     'drywall',
@@ -78,7 +85,9 @@ export const STAGE_COVERS_SCOPE_KEYS: Record<string, string[]> = {
  * Still in STAGE_COVERS for double-count exclusion, but never listed in stage "Covers …" copy.
  */
 export const STAGE_SEPARATE_TRADE_SCOPE_KEYS: Record<string, string[]> = {
-  'site-preconstruction': ['excavation'],
+  'site-preconstruction': ['excavation', 'landscaping'],
+  // Exterior flatwork is SF (or SHV lump) — never inherit foundation CY package.
+  foundations: ['pour_flatwork'],
   // Exterior paint is national surface-SF (or allowance) — never inherit the
   // Exterior Envelope living-SF package (~$50k+ roofing/stucco/windows).
   'exterior-finishes': [
@@ -91,7 +100,13 @@ export const STAGE_SEPARATE_TRADE_SCOPE_KEYS: Record<string, string[]> = {
     'stucco',
     'exterior_paint',
   ],
-  'major-systems-rough-ins': ['plumbing_rough', 'electrical_rough', 'hvac'],
+  'major-systems-rough-ins': [
+    'plumbing_rough',
+    'electrical_rough',
+    'hvac',
+    'plumbing_trim',
+    'electrical_trim',
+  ],
   'interior-finishes': [
     'insulation',
     'drywall',
@@ -268,6 +283,8 @@ export function missingStatusDisplayLabel(scopeKey: string): string {
       return 'Needs site takeoff';
     case 'foundation':
       return 'Needs structural takeoff';
+    case 'pour_flatwork':
+      return 'Needs exterior flatwork SF (driveway / walks / porch)';
     case 'framing':
       return 'Needs detailed framing takeoff';
     case 'roofing':
@@ -374,10 +391,11 @@ export function benchmarkActionButtonLabel(
 ): string | null {
   if (action === 'included_in_stage') return null;
   if (action === 'comparison_only') return 'Compare benchmarks';
-  if (options?.lumpSumOnly || action === 'benchmark_only') return 'Apply allowance';
-  if (options?.isFallbackPricing) return 'Use planning price';
-  if (action === 'price_ready') return 'Apply price';
-  return 'Apply price';
+  // Unified Confirm Scope CTA — planning/allowance status lives in the card title/status.
+  if (options?.lumpSumOnly || action === 'benchmark_only') return 'Apply';
+  if (options?.isFallbackPricing) return 'Apply';
+  if (action === 'price_ready') return 'Apply';
+  return 'Apply';
 }
 
 export function footerSuggestedPricingSummary(input: {
@@ -437,7 +455,9 @@ export function coversLabelList(stageId: string): string {
     sitework: 'general sitework',
     plans_engineering: 'plans / engineering',
     excavation: 'excavation',
+    landscaping: 'landscaping / site walls',
     foundation: 'foundation',
+    pour_flatwork: 'exterior flatwork',
     framing: 'framing',
     roofing: 'roofing',
     exterior: 'wall finish / envelope',
@@ -450,6 +470,8 @@ export function coversLabelList(stageId: string): string {
     mep_rough: 'MEP rough-in',
     plumbing_rough: 'plumbing rough-in',
     electrical_rough: 'electrical rough-in',
+    plumbing_trim: 'plumbing fixtures',
+    electrical_trim: 'electrical fixtures',
     hvac: 'HVAC',
     insulation: 'insulation',
     drywall: 'drywall',

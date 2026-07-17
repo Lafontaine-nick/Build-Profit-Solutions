@@ -4,6 +4,8 @@ import {
   DEFAULT_SCOPE_ALLOWANCE_QUANTITY_RULE,
   getChecklistItemQuantityRuleOrDefault,
   isPlaceholderAllowancePricing,
+  isStaleLivingSfPricingBasis,
+  resolveAllowanceEditorDefaultBasisUnit,
   resolveAllowanceEditorPricingBasis,
   resolveChecklistItemQuantity,
   resolveScopeItemSuggestedPricing,
@@ -519,6 +521,188 @@ describe('resolveScopeItemSuggestedPricing', () => {
       unit: 'cy',
     });
     expect(resolveAllowanceEditorPricingBasis('utility_trenching', input, 'addition')).toBeNull();
+  });
+
+  it('uses foundation concrete CY for ground-up Edit basis — not living SF', () => {
+    const input = inputWith({
+      floorAreaSqft: '3098',
+      concreteCy: '68',
+      itemQuantities: {
+        // Stale Edit session that wrongly stored living SF as the pricing basis.
+        foundation__sqft_basis: { quantity: '3098', unit: 'sqft', quantitySource: 'user_entered' },
+      },
+    });
+
+    expect(resolveAllowanceEditorPricingBasis('foundation', input, 'ground_up')).toEqual({
+      quantity: 68,
+      unit: 'cy',
+    });
+    expect(resolveAllowanceEditorDefaultBasisUnit('foundation', 'ground_up')).toBe('cy');
+  });
+
+  it('uses covered framed SF (living + garage) for ground-up framing Edit basis', () => {
+    const input = inputWith({
+      floorAreaSqft: '3098',
+      garageSqft: '972',
+      itemQuantities: {
+        // Stale Edit session that stored living-only SF.
+        framing__sqft_basis: { quantity: '3098', unit: 'sqft', quantitySource: 'user_entered' },
+      },
+    });
+
+    expect(resolveAllowanceEditorPricingBasis('framing', input, 'ground_up')).toEqual({
+      quantity: 4070,
+      unit: 'sqft',
+    });
+    expect(
+      isStaleLivingSfPricingBasis({
+        itemId: 'framing',
+        storedQty: 3098,
+        storedUnit: 'sqft',
+        livingSf: 3098,
+        garageSf: 972,
+        preferredUnit: 'sqft',
+        preferredMeasurementKeys: ['floorAreaSqft', 'garageSqft'],
+        sumMeasurementKeys: true,
+      })
+    ).toBe(true);
+  });
+
+  it('aligns Edit basis with Suggest planning for drywall, insulation, paint, HVAC, cabinets', () => {
+    const input = inputWith({
+      floorAreaSqft: '3098',
+      garageSqft: '972',
+      // Thin notes takeoff — Suggest expands to living×3.5 (~10,843).
+      drywallSqft: '4056',
+      // Stale living-SF Edit seeds that must not stick.
+      itemQuantities: {
+        drywall__sqft_basis: { quantity: '3098', unit: 'sqft', quantitySource: 'user_entered' },
+        insulation__sqft_basis: { quantity: '3098', unit: 'sqft', quantitySource: 'user_entered' },
+        interior_paint__sqft_basis: { quantity: '3098', unit: 'sqft', quantitySource: 'user_entered' },
+      },
+    });
+
+    expect(resolveAllowanceEditorPricingBasis('drywall', input, 'ground_up')).toEqual({
+      quantity: Math.round(3098 * 3.5),
+      unit: 'sqft',
+    });
+    expect(resolveAllowanceEditorPricingBasis('insulation', input, 'ground_up')?.unit).toBe('sqft');
+    expect(resolveAllowanceEditorPricingBasis('insulation', input, 'ground_up')!.quantity).toBeGreaterThan(
+      3098
+    );
+    expect(resolveAllowanceEditorPricingBasis('insulation', input, 'ground_up')!.quantity).not.toBe(3098);
+    expect(resolveAllowanceEditorPricingBasis('interior_paint', input, 'ground_up')).toBeNull();
+    expect(resolveAllowanceEditorPricingBasis('hvac', input, 'ground_up')).toEqual({
+      quantity: 1,
+      unit: 'each',
+    });
+    expect(resolveAllowanceEditorPricingBasis('cabinets', input, 'ground_up')).toEqual({
+      quantity: Math.round(3098 / 25),
+      unit: 'lf',
+    });
+    expect(resolveAllowanceEditorPricingBasis('countertops', input, 'ground_up')).toEqual({
+      quantity: 80,
+      unit: 'sqft',
+    });
+  });
+
+  it('does not seed living SF as paint Edit basis when paintable SF is present', () => {
+    const input = inputWith({
+      floorAreaSqft: '3098',
+      wallPaintSqft: '10843',
+      exteriorPaintSqft: '4200',
+    });
+    expect(resolveAllowanceEditorPricingBasis('interior_paint', input, 'ground_up')).toEqual({
+      quantity: 10843,
+      unit: 'sqft',
+    });
+    expect(resolveAllowanceEditorPricingBasis('exterior_paint', input, 'ground_up')).toEqual({
+      quantity: 4200,
+      unit: 'sqft',
+    });
+  });
+
+  it('rejects living-SF Edit basis for CY / squares / each / LF scopes', () => {
+    expect(
+      isStaleLivingSfPricingBasis({
+        itemId: 'roofing',
+        storedQty: 3098,
+        storedUnit: 'sqft',
+        livingSf: 3098,
+        preferredUnit: 'squares',
+        preferredMeasurementKeys: ['roofSquares'],
+      })
+    ).toBe(true);
+    expect(
+      isStaleLivingSfPricingBasis({
+        itemId: 'hvac',
+        storedQty: 3098,
+        storedUnit: 'sqft',
+        livingSf: 3098,
+        preferredUnit: 'each',
+      })
+    ).toBe(true);
+    expect(
+      isStaleLivingSfPricingBasis({
+        itemId: 'drywall',
+        storedQty: 3098,
+        storedUnit: 'sqft',
+        livingSf: 3098,
+        preferredUnit: 'sqft',
+        preferredMeasurementKeys: ['drywallSqft'],
+      })
+    ).toBe(true);
+
+    const input = inputWith({
+      floorAreaSqft: '3098',
+      concreteCy: '68',
+      excavationCy: '120',
+      roofSquares: '46.2',
+      drywallSqft: '10843',
+      cabinetLf: '90',
+      itemQuantities: {
+        foundation__sqft_basis: { quantity: '3098', unit: 'sqft' },
+        excavation__sqft_basis: { quantity: '3098', unit: 'sqft' },
+        roofing__sqft_basis: { quantity: '3098', unit: 'sqft' },
+        hvac__sqft_basis: { quantity: '3098', unit: 'sqft' },
+        cabinets__sqft_basis: { quantity: '3098', unit: 'sqft' },
+        drywall__sqft_basis: { quantity: '3098', unit: 'sqft' },
+      },
+    });
+
+    expect(resolveAllowanceEditorPricingBasis('foundation', input, 'ground_up')).toEqual({
+      quantity: 68,
+      unit: 'cy',
+    });
+    expect(resolveAllowanceEditorPricingBasis('excavation', input, 'ground_up')).toEqual({
+      quantity: 120,
+      unit: 'cy',
+    });
+    expect(resolveAllowanceEditorPricingBasis('roofing', input, 'ground_up')).toEqual({
+      quantity: 46.2,
+      unit: 'squares',
+    });
+    // HVAC Suggest defaults to 1 system — Edit must match (not living SF, not empty).
+    expect(resolveAllowanceEditorPricingBasis('hvac', input, 'ground_up')).toEqual({
+      quantity: 1,
+      unit: 'each',
+    });
+    expect(resolveAllowanceEditorPricingBasis('cabinets', input, 'ground_up')).toEqual({
+      quantity: 90,
+      unit: 'lf',
+    });
+    expect(resolveAllowanceEditorPricingBasis('drywall', input, 'ground_up')).toEqual({
+      quantity: 10843,
+      unit: 'sqft',
+    });
+    expect(resolveAllowanceEditorPricingBasis('foundation', input, 'addition')).toEqual({
+      quantity: 68,
+      unit: 'cy',
+    });
+    expect(resolveAllowanceEditorPricingBasis('roof_tie_in', input, 'addition')).toEqual({
+      quantity: 46.2,
+      unit: 'squares',
+    });
   });
 
   it('uses scenario-specific pricing basis units outside ADU', () => {

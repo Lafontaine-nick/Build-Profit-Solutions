@@ -25,6 +25,7 @@ import {
   type MeasurementUnit,
 } from '@/utils/measurementSemantics';
 import { tagPlanDetectedQuickMeasurementKeys } from '@/utils/quickMeasurementProvenance';
+import { syncMeasurementsWithSouthernUtahPlanFacts } from '@/utils/quickMeasurementEstimates';
 import { sumBathFloorSqft } from '@/utils/planBathRooms';
 import type {
   MeasurementSuggestion,
@@ -995,6 +996,12 @@ const PLAN_SCOPE_ID_ALIASES: Record<string, string[]> = {
   garage_doors: ['garage_doors', 'exterior'],
   concrete: ['foundation', 'concrete'],
   pour_foundation: ['foundation', 'pour_foundation'],
+  pour_flatwork: ['pour_flatwork'],
+  flatwork: ['pour_flatwork'],
+  landscaping: ['landscaping'],
+  landscape: ['landscaping'],
+  plumbing_trim: ['plumbing_trim'],
+  electrical_trim: ['electrical_trim'],
 };
 
 function remapDetectionItemId(itemId: string, allowedIds: Set<string>): string | null {
@@ -1332,6 +1339,9 @@ export function seedPlanFloorAreaItemQuantities(
       } else if (id === 'foundation' && Number(scopeMeasurements.concreteCy) > 0) {
         primaryQuantity = Number(scopeMeasurements.concreteCy);
         primaryUnit = 'cy';
+      } else if (id === 'pour_flatwork' && Number(scopeMeasurements.concreteSqft) > 0) {
+        primaryQuantity = Number(scopeMeasurements.concreteSqft);
+        primaryUnit = 'sqft';
       } else if (id === 'excavation' && Number(scopeMeasurements.excavationCy) > 0) {
         primaryQuantity = Number(scopeMeasurements.excavationCy);
         primaryUnit = 'cy';
@@ -1442,6 +1452,7 @@ export function seedPlanFloorAreaItemQuantities(
       id === 'foundation' ||
       id === 'cabinets' ||
       id === 'countertops' ||
+      id === 'stucco' ||
       id === 'shower_tile' ||
       id === 'shower_floor_tile' ||
       id === 'floor_tile'
@@ -1533,6 +1544,10 @@ function overlayScopeMeasurements(
         ...(draft.scopeMeasurements?.quickMeasurementFieldConfidence || {}),
         ...(scopeMeasurements.quickMeasurementFieldConfidence || {}),
       },
+      pricingAcceptance: {
+        ...(draft.scopeMeasurements?.pricingAcceptance || {}),
+        ...(scopeMeasurements.pricingAcceptance || {}),
+      },
     },
   };
 }
@@ -1583,6 +1598,9 @@ export function applyPlanImportToDraft(
 
   if (Object.keys(scopeMeasurements).length || rooms.length) {
     scopeMeasurements = seedPlanFloorAreaItemQuantities(next, scopeMeasurements);
+    scopeMeasurements = syncMeasurementsWithSouthernUtahPlanFacts(scopeMeasurements, {
+      templateKey: next.scopeChecklist?.templateKey,
+    });
     next = overlayScopeMeasurements(next, scopeMeasurements);
   }
 
@@ -1660,6 +1678,8 @@ function selectedPricingForRuleKey(
   const materialPrice = Number(material?.quantity || 0);
   const laborPrice = Number(labor?.quantity || 0);
   const splitTotal = materialPrice + laborPrice;
+  const hasSplitLegs = Boolean(material || labor);
+  const splitLegsEmpty = !(materialPrice > 0) && !(laborPrice > 0);
   const userSelected =
     base?.quantitySource === 'user_entered' ||
     allowance?.quantitySource === 'user_entered' ||
@@ -1672,21 +1692,48 @@ function selectedPricingForRuleKey(
   // Auto national-average amounts must not rewrite packages on apply.
   if (!userSelected) return null;
 
+  const physicalBasis =
+    base?.quantity && base.unit && !['allowance', 'lump_sum'].includes(base.unit)
+      ? { quantity: Number(base.quantity), unit: base.unit }
+      : null;
+
   if (
     acceptance &&
     Number(acceptance.totalAmount) > 0 &&
     (acceptance.selectionStatus === 'accepted' || acceptance.selectionStatus === 'manual_adjusted')
   ) {
-    const acceptedMaterial = acceptance.materialAmount ?? (materialPrice > 0 ? materialPrice : null);
-    const acceptedLabor = acceptance.laborAmount ?? (laborPrice > 0 ? laborPrice : null);
+    // Match Step 2: wiped Material/Labor with orphan __allowance must not stamp stale acceptance.
+    if (hasSplitLegs && splitLegsEmpty) {
+      return null;
+    }
+    // Prefer live Confirm Scope M/L over sticky acceptance amounts so Step 3 stays accurate.
+    const acceptedMaterial =
+      materialPrice > 0
+        ? materialPrice
+        : acceptance.materialAmount != null && Number(acceptance.materialAmount) > 0
+          ? Number(acceptance.materialAmount)
+          : null;
+    const acceptedLabor =
+      laborPrice > 0
+        ? laborPrice
+        : acceptance.laborAmount != null && Number(acceptance.laborAmount) > 0
+          ? Number(acceptance.laborAmount)
+          : null;
+    const liveTotal = splitTotal > 0 ? splitTotal : Number(acceptance.totalAmount);
+    // Dollar totals stored as unit "allowance" are not a takeoff qty — omit basis so Step 3
+    // does not show "10,118 allowance" under finish carpentry / similar packages.
     const basis =
-      base?.quantity && base.unit && !['allowance', 'lump_sum'].includes(base.unit)
-        ? { quantity: Number(base.quantity), unit: base.unit }
+      physicalBasis &&
+      !(
+        Number(physicalBasis.quantity) > 0 &&
+        Math.abs(Number(physicalBasis.quantity) - liveTotal) < 0.02
+      )
+        ? physicalBasis
         : null;
     return {
-      total: acceptance.totalAmount,
-      materialPrice: acceptedMaterial != null && acceptedMaterial > 0 ? acceptedMaterial : null,
-      laborPrice: acceptedLabor != null && acceptedLabor > 0 ? acceptedLabor : null,
+      total: liveTotal,
+      materialPrice: acceptedMaterial,
+      laborPrice: acceptedLabor,
       basis,
       ruleKey,
     };
@@ -1694,19 +1741,20 @@ function selectedPricingForRuleKey(
 
   const allowanceTotal = Number(allowance?.quantity || 0);
   const baseTotal = ['allowance', 'lump_sum'].includes(base?.unit || '') ? Number(base?.quantity || 0) : 0;
-  const total = allowanceTotal || baseTotal || splitTotal;
+  // Split legs present but empty → ignore orphan __allowance leftover.
+  const total =
+    splitTotal > 0
+      ? splitTotal
+      : hasSplitLegs && splitLegsEmpty
+        ? 0
+        : allowanceTotal || baseTotal;
   if (!Number.isFinite(total) || total <= 0) return null;
-
-  const basis =
-    base?.quantity && base.unit && !['allowance', 'lump_sum'].includes(base.unit)
-      ? { quantity: Number(base.quantity), unit: base.unit }
-      : null;
 
   return {
     total,
     materialPrice: materialPrice > 0 ? materialPrice : null,
     laborPrice: laborPrice > 0 ? laborPrice : null,
-    basis,
+    basis: physicalBasis,
     ruleKey,
   };
 }
@@ -1714,9 +1762,17 @@ function selectedPricingForRuleKey(
 function selectedPricingForScopeName(
   draft: EstimateAiDraft,
   name: string,
-  scope = ''
+  scope = '',
+  checklistItemId?: string | null
 ): SelectedScopePricing | null {
+  // Prefer Confirm Scope checklist id when packages already carry it — name regex
+  // has repeatedly mapped Electrical fixtures → electrical_rough, etc.
+  if (checklistItemId) {
+    const byId = selectedPricingForRuleKey(draft, checklistItemId);
+    if (byId) return byId;
+  }
   for (const ruleKey of ruleKeysToTryForPackage(name, scope)) {
+    if (checklistItemId && ruleKey === checklistItemId) continue;
     const selected = selectedPricingForRuleKey(draft, ruleKey);
     if (selected) return selected;
   }
@@ -1739,22 +1795,77 @@ function resolvedScopeQuantityBasis(
   return { quantity: Number(resolved.quantity), unit: resolved.unit };
 }
 
+function packageMoneyTotal(pkg: {
+  finalApprovedTotal?: number | null;
+  knownSubtotal?: number | null;
+  calculatedSubtotal?: number | null;
+  price?: number | null;
+}): number {
+  const candidates = [
+    pkg.finalApprovedTotal,
+    pkg.knownSubtotal,
+    pkg.calculatedSubtotal,
+    pkg.price,
+  ];
+  for (const value of candidates) {
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
+}
+
+const SOFT_COST_SYNC_KEYS = new Set([
+  'cleanup',
+  'haul_off',
+  'permits',
+  'contingency',
+  'mobilization',
+  'emergency_fee',
+  'final_inspections',
+]);
+
+/**
+ * Keep Ask AI / manual soft-cost line prices when Confirm Scope sync would
+ * rewrite them via a shared/sibling rule key (e.g. trash haul-off ≠ cleanup).
+ * Same checklist key still receives Confirm Scope updates.
+ */
+function shouldPreserveUserPackagePrice(
+  pkg: { priceProvidedByUser?: boolean; price?: number | null; checklistItemId?: string | null },
+  selected: SelectedScopePricing
+): boolean {
+  if (!pkg.priceProvidedByUser) return false;
+  const current = Number(pkg.price);
+  if (!(current > 0) || Math.abs(current - selected.total) < 0.01) return false;
+  if (!SOFT_COST_SYNC_KEYS.has(selected.ruleKey)) return false;
+  if (pkg.checklistItemId && pkg.checklistItemId === selected.ruleKey) return false;
+  return true;
+}
+
 function applySelectedPricingToScopePackage(
   pkg: EstimateDraftScopePackage,
   draft: EstimateAiDraft
 ): EstimateDraftScopePackage {
-  const selected = selectedPricingForScopeName(draft, pkg.name, pkg.scope);
+  const selected = selectedPricingForScopeName(
+    draft,
+    pkg.name,
+    pkg.scope,
+    pkg.checklistItemId
+  );
+  // Keep a stable checklist identity; do not overwrite with a wrong regex match.
   const ruleKey =
-    selected?.ruleKey ||
     pkg.checklistItemId ||
+    selected?.ruleKey ||
     lookupRuleKeyForPackage(pkg.name, pkg.scope || '') ||
     null;
-  const basis =
-    selected?.basis ??
-    (ruleKey ? resolvedScopeQuantityBasis(draft, ruleKey) : null) ??
-    pkg.budgetSplitBasis ??
-    pkg.scopeQuantities?.[0] ??
-    null;
+  // When Confirm Scope already selected a price, honor its basis only (null = no
+  // takeoff qty). Do not fall back to resolvedScopeQuantityBasis — that re-reads
+  // dollar "allowance" itemQuantities as 10,118 lump sum under finish carpentry.
+  const basis = selected
+    ? selected.basis
+    : (ruleKey ? resolvedScopeQuantityBasis(draft, ruleKey) : null) ??
+      pkg.budgetSplitBasis ??
+      pkg.scopeQuantities?.[0] ??
+      null;
   const withIdentity: EstimateDraftScopePackage = {
     ...pkg,
     checklistItemId: ruleKey,
@@ -1768,6 +1879,16 @@ function applySelectedPricingToScopePackage(
           budgetSplitBasis: basis,
         }
       : withIdentity;
+  }
+  if (shouldPreserveUserPackagePrice(pkg, selected)) {
+    return {
+      ...withIdentity,
+      checklistItemId: pkg.checklistItemId || ruleKey,
+      budgetSplitBasis: basis ?? pkg.budgetSplitBasis ?? null,
+      scopeQuantities: basis
+        ? [{ quantity: basis.quantity, unit: basis.unit }]
+        : undefined,
+    };
   }
   return {
     ...withIdentity,
@@ -1787,14 +1908,29 @@ function applySelectedPricingToScopePackage(
     priceProvidedByUser: true,
     applyEligible: true,
     budgetSplitBasis: basis,
-    scopeQuantities: basis ? [{ quantity: basis.quantity, unit: basis.unit }] : pkg.scopeQuantities,
+    scopeQuantities: basis ? [{ quantity: basis.quantity, unit: basis.unit }] : undefined,
     missingPriceItems: [],
   };
 }
 
 function applySelectedPricingToRoom(room: EstimateDraftRoom, draft: EstimateAiDraft): EstimateDraftRoom {
-  const selected = selectedPricingForScopeName(draft, room.name, room.scope);
+  const checklistItemId =
+    (room as { checklistItemId?: string | null }).checklistItemId ||
+    lookupRuleKeyForPackage(room.name, room.scope || '');
+  const selected = selectedPricingForScopeName(draft, room.name, room.scope, checklistItemId);
   if (!selected) return room;
+  if (
+    shouldPreserveUserPackagePrice(
+      {
+        priceProvidedByUser: room.priceProvidedByUser,
+        price: room.price,
+        checklistItemId,
+      },
+      selected
+    )
+  ) {
+    return room;
+  }
   return {
     ...room,
     price: selected.total,
@@ -1811,8 +1947,35 @@ function applySelectedPricingToRoom(room: EstimateDraftRoom, draft: EstimateAiDr
   };
 }
 
+function recomputeClientDraftTotals(draft: EstimateAiDraft): EstimateAiDraft {
+  const packages = draft.scopePackages || [];
+  if (!packages.length) return draft;
+  let lineTotal = 0;
+  let laborTotal = 0;
+  let materialTotal = 0;
+  for (const pkg of packages) {
+    const amount = packageMoneyTotal(pkg);
+    if (!(amount > 0)) continue;
+    lineTotal += amount;
+    materialTotal += Number(pkg.materialPrice) > 0 ? Number(pkg.materialPrice) : 0;
+    laborTotal += Number(pkg.laborPrice) > 0 ? Number(pkg.laborPrice) : 0;
+  }
+  if (!(lineTotal > 0)) return draft;
+  return {
+    ...draft,
+    calculatedLineItemTotal: Math.round(lineTotal * 100) / 100,
+    calculatedLaborTotal:
+      laborTotal > 0 ? Math.round(laborTotal * 100) / 100 : draft.calculatedLaborTotal,
+    calculatedMaterialTotal:
+      materialTotal > 0 ? Math.round(materialTotal * 100) / 100 : draft.calculatedMaterialTotal,
+    calculatedTotal: Math.round(lineTotal * 100) / 100,
+  };
+}
+
 export function syncSelectedScopePricing(draft: EstimateAiDraft): EstimateAiDraft {
-  if (!draft?.scopeMeasurements?.itemQuantities && !draft?.scopeMeasurements?.pricingAcceptance) return draft;
+  if (!draft?.scopeMeasurements?.itemQuantities && !draft?.scopeMeasurements?.pricingAcceptance) {
+    return recomputeClientDraftTotals(draft);
+  }
   const nextDraft = { ...draft };
   if (draft.scopePackages?.length) {
     nextDraft.scopePackages = draft.scopePackages.map((pkg) => applySelectedPricingToScopePackage(pkg, draft));
@@ -1820,7 +1983,85 @@ export function syncSelectedScopePricing(draft: EstimateAiDraft): EstimateAiDraf
   if (draft.rooms?.length) {
     nextDraft.rooms = draft.rooms.map((room) => applySelectedPricingToRoom(room, draft));
   }
-  return nextDraft;
+  return recomputeClientDraftTotals(nextDraft);
+}
+
+/** Remove a scope package/room from the Step 3 draft and drop its Confirm Scope pricing. */
+export function removeScopePackageFromDraft(
+  draft: EstimateAiDraft,
+  packageName: string
+): EstimateAiDraft {
+  const name = String(packageName || '').trim();
+  if (!draft || !name) return draft;
+
+  const matchPkg = (pkg: { name?: string | null; scope?: string | null }) =>
+    pkg.name === name || pkg.scope === name;
+
+  const removed =
+    (draft.scopePackages || []).find(matchPkg) || (draft.rooms || []).find(matchPkg) || null;
+  const ruleKey =
+    (removed as { checklistItemId?: string | null } | null)?.checklistItemId ||
+    lookupRuleKeyForPackage(removed?.name || name, removed?.scope || '') ||
+    null;
+
+  const nextScopePackages = (draft.scopePackages || []).filter((pkg) => !matchPkg(pkg));
+  const nextRooms = (draft.rooms || []).filter((room) => !matchPkg(room));
+
+  let nextMeasurements = draft.scopeMeasurements;
+  if (ruleKey && draft.scopeMeasurements) {
+    const itemQuantities = { ...(draft.scopeMeasurements.itemQuantities || {}) };
+    delete itemQuantities[ruleKey];
+    delete itemQuantities[`${ruleKey}__material`];
+    delete itemQuantities[`${ruleKey}__labor`];
+    delete itemQuantities[`${ruleKey}__allowance`];
+    const pricingAcceptance = { ...(draft.scopeMeasurements.pricingAcceptance || {}) };
+    delete pricingAcceptance[ruleKey];
+    nextMeasurements = {
+      ...draft.scopeMeasurements,
+      itemQuantities,
+      pricingAcceptance,
+    };
+  }
+
+  let nextChecklist = draft.scopeChecklist;
+  if (ruleKey && draft.scopeChecklist?.items?.length) {
+    nextChecklist = {
+      ...draft.scopeChecklist,
+      items: draft.scopeChecklist.items.map((item) =>
+        item.id === ruleKey
+          ? {
+              ...item,
+              state: 'excluded',
+              choiceId: item.inputType === 'choice' ? 'not_in_scope' : item.choiceId,
+            }
+          : item
+      ),
+    };
+  }
+
+  const nextDraft: EstimateAiDraft = {
+    ...draft,
+    scopePackages: draft.scopePackages?.length ? nextScopePackages : draft.scopePackages,
+    rooms: nextRooms,
+    scopeMeasurements: nextMeasurements,
+    scopeChecklist: nextChecklist,
+  };
+
+  if (nextScopePackages.length > 0) {
+    return recomputeClientDraftTotals({ ...nextDraft, scopePackages: nextScopePackages });
+  }
+
+  // Rooms-only drafts: recompute from remaining rooms.
+  let lineTotal = 0;
+  for (const room of nextRooms) {
+    lineTotal += packageMoneyTotal(room);
+  }
+  const rounded = Math.round(lineTotal * 100) / 100;
+  return {
+    ...nextDraft,
+    calculatedLineItemTotal: rounded > 0 ? rounded : 0,
+    calculatedTotal: rounded > 0 ? rounded : 0,
+  };
 }
 
 export function roomIsApplyEligible(

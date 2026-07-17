@@ -645,6 +645,66 @@ describe('estimateDraftComplexity', () => {
     expect(next.originalNotes).toContain('24 lf baseboard');
   });
 
+  test('applyScopeMeasurements preserves pricingAcceptance and stamps Applied M/L without takeoff qty', () => {
+    const draft = {
+      projectType: 'ground_up',
+      estimateTier: 'ground_up',
+      originalNotes: 'Ground-up home',
+      scopePackages: [
+        {
+          name: 'Finish carpentry / interior trim',
+          scope: 'Finish trim package',
+          checklistItemId: 'interior_trim',
+          price: null,
+          status: 'missing_price',
+        },
+        {
+          name: 'Cleanup & disposal',
+          scope: 'cleanup',
+          checklistItemId: 'cleanup',
+          price: null,
+          status: 'missing_price',
+        },
+      ],
+      rooms: [],
+    };
+
+    const next = applyScopeMeasurements(draft, {
+      floorAreaSqft: 3098,
+      itemQuantities: {
+        interior_trim__material: { quantity: 5519, unit: 'allowance', quantitySource: 'user_entered' },
+        interior_trim__labor: { quantity: 4599, unit: 'allowance', quantitySource: 'user_entered' },
+        cleanup__allowance: { quantity: 1000, unit: 'allowance', quantitySource: 'user_entered' },
+      },
+      pricingAcceptance: {
+        interior_trim: {
+          selectionStatus: 'accepted',
+          totalAmount: 10118,
+          materialAmount: 5519,
+          laborAmount: 4599,
+        },
+        cleanup: {
+          selectionStatus: 'accepted',
+          totalAmount: 1000,
+          materialAmount: 0,
+          laborAmount: 1000,
+        },
+      },
+    });
+
+    expect(next.scopeMeasurements.pricingAcceptance.interior_trim.totalAmount).toBe(10118);
+    expect(next.scopePackages[0]).toMatchObject({
+      price: 10118,
+      materialPrice: 5519,
+      laborPrice: 4599,
+      priceSource: 'user_provided',
+    });
+    expect(next.scopePackages[1]).toMatchObject({
+      price: 1000,
+      priceSource: 'user_provided',
+    });
+  });
+
   test('enrichment preserves selected flooring pricing over note-parsed rates', () => {
     const originalNotes =
       'Flooring job demo existing tile which is 850 ft.2 labor is $3 dollars a square foot for tile demo next install LVP flooring which is 850 ft.? material is $4.50 a square foot and $3.25 a square foot for Labor.';

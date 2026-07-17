@@ -47,12 +47,18 @@ describe('cross-trade package rule keys do not steal qty/rates', () => {
   test('shower/glass door does not inherit windows_doors', () => {
     expect(lookupRuleKeyForPackage('Shower door')).toBe('glass_door');
     expect(lookupRuleKeyForPackage('Glass door')).toBe('glass_door');
-    expect(lookupRuleKeyForPackage('Entry door')).toBe('windows_doors');
+    expect(lookupRuleKeyForPackage('Entry door')).toBe('exterior_doors');
   });
 
   test('sink faucet disposal does not inherit cleanup', () => {
     expect(lookupRuleKeyForPackage('Sink, faucet & disposal')).toBe('sink_faucet');
     expect(lookupRuleKeyForPackage('Job cleanup / haul-off')).toBe('cleanup');
+  });
+
+  test('trash haul-off is haul_off soft-cost, not cleanup $1k', () => {
+    expect(lookupRuleKeyForPackage('Trash Haul Off')).toBe('haul_off');
+    expect(lookupRuleKeyForPackage('Haul-off / dumpster')).toBe('haul_off');
+    expect(lookupRuleKeyForPackage('Cleanup & disposal')).toBe('cleanup');
   });
 
   test('deck demo and roof decking do not inherit deck surface install', () => {
@@ -70,6 +76,16 @@ describe('cross-trade package rule keys do not steal qty/rates', () => {
   test('countertop demo does not inherit countertop install', () => {
     expect(lookupRuleKeyForPackage('Countertop demo')).toBe('demo');
     expect(lookupRuleKeyForPackage('Countertop fabrication & install')).toBe('countertops');
+  });
+
+  test('ground-up Counters / Stucco package labels map to checklist rule keys', () => {
+    // Bare "Counters" previously missed `\bcountertop` and fell through to kitchen $/living SF.
+    expect(lookupRuleKeyForPackage('Counters')).toBe('countertops');
+    expect(lookupRuleKeyForPackage('Counters', 'Kitchen countertops')).toBe('countertops');
+    expect(lookupRuleKeyForPackage('Stucco / exterior wall finish')).toBe('stucco');
+    expect(lookupRuleKeyForPackage('Stucco')).toBe('stucco');
+    // Paint still wins over bare stucco install.
+    expect(lookupRuleKeyForPackage('Stucco paint')).toBe('exterior_paint');
   });
 
   test('framing hardware does not inherit framing $/sqft', () => {

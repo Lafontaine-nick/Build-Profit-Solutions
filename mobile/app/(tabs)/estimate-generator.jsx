@@ -100,6 +100,7 @@ import {
   fetchRoughEstimateRange,
   getScopePackages,
   isComplexEstimateTier,
+  removeScopePackageFromDraft,
   syncSelectedScopePricing,
 } from '../../utils/estimateAiDraft';
 import { getBidAllowanceLineItemsTotal } from '../../utils/estimateAllowances';
@@ -5224,9 +5225,19 @@ export default function EstimateGeneratorScreen() {
   const [showAiManualPricingModal, setShowAiManualPricingModal] = useState(false);
   const [showAiScopeAssumptionsModal, setShowAiScopeAssumptionsModal] = useState(false);
   const [aiScopeAssumptionsApplying, setAiScopeAssumptionsApplying] = useState(false);
+  // Stable draft identity — avoid `{ ...aiDraft }` on every parent re-render (keyboard open)
+  // which used to thrash Confirm Scope and make Needs confirmation inputs jump on tap.
+  const aiScopeAssumptionsDraft = useMemo(
+    () =>
+      aiDraft
+        ? { ...aiDraft, originalNotes: aiDraft.originalNotes || aiDraftNotes }
+        : null,
+    [aiDraft, aiDraftNotes]
+  );
   const [aiManualPricingSeed, setAiManualPricingSeed] = useState(null);
   const [aiManualPricingFocusPackage, setAiManualPricingFocusPackage] = useState(null);
   const [pricingFallbackVariant, setPricingFallbackVariant] = useState(null);
+  const [roughPricingUnavailable, setRoughPricingUnavailable] = useState(false);
   const [aiSaveToPricingLibrary, setAiSaveToPricingLibrary] = useState(true);
   const [aiClarifyQuestions, setAiClarifyQuestions] = useState(null);
   const [aiClarifyQuestionItems, setAiClarifyQuestionItems] = useState(null);
@@ -5250,6 +5261,10 @@ export default function EstimateGeneratorScreen() {
         itemQuantities: {
           ...(draft.scopeMeasurements?.itemQuantities || {}),
           ...(latest.itemQuantities || {}),
+        },
+        pricingAcceptance: {
+          ...(draft.scopeMeasurements?.pricingAcceptance || {}),
+          ...(latest.pricingAcceptance || {}),
         },
       },
     });
@@ -6186,6 +6201,7 @@ export default function EstimateGeneratorScreen() {
 
   const handleSuggestRoughPrices = useCallback(async () => {
     if (!aiDraft || aiDraftRoughLoading) return;
+    setRoughPricingUnavailable(false);
     setAiDraftRoughLoading(true);
     try {
       const proposal = await fetchRoughPricingProposal(aiDraft, savedBidTemplates, {
@@ -6202,14 +6218,10 @@ export default function EstimateGeneratorScreen() {
           setShowAiRoughPricingModal(true);
           return;
         }
-        setPricingFallbackVariant('rough');
-        Alert.alert(
-          'Rough pricing unavailable',
-          proposal.message ||
-            'Could not build rough prices from the current scope. Add measurements or use Add prices manually.'
-        );
+        setRoughPricingUnavailable(true);
         return;
       }
+      setRoughPricingUnavailable(false);
       pauseDraftReviewForPricingModal();
       setAiRoughPricingProposal(proposal);
       setShowAiRoughPricingModal(true);
@@ -6223,8 +6235,7 @@ export default function EstimateGeneratorScreen() {
         setShowAiRoughPricingModal(true);
         return;
       }
-      setPricingFallbackVariant('rough');
-      Alert.alert('Suggest rough prices', e?.message || 'Could not load rough pricing. Try again or add prices manually.');
+      setRoughPricingUnavailable(true);
     } finally {
       setAiDraftRoughLoading(false);
     }
@@ -6251,6 +6262,7 @@ export default function EstimateGeneratorScreen() {
 
   const handleAddPricesManually = useCallback(() => {
     if (!aiDraft) return;
+    setRoughPricingUnavailable(false);
     pauseDraftReviewForPricingModal();
     setAiManualPricingSeed(null);
     setAiManualPricingFocusPackage(null);
@@ -6357,6 +6369,13 @@ export default function EstimateGeneratorScreen() {
         pricingProposalApproved: true,
         savedPricingApplySummary: null,
       };
+    });
+  }, []);
+
+  const handleRemoveScopeItem = useCallback((packageName) => {
+    setAiDraft((prev) => {
+      if (!prev || !packageName) return prev;
+      return removeScopePackageFromDraft(prev, packageName);
     });
   }, []);
 
@@ -24668,7 +24687,7 @@ export default function EstimateGeneratorScreen() {
 
       <AIEstimateScopeAssumptionsModal
         visible={showAiScopeAssumptionsModal}
-        draft={aiDraft ? { ...aiDraft, originalNotes: aiDraft.originalNotes || aiDraftNotes } : null}
+        draft={aiScopeAssumptionsDraft}
         notesFallback={aiDraftNotes}
         applying={aiScopeAssumptionsApplying}
         fromAssistant={aiDraftFromAssistant}
@@ -24750,9 +24769,11 @@ export default function EstimateGeneratorScreen() {
         showUseSavedPricing={aiSavedTemplateMatchesAvailable}
         onUseSavedPricing={handleUseSavedPricing}
         onSuggestRoughPrices={handleSuggestRoughPrices}
+        roughPricingUnavailable={roughPricingUnavailable}
         onAddPricesManually={handleAddPricesManually}
         onPriceScopeItem={handlePriceScopeItem}
         onUpdateScopeBudgetSplit={handleUpdateScopeBudgetSplit}
+        onRemoveScopeItem={handleRemoveScopeItem}
         onContinueUnpriced={handleDismissSavedPricingSummary}
         saveToPricingLibrary={aiSaveToPricingLibrary}
         onToggleSaveToPricingLibrary={setAiSaveToPricingLibrary}

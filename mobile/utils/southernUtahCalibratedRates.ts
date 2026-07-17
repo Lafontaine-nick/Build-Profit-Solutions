@@ -120,8 +120,10 @@ export const SOUTHERN_UTAH_LOCAL_INSTALLED_UNIT_RATES: Record<
   },
   'hvac:each': {
     unit: 'each',
-    installed: 17500,
-    note: 'Detached median HVAC lump (1 system)',
+    // Align with Plan 39/58 H64 (~$18.5k); prior $17.5k mid was fine but national
+    // $10k/system was dragging Confirm Scope suggests to ~$14.5k.
+    installed: 18500,
+    note: 'Detached HVAC package mid (Plan 39/58 H64 band, 1 system)',
   },
   'hvac:sqft': {
     unit: 'sqft',
@@ -161,13 +163,13 @@ export const SOUTHERN_UTAH_LOCAL_INSTALLED_UNIT_RATES: Record<
   },
   'exterior_doors:each': {
     unit: 'each',
-    installed: 2000,
-    note: 'H36 Exterior doors median ≈ $2,000/door planning (excl. iron specialty)',
+    installed: 3000,
+    note: 'SHV exterior + iron entry package mid ≈ $6,000 ÷ ~2 doors planning',
   },
   'sliding_doors:each': {
     unit: 'each',
-    installed: 4900,
-    note: 'H35 Exterior sliding median $9,800 ÷ ~2 units planning',
+    installed: 4000,
+    note: 'SHV sliding mid (~$7.3k package) ÷ ~2 units, or ~$4k one mid slider',
   },
   'plumbing_rough:sqft': {
     unit: 'sqft',

@@ -347,6 +347,24 @@ export function pinQuickMeasurementFieldInGroup(
 ): QuickMeasurementUiGroups {
   if (!key || !homeGroup) return groups;
 
+  const homeList = groups[homeGroup];
+  const currentHomeIndex = homeList.findIndex((result) => result.key === key);
+  const onlyInHome =
+    currentHomeIndex >= 0 &&
+    (Object.keys(groups) as QuickMeasurementGroupId[]).every(
+      (id) => id === homeGroup || !groups[id].some((result) => result.key === key)
+    );
+  if (
+    onlyInHome &&
+    (homeIndex == null ||
+      !Number.isFinite(homeIndex) ||
+      currentHomeIndex === homeIndex ||
+      // Already at end and caller asked for "append" past current length.
+      (homeIndex > homeList.length - 1 && currentHomeIndex === homeList.length - 1))
+  ) {
+    return groups;
+  }
+
   let found: QuickMeasurementFieldResult | null = null;
   const next: QuickMeasurementUiGroups = {
     fromPlan: [],

@@ -135,8 +135,10 @@ describe('ground-up takeoff → material/labor pricing', () => {
     expect(fill!.labor).toBeGreaterThan(0);
     expect(fill!.total).toBeGreaterThan(22000);
     expect(fill!.total).toBeLessThan(24150);
-    // Stage lump remains available as comparison on the host.
-    expect(comparison?.total).toBeCloseTo(24600, 0);
+    // Pure national on same CY (69 × $350), not living-SF stage lump.
+    expect(comparison?.total).toBeCloseTo(24150, 0);
+    expect(comparison?.basis).toEqual({ quantity: 69, unit: 'cy' });
+    expect(comparison?.rateSourceLabel).toMatch(/national average comparison/i);
   });
 
   it('prices excavation from excavationCy with material + labor', () => {
@@ -148,13 +150,21 @@ describe('ground-up takeoff → material/labor pricing', () => {
     const resolved = resolveChecklistItemQuantity('excavation', input, { templateKey: 'ground_up' });
     expect(resolved).toMatchObject({ quantity: 132, unit: 'cy' });
 
-    const { fill } = resolveScopeItemSuggestedPricing('excavation', input, 'ground_up', resolved);
+    const { fill, comparison } = resolveScopeItemSuggestedPricing(
+      'excavation',
+      input,
+      'ground_up',
+      resolved
+    );
     // Raw national $50/CY; barometer pulls toward local ~$23/CY → below $6,600.
     expect(fill?.basis).toEqual({ quantity: 132, unit: 'cy' });
     expect(fill!.material).toBeGreaterThan(0);
     expect(fill!.labor).toBeGreaterThan(0);
     expect(fill!.total).toBeLessThan(6600);
     expect(fill!.total).toBeGreaterThan(4000);
+    // Pure national on same CY (132 × $50).
+    expect(comparison?.total).toBeCloseTo(6600, 0);
+    expect(comparison?.basis).toEqual({ quantity: 132, unit: 'cy' });
   });
 
   it('prices cabinets LF and counters sqft separately', () => {
@@ -291,10 +301,10 @@ describe('ground-up takeoff → material/labor pricing', () => {
     expect(resolved).toMatchObject({ quantity: 37.2, unit: 'squares' });
 
     const roofing = resolveScopeItemSuggestedPricing('roofing', input, 'ground_up', resolved);
-    // Raw national 37.2 × $800 = $29,760; barometer pulls toward local installed roofing.
+    // Raw national 37.2 × $575 ≈ $21.4k; barometer pulls toward ~$17k (NAHB ~$16.7k band).
     expect(roofing.fill?.basis).toEqual({ quantity: 37.2, unit: 'squares' });
-    expect(roofing.fill!.total).toBeGreaterThan(20000);
-    expect(roofing.fill!.total).toBeLessThan(29760);
+    expect(roofing.fill!.total).toBeGreaterThan(15000);
+    expect(roofing.fill!.total).toBeLessThan(21400);
     const roofingTotal = roofing.fill!.total;
 
     input.pricingAcceptance = {
@@ -329,10 +339,10 @@ describe('ground-up takeoff → material/labor pricing', () => {
       'ground_up',
       resolveChecklistItemQuantity('drywall', input, { templateKey: 'ground_up' })
     );
-    // National $4.50/SF nudged by local drywall barometer.
+    // National ~$2.10/SF blended with local ~$2.21/SF barometer (not old $4.50/SF).
     expect(drywall.fill?.basis).toEqual({ quantity: 5469, unit: 'sqft' });
-    expect(drywall.fill!.total).toBeGreaterThan(15000);
-    expect(drywall.fill!.total).toBeLessThan(24610.5);
+    expect(drywall.fill!.total).toBeGreaterThan(11000);
+    expect(drywall.fill!.total).toBeLessThan(14000);
 
     const paint = resolveScopeItemSuggestedPricing(
       'interior_paint',
@@ -340,9 +350,10 @@ describe('ground-up takeoff → material/labor pricing', () => {
       'ground_up',
       resolveChecklistItemQuantity('interior_paint', input, { templateKey: 'ground_up' })
     );
-    // Exact Plan 41 installed paint budget — not national ~$10,300 surface-SF rate.
-    expect(paint.fill?.total).toBe(7400);
+    // Blended Plan 41 barometer + NAHB paint — not bare national surface-SF rate.
+    expect(paint.fill?.total).toBe(8900);
     expect(paint.fill?.installedBudgetBenchmark).toBe(true);
+    expect(paint.fill?.rateSourceLabel).toMatch(/Blended national/);
     expect(Number(paint.fill?.basis?.quantity)).toBe(5469);
   });
 });
