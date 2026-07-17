@@ -273,7 +273,7 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
     defaultQuantity: 1,
     requiresUserQuantity: false,
     pricingMethod: 'each',
-    quantityHelper: 'Assuming 1 shower door.',
+    quantityHelper: 'Door count — often matches tile/prefab shower count. Edit if needed.',
   },
   plumbing_trim: {
     defaultUnit: 'allowance',
@@ -884,10 +884,15 @@ const ADDITION_CHECKLIST_QUANTITY_RULES = {
     'Enter conditioned floor sqft, or price HVAC with lump sum/material/labor.',
     'Enter HVAC sqft or pricing.'
   ),
-  insulation: additionFloorAreaRule(
-    'Enter insulation area sqft, or price insulation with lump sum/material/labor.',
-    'Enter insulation sqft or pricing.'
-  ),
+  insulation: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['floorAreaSqft'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter thermal-envelope SF (exterior walls + attic − openings). Planning estimate when takeoff is missing — not drywall surface.',
+    missingMessage: 'Needs thermal-envelope insulation SF',
+  },
   drywall: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.drywall,
     measurementKey: 'drywallSqft',
@@ -983,10 +988,15 @@ const GROUND_UP_CHECKLIST_QUANTITY_RULES = {
     'Uses living area from the plan as MEP rough-in basis — edit if needed.',
     'Enter MEP rough-in sqft or pricing.'
   ),
-  insulation: additionFloorAreaRule(
-    'Uses living area from the plan as insulation basis — edit if needed.',
-    'Enter insulation sqft or pricing.'
-  ),
+  insulation: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['floorAreaSqft'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Planning estimate from exterior walls + conditioned attic/ceiling (thermal envelope) — not drywall living×3.5.',
+    missingMessage: 'Needs thermal-envelope insulation SF',
+  },
   drywall: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],

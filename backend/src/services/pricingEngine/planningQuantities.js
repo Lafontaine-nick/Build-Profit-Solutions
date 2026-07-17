@@ -19,10 +19,10 @@ const FIXTURE_PLANNING_RATES = {
     laborLabel: 'Vanity install labor',
   },
   shower_door: {
-    material: 650,
-    labor: 450,
-    materialLabel: 'Shower door / enclosure materials',
-    laborLabel: 'Shower door install labor',
+    material: 2100,
+    labor: 1150,
+    materialLabel: 'Shower door & mirror materials',
+    laborLabel: 'Shower door & mirror install labor',
   },
   tub: {
     material: 1200,
@@ -60,11 +60,12 @@ const FIXTURE_PLANNING_RATES = {
     materialLabel: 'Exhaust fan & vent materials',
     laborLabel: 'Exhaust fan install labor',
   },
+  // Accessories only — vanity mirrors are packaged under shower_door / glass_door.
   mirror_accessories: {
     material: 125,
     labor: 175,
-    materialLabel: 'Mirror & accessory materials',
-    laborLabel: 'Mirror / accessory install labor',
+    materialLabel: 'Bath accessory materials',
+    laborLabel: 'Bath accessory install labor',
   },
   lighting_fixture: {
     material: 200,

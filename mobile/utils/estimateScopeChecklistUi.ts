@@ -169,15 +169,31 @@ function defaultOptionsForItem(item: ScopeChecklistItem): ScopeChecklistOption[]
   return FIXTURE_CHOICE_OPTIONS;
 }
 
+/** Canonical labels for yes/no rows that were renamed after drafts were saved. */
+const YES_NO_LABEL_OVERRIDES: Record<string, { label: string; helperText?: string }> = {
+  glass_door: {
+    label: 'Shower doors & mirrors',
+    helperText:
+      'Glass shower door / enclosure plus bath mirror — material and install. Towel bars/accessories separate.',
+  },
+};
+
 /** Normalize server or cached checklist rows so choice questions never show Yes/No. */
 export function normalizeScopeChecklistItem(item: ScopeChecklistItem): ScopeChecklistItem {
   if (isMultiChoiceItem(item)) {
     return normalizeMultiChoiceItem(item);
   }
   if (!isChoiceItem(item)) {
+    const override = YES_NO_LABEL_OVERRIDES[item.id];
     return {
       ...item,
       inputType: 'yes_no',
+      ...(override
+        ? {
+            label: override.label,
+            helperText: override.helperText || item.helperText,
+          }
+        : null),
     };
   }
 
@@ -311,6 +327,25 @@ export function applyKitchenScopeInferences(
   return next;
 }
 
+/** Soft costs that default to Yes on ground-up when notes do not exclude them. */
+const GROUND_UP_SOFT_COST_DEFAULT_INCLUDED = new Set(['plans_engineering', 'permits']);
+
+export function applyGroundUpSoftCostDefaults(
+  items: ScopeChecklistItem[],
+  templateKey?: string | null,
+  notes?: string | null
+): ScopeChecklistItem[] {
+  if (String(templateKey || '').toLowerCase() !== 'ground_up') return items;
+  return items.map((item) => {
+    if (!GROUND_UP_SOFT_COST_DEFAULT_INCLUDED.has(item.id) || item.state !== 'unsure') return item;
+    // Respect explicit "no permits / owner pulls permits" style exclusions.
+    if (/\b(no\s+permits|permits\s+not\s+included|owner\s+pulls?\s+permits)\b/i.test(String(notes || ''))) {
+      if (item.id === 'permits') return item;
+    }
+    return { ...item, state: 'included' as const };
+  });
+}
+
 /** Set Yes/choice from note hints for items still on Not sure. */
 export function applyScopeInferencesFromNotes(
   items: ScopeChecklistItem[],
@@ -318,39 +353,40 @@ export function applyScopeInferencesFromNotes(
   templateKey?: string | null,
   measurements?: NormalizedScopeMeasurements
 ): ScopeChecklistItem[] {
-  if (!String(notes || '').trim()) return items;
+  const inferred = !String(notes || '').trim()
+    ? items
+    : items.map((item) => {
+        if (item.inputType === 'multi_choice') {
+          const choiceIds = inferChoicesFromNotes(item.id, notes);
+          if (choiceIds.length) {
+            return {
+              ...item,
+              choiceIds,
+              choiceId: choiceIds[0] ?? null,
+              state: choiceIdsToScopeState(choiceIds),
+            };
+          }
+          return item;
+        }
+        if (item.inputType === 'choice') {
+          const choiceId = inferChoiceFromNotes(item.id, notes);
+          if (choiceId && (!item.choiceId || item.choiceId === 'unsure')) {
+            return { ...item, choiceId, state: choiceIdToState(choiceId) };
+          }
+          return item;
+        }
+        const inferredState = inferItemStateFromNotes(item.id, notes);
+        if (item.state === 'unsure' && inferredState === 'included') {
+          return { ...item, state: 'included' as const };
+        }
+        if (item.state === 'unsure' && inferredState === 'excluded') {
+          return { ...item, state: 'excluded' as const };
+        }
+        return item;
+      });
 
-  const next = items.map((item) => {
-    if (item.inputType === 'multi_choice') {
-      const choiceIds = inferChoicesFromNotes(item.id, notes);
-      if (choiceIds.length) {
-        return {
-          ...item,
-          choiceIds,
-          choiceId: choiceIds[0] ?? null,
-          state: choiceIdsToScopeState(choiceIds),
-        };
-      }
-      return item;
-    }
-    if (item.inputType === 'choice') {
-      const choiceId = inferChoiceFromNotes(item.id, notes);
-      if (choiceId && (!item.choiceId || item.choiceId === 'unsure')) {
-        return { ...item, choiceId, state: choiceIdToState(choiceId) };
-      }
-      return item;
-    }
-    const inferred = inferItemStateFromNotes(item.id, notes);
-    if (item.state === 'unsure' && inferred === 'included') {
-      return { ...item, state: 'included' as const };
-    }
-    if (item.state === 'unsure' && inferred === 'excluded') {
-      return { ...item, state: 'excluded' as const };
-    }
-    return item;
-  });
-
-  return applyKitchenScopeInferences(next, templateKey, { notes, measurements });
+  const withSoftCosts = applyGroundUpSoftCostDefaults(inferred, templateKey, notes);
+  return applyKitchenScopeInferences(withSoftCosts, templateKey, { notes, measurements });
 }
 
 export function normalizeScopeChecklistItems(
@@ -362,6 +398,8 @@ export function normalizeScopeChecklistItems(
     migrateLegacyBathroomScopeItems(items),
     templateKey
   ).map(normalizeScopeChecklistItem);
+  // Do not force soft-cost Yes here — that would overwrite an intentional Not sure
+  // on every reopen. Defaults are applied at checklist build / note inference time.
   return applyKitchenScopeInferences(migrated, templateKey, inferenceCtx);
 }
 
@@ -372,6 +410,56 @@ function migrateGroundUpTakeoffScopeItems(
 ): ScopeChecklistItem[] {
   if (templateKey !== 'ground_up') return items;
   let next = [...items];
+
+  // O&P belongs on estimate markup (Step 5), not Confirm Scope.
+  next = next.filter((i) => i.id !== 'overhead_profit');
+
+  // Split legacy Windows & doors into windows / exterior / sliding / garage.
+  const windowsDoorsIdx = next.findIndex((i) => i.id === 'windows_doors');
+  if (windowsDoorsIdx >= 0) {
+    const combined = next[windowsDoorsIdx];
+    const hasWindows = next.some((i) => i.id === 'windows');
+    const hasExtDoors = next.some((i) => i.id === 'exterior_doors');
+    const hasSliding = next.some((i) => i.id === 'sliding_doors');
+    const hasGarage = next.some((i) => i.id === 'garage_doors');
+    next.splice(windowsDoorsIdx, 1);
+    let insertAt = windowsDoorsIdx;
+    const inject = (
+      id: string,
+      label: string,
+      helperText: string,
+      already: boolean
+    ) => {
+      if (already) return;
+      next.splice(insertAt, 0, {
+        ...combined,
+        id,
+        label,
+        helperText,
+        category: 'exterior',
+      });
+      insertAt += 1;
+    };
+    inject('windows', 'Windows', 'Window count for material and labor.', hasWindows);
+    inject(
+      'exterior_doors',
+      'Exterior doors',
+      'Swing entry/exit doors — material and install. Not sliding or garage.',
+      hasExtDoors
+    );
+    inject(
+      'sliding_doors',
+      'Exterior sliding doors',
+      'Patio / multi-panel sliding doors — material and install.',
+      hasSliding
+    );
+    inject(
+      'garage_doors',
+      'Garage doors',
+      'Priced by type: single, double, or RV/oversized. Enter counts on the card.',
+      hasGarage
+    );
+  }
 
   const combinedIdx = next.findIndex((i) => i.id === 'cabinets_counters');
   if (combinedIdx >= 0) {
@@ -398,6 +486,44 @@ function migrateGroundUpTakeoffScopeItems(
     }
   }
 
+  // Split legacy combined Paint & trim into interior paint / exterior paint / finish carpentry.
+  const paintTrimIdx = next.findIndex((i) => i.id === 'paint_trim');
+  if (paintTrimIdx >= 0) {
+    const combined = next[paintTrimIdx];
+    const hasInteriorPaint = next.some((i) => i.id === 'interior_paint' || i.id === 'paint');
+    const hasExteriorPaint = next.some((i) => i.id === 'exterior_paint');
+    const hasInteriorTrim = next.some((i) => i.id === 'interior_trim');
+    next.splice(paintTrimIdx, 1);
+    let insertAt = paintTrimIdx;
+    if (!hasInteriorPaint) {
+      next.splice(insertAt, 0, {
+        ...combined,
+        id: 'interior_paint',
+        label: 'Interior paint',
+        helperText: 'Wall/ceiling paint — installed budget from local comparables when available.',
+      });
+      insertAt += 1;
+    }
+    if (!hasExteriorPaint) {
+      next.splice(insertAt, 0, {
+        ...combined,
+        id: 'exterior_paint',
+        label: 'Exterior paint',
+        helperText:
+          'Exterior painted surface SF. Mid-market national includes tape/masking and light soffit/fascia — not stucco install.',
+      });
+      insertAt += 1;
+    }
+    if (!hasInteriorTrim) {
+      next.splice(insertAt, 0, {
+        ...combined,
+        id: 'interior_trim',
+        label: 'Finish carpentry / interior trim',
+        helperText: 'Finish trim, interior doors & shelving package until detailed takeoff.',
+      });
+    }
+  }
+
   const ensure = (
     id: string,
     label: string,
@@ -420,19 +546,34 @@ function migrateGroundUpTakeoffScopeItems(
   };
 
   ensure('excavation', 'Excavation', 'Excavation CY for material and labor.', 'sitework', 'sitework');
+  ensure('windows', 'Windows', 'Window count for material and labor.', 'exterior', 'exterior');
   ensure(
-    'windows_doors',
-    'Windows & doors',
-    'Opening count for material and labor.',
+    'exterior_doors',
+    'Exterior doors',
+    'Swing entry/exit doors — material and install. Not sliding or garage.',
     'exterior',
-    'exterior'
+    'windows'
+  );
+  ensure(
+    'sliding_doors',
+    'Exterior sliding doors',
+    'Patio / multi-panel sliding doors — material and install.',
+    'exterior',
+    'exterior_doors'
+  );
+  ensure(
+    'garage_doors',
+    'Garage doors',
+    'Priced by type: single, double, or RV/oversized. Enter counts on the card.',
+    'exterior',
+    'sliding_doors'
   );
   ensure(
     'stucco',
     'Stucco / exterior wall finish',
     'Exterior wall surface SF for material and labor.',
     'exterior',
-    'windows_doors'
+    'garage_doors'
   );
   ensure(
     'plumbing_rough',
@@ -466,6 +607,34 @@ function migrateGroundUpTakeoffScopeItems(
     'finishes',
     'shower_tile'
   );
+  ensure(
+    'glass_door',
+    'Shower doors & mirrors',
+    'Glass shower door / enclosure plus bath mirror — material and install.',
+    'finishes',
+    'shower_floor_tile'
+  );
+  ensure(
+    'interior_paint',
+    'Interior paint',
+    'Wall/ceiling paint — installed budget from local comparables when available.',
+    'finishes',
+    'glass_door'
+  );
+  ensure(
+    'exterior_paint',
+    'Exterior paint',
+    'Exterior painted surface SF. Mid-market national includes tape/masking and light soffit/fascia — not stucco install.',
+    'finishes',
+    'interior_paint'
+  );
+  ensure(
+    'interior_trim',
+    'Finish carpentry / interior trim',
+    'Finish trim, interior doors, door hardware & shelving package until detailed takeoff.',
+    'finishes',
+    'exterior_paint'
+  );
 
   next = next.map((i) => {
     if (i.id === 'sitework' && /excavation/i.test(i.label || '')) {
@@ -474,31 +643,84 @@ function migrateGroundUpTakeoffScopeItems(
     return i;
   });
 
+  next = ensureGroundUpOpeningScopeCards(next);
   return applyGroundUpStageHostDemotions(next, templateKey);
 }
 
-/**
- * Demote living-SF stage hosts and promote sellable child trades.
- * Re-run after note inferences so drywall/paint Yes can pull cabinets/tile with them.
- */
+/** Guarantee windows / exterior / sliding / garage door cards exist for ground-up UI. */
+export function ensureGroundUpOpeningScopeCards(items: ScopeChecklistItem[]): ScopeChecklistItem[] {
+  let next = [...items];
+  const ensure = (
+    id: string,
+    label: string,
+    helperText: string,
+    afterId?: string
+  ) => {
+    if (next.some((i) => i.id === id)) return;
+    const item: ScopeChecklistItem = {
+      id,
+      label,
+      helperText,
+      inputType: 'yes_no',
+      state: 'unsure',
+      category: 'exterior',
+    };
+    const afterIdx = afterId ? next.findIndex((i) => i.id === afterId) : -1;
+    if (afterIdx >= 0) next.splice(afterIdx + 1, 0, item);
+    else next.push(item);
+  };
+  ensure('windows', 'Windows', 'Window count for material and labor.', 'exterior');
+  ensure(
+    'exterior_doors',
+    'Exterior doors',
+    'Swing entry/exit doors — material and install. Not sliding or garage.',
+    'windows'
+  );
+  ensure(
+    'sliding_doors',
+    'Exterior sliding doors',
+    'Patio / multi-panel sliding doors — material and install.',
+    'exterior_doors'
+  );
+  ensure(
+    'garage_doors',
+    'Garage doors',
+    'Priced by type: single, double, or RV/oversized. Set counts in Quick measurements.',
+    'sliding_doors'
+  );
+  return next;
+}
+
 export function applyGroundUpStageHostDemotions(
   items: ScopeChecklistItem[],
   templateKey?: string | null
 ): ScopeChecklistItem[] {
   if (templateKey !== 'ground_up') return items;
 
-  const exteriorChildIds = ['roofing', 'windows_doors', 'stucco'];
+  const exteriorChildIds = [
+    'roofing',
+    'windows',
+    'exterior_doors',
+    'sliding_doors',
+    'garage_doors',
+    'windows_doors',
+    'stucco',
+  ];
   const mepChildIds = ['plumbing_rough', 'electrical_rough', 'hvac'];
   const siteChildIds = ['excavation'];
   const finishChildIds = [
     'drywall',
     'paint_trim',
+    'interior_paint',
+    'exterior_paint',
+    'interior_trim',
     'cabinets',
     'countertops',
     'tile_flooring',
     'floor_tile',
     'shower_tile',
     'shower_floor_tile',
+    'glass_door',
     'insulation',
   ];
   const exteriorChildrenIncluded = exteriorChildIds.some((id) =>
@@ -525,7 +747,9 @@ export function applyGroundUpStageHostDemotions(
   const promoteFinishChildren =
     interiorWasIncluded ||
     items.some(
-      (i) => ['drywall', 'paint_trim', 'tile_flooring'].includes(i.id) && i.state === 'included'
+      (i) =>
+        ['drywall', 'paint_trim', 'interior_paint', 'tile_flooring'].includes(i.id) &&
+        i.state === 'included'
     );
 
   return items.map((i) => {
@@ -830,10 +1054,12 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   electrical_rough: 'New circuits, boxes, or devices — priced per circuit/device when counted.',
   lighting: 'Fixture + install, not fixture cost only.',
   exhaust_fan: 'Replace or install bath fan and ducting if needed.',
-  mirror_accessories: 'Mirror, towel bars, hooks, or accessories.',
+  mirror_accessories:
+    'Towel bars, paper holder, hooks, or accessories. Vanity mirrors are under Shower doors & mirrors.',
   paint: 'Wall/ceiling surface sqft (not floor area). Prep, labor, and paint.',
   trim: 'Trim/baseboard labor and materials.',
-  glass_door: 'Door unit + install.',
+  glass_door:
+    'Glass shower door / enclosure plus bath mirror — material and install. Towel bars/accessories separate.',
   drywall: 'Wall/ceiling surface sqft (not floor area). Patch or replace after layout changes.',
   cabinets: 'Cabinet and vanity LF — kitchen, baths, laundry.',
   countertops: 'Countertop sqft — kitchen, baths, and elsewhere.',
@@ -844,11 +1070,21 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   plumbing_rough: 'Rough-in points (supply/drain) for material and labor.',
   electrical_rough: 'Circuits / boxes / devices for material and labor.',
   hvac: 'System count (or tons) for material and labor — not living SF.',
+  windows: 'Window count for material and labor.',
+  exterior_doors: 'Swing entry/exit doors — material and install. Not sliding or garage.',
+  sliding_doors: 'Patio / multi-panel sliding doors — material and install.',
+  garage_doors:
+    'Priced by type: single (~$1,800), double (~$2,400), RV (~$8,300). Double+RV ≈ $10,700 locally.',
   windows_doors: 'Opening count for material and labor.',
   excavation: 'Excavation CY for material and labor.',
   foundation: 'Foundation / slab concrete CY for material and labor.',
   roofing: 'Roof squares for material and labor.',
   paint_trim: 'Wall/ceiling paint surface sqft for material and labor.',
+  interior_paint: 'Paintable wall/ceiling SF (physical). Local budgets are installed lump sums.',
+  exterior_paint:
+    'Exterior painted surface SF. Mid-market national includes tape/masking and light soffit/fascia — not stucco install.',
+  interior_trim:
+    'Finish trim, interior doors, door hardware & shelving package until detailed takeoff.',
   plumbing_trim: 'Set fixtures and finish connections.',
   electrical_trim: 'Devices, plates, and bulbs.',
   permits: 'Confirm permit and impact fees for the project jurisdiction.',
@@ -898,7 +1134,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
   bathroom: [
     { title: 'Demo', itemIds: ['demo', 'floor_demo', 'tub_demo', 'shower_floor_demo'] },
     {
-      title: 'Shower',
+      title: 'Wet area finish',
       itemIds: [
         'wet_area_install',
         'tub_install',
@@ -1017,7 +1253,20 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
   ground_up: [
     { title: 'Preconstruction', itemIds: ['plans_engineering', 'permits'] },
     { title: 'Sitework', itemIds: ['sitework', 'excavation', 'utility_taps'] },
-    { title: 'Structure', itemIds: ['foundation', 'framing', 'roofing', 'exterior', 'windows_doors', 'stucco'] },
+    {
+      title: 'Structure',
+      itemIds: [
+        'foundation',
+        'framing',
+        'roofing',
+        'exterior',
+        'windows',
+        'exterior_doors',
+        'sliding_doors',
+        'garage_doors',
+        'stucco',
+      ],
+    },
     {
       title: 'MEP & Envelope',
       itemIds: ['mep_rough', 'plumbing_rough', 'electrical_rough', 'hvac', 'insulation'],
@@ -1030,14 +1279,17 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
         'cabinets',
         'countertops',
         'tile_flooring',
-        'floor_tile',
-        'shower_tile',
-        'shower_floor_tile',
-        'paint_trim',
+        'interior_paint',
+        'exterior_paint',
+        'interior_trim',
         'appliances',
       ],
     },
-    { title: 'Closeout', itemIds: ['contingency', 'overhead_profit', 'cleanup'] },
+    {
+      title: 'Wet area finish',
+      itemIds: ['floor_tile', 'shower_tile', 'shower_floor_tile', 'glass_door'],
+    },
+    { title: 'Closeout', itemIds: ['contingency', 'cleanup'] },
   ],
   room_remodel: [
     { title: 'Scope', itemIds: ['demo', 'cleanup'] },
@@ -1156,6 +1408,8 @@ function itemNeedsMeasurement(
 /** Scope groups that stay open on first load even when items are still "Not sure". */
 const SCOPE_GROUPS_DEFAULT_EXPANDED: Record<string, ReadonlySet<string>> = {
   kitchen: new Set(['Cabinets & Counters', 'Tile & Flooring', 'Appliances', 'Trades']),
+  // Keep Structure open so new opening cards (windows / doors / garage) stay visible.
+  ground_up: new Set(['Structure']),
 };
 
 /** Collapse groups with no included items and no missing measurements. */

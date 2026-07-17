@@ -321,7 +321,7 @@ describe('resolveScopeItemSuggestedPricing', () => {
     });
   });
 
-  it('hides flat allowance suggestions after the user enters an allowance', () => {
+  it('keeps flat allowance suggestions available after the user enters a different allowance', () => {
     const input = inputWith({});
     input.itemQuantities = {
       cleanup__allowance: {
@@ -334,8 +334,32 @@ describe('resolveScopeItemSuggestedPricing', () => {
     const resolved = resolveChecklistItemQuantity('cleanup', measurements, { templateKey: 'addition' });
 
     const { fill, comparison } = resolveScopeItemSuggestedPricing('cleanup', input, 'addition', resolved);
-    expect(fill).toBeNull();
+    // Suggestion stays available so the user can switch back from a manual edit.
+    expect(fill).toMatchObject({
+      lumpSumOnly: true,
+      mode: 'suggested_price',
+    });
+    expect(fill?.total).toBeGreaterThan(0);
     expect(comparison).toBeNull();
+  });
+
+  it('keeps ground-up permit suggestion available after editing the allowance', () => {
+    const input = inputWith({
+      itemQuantities: {
+        permits__allowance: {
+          quantity: '34000',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+      },
+    });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('permits', measurements, { templateKey: 'ground_up' });
+    const { fill } = resolveScopeItemSuggestedPricing('permits', input, 'ground_up', resolved);
+    expect(fill).toMatchObject({
+      lumpSumOnly: true,
+      total: 32000,
+    });
   });
 
   it('shows pricing entry for addition items without explicit quantity rules', () => {
@@ -631,5 +655,37 @@ describe('resolveTemplateRateForItem', () => {
       dualLabor: { quantity: 2762.5 },
       dualAllowance: { quantity: 6587.5 },
     });
+  });
+
+  it('prices ground-up insulation on thermal envelope SF, not living×3.5 drywall surface', () => {
+    const livingSf = 1879;
+    const drywallProxy = Math.round(livingSf * 3.5); // 6577 — must not be used
+    const input = inputWith({ floorAreaSqft: String(livingSf) });
+    const resolved = {
+      quantity: livingSf,
+      unit: 'sqft' as const,
+      quantitySource: 'inferred' as const,
+    };
+    const { fill } = resolveScopeItemSuggestedPricing('insulation', input, 'ground_up', resolved);
+    expect(fill?.basis?.unit).toBe('sqft');
+    expect(fill?.basis?.quantity).not.toBe(drywallProxy);
+    expect(fill?.basis?.quantity).not.toBe(livingSf);
+    // Envelope planning without perimeter still stays well below drywall surface.
+    expect(fill?.basis?.quantity).toBeLessThan(5000);
+    expect(fill?.basis?.quantity).toBeGreaterThan(2500);
+  });
+
+  it('keeps drywall notes surface takeoff (does not expand living SF when qty differs)', () => {
+    const input = inputWith({
+      floorAreaSqft: '1879',
+      drywallSqft: '5469',
+    });
+    const resolved = {
+      quantity: 5469,
+      unit: 'sqft' as const,
+      quantitySource: 'notes' as const,
+    };
+    const { fill } = resolveScopeItemSuggestedPricing('drywall', input, 'ground_up', resolved);
+    expect(fill?.basis).toEqual({ quantity: 5469, unit: 'sqft' });
   });
 });

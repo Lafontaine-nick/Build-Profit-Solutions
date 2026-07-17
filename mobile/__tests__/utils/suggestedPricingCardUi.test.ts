@@ -2,6 +2,7 @@ import {
   applyPriceActionLabel,
   buildSuggestedPricingCardDisplay,
   displayPriceSourceLabel,
+  formatCompactSuggestedLine,
   formatFallbackBasisLine,
   formatQuantityProvenanceLine,
   formatSuggestedComponentMoney,
@@ -13,12 +14,17 @@ import {
   resolveSuggestedActionType,
   roundSuggestedDisplayComponent,
   roundSuggestedDisplayTotal,
+  shouldUseCompactSuggestedAlternative,
   suggestedActionLabel,
   suggestedCardTitle,
 } from '@/utils/suggestedPricingCardUi';
 import { benchmarkActionButtonLabel, missingStatusDisplayLabel } from '@/utils/measurementSemantics/scopePriceUi';
 import { SCOPE_PARSED_FROM_NOTES_LABEL } from '@/constants/scopeNoteSourceLabels';
-import type { SuggestedPricingBlock } from '@/utils/scopeItemQuantities';
+import {
+  getScopeQuantityFieldLabels,
+  pricingBasisFieldLabel,
+  type SuggestedPricingBlock,
+} from '@/utils/scopeItemQuantities';
 
 function block(overrides: Partial<SuggestedPricingBlock> = {}): SuggestedPricingBlock {
   return {
@@ -193,5 +199,63 @@ describe('suggestedPricingCardUi', () => {
     expect(suggestedCardTitle(block())).toBe('Suggested pricing');
     expect(suggestedCardTitle({ lumpSumOnly: true })).toBe('Suggested allowance');
     expect(suggestedCardTitle({ isFallbackPricing: true })).toBe('Suggested planning price');
+  });
+
+  it('uses specific count/area field labels for measurement-needed scopes', () => {
+    expect(getScopeQuantityFieldLabels('windows_doors').count).toBe('Window & door openings');
+    expect(getScopeQuantityFieldLabels('plumbing_rough').count).toBe('Rough-in points');
+    expect(getScopeQuantityFieldLabels('electrical_rough').count).toBe('Circuits / devices / boxes');
+    expect(getScopeQuantityFieldLabels('hvac').count).toBe('Systems / tons');
+    expect(getScopeQuantityFieldLabels('insulation').count).toBe('Thermal-envelope area');
+    expect(getScopeQuantityFieldLabels('appliances').count).toBe('Appliance count');
+    expect(pricingBasisFieldLabel('windows_doors', 'each')).toBe('Window & door openings');
+    expect(pricingBasisFieldLabel('insulation', 'sqft')).toBe('Thermal-envelope area');
+    expect(pricingBasisFieldLabel('unknown_scope', 'sqft')).toBe('Area (sqft)');
+  });
+
+  it('uses compact Use suggested presentation when a current allowance already exists', () => {
+    expect(
+      shouldUseCompactSuggestedAlternative({ currentTotal: 3500, suggestedTotal: 3000 })
+    ).toBe(true);
+    expect(
+      shouldUseCompactSuggestedAlternative({ currentTotal: 3000, suggestedTotal: 3000 })
+    ).toBe(false);
+    expect(formatCompactSuggestedLine(3000)).toBe('Suggested $3,000');
+
+    const display = buildSuggestedPricingCardDisplay({
+      itemId: 'plans_engineering',
+      block: block({
+        lumpSumOnly: true,
+        material: 0,
+        labor: 3000,
+        total: 3000,
+        basis: null,
+        costBuckets: [{ key: 'allowance', label: 'Allowance', amount: 3000, source: 'national_average' }],
+      }),
+      hasCurrentPricing: true,
+    });
+    expect(display.presentation).toBe('compact');
+    expect(display.missingMeasurementTitle).toBeNull();
+    expect(display.missingMeasurementHint).toBeNull();
+    expect(display.actionLabel).toBe('Use suggested');
+    expect(display.compactLine).toBe('Suggested $3,000');
+  });
+
+  it('forceCompact collapses soft-cost idle cards while keeping Apply allowance', () => {
+    const display = buildSuggestedPricingCardDisplay({
+      itemId: 'plans_engineering',
+      block: block({
+        lumpSumOnly: true,
+        material: 0,
+        labor: 3000,
+        total: 3000,
+        basis: null,
+        costBuckets: [{ key: 'allowance', label: 'Allowance', amount: 3000, source: 'national_average' }],
+      }),
+      forceCompact: true,
+    });
+    expect(display.presentation).toBe('compact');
+    expect(display.actionLabel).toBe('Apply allowance');
+    expect(display.compactLine).toBe('Suggested $3,000');
   });
 });

@@ -40,7 +40,7 @@ describe('ground-up exterior trades', () => {
       [
         { id: 'roofing', label: 'Roofing', inputType: 'yes_no', state: 'included' },
         { id: 'exterior', label: 'Exterior Envelope', inputType: 'yes_no', state: 'included' },
-        { id: 'windows_doors', label: 'Windows & doors', inputType: 'yes_no', state: 'included' },
+        { id: 'windows', label: 'Windows', inputType: 'yes_no', state: 'included' },
       ] as any,
       'ground_up'
     );
@@ -49,20 +49,22 @@ describe('ground-up exterior trades', () => {
     expect(byId.stucco.state).toBe('included');
     expect(byId.exterior.state).toBe('excluded');
     expect(byId.roofing.state).toBe('included');
-    expect(byId.windows_doors.state).toBe('included');
+    expect(byId.windows.state).toBe('included');
+    expect(byId.garage_doors).toBeTruthy();
   });
 
-  it('promotes windows/doors and stucco when Exterior Envelope was Yes', () => {
+  it('promotes opening trades and stucco when Exterior Envelope was Yes', () => {
     const items = normalizeScopeChecklistItems(
       [
         { id: 'exterior', label: 'Exterior Envelope', inputType: 'yes_no', state: 'included' },
-        { id: 'windows_doors', label: 'Windows & doors', inputType: 'yes_no', state: 'unsure' },
+        { id: 'windows', label: 'Windows', inputType: 'yes_no', state: 'unsure' },
         { id: 'stucco', label: 'Stucco', inputType: 'yes_no', state: 'unsure' },
       ] as any,
       'ground_up'
     );
     expect(items.find((i) => i.id === 'exterior')?.state).toBe('excluded');
-    expect(items.find((i) => i.id === 'windows_doors')?.state).toBe('included');
+    expect(items.find((i) => i.id === 'windows')?.state).toBe('included');
+    expect(items.find((i) => i.id === 'garage_doors')?.state).toBe('included');
     expect(items.find((i) => i.id === 'stucco')?.state).toBe('included');
   });
 
@@ -80,12 +82,12 @@ describe('ground-up exterior trades', () => {
     expect(fill?.rateSourceLabel).toMatch(/National Average/i);
   });
 
-  it('prices windows/doors from living SF when opening count is missing', () => {
+  it('prices windows from living SF when window count is missing', () => {
     const input = inputWith({});
-    const resolved = resolveChecklistItemQuantity('windows_doors', input, { templateKey: 'ground_up' });
+    const resolved = resolveChecklistItemQuantity('windows', input, { templateKey: 'ground_up' });
     expect(resolved.quantity).toBeNull();
 
-    const { fill } = resolveScopeItemSuggestedPricing('windows_doors', input, 'ground_up', resolved);
+    const { fill } = resolveScopeItemSuggestedPricing('windows', input, 'ground_up', resolved);
     expect(fill?.basis).toEqual({ quantity: 1879, unit: 'sqft' });
     expect(fill?.material).toBeGreaterThan(0);
     expect(fill?.labor).toBeGreaterThan(0);
@@ -94,15 +96,15 @@ describe('ground-up exterior trades', () => {
     expect(fill!.total).toBeLessThan(12000);
   });
 
-  it('prices windows/doors from opening count when provided', () => {
+  it('prices windows from opening count when provided', () => {
     const input = inputWith({
       itemQuantities: {
-        windows_doors: { quantity: 16, unit: 'each', quantitySource: 'user_entered' },
+        windows: { quantity: 16, unit: 'each', quantitySource: 'user_entered' },
       },
     });
-    const resolved = resolveChecklistItemQuantity('windows_doors', input, { templateKey: 'ground_up' });
+    const resolved = resolveChecklistItemQuantity('windows', input, { templateKey: 'ground_up' });
     expect(resolved).toMatchObject({ quantity: 16, unit: 'each' });
-    const { fill } = resolveScopeItemSuggestedPricing('windows_doors', input, 'ground_up', resolved);
+    const { fill } = resolveScopeItemSuggestedPricing('windows', input, 'ground_up', resolved);
     expect(fill?.basis).toEqual({ quantity: 16, unit: 'each' });
     expect(fill!.total).toBeGreaterThan(10000);
     expect(fill!.total).toBeLessThan(14000);

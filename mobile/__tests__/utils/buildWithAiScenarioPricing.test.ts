@@ -122,6 +122,7 @@ describe('Build with AI scenario pricing', () => {
           itemId: 'permits',
           itemQuantities: accepted.itemQuantities,
           pricingAcceptance: accepted.pricingAcceptance,
+          suggestedTotal: fill?.total ?? null,
         })
       ).toBe(true);
     });

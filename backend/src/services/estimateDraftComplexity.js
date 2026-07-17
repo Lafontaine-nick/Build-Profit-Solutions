@@ -295,6 +295,18 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
     };
   });
 
+  // Ground-up soft costs are almost always in the bid. Notes often mention "plans"
+  // but not "permits", which left permits stuck on Not sure with pricing hidden.
+  if (templateKey === 'ground_up') {
+    const softCostDefaults = new Set(['plans_engineering', 'permits']);
+    for (let i = 0; i < items.length; i++) {
+      const row = items[i];
+      if (!softCostDefaults.has(row.id) || row.state !== 'unsure') continue;
+      if (inferItemStateFromNotes(row.id, notes) === 'excluded') continue;
+      items[i] = { ...row, state: 'included' };
+    }
+  }
+
   const panIdx = items.findIndex((i) => i.id === 'wet_area_install' || i.id === 'shower_pan');
   const showerFloorIdx = items.findIndex((i) => i.id === 'shower_floor_tile');
   const panChoice = panIdx >= 0 ? items[panIdx].choiceId : null;

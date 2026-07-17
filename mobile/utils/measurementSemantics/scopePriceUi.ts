@@ -43,12 +43,24 @@ export const STAGE_COVERS_SCOPE_KEYS: Record<string, string[]> = {
   'site-preconstruction': ['sitework', 'excavation'],
   foundations: ['foundation'],
   framing: ['framing'],
-  'exterior-finishes': ['roofing', 'exterior', 'windows_doors', 'stucco'],
+  'exterior-finishes': [
+    'roofing',
+    'exterior',
+    'windows',
+    'exterior_doors',
+    'sliding_doors',
+    'garage_doors',
+    'windows_doors',
+    'stucco',
+  ],
   'major-systems-rough-ins': ['mep_rough', 'plumbing_rough', 'electrical_rough', 'hvac'],
   'interior-finishes': [
     'insulation',
     'drywall',
     'paint_trim',
+    'interior_paint',
+    'exterior_paint',
+    'interior_trim',
     'cabinets_counters',
     'cabinets',
     'countertops',
@@ -67,13 +79,27 @@ export const STAGE_COVERS_SCOPE_KEYS: Record<string, string[]> = {
  */
 export const STAGE_SEPARATE_TRADE_SCOPE_KEYS: Record<string, string[]> = {
   'site-preconstruction': ['excavation'],
-  'exterior-finishes': ['roofing', 'windows_doors', 'stucco'],
+  // Exterior paint is national surface-SF (or allowance) — never inherit the
+  // Exterior Envelope living-SF package (~$50k+ roofing/stucco/windows).
+  'exterior-finishes': [
+    'roofing',
+    'windows',
+    'exterior_doors',
+    'sliding_doors',
+    'garage_doors',
+    'windows_doors',
+    'stucco',
+    'exterior_paint',
+  ],
   'major-systems-rough-ins': ['plumbing_rough', 'electrical_rough', 'hvac'],
   'interior-finishes': [
     'insulation',
     'drywall',
     'paint_trim',
     'paint',
+    'interior_paint',
+    'exterior_paint',
+    'interior_trim',
     'cabinets',
     'countertops',
     'cabinets_counters',
@@ -259,10 +285,18 @@ export function missingStatusDisplayLabel(scopeKey: string): string {
       return 'Needs circuit / device count';
     case 'hvac':
       return 'Needs HVAC system count or tons';
+    case 'windows':
+      return 'Needs window count';
+    case 'exterior_doors':
+      return 'Needs exterior door count';
+    case 'sliding_doors':
+      return 'Needs sliding door count';
+    case 'garage_doors':
+      return 'Needs garage door type counts (single / double / RV)';
     case 'windows_doors':
       return 'Needs window/door opening count';
     case 'insulation':
-      return 'Needs envelope surface SF';
+      return 'Needs thermal-envelope insulation SF';
     case 'drywall':
       return 'Needs wall and ceiling surface SF';
     case 'paint':
@@ -408,6 +442,10 @@ export function coversLabelList(stageId: string): string {
     roofing: 'roofing',
     exterior: 'wall finish / envelope',
     exterior_finishes: 'exterior finishes',
+    windows: 'windows',
+    exterior_doors: 'exterior doors',
+    sliding_doors: 'sliding doors',
+    garage_doors: 'garage doors',
     windows_doors: 'windows / doors',
     mep_rough: 'MEP rough-in',
     plumbing_rough: 'plumbing rough-in',

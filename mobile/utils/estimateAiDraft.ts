@@ -224,6 +224,12 @@ export type ScopeMeasurements = {
   prefabBathCount?: number | null;
   /** Tub baths — does not clear or replace tile shower SF. */
   tubBathCount?: number | null;
+  /** Glass shower door / enclosure count (Wet area finish). */
+  showerDoorCount?: number | null;
+  /** Garage door schedule by type (Confirm Scope openings). */
+  garageDoorSingleCount?: number | null;
+  garageDoorDoubleCount?: number | null;
+  garageDoorRvCount?: number | null;
   /** Structured, sheet-aware facts retained after plan review for planning formulas. */
   planFacts?: PlanFacts;
   /** Original metadata for accepted planning suggestions, retained after edits. */
@@ -982,7 +988,11 @@ const PLAN_SCOPE_ID_ALIASES: Record<string, string[]> = {
   cabinets: ['cabinets_counters', 'cabinets'],
   countertops: ['cabinets_counters', 'countertops'],
   cabinets_counters: ['cabinets_counters', 'cabinets', 'countertops'],
-  windows_doors: ['windows_doors', 'exterior'],
+  windows_doors: ['windows', 'exterior_doors', 'sliding_doors', 'garage_doors', 'exterior'],
+  windows: ['windows', 'exterior'],
+  exterior_doors: ['exterior_doors', 'exterior'],
+  sliding_doors: ['sliding_doors', 'exterior'],
+  garage_doors: ['garage_doors', 'exterior'],
   concrete: ['foundation', 'concrete'],
   pour_foundation: ['foundation', 'pour_foundation'],
 };

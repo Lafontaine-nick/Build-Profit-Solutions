@@ -15,7 +15,10 @@ import {
   type ScopeMeasurementsInputExtended,
 } from '@/utils/scopeItemQuantities';
 import { emptyQuickMeasurementInput } from '@/utils/scopeQuickMeasurements';
-import { normalizeScopeChecklistItems } from '@/utils/estimateScopeChecklistUi';
+import {
+  normalizeScopeChecklistItems,
+  SCOPE_CHECKLIST_GROUPS,
+} from '@/utils/estimateScopeChecklistUi';
 
 function inputWith(overrides: Partial<ScopeMeasurementsInputExtended>): ScopeMeasurementsInputExtended {
   return {
@@ -192,8 +195,9 @@ describe('ground-up takeoff → material/labor pricing', () => {
       'ground_up',
       resolveChecklistItemQuantity('shower_tile', input, { templateKey: 'ground_up' })
     );
-    // 180 × $8 / $14
-    expect(wall.fill).toMatchObject({ material: 1440, labor: 2520, total: 3960 });
+    // 180 × $8 / $18 (shower wall — not generic floor labor)
+    expect(wall.fill).toMatchObject({ material: 1440, labor: 3240, total: 4680 });
+    expect(wall.fill?.rateSourceLabel).toMatch(/shower wall tile/i);
 
     const showerFloor = resolveScopeItemSuggestedPricing(
       'shower_floor_tile',
@@ -201,8 +205,8 @@ describe('ground-up takeoff → material/labor pricing', () => {
       'ground_up',
       resolveChecklistItemQuantity('shower_floor_tile', input, { templateKey: 'ground_up' })
     );
-    // 50 × $8 / $14
-    expect(showerFloor.fill).toMatchObject({ material: 400, labor: 700, total: 1100 });
+    // 50 × $8 / $17
+    expect(showerFloor.fill).toMatchObject({ material: 400, labor: 850, total: 1250 });
 
     const bathFloor = resolveScopeItemSuggestedPricing(
       'floor_tile',
@@ -210,8 +214,8 @@ describe('ground-up takeoff → material/labor pricing', () => {
       'ground_up',
       resolveChecklistItemQuantity('floor_tile', input, { templateKey: 'ground_up' })
     );
-    // 300 × $8 / $14
-    expect(bathFloor.fill).toMatchObject({ material: 2400, labor: 4200, total: 6600 });
+    // 300 × $8 / $13 (bath floor — not shower wall labor)
+    expect(bathFloor.fill).toMatchObject({ material: 2400, labor: 3900, total: 6300 });
   });
 
   it('migrates legacy cabinets_counters into cabinets + countertops on ground_up', () => {
@@ -233,6 +237,48 @@ describe('ground-up takeoff → material/labor pricing', () => {
     expect(ids).not.toContain('cabinets_counters');
     expect(migrated.find((i) => i.id === 'cabinets')?.state).toBe('included');
     expect(migrated.find((i) => i.id === 'countertops')?.state).toBe('included');
+  });
+
+  it('injects Shower doors & mirrors under wet area finish and prices national each rates', () => {
+    const migrated = normalizeScopeChecklistItems(
+      [
+        { id: 'shower_floor_tile', label: 'Shower floor tile', inputType: 'yes_no', state: 'included' },
+        { id: 'drywall', label: 'Drywall', inputType: 'yes_no', state: 'included' },
+      ] as any,
+      'ground_up'
+    );
+    const door = migrated.find((i) => i.id === 'glass_door');
+    expect(door).toMatchObject({
+      id: 'glass_door',
+      label: 'Shower doors & mirrors',
+    });
+    // Promoted with other finish children when wet tile / drywall is already Yes.
+    expect(door?.state).toBe('included');
+    const wetGroup = SCOPE_CHECKLIST_GROUPS.ground_up.find((g) => g.title === 'Wet area finish');
+    expect(wetGroup?.itemIds).toEqual(['floor_tile', 'shower_tile', 'shower_floor_tile', 'glass_door']);
+
+    const input = inputWith({ bathCount: 2, prefabBathCount: 1 } as any);
+    const resolved = resolveChecklistItemQuantity('glass_door', input as any, {
+      templateKey: 'ground_up',
+    });
+    // Inferred from tile + prefab when showerDoorCount is unset.
+    expect(resolved).toMatchObject({ quantity: 3, unit: 'each' });
+    const priced = resolveScopeItemSuggestedPricing('glass_door', input as any, 'ground_up', resolved);
+    // Builder mid door+mirror $2,100 + $1,150 = $3,250 each × 3
+    expect(priced.fill).toMatchObject({ material: 6300, labor: 3450, total: 9750 });
+
+    const twoDoorInput = inputWith({ showerDoorCount: 2, bathCount: 3 } as any);
+    const explicit = resolveChecklistItemQuantity('glass_door', twoDoorInput as any, {
+      templateKey: 'ground_up',
+    });
+    expect(explicit).toMatchObject({ quantity: 2, unit: 'each' });
+    const pricedTwo = resolveScopeItemSuggestedPricing(
+      'glass_door',
+      twoDoorInput as any,
+      'ground_up',
+      explicit
+    );
+    expect(pricedTwo.fill).toMatchObject({ material: 4200, labor: 2300, total: 6500 });
   });
 
   it('prices roofing from roofSquares with material + labor and locks Exterior Envelope to comparison', () => {
@@ -270,7 +316,7 @@ describe('ground-up takeoff → material/labor pricing', () => {
     expect(exterior.comparison?.benchmarkAction).toBe('comparison_only');
   });
 
-  it('prices drywall and paint_trim surface SF with material + labor', () => {
+  it('prices drywall surface SF and Plan 41 interior paint installed comparable', () => {
     jest
       .spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion')
       .mockImplementation((id: string) => stageSuggestion(id, 'interior-finishes', 92700));
@@ -289,14 +335,14 @@ describe('ground-up takeoff → material/labor pricing', () => {
     expect(drywall.fill!.total).toBeLessThan(24610.5);
 
     const paint = resolveScopeItemSuggestedPricing(
-      'paint_trim',
+      'interior_paint',
       input,
       'ground_up',
-      resolveChecklistItemQuantity('paint_trim', input, { templateKey: 'ground_up' })
+      resolveChecklistItemQuantity('interior_paint', input, { templateKey: 'ground_up' })
     );
-    // National $3.35/SF nudged by local paint barometer.
-    expect(paint.fill?.basis).toEqual({ quantity: 5469, unit: 'sqft' });
-    expect(paint.fill!.total).toBeGreaterThan(10000);
-    expect(paint.fill!.total).toBeLessThan(18321.15);
+    // Exact Plan 41 installed paint budget — not national ~$10,300 surface-SF rate.
+    expect(paint.fill?.total).toBe(7400);
+    expect(paint.fill?.installedBudgetBenchmark).toBe(true);
+    expect(Number(paint.fill?.basis?.quantity)).toBe(5469);
   });
 });

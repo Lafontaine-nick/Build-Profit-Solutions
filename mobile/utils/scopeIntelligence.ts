@@ -114,6 +114,12 @@ export type MeasurementType =
   | 'countertop_area'
   | 'door_count'
   | 'window_count'
+  | 'opening_count'
+  | 'rough_in_count'
+  | 'circuit_device_count'
+  | 'system_count'
+  | 'envelope_area'
+  | 'appliance_count'
   | 'fixture_count'
   | 'equipment_duration'
   | 'disposal_loads'
@@ -294,6 +300,12 @@ const MEASUREMENT_LABELS: Record<string, string> = {
   countertop_area: 'countertop area',
   door_count: 'door count',
   window_count: 'window count',
+  opening_count: 'window/door opening count',
+  rough_in_count: 'plumbing rough-in points',
+  circuit_device_count: 'circuit/device count',
+  system_count: 'HVAC system count',
+  envelope_area: 'envelope surface area',
+  appliance_count: 'appliance count',
   fixture_count: 'fixture count',
   equipment_duration: 'equipment duration',
   disposal_loads: 'disposal loads',
@@ -486,14 +498,30 @@ const SCOPE_UNIT_REGISTRY: Record<string, ScopeRegistryEntry> = {
   exterior_finishes: ENTRY('exterior', ['sqft'], ['exterior_wall_area'], ['building_floor_area', 'wall_height', 'perimeter'], {
     alternateUnits: ['allowance', 'lump_sum'],
   }),
-  windows_doors: EACH_SCOPE('openings'),
-  windows: EACH_SCOPE('openings'),
-  doors: EACH_SCOPE('openings'),
+  windows_doors: ENTRY('openings', ['each'], ['opening_count'], ['window_count', 'door_count', 'allowance_amount'], {
+    alternateUnits: ['allowance', 'lump_sum', 'sqft'],
+    requiredMeasurementTypes: ['opening_count'],
+  }),
+  windows: ENTRY('openings', ['each'], ['window_count', 'opening_count'], ['allowance_amount'], {
+    alternateUnits: ['allowance', 'lump_sum'],
+    requiredMeasurementTypes: ['window_count'],
+  }),
+  doors: ENTRY('openings', ['each'], ['door_count', 'opening_count'], ['allowance_amount'], {
+    alternateUnits: ['allowance', 'lump_sum'],
+    requiredMeasurementTypes: ['door_count'],
+  }),
 
   // Interiors
-  insulation: ENTRY('insulation', ['sqft'], ['wall_surface_area', 'ceiling_surface_area'], AREA_TO_SURFACE_DERIVED, {
-    alternateUnits: ['allowance', 'lump_sum'],
-  }),
+  insulation: ENTRY(
+    'insulation',
+    ['sqft'],
+    ['envelope_area', 'exterior_wall_area', 'ceiling_surface_area'],
+    ['exterior_wall_area', 'building_floor_area', 'conditioned_floor_area'],
+    {
+      alternateUnits: ['allowance', 'lump_sum'],
+      requiredMeasurementTypes: ['envelope_area'],
+    }
+  ),
   drywall: ENTRY('drywall', ['sqft'], ['wall_surface_area', 'ceiling_surface_area'], AREA_TO_SURFACE_DERIVED, {
     alternateUnits: ['allowance', 'lump_sum'],
     requiredMeasurementTypes: ['wall_surface_area'],
@@ -552,27 +580,39 @@ const SCOPE_UNIT_REGISTRY: Record<string, ScopeRegistryEntry> = {
   }),
 
   // MEP
-  plumbing_rough: ENTRY('plumbing', ['each'], ['fixture_count'], ['building_floor_area'], {
+  plumbing_rough: ENTRY('plumbing', ['each'], ['rough_in_count'], ['building_floor_area', 'fixture_count'], {
     alternateUnits: ['allowance', 'lump_sum'],
+    requiredMeasurementTypes: ['rough_in_count'],
   }),
   plumbing_trim: FLAT_ALLOWANCE('plumbing'),
   sink_faucet: EACH_SCOPE('plumbing'),
   toilet: EACH_SCOPE('plumbing'),
   vanity: EACH_SCOPE('plumbing'),
-  electrical_rough: ENTRY('electrical', ['each'], ['fixture_count'], ['building_floor_area'], {
-    alternateUnits: ['allowance', 'lump_sum', 'hr'],
-  }),
+  electrical_rough: ENTRY(
+    'electrical',
+    ['each'],
+    ['circuit_device_count'],
+    ['building_floor_area', 'fixture_count'],
+    {
+      alternateUnits: ['allowance', 'lump_sum', 'hr'],
+      requiredMeasurementTypes: ['circuit_device_count'],
+    }
+  ),
   electrical_trim: FLAT_ALLOWANCE('electrical'),
   lighting: EACH_SCOPE('electrical'),
   exhaust_fan: EACH_SCOPE('hvac'),
-  hvac: ENTRY('hvac', ['sqft'], ['conditioned_floor_area', 'building_floor_area'], ['allowance_amount'], {
-    alternateUnits: ['each', 'allowance', 'lump_sum'],
+  hvac: ENTRY('hvac', ['each', 'ton'], ['system_count'], ['conditioned_floor_area', 'building_floor_area'], {
+    alternateUnits: ['allowance', 'lump_sum', 'sqft'],
+    requiredMeasurementTypes: ['system_count'],
   }),
   hvac_startup: ENTRY('hvac', ['allowance'], ['allowance_amount'], ['conditioned_floor_area'], {
     alternateUnits: ['lump_sum', 'sqft'],
     requiredMeasurementTypes: ['allowance_amount'],
   }),
-  appliances: EACH_SCOPE('appliances'),
+  appliances: ENTRY('appliances', ['each'], ['appliance_count'], ['allowance_amount'], {
+    alternateUnits: ['allowance', 'lump_sum'],
+    requiredMeasurementTypes: ['appliance_count'],
+  }),
 
   // Exterior and landscaping
   decking: ENTRY('decking', ['sqft'], ['room_floor_area', 'slab_area'], ['allowance_amount'], {

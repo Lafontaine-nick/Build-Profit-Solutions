@@ -244,6 +244,86 @@ export function hasAcceptedScopePricing(
   );
 }
 
+/** Dollar total for display/acceptance — never treat physical takeoff (sqft/lf/…) as money. */
+export function resolveAcceptedMoneyTotal(params: {
+  resolved: ResolvedItemQuantity;
+  acceptance?: ScopePricingAcceptanceMetadata | null;
+}): number {
+  const material =
+    Number(params.acceptance?.materialAmount ?? params.resolved.dualMaterial?.quantity ?? 0) || 0;
+  const labor = Number(params.acceptance?.laborAmount ?? params.resolved.dualLabor?.quantity ?? 0) || 0;
+  const splitTotal = material + labor > 0 ? material + labor : null;
+  const accepted = Number(params.acceptance?.totalAmount);
+  const unit = String(params.resolved.unit || '').toLowerCase();
+  const physicalQty = Number(params.resolved.quantity ?? 0);
+
+  // Prefer an explicit acceptance total, but recover when Edit seeded living/floor SF
+  // into totalAmount while material + labor still hold the real dollars.
+  if (Number.isFinite(accepted) && accepted > 0) {
+    const looksLikePhysicalQtyAsMoney =
+      splitTotal != null &&
+      material > 0 &&
+      labor > 0 &&
+      !['allowance', 'lump_sum'].includes(unit) &&
+      Number.isFinite(physicalQty) &&
+      physicalQty > 0 &&
+      Math.abs(accepted - physicalQty) < 0.01 &&
+      Math.abs(accepted - splitTotal) >= 0.01;
+    if (looksLikePhysicalQtyAsMoney) return splitTotal!;
+    return accepted;
+  }
+
+  if (splitTotal != null) return splitTotal;
+
+  const dualAllowance = Number(params.resolved.dualAllowance?.quantity);
+  if (Number.isFinite(dualAllowance) && dualAllowance > 0) return dualAllowance;
+
+  if ((unit === 'allowance' || unit === 'lump_sum') && params.resolved.quantity != null) {
+    const qty = Number(params.resolved.quantity);
+    if (Number.isFinite(qty) && qty > 0) return qty;
+  }
+  return 0;
+}
+
+/**
+ * After a material/labor/allowance/basis edit, the acceptance total must be money —
+ * never the raw value of a sqft/lf basis field.
+ */
+export function moneyTotalAfterQuantityEdit(
+  baseItemId: string,
+  itemQuantities: Record<string, ScopeItemQuantityValue | { quantity?: string | number | null }>,
+  editedItemId: string,
+  editedQuantity: string
+): number | null {
+  const materialKey = allowanceSplitSubKey(baseItemId, 'material');
+  const laborKey = allowanceSplitSubKey(baseItemId, 'labor');
+  const allowanceKey = allowanceSplitSubKey(baseItemId, 'allowance');
+  const roughKey = roughAllowanceSubKey(baseItemId);
+  const read = (key: string) => {
+    if (key === editedItemId) return parsePricingAmount(editedQuantity);
+    return parsePricingAmount(itemQuantities[key]?.quantity);
+  };
+
+  if (editedItemId.endsWith('__sqft_basis')) {
+    const split = (read(materialKey) || 0) + (read(laborKey) || 0);
+    if (split > 0) return split;
+    return read(allowanceKey) ?? read(roughKey);
+  }
+
+  const material = read(materialKey) || 0;
+  const labor = read(laborKey) || 0;
+  if (material + labor > 0) return material + labor;
+
+  if (
+    editedItemId === allowanceKey ||
+    editedItemId === roughKey ||
+    editedItemId.endsWith('__allowance')
+  ) {
+    return parsePricingAmount(editedQuantity);
+  }
+  return read(allowanceKey) ?? read(roughKey);
+}
+
 export function resolveAcceptedPricingDisplay(params: {
   itemId: string;
   resolved: ResolvedItemQuantity;
@@ -251,9 +331,10 @@ export function resolveAcceptedPricingDisplay(params: {
   suggestedBlock?: SuggestedPricingBlock | null;
   intelligence: ScopeItemIntelligence;
 }): AcceptedPricingDisplay {
-  const total =
-    params.acceptance?.totalAmount ??
-    Number(params.resolved.dualAllowance?.quantity ?? params.resolved.quantity ?? 0);
+  const total = resolveAcceptedMoneyTotal({
+    resolved: params.resolved,
+    acceptance: params.acceptance,
+  });
   const inferredFromSuggestion =
     !params.acceptance &&
     params.suggestedBlock &&
@@ -959,12 +1040,60 @@ export function collectProjectWideScopeGaps(gaps: ScopeGapNotice[]): ScopeGapNot
   );
 }
 
+/** Current applied/entered total for a scope, if any. */
+export function currentScopePricingTotal(
+  itemId: string,
+  itemQuantities: Record<string, ScopeItemQuantityValue | { quantity: string; unit: string; quantitySource?: string }>,
+  pricingAcceptance?: Record<string, ScopePricingAcceptanceMetadata>
+): number | null {
+  const parseQty = (entry?: { quantity?: string | number | null }) => {
+    const n = Number(String(entry?.quantity ?? '').replace(/,/g, ''));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+
+  // Prefer material + labor over acceptance/allowance so a corrupted acceptance
+  // total (e.g. living SF written as dollars) cannot win over the real split.
+  const material = parseQty(itemQuantities[allowanceSplitSubKey(itemId, 'material')]) || 0;
+  const labor = parseQty(itemQuantities[allowanceSplitSubKey(itemId, 'labor')]) || 0;
+  if (material + labor > 0) return material + labor;
+
+  const allowance = parseQty(itemQuantities[allowanceSplitSubKey(itemId, 'allowance')]);
+  if (allowance != null) return allowance;
+  const rough = parseQty(itemQuantities[roughAllowanceSubKey(itemId)]);
+  if (rough != null) return rough;
+
+  const accepted = Number(pricingAcceptance?.[itemId]?.totalAmount);
+  if (Number.isFinite(accepted) && accepted > 0) return accepted;
+
+  const direct = itemQuantities[itemId];
+  const unit = String(direct?.unit || '').toLowerCase();
+  if (['allowance', 'lump_sum'].includes(unit)) return parseQty(direct);
+  return null;
+}
+
+/**
+ * Hide the suggested panel only when pricing is already accepted/entered AND it
+ * matches the suggestion. If the user edited away from the suggestion, keep the
+ * panel so they can switch back.
+ */
 export function shouldHideSuggestedPanel(params: {
   itemId: string;
   itemQuantities: Record<string, ScopeItemQuantityValue | { quantity: string; unit: string; quantitySource?: string }>;
   pricingAcceptance?: Record<string, ScopePricingAcceptanceMetadata>;
+  suggestedTotal?: number | null;
 }): boolean {
-  return hasAcceptedScopePricing(params.itemId, params.itemQuantities, params.pricingAcceptance);
+  if (!hasAcceptedScopePricing(params.itemId, params.itemQuantities, params.pricingAcceptance)) {
+    return false;
+  }
+  const suggested = Number(params.suggestedTotal);
+  if (!(Number.isFinite(suggested) && suggested > 0)) return true;
+  const current = currentScopePricingTotal(
+    params.itemId,
+    params.itemQuantities,
+    params.pricingAcceptance
+  );
+  if (current == null) return false;
+  return Math.abs(current - suggested) < 0.01;
 }
 
 export function markManualPricingAdjustment(

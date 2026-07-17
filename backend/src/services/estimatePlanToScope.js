@@ -52,7 +52,11 @@ const PLAN_SCOPE_ID_ALIASES = {
   cabinets: ['cabinets_counters', 'cabinets'],
   countertops: ['cabinets_counters', 'countertops'],
   cabinets_counters: ['cabinets_counters', 'cabinets', 'countertops'],
-  windows_doors: ['windows_doors', 'exterior'],
+  windows_doors: ['windows', 'exterior_doors', 'sliding_doors', 'garage_doors', 'exterior'],
+  windows: ['windows', 'exterior'],
+  exterior_doors: ['exterior_doors', 'exterior'],
+  sliding_doors: ['sliding_doors', 'exterior'],
+  garage_doors: ['garage_doors', 'exterior'],
   concrete: ['foundation', 'concrete'],
   pour_foundation: ['foundation', 'pour_foundation'],
   // Remodel-only "demo existing" has no ground_up equivalent — drop on remap.
@@ -157,7 +161,7 @@ function templateScopeGuidance(templateKey) {
         'Propose the MAJORITY of build checklist items as "included": sitework, foundation, framing, roofing, exterior, mep_rough, insulation, drywall, cabinets_counters, tile_flooring, paint_trim, appliances (if kitchen shown), cleanup.',
         'scopeText and evidence must say NEW CONSTRUCTION / ground-up build — NEVER "remodel", "updates to existing", "demo existing", or "layout changes to existing spaces".',
         'Do NOT propose remodel-only items (selective tear-out of existing finishes). There is no existing house to remodel.',
-        'Do NOT include contingency, overhead_profit, plans_engineering, or permits unless notes say the GC carries them.',
+        'Do NOT include contingency, overhead_profit, plans_engineering, or permits unless notes say the GC carries them. Overhead & profit is estimate markup, not a scope line.',
       ].join('\n');
     case 'addition':
       return [

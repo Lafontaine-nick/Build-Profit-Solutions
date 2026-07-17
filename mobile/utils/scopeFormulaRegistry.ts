@@ -91,7 +91,7 @@ const ASSUMPTIONS: Record<string, FormulaAssumption> = {
   flooring_waste_lvp: {
     key: 'flooring_waste_lvp',
     description: 'LVP/laminate waste factor',
-    applicableScopes: ['flooring', 'floor_tile'],
+    applicableScopes: ['flooring'],
     defaultValue: 0.08,
     unit: 'percentage',
     confidenceImpact: 'minor',
@@ -115,7 +115,8 @@ const ASSUMPTIONS: Record<string, FormulaAssumption> = {
   drywall_surface_multiplier: {
     key: 'drywall_surface_multiplier',
     description: 'Drywall surface multiplier from floor area when wall geometry is missing',
-    applicableScopes: ['drywall', 'hang', 'finish_tape', 'insulation', 'paint'],
+    // Insulation must NOT use drywall wall+ceiling surface (excludes thermal envelope model).
+    applicableScopes: ['drywall', 'hang', 'finish_tape', 'paint'],
     defaultValue: 3.5,
     unit: 'multiplier',
     confidenceImpact: 'material',
@@ -123,6 +124,30 @@ const ASSUMPTIONS: Record<string, FormulaAssumption> = {
     recommendedConfirmation: true,
     low: 3,
     high: 4.2,
+  },
+  insulation_openings_percent: {
+    key: 'insulation_openings_percent',
+    description: 'Window/door opening deduction on exterior wall insulation area',
+    applicableScopes: ['insulation'],
+    defaultValue: 15,
+    unit: 'percentage',
+    confidenceImpact: 'material',
+    mayUseAutomatically: true,
+    recommendedConfirmation: true,
+    low: 10,
+    high: 20,
+  },
+  insulation_wall_height_ft: {
+    key: 'insulation_wall_height_ft',
+    description: 'Exterior wall height for insulation envelope planning',
+    applicableScopes: ['insulation'],
+    defaultValue: 9,
+    unit: 'ft',
+    confidenceImpact: 'material',
+    mayUseAutomatically: true,
+    recommendedConfirmation: true,
+    low: 8,
+    high: 10,
   },
   paint_surface_multiplier: {
     key: 'paint_surface_multiplier',
@@ -254,10 +279,11 @@ const FORMULAS: FormulaDefinition[] = [
     key: 'flooring_purchase_with_waste',
     name: 'Flooring purchase area with waste',
     trade: 'flooring',
-    applicableScopeKeys: ['flooring', 'floor_tile'],
+    // Bath floor tile has its own formula — living SF must never seed bathroom tile.
+    applicableScopeKeys: ['flooring'],
     outputMeasurementType: 'flooring_area',
     outputUnit: 'sqft',
-    requiredInputs: [input('netAreaSqft', 'net floor area', 'sqft', ['flooringSqft', 'floorAreaSqft', 'kitchenFloorSqft', 'bathroomFloorSqft'])],
+    requiredInputs: [input('netAreaSqft', 'net floor area', 'sqft', ['flooringSqft', 'floorAreaSqft', 'kitchenFloorSqft'])],
     optionalInputs: [assumptionInput('wastePercent', 'waste factor', 'percentage', 'flooring_waste_lvp', false)],
     defaultAssumptionKeys: ['flooring_waste_lvp'],
     calculate: ({ netAreaSqft, wastePercent }) => {
@@ -278,10 +304,38 @@ const FORMULAS: FormulaDefinition[] = [
       `Calculated ${roundedValue.toLocaleString()} sqft from ${inputs[0]?.value.toLocaleString()} sqft net floor area${assumptions[0] ? ` plus ${Math.round(assumptions[0].value * 100)}% waste` : ''}.`,
   },
   {
+    key: 'bath_floor_tile_with_waste',
+    name: 'Bath floor tile purchase area with waste',
+    trade: 'tile',
+    applicableScopeKeys: ['floor_tile'],
+    outputMeasurementType: 'flooring_area',
+    outputUnit: 'sqft',
+    // Bathroom floor only — never living SF / whole-home flooring area.
+    requiredInputs: [input('netAreaSqft', 'bathroom floor area', 'sqft', ['bathroomFloorSqft'])],
+    optionalInputs: [assumptionInput('wastePercent', 'waste factor', 'percentage', 'tile_waste_straight', false)],
+    defaultAssumptionKeys: ['tile_waste_straight'],
+    calculate: ({ netAreaSqft, wastePercent }) => {
+      const exactValue = netAreaSqft * (1 + (wastePercent || 0));
+      return {
+        exactValue,
+        trace: [`${netAreaSqft} sqft bathroom floor × ${(1 + (wastePercent || 0)).toFixed(2)} waste factor`],
+        rangeFromAssumptions: (assumptions) => {
+          const waste = assumptions.tile_waste_straight;
+          return waste?.low != null && waste.high != null
+            ? { low: netAreaSqft * (1 + waste.low), high: netAreaSqft * (1 + waste.high) }
+            : null;
+        },
+      };
+    },
+    rounding: 'sqft',
+    explanation: ({ roundedValue, inputs, assumptions }) =>
+      `Calculated ${roundedValue.toLocaleString()} sqft from ${inputs[0]?.value.toLocaleString()} sqft bathroom floor${assumptions[0] ? ` plus ${Math.round(assumptions[0].value * 100)}% waste` : ''}.`,
+  },
+  {
     key: 'surface_area_from_floor_area_benchmark',
     name: 'Wall/ceiling surface from floor area benchmark',
     trade: 'drywall',
-    applicableScopeKeys: ['drywall', 'hang', 'finish_tape', 'insulation'],
+    applicableScopeKeys: ['drywall', 'hang', 'finish_tape'],
     outputMeasurementType: 'wall_surface_area',
     outputUnit: 'sqft',
     requiredInputs: [input('floorAreaSqft', 'floor area', 'sqft', ['floorAreaSqft'])],
@@ -303,6 +357,48 @@ const FORMULAS: FormulaDefinition[] = [
     rounding: 'sqft',
     explanation: ({ roundedValue, inputs, assumptions }) =>
       `Calculated ${roundedValue.toLocaleString()} sqft from ${inputs[0]?.value.toLocaleString()} sqft floor area using an approved ${assumptions[0]?.value ?? ''}× surface multiplier assumption.`,
+  },
+  {
+    key: 'insulation_envelope_from_exterior_and_attic',
+    name: 'Thermal envelope from exterior walls and attic',
+    trade: 'insulation',
+    applicableScopeKeys: ['insulation'],
+    outputMeasurementType: 'envelope_area',
+    outputUnit: 'sqft',
+    requiredInputs: [input('floorAreaSqft', 'conditioned floor / attic footprint', 'sqft', ['floorAreaSqft'])],
+    optionalInputs: [
+      assumptionInput('wallHeightFt', 'wall height', 'ft', 'insulation_wall_height_ft', false),
+      assumptionInput('openingsPercent', 'openings percent', 'percentage', 'insulation_openings_percent', false),
+    ],
+    defaultAssumptionKeys: ['insulation_wall_height_ft', 'insulation_openings_percent'],
+    calculate: ({ floorAreaSqft, wallHeightFt, openingsPercent }) => {
+      // Perimeter unknown in pure measurement inputs — square-footprint planning perimeter.
+      const perimeter = 4 * Math.sqrt(floorAreaSqft);
+      const grossWalls = perimeter * wallHeightFt;
+      const openings = grossWalls * (Math.max(0, Math.min(50, openingsPercent)) / 100);
+      const netWalls = Math.max(0, grossWalls - openings);
+      const attic = floorAreaSqft;
+      const exactValue = netWalls + attic;
+      return {
+        exactValue,
+        trace: [
+          `Exterior walls ≈ ${perimeter.toFixed(0)} LF × ${wallHeightFt} ft − ${openingsPercent}% openings`,
+          `Attic/ceiling ${attic} sqft`,
+          `Envelope ${netWalls.toFixed(0)} + ${attic} = ${exactValue.toFixed(0)} sqft`,
+        ],
+        rangeFromAssumptions: (assumptions) => {
+          const h = assumptions.insulation_wall_height_ft;
+          const o = assumptions.insulation_openings_percent;
+          if (h?.low == null || h.high == null || o?.low == null || o.high == null) return null;
+          const lowWalls = Math.max(0, perimeter * h.low * (1 - o.high / 100));
+          const highWalls = Math.max(0, perimeter * h.high * (1 - o.low / 100));
+          return { low: lowWalls + attic, high: highWalls + attic };
+        },
+      };
+    },
+    rounding: 'sqft',
+    explanation: ({ roundedValue, inputs }) =>
+      `Planning estimate ${roundedValue.toLocaleString()} sqft thermal envelope from exterior walls + conditioned ceiling (${inputs[0]?.value.toLocaleString()} sqft living). Not a drywall surface takeoff.`,
   },
   {
     key: 'paintable_area_from_floor_area_benchmark',
@@ -446,14 +542,14 @@ const FORMULAS: FormulaDefinition[] = [
     applicableScopeKeys: ['countertops'],
     outputMeasurementType: 'countertop_area',
     outputUnit: 'sqft',
-    requiredInputs: [input('cabinetLf', 'cabinet run', 'lf', ['cabinetLf'])],
+    requiredInputs: [input('cabinetLf', 'counter-bearing cabinet run', 'lf', ['cabinetLf'])],
     optionalInputs: [assumptionInput('countertopDepthFt', 'countertop depth', 'ft', 'countertop_depth_ft', false)],
     defaultAssumptionKeys: ['countertop_depth_ft'],
     calculate: ({ cabinetLf, countertopDepthFt }) => {
       const exactValue = cabinetLf * countertopDepthFt;
       return {
         exactValue,
-        trace: [`${cabinetLf} LF cabinet run × ${countertopDepthFt} ft countertop depth`],
+        trace: [`${cabinetLf} LF counter-bearing cabinet run × ${countertopDepthFt} ft countertop depth`],
         rangeFromAssumptions: (assumptions) => {
           const d = assumptions.countertop_depth_ft;
           return d?.low != null && d.high != null
@@ -464,7 +560,7 @@ const FORMULAS: FormulaDefinition[] = [
     },
     rounding: 'sqft',
     explanation: ({ roundedValue, inputs, assumptions }) =>
-      `Calculated ${roundedValue.toLocaleString()} sqft from ${inputs[0]?.value.toLocaleString()} LF cabinet run at ${assumptions[0]?.value ?? ''} ft depth.`,
+      `Calculated ${roundedValue.toLocaleString()} sqft from ${inputs[0]?.value.toLocaleString()} LF counter-bearing cabinet run at ${assumptions[0]?.value ?? ''} ft depth. Use only for topped base runs — not whole-home cabinet LF.`,
   },
   {
     key: 'post_count_from_length_spacing',
@@ -623,6 +719,15 @@ function calculateFormula(
   };
 }
 
+/**
+ * Ground-up cabinet LF is usually whole-home (kitchen + baths + laundry), not
+ * counter-bearing base run. LF × 25" depth overstates tops (e.g. 120 LF → 250 SF).
+ * Keep the ~80 SF planning basis instead; kitchen remodels can still use the formula.
+ */
+export function shouldSkipCountertopCabinetLfFormula(projectContext?: string | null): boolean {
+  return String(projectContext || '').toLowerCase() === 'ground_up';
+}
+
 export function calculateFormulaForScope(params: {
   scopeKey: string;
   measurements: NormalizedScopeMeasurements;
@@ -631,6 +736,12 @@ export function calculateFormulaForScope(params: {
 }): FormulaCalculationResult | null {
   const formulas = getFormulaDefinitionsForScope(params.scopeKey, params.projectContext);
   for (const formula of formulas) {
+    if (
+      formula.key === 'countertop_area_from_cabinet_lf' &&
+      shouldSkipCountertopCabinetLfFormula(params.projectContext)
+    ) {
+      continue;
+    }
     const result = calculateFormula(formula, params.measurements, {}, {
       scopeKey: params.scopeKey,
       projectContext: params.projectContext,
@@ -685,8 +796,23 @@ export function usesAutoFlatworkSqftPricing(params: {
 export function shouldShowFormulaQuantityButton(params: {
   scopeKey: string;
   formula: Pick<FormulaCalculationResult, 'formulaKey' | 'inputsUsed'>;
+  projectContext?: string | null;
 }): boolean {
-  return !usesAutoFlatworkSqftPricing(params);
+  if (usesAutoFlatworkSqftPricing(params)) return false;
+  if (
+    params.formula.formulaKey === 'countertop_area_from_cabinet_lf' &&
+    shouldSkipCountertopCabinetLfFormula(params.projectContext)
+  ) {
+    return false;
+  }
+  // Installed paint budgets match living SF — paintable SF takeoff does not change price.
+  if (
+    (params.scopeKey === 'interior_paint' || params.scopeKey === 'paint') &&
+    params.formula.formulaKey === 'paintable_area_from_floor_area_benchmark'
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export function isFormulaQuantityApplyTargetActive(params: {

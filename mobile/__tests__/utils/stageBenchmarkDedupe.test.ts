@@ -199,7 +199,10 @@ describe('stage benchmark dedupe and card presentation', () => {
       'ground_up',
       resolveChecklistItemQuantity('insulation', lot41(), { templateKey: 'ground_up' })
     );
-    expect(insulation.fill?.basis).toEqual({ quantity: 1879, unit: 'sqft' });
+    // Thermal envelope — not living SF / drywall ×3.5.
+    expect(insulation.fill?.basis?.unit).toBe('sqft');
+    expect(insulation.fill?.basis?.quantity).not.toBe(1879);
+    expect(insulation.fill?.basis?.quantity).not.toBe(Math.round(1879 * 3.5));
     expect(insulation.fill!.material).toBeGreaterThan(0);
     expect(insulation.fill!.labor).toBeGreaterThan(0);
     expect(insulation.fill!.total).toBeGreaterThan(2000);

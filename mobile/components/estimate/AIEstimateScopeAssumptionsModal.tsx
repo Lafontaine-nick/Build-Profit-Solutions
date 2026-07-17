@@ -51,6 +51,7 @@ import {
   scopeChecklistItemsForEditing,
   scopeChecklistItemsForPersist,
   expandWetAreaDerivedScopeItems,
+  ensureGroundUpOpeningScopeCards,
   toggleWallLayoutChoiceIds,
   WET_AREA_DERIVED_ITEM_IDS,
   scopeChecklistSummaryCounts,
@@ -60,7 +61,8 @@ import {
   allowanceSplitSubKey,
   checklistItemInScope,
   countScopePricingReadiness,
-  DUAL_QUANTITY_FIELD_LABELS,
+  getScopeQuantityFieldLabels,
+  pricingBasisFieldLabel,
   formatUnitLabel,
   getChecklistItemQuantityRule,
   getChecklistItemQuantityRuleOrDefault,
@@ -121,6 +123,11 @@ import {
   wetAreaFinishFromChecklistChoice,
   type WetAreaFinishChoice,
 } from '@/utils/planBathRooms';
+import {
+  GARAGE_DOOR_TYPE_RATES,
+  resolveGarageDoorSuggestedPricing,
+  type GarageDoorType,
+} from '@/utils/exteriorOpeningsPricing';
 
 import { estimateFlowCardStyle, estimateFlowDividerColor } from '@/utils/estimateFlowCardStyle';
 import {
@@ -144,6 +151,7 @@ import {
   buildAcceptanceFromSuggestedBlock,
   hasAcceptedScopePricing,
   markManualPricingAdjustment,
+  moneyTotalAfterQuantityEdit,
   parsePricingAmount,
   resolveAcceptedPricingDisplay,
   shouldHideSuggestedPanel,
@@ -198,6 +206,10 @@ import {
   buildSuggestedPricingCardDisplay,
   displayPriceSourceLabel,
 } from '@/utils/suggestedPricingCardUi';
+import {
+  insulationEnvelopeInputsFromPlanFacts,
+  resolveInsulationEnvelopePlanningQuantity,
+} from '@/utils/insulationEnvelopeQuantity';
 
 type Props = {
   visible: boolean;
@@ -975,6 +987,8 @@ function SuggestedBudgetSplitRows({
   hasPrimaryTakeoff,
   livingSf,
   confidenceLabel,
+  hasCurrentPricing = false,
+  forceCompact = false,
 }: {
   block: SuggestedPricingBlock;
   Colors: ReturnType<typeof getColors>;
@@ -986,6 +1000,10 @@ function SuggestedBudgetSplitRows({
   hasPrimaryTakeoff?: boolean;
   livingSf?: number | null;
   confidenceLabel?: string | null;
+  /** Current entered/applied amount exists — render compact Use suggested row. */
+  hasCurrentPricing?: boolean;
+  /** Collapse full Needs/Apply card to one-line suggested row (soft-cost idle). */
+  forceCompact?: boolean;
 }) {
   const panelBg = darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(15,23,42,0.03)';
   const usesBenchmark =
@@ -1017,7 +1035,49 @@ function SuggestedBudgetSplitRows({
     livingSf,
     confidenceLabel,
     adjusted,
+    hasCurrentPricing,
+    forceCompact,
   });
+
+  const canWritePrice =
+    Boolean(onUsePricing) &&
+    action !== 'comparison_only' &&
+    action !== 'included_in_stage' &&
+    !(block.isComparison && usesBenchmark && semantics);
+
+  if (display.presentation === 'compact') {
+    return (
+      <View
+        style={[
+          styles.compactSuggestedRow,
+          {
+            backgroundColor: panelBg,
+            borderColor: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.08)',
+          },
+        ]}
+      >
+        <View style={{ flex: 1, paddingRight: 10 }}>
+          <Text style={{ color: text, fontSize: 14, fontWeight: '700' }}>
+            {display.compactLine || display.displayTotal}
+          </Text>
+          <Text style={{ color: '#60a5fa', fontSize: 12, fontWeight: '600', marginTop: 2 }}>
+            {display.sourceLine}
+          </Text>
+        </View>
+        {canWritePrice && display.actionLabel ? (
+          <TouchableOpacity
+            activeOpacity={0.75}
+            onPress={onUsePricing}
+            style={styles.compactSuggestedBtn}
+            accessibilityLabel={display.actionLabel}
+            accessibilityRole="button"
+          >
+            <Text style={styles.compactSuggestedBtnText}>{display.actionLabel}</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    );
+  }
 
   const headerTitle =
     semantics && usesBenchmark && block.benchmarkLevel === 'stage'
@@ -1040,12 +1100,6 @@ function SuggestedBudgetSplitRows({
     action === 'comparison_only'
       ? 'Compare benchmarks'
       : display.actionLabel;
-
-  const canWritePrice =
-    Boolean(onUsePricing) &&
-    action !== 'comparison_only' &&
-    action !== 'included_in_stage' &&
-    !(block.isComparison && usesBenchmark && semantics);
 
   return (
     <View style={[styles.budgetSplitPanel, { backgroundColor: panelBg }]}>
@@ -1245,6 +1299,49 @@ function EditQuantityLink({ onPress, label = 'Edit' }: { onPress: () => void; la
       <Text style={styles.editQuantityLink}>{label === 'Edit pricing' ? 'Edit' : label}</Text>
     </TouchableOpacity>
   );
+}
+
+/** Edit chrome with Done at the top so collapse stays reachable above the sticky footer. */
+function PricingEditorHeader({
+  helper,
+  onDone,
+  Colors,
+  darkMode,
+}: {
+  helper?: string | null;
+  onDone: () => void;
+  Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
+}) {
+  return (
+    <View style={{ marginBottom: 8 }}>
+      <View style={styles.pricingEditorHeaderRow}>
+        <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700' }}>Edit</Text>
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={() => {
+            Keyboard.dismiss();
+            onDone();
+          }}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          accessibilityRole="button"
+          accessibilityLabel="Done editing"
+          style={styles.pricingEditorDoneChip}
+        >
+          <Text style={styles.pricingEditorDoneChipText}>Done</Text>
+        </TouchableOpacity>
+      </View>
+      {helper ? (
+        <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 4, lineHeight: 15 }}>
+          {helper}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function isSoftCostAllowanceScope(itemId: string, lumpSumOnly?: boolean): boolean {
+  return Boolean(lumpSumOnly) || itemId === 'permits' || itemId === 'plans_engineering' || itemId === 'cleanup';
 }
 
 type AllowanceOrSplitMode = 'allowance' | 'split';
@@ -1919,6 +2016,7 @@ function MaterialLaborSplitEditor({
   pricingBasis,
   basisUnit,
   basisUnitLabel,
+  basisFieldLabel = 'Pricing basis',
   suggestedBlock,
   sqftBasisKey,
   materialKey,
@@ -1936,6 +2034,7 @@ function MaterialLaborSplitEditor({
   pricingBasis: { quantity: number; unit: string } | null;
   basisUnit: string;
   basisUnitLabel: string;
+  basisFieldLabel?: string;
   suggestedBlock: SuggestedPricingBlock | null;
   sqftBasisKey: string;
   materialKey: string;
@@ -2139,7 +2238,7 @@ function MaterialLaborSplitEditor({
   return (
     <>
       <PricingInputField
-        label="Pricing basis"
+        label={basisFieldLabel}
         value={pricingBasisValue}
         suffix={basisUnitLabel}
         placeholder={pricingBasis ? String(pricingBasis.quantity) : `Enter ${basisUnitLabel}`}
@@ -2304,9 +2403,15 @@ function QuantitySection({
     setFocusedPricingField(null);
     onItemQuantityBlur(targetItemId, field);
   };
+  const closePricingEditor = () => {
+    // Close first so focus/blur side effects cannot keep the editor open.
+    setFocusedPricingField(null);
+    setPricingEditorOpen(false);
+    Keyboard.dismiss();
+  };
 
   if (rule.dualAllowanceField) {
-    const fieldLabels = DUAL_QUANTITY_FIELD_LABELS[itemId];
+    const fieldLabels = getScopeQuantityFieldLabels(itemId);
     const allowanceKey = roughAllowanceSubKey(itemId);
     const materialKey = `${itemId}__material`;
     const laborKey = `${itemId}__labor`;
@@ -2314,7 +2419,8 @@ function QuantitySection({
     const allowanceInput = measurementsInput.itemQuantities[allowanceKey];
     const materialInput = measurementsInput.itemQuantities[materialKey];
     const laborInput = measurementsInput.itemQuantities[laborKey];
-    const showEditor = pricingEditorOpen || focusedPricingField != null;
+    // Only the explicit open flag — field focus must not trap the editor open.
+    const showEditor = pricingEditorOpen;
 
     const hasUserSelectedPricing = hasCompleteUserSelectedPricing(
       measurementsInput.itemQuantities,
@@ -2426,6 +2532,7 @@ function QuantitySection({
         itemId,
         itemQuantities: measurementsInput.itemQuantities,
         pricingAcceptance: measurementsInput.pricingAcceptance,
+        suggestedTotal: suggestedBudgetSplit?.total ?? null,
       });
       const acceptedDisplay = accepted
         ? resolveAcceptedPricingDisplay({
@@ -2438,7 +2545,11 @@ function QuantitySection({
         : null;
       const openPricingEditor = () => {
         setPricingEditorOpen(true);
-        if (resolved.dualCount) {
+        // Living SF is only a planning price basis when point/device counts are missing.
+        // Do not seed it into the count field (would show e.g. 1879 as "rough-in points").
+        const countUnit = String(resolved.dualCount?.unit || '').toLowerCase();
+        const countIsLivingAreaFallback = countUnit === 'sqft' || countUnit === 'living_sqft';
+        if (resolved.dualCount && !countIsLivingAreaFallback) {
           onItemQuantityChange(itemId, String(resolved.dualCount.quantity), 'count', resolved.dualCount.unit);
         }
         if (resolved.dualAllowance) {
@@ -2484,34 +2595,55 @@ function QuantitySection({
       return (
         <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
           {accepted && acceptedDisplay ? (
-            <AcceptedPricingSummary
-              display={acceptedDisplay}
-              intelligence={intelligence}
-              scopeKey={itemId}
-              scopeItemLabel={scopeItemLabel}
-              resolved={displayResolved}
-              suggestedBlock={suggestedBudgetSplit}
-              comparisonBlock={suggestedComparisonSplit}
-              scopeGapResolutions={measurementsInput.scopeGapResolutions}
-              scopeGapPricingContext={scopeGapPricingContext}
-              originalNotes={originalNotes}
-              Colors={Colors}
-              darkMode={darkMode}
-              onEditPricing={openPricingEditor}
-              onScopeGapResolutionsChange={onScopeGapResolutionsChange}
-              onScopeGapPriceSeparately={(componentKey, component, benchmarkAssumption, benchmarkProfile) =>
-                onScopeGapPriceSeparately?.(itemId, component, benchmarkAssumption, benchmarkProfile)
-              }
-              onScopeGapIncludeInParentPrice={(componentKey, component, addonAmount, benchmarkAssumption, benchmarkProfile) =>
-                onScopeGapIncludeInParentPrice?.(
-                  itemId,
-                  component,
-                  addonAmount,
-                  benchmarkAssumption,
-                  benchmarkProfile
-                )
-              }
-            />
+            <>
+              <AcceptedPricingSummary
+                display={acceptedDisplay}
+                intelligence={intelligence}
+                scopeKey={itemId}
+                scopeItemLabel={scopeItemLabel}
+                resolved={displayResolved}
+                suggestedBlock={suggestedBudgetSplit}
+                comparisonBlock={suggestedComparisonSplit}
+                scopeGapResolutions={measurementsInput.scopeGapResolutions}
+                scopeGapPricingContext={scopeGapPricingContext}
+                originalNotes={originalNotes}
+                Colors={Colors}
+                darkMode={darkMode}
+                onEditPricing={openPricingEditor}
+                onScopeGapResolutionsChange={onScopeGapResolutionsChange}
+                onScopeGapPriceSeparately={(componentKey, component, benchmarkAssumption, benchmarkProfile) =>
+                  onScopeGapPriceSeparately?.(itemId, component, benchmarkAssumption, benchmarkProfile)
+                }
+                onScopeGapIncludeInParentPrice={(componentKey, component, addonAmount, benchmarkAssumption, benchmarkProfile) =>
+                  onScopeGapIncludeInParentPrice?.(
+                    itemId,
+                    component,
+                    addonAmount,
+                    benchmarkAssumption,
+                    benchmarkProfile
+                  )
+                }
+              />
+              {!hideSuggestion && suggestedBudgetSplit ? (
+                <SuggestedBudgetSplitRows
+                  block={suggestedBudgetSplit}
+                  Colors={Colors}
+                  darkMode={darkMode}
+                  onUsePricing={() => applySuggestedPricingBlock(suggestedBudgetSplit)}
+                  itemId={itemId}
+                  quantitySource={displayResolved.quantitySource}
+                  hasPrimaryTakeoff={Boolean(
+                    displayResolved.quantity != null &&
+                      displayResolved.quantity > 0 &&
+                      displayResolved.quantitySource !== 'missing' &&
+                      displayResolved.quantitySource !== 'default_assumption'
+                  )}
+                  livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
+                  confidenceLabel={intelligence?.pricing?.confidenceLabel}
+                  hasCurrentPricing
+                />
+              ) : null}
+            </>
           ) : (
             <>
               {displayResolved.dualCount ? (
@@ -2660,12 +2792,12 @@ function QuantitySection({
         itemId,
         itemQuantities: measurementsInput.itemQuantities,
         pricingAcceptance: measurementsInput.pricingAcceptance,
+        suggestedTotal: planningFill?.total ?? null,
       });
       const neededStatusLine = measurementSemanticsV1Enabled()
         ? missingStatusDisplayLabel(itemId)
         : resolved.missingMessage || 'Enter quantity and/or allowance';
-      const softCostAllowance =
-        Boolean(rule.lumpSumOnly) || itemId === 'permits' || itemId === 'plans_engineering';
+      const softCostAllowance = isSoftCostAllowanceScope(itemId, rule.lumpSumOnly);
       const cardOwnsMissingCopy =
         Boolean(planningFill) &&
         (softCostAllowance ||
@@ -2744,25 +2876,12 @@ function QuantitySection({
 
     return (
       <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
-        <TouchableOpacity
-          activeOpacity={0.75}
-          onPress={() => {
-            if (focusedPricingField) return;
-            setPricingEditorOpen(false);
-          }}
-        >
-          <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
-            Edit
-          </Text>
-          {rule.quantityHelper ? (
-            <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 4, lineHeight: 15 }}>
-              {rule.quantityHelper}
-            </Text>
-          ) : null}
-          <Text style={{ color: '#60a5fa', fontSize: 11, fontWeight: '700', marginBottom: 8 }}>
-            Tap card to collapse
-          </Text>
-        </TouchableOpacity>
+        <PricingEditorHeader
+          helper={rule.quantityHelper}
+          onDone={closePricingEditor}
+          Colors={Colors}
+          darkMode={darkMode}
+        />
         <Text style={{ color: Colors.sub, fontSize: 11, fontWeight: '600', marginBottom: 4 }}>
           {fieldLabels?.count || 'Quantity'}
         </Text>
@@ -2854,7 +2973,8 @@ function QuantitySection({
   const laborInput = measurementsInput.itemQuantities[laborKey];
   const allowanceInput = measurementsInput.itemQuantities[allowanceKey];
   const sqftBasisInput = measurementsInput.itemQuantities[sqftBasisKey];
-  const showEditor = pricingEditorOpen || focusedPricingField != null;
+  // Only the explicit open flag — field focus must not trap the editor open.
+  const showEditor = pricingEditorOpen;
   const neededLabel = measurementSemanticsV1Enabled()
     ? missingStatusDisplayLabel(itemId).replace(/^Needs\s+/i, '')
     : (templateKey && QUANTITY_NEEDED_LABELS_BY_TEMPLATE[templateKey]?.[itemId]) ||
@@ -2990,6 +3110,7 @@ function QuantitySection({
             itemId,
             itemQuantities: measurementsInput.itemQuantities,
             pricingAcceptance: measurementsInput.pricingAcceptance,
+            suggestedTotal: suggestedBudgetSplit?.total ?? null,
           });
           const acceptedDisplay = accepted
             ? resolveAcceptedPricingDisplay({
@@ -3002,6 +3123,18 @@ function QuantitySection({
             : null;
           const openPricingEditor = () => {
             setPricingEditorOpen(true);
+            // Only seed the allowance field from a money quantity. Physical takeoff
+            // (e.g. living/floor SF 1879) must never be written as a dollar total.
+            const unit = String(resolved.unit || '').toLowerCase();
+            const isMoneyUnit = unit === 'allowance' || unit === 'lump_sum';
+            if (!isMoneyUnit) return;
+            const existingSplit =
+              (parsePricingAmount(measurementsInput.itemQuantities[materialKey]?.quantity) || 0) +
+              (parsePricingAmount(measurementsInput.itemQuantities[laborKey]?.quantity) || 0);
+            const existingAllowance = parsePricingAmount(
+              measurementsInput.itemQuantities[allowanceKey]?.quantity
+            );
+            if (existingSplit > 0 || existingAllowance != null) return;
             const total =
               resolved.quantity != null &&
               !isPlaceholderAllowancePricing(resolved.quantity, resolved.unit, itemId)
@@ -3043,34 +3176,55 @@ function QuantitySection({
               : undefined;
           if (accepted && acceptedDisplay) {
             return (
-              <AcceptedPricingSummary
-                display={acceptedDisplay}
-                intelligence={intelligence}
-                scopeKey={itemId}
-                scopeItemLabel={scopeItemLabel}
-                resolved={resolved}
-                suggestedBlock={suggestedBudgetSplit}
-                comparisonBlock={suggestedComparisonSplit}
-                scopeGapResolutions={measurementsInput.scopeGapResolutions}
-                scopeGapPricingContext={scopeGapPricingContext}
-                originalNotes={originalNotes}
-                Colors={Colors}
-                darkMode={darkMode}
-                onEditPricing={openPricingEditor}
-                onScopeGapResolutionsChange={onScopeGapResolutionsChange}
-                onScopeGapPriceSeparately={(componentKey, component, benchmarkAssumption, benchmarkProfile) =>
-                  onScopeGapPriceSeparately?.(itemId, component, benchmarkAssumption, benchmarkProfile)
-                }
-                onScopeGapIncludeInParentPrice={(componentKey, component, addonAmount, benchmarkAssumption, benchmarkProfile) =>
-                  onScopeGapIncludeInParentPrice?.(
-                    itemId,
-                    component,
-                    addonAmount,
-                    benchmarkAssumption,
-                    benchmarkProfile
-                  )
-                }
-              />
+              <>
+                <AcceptedPricingSummary
+                  display={acceptedDisplay}
+                  intelligence={intelligence}
+                  scopeKey={itemId}
+                  scopeItemLabel={scopeItemLabel}
+                  resolved={resolved}
+                  suggestedBlock={suggestedBudgetSplit}
+                  comparisonBlock={suggestedComparisonSplit}
+                  scopeGapResolutions={measurementsInput.scopeGapResolutions}
+                  scopeGapPricingContext={scopeGapPricingContext}
+                  originalNotes={originalNotes}
+                  Colors={Colors}
+                  darkMode={darkMode}
+                  onEditPricing={openPricingEditor}
+                  onScopeGapResolutionsChange={onScopeGapResolutionsChange}
+                  onScopeGapPriceSeparately={(componentKey, component, benchmarkAssumption, benchmarkProfile) =>
+                    onScopeGapPriceSeparately?.(itemId, component, benchmarkAssumption, benchmarkProfile)
+                  }
+                  onScopeGapIncludeInParentPrice={(componentKey, component, addonAmount, benchmarkAssumption, benchmarkProfile) =>
+                    onScopeGapIncludeInParentPrice?.(
+                      itemId,
+                      component,
+                      addonAmount,
+                      benchmarkAssumption,
+                      benchmarkProfile
+                    )
+                  }
+                />
+                {!hideSuggestion && suggestedBudgetSplit ? (
+                  <SuggestedBudgetSplitRows
+                    block={suggestedBudgetSplit}
+                    Colors={Colors}
+                    darkMode={darkMode}
+                    onUsePricing={() => applySuggestedPricingBlock(suggestedBudgetSplit)}
+                    itemId={itemId}
+                    quantitySource={resolved.quantitySource}
+                    hasPrimaryTakeoff={Boolean(
+                      resolved.quantity != null &&
+                        resolved.quantity > 0 &&
+                        resolved.quantitySource !== 'missing' &&
+                        resolved.quantitySource !== 'default_assumption'
+                    )}
+                    livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
+                    confidenceLabel={intelligence?.pricing?.confidenceLabel}
+                    hasCurrentPricing
+                  />
+                ) : null}
+              </>
             );
           }
           return (
@@ -3148,6 +3302,15 @@ function QuantitySection({
       measurementSemanticsV1Enabled() &&
       (itemId === 'tile_flooring' || itemId === 'flooring') &&
       isGrossFlooringDerivedFromLiving({ flooringSqft: flooringSf, floorAreaSqft: livingSf });
+    const softCostAllowance = isSoftCostAllowanceScope(itemId, rule.lumpSumOnly);
+    const hidePlanningSuggestion = shouldHideSuggestedPanel({
+      itemId,
+      itemQuantities: measurementsInput.itemQuantities,
+      pricingAcceptance: measurementsInput.pricingAcceptance,
+      suggestedTotal: suggestedBudgetSplit?.total ?? null,
+    });
+    // Soft-cost suggestion cards already own the "Needs allowance" copy (same pattern as Excavation).
+    const cardOwnsMissingCopy = Boolean(suggestedBudgetSplit) && softCostAllowance;
 
     return (
       <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
@@ -3163,17 +3326,17 @@ function QuantitySection({
               Status: Needs finish allocation and material-specific takeoff
             </Text>
           </View>
-        ) : (
+        ) : cardOwnsMissingCopy ? null : (
           <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
             {neededStatusLine}
           </Text>
         )}
-        {!showGrossFloorPlanning && rule.quantityHelper ? (
+        {!showGrossFloorPlanning && !cardOwnsMissingCopy && rule.quantityHelper ? (
           <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 4, lineHeight: 15 }}>
             {rule.quantityHelper}
           </Text>
         ) : null}
-        {suggestedBudgetSplit ? (
+        {!hidePlanningSuggestion && suggestedBudgetSplit ? (
           <SuggestedBudgetSplitRows
             block={suggestedBudgetSplit}
             Colors={Colors}
@@ -3214,18 +3377,15 @@ function QuantitySection({
   const pricingBasisValue = sqftBasisInput?.quantity ?? '';
   const materialValue = materialInput?.quantity ?? '';
   const laborValue = laborInput?.quantity ?? '';
-  const displaySuggestedBudgetSplit = overlaySuggestedBlockWithEditorValues(suggestedBudgetSplit, {
-    materialValue,
-    laborValue,
-    allowanceValue: lumpSumValue,
-    pricingBasisValue,
-    pricingBasis,
-    basisUnit,
-  });
-  const suggestedCardIsAdjusted =
-    Boolean(displaySuggestedBudgetSplit) &&
-    displaySuggestedBudgetSplit !== suggestedBudgetSplit &&
-    Boolean(displaySuggestedBudgetSplit?.rateSourceLabel.startsWith('Adjusted · '));
+  const editorMoneyTotal = rule.lumpSumOnly
+    ? parseMoneyAmount(lumpSumValue)
+    : parseMoneyAmount(materialValue) + parseMoneyAmount(laborValue);
+  // Keep the original benchmark/suggestion available while editing so the user can
+  // switch back. Do not overlay editor values onto the Apply card.
+  const showEditorSuggestedPanel =
+    Boolean(suggestedBudgetSplit) &&
+    (!(editorMoneyTotal > 0) ||
+      Math.abs((suggestedBudgetSplit?.total || 0) - editorMoneyTotal) >= 0.01);
 
   const inferredPricingMode = rule.allowanceOrSplit
     ? resolveAllowanceOrSplitMode(itemId, measurementsInput, rule.defaultUnit)
@@ -3260,25 +3420,12 @@ function QuantitySection({
 
   return (
     <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
-      <TouchableOpacity
-        activeOpacity={0.75}
-        onPress={() => {
-          if (focusedPricingField) return;
-          setPricingEditorOpen(false);
-        }}
-      >
-        <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
-          Edit
-        </Text>
-        {rule.quantityHelper ? (
-          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 4, lineHeight: 15 }}>
-            {rule.quantityHelper}
-          </Text>
-        ) : null}
-        <Text style={{ color: '#60a5fa', fontSize: 11, fontWeight: '700', marginBottom: 8 }}>
-          Tap card to collapse
-        </Text>
-      </TouchableOpacity>
+      <PricingEditorHeader
+        helper={rule.quantityHelper}
+        onDone={closePricingEditor}
+        Colors={Colors}
+        darkMode={darkMode}
+      />
       {rule.allowanceOrSplit && pricingMode ? (
         <AllowanceOrSplitModeToggle
           mode={pricingMode}
@@ -3309,6 +3456,7 @@ function QuantitySection({
           pricingBasis={pricingBasis}
           basisUnit={basisUnit}
           basisUnitLabel={basisUnitLabel}
+          basisFieldLabel={pricingBasisFieldLabel(itemId, basisUnit)}
           suggestedBlock={suggestedBudgetSplit}
           sqftBasisKey={sqftBasisKey}
           materialKey={materialKey}
@@ -3321,13 +3469,12 @@ function QuantitySection({
           applying={applying}
         />
       )}
-      {displaySuggestedBudgetSplit && !showAllowanceEditor ? (
+      {showEditorSuggestedPanel && suggestedBudgetSplit && !showAllowanceEditor ? (
         <SuggestedBudgetSplitRows
-          block={displaySuggestedBudgetSplit}
+          block={suggestedBudgetSplit}
           Colors={Colors}
           darkMode={darkMode}
-          adjusted={suggestedCardIsAdjusted}
-          onUsePricing={() => applySuggestedPricingBlock(displaySuggestedBudgetSplit)}
+          onUsePricing={() => applySuggestedPricingBlock(suggestedBudgetSplit)}
           itemId={itemId}
           quantitySource={resolved.quantitySource}
           hasPrimaryTakeoff={Boolean(
@@ -3338,15 +3485,18 @@ function QuantitySection({
           )}
           livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
           confidenceLabel={intelligence?.pricing?.confidenceLabel}
+          hasCurrentPricing={editorMoneyTotal > 0}
         />
       ) : null}
-      {displaySuggestedBudgetSplit && showAllowanceEditor && displaySuggestedBudgetSplit.lumpSumOnly ? (
+      {showEditorSuggestedPanel &&
+      suggestedBudgetSplit &&
+      showAllowanceEditor &&
+      suggestedBudgetSplit.lumpSumOnly ? (
         <SuggestedBudgetSplitRows
-          block={displaySuggestedBudgetSplit}
+          block={suggestedBudgetSplit}
           Colors={Colors}
           darkMode={darkMode}
-          adjusted={suggestedCardIsAdjusted}
-          onUsePricing={() => applySuggestedPricingBlock(displaySuggestedBudgetSplit)}
+          onUsePricing={() => applySuggestedPricingBlock(suggestedBudgetSplit)}
           itemId={itemId}
           quantitySource={resolved.quantitySource}
           hasPrimaryTakeoff={Boolean(
@@ -3357,6 +3507,7 @@ function QuantitySection({
           )}
           livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
           confidenceLabel={intelligence?.pricing?.confidenceLabel}
+          hasCurrentPricing={editorMoneyTotal > 0}
         />
       ) : null}
       {suggestedComparisonSplit ? (
@@ -3749,7 +3900,15 @@ function YesNoRow({
         <QuantitySection
           itemId={item.id}
           choiceId={item.choiceId}
-          inScope={item.state === 'included'}
+          inScope={
+            item.state === 'included' ||
+            // Soft-cost planning allowances stay visible on Not sure (pricing is hidden only for No).
+            (item.state === 'unsure' &&
+              (item.id === 'permits' ||
+                item.id === 'plans_engineering' ||
+                item.id === 'cleanup' ||
+                item.id === 'contingency'))
+          }
           templateKey={templateKey}
           originalNotes={originalNotes}
           measurementsInput={measurementsInput}
@@ -4364,6 +4523,8 @@ function CollapsibleQuickMeasurements({
   includedScopeKeys,
   onSummaryChange,
   onWetAreaFinishChange,
+  onShowerDoorCountChange,
+  onGarageDoorCountsChange,
   Colors,
   darkMode,
   applying,
@@ -4382,6 +4543,10 @@ function CollapsibleQuickMeasurements({
   onSummaryChange?: (summary: QuickMeasurementSummary) => void;
   /** Keep checklist wet_area_install in sync when the QM finish chip changes. */
   onWetAreaFinishChange?: (finish: WetAreaFinishChoice | null) => void;
+  /** Keep checklist glass_door in sync when Wet area finish door count changes. */
+  onShowerDoorCountChange?: (count: number | null) => void;
+  /** Keep checklist garage_doors in sync when QM type counts change. */
+  onGarageDoorCountsChange?: (totalCount: number | null) => void;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
@@ -4529,10 +4694,12 @@ function CollapsibleQuickMeasurements({
     bathCount: number | null;
     prefabBathCount: number | null;
     tubBathCount: number | null;
+    showerDoorCount: number | null;
   }>({
     bathCount: measurements.bathCount ?? null,
     prefabBathCount: measurements.prefabBathCount ?? null,
     tubBathCount: measurements.tubBathCount ?? null,
+    showerDoorCount: measurements.showerDoorCount ?? null,
   });
   const stepperGenRef = useRef(0);
   const stepperAppliedGenRef = useRef(0);
@@ -4544,18 +4711,26 @@ function CollapsibleQuickMeasurements({
       bathCount: measurements.bathCount ?? null,
       prefabBathCount: measurements.prefabBathCount ?? null,
       tubBathCount: measurements.tubBathCount ?? null,
+      showerDoorCount: measurements.showerDoorCount ?? null,
     });
-  }, [measurements.bathCount, measurements.prefabBathCount, measurements.tubBathCount]);
+  }, [
+    measurements.bathCount,
+    measurements.prefabBathCount,
+    measurements.tubBathCount,
+    measurements.showerDoorCount,
+  ]);
 
   const displayTileBathCount = stepperCounts.bathCount;
   const displayPrefabBathCount = stepperCounts.prefabBathCount;
   const displayTubBathCount = stepperCounts.tubBathCount;
+  const displayShowerDoorCount = stepperCounts.showerDoorCount;
 
   const scheduleWetAreaCommit = useCallback(
     (next: {
       bathCount: number | null;
       prefabBathCount: number | null;
       tubBathCount: number | null;
+      showerDoorCount: number | null;
     }, gen: number) => {
       latestStepperRef.current = next;
       queueMicrotask(() => {
@@ -4563,19 +4738,34 @@ function CollapsibleQuickMeasurements({
         const latest = latestStepperRef.current;
         const wetAreaFinish = resolveEffectiveWetAreaFinish(latest);
         startTransition(() => {
-          setMeasurements((prev) => ({
-            ...prev,
-            bathCount: latest.bathCount,
-            prefabBathCount: latest.prefabBathCount,
-            tubBathCount: latest.tubBathCount,
-            wetAreaFinish,
-          }));
+          setMeasurements((prev) => {
+            const itemQuantities = { ...(prev.itemQuantities || {}) };
+            if (latest.showerDoorCount != null && latest.showerDoorCount > 0) {
+              itemQuantities.glass_door = {
+                quantity: String(latest.showerDoorCount),
+                unit: 'each',
+                quantitySource: 'user_entered',
+              };
+            } else {
+              delete itemQuantities.glass_door;
+            }
+            return {
+              ...prev,
+              bathCount: latest.bathCount,
+              prefabBathCount: latest.prefabBathCount,
+              tubBathCount: latest.tubBathCount,
+              showerDoorCount: latest.showerDoorCount,
+              wetAreaFinish,
+              itemQuantities,
+            };
+          });
           stepperAppliedGenRef.current = stepperGenRef.current;
           onWetAreaFinishChange?.(wetAreaFinish);
+          onShowerDoorCountChange?.(latest.showerDoorCount);
         });
       });
     },
-    [onWetAreaFinishChange, setMeasurements]
+    [onShowerDoorCountChange, onWetAreaFinishChange, setMeasurements]
   );
 
   const adjustTileBathCount = useCallback(
@@ -4619,6 +4809,164 @@ function CollapsibleQuickMeasurements({
     },
     [scheduleWetAreaCommit]
   );
+
+  const adjustShowerDoorCount = useCallback(
+    (delta: number) => {
+      const gen = ++stepperGenRef.current;
+      setStepperCounts((prev) => {
+        const current = prev.showerDoorCount ?? 0;
+        const cleaned = clampBathCount(current + delta < 1 ? null : current + delta);
+        const next = { ...prev, showerDoorCount: cleaned };
+        scheduleWetAreaCommit(next, gen);
+        return next;
+      });
+    },
+    [scheduleWetAreaCommit]
+  );
+
+  const [garageDoorSteppers, setGarageDoorSteppers] = useState({
+    single: measurements.garageDoorSingleCount ?? 0,
+    double: measurements.garageDoorDoubleCount ?? 0,
+    rv: measurements.garageDoorRvCount ?? 0,
+  });
+  useEffect(() => {
+    setGarageDoorSteppers({
+      single: measurements.garageDoorSingleCount ?? 0,
+      double: measurements.garageDoorDoubleCount ?? 0,
+      rv: measurements.garageDoorRvCount ?? 0,
+    });
+  }, [
+    measurements.garageDoorSingleCount,
+    measurements.garageDoorDoubleCount,
+    measurements.garageDoorRvCount,
+  ]);
+
+  const adjustGarageDoorType = useCallback(
+    (type: GarageDoorType, delta: number) => {
+      setGarageDoorSteppers((prev) => {
+        const current = prev[type] ?? 0;
+        const nextVal = Math.max(0, Math.min(6, current + delta));
+        const next = { ...prev, [type]: nextVal };
+        const total = next.single + next.double + next.rv;
+        setMeasurements((m) => {
+          const itemQuantities = { ...(m.itemQuantities || {}) };
+          if (total > 0) {
+            itemQuantities.garage_doors = {
+              quantity: String(total),
+              unit: 'each',
+              quantitySource: 'user_entered',
+            };
+          } else {
+            delete itemQuantities.garage_doors;
+          }
+          return {
+            ...m,
+            garageDoorSingleCount: next.single > 0 ? next.single : null,
+            garageDoorDoubleCount: next.double > 0 ? next.double : null,
+            garageDoorRvCount: next.rv > 0 ? next.rv : null,
+            itemQuantities,
+          };
+        });
+        onGarageDoorCountsChange?.(total > 0 ? total : null);
+        return next;
+      });
+    },
+    [onGarageDoorCountsChange, setMeasurements]
+  );
+
+  const showGarageDoorSteppers =
+    String(templateKey || '').toLowerCase() === 'ground_up' ||
+    String(templateKey || '').toLowerCase() === 'addition';
+
+  const garageDoorPackage = useMemo(
+    () =>
+      resolveGarageDoorSuggestedPricing({
+        single: garageDoorSteppers.single,
+        double: garageDoorSteppers.double,
+        rv: garageDoorSteppers.rv,
+      }),
+    [garageDoorSteppers.single, garageDoorSteppers.double, garageDoorSteppers.rv]
+  );
+
+  const renderGarageDoorTypeRow = (type: GarageDoorType, label: string) => {
+    const value = garageDoorSteppers[type] ?? 0;
+    const rate = GARAGE_DOOR_TYPE_RATES[type];
+    const stepperBtn = (delta: number, disabled: boolean, symbol: string) => (
+      <TouchableOpacity
+        onPress={() => adjustGarageDoorType(type, delta)}
+        disabled={applying || disabled}
+        activeOpacity={0.6}
+        delayPressIn={0}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        style={{
+          width: 34,
+          height: 34,
+          borderRadius: 10,
+          borderWidth: 1,
+          borderColor: darkMode ? 'rgba(255,255,255,0.14)' : Colors.line,
+          backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(15,23,42,0.03)',
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: applying || disabled ? 0.35 : 1,
+        }}
+      >
+        <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 18, fontWeight: '700' }}>
+          {symbol}
+        </Text>
+      </TouchableOpacity>
+    );
+    return (
+      <View
+        key={type}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingVertical: 10,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.08)',
+        }}
+      >
+        <View style={{ flex: 1, paddingRight: 12 }}>
+          <Text
+            style={{
+              color: darkMode ? '#F5F7FA' : Colors.text,
+              fontSize: 14,
+              fontWeight: '700',
+            }}
+          >
+            {label}
+          </Text>
+          <Text
+            style={{
+              color: captionColor(darkMode, Colors),
+              fontSize: 11,
+              fontWeight: '600',
+              marginTop: 2,
+            }}
+          >
+            ~${rate.total.toLocaleString()} each
+          </Text>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          {stepperBtn(-1, value <= 0, '−')}
+          <Text
+            style={{
+              minWidth: 22,
+              textAlign: 'center',
+              color: darkMode ? '#F5F7FA' : Colors.text,
+              fontSize: 17,
+              fontWeight: '800',
+              fontVariant: ['tabular-nums'],
+            }}
+          >
+            {value}
+          </Text>
+          {stepperBtn(1, value >= 6, '+')}
+        </View>
+      </View>
+    );
+  };
 
   const renderBathCountStepper = (
     label: string,
@@ -5024,6 +5372,7 @@ function CollapsibleQuickMeasurements({
               {renderBathCountStepper('Tile showers', displayTileBathCount, adjustTileBathCount)}
               {renderBathCountStepper('Prefab', displayPrefabBathCount, adjustPrefabBathCount)}
               {renderBathCountStepper('Tub', displayTubBathCount, adjustTubBathCount)}
+              {renderBathCountStepper('Shower doors & mirrors', displayShowerDoorCount, adjustShowerDoorCount)}
               {wetAreaSuggestions.length > 1 ? (
                 <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 6, marginTop: 2 }}>
                   <TouchableOpacity
@@ -5048,6 +5397,71 @@ function CollapsibleQuickMeasurements({
                         : 'needsConfirmation';
                 return renderResultField(result, variant, homeGroup, index, true);
               })}
+            </View>
+          ) : null}
+
+          {showGarageDoorSteppers ? (
+            <View style={[styles.quickMeasurementSection, { marginTop: 4 }]}>
+              {sectionTitle('Garage doors')}
+              <Text
+                style={{
+                  color: captionColor(darkMode, Colors),
+                  fontSize: 11,
+                  lineHeight: 15,
+                  marginBottom: 6,
+                }}
+              >
+                Choose door types for this bid. Totals update from the schedule below.
+              </Text>
+              <View
+                style={{
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.08)',
+                  backgroundColor: darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(15,23,42,0.02)',
+                  paddingHorizontal: 12,
+                  paddingTop: 2,
+                  paddingBottom: 2,
+                }}
+              >
+                {renderGarageDoorTypeRow('single', 'Single')}
+                {renderGarageDoorTypeRow('double', 'Double')}
+                {renderGarageDoorTypeRow('rv', 'RV / oversized')}
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    paddingVertical: 10,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: captionColor(darkMode, Colors),
+                      fontSize: 12,
+                      fontWeight: '700',
+                    }}
+                  >
+                    {garageDoorPackage
+                      ? `${garageDoorPackage.quantity} door${garageDoorPackage.quantity === 1 ? '' : 's'}`
+                      : 'No doors selected'}
+                  </Text>
+                  <Text
+                    style={{
+                      color: garageDoorPackage
+                        ? darkMode
+                          ? '#F5F7FA'
+                          : Colors.text
+                        : captionColor(darkMode, Colors),
+                      fontSize: 15,
+                      fontWeight: '800',
+                      fontVariant: ['tabular-nums'],
+                    }}
+                  >
+                    {garageDoorPackage ? `~$${garageDoorPackage.total.toLocaleString()}` : '—'}
+                  </Text>
+                </View>
+              </View>
             </View>
           ) : null}
 
@@ -5285,11 +5699,6 @@ export default function AIEstimateScopeAssumptionsModal({
       primaryTakeoffs: {
         ...(context.drywallSf > 0
           ? {
-              insulation: {
-                quantity: context.drywallSf,
-                unit: 'surface_sqft',
-                source: 'plan_takeoff',
-              },
               drywall: {
                 quantity: context.drywallSf,
                 unit: 'surface_sqft',
@@ -5297,6 +5706,20 @@ export default function AIEstimateScopeAssumptionsModal({
               },
             }
           : {}),
+        ...(() => {
+          // Thermal envelope — never inherit drywall living×3.5 surface.
+          const envelope = resolveInsulationEnvelopePlanningQuantity(
+            insulationEnvelopeInputsFromPlanFacts(measurements.planFacts, context.livingSf)
+          );
+          if (!(envelope?.totalInsulationEnvelopeSqft > 0)) return {};
+          return {
+            insulation: {
+              quantity: envelope.totalInsulationEnvelopeSqft,
+              unit: 'surface_sqft',
+              source: 'plan_takeoff',
+            },
+          };
+        })(),
         ...(context.roofSquares > 0
           ? {
               roofing: {
@@ -5508,6 +5931,9 @@ export default function AIEstimateScopeAssumptionsModal({
         ? { ...row, label: 'Exterior Envelope' }
         : row
     );
+    if (String(checklist?.templateKey || '').toLowerCase() === 'ground_up') {
+      expanded = ensureGroundUpOpeningScopeCards(expanded);
+    }
     if (!measurementSemanticsV1Enabled() || !benchmarkEngineV1Enabled()) return expanded;
     if (expanded.some((row) => row.id === 'interior_finishes')) return expanded;
     const finishChildIds = new Set([
@@ -5544,7 +5970,40 @@ export default function AIEstimateScopeAssumptionsModal({
       ];
     }
     return [...expanded, stageCard];
-  }, [items]);
+  }, [items, checklist?.templateKey]);
+
+  // Keep Garage doors Yes + Structure open when QM type counts are set.
+  useEffect(() => {
+    if (!visible) return;
+    if (String(checklist?.templateKey || '').toLowerCase() !== 'ground_up') return;
+    const total =
+      (Number(measurements.garageDoorSingleCount) || 0) +
+      (Number(measurements.garageDoorDoubleCount) || 0) +
+      (Number(measurements.garageDoorRvCount) || 0);
+    setItems((prev) => {
+      let next = ensureGroundUpOpeningScopeCards(prev);
+      if (total > 0) {
+        next = next.map((row) =>
+          row.id === 'garage_doors' ? { ...row, state: 'included' as const } : row
+        );
+      }
+      const same =
+        next.length === prev.length &&
+        next.every((row, idx) => row.id === prev[idx]?.id && row.state === prev[idx]?.state);
+      return same ? prev : next;
+    });
+    if (total > 0) {
+      setCollapsedGroups((prev) =>
+        prev.Structure === false ? prev : { ...prev, Structure: false }
+      );
+    }
+  }, [
+    visible,
+    checklist?.templateKey,
+    measurements.garageDoorSingleCount,
+    measurements.garageDoorDoubleCount,
+    measurements.garageDoorRvCount,
+  ]);
 
   const normMeasurements = useMemo(
     () => buildNormFromInput(measurements, scopeNotes, checklist?.templateKey),
@@ -5885,7 +6344,19 @@ export default function AIEstimateScopeAssumptionsModal({
                 prev.pricingAcceptance?.[baseItemId],
                 baseItemId,
                 prev.pricingAcceptance,
-                parsePricingAmount(quantity)
+                moneyTotalAfterQuantityEdit(
+                  baseItemId,
+                  {
+                    ...prev.itemQuantities,
+                    [roughAllowanceSubKey(itemId)]: {
+                      quantity,
+                      unit: unit || 'allowance',
+                      quantitySource: source,
+                    },
+                  },
+                  roughAllowanceSubKey(itemId),
+                  quantity
+                ) ?? undefined
               )
             : prev.pricingAcceptance,
       }));
@@ -5979,7 +6450,8 @@ export default function AIEstimateScopeAssumptionsModal({
                 prev.pricingAcceptance?.[baseItemId],
                 baseItemId,
                 prev.pricingAcceptance,
-                parsePricingAmount(quantity)
+                moneyTotalAfterQuantityEdit(baseItemId, itemQuantities, itemId, quantity) ??
+                  undefined
               )
             : prev.pricingAcceptance;
 
@@ -6013,7 +6485,12 @@ export default function AIEstimateScopeAssumptionsModal({
               pricingAcceptance?.[baseItemId],
               baseItemId,
               pricingAcceptance,
-              parsePricingAmount(update.quantity) ?? undefined
+              moneyTotalAfterQuantityEdit(
+                baseItemId,
+                itemQuantities,
+                update.itemId,
+                update.quantity
+              ) ?? undefined
             );
           }
         }
@@ -7010,6 +7487,60 @@ export default function AIEstimateScopeAssumptionsModal({
               )
             );
           }}
+          onShowerDoorCountChange={(count) => {
+            if (count == null || count < 1) return;
+            setItems((prev) => {
+              if (!prev.some((row) => row.id === 'glass_door')) {
+                const afterIdx = prev.findIndex((row) => row.id === 'shower_floor_tile');
+                const doorItem: ScopeChecklistItem = {
+                  id: 'glass_door',
+                  label: 'Shower doors & mirrors',
+                  helperText:
+                    'Glass shower door / enclosure plus bath mirror — material and install.',
+                  inputType: 'yes_no',
+                  state: 'included',
+                  category: 'finishes',
+                };
+                if (afterIdx >= 0) {
+                  const nextItems = [...prev];
+                  nextItems.splice(afterIdx + 1, 0, doorItem);
+                  return nextItems;
+                }
+                return [...prev, doorItem];
+              }
+              return prev.map((row) =>
+                row.id === 'glass_door' ? { ...row, state: 'included' as const } : row
+              );
+            });
+          }}
+          onGarageDoorCountsChange={(totalCount) => {
+            if (totalCount == null || totalCount < 1) return;
+            setItems((prev) => {
+              if (!prev.some((row) => row.id === 'garage_doors')) {
+                const afterIdx = prev.findIndex((row) => row.id === 'sliding_doors');
+                const fallbackIdx = prev.findIndex((row) => row.id === 'windows');
+                const insertAfter = afterIdx >= 0 ? afterIdx : fallbackIdx;
+                const garageItem: ScopeChecklistItem = {
+                  id: 'garage_doors',
+                  label: 'Garage doors',
+                  helperText:
+                    'Priced by type: single, double, or RV/oversized. Enter counts on Quick measurements.',
+                  inputType: 'yes_no',
+                  state: 'included',
+                  category: 'exterior',
+                };
+                if (insertAfter >= 0) {
+                  const nextItems = [...prev];
+                  nextItems.splice(insertAfter + 1, 0, garageItem);
+                  return nextItems;
+                }
+                return [...prev, garageItem];
+              }
+              return prev.map((row) =>
+                row.id === 'garage_doors' ? { ...row, state: 'included' as const } : row
+              );
+            });
+          }}
           Colors={Colors}
           darkMode={darkMode}
           applying={applying}
@@ -7654,6 +8185,67 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
     borderRadius: 12,
+  },
+  compactSuggestedRow: {
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  compactSuggestedBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.35)',
+    backgroundColor: 'rgba(34, 197, 94, 0.14)',
+  },
+  compactSuggestedBtnText: {
+    color: '#22c55e',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  doneEditingBtn: {
+    marginTop: 10,
+    alignSelf: 'stretch',
+    minHeight: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(96,165,250,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(96,165,250,0.35)',
+    paddingVertical: 9,
+  },
+  doneEditingBtnText: {
+    color: '#60a5fa',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  pricingEditorHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  pricingEditorDoneChip: {
+    minHeight: 32,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(96,165,250,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(96,165,250,0.4)',
+  },
+  pricingEditorDoneChipText: {
+    color: '#60a5fa',
+    fontSize: 13,
+    fontWeight: '700',
   },
   budgetSplitHeader: {
     flexDirection: 'row',

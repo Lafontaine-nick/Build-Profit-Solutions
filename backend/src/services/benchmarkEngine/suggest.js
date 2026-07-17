@@ -29,6 +29,9 @@ const CHECKLIST_STAGE_MAP = Object.freeze({
   cabinets_counters: 'interior-finishes',
   tile_flooring: 'interior-finishes',
   paint_trim: 'interior-finishes',
+  interior_paint: 'interior-finishes',
+  exterior_paint: 'exterior-finishes',
+  interior_trim: 'interior-finishes',
   interior_finishes: 'interior-finishes',
   cleanup: 'final-steps',
   appliances: 'final-steps',
@@ -46,7 +49,11 @@ const SCOPE_KEYWORDS = Object.freeze({
   drywall: ['drywall'],
   cabinets_counters: ['cabinet', 'countertop'],
   tile_flooring: ['floor', 'tile', 'carpet'],
-  paint_trim: ['paint', 'trim', 'finish carpentry'],
+  // Keep paint vs finish-carpentry separate so H42 is not summed with H43/H44.
+  paint_trim: ['interior paint', 'paint / stain'],
+  interior_paint: ['interior paint', 'paint / stain'],
+  exterior_paint: ['exterior paint'],
+  interior_trim: ['finish trim', 'finish carpentry', 'interior doors', 'shelving'],
   appliances: ['appliance'],
   cleanup: ['cleanup', 'cleaning', 'dumpster', 'disposal'],
 });

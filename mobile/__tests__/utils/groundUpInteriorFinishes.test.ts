@@ -53,7 +53,8 @@ describe('ground-up interior finish trades', () => {
       'ground_up'
     );
     expect(items.find((i) => i.id === 'interior_finishes')?.state).toBe('excluded');
-    expect(items.find((i) => i.id === 'paint_trim')?.state).toBe('included');
+    expect(items.find((i) => i.id === 'interior_paint')?.state).toBe('included');
+    expect(items.find((i) => i.id === 'interior_trim')?.state).toBe('included');
     expect(items.find((i) => i.id === 'cabinets')?.state).toBe('included');
     expect(items.find((i) => i.id === 'countertops')?.state).toBe('included');
     expect(items.find((i) => i.id === 'tile_flooring')?.state).toBe('included');
@@ -80,7 +81,7 @@ describe('ground-up interior finish trades', () => {
     );
     expect(hydrated.find((i) => i.id === 'interior_finishes')?.state).toBe('excluded');
     expect(hydrated.find((i) => i.id === 'drywall')?.state).toBe('included');
-    expect(hydrated.find((i) => i.id === 'paint_trim')?.state).toBe('included');
+    expect(hydrated.find((i) => i.id === 'interior_paint')?.state).toBe('included');
     expect(hydrated.find((i) => i.id === 'cabinets')?.state).toBe('included');
     expect(hydrated.find((i) => i.id === 'countertops')?.state).toBe('included');
     expect(hydrated.find((i) => i.id === 'tile_flooring')?.state).toBe('included');
@@ -139,7 +140,12 @@ describe('ground-up interior finish trades', () => {
     expect(flooring.fill?.basis?.unit).toBe('sqft');
     expect(flooring.fill?.basis?.quantity).toBe(1879);
 
-    expect(insulation.fill?.basis).toEqual({ quantity: 1879, unit: 'sqft' });
+    // Thermal envelope (walls + attic), not living SF or drywall ×3.5.
+    expect(insulation.fill?.basis?.unit).toBe('sqft');
+    expect(insulation.fill?.basis?.quantity).not.toBe(1879);
+    expect(insulation.fill?.basis?.quantity).not.toBe(Math.round(1879 * 3.5));
+    expect(insulation.fill!.basis!.quantity).toBeGreaterThan(2500);
+    expect(insulation.fill!.basis!.quantity).toBeLessThan(5000);
     expect(insulation.fill!.material).toBeGreaterThan(0);
     expect(insulation.fill!.labor).toBeGreaterThan(0);
     expect(insulation.fill!.total).toBeGreaterThan(2000);

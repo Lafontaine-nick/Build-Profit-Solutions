@@ -3,6 +3,7 @@ import {
   buildSecondaryDisclosureContent,
   collectProjectWideScopeGaps,
   confidenceBadgeLabel,
+  currentScopePricingTotal,
   geographicBasisFromSourceKind,
   getPricingSecondaryAction,
   getPricingSourceMessage,
@@ -10,7 +11,9 @@ import {
   inferPricingModel,
   isItemSpecificAssemblyComponent,
   markManualPricingAdjustment,
+  moneyTotalAfterQuantityEdit,
   pricingSourceLabelFromBlock,
+  resolveAcceptedMoneyTotal,
   resolveAcceptedPricingDisplay,
   shouldHideSuggestedPanel,
   shouldShowConfidenceBadge,
@@ -598,15 +601,41 @@ describe('acceptedPricingSummaryUi', () => {
     expect(acceptance.geographicBasis).toBe('National');
   });
 
-  it('detects accepted pricing and hides suggestion panel after acceptance', () => {
+  it('detects accepted pricing and hides suggestion panel when amounts match', () => {
     const itemQuantities = {
       permits__allowance: { quantity: '3500', unit: 'allowance', quantitySource: 'user_entered' as const },
     };
     const pricingAcceptance = { permits: buildAcceptanceFromSuggestedBlock(suggestedBlock()) };
     expect(hasAcceptedScopePricing('permits', itemQuantities, pricingAcceptance)).toBe(true);
     expect(
-      shouldHideSuggestedPanel({ itemId: 'permits', itemQuantities, pricingAcceptance })
+      shouldHideSuggestedPanel({
+        itemId: 'permits',
+        itemQuantities,
+        pricingAcceptance,
+        suggestedTotal: 3500,
+      })
     ).toBe(true);
+  });
+
+  it('keeps suggestion panel when user edited away from suggested amount', () => {
+    const itemQuantities = {
+      permits__allowance: { quantity: '34000', unit: 'allowance', quantitySource: 'user_entered' as const },
+    };
+    const pricingAcceptance = {
+      permits: {
+        ...buildAcceptanceFromSuggestedBlock(suggestedBlock({ total: 32000, labor: 32000 })),
+        selectionStatus: 'manual_adjusted' as const,
+        totalAmount: 34000,
+      },
+    };
+    expect(
+      shouldHideSuggestedPanel({
+        itemId: 'permits',
+        itemQuantities,
+        pricingAcceptance,
+        suggestedTotal: 32000,
+      })
+    ).toBe(false);
   });
 
   it('never maps confidence values into geographic basis', () => {
@@ -754,5 +783,70 @@ describe('acceptedPricingSummaryUi', () => {
       expect(display.pricingSourceLabel).toBe('BPS national benchmark');
       expect(display.warningMessage).toContain('national average pricing');
     });
+  });
+
+  it('does not treat living/floor SF as the accepted dollar total for tile & flooring', () => {
+    const acceptance = {
+      selectionStatus: 'manual_adjusted' as const,
+      pricingSourceLabel: 'User adjusted',
+      pricingSourceKind: 'user_entered' as const,
+      pricingTypeLabel: 'Material + labor',
+      materialAmount: 7159,
+      laborAmount: 8944,
+      // Bug regression: Edit seeded allowance with living SF (1879) as dollars.
+      totalAmount: 1879,
+    };
+    const resolved: ResolvedItemQuantity = {
+      quantity: 1879,
+      unit: 'sqft',
+      quantitySource: 'inferred',
+      sourceLabel: 'From plan',
+      pricingReady: true,
+      showInput: true,
+    };
+    expect(resolveAcceptedMoneyTotal({ resolved, acceptance })).toBe(16103);
+    const display = resolveAcceptedPricingDisplay({
+      itemId: 'tile_flooring',
+      resolved,
+      acceptance,
+      suggestedBlock: suggestedBlock({
+        total: 16100,
+        material: 7159,
+        labor: 8944,
+        lumpSumOnly: false,
+        basis: { quantity: 1879, unit: 'sqft' },
+      }),
+      intelligence: intelligence(),
+    });
+    expect(display.totalLabel).toBe('$16,103');
+
+    const itemQuantities = {
+      tile_flooring__material: {
+        quantity: '7159',
+        unit: 'allowance',
+        quantitySource: 'user_entered' as const,
+      },
+      tile_flooring__labor: {
+        quantity: '8944',
+        unit: 'allowance',
+        quantitySource: 'user_entered' as const,
+      },
+      tile_flooring__allowance: {
+        quantity: '1879',
+        unit: 'allowance',
+        quantitySource: 'user_entered' as const,
+      },
+    };
+    expect(currentScopePricingTotal('tile_flooring', itemQuantities, { tile_flooring: acceptance })).toBe(
+      16103
+    );
+    expect(
+      moneyTotalAfterQuantityEdit(
+        'tile_flooring',
+        itemQuantities,
+        'tile_flooring__sqft_basis',
+        '1879'
+      )
+    ).toBe(16103);
   });
 });

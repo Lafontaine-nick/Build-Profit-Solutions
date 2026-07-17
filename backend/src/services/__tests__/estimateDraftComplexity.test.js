@@ -146,7 +146,22 @@ describe('estimateDraftComplexity', () => {
     expect(checklist.templateKey).toBe('ground_up');
     expect(checklist.items.some((i) => i.id === 'sitework')).toBe(true);
     expect(checklist.items.some((i) => i.id === 'foundation')).toBe(true);
-    expect(checklist.items.some((i) => i.id === 'overhead_profit')).toBe(true);
+    expect(checklist.items.some((i) => i.id === 'overhead_profit')).toBe(false);
+    expect(checklist.items.some((i) => i.id === 'contingency')).toBe(true);
+  });
+
+  test('defaults ground-up plans and permits to Yes even when notes omit permit language', () => {
+    const notes = 'New custom home with architectural plans, foundation, framing, and finishes.';
+    const checklist = buildScopeChecklist({ projectType: 'other', rooms: [] }, 'ground_up', notes);
+    expect(checklist.items.find((i) => i.id === 'plans_engineering')?.state).toBe('included');
+    expect(checklist.items.find((i) => i.id === 'permits')?.state).toBe('included');
+  });
+
+  test('keeps ground-up permits excluded when notes say owner pulls permits', () => {
+    const notes = 'New home build. Owner pulls permits. Architectural plans included.';
+    const checklist = buildScopeChecklist({ projectType: 'other', rooms: [] }, 'ground_up', notes);
+    expect(checklist.items.find((i) => i.id === 'permits')?.state).toBe('excluded');
+    expect(checklist.items.find((i) => i.id === 'plans_engineering')?.state).toBe('included');
   });
 
   test('builds bathroom checklist for remodel', () => {
@@ -537,7 +552,7 @@ describe('estimateDraftComplexity', () => {
 
   test('applyScopeAssumptions keeps ground-up build as phase-based missing-price packages', () => {
     const notes =
-      'Ground up build for a 1850 sqft custom home with plans, permits, sitework, foundation, framing, roofing, MEP rough-in, drywall, cabinets, flooring, paint, appliances, utility taps, contingency, and builder overhead.';
+      'Ground up build for a 1850 sqft custom home with plans, permits, sitework, foundation, framing, roofing, MEP rough-in, drywall, cabinets, flooring, paint, appliances, utility taps, and contingency.';
     const draft = {
       projectType: 'new_build',
       estimateTier: 'ground_up',
@@ -549,11 +564,26 @@ describe('estimateDraftComplexity', () => {
       pricingWarnings: [],
     };
     const checklist = buildScopeChecklist(draft, 'ground_up', notes);
+    expect(checklist.items.some((i) => i.id === 'overhead_profit')).toBe(false);
     const confirmed = checklist.items
       .filter((item) =>
-        ['plans_engineering', 'permits', 'sitework', 'foundation', 'framing', 'roofing', 'mep_rough', 'drywall', 'cabinets_counters', 'tile_flooring', 'paint_trim', 'utility_taps', 'contingency', 'overhead_profit'].includes(
-          item.id
-        )
+        [
+          'plans_engineering',
+          'permits',
+          'sitework',
+          'foundation',
+          'framing',
+          'roofing',
+          'mep_rough',
+          'drywall',
+          'cabinets',
+          'countertops',
+          'tile_flooring',
+          'interior_paint',
+          'interior_trim',
+          'utility_taps',
+          'contingency',
+        ].includes(item.id)
       )
       .map((item) => ({ ...item, state: 'included' }));
 
@@ -567,20 +597,22 @@ describe('estimateDraftComplexity', () => {
       expect.arrayContaining([
         'Plans / engineering',
         'Permits / fees (incl. impact)',
-        'Sitework & excavation',
+        'Sitework',
         'Foundation',
         'Framing',
         'Roofing',
         'MEP rough-in',
         'Drywall',
-        'Cabinets & countertops',
+        'Cabinets / vanity',
+        'Counters',
         'Tile & flooring',
-        'Paint & trim',
+        'Interior paint',
+        'Finish carpentry / interior trim',
         'Utility taps / connections',
         'Contingency allowance',
-        'Builder overhead & profit',
       ])
     );
+    expect(packageNames).not.toEqual(expect.arrayContaining(['Builder overhead & profit']));
     expect(packageNames.some((name) => /bathroom|kitchen|lvp flooring installation/i.test(name))).toBe(false);
     expect(next.rooms.every((room) => room.status === 'missing_price')).toBe(true);
     expect(next.rooms.every((room) => room.applyEligible === false)).toBe(true);

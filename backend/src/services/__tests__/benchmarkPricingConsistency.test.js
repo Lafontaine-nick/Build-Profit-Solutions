@@ -13,6 +13,7 @@ const CLASSIFIER_TRADES = [
   'shower_full_package',
   'shower_waterproofing',
   'shower_tile',
+  'shower_floor_tile',
   'baseboard',
   'flooring',
   'demo',

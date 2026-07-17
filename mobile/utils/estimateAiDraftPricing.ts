@@ -89,10 +89,10 @@ const FIXTURE_PLANNING_RATES_LOCAL: Record<
     laborLabel: 'Vanity install labor',
   },
   shower_door: {
-    material: 650,
-    labor: 450,
-    materialLabel: 'Shower door / enclosure materials',
-    laborLabel: 'Shower door install labor',
+    material: 2100,
+    labor: 1150,
+    materialLabel: 'Shower door & mirror materials',
+    laborLabel: 'Shower door & mirror install labor',
   },
   tub: {
     material: 1200,
@@ -133,8 +133,8 @@ const FIXTURE_PLANNING_RATES_LOCAL: Record<
   mirror_accessories: {
     material: 125,
     labor: 175,
-    materialLabel: 'Mirror & accessory materials',
-    laborLabel: 'Mirror / accessory install labor',
+    materialLabel: 'Bath accessory materials',
+    laborLabel: 'Bath accessory install labor',
   },
   lighting_fixture: {
     material: 200,
@@ -162,9 +162,30 @@ const NATIONAL_TRADE_AVERAGES_LOCAL: Record<
   shower_tile: {
     unit: 'sqft',
     material: 8,
-    labor: 14,
-    materialLabel: 'Shower tile materials allowance',
-    laborLabel: 'Shower tile install labor',
+    labor: 18,
+    materialLabel: 'Shower wall tile materials allowance',
+    laborLabel: 'Shower wall tile install labor',
+  },
+  shower_floor_tile: {
+    unit: 'sqft',
+    material: 10,
+    labor: 21,
+    materialLabel: 'Shower floor tile materials allowance',
+    laborLabel: 'Shower floor tile install labor',
+  },
+  floor_tile: {
+    unit: 'sqft',
+    material: 8,
+    labor: 13,
+    materialLabel: 'Bathroom floor tile materials allowance',
+    laborLabel: 'Bathroom floor tile install labor',
+  },
+  backsplash: {
+    unit: 'sqft',
+    material: 8,
+    labor: 17,
+    materialLabel: 'Backsplash tile materials allowance',
+    laborLabel: 'Backsplash tile install labor',
   },
   shower_full_package: {
     unit: 'sqft',
@@ -422,7 +443,12 @@ function inferTradeFromPackage(pkg: EstimateDraftScopePackage, draft: EstimateAi
   }
   if (isShowerFullPackage(pkg.name, pkg.scope || '')) return 'shower_full_package';
   if (isShowerWaterproofingPackage(pkg.name, pkg.scope || '')) return 'shower_waterproofing';
+  if (/\bshower\s+floor\s+tile\b|\btile\s+shower\s+floor\b/i.test(scopeBlob)) return 'shower_floor_tile';
   if (isShowerTilePackage(pkg.name, pkg.scope || '')) return 'shower_tile';
+  if (/\bbacksplash\b/i.test(scopeBlob) && /\btile\b/i.test(scopeBlob)) return 'backsplash';
+  if (/\bbath(?:room)?\s+floor\s+tile\b|\bfloor\s+tile\b/i.test(scopeBlob) && !/\bshower\b/i.test(scopeBlob)) {
+    return 'floor_tile';
+  }
   const fixture = resolveFixtureKindLocal(pkg.name);
   if (fixture && /\binstall/.test(scopeBlob)) return 'bathroom_fixture';
   if (/\btile\s+shower\s+pan|\bmud\s+pan\b/.test(pkg.name.toLowerCase())) return 'bathroom_fixture';

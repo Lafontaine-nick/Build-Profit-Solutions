@@ -5,6 +5,7 @@ import {
   listBathPlanRooms,
   resolveBathCount,
   resolveEffectiveWetAreaFinish,
+  resolveShowerDoorCount,
   sumBathFloorSqft,
   wetAreaFinishFromChecklistChoice,
 } from '@/utils/planBathRooms';
@@ -55,6 +56,15 @@ describe('planBathRooms', () => {
     expect(resolveEffectiveWetAreaFinish({ tubBathCount: 1 })).toBe('tub');
     expect(resolveEffectiveWetAreaFinish({ wetAreaFinish: 'tile' })).toBe('tile');
     expect(resolveEffectiveWetAreaFinish({})).toBeNull();
+  });
+
+  test('resolveShowerDoorCount prefers explicit doors, else tile + prefab', () => {
+    expect(resolveShowerDoorCount({ showerDoorCount: 3, bathCount: 2, prefabBathCount: 1 })).toBe(3);
+    expect(resolveShowerDoorCount({ bathCount: 2, prefabBathCount: 1 })).toBe(3);
+    expect(resolveShowerDoorCount({ bathCount: 2 })).toBe(2);
+    expect(resolveShowerDoorCount({ prefabBathCount: 1 })).toBe(1);
+    expect(resolveShowerDoorCount({ tubBathCount: 2 } as any)).toBeNull();
+    expect(resolveShowerDoorCount({})).toBeNull();
   });
 
   test('maps checklist wet_area_install choice ↔ QM finish', () => {

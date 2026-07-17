@@ -38,9 +38,6 @@ export type CalibratedUnitRateKey =
   | 'roofing:squares'
   | 'framing:sqft'
   | 'drywall:sqft'
-  | 'paint:sqft'
-  | 'paint_trim:sqft'
-  | 'interior_paint:sqft'
   | 'cabinets:lf'
   | 'countertops:sqft'
   | 'flooring:sqft'
@@ -51,6 +48,10 @@ export type CalibratedUnitRateKey =
   | 'stucco:sqft'
   | 'windows_doors:each'
   | 'windows_doors:sqft'
+  | 'windows:each'
+  | 'windows:sqft'
+  | 'exterior_doors:each'
+  | 'sliding_doors:each'
   | 'plumbing_rough:sqft'
   | 'electrical_rough:sqft';
 
@@ -95,21 +96,8 @@ export const SOUTHERN_UTAH_LOCAL_INSTALLED_UNIT_RATES: Record<
     installed: 2.21,
     note: 'Drywall bid ÷ (living SF × 3.5 surface fallback)',
   },
-  'paint:sqft': {
-    unit: 'sqft',
-    installed: 0.9,
-    note: 'Interior paint bid ÷ same surface SF as drywall fallback',
-  },
-  'paint_trim:sqft': {
-    unit: 'sqft',
-    installed: 0.9,
-    note: 'Alias of paint:sqft',
-  },
-  'interior_paint:sqft': {
-    unit: 'sqft',
-    installed: 0.9,
-    note: 'Alias of paint:sqft',
-  },
+  // Interior paint uses installed lump-sum comparables (southernUtahPaintTrimComparables).
+  // Do not reverse-engineer a surface-SF barometer or invent material/labor splits.
   'cabinets:lf': {
     unit: 'lf',
     installed: 216.15,
@@ -142,8 +130,9 @@ export const SOUTHERN_UTAH_LOCAL_INSTALLED_UNIT_RATES: Record<
   },
   'insulation:sqft': {
     unit: 'sqft',
-    installed: 2.47,
-    note: 'Detached median insulation ÷ living SF',
+    // Detached median ÷ thermal envelope (exterior walls + attic − openings), not drywall ×3.5.
+    installed: 1.32,
+    note: 'Detached median insulation ÷ thermal-envelope SF (walls + attic − openings)',
   },
   'stucco:sqft': {
     unit: 'sqft',
@@ -153,12 +142,32 @@ export const SOUTHERN_UTAH_LOCAL_INSTALLED_UNIT_RATES: Record<
   'windows_doors:each': {
     unit: 'each',
     installed: 750,
-    note: 'Windows bid ÷ ~16 openings planning count',
+    note: 'Legacy alias — Windows bid ÷ ~16 openings planning count',
   },
   'windows_doors:sqft': {
     unit: 'sqft',
     installed: 4.09,
-    note: 'Windows bid ÷ living SF (planning when opening count missing)',
+    note: 'Legacy alias — Windows bid ÷ living SF',
+  },
+  'windows:each': {
+    unit: 'each',
+    installed: 750,
+    note: 'H34 Windows bid ÷ ~16 openings planning count',
+  },
+  'windows:sqft': {
+    unit: 'sqft',
+    installed: 4.09,
+    note: 'H34 Windows bid ÷ living SF (planning when count missing)',
+  },
+  'exterior_doors:each': {
+    unit: 'each',
+    installed: 2000,
+    note: 'H36 Exterior doors median ≈ $2,000/door planning (excl. iron specialty)',
+  },
+  'sliding_doors:each': {
+    unit: 'each',
+    installed: 4900,
+    note: 'H35 Exterior sliding median $9,800 ÷ ~2 units planning',
   },
   'plumbing_rough:sqft': {
     unit: 'sqft',
@@ -224,9 +233,6 @@ function calibrationKey(itemId: string, unit: string | null | undefined): Calibr
   }
   if (id === 'roofing' || id === 'roof_tie_in') {
     candidates.push('shingles_roofing:squares', 'roofing:squares');
-  }
-  if (id === 'paint_trim' || id === 'interior_paint') {
-    candidates.push('paint:sqft');
   }
   if (id === 'tile_flooring' || id === 'flooring') {
     candidates.push('flooring:sqft', 'tile_flooring:sqft');

@@ -119,9 +119,30 @@ const NATIONAL_TRADE_AVERAGES = {
   shower_tile: {
     unit: 'sqft',
     material: 8,
-    labor: 14,
-    materialLabel: 'Shower tile materials allowance',
-    laborLabel: 'Shower tile install labor',
+    labor: 18,
+    materialLabel: 'Shower wall tile materials allowance',
+    laborLabel: 'Shower wall tile install labor',
+  },
+  shower_floor_tile: {
+    unit: 'sqft',
+    material: 10,
+    labor: 21,
+    materialLabel: 'Shower floor tile materials allowance',
+    laborLabel: 'Shower floor tile install labor',
+  },
+  floor_tile: {
+    unit: 'sqft',
+    material: 8,
+    labor: 13,
+    materialLabel: 'Bathroom floor tile materials allowance',
+    laborLabel: 'Bathroom floor tile install labor',
+  },
+  backsplash: {
+    unit: 'sqft',
+    material: 8,
+    labor: 17,
+    materialLabel: 'Backsplash tile materials allowance',
+    laborLabel: 'Backsplash tile install labor',
   },
   shower_full_package: {
     unit: 'sqft',

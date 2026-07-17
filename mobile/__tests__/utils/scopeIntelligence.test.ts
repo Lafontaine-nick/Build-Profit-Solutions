@@ -65,6 +65,10 @@ function emptyMeasurements(overrides: Partial<NormalizedScopeMeasurements> = {})
     showerWallTileSqft: null,
     showerFloorTileSqft: null,
     wallPaintSqft: null,
+    bathCount: null,
+    prefabBathCount: null,
+    tubBathCount: null,
+    showerDoorCount: null,
     itemQuantities: {},
     ...overrides,
   };
@@ -199,7 +203,28 @@ describe('scopeIntelligence', () => {
       classifyMeasurementRelationship({
         scopeKey: 'windows_doors',
         templateKey: 'addition',
-        measurementType: 'fixture_count',
+        measurementType: 'opening_count',
+      })
+    ).toBe('direct');
+    expect(
+      classifyMeasurementRelationship({
+        scopeKey: 'plumbing_rough',
+        templateKey: 'ground_up',
+        measurementType: 'rough_in_count',
+      })
+    ).toBe('direct');
+    expect(
+      classifyMeasurementRelationship({
+        scopeKey: 'electrical_rough',
+        templateKey: 'ground_up',
+        measurementType: 'circuit_device_count',
+      })
+    ).toBe('direct');
+    expect(
+      classifyMeasurementRelationship({
+        scopeKey: 'hvac',
+        templateKey: 'ground_up',
+        measurementType: 'system_count',
       })
     ).toBe('direct');
     expect(

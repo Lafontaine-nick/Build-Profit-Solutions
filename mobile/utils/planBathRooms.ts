@@ -85,6 +85,23 @@ export function resolveBathCount(params: {
   return null;
 }
 
+/**
+ * Shower door count for Wet area finish: explicit door count first, else
+ * tile showers + prefab (tubs usually do not get glass doors).
+ */
+export function resolveShowerDoorCount(params: {
+  showerDoorCount?: number | null;
+  bathCount?: number | null;
+  prefabBathCount?: number | null;
+}): number | null {
+  const explicit = positiveCount(params.showerDoorCount);
+  if (explicit) return explicit;
+  const tile = positiveCount(params.bathCount) ?? 0;
+  const prefab = positiveCount(params.prefabBathCount) ?? 0;
+  const sum = tile + prefab;
+  return sum > 0 ? sum : null;
+}
+
 /** Map checklist wet_area_install choiceId → Quick Measurement finish. */
 export function wetAreaFinishFromChecklistChoice(
   choiceId: string | null | undefined

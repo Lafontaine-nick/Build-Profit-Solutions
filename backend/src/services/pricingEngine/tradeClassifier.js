@@ -28,10 +28,18 @@ function isShowerWaterproofingScope(name, scope = '') {
   return false;
 }
 
+function isShowerFloorTileInstallScope(name, scope = '') {
+  const ns = `${name} ${scope}`.toLowerCase();
+  if (isShowerWaterproofingScope(name, scope)) return false;
+  if (FULL_SHOWER_PACKAGE_RE.test(ns)) return false;
+  return /\bshower\s+floor\s+tile\b|\btile\s+shower\s+floor\b/.test(ns);
+}
+
 function isShowerTileInstallScope(name, scope = '') {
   const ns = `${name} ${scope}`.toLowerCase();
   if (isShowerWaterproofingScope(name, scope)) return false;
   if (FULL_SHOWER_PACKAGE_RE.test(ns)) return false;
+  if (isShowerFloorTileInstallScope(name, scope)) return false;
   if (SHOWER_TILE_INSTALL_RE.test(ns)) return true;
   if (/\bshower\b/.test(ns) && /\btile\b/.test(ns) && /\b(install|installation|setting|grout)\b/.test(ns)) {
     if (/\b(demo|removal|waterproof|backer|membrane|redgard)\b/.test(ns)) return false;
@@ -54,6 +62,9 @@ function classifyTradeForPricing(name, scope = '', notes = '', projectType = '')
   }
   if (isShowerWaterproofingScope(name, scope)) {
     return 'shower_waterproofing';
+  }
+  if (isShowerFloorTileInstallScope(name, scope)) {
+    return 'shower_floor_tile';
   }
   if (isShowerTileInstallScope(name, scope)) {
     return 'shower_tile';
@@ -142,6 +153,7 @@ module.exports = {
   classifyTradeForPricing,
   isShowerWaterproofingScope,
   isShowerTileInstallScope,
+  isShowerFloorTileInstallScope,
   isShowerFullPackageScope,
   WATERPROOF_BACKER_RE,
 };

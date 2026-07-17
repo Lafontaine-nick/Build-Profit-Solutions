@@ -48,7 +48,10 @@ export const PLAN_MEASUREMENT_LOTS: Record<
       },
       storyCount: 1,
       roofPitch: '5:12',
+      wallHeightFt: 9,
+      foundationPerimeterLf: 214,
       plateHeightFt: 10.2,
+      openingsPercent: 15,
       coveredPatioRoofed: true,
       fieldEvidence: {
         totalLivingSqft: {

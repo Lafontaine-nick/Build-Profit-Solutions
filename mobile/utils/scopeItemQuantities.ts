@@ -19,6 +19,24 @@ import {
   applyBuilderBudgetBarometer,
   getBuilderBudgetSoftCostAllowance,
 } from '@/utils/southernUtahCalibratedRates';
+import {
+  exteriorPaintLocalCalibrationMessage,
+  exteriorPaintLocalSampleCount,
+  matchSouthernUtahProjectByLivingSf,
+  resolveFinishCarpentryComparable,
+  resolveInteriorPaintComparable,
+} from '@/utils/southernUtahPaintTrimComparables';
+import {
+  EXTERIOR_OPENING_NATIONAL_RATES,
+  inferDefaultGarageDoorCounts,
+  normalizeGarageDoorCounts,
+  resolveGarageDoorSuggestedPricing,
+  totalGarageDoorCount,
+} from '@/utils/exteriorOpeningsPricing';
+import {
+  insulationEnvelopeInputsFromPlanFacts,
+  resolveInsulationEnvelopePlanningQuantity,
+} from '@/utils/insulationEnvelopeQuantity';
 import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 import { parseScopeItemAllowancesFromNotes } from '@/utils/scopeAllowanceParser';
@@ -131,6 +149,76 @@ export const DUAL_QUANTITY_FIELD_LABELS: Record<
     countUnit: 'each',
     allowance: 'Allowance ($)',
   },
+  windows_doors: {
+    count: 'Window & door openings',
+    countUnit: 'each',
+    allowance: 'Allowance ($)',
+  },
+  windows: {
+    count: 'Window count',
+    countUnit: 'each',
+    allowance: 'Allowance ($)',
+  },
+  exterior_doors: {
+    count: 'Exterior door count',
+    countUnit: 'each',
+    allowance: 'Allowance ($)',
+  },
+  sliding_doors: {
+    count: 'Sliding door count',
+    countUnit: 'each',
+    allowance: 'Allowance ($)',
+  },
+  garage_doors: {
+    count: 'Garage door count (from types)',
+    countUnit: 'each',
+    allowance: 'Allowance ($)',
+  },
+  doors: {
+    count: 'Door count',
+    countUnit: 'each',
+    allowance: 'Allowance ($)',
+  },
+  hvac: {
+    count: 'Systems / tons',
+    countUnit: 'each',
+    allowance: 'Allowance ($)',
+  },
+  insulation: {
+    count: 'Thermal-envelope area',
+    countUnit: 'sqft',
+    allowance: 'Allowance ($)',
+  },
+  appliances: {
+    count: 'Appliance count',
+    countUnit: 'each',
+    allowance: 'Allowance ($)',
+  },
+  lighting: {
+    count: 'Light fixture count',
+    countUnit: 'each',
+    allowance: 'Allowance ($)',
+  },
+  toilet: {
+    count: 'Toilet count',
+    countUnit: 'each',
+    allowance: 'Allowance ($)',
+  },
+  vanity: {
+    count: 'Vanity count',
+    countUnit: 'each',
+    allowance: 'Allowance ($)',
+  },
+  sink_faucet: {
+    count: 'Sink / faucet count',
+    countUnit: 'each',
+    allowance: 'Allowance ($)',
+  },
+  exhaust_fan: {
+    count: 'Exhaust fan count',
+    countUnit: 'each',
+    allowance: 'Allowance ($)',
+  },
   backsplash: {
     count: 'Tile area',
     countUnit: 'sqft',
@@ -158,6 +246,34 @@ export const DUAL_QUANTITY_FIELD_LABELS: Record<
   },
 };
 
+/** Clear editor label for count/area fields — never leave measurement-needed scopes as bare "Quantity". */
+export function getScopeQuantityFieldLabels(itemId: string): {
+  count: string;
+  countUnit: string;
+  allowance: string;
+} {
+  const known = DUAL_QUANTITY_FIELD_LABELS[itemId];
+  if (known) return known;
+  return {
+    count: 'Quantity',
+    countUnit: 'each',
+    allowance: 'Allowance ($)',
+  };
+}
+
+/** Material/Labor editor basis field label (replaces generic "Pricing basis" when we know the measurement). */
+export function pricingBasisFieldLabel(itemId: string, unit?: string | null): string {
+  const labels = getScopeQuantityFieldLabels(itemId);
+  if (labels.count !== 'Quantity') return labels.count;
+  const u = String(unit || '').toLowerCase();
+  if (u === 'each' || u === 'ea' || u === 'count') return 'Count';
+  if (u === 'ton' || u === 'tons') return 'Tons';
+  if (u === 'lf') return 'Linear feet';
+  if (u === 'cy') return 'Cubic yards';
+  if (u === 'sqft' || u === 'sf') return 'Area (sqft)';
+  return 'Pricing basis';
+}
+
 export type NormalizedScopeMeasurements = {
   bathroomFloorSqft: number | null;
   kitchenFloorSqft: number | null;
@@ -184,6 +300,13 @@ export type NormalizedScopeMeasurements = {
   showerWallTileSqft: number | null;
   showerFloorTileSqft: number | null;
   wallPaintSqft: number | null;
+  bathCount: number | null;
+  prefabBathCount: number | null;
+  tubBathCount: number | null;
+  showerDoorCount: number | null;
+  garageDoorSingleCount: number | null;
+  garageDoorDoubleCount: number | null;
+  garageDoorRvCount: number | null;
   itemQuantities: Record<string, ScopeItemQuantityValue>;
 };
 
@@ -301,7 +424,111 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   flooring: { unit: 'sqft', material: 4, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
   floor_demo: { unit: 'sqft', material: 0.5, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
   demo: { unit: 'sqft', material: 0.5, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
-  backsplash: { unit: 'sqft', material: 8, labor: 14, sourceLabel: 'Suggested budget split · National Average' },
+  /**
+   * Tile national planning benchmarks — distinct labor by subtype.
+   * Checklist IDs (floor_tile, shower_tile, backsplash, …) alias into these keys.
+   * rateSource: bps_national_benchmark · scopeProfileSource: bps_standard_assumption
+   */
+  floor_tile_standard: {
+    unit: 'sqft',
+    material: 8,
+    labor: 11,
+    sourceLabel: 'Suggested budget split · National Average · standard floor tile',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'tile',
+    category: 'tile',
+    pricingMethod: 'material_labor',
+  },
+  bath_floor_tile: {
+    unit: 'sqft',
+    material: 8,
+    labor: 13,
+    sourceLabel: 'Suggested budget split · National Average · bathroom floor tile',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'tile',
+    category: 'tile',
+    pricingMethod: 'material_labor',
+  },
+  wall_tile_dry_area: {
+    unit: 'sqft',
+    material: 8,
+    labor: 15,
+    sourceLabel: 'Suggested budget split · National Average · dry-area wall tile',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'tile',
+    category: 'tile',
+    pricingMethod: 'material_labor',
+  },
+  backsplash_tile: {
+    unit: 'sqft',
+    material: 8,
+    labor: 17,
+    sourceLabel: 'Suggested budget split · National Average · kitchen backsplash tile',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'tile',
+    category: 'tile',
+    pricingMethod: 'material_labor',
+  },
+  shower_wall_tile: {
+    unit: 'sqft',
+    material: 8,
+    labor: 18,
+    sourceLabel: 'Suggested budget split · National Average · shower wall tile',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'tile',
+    category: 'tile',
+    pricingMethod: 'material_labor',
+  },
+  /**
+   * Shower floor tile-setting only (~$25/SF mid-market). Pan, waterproofing,
+   * and mud bed are separate — prior $31/SF overstated tile-only work.
+   */
+  shower_floor_tile: {
+    unit: 'sqft',
+    material: 8,
+    labor: 17,
+    sourceLabel: 'Suggested budget split · National Average · shower floor tile',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'tile',
+    category: 'tile',
+    pricingMethod: 'material_labor',
+  },
+  /**
+   * Builder mid shower door + bath mirror (~$3,250 each). Scales with showerDoorCount.
+   * Door ~$2,750 installed; mirror mat+hang ~$500. Semi-frameless — not luxury frameless.
+   * Local SHV house packages $4,500–$6,500 (often 2 doors ≈ $3,250/ea); 3 doors ≈ $9,750.
+   */
+  glass_door: {
+    unit: 'each',
+    material: 2100,
+    labor: 1150,
+    sourceLabel: 'Suggested budget split · National Average · shower door & mirror (builder mid)',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'glazing',
+    category: 'wet_area',
+    pricingMethod: 'material_labor',
+  },
   paint: {
     unit: 'sqft',
     material: 0.85,
@@ -314,14 +541,24 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     labor: 2.5,
     sourceLabel: 'Suggested · National Average · wall/ceiling surface sqft',
   },
+  /**
+   * Mid-market exterior / stucco paint with tape, masking, and basic prep in the rate.
+   * ~$3.75/SF installed (was $3.35). Soffit/fascia accent work is light-included;
+   * heavy trim or multi-story access stays separate.
+   */
   exterior_paint: {
     unit: 'sqft',
-    material: 0.85,
-    labor: 2.5,
-    sourceLabel: 'Suggested · National Average · exterior surface sqft',
+    material: 1.0,
+    labor: 2.75,
+    sourceLabel: 'Suggested · National Average · exterior/stucco paint (mid-market)',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'paint',
+    category: 'paint',
+    pricingMethod: 'material_labor',
   },
-  shower_tile: { unit: 'sqft', material: 8, labor: 14, sourceLabel: 'Suggested budget split · National Average' },
-  floor_tile: { unit: 'sqft', material: 8, labor: 14, sourceLabel: 'Suggested budget split · National Average' },
   /** Basic patch/level prep — not full flooring install. Prior $9/sqft was mis-scoped. */
   floor_prep: {
     unit: 'sqft',
@@ -485,6 +722,16 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
       sourceLabel: 'Suggested budget split · National Average · openings per living SF',
     },
   },
+  windows: {
+    each: EXTERIOR_OPENING_NATIONAL_RATES.windows,
+    sqft: EXTERIOR_OPENING_NATIONAL_RATES.windows_sqft,
+  },
+  exterior_doors: {
+    each: EXTERIOR_OPENING_NATIONAL_RATES.exterior_doors,
+  },
+  sliding_doors: {
+    each: EXTERIOR_OPENING_NATIONAL_RATES.sliding_doors,
+  },
   plumbing_rough: {
     each: NATIONAL_AVERAGE_BUDGET_SPLITS.plumbing_rough,
     sqft: {
@@ -505,6 +752,34 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
   },
 };
 
+/**
+ * Tile checklist / parser IDs → distinct national rate + profile keys.
+ * Ambiguous bare "tile" must not silently become shower tile (handled in parsers).
+ */
+export const TILE_NATIONAL_AVERAGE_ALIASES: Record<string, string> = {
+  /** Existing bathroom checklist id for bath floor tile. */
+  floor_tile: 'bath_floor_tile',
+  bathroom_floor_tile: 'bath_floor_tile',
+  bath_floor: 'bath_floor_tile',
+  /** Generic / dry-area floor tile (non-bath). */
+  tile_floor: 'floor_tile_standard',
+  floor_tile_standard: 'floor_tile_standard',
+  /** Dry-area wall tile — not shower unless shower context is explicit. */
+  wall_tile: 'wall_tile_dry_area',
+  wall_tile_dry: 'wall_tile_dry_area',
+  dry_wall_tile: 'wall_tile_dry_area',
+  /** Kitchen backsplash checklist id. */
+  backsplash: 'backsplash_tile',
+  backsplash_tile: 'backsplash_tile',
+  /** Existing shower wall checklist id. */
+  shower_tile: 'shower_wall_tile',
+  shower_wall: 'shower_wall_tile',
+  shower_wall_tile: 'shower_wall_tile',
+  /** Shower floor has its own rate band (not wall). */
+  shower_floor: 'shower_floor_tile',
+  shower_floor_tile: 'shower_floor_tile',
+};
+
 const NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES: Record<string, string> = {
   hang: 'drywall',
   finish_tape: 'drywall',
@@ -512,8 +787,6 @@ const NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES: Record<string, string> = {
   /** Ground-up foundation CY uses the concrete CY national band. */
   foundation: 'concrete',
   pour_foundation: 'concrete',
-  /** Shower floor tile uses the same $/SF band as shower wall tile. */
-  shower_floor_tile: 'shower_tile',
   /** Ground-up roofing squares use the shingles national band. */
   roofing: 'shingles_roofing',
   roof_tie_in: 'shingles_roofing',
@@ -521,7 +794,15 @@ const NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES: Record<string, string> = {
   paint_trim: 'paint',
   /** Combined tile & flooring line uses the flooring $/SF band. */
   tile_flooring: 'flooring',
+  /** AI draft / planning key → checklist id. */
+  shower_door: 'glass_door',
+  ...TILE_NATIONAL_AVERAGE_ALIASES,
 };
+
+/** Resolve checklist/parser tile ids to the canonical national tile rate key. */
+export function canonicalTileScopeKey(itemId: string): string {
+  return TILE_NATIONAL_AVERAGE_ALIASES[itemId] || itemId;
+}
 
 const BPS_SCOPE_SOURCE: ScopeProfileSource = 'bps_standard_assumption';
 const BPS_SCOPE_REFERENCE = 'Build Profit national-average scope model';
@@ -623,27 +904,160 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
       }),
     ],
   },
-  floor_tile: {
+  floor_tile_standard: {
     category: 'tile',
-    rootCause: 'Build Profit national-average floor tile is modeled as tile material plus standard tile installation.',
+    rootCause:
+      'Build Profit national-average standard floor tile ($19/SF planning) is modeled as ceramic/porcelain tile material plus standard floor installation. Large-format, mosaic, stone, and membrane premiums are separate.',
     assumptions: [
-      assumption('tile_material', 'included', 'Tile material', 'Standard tile material for the measured area is included.'),
-      assumption('tile_installation', 'included', 'Standard tile installation', 'Standard thinset/grout installation labor is included.'),
-      assumption('floor_demo', 'excluded', 'Existing-floor demolition', 'Removal of existing flooring is not included.'),
-      assumption('floor_prep', 'excluded', 'Floor prep / leveling', 'Substrate prep, leveling, and repair are not included.'),
-      assumption('underlayment', 'excluded', 'Underlayment / backer board', 'Backer board, uncoupling membrane, or underlayment is not included.'),
+      assumption('tile_material', 'included', 'Standard ceramic/porcelain tile', 'Standard ceramic or porcelain tile allowance is included.'),
+      assumption('thinset', 'included', 'Thinset', 'Standard thinset/mortar is included.'),
+      assumption('grout', 'included', 'Grout', 'Standard grout is included.'),
+      assumption('tile_installation', 'included', 'Standard floor installation', 'Standard floor tile-setting labor, routine cuts, and basic layout are included.'),
+      assumption('cleanup', 'included', 'Basic cleanup', 'Final tile cleanup for the measured area is included.', { impact: 'medium' }),
+      assumption('floor_demo', 'excluded', 'Demolition', 'Existing-floor demolition is not included.'),
+      assumption('floor_prep', 'excluded', 'Floor leveling', 'Floor leveling and major substrate correction are not included.'),
+      assumption('crack_isolation', 'excluded', 'Crack-isolation membrane', 'Crack-isolation / uncoupling membrane is not included.'),
+      assumption('waterproofing', 'excluded', 'Waterproofing', 'Floor waterproofing is not included.'),
+      assumption('heated_floor', 'excluded', 'Heated-floor systems', 'Radiant / heated-floor systems are not included.'),
+      assumption('baseboard', 'excluded', 'Baseboard removal or replacement', 'Baseboard removal or replacement is not included.'),
+      assumption('large_format', 'excluded', 'Large-format premium', 'Large-format tile labor premium is not included.'),
+      assumption('specialty_pattern', 'excluded', 'Mosaic / specialty-pattern premium', 'Mosaic or specialty-pattern premiums are not included.'),
+      assumption('natural_stone', 'excluded', 'Natural stone', 'Natural stone material and setting premiums are not included.'),
       assumption('transitions', 'excluded', 'Transitions', 'Transitions and thresholds are not included.'),
     ],
   },
-  shower_tile: {
+  bath_floor_tile: {
     category: 'tile',
-    rootCause: 'Build Profit national-average shower tile is modeled as tile material plus standard wall/floor tile labor.',
+    rootCause:
+      'Build Profit national-average bathroom floor tile ($21/SF planning) is modeled as tile material plus bathroom floor installation. Waterproofing, demo, and leveling are separate.',
     assumptions: [
-      assumption('tile_material', 'included', 'Tile material', 'Standard tile material for the measured shower area is included.'),
-      assumption('tile_installation', 'included', 'Standard tile installation', 'Standard tile setting and grout labor are included.'),
-      assumption('waterproofing', 'excluded', 'Waterproofing', 'Waterproofing membrane/system is not included unless priced separately.'),
-      assumption('backer_board', 'excluded', 'Backer board', 'Backer board or substrate replacement is not included.'),
-      assumption('niche_bench', 'excluded', 'Niches / benches', 'Niches, benches, and specialty layouts are not included.'),
+      assumption('tile_material', 'included', 'Standard ceramic/porcelain tile', 'Standard ceramic or porcelain tile allowance is included.'),
+      assumption('thinset', 'included', 'Thinset', 'Standard thinset/mortar is included.'),
+      assumption('grout', 'included', 'Grout', 'Standard grout is included.'),
+      assumption('tile_installation', 'included', 'Bathroom floor installation', 'Standard bathroom floor tile-setting labor, routine cuts, and basic cleanup are included.'),
+      assumption('floor_demo', 'excluded', 'Demolition', 'Existing-floor demolition is not included.'),
+      assumption('floor_prep', 'excluded', 'Floor leveling', 'Floor leveling and major substrate correction are not included.'),
+      assumption('crack_isolation', 'excluded', 'Crack-isolation membrane', 'Crack-isolation / uncoupling membrane is not included.'),
+      assumption('waterproofing', 'excluded', 'Waterproofing', 'Floor waterproofing is not included.'),
+      assumption('heated_floor', 'excluded', 'Heated-floor systems', 'Radiant / heated-floor systems are not included.'),
+      assumption('baseboard', 'excluded', 'Baseboard removal or replacement', 'Baseboard removal or replacement is not included.'),
+      assumption('large_format', 'excluded', 'Large-format premium', 'Large-format tile labor premium is not included.'),
+      assumption('specialty_pattern', 'excluded', 'Mosaic / specialty-pattern premium', 'Mosaic or specialty-pattern premiums are not included.'),
+      assumption('natural_stone', 'excluded', 'Natural stone', 'Natural stone material and setting premiums are not included.'),
+      assumption('transitions', 'excluded', 'Transitions', 'Transitions and thresholds are not included.'),
+    ],
+  },
+  wall_tile_dry_area: {
+    category: 'tile',
+    rootCause:
+      'Build Profit national-average dry-area wall tile ($23/SF planning) is modeled as vertical tile material and setting labor. Waterproofing and backer board are not included.',
+    assumptions: [
+      assumption('tile_material', 'included', 'Standard tile material', 'Standard wall tile material allowance is included.'),
+      assumption('tile_installation', 'included', 'Vertical installation labor', 'Standard vertical tile-setting labor is included.'),
+      assumption('thinset', 'included', 'Thinset', 'Standard thinset/mortar is included.'),
+      assumption('grout', 'included', 'Grout', 'Standard grout is included.'),
+      assumption('cleanup', 'included', 'Standard cuts and cleanup', 'Routine cuts and final cleanup are included.', { impact: 'medium' }),
+      assumption('waterproofing', 'excluded', 'Waterproofing', 'Waterproofing is not included for dry-area wall tile.'),
+      assumption('backer_board', 'excluded', 'Backer board replacement', 'Backer board or substrate replacement is not included.'),
+      assumption('demo', 'excluded', 'Demolition', 'Demolition is not included.'),
+      assumption('wall_prep', 'excluded', 'Wall repair or leveling', 'Wall repair, flattening, and major leveling are not included.'),
+      assumption('niche_bench', 'excluded', 'Niches', 'Niches and specialty recesses are not included.'),
+      assumption('specialty_pattern', 'excluded', 'Specialty patterns', 'Specialty pattern premiums are not included.'),
+      assumption('natural_stone', 'excluded', 'Natural stone', 'Natural stone premiums are not included.'),
+      assumption('specialty_trim', 'excluded', 'Specialty trim', 'Schluter and specialty trim are not included.'),
+    ],
+  },
+  shower_wall_tile: {
+    category: 'tile',
+    rootCause:
+      'Build Profit national-average shower wall tile ($26/SF planning) is tile-setting only. The suggested price does not automatically include waterproofing membrane or substrate systems — price those separately when in scope.',
+    assumptions: [
+      assumption('tile_material', 'included', 'Standard ceramic/porcelain tile allowance', 'Standard ceramic or porcelain tile allowance is included.'),
+      assumption('tile_installation', 'included', 'Standard vertical tile-setting labor', 'Standard vertical tile-setting labor is included.'),
+      assumption('thinset', 'included', 'Thinset or mortar', 'Standard thinset/mortar is included.'),
+      assumption('grout', 'included', 'Standard grout', 'Standard grout is included.'),
+      assumption('straight_cuts', 'included', 'Routine straight cuts', 'Routine straight cuts are included.', { impact: 'medium' }),
+      assumption('basic_layout', 'included', 'Basic layout', 'Basic layout is included.', { impact: 'medium' }),
+      assumption('cleanup', 'included', 'Final tile cleanup', 'Final tile cleanup for the measured area is included.', { impact: 'medium' }),
+      assumption('waterproofing', 'excluded', 'Waterproofing membrane', 'Waterproofing membrane/system is not included in the $26/SF tile suggestion — confirm or price waterproofing separately.'),
+      assumption('backer_board', 'excluded', 'Cement board / foam board / backer substrate', 'Cement board, foam board, or backer substrate is not included.'),
+      assumption('demo', 'excluded', 'Demolition', 'Demolition is not included.'),
+      assumption('wall_prep', 'excluded', 'Wall flattening / major substrate correction', 'Wall flattening and major substrate correction are not included.'),
+      assumption('niche', 'excluded', 'Niches', 'Niches are not included.'),
+      assumption('bench', 'excluded', 'Benches', 'Benches are not included.'),
+      assumption('curb', 'excluded', 'Curbs', 'Curbs are not included.'),
+      assumption('decorative_band', 'excluded', 'Decorative bands', 'Decorative bands are not included.'),
+      assumption('specialty_pattern', 'excluded', 'Mosaic pattern premium', 'Mosaic pattern premiums are not included.'),
+      assumption('large_format', 'excluded', 'Large-format tile premium', 'Large-format tile labor premium is not included.'),
+      assumption('natural_stone', 'excluded', 'Natural stone premium', 'Natural stone premiums are not included.'),
+      assumption('specialty_trim', 'excluded', 'Schluter or specialty trim', 'Schluter and specialty trim are not included.'),
+      assumption('fixture_reset', 'excluded', 'Plumbing-fixture removal or reset', 'Plumbing-fixture removal or reset is not included.'),
+      assumption('minor_substrate_prep', 'conditional', 'Minor substrate preparation', 'Minor substrate prep may apply when surfaces are already suitable.', {
+        conditionText: 'Confirm whether minor prep is included or needs a separate line.',
+        recommendedContractorAction: 'confirm_conditions',
+      }),
+      assumption('standard_edge', 'conditional', 'Standard edge finishing', 'Standard edge finishing when no specialty trim is required.', {
+        conditionText: 'Confirm edge finish scope when Schluter/specialty trim is not selected.',
+        recommendedContractorAction: 'confirm_conditions',
+      }),
+      assumption('valve_penetrations', 'conditional', 'Typical valve / showerhead penetrations', 'Typical penetrations for valves and showerheads.', {
+        conditionText: 'Confirm penetration count and specialty cutting needs.',
+        recommendedContractorAction: 'confirm_conditions',
+      }),
+    ],
+  },
+  glass_door: {
+    category: 'wet_area',
+    rootCause:
+      'Build Profit builder-mid shower door & mirror package is modeled per installed glass door/enclosure plus one bath mirror (~$3,250). Semi-frameless / standard tempered glass — not luxury custom frameless. Total scales with door count (local house packages often $4,500–$6,500 for ~2 doors).',
+    assumptions: [
+      assumption('door_unit', 'included', 'Glass door / enclosure unit', 'Standard tempered glass shower door or enclosure unit is included.'),
+      assumption('door_hardware', 'included', 'Door hardware', 'Standard hinges, track, or clips for the shower door are included.'),
+      assumption('mirror_material', 'included', 'Bath mirror material', 'Standard bath vanity mirror material is included (one per door count).'),
+      assumption('mirror_install', 'included', 'Mirror install', 'Standard mirror hang/install labor is included.'),
+      assumption('install_labor', 'included', 'Door install labor', 'Standard two-person shower-door install labor is included.'),
+      assumption('sealing', 'included', 'Basic sealing', 'Basic silicone sealing at the door unit is included.', { impact: 'medium' }),
+      assumption('towel_bars', 'excluded', 'Towel bars / accessories', 'Towel bars, paper holders, and robe hooks are not included.'),
+      assumption('custom_frameless', 'excluded', 'Luxury custom frameless', 'Heavy custom frameless / specialty glass packages are not included.'),
+      assumption('medicine_cabinet', 'excluded', 'Medicine cabinet', 'Medicine cabinets and lighted mirrors are not included.'),
+      assumption('out_of_plumb', 'conditional', 'Out-of-plumb corrections', 'Significant out-of-plumb wall corrections may require extra labor.', {
+        conditionText: 'Confirm walls are within normal install tolerance.',
+        recommendedContractorAction: 'confirm_conditions',
+      }),
+    ],
+  },
+  shower_floor_tile: {
+    category: 'tile',
+    rootCause:
+      'Build Profit national-average shower floor tile ($25/SF planning) is tile-setting on an existing pitched floor. Shower pan construction, waterproofing, and drain assembly are separate scopes.',
+    assumptions: [
+      assumption('tile_material', 'included', 'Standard shower-floor tile allowance', 'Standard shower-floor tile allowance is included.'),
+      assumption('tile_installation', 'included', 'Standard installation labor', 'Standard shower-floor tile-setting labor is included.'),
+      assumption('thinset', 'included', 'Thinset or mortar', 'Standard thinset/mortar is included.'),
+      assumption('grout', 'included', 'Grout', 'Standard grout is included.'),
+      assumption('drain_cuts', 'included', 'Normal drain cuts', 'Normal drain cuts are included.', { impact: 'medium' }),
+      assumption('slope_follow', 'included', 'Basic slope-following installation', 'Basic installation following an existing slope is included.', {
+        impact: 'medium',
+      }),
+      assumption('cleanup', 'included', 'Final cleanup', 'Final cleanup for the measured area is included.', { impact: 'medium' }),
+      assumption('shower_pan', 'excluded', 'Shower pan construction', 'Shower pan construction is not included.'),
+      assumption('waterproofing', 'excluded', 'Waterproofing membrane', 'Waterproofing membrane is not included — confirm or price separately.'),
+      assumption('drain_assembly', 'excluded', 'Drain assembly', 'Drain assembly is not included.'),
+      assumption('major_slope', 'excluded', 'Major slope correction', 'Major slope correction is not included.'),
+      assumption('mud_bed', 'excluded', 'Mud-bed construction', 'Mud-bed construction is not included unless explicitly scoped.'),
+      assumption('curb', 'excluded', 'Curbs', 'Curbs are not included.'),
+      assumption('niche_bench', 'excluded', 'Niches or benches', 'Niches and benches are not included.'),
+      assumption('specialty_pattern', 'excluded', 'Mosaic or specialty-pattern premium', 'Specialty-pattern premiums are not included by default.'),
+      assumption('demo', 'excluded', 'Demolition', 'Demolition is not included.'),
+      assumption('plumbing_changes', 'excluded', 'Plumbing changes', 'Plumbing changes are not included.'),
+      assumption('standard_mosaic', 'conditional', 'Standard mosaic installation', 'Standard mosaic floor installation may apply when that is the specified finish.', {
+        conditionText: 'Confirm mosaic vs standard tile layout before treating mosaic as included.',
+        recommendedContractorAction: 'confirm_conditions',
+      }),
+      assumption('minor_drain_adjust', 'conditional', 'Minor drain-area adjustments', 'Minor drain-area adjustments when the pan/slope is already correct.', {
+        conditionText: 'Confirm drain-area adjustments are minor and do not require pan rebuild.',
+        recommendedContractorAction: 'confirm_conditions',
+      }),
     ],
   },
   paint: {
@@ -685,15 +1099,46 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   exterior_paint: {
     category: 'paint',
     rootCause:
-      'Build Profit national-average exterior paint is modeled per exterior surface sqft (not floor area) as standard exterior paint material, labor, and basic prep.',
+      'Build Profit mid-market national exterior/stucco paint is modeled per painted exterior surface sqft (not floor area), including standard acrylic/masonry paint, tape/masking, and basic prep.',
     assumptions: [
-      assumption('paint_material', 'included', 'Exterior paint material', 'Standard exterior paint material is included.'),
-      assumption('paint_labor', 'included', 'Standard paint labor', 'Standard exterior application labor is included.'),
+      assumption(
+        'paint_material',
+        'included',
+        'Exterior / masonry paint',
+        'Standard exterior acrylic or masonry paint for stucco/siding is included (not premium elastomeric upgrades).'
+      ),
+      assumption(
+        'paint_labor',
+        'included',
+        'Spray / roll labor',
+        'Standard exterior application labor (typically spray and back-roll) is included.'
+      ),
+      assumption(
+        'masking',
+        'included',
+        'Tape and masking',
+        'Window, door, and adjacent-surface tape/masking for a normal single-story paint job is included.',
+        { impact: 'medium' }
+      ),
+      assumption(
+        'prep',
+        'included',
+        'Basic prep',
+        'Light wash, scrape, and spot prep are included. Heavy crack repair is not.',
+        { impact: 'medium' }
+      ),
+      assumption(
+        'soffit_fascia',
+        'included',
+        'Light soffit / fascia',
+        'Routine soffit/fascia paint adjacent to wall work is included at a planning level — detailed trim packages may still need a separate line.',
+        { impact: 'medium' }
+      ),
       assumption('surface_basis', 'included', 'Exterior surface basis', 'Rates apply to exterior painted surface area, not floor sqft.', {
         impact: 'medium',
       }),
-      assumption('prep', 'included', 'Basic prep', 'Minor prep and cleanup are included.', { impact: 'medium' }),
-      assumption('repairs', 'excluded', 'Exterior repairs', 'Siding, trim, stucco, or substrate repairs are not included.'),
+      assumption('repairs', 'excluded', 'Stucco / substrate repairs', 'Crack repair, stucco patching, and substrate repairs are not included.'),
+      assumption('elastomeric', 'excluded', 'Elastomeric / specialty coating', 'Thick elastomeric or specialty coatings are not included.'),
       assumption('high_access', 'conditional', 'Access equipment', 'Ladders, lifts, scaffolding, or difficult access require confirmation.', {
         conditionText: 'Price separately when access is outside standard ladder work.',
       }),
@@ -885,16 +1330,25 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
       assumption('demo', 'excluded', 'Existing trim removal', 'Existing trim removal and disposal are not included.'),
     ],
   },
-  backsplash: {
+  backsplash_tile: {
     category: 'tile',
-    rootCause: 'Build Profit national-average backsplash is modeled as backsplash tile material plus standard installation.',
+    rootCause:
+      'Build Profit national-average kitchen backsplash tile ($25/SF planning) is modeled as standard backsplash tile material plus outlet-aware installation. Demo, wall repair, and specialty patterns are separate.',
     assumptions: [
-      assumption('tile_material', 'included', 'Backsplash tile material', 'Standard backsplash tile material is included.'),
-      assumption('tile_installation', 'included', 'Backsplash installation', 'Standard backsplash tile installation labor is included.'),
-      assumption('wall_prep', 'excluded', 'Wall prep / repair', 'Wall repair, substrate replacement, and leveling are not included.'),
-      assumption('specialty_pattern', 'conditional', 'Specialty pattern', 'Specialty layout or pattern work requires confirmation.', {
-        conditionText: 'Price separately for complex pattern, mosaic, or specialty layout.',
-      }),
+      assumption('tile_material', 'included', 'Standard tile allowance', 'Standard backsplash tile material allowance is included.'),
+      assumption('thinset', 'included', 'Thinset or adhesive', 'Standard thinset or adhesive is included.'),
+      assumption('grout', 'included', 'Grout', 'Standard grout is included.'),
+      assumption('outlet_cuts', 'included', 'Standard outlet cuts', 'Standard outlet cuts are included.', { impact: 'medium' }),
+      assumption('tile_installation', 'included', 'Basic installation and cleanup', 'Standard backsplash installation labor and cleanup are included.'),
+      assumption('demo', 'excluded', 'Demolition', 'Existing backsplash demolition is not included.'),
+      assumption('wall_prep', 'excluded', 'Wall repair', 'Wall repair is not included.'),
+      assumption('substrate_flatten', 'excluded', 'Extensive substrate flattening', 'Extensive substrate flattening is not included.'),
+      assumption('specialty_pattern', 'excluded', 'Specialty patterns', 'Specialty pattern premiums are not included.'),
+      assumption('natural_stone', 'excluded', 'Natural stone', 'Natural stone premiums are not included.'),
+      assumption('slab_backsplash', 'excluded', 'Slab backsplash', 'Full-slab / solid-surface backsplash is not included.'),
+      assumption('specialty_trim', 'excluded', 'Specialty trim', 'Specialty trim is not included.'),
+      assumption('electrical_relocation', 'excluded', 'Electrical relocation', 'Outlet or switch relocation is not included.'),
+      assumption('cabinet_modifications', 'excluded', 'Cabinet modifications', 'Cabinet modifications are not included.'),
     ],
   },
   waterproofing: {
@@ -1363,8 +1817,9 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKey: 'bathroomFloorSqft',
-    canUseRoomSqft: true,
-    quantityHelper: 'Uses bathroom floor sqft.',
+    // Living SF is whole-home — never a bath floor tile takeoff basis.
+    canUseRoomSqft: false,
+    quantityHelper: 'Uses bathroom floor sqft — not whole-home living area.',
   },
   shower_pan: {
     defaultUnit: 'each',
@@ -1464,7 +1919,8 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     defaultUnit: 'allowance',
     allowedUnits: ['each', 'allowance', 'lump_sum', 'sqft'],
     requiresUserQuantity: true,
-    quantityHelper: 'Price accessories by count or sqft with material and labor.',
+    quantityHelper:
+      'Towel bars/hooks allowance — vanity mirrors are under Shower doors & mirrors.',
     missingMessage: 'Enter accessories allowance.',
   },
   floor_prep: {
@@ -1503,7 +1959,8 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     defaultUnit: 'each',
     allowedUnits: ['each'],
     defaultQuantity: 1,
-    quantityHelper: 'Assuming 1 shower door.',
+    quantityHelper:
+      'Shower door + mirror count — often matches tile/prefab showers. Builder mid ~$3,250 installed each; price rises with door count.',
   },
   plumbing_trim: {
     defaultUnit: 'allowance',
@@ -1928,6 +2385,34 @@ export function normalizeScopeMeasurements(measurements?: ScopeMeasurements | nu
     showerWallTileSqft: num(measurements?.showerWallTileSqft),
     showerFloorTileSqft: num(measurements?.showerFloorTileSqft),
     wallPaintSqft: num(measurements?.wallPaintSqft),
+    bathCount:
+      measurements?.bathCount != null && Number(measurements.bathCount) > 0
+        ? Math.round(Number(measurements.bathCount))
+        : null,
+    prefabBathCount:
+      measurements?.prefabBathCount != null && Number(measurements.prefabBathCount) > 0
+        ? Math.round(Number(measurements.prefabBathCount))
+        : null,
+    tubBathCount:
+      measurements?.tubBathCount != null && Number(measurements.tubBathCount) > 0
+        ? Math.round(Number(measurements.tubBathCount))
+        : null,
+    showerDoorCount:
+      measurements?.showerDoorCount != null && Number(measurements.showerDoorCount) > 0
+        ? Math.round(Number(measurements.showerDoorCount))
+        : null,
+    garageDoorSingleCount:
+      measurements?.garageDoorSingleCount != null && Number(measurements.garageDoorSingleCount) > 0
+        ? Math.round(Number(measurements.garageDoorSingleCount))
+        : null,
+    garageDoorDoubleCount:
+      measurements?.garageDoorDoubleCount != null && Number(measurements.garageDoorDoubleCount) > 0
+        ? Math.round(Number(measurements.garageDoorDoubleCount))
+        : null,
+    garageDoorRvCount:
+      measurements?.garageDoorRvCount != null && Number(measurements.garageDoorRvCount) > 0
+        ? Math.round(Number(measurements.garageDoorRvCount))
+        : null,
     itemQuantities,
   };
 }
@@ -2222,10 +2707,15 @@ const ADDITION_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRu
       'Enter HVAC sqft or pricing.'
     ),
   },
-  insulation: additionFloorAreaRule(
-    'Enter insulation area sqft, or price insulation with lump sum/material/labor.',
-    'Enter insulation sqft or pricing.'
-  ),
+  insulation: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['floorAreaSqft'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter thermal-envelope SF (exterior walls + attic − openings). Planning estimate when takeoff is missing — not drywall surface.',
+    missingMessage: 'Needs thermal-envelope insulation SF',
+  },
   drywall: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.drywall,
     measurementKey: 'drywallSqft',
@@ -2351,13 +2841,52 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityR
     requiresUserQuantity: true,
     dualAllowanceField: true,
     quantityHelper:
-      'Enter window/door opening count for material and labor — planning from living SF when count is missing.',
+      'Legacy combined openings — prefer Windows / Exterior doors / Sliding / Garage doors.',
     missingMessage: 'Enter window/door count or pricing.',
   },
-  insulation: additionFloorAreaRule(
-    'Uses living area from the plan as insulation basis — edit if needed.',
-    'Enter insulation sqft or pricing.'
-  ),
+  windows: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'sqft', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Enter window count for material and labor — planning from living SF when count is missing.',
+    missingMessage: 'Enter window count or pricing.',
+  },
+  exterior_doors: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper: 'Enter exterior swing door count (entry/exit). Not sliding or garage.',
+    missingMessage: 'Enter exterior door count or pricing.',
+  },
+  sliding_doors: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper: 'Enter exterior sliding / patio door count for material and labor.',
+    missingMessage: 'Enter sliding door count or pricing.',
+  },
+  garage_doors: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    dualAllowanceField: true,
+    quantityHelper:
+      'Set single / double / RV garage door counts — pricing is by type (double ~$2,400; double+RV ~$10,700 locally).',
+    missingMessage: 'Enter garage door type counts or pricing.',
+  },
+  insulation: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['floorAreaSqft'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter thermal-envelope SF (exterior walls + attic − openings). Planning estimate when takeoff is missing — not drywall surface.',
+    missingMessage: 'Needs thermal-envelope insulation SF',
+  },
   drywall: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
@@ -2401,6 +2930,33 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityR
     quantityHelper: 'Enter wall/ceiling paint surface sqft for material and labor.',
     missingMessage: 'Enter paint surface sqft or pricing.',
   },
+  interior_paint: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['wallPaintSqft'],
+    requiresUserQuantity: false,
+    quantityHelper:
+      'Paintable wall/ceiling SF is the physical quantity. Local paint budgets are installed lump sums (living SF is only the benchmark denominator).',
+    missingMessage: 'Enter paint surface sqft or apply the local installed paint budget.',
+  },
+  exterior_paint: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['exteriorPaintSqft'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Exterior painted surface SF (stucco/siding). Mid-market national ~$3.75/SF includes tape/masking and light soffit/fascia. Not stucco install.',
+    missingMessage: 'Enter exterior paint surface sqft or pricing.',
+  },
+  interior_trim: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    lumpSumOnly: true,
+    requiresUserQuantity: false,
+    quantityHelper:
+      'Finish trim, interior doors, door hardware & shelving package until baseboard/casing/door takeoff exists.',
+    missingMessage: 'Apply the finish-carpentry package or enter an allowance.',
+  },
   appliances: ADDITION_CHECKLIST_ITEM_QUANTITY_RULES.appliances,
   utility_taps: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.utility_taps,
@@ -2435,7 +2991,7 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
   demo: { unit: 'sqft', measurementKeys: ['bathroomFloorSqft', 'floorAreaSqft'] },
   floor_demo: { unit: 'sqft', measurementKeys: ['bathroomFloorSqft', 'kitchenFloorSqft', 'floorAreaSqft'] },
   demo_removal: { unit: 'sqft', measurementKeys: ['floorAreaSqft', 'deckSqft', 'concreteSqft', 'drywallSqft'] },
-  floor_tile: { unit: 'sqft', measurementKeys: ['bathroomFloorSqft', 'floorAreaSqft'] },
+  floor_tile: { unit: 'sqft', measurementKeys: ['bathroomFloorSqft'] },
   flooring: { unit: 'sqft', measurementKeys: ['flooringSqft', 'floorAreaSqft', 'kitchenFloorSqft', 'bathroomFloorSqft'] },
   floor_prep: { unit: 'sqft', measurementKeys: ['bathroomFloorSqft', 'kitchenFloorSqft', 'floorAreaSqft'] },
   drywall: { unit: 'sqft', measurementKeys: ['drywallSqft', 'floorAreaSqft'] },
@@ -2559,6 +3115,10 @@ const TEMPLATE_PRICING_BASIS_PREFERENCES: Record<string, Record<string, PricingB
     roofing: { unit: 'squares', measurementKeys: ['roofSquares'] },
     exterior: { unit: 'sqft', measurementKeys: ['floorAreaSqft', 'exteriorPaintSqft'] },
     windows_doors: { unit: 'each' },
+    windows: { unit: 'each' },
+    exterior_doors: { unit: 'each' },
+    sliding_doors: { unit: 'each' },
+    garage_doors: { unit: 'each' },
     mep_rough: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
     plumbing_rough: { unit: 'each' },
     electrical_rough: { unit: 'each' },
@@ -2735,7 +3295,7 @@ export function getChecklistItemQuantityRule(
           : itemId === 'foundation'
             ? 'Needs structural takeoff (slab/footings/walls/CY). Living SF is not foundation quantity.'
             : itemId === 'insulation'
-              ? 'Planning material + labor from living SF until envelope surface SF is entered.'
+              ? 'Planning estimate from exterior walls + conditioned attic/ceiling. Verify openings, garage scope, and R-values.'
               : itemId === 'roofing'
                 ? 'Enter roof squares for material and labor.'
                 : itemId === 'drywall'
@@ -3722,7 +4282,20 @@ export type SuggestedPricingBlock = {
   isComparison?: boolean;
   /** Permit/fees-style flat allowance — hide material row in UI. */
   lumpSumOnly?: boolean;
+  /**
+   * Installed lump-sum local budget (e.g. interior paint). Preserve source total;
+   * do not treat mat/labor as verified source splits.
+   */
+  installedBudgetBenchmark?: boolean;
+  /** How material/labor on the card relate to the source record. */
+  splitSource?: 'source' | 'estimated' | 'none';
+  splitConfidence?: 'high' | 'medium' | 'low' | 'none';
+  comparisonRange?: { low: number; high: number } | null;
+  /** Display-only implied $/paintable SF from an installed comparable. */
+  impliedUnitRateLabel?: string | null;
   basis?: { quantity: number; unit: string } | null;
+  /** Living SF used as benchmark denominator (separate from physical takeoff). */
+  benchmarkLivingSf?: number | null;
   benchmarkScopeProfile?: BenchmarkScopeAssumptionProfile;
   costBuckets?: SuggestedPricingCostBucket[];
   pricingRecordId?: string;
@@ -4151,6 +4724,123 @@ function flatAllowanceCopyFor(itemId: string): { fromNotes: string; suggested: s
   );
 }
 
+function resolveSouthernUtahPaintTrimSuggestedFill(params: {
+  itemId: string;
+  templateKey?: string | null;
+  measurementsInput: ScopeMeasurementsInputExtended;
+  paintableOrCount?: number | null;
+  unit?: string | null;
+}): SuggestedPricingBlock | null {
+  const id = String(params.itemId || '')
+    .trim()
+    .toLowerCase();
+  const livingSf = parseScopeMeasurementInput(params.measurementsInput.floorAreaSqft);
+  const paintableSf =
+    parseScopeMeasurementInput(params.measurementsInput.wallPaintSqft) ||
+    (params.unit === 'sqft' && Number(params.paintableOrCount) > 0
+      ? Number(params.paintableOrCount)
+      : null);
+
+  if (id === 'interior_paint' || id === 'paint' || id === 'paint_trim') {
+    const isGroundUp = String(params.templateKey || '').toLowerCase() === 'ground_up';
+    const hasExactProject = Boolean(livingSf && matchSouthernUtahProjectByLivingSf(livingSf));
+    // Remodel / non-ground-up: only use local when living SF exactly matches a source project.
+    if (!isGroundUp && !hasExactProject) return null;
+    // Combined paint_trim legacy line: price interior paint only (trim is separate).
+    const comparable = resolveInteriorPaintComparable({ livingSf, paintableSf });
+    const total = round2(comparable.total);
+    return {
+      material: 0,
+      labor: total,
+      total,
+      materialSource: 'local_benchmark',
+      laborSource: 'local_benchmark',
+      rateSourceLabel: comparable.rateSourceLabel,
+      helper: comparable.helper,
+      mode: 'suggested_price',
+      lumpSumOnly: true,
+      installedBudgetBenchmark: true,
+      splitSource: 'none',
+      splitConfidence: 'none',
+      comparisonRange: comparable.range,
+      impliedUnitRateLabel: comparable.impliedRateLabel,
+      basis:
+        comparable.paintableSf != null
+          ? { quantity: comparable.paintableSf, unit: 'sqft' }
+          : null,
+      benchmarkLivingSf: comparable.livingSfBenchmark,
+      costBuckets: [
+        {
+          key: 'allowance',
+          label: 'Installed paint budget',
+          amount: total,
+          rate: null,
+          source: 'local_benchmark',
+        },
+      ],
+      pricingRecordId: `su_paint:${comparable.projectId || 'median'}:installed`,
+      productionStatus: 'review_required',
+      benchmarkLevel: 'component',
+      benchmarkScopeKey: id === 'paint_trim' ? 'interior_paint' : id,
+      benchmarkAction: 'price_ready',
+      storedTotalExact: total,
+    };
+  }
+
+  if (id === 'interior_trim' || id === 'finish_carpentry') {
+    const isGroundUp = String(params.templateKey || '').toLowerCase() === 'ground_up';
+    const hasExactProject = Boolean(livingSf && matchSouthernUtahProjectByLivingSf(livingSf));
+    if (!isGroundUp && !hasExactProject) return null;
+    const comparable = resolveFinishCarpentryComparable({ livingSf });
+    return {
+      material: round2(comparable.material),
+      labor: round2(comparable.labor),
+      total: round2(comparable.total),
+      materialSource: 'local_benchmark',
+      laborSource: 'local_benchmark',
+      rateSourceLabel: comparable.rateSourceLabel,
+      helper: comparable.helper,
+      mode: 'suggested_price',
+      lumpSumOnly: false,
+      installedBudgetBenchmark: false,
+      splitSource: comparable.splitSource,
+      splitConfidence: comparable.splitConfidence,
+      basis: null,
+      costBuckets: [
+        {
+          key: 'material',
+          label: 'Material',
+          amount: round2(comparable.material),
+          rate: null,
+          source: 'local_benchmark',
+        },
+        {
+          key: 'labor',
+          label: 'Labor',
+          amount: round2(comparable.labor),
+          rate: null,
+          source: 'local_benchmark',
+        },
+      ],
+      pricingRecordId: `su_trim:${comparable.projectId || 'median'}:package`,
+      productionStatus: 'review_required',
+      benchmarkLevel: 'component',
+      benchmarkScopeKey: 'interior_trim',
+      benchmarkAction: 'price_ready',
+      storedTotalExact: round2(comparable.total),
+    };
+  }
+
+  if (id === 'exterior_paint') {
+    // No local samples — leave national path, but never claim SU calibration.
+    void params.templateKey;
+    if (exteriorPaintLocalSampleCount() !== 0) return null;
+    return null;
+  }
+
+  return null;
+}
+
 /**
  * Canonical pricing resolver for the Confirm Scope UI. Resolves material and
  * labor independently with the priority notes -> template/bid -> national
@@ -4224,20 +4914,54 @@ export function resolveScopeItemSuggestedPricing(
       }
     }
   }
-  // Windows/doors: prefer opening count; otherwise plan from living SF × calibrated $/SF.
+  // Windows: prefer count; otherwise plan from living SF × calibrated $/SF.
   if (
     (!count || count <= 0) &&
-    itemId === 'windows_doors' &&
+    (itemId === 'windows' || itemId === 'windows_doors') &&
     String(templateKey || '').toLowerCase() === 'ground_up'
   ) {
     const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
     if (livingSf && livingSf > 0) {
-      const reframed = regionalAdjustedNationalAverage(itemId, 'sqft', pricingContext);
+      const reframed = regionalAdjustedNationalAverage(
+        itemId === 'windows_doors' ? 'windows' : itemId,
+        'sqft',
+        pricingContext
+      );
       if (reframed.average?.material != null && reframed.average?.labor != null) {
         count = livingSf;
         unit = 'sqft';
         average = reframed.average;
       }
+    }
+  }
+
+  // Garage doors: type-based package (single / double / RV), not flat $/each × count.
+  if (itemId === 'garage_doors' && String(templateKey || '').toLowerCase() === 'ground_up') {
+    let counts = normalizeGarageDoorCounts(measurementsInput);
+    if (totalGarageDoorCount(counts) <= 0) {
+      const inferred = inferDefaultGarageDoorCounts(
+        parseScopeMeasurementInput(measurementsInput.garageSqft)
+      );
+      if (inferred) counts = inferred;
+    }
+    const garagePkg = resolveGarageDoorSuggestedPricing(counts);
+    if (garagePkg) {
+      return {
+        fill: {
+          material: garagePkg.material,
+          labor: garagePkg.labor,
+          total: garagePkg.total,
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: garagePkg.sourceLabel,
+          helper: garagePkg.helper,
+          mode: 'suggested_price',
+          basis: { quantity: garagePkg.quantity, unit: 'each' },
+          splitSource: 'source',
+          splitConfidence: 'high',
+        },
+        comparison: null,
+      };
     }
   }
   // Plumbing / electrical rough: plan from living SF when point/device counts are missing.
@@ -4328,17 +5052,30 @@ export function resolveScopeItemSuggestedPricing(
       }
     }
   }
-  // Counters: plan ~80 SF kitchen tops when countertop takeoff is missing.
-  if (
-    (!count || count <= 0) &&
-    itemId === 'countertops' &&
-    String(templateKey || '').toLowerCase() === 'ground_up'
-  ) {
-    const reframed = regionalAdjustedNationalAverage(itemId, 'sqft', pricingContext);
-    if (reframed.average?.material != null && reframed.average?.labor != null) {
-      count = 80;
-      unit = 'sqft';
-      average = reframed.average;
+  // Counters: plan ~80 SF kitchen tops when takeoff is missing.
+  // Do not price on whole-home cabinet LF × 25" depth (e.g. 120 LF → 250 SF).
+  if (itemId === 'countertops' && String(templateKey || '').toLowerCase() === 'ground_up') {
+    const cabinetLf = parseScopeMeasurementInput(measurementsInput.cabinetLf);
+    const COUNTERTOP_DEPTH_FT = 2.083;
+    const GROUND_UP_PLANNING_TOPS_SF = 80;
+    const lfDepthProxy =
+      cabinetLf != null &&
+      cabinetLf > 0 &&
+      count != null &&
+      count > 0 &&
+      Math.abs(count - cabinetLf * COUNTERTOP_DEPTH_FT) <
+        Math.max(2, cabinetLf * COUNTERTOP_DEPTH_FT * 0.03);
+    const source = resolved.quantitySource;
+    const trustTakeoff =
+      source === 'user_entered' || source === 'plan_vision' || source === 'notes';
+    const usePlanning = !count || count <= 0 || (lfDepthProxy && !trustTakeoff);
+    if (usePlanning) {
+      const reframed = regionalAdjustedNationalAverage(itemId, 'sqft', pricingContext);
+      if (reframed.average?.material != null && reframed.average?.labor != null) {
+        count = GROUND_UP_PLANNING_TOPS_SF;
+        unit = 'sqft';
+        average = reframed.average;
+      }
     }
   }
   // Tile & flooring: plan from living/floor area when finish allocation takeoff is missing.
@@ -4359,23 +5096,66 @@ export function resolveScopeItemSuggestedPricing(
       }
     }
   }
-  // Insulation: plan from living SF × calibrated $/SF until envelope surface takeoff exists.
+  // Drywall/hang/finish: when qty is only living SF, expand with drywall 3.5× surface multiplier.
   if (
-    (!count || count <= 0) &&
-    itemId === 'insulation' &&
+    (itemId === 'drywall' || itemId === 'hang' || itemId === 'finish_tape') &&
     String(templateKey || '').toLowerCase() === 'ground_up'
   ) {
     const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+    const SURFACE_MULTIPLIER = 3.5;
     if (livingSf && livingSf > 0) {
+      const floorProxy = !count || count <= 0 || Math.abs(count - livingSf) < 0.51;
+      if (floorProxy) {
+        const surfaceSf = Math.round(livingSf * SURFACE_MULTIPLIER);
+        const reframed = regionalAdjustedNationalAverage(itemId, 'sqft', pricingContext);
+        if (surfaceSf > 0 && reframed.average?.material != null && reframed.average?.labor != null) {
+          count = surfaceSf;
+          unit = 'sqft';
+          average = reframed.average;
+        }
+      }
+    }
+  }
+  // Insulation: thermal envelope (exterior walls + attic − openings). Never living×3.5 / drywall.
+  if (itemId === 'insulation') {
+    const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+    const looksLikeWrongBasis =
+      !count ||
+      count <= 0 ||
+      (livingSf != null &&
+        (Math.abs(count - livingSf) < 0.51 || Math.abs(count - Math.round(livingSf * 3.5)) < 1));
+    if (looksLikeWrongBasis) {
+      const envelope = resolveInsulationEnvelopePlanningQuantity(
+        insulationEnvelopeInputsFromPlanFacts(
+          (measurementsInput as ScopeMeasurementsInputExtended).planFacts,
+          livingSf
+        )
+      );
+      const envelopeSf = envelope?.totalInsulationEnvelopeSqft;
       const reframed = regionalAdjustedNationalAverage(itemId, 'sqft', pricingContext);
-      if (reframed.average?.material != null && reframed.average?.labor != null) {
-        count = livingSf;
+      if (
+        envelopeSf &&
+        envelopeSf > 0 &&
+        reframed.average?.material != null &&
+        reframed.average?.labor != null
+      ) {
+        count = envelopeSf;
         unit = 'sqft';
         average = reframed.average;
       }
     }
   }
   if (!count || count <= 0) {
+    const paintTrimMissing = resolveSouthernUtahPaintTrimSuggestedFill({
+      itemId,
+      templateKey,
+      measurementsInput,
+      paintableOrCount: null,
+      unit: preferredUnit,
+    });
+    if (paintTrimMissing) {
+      return { fill: paintTrimMissing, comparison: null };
+    }
     // Ground-up soft costs (plans / permits) even when no qty or stage evidence is cached.
     const softMissing = getBuilderBudgetSoftCostAllowance(itemId, templateKey);
     if (softMissing?.amount) {
@@ -4415,16 +5195,31 @@ export function resolveScopeItemSuggestedPricing(
     : `Based on ${count.toLocaleString()} ${unit}`;
 
   if (rule.lumpSumOnly) {
-    if (hasUserEnteredFlatAllowancePricing(measurementsInput.itemQuantities || {}, itemId)) {
-      return empty;
+    const paintTrimPackage = resolveSouthernUtahPaintTrimSuggestedFill({
+      itemId,
+      templateKey,
+      measurementsInput,
+      paintableOrCount: count,
+      unit,
+    });
+    if (paintTrimPackage) {
+      return { fill: paintTrimPackage, comparison: null };
     }
+    // Keep the benchmark/suggested allowance available after the user edits so they
+    // can switch back via Apply / Use suggested. Do not treat user-entered amounts
+    // as the suggestion source.
+    const userEnteredFlat = hasUserEnteredFlatAllowancePricing(
+      measurementsInput.itemQuantities || {},
+      itemId
+    );
     const copy = flatAllowanceCopyFor(itemId);
-    const noteTotal =
-      resolved.dualAllowance?.quantity ??
-      (resolved.quantitySource === 'notes' &&
-      (resolved.unit === 'allowance' || resolved.unit === 'lump_sum')
-        ? resolved.quantity
-        : null);
+    const noteTotal = userEnteredFlat
+      ? null
+      : resolved.dualAllowance?.quantity ??
+        (resolved.quantitySource === 'notes' &&
+        (resolved.unit === 'allowance' || resolved.unit === 'lump_sum')
+          ? resolved.quantity
+          : null);
     if (noteTotal != null && noteTotal > 0) {
       return {
         fill: {
@@ -4689,6 +5484,21 @@ export function resolveScopeItemSuggestedPricing(
     };
   }
 
+  // Southern Utah paint / finish-carpentry packages beat national surface-SF rates
+  // when local installed budgets exist (Plan 41 paint $7,400 — not ~$10,300 national).
+  const localPaintTrim =
+    !template &&
+    resolveSouthernUtahPaintTrimSuggestedFill({
+      itemId,
+      templateKey,
+      measurementsInput,
+      paintableOrCount: count,
+      unit,
+    });
+  if (localPaintTrim) {
+    return { fill: localPaintTrim, comparison: null };
+  }
+
   // Case D: quantity only, no notes pricing -> full suggested price.
   // Prefer physical takeoff × national/template rates over living-SF stage lumps so
   // Confirm Scope can produce material+labor for project cost tracking.
@@ -4729,7 +5539,10 @@ export function resolveScopeItemSuggestedPricing(
       average
     ),
     templateName,
-    helper: `${basisHelper} · suggested pricing`,
+    helper:
+      itemId === 'exterior_paint'
+        ? exteriorPaintLocalCalibrationMessage()
+        : `${basisHelper} · suggested pricing`,
     mode: 'suggested_price',
     basis,
     benchmarkScopeProfile:
@@ -4759,9 +5572,14 @@ export function resolveScopeItemSuggestedPricing(
     benchmarkScopeKey: itemId,
     benchmarkAction: 'price_ready',
   };
-  // Keep stage lump as comparison when takeoff rates win on a stage host (not included children).
+  // Keep stage lump as comparison when takeoff rates win on a stage host (not
+  // separate child trades — e.g. exterior_paint must not show Exterior Envelope ~$50k).
+  const stageIdForItem = benchmarkStageForScopeKey(itemId);
+  const isSeparateTradeChild = Boolean(
+    stageIdForItem && (STAGE_SEPARATE_TRADE_SCOPE_KEYS[stageIdForItem] || []).includes(itemId)
+  );
   const stageComparison =
-    hasPhysicalTakeoffRates && !template
+    hasPhysicalTakeoffRates && !template && !isSeparateTradeChild
       ? benchmarkSuggestedPricingBlock(
           itemId,
           true,
@@ -5276,6 +6094,67 @@ function resolveChecklistItemQuantityCore(
     }
   }
 
+  if (itemId === 'glass_door') {
+    const explicitDoors =
+      measurements.showerDoorCount != null && Number(measurements.showerDoorCount) > 0
+        ? Math.round(Number(measurements.showerDoorCount))
+        : null;
+    const tile =
+      measurements.bathCount != null && Number(measurements.bathCount) > 0
+        ? Math.round(Number(measurements.bathCount))
+        : 0;
+    const prefab =
+      measurements.prefabBathCount != null && Number(measurements.prefabBathCount) > 0
+        ? Math.round(Number(measurements.prefabBathCount))
+        : 0;
+    const inferred = tile + prefab > 0 ? tile + prefab : null;
+    const doors = explicitDoors ?? inferred;
+    if (doors != null) {
+      return {
+        quantity: doors,
+        unit: 'each',
+        quantitySource: explicitDoors != null ? 'user_entered' : 'inferred',
+        sourceLabel:
+          explicitDoors != null ? sourceLabel('user_entered') : 'From tile + prefab baths',
+        pricingReady: true,
+        quantityHelper: rule.quantityHelper,
+        showInput: true,
+      };
+    }
+  }
+
+  if (itemId === 'garage_doors') {
+    let counts = {
+      single: measurements.garageDoorSingleCount ?? 0,
+      double: measurements.garageDoorDoubleCount ?? 0,
+      rv: measurements.garageDoorRvCount ?? 0,
+    };
+    if (totalGarageDoorCount(counts) <= 0) {
+      const inferred = inferDefaultGarageDoorCounts(measurements.garageSqft);
+      if (inferred) counts = inferred;
+    }
+    const doors = totalGarageDoorCount(counts);
+    if (doors > 0) {
+      const explicit =
+        (measurements.garageDoorSingleCount ?? 0) +
+          (measurements.garageDoorDoubleCount ?? 0) +
+          (measurements.garageDoorRvCount ?? 0) >
+        0;
+      return {
+        quantity: doors,
+        unit: 'each',
+        quantitySource: explicit ? 'user_entered' : 'inferred',
+        sourceLabel: explicit
+          ? sourceLabel('user_entered')
+          : 'Assumed 1 double garage door from garage SF',
+        pricingReady: true,
+        quantityHelper: rule.quantityHelper,
+        showInput: true,
+        dualCount: { quantity: doors, unit: 'each' },
+      };
+    }
+  }
+
   if (rule.defaultQuantity != null && !rule.requiresUserQuantity) {
     return {
       quantity: rule.defaultQuantity,
@@ -5499,8 +6378,17 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
     key: 'shingles_roofing',
   },
   // Shower/glass door BEFORE bare window/door (was stealing glass_door → windows_doors).
-  { test: /\bshower\s+door\b|\bglass\s+(?:shower\s+)?door\b|\bshower\s+enclosure\b|\bglass\s+door\b/i, key: 'glass_door' },
-  { test: /\b(?:interior|exterior|entry|patio|sliding|french)\s+doors?\b|\bwindows?\b|\bdoor\b/i, key: 'windows_doors' },
+  {
+    test: /\bshower\s+doors?\s*(?:&|and)\s*mirrors?\b|\bshower\s+door\b|\bglass\s+(?:shower\s+)?door\b|\bshower\s+enclosure\b|\bglass\s+door\b/i,
+    key: 'glass_door',
+  },
+  { test: /\bgarage\s+doors?\b/i, key: 'garage_doors' },
+  { test: /\b(?:sliding|patio)\s+doors?\b|\bsliders?\b/i, key: 'sliding_doors' },
+  { test: /\b(?:exterior|entry|iron)\s+doors?\b/i, key: 'exterior_doors' },
+  // Combined legacy label before bare "windows".
+  { test: /\bwindows?\s*(?:&|and|\/)\s*doors?\b/i, key: 'windows_doors' },
+  { test: /\bwindows?\b/i, key: 'windows' },
+  { test: /\b(?:interior|french)\s+doors?\b|\bdoor\b/i, key: 'windows_doors' },
   { test: /\bplant|\btree\b|\bshrub/i, key: 'plants_trees' },
   { test: /\bfoundation\b/i, key: 'pour_foundation' },
   { test: /\btile\s+flooring\b|\bflooring\s+tile\b/i, key: 'floor_tile' },
@@ -5823,6 +6711,22 @@ export function scopeMeasurementsToPayload(
       sanitized.tubBathCount != null && Number(sanitized.tubBathCount) > 0
         ? Math.round(Number(sanitized.tubBathCount))
         : null,
+    showerDoorCount:
+      sanitized.showerDoorCount != null && Number(sanitized.showerDoorCount) > 0
+        ? Math.round(Number(sanitized.showerDoorCount))
+        : null,
+    garageDoorSingleCount:
+      sanitized.garageDoorSingleCount != null && Number(sanitized.garageDoorSingleCount) > 0
+        ? Math.round(Number(sanitized.garageDoorSingleCount))
+        : null,
+    garageDoorDoubleCount:
+      sanitized.garageDoorDoubleCount != null && Number(sanitized.garageDoorDoubleCount) > 0
+        ? Math.round(Number(sanitized.garageDoorDoubleCount))
+        : null,
+    garageDoorRvCount:
+      sanitized.garageDoorRvCount != null && Number(sanitized.garageDoorRvCount) > 0
+        ? Math.round(Number(sanitized.garageDoorRvCount))
+        : null,
     baseboardLf: parseScopeMeasurementInput(sanitized.baseboardLf),
     showerWallTileSqft: parseScopeMeasurementInput(sanitized.showerWallTileSqft),
     showerFloorTileSqft: parseScopeMeasurementInput(sanitized.showerFloorTileSqft),
@@ -5928,6 +6832,22 @@ export function scopeMeasurementsInputFromPayload(
       payload.tubBathCount != null && Number(payload.tubBathCount) > 0
         ? Math.round(Number(payload.tubBathCount))
         : null,
+    showerDoorCount:
+      payload.showerDoorCount != null && Number(payload.showerDoorCount) > 0
+        ? Math.round(Number(payload.showerDoorCount))
+        : null,
+    garageDoorSingleCount:
+      payload.garageDoorSingleCount != null && Number(payload.garageDoorSingleCount) > 0
+        ? Math.round(Number(payload.garageDoorSingleCount))
+        : null,
+    garageDoorDoubleCount:
+      payload.garageDoorDoubleCount != null && Number(payload.garageDoorDoubleCount) > 0
+        ? Math.round(Number(payload.garageDoorDoubleCount))
+        : null,
+    garageDoorRvCount:
+      payload.garageDoorRvCount != null && Number(payload.garageDoorRvCount) > 0
+        ? Math.round(Number(payload.garageDoorRvCount))
+        : null,
     itemQuantities,
     pricingAcceptance: payload.pricingAcceptance,
     scopeGapResolutions: payload.scopeGapResolutions,
@@ -6000,6 +6920,10 @@ export type ScopeMeasurementsInputExtended = ReturnType<typeof emptyQuickMeasure
   bathCount?: number | null;
   prefabBathCount?: number | null;
   tubBathCount?: number | null;
+  showerDoorCount?: number | null;
+  garageDoorSingleCount?: number | null;
+  garageDoorDoubleCount?: number | null;
+  garageDoorRvCount?: number | null;
   areaReconciliation?: import('@/utils/measurementSemantics').AreaReconciliation | null;
   pricingOverrideLog?: import('@/utils/measurementSemantics').PricingOverrideLog[];
   /** Applied stage/component benchmark keys — blocks double application. */
@@ -6223,6 +7147,10 @@ export function initialScopeMeasurementInputExtended(
     bathCount: saved?.bathCount ?? suggested?.bathCount ?? null,
     prefabBathCount: saved?.prefabBathCount ?? suggested?.prefabBathCount ?? null,
     tubBathCount: saved?.tubBathCount ?? suggested?.tubBathCount ?? null,
+    showerDoorCount: saved?.showerDoorCount ?? suggested?.showerDoorCount ?? null,
+    garageDoorSingleCount: saved?.garageDoorSingleCount ?? suggested?.garageDoorSingleCount ?? null,
+    garageDoorDoubleCount: saved?.garageDoorDoubleCount ?? suggested?.garageDoorDoubleCount ?? null,
+    garageDoorRvCount: saved?.garageDoorRvCount ?? suggested?.garageDoorRvCount ?? null,
     planFacts: saved?.planFacts || suggested?.planFacts,
     quickMeasurementSources: saved?.quickMeasurementSources,
     quickMeasurementUserOverrides: saved?.quickMeasurementUserOverrides,

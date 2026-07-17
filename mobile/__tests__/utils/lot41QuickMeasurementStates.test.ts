@@ -24,7 +24,8 @@ const LOT_41_INCLUDED_SCOPE_KEYS = [
   'roofing',
   'drywall',
   'interior_finishes',
-  'paint_trim',
+  'interior_paint',
+  'interior_trim',
   'tile_flooring',
   'cabinets',
   'countertops',
@@ -104,18 +105,17 @@ describe('SHV Lot 41 Quick Measurement states (regression fixture)', () => {
     expect(byKey.excavationCy.estimate).not.toBeNull();
   });
 
-  test('drywall and interior/exterior paint are Estimate available and never mislabeled Detected', () => {
+  test('drywall and interior paint are Estimate available and never mislabeled Detected', () => {
     const { byKey } = buildLot41FieldStates();
     expect(byKey.drywallSqft.state).toBe('estimate_available');
     expect(byKey.wallPaintSqft.state).toBe('estimate_available');
-    expect(byKey.exteriorPaintSqft.state).toBe('estimate_available');
+    // Exterior paint is a separate scope — not relevant until exterior_paint is included.
+    expect(byKey.exteriorPaintSqft.state).toBe('not_relevant');
     expect(byKey.drywallSqft.estimate?.sourceType).toBe('estimated_from_formula');
     expect(byKey.wallPaintSqft.estimate?.sourceType).toBe('estimated_from_formula');
-    expect(byKey.exteriorPaintSqft.estimate?.sourceType).toBe('estimated_from_formula');
     expect(byKey.drywallSqft.sourceLabel).toBe('Planning estimate');
     expect(byKey.wallPaintSqft.sourceLabel).toBe('Planning estimate · derived from drywall surfaces');
-    expect(byKey.exteriorPaintSqft.sourceLabel).toBe('Planning estimate');
-    expect(byKey.drywallSqft.estimate?.inputsUsed.wallHeightFt).toBe(10.2);
+    expect(byKey.drywallSqft.estimate?.inputsUsed.wallHeightFt).toBe(9);
     expect(byKey.drywallSqft.estimate?.summary).not.toMatch(/\.\d/);
     expect(byKey.wallPaintSqft.estimate?.summary).toBe(byKey.drywallSqft.estimate?.summary);
   });

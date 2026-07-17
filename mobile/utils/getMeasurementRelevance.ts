@@ -38,9 +38,10 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> = 
   concreteCy: ['foundation', 'pour_foundation'],
   excavationCy: ['excavation', 'sitework'],
   roofSquares: ['roofing', 'shingles_roofing', 'roof_tie_in', 'tear_off'],
-  drywallSqft: ['drywall', 'hang', 'finish_tape', 'insulation', 'interior_finishes'],
+  drywallSqft: ['drywall', 'hang', 'finish_tape', 'interior_finishes'],
   wallPaintSqft: ['paint', 'interior_paint', 'paint_trim', 'interior_finishes'],
-  exteriorPaintSqft: ['exterior_paint', 'paint_trim', 'stucco', 'exterior'],
+  // Exterior wall faces inform insulation envelope walls (not drywall interior surface).
+  exteriorPaintSqft: ['exterior_paint', 'paint_trim', 'stucco', 'exterior', 'insulation'],
   cabinetLf: ['cabinets', 'cabinets_counters'],
   countertopSqft: ['countertops', 'cabinets_counters'],
   showerWallTileSqft: ['shower_tile', 'waterproofing', 'tile_flooring', 'tile_shower', 'interior_finishes'],
