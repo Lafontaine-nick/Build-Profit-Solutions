@@ -265,7 +265,7 @@ describe('suggestedPricingCardUi', () => {
     expect(display.compactLine).toBe('Suggested $3,000');
   });
 
-  it('collapses landscaping installed-package prose into Why this price', () => {
+  it('keeps landscaping installed-package prose in whyThisPriceLines (not card chrome)', () => {
     const display = buildSuggestedPricingCardDisplay({
       itemId: 'landscaping',
       block: block({

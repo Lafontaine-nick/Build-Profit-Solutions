@@ -39,6 +39,10 @@ import {
   validateClientPricingUnits,
 } from '@/utils/pricingUnitValidation';
 import { isNeedsApprovalScope as matrixNeedsApproval } from '@/utils/scopePricingMatrix';
+import { applyRoughPricingTiers } from '@/utils/roughPricingTiers';
+
+export { applyRoughPricingTiers, countUnpricedRoughPricingTiers } from '@/utils/roughPricingTiers';
+export { ROUGH_PRICING_UNAVAILABLE_COPY, ROUGH_PLANNING_COPY } from '@/utils/roughPricingTiers';
 
 export const SUGGESTED_PRICING_DISCLAIMER =
   'Suggested prices are planning estimates. Verify scope, material selections, labor rates, taxes, permits, overhead, and markup before sending to a client.';
@@ -573,6 +577,7 @@ export type PricingScopeItemProposal = {
   unitMismatchSubtext?: string | null;
   approvalSubtext?: string | null;
   scopeSuggestionAvailable?: boolean;
+  roughPricingTier?: 'ready' | 'planning' | 'manual_only';
 };
 
 export type PricingReviewStatus =
@@ -649,6 +654,7 @@ export function suggestItemUsesSavedBidOrTemplate(item: PricingScopeItemProposal
 
 /** National / vendor / AI planning prices — show bright, unchecked by default. */
 export function suggestItemIsRoughPlanningItem(item: PricingScopeItemProposal): boolean {
+  if (item.roughPricingTier === 'planning') return true;
   if (!scopeItemHasSavedRates(item)) return false;
   if (suggestItemUsesSavedBidOrTemplate(item)) return false;
   const rec = item.recommended?.source;
@@ -671,6 +677,7 @@ export function suggestItemDefaultIncluded(item: PricingScopeItemProposal): bool
     return false;
   }
   if (suggestItemIsManualOnly(item)) return false;
+  if (item.roughPricingTier === 'planning' || item.roughPricingTier === 'manual_only') return false;
 
   if (suggestItemUsesSavedBidOrTemplate(item)) return true;
 
@@ -1852,7 +1859,7 @@ function roughPricingLineAllowed(line: PricingProposalLine): boolean {
 function roughAutoPricingBlockedName(name: string): boolean {
   // Blocks living-SF trade fallback only — national averages still apply via rule keys.
   // `\bcounter\b` does not match "Counters".
-  return /\b(plans?|engineering|cabinets?|counters?|counter\s*tops?|countertops?|appliances?|contingency|trim[-\s]?out|final\s+inspection|permit|cleanup|disposal)\b/.test(
+  return /\b(plans?|engineering|cabinets?|counters?|counter\s*tops?|countertops?|appliances?|contingency|utility\s+taps?|trim[-\s]?out|final\s+inspection|permit|cleanup|disposal)\b/.test(
     name
   );
 }
@@ -3199,17 +3206,23 @@ export async function fetchRoughPricingProposal(
     });
     if (fromApi && !fromApi.empty) {
       fromApi.pricingMode = 'suggest';
-      return mergeRoughProposalGaps(fromApi, localFallback);
+      return applyRoughPricingTiers(
+        normalizePricingProposal(mergeRoughProposalGaps(fromApi, localFallback)),
+        draft
+      );
     }
   } catch (err) {
     if (__DEV__) {
       console.warn('fetchRoughPricingProposal: API failed, using local fallback', err);
     }
   }
-  return normalizePricingProposal({
-    ...localFallback,
-    pricingMode: 'suggest' as const,
-  });
+  return applyRoughPricingTiers(
+    normalizePricingProposal({
+      ...localFallback,
+      pricingMode: 'suggest' as const,
+    }),
+    draft
+  );
 }
 
 function resolveRoughNationalAverageQuantity(

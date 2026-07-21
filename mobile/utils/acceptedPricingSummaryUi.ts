@@ -652,11 +652,7 @@ export function getPricingSecondaryAction(params: {
     return { kind: 'view_calculation', label: 'View calculation' };
   }
 
-  if (pricingModel === 'material_labor_split' && hasMaterialLaborBreakdown(acceptance, params.resolved)) {
-    // Breakdown panel adds structured rows; skip only when nothing beyond the inline summary exists.
-    return { kind: 'view_breakdown', label: 'View breakdown' };
-  }
-
+  // Material/labor is already shown inline on Applied cards — no separate "View breakdown".
   return null;
 }
 

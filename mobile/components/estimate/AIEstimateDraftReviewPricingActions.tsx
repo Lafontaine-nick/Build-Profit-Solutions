@@ -4,8 +4,8 @@ import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimat
 import { formatDraftMoney, getScopePackages } from '@/utils/estimateAiDraft';
 import {
   draftHasApplyablePricing,
-  packageHasRoughNationalAverage,
 } from '@/utils/estimateAiDraftPricing';
+import { countUnpricedRoughPricingTiers } from '@/utils/roughPricingTiers';
 import { countDraftPricingReadiness } from '@/utils/scopeItemQuantities';
 import { formatScopeQuantity, scopePackageNeedsManualPrice } from '@/utils/estimateDraftReviewUi';
 import AIEstimateSavedPricingApplySummary from '@/components/estimate/AIEstimateSavedPricingApplySummary';
@@ -173,27 +173,26 @@ export default function AIEstimateDraftReviewPricingActions({
     scopePackageNeedsManualPrice(pkg, draft)
   );
   const unpricedCount = unpricedPackages.length;
-  // Suggest only when a national average (or ground-up soft-cost allowance) exists.
-  const suggestableUnpriced = unpricedPackages.filter((pkg) =>
-    packageHasRoughNationalAverage(pkg, draft)
-  );
-  const suggestableCount = suggestableUnpriced.length;
-  const manualOnlyUnpriced = unpricedPackages.filter(
-    (pkg) => !packageHasRoughNationalAverage(pkg, draft)
-  );
+  const roughTiers = countUnpricedRoughPricingTiers(draft);
   const showRoughUnavailable =
     unpricedCount > 0 &&
-    (roughPricingUnavailable || (suggestableCount === 0 && manualOnlyUnpriced.length > 0));
+    (roughPricingUnavailable || roughTiers.suggestable === 0);
   const packageMeasurementLines = measuredScopeLines(getScopePackages(draft), draft);
   const measuredLines = packageMeasurementLines.length ? packageMeasurementLines : quickMeasurementLines(draft);
   const suggestCount =
-    unpricedCount > 0 ? suggestableCount : pricingReadiness.ready;
+    unpricedCount > 0 ? roughTiers.suggestable : pricingReadiness.ready;
   const roughLabel =
     suggestCount > 0
       ? hasPricing
-        ? suggestCount === 1
-          ? 'Suggest pricing for 1 item still missing a price'
-          : `Suggest pricing for ${suggestCount} items still missing a price`
+        ? roughTiers.ready > 0 && roughTiers.planning > 0
+          ? `Suggest pricing · ${roughTiers.ready} ready · ${roughTiers.planning} planning`
+          : roughTiers.planning > 0 && roughTiers.ready === 0
+            ? roughTiers.planning === 1
+              ? 'Suggest planning price for 1 item'
+              : `Suggest planning prices for ${roughTiers.planning} items`
+            : suggestCount === 1
+              ? 'Suggest pricing for 1 item still missing a price'
+              : `Suggest pricing for ${suggestCount} items still missing a price`
         : pricingReadiness.needsMeasurement > 0
           ? `Suggest pricing for ${suggestCount} measured items`
           : 'Suggest pricing from measurements'
@@ -208,9 +207,15 @@ export default function AIEstimateDraftReviewPricingActions({
     : unpricedCount > 0
       ? pricingReadiness.needsMeasurement > 0 && !hasPricing
         ? `${pricingReadiness.ready} ready · ${pricingReadiness.needsMeasurement} need measurements`
-        : unpricedCount === 1
-          ? '1 item still needs a price'
-          : `${unpricedCount} items still need a price`
+        : roughTiers.manualOnly > 0 && roughTiers.suggestable > 0
+          ? `${unpricedCount} items still need a price · ${roughTiers.manualOnly} enter manually`
+          : roughTiers.manualOnly > 0 && roughTiers.suggestable === 0
+            ? roughTiers.manualOnly === 1
+              ? '1 item needs manual pricing'
+              : `${roughTiers.manualOnly} items need manual pricing`
+            : unpricedCount === 1
+              ? '1 item still needs a price'
+              : `${unpricedCount} items still need a price`
       : pricingReadiness.ready > 0
         ? `${pricingReadiness.ready} ready for suggested pricing`
         : 'Add measurements in Confirm Scope to unlock pricing';

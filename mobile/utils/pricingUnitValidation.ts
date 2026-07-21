@@ -127,6 +127,7 @@ export function suggestItemPricingBlocked(item: PricingUnitValidationItem): bool
 export function suggestItemNeedsManualPricing(item: PricingUnitValidationItem): boolean {
   if (suggestItemPricingBlocked(item)) return true;
   if (item.reviewStatus === 'needs_price') return true;
+  if ((item as { roughPricingTier?: string }).roughPricingTier === 'manual_only') return true;
   if (isManualPricingScope(item) && !(item.proposedRates || []).some((r) => (r.total || 0) > 0)) return true;
   if ((item.warnings || []).some((w) => /needs manual pricing — no reliable source/i.test(w))) return true;
   return false;

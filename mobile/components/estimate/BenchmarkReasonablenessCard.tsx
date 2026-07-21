@@ -1,40 +1,146 @@
-import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '@/contexts/ThemeContext';
+import { getColors } from '@/theme/getColors';
 import type { BenchmarkReasonableness } from '@/utils/benchmarkEngine';
+import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 
 type Props = {
   value: BenchmarkReasonableness;
   darkMode: boolean;
 };
 
+const APP_GREEN = '#22c55e';
+
+function formatWholeDollars(amount: number): string {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return '—';
+  return `$${Math.round(n).toLocaleString()}`;
+}
+
 export default function BenchmarkReasonablenessCard({ value, darkMode }: Props) {
-  const text = darkMode ? '#f8fafc' : '#0f172a';
-  const sub = darkMode ? '#94a3b8' : '#64748b';
-  const variance = value.variancePercent == null
-    ? 'No variance available'
-    : `${Math.abs(value.variancePercent).toFixed(1)}% ${value.variancePercent >= 0 ? 'above' : 'below'} planning baseline`;
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const { theme } = useTheme();
+  const Colors = useMemo(() => getColors(theme), [theme]);
+  const text = darkMode ? '#ffffff' : Colors.text;
+  const muted = darkMode ? 'rgba(255,255,255,0.72)' : Colors.sub;
+  const farOff =
+    value.variancePercent != null && Math.abs(value.variancePercent) > 20;
+  const verdictColor = farOff ? '#f59e0b' : APP_GREEN;
+
+  const variance =
+    value.variancePercent == null
+      ? null
+      : `${Math.abs(value.variancePercent).toFixed(0)}% ${
+          value.variancePercent >= 0 ? 'above' : 'below'
+        } planning baseline`;
+
+  const cardStyle = [
+    estimateFlowCardStyle(Colors, darkMode, { marginBottom: 14 }),
+    styles.cardPad,
+  ];
+
   return (
-    <View style={[styles.wrap, { borderColor: darkMode ? '#334155' : '#cbd5e1' }]}>
-      <Text style={[styles.title, { color: text }]}>Whole-estimate reasonableness</Text>
-      <Text style={[styles.primary, { color: text }]}>
-        ${value.currentPerLivingSf.toFixed(2)}/living SF
+    <View style={cardStyle}>
+      <Text style={[styles.label, { color: text }]}>Build cost / SF</Text>
+      <Text style={[styles.primary, { color: text }]} accessibilityRole="text">
+        {formatWholeDollars(value.currentPerLivingSf)}
+        <Text style={[styles.primaryUnit, { color: muted }]}>/living SF</Text>
       </Text>
-      <Text style={[styles.detail, { color: sub }]}>
-        Local ${value.localDetachedMedianPerLivingSf.toFixed(2)} · National ${value.nationalPerLivingSf.toFixed(2)} · Planning baseline ${value.blendedPlanningPerLivingSf.toFixed(2)}
-      </Text>
-      <Text style={[styles.variance, { color: value.variancePercent != null && Math.abs(value.variancePercent) > 20 ? '#d97706' : '#0f766e' }]}>
-        {variance}
-      </Text>
-      <Text style={[styles.disclaimer, { color: sub }]}>{value.disclaimer}</Text>
+
+      {variance ? (
+        <Text style={[styles.verdict, { color: verdictColor }]}>{variance}</Text>
+      ) : null}
+
+      <Pressable
+        onPress={() => setDetailsOpen((open) => !open)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: detailsOpen }}
+        accessibilityLabel={
+          detailsOpen ? 'Hide benchmark comparisons' : 'Show Local, National, and planning baseline'
+        }
+        style={styles.detailsToggle}
+      >
+        <Text style={[styles.detailsToggleText, { color: text }]}>
+          {detailsOpen ? 'Hide' : 'Compare'}
+        </Text>
+        <Ionicons
+          name={detailsOpen ? 'chevron-up' : 'chevron-down'}
+          size={14}
+          color={text}
+        />
+      </Pressable>
+
+      {detailsOpen ? (
+        <View style={styles.detailsBlock}>
+          <Text style={[styles.detailRow, { color: muted }]}>
+            Local {formatWholeDollars(value.localDetachedMedianPerLivingSf)}
+          </Text>
+          <Text style={[styles.detailRow, { color: muted }]}>
+            National {formatWholeDollars(value.nationalPerLivingSf)}
+          </Text>
+          <Text style={[styles.detailRow, { color: muted }]}>
+            Planning baseline {formatWholeDollars(value.blendedPlanningPerLivingSf)}
+          </Text>
+          <Text style={[styles.disclaimer, { color: muted }]}>
+            Comparison only — estimate values unchanged.
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 10, padding: 12, marginBottom: 14 },
-  title: { fontSize: 13, fontWeight: '800' },
-  primary: { fontSize: 20, fontWeight: '800', marginTop: 6 },
-  detail: { fontSize: 11, lineHeight: 17, marginTop: 4 },
-  variance: { fontSize: 11, fontWeight: '800', marginTop: 7 },
-  disclaimer: { fontSize: 10, lineHeight: 15, marginTop: 5 },
+  cardPad: {
+    paddingVertical: 16,
+  },
+  label: {
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  primary: {
+    fontSize: 28,
+    fontWeight: '700',
+    letterSpacing: -0.5,
+    marginTop: 8,
+  },
+  primaryUnit: {
+    fontSize: 14,
+    fontWeight: '500',
+    letterSpacing: 0,
+  },
+  verdict: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 8,
+  },
+  detailsToggle: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+  },
+  detailsToggleText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  detailsBlock: {
+    marginTop: 8,
+    gap: 3,
+  },
+  detailRow: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '500',
+  },
+  disclaimer: {
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 6,
+    fontWeight: '400',
+  },
 });

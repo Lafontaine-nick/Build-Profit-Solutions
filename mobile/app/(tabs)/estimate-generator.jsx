@@ -65,6 +65,7 @@ import {
 } from '../../utils/estimateAiDraftPricing';
 import { draftHasUnpricedScope, isScopeOnlyDraft } from '../../utils/estimateDraftReviewUi';
 import { mergeScopeProgressIntoDraft } from '../../utils/estimateScopeChecklistUi';
+import { mergeScopeMeasurementsPreservingFields } from '../../utils/benchmarkReasonablenessContext';
 import { scopeMeasurementsPayloadForPersist } from '../../utils/scopeItemQuantities';
 import {
   collectSavedEstimateCustomers,
@@ -5253,20 +5254,13 @@ export default function EstimateGeneratorScreen() {
     if (!draft) return draft;
     const latest = latestScopeMeasurementsRef.current;
     if (!latest) return syncSelectedScopePricing(draft);
+    const mergedMeasurements = mergeScopeMeasurementsPreservingFields(
+      draft.scopeMeasurements,
+      latest
+    );
     return syncSelectedScopePricing({
       ...draft,
-      scopeMeasurements: {
-        ...(draft.scopeMeasurements || {}),
-        ...latest,
-        itemQuantities: {
-          ...(draft.scopeMeasurements?.itemQuantities || {}),
-          ...(latest.itemQuantities || {}),
-        },
-        pricingAcceptance: {
-          ...(draft.scopeMeasurements?.pricingAcceptance || {}),
-          ...(latest.pricingAcceptance || {}),
-        },
-      },
+      scopeMeasurements: mergedMeasurements,
     });
   }, []);
   const [aiDraftFillToast, setAiDraftFillToast] = useState({ visible: false, roomCount: 0 });

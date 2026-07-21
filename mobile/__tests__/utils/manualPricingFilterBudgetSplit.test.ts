@@ -76,4 +76,16 @@ describe('scopePackageNeedsManualPrice with budget splits', () => {
     });
     expect(scopePackageNeedsManualPrice(permits, draft())).toBe(false);
   });
+
+  it('needs manual price when user clears an allowance to $0', () => {
+    const contingency = pkg({
+      name: 'Contingency allowance',
+      price: 0,
+      knownSubtotal: 0,
+      status: 'user_provided',
+      scopeQuantities: [{ quantity: 1, unit: 'allowance' }],
+    });
+    expect(scopePackagePricedAmount(contingency, draft())).toBe(0);
+    expect(scopePackageNeedsManualPrice(contingency, draft())).toBe(true);
+  });
 });

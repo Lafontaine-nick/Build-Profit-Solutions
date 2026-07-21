@@ -57,7 +57,7 @@ export type SuggestedPricingCardDisplay = {
   statusTone: 'amber' | 'neutral';
   actionLabel: string | null;
   allowanceExtraNote: string | null;
-  /** Provenance / range / notes — shown under “Why this price?” */
+  /** Provenance lines retained for tests; Confirm Scope cards no longer disclose them. */
   whyThisPriceLines: string[];
   /** Compact alternative under an already-entered current price. */
   presentation: 'full' | 'compact';

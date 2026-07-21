@@ -64,7 +64,9 @@ export function scopePackageNeedsManualPrice(
   draft?: EstimateAiDraft | null
 ): boolean {
   if (scopePackagePricedAmount(pkg, draft) > 0) return false;
-  return pkg.status === 'missing_price' || pkg.status === 'partial_pricing' || !pkg.status;
+  // Cleared to $0 or never priced — allow add/edit again (except explicitly confirmed rows).
+  if (pkg.status === 'confirmed') return false;
+  return true;
 }
 
 export function scopePackagePricingHint(pkg: EstimateDraftScopePackage): string {

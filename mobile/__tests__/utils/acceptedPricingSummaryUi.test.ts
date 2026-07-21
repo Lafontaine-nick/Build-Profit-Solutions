@@ -277,7 +277,7 @@ describe('acceptedPricingSummaryUi', () => {
     }
   });
 
-  it('shows View breakdown for material/labor split cards', () => {
+  it('does not add View breakdown when material/labor is already inline', () => {
     const resolved: ResolvedItemQuantity = {
       quantity: 9200,
       unit: 'allowance',
@@ -310,7 +310,7 @@ describe('acceptedPricingSummaryUi', () => {
       scopeKey: 'drywall',
       scopeGapResolutions: resolvePriorityGaps('drywall', ['texture', 'patching']),
     });
-    expect(action?.label).toBe('View breakdown');
+    expect(action).toBeNull();
   });
 
   it('preserves manual adjustment metadata when suggested block total still matches original acceptance', () => {

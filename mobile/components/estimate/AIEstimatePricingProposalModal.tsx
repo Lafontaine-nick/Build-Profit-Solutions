@@ -56,6 +56,7 @@ import {
   updateScopeProposedRate,
   type SourceVisual,
 } from '@/utils/estimateAiDraftPricing';
+import { ROUGH_PRICING_UNAVAILABLE_COPY } from '@/utils/roughPricingTiers';
 import { formatDraftMoney } from '@/utils/estimateAiDraft';
 import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 
@@ -450,14 +451,23 @@ function ScopeCard({
           ]}
         >
           <Text style={{ color: '#fbbf24', fontSize: 12, fontWeight: '700' }}>
-            {item.scopeSuggestionAvailable
+            {item.roughPricingTier === 'manual_only' ||
+            (item.warnings || []).some((w) => /rough pricing unavailable/i.test(w))
+              ? ROUGH_PRICING_UNAVAILABLE_COPY
+              : item.scopeSuggestionAvailable
               ? 'Suggested price available in Confirm Scope'
               : (item.warnings || []).find((w) => /needs manual pricing — no reliable source/i.test(w)) ||
-              (item.pricingBlocked
-                ? BLOCKED_PRICING_MESSAGE
-                : MANUAL_PRICING_NO_SOURCE_MESSAGE)}
+                (item.pricingBlocked
+                  ? BLOCKED_PRICING_MESSAGE
+                  : MANUAL_PRICING_NO_SOURCE_MESSAGE)}
           </Text>
         </View>
+        {item.priceRangeHint?.combinedTotal ? (
+          <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 8 }}>
+            Typical range: ${Math.round(item.priceRangeHint.combinedTotal.low).toLocaleString()}–$
+            {Math.round(item.priceRangeHint.combinedTotal.high).toLocaleString()}
+          </Text>
+        ) : null}
         {item.scopeSuggestionAvailable ? (
           <Text style={{ color: Colors.sub, fontSize: 11, lineHeight: 16, marginTop: 8 }}>
             Use the Step 2 scope card suggestion, or add a manual price here.
@@ -654,7 +664,9 @@ function ScopeCard({
 
       {showScopeTotal && scopeTotal > 0 ? (
         <View style={[styles.scopeTotalRow, { borderTopColor: Colors.line }]}>
-          <Text style={{ color: Colors.sub, fontSize: 12 }}>Scope total</Text>
+          <Text style={{ color: Colors.sub, fontSize: 12 }}>
+            {item.roughPricingTier === 'planning' ? 'Planning midpoint' : 'Scope total'}
+          </Text>
           <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>
             {formatDraftMoney(scopeTotal)}
           </Text>

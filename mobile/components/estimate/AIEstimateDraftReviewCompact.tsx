@@ -531,24 +531,20 @@ export default function AIEstimateDraftReviewCompact({
 
   const openScopeRowActions = (params: {
     packageName: string;
-    needsPrice: boolean;
     hasAmount: boolean;
     canEditInline: boolean;
     openInlinePricing: () => void;
   }) => {
     if (busy) return;
-    const { packageName, needsPrice, hasAmount, canEditInline, openInlinePricing } = params;
+    const { packageName, hasAmount, canEditInline, openInlinePricing } = params;
     const canPrice = canEditInline || Boolean(onPriceScopeItem);
     const canDelete = Boolean(onRemoveScopeItem);
     if (!canPrice && !canDelete) return;
 
     const options: string[] = [];
     const actions: Array<() => void> = [];
-    if (canPrice && needsPrice) {
-      options.push('Add price');
-      actions.push(openInlinePricing);
-    } else if (canPrice && hasAmount) {
-      options.push('Edit price');
+    if (canPrice) {
+      options.push(hasAmount ? 'Edit price' : 'Add price');
       actions.push(openInlinePricing);
     }
     if (canDelete) {
@@ -714,7 +710,6 @@ export default function AIEstimateDraftReviewCompact({
                   ? () =>
                       openScopeRowActions({
                         packageName: pkg.name,
-                        needsPrice,
                         hasAmount: Boolean(amount),
                         canEditInline,
                         openInlinePricing,
@@ -812,7 +807,6 @@ export default function AIEstimateDraftReviewCompact({
                       onPress={() =>
                         openScopeRowActions({
                           packageName: pkg.name,
-                          needsPrice,
                           hasAmount: Boolean(amount),
                           canEditInline,
                           openInlinePricing,

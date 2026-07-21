@@ -415,6 +415,13 @@ export function AcceptedPricingSummary({
           disabled={!warningPreview.canExpand}
           onPress={() => setWarningExpanded((open) => !open)}
           accessibilityRole={warningPreview.canExpand ? 'button' : undefined}
+          accessibilityLabel={
+            warningPreview.canExpand
+              ? warningExpanded
+                ? 'Collapse pricing warning'
+                : 'Expand pricing warning'
+              : undefined
+          }
           accessibilityState={warningPreview.canExpand ? { expanded: warningExpanded } : undefined}
         >
           <Text
@@ -432,9 +439,6 @@ export function AcceptedPricingSummary({
             ]}
           >
             {warningExpanded ? warningPreview.full : warningPreview.preview}
-            {warningPreview.canExpand && !warningExpanded ? (
-              <Text style={{ color: '#60a5fa', fontWeight: '700' }}> View details</Text>
-            ) : null}
           </Text>
         </TouchableOpacity>
       ) : null}

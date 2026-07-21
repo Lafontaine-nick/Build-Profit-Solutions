@@ -184,6 +184,10 @@ import {
   type BenchmarkReasonableness,
 } from '@/utils/benchmarkEngine';
 import {
+  resolveBenchmarkLivingSf,
+  sumConfirmScopeAppliedPricingTotal,
+} from '@/utils/benchmarkReasonablenessContext';
+import {
   assertBenchmarkDoesNotOverwritePrimary,
   benchmarkStageForScopeKey,
   coversLabelList,
@@ -206,7 +210,6 @@ import {
   validatePricingBasis,
   type ScopeMeasurementState,
 } from '@/utils/measurementSemantics';
-import BenchmarkPricingEvidence from '@/components/estimate/BenchmarkPricingEvidence';
 import BenchmarkReasonablenessCard from '@/components/estimate/BenchmarkReasonablenessCard';
 import {
   buildSuggestedPricingCardDisplay,
@@ -752,6 +755,13 @@ function ScopeIntelligenceNotice({
           disabled={!warningCanExpand}
           onPress={() => setWarningExpanded((open) => !open)}
           accessibilityRole={warningCanExpand ? 'button' : undefined}
+          accessibilityLabel={
+            warningCanExpand
+              ? warningExpanded
+                ? 'Collapse pricing warning'
+                : 'Expand pricing warning'
+              : undefined
+          }
           accessibilityState={warningCanExpand ? { expanded: warningExpanded } : undefined}
         >
           <Text
@@ -767,9 +777,6 @@ function ScopeIntelligenceNotice({
             ]}
           >
             {warningExpanded ? warningFull : warningPreview}
-            {warningCanExpand && !warningExpanded ? (
-              <Text style={{ color: '#60a5fa', fontWeight: '700' }}> View details</Text>
-            ) : null}
           </Text>
         </TouchableOpacity>
       ) : null}
@@ -1027,7 +1034,6 @@ function SuggestedBudgetSplitRows({
   /** Collapse full Needs/Apply card to one-line suggested row (soft-cost idle). */
   forceCompact?: boolean;
 }) {
-  const [whyOpen, setWhyOpen] = useState(false);
   const usesBenchmark =
     block.materialSource === 'local_benchmark' || block.laborSource === 'local_benchmark';
   const semantics = measurementSemanticsV1Enabled();
@@ -1123,12 +1129,13 @@ function SuggestedBudgetSplitRows({
     writeActionLabel ||
     (action === 'comparison_only' ? 'Compare benchmarks' : display.actionLabel);
 
-  const whyLines = [
-    ...display.whyThisPriceLines,
-    ...(coversHint
-      ? [coversHint.includes('priced separately') ? coversHint : `Includes ${coversHint}`]
-      : []),
-  ];
+  // Stage cover list used to live under “Why this price?” — keep a single calm line when useful.
+  const stageCoversLine =
+    coversHint && !display.statusLine
+      ? coversHint.includes('priced separately')
+        ? coversHint
+        : `Includes ${coversHint}`
+      : null;
 
   return (
     <View style={[styles.budgetSplitPanel, { borderTopColor: divider }]}>
@@ -1183,44 +1190,10 @@ function SuggestedBudgetSplitRows({
         </Text>
       ) : null}
 
-      {whyLines.length || block.benchmarkEvidence ? (
-        <TouchableOpacity
-          activeOpacity={0.75}
-          onPress={() => setWhyOpen((v) => !v)}
-          accessibilityRole="button"
-          accessibilityLabel={whyOpen ? 'Hide price details' : 'Why this price?'}
-          style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 4 }}
-        >
-          <Text style={{ color: caption, fontSize: 12, fontWeight: '600' }}>Why this price?</Text>
-          <Ionicons
-            name={whyOpen ? 'chevron-up' : 'chevron-down'}
-            size={14}
-            color={caption}
-          />
-        </TouchableOpacity>
-      ) : null}
-
-      {whyOpen ? (
-        <View style={{ marginTop: 6, gap: 4 }}>
-          {whyLines.map((line) => (
-            <Text key={line} style={{ color: caption, fontSize: 12, lineHeight: 16 }}>
-              {line}
-            </Text>
-          ))}
-          {block.benchmarkEvidence ? (
-            <BenchmarkPricingEvidence
-              evidence={block.benchmarkEvidence}
-              darkMode={darkMode}
-              showTotals={false}
-              defaultExpanded
-              scopeLabel={
-                block.benchmarkLevel === 'stage'
-                  ? null
-                  : block.benchmarkScopeKey || block.benchmarkStageKey || null
-              }
-            />
-          ) : null}
-        </View>
+      {stageCoversLine ? (
+        <Text style={{ color: caption, fontSize: 12, fontWeight: '500', marginTop: 6, lineHeight: 16 }}>
+          {stageCoversLine}
+        </Text>
       ) : null}
 
       {canWritePrice && actionLabel ? (
@@ -1525,6 +1498,7 @@ function PricingInputField({
     inputMode === 'rate' && Number.isFinite(amount) && amount > 0
       ? `Total ${formatDraftMoney(amount)}`
       : helper;
+  const isEmptyValue = !String(displayValue || '').trim();
   useEffect(() => {
     if (inputMode === 'rate' && !rateEditing) {
       setRateDraft(rateValue);
@@ -1597,11 +1571,19 @@ function PricingInputField({
           {
             borderColor: inputShell.borderColor,
             backgroundColor: inputShell.backgroundColor,
+            // Empty money fields: keep $ + placeholder as one centered group.
+            justifyContent: isEmptyValue ? 'center' : 'flex-start',
           },
         ]}
       >
         {activePrefix ? (
-          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 15, fontWeight: '700' }}>
+          <Text
+            style={{
+              color: isEmptyValue ? placeholderColor : captionColor(darkMode, Colors),
+              fontSize: 15,
+              fontWeight: '700',
+            }}
+          >
             {activePrefix}
           </Text>
         ) : null}
@@ -1627,6 +1609,12 @@ function PricingInputField({
           style={[
             styles.pricingInput,
             { color: Colors.text },
+            isEmptyValue
+              ? {
+                  flex: 0,
+                  width: Math.min(200, Math.max(128, String(placeholder || '').length * 8.5)),
+                }
+              : null,
           ]}
         />
         {activeSuffix ? (
@@ -5896,31 +5884,32 @@ export default function AIEstimateScopeAssumptionsModal({
   const quickMeasurementsRef = useRef<View>(null);
 
   /** Sum of Applied Confirm Scope prices — used for $/living SF before Step 3 sync. */
-  const step2AppliedEstimateTotal = useMemo(() => {
-    let total = 0;
-    for (const item of items) {
-      if (!checklistItemInScope(item)) continue;
-      if (
-        !hasAcceptedScopePricing(
-          item.id,
-          measurements.itemQuantities,
-          measurements.pricingAcceptance
-        )
-      ) {
-        continue;
-      }
-      const live = liveScopeMoneyFromQuantities(item.id, measurements.itemQuantities);
-      if (live != null && live > 0) total += live;
-    }
-    return Math.round(total * 100) / 100;
-  }, [items, measurements.itemQuantities, measurements.pricingAcceptance]);
+  const step2AppliedEstimateTotal = useMemo(
+    () =>
+      sumConfirmScopeAppliedPricingTotal({
+        items,
+        measurements,
+        templateKey: checklist?.templateKey,
+      }),
+    [items, measurements, checklist?.templateKey]
+  );
+
+  const reasonablenessLivingSf = useMemo(
+    () =>
+      resolveBenchmarkLivingSf({
+        measurementsInput: measurements,
+        draftMeasurements: draft?.scopeMeasurements,
+        templateKey: checklist?.templateKey,
+      }),
+    [measurements, draft?.scopeMeasurements, checklist?.templateKey]
+  );
 
   const benchmarkFetchKey = useMemo(
     () =>
       JSON.stringify({
         visible,
         itemIds: items.filter((item) => item.inScope !== false).map((item) => item.id),
-        livingSf: Number(measurements.floorAreaSqft || 0),
+        livingSf: reasonablenessLivingSf || 0,
         garageSf: Number(measurements.garageSqft || 0),
         patioPorchSf: Number(measurements.deckSqft || 0),
         drywallSf: Number(measurements.drywallSqft || 0),
@@ -5930,11 +5919,11 @@ export default function AIEstimateScopeAssumptionsModal({
     [
       visible,
       items,
-      measurements.floorAreaSqft,
       measurements.garageSqft,
       measurements.deckSqft,
       measurements.drywallSqft,
       measurements.roofSquares,
+      reasonablenessLivingSf,
       step2AppliedEstimateTotal,
     ]
   );
@@ -5954,7 +5943,10 @@ export default function AIEstimateScopeAssumptionsModal({
       roofSquares: number;
       estimateTotal: number;
     };
-    if (!context.visible || !context.itemIds.length || !(context.livingSf > 0)) return;
+    if (!context.visible || !context.itemIds.length || !(context.livingSf > 0)) {
+      setBenchmarkReasonableness(null);
+      return;
+    }
     // Wait until Confirm Scope has Applied dollars before computing $/living SF.
     if (!(context.estimateTotal > 0)) {
       setBenchmarkReasonableness(null);
