@@ -125,6 +125,8 @@ export type ScopeItemQuantityRule = {
   dualAllowanceField?: boolean;
   /** Flat allowance lines (permits, cleanup, fees) — no material/labor split in UI or suggestions. */
   lumpSumOnly?: boolean;
+  /** Material + labor only — total is derived from legs (no count / SF basis field). */
+  splitTotalOnly?: boolean;
   /**
    * Deprecated for trade scopes. Soft costs use lumpSumOnly instead.
    * Kept optional for backward-compatible rule reads.
@@ -200,7 +202,7 @@ export const DUAL_QUANTITY_FIELD_LABELS: Record<
     allowance: 'Allowance ($)',
   },
   appliances: {
-    count: 'Appliance count',
+    count: 'Appliances',
     countUnit: 'each',
     allowance: 'Allowance ($)',
   },
@@ -619,10 +621,11 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     sourceLabel: 'Suggested allowance · National Average',
   },
   cleanup: {
-    unit: 'lump_sum',
-    material: 0,
-    labor: 1000,
-    sourceLabel: 'Suggested allowance · National Average',
+    unit: 'allowance',
+    material: 450,
+    labor: 550,
+    sourceLabel:
+      'Suggested budget split · National Average · ~1 dumpster/disposal + final clean/haul labor',
   },
   /** Appliance delivery/hookup install package (not appliance purchase). */
   appliances: {
@@ -634,9 +637,9 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   // Contingency is job-specific — never auto-suggest a national average allowance.
   haul_off: {
     unit: 'lump_sum',
-    material: 0,
-    labor: 1000,
-    sourceLabel: 'Suggested allowance · National Average · haul-off / dumpster',
+    material: 450,
+    labor: 550,
+    sourceLabel: 'Suggested budget split · National Average · dumpster/disposal + haul labor',
   },
   /**
    * Framing national planning on applicable framed/covered SF (living + garage).
@@ -1327,14 +1330,17 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   },
   cleanup: {
     category: 'cleanup',
-    rootCause: 'Build Profit national-average cleanup is modeled as a job cleanup allowance.',
+    rootCause:
+      'Build Profit national-average cleanup splits disposal (dumpsters/dump fees) from final clean and haul labor.',
     assumptions: [
-      assumption('cleanup', 'included', 'Final cleanup allowance', 'Basic job cleanup allowance is included.'),
-      assumption('loading', 'included', 'Loading light debris', 'Loading light construction debris is included as part of cleanup.', { impact: 'medium' }),
-      assumption('dump_fees', 'excluded', 'Dump fees', 'Dump fees and landfill charges are not included unless confirmed.'),
+      assumption('cleanup', 'included', 'Final clean labor', 'Final jobsite clean and light loading labor is included.'),
+      assumption('loading', 'included', 'Loading light debris', 'Loading light construction debris is included as part of cleanup labor.', { impact: 'medium' }),
+      assumption('dump_fees', 'conditional', 'Dumpsters & dump fees', 'Price in Material — typical 30-yd dumpsters run about $300–$600 each depending on market and load.', {
+        conditionText: 'Adjust Material for dumpster count; set to $0 if none needed.',
+      }),
       assumption('hazardous_materials', 'excluded', 'Hazardous materials', 'Hazardous material handling is not included.'),
-      assumption('large_haul_off', 'conditional', 'Large haul-off', 'Large dumpsters or heavy debris require confirmation.', {
-        conditionText: 'Price separately when cleanup requires dumpsters, heavy debris, or multiple loads.',
+      assumption('large_haul_off', 'conditional', 'Heavy haul-off', 'Multiple dumpsters, export, or heavy debris may need a separate haul-off line.', {
+        conditionText: 'Add haul-off scope or increase Material when debris exceeds one dumpster.',
       }),
     ],
   },
@@ -2005,17 +2011,17 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     defaultUnit: 'allowance',
     allowedUnits: ['allowance', 'lump_sum'],
     requiresUserQuantity: true,
-    lumpSumOnly: true,
-    quantityHelper: 'Enter plumbing trim-out allowance for this job.',
-    missingMessage: 'Enter plumbing trim allowance.',
+    lumpSumOnly: false,
+    quantityHelper: 'Price plumbing fixtures & trim-out with material and labor.',
+    missingMessage: 'Enter plumbing trim pricing (material + labor).',
   },
   electrical_trim: {
     defaultUnit: 'allowance',
     allowedUnits: ['allowance', 'lump_sum'],
     requiresUserQuantity: true,
-    lumpSumOnly: true,
-    quantityHelper: 'Enter electrical trim-out allowance for this job.',
-    missingMessage: 'Enter electrical trim allowance.',
+    lumpSumOnly: false,
+    quantityHelper: 'Price electrical fixtures with material and labor.',
+    missingMessage: 'Enter electrical trim pricing (material + labor).',
   },
   permits: {
     defaultUnit: 'allowance',
@@ -2026,12 +2032,14 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     missingMessage: 'Needs local fee confirmation',
   },
   cleanup: {
-    defaultUnit: 'lump_sum',
-    allowedUnits: ['lump_sum', 'allowance'],
-    requiresUserQuantity: true,
-    lumpSumOnly: true,
-    quantityHelper: 'Enter cleanup and disposal allowance for this job.',
-    missingMessage: 'Enter cleanup/disposal allowance.',
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: false,
+    lumpSumOnly: false,
+    splitTotalOnly: true,
+    quantityHelper:
+      'Material = dumpsters, bags, and dump fees ($300–$600 each typical). Labor = final clean and load/haul.',
+    missingMessage: 'Enter cleanup and disposal pricing.',
   },
   interior_finishes: {
     defaultUnit: 'lump_sum',
@@ -2043,11 +2051,13 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     missingMessage: 'Planning benchmark available for Interior Finishes.',
   },
   appliances: {
-    defaultUnit: 'each',
-    allowedUnits: ['each', 'lump_sum'],
-    requiresUserQuantity: true,
-    quantityHelper: 'Enter appliance count and price material and labor.',
-    missingMessage: 'Enter appliance count or a labor lump sum.',
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: false,
+    lumpSumOnly: false,
+    splitTotalOnly: true,
+    quantityHelper: 'Enter install material and labor — total adds automatically.',
+    missingMessage: 'Enter appliance install pricing.',
   },
   appliance_removal: {
     defaultUnit: 'each',
@@ -2130,9 +2140,9 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     defaultUnit: 'allowance',
     allowedUnits: ['allowance', 'lump_sum', 'cy'],
     requiresUserQuantity: true,
-    lumpSumOnly: true,
-    quantityHelper: 'Enter haul-off / dumpster allowance for this job.',
-    missingMessage: 'Enter haul-off allowance.',
+    lumpSumOnly: false,
+    quantityHelper: 'Price haul-off with dumpster/disposal (material) and haul labor.',
+    missingMessage: 'Enter haul-off pricing (material + labor).',
   },
   survey: {
     defaultUnit: 'allowance',
@@ -2467,6 +2477,20 @@ export function formatUnitLabel(unit: string): string {
   if (unit === 'cy') return 'CY';
   if (unit === 'ton') return 'tons';
   return unit;
+}
+
+/** Meaningful count units only — hide generic "each" when the label already says "count". */
+export function formatCountFieldSuffix(unit: string | null | undefined): string | undefined {
+  const normalized = String(unit || '').toLowerCase();
+  if (!normalized || normalized === 'each' || normalized === 'ea' || normalized === 'count') {
+    return undefined;
+  }
+  return formatUnitLabel(normalized);
+}
+
+export function formatDualCountQuantity(quantity: number, unit?: string | null): string {
+  const suffix = formatCountFieldSuffix(unit);
+  return suffix ? `${quantity.toLocaleString()} ${suffix}` : quantity.toLocaleString();
 }
 
 export type CalculatedQuantityRevertSnapshot = NonNullable<
@@ -3016,20 +3040,20 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityR
   plumbing_trim: {
     defaultUnit: 'allowance',
     allowedUnits: ['allowance', 'lump_sum'],
-    lumpSumOnly: true,
+    lumpSumOnly: false,
     requiresUserQuantity: false,
     quantityHelper:
-      'Plumbing fixtures & trim package until fixture schedule takeoff. Not plumbing rough-in.',
-    missingMessage: 'Apply the plumbing fixtures package or enter an allowance.',
+      'Plumbing fixtures & trim package (material + install) until fixture schedule takeoff. Not plumbing rough-in.',
+    missingMessage: 'Apply the plumbing fixtures package or enter material and labor.',
   },
   electrical_trim: {
     defaultUnit: 'allowance',
     allowedUnits: ['allowance', 'lump_sum'],
-    lumpSumOnly: true,
+    lumpSumOnly: false,
     requiresUserQuantity: false,
     quantityHelper:
-      'Electrical fixtures package (mat + install) until lighting schedule takeoff. Not electrical rough-in.',
-    missingMessage: 'Apply the electrical fixtures package or enter an allowance.',
+      'Electrical fixtures package (material + install) until lighting schedule takeoff. Not electrical rough-in.',
+    missingMessage: 'Apply the electrical fixtures package or enter material and labor.',
   },
   landscaping: {
     defaultUnit: 'allowance',
@@ -5297,8 +5321,8 @@ export function buildPureNationalAverageComparisonBlock(params: {
 function flatAllowanceCopyFor(itemId: string): { fromNotes: string; suggested: string } {
   const copyByItem: Record<string, { fromNotes: string; suggested: string }> = {
     cleanup: {
-      fromNotes: 'Cleanup/disposal allowance parsed from notes.',
-      suggested: 'Suggested cleanup and disposal allowance.',
+      fromNotes: 'Cleanup/disposal parsed from notes.',
+      suggested: 'Suggested cleanup and disposal — adjust Material for dumpster count.',
     },
     plans_engineering: {
       fromNotes: 'Plans/engineering allowance parsed from notes.',
@@ -5480,6 +5504,50 @@ function resolveSouthernUtahPaintTrimSuggestedFill(params: {
   return null;
 }
 
+function buildSplitTotalOnlySuggestedFill(
+  itemId: string,
+  pricingContext?: ScopePricingContext | null
+): ScopeItemSuggestedPricing | null {
+  const national = getNationalAverageBudgetSplit(itemId, 'allowance');
+  if (!national) return null;
+  const { average, regional } = regionalAdjustedNationalAverage(itemId, 'allowance', pricingContext);
+  const material = round2(average?.material ?? national.material ?? 0);
+  const labor = round2(average?.labor ?? national.labor ?? 0);
+  const total = round2(material + labor);
+  if (!(total > 0)) return null;
+  return {
+    fill: {
+      material,
+      labor,
+      total,
+      materialSource: 'national_average',
+      laborSource: 'national_average',
+      rateSourceLabel: national.sourceLabel,
+      helper: 'National average install/hookup — edit material and labor below.',
+      mode: 'suggested_price',
+      lumpSumOnly: false,
+      splitSource: material > 0 && labor > 0 ? 'estimated' : 'none',
+      splitConfidence: material > 0 && labor > 0 ? 'medium' : 'none',
+      basis: null,
+      regionalMultiplier: regional.multiplier,
+      costBuckets: buildSuggestedPricingCostBuckets({
+        itemId,
+        average: average ?? national,
+        material,
+        labor,
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+      }),
+      pricingRecordId: `bps_national:${itemId}:allowance`,
+      productionStatus: 'review_required',
+      benchmarkLevel: 'component',
+      benchmarkScopeKey: itemId,
+      benchmarkAction: 'price_ready',
+    },
+    comparison: null,
+  };
+}
+
 /**
  * Canonical pricing resolver for the Confirm Scope UI. Resolves material and
  * labor independently with the priority notes -> template/bid -> national
@@ -5499,6 +5567,14 @@ export function resolveScopeItemSuggestedPricing(
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule) return empty;
 
+  if (
+    rule.splitTotalOnly &&
+    !itemHasUserEnteredPricing(measurementsInput.itemQuantities || {}, itemId)
+  ) {
+    const splitOnly = buildSplitTotalOnlySuggestedFill(itemId, pricingContext);
+    if (splitOnly?.fill) return splitOnly;
+  }
+
   // Ground-up fixture packages — blended barometer + national × state as flat installed
   // allowance unless the user already entered pricing. Landscaping uses Material/Labor below.
   if (
@@ -5513,6 +5589,7 @@ export function resolveScopeItemSuggestedPricing(
       state: pricingContext?.state,
     });
     if (lump) {
+      const hasSplit = lump.material > 0 && lump.labor > 0;
       const allowanceLabel =
         itemId === 'plumbing_trim'
           ? 'Installed plumbing fixtures budget'
@@ -5522,27 +5599,44 @@ export function resolveScopeItemSuggestedPricing(
           material: lump.material,
           labor: lump.labor,
           total: lump.total,
-          materialSource: 'local_benchmark',
-          laborSource: 'local_benchmark',
+          materialSource: hasSplit ? 'national_average' : 'local_benchmark',
+          laborSource: hasSplit ? 'national_average' : 'local_benchmark',
           rateSourceLabel: lump.rateSourceLabel,
           helper: lump.helper,
           mode: 'suggested_price',
-          lumpSumOnly: true,
+          lumpSumOnly: !hasSplit,
           installedBudgetBenchmark: true,
-          splitSource: 'none',
-          splitConfidence: 'none',
+          splitSource: hasSplit ? 'estimated' : 'none',
+          splitConfidence: hasSplit ? 'medium' : 'none',
           comparisonRange: lump.comparisonRange,
           basis: null,
-          costBuckets: [
-            {
-              key: 'allowance',
-              label: allowanceLabel,
-              amount: lump.total,
-              rate: null,
-              source: 'local_benchmark',
-            },
-          ],
-          pricingRecordId: `su_${itemId}:${lump.projectId || 'median'}:installed`,
+          costBuckets: hasSplit
+            ? [
+                {
+                  key: 'material',
+                  label: itemId === 'plumbing_trim' ? 'Fixtures & trim' : 'Fixtures & devices',
+                  amount: lump.material,
+                  rate: null,
+                  source: 'national_average',
+                },
+                {
+                  key: 'labor',
+                  label: 'Install labor',
+                  amount: lump.labor,
+                  rate: null,
+                  source: 'national_average',
+                },
+              ]
+            : [
+                {
+                  key: 'allowance',
+                  label: allowanceLabel,
+                  amount: lump.total,
+                  rate: null,
+                  source: 'local_benchmark',
+                },
+              ],
+          pricingRecordId: `su_${itemId}:${lump.projectId || 'median'}:${hasSplit ? 'split' : 'installed'}`,
           productionStatus: 'review_required',
           benchmarkLevel: 'component',
           benchmarkScopeKey: itemId,

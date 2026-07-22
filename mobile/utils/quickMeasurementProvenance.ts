@@ -151,6 +151,8 @@ export function resolveQuickMeasurementFields(params: {
   sourceMap?: QuickMeasurementSourceMap;
   userOverrides?: QuickMeasurementOverrideMap;
   includedScopeKeys: Iterable<string>;
+  /** When ground_up / addition, show the full Quick measurements field list. */
+  templateKey?: string | null;
 }): QuickMeasurementFieldResult[] {
   const noteValues = params.noteValues || {};
   const noteBackedKeys = params.noteBackedKeys || [];
@@ -175,6 +177,7 @@ export function resolveQuickMeasurementFields(params: {
       measurementKey: field.key,
       includedScopeKeys,
       noteBackedKeys: noteKeySet,
+      templateKey: params.templateKey,
       wetAreaFinish: resolveEffectiveWetAreaFinish({
         bathCount: params.measurements.bathCount,
         prefabBathCount: params.measurements.prefabBathCount,

@@ -72,6 +72,7 @@ function buildLot41FieldStates() {
     sourceMap: input.quickMeasurementSources,
     userOverrides: input.quickMeasurementUserOverrides,
     includedScopeKeys: LOT_41_INCLUDED_SCOPE_KEYS,
+    templateKey: 'ground_up',
   });
   return { draft, input, byKey: Object.fromEntries(results.map((r) => [r.key, r])) };
 }
@@ -109,8 +110,8 @@ describe('SHV Lot 41 Quick Measurement states (regression fixture)', () => {
     const { byKey } = buildLot41FieldStates();
     expect(byKey.drywallSqft.state).toBe('estimate_available');
     expect(byKey.wallPaintSqft.state).toBe('estimate_available');
-    // Exterior paint is a separate scope — not relevant until exterior_paint is included.
-    expect(byKey.exteriorPaintSqft.state).toBe('not_relevant');
+    // Whole-home card keeps exterior paint visible even when exterior_paint scope is off.
+    expect(['estimate_available', 'needs_confirmation']).toContain(byKey.exteriorPaintSqft.state);
     expect(byKey.drywallSqft.estimate?.sourceType).toBe('estimated_from_formula');
     expect(byKey.wallPaintSqft.estimate?.sourceType).toBe('estimated_from_formula');
     expect(byKey.drywallSqft.sourceLabel).toBe('Planning estimate');
@@ -251,6 +252,7 @@ describe('SHV Lot 41 Quick Measurement states (regression fixture)', () => {
       measurements: { ...input, bathCount: null, tubBathCount: 1, wetAreaFinish: 'tub' },
       sourceMap: input.quickMeasurementSources,
       includedScopeKeys: LOT_41_INCLUDED_SCOPE_KEYS,
+      templateKey: 'ground_up',
     });
     const showerWall = results.find((r) => r.key === 'showerWallTileSqft');
     const showerFloor = results.find((r) => r.key === 'showerFloorTileSqft');
@@ -265,7 +267,7 @@ describe('SHV Lot 41 Quick Measurement states (regression fixture)', () => {
     expect(byKey.bathroomFloorSqft.relevant).toBe(true);
   });
 
-  test('bath floor is not a blocker when flooring/tile scopes are excluded', () => {
+  test('bath floor stays visible on ground_up even when flooring/tile scopes are excluded', () => {
     const draft = applyPlanImportToDraft(buildLot41Draft(), {
       measurements: { floorAreaSqft: 1879, garageSqft: 994, deckSqft: 247 },
       rooms: [],
@@ -277,9 +279,10 @@ describe('SHV Lot 41 Quick Measurement states (regression fixture)', () => {
       measurements: input,
       sourceMap: input.quickMeasurementSources,
       includedScopeKeys: ['foundation', 'roofing', 'drywall'],
+      templateKey: 'ground_up',
     });
     const bath = results.find((r) => r.key === 'bathroomFloorSqft');
-    expect(bath?.state).toBe('not_relevant');
+    expect(bath?.state).toBe('needs_confirmation');
   });
 
   test('exterior flatwork needs confirmation until driveway/walks can be measured from a site plan', () => {

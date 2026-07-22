@@ -1,4 +1,6 @@
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
+import { syncSelectedScopePricing } from '@/utils/estimateAiDraft';
+import { sumAppliedScopePricingFromDraft } from '@/utils/benchmarkReasonablenessContext';
 import { resolveScopePackageBudgetBreakdown } from '@/utils/scopeBudgetBreakdown';
 import {
   getUniformStatusLabel,
@@ -72,5 +74,69 @@ describe('Step 3 subtotal consistency', () => {
         { name: 'B', status: 'user_provided' },
       ] as any)
     ).toBe('All items have prices');
+  });
+
+  it('syncSelectedScopePricing strips takeoff-calculated prices not Applied on Confirm Scope', () => {
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: {
+        templateKey: 'ground_up',
+        items: [
+          { id: 'landscaping', label: 'Landscaping', inputType: 'yes_no', state: 'included' },
+          { id: 'foundation', label: 'Foundation', inputType: 'yes_no', state: 'included' },
+          { id: 'excavation', label: 'Excavation', inputType: 'yes_no', state: 'included' },
+        ],
+      },
+      scopeMeasurements: {
+        itemQuantities: {
+          excavation__material: { quantity: '444', unit: 'allowance', quantitySource: 'user_entered' },
+          excavation__labor: { quantity: '3994', unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: {},
+      },
+      scopePackages: [
+        {
+          name: 'Landscaping / site walls & gates',
+          checklistItemId: 'landscaping',
+          price: 13007.6,
+          status: 'calculated',
+          priceSource: 'notes',
+          pricedFromSqftAllowances: true,
+        },
+        {
+          name: 'Foundation',
+          checklistItemId: 'foundation',
+          price: 22647.4,
+          materialPrice: 6800,
+          laborPrice: 15847.4,
+          status: 'calculated',
+          priceSource: 'notes',
+        },
+        {
+          name: 'Excavation',
+          checklistItemId: 'excavation',
+          price: 4438,
+          materialPrice: 444,
+          laborPrice: 3994,
+          status: 'user_provided',
+          priceSource: 'user_provided',
+          priceProvidedByUser: true,
+        },
+      ],
+    } as unknown as EstimateAiDraft;
+
+    const synced = syncSelectedScopePricing(draft);
+    const landscaping = synced.scopePackages!.find((p) => p.checklistItemId === 'landscaping');
+    const foundation = synced.scopePackages!.find((p) => p.checklistItemId === 'foundation');
+    const excavation = synced.scopePackages!.find((p) => p.checklistItemId === 'excavation');
+
+    expect(landscaping?.price).toBeNull();
+    expect(landscaping?.status).toBe('missing_price');
+    expect(foundation?.price).toBeNull();
+    expect(excavation?.price).toBeCloseTo(4438, 0);
+
+    const applied = sumAppliedScopePricingFromDraft(synced);
+    expect(applied?.total).toBeCloseTo(4438, 0);
+    expect(sumLiveScopePackageTotals(synced)).toBeCloseTo(4438, 0);
   });
 });

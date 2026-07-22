@@ -209,18 +209,18 @@ describe('Build with AI scenario pricing', () => {
     });
   });
 
-  describe('cleanup flat allowance', () => {
-    it('suggests $1,000 cleanup allowance as lump-sum only', () => {
+  describe('cleanup material + labor split', () => {
+    it('suggests $1,000 cleanup as dumpster material + clean/haul labor', () => {
       const input = inputWith({});
       const measurements = buildNormalizedScopeMeasurementsFromInput(input, { templateKey: 'addition' });
       const resolved = resolveChecklistItemQuantity('cleanup', measurements, { templateKey: 'addition' });
       const { fill } = resolveScopeItemSuggestedPricing('cleanup', input, 'addition', resolved);
 
       expect(fill).toMatchObject({
-        lumpSumOnly: true,
+        lumpSumOnly: false,
         total: 1000,
-        material: 0,
-        labor: 1000,
+        material: 450,
+        labor: 550,
       });
     });
   });

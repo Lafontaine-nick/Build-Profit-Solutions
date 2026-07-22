@@ -13,8 +13,10 @@ import type { AssemblyComponentStatus, ScopeGapNotice } from '@/utils/scopeAssem
 import type { ResolvedItemQuantity, ScopeItemQuantityValue, SuggestedPricingBlock } from '@/utils/scopeItemQuantities';
 import {
   allowanceSplitSubKey,
+  clearSuggestedPrefillPricing,
   formatUnitLabel,
   hasCompleteUserSelectedPricing,
+  hasOnlySuggestedPrefillPricing,
   roughAllowanceSubKey,
 } from '@/utils/scopeItemQuantities';
 
@@ -1189,6 +1191,44 @@ export function markManualPricingAdjustment(
         : undefined,
     },
   };
+}
+
+/** After pricing editor Done: drop Suggest seeds and orphan split totals only. */
+export function finalizeScopePricingAfterEditorClose(params: {
+  itemId: string;
+  itemQuantities: Record<string, ScopeItemQuantityValue>;
+  pricingAcceptance?: Record<string, ScopePricingAcceptanceMetadata>;
+}): {
+  itemQuantities: Record<string, ScopeItemQuantityValue>;
+  pricingAcceptance: Record<string, ScopePricingAcceptanceMetadata>;
+} {
+  const itemId = params.itemId;
+  let itemQuantities = { ...(params.itemQuantities || {}) };
+  let pricingAcceptance = { ...(params.pricingAcceptance || {}) };
+
+  if (hasOnlySuggestedPrefillPricing(itemQuantities, itemId)) {
+    itemQuantities = clearSuggestedPrefillPricing(itemQuantities, itemId);
+  }
+
+  const materialKey = allowanceSplitSubKey(itemId, 'material');
+  const laborKey = allowanceSplitSubKey(itemId, 'labor');
+  const materialEntry = itemQuantities[materialKey];
+  const laborEntry = itemQuantities[laborKey];
+  const materialQty = parsePricingAmount(materialEntry?.quantity);
+  const laborQty = parsePricingAmount(laborEntry?.quantity);
+  const splitLegsPresent = Boolean(materialEntry || laborEntry);
+  const splitLegsEmpty = !(materialQty != null && materialQty > 0) && !(laborQty != null && laborQty > 0);
+
+  // Only clear orphan __allowance when Material/Labor legs were edited then wiped.
+  if (splitLegsPresent && splitLegsEmpty) {
+    return clearAcceptedScopeItemPricing({ itemId, itemQuantities, pricingAcceptance });
+  }
+
+  if (!(liveScopeMoneyFromQuantities(itemId, itemQuantities) > 0)) {
+    return clearAcceptedScopeItemPricing({ itemId, itemQuantities, pricingAcceptance });
+  }
+
+  return { itemQuantities, pricingAcceptance };
 }
 
 export function parsePricingAmount(value: string | number | null | undefined): number | null {

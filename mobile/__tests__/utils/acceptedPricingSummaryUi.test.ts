@@ -5,6 +5,7 @@ import {
   collectProjectWideScopeGaps,
   confidenceBadgeLabel,
   currentScopePricingTotal,
+  finalizeScopePricingAfterEditorClose,
   geographicBasisFromSourceKind,
   getPricingSecondaryAction,
   getPricingSourceMessage,
@@ -661,6 +662,44 @@ describe('acceptedPricingSummaryUi', () => {
     expect(hasAcceptedScopePricing('excavation', cleared.itemQuantities, cleared.pricingAcceptance)).toBe(
       false
     );
+  });
+
+  it('keeps lump-sum contingency allowance when pricing editor Done is pressed', () => {
+    const itemQuantities = {
+      contingency__allowance: {
+        quantity: '5000',
+        unit: 'allowance',
+        quantitySource: 'user_entered' as const,
+      },
+    };
+    const finalized = finalizeScopePricingAfterEditorClose({
+      itemId: 'contingency',
+      itemQuantities,
+      pricingAcceptance: {},
+    });
+    expect(finalized.itemQuantities.contingency__allowance).toEqual(itemQuantities.contingency__allowance);
+    expect(hasAcceptedScopePricing('contingency', finalized.itemQuantities, finalized.pricingAcceptance)).toBe(
+      true
+    );
+  });
+
+  it('clears orphan allowance when Material and Labor legs were wiped on Done', () => {
+    const itemQuantities = {
+      excavation__material: { quantity: '', unit: 'allowance', quantitySource: 'user_entered' as const },
+      excavation__labor: { quantity: '', unit: 'allowance', quantitySource: 'user_entered' as const },
+      excavation__allowance: { quantity: '2', unit: 'allowance', quantitySource: 'user_entered' as const },
+    };
+    const finalized = finalizeScopePricingAfterEditorClose({
+      itemId: 'excavation',
+      itemQuantities,
+      pricingAcceptance: {
+        excavation: buildAcceptanceFromSuggestedBlock(
+          suggestedBlock({ material: 440, labor: 3990, total: 4430, lumpSumOnly: false })
+        ),
+      },
+    });
+    expect(finalized.itemQuantities.excavation__allowance).toBeUndefined();
+    expect(finalized.pricingAcceptance.excavation).toBeUndefined();
   });
 
   it('clears sticky acceptance when the user deletes an edited allowance back to empty', () => {

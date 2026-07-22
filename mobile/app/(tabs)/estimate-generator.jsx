@@ -102,10 +102,15 @@ import {
   getScopePackages,
   isComplexEstimateTier,
   removeScopePackageFromDraft,
+  syncConfirmScopeMeasurementsFromPackages,
   syncSelectedScopePricing,
 } from '../../utils/estimateAiDraft';
 import { getBidAllowanceLineItemsTotal } from '../../utils/estimateAllowances';
 import { formatEstimateAiError } from '../../utils/resolveAiBackendUrl';
+import {
+  ensureGroundUpPlanNotes,
+  planImportLooksLikeGroundUp,
+} from '../../utils/planTakeoffReviewUi';
 import {
   capturePricingMemory,
   fetchSuggestMissingPrices,
@@ -5872,7 +5877,11 @@ export default function EstimateGeneratorScreen() {
       } catch {
         templates = savedBidTemplates;
       }
-      let draft = await fetchEstimateDraftFromNotes(notes, templates);
+      // Whole-home plan takeoffs must classify as ground_up — otherwise Confirm Scope
+      // gets remodel cards (Demo / Framing or layout changes) instead of excavation,
+      // flatwork, framing, MEP, exterior paint, etc.
+      const notesForDraft = ensureGroundUpPlanNotes(notes, planImportLooksLikeGroundUp(planImport));
+      let draft = await fetchEstimateDraftFromNotes(notesForDraft, templates);
       // Photo detections apply directly to the Step 2 checklist (structured vision
       // output, not notes-regex re-parsing) — only fills items still "unsure".
       if (photoDetections?.length) {
@@ -5889,6 +5898,23 @@ export default function EstimateGeneratorScreen() {
         draft = applyPlanImportToDraft(draft, planImport);
         if (draft.scopeMeasurements) {
           latestScopeMeasurementsRef.current = draft.scopeMeasurements;
+        }
+        // Safety net: if classification still landed on remodel, regenerate as ground_up.
+        if (
+          planImportLooksLikeGroundUp(planImport) &&
+          String(draft.scopeChecklist?.templateKey || '').toLowerCase() === 'room_remodel'
+        ) {
+          draft = await fetchEstimateDraftFromNotes(
+            ensureGroundUpPlanNotes(notesForDraft, true),
+            templates
+          );
+          if (photoDetections?.length) {
+            draft = applyPhotoDetectionsToDraft(draft, photoDetections);
+          }
+          draft = applyPlanImportToDraft(draft, planImport);
+          if (draft.scopeMeasurements) {
+            latestScopeMeasurementsRef.current = draft.scopeMeasurements;
+          }
         }
       }
       const draftTitle = `${draft.projectTitle || ''} ${draft.customerName || ''}`.toLowerCase();
@@ -6280,17 +6306,27 @@ export default function EstimateGeneratorScreen() {
     [aiDraft, pauseDraftReviewForPricingModal]
   );
 
+  const reopenConfirmScopeFromReview = useCallback(() => {
+    setAiDraft((prev) => {
+      if (!prev) return prev;
+      const withMeasurements = syncConfirmScopeMeasurementsFromPackages(prev);
+      latestScopeMeasurementsRef.current = withMeasurements.scopeMeasurements || null;
+      return syncDraftWithLatestScopeMeasurements(withMeasurements);
+    });
+    setShowAiScopeAssumptionsModal(true);
+  }, [syncDraftWithLatestScopeMeasurements]);
+
   const handleConfirmScopeItemFromPricing = useCallback((_scopeName) => {
     aiDraftReviewResumeRef.current = false;
     setShowAiRoughPricingModal(false);
     setShowAiSavedPricingModal(false);
     setShowAiManualPricingModal(false);
     setShowAiDraftReviewModal(false);
-    setShowAiScopeAssumptionsModal(true);
+    reopenConfirmScopeFromReview();
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-  }, []);
+  }, [reopenConfirmScopeFromReview]);
 
   const handlePriceScopeItemFromPricingModal = useCallback(
     (scopeName) => {
@@ -24733,7 +24769,7 @@ export default function EstimateGeneratorScreen() {
             setShowAiManualPricingModal(false);
             setShowAiDraftReviewModal(false);
             if (isComplexEstimateTier(aiDraft)) {
-              setShowAiScopeAssumptionsModal(true);
+              reopenConfirmScopeFromReview();
             } else {
               setShowAiBuilderModal(true);
             }

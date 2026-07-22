@@ -142,6 +142,24 @@ export const LANDSCAPING_NATIONAL_AVERAGE_TOTAL = 9269;
  */
 export const LANDSCAPING_NATIONAL_MATERIAL_SHARE = 0.55;
 
+/**
+ * NAHB installed-package planning shares (fixtures/disposal vs install/haul labor).
+ * Applied to blended barometer totals when detailed takeoff is missing.
+ */
+export const PLUMBING_TRIM_NATIONAL_MATERIAL_SHARE = 0.65;
+export const ELECTRICAL_TRIM_NATIONAL_MATERIAL_SHARE = 0.58;
+/** Dumpsters, bags, dump fees vs load/haul labor. */
+export const HAUL_OFF_NATIONAL_MATERIAL_SHARE = 0.45;
+
+export function splitInstalledPackageByMaterialShare(
+  total: number,
+  materialShare: number
+): { material: number; labor: number; total: number } {
+  const material = Math.round(total * materialShare * 100) / 100;
+  const labor = Math.round((total - material) * 100) / 100;
+  return { material, labor, total: Math.round((material + labor) * 100) / 100 };
+}
+
 export type GroundUpFinishPackageKey = 'plumbing_trim' | 'electrical_trim' | 'landscaping';
 
 export type GroundUpFinishPackageFill = {
@@ -215,7 +233,7 @@ export function resolvePlumbingTrimLumpSuggestedFill(params: {
     params.livingSf,
     PLUMBING_TRIM_NATIONAL_PACKAGE_RAW
   );
-  return resolveBlendedPackage({
+  const blended = resolveBlendedPackage({
     livingSf: params.livingSf,
     state: params.state,
     byProject: PLUMBING_TRIM_INSTALLED_BY_PROJECT,
@@ -229,6 +247,17 @@ export function resolvePlumbingTrimLumpSuggestedFill(params: {
     floorNote: (raw) =>
       `Source SHV ($${raw.toLocaleString()}) floored to size-adjusted NAHB plumbing fixtures ($${national.toLocaleString()}) — sheet line is builder-thin vs full fixture package.`,
   });
+  const split = splitInstalledPackageByMaterialShare(
+    blended.total,
+    PLUMBING_TRIM_NATIONAL_MATERIAL_SHARE
+  );
+  return {
+    ...blended,
+    ...split,
+    helper: `${blended.helper} Material/labor split uses national fixture planning share (${Math.round(
+      PLUMBING_TRIM_NATIONAL_MATERIAL_SHARE * 100
+    )}% fixtures / ${Math.round((1 - PLUMBING_TRIM_NATIONAL_MATERIAL_SHARE) * 100)}% install).`,
+  };
 }
 
 export function resolveElectricalTrimLumpSuggestedFill(params: {
@@ -240,7 +269,7 @@ export function resolveElectricalTrimLumpSuggestedFill(params: {
     params.livingSf,
     ELECTRICAL_TRIM_NATIONAL_PACKAGE_RAW
   );
-  return resolveBlendedPackage({
+  const blended = resolveBlendedPackage({
     livingSf: params.livingSf,
     state: params.state,
     byProject: ELECTRICAL_TRIM_INSTALLED_BY_PROJECT,
@@ -254,6 +283,17 @@ export function resolveElectricalTrimLumpSuggestedFill(params: {
     floorNote: (raw) =>
       `Source SHV ($${raw.toLocaleString()}) floored to size-adjusted NAHB lighting ($${national.toLocaleString()}) — sheet line is builder-thin vs full fixture package.`,
   });
+  const split = splitInstalledPackageByMaterialShare(
+    blended.total,
+    ELECTRICAL_TRIM_NATIONAL_MATERIAL_SHARE
+  );
+  return {
+    ...blended,
+    ...split,
+    helper: `${blended.helper} Material/labor split uses national lighting planning share (${Math.round(
+      ELECTRICAL_TRIM_NATIONAL_MATERIAL_SHARE * 100
+    )}% fixtures / ${Math.round((1 - ELECTRICAL_TRIM_NATIONAL_MATERIAL_SHARE) * 100)}% install).`,
+  };
 }
 
 export function resolveLandscapingLumpSuggestedFill(params: {

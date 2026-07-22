@@ -139,9 +139,18 @@ function classifyEstimateTier(draft, originalNotes) {
 
   if (
     projectType === 'new_build' ||
-    /\b(new\s+home|custom\s+home|spec\s+home|duplex|ground\s*up|build\s+(?:a\s+)?\d{3,5}\s*sqft\s+(?:home|house))\b/i.test(
+    /\b(new\s+home|custom\s+home|spec\s+home|duplex|ground\s*up|new\s+construction|new\s+build|build\s+(?:a\s+)?\d{3,5}\s*sqft\s+(?:home|house))\b/i.test(
       notes
     )
+  ) {
+    return 'ground_up';
+  }
+
+  // Step 1 plan-import handoff: whole-home architectural takeoff without remodel language.
+  if (
+    !REMODEL_KEYWORDS_RE.test(notes) &&
+    /\b(plan\s+imported|imported\s+architectural\s+plans?|detected\s+spaces?|scope\s+items?)\b/i.test(notes) &&
+    (/\b\d{1,3}(?:,\d{3})+\s*SF\b/i.test(notes) || /\b[1-9]\d{2,4}\s*SF\b/i.test(notes))
   ) {
     return 'ground_up';
   }

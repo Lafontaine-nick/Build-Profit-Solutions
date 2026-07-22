@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -30,6 +30,7 @@ import {
   SCOPE_LIST_DEFAULT_LIMIT,
   shouldHidePerRowStatus,
 } from '@/utils/estimateDraftReviewUi';
+import { sumAppliedScopePricingFromDraft } from '@/utils/benchmarkReasonablenessContext';
 import { draftHasApplyablePricing } from '@/utils/estimateAiDraftPricing';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
 import type { EstimateConfidenceLevel } from '@/utils/estimateAiDraft';
@@ -397,6 +398,7 @@ export default function AIEstimateDraftReviewCompact({
   const [editingPricingFor, setEditingPricingFor] = useState<string | null>(null);
   const [expandedBudgetSplits, setExpandedBudgetSplits] = useState<Record<string, true>>({});
   const scopePackages = getScopePackages(draft);
+  const appliedScopeBreakdown = useMemo(() => sumAppliedScopePricingFromDraft(draft), [draft]);
   if (__DEV__) {
     const q = draft.scopeMeasurements?.itemQuantities || {};
     const pkg = scopePackages.find((p) => /flooring|lvp/i.test(`${p.name || ''} ${p.scope || ''}`));
@@ -419,14 +421,16 @@ export default function AIEstimateDraftReviewCompact({
   const statedTotal = draft.statedTotal ?? draft.totalValidation?.statedTotal;
   const pendingTotal = pendingProposalCalculatedTotal(draft);
   const liveScopeTotal = sumLiveScopePackageTotals(draft);
-  // Prefer the sum of displayed rows so header Total always matches scope lines.
+  // Match Confirm Scope "Applied pricing" after scope confirmation.
   const calculatedTotal =
-    liveScopeTotal > 0
-      ? liveScopeTotal
-      : draft.calculatedLineItemTotal ??
-        draft.calculatedTotal ??
-        draft.totalValidation?.calculatedLineItemsTotal ??
-        (pendingTotal > 0 ? pendingTotal : null);
+    appliedScopeBreakdown && appliedScopeBreakdown.total > 0
+      ? appliedScopeBreakdown.total
+      : liveScopeTotal > 0
+        ? liveScopeTotal
+        : draft.calculatedLineItemTotal ??
+          draft.calculatedTotal ??
+          draft.totalValidation?.calculatedLineItemsTotal ??
+          (pendingTotal > 0 ? pendingTotal : null);
   const partialCount = scopePackages.filter((p) => p.status === 'partial_pricing').length;
   const missingPriceCount = scopePackages.filter((p) => p.status === 'missing_price').length;
   const hideRowStatus = shouldHidePerRowStatus(scopePackages);
@@ -440,7 +444,14 @@ export default function AIEstimateDraftReviewCompact({
     6
   );
   const hasRoughOnScope = scopePackages.some((p) => p.status === 'rough_price');
-  const scopeBudgetTotals = scopePackages.reduce(
+  const scopeBudgetTotals = appliedScopeBreakdown
+    ? {
+        material: appliedScopeBreakdown.material,
+        labor: appliedScopeBreakdown.labor,
+        allowance: appliedScopeBreakdown.allowance,
+        coveredTotal: appliedScopeBreakdown.total,
+      }
+    : scopePackages.reduce(
     (sum, pkg) => {
       const isSoftCost = isSoftCostScopePackage(pkg, draft);
       const breakdown = isSoftCost ? null : resolveScopePackageBudgetBreakdown(pkg, draft);

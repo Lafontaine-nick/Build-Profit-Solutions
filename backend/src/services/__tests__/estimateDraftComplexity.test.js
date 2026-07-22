@@ -150,6 +150,19 @@ describe('estimateDraftComplexity', () => {
     expect(checklist.items.some((i) => i.id === 'contingency')).toBe(true);
   });
 
+  test('classifies Step 1 plan-import handoff notes as ground_up (not room_remodel)', () => {
+    const notes =
+      'Ground-up new construction plan imported and ready to generate. 3,098 SF · 9 detected spaces · 18 scope items.';
+    const draft = { projectType: 'other', rooms: [] };
+    expect(classifyEstimateTier(draft, notes)).toBe('ground_up');
+    const checklist = buildScopeChecklist(draft, 'ground_up', notes);
+    expect(checklist.templateKey).toBe('ground_up');
+    expect(checklist.items.some((i) => i.id === 'excavation')).toBe(true);
+    expect(checklist.items.some((i) => i.id === 'pour_flatwork')).toBe(true);
+    expect(checklist.items.some((i) => i.id === 'demo')).toBe(false);
+    expect(checklist.items.find((i) => i.id === 'framing')?.label).toBe('Framing');
+  });
+
   test('defaults ground-up plans and permits to Yes even when notes omit permit language', () => {
     const notes = 'New custom home with architectural plans, foundation, framing, and finishes.';
     const checklist = buildScopeChecklist({ projectType: 'other', rooms: [] }, 'ground_up', notes);

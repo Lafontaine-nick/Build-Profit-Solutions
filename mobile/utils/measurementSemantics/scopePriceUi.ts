@@ -320,7 +320,7 @@ export function missingStatusDisplayLabel(scopeKey: string): string {
     case 'paint_trim':
       return 'Needs paintable wall and ceiling SF';
     case 'appliances':
-      return 'Needs appliance count';
+      return 'Needs install pricing';
     case 'tile_flooring':
     case 'flooring':
     case 'tile':

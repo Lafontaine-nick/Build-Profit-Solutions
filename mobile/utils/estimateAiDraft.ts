@@ -11,6 +11,7 @@ import {
   resolveChecklistItemQuantity,
 } from '@/utils/scopeItemQuantities';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
+import { hasAcceptedScopePricing } from '@/utils/acceptedPricingSummaryUi';
 import {
   SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL,
   SCOPE_LABOR_PARSED_FROM_NOTES_LABEL,
@@ -1829,6 +1830,81 @@ const SOFT_COST_SYNC_KEYS = new Set([
  * rewrite them via a shared/sibling rule key (e.g. trash haul-off ≠ cleanup).
  * Same checklist key still receives Confirm Scope updates.
  */
+function isAutoCalculatedUnconfirmedPackage(
+  pkg: EstimateDraftScopePackage,
+  draft: EstimateAiDraft,
+  ruleKey: string | null
+): boolean {
+  if (!(packageMoneyTotal(pkg) > 0)) return false;
+  if (pkg.priceProvidedByUser || pkg.status === 'user_provided' || pkg.priceSource === 'user_provided') {
+    return false;
+  }
+  if (
+    ruleKey &&
+    hasAcceptedScopePricing(
+      ruleKey,
+      draft.scopeMeasurements?.itemQuantities || {},
+      draft.scopeMeasurements?.pricingAcceptance
+    )
+  ) {
+    return false;
+  }
+  return (
+    pkg.status === 'calculated' ||
+    pkg.status === 'rough_price' ||
+    pkg.status === 'ai_suggested' ||
+    pkg.priceSource === 'notes' ||
+    pkg.pricedFromSqftAllowances === true ||
+    pkg.priceSource === 'national_trade_average' ||
+    pkg.priceSource === 'national_high_side_planning'
+  );
+}
+
+/** Drop takeoff/backend prices that never got Applied on Confirm Scope. */
+function stripUnconfirmedAutoPackagePricing<T extends EstimateDraftScopePackage>(
+  pkg: T,
+  draft: EstimateAiDraft,
+  base: T,
+  basis: { quantity: number; unit: string } | null
+): T {
+  const ruleKey =
+    base.checklistItemId ||
+    lookupRuleKeyForPackage(pkg.name, pkg.scope || '') ||
+    null;
+  if (!isAutoCalculatedUnconfirmedPackage(pkg, draft, ruleKey)) {
+    return basis
+      ? {
+          ...base,
+          scopeQuantities: [{ quantity: basis.quantity, unit: basis.unit }],
+          budgetSplitBasis: basis,
+        }
+      : base;
+  }
+
+  return {
+    ...base,
+    price: null,
+    knownSubtotal: null,
+    calculatedSubtotal: null,
+    finalApprovedTotal: null,
+    materialPrice: null,
+    laborPrice: null,
+    priceSource: 'missing',
+    status: 'missing_price',
+    packageStatus: 'missing_price',
+    applyEligible: false,
+    priceProvidedByUser: false,
+    pricedFromSqftAllowances: false,
+    scopeQuantities: basis
+      ? [{ quantity: basis.quantity, unit: basis.unit }]
+      : pkg.scopeQuantities,
+    budgetSplitBasis: basis ?? pkg.budgetSplitBasis ?? null,
+    missingPriceItems: pkg.missingPriceItems?.length
+      ? pkg.missingPriceItems
+      : ['Materials / supplies', 'Install labor'],
+  };
+}
+
 function shouldPreserveUserPackagePrice(
   pkg: { priceProvidedByUser?: boolean; price?: number | null; checklistItemId?: string | null },
   selected: SelectedScopePricing
@@ -1872,13 +1948,7 @@ function applySelectedPricingToScopePackage(
     costCode: pkg.costCode || ruleKey,
   };
   if (!selected) {
-    return basis
-      ? {
-          ...withIdentity,
-          scopeQuantities: [{ quantity: basis.quantity, unit: basis.unit }],
-          budgetSplitBasis: basis,
-        }
-      : withIdentity;
+    return stripUnconfirmedAutoPackagePricing(pkg, draft, withIdentity, basis);
   }
   if (shouldPreserveUserPackagePrice(pkg, selected)) {
     return {
@@ -1918,7 +1988,45 @@ function applySelectedPricingToRoom(room: EstimateDraftRoom, draft: EstimateAiDr
     (room as { checklistItemId?: string | null }).checklistItemId ||
     lookupRuleKeyForPackage(room.name, room.scope || '');
   const selected = selectedPricingForScopeName(draft, room.name, room.scope, checklistItemId);
-  if (!selected) return room;
+  if (!selected) {
+    const asPkg = {
+      name: room.name,
+      scope: room.scope,
+      checklistItemId,
+      price: room.price,
+      knownSubtotal: room.knownSubtotal,
+      calculatedSubtotal: room.calculatedSubtotal,
+      materialPrice: room.materialPrice,
+      laborPrice: room.laborPrice,
+      priceProvidedByUser: room.priceProvidedByUser,
+      status: room.packageStatus || room.status,
+      scopeQuantities: room.scopeQuantities,
+      budgetSplitBasis: room.budgetSplitBasis,
+      missingPriceItems: room.missingPriceItems,
+      pricedFromSqftAllowances: room.pricedFromSqftAllowances,
+    } as EstimateDraftScopePackage;
+    const basis =
+      (checklistItemId ? resolvedScopeQuantityBasis(draft, checklistItemId) : null) ??
+      room.budgetSplitBasis ??
+      room.scopeQuantities?.[0] ??
+      null;
+    const stripped = stripUnconfirmedAutoPackagePricing(asPkg, draft, asPkg, basis);
+    return {
+      ...room,
+      price: stripped.price ?? null,
+      knownSubtotal: stripped.knownSubtotal ?? null,
+      calculatedSubtotal: stripped.calculatedSubtotal ?? null,
+      materialPrice: stripped.materialPrice ?? null,
+      laborPrice: stripped.laborPrice ?? null,
+      priceProvidedByUser: stripped.priceProvidedByUser,
+      packageStatus: stripped.packageStatus ?? room.packageStatus,
+      pricedFromSqftAllowances: stripped.pricedFromSqftAllowances,
+      scopeQuantities: stripped.scopeQuantities,
+      budgetSplitBasis: stripped.budgetSplitBasis ?? null,
+      missingPriceItems: stripped.missingPriceItems,
+      applyEligible: stripped.applyEligible,
+    };
+  }
   if (
     shouldPreserveUserPackagePrice(
       {
@@ -2887,6 +2995,61 @@ export function draftHasApprovedSuggestions(draft: EstimateAiDraft | null): bool
   const approvedSplit = (draft.suggestedSplits || []).some((s) => s.approvedByUser);
   const approvedRoom = (draft.rooms || []).some((r) => r.splitApprovedByUser);
   return approvedSplit || approvedRoom;
+}
+
+/** Step 3 inline edits → Confirm Scope itemQuantities for back-navigation restore. */
+export function syncConfirmScopeMeasurementsFromPackages(draft: EstimateAiDraft): EstimateAiDraft {
+  if (!draft.scopePackages?.length) return draft;
+
+  const itemQuantities = { ...(draft.scopeMeasurements?.itemQuantities || {}) };
+  let changed = false;
+
+  for (const pkg of draft.scopePackages) {
+    if (pkg.status === 'missing_price') continue;
+    if (
+      !pkg.priceProvidedByUser &&
+      pkg.status !== 'user_provided' &&
+      pkg.priceSource !== 'manual' &&
+      pkg.priceSource !== 'user_provided'
+    ) {
+      continue;
+    }
+    const ruleKey = pkg.checklistItemId || lookupRuleKeyForPackage(pkg.name, pkg.scope || '');
+    if (!ruleKey) continue;
+    const total = Number(pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0);
+    if (!(total > 0)) continue;
+
+    const mat = Number(pkg.materialPrice ?? 0);
+    const lab = Number(pkg.laborPrice ?? 0);
+    if (mat > 0 || lab > 0) {
+      itemQuantities[`${ruleKey}__material`] = {
+        quantity: String(Math.round(mat * 100) / 100),
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+      };
+      itemQuantities[`${ruleKey}__labor`] = {
+        quantity: String(Math.round(lab * 100) / 100),
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+      };
+    } else {
+      itemQuantities[`${ruleKey}__allowance`] = {
+        quantity: String(Math.round(total * 100) / 100),
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+      };
+    }
+    changed = true;
+  }
+
+  if (!changed) return draft;
+  return {
+    ...draft,
+    scopeMeasurements: {
+      ...(draft.scopeMeasurements || {}),
+      itemQuantities,
+    },
+  };
 }
 
 export function getScopePackages(draft: EstimateAiDraft): EstimateDraftScopePackage[] {

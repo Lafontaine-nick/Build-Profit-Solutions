@@ -3,12 +3,11 @@ import {
   getChecklistItemQuantityRuleOrDefault,
   ruleKeysToTryForPackage,
 } from '@/utils/scopeItemQuantities';
+import { LUMP_SUM_RULE_TRADE_NOT_ALLOWANCE_KEYS } from '@/utils/appliedPricingBreakdownBuckets';
 
 /** True soft-cost / fee allowances — never Materials/Labor on Step 3. */
 const SOFT_COST_RULE_KEYS = new Set([
   'permits',
-  'cleanup',
-  'haul_off',
   'contingency',
   'plans_engineering',
   'mobilization',
@@ -43,13 +42,10 @@ export function isSoftCostScopePackage(
     if (seen.has(ruleKey)) continue;
     seen.add(ruleKey);
     if (SOFT_COST_RULE_KEYS.has(ruleKey)) return true;
-    // Legacy: lumpSumOnly rules that are not trade packages (keep plumbing/electrical fixtures
-    // as allowances when they have no mat/lab legs).
+    // Legacy: lumpSumOnly rules that are not trade packages (cleanup & fixture packages use mat/lab).
     if (
       getChecklistItemQuantityRuleOrDefault(ruleKey, templateKey).lumpSumOnly &&
-      ruleKey !== 'interior_trim' &&
-      ruleKey !== 'finish_carpentry' &&
-      ruleKey !== 'landscaping'
+      !LUMP_SUM_RULE_TRADE_NOT_ALLOWANCE_KEYS.has(ruleKey)
     ) {
       return true;
     }

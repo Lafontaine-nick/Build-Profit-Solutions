@@ -1031,6 +1031,26 @@ export function scopeChecklistItemsForEditing(draft: EstimateAiDraft | null): Sc
   return [];
 }
 
+/** Keep Yes/No/choice states from confirmed scope when re-hydrating from notes. */
+export function restoreConfirmedChecklistItemStates(
+  hydrated: ScopeChecklistItem[],
+  confirmed: ScopeChecklistItem[]
+): ScopeChecklistItem[] {
+  if (!confirmed.length) return hydrated;
+  const byId = new Map(confirmed.map((item) => [item.id, item]));
+  return hydrated.map((item) => {
+    const saved = byId.get(item.id);
+    if (!saved) return item;
+    return {
+      ...item,
+      state: saved.state,
+      choiceId: saved.choiceId,
+      choiceIds: saved.choiceIds,
+      inScope: saved.inScope,
+    };
+  });
+}
+
 export function mergeScopeProgressIntoDraft(
   draft: EstimateAiDraft,
   items: ScopeChecklistItem[],
@@ -1190,7 +1210,7 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   plumbing_trim: 'Set fixtures and finish connections.',
   electrical_trim: 'Devices, plates, and bulbs.',
   permits: 'Confirm permit and impact fees for the project jurisdiction.',
-  cleanup: 'Final clean, debris haul-off, dump fees.',
+  cleanup: 'Final clean (Labor) and dumpsters/dump fees (Material). Adjust or set Material to $0 if no dumpster.',
 };
 
 export function checklistDisplayHelper(

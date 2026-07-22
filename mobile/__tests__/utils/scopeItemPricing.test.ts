@@ -308,7 +308,7 @@ describe('resolveScopeItemSuggestedPricing', () => {
     });
   });
 
-  it('suggests cleanup as a flat allowance, not a material/labor lump-sum split', () => {
+  it('suggests cleanup as material + labor split (dumpster material + clean/haul labor)', () => {
     const input = inputWith({});
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
     const resolved = resolveChecklistItemQuantity('cleanup', measurements, { templateKey: 'addition' });
@@ -316,9 +316,9 @@ describe('resolveScopeItemSuggestedPricing', () => {
     const { fill } = resolveScopeItemSuggestedPricing('cleanup', input, 'addition', resolved);
     expect(fill).toMatchObject({
       mode: 'suggested_price',
-      lumpSumOnly: true,
-      material: 0,
-      labor: 1000,
+      lumpSumOnly: false,
+      material: 450,
+      labor: 550,
       total: 1000,
     });
   });
@@ -338,7 +338,6 @@ describe('resolveScopeItemSuggestedPricing', () => {
     const { fill, comparison } = resolveScopeItemSuggestedPricing('cleanup', input, 'addition', resolved);
     // Suggestion stays available so the user can switch back from a manual edit.
     expect(fill).toMatchObject({
-      lumpSumOnly: true,
       mode: 'suggested_price',
     });
     expect(fill?.total).toBeGreaterThan(0);
@@ -440,15 +439,12 @@ describe('resolveScopeItemSuggestedPricing', () => {
     const input = inputWith({ floorAreaSqft: '600' });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
     const flatAllowanceItems = [
-      'plumbing_trim',
-      'electrical_trim',
       'cabinets_counters',
       'final_inspections',
       'contingency',
       'plans_engineering',
       'mobilization',
       'emergency_fee',
-      'haul_off',
       'survey',
       'general_conditions',
       'supervision',
@@ -462,6 +458,11 @@ describe('resolveScopeItemSuggestedPricing', () => {
       expect(resolveAllowanceEditorPricingBasis(itemId, input, 'addition')).toBeNull();
       const resolved = resolveChecklistItemQuantity(itemId, measurements, { templateKey: 'addition' });
       expect(resolved.pricingReady).toBe(false);
+    }
+
+    for (const itemId of ['plumbing_trim', 'electrical_trim', 'haul_off'] as const) {
+      const rule = getChecklistItemQuantityRuleOrDefault(itemId, 'addition');
+      expect(rule.lumpSumOnly).toBe(false);
     }
 
     // Same soft costs should stay allowance-only outside addition templates.

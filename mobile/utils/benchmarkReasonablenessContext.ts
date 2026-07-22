@@ -1,8 +1,10 @@
 import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
-import type { ScopeMeasurements } from '@/utils/estimateAiDraft';
+import type { EstimateAiDraft, ScopeMeasurements } from '@/utils/estimateAiDraft';
+import { initialScopeMeasurementInputExtended } from '@/utils/scopeItemQuantities';
 import {
   currentScopePricingTotal,
   hasAcceptedScopePricing,
+  type ScopePricingAcceptanceMetadata,
 } from '@/utils/acceptedPricingSummaryUi';
 import {
   benchmarkStageForScopeKey,
@@ -15,10 +17,114 @@ import {
 import { planTotalLivingSqft } from '@/utils/planMeasurementFacts';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 import {
+  allowanceSplitSubKey,
   checklistItemInScope,
   type NormalizedScopeMeasurements,
   type ScopeMeasurementsInputExtended,
 } from '@/utils/scopeItemQuantities';
+import {
+  APPLIED_PRICING_MATERIAL_LABOR_SCOPE_KEYS,
+  appliedPricingBucketForScope,
+  inferNationalMaterialLaborSplit,
+} from '@/utils/appliedPricingBreakdownBuckets';
+
+export type ConfirmScopeAppliedPricingBreakdown = {
+  total: number;
+  material: number;
+  labor: number;
+  allowance: number;
+};
+
+/** Saved Confirm Scope M/L/allowance must win over note-parsed measurements on restore. */
+export function mergeConfirmScopeSavedMeasurements(
+  base: ScopeMeasurementsInputExtended,
+  saved?: ScopeMeasurements | null
+): ScopeMeasurementsInputExtended {
+  if (!saved) return base;
+  return {
+    ...base,
+    ...saved,
+    itemQuantities: {
+      ...(base.itemQuantities || {}),
+      ...(saved.itemQuantities || {}),
+    },
+    pricingAcceptance: saved.pricingAcceptance || base.pricingAcceptance,
+    scopeGapResolutions: saved.scopeGapResolutions || base.scopeGapResolutions,
+    appliedBenchmarkKeys: saved.appliedBenchmarkKeys || base.appliedBenchmarkKeys,
+    pricingOverrideLog: saved.pricingOverrideLog || base.pricingOverrideLog,
+    quickMeasurementSources: {
+      ...(base.quickMeasurementSources || {}),
+      ...(saved.quickMeasurementSources || {}),
+    },
+    quickMeasurementUserOverrides: {
+      ...(base.quickMeasurementUserOverrides || {}),
+      ...(saved.quickMeasurementUserOverrides || {}),
+    },
+    quickMeasurementSuggestionMetadata: {
+      ...(base.quickMeasurementSuggestionMetadata || {}),
+      ...(saved.quickMeasurementSuggestionMetadata || {}),
+    },
+    quickMeasurementFieldConfidence: {
+      ...(base.quickMeasurementFieldConfidence || {}),
+      ...(saved.quickMeasurementFieldConfidence || {}),
+    },
+  };
+}
+
+function parseQtyMoney(entry?: { quantity?: string | number | null }): number {
+  const n = Number(String(entry?.quantity ?? '').replace(/,/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function resolveMaterialLaborSplit(
+  itemId: string,
+  quantities: ScopeMeasurementsInputExtended['itemQuantities'],
+  acceptance: ScopePricingAcceptanceMetadata | null | undefined,
+  total: number
+): { material: number; labor: number } {
+  const material = parseQtyMoney(quantities?.[allowanceSplitSubKey(itemId, 'material')]);
+  const labor = parseQtyMoney(quantities?.[allowanceSplitSubKey(itemId, 'labor')]);
+  if (material + labor > 0) {
+    return { material, labor };
+  }
+  const acceptedMaterial = Number(acceptance?.materialAmount ?? 0) || 0;
+  const acceptedLabor = Number(acceptance?.laborAmount ?? 0) || 0;
+  if (
+    APPLIED_PRICING_MATERIAL_LABOR_SCOPE_KEYS.has(itemId) &&
+    (acceptance?.lumpSumOnly || !(acceptedMaterial > 0))
+  ) {
+    return inferNationalMaterialLaborSplit(itemId, total);
+  }
+  if (acceptedMaterial + acceptedLabor > 0) {
+    return { material: acceptedMaterial, labor: acceptedLabor };
+  }
+  return inferNationalMaterialLaborSplit(itemId, total);
+}
+
+function splitAppliedScopeDollars(
+  itemId: string,
+  measurements: ScopeMeasurementsInputExtended,
+  _templateKey?: string | null
+): { material: number; labor: number; allowance: number } {
+  const quantities = measurements.itemQuantities || {};
+  const acceptance = measurements.pricingAcceptance?.[itemId];
+  const total =
+    currentScopePricingTotal(itemId, quantities, measurements.pricingAcceptance) ||
+    Number(acceptance?.totalAmount ?? 0) ||
+    0;
+  if (!(total > 0)) return { material: 0, labor: 0, allowance: 0 };
+
+  switch (appliedPricingBucketForScope(itemId)) {
+    case 'allowance':
+      return { material: 0, labor: 0, allowance: total };
+    case 'labor_only':
+      return { material: 0, labor: total, allowance: 0 };
+    default: {
+      const { material, labor } = resolveMaterialLaborSplit(itemId, quantities, acceptance, total);
+      return { material, labor, allowance: 0 };
+    }
+  }
+}
 
 /** Merge scope measurements without wiping plan fields with null from an empty modal close. */
 export function mergeScopeMeasurementsPreservingFields(
@@ -151,7 +257,21 @@ export function sumConfirmScopeAppliedPricingTotal(params: {
   measurements: ScopeMeasurementsInputExtended;
   templateKey?: string | null;
 }): number {
-  let total = 0;
+  return sumConfirmScopeAppliedPricingBreakdown(params).total;
+}
+
+/** Applied Confirm Scope dollars split into material / labor / allowances. */
+export function sumConfirmScopeAppliedPricingBreakdown(params: {
+  items: ScopeChecklistItem[];
+  measurements: ScopeMeasurementsInputExtended;
+  templateKey?: string | null;
+}): ConfirmScopeAppliedPricingBreakdown {
+  const out: ConfirmScopeAppliedPricingBreakdown = {
+    total: 0,
+    material: 0,
+    labor: 0,
+    allowance: 0,
+  };
   for (const item of params.items) {
     if (!checklistItemInScope(item)) continue;
     if (
@@ -166,12 +286,38 @@ export function sumConfirmScopeAppliedPricingTotal(params: {
     if (shouldSkipReasonablenessScopeTotal(item.id, params.templateKey, params.measurements.pricingAcceptance)) {
       continue;
     }
-    const live = currentScopePricingTotal(
-      item.id,
-      params.measurements.itemQuantities,
-      params.measurements.pricingAcceptance
-    );
-    if (live != null && live > 0) total += live;
+    const split = splitAppliedScopeDollars(item.id, params.measurements, params.templateKey);
+    const itemTotal = split.material + split.labor + split.allowance;
+    if (!(itemTotal > 0)) continue;
+    out.material += split.material;
+    out.labor += split.labor;
+    out.allowance += split.allowance;
+    out.total += itemTotal;
   }
-  return Math.round(total * 100) / 100;
+  return {
+    total: Math.round(out.total * 100) / 100,
+    material: Math.round(out.material * 100) / 100,
+    labor: Math.round(out.labor * 100) / 100,
+    allowance: Math.round(out.allowance * 100) / 100,
+  };
+}
+
+/** Step 3 totals — same applied-only math as Confirm Scope "Applied pricing". */
+export function sumAppliedScopePricingFromDraft(
+  draft: EstimateAiDraft | null | undefined
+): ConfirmScopeAppliedPricingBreakdown | null {
+  if (!draft) return null;
+  const items = draft.confirmedAssumptions?.length
+    ? draft.confirmedAssumptions
+    : draft.scopeChecklist?.items;
+  if (!items?.length) return null;
+  if (!draft.scopeAssumptionsConfirmed && !draft.confirmedAssumptions?.length) return null;
+
+  const base = initialScopeMeasurementInputExtended(draft);
+  const measurements = mergeConfirmScopeSavedMeasurements(base, draft.scopeMeasurements);
+  return sumConfirmScopeAppliedPricingBreakdown({
+    items,
+    measurements,
+    templateKey: draft.scopeChecklist?.templateKey,
+  });
 }

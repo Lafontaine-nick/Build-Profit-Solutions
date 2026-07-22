@@ -9,7 +9,8 @@ describe('rough pricing national averages for soft-cost / finish packages', () =
   it('has national averages for appliances, permits, cleanup, cabinets — not contingency', () => {
     expect(getNationalAverageBudgetSplit('appliances')?.labor).toBe(500);
     expect(getNationalAverageBudgetSplit('permits')?.labor).toBe(3500);
-    expect(getNationalAverageBudgetSplit('cleanup')?.labor).toBe(1000);
+    expect(getNationalAverageBudgetSplit('cleanup')?.material).toBe(450);
+    expect(getNationalAverageBudgetSplit('cleanup')?.labor).toBe(550);
     expect(getNationalAverageBudgetSplit('cabinets')?.unit).toBe('lf');
     expect(getNationalAverageBudgetSplit('contingency')).toBeUndefined();
   });

@@ -2,8 +2,11 @@ import { buildAreaReconciliation } from '@/utils/measurementSemantics';
 import {
   applyPlanTakeoffButtonLabel,
   buildImportedPlanSummaryText,
+  buildPlanReadyJobNotesPrompt,
+  ensureGroundUpPlanNotes,
   garageReconciliationStatusLabel,
   importedPlanSummaryCollapsedSubtitle,
+  planImportLooksLikeGroundUp,
   livingReconciliationStatusLabel,
   measurementDisplayLabel,
   measurementSourceLabel,
@@ -188,6 +191,34 @@ describe('plan takeoff review UI polish', () => {
         scopeCount: 13,
       })
     ).toBe('1,879 SF · 12 detected spaces · 13 scope items');
+  });
+
+  it('prefills job notes prompt after plan import when user notes are empty', () => {
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
+    const prompt = buildPlanReadyJobNotesPrompt({
+      livingSf: 3098,
+      measurementCount: 4,
+      spaceCount: 9,
+      scopeCount: 18,
+    });
+    expect(prompt).toMatch(/Ground-up new construction plan imported and ready to generate/i);
+    expect(prompt).toMatch(/3,098 SF/);
+    expect(prompt).toMatch(/Generate Estimate Draft/i);
+    expect(prompt).not.toMatch(/Plan takeoff/i);
+  });
+
+  it('detects whole-home plan import and stamps ground-up notes for draft classification', () => {
+    expect(
+      planImportLooksLikeGroundUp({
+        measurements: { floorAreaSqft: 3098, garageSqft: 972 },
+        rooms: Array.from({ length: 9 }, (_, i) => ({ name: `Room ${i}`, areaSqft: 100 })),
+        scopeDetections: [{ itemId: 'foundation' }, { itemId: 'framing' }],
+      })
+    ).toBe(true);
+    expect(ensureGroundUpPlanNotes('3,098 SF · 9 detected spaces', true)).toMatch(
+      /Ground-up new construction/i
+    );
+    expect(ensureGroundUpPlanNotes('Kitchen remodel only', true)).toMatch(/Kitchen remodel only/i);
   });
 
   it('uses Apply plan takeoff when semantics enabled', () => {

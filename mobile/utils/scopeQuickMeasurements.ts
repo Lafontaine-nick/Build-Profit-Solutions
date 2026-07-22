@@ -331,6 +331,39 @@ export function resolveQuickMeasurementTemplateKey(
   return tk || 'room_remodel';
 }
 
+/**
+ * Prefer the full ground-up Quick measurements card when plan takeoff looks like
+ * a whole-home set — even if the checklist still says room_remodel.
+ */
+export function resolveEffectiveQuickMeasurementTemplateKey(params: {
+  templateKey?: string | null;
+  projectType?: string | null;
+  planRoomCount?: number;
+  livingSf?: number | null;
+  garageSf?: number | null;
+}): string {
+  const resolved = resolveQuickMeasurementTemplateKey(params.templateKey, params.projectType);
+  if (resolved === 'ground_up' || resolved === 'addition') return resolved;
+
+  const rooms = Number(params.planRoomCount) || 0;
+  const living = Number(params.livingSf);
+  const garage = Number(params.garageSf);
+  const looksWholeHome =
+    rooms >= 4 ||
+    (Number.isFinite(living) && living >= 800 && rooms >= 2) ||
+    (Number.isFinite(living) && living >= 800 && Number.isFinite(garage) && garage > 0);
+
+  if (looksWholeHome && (resolved === 'room_remodel' || !params.templateKey)) {
+    return 'ground_up';
+  }
+  return resolved;
+}
+
+export function isWholeHomeQuickMeasurementTemplate(templateKey?: string | null): boolean {
+  const key = String(templateKey || '').toLowerCase();
+  return key === 'ground_up' || key === 'addition';
+}
+
 export function quickMeasurementRowsForTemplate(
   templateKey?: string | null,
   projectType?: string | null

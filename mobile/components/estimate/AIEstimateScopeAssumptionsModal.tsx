@@ -50,6 +50,7 @@ import {
   quantityNeededLabel,
   scopeChecklistItemsForEditing,
   scopeChecklistItemsForPersist,
+  restoreConfirmedChecklistItemStates,
   expandWetAreaDerivedScopeItems,
   ensureGroundUpFlatworkScopeCard,
   ensureGroundUpOpeningScopeCards,
@@ -65,11 +66,11 @@ import {
   getScopeQuantityFieldLabels,
   pricingBasisFieldLabel,
   formatUnitLabel,
+  formatCountFieldSuffix,
+  formatDualCountQuantity,
   getChecklistItemQuantityRule,
   getChecklistItemQuantityRuleOrDefault,
   hasCompleteUserSelectedPricing,
-  hasOnlySuggestedPrefillPricing,
-  clearSuggestedPrefillPricing,
   isNationalAverageComparisonBlock,
   initialScopeMeasurementInputExtended,
   isDualAllowanceItem,
@@ -95,10 +96,13 @@ import {
 import {
   countFilledQuickMeasurements,
   emptyQuickMeasurementInput,
+  isWholeHomeQuickMeasurementTemplate,
   quickMeasurementDisplayLabel,
   quickMeasurementHelperText,
   quickMeasurementPlaceholder,
   quickMeasurementRowsForInput,
+  quickMeasurementSectionsForRows,
+  resolveEffectiveQuickMeasurementTemplateKey,
   resolveQuickMeasurementDisplayValue,
   type QuickMeasurementFieldDef,
   type QuickMeasurementFieldKey,
@@ -115,6 +119,7 @@ import {
   summarizeQuickMeasurementFieldStates,
   pinQuickMeasurementFieldInGroup,
   splitWetAreaQuickMeasurementFields,
+  WET_AREA_QUICK_MEASUREMENT_KEYS,
   type QuickMeasurementFieldResult,
   type QuickMeasurementGroupId,
   type QuickMeasurementSummary,
@@ -154,6 +159,7 @@ import {
 import {
   buildAcceptanceFromSuggestedBlock,
   clearAcceptedScopeItemPricing,
+  finalizeScopePricingAfterEditorClose,
   hasAcceptedScopePricing,
   liveScopeMoneyFromQuantities,
   markManualPricingAdjustment,
@@ -184,7 +190,9 @@ import {
   type BenchmarkReasonableness,
 } from '@/utils/benchmarkEngine';
 import {
+  mergeConfirmScopeSavedMeasurements,
   resolveBenchmarkLivingSf,
+  sumConfirmScopeAppliedPricingBreakdown,
   sumConfirmScopeAppliedPricingTotal,
 } from '@/utils/benchmarkReasonablenessContext';
 import {
@@ -210,6 +218,7 @@ import {
   validatePricingBasis,
   type ScopeMeasurementState,
 } from '@/utils/measurementSemantics';
+import { PLANNING_BID_CONFIDENCE_COPY } from '@/utils/getMeasurementRelevance';
 import BenchmarkReasonablenessCard from '@/components/estimate/BenchmarkReasonablenessCard';
 import {
   buildSuggestedPricingCardDisplay,
@@ -1325,6 +1334,31 @@ function EditQuantityLink({ onPress, label = 'Edit' }: { onPress: () => void; la
 }
 
 /** Edit chrome with Done at the top so collapse stays reachable above the sticky footer. */
+function PricingEditorPanel({
+  children,
+  Colors,
+  darkMode,
+}: {
+  children: React.ReactNode;
+  Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
+}) {
+  const shell = inputShellStyle(Colors, darkMode);
+  return (
+    <View
+      style={[
+        styles.pricingEditorPanel,
+        {
+          borderColor: shell.borderColor,
+          backgroundColor: darkMode ? 'rgba(255,255,255,0.045)' : Colors.surface2,
+        },
+      ]}
+    >
+      {children}
+    </View>
+  );
+}
+
 function PricingEditorHeader({
   helper,
   onDone,
@@ -1337,28 +1371,41 @@ function PricingEditorHeader({
   darkMode: boolean;
 }) {
   return (
-    <View style={{ marginBottom: 8 }}>
-      <View style={styles.pricingEditorHeaderRow}>
-        <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700' }}>Edit</Text>
-        <TouchableOpacity
-          activeOpacity={0.75}
-          onPress={() => {
-            Keyboard.dismiss();
-            onDone();
-          }}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          accessibilityRole="button"
-          accessibilityLabel="Done editing"
-          style={styles.pricingEditorDoneChip}
-        >
-          <Text style={styles.pricingEditorDoneChipText}>Done</Text>
-        </TouchableOpacity>
-      </View>
-      {helper ? (
-        <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 4, lineHeight: 15 }}>
-          {helper}
-        </Text>
-      ) : null}
+    <View style={styles.pricingEditorPanelHeader}>
+      <Text
+        style={[styles.pricingEditorHelper, { color: captionColor(darkMode, Colors) }]}
+        numberOfLines={2}
+      >
+        {helper || 'Enter pricing for this scope item.'}
+      </Text>
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={() => {
+          Keyboard.dismiss();
+          onDone();
+        }}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        accessibilityRole="button"
+        accessibilityLabel="Done editing"
+        style={styles.pricingEditorDoneBtn}
+      >
+        <Text style={styles.pricingEditorDoneBtnText}>Done</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function PricingMatLabRow({
+  material,
+  labor,
+}: {
+  material: React.ReactNode;
+  labor: React.ReactNode;
+}) {
+  return (
+    <View style={styles.pricingMatLabRow}>
+      <View style={styles.pricingMatLabCol}>{material}</View>
+      <View style={styles.pricingMatLabCol}>{labor}</View>
     </View>
   );
 }
@@ -1464,6 +1511,8 @@ function PricingInputField({
   Colors,
   darkMode,
   applying,
+  embedded = false,
+  readOnly = false,
 }: {
   label: string;
   value: string;
@@ -1479,13 +1528,17 @@ function PricingInputField({
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
+  /** Inside PricingEditorPanel — no nested card chrome. */
+  embedded?: boolean;
+  /** Computed totals — display only. */
+  readOnly?: boolean;
 }) {
   const [inputMode, setInputMode] = useState<'total' | 'rate'>(defaultInputMode);
   const [rateDraft, setRateDraft] = useState('');
   const [rateEditing, setRateEditing] = useState(false);
   const inputShell = inputShellStyle(Colors, darkMode);
   const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8';
-  const supportsRateMode = Boolean(basis?.quantity && basis.quantity > 0);
+  const supportsRateMode = Boolean(basis?.quantity && basis.quantity > 0) && !readOnly;
   const amount = Number(String(value || '').replace(/,/g, ''));
   const rateValue =
     supportsRateMode && Number.isFinite(amount) && amount > 0
@@ -1528,21 +1581,25 @@ function PricingInputField({
 
   return (
     <View
-      style={[
-        styles.pricingInputCard,
-        {
-          borderColor: inputShell.borderColor,
-          backgroundColor: darkMode ? 'rgba(255,255,255,0.035)' : 'rgba(248,250,252,0.9)',
-        },
-      ]}
+      style={
+        embedded
+          ? styles.pricingInputEmbedded
+          : [
+              styles.pricingInputCard,
+              {
+                borderColor: inputShell.borderColor,
+                backgroundColor: darkMode ? 'rgba(255,255,255,0.035)' : 'rgba(248,250,252,0.9)',
+              },
+            ]
+      }
     >
       <View style={styles.pricingInputHeader}>
         <Text
           style={{
-            color: Colors.sub,
-            fontSize: 12,
+            color: embedded ? (darkMode ? 'rgba(255,255,255,0.72)' : Colors.sub) : Colors.sub,
+            fontSize: embedded ? 11 : 12,
             fontWeight: '700',
-            flexShrink: 0,
+            flexShrink: 1,
           }}
         >
           {label}
@@ -1559,8 +1616,8 @@ function PricingInputField({
               },
             ]}
           >
-            <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '700' }}>
-              {inputMode === 'total' ? `Edit $/${formatUnitLabel(basis!.unit)}` : 'Edit total'}
+            <Text style={{ color: '#22c55e', fontSize: 10, fontWeight: '700' }}>
+              {inputMode === 'total' ? `$/${formatUnitLabel(basis!.unit)}` : 'Total'}
             </Text>
           </TouchableOpacity>
         ) : null}
@@ -1568,10 +1625,10 @@ function PricingInputField({
       <View
         style={[
           styles.pricingInputRow,
+          embedded ? styles.pricingInputRowEmbedded : null,
           {
             borderColor: inputShell.borderColor,
             backgroundColor: inputShell.backgroundColor,
-            // Empty money fields: keep $ + placeholder as one centered group.
             justifyContent: isEmptyValue ? 'center' : 'flex-start',
           },
         ]}
@@ -1582,6 +1639,9 @@ function PricingInputField({
               color: isEmptyValue ? placeholderColor : captionColor(darkMode, Colors),
               fontSize: 15,
               fontWeight: '700',
+              lineHeight: 20,
+              ...(Platform.OS === 'android' ? { includeFontPadding: false, textAlignVertical: 'center' as const } : null),
+              marginTop: Platform.OS === 'ios' ? 1 : 0,
             }}
           >
             {activePrefix}
@@ -1605,11 +1665,11 @@ function PricingInputField({
           placeholderTextColor={placeholderColor}
           keyboardType="decimal-pad"
           {...scopeNumericInputProps}
-          editable={!applying}
+          editable={!applying && !readOnly}
           style={[
             styles.pricingInput,
             { color: Colors.text },
-            isEmptyValue
+            isEmptyValue && !embedded
               ? {
                   flex: 0,
                   width: Math.min(200, Math.max(128, String(placeholder || '').length * 8.5)),
@@ -1618,7 +1678,18 @@ function PricingInputField({
           ]}
         />
         {activeSuffix ? (
-          <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', minWidth: 40 }}>
+          <Text
+            style={{
+              color: Colors.sub,
+              fontSize: 12,
+              fontWeight: '600',
+              minWidth: embedded ? 28 : 40,
+              lineHeight: 20,
+              ...(Platform.OS === 'android'
+                ? { includeFontPadding: false, textAlignVertical: 'center' as const }
+                : null),
+            }}
+          >
             {activeSuffix}
           </Text>
         ) : null}
@@ -1627,10 +1698,10 @@ function PricingInputField({
         <Text
           style={{
             color: darkMode ? 'rgba(148, 163, 184, 0.9)' : '#64748b',
-            fontSize: 11,
+            fontSize: 10,
             fontWeight: '600',
-            marginTop: 6,
-            lineHeight: 15,
+            marginTop: 4,
+            lineHeight: 14,
           }}
         >
           {helperText}
@@ -2065,6 +2136,7 @@ function MaterialLaborSplitEditor({
   Colors,
   darkMode,
   applying,
+  splitTotalOnly = false,
 }: {
   materialValue: string;
   laborValue: string;
@@ -2090,6 +2162,7 @@ function MaterialLaborSplitEditor({
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
+  splitTotalOnly?: boolean;
 }) {
   const lockedRatesRef = useRef<{ material: number | null; labor: number | null }>({
     material: null,
@@ -2320,66 +2393,94 @@ function MaterialLaborSplitEditor({
   })();
 
   const editorBasis =
-    effectiveBasisQty > 0
-      ? { quantity: effectiveBasisQty, unit: pricingBasis?.unit || basisUnit }
-      : pricingBasis;
+    splitTotalOnly || effectiveBasisQty <= 0
+      ? null
+      : { quantity: effectiveBasisQty, unit: pricingBasis?.unit || basisUnit };
 
   return (
     <>
-      <PricingInputField
-        label={basisFieldLabel}
-        value={pricingBasisValue}
-        suffix={basisUnitLabel}
-        placeholder={pricingBasis ? String(pricingBasis.quantity) : `Enter ${basisUnitLabel}`}
-        helper={
-          !pricingBasisValue && pricingBasis
-            ? `Using ${pricingBasis.quantity.toLocaleString()} ${basisUnitLabel} from job measurements`
-            : undefined
-        }
-        onFocus={() => focusQuantityField(sqftBasisKey)}
-        onChangeText={handleBasisChange}
-        onBlur={() => blurQuantityField(sqftBasisKey)}
-        Colors={Colors}
-        darkMode={darkMode}
-        applying={applying}
-      />
-      <PricingInputField
-        label="Material"
-        value={materialValue}
-        helper={unitRateHelper(materialValue, editorBasis)}
-        basis={editorBasis}
-        prefix="$"
-        placeholder={editorBasis ? `Material $/${basisUnitLabel}` : 'Material total'}
-        defaultInputMode={editorBasis ? 'rate' : 'total'}
-        onFocus={() => focusQuantityField(materialKey)}
-        onChangeText={handleMaterialChange}
-        onBlur={() => blurQuantityField(materialKey)}
-        Colors={Colors}
-        darkMode={darkMode}
-        applying={applying}
-      />
-      <PricingInputField
-        label="Labor"
-        value={laborValue}
-        helper={unitRateHelper(laborValue, editorBasis)}
-        basis={editorBasis}
-        prefix="$"
-        placeholder={editorBasis ? `Labor $/${basisUnitLabel}` : 'Labor total'}
-        defaultInputMode={editorBasis ? 'rate' : 'total'}
-        onFocus={() => focusQuantityField(laborKey)}
-        onChangeText={handleLaborChange}
-        onBlur={() => blurQuantityField(laborKey)}
-        Colors={Colors}
-        darkMode={darkMode}
-        applying={applying}
-      />
-      {splitTotal ? (
-        <PricingSplitRow
-          label="Split total"
-          value={formatDraftMoney(splitTotal)}
-          darkMode={darkMode}
+      {splitTotalOnly ? (
+        <PricingInputField
+          label="Total"
+          value={splitTotal != null ? String(splitTotal) : ''}
+          prefix="$"
+          placeholder="0"
+          embedded
+          readOnly
+          onFocus={() => {}}
+          onChangeText={() => {}}
+          onBlur={() => {}}
           Colors={Colors}
+          darkMode={darkMode}
+          applying={applying}
         />
+      ) : (
+        <PricingInputField
+          label={basisFieldLabel}
+          value={pricingBasisValue}
+          suffix={formatCountFieldSuffix(basisUnit) ?? undefined}
+          placeholder={pricingBasis ? String(pricingBasis.quantity) : `Enter ${basisUnitLabel}`}
+          helper={
+            !pricingBasisValue && pricingBasis
+              ? `Using ${pricingBasis.quantity.toLocaleString()} ${basisUnitLabel} from job measurements`
+              : undefined
+          }
+          embedded
+          onFocus={() => focusQuantityField(sqftBasisKey)}
+          onChangeText={handleBasisChange}
+          onBlur={() => blurQuantityField(sqftBasisKey)}
+          Colors={Colors}
+          darkMode={darkMode}
+          applying={applying}
+        />
+      )}
+      <PricingMatLabRow
+        material={
+          <PricingInputField
+            label="Material"
+            value={materialValue}
+            helper={unitRateHelper(materialValue, editorBasis)}
+            basis={editorBasis}
+            prefix="$"
+            placeholder={editorBasis ? `$/${basisUnitLabel}` : '0'}
+            defaultInputMode={editorBasis ? 'rate' : 'total'}
+            embedded
+            onFocus={() => focusQuantityField(materialKey)}
+            onChangeText={handleMaterialChange}
+            onBlur={() => blurQuantityField(materialKey)}
+            Colors={Colors}
+            darkMode={darkMode}
+            applying={applying}
+          />
+        }
+        labor={
+          <PricingInputField
+            label="Labor"
+            value={laborValue}
+            helper={unitRateHelper(laborValue, editorBasis)}
+            basis={editorBasis}
+            prefix="$"
+            placeholder={editorBasis ? `$/${basisUnitLabel}` : '0'}
+            defaultInputMode={editorBasis ? 'rate' : 'total'}
+            embedded
+            onFocus={() => focusQuantityField(laborKey)}
+            onChangeText={handleLaborChange}
+            onBlur={() => blurQuantityField(laborKey)}
+            Colors={Colors}
+            darkMode={darkMode}
+            applying={applying}
+          />
+        }
+      />
+      {splitTotal && !splitTotalOnly ? (
+        <View style={styles.pricingEditorTotalRow}>
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 12, fontWeight: '600' }}>
+            Total
+          </Text>
+          <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 15, fontWeight: '800' }}>
+            {formatDraftMoney(splitTotal)}
+          </Text>
+        </View>
       ) : null}
     </>
   );
@@ -2752,9 +2853,10 @@ function QuantitySection({
             <>
               {displayResolved.dualCount ? (
                 <PricingAmountRow
-                  value={`${displayResolved.dualCount.quantity.toLocaleString()} ${
-                    fieldLabels?.countUnit || formatUnitLabel(displayResolved.dualCount.unit)
-                  }`}
+                  value={formatDualCountQuantity(
+                    displayResolved.dualCount.quantity,
+                    fieldLabels?.countUnit || displayResolved.dualCount.unit
+                  )}
                   label={displayResolved.sourceLabel}
                   pill={displayResolved.quantitySource === 'notes' ? <SourcePill kind="notes" /> : undefined}
                   emphasized
@@ -2992,90 +3094,85 @@ function QuantitySection({
 
     return (
       <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
-        <PricingEditorHeader
-          helper={rule.quantityHelper}
-          onDone={closePricingEditor}
-          Colors={Colors}
-          darkMode={darkMode}
-        />
-        <Text style={{ color: Colors.sub, fontSize: 11, fontWeight: '600', marginBottom: 4 }}>
-          {fieldLabels?.count || 'Quantity'}
-        </Text>
-        <View style={styles.qtyInputRow}>
-          <TextInput
+        <PricingEditorPanel Colors={Colors} darkMode={darkMode}>
+          <PricingEditorHeader
+            helper={rule.quantityHelper}
+            onDone={closePricingEditor}
+            Colors={Colors}
+            darkMode={darkMode}
+          />
+          <PricingInputField
+            label={fieldLabels?.count || 'Quantity'}
             value={countInput?.quantity ?? ''}
+            suffix={formatCountFieldSuffix(fieldLabels?.countUnit || resolved.dualCount?.unit || 'each')}
+            placeholder="0"
+            embedded
             onFocus={() => focusQuantityField(itemId, 'count')}
             onChangeText={(text) => onItemQuantityChange(itemId, text, 'count')}
             onBlur={() => blurQuantityField(itemId, 'count')}
-            placeholder="0"
-            placeholderTextColor={placeholderColor}
-            keyboardType="decimal-pad"
-            {...scopeNumericInputProps}
-            editable={!applying}
-            style={[
-              styles.qtyInput,
-              { color: Colors.text, borderColor: inputShell.borderColor, backgroundColor: inputShell.backgroundColor },
-            ]}
+            Colors={Colors}
+            darkMode={darkMode}
+            applying={applying}
           />
-          <Text style={{ color: Colors.sub, fontSize: 12, fontWeight: '600', minWidth: 48 }}>
-            {fieldLabels?.countUnit || 'each'}
-          </Text>
-        </View>
-        <PricingInputField
-          label="Material"
-          value={materialInput?.quantity ?? (resolved.dualMaterial ? String(resolved.dualMaterial.quantity) : '')}
-          helper={unitRateHelper(
-            materialInput?.quantity ?? (resolved.dualMaterial ? String(resolved.dualMaterial.quantity) : ''),
-            resolved.dualCount ?? null
-          )}
-          basis={resolved.dualCount ?? null}
-          prefix="$"
-          placeholder="Material total"
-          onFocus={() => focusQuantityField(materialKey)}
-          onChangeText={(text) => onItemQuantityChange(materialKey, text, 'count', 'allowance')}
-          onBlur={() => blurQuantityField(materialKey)}
-          Colors={Colors}
-          darkMode={darkMode}
-          applying={applying}
-        />
-        <PricingInputField
-          label="Labor"
-          value={laborInput?.quantity ?? (resolved.dualLabor ? String(resolved.dualLabor.quantity) : '')}
-          helper={unitRateHelper(
-            laborInput?.quantity ?? (resolved.dualLabor ? String(resolved.dualLabor.quantity) : ''),
-            resolved.dualCount ?? null
-          )}
-          basis={resolved.dualCount ?? null}
-          prefix="$"
-          placeholder="Labor total"
-          onFocus={() => focusQuantityField(laborKey)}
-          onChangeText={(text) => onItemQuantityChange(laborKey, text, 'count', 'allowance')}
-          onBlur={() => blurQuantityField(laborKey)}
-          Colors={Colors}
-          darkMode={darkMode}
-          applying={applying}
-        />
-        <Text style={{ color: Colors.sub, fontSize: 11, fontWeight: '600', marginTop: 10, marginBottom: 4 }}>
-          {fieldLabels?.allowance || 'Allowance ($)'}
-        </Text>
-        <View style={styles.qtyInputRow}>
-          <Text style={{ color: Colors.sub, fontSize: 14, fontWeight: '600' }}>$</Text>
-          <TextInput
-            value={allowanceInput?.quantity ?? ''}
-            onFocus={() => focusQuantityField(itemId, 'allowance')}
-            onChangeText={(text) => onItemQuantityChange(itemId, text, 'allowance')}
-            onBlur={() => blurQuantityField(itemId, 'allowance')}
-            placeholder="0"
-            placeholderTextColor={placeholderColor}
-            keyboardType="decimal-pad"
-            {...scopeNumericInputProps}
-            editable={!applying}
-            style={[
-              styles.qtyInput,
-              { color: Colors.text, borderColor: inputShell.borderColor, backgroundColor: inputShell.backgroundColor },
-            ]}
+          <PricingMatLabRow
+            material={
+              <PricingInputField
+                label="Material"
+                value={materialInput?.quantity ?? (resolved.dualMaterial ? String(resolved.dualMaterial.quantity) : '')}
+                helper={unitRateHelper(
+                  materialInput?.quantity ?? (resolved.dualMaterial ? String(resolved.dualMaterial.quantity) : ''),
+                  resolved.dualCount ?? null
+                )}
+                basis={resolved.dualCount ?? null}
+                prefix="$"
+                placeholder="0"
+                embedded
+                onFocus={() => focusQuantityField(materialKey)}
+                onChangeText={(text) => onItemQuantityChange(materialKey, text, 'count', 'allowance')}
+                onBlur={() => blurQuantityField(materialKey)}
+                Colors={Colors}
+                darkMode={darkMode}
+                applying={applying}
+              />
+            }
+            labor={
+              <PricingInputField
+                label="Labor"
+                value={laborInput?.quantity ?? (resolved.dualLabor ? String(resolved.dualLabor.quantity) : '')}
+                helper={unitRateHelper(
+                  laborInput?.quantity ?? (resolved.dualLabor ? String(resolved.dualLabor.quantity) : ''),
+                  resolved.dualCount ?? null
+                )}
+                basis={resolved.dualCount ?? null}
+                prefix="$"
+                placeholder="0"
+                embedded
+                onFocus={() => focusQuantityField(laborKey)}
+                onChangeText={(text) => onItemQuantityChange(laborKey, text, 'count', 'allowance')}
+                onBlur={() => blurQuantityField(laborKey)}
+                Colors={Colors}
+                darkMode={darkMode}
+                applying={applying}
+              />
+            }
           />
-        </View>
+          {(() => {
+            const mat = parseMoneyAmount(materialInput?.quantity ?? resolved.dualMaterial?.quantity);
+            const lab = parseMoneyAmount(laborInput?.quantity ?? resolved.dualLabor?.quantity);
+            const total = mat + lab;
+            if (!(total > 0)) return null;
+            return (
+              <View style={styles.pricingEditorTotalRow}>
+                <Text style={{ color: captionColor(darkMode, Colors), fontSize: 12, fontWeight: '600' }}>
+                  Total
+                </Text>
+                <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 15, fontWeight: '800' }}>
+                  {formatDraftMoney(total)}
+                </Text>
+              </View>
+            );
+          })()}
+        </PricingEditorPanel>
       </View>
     );
   }
@@ -3540,55 +3637,59 @@ function QuantitySection({
 
   return (
     <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
-      <PricingEditorHeader
-        helper={rule.quantityHelper}
-        onDone={closePricingEditor}
-        Colors={Colors}
-        darkMode={darkMode}
-      />
-      {rule.allowanceOrSplit && pricingMode ? (
-        <AllowanceOrSplitModeToggle
-          mode={pricingMode}
-          onChange={handlePricingModeChange}
+      <PricingEditorPanel Colors={Colors} darkMode={darkMode}>
+        <PricingEditorHeader
+          helper={rule.quantityHelper}
+          onDone={closePricingEditor}
           Colors={Colors}
           darkMode={darkMode}
-          applying={applying}
         />
-      ) : null}
-      {showAllowanceEditor ? (
-        <PricingInputField
-          label="Allowance"
-          value={lumpSumValue}
-          prefix="$"
-          placeholder="Enter allowance"
-          onFocus={() => focusQuantityField(allowanceKey)}
-          onChangeText={(text) => onItemQuantityChange(allowanceKey, text, 'count', 'allowance')}
-          onBlur={() => blurQuantityField(allowanceKey)}
-          Colors={Colors}
-          darkMode={darkMode}
-          applying={applying}
-        />
-      ) : (
-        <MaterialLaborSplitEditor
-          materialValue={materialValue}
-          laborValue={laborValue}
-          pricingBasisValue={pricingBasisValue}
-          pricingBasis={pricingBasis}
-          basisUnit={basisUnit}
-          basisUnitLabel={basisUnitLabel}
-          basisFieldLabel={pricingBasisFieldLabel(itemId, basisUnit)}
-          suggestedBlock={suggestedBudgetSplit}
-          sqftBasisKey={sqftBasisKey}
-          materialKey={materialKey}
-          laborKey={laborKey}
-          onBatchItemQuantityChange={onBatchItemQuantityChange}
-          focusQuantityField={focusQuantityField}
-          blurQuantityField={blurQuantityField}
-          Colors={Colors}
-          darkMode={darkMode}
-          applying={applying}
-        />
-      )}
+        {rule.allowanceOrSplit && pricingMode ? (
+          <AllowanceOrSplitModeToggle
+            mode={pricingMode}
+            onChange={handlePricingModeChange}
+            Colors={Colors}
+            darkMode={darkMode}
+            applying={applying}
+          />
+        ) : null}
+        {showAllowanceEditor ? (
+          <PricingInputField
+            label="Allowance"
+            value={lumpSumValue}
+            prefix="$"
+            placeholder="Enter allowance"
+            embedded
+            onFocus={() => focusQuantityField(allowanceKey)}
+            onChangeText={(text) => onItemQuantityChange(allowanceKey, text, 'count', 'allowance')}
+            onBlur={() => blurQuantityField(allowanceKey)}
+            Colors={Colors}
+            darkMode={darkMode}
+            applying={applying}
+          />
+        ) : (
+          <MaterialLaborSplitEditor
+            materialValue={materialValue}
+            laborValue={laborValue}
+            pricingBasisValue={pricingBasisValue}
+            pricingBasis={pricingBasis}
+            basisUnit={basisUnit}
+            basisUnitLabel={basisUnitLabel}
+            basisFieldLabel={pricingBasisFieldLabel(itemId, basisUnit)}
+            suggestedBlock={suggestedBudgetSplit}
+            sqftBasisKey={sqftBasisKey}
+            materialKey={materialKey}
+            laborKey={laborKey}
+            onBatchItemQuantityChange={onBatchItemQuantityChange}
+            focusQuantityField={focusQuantityField}
+            blurQuantityField={blurQuantityField}
+            Colors={Colors}
+            darkMode={darkMode}
+            applying={applying}
+            splitTotalOnly={rule.splitTotalOnly}
+          />
+        )}
+      </PricingEditorPanel>
       {showEditorSuggestedPanel && suggestedBudgetSplit && !showAllowanceEditor ? (
         <SuggestedBudgetSplitRows
           block={suggestedBudgetSplit}
@@ -4431,6 +4532,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
   darkMode,
   applying,
   inWetAreaPanel = false,
+  compact = false,
 }: {
   field: QuickMeasurementFieldDef;
   value: string;
@@ -4449,6 +4551,8 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
   applying: boolean;
   /** Inside the gold wet-area panel — skip yellow borders and use a higher-contrast shell. */
   inWetAreaPanel?: boolean;
+  /** Whole-home card: less helper copy, tighter suggestion chrome. */
+  compact?: boolean;
 }) {
   const baseInputShell = inputShellStyle(Colors, darkMode);
   // Wet-area panel is already amber-tinted; neutral shells keep bath/shower inputs readable.
@@ -4461,8 +4565,9 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
   const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8';
   const caption = captionColor(darkMode, Colors);
   const label = estimate?.quantityLabel || quickMeasurementDisplayLabel(field);
-  // Living / Gross: calm only. Cabinets / counters: always clarify job-wide totals.
+  // Living / Gross: calm only. Cabinets / counters helpers are noisy in compact whole-home layout.
   const helperText = (() => {
+    if (compact) return undefined;
     const text = quickMeasurementHelperText(field);
     if (!text) return undefined;
     if (field.key === 'cabinetLf' || field.key === 'countertopSqft') return text;
@@ -4474,61 +4579,26 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
   if (variant === 'suggestion') {
     const badge = estimate ? quickMeasurementEstimateBadgeLabel(estimate) : null;
     return (
-      <View style={styles.measurementField}>
-        <Text
-          style={[
-            styles.measurementLabel,
-            { color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 12, fontWeight: '700', marginBottom: 6 },
-          ]}
-          numberOfLines={2}
+      <View style={[styles.measurementField, compact ? styles.measurementFieldSpaced : null]}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            marginBottom: 6,
+          }}
         >
-          {label}
-        </Text>
-        {estimate ? (
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 8,
-              marginBottom: 6,
-              paddingVertical: 6,
-              paddingHorizontal: 10,
-              borderRadius: 8,
-              borderWidth: 1,
-              borderColor: darkMode ? 'rgba(52, 211, 153, 0.35)' : 'rgba(16, 185, 129, 0.35)',
-              backgroundColor: darkMode ? 'rgba(52, 211, 153, 0.1)' : 'rgba(16, 185, 129, 0.08)',
-            }}
+          <Text
+            style={[
+              styles.measurementLabel,
+              { color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 13, fontWeight: '700', flex: 1 },
+            ]}
+            numberOfLines={1}
           >
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text
-                style={{
-                  color: darkMode ? '#ECFDF5' : '#065f46',
-                  fontSize: 14,
-                  fontWeight: '800',
-                }}
-                numberOfLines={1}
-              >
-                {estimate.summary}
-              </Text>
-              <TouchableOpacity
-                onPress={onToggleDetails}
-                activeOpacity={0.7}
-                hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-                style={{ marginTop: 1, alignSelf: 'flex-start' }}
-              >
-                <Text
-                  style={{
-                    color: darkMode ? 'rgba(167, 243, 208, 0.75)' : '#047857',
-                    fontSize: 10,
-                    fontWeight: '600',
-                  }}
-                  numberOfLines={1}
-                >
-                  {badge}
-                  {detailsOpen ? ' · Hide details' : ' · Details'}
-                </Text>
-              </TouchableOpacity>
-            </View>
+            {label}
+          </Text>
+          {estimate ? (
             <TouchableOpacity
               onPress={() => onUseSuggestion(estimate)}
               disabled={applying}
@@ -4536,50 +4606,37 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
               style={{
                 paddingHorizontal: 12,
                 paddingVertical: 6,
-                borderRadius: 7,
+                borderRadius: 8,
                 backgroundColor: '#34d399',
               }}
             >
               <Text style={{ color: '#042f2e', fontSize: 12, fontWeight: '800' }}>Use</Text>
             </TouchableOpacity>
-          </View>
+          ) : null}
+        </View>
+        {estimate ? (
+          <TouchableOpacity
+            onPress={onToggleDetails}
+            activeOpacity={0.7}
+            style={{ marginBottom: 6, alignSelf: 'flex-start' }}
+          >
+            <Text
+              style={{
+                color: '#34d399',
+                fontSize: 13,
+                fontWeight: '700',
+              }}
+              numberOfLines={1}
+            >
+              Suggested {estimate.summary}
+              {badge ? ` · ${badge}` : ''}
+              {detailsOpen ? ' · Hide' : ''}
+            </Text>
+          </TouchableOpacity>
         ) : null}
         {estimate && detailsOpen ? (
-          <View style={{ marginBottom: 8, marginLeft: 0, gap: 4, paddingLeft: 2 }}>
+          <View style={{ marginBottom: 8, gap: 3, paddingLeft: 2 }}>
             <Text style={{ color: caption, fontSize: 11, lineHeight: 15 }}>{estimate.basis}</Text>
-            <Text style={{ color: caption, fontSize: 10, lineHeight: 14 }}>
-              Formula: {estimate.formulaId} v{estimate.formulaVersion}
-            </Text>
-            <Text style={{ color: caption, fontSize: 10, lineHeight: 14 }}>
-              Confidence: {estimate.confidence} — {estimate.confidenceReason}
-            </Text>
-            {Object.entries(estimate.inputsUsed).map(([input, inputValue]) => (
-              <Text key={input} style={{ color: caption, fontSize: 10, lineHeight: 14 }}>
-                {input}: {String(inputValue)}
-              </Text>
-            ))}
-            {estimate.calculationBreakdown.map((step) => (
-              <Text key={`${step.label}-${step.operation || ''}`} style={{ color: caption, fontSize: 10, lineHeight: 14 }}>
-                {step.label}: {step.value.toLocaleString()} {step.unit}
-                {step.operation ? ` (${step.operation})` : ''}
-              </Text>
-            ))}
-            {estimate.assumptions.map((assumption) => (
-              <Text key={assumption} style={{ color: caption, fontSize: 10, lineHeight: 14 }}>
-                · {assumption}
-              </Text>
-            ))}
-            <Text style={{ color: caption, fontSize: 10, lineHeight: 14 }}>
-              Included: {estimate.includedComponents.join(', ')}
-            </Text>
-            <Text style={{ color: caption, fontSize: 10, lineHeight: 14 }}>
-              Excluded: {estimate.excludedComponents.join(', ')}
-            </Text>
-            {estimate.planEvidence.length ? (
-              <Text style={{ color: caption, fontSize: 10, lineHeight: 14 }}>
-                Evidence: {estimate.planEvidence.map((e) => e.sheet || (e.page ? `page ${e.page}` : e.label)).filter(Boolean).join(', ')}
-              </Text>
-            ) : null}
             {estimate.warning ? (
               <Text style={{ color: '#fbbf24', fontSize: 10, lineHeight: 14 }}>{estimate.warning}</Text>
             ) : null}
@@ -4615,12 +4672,12 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
   }
 
   return (
-    <View style={styles.measurementField}>
+    <View style={[styles.measurementField, compact ? styles.measurementFieldSpaced : null]}>
       <View style={styles.measurementLabelRow}>
         <Text
           style={[
             styles.measurementLabel,
-            { color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 12, fontWeight: '700' },
+            { color: darkMode ? '#F5F7FA' : Colors.text, fontSize: compact ? 13 : 12, fontWeight: '700' },
           ]}
           numberOfLines={2}
         >
@@ -4734,8 +4791,37 @@ function CollapsibleQuickMeasurements({
     homeIndex: number | null;
     variant: 'calm' | 'needs_confirmation' | 'suggestion' | 'more' | null;
   }>({ homeGroup: null, homeIndex: null, variant: null });
+  const effectiveTemplateKey = useMemo(() => {
+    const living =
+      Number(String(measurements.floorAreaSqft || '').replace(/,/g, '')) ||
+      Number(measurements.planFacts?.buildingAreas?.mainFloorLivingSqft) ||
+      null;
+    const garage =
+      Number(String(measurements.garageSqft || '').replace(/,/g, '')) ||
+      Number(measurements.planFacts?.buildingAreas?.garageSqft) ||
+      null;
+    return resolveEffectiveQuickMeasurementTemplateKey({
+      templateKey,
+      projectType,
+      planRoomCount: Array.isArray(measurements.planRooms) ? measurements.planRooms.length : 0,
+      livingSf: living,
+      garageSf: garage,
+    });
+  }, [
+    templateKey,
+    projectType,
+    measurements.floorAreaSqft,
+    measurements.garageSqft,
+    measurements.planRooms,
+    measurements.planFacts,
+  ]);
+  const wholeHomeLayout = isWholeHomeQuickMeasurementTemplate(effectiveTemplateKey);
+
   const noteQuickMeasurements = useMemo(() => {
-    const parsed = parseScopeMeasurementsFromNotes(notes || '', { templateKey, projectType: projectType ?? undefined });
+    const parsed = parseScopeMeasurementsFromNotes(notes || '', {
+      templateKey: effectiveTemplateKey,
+      projectType: projectType ?? undefined,
+    });
     const out: Partial<Record<QuickMeasurementFieldKey, string>> = {};
     const noteKeys: QuickMeasurementFieldKey[] = [];
     const put = (key: QuickMeasurementFieldKey, value: unknown) => {
@@ -4772,10 +4858,16 @@ function CollapsibleQuickMeasurements({
     put('garageSqft', parsed.garageSqft);
 
     return { values: out, keys: noteKeys };
-  }, [notes, templateKey, projectType]);
+  }, [notes, effectiveTemplateKey, projectType]);
   const rows = useMemo(
-    () => quickMeasurementRowsForInput(templateKey, projectType, measurements, noteQuickMeasurements.keys),
-    [templateKey, projectType, measurements, noteQuickMeasurements.keys]
+    () =>
+      quickMeasurementRowsForInput(
+        effectiveTemplateKey,
+        projectType,
+        measurements,
+        noteQuickMeasurements.keys
+      ),
+    [effectiveTemplateKey, projectType, measurements, noteQuickMeasurements.keys]
   );
   const fillCounts = useMemo(
     () => countFilledQuickMeasurements(rows, measurements, noteQuickMeasurements.values),
@@ -4800,8 +4892,32 @@ function CollapsibleQuickMeasurements({
         sourceMap: measurements.quickMeasurementSources,
         userOverrides: measurements.quickMeasurementUserOverrides,
         includedScopeKeys,
+        templateKey: effectiveTemplateKey,
       }),
-    [rows, measurements, noteQuickMeasurements.values, noteQuickMeasurements.keys, includedScopeKeys]
+    [
+      rows,
+      measurements,
+      noteQuickMeasurements.values,
+      noteQuickMeasurements.keys,
+      includedScopeKeys,
+      effectiveTemplateKey,
+    ]
+  );
+  const physicalSections = useMemo(() => {
+    if (!wholeHomeLayout) return [];
+    const wetKeys = new Set<string>(WET_AREA_QUICK_MEASUREMENT_KEYS);
+    return quickMeasurementSectionsForRows(rows)
+      .map((section) => ({
+        ...section,
+        rows: section.rows
+          .map((row) => row.filter((field) => !wetKeys.has(field.key)))
+          .filter((row) => row.length > 0),
+      }))
+      .filter((section) => section.rows.length > 0);
+  }, [wholeHomeLayout, rows]);
+  const resultByKey = useMemo(
+    () => new Map(fieldResults.map((result) => [result.key, result])),
+    [fieldResults]
   );
   const groups = useMemo(() => {
     const grouped = groupQuickMeasurementFields(fieldResults);
@@ -5093,9 +5209,8 @@ function CollapsibleQuickMeasurements({
     [scheduleGarageDoorCommit]
   );
 
-  const showGarageDoorSteppers =
-    String(templateKey || '').toLowerCase() === 'ground_up' ||
-    String(templateKey || '').toLowerCase() === 'addition';
+  // Use effective whole-home template — checklist may still say room_remodel after plan import.
+  const showGarageDoorSteppers = wholeHomeLayout;
 
   const garageDoorPackage = useMemo(
     () =>
@@ -5375,6 +5490,23 @@ function CollapsibleQuickMeasurements({
     return 'calm';
   };
 
+  const fieldVariantForResult = (
+    result: QuickMeasurementFieldResult
+  ): 'calm' | 'needs_confirmation' | 'suggestion' | 'more' => {
+    if (result.state === 'estimate_available') return 'suggestion';
+    if (result.state === 'needs_confirmation') return 'needs_confirmation';
+    if (result.state === 'not_relevant') return 'more';
+    return 'calm';
+  };
+
+  const homeGroupForResult = (result: QuickMeasurementFieldResult): QuickMeasurementGroupId => {
+    if (result.state === 'confirmed') return 'confirmed';
+    if (result.state === 'detected') return 'fromPlan';
+    if (result.state === 'estimate_available') return 'suggestions';
+    if (result.state === 'not_relevant') return 'more';
+    return 'needsConfirmation';
+  };
+
   const showDone = expanded && fillCounts.filled > 0;
   const roomCount = Array.isArray(measurements.planRooms) ? measurements.planRooms.length : 0;
   const subtitle =
@@ -5460,6 +5592,7 @@ function CollapsibleQuickMeasurements({
         darkMode={darkMode}
         applying={applying}
         inWetAreaPanel={inWetAreaPanel}
+        compact={wholeHomeLayout}
       />
     );
   };
@@ -5503,82 +5636,139 @@ function CollapsibleQuickMeasurements({
       </TouchableOpacity>
       {expanded ? (
         <View style={styles.quickMeasurementsBody}>
-          {displayGroups.fromPlan.length > 0 ? (
-            <View style={styles.quickMeasurementSection}>
-              {sectionTitle('From plan')}
-              {displayGroups.fromPlan.map((result, index) => renderResultField(result, 'calm', 'fromPlan', index))}
-            </View>
-          ) : null}
-
-          {displayGroups.suggestions.length > 0 ? (
-            <View style={styles.quickMeasurementSection}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                {sectionTitle('Suggestions')}
-                {displayGroups.suggestions.length > 1 ? (
-                  <TouchableOpacity onPress={useAllSuggestions} disabled={applying} activeOpacity={0.75} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                    <Text style={{ color: '#34d399', fontSize: 12, fontWeight: '800' }}>Review and use all</Text>
+          {wholeHomeLayout ? (
+            <>
+              {displayGroups.suggestions.length > 1 ? (
+                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 4 }}>
+                  <TouchableOpacity
+                    onPress={useAllSuggestions}
+                    disabled={applying}
+                    activeOpacity={0.75}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={{ color: '#34d399', fontSize: 12, fontWeight: '800' }}>
+                      Review and use all suggestions
+                    </Text>
                   </TouchableOpacity>
-                ) : null}
-              </View>
-              {displayGroups.suggestions.map((result, index) =>
-                renderResultField(result, 'suggestion', 'suggestions', index)
-              )}
-            </View>
-          ) : null}
+                </View>
+              ) : null}
+              {physicalSections.map((section, sectionIndex) => (
+                <View
+                  key={section.id}
+                  style={[
+                    styles.quickMeasurementSection,
+                    sectionIndex > 0 ? styles.quickMeasurementSectionSplit : null,
+                    sectionIndex > 0
+                      ? { borderTopColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line }
+                      : null,
+                  ]}
+                >
+                  {sectionTitle(section.title)}
+                  {/* Single-column on whole-home — side-by-side suggestion cards were too cramped. */}
+                  {section.rows.flat().map((field, index) => {
+                    const result = resultByKey.get(field.key);
+                    if (!result) return null;
+                    return renderResultField(
+                      result,
+                      fieldVariantForResult(result),
+                      homeGroupForResult(result),
+                      index
+                    );
+                  })}
+                </View>
+              ))}
+            </>
+          ) : (
+            <>
+              {displayGroups.fromPlan.length > 0 ? (
+                <View style={styles.quickMeasurementSection}>
+                  {sectionTitle('From plan')}
+                  {displayGroups.fromPlan.map((result, index) =>
+                    renderResultField(result, 'calm', 'fromPlan', index)
+                  )}
+                </View>
+              ) : null}
 
-          {displayGroups.needsConfirmation.length > 0 ? (
-            <View
-              style={[
-                styles.quickMeasurementSection,
-                styles.quickMeasurementSectionSplit,
-                { borderTopColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line },
-              ]}
-            >
-              {sectionTitle('Needs confirmation', '#fbbf24')}
-              {displayGroups.needsConfirmation.map((result, index) =>
-                renderResultField(result, 'needs_confirmation', 'needsConfirmation', index)
-              )}
-            </View>
-          ) : null}
+              {displayGroups.suggestions.length > 0 ? (
+                <View style={styles.quickMeasurementSection}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    {sectionTitle('Suggestions')}
+                    {displayGroups.suggestions.length > 1 ? (
+                      <TouchableOpacity
+                        onPress={useAllSuggestions}
+                        disabled={applying}
+                        activeOpacity={0.75}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Text style={{ color: '#34d399', fontSize: 12, fontWeight: '800' }}>
+                          Review and use all
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                  {displayGroups.suggestions.map((result, index) =>
+                    renderResultField(result, 'suggestion', 'suggestions', index)
+                  )}
+                </View>
+              ) : null}
 
-          {displayGroups.confirmed.length > 0 ? (
-            <View
-              style={[
-                styles.quickMeasurementSection,
-                styles.quickMeasurementSectionSplit,
-                { borderTopColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line },
-              ]}
-            >
-              {sectionTitle('Confirmed')}
-              {displayGroups.confirmed.map((result, index) => renderResultField(result, 'calm', 'confirmed', index))}
-            </View>
-          ) : null}
+              {displayGroups.needsConfirmation.length > 0 ? (
+                <View
+                  style={[
+                    styles.quickMeasurementSection,
+                    styles.quickMeasurementSectionSplit,
+                    { borderTopColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line },
+                  ]}
+                >
+                  {sectionTitle('Needs confirmation', '#fbbf24')}
+                  {displayGroups.needsConfirmation.map((result, index) =>
+                    renderResultField(result, 'needs_confirmation', 'needsConfirmation', index)
+                  )}
+                </View>
+              ) : null}
 
-          {displayGroups.more.length > 0 ? (
-            <View
-              style={[
-                styles.quickMeasurementSection,
-                styles.quickMeasurementSectionSplit,
-                { borderTopColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line },
-              ]}
-            >
-              <TouchableOpacity
-                onPress={() => setMoreExpanded((v) => !v)}
-                activeOpacity={0.7}
-                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
-              >
-                <Text style={[styles.quickMeasurementSectionTitle, { color: captionColor(darkMode, Colors) }]}>
-                  More measurements · {displayGroups.more.length}
-                </Text>
-                <Ionicons
-                  name={moreExpanded ? 'chevron-up' : 'chevron-down'}
-                  size={16}
-                  color={captionColor(darkMode, Colors)}
-                />
-              </TouchableOpacity>
-              {moreExpanded ? displayGroups.more.map((result) => renderResultField(result, 'more')) : null}
-            </View>
-          ) : null}
+              {displayGroups.confirmed.length > 0 ? (
+                <View
+                  style={[
+                    styles.quickMeasurementSection,
+                    styles.quickMeasurementSectionSplit,
+                    { borderTopColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line },
+                  ]}
+                >
+                  {sectionTitle('Confirmed')}
+                  {displayGroups.confirmed.map((result, index) =>
+                    renderResultField(result, 'calm', 'confirmed', index)
+                  )}
+                </View>
+              ) : null}
+
+              {displayGroups.more.length > 0 ? (
+                <View
+                  style={[
+                    styles.quickMeasurementSection,
+                    styles.quickMeasurementSectionSplit,
+                    { borderTopColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line },
+                  ]}
+                >
+                  <TouchableOpacity
+                    onPress={() => setMoreExpanded((v) => !v)}
+                    activeOpacity={0.7}
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+                  >
+                    <Text style={[styles.quickMeasurementSectionTitle, { color: captionColor(darkMode, Colors) }]}>
+                      More measurements · {displayGroups.more.length}
+                    </Text>
+                    <Ionicons
+                      name={moreExpanded ? 'chevron-up' : 'chevron-down'}
+                      size={16}
+                      color={captionColor(darkMode, Colors)}
+                    />
+                  </TouchableOpacity>
+                  {moreExpanded ? displayGroups.more.map((result) => renderResultField(result, 'more')) : null}
+                </View>
+              ) : null}
+            </>
+          )}
 
           {showWetAreaFinishPicker || wetAreaFields.length > 0 ? (
             <View
@@ -5593,18 +5783,12 @@ function CollapsibleQuickMeasurements({
               ]}
             >
               {sectionTitle('Wet area finish', '#fbbf24')}
-              <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, lineHeight: 15, marginBottom: 4 }}>
+              <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, lineHeight: 15, marginBottom: 8 }}>
                 {bathCountFromPlan > 0
-                  ? `${bathCountFromPlan} bath${bathCountFromPlan === 1 ? '' : 's'} labeled on the plan${
-                      bathRooms.some((r) => Number(r.areaSqft) > 0) ? ` · ${bathRooms.map((r) => r.name).join(', ')}` : ''
-                    }. `
-                  : 'No bath rooms labeled on this plan. '}
-                Set tile / prefab / tub counts separately — adding prefab or tub does not clear tile shower SF.
-                {effectiveWetAreaFinish === 'tile' && resolvedBathCount
-                  ? ` Tile showers use a planning allowance × ${resolvedBathCount}.`
-                  : ''}
+                  ? `${bathCountFromPlan} bath${bathCountFromPlan === 1 ? '' : 's'} on plan — set finish counts below.`
+                  : 'No baths labeled on plan — set tile / prefab / tub counts below.'}
                 {effectiveWetAreaFinish === 'tile' && !resolvedBathCount
-                  ? ' Set tile showers to unlock shower planning estimates.'
+                  ? ' Set tile showers to unlock shower estimates.'
                   : ''}
               </Text>
               {renderBathCountStepper('Tile showers', displayTileBathCount, adjustTileBathCount)}
@@ -5639,17 +5823,23 @@ function CollapsibleQuickMeasurements({
           ) : null}
 
           {showGarageDoorSteppers ? (
-            <View style={[styles.quickMeasurementSection, { marginTop: 4 }]}>
+            <View
+              style={[
+                styles.quickMeasurementSection,
+                styles.quickMeasurementSectionSplit,
+                { borderTopColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line },
+              ]}
+            >
               {sectionTitle('Garage doors', darkMode ? '#F5F7FA' : Colors.text)}
               <Text
                 style={{
                   color: darkMode ? 'rgba(245,247,250,0.78)' : Colors.sub,
                   fontSize: 11,
                   lineHeight: 15,
-                  marginBottom: 6,
+                  marginBottom: 4,
                 }}
               >
-                Choose door types for this bid. Totals update from the schedule below.
+                Single, double, and RV / oversized — totals update below.
               </Text>
               <View
                 style={{
@@ -5883,16 +6073,17 @@ export default function AIEstimateScopeAssumptionsModal({
   const scrollContentRef = useRef<View>(null);
   const quickMeasurementsRef = useRef<View>(null);
 
-  /** Sum of Applied Confirm Scope prices — used for $/living SF before Step 3 sync. */
-  const step2AppliedEstimateTotal = useMemo(
+  /** Applied Confirm Scope dollars — total + material / labor / allowances for bottom summary. */
+  const step2AppliedPricingBreakdown = useMemo(
     () =>
-      sumConfirmScopeAppliedPricingTotal({
+      sumConfirmScopeAppliedPricingBreakdown({
         items,
         measurements,
         templateKey: checklist?.templateKey,
       }),
     [items, measurements, checklist?.templateKey]
   );
+  const step2AppliedEstimateTotal = step2AppliedPricingBreakdown.total;
 
   const reasonablenessLivingSf = useMemo(
     () =>
@@ -6101,9 +6292,12 @@ export default function AIEstimateScopeAssumptionsModal({
       if (!sourceItems.length) return;
       const draftForScope =
         draft && scopeNotes.trim() ? repairDraftRatePricingFromNotes(draft, scopeNotes) : draft;
-      const nextMeasurements = prepareScopeMeasurementsInputForUi(
-        initialScopeMeasurementInputExtended(draftForScope, scopeNotes),
-        { notes: scopeNotes, templateKey: checklist.templateKey }
+      const nextMeasurements = mergeConfirmScopeSavedMeasurements(
+        prepareScopeMeasurementsInputForUi(
+          initialScopeMeasurementInputExtended(draftForScope, scopeNotes),
+          { notes: scopeNotes, templateKey: checklist.templateKey }
+        ),
+        draft?.scopeMeasurements
       );
       if (!nextMeasurements.wetAreaFinish) {
         const wet = sourceItems.find((row) => row.id === 'wet_area_install');
@@ -6121,6 +6315,9 @@ export default function AIEstimateScopeAssumptionsModal({
         notes: scopeNotes,
         measurements: norm,
       });
+      if (sourceItems.length && (draft?.confirmedAssumptions?.length || draft?.scopeAssumptionsConfirmed)) {
+        normalized = restoreConfirmedChecklistItemStates(normalized, sourceItems);
+      }
       setItems(normalized);
       setMeasurementsSynced(nextMeasurements);
       const displayForHydrate = expandWetAreaDerivedScopeItems(normalized);
@@ -6153,11 +6350,16 @@ export default function AIEstimateScopeAssumptionsModal({
 
   useEffect(() => {
     if (visible) return;
+    // Persist before wiping local form state. Skip during Continue — parent saves in onConfirm.
+    if (onPersistProgress && !applying && itemsRef.current.length) {
+      onPersistProgress(
+        scopeChecklistItemsForPersist(itemsRef.current),
+        scopeMeasurementsPayloadForCurrentState()
+      );
+    }
     hydratedVisibleSessionRef.current = false;
     setItems([]);
-    // Do not clear measurementsRef here. A hidden persist effect runs after
-    // this cleanup; clearing the ref first can overwrite the just-confirmed
-    // selected pricing in the parent draft.
+    // Do not clear measurementsRef here. Persist reads measurementsRef above.
     setMeasurements({
       ...emptyQuickMeasurementInput(),
       itemQuantities: {},
@@ -6166,7 +6368,7 @@ export default function AIEstimateScopeAssumptionsModal({
     setQuickMeasurementsOpen(false);
     setCustomItemLabel('');
     setShowCustomItemInput(false);
-  }, [visible]);
+  }, [visible, onPersistProgress, applying, scopeMeasurementsPayloadForCurrentState]);
 
   // Keep rate-pricing subkeys in form state whenever notes are available (handles hot reload / stale saves).
   useEffect(() => {
@@ -6178,16 +6380,6 @@ export default function AIEstimateScopeAssumptionsModal({
       })
     );
   }, [visible, scopeNotes, checklist?.templateKey]);
-
-  useEffect(() => {
-    if (visible || !onPersistProgress || applying) return;
-    const currentItems = itemsRef.current;
-    if (!currentItems.length) return;
-    onPersistProgress(
-      scopeChecklistItemsForPersist(currentItems),
-      scopeMeasurementsPayloadForCurrentState()
-    );
-  }, [visible, onPersistProgress, applying, scopeMeasurementsPayloadForCurrentState]);
 
   const displayItems = useMemo(() => {
     let expanded = expandWetAreaDerivedScopeItems(items).map((row) =>
@@ -6806,46 +6998,15 @@ export default function AIEstimateScopeAssumptionsModal({
   const handleClearSuggestedPrefill = useCallback(
     (itemId: string) => {
       setMeasurementsSynced((prev) => {
-        let itemQuantities = { ...(prev.itemQuantities || {}) };
-        let pricingAcceptance = prev.pricingAcceptance;
-        if (hasOnlySuggestedPrefillPricing(itemQuantities, itemId)) {
-          itemQuantities = clearSuggestedPrefillPricing(itemQuantities, itemId);
-        }
-        // Done after wiping Material + Labor: drop a leftover __allowance total
-        // (e.g. $2 from deleting $2000) so the priced card cannot stick.
-        const materialQty = parsePricingAmount(
-          itemQuantities[`${itemId}__material`]?.quantity
-        );
-        const laborQty = parsePricingAmount(itemQuantities[`${itemId}__labor`]?.quantity);
-        const splitEmpty = !(materialQty > 0) && !(laborQty > 0);
-        if (splitEmpty) {
-          const allowanceKey = `${itemId}__allowance`;
-          const hasLeftoverAllowance = Boolean(
-            parsePricingAmount(itemQuantities[allowanceKey]?.quantity) ||
-              pricingAcceptance?.[itemId]
-          );
-          if (hasLeftoverAllowance || !(liveScopeMoneyFromQuantities(itemId, itemQuantities) > 0)) {
-            const cleared = clearAcceptedScopeItemPricing({
-              itemId,
-              itemQuantities,
-              pricingAcceptance,
-            });
-            itemQuantities = cleared.itemQuantities;
-            pricingAcceptance = cleared.pricingAcceptance;
-          }
-        } else if (!(liveScopeMoneyFromQuantities(itemId, itemQuantities) > 0)) {
-          const cleared = clearAcceptedScopeItemPricing({
-            itemId,
-            itemQuantities,
-            pricingAcceptance,
-          });
-          itemQuantities = cleared.itemQuantities;
-          pricingAcceptance = cleared.pricingAcceptance;
-        }
+        const finalized = finalizeScopePricingAfterEditorClose({
+          itemId,
+          itemQuantities: prev.itemQuantities || {},
+          pricingAcceptance: prev.pricingAcceptance,
+        });
         return {
           ...prev,
-          itemQuantities,
-          pricingAcceptance,
+          itemQuantities: finalized.itemQuantities,
+          pricingAcceptance: finalized.pricingAcceptance,
         };
       });
     },
@@ -7962,7 +8123,11 @@ export default function AIEstimateScopeAssumptionsModal({
         benchmarkReasonableness &&
         unconfirmedSuggestedPricing.length === 0 &&
         step2AppliedEstimateTotal > 0 ? (
-          <BenchmarkReasonablenessCard value={benchmarkReasonableness} darkMode={darkMode} />
+          <BenchmarkReasonablenessCard
+            value={benchmarkReasonableness}
+            darkMode={darkMode}
+            appliedBreakdown={step2AppliedPricingBreakdown}
+          />
         ) : null}
 
         <TouchableOpacity
@@ -8178,27 +8343,28 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   quickMeasurementsBody: {
-    marginTop: 12,
-    gap: 18,
+    marginTop: 14,
+    gap: 22,
   },
   quickMeasurementSection: {
-    gap: 8,
+    gap: 12,
   },
   wetAreaSection: {
-    padding: 12,
-    borderRadius: 10,
+    padding: 14,
+    borderRadius: 12,
     borderWidth: 1,
   },
   quickMeasurementSectionSplit: {
-    marginTop: 2,
-    paddingTop: 14,
+    marginTop: 4,
+    paddingTop: 18,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   quickMeasurementSectionTitle: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
     textTransform: 'uppercase',
+    marginBottom: 2,
   },
   quickMeasurementsDone: {
     alignSelf: 'flex-start',
@@ -8225,6 +8391,9 @@ const styles = StyleSheet.create({
     // stretch/shrink rows and make Needs confirmation feel like it jumps.
     width: '100%',
     minWidth: 0,
+  },
+  measurementFieldSpaced: {
+    marginBottom: 2,
   },
   measurementFieldPrimary: {
     flex: 1,
@@ -8642,27 +8811,65 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
-  pricingEditorHeaderRow: {
+  pricingEditorPanel: {
+    marginTop: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 12,
+    gap: 10,
+  },
+  pricingEditorPanelHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 2,
+  },
+  pricingEditorHelper: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '500',
+  },
+  pricingEditorDoneBtn: {
+    minHeight: 32,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#22c55e',
+  },
+  pricingEditorDoneBtnText: {
+    color: '#0f172a',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  pricingMatLabRow: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'flex-start',
+  },
+  pricingMatLabCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  pricingEditorTotalRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
+    paddingTop: 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(148, 163, 184, 0.2)',
   },
-  pricingEditorDoneChip: {
-    minHeight: 32,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(96,165,250,0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(96,165,250,0.4)',
+  pricingInputEmbedded: {
+    gap: 4,
   },
-  pricingEditorDoneChipText: {
-    color: '#60a5fa',
-    fontSize: 13,
-    fontWeight: '700',
+  pricingInputRowEmbedded: {
+    minHeight: 40,
+    paddingHorizontal: 8,
   },
   budgetSplitHeader: {
     flexDirection: 'row',
@@ -8737,16 +8944,22 @@ const styles = StyleSheet.create({
   pricingInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
     borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: 10,
+    minHeight: 44,
   },
   pricingInput: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 0,
     fontSize: 15,
     fontWeight: '700',
+    lineHeight: 20,
+    height: 40,
+    ...(Platform.OS === 'android'
+      ? { textAlignVertical: 'center' as const, includeFontPadding: false }
+      : {}),
   },
   qtyInputRow: {
     flexDirection: 'row',

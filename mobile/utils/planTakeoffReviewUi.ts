@@ -336,6 +336,82 @@ export function applyPlanTakeoffButtonLabel(input: {
   return 'Nothing selected';
 }
 
+/** Short Job notes prefill after plan import when the user has not typed notes yet. */
+export function buildPlanReadyJobNotesPrompt(input: {
+  livingSf?: number | null;
+  measurementCount?: number;
+  spaceCount?: number;
+  scopeCount?: number;
+}): string {
+  const stats = importedPlanSummaryCollapsedSubtitle({
+    livingSf: input.livingSf,
+    spaceCount: input.spaceCount,
+    scopeCount: input.scopeCount,
+  });
+  const meas = Number(input.measurementCount) || 0;
+  const measBit =
+    meas > 0 ? `${meas} project measurement${meas === 1 ? '' : 's'}` : null;
+  const detail = stats || measBit;
+  const detailSentence = detail ? ` ${detail}.` : '';
+  // "Ground-up new construction" must stay in this string — draft classification
+  // uses it to pick the ground_up checklist (excavation, flatwork, framing, MEP…).
+  return (
+    `Ground-up new construction plan imported and ready to generate.${detailSentence} ` +
+    'Tap "Generate Estimate Draft" below to build your scope draft. ' +
+    'Add any extra job details here (allowances, finishes, client notes).'
+  );
+}
+
+/** True when Step 1 plan takeoff looks like a whole-home / new-build set. */
+export function planImportLooksLikeGroundUp(planImport: {
+  measurements?: Record<string, string | number | null | undefined> | null;
+  rooms?: Array<{ name?: string; areaSqft?: number | null }> | null;
+  buildingAreas?: { mainFloorLivingSqft?: number | null; garageSqft?: number | null } | null;
+  planFacts?: { buildingAreas?: { mainFloorLivingSqft?: number | null; garageSqft?: number | null } } | null;
+  scopeDetections?: Array<{ itemId?: string }> | null;
+} | null | undefined): boolean {
+  if (!planImport) return false;
+  const rooms = planImport.rooms?.length || 0;
+  const living =
+    Number(planImport.measurements?.floorAreaSqft) ||
+    Number(planImport.buildingAreas?.mainFloorLivingSqft) ||
+    Number(planImport.planFacts?.buildingAreas?.mainFloorLivingSqft) ||
+    0;
+  const garage =
+    Number(planImport.measurements?.garageSqft) ||
+    Number(planImport.buildingAreas?.garageSqft) ||
+    Number(planImport.planFacts?.buildingAreas?.garageSqft) ||
+    0;
+  const structuralHits = (planImport.scopeDetections || []).filter((d) =>
+    /^(foundation|framing|roofing|sitework|excavation|exterior|mep_rough|pour_flatwork|utility_taps)$/i.test(
+      String(d.itemId || '')
+    )
+  ).length;
+  return (
+    rooms >= 4 ||
+    structuralHits >= 2 ||
+    (living >= 800 && rooms >= 2) ||
+    (living >= 800 && garage > 0)
+  );
+}
+
+/**
+ * Ensure Generate uses ground-up classification when a whole-home plan is attached.
+ * Does not replace user-authored remodel language.
+ */
+export function ensureGroundUpPlanNotes(notes: string, planImportLooksGroundUp: boolean): string {
+  const text = String(notes || '').trim();
+  if (!planImportLooksGroundUp) return text;
+  if (/\b(ground[\s-]?up|new\s+construction|new\s+build|new\s+home|custom\s+home)\b/i.test(text)) {
+    return text;
+  }
+  if (/\b(remodel|renovation|renovate|selective\s+demo|tear[\s-]?out)\b/i.test(text)) {
+    return text;
+  }
+  const prefix = 'Ground-up new construction from imported architectural plans.';
+  return text ? `${prefix}\n${text}` : prefix;
+}
+
 export function importedPlanSummaryCollapsedSubtitle(input: {
   livingSf?: number | null;
   spaceCount?: number;

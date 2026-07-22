@@ -33,6 +33,7 @@ import type { PhotoScopeDetection, PlanImportPayload } from '@/utils/estimateAiD
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import {
   buildImportedPlanSummaryText,
+  buildPlanReadyJobNotesPrompt,
   importedPlanSummaryCollapsedSubtitle,
   stripPlanTakeoffFromNotes,
 } from '@/utils/planTakeoffReviewUi';
@@ -162,9 +163,20 @@ export default function AIEstimateBuilderModal({
 
   const handlePlanApplied = (result: PlanImportApplyResult) => {
     if (semanticsOn) {
-      // Keep Job notes user-editable; structured plan data is authoritative.
-      setNotes(stripPlanTakeoffFromNotes(result.mergedNotes || ''));
-      // Collapse by default after review; user can expand manually.
+      // Keep Job notes user-editable; structured plan data stays authoritative.
+      const userNotes = stripPlanTakeoffFromNotes(result.mergedNotes || '');
+      const measCount = Object.keys(result.measurements || {}).length;
+      const livingSf = Number(result.measurements?.floorAreaSqft) || null;
+      setNotes(
+        userNotes.trim()
+          ? userNotes
+          : buildPlanReadyJobNotesPrompt({
+              livingSf,
+              measurementCount: measCount,
+              spaceCount: result.rooms?.length || 0,
+              scopeCount: result.scopeDetections?.length || 0,
+            })
+      );
       setPlanSummaryExpanded(false);
     } else if (result.mergedNotes?.trim()) {
       setNotes(result.mergedNotes);
@@ -184,15 +196,15 @@ export default function AIEstimateBuilderModal({
       const scope = result.scopeDetections?.length || 0;
       Alert.alert(
         'Plan ready',
-        [
-          meas ? `${meas} measurement${meas === 1 ? '' : 's'} ready` : null,
-          scope ? `${scope} scope item${scope === 1 ? '' : 's'} ready` : null,
-          semanticsOn
-            ? 'Review the imported plan summary, then Generate.'
-            : 'Review Job notes, then Generate.',
-        ]
-          .filter(Boolean)
-          .join('. ')
+        semanticsOn
+          ? 'Your plan is loaded. Tap Generate Estimate Draft at the bottom to build your scope draft.'
+          : [
+              meas ? `${meas} measurement${meas === 1 ? '' : 's'} ready` : null,
+              scope ? `${scope} scope item${scope === 1 ? '' : 's'} ready` : null,
+              'Review Job notes, then Generate.',
+            ]
+              .filter(Boolean)
+              .join('. ')
       );
     }, 0);
   };
@@ -223,6 +235,22 @@ export default function AIEstimateBuilderModal({
       scopeCount: planImport.scopeDetections?.length || 0,
     });
   }, [semanticsOn, planImport]);
+
+  const planReadySubtitle = useMemo(() => {
+    if (!hasPlanImport || !planImport) return null;
+    if (importedPlanCollapsedSubtitle) return importedPlanCollapsedSubtitle;
+    if (semanticsOn) return null;
+    const bits = [
+      Object.keys(planImport.measurements || {}).length
+        ? `${Object.keys(planImport.measurements || {}).length} measurements`
+        : null,
+      planImport.rooms?.length ? `${planImport.rooms.length} rooms` : null,
+      planImport.scopeDetections?.length
+        ? `${planImport.scopeDetections.length} scope items`
+        : null,
+    ].filter(Boolean);
+    return bits.length ? bits.join(' · ') : 'Plan reviewed';
+  }, [hasPlanImport, planImport, importedPlanCollapsedSubtitle, semanticsOn]);
 
   const runGenerate = async () => {
     const trimmed = notes.trim();
@@ -289,6 +317,7 @@ export default function AIEstimateBuilderModal({
         darkMode={darkMode}
         disabled={busy}
         existingNotes={notes}
+        planReadySubtitle={planReadySubtitle}
         onApplied={handlePlanApplied}
       />
 

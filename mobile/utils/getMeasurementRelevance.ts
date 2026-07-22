@@ -31,6 +31,12 @@ const ALWAYS_RELEVANT_KEYS = new Set<QuickMeasurementFieldKey>([
   'kitchenFloorSqft',
 ]);
 
+/** Whole-home templates keep the full Quick measurements card visible. */
+function isWholeHomeTemplate(templateKey?: string | null): boolean {
+  const key = String(templateKey || '').toLowerCase();
+  return key === 'ground_up' || key === 'addition';
+}
+
 /** Quick Measurement key → checklist item ids that consume it for pricing/quantity. */
 const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> = {
   bathroomFloorSqft: ['tile_flooring', 'flooring', 'floor_tile', 'bathroom', 'bath_floor', 'interior_finishes'],
@@ -67,31 +73,15 @@ export function getMeasurementRelevance(params: {
   noteBackedKeys?: Iterable<QuickMeasurementFieldKey>;
   /** When set, tub/prefab hide shower tile measurements; tile keeps them. */
   wetAreaFinish?: import('@/utils/planBathRooms').WetAreaFinishChoice | null;
+  /** ground_up / addition show the full field list — not only scopes currently included. */
+  templateKey?: string | null;
 }): MeasurementRelevance {
   const { measurementKey } = params;
-
-  if (ALWAYS_RELEVANT_KEYS.has(measurementKey)) {
-    return {
-      relevant: true,
-      blockingPrice: true,
-      relatedScopeKeys: [],
-      reason: 'Core structural measurement used across the bid.',
-    };
-  }
-
   const relatedScopeKeys = RELATED_SCOPE_KEYS[measurementKey] || [];
-  if (!relatedScopeKeys.length) {
-    return { relevant: true, blockingPrice: false, relatedScopeKeys: [] };
-  }
-
-  const includedSet = new Set(params.includedScopeKeys);
-  const noteSet = new Set(params.noteBackedKeys || []);
-  const scopeIncluded = relatedScopeKeys.some((id) => includedSet.has(id));
-  let relevant = scopeIncluded || noteSet.has(measurementKey);
+  const wholeHome = isWholeHomeTemplate(params.templateKey);
 
   // Tub / prefab wet areas do not need shower tile SF suggestions.
   if (
-    relevant &&
     (measurementKey === 'showerWallTileSqft' || measurementKey === 'showerFloorTileSqft') &&
     (params.wetAreaFinish === 'tub' || params.wetAreaFinish === 'prefab')
   ) {
@@ -102,6 +92,26 @@ export function getMeasurementRelevance(params: {
       reason: 'Shower tile measurements are not used for tub or prefab wet-area finishes.',
     };
   }
+
+  if (ALWAYS_RELEVANT_KEYS.has(measurementKey) || wholeHome) {
+    return {
+      relevant: true,
+      blockingPrice: ALWAYS_RELEVANT_KEYS.has(measurementKey) || relatedScopeKeys.length > 0,
+      relatedScopeKeys,
+      reason: wholeHome
+        ? 'Whole-home bid — keep full Quick measurements visible.'
+        : 'Core structural measurement used across the bid.',
+    };
+  }
+
+  if (!relatedScopeKeys.length) {
+    return { relevant: true, blockingPrice: false, relatedScopeKeys: [] };
+  }
+
+  const includedSet = new Set(params.includedScopeKeys);
+  const noteSet = new Set(params.noteBackedKeys || []);
+  const scopeIncluded = relatedScopeKeys.some((id) => includedSet.has(id));
+  const relevant = scopeIncluded || noteSet.has(measurementKey);
 
   return {
     relevant,

@@ -227,7 +227,7 @@ describe('Step 2 benchmark + measurement-status binding', () => {
     expect(missingStatusDisplayLabel('insulation')).toBe('Needs thermal-envelope insulation SF');
     expect(missingStatusDisplayLabel('drywall')).toBe('Needs wall and ceiling surface SF');
     expect(missingStatusDisplayLabel('paint_trim')).toBe('Needs paintable wall and ceiling SF');
-    expect(missingStatusDisplayLabel('appliances')).toBe('Needs appliance count');
+    expect(missingStatusDisplayLabel('appliances')).toBe('Needs install pricing');
     expect(missingStatusDisplayLabel('framing')).not.toMatch(/^Needs sqft$/i);
   });
 

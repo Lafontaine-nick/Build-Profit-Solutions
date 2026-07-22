@@ -4,11 +4,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import type { BenchmarkReasonableness } from '@/utils/benchmarkEngine';
+import type { ConfirmScopeAppliedPricingBreakdown } from '@/utils/benchmarkReasonablenessContext';
 import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 
 type Props = {
   value: BenchmarkReasonableness;
   darkMode: boolean;
+  /** Applied Confirm Scope dollars — total + material / labor / allowances. */
+  appliedBreakdown?: ConfirmScopeAppliedPricingBreakdown | null;
 };
 
 const APP_GREEN = '#22c55e';
@@ -19,7 +22,11 @@ function formatWholeDollars(amount: number): string {
   return `$${Math.round(n).toLocaleString()}`;
 }
 
-export default function BenchmarkReasonablenessCard({ value, darkMode }: Props) {
+export default function BenchmarkReasonablenessCard({
+  value,
+  darkMode,
+  appliedBreakdown = null,
+}: Props) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -41,8 +48,38 @@ export default function BenchmarkReasonablenessCard({ value, darkMode }: Props) 
     styles.cardPad,
   ];
 
+  const showBreakdown =
+    appliedBreakdown != null &&
+    appliedBreakdown.total > 0 &&
+    (appliedBreakdown.material > 0 ||
+      appliedBreakdown.labor > 0 ||
+      appliedBreakdown.allowance > 0);
+
   return (
     <View style={cardStyle}>
+      {showBreakdown ? (
+        <>
+          <Text style={[styles.label, { color: text }]}>Applied pricing</Text>
+          <Text style={[styles.primary, { color: text }]} accessibilityRole="text">
+            {formatWholeDollars(appliedBreakdown.total)}
+          </Text>
+          <View style={styles.breakdownRow}>
+            <Text style={[styles.breakdownText, { color: muted }]}>
+              Material {formatWholeDollars(appliedBreakdown.material)}
+            </Text>
+            <Text style={[styles.breakdownDot, { color: muted }]}>·</Text>
+            <Text style={[styles.breakdownText, { color: muted }]}>
+              Labor {formatWholeDollars(appliedBreakdown.labor)}
+            </Text>
+            <Text style={[styles.breakdownDot, { color: muted }]}>·</Text>
+            <Text style={[styles.breakdownText, { color: muted }]}>
+              Allowances {formatWholeDollars(appliedBreakdown.allowance)}
+            </Text>
+          </View>
+          <View style={[styles.divider, { backgroundColor: darkMode ? 'rgba(255,255,255,0.1)' : Colors.line }]} />
+        </>
+      ) : null}
+
       <Text style={[styles.label, { color: text }]}>Build cost / SF</Text>
       <Text style={[styles.primary, { color: text }]} accessibilityRole="text">
         {formatWholeDollars(value.currentPerLivingSf)}
@@ -111,6 +148,27 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     letterSpacing: 0,
+  },
+  breakdownRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 4,
+  },
+  breakdownText: {
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 17,
+  },
+  breakdownDot: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    marginTop: 14,
+    marginBottom: 12,
   },
   verdict: {
     fontSize: 13,

@@ -97,11 +97,15 @@ describe('groundUpFinishPackages', () => {
 
     const plumbing = resolvePlumbingTrimLumpSuggestedFill({ livingSf: 1879, state: 'UT' });
     expect(plumbing.total).toBe(5600);
+    expect(plumbing.material).toBeCloseTo(5600 * 0.65, 0);
+    expect(plumbing.labor).toBeCloseTo(5600 * 0.35, 0);
     expect(plumbing.rateSourceLabel).toBe('Blended national + barometer · Plan 41 (national floor)');
     expect(plumbing.helper).toMatch(/size-adjusted NAHB plumbing fixtures/i);
 
     const electrical = resolveElectricalTrimLumpSuggestedFill({ livingSf: 1879 });
     expect(electrical.total).toBe(3400);
+    expect(electrical.material).toBeCloseTo(3400 * 0.58, 0);
+    expect(electrical.labor).toBeCloseTo(3400 * 0.42, 0);
     expect(electrical.rateSourceLabel).toMatch(/Plan 41 \(national floor\)/);
 
     const landscaping = resolveLandscapingLumpSuggestedFill({ livingSf: 1879 });
@@ -156,8 +160,8 @@ describe('groundUpFinishPackages', () => {
     const input = inputWith({});
     const landscapingTotal = blendBarometerLump(9800, LANDSCAPING_NATIONAL_AVERAGE_TOTAL);
     for (const [id, total, sourcePattern, lumpOnly] of [
-      ['plumbing_trim', 5600, /Blended national.*Plan 41 \(national floor\)/, true],
-      ['electrical_trim', 3400, /Blended national.*Plan 41 \(national floor\)/, true],
+      ['plumbing_trim', 5600, /Blended national.*Plan 41 \(national floor\)/, false],
+      ['electrical_trim', 3400, /Blended national.*Plan 41 \(national floor\)/, false],
       ['landscaping', landscapingTotal, /Blended national.*Plan 41/, false],
     ] as const) {
       const resolved = resolveChecklistItemQuantity(id, input, { templateKey: 'ground_up' });
@@ -167,6 +171,10 @@ describe('groundUpFinishPackages', () => {
       expect(fill?.total).toBe(total);
       expect(fill?.lumpSumOnly).toBe(lumpOnly);
       expect(fill?.rateSourceLabel).toMatch(sourcePattern);
+      if (id === 'plumbing_trim' || id === 'electrical_trim') {
+        expect(fill?.material).toBeGreaterThan(0);
+        expect(fill?.labor).toBeGreaterThan(0);
+      }
     }
 
     const landscaping = resolveScopeItemSuggestedPricing(

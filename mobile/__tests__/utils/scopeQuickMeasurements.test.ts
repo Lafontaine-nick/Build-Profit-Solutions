@@ -5,6 +5,7 @@ import {
   quickMeasurementRowsForInput,
   quickMeasurementRowsForTemplate,
   quickMeasurementSectionsForRows,
+  resolveEffectiveQuickMeasurementTemplateKey,
   resolveQuickMeasurementDisplayValue,
   resolveQuickMeasurementTemplateKey,
 } from '@/utils/scopeQuickMeasurements';
@@ -32,6 +33,24 @@ describe('scopeQuickMeasurements', () => {
 
     expect(roomAddition?.label).toBe('Room addition');
     expect(garageConversion?.label).toBe('Garage conversion');
+  });
+
+  it('upgrades room_remodel to ground_up when plan takeoff looks like a whole home', () => {
+    expect(
+      resolveEffectiveQuickMeasurementTemplateKey({
+        templateKey: 'room_remodel',
+        planRoomCount: 11,
+        livingSf: 3098,
+        garageSf: 900,
+      })
+    ).toBe('ground_up');
+    expect(
+      resolveEffectiveQuickMeasurementTemplateKey({
+        templateKey: 'kitchen',
+        planRoomCount: 1,
+        livingSf: 180,
+      })
+    ).toBe('kitchen');
   });
 
   it('uses living-first ground_up layout for new builds', () => {

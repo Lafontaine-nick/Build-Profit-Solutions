@@ -21,6 +21,8 @@ import {
 import { benchmarkActionButtonLabel, missingStatusDisplayLabel } from '@/utils/measurementSemantics/scopePriceUi';
 import { SCOPE_PARSED_FROM_NOTES_LABEL } from '@/constants/scopeNoteSourceLabels';
 import {
+  formatCountFieldSuffix,
+  formatDualCountQuantity,
   getScopeQuantityFieldLabels,
   pricingBasisFieldLabel,
   type SuggestedPricingBlock,
@@ -207,13 +209,22 @@ describe('suggestedPricingCardUi', () => {
     expect(suggestedCardTitle({ isFallbackPricing: true })).toBe('Suggested planning price');
   });
 
+  it('hides redundant each suffix on count fields', () => {
+    expect(formatCountFieldSuffix('each')).toBeUndefined();
+    expect(formatCountFieldSuffix('ea')).toBeUndefined();
+    expect(formatCountFieldSuffix('sqft')).toBe('sqft');
+    expect(formatCountFieldSuffix('points')).toBe('points');
+    expect(formatDualCountQuantity(4, 'each')).toBe('4');
+    expect(formatDualCountQuantity(1200, 'sqft')).toBe('1,200 sqft');
+  });
+
   it('uses specific count/area field labels for measurement-needed scopes', () => {
     expect(getScopeQuantityFieldLabels('windows_doors').count).toBe('Window & door openings');
     expect(getScopeQuantityFieldLabels('plumbing_rough').count).toBe('Rough-in points');
     expect(getScopeQuantityFieldLabels('electrical_rough').count).toBe('Circuits / devices / boxes');
     expect(getScopeQuantityFieldLabels('hvac').count).toBe('Systems / tons');
     expect(getScopeQuantityFieldLabels('insulation').count).toBe('Thermal-envelope area');
-    expect(getScopeQuantityFieldLabels('appliances').count).toBe('Appliance count');
+    expect(getScopeQuantityFieldLabels('appliances').count).toBe('Appliances');
     expect(pricingBasisFieldLabel('windows_doors', 'each')).toBe('Window & door openings');
     expect(pricingBasisFieldLabel('insulation', 'sqft')).toBe('Thermal-envelope area');
     expect(pricingBasisFieldLabel('unknown_scope', 'sqft')).toBe('Area (sqft)');

@@ -57,7 +57,7 @@ describe('resolveQuickMeasurementFields', () => {
     expect(byKey.cabinetLf.state).toBe('needs_confirmation');
   });
 
-  test('irrelevant (not-included) scopes do not surface needs_confirmation or estimate states', () => {
+  test('ground_up keeps the full Quick measurements list visible even with sparse included scopes', () => {
     const rows = groundUpRows();
     const measurements = { ...emptyQuickMeasurementInput(), floorAreaSqft: '1879' };
     const results = resolveQuickMeasurementFields({
@@ -65,14 +65,32 @@ describe('resolveQuickMeasurementFields', () => {
       measurements,
       sourceMap: { floorAreaSqft: 'plan_detected' },
       includedScopeKeys: [], // nothing included
+      templateKey: 'ground_up',
     });
     const byKey = Object.fromEntries(results.map((r) => [r.key, r]));
-    expect(byKey.showerWallTileSqft.state).toBe('not_relevant');
-    expect(byKey.cabinetLf.state).toBe('not_relevant');
-    expect(byKey.roofSquares.state).toBe('not_relevant');
-    expect(byKey.excavationCy.state).toBe('not_relevant');
-    // Core structural fields stay relevant even with nothing else included.
+    // Whole-home templates restore the always-visible field list (garage, kitchen, concrete, etc.).
+    expect(byKey.garageSqft.state).toBe('needs_confirmation');
+    expect(byKey.kitchenFloorSqft.state).toBe('needs_confirmation');
+    expect(byKey.cabinetLf.state).toBe('needs_confirmation');
+    expect(byKey.concreteSqft.state).toBe('needs_confirmation');
     expect(byKey.floorAreaSqft.state).toBe('detected');
+  });
+
+  test('non whole-home templates still hide fields for scopes that are not included', () => {
+    const rows = quickMeasurementRowsForInput('room_remodel', 'room_remodel', emptyQuickMeasurementInput(), []);
+    const measurements = { ...emptyQuickMeasurementInput(), bathroomFloorSqft: '' };
+    const results = resolveQuickMeasurementFields({
+      rows,
+      measurements,
+      includedScopeKeys: ['drywall'],
+      templateKey: 'room_remodel',
+    });
+    const byKey = Object.fromEntries(results.map((r) => [r.key, r]));
+    expect(byKey.drywallSqft.state).toBe('needs_confirmation');
+    // Paint is on the room_remodel card but not relevant unless paint scope is included.
+    if (byKey.wallPaintSqft) {
+      expect(byKey.wallPaintSqft.state).toBe('not_relevant');
+    }
   });
 
   test('note-backed measurements are treated as relevant even when the scope item is not included', () => {
@@ -161,7 +179,7 @@ describe('summarizeQuickMeasurementFieldStates', () => {
 });
 
 describe('groupQuickMeasurementFields', () => {
-  test('splits fields into From plan, Suggestions, Needs confirmation, and More', () => {
+  test('splits fields into From plan, Suggestions, and Needs confirmation for ground_up', () => {
     const rows = groundUpRows();
     const measurements = { ...emptyQuickMeasurementInput(), floorAreaSqft: '1879', garageSqft: '994' };
     const results = resolveQuickMeasurementFields({
@@ -169,6 +187,7 @@ describe('groupQuickMeasurementFields', () => {
       measurements,
       sourceMap: { floorAreaSqft: 'plan_detected', garageSqft: 'plan_detected' },
       includedScopeKeys: ['roofing', 'foundation', 'excavation', 'cabinets', 'shower_tile'],
+      templateKey: 'ground_up',
     });
     const groups = groupQuickMeasurementFields(results);
     expect(groups.fromPlan.map((r) => r.key)).toEqual(expect.arrayContaining(['floorAreaSqft', 'garageSqft']));
@@ -176,11 +195,10 @@ describe('groupQuickMeasurementFields', () => {
       expect.arrayContaining(['roofSquares', 'concreteCy', 'excavationCy'])
     );
     expect(groups.needsConfirmation.map((r) => r.key)).toEqual(
-      expect.arrayContaining(['cabinetLf', 'showerWallTileSqft'])
+      expect.arrayContaining(['cabinetLf', 'showerWallTileSqft', 'kitchenFloorSqft', 'concreteSqft'])
     );
-    expect(groups.more.length).toBeGreaterThan(0);
-    expect(groups.more.every((r) => r.state === 'not_relevant')).toBe(true);
-    // Irrelevant blanks must not appear in needs confirmation.
+    // Whole-home cards keep the full list visible — no collapsed "More" dump.
+    expect(groups.more).toHaveLength(0);
     expect(groups.needsConfirmation.every((r) => r.state === 'needs_confirmation')).toBe(true);
   });
 });

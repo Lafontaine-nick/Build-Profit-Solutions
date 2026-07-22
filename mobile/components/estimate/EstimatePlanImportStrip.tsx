@@ -17,7 +17,6 @@ import {
   takePlanPhoto,
 } from '@/utils/planImportRunner';
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
-import { readyStateSummary } from '@/utils/planTakeoffReviewUi';
 
 type Colors = {
   text: string;
@@ -47,6 +46,8 @@ type Props = {
   darkMode: boolean;
   disabled?: boolean;
   existingNotes: string;
+  /** When set, shows unified "Plan ready" card instead of import CTA. */
+  planReadySubtitle?: string | null;
   /** Optional template/project hints once known; Step 1 usually has none yet. */
   templateKeyHint?: string | null;
   projectTypeHint?: string | null;
@@ -58,13 +59,15 @@ export default function EstimatePlanImportStrip({
   darkMode,
   disabled = false,
   existingNotes,
+  planReadySubtitle = null,
   templateKeyHint = null,
   projectTypeHint = null,
   onApplied,
 }: Props) {
   const [importing, setImporting] = useState(false);
   const [planReview, setPlanReview] = useState<PlanToMeasurementsResult | null>(null);
-  const [appliedSummary, setAppliedSummary] = useState<string | null>(null);
+  const planReady = Boolean(planReadySubtitle?.trim());
+  const semanticsOn = measurementSemanticsV1Enabled();
 
   const executeTakeoff = useCallback(
     async (pages: Array<{ base64: string; mimeType: string; name?: string }>) => {
@@ -152,21 +155,6 @@ export default function EstimatePlanImportStrip({
       const measCount = Object.keys(values).length;
       const roomCount = rooms.length;
       const scopeCount = scopeDetections.length;
-      if (measurementSemanticsV1Enabled()) {
-        setAppliedSummary(
-          readyStateSummary({
-            measurementCount: measCount,
-            spaceCount: roomCount,
-            scopeCount,
-          }).replace(/^Ready ·\s*/, '')
-        );
-      } else {
-        const bits: string[] = [];
-        if (measCount) bits.push(`${measCount} measurement${measCount === 1 ? '' : 's'}`);
-        if (roomCount) bits.push(`${roomCount} room${roomCount === 1 ? '' : 's'}`);
-        if (scopeCount) bits.push(`${scopeCount} scope item${scopeCount === 1 ? '' : 's'}`);
-        setAppliedSummary(bits.length ? bits.join(' · ') : 'Plan reviewed');
-      }
 
       onApplied({
         measurements: values,
@@ -187,6 +175,24 @@ export default function EstimatePlanImportStrip({
     [planReview, onApplied, existingNotes]
   );
 
+  const cardShell = {
+    borderRadius: 14,
+    borderWidth: planReady ? 1.5 : 1,
+    borderColor: planReady
+      ? 'rgba(56,211,159,0.5)'
+      : darkMode
+        ? 'rgba(148,163,184,0.25)'
+        : Colors.line,
+    backgroundColor: planReady
+      ? darkMode
+        ? 'rgba(56,211,159,0.12)'
+        : 'rgba(34,197,94,0.08)'
+      : darkMode
+        ? 'rgba(34,197,94,0.08)'
+        : 'rgba(34,197,94,0.06)',
+    opacity: importing || disabled ? 0.55 : 1,
+  };
+
   return (
     <View style={{ marginBottom: 16 }}>
       <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 4 }}>
@@ -199,31 +205,49 @@ export default function EstimatePlanImportStrip({
         onPress={openPicker}
         disabled={importing || disabled}
         activeOpacity={0.75}
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 8,
-          paddingVertical: 10,
-          paddingHorizontal: 12,
-          borderRadius: 10,
-          borderWidth: 1,
-          borderColor: darkMode ? 'rgba(148,163,184,0.25)' : Colors.line,
-          backgroundColor: darkMode ? 'rgba(34,197,94,0.08)' : 'rgba(34,197,94,0.06)',
-          opacity: importing || disabled ? 0.55 : 1,
-        }}
+        style={[
+          {
+            flexDirection: 'row',
+            alignItems: 'flex-start',
+            gap: 10,
+            padding: planReady ? 14 : 10,
+            paddingHorizontal: planReady ? 14 : 12,
+          },
+          cardShell,
+        ]}
       >
         {importing ? (
-          <ActivityIndicator size="small" color="#22c55e" />
+          <ActivityIndicator size="small" color="#22c55e" style={{ marginTop: 2 }} />
         ) : (
-          <Ionicons name="map-outline" size={18} color="#22c55e" />
+          <Ionicons
+            name={planReady ? 'checkmark-circle' : 'map-outline'}
+            size={planReady ? 24 : 18}
+            color={planReady ? '#38d39f' : '#22c55e'}
+            style={{ marginTop: planReady ? 0 : 1 }}
+          />
         )}
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '700' }}>
-            {importing ? 'Reading plan…' : 'Import from plan'}
+          <Text style={{ color: Colors.text, fontSize: planReady ? 15 : 13, fontWeight: planReady ? '800' : '700' }}>
+            {importing ? 'Reading plan…' : planReady ? 'Plan ready to generate' : 'Import from plan'}
           </Text>
-          <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2 }}>
-            {appliedSummary
-              ? `Ready · ${appliedSummary}`
+          {planReady && planReadySubtitle ? (
+            <Text style={{ color: '#38d39f', fontSize: 13, fontWeight: '700', marginTop: 4 }}>
+              {planReadySubtitle}
+            </Text>
+          ) : null}
+          <Text
+            style={{
+              color: planReady ? Colors.sub : Colors.sub,
+              fontSize: planReady ? 12 : 11,
+              lineHeight: planReady ? 17 : 16,
+              marginTop: planReady ? 6 : 2,
+              fontWeight: '400',
+            }}
+          >
+            {planReady
+              ? semanticsOn
+                ? 'Tap Generate Estimate Draft below — job notes are optional. Tap here to import a different plan.'
+                : 'Review Job notes, then Generate. Tap here to import a different plan.'
               : 'Photo, library pages, or PDF — you review before Generate'}
           </Text>
         </View>
