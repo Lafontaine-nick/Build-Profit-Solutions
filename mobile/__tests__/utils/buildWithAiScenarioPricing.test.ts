@@ -93,7 +93,7 @@ describe('Build with AI scenario pricing', () => {
         suggestedBlock: fill,
         intelligence: {
           scopeItemKey: 'permits',
-          pricing: { source: 'national_average', confidence: 'low', confidenceLabel: 'Low confidence', reason: '' },
+          pricing: { source: 'national_average', confidence: 'low', confidenceLabel: 'Planning estimate', reason: '' },
           quantity: { source: 'user_entered', sourceLabel: 'User entered', confidence: 'high', confidenceLabel: 'High confidence', reason: '' },
           validation: { status: 'ready', issues: [] },
         } as any,
@@ -109,7 +109,7 @@ describe('Build with AI scenario pricing', () => {
         display,
         intelligence: {
           scopeItemKey: 'permits',
-          pricing: { source: 'national_average', confidence: 'low', confidenceLabel: 'Low confidence', reason: '' },
+          pricing: { source: 'national_average', confidence: 'low', confidenceLabel: 'Planning estimate', reason: '' },
           quantity: { source: 'user_entered', sourceLabel: 'User entered', confidence: 'high', confidenceLabel: 'High confidence', reason: '' },
           validation: { status: 'ready', issues: [] },
         } as any,

@@ -166,7 +166,7 @@ describe('getQuickMeasurementEstimate', () => {
     expect(estimate.confidence).toBe('medium');
     expect(estimate.inputsUsed.exteriorPerimeterLf).toBe(232);
     expect(estimate.inputsUsed.wallHeightFt).toBe(10.2);
-    expect(quickMeasurementSourceLabel(estimate.sourceType)).toBe('Calculated estimate');
+    expect(quickMeasurementSourceLabel(estimate.sourceType)).toBe('Footprint-based estimate');
   });
 
   test('cabinets and countertops have no formula — always Needs confirmation upstream', () => {

@@ -42,11 +42,19 @@ type Props = {
   visible: boolean;
   generating?: boolean;
   initialNotes?: string;
+  /** Restore plan takeoff when reopening Step 1 after Confirm Scope Back. */
+  initialPlanImport?: PlanImportPayload | null;
+  /** True when a Confirm Scope / review draft already exists — show Continue instead of wiping. */
+  hasExistingDraft?: boolean;
   fromAssistant?: boolean;
   /** Render inside AI Assistant instead of a separate Modal (fixes iOS stacking). */
   embedded?: boolean;
   onClose: () => void;
   onBack?: () => void;
+  /** Resume preserved Confirm Scope without regenerating. */
+  onContinueDraft?: () => void;
+  /** Keep parent lastPlanImport in sync when user imports/replaces a plan. */
+  onPlanImportChange?: (planImport: PlanImportPayload | null) => void;
   onGenerate: (
     notes: string,
     photoDetections?: PhotoScopeDetection[],
@@ -58,10 +66,14 @@ export default function AIEstimateBuilderModal({
   visible,
   generating = false,
   initialNotes = '',
+  initialPlanImport = null,
+  hasExistingDraft = false,
   fromAssistant = false,
   embedded = false,
   onClose,
   onBack,
+  onContinueDraft,
+  onPlanImportChange,
   onGenerate,
 }: Props) {
   const insets = useSafeAreaInsets();
@@ -89,7 +101,8 @@ export default function AIEstimateBuilderModal({
       setNotes(initialNotes || '');
       setPhotoDetections([]);
       setPhotoState({ photoCount: 0, hasAnalyzed: false });
-      setPlanImport(null);
+      // Restore plan import when resuming a draft session; otherwise start clean.
+      setPlanImport(initialPlanImport || null);
       setPlanSummaryExpanded(false);
     }
     if (!visible) {
@@ -97,7 +110,7 @@ export default function AIEstimateBuilderModal({
       setLocalGenerating(false);
     }
     wasVisibleRef.current = visible;
-  }, [visible, initialNotes]);
+  }, [visible, initialNotes, initialPlanImport]);
 
   useEffect(() => {
     if (!generating) {
@@ -181,7 +194,7 @@ export default function AIEstimateBuilderModal({
     } else if (result.mergedNotes?.trim()) {
       setNotes(result.mergedNotes);
     }
-    setPlanImport({
+    const nextPlanImport: PlanImportPayload = {
       measurements: result.measurements,
       scopeDetections: result.scopeDetections,
       rooms: result.rooms || [],
@@ -190,18 +203,22 @@ export default function AIEstimateBuilderModal({
       buildingAreas: result.buildingAreas,
       planFacts: result.planFacts,
       fieldConfidence: result.fieldConfidence,
-    });
+    };
+    setPlanImport(nextPlanImport);
+    onPlanImportChange?.(nextPlanImport);
     setTimeout(() => {
       const meas = Object.keys(result.measurements || {}).length;
       const scope = result.scopeDetections?.length || 0;
       Alert.alert(
         'Plan ready',
         semanticsOn
-          ? 'Your plan is loaded. Tap Generate Estimate Draft at the bottom to build your scope draft.'
+          ? hasExistingDraft
+            ? 'Your plan is loaded. Continue to Confirm scope to keep your draft, or Regenerate to rebuild from this plan.'
+            : 'Your plan is loaded. Tap Generate Estimate Draft at the bottom to build your scope draft.'
           : [
               meas ? `${meas} measurement${meas === 1 ? '' : 's'} ready` : null,
               scope ? `${scope} scope item${scope === 1 ? '' : 's'} ready` : null,
-              'Review Job notes, then Generate.',
+              hasExistingDraft ? 'Continue or Regenerate below.' : 'Review Job notes, then Generate.',
             ]
               .filter(Boolean)
               .join('. ')
@@ -272,10 +289,16 @@ export default function AIEstimateBuilderModal({
     }
   };
 
-  const handleGenerate = () => {
-    const trimmed = notes.trim();
-    const canRun = Boolean(trimmed || (semanticsOn && hasPlanImport));
-    if (!canRun || busy) return;
+  const handleContinueDraft = () => {
+    if (busy || !onContinueDraft) return;
+    Keyboard.dismiss();
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    onContinueDraft();
+  };
+
+  const proceedGenerate = () => {
     // Photos attached but Detect never run — remind so users don't skip vision scope.
     if (photoState.photoCount > 0 && !photoState.hasAnalyzed) {
       const n = photoState.photoCount;
@@ -283,7 +306,11 @@ export default function AIEstimateBuilderModal({
         'Detect scope from photos?',
         `You added ${n} photo${n === 1 ? '' : 's'} but haven't run Detect scope yet. That step finds finishes and likely work from the pictures — worth doing before generating.`,
         [
-          { text: 'Generate anyway', style: 'cancel', onPress: () => void runGenerate() },
+          {
+            text: hasExistingDraft ? 'Regenerate anyway' : 'Generate anyway',
+            style: 'cancel',
+            onPress: () => void runGenerate(),
+          },
           {
             text: 'Detect first',
             onPress: () => photosStripRef.current?.detectScope(),
@@ -293,6 +320,24 @@ export default function AIEstimateBuilderModal({
       return;
     }
     void runGenerate();
+  };
+
+  const handleGenerate = () => {
+    const trimmed = notes.trim();
+    const canRun = Boolean(trimmed || (semanticsOn && hasPlanImport));
+    if (!canRun || busy) return;
+    if (hasExistingDraft) {
+      Alert.alert(
+        'Replace current scope draft?',
+        'Your Yes/No choices, measurements you confirmed, and applied prices will reset. Plan and notes stay — regenerate rebuilds scope from them.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Regenerate', style: 'destructive', onPress: proceedGenerate },
+        ]
+      );
+      return;
+    }
+    proceedGenerate();
   };
 
   const placeholderColor = darkMode ? 'rgba(255,255,255,0.4)' : Colors.sub;
@@ -309,7 +354,9 @@ export default function AIEstimateBuilderModal({
   const notesField = (
     <>
       <Text style={{ color: Colors.sub, fontSize: 13, lineHeight: 18, marginBottom: 14 }}>
-        Type, paste, dictate, add site photos, or import plans — AI drafts scope for review.
+        {hasExistingDraft
+          ? 'Draft saved — continue to Confirm scope, or regenerate to rebuild from notes and plan.'
+          : 'Type, paste, dictate, add site photos, or import plans — AI drafts scope for review.'}
       </Text>
 
       <EstimatePlanImportStrip
@@ -435,25 +482,59 @@ export default function AIEstimateBuilderModal({
         backgroundColor: Colors.bg,
       }}
     >
+      {hasExistingDraft && onContinueDraft && !busy ? (
+        <TouchableOpacity
+          activeOpacity={0.88}
+          onPress={handleContinueDraft}
+          style={[styles.primaryBtn, { backgroundColor: '#22c55e', marginBottom: 10 }]}
+        >
+          <MaterialIcons name="arrow-forward" size={20} color="#0f172a" />
+          <Text style={styles.primaryBtnText}>Continue to Confirm scope</Text>
+        </TouchableOpacity>
+      ) : null}
       <TouchableOpacity
         activeOpacity={0.88}
         disabled={!canGenerate}
         onPress={handleGenerate}
         style={[
           styles.primaryBtn,
-          { backgroundColor: canGenerate || busy ? '#22c55e' : '#64748b' },
+          hasExistingDraft && onContinueDraft && !busy
+            ? {
+                backgroundColor: 'transparent',
+                borderWidth: 1.5,
+                borderColor: canGenerate ? '#22c55e' : '#64748b',
+              }
+            : { backgroundColor: canGenerate || busy ? '#22c55e' : '#64748b' },
           !canGenerate && !busy ? styles.primaryBtnDisabled : null,
         ]}
       >
         {busy ? (
           <>
-            <ActivityIndicator color="#0f172a" />
-            <Text style={styles.primaryBtnText}>Generating…</Text>
+            <ActivityIndicator color={hasExistingDraft ? '#22c55e' : '#0f172a'} />
+            <Text
+              style={[
+                styles.primaryBtnText,
+                hasExistingDraft ? { color: '#22c55e' } : null,
+              ]}
+            >
+              Generating…
+            </Text>
           </>
         ) : (
           <>
-            <MaterialIcons name="auto-awesome" size={20} color="#0f172a" />
-            <Text style={styles.primaryBtnText}>Generate Estimate Draft</Text>
+            <MaterialIcons
+              name="auto-awesome"
+              size={20}
+              color={hasExistingDraft && onContinueDraft ? '#22c55e' : '#0f172a'}
+            />
+            <Text
+              style={[
+                styles.primaryBtnText,
+                hasExistingDraft && onContinueDraft ? { color: '#22c55e' } : null,
+              ]}
+            >
+              {hasExistingDraft ? 'Regenerate draft' : 'Generate Estimate Draft'}
+            </Text>
           </>
         )}
       </TouchableOpacity>
@@ -469,7 +550,7 @@ export default function AIEstimateBuilderModal({
       <View style={{ flex: 1 }}>
         <AIEstimateFlowHeader
           title="Build with AI"
-          subtitle="Notes, photos, or plans"
+          subtitle={hasExistingDraft ? 'Draft saved — continue or regenerate' : 'Notes, photos, or plans'}
           step={1}
           fromAssistant={fromAssistant}
           omitTopSafeArea={embedded}

@@ -101,6 +101,7 @@ import {
   fetchRoughEstimateRange,
   getScopePackages,
   isComplexEstimateTier,
+  planImportPayloadFromDraft,
   removeScopePackageFromDraft,
   syncConfirmScopeMeasurementsFromPackages,
   syncSelectedScopePricing,
@@ -5231,6 +5232,8 @@ export default function EstimateGeneratorScreen() {
   const [showAiManualPricingModal, setShowAiManualPricingModal] = useState(false);
   const [showAiScopeAssumptionsModal, setShowAiScopeAssumptionsModal] = useState(false);
   const [aiScopeAssumptionsApplying, setAiScopeAssumptionsApplying] = useState(false);
+  /** Survives Step 2 → Step 1 Back so regenerate can re-seed plan measurements. */
+  const [aiLastPlanImport, setAiLastPlanImport] = useState(null);
   // Stable draft identity — avoid `{ ...aiDraft }` on every parent re-render (keyboard open)
   // which used to thrash Confirm Scope and make Needs confirmation inputs jump on tap.
   const aiScopeAssumptionsDraft = useMemo(
@@ -5239,6 +5242,10 @@ export default function EstimateGeneratorScreen() {
         ? { ...aiDraft, originalNotes: aiDraft.originalNotes || aiDraftNotes }
         : null,
     [aiDraft, aiDraftNotes]
+  );
+  const aiBuilderInitialPlanImport = useMemo(
+    () => aiLastPlanImport || planImportPayloadFromDraft(aiDraft),
+    [aiLastPlanImport, aiDraft]
   );
   const [aiManualPricingSeed, setAiManualPricingSeed] = useState(null);
   const [aiManualPricingFocusPackage, setAiManualPricingFocusPackage] = useState(null);
@@ -5674,6 +5681,12 @@ export default function EstimateGeneratorScreen() {
         setAiDraft(saved.draft);
         setAiDraftNotes(saved.notes || saved.draft.originalNotes || '');
         setAiDraftFromAssistant(Boolean(saved.fromAssistant));
+        if (saved.planImport) {
+          setAiLastPlanImport(saved.planImport);
+        } else {
+          const fromDraft = planImportPayloadFromDraft(saved.draft);
+          if (fromDraft) setAiLastPlanImport(fromDraft);
+        }
       } catch (e) {
         console.warn('restore AI draft progress failed', e);
       }
@@ -5855,6 +5868,11 @@ export default function EstimateGeneratorScreen() {
 
   const handleGenerateAiDraft = useCallback(async (notes, photoDetections, planImport) => {
     if (aiDraftGenerating) return;
+    const effectivePlanImport =
+      planImport ||
+      aiLastPlanImport ||
+      planImportPayloadFromDraft(aiDraft) ||
+      null;
     setAiDraftGenerating(true);
     setAiDraftNotes(notes);
     setAiDraft(null);
@@ -5880,7 +5898,10 @@ export default function EstimateGeneratorScreen() {
       // Whole-home plan takeoffs must classify as ground_up — otherwise Confirm Scope
       // gets remodel cards (Demo / Framing or layout changes) instead of excavation,
       // flatwork, framing, MEP, exterior paint, etc.
-      const notesForDraft = ensureGroundUpPlanNotes(notes, planImportLooksLikeGroundUp(planImport));
+      const notesForDraft = ensureGroundUpPlanNotes(
+        notes,
+        planImportLooksLikeGroundUp(effectivePlanImport)
+      );
       let draft = await fetchEstimateDraftFromNotes(notesForDraft, templates);
       // Photo detections apply directly to the Step 2 checklist (structured vision
       // output, not notes-regex re-parsing) — only fills items still "unsure".
@@ -5889,19 +5910,20 @@ export default function EstimateGeneratorScreen() {
       }
       // Step 1 plan import: seed Quick measurements + draft scope detections.
       if (
-        (planImport?.measurements && Object.keys(planImport.measurements).length) ||
-        planImport?.rooms?.length ||
-        planImport?.scopeDetections?.length ||
-        planImport?.planFacts ||
-        planImport?.buildingAreas
+        (effectivePlanImport?.measurements && Object.keys(effectivePlanImport.measurements).length) ||
+        effectivePlanImport?.rooms?.length ||
+        effectivePlanImport?.scopeDetections?.length ||
+        effectivePlanImport?.planFacts ||
+        effectivePlanImport?.buildingAreas
       ) {
-        draft = applyPlanImportToDraft(draft, planImport);
+        if (effectivePlanImport) setAiLastPlanImport(effectivePlanImport);
+        draft = applyPlanImportToDraft(draft, effectivePlanImport);
         if (draft.scopeMeasurements) {
           latestScopeMeasurementsRef.current = draft.scopeMeasurements;
         }
         // Safety net: if classification still landed on remodel, regenerate as ground_up.
         if (
-          planImportLooksLikeGroundUp(planImport) &&
+          planImportLooksLikeGroundUp(effectivePlanImport) &&
           String(draft.scopeChecklist?.templateKey || '').toLowerCase() === 'room_remodel'
         ) {
           draft = await fetchEstimateDraftFromNotes(
@@ -5911,7 +5933,7 @@ export default function EstimateGeneratorScreen() {
           if (photoDetections?.length) {
             draft = applyPhotoDetectionsToDraft(draft, photoDetections);
           }
-          draft = applyPlanImportToDraft(draft, planImport);
+          draft = applyPlanImportToDraft(draft, effectivePlanImport);
           if (draft.scopeMeasurements) {
             latestScopeMeasurementsRef.current = draft.scopeMeasurements;
           }
@@ -5949,7 +5971,14 @@ export default function EstimateGeneratorScreen() {
     } finally {
       setAiDraftGenerating(false);
     }
-  }, [aiDraftGenerating, savedBidTemplates, applySavedPricingToDraftState, prefetchClarifyForDraft]);
+  }, [
+    aiDraft,
+    aiDraftGenerating,
+    aiLastPlanImport,
+    savedBidTemplates,
+    applySavedPricingToDraftState,
+    prefetchClarifyForDraft,
+  ]);
 
   const handlePersistScopeProgress = useCallback((items, measurements) => {
     setAiDraft((prev) => {
@@ -5974,13 +6003,14 @@ export default function EstimateGeneratorScreen() {
           draft: nextDraft,
           notes: scopeNotes,
           fromAssistant: aiDraftFromAssistant,
+          planImport: aiLastPlanImport || planImportPayloadFromDraft(nextDraft),
           stage: 'scope',
           updatedAt: Date.now(),
         })
       ).catch((e) => console.warn('persist AI scope progress failed', e));
       return nextDraft;
     });
-  }, [aiDraftFromAssistant, aiDraftNotes, syncDraftWithLatestScopeMeasurements]);
+  }, [aiDraftFromAssistant, aiDraftNotes, aiLastPlanImport, syncDraftWithLatestScopeMeasurements]);
 
   const handleConfirmScopeAssumptions = useCallback(
     async (confirmedItems, scopeMeasurements) => {
@@ -6029,6 +6059,8 @@ export default function EstimateGeneratorScreen() {
       }
 
       try {
+        // Skip the intermediate saved/rough pricing modals — Step 3 already handles
+        // unpriced scopes. Confirm Scope Apply still prices items the user accepted.
         await advanceComplexDraftAfterScope(enriched, { skipPricing: true });
       } catch (e) {
         console.warn('advanceComplexDraftAfterScope failed', e);
@@ -9883,6 +9915,7 @@ export default function EstimateGeneratorScreen() {
     setShowAiDraftReviewModal(false);
     setAiDraft(null);
     setAiDraftNotes('');
+    setAiLastPlanImport(null);
     AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
     setEstimateAiInitialQuestion('');
     setShowAiBuilderModal(true);
@@ -13407,6 +13440,7 @@ export default function EstimateGeneratorScreen() {
     // Clear Build with AI state so job notes don't carry over from the previous bid
     setAiDraftNotes('');
     setAiDraft(null);
+    setAiLastPlanImport(null);
     setAiClarifyQuestions(null);
     setAiClarifyQuestionItems(null);
     setAiClarifyAppliedSummary(null);
@@ -24688,6 +24722,7 @@ export default function EstimateGeneratorScreen() {
           setShowAiDraftReviewModal(false);
           setAiDraft(null);
           setAiDraftNotes('');
+          setAiLastPlanImport(null);
           AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
           setShowAiBuilderModal(true);
         }}
@@ -24697,6 +24732,8 @@ export default function EstimateGeneratorScreen() {
         visible={showAiBuilderModal}
         generating={aiDraftGenerating}
         initialNotes={aiDraftNotes}
+        initialPlanImport={aiBuilderInitialPlanImport}
+        hasExistingDraft={Boolean(aiDraft)}
         fromAssistant={aiDraftFromAssistant}
         onBack={() => {
           if (aiDraftGenerating) return;
@@ -24711,6 +24748,18 @@ export default function EstimateGeneratorScreen() {
             setShowAiBuilderModal(false);
             setAiDraftFromAssistant(false);
           }
+        }}
+        onContinueDraft={() => {
+          if (aiDraftGenerating || !aiDraft) return;
+          setShowAiBuilderModal(false);
+          if (isComplexEstimateTier(aiDraft)) {
+            reopenConfirmScopeFromReview();
+          } else {
+            setShowAiDraftReviewModal(true);
+          }
+        }}
+        onPlanImportChange={(next) => {
+          setAiLastPlanImport(next || null);
         }}
         onGenerate={handleGenerateAiDraft}
       />
@@ -24731,6 +24780,7 @@ export default function EstimateGeneratorScreen() {
           if (!aiScopeAssumptionsApplying) {
             setShowAiScopeAssumptionsModal(false);
             setAiDraft(null);
+            setAiLastPlanImport(null);
           }
         }}
         onConfirm={handleConfirmScopeAssumptions}

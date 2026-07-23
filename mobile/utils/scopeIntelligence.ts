@@ -264,8 +264,8 @@ type ScopeGapResolutionsLike = Record<string, { status?: string }>;
 
 const CONFIDENCE_LABELS: Record<IntelligenceConfidence, string> = {
   high: 'High confidence',
-  medium: 'Medium confidence',
-  low: 'Low confidence',
+  medium: 'Review before bid',
+  low: 'Planning estimate',
   missing: 'Measurement needed',
 };
 

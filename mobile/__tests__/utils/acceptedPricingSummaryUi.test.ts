@@ -76,7 +76,7 @@ function intelligence(overrides: Partial<ScopeItemIntelligence> = {}): ScopeItem
     pricing: {
       source: 'national_average',
       confidence: 'low',
-      confidenceLabel: 'Low confidence',
+      confidenceLabel: 'Planning estimate',
       reason: 'Pricing uses a broad national average fallback.',
     },
     pricingCompleteness: {
@@ -170,12 +170,12 @@ describe('acceptedPricingSummaryUi', () => {
     const display = displayForPermits();
     expect(display.selectionStatusLabel).toBe('Applied');
     expect(display.pricingSourceLabel).toBe('BPS national benchmark');
-    expect(display.confidenceLabel).toBe('Low confidence');
+    expect(display.confidenceLabel).toBe('Planning estimate');
     expect(display.warningMessage).toBe(
       'Based on national average pricing. Review before sending the estimate.'
     );
     expect(display.warningMessage).not.toMatch(/Local pricing was unavailable/i);
-    expect(display.warningMessage).not.toMatch(/Low confidence/i);
+    expect(display.warningMessage).not.toMatch(/Planning estimate/i);
     expect(getPricingSecondaryAction({
       display,
       intelligence: intelligence(),
@@ -203,7 +203,7 @@ describe('acceptedPricingSummaryUi', () => {
         pricing: {
           source: 'saved_rate',
           confidence: 'medium',
-          confidenceLabel: 'Medium confidence',
+          confidenceLabel: 'Review before bid',
           reason: '',
         },
         pricingCompleteness: {
@@ -902,7 +902,7 @@ describe('acceptedPricingSummaryUi', () => {
 
   it('uses pricing intelligence confidence for national average', () => {
     expect(confidenceBadgeLabel(intelligence(), buildAcceptanceFromSuggestedBlock(suggestedBlock()))).toBe(
-      'Low confidence'
+      'Planning estimate'
     );
   });
 

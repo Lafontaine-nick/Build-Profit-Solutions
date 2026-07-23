@@ -1090,7 +1090,7 @@ describe('scopeIntelligence', () => {
 
     const card = buildCardIntelligenceDisplay(intelligence);
     expect(card.confidence).toBe('low');
-    expect(card.confidenceLabel).toBe('Low confidence');
+    expect(card.confidenceLabel).toBe('Planning estimate');
     expect(card.conciseBenchmarkWarning).toMatch(/Base national average only/i);
     expect(card.conciseBenchmarkWarning).toMatch(/haul-off \/ export, dump fees, backfill, and compaction/i);
     expect(card.conciseBenchmarkWarning).toMatch(/5 scope assumptions/i);

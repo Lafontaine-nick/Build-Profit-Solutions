@@ -741,9 +741,9 @@ export function confidenceVisual(confidence: string | undefined): { label: strin
     return { label: 'High confidence', color: '#22c55e', bg: 'rgba(34,197,94,0.14)' };
   }
   if (confidence === 'low') {
-    return { label: 'Low confidence', color: '#fbbf24', bg: 'rgba(251,191,36,0.14)' };
+    return { label: 'Planning estimate', color: '#fbbf24', bg: 'rgba(251,191,36,0.14)' };
   }
-  return { label: 'Medium confidence', color: '#60a5fa', bg: 'rgba(96,165,250,0.14)' };
+  return { label: 'Review before bid', color: '#60a5fa', bg: 'rgba(96,165,250,0.14)' };
 }
 
 export type PricingProposal = {
@@ -4075,7 +4075,7 @@ export function applyPricingProposalToDraft(
       approved && pricedCount > 0
         ? {
             level: isRough ? 'medium' : allPriced ? 'high' : 'medium',
-            label: isRough ? 'Medium confidence' : allPriced ? 'High confidence' : 'Medium confidence',
+            label: isRough ? 'Review before bid' : allPriced ? 'High confidence' : 'Review before bid',
             summary: isRough
               ? 'AI rough estimate — review before applying to bid'
               : proposal.source === 'manual'

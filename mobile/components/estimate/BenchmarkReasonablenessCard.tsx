@@ -5,6 +5,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import type { BenchmarkReasonableness } from '@/utils/benchmarkEngine';
 import type { ConfirmScopeAppliedPricingBreakdown } from '@/utils/benchmarkReasonablenessContext';
+import { formatDraftMoney } from '@/utils/estimateAiDraft';
 import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 
 type Props = {
@@ -16,6 +17,7 @@ type Props = {
 
 const APP_GREEN = '#22c55e';
 
+/** Planning $/SF comparisons — whole dollars is fine. */
 function formatWholeDollars(amount: number): string {
   const n = Number(amount);
   if (!Number.isFinite(n)) return '—';
@@ -61,19 +63,19 @@ export default function BenchmarkReasonablenessCard({
         <>
           <Text style={[styles.label, { color: text }]}>Applied pricing</Text>
           <Text style={[styles.primary, { color: text }]} accessibilityRole="text">
-            {formatWholeDollars(appliedBreakdown.total)}
+            {formatDraftMoney(appliedBreakdown.total)}
           </Text>
           <View style={styles.breakdownRow}>
             <Text style={[styles.breakdownText, { color: muted }]}>
-              Material {formatWholeDollars(appliedBreakdown.material)}
+              Material {formatDraftMoney(appliedBreakdown.material)}
             </Text>
             <Text style={[styles.breakdownDot, { color: muted }]}>·</Text>
             <Text style={[styles.breakdownText, { color: muted }]}>
-              Labor {formatWholeDollars(appliedBreakdown.labor)}
+              Labor {formatDraftMoney(appliedBreakdown.labor)}
             </Text>
             <Text style={[styles.breakdownDot, { color: muted }]}>·</Text>
             <Text style={[styles.breakdownText, { color: muted }]}>
-              Allowances {formatWholeDollars(appliedBreakdown.allowance)}
+              Allowances {formatDraftMoney(appliedBreakdown.allowance)}
             </Text>
           </View>
           <View style={[styles.divider, { backgroundColor: darkMode ? 'rgba(255,255,255,0.1)' : Colors.line }]} />

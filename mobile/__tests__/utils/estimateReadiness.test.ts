@@ -75,7 +75,7 @@ function item(overrides: Partial<ScopeItemIntelligence> = {}): ScopeItemIntellig
     pricing: {
       source: 'saved_rate',
       confidence: 'medium',
-      confidenceLabel: 'Medium confidence',
+      confidenceLabel: 'Review before bid',
       reason: '',
     },
     pricingCompleteness: {

@@ -496,15 +496,15 @@ export function buildSuggestedPricingCardDisplay(input: {
   let pricingStatus: SuggestedPricingStatus = 'ready';
   if (lumpSumOnly) pricingStatus = 'allowance';
   else if (isFallbackPricing) pricingStatus = 'planning';
-  else if (/low|review|measurement/i.test(String(input.confidenceLabel || ''))) {
+  else if (/planning estimate|assumptions to review|review before bid|low|review|measurement/i.test(String(input.confidenceLabel || ''))) {
     pricingStatus = 'review_required';
   }
 
-  const confidenceLevel = /low/i.test(String(input.confidenceLabel || ''))
+  const confidenceLevel = /planning estimate|(?:^|\s)low/i.test(String(input.confidenceLabel || ''))
     ? 'low'
-    : /medium/i.test(String(input.confidenceLabel || ''))
+    : /review before bid|(?:^|\s)medium/i.test(String(input.confidenceLabel || ''))
       ? 'medium'
-      : /high/i.test(String(input.confidenceLabel || ''))
+      : /high confidence|(?:^|\s)high/i.test(String(input.confidenceLabel || ''))
         ? 'high'
         : null;
 

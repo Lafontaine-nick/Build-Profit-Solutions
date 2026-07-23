@@ -478,7 +478,6 @@ describe('resolveScopeItemSuggestedPricing', () => {
       'windows_doors',
       'hvac',
       'hvac_startup',
-      'appliances',
       'appliance_removal',
       'cabinets',
       'countertops',
@@ -503,6 +502,8 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(getChecklistItemQuantityRuleOrDefault('service_call', 'plumbing_service').allowanceOrSplit).toBeFalsy();
     expect(getChecklistItemQuantityRuleOrDefault('utility_taps', 'ground_up').allowanceOrSplit).toBeFalsy();
     expect(getChecklistItemQuantityRuleOrDefault('permits', 'addition').lumpSumOnly).toBe(true);
+    expect(getChecklistItemQuantityRuleOrDefault('appliances', 'addition').lumpSumOnly).toBe(true);
+    expect(getChecklistItemQuantityRuleOrDefault('contingency', 'addition').lumpSumOnly).toBe(true);
     expect(DEFAULT_SCOPE_ALLOWANCE_QUANTITY_RULE.allowanceOrSplit).toBeFalsy();
   });
 

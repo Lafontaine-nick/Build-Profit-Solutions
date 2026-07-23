@@ -52,7 +52,7 @@ describe('roughPricingTiers', () => {
         { name: 'Appliance install', scope: 'appliances' },
         groundUpDraft
       )
-    ).toBe('ready');
+    ).toBe('manual_only');
     expect(
       classifyUnpricedPackageTier({ name: 'Sitework', scope: 'sitework' }, groundUpDraft)
     ).toBe('planning');
@@ -73,10 +73,10 @@ describe('roughPricingTiers', () => {
   it('counts tier breakdown for Step 3 copy', () => {
     expect(countUnpricedRoughPricingTiers(groundUpDraft)).toEqual({
       unpriced: 4,
-      ready: 1,
+      ready: 0,
       planning: 1,
-      manualOnly: 2,
-      suggestable: 2,
+      manualOnly: 3,
+      suggestable: 1,
     });
   });
 
@@ -303,7 +303,7 @@ describe('roughPricingTiers', () => {
     );
 
     expect(proposal.scopeItems?.length).toBe(4);
-    expect(proposal.scopeItems?.filter((i) => i.roughPricingTier === 'manual_only').length).toBe(2);
+    expect(proposal.scopeItems?.filter((i) => i.roughPricingTier === 'manual_only').length).toBe(3);
     expect(proposal.empty).toBe(false);
   });
 });

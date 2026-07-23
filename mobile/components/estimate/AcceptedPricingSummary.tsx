@@ -10,6 +10,7 @@ import {
   buildSecondaryDisclosureContent,
   getPricingSecondaryAction,
   itemSpecificAssemblyComponents,
+  PRICING_CONFIDENCE_LABEL,
   type AcceptedPricingDisplay,
 } from '@/utils/acceptedPricingSummaryUi';
 import {
@@ -39,21 +40,21 @@ function calculatedQuantityAlreadyActive(intelligence: ScopeItemIntelligence): b
 }
 
 function confidenceBadgeColors(label: NonNullable<AcceptedPricingDisplay['confidenceLabel']>, darkMode: boolean) {
-  if (label === 'Scope review pending') {
+  if (label === PRICING_CONFIDENCE_LABEL.ASSUMPTIONS_TO_REVIEW) {
     return {
       border: darkMode ? 'rgba(251,191,36,0.35)' : 'rgba(245,158,11,0.28)',
       background: darkMode ? 'rgba(251,191,36,0.1)' : 'rgba(245,158,11,0.08)',
       text: '#fbbf24',
     };
   }
-  if (label === 'High confidence') {
+  if (label === PRICING_CONFIDENCE_LABEL.HIGH) {
     return {
       border: darkMode ? 'rgba(34,197,94,0.35)' : 'rgba(22,163,74,0.28)',
       background: darkMode ? 'rgba(34,197,94,0.12)' : 'rgba(22,163,74,0.08)',
       text: '#22c55e',
     };
   }
-  if (label === 'Medium confidence') {
+  if (label === PRICING_CONFIDENCE_LABEL.REVIEW_BEFORE_BID) {
     return {
       border: darkMode ? 'rgba(251,191,36,0.35)' : 'rgba(245,158,11,0.28)',
       background: darkMode ? 'rgba(251,191,36,0.1)' : 'rgba(245,158,11,0.08)',
@@ -339,9 +340,9 @@ export function AcceptedPricingSummary({
     const source = (display.pricingSourceLabel || '').trim();
     const confidence = display.showConfidenceBadge ? display.confidenceLabel : null;
     const attentionConfidence =
-      confidence === 'Scope review pending' ||
-      confidence === 'Low confidence' ||
-      confidence === 'Medium confidence'
+      confidence === PRICING_CONFIDENCE_LABEL.ASSUMPTIONS_TO_REVIEW ||
+      confidence === PRICING_CONFIDENCE_LABEL.PLANNING_ESTIMATE ||
+      confidence === PRICING_CONFIDENCE_LABEL.REVIEW_BEFORE_BID
         ? confidence
         : null;
     if (attentionConfidence) {
@@ -350,7 +351,7 @@ export function AcceptedPricingSummary({
     if (source && source.toLowerCase() !== status) {
       return { kind: 'source' as const, label: source };
     }
-    if (confidence === 'High confidence') {
+    if (confidence === PRICING_CONFIDENCE_LABEL.HIGH) {
       return { kind: 'confidence' as const, label: confidence };
     }
     return null;

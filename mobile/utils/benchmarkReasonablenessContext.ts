@@ -1,17 +1,17 @@
 import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
 import type { EstimateAiDraft, ScopeMeasurements } from '@/utils/estimateAiDraft';
-import { initialScopeMeasurementInputExtended } from '@/utils/scopeItemQuantities';
 import {
   currentScopePricingTotal,
   hasAcceptedScopePricing,
   type ScopePricingAcceptanceMetadata,
 } from '@/utils/acceptedPricingSummaryUi';
 import {
+  acceptedTradeScopeKeysForStage,
   benchmarkStageForScopeKey,
+  GROUND_UP_COMPARISON_ONLY_STAGE_KEYS,
   isGroundUpStageComparisonOnly,
   isIncludedInStageChild,
   isStageBenchmarkOwner,
-  stageHasAcceptedTradePricing,
   STAGE_BENCHMARK_OWNERS,
 } from '@/utils/measurementSemantics/scopePriceUi';
 import { planTotalLivingSqft } from '@/utils/planMeasurementFacts';
@@ -19,6 +19,8 @@ import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 import {
   allowanceSplitSubKey,
   checklistItemInScope,
+  initialScopeMeasurementInputExtended,
+  roughAllowanceSubKey,
   type NormalizedScopeMeasurements,
   type ScopeMeasurementsInputExtended,
 } from '@/utils/scopeItemQuantities';
@@ -218,7 +220,8 @@ function benchmarkStageForReasonablenessItem(itemId: string): string | null {
   return null;
 }
 
-function shouldSkipReasonablenessScopeTotal(
+/** True when this scope's Applied dollars must not count in Confirm Scope / Step 3 totals. */
+export function shouldSkipConfirmScopeAppliedTotal(
   itemId: string,
   templateKey: string | null | undefined,
   pricingAcceptance?: Record<string, unknown> | null
@@ -234,10 +237,14 @@ function shouldSkipReasonablenessScopeTotal(
 
   if (
     isGroundUpStageComparisonOnly(stageKey, templateKey) &&
-    isStageBenchmarkOwner(itemId, stageKey) &&
-    stageHasAcceptedTradePricing(stageKey, acceptance)
+    isStageBenchmarkOwner(itemId, stageKey)
   ) {
-    return true;
+    // Only skip the host when a *different* trade child is priced.
+    // The host's own national/mat+labor Apply must still count (e.g. Framing).
+    const tradeChildren = acceptedTradeScopeKeysForStage(stageKey, acceptance).filter(
+      (key) => key !== owner
+    );
+    if (tradeChildren.length > 0) return true;
   }
 
   if (
@@ -249,6 +256,94 @@ function shouldSkipReasonablenessScopeTotal(
   }
 
   return false;
+}
+
+/** @deprecated Use shouldSkipConfirmScopeAppliedTotal */
+function shouldSkipReasonablenessScopeTotal(
+  itemId: string,
+  templateKey: string | null | undefined,
+  pricingAcceptance?: Record<string, unknown> | null
+): boolean {
+  return shouldSkipConfirmScopeAppliedTotal(itemId, templateKey, pricingAcceptance);
+}
+
+/**
+ * Drop superseded ground-up stage-host Applied dollars when trade children are priced.
+ * Keeps card "Applied" badges aligned with the Applied pricing summary total.
+ */
+export function clearSupersededStageHostPricing<T extends ScopeMeasurementsInputExtended>(
+  measurements: T,
+  templateKey?: string | null
+): T {
+  if (String(templateKey || '').toLowerCase() !== 'ground_up') return measurements;
+  const pricingAcceptance = { ...(measurements.pricingAcceptance || {}) };
+  const itemQuantities = { ...(measurements.itemQuantities || {}) };
+  let changed = false;
+
+  for (const stageKey of GROUND_UP_COMPARISON_ONLY_STAGE_KEYS) {
+    const owner = STAGE_BENCHMARK_OWNERS[stageKey];
+    if (!owner) continue;
+    // Require a priced child trade — never wipe the host for its own Apply
+    // (Framing stage owner === framing trade).
+    const tradeChildren = acceptedTradeScopeKeysForStage(stageKey, pricingAcceptance).filter(
+      (key) => key !== owner
+    );
+    if (!tradeChildren.length) continue;
+    if (!hasAcceptedScopePricing(owner, itemQuantities, pricingAcceptance)) continue;
+    // Only drop a stage *planning allowance* — never Foundation/Framing trade $.
+    if (pricingAcceptance[owner]?.pricingSourceKind !== 'local_benchmark') continue;
+
+    delete pricingAcceptance[owner];
+    for (const key of [
+      owner,
+      allowanceSplitSubKey(owner, 'allowance'),
+      allowanceSplitSubKey(owner, 'sqft_basis'),
+      allowanceSplitSubKey(owner, 'material'),
+      allowanceSplitSubKey(owner, 'labor'),
+      roughAllowanceSubKey(owner),
+    ]) {
+      if (itemQuantities[key] != null) {
+        delete itemQuantities[key];
+        changed = true;
+      }
+    }
+    changed = true;
+  }
+
+  if (!changed) return measurements;
+  return {
+    ...measurements,
+    itemQuantities,
+    pricingAcceptance,
+    appliedBenchmarkKeys: (measurements.appliedBenchmarkKeys || []).filter(
+      (key) => !/::stage::/.test(String(key))
+    ),
+  };
+}
+
+/**
+ * True when this scope should show Applied dollars on its card.
+ * Matches Applied pricing summary — excludes superseded stage hosts / included children.
+ */
+export function scopeShowsConfirmScopeAppliedPricing(
+  itemId: string,
+  measurements: Pick<ScopeMeasurementsInputExtended, 'itemQuantities' | 'pricingAcceptance'>,
+  templateKey?: string | null
+): boolean {
+  if (
+    !hasAcceptedScopePricing(
+      itemId,
+      measurements.itemQuantities || {},
+      measurements.pricingAcceptance
+    )
+  ) {
+    return false;
+  }
+  return !shouldSkipConfirmScopeAppliedTotal(
+    itemId,
+    templateKey,
+    measurements.pricingAcceptance
+  );
 }
 
 /** Sum of Applied Confirm Scope dollars — excludes stage double-counts. */
@@ -314,10 +409,14 @@ export function sumAppliedScopePricingFromDraft(
   if (!draft.scopeAssumptionsConfirmed && !draft.confirmedAssumptions?.length) return null;
 
   const base = initialScopeMeasurementInputExtended(draft);
-  const measurements = mergeConfirmScopeSavedMeasurements(base, draft.scopeMeasurements);
+  const templateKey = draft.scopeChecklist?.templateKey;
+  const measurements = clearSupersededStageHostPricing(
+    mergeConfirmScopeSavedMeasurements(base, draft.scopeMeasurements),
+    templateKey
+  );
   return sumConfirmScopeAppliedPricingBreakdown({
     items,
     measurements,
-    templateKey: draft.scopeChecklist?.templateKey,
+    templateKey,
   });
 }

@@ -16,6 +16,7 @@ export type AppliedPricingBucket = 'allowance' | 'material_labor' | 'labor_only'
 /** Job-level fees & reserves — Allowances column. */
 export const APPLIED_PRICING_ALLOWANCE_SCOPE_KEYS = new Set([
   'contingency',
+  'appliances',
   'plans_engineering',
   'permits',
   'mobilization',

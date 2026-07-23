@@ -79,7 +79,7 @@ export function quickMeasurementSourceLabel(
     case 'measured_from_geometry':
       return 'Measured from plan geometry';
     case 'calculated_from_components':
-      return 'Calculated estimate';
+      return 'Footprint-based estimate';
     case 'estimated_from_formula':
     case 'fallback_multiplier':
       return 'Planning estimate';

@@ -1,6 +1,8 @@
 import {
+  clearSupersededStageHostPricing,
   mergeScopeMeasurementsPreservingFields,
   resolveBenchmarkLivingSf,
+  scopeShowsConfirmScopeAppliedPricing,
   sumConfirmScopeAppliedPricingBreakdown,
   sumConfirmScopeAppliedPricingTotal,
 } from '@/utils/benchmarkReasonablenessContext';
@@ -187,5 +189,96 @@ describe('benchmarkReasonablenessContext', () => {
       labor: 7025,
       allowance: 0,
     });
+  });
+
+  it('clearSupersededStageHostPricing drops stage-host Applied when trade children are priced', () => {
+    const measurements = {
+      itemQuantities: {
+        interior_finishes__allowance: {
+          quantity: '67075',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        drywall__material: { quantity: '12000', unit: 'allowance', quantitySource: 'user_entered' },
+        drywall__labor: { quantity: '8000', unit: 'allowance', quantitySource: 'user_entered' },
+      },
+      pricingAcceptance: {
+        interior_finishes: buildAcceptanceFromSuggestedBlock({
+          total: 67075,
+          material: 67075,
+          labor: 0,
+          lumpSumOnly: true,
+          rateSourceLabel: 'Local benchmark',
+          materialSource: 'local_benchmark',
+          laborSource: 'local_benchmark',
+        }),
+        drywall: buildAcceptanceFromSuggestedBlock({
+          total: 20000,
+          material: 12000,
+          labor: 8000,
+          lumpSumOnly: false,
+          rateSourceLabel: 'National Average',
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+        }),
+      },
+      appliedBenchmarkKeys: ['shv::stage::interior-finishes'],
+    } as never;
+
+    const cleared = clearSupersededStageHostPricing(measurements, 'ground_up');
+    expect(cleared.pricingAcceptance?.interior_finishes).toBeUndefined();
+    expect(cleared.itemQuantities?.interior_finishes__allowance).toBeUndefined();
+    expect(cleared.pricingAcceptance?.drywall).toBeTruthy();
+    expect(
+      sumConfirmScopeAppliedPricingTotal({
+        items: [
+          { id: 'interior_finishes', label: 'Interior Finishes', inputType: 'yes_no', state: 'included' },
+          { id: 'drywall', label: 'Drywall', inputType: 'yes_no', state: 'included' },
+        ],
+        measurements: cleared,
+        templateKey: 'ground_up',
+      })
+    ).toBe(20000);
+
+    // Even before clear, stage host must not show Applied on the card when trades are priced.
+    expect(
+      scopeShowsConfirmScopeAppliedPricing('interior_finishes', measurements, 'ground_up')
+    ).toBe(false);
+    expect(scopeShowsConfirmScopeAppliedPricing('drywall', measurements, 'ground_up')).toBe(true);
+  });
+
+  it('keeps Framing Apply — stage owner is the trade, not a superseded host', () => {
+    const framingBlock = {
+      total: 67050,
+      material: 39440,
+      labor: 27640,
+      lumpSumOnly: false,
+      rateSourceLabel: 'Local pricing not verified',
+      materialSource: 'national_average' as const,
+      laborSource: 'national_average' as const,
+      basis: { quantity: 4070, unit: 'sqft' },
+    };
+    const measurements = {
+      itemQuantities: {
+        framing__material: { quantity: '39440', unit: 'allowance', quantitySource: 'user_entered' },
+        framing__labor: { quantity: '27640', unit: 'allowance', quantitySource: 'user_entered' },
+        framing__allowance: { quantity: '67050', unit: 'allowance', quantitySource: 'user_entered' },
+      },
+      pricingAcceptance: {
+        framing: buildAcceptanceFromSuggestedBlock(framingBlock),
+      },
+    } as never;
+
+    const cleared = clearSupersededStageHostPricing(measurements, 'ground_up');
+    expect(cleared.pricingAcceptance?.framing).toBeTruthy();
+    expect(cleared.itemQuantities?.framing__allowance?.quantity).toBe('67050');
+    expect(scopeShowsConfirmScopeAppliedPricing('framing', cleared, 'ground_up')).toBe(true);
+    expect(
+      sumConfirmScopeAppliedPricingTotal({
+        items: [{ id: 'framing', label: 'Framing', inputType: 'yes_no', state: 'included' }],
+        measurements: cleared,
+        templateKey: 'ground_up',
+      })
+    ).toBe(67080); // material + labor legs
   });
 });

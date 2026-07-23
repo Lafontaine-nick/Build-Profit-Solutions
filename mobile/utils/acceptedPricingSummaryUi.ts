@@ -20,6 +20,18 @@ import {
   roughAllowanceSubKey,
 } from '@/utils/scopeItemQuantities';
 
+/** User-facing confidence badges on Confirm Scope applied-pricing cards. */
+export const PRICING_CONFIDENCE_LABEL = {
+  HIGH: 'High confidence',
+  REVIEW_BEFORE_BID: 'Review before bid',
+  PLANNING_ESTIMATE: 'Planning estimate',
+  ASSUMPTIONS_TO_REVIEW: 'Assumptions to review',
+} as const;
+
+export type PricingConfidenceLabel =
+  | (typeof PRICING_CONFIDENCE_LABEL)[keyof typeof PRICING_CONFIDENCE_LABEL]
+  | null;
+
 export type ScopePricingAcceptanceMetadata = {
   selectionStatus: 'accepted' | 'user_entered' | 'manual_adjusted';
   pricingSourceLabel: string;
@@ -78,8 +90,8 @@ export type AcceptedPricingDisplay = {
   pricingTypeLabel: string;
   subtitleLine: string | null;
   geographicBasis: string;
-  confidenceLabel: 'High confidence' | 'Medium confidence' | 'Low confidence' | 'Scope review pending' | null;
-  confidenceShortLabel: 'High' | 'Medium' | 'Low' | 'Pending' | null;
+  confidenceLabel: PricingConfidenceLabel;
+  confidenceShortLabel: 'High' | 'Review' | 'Planning' | 'Assumptions' | null;
   showConfidenceBadge: boolean;
   warningMessage: string | null;
   acceptance: ScopePricingAcceptanceMetadata;
@@ -456,7 +468,7 @@ function resolveAcceptedConfidenceLabel(
   acceptance: ScopePricingAcceptanceMetadata
 ): NonNullable<AcceptedPricingDisplay['confidenceLabel']> {
   if ((intelligence.unresolvedAssumptionCount ?? 0) > 0) {
-    return 'Scope review pending';
+    return PRICING_CONFIDENCE_LABEL.ASSUMPTIONS_TO_REVIEW;
   }
   return confidenceBadgeLabel(intelligence, acceptance);
 }
@@ -791,7 +803,7 @@ export function buildSecondaryDisclosureContent(params: {
 export function confidenceBadgeLabel(
   intelligence: ScopeItemIntelligence,
   acceptance?: ScopePricingAcceptanceMetadata
-): 'High confidence' | 'Medium confidence' | 'Low confidence' {
+): Exclude<PricingConfidenceLabel, null> {
   if (acceptance?.pricingSourceKind === 'national_average') {
     return mapConfidence(intelligence.pricing.confidence);
   }
@@ -799,7 +811,7 @@ export function confidenceBadgeLabel(
     return mapConfidence(intelligence.pricing.confidence === 'missing' ? 'medium' : intelligence.pricing.confidence);
   }
   if (acceptance?.selectionStatus === 'manual_adjusted' || acceptance?.pricingSourceKind === 'user_entered') {
-    return 'High confidence';
+    return PRICING_CONFIDENCE_LABEL.HIGH;
   }
   if (acceptance?.pricingSourceKind === 'saved_rate') {
     return mapConfidence(intelligence.pricing.confidence === 'missing' ? 'medium' : intelligence.pricing.confidence);
@@ -807,19 +819,21 @@ export function confidenceBadgeLabel(
   return mapConfidence(intelligence.pricing.confidence);
 }
 
-function mapConfidence(value: string): 'High confidence' | 'Medium confidence' | 'Low confidence' {
-  if (value === 'high') return 'High confidence';
-  if (value === 'medium') return 'Medium confidence';
-  return 'Low confidence';
+function mapConfidence(
+  value: string
+): typeof PRICING_CONFIDENCE_LABEL.HIGH | typeof PRICING_CONFIDENCE_LABEL.REVIEW_BEFORE_BID | typeof PRICING_CONFIDENCE_LABEL.PLANNING_ESTIMATE {
+  if (value === 'high') return PRICING_CONFIDENCE_LABEL.HIGH;
+  if (value === 'medium') return PRICING_CONFIDENCE_LABEL.REVIEW_BEFORE_BID;
+  return PRICING_CONFIDENCE_LABEL.PLANNING_ESTIMATE;
 }
 
 export function confidenceShortLabel(
   label: AcceptedPricingDisplay['confidenceLabel']
-): 'High' | 'Medium' | 'Low' | 'Pending' {
-  if (label === 'Scope review pending') return 'Pending';
-  if (label === 'High confidence') return 'High';
-  if (label === 'Medium confidence') return 'Medium';
-  return 'Low';
+): 'High' | 'Review' | 'Planning' | 'Assumptions' {
+  if (label === PRICING_CONFIDENCE_LABEL.ASSUMPTIONS_TO_REVIEW) return 'Assumptions';
+  if (label === PRICING_CONFIDENCE_LABEL.HIGH) return 'High';
+  if (label === PRICING_CONFIDENCE_LABEL.REVIEW_BEFORE_BID) return 'Review';
+  return 'Planning';
 }
 
 type SourceMessageKey =
@@ -932,7 +946,7 @@ function shouldShowSourceMessage(
   if (isStalePricing(intelligence)) return true;
   if (key === 'local_market') return false;
   if (key === 'saved_company' || key === 'imported_price_book') return false;
-  if (mapConfidence(intelligence.pricing.confidence) === 'High confidence') return false;
+  if (mapConfidence(intelligence.pricing.confidence) === PRICING_CONFIDENCE_LABEL.HIGH) return false;
   return false;
 }
 

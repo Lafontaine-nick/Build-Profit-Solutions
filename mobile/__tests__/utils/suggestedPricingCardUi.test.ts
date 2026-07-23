@@ -160,7 +160,7 @@ describe('suggestedPricingCardUi', () => {
       }),
       hasPrimaryTakeoff: false,
       livingSf: 1879,
-      confidenceLabel: 'Low confidence',
+      confidenceLabel: 'Planning estimate',
     });
     expect(display.title).toBe('Suggested planning price');
     expect(display.isFallbackPricing).toBe(true);
@@ -193,7 +193,7 @@ describe('suggestedPricingCardUi', () => {
       }),
       quantitySource: 'notes',
       hasPrimaryTakeoff: true,
-      confidenceLabel: 'Low confidence',
+      confidenceLabel: 'Planning estimate',
     });
     expect(display.quantityLine).toBe('132 CY · From notes');
     expect(display.sourceLine).toBe('BPS national benchmark');

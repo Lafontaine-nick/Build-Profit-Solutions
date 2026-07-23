@@ -627,13 +627,7 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     sourceLabel:
       'Suggested budget split · National Average · ~1 dumpster/disposal + final clean/haul labor',
   },
-  /** Appliance delivery/hookup install package (not appliance purchase). */
-  appliances: {
-    unit: 'allowance',
-    material: 0,
-    labor: 500,
-    sourceLabel: 'Suggested allowance · National Average · appliance install/hookup',
-  },
+  // Appliance install is job-specific — never auto-suggest a national average allowance.
   // Contingency is job-specific — never auto-suggest a national average allowance.
   haul_off: {
     unit: 'lump_sum',
@@ -687,6 +681,7 @@ export const PLACEHOLDER_ALLOWANCE_ITEM_IDS = [
   'mirror_accessories',
   'plans_engineering',
   'contingency',
+  'appliances',
   'final_inspections',
   'mobilization',
   'emergency_fee',
@@ -2053,11 +2048,11 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
   appliances: {
     defaultUnit: 'allowance',
     allowedUnits: ['allowance', 'lump_sum'],
-    requiresUserQuantity: false,
-    lumpSumOnly: false,
-    splitTotalOnly: true,
-    quantityHelper: 'Enter install material and labor — total adds automatically.',
-    missingMessage: 'Enter appliance install pricing.',
+    requiresUserQuantity: true,
+    lumpSumOnly: true,
+    quantityHelper:
+      'Enter appliance install allowance if needed — hookup/labor only, not appliance purchase.',
+    missingMessage: 'Enter appliance install allowance.',
   },
   appliance_removal: {
     defaultUnit: 'each',
@@ -5347,6 +5342,10 @@ function flatAllowanceCopyFor(itemId: string): { fromNotes: string; suggested: s
     contingency: {
       fromNotes: 'Contingency allowance parsed from notes.',
       suggested: 'Suggested contingency allowance.',
+    },
+    appliances: {
+      fromNotes: 'Appliance install allowance parsed from notes.',
+      suggested: 'Suggested appliance install allowance.',
     },
     mobilization: {
       fromNotes: 'Mobilization allowance parsed from notes.',

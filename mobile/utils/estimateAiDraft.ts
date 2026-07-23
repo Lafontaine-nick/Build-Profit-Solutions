@@ -1554,6 +1554,51 @@ function overlayScopeMeasurements(
 }
 
 /**
+ * Rebuild a Step 1 plan-import payload from a draft that already received plan
+ * takeoff — used when regenerating after Back wiped the builder's local state.
+ */
+export function planImportPayloadFromDraft(
+  draft: EstimateAiDraft | null | undefined
+): PlanImportPayload | null {
+  const sm = draft?.scopeMeasurements;
+  if (!sm) return null;
+  const measurements: Record<string, number | string> = {};
+  for (const [key, value] of Object.entries(sm)) {
+    if (
+      key === 'itemQuantities' ||
+      key === 'pricingAcceptance' ||
+      key === 'planFacts' ||
+      key === 'planRooms' ||
+      key === 'quickMeasurementSources' ||
+      key === 'quickMeasurementSuggestionMetadata' ||
+      key === 'quickMeasurementFieldConfidence' ||
+      key === 'areaReconciliation' ||
+      key === 'wetAreaFinish' ||
+      typeof value === 'object'
+    ) {
+      continue;
+    }
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) measurements[key] = n;
+  }
+  const rooms = sm.planRooms?.length ? sm.planRooms : [];
+  const planFacts = sm.planFacts || undefined;
+  const buildingAreas = planFacts?.buildingAreas;
+  const hasMeasurements = Object.keys(measurements).length > 0;
+  const hasRooms = (rooms?.length || 0) > 0;
+  const hasFacts = Boolean(planFacts || buildingAreas);
+  if (!hasMeasurements && !hasRooms && !hasFacts) return null;
+  return {
+    measurements: hasMeasurements ? measurements : undefined,
+    rooms: hasRooms ? rooms : undefined,
+    planFacts,
+    buildingAreas,
+    areaReconciliation: sm.areaReconciliation ?? null,
+    fieldConfidence: sm.quickMeasurementFieldConfidence,
+  };
+}
+
+/**
  * Apply Step 1 plan import onto a freshly generated draft: seed Quick
  * measurements and fill unsure checklist items from plan scope detections.
  */

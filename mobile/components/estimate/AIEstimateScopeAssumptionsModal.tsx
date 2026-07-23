@@ -190,11 +190,14 @@ import {
   type BenchmarkReasonableness,
 } from '@/utils/benchmarkEngine';
 import {
+  clearSupersededStageHostPricing,
   mergeConfirmScopeSavedMeasurements,
   resolveBenchmarkLivingSf,
+  scopeShowsConfirmScopeAppliedPricing,
   sumConfirmScopeAppliedPricingBreakdown,
   sumConfirmScopeAppliedPricingTotal,
 } from '@/utils/benchmarkReasonablenessContext';
+import { mergeSuggestedPricingBlocksIntoMeasurements } from '@/utils/mergeSuggestedPricingBlocks';
 import {
   assertBenchmarkDoesNotOverwritePrimary,
   benchmarkStageForScopeKey,
@@ -719,7 +722,7 @@ function ScopeIntelligenceNotice({
           ? '#f59e0b'
           : '#60a5fa';
 
-  // Suggested-price cards own "Base national average / low confidence" status — avoid duplicate vague copy.
+  // Suggested-price cards own "Base national average / planning estimate" status — avoid duplicate vague copy.
   const warningFullRaw = (cardDisplay.conciseBenchmarkWarning || '').trim();
   const warningFull =
     compact && /^Base national average/i.test(warningFullRaw) ? '' : warningFullRaw;
@@ -2725,10 +2728,10 @@ function QuantitySection({
         }
         setTimeout(() => onItemQuantityBlur(itemId), 0);
       };
-      const accepted = hasAcceptedScopePricing(
+      const accepted = scopeShowsConfirmScopeAppliedPricing(
         itemId,
-        measurementsInput.itemQuantities,
-        measurementsInput.pricingAcceptance
+        measurementsInput,
+        templateKey
       );
       const hideSuggestion = shouldHideSuggestedPanel({
         itemId,
@@ -3314,10 +3317,10 @@ function QuantitySection({
           </Text>
         ) : null}
         {(() => {
-          const accepted = hasAcceptedScopePricing(
+          const accepted = scopeShowsConfirmScopeAppliedPricing(
             itemId,
-            measurementsInput.itemQuantities,
-            measurementsInput.pricingAcceptance
+            measurementsInput,
+            templateKey
           );
           const hideSuggestion = shouldHideSuggestedPanel({
             itemId,
@@ -6073,18 +6076,6 @@ export default function AIEstimateScopeAssumptionsModal({
   const scrollContentRef = useRef<View>(null);
   const quickMeasurementsRef = useRef<View>(null);
 
-  /** Applied Confirm Scope dollars — total + material / labor / allowances for bottom summary. */
-  const step2AppliedPricingBreakdown = useMemo(
-    () =>
-      sumConfirmScopeAppliedPricingBreakdown({
-        items,
-        measurements,
-        templateKey: checklist?.templateKey,
-      }),
-    [items, measurements, checklist?.templateKey]
-  );
-  const step2AppliedEstimateTotal = step2AppliedPricingBreakdown.total;
-
   const reasonablenessLivingSf = useMemo(
     () =>
       resolveBenchmarkLivingSf({
@@ -6094,6 +6085,66 @@ export default function AIEstimateScopeAssumptionsModal({
       }),
     [measurements, draft?.scopeMeasurements, checklist?.templateKey]
   );
+
+  const displayItems = useMemo(() => {
+    let expanded = expandWetAreaDerivedScopeItems(items).map((row) =>
+      row.id === 'exterior' && row.label === 'Exterior finishes'
+        ? { ...row, label: 'Exterior Envelope' }
+        : row
+    );
+    if (String(checklist?.templateKey || '').toLowerCase() === 'ground_up') {
+      expanded = ensureGroundUpFlatworkScopeCard(expanded);
+      expanded = ensureGroundUpOpeningScopeCards(expanded);
+    }
+    if (!measurementSemanticsV1Enabled() || !benchmarkEngineV1Enabled()) return expanded;
+    if (expanded.some((row) => row.id === 'interior_finishes')) return expanded;
+    const finishChildIds = new Set([
+      'insulation',
+      'drywall',
+      'paint_trim',
+      'cabinets_counters',
+      'cabinets',
+      'countertops',
+      'tile_flooring',
+      'floor_tile',
+      'shower_tile',
+      'shower_floor_tile',
+      'appliances',
+    ]);
+    const hasFinishChild = expanded.some(
+      (row) => finishChildIds.has(row.id) && checklistItemInScope(row)
+    );
+    if (!hasFinishChild) return expanded;
+    const stageCard: ScopeChecklistItem = {
+      id: 'interior_finishes',
+      label: 'Interior Finishes',
+      helperText:
+        'Planning comparison only — price drywall, paint, cabinets, counters, and tile separately.',
+      state: 'excluded',
+      category: 'Finishes',
+    };
+    const drywallIdx = expanded.findIndex((row) => row.id === 'drywall');
+    if (drywallIdx >= 0) {
+      return [
+        ...expanded.slice(0, drywallIdx),
+        stageCard,
+        ...expanded.slice(drywallIdx),
+      ];
+    }
+    return [...expanded, stageCard];
+  }, [items, checklist?.templateKey]);
+
+  /** Applied Confirm Scope dollars — same list as scope cards (flatwork / openings / wet-area). */
+  const step2AppliedPricingBreakdown = useMemo(
+    () =>
+      sumConfirmScopeAppliedPricingBreakdown({
+        items: displayItems,
+        measurements,
+        templateKey: checklist?.templateKey,
+      }),
+    [displayItems, measurements, checklist?.templateKey]
+  );
+  const step2AppliedEstimateTotal = step2AppliedPricingBreakdown.total;
 
   const benchmarkFetchKey = useMemo(
     () =>
@@ -6212,9 +6263,30 @@ export default function AIEstimateScopeAssumptionsModal({
       typeof update === 'function'
         ? (update as (prev: ScopeMeasurementsInputExtended) => ScopeMeasurementsInputExtended)(previous)
         : update;
-    measurementsRef.current = next;
-    setMeasurements(next);
-  }, []);
+    // Drop stage-host Applied dollars once trade children are priced so card
+    // badges match the Applied pricing summary (no silent double-count).
+    const reconciled = clearSupersededStageHostPricing(next, checklist?.templateKey);
+    if (reconciled !== next) {
+      const selected = { ...selectedPricingRef.current };
+      let selectedChanged = false;
+      for (const stageKey of [
+        'site-preconstruction',
+        'framing',
+        'exterior-finishes',
+        'major-systems-rough-ins',
+        'interior-finishes',
+      ]) {
+        const owner = STAGE_BENCHMARK_OWNERS[stageKey];
+        if (owner && selected[owner] && !reconciled.pricingAcceptance?.[owner]) {
+          delete selected[owner];
+          selectedChanged = true;
+        }
+      }
+      if (selectedChanged) selectedPricingRef.current = selected;
+    }
+    measurementsRef.current = reconciled;
+    setMeasurements(reconciled);
+  }, [checklist?.templateKey]);
 
   useEffect(() => {
     itemsRef.current = items;
@@ -6258,11 +6330,16 @@ export default function AIEstimateScopeAssumptionsModal({
       };
       pricingAcceptance[itemId] = buildAcceptanceFromSuggestedBlock(block);
     }
-    return {
-      ...payload,
-      itemQuantities: Object.keys(itemQuantities).length ? itemQuantities : payload.itemQuantities,
-      pricingAcceptance: Object.keys(pricingAcceptance).length ? pricingAcceptance : payload.pricingAcceptance,
-    };
+    const reconciled = clearSupersededStageHostPricing(
+      {
+        ...payload,
+        itemQuantities: Object.keys(itemQuantities).length ? itemQuantities : payload.itemQuantities,
+        pricingAcceptance:
+          Object.keys(pricingAcceptance).length ? pricingAcceptance : payload.pricingAcceptance,
+      },
+      checklist?.templateKey
+    );
+    return reconciled;
   }, [checklist?.templateKey, scopeNotes]);
 
   const draftScopeRestoreKey = useMemo(
@@ -6380,54 +6457,6 @@ export default function AIEstimateScopeAssumptionsModal({
       })
     );
   }, [visible, scopeNotes, checklist?.templateKey]);
-
-  const displayItems = useMemo(() => {
-    let expanded = expandWetAreaDerivedScopeItems(items).map((row) =>
-      row.id === 'exterior' && row.label === 'Exterior finishes'
-        ? { ...row, label: 'Exterior Envelope' }
-        : row
-    );
-    if (String(checklist?.templateKey || '').toLowerCase() === 'ground_up') {
-      expanded = ensureGroundUpFlatworkScopeCard(expanded);
-      expanded = ensureGroundUpOpeningScopeCards(expanded);
-    }
-    if (!measurementSemanticsV1Enabled() || !benchmarkEngineV1Enabled()) return expanded;
-    if (expanded.some((row) => row.id === 'interior_finishes')) return expanded;
-    const finishChildIds = new Set([
-      'insulation',
-      'drywall',
-      'paint_trim',
-      'cabinets_counters',
-      'cabinets',
-      'countertops',
-      'tile_flooring',
-      'floor_tile',
-      'shower_tile',
-      'shower_floor_tile',
-      'appliances',
-    ]);
-    const hasFinishChild = expanded.some(
-      (row) => finishChildIds.has(row.id) && checklistItemInScope(row)
-    );
-    if (!hasFinishChild) return expanded;
-    const stageCard: ScopeChecklistItem = {
-      id: 'interior_finishes',
-      label: 'Interior Finishes',
-      helperText:
-        'Planning comparison only — price drywall, paint, cabinets, counters, and tile separately.',
-      state: 'excluded',
-      category: 'Finishes',
-    };
-    const drywallIdx = expanded.findIndex((row) => row.id === 'drywall');
-    if (drywallIdx >= 0) {
-      return [
-        ...expanded.slice(0, drywallIdx),
-        stageCard,
-        ...expanded.slice(drywallIdx),
-      ];
-    }
-    return [...expanded, stageCard];
-  }, [items, checklist?.templateKey]);
 
   // Keep Garage doors Yes when QM type counts are set.
   // Never expand Structure while Quick measurements is open — that reflows the
@@ -6610,6 +6639,7 @@ export default function AIEstimateScopeAssumptionsModal({
     );
     return rows.filter(({ block }) => {
       const stageKey = block.benchmarkStageKey;
+      // Prefer trade cards over a broad stage allowance in the same Use-all batch.
       if (
         block.benchmarkAction === 'benchmark_only' &&
         stageKey &&
@@ -6617,16 +6647,8 @@ export default function AIEstimateScopeAssumptionsModal({
       ) {
         return false;
       }
-      if (
-        block.benchmarkAction === 'price_ready' &&
-        stageHasAcceptedBenchmarkPricing(
-          stageKey,
-          measurements.pricingAcceptance
-        )
-      ) {
-        // Replacing an accepted stage allowance requires individual confirmation.
-        return false;
-      }
+      // Keep price_ready trades (Foundation, Framing, …) in the bulk list even when
+      // a stage allowance is already applied — merge clears the allowance on apply.
       return true;
     });
   }, [displayItems, measurements, normMeasurements, checklist?.templateKey, scopeNotes, pricingContext, scopeAssemblyContext, benchmarkRefresh]);
@@ -6656,150 +6678,83 @@ export default function AIEstimateScopeAssumptionsModal({
         ...Object.fromEntries(rows.map((row) => [row.itemId, row.block])),
       };
       setMeasurementsSynced((prev) => {
-        const itemQuantities: Record<string, { quantity: string; unit: string; quantitySource: string }> = {
-          ...prev.itemQuantities,
-        };
-        const pricingAcceptance = {
-          ...(prev.pricingAcceptance || {}),
-        };
-        const appliedBenchmarkKeys = [...(prev.appliedBenchmarkKeys || [])];
-        for (const { itemId, block } of rows) {
-          const appKey = block.benchmarkApplicationKey;
-          if (
-            measurementSemanticsV1Enabled() &&
-            appKey &&
-            appliedBenchmarkKeys.includes(appKey)
-          ) {
-            continue;
-          }
-          const rule = getChecklistItemQuantityRuleOrDefault(itemId, checklist?.templateKey);
-          const allowanceKey = rule.dualAllowanceField
-            ? roughAllowanceSubKey(itemId)
-            : allowanceSplitSubKey(itemId, 'allowance');
-          const basisKey = allowanceSplitSubKey(itemId, 'sqft_basis');
-          const materialKey = allowanceSplitSubKey(itemId, 'material');
-          const laborKey = allowanceSplitSubKey(itemId, 'labor');
-          itemQuantities[allowanceKey] = {
-            quantity: String(block.storedTotalExact ?? block.total),
-            unit: 'allowance',
-            quantitySource: 'user_entered',
-          };
-          if (block.basis?.quantity && block.basis.unit) {
-            itemQuantities[basisKey] = {
-              quantity: String(block.basis.quantity),
-              unit: block.basis.unit,
-              quantitySource: 'user_entered',
-            };
-          }
-          if (!block.lumpSumOnly) {
-            itemQuantities[materialKey] = {
-              quantity: String(block.material),
-              unit: 'allowance',
-              quantitySource: 'user_entered',
-            };
-            itemQuantities[laborKey] = {
-              quantity: String(block.labor),
-              unit: 'allowance',
-              quantitySource: 'user_entered',
-            };
-          } else if (block.labor > 0) {
-            itemQuantities[laborKey] = {
-              quantity: String(block.labor),
-              unit: 'allowance',
-              quantitySource: 'user_entered',
-            };
-          }
-          if (!rule.dualAllowanceField) {
-            itemQuantities[itemId] = {
-              quantity: String(block.basis?.quantity ?? block.storedTotalExact ?? block.total),
-              unit: block.basis?.unit || 'allowance',
-              quantitySource: 'user_entered',
-            };
-          }
-          pricingAcceptance[itemId] = buildAcceptanceFromSuggestedBlock(block);
-          if (appKey && !appliedBenchmarkKeys.includes(appKey)) {
-            appliedBenchmarkKeys.push(appKey);
-          }
+        const { measurements, clearedSelectedOwners } = mergeSuggestedPricingBlocksIntoMeasurements(
+          prev,
+          rows,
+          checklist?.templateKey
+        );
+        if (clearedSelectedOwners.length) {
+          const selected = { ...selectedPricingRef.current };
+          for (const owner of clearedSelectedOwners) delete selected[owner];
+          selectedPricingRef.current = selected;
         }
-        return {
-          ...prev,
-          itemQuantities,
-          pricingAcceptance,
-          appliedBenchmarkKeys,
-          scopeGapResolutions: syncScopeGapPricingStatuses(prev.scopeGapResolutions, {
-            itemQuantities,
-            pricingAcceptance,
-          }),
-        };
+        return measurements;
       });
       setTimeout(() => persistScopeProgressNow(), 0);
     },
     [checklist?.templateKey, persistScopeProgressNow, setMeasurementsSynced]
   );
 
-  const handleUseAllSuggestedPricing = useCallback(
-    () => {
-      const needsReview = unconfirmedSuggestedPricing.filter(({ itemId, block }) => {
-        const evidence = block.benchmarkEvidence;
-        if (!evidence) return false;
-        const unitMismatch = Boolean(
-          evidence.primaryTakeoff?.unit &&
-            evidence.primaryTakeoff.unit !== evidence.benchmarkBasis.unit
-        );
-        const validation = measurementValidationRequiredForBenchmark()
-          ? validatePricingBasis({
-              itemId,
-              primaryQuantity: evidence.primaryTakeoff?.quantity,
-              primaryUnit: evidence.primaryTakeoff?.unit,
-              pricingQuantity: evidence.blendedBenchmark.appliedQuantity,
-              pricingUnit: evidence.blendedBenchmark.unit,
-              rate: evidence.blendedBenchmark.rate,
-              rateUnit: evidence.blendedBenchmark.unit,
-              calculatedTotal: block.total,
-              measurementStatus: missingStatusForScope(itemId),
-              selectedSource: 'local_benchmark',
-            })
-          : null;
-        return Boolean(
-          evidence.priceConfidence === 'low' ||
-            evidence.quantityConfidence === 'low' ||
-            unitMismatch ||
-            validation?.requiresExplicitOverride
-        );
-      });
+  const handleUseAllSuggestedPricing = useCallback(() => {
+    const rows = unconfirmedSuggestedPricing;
+    if (!rows.length) return;
 
-      if (!needsReview.length) {
-        applySuggestedPricingBlocks(unconfirmedSuggestedPricing);
-        return;
-      }
-
-      // Measurement-semantics: one confirmation cannot approve multiple unrelated mismatches.
-      if (measurementValidationRequiredForBenchmark()) {
-        const autoApply = unconfirmedSuggestedPricing.filter(
-          (row) => !needsReview.some((review) => review.itemId === row.itemId)
-        );
-        if (autoApply.length) applySuggestedPricingBlocks(autoApply);
-        Alert.alert(
-          'Confirm individually',
-          `${needsReview.length} suggestion${needsReview.length === 1 ? '' : 's'} need${needsReview.length === 1 ? 's' : ''} separate confirmation because of unit mismatch or low confidence. Open each item and use “Use this price”.`
-        );
-        return;
-      }
-
-      Alert.alert(
-        'Confirm benchmark prices',
-        `${needsReview.length} benchmark suggestion${needsReview.length === 1 ? '' : 's'} use low-confidence or different-unit planning evidence. Apply all suggested prices?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Apply all',
-            onPress: () => applySuggestedPricingBlocks(unconfirmedSuggestedPricing),
-          },
-        ]
+    const needsReview = rows.filter(({ itemId, block }) => {
+      const evidence = block.benchmarkEvidence;
+      if (!evidence) return false;
+      const unitMismatch = Boolean(
+        evidence.primaryTakeoff?.unit &&
+          evidence.primaryTakeoff.unit !== evidence.benchmarkBasis.unit
       );
-    },
-    [applySuggestedPricingBlocks, unconfirmedSuggestedPricing]
-  );
+      const validation = measurementValidationRequiredForBenchmark()
+        ? validatePricingBasis({
+            itemId,
+            primaryQuantity: evidence.primaryTakeoff?.quantity,
+            primaryUnit: evidence.primaryTakeoff?.unit,
+            pricingQuantity: evidence.blendedBenchmark.appliedQuantity,
+            pricingUnit: evidence.blendedBenchmark.unit,
+            rate: evidence.blendedBenchmark.rate,
+            rateUnit: evidence.blendedBenchmark.unit,
+            calculatedTotal: block.total,
+            measurementStatus: missingStatusForScope(itemId),
+            selectedSource: 'local_benchmark',
+          })
+        : null;
+      return Boolean(
+        evidence.priceConfidence === 'low' ||
+          evidence.quantityConfidence === 'low' ||
+          unitMismatch ||
+          validation?.requiresExplicitOverride
+      );
+    });
+
+    // Always apply every ready suggestion. Planning / low-confidence rows get one
+    // confirm, then Apply all — never "confirm individually" which left Framing stuck.
+    if (!needsReview.length) {
+      applySuggestedPricingBlocks(rows);
+      return;
+    }
+
+    const reviewNames = needsReview
+      .slice(0, 3)
+      .map((row) => row.label || row.itemId.replace(/_/g, ' '))
+      .join(', ');
+    const more =
+      needsReview.length > 3 ? ` (+${needsReview.length - 3} more)` : '';
+    Alert.alert(
+      'Apply all suggested prices?',
+      `${rows.length} price${rows.length === 1 ? '' : 's'} will be applied. ${
+        needsReview.length
+      } planning estimate${needsReview.length === 1 ? '' : 's'} (${reviewNames}${more}) still need review later — you can edit any price after applying.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Apply all',
+          onPress: () => applySuggestedPricingBlocks(rows),
+        },
+      ]
+    );
+  }, [applySuggestedPricingBlocks, unconfirmedSuggestedPricing]);
 
   const handleItemQuantityChange = (
     itemId: string,
@@ -7449,9 +7404,12 @@ export default function AIEstimateScopeAssumptionsModal({
       }
 
       const appKey = block.benchmarkApplicationKey;
+      // Block only duplicate stage allowances — never block Foundation/Framing
+      // price_ready trades that share a stage application key.
       if (
         measurementSemanticsV1Enabled() &&
         appKey &&
+        block.benchmarkAction === 'benchmark_only' &&
         (measurements.appliedBenchmarkKeys || []).includes(appKey)
       ) {
         Alert.alert(
@@ -7504,7 +7462,7 @@ export default function AIEstimateScopeAssumptionsModal({
         : unitMismatch
           ? `The takeoff uses ${evidence?.primaryTakeoff?.unit}, while this planning benchmark uses living SF.`
           : validation?.warnings?.[0] ||
-            'This benchmark has low confidence for the current project context.';
+            'This benchmark is a planning estimate for the current project context.';
       const statusNote = measurementSemanticsV1Enabled()
         ? `\n\n${missingStatusDisplayLabel(itemId)}.`
         : '';
@@ -7895,48 +7853,25 @@ export default function AIEstimateScopeAssumptionsModal({
   const handleConfirm = () => {
     if (applying || items.length === 0) return;
 
-    const proceed = () => {
-      if (Platform.OS !== 'web') {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      }
-      const payload = scopeMeasurementsPayloadForCurrentState();
-      if (__DEV__) {
-        const q = payload.itemQuantities || {};
-        console.log('[scope-pricing] confirm payload', {
-          flooring: q.flooring,
-          material: q.flooring__material,
-          labor: q.flooring__labor,
-          allowance: q.flooring__allowance,
-        });
-      }
-      onConfirm(items, payload);
-    };
-
-    if (unconfirmedSuggestedPricing.length > 0) {
-      const count = unconfirmedSuggestedPricing.length;
-      Alert.alert(
-        'Use suggested prices?',
-        `${count} included item${count === 1 ? '' : 's'} have suggested pricing that has not been added to the estimate yet.`,
-        [
-          {
-            text: `Use ${count} suggested price${count === 1 ? '' : 's'}`,
-            onPress: () => {
-              applySuggestedPricingBlocks(unconfirmedSuggestedPricing);
-              setTimeout(proceed, 0);
-            },
-          },
-          {
-            text: 'Continue without prices',
-            style: 'destructive',
-            onPress: proceed,
-          },
-          { text: 'Review individually', style: 'cancel' },
-        ]
-      );
-      return;
+    // Do not auto-apply remaining suggestions — Applied pricing is what Continue
+    // carries to Step 3. Unpriced scopes stay available to price on review.
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
-
-    proceed();
+    const payload = scopeMeasurementsPayloadForCurrentState();
+    if (__DEV__) {
+      const q = payload.itemQuantities || {};
+      console.log('[scope-pricing] confirm payload', {
+        flooring: q.flooring,
+        material: q.flooring__material,
+        labor: q.flooring__labor,
+        allowance: q.flooring__allowance,
+        appliedTotal: step2AppliedEstimateTotal,
+      });
+    }
+    // Persist display-only cards (flatwork / openings) that were Yes'd in UI.
+    const confirmItems = displayItems.length ? displayItems : items;
+    onConfirm(confirmItems, payload);
   };
 
   const handleAddCustomItem = () => {
@@ -7988,7 +7923,7 @@ export default function AIEstimateScopeAssumptionsModal({
         keyboardShouldPersistTaps="always"
         keyboardDismissMode="on-drag"
         automaticallyAdjustKeyboardInsets={false}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator
       >
         <View ref={scrollContentRef} collapsable={false}>
         <AIEstimateDisclaimer variant="review" />
