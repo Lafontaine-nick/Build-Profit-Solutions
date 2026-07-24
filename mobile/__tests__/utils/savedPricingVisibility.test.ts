@@ -1,4 +1,5 @@
 import { syncSelectedScopePricing, type EstimateAiDraft } from '@/utils/estimateAiDraft';
+import { foldAskAiMeasurementsIntoScopeSnapshot, sumStep3ReviewBudgetTotals } from '@/utils/benchmarkReasonablenessContext';
 import {
   filterProposalToTemplateLibraryOnly,
   proposalHasTemplateOrLibraryRates,
@@ -250,5 +251,90 @@ describe('syncSelectedScopePricing keeps scope-confirmed prices on review', () =
     expect(synced.rooms?.[0]?.price).toBe(3000);
     // Header total must refresh from live package prices (not stale 305k).
     expect(synced.calculatedLineItemTotal).toBe(4000);
+  });
+
+  it('Ask AI disposal $8k updates calculated total after scope snapshot fold', () => {
+    const step2Snapshot = {
+      itemQuantities: {
+        cleanup: { quantity: 1000, unit: 'allowance', quantitySource: 'user_entered' },
+        cleanup__allowance: { quantity: 1000, unit: 'allowance', quantitySource: 'user_entered' },
+        framing: { quantity: 500000, unit: 'allowance', quantitySource: 'user_entered' },
+        framing__allowance: { quantity: 500000, unit: 'allowance', quantitySource: 'user_entered' },
+      },
+    };
+    const refineDraft = {
+      scopePackages: [
+        {
+          name: 'Framing',
+          scope: 'Framing',
+          price: 500000,
+          knownSubtotal: 500000,
+          status: 'user_provided',
+          checklistItemId: 'framing',
+        },
+        {
+          name: 'Cleanup & disposal',
+          scope: 'Final clean',
+          price: 8000,
+          knownSubtotal: 8000,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+          checklistItemId: 'cleanup',
+        },
+      ],
+      scopeMeasurements: {
+        itemQuantities: {
+          cleanup: { quantity: 8000, unit: 'allowance', quantitySource: 'user_entered' },
+          cleanup__allowance: { quantity: 8000, unit: 'allowance', quantitySource: 'user_entered' },
+          framing: { quantity: 500000, unit: 'allowance', quantitySource: 'user_entered' },
+          framing__allowance: { quantity: 500000, unit: 'allowance', quantitySource: 'user_entered' },
+        },
+      },
+      calculatedLineItemTotal: 500000,
+    } as unknown as EstimateAiDraft;
+
+    const folded = {
+      ...refineDraft,
+      scopeMeasurements: foldAskAiMeasurementsIntoScopeSnapshot(
+        step2Snapshot,
+        refineDraft.scopeMeasurements
+      ),
+    };
+    const synced = syncSelectedScopePricing(folded);
+    const cleanup = synced.scopePackages?.find((p) => /cleanup/i.test(p.name));
+    expect(cleanup?.price).toBe(8000);
+    expect(synced.calculatedLineItemTotal).toBe(508000);
+  });
+
+  it('syncSelectedScopePricing preserves Ask AI cleanup revision over stale measurements', () => {
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: {
+        templateKey: 'ground_up',
+        items: [{ id: 'cleanup', label: 'Cleanup & disposal', inputType: 'yes_no', state: 'included' }],
+      },
+      scopePackages: [
+        {
+          name: 'Cleanup & disposal',
+          scope: 'Final clean',
+          checklistItemId: 'cleanup',
+          price: 8000,
+          knownSubtotal: 8000,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+        },
+      ],
+      scopeMeasurements: {
+        itemQuantities: {
+          cleanup: { quantity: 1000, unit: 'allowance', quantitySource: 'user_entered' },
+          cleanup__allowance: { quantity: 1000, unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: { cleanup: { status: 'accepted', totalAmount: 1000 } },
+      },
+    } as unknown as EstimateAiDraft;
+
+    const synced = syncSelectedScopePricing(draft);
+    expect(synced.scopePackages?.[0]?.price).toBe(8000);
+    expect(sumStep3ReviewBudgetTotals(synced)?.total).toBe(8000);
   });
 });

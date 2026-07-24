@@ -249,7 +249,7 @@ describe('ground-up takeoff → material/labor pricing', () => {
     expect(migrated.find((i) => i.id === 'countertops')?.state).toBe('included');
   });
 
-  it('injects Shower doors & mirrors under wet area finish and prices national each rates', () => {
+  it('injects Shower doors under wet area finish and prices national each rates', () => {
     const migrated = normalizeScopeChecklistItems(
       [
         { id: 'shower_floor_tile', label: 'Shower floor tile', inputType: 'yes_no', state: 'included' },
@@ -260,7 +260,7 @@ describe('ground-up takeoff → material/labor pricing', () => {
     const door = migrated.find((i) => i.id === 'glass_door');
     expect(door).toMatchObject({
       id: 'glass_door',
-      label: 'Shower doors & mirrors',
+      label: 'Shower doors',
     });
     // Promoted with other finish children when wet tile / drywall is already Yes.
     expect(door?.state).toBe('included');

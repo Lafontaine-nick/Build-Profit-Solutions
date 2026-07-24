@@ -121,3 +121,18 @@ export function checklistChoiceFromWetAreaFinish(
   if (finish === 'prefab') return 'prefab';
   return null;
 }
+
+/**
+ * Plan-style bath counters (tile / prefab / tub / doors) — ground-up and plan imports.
+ * Bathroom remodels from photos/notes use checklist "Wet area install" instead.
+ */
+export function shouldShowPlanWetAreaFinishSteppers(params: {
+  templateKey?: string | null;
+  planBathRoomCount?: number;
+  wholeHomeLayout?: boolean;
+}): boolean {
+  if (params.wholeHomeLayout) return true;
+  if ((params.planBathRoomCount ?? 0) > 0) return true;
+  if (params.templateKey === 'bathroom') return false;
+  return params.templateKey === 'ground_up' || params.templateKey === 'addition';
+}

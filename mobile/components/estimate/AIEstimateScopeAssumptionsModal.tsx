@@ -129,6 +129,7 @@ import {
   listBathPlanRooms,
   resolveBathCount,
   resolveEffectiveWetAreaFinish,
+  shouldShowPlanWetAreaFinishSteppers,
   wetAreaFinishFromChecklistChoice,
   type WetAreaFinishChoice,
 } from '@/utils/planBathRooms';
@@ -196,6 +197,7 @@ import {
   scopeShowsConfirmScopeAppliedPricing,
   sumConfirmScopeAppliedPricingBreakdown,
   sumConfirmScopeAppliedPricingTotal,
+  listConfirmScopeAppliedPricingLines,
 } from '@/utils/benchmarkReasonablenessContext';
 import { mergeSuggestedPricingBlocksIntoMeasurements } from '@/utils/mergeSuggestedPricingBlocks';
 import {
@@ -204,7 +206,6 @@ import {
   coversLabelList,
   FOOTER_PLANNING_BENCHMARK_INFO,
   footerSuggestedPricingSummary,
-  formatDisplayMoneyNearest100,
   isGrossFlooringDerivedFromLiving,
   livingSfBenchmarkRecord,
   livingSfPricingRecord,
@@ -1127,10 +1128,8 @@ function SuggestedBudgetSplitRows({
         : stageTitle(block.benchmarkStageKey)
       : display.title;
 
-  const displayTotal =
-    semantics && usesBenchmark && !display.isFallbackPricing && !block.lumpSumOnly
-      ? formatDisplayMoneyNearest100(block.total)
-      : display.displayTotal;
+  // Show exact apply amounts on the card — same cents stored when user taps Apply.
+  const displayTotal = display.displayTotal;
 
   const coversHint =
     semantics && usesBenchmark && block.benchmarkLevel === 'stage' && block.benchmarkStageKey
@@ -1235,6 +1234,107 @@ function SuggestedBudgetSplitRows({
   );
 }
 
+/** Side-by-side secondary actions — compact chips; separate targets so Compare and Edit do not mis-tap. */
+function ScopeSecondaryActionButton({
+  label,
+  variant,
+  onPress,
+  expanded,
+  stretch = false,
+}: {
+  label: string;
+  variant: 'compare' | 'edit';
+  onPress: () => void;
+  expanded?: boolean;
+  /** Fill half a row when paired; inline width when Edit stands alone. */
+  stretch?: boolean;
+}) {
+  const { theme } = useTheme();
+  const Colors = getColors(theme);
+  const darkMode = theme === 'dark';
+  const isCompare = variant === 'compare';
+  const editIconColor = darkMode ? 'rgba(255,255,255,0.88)' : Colors.text;
+  const editTextColor = darkMode ? 'rgba(255,255,255,0.88)' : Colors.text;
+  const editBorderColor = darkMode ? 'rgba(255,255,255,0.22)' : Colors.line;
+  const editBackgroundColor = darkMode ? 'rgba(255,255,255,0.06)' : Colors.surface2;
+
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.75}
+      accessibilityRole="button"
+      accessibilityState={expanded != null ? { expanded } : undefined}
+      hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+      style={[
+        styles.secondaryActionBtn,
+        stretch ? styles.secondaryActionBtnStretch : styles.secondaryActionBtnInline,
+        isCompare
+          ? styles.secondaryActionBtnCompare
+          : {
+              backgroundColor: editBackgroundColor,
+              borderColor: editBorderColor,
+            },
+      ]}
+    >
+      {isCompare ? (
+        <Ionicons
+          name={expanded ? 'chevron-up' : 'stats-chart-outline'}
+          size={12}
+          color="#fbbf24"
+          style={styles.secondaryActionBtnIcon}
+        />
+      ) : (
+        <Ionicons
+          name="create-outline"
+          size={12}
+          color={editIconColor}
+          style={styles.secondaryActionBtnIcon}
+        />
+      )}
+      <Text
+        style={[
+          styles.secondaryActionBtnText,
+          isCompare ? styles.secondaryActionBtnTextCompare : { color: editTextColor },
+        ]}
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+function ScopeCardActionsRow({ children }: { children: React.ReactNode }) {
+  return <View style={styles.scopeCardActionsRow}>{children}</View>;
+}
+
+function ScopeCardActionSlot({ children }: { children: React.ReactNode }) {
+  return <View style={styles.scopeCardActionSlot}>{children}</View>;
+}
+
+/** Compare + Edit on one row when both are shown; full-width Edit when compare is absent. */
+function ScopePricingSecondaryActions({
+  compare,
+  edit,
+}: {
+  compare?: React.ReactNode;
+  edit: React.ReactNode;
+}) {
+  if (!compare) {
+    return (
+      <View style={[styles.scopeCardActionsWrap, styles.scopeCardActionsWrapSingle]}>{edit}</View>
+    );
+  }
+  return (
+    <View style={styles.scopeCardActionsWrap}>
+      <ScopeCardActionsRow>
+        <ScopeCardActionSlot>{compare}</ScopeCardActionSlot>
+        <ScopeCardActionSlot>{edit}</ScopeCardActionSlot>
+      </ScopeCardActionsRow>
+    </View>
+  );
+}
+
 /** Collapsible "Compare to suggested/saved" panel shown when notes priced both legs. */
 function ComparisonToggle({
   block,
@@ -1246,6 +1346,7 @@ function ComparisonToggle({
   hasPrimaryTakeoff,
   livingSf,
   confidenceLabel,
+  editAction,
 }: {
   block: SuggestedPricingBlock;
   Colors: ReturnType<typeof getColors>;
@@ -1256,6 +1357,8 @@ function ComparisonToggle({
   hasPrimaryTakeoff?: boolean;
   livingSf?: number | null;
   confidenceLabel?: string | null;
+  /** When set, Compare and Edit share one row with separate pill buttons. */
+  editAction?: React.ReactNode;
 }) {
   const usesTemplate = block.materialSource === 'template' || block.laborSource === 'template';
   const hasBenchmark = Boolean(block.benchmarkEvidence);
@@ -1299,19 +1402,29 @@ function ComparisonToggle({
     String(block.rateSourceLabel || '')
   );
 
+  const compareLabel = open
+    ? 'Hide'
+    : isNationalComparison
+      ? 'National avg'
+      : 'Benchmarks';
+
+  const compareButton = (
+    <ScopeSecondaryActionButton
+      variant="compare"
+      label={compareLabel}
+      expanded={open}
+      stretch={Boolean(editAction)}
+      onPress={() => setOpen((prev) => !prev)}
+    />
+  );
+
   return (
-    <View style={{ marginTop: 8 }}>
-      <TouchableOpacity activeOpacity={0.7} onPress={() => setOpen((prev) => !prev)} accessibilityRole="button">
-        <Text style={styles.compareQuantityLink}>
-          {open
-            ? isNationalComparison
-              ? 'Hide national comparison'
-              : 'Hide comparison'
-            : isNationalComparison
-              ? 'Compare to national average'
-              : 'Compare benchmarks'}
-        </Text>
-      </TouchableOpacity>
+    <View style={editAction ? undefined : { marginTop: 8 }}>
+      {editAction ? (
+        <ScopePricingSecondaryActions compare={compareButton} edit={editAction} />
+      ) : (
+        compareButton
+      )}
       {open ? (
         <SuggestedBudgetSplitRows
           block={block}
@@ -1328,11 +1441,23 @@ function ComparisonToggle({
   );
 }
 
-function EditQuantityLink({ onPress, label = 'Edit' }: { onPress: () => void; label?: string }) {
+function EditQuantityLink({
+  onPress,
+  label = 'Edit',
+  stretch = false,
+}: {
+  onPress: () => void;
+  label?: string;
+  stretch?: boolean;
+}) {
+  const displayLabel = label === 'Edit pricing' ? 'Edit' : label;
   return (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.7} accessibilityRole="button" hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
-      <Text style={styles.editQuantityLink}>{label === 'Edit pricing' ? 'Edit' : label}</Text>
-    </TouchableOpacity>
+    <ScopeSecondaryActionButton
+      variant="edit"
+      label={displayLabel}
+      stretch={stretch}
+      onPress={onPress}
+    />
   );
 }
 
@@ -1419,6 +1544,30 @@ function isSoftCostAllowanceScope(itemId: string, lumpSumOnly?: boolean): boolea
 
 type AllowanceOrSplitMode = 'allowance' | 'split';
 
+type PricingEntryMode = 'flat' | 'takeoff';
+
+function inferPricingEntryMode(
+  measurementsInput: ScopeMeasurementsInputExtended,
+  sqftBasisKey: string,
+  splitTotalOnly?: boolean
+): PricingEntryMode {
+  if (splitTotalOnly) return 'flat';
+  const basis = measurementsInput.itemQuantities[sqftBasisKey];
+  const basisQty = parseMoneyAmount(basis?.quantity);
+  if (basisQty > 0 && basis?.quantitySource === 'user_entered') return 'takeoff';
+  return 'flat';
+}
+
+function pricingEditorHelperForMode(
+  mode: PricingEntryMode,
+  fallback?: string | null
+): string {
+  if (mode === 'flat') {
+    return 'Enter material and labor totals — no takeoff quantity required.';
+  }
+  return fallback || 'Enter takeoff quantity, then material and labor (flat $ or per-unit).';
+}
+
 function resolveAllowanceOrSplitMode(
   itemId: string,
   measurementsInput: ScopeMeasurementsInputExtended,
@@ -1486,6 +1635,63 @@ function AllowanceOrSplitModeToggle({
             <Text
               style={{
                 color: active ? '#22c55e' : '#60a5fa',
+                fontSize: 11,
+                fontWeight: '700',
+              }}
+            >
+              {opt.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
+function PricingEntryModeToggle({
+  mode,
+  onChange,
+  Colors,
+  darkMode,
+  applying,
+}: {
+  mode: PricingEntryMode;
+  onChange: (next: PricingEntryMode) => void;
+  Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
+  applying: boolean;
+}) {
+  return (
+    <View style={styles.customPricingModeLinks}>
+      {(
+        [
+          { id: 'flat' as const, label: 'Flat mat + lab' },
+          { id: 'takeoff' as const, label: 'By takeoff' },
+        ] as const
+      ).map((opt) => {
+        const active = mode === opt.id;
+        return (
+          <TouchableOpacity
+            key={opt.id}
+            activeOpacity={0.75}
+            disabled={applying || active}
+            onPress={() => onChange(opt.id)}
+            style={[
+              styles.customPricingModeChip,
+              styles.pricingEntryModeChip,
+              {
+                borderColor: active ? '#22c55e' : darkMode ? 'rgba(148, 163, 184, 0.24)' : Colors.line,
+                backgroundColor: active
+                  ? darkMode
+                    ? 'rgba(34, 197, 94, 0.12)'
+                    : 'rgba(34, 197, 94, 0.08)'
+                  : 'transparent',
+              },
+            ]}
+          >
+            <Text
+              style={{
+                color: active ? '#22c55e' : darkMode ? 'rgba(255,255,255,0.72)' : Colors.sub,
                 fontSize: 11,
                 fontWeight: '700',
               }}
@@ -1932,7 +2138,9 @@ function CustomScopePricingSection({
             />
           </>
         ) : null}
-        <EditQuantityLink onPress={() => setPricingEditorOpen(true)} />
+        <ScopePricingSecondaryActions
+          edit={<EditQuantityLink onPress={() => setPricingEditorOpen(true)} />}
+        />
       </View>
     );
   }
@@ -2140,6 +2348,7 @@ function MaterialLaborSplitEditor({
   darkMode,
   applying,
   splitTotalOnly = false,
+  entryMode = 'flat',
 }: {
   materialValue: string;
   laborValue: string;
@@ -2166,6 +2375,8 @@ function MaterialLaborSplitEditor({
   darkMode: boolean;
   applying: boolean;
   splitTotalOnly?: boolean;
+  /** Flat $ mat/lab vs takeoff-linked qty with optional $/unit. */
+  entryMode?: PricingEntryMode;
 }) {
   const lockedRatesRef = useRef<{ material: number | null; labor: number | null }>({
     material: null,
@@ -2185,13 +2396,45 @@ function MaterialLaborSplitEditor({
     const lab = parseMoneyAmount(laborValue);
     if (mat > 0 || lab > 0) {
       didPrefillRef.current = true;
-      if (effectiveBasisQty > 0) {
+      if (entryMode === 'takeoff' && effectiveBasisQty > 0) {
         if (mat > 0) lockedRatesRef.current.material = roundMoney2(mat / effectiveBasisQty);
         if (lab > 0) lockedRatesRef.current.labor = roundMoney2(lab / effectiveBasisQty);
         lastBasisQtyRef.current = effectiveBasisQty;
       }
       return;
     }
+    if (
+      entryMode === 'flat' &&
+      suggestedBlock &&
+      (suggestedBlock.material > 0 || suggestedBlock.labor > 0)
+    ) {
+      didPrefillRef.current = true;
+      const flatPrefill: Array<{
+        itemId: string;
+        quantity: string;
+        unit?: string;
+        quantitySource?: 'user_entered' | 'suggested_prefill';
+      }> = [];
+      if (suggestedBlock.material > 0) {
+        flatPrefill.push({
+          itemId: materialKey,
+          quantity: String(suggestedBlock.material),
+          unit: 'allowance',
+          quantitySource: 'suggested_prefill',
+        });
+      }
+      if (suggestedBlock.labor > 0) {
+        flatPrefill.push({
+          itemId: laborKey,
+          quantity: String(suggestedBlock.labor),
+          unit: 'allowance',
+          quantitySource: 'suggested_prefill',
+        });
+      }
+      if (flatPrefill.length) onBatchItemQuantityChange(flatPrefill);
+      return;
+    }
+    if (entryMode === 'flat') return;
     const suggestedBasisQty =
       suggestedBlock?.basis?.quantity && suggestedBlock.basis.quantity > 0
         ? suggestedBlock.basis.quantity
@@ -2243,7 +2486,7 @@ function MaterialLaborSplitEditor({
       (suggestedBasisQty > 0 &&
         effectiveBasisQty > 0 &&
         Math.abs(suggestedBasisQty - effectiveBasisQty) / suggestedBasisQty > 0.02);
-    if (basisNeedsSeed) {
+    if (basisNeedsSeed && entryMode === 'takeoff') {
       updates.push({
         itemId: sqftBasisKey,
         quantity: String(qtyForPrefill),
@@ -2280,13 +2523,19 @@ function MaterialLaborSplitEditor({
     laborKey,
     basisUnit,
     onBatchItemQuantityChange,
+    entryMode,
   ]);
 
   const handleBasisChange = (text: string) => {
     const nextQty = parseMoneyAmount(text);
     const prevQty = lastBasisQtyRef.current ?? effectiveBasisQty;
-    const updates: Array<{ itemId: string; quantity: string; unit?: string }> = [
-      { itemId: sqftBasisKey, quantity: text, unit: basisUnit },
+    const updates: Array<{
+      itemId: string;
+      quantity: string;
+      unit?: string;
+      quantitySource?: 'user_entered' | 'suggested_prefill';
+    }> = [
+      { itemId: sqftBasisKey, quantity: text, unit: basisUnit, quantitySource: 'user_entered' },
     ];
 
     if (!(nextQty > 0)) {
@@ -2396,9 +2645,11 @@ function MaterialLaborSplitEditor({
   })();
 
   const editorBasis =
-    splitTotalOnly || effectiveBasisQty <= 0
-      ? null
-      : { quantity: effectiveBasisQty, unit: pricingBasis?.unit || basisUnit };
+    entryMode === 'takeoff' && !splitTotalOnly && effectiveBasisQty > 0
+      ? { quantity: effectiveBasisQty, unit: pricingBasis?.unit || basisUnit }
+      : null;
+
+  const showTakeoffBasis = entryMode === 'takeoff' && !splitTotalOnly;
 
   return (
     <>
@@ -2417,7 +2668,7 @@ function MaterialLaborSplitEditor({
           darkMode={darkMode}
           applying={applying}
         />
-      ) : (
+      ) : showTakeoffBasis ? (
         <PricingInputField
           label={basisFieldLabel}
           value={pricingBasisValue}
@@ -2436,7 +2687,7 @@ function MaterialLaborSplitEditor({
           darkMode={darkMode}
           applying={applying}
         />
-      )}
+      ) : null}
       <PricingMatLabRow
         material={
           <PricingInputField
@@ -2446,7 +2697,7 @@ function MaterialLaborSplitEditor({
             basis={editorBasis}
             prefix="$"
             placeholder={editorBasis ? `$/${basisUnitLabel}` : '0'}
-            defaultInputMode={editorBasis ? 'rate' : 'total'}
+            defaultInputMode="total"
             embedded
             onFocus={() => focusQuantityField(materialKey)}
             onChangeText={handleMaterialChange}
@@ -2464,7 +2715,7 @@ function MaterialLaborSplitEditor({
             basis={editorBasis}
             prefix="$"
             placeholder={editorBasis ? `$/${basisUnitLabel}` : '0'}
-            defaultInputMode={editorBasis ? 'rate' : 'total'}
+            defaultInputMode="total"
             embedded
             onFocus={() => focusQuantityField(laborKey)}
             onChangeText={handleLaborChange}
@@ -2475,7 +2726,7 @@ function MaterialLaborSplitEditor({
           />
         }
       />
-      {splitTotal && !splitTotalOnly ? (
+      {splitTotal ? (
         <View style={styles.pricingEditorTotalRow}>
           <Text style={{ color: captionColor(darkMode, Colors), fontSize: 12, fontWeight: '600' }}>
             Total
@@ -2566,6 +2817,7 @@ function QuantitySection({
   const [pricingEditorOpen, setPricingEditorOpen] = useState(false);
   const [focusedPricingField, setFocusedPricingField] = useState<string | null>(null);
   const [pricingModeOverride, setPricingModeOverride] = useState<AllowanceOrSplitMode | null>(null);
+  const [pricingEntryModeOverride, setPricingEntryModeOverride] = useState<PricingEntryMode | null>(null);
   const pricingContext = React.useContext(ScopePricingContextValue);
   const assemblyContext = React.useContext(ScopeAssemblyContextValue);
   const scopeGapPricingContext = React.useMemo<ScopeGapPricingContext>(
@@ -2609,6 +2861,7 @@ function QuantitySection({
     // Close first so focus/blur side effects cannot keep the editor open.
     setFocusedPricingField(null);
     setPricingEditorOpen(false);
+    setPricingEntryModeOverride(null);
     Keyboard.dismiss();
     // Opening Edit seeds Suggest values as suggested_prefill — discard if user
     // never committed so the Apply card returns unchanged.
@@ -2951,9 +3204,13 @@ function QuantitySection({
                   )}
                   livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
                   confidenceLabel={intelligence?.pricing?.confidenceLabel}
+                  editAction={<EditQuantityLink onPress={openPricingEditor} stretch />}
                 />
-              ) : null}
-              <EditQuantityLink onPress={openPricingEditor} />
+              ) : (
+                <ScopePricingSecondaryActions
+                  edit={<EditQuantityLink onPress={openPricingEditor} />}
+                />
+              )}
             </>
           )}
         </View>
@@ -3088,9 +3345,13 @@ function QuantitySection({
               hasPrimaryTakeoff={false}
               livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
               confidenceLabel={planningIntelligence?.pricing?.confidenceLabel}
+              editAction={<EditQuantityLink onPress={() => setPricingEditorOpen(true)} stretch />}
             />
-          ) : null}
-          <EditQuantityLink onPress={() => setPricingEditorOpen(true)} />
+          ) : (
+            <ScopePricingSecondaryActions
+              edit={<EditQuantityLink onPress={() => setPricingEditorOpen(true)} />}
+            />
+          )}
         </View>
       );
     }
@@ -3505,9 +3766,13 @@ function QuantitySection({
                   )}
                   livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
                   confidenceLabel={intelligence?.pricing?.confidenceLabel}
+                  editAction={<EditQuantityLink onPress={openPricingEditor} stretch />}
                 />
-              ) : null}
-              <EditQuantityLink onPress={openPricingEditor} />
+              ) : (
+                <ScopePricingSecondaryActions
+                  edit={<EditQuantityLink onPress={openPricingEditor} />}
+                />
+              )}
             </>
           );
         })()}
@@ -3584,9 +3849,13 @@ function QuantitySection({
             hasPrimaryTakeoff={false}
             livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
             confidenceLabel={intelligence?.pricing?.confidenceLabel}
+            editAction={<EditQuantityLink onPress={() => setPricingEditorOpen(true)} stretch />}
           />
-        ) : null}
-        <EditQuantityLink onPress={() => setPricingEditorOpen(true)} />
+        ) : (
+          <ScopePricingSecondaryActions
+            edit={<EditQuantityLink onPress={() => setPricingEditorOpen(true)} />}
+          />
+        )}
       </View>
     );
   }
@@ -3638,11 +3907,37 @@ function QuantitySection({
     }
   };
 
+  const pricingEntryMode =
+    pricingEntryModeOverride ??
+    inferPricingEntryMode(measurementsInput, sqftBasisKey, rule.splitTotalOnly);
+  const showPricingEntryToggle = !showAllowanceEditor && !rule.splitTotalOnly;
+
+  const handlePricingEntryModeChange = (next: PricingEntryMode) => {
+    setPricingEntryModeOverride(next);
+    if (
+      next === 'takeoff' &&
+      !parseMoneyAmount(pricingBasisValue) &&
+      pricingBasis &&
+      pricingBasis.quantity > 0
+    ) {
+      onItemQuantityChange(
+        sqftBasisKey,
+        String(pricingBasis.quantity),
+        'count',
+        pricingBasis.unit,
+        'user_entered'
+      );
+    }
+  };
+
   return (
     <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
       <PricingEditorPanel Colors={Colors} darkMode={darkMode}>
         <PricingEditorHeader
-          helper={rule.quantityHelper}
+          helper={pricingEditorHelperForMode(
+            showPricingEntryToggle ? pricingEntryMode : 'flat',
+            rule.quantityHelper
+          )}
           onDone={closePricingEditor}
           Colors={Colors}
           darkMode={darkMode}
@@ -3651,6 +3946,15 @@ function QuantitySection({
           <AllowanceOrSplitModeToggle
             mode={pricingMode}
             onChange={handlePricingModeChange}
+            Colors={Colors}
+            darkMode={darkMode}
+            applying={applying}
+          />
+        ) : null}
+        {showPricingEntryToggle ? (
+          <PricingEntryModeToggle
+            mode={pricingEntryMode}
+            onChange={handlePricingEntryModeChange}
             Colors={Colors}
             darkMode={darkMode}
             applying={applying}
@@ -3690,6 +3994,7 @@ function QuantitySection({
             darkMode={darkMode}
             applying={applying}
             splitTotalOnly={rule.splitTotalOnly}
+            entryMode={pricingEntryMode}
           />
         )}
       </PricingEditorPanel>
@@ -4970,17 +5275,26 @@ function CollapsibleQuickMeasurements({
       }),
     [measurements.planRooms, measurements.bathCount, measurements.bathroomFloorSqft]
   );
-  const showWetAreaFinishPicker = useMemo(() => {
-    const keys = new Set(fieldResults.filter((r) => r.relevant).map((r) => r.key));
-    return (
-      keys.has('bathroomFloorSqft') ||
-      keys.has('showerWallTileSqft') ||
-      keys.has('showerFloorTileSqft') ||
-      includedScopeKeys.some((id) =>
-        /shower|tile_flooring|interior_finishes|bathroom|bath_floor|waterproofing/i.test(id)
-      )
-    );
-  }, [fieldResults, includedScopeKeys]);
+  const showWetAreaFinishSteppers = useMemo(
+    () =>
+      shouldShowPlanWetAreaFinishSteppers({
+        templateKey: effectiveTemplateKey,
+        planBathRoomCount: bathCountFromPlan,
+        wholeHomeLayout,
+      }) &&
+      (() => {
+        const keys = new Set(fieldResults.filter((r) => r.relevant).map((r) => r.key));
+        return (
+          keys.has('bathroomFloorSqft') ||
+          keys.has('showerWallTileSqft') ||
+          keys.has('showerFloorTileSqft') ||
+          includedScopeKeys.some((id) =>
+            /shower|tile_flooring|interior_finishes|bathroom|bath_floor|waterproofing/i.test(id)
+          )
+        );
+      })(),
+    [effectiveTemplateKey, bathCountFromPlan, wholeHomeLayout, fieldResults, includedScopeKeys]
+  );
 
   const summarySentRef = useRef<QuickMeasurementSummary | null>(null);
   useEffect(() => {
@@ -5773,7 +6087,7 @@ function CollapsibleQuickMeasurements({
             </>
           )}
 
-          {showWetAreaFinishPicker || wetAreaFields.length > 0 ? (
+          {showWetAreaFinishSteppers || wetAreaFields.length > 0 ? (
             <View
               style={[
                 styles.quickMeasurementSection,
@@ -5786,29 +6100,37 @@ function CollapsibleQuickMeasurements({
               ]}
             >
               {sectionTitle('Wet area finish', '#fbbf24')}
-              <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, lineHeight: 15, marginBottom: 8 }}>
-                {bathCountFromPlan > 0
-                  ? `${bathCountFromPlan} bath${bathCountFromPlan === 1 ? '' : 's'} on plan — set finish counts below.`
-                  : 'No baths labeled on plan — set tile / prefab / tub counts below.'}
-                {effectiveWetAreaFinish === 'tile' && !resolvedBathCount
-                  ? ' Set tile showers to unlock shower estimates.'
-                  : ''}
-              </Text>
-              {renderBathCountStepper('Tile showers', displayTileBathCount, adjustTileBathCount)}
-              {renderBathCountStepper('Prefab', displayPrefabBathCount, adjustPrefabBathCount)}
-              {renderBathCountStepper('Tub', displayTubBathCount, adjustTubBathCount)}
-              {renderBathCountStepper('Shower doors & mirrors', displayShowerDoorCount, adjustShowerDoorCount)}
-              {wetAreaSuggestions.length > 1 ? (
-                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 6, marginTop: 2 }}>
-                  <TouchableOpacity
-                    onPress={useAllWetAreaSuggestions}
-                    disabled={applying}
-                    activeOpacity={0.75}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Text style={{ color: '#34d399', fontSize: 12, fontWeight: '800' }}>Use shower estimates</Text>
-                  </TouchableOpacity>
-                </View>
+              {showWetAreaFinishSteppers ? (
+                <>
+                  <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, lineHeight: 15, marginBottom: 8 }}>
+                    {bathCountFromPlan > 0
+                      ? `${bathCountFromPlan} bath${bathCountFromPlan === 1 ? '' : 's'} on plan — set finish counts below.`
+                      : 'No baths labeled on plan — set tile / prefab / tub counts below.'}
+                    {effectiveWetAreaFinish === 'tile' && !resolvedBathCount
+                      ? ' Set tile showers to unlock shower estimates.'
+                      : ''}
+                  </Text>
+                  {renderBathCountStepper('Tile showers', displayTileBathCount, adjustTileBathCount)}
+                  {renderBathCountStepper('Prefab', displayPrefabBathCount, adjustPrefabBathCount)}
+                  {renderBathCountStepper('Tub', displayTubBathCount, adjustTubBathCount)}
+                  {renderBathCountStepper('Shower doors', displayShowerDoorCount, adjustShowerDoorCount)}
+                  {wetAreaSuggestions.length > 1 ? (
+                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 6, marginTop: 2 }}>
+                      <TouchableOpacity
+                        onPress={useAllWetAreaSuggestions}
+                        disabled={applying}
+                        activeOpacity={0.75}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Text style={{ color: '#34d399', fontSize: 12, fontWeight: '800' }}>Use shower estimates</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
+                </>
+              ) : wetAreaFields.length > 0 ? (
+                <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, lineHeight: 15, marginBottom: 8 }}>
+                  Enter shower / bath takeoff for pricing.
+                </Text>
               ) : null}
               {wetAreaFields.map((result, index) => {
                 const variant = wetAreaFieldVariant(result);
@@ -6145,6 +6467,15 @@ export default function AIEstimateScopeAssumptionsModal({
     [displayItems, measurements, checklist?.templateKey]
   );
   const step2AppliedEstimateTotal = step2AppliedPricingBreakdown.total;
+  const step2AppliedPricingLines = useMemo(
+    () =>
+      listConfirmScopeAppliedPricingLines({
+        items: displayItems,
+        measurements,
+        templateKey: checklist?.templateKey,
+      }),
+    [displayItems, measurements, checklist?.templateKey]
+  );
 
   const benchmarkFetchKey = useMemo(
     () =>
@@ -7468,7 +7799,7 @@ export default function AIEstimateScopeAssumptionsModal({
         : '';
       Alert.alert(
         'Apply suggested amount?',
-        `${detail}${statusNote}\n\nApply ${formatDisplayMoneyNearest100(block.total)} now? (Exact stored amount: ${formatDraftMoney(block.storedTotalExact ?? block.total)}.)`,
+        `${detail}${statusNote}\n\nApply ${formatDraftMoney(block.storedTotalExact ?? block.total)} now?`,
         [
           { text: 'Cancel', style: 'cancel' },
           {
@@ -7986,7 +8317,7 @@ export default function AIEstimateScopeAssumptionsModal({
                 const afterIdx = prev.findIndex((row) => row.id === 'shower_floor_tile');
                 const doorItem: ScopeChecklistItem = {
                   id: 'glass_door',
-                  label: 'Shower doors & mirrors',
+                  label: 'Shower doors',
                   helperText:
                     'Glass shower door / enclosure plus bath mirror — material and install.',
                   inputType: 'yes_no',
@@ -8062,6 +8393,7 @@ export default function AIEstimateScopeAssumptionsModal({
             value={benchmarkReasonableness}
             darkMode={darkMode}
             appliedBreakdown={step2AppliedPricingBreakdown}
+            appliedLines={step2AppliedPricingLines}
           />
         ) : null}
 
@@ -8497,6 +8829,10 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
   },
+  pricingEntryModeChip: {
+    flex: 1,
+    alignItems: 'center',
+  },
   savePricingBtn: {
     marginTop: 10,
     alignItems: 'center',
@@ -8854,6 +9190,57 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     marginTop: 10,
+  },
+  scopeCardActionsWrap: {
+    marginTop: 8,
+    gap: 8,
+  },
+  scopeCardActionsWrapSingle: {
+    alignItems: 'flex-start',
+  },
+  scopeCardActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  scopeCardActionSlot: {
+    flex: 1,
+    minWidth: 0,
+  },
+  secondaryActionBtn: {
+    minHeight: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    gap: 4,
+  },
+  secondaryActionBtnStretch: {
+    flex: 1,
+    alignSelf: 'stretch',
+  },
+  secondaryActionBtnInline: {
+    alignSelf: 'flex-start',
+  },
+  secondaryActionBtnCompare: {
+    backgroundColor: 'rgba(251, 191, 36, 0.12)',
+    borderColor: 'rgba(251, 191, 36, 0.4)',
+  },
+  secondaryActionBtnIcon: {
+    flexShrink: 0,
+  },
+  secondaryActionBtnText: {
+    flexShrink: 1,
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 14,
+  },
+  secondaryActionBtnTextCompare: {
+    color: '#fbbf24',
   },
   pricingInputCard: {
     marginTop: 10,

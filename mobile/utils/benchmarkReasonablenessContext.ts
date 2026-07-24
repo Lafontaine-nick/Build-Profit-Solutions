@@ -1,8 +1,13 @@
 import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
-import type { EstimateAiDraft, ScopeMeasurements } from '@/utils/estimateAiDraft';
+import type { EstimateAiDraft, EstimateDraftScopePackage, ScopeMeasurements } from '@/utils/estimateAiDraft';
+import { getScopePackages } from '@/utils/estimateAiDraft';
+import { scopePackagePricedAmount } from '@/utils/estimateDraftReviewUi';
+import { resolveScopePackageBudgetBreakdown } from '@/utils/scopeBudgetBreakdown';
+import { isSoftCostScopePackage } from '@/utils/softCostScope';
 import {
-  currentScopePricingTotal,
   hasAcceptedScopePricing,
+  liveScopeMoneyFromQuantities,
+  markManualPricingAdjustment,
   type ScopePricingAcceptanceMetadata,
 } from '@/utils/acceptedPricingSummaryUi';
 import {
@@ -20,6 +25,7 @@ import {
   allowanceSplitSubKey,
   checklistItemInScope,
   initialScopeMeasurementInputExtended,
+  lookupRuleKeyForPackage,
   roughAllowanceSubKey,
   type NormalizedScopeMeasurements,
   type ScopeMeasurementsInputExtended,
@@ -36,6 +42,31 @@ export type ConfirmScopeAppliedPricingBreakdown = {
   labor: number;
   allowance: number;
 };
+
+export type ConfirmScopeAppliedPricingLine = {
+  itemId: string;
+  label: string;
+  total: number;
+  material: number;
+  labor: number;
+  allowance: number;
+};
+
+/** Same money total as Applied cards — live qty fields, then acceptance mat/lab, then totalAmount. */
+export function resolveAppliedScopeMoneyTotal(
+  itemId: string,
+  itemQuantities: ScopeMeasurementsInputExtended['itemQuantities'],
+  acceptance?: ScopePricingAcceptanceMetadata | null
+): number {
+  const live = liveScopeMoneyFromQuantities(itemId, itemQuantities || {});
+  if (live != null && live > 0) return live;
+  const acceptedMaterial = Number(acceptance?.materialAmount ?? 0) || 0;
+  const acceptedLabor = Number(acceptance?.laborAmount ?? 0) || 0;
+  if (acceptedMaterial + acceptedLabor > 0) return acceptedMaterial + acceptedLabor;
+  const accepted = Number(acceptance?.totalAmount);
+  if (Number.isFinite(accepted) && accepted > 0) return accepted;
+  return 0;
+}
 
 /** Saved Confirm Scope M/L/allowance must win over note-parsed measurements on restore. */
 export function mergeConfirmScopeSavedMeasurements(
@@ -110,10 +141,7 @@ function splitAppliedScopeDollars(
 ): { material: number; labor: number; allowance: number } {
   const quantities = measurements.itemQuantities || {};
   const acceptance = measurements.pricingAcceptance?.[itemId];
-  const total =
-    currentScopePricingTotal(itemId, quantities, measurements.pricingAcceptance) ||
-    Number(acceptance?.totalAmount ?? 0) ||
-    0;
+  const total = resolveAppliedScopeMoneyTotal(itemId, quantities, acceptance);
   if (!(total > 0)) return { material: 0, labor: 0, allowance: 0 };
 
   switch (appliedPricingBucketForScope(itemId)) {
@@ -168,6 +196,43 @@ export function mergeScopeMeasurementsPreservingFields(
   }
 
   return out;
+}
+
+/**
+ * Fold Ask AI refine/clarify pricing into the Step 2 scope snapshot so
+ * syncDraftWithLatestScopeMeasurements does not revert itemQuantities.
+ */
+export function foldAskAiMeasurementsIntoScopeSnapshot(
+  snapshot: ScopeMeasurements | null | undefined,
+  askAiDraftMeasurements: ScopeMeasurements | null | undefined
+): ScopeMeasurements {
+  return mergeScopeMeasurementsPreservingFields(snapshot, askAiDraftMeasurements);
+}
+
+/** Keep pricingAcceptance totals aligned when Ask AI revises allowance dollars. */
+export function syncAskAiPricingAcceptanceFromQuantities(
+  measurements: ScopeMeasurements | null | undefined
+): ScopeMeasurements {
+  if (!measurements?.itemQuantities) return measurements || {};
+  let pricingAcceptance = measurements.pricingAcceptance;
+  for (const [itemId, entry] of Object.entries(measurements.itemQuantities)) {
+    if (/__(material|labor|allowance)$/.test(itemId)) continue;
+    if (entry?.quantitySource !== 'user_entered') continue;
+    const unit = String(entry?.unit || '').toLowerCase();
+    if (!['allowance', 'lump_sum'].includes(unit)) continue;
+    const amount = Number(String(entry.quantity ?? '').replace(/,/g, ''));
+    if (!(amount > 0) || !pricingAcceptance?.[itemId]) continue;
+    const next = markManualPricingAdjustment(
+      pricingAcceptance[itemId],
+      itemId,
+      pricingAcceptance,
+      amount
+    );
+    if (next !== pricingAcceptance) pricingAcceptance = next;
+  }
+  return pricingAcceptance === measurements.pricingAcceptance
+    ? measurements
+    : { ...measurements, pricingAcceptance };
 }
 
 function readLivingCandidate(value: unknown): number | null {
@@ -346,6 +411,48 @@ export function scopeShowsConfirmScopeAppliedPricing(
   );
 }
 
+/** Per-scope Applied lines for audit — matches card totals and summary buckets. */
+export function listConfirmScopeAppliedPricingLines(params: {
+  items: ScopeChecklistItem[];
+  measurements: ScopeMeasurementsInputExtended;
+  templateKey?: string | null;
+}): ConfirmScopeAppliedPricingLine[] {
+  const lines: ConfirmScopeAppliedPricingLine[] = [];
+  for (const item of params.items) {
+    if (!checklistItemInScope(item)) continue;
+    if (
+      !hasAcceptedScopePricing(
+        item.id,
+        params.measurements.itemQuantities,
+        params.measurements.pricingAcceptance
+      )
+    ) {
+      continue;
+    }
+    if (
+      shouldSkipReasonablenessScopeTotal(
+        item.id,
+        params.templateKey,
+        params.measurements.pricingAcceptance
+      )
+    ) {
+      continue;
+    }
+    const split = splitAppliedScopeDollars(item.id, params.measurements, params.templateKey);
+    const total = Math.round((split.material + split.labor + split.allowance) * 100) / 100;
+    if (!(total > 0)) continue;
+    lines.push({
+      itemId: item.id,
+      label: item.label || item.id,
+      total,
+      material: split.material,
+      labor: split.labor,
+      allowance: split.allowance,
+    });
+  }
+  return lines;
+}
+
 /** Sum of Applied Confirm Scope dollars — excludes stage double-counts. */
 export function sumConfirmScopeAppliedPricingTotal(params: {
   items: ScopeChecklistItem[];
@@ -419,4 +526,114 @@ export function sumAppliedScopePricingFromDraft(
     measurements,
     templateKey,
   });
+}
+
+function scopePackageInAppliedBreakdown(
+  pkg: Pick<EstimateDraftScopePackage, 'name' | 'scope' | 'checklistItemId'>,
+  items: ScopeChecklistItem[],
+  measurements: ScopeMeasurementsInputExtended,
+  templateKey?: string | null
+): boolean {
+  const ruleKey =
+    pkg.checklistItemId ||
+    lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
+    null;
+  if (!ruleKey) return false;
+  const item = items.find((i) => i.id === ruleKey);
+  if (!item || !checklistItemInScope(item)) return false;
+  if (
+    !hasAcceptedScopePricing(
+      ruleKey,
+      measurements.itemQuantities,
+      measurements.pricingAcceptance
+    )
+  ) {
+    return false;
+  }
+  if (shouldSkipReasonablenessScopeTotal(ruleKey, templateKey, measurements.pricingAcceptance)) {
+    return false;
+  }
+  const split = splitAppliedScopeDollars(ruleKey, measurements, templateKey);
+  return split.material + split.labor + split.allowance > 0;
+}
+
+function bucketExtraScopePackageAmount(
+  pkg: EstimateDraftScopePackage,
+  draft: EstimateAiDraft,
+  amount: number
+): Pick<ConfirmScopeAppliedPricingBreakdown, 'material' | 'labor' | 'allowance'> {
+  const isSoftCost = isSoftCostScopePackage(pkg, draft);
+  const breakdown = isSoftCost ? null : resolveScopePackageBudgetBreakdown(pkg, draft);
+  if (isSoftCost || !breakdown) {
+    return isSoftCost
+      ? { material: 0, labor: 0, allowance: amount }
+      : { material: 0, labor: amount, allowance: 0 };
+  }
+  const material = Math.min(breakdown.material, amount);
+  const labor = Math.min(breakdown.labor, Math.max(0, amount - material));
+  const allowance = Math.max(0, amount - material - labor);
+  return { material, labor, allowance };
+}
+
+/**
+ * Step 3 review totals — Confirm Scope applied pricing plus Ask AI revisions
+ * (updated checklist rows and packages not on the Confirm Scope checklist).
+ */
+export function sumStep3ReviewBudgetTotals(
+  draft: EstimateAiDraft | null | undefined
+): ConfirmScopeAppliedPricingBreakdown | null {
+  const applied = sumAppliedScopePricingFromDraft(draft);
+  if (!draft || !applied || !(applied.total > 0)) return applied;
+
+  const items = draft.confirmedAssumptions?.length
+    ? draft.confirmedAssumptions
+    : draft.scopeChecklist?.items;
+  if (!items?.length) return applied;
+
+  const base = initialScopeMeasurementInputExtended(draft);
+  const templateKey = draft.scopeChecklist?.templateKey;
+  const measurements = clearSupersededStageHostPricing(
+    mergeConfirmScopeSavedMeasurements(base, draft.scopeMeasurements),
+    templateKey
+  );
+
+  const extra = { material: 0, labor: 0, allowance: 0, total: 0 };
+  for (const pkg of getScopePackages(draft)) {
+    const amount = scopePackagePricedAmount(pkg, draft);
+    if (!(amount > 0)) continue;
+
+    const ruleKey =
+      pkg.checklistItemId ||
+      lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
+      null;
+
+    let appliedAmount = 0;
+    if (
+      ruleKey &&
+      scopePackageInAppliedBreakdown(pkg, items, measurements, templateKey)
+    ) {
+      appliedAmount = resolveAppliedScopeMoneyTotal(
+        ruleKey,
+        measurements.itemQuantities,
+        measurements.pricingAcceptance?.[ruleKey]
+      );
+    }
+
+    const delta = amount - appliedAmount;
+    if (!(delta > 0.01)) continue;
+    const buckets = bucketExtraScopePackageAmount(pkg, draft, delta);
+    extra.material += buckets.material;
+    extra.labor += buckets.labor;
+    extra.allowance += buckets.allowance;
+    extra.total += delta;
+  }
+
+  if (!(extra.total > 0)) return applied;
+
+  return {
+    material: Math.round((applied.material + extra.material) * 100) / 100,
+    labor: Math.round((applied.labor + extra.labor) * 100) / 100,
+    allowance: Math.round((applied.allowance + extra.allowance) * 100) / 100,
+    total: Math.round((applied.total + extra.total) * 100) / 100,
+  };
 }

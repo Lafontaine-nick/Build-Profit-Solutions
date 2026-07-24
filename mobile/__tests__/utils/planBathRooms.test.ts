@@ -6,6 +6,7 @@ import {
   resolveBathCount,
   resolveEffectiveWetAreaFinish,
   resolveShowerDoorCount,
+  shouldShowPlanWetAreaFinishSteppers,
   sumBathFloorSqft,
   wetAreaFinishFromChecklistChoice,
 } from '@/utils/planBathRooms';
@@ -76,5 +77,17 @@ describe('planBathRooms', () => {
     expect(checklistChoiceFromWetAreaFinish('tub')).toBe('tub');
     expect(checklistChoiceFromWetAreaFinish('prefab')).toBe('prefab');
     expect(checklistChoiceFromWetAreaFinish(null)).toBeNull();
+  });
+
+  test('shouldShowPlanWetAreaFinishSteppers hides bath counters for photo bathroom remodels', () => {
+    expect(
+      shouldShowPlanWetAreaFinishSteppers({ templateKey: 'bathroom', planBathRoomCount: 0 })
+    ).toBe(false);
+    expect(
+      shouldShowPlanWetAreaFinishSteppers({ templateKey: 'bathroom', planBathRoomCount: 2 })
+    ).toBe(true);
+    expect(shouldShowPlanWetAreaFinishSteppers({ templateKey: 'ground_up' })).toBe(true);
+    expect(shouldShowPlanWetAreaFinishSteppers({ templateKey: 'addition' })).toBe(true);
+    expect(shouldShowPlanWetAreaFinishSteppers({ wholeHomeLayout: true })).toBe(true);
   });
 });

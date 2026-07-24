@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import type { BenchmarkReasonableness } from '@/utils/benchmarkEngine';
-import type { ConfirmScopeAppliedPricingBreakdown } from '@/utils/benchmarkReasonablenessContext';
+import type { ConfirmScopeAppliedPricingBreakdown, ConfirmScopeAppliedPricingLine } from '@/utils/benchmarkReasonablenessContext';
 import { formatDraftMoney } from '@/utils/estimateAiDraft';
 import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 
@@ -13,6 +13,8 @@ type Props = {
   darkMode: boolean;
   /** Applied Confirm Scope dollars — total + material / labor / allowances. */
   appliedBreakdown?: ConfirmScopeAppliedPricingBreakdown | null;
+  /** Per-scope Applied lines — same totals as scope cards. */
+  appliedLines?: ConfirmScopeAppliedPricingLine[];
 };
 
 const APP_GREEN = '#22c55e';
@@ -28,8 +30,10 @@ export default function BenchmarkReasonablenessCard({
   value,
   darkMode,
   appliedBreakdown = null,
+  appliedLines = [],
 }: Props) {
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [itemizeOpen, setItemizeOpen] = useState(false);
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const text = darkMode ? '#ffffff' : Colors.text;
@@ -78,6 +82,38 @@ export default function BenchmarkReasonablenessCard({
               Allowances {formatDraftMoney(appliedBreakdown.allowance)}
             </Text>
           </View>
+          {appliedLines.length > 0 ? (
+            <>
+              <Pressable
+                onPress={() => setItemizeOpen((open) => !open)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: itemizeOpen }}
+                accessibilityLabel={itemizeOpen ? 'Hide applied scope list' : 'Show applied scope list'}
+                style={[styles.detailsToggle, { marginTop: 10 }]}
+              >
+                <Text style={[styles.detailsToggleText, { color: text }]}>
+                  {itemizeOpen ? 'Hide scopes' : `Itemize (${appliedLines.length})`}
+                </Text>
+                <Ionicons
+                  name={itemizeOpen ? 'chevron-up' : 'chevron-down'}
+                  size={14}
+                  color={text}
+                />
+              </Pressable>
+              {itemizeOpen ? (
+                <View style={[styles.detailsBlock, { marginTop: 6 }]}>
+                  {appliedLines.map((line) => (
+                    <Text key={line.itemId} style={[styles.detailRow, { color: muted }]}>
+                      {line.label} {formatDraftMoney(line.total)}
+                    </Text>
+                  ))}
+                  <Text style={[styles.disclaimer, { color: muted }]}>
+                    Sum of these lines matches Applied pricing above.
+                  </Text>
+                </View>
+              ) : null}
+            </>
+          ) : null}
           <View style={[styles.divider, { backgroundColor: darkMode ? 'rgba(255,255,255,0.1)' : Colors.line }]} />
         </>
       ) : null}

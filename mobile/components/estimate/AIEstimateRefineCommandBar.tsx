@@ -216,22 +216,42 @@ export default function AIEstimateRefineCommandBar({
         </View>
       ) : (
         <TouchableOpacity
-          activeOpacity={0.85}
+          activeOpacity={0.88}
           onPress={() => setExpanded(true)}
           style={[
             styles.collapsedBar,
             {
-              backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.08)' : 'rgba(34, 197, 94, 0.06)',
+              borderColor: darkMode ? 'rgba(34, 197, 94, 0.38)' : 'rgba(34, 197, 94, 0.32)',
+              backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.08)',
             },
           ]}
           accessibilityRole="button"
-          accessibilityLabel="Show Ask AI"
+          accessibilityLabel="Open Ask AI to change prices or scope"
         >
-          <MaterialIcons name="auto-fix-high" size={15} color="#22c55e" />
-          <Text style={{ color: Colors.text, fontSize: 13, fontWeight: '600', flex: 1 }} numberOfLines={1}>
-            Ask AI
-          </Text>
-          <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '600' }}>Show</Text>
+          <View
+            style={[
+              styles.iconBadge,
+              {
+                backgroundColor: darkMode ? 'rgba(34, 197, 94, 0.22)' : 'rgba(34, 197, 94, 0.16)',
+              },
+            ]}
+          >
+            <MaterialIcons name="auto-fix-high" size={17} color="#22c55e" />
+          </View>
+          <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
+            <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '700' }} numberOfLines={1}>
+              Ask AI
+            </Text>
+            <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 16, marginTop: 2 }} numberOfLines={2}>
+              {showPricingNudge
+                ? 'Set a missing price or edit scope in plain English'
+                : 'Set prices, add scope, or fix a line in plain English'}
+            </Text>
+          </View>
+          <View style={styles.openPill}>
+            <Text style={styles.openPillText}>Open</Text>
+            <MaterialIcons name="chevron-right" size={16} color="#052e16" />
+          </View>
         </TouchableOpacity>
       )}
     </View>
@@ -242,10 +262,26 @@ const styles = StyleSheet.create({
   collapsedBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  openPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: 8,
+    paddingLeft: 12,
+    paddingRight: 8,
+    borderRadius: 999,
+    backgroundColor: '#22c55e',
+  },
+  openPillText: {
+    color: '#052e16',
+    fontSize: 13,
+    fontWeight: '800',
   },
   summaryBanner: {
     marginBottom: 8,
@@ -272,12 +308,11 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   iconBadge: {
-    width: 30,
-    height: 30,
-    borderRadius: 9,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 1,
   },
   inputRow: {
     flexDirection: 'row',

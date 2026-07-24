@@ -173,9 +173,9 @@ function defaultOptionsForItem(item: ScopeChecklistItem): ScopeChecklistOption[]
 /** Canonical labels for yes/no rows that were renamed after drafts were saved. */
 const YES_NO_LABEL_OVERRIDES: Record<string, { label: string; helperText?: string }> = {
   glass_door: {
-    label: 'Shower doors & mirrors',
+    label: 'Shower doors',
     helperText:
-      'Glass shower door / enclosure plus bath mirror — material and install. Towel bars/accessories separate.',
+      'Glass shower door / enclosure — material and install. Towel bars/accessories separate.',
   },
 };
 
@@ -638,8 +638,8 @@ function migrateGroundUpTakeoffScopeItems(
   );
   ensure(
     'glass_door',
-    'Shower doors & mirrors',
-    'Glass shower door / enclosure plus bath mirror — material and install.',
+    'Shower doors',
+    'Glass shower door / enclosure — material and install.',
     'finishes',
     'shower_floor_tile'
   );
@@ -1169,11 +1169,11 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   lighting: 'Fixture + install, not fixture cost only.',
   exhaust_fan: 'Replace or install bath fan and ducting if needed.',
   mirror_accessories:
-    'Towel bars, paper holder, hooks, or accessories. Vanity mirrors are under Shower doors & mirrors.',
+    'Towel bars, paper holder, hooks, or accessories — not shower doors.',
   paint: 'Wall/ceiling surface sqft (not floor area). Prep, labor, and paint.',
   trim: 'Trim/baseboard labor and materials.',
   glass_door:
-    'Glass shower door / enclosure plus bath mirror — material and install. Towel bars/accessories separate.',
+    'Glass shower door / enclosure — material and install. Towel bars/accessories separate.',
   drywall: 'Wall/ceiling surface sqft (not floor area). Patch or replace after layout changes.',
   cabinets: 'Cabinet and vanity LF — kitchen, baths, laundry.',
   countertops: 'Countertop sqft — kitchen, baths, and elsewhere.',

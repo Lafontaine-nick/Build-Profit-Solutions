@@ -49,12 +49,22 @@ export function scopePackagePricedAmount(
   pkg: EstimateDraftScopePackage,
   draft?: EstimateAiDraft | null
 ): number {
+  const fromPkg = pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0;
   if (draft) {
     const breakdown = resolveScopePackageBudgetBreakdown(pkg, draft);
-    if (breakdown?.total && breakdown.total > 0) return breakdown.total;
+    if (breakdown?.total && breakdown.total > 0) {
+      // Ask AI / manual row price wins over stale Confirm Scope measurement splits.
+      if (
+        pkg.priceProvidedByUser &&
+        fromPkg > 0 &&
+        Math.abs(fromPkg - breakdown.total) > 0.01
+      ) {
+        return fromPkg;
+      }
+      return breakdown.total;
+    }
   }
-  const amount = pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0;
-  if (amount > 0) return amount;
+  if (fromPkg > 0) return fromPkg;
   return proposalTotalForScopeName(draft?.pendingPricingProposal, pkg.name);
 }
 

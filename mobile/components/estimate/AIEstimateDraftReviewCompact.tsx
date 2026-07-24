@@ -30,7 +30,7 @@ import {
   SCOPE_LIST_DEFAULT_LIMIT,
   shouldHidePerRowStatus,
 } from '@/utils/estimateDraftReviewUi';
-import { sumAppliedScopePricingFromDraft } from '@/utils/benchmarkReasonablenessContext';
+import { sumStep3ReviewBudgetTotals } from '@/utils/benchmarkReasonablenessContext';
 import { draftHasApplyablePricing } from '@/utils/estimateAiDraftPricing';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
 import type { EstimateConfidenceLevel } from '@/utils/estimateAiDraft';
@@ -398,7 +398,7 @@ export default function AIEstimateDraftReviewCompact({
   const [editingPricingFor, setEditingPricingFor] = useState<string | null>(null);
   const [expandedBudgetSplits, setExpandedBudgetSplits] = useState<Record<string, true>>({});
   const scopePackages = getScopePackages(draft);
-  const appliedScopeBreakdown = useMemo(() => sumAppliedScopePricingFromDraft(draft), [draft]);
+  const appliedScopeBreakdown = useMemo(() => sumStep3ReviewBudgetTotals(draft), [draft]);
   if (__DEV__) {
     const q = draft.scopeMeasurements?.itemQuantities || {};
     const pkg = scopePackages.find((p) => /flooring|lvp/i.test(`${p.name || ''} ${p.scope || ''}`));

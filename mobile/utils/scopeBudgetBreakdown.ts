@@ -451,6 +451,24 @@ export function resolveScopePackageBudgetBreakdown(
 
   const basis = pkg.budgetSplitBasis ?? pkg.scopeQuantities?.[0] ?? null;
 
+  // laborPrice sometimes stores the combined package total — derive labor from the remainder.
+  if (
+    packageTotal > 0 &&
+    pkgMat > 0 &&
+    pkgLab > 0 &&
+    Math.abs(pkgLab - packageTotal) <= 1 &&
+    pkgMat < packageTotal
+  ) {
+    const fromCombinedLabor = breakdownFromKnownLegs({
+      total: packageTotal,
+      material: pkgMat,
+      labor: Math.max(0, packageTotal - pkgMat),
+      source: packageSplitSource(pkg),
+      basis,
+    });
+    if (fromCombinedLabor) return fromCombinedLabor;
+  }
+
   if (packageWasEditedManually) {
     const manual = breakdownFromKnownLegs({
       total,

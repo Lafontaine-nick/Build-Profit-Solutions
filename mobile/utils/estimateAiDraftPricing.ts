@@ -17,6 +17,7 @@ import {
   normalizeScopeMeasurements,
   ruleKeysToTryForPackage,
   resolveChecklistItemQuantity,
+  getChecklistItemQuantityRuleOrDefault,
   getNationalAverageBudgetSplit,
   getRegionalAdjustedNationalAverageBudgetSplit,
 } from '@/utils/scopeItemQuantities';
@@ -1633,6 +1634,38 @@ function pickPackageQuantity(
     return !isPlaceholderAllowancePricing(Number(q.quantity), q.unit, ruleKey);
   };
 
+  // Lump-sum allowances (appliances, contingency, …) match saved flat rates — not living SF.
+  if (ruleKey && draft) {
+    const rule = getChecklistItemQuantityRuleOrDefault(ruleKey, templateKey);
+    if (rule.lumpSumOnly) {
+      const measurements = normalizeScopeMeasurements(draft.scopeMeasurements);
+      const allowanceKeys = [
+        ruleKey,
+        allowanceSplitSubKey(ruleKey, 'allowance'),
+        allowanceSplitSubKey(ruleKey, 'labor'),
+        allowanceSplitSubKey(ruleKey, 'material'),
+      ];
+      for (const key of allowanceKeys) {
+        const entry = measurements.itemQuantities?.[key];
+        if (entry && validQuantity(entry)) {
+          return {
+            quantity: Number(entry.quantity),
+            unit: String(entry.unit || rule.defaultUnit || 'allowance'),
+          };
+        }
+      }
+      const allowanceFromQs = qs.find(
+        (q) =>
+          (q.unit === 'allowance' || q.unit === 'lump_sum') &&
+          validQuantity(q)
+      );
+      if (allowanceFromQs) {
+        return { quantity: Number(allowanceFromQs.quantity), unit: allowanceFromQs.unit };
+      }
+      return { quantity: 1, unit: rule.defaultUnit || 'allowance' };
+    }
+  }
+
   // Prefer Confirm Scope / Suggest planning basis before stamped living-SF package qty
   // (Counters used to inherit 3,098 living SF → kitchen $/SF → ~$465k).
   if (draft && ruleKey && PLANNING_BASIS_RULE_KEYS.has(ruleKey)) {
@@ -2156,6 +2189,12 @@ function scoreTemplateLineToPackage(
   }
   if (/baseboard|trim/.test(pn)) {
     return /baseboard|trim/.test(lt) ? 30 : 0;
+  }
+  if (/\bappliance/.test(pn)) {
+    if (/\bappliance\s*removal\b/.test(pn)) {
+      return /\bappliance/.test(lt) && /\b(remov|haul|disconnect)\b/.test(lt) ? 40 : 0;
+    }
+    return /\bappliance/.test(lt) && !/\b(remov|removal)\b/.test(lt) ? 38 : 0;
   }
   if (/laminate|flooring|lvp/.test(pn) && !pkgDemo) {
     if (lineDemo) return 0;
@@ -2950,7 +2989,18 @@ export function buildSavedPricingProposalFromTemplates(
       templateName: string;
     };
     const candidates: Candidate[] = [];
-    const scopeIsLump = isLumpSumUnit(qtyInfo.unit);
+    const itemRuleKey = lookupRuleKeyForPackage(pkg.name, pkg.scope || '');
+    const itemTemplateKey =
+      matchDraft.scopeChecklist?.templateKey ||
+      matchDraft.estimateTier ||
+      matchDraft.projectType ||
+      null;
+    const scopeIsLump =
+      isLumpSumUnit(qtyInfo.unit) ||
+      qtyInfo.unit === 'allowance' ||
+      Boolean(
+        itemRuleKey && getChecklistItemQuantityRuleOrDefault(itemRuleKey, itemTemplateKey).lumpSumOnly
+      );
 
     for (const tpl of templates as SavedTemplateRecord[]) {
       const payload = tpl.payload;
@@ -3511,35 +3561,52 @@ function buildRoughPricingProposalLocal(
   });
 }
 
+function libraryLumpEntryMatchesPackage(
+  pkgName: string,
+  entry: { scopeItemName: string; category?: string }
+): boolean {
+  return (
+    libraryEntryMatchesPackage(pkgName, entry, 'labor') ||
+    libraryEntryMatchesPackage(pkgName, entry, 'material')
+  );
+}
+
 async function buildSavedPricingProposalLocal(draft: EstimateAiDraft): Promise<PricingProposal> {
-  let rates: Array<{ scopeItemName: string; unitType: string; unitRate: number; category?: string }> = [];
+  type LibraryRate = {
+    scopeItemName: string;
+    unitType: string;
+    unitRate: number;
+    category?: string;
+  };
+  let unitRates: LibraryRate[] = [];
+  let lumpRates: LibraryRate[] = [];
   try {
     const lib = await fetchPricingLibrary();
     for (const section of lib.sections || []) {
       for (const rate of section.items || []) {
         const ut = String(rate.unitType || '').toLowerCase();
-        if (
-          (rate.unitRate ?? 0) > 0 &&
-          ut !== 'lump_sum' &&
-          ut !== 'lot' &&
-          ut !== 'flat' &&
-          ['sqft', 'lf', 'hr', 'each'].includes(ut)
-        ) {
-          rates.push({
-            scopeItemName: rate.scopeItemName,
-            unitType: rate.unitType,
-            unitRate: rate.unitRate as number,
-            category: rate.category,
-          });
+        const amount = rate.unitRate ?? 0;
+        if (amount <= 0) continue;
+        const entry: LibraryRate = {
+          scopeItemName: rate.scopeItemName,
+          unitType: rate.unitType,
+          unitRate: amount,
+          category: rate.category,
+        };
+        if (['lump_sum', 'lot', 'flat', 'allowance'].includes(ut)) {
+          lumpRates.push(entry);
+        } else if (['sqft', 'lf', 'hr', 'each'].includes(ut)) {
+          unitRates.push(entry);
         }
       }
     }
   } catch {
-    rates = [];
+    unitRates = [];
+    lumpRates = [];
   }
 
   const findRateForPackage = (pkgName: string, role: 'material' | 'labor', unitType: string) => {
-    const matched = rates.filter(
+    const matched = unitRates.filter(
       (r) =>
         r.unitRate > 0 &&
         r.unitType === unitType &&
@@ -3551,10 +3618,49 @@ async function buildSavedPricingProposalLocal(draft: EstimateAiDraft): Promise<P
     return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
   };
 
+  const findLumpRateForPackage = (pkgName: string) => {
+    const matched = lumpRates.filter((r) => r.unitRate > 0 && libraryLumpEntryMatchesPackage(pkgName, r));
+    if (!matched.length) return null;
+    const sorted = [...matched].map((m) => m.unitRate).sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  };
+
   const lines: PricingProposalLine[] = [];
   for (const pkg of getScopePackages(draft)) {
+    const amount = pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0;
+    if (amount > 0) continue;
+    if (scopePricingLinesForPackage(pkg, draft).length > 0) continue;
+
     const qtyInfo = pickPackageQuantity(pkg, String(draft.originalNotes || ''), draft);
     if (!qtyInfo || qtyInfo.quantity <= 0) continue;
+
+    const ruleKey = lookupRuleKeyForPackage(pkg.name, pkg.scope || '');
+    const lumpSumScope =
+      isLumpSumUnit(qtyInfo.unit) ||
+      Boolean(ruleKey && getChecklistItemQuantityRuleOrDefault(ruleKey).lumpSumOnly);
+
+    if (lumpSumScope) {
+      const lumpRate = findLumpRateForPackage(pkg.name);
+      if (lumpRate != null && lumpRate > 0) {
+        lines.push({
+          packageName: pkg.name,
+          lineType: 'lump_sum',
+          label: `${pkg.name} allowance`,
+          unitType: 'lump_sum',
+          quantity: 1,
+          unitRate: lumpRate,
+          total: roundMoney(lumpRate),
+          formula: `$${formatMoney(lumpRate)} from pricing library`,
+          priceSource: 'pricing_history',
+          sourceLabel: 'Based on your past approved bids',
+          confidence: 'medium',
+          status: 'pricing_memory_suggested',
+          requiresApproval: true,
+        });
+        continue;
+      }
+    }
 
     const pkgDemo = isDemoPackage(pkg.name);
     const add = (
@@ -3598,10 +3704,11 @@ async function buildSavedPricingProposalLocal(draft: EstimateAiDraft): Promise<P
   }
 
   const totalSuggested = lines.reduce((s, l) => s + l.total, 0);
+  const libraryRateCount = unitRates.length + lumpRates.length;
   return {
     empty: lines.length === 0,
     source: 'saved_pricing',
-    sourceLabel: rates.length > 0 ? 'Based on your past approved bids' : 'Based on your saved pricing',
+    sourceLabel: libraryRateCount > 0 ? 'Based on your past approved bids' : 'Based on your saved pricing',
     lines,
     totalSuggested,
     message:

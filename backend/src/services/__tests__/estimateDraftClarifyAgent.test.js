@@ -403,6 +403,157 @@ describe('refineEstimateDraft', () => {
     );
   });
 
+  test('disposal price command updates cleanup package and itemQuantities', async () => {
+    const draft = enrichDraft({
+      ...baseDraft(),
+      rooms: [
+        ...(baseDraft().rooms || []),
+        {
+          name: 'Cleanup & disposal',
+          scope: 'Final clean and haul-off',
+          price: 1000,
+          laborPrice: null,
+          materialPrice: null,
+          priceIncludesLaborAndMaterials: true,
+          priceProvidedByUser: true,
+          scopeQuantities: [{ label: 'Cleanup & disposal', quantity: 1, unit: 'lump_sum', quantitySource: 'user_entered' }],
+        },
+      ],
+      scopeMeasurements: {
+        itemQuantities: {
+          cleanup: { quantity: 1000, unit: 'allowance', quantitySource: 'user_entered' },
+          cleanup__allowance: { quantity: 1000, unit: 'allowance', quantitySource: 'user_entered' },
+        },
+      },
+    });
+    const result = await refineEstimateDraft(draft, 'Add disposal for 8,000', { openai: null });
+    const cleanup = result.draft.rooms.find((r) => /cleanup/i.test(r.name));
+    expect(cleanup?.price).toBe(8000);
+    expect(result.draft.rooms.filter((r) => /disposal/i.test(r.name))).toHaveLength(1);
+    expect(result.draft.scopeMeasurements?.itemQuantities?.cleanup?.quantity).toBe(8000);
+    expect(result.appliedSummary.some((s) => /Cleanup.*\$8,000/i.test(s))).toBe(true);
+  });
+
+  test('priced add pool bid creates one package even when LLM would duplicate', async () => {
+    const openai = fakeOpenAi({
+      addPackages: [
+        { name: 'Pool Installation', amount: 12000 },
+        { name: 'Pool Bid', amount: 12000 },
+      ],
+      packagePrices: [
+        { packageName: 'Pool Installation', amount: 12000, kind: 'lump_sum' },
+      ],
+      notesAddendum: 'Added pool scope',
+    });
+    const result = await refineEstimateDraft(enrichDraft(baseDraft()), 'Add pool bid for 12000', {
+      openai,
+      aiModels: AI_DEPS_MODELS,
+      aiRuntime: AI_DEPS_RUNTIME,
+    });
+    const poolRooms = (result.draft.rooms || []).filter((r) => /pool/i.test(r.name));
+    expect(result.source).toBe('rules');
+    expect(poolRooms).toHaveLength(1);
+    expect(poolRooms[0].price).toBe(12000);
+    expect(result.appliedSummary.filter((s) => /^Added:/i.test(s))).toHaveLength(1);
+  });
+
+  test('material/labor split command does not create duplicate scope rows', async () => {
+    const draft = enrichDraft({
+      ...baseDraft(),
+      rooms: [
+        {
+          name: 'Cabinet hardware',
+          scope: 'Pulls and knobs',
+          price: null,
+          laborPrice: null,
+          materialPrice: null,
+          priceIncludesLaborAndMaterials: false,
+          priceProvidedByUser: false,
+        },
+      ],
+    });
+    const result = await refineEstimateDraft(
+      draft,
+      'cabinet hardware $300 material and $900 labor',
+      { openai: null }
+    );
+    expect(result.draft.rooms.filter((r) => /cabinet hardware/i.test(r.name))).toHaveLength(1);
+    const hardware = result.draft.rooms.find((r) => /cabinet hardware/i.test(r.name));
+    expect(hardware?.materialPrice).toBe(300);
+    expect(hardware?.laborPrice).toBe(900);
+    expect(hardware?.price).toBe(1200);
+  });
+
+  test('separate pool budget into material and labor parses both legs', async () => {
+    const draft = enrichDraft({
+      ...baseDraft(),
+      rooms: [
+        {
+          name: 'Pool',
+          scope: 'Pool installation',
+          price: 12000,
+          laborPrice: null,
+          materialPrice: null,
+          priceIncludesLaborAndMaterials: true,
+          priceProvidedByUser: true,
+        },
+      ],
+    });
+    const command =
+      "For 'pool' separate the 12,000 budget into 5,000 material and 7,000 for labor";
+    const result = await refineEstimateDraft(draft, command, { openai: null });
+    expect(result.source).toBe('rules');
+    const pool = result.draft.rooms.find((r) => /pool/i.test(r.name));
+    expect(pool?.materialPrice).toBe(5000);
+    expect(pool?.laborPrice).toBe(7000);
+    expect(pool?.price).toBe(12000);
+    expect(result.appliedSummary.some((s) => /\$5,000.*material/i.test(s))).toBe(true);
+    expect(result.appliedSummary.some((s) => /\$7,000.*labor/i.test(s))).toBe(true);
+  });
+
+  test('add pool with parenthetical and split creates package with both legs', async () => {
+    const draft = enrichDraft({
+      ...baseDraft(),
+      rooms: [],
+      scopePackages: [],
+    });
+    const command =
+      'Add (pool) to the scope and separate 12,000 into 5000 for material and 7000 for labor';
+    const result = await refineEstimateDraft(draft, command, { openai: null });
+    expect(result.source).toBe('rules');
+    expect(result.appliedSummary.some((s) => /Revision noted/i.test(s))).toBe(false);
+    expect(result.appliedSummary.some((s) => /^Added:/i.test(s))).toBe(true);
+    const poolRooms = result.draft.rooms.filter((r) => /pool/i.test(r.name));
+    expect(poolRooms).toHaveLength(1);
+    const pool = poolRooms[0];
+    expect(pool.materialPrice).toBe(5000);
+    expect(pool.laborPrice).toBe(7000);
+    expect(pool.price).toBe(12000);
+  });
+
+  test('mergePatchQuantities keeps both material and labor legs for same package', () => {
+    const { mergePatchQuantities } = require('../estimateDraftClarifyAgent');
+    const merged = mergePatchQuantities(
+      {
+        packagePrices: [
+          { packageName: 'Pool', amount: 5000, kind: 'material' },
+        ],
+      },
+      {
+        packagePrices: [
+          { packageName: 'Pool', amount: 7000, kind: 'labor' },
+        ],
+      }
+    );
+    expect(merged.packagePrices).toHaveLength(2);
+    expect(merged.packagePrices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ amount: 5000, kind: 'material' }),
+        expect.objectContaining({ amount: 7000, kind: 'labor' }),
+      ])
+    );
+  });
+
   test('Ask AI material/labor split stamps allowance units, not fake sqft', () => {
     const kitchen = enrichDraft({
       projectType: 'kitchen',

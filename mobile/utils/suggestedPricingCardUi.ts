@@ -77,9 +77,9 @@ export function shouldUseCompactSuggestedAlternative(params: {
 }
 
 export function formatCompactSuggestedLine(total: number | null | undefined): string | null {
-  const rounded = roundSuggestedDisplayTotal(total);
-  if (rounded == null) return null;
-  return `Suggested $${rounded.toLocaleString()}`;
+  const formatted = formatAppliedDisplayMoney(total);
+  if (formatted === '—') return null;
+  return `Suggested ${formatted}`;
 }
 
 export function compactSuggestedActionLabel(lumpSumOnly?: boolean): string {
@@ -193,16 +193,13 @@ export function roundSuggestedDisplayComponent(amount: number | null | undefined
   return Math.round(n / 10) * 10;
 }
 
+/** Exact apply amount — matches stored totals after Apply (no planning rounding). */
 export function formatSuggestedDisplayMoney(total: number | null | undefined): string {
-  const rounded = roundSuggestedDisplayTotal(total);
-  if (rounded == null) return '—';
-  return `$${rounded.toLocaleString()}`;
+  return formatAppliedDisplayMoney(total);
 }
 
 export function formatSuggestedComponentMoney(amount: number | null | undefined): string {
-  const rounded = roundSuggestedDisplayComponent(amount);
-  if (rounded == null) return '—';
-  return `$${rounded.toLocaleString()}`;
+  return formatAppliedDisplayMoney(amount);
 }
 
 /** Keep exact money for user-entered / applied values. */

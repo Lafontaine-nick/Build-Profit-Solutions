@@ -1073,4 +1073,31 @@ describe('acceptedPricingSummaryUi', () => {
       )
     ).toBe(16103);
   });
+
+  it('shows cents on applied card totals when stored amounts include them', () => {
+    const display = resolveAcceptedPricingDisplay({
+      itemId: 'excavation',
+      resolved: {
+        quantity: null,
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+        sourceLabel: 'Applied',
+        pricingReady: true,
+        showInput: true,
+        dualMaterial: { quantity: 2500.15, unit: 'allowance' },
+        dualLabor: { quantity: 3047.4, unit: 'allowance' },
+      },
+      acceptance: {
+        selectionStatus: 'accepted',
+        pricingSourceLabel: 'National Average',
+        pricingSourceKind: 'national_average',
+        pricingTypeLabel: 'Material + Labor',
+        totalAmount: 5547.55,
+        materialAmount: 2500.15,
+        laborAmount: 3047.4,
+      },
+      intelligence: intelligence(),
+    });
+    expect(display.totalLabel).toBe('$5,547.55');
+  });
 });

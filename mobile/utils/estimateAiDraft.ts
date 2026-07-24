@@ -1957,8 +1957,11 @@ function shouldPreserveUserPackagePrice(
   if (!pkg.priceProvidedByUser) return false;
   const current = Number(pkg.price);
   if (!(current > 0) || Math.abs(current - selected.total) < 0.01) return false;
+  // Partial manual split — package total is authoritative; Confirm Scope legs are a portion only.
+  if (current > selected.total + 0.01) return true;
+  // Same checklist row — Ask AI / manual revision wins over stale Confirm Scope sync.
+  if (pkg.checklistItemId && pkg.checklistItemId === selected.ruleKey) return true;
   if (!SOFT_COST_SYNC_KEYS.has(selected.ruleKey)) return false;
-  if (pkg.checklistItemId && pkg.checklistItemId === selected.ruleKey) return false;
   return true;
 }
 
@@ -1996,9 +1999,15 @@ function applySelectedPricingToScopePackage(
     return stripUnconfirmedAutoPackagePricing(pkg, draft, withIdentity, basis);
   }
   if (shouldPreserveUserPackagePrice(pkg, selected)) {
+    const preserved = Number(pkg.price) || selected.total;
     return {
       ...withIdentity,
+      price: preserved,
+      knownSubtotal: preserved,
+      calculatedSubtotal: preserved,
       checklistItemId: pkg.checklistItemId || ruleKey,
+      materialPrice: selected.materialPrice ?? pkg.materialPrice ?? null,
+      laborPrice: selected.laborPrice ?? pkg.laborPrice ?? null,
       budgetSplitBasis: basis ?? pkg.budgetSplitBasis ?? null,
       scopeQuantities: basis
         ? [{ quantity: basis.quantity, unit: basis.unit }]
@@ -2393,7 +2402,7 @@ function parsedNoteSplitForPackage(
     material: breakdown.material,
     labor: breakdown.labor,
     total: breakdown.total,
-    splitIsSuggested: isSuggested,
+    splitIsSuggested: isSuggested && !hasApprovedPkgSplit,
   };
 }
 
@@ -2472,6 +2481,57 @@ function packageAllowanceAmount(pkg: EstimateDraftScopePackage): number {
   return Number.isFinite(amount) && amount > 0 ? amount : 0;
 }
 
+/** Scope rows for apply — synced scopePackages plus Ask AI rooms missing from scopePackages. */
+function resolveDraftPackagesForApply(draft: EstimateAiDraft): EstimateDraftScopePackage[] {
+  const packages = draft.scopePackages?.length
+    ? [...draft.scopePackages]
+    : getScopePackages(draft);
+  if (!draft.rooms?.length) return packages;
+
+  const seen = new Set(
+    packages.map((p) => String(p.name || '').trim().toLowerCase()).filter(Boolean)
+  );
+  const merged = [...packages];
+  for (const room of draft.rooms) {
+    const key = String(room.name || '').trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    merged.push(
+      applySelectedPricingToScopePackage(
+        {
+          name: room.name,
+          scope: room.scope,
+          scopeQuantities: room.scopeQuantities,
+          price: room.price,
+          laborPrice: room.laborPrice,
+          materialPrice: room.materialPrice,
+          pricingType: room.price != null ? 'lump_sum' : 'unknown',
+          includesLabor: room.priceIncludesLaborAndMaterials
+            ? true
+            : room.laborPrice != null
+              ? true
+              : null,
+          includesMaterials: room.materialPrice != null ? true : room.priceIncludesLaborAndMaterials ? true : null,
+          priceSource: room.priceProvidedByUser ? 'user_provided' : 'missing',
+          status: (room.packageStatus ||
+            (room.price != null
+              ? 'user_provided'
+              : room.knownSubtotal
+                ? 'partial_pricing'
+                : 'missing_price')) as DraftItemStatus,
+          knownSubtotal: room.knownSubtotal ?? null,
+          priceProvidedByUser: room.priceProvidedByUser,
+          priceIncludesLaborAndMaterials: room.priceIncludesLaborAndMaterials,
+          missingPriceItems: room.missingPriceItems || [],
+          pricingItems: room.pricingItems || [],
+        } as EstimateDraftScopePackage,
+        draft
+      )
+    );
+    seen.add(key);
+  }
+  return merged;
+}
+
 function resolvePackageCostCode(
   pkg: EstimateDraftScopePackage | null | undefined,
   name?: string,
@@ -2488,9 +2548,8 @@ function allowanceLineItemsFromDraft(
   applyConfirmedOnly: boolean
 ): Record<string, unknown>[] {
   const lines: Record<string, unknown>[] = [];
-  if (!draft.scopePackages?.length) return lines;
 
-  for (const pkg of draft.scopePackages) {
+  for (const pkg of resolveDraftPackagesForApply(draft)) {
     if (!packageIsApplyEligible(pkg, applyConfirmedOnly)) continue;
     if (!isSoftCostScopePackage(pkg, draft)) continue;
     const total = packageAllowanceAmount(pkg);
@@ -2638,93 +2697,47 @@ function laborLineItemsFromDraft(
   const lines: Record<string, unknown>[] = [];
   const applySuggestedSplits = Boolean(draft.applySuggestedSplits);
 
-  if (draft.scopePackages?.length) {
-    for (const pkg of draft.scopePackages) {
-      if (!packageIsApplyEligible(pkg, applyConfirmedOnly)) continue;
-      if (isSoftCostScopePackage(pkg, draft)) continue;
+  for (const pkg of resolveDraftPackagesForApply(draft)) {
+    if (!packageIsApplyEligible(pkg, applyConfirmedOnly)) continue;
+    if (isSoftCostScopePackage(pkg, draft)) continue;
 
-      const parsedSplit = parsedNoteSplitForPackage(pkg, draft);
-      const total = laborAmountForPackage(pkg, parsedSplit, applySuggestedSplits);
-      if (total <= 0) continue;
-
-      const splitMaterial = materialAmountForPackage(pkg, parsedSplit, applySuggestedSplits);
-      const materialFromItems =
-        splitMaterial > 0
-          ? 0
-          : (pkg.pricingItems || [])
-              .filter((i) => i.pricingType === 'material' && (i.amount || 0) > 0)
-              .reduce((s, i) => s + (Number(i.amount) || 0), 0);
-      const hasSeparateMaterial = splitMaterial > 0 || materialFromItems > 0;
-      const isCombinedOnly =
-        !hasSeparateMaterial &&
-        (pkg.priceIncludesLaborAndMaterials ||
-          (pkg.includesLabor && pkg.includesMaterials) ||
-          (packageSplitIsSuggestedOnly(pkg) && !applySuggestedSplits));
-      const costCode = resolvePackageCostCode(pkg);
-      lines.push({
-        id: newLineItemId(),
-        name: pkg.name,
-        description: laborDescriptionForPackage(pkg, parsedSplit),
-        hours: 1,
-        rate: total,
-        total,
-        totalCost: total,
-        category: isCombinedOnly ? 'Trade package' : 'Labor',
-        section: pkg.name,
-        source: 'ai-draft',
-        sourceItemId: costCode,
-        costCode,
-        checklistItemId: costCode,
-        priceProvidedByUser: true,
-        priceIncludesLaborAndMaterials: isCombinedOnly,
-        splitIsSuggested: Boolean(parsedSplit?.splitIsSuggested || pkg.splitIsSuggested),
-        displaySubtitle: budgetSplitDisplaySubtitle(parsedSplit, 'labor'),
-        partialPricing: pkg.status === 'partial_pricing',
-      });
-    }
-    return lines;
-  }
-
-  for (const room of draft.rooms) {
-    if (!roomIsApplyEligible(room, draft, applyConfirmedOnly)) continue;
-
-    const pkg = getScopePackageForRoom(draft, room.name);
-    const total = effectiveLaborTotal(room, pkg, draft);
-    if (total == null || total <= 0) continue;
-
-    const resolved = resolveRoomForApply(room, draft);
     const parsedSplit = parsedNoteSplitForPackage(pkg, draft);
-    const isCombinedOnly =
-      resolved.priceIncludesLaborAndMaterials &&
-      !resolved.splitIsSuggested &&
-      pkg?.status !== 'partial_pricing';
-    const costCode = resolvePackageCostCode(pkg, resolved.name, resolved.scope);
+    const total = laborAmountForPackage(pkg, parsedSplit, applySuggestedSplits);
+    if (total <= 0) continue;
 
+    const splitMaterial = materialAmountForPackage(pkg, parsedSplit, applySuggestedSplits);
+    const materialFromItems =
+      splitMaterial > 0
+        ? 0
+        : (pkg.pricingItems || [])
+            .filter((i) => i.pricingType === 'material' && (i.amount || 0) > 0)
+            .reduce((s, i) => s + (Number(i.amount) || 0), 0);
+    const hasSeparateMaterial = splitMaterial > 0 || materialFromItems > 0;
+    const isCombinedOnly =
+      !hasSeparateMaterial &&
+      (pkg.priceIncludesLaborAndMaterials ||
+        (pkg.includesLabor && pkg.includesMaterials) ||
+        (packageSplitIsSuggestedOnly(pkg) && !applySuggestedSplits));
+    const costCode = resolvePackageCostCode(pkg);
     lines.push({
       id: newLineItemId(),
-      name: resolved.name,
-      description: laborDescription(resolved, pkg, parsedSplit),
+      name: pkg.name,
+      description: laborDescriptionForPackage(pkg, parsedSplit),
       hours: 1,
       rate: total,
       total,
       totalCost: total,
-      category:
-        pkg?.status === 'partial_pricing'
-          ? 'Partial package'
-          : isCombinedOnly
-            ? 'Trade package'
-            : 'Labor',
-      section: resolved.name,
+      category: isCombinedOnly ? 'Trade package' : 'Labor',
+      section: pkg.name,
       source: 'ai-draft',
       sourceItemId: costCode,
       costCode,
       checklistItemId: costCode,
       priceProvidedByUser: true,
-      priceIncludesLaborAndMaterials:
-        pkg?.status === 'partial_pricing' ? false : resolved.priceIncludesLaborAndMaterials,
-      splitIsSuggested: Boolean(resolved.splitIsSuggested),
+      priceIncludesLaborAndMaterials: isCombinedOnly,
+      splitIsSuggested: Boolean(parsedSplit?.splitIsSuggested || pkg.splitIsSuggested),
       displaySubtitle: budgetSplitDisplaySubtitle(parsedSplit, 'labor'),
-      partialPricing: pkg?.status === 'partial_pricing',
+      partialPricing: pkg.status === 'partial_pricing',
     });
   }
 
@@ -2738,98 +2751,29 @@ function materialLineItemsFromDraft(
   const lines: Record<string, unknown>[] = [];
   const applySuggestedSplits = Boolean(draft.applySuggestedSplits);
 
-  if (draft.scopePackages?.length) {
-    for (const pkg of draft.scopePackages) {
-      if (!packageIsApplyEligible(pkg, applyConfirmedOnly)) continue;
-      if (isSoftCostScopePackage(pkg, draft)) continue;
+  for (const pkg of resolveDraftPackagesForApply(draft)) {
+    if (!packageIsApplyEligible(pkg, applyConfirmedOnly)) continue;
+    if (isSoftCostScopePackage(pkg, draft)) continue;
 
-      const parsedSplit = parsedNoteSplitForPackage(pkg, draft);
-      const splitMaterial = materialAmountForPackage(pkg, parsedSplit, applySuggestedSplits);
-      const splitIsSuggested = parsedSplit?.splitIsSuggested ?? Boolean(pkg.splitIsSuggested);
-      const costCode = resolvePackageCostCode(pkg);
-
-      // Prefer package/split material amount. Only fall back to pricingItems when no package material exists.
-      if (splitMaterial > 0) {
-        lines.push({
-          id: newLineItemId(),
-          name: `${pkg.name} — materials`,
-          description: splitIsSuggested
-            ? `Suggested materials split for ${pkg.name} — adjust after applying.`
-            : `Materials for ${pkg.name}`,
-          quantity: 1,
-          qty: 1,
-          unit: 'lot',
-          unitPrice: splitMaterial,
-          cost: splitMaterial,
-          total: splitMaterial,
-          section: pkg.name,
-          source: 'ai-draft',
-          sourceItemId: costCode,
-          costCode,
-          checklistItemId: costCode,
-          isManual: true,
-          displaySubtitle: budgetSplitDisplaySubtitle(parsedSplit, 'material'),
-        });
-        continue;
-      }
-
-      if (pkg.pricingItems?.length) {
-        for (const item of pkg.pricingItems) {
-          if (item.pricingType !== 'material' || item.amount == null || item.amount <= 0) continue;
-          if (applyConfirmedOnly && item.status === 'ai_suggested' && !item.approvedByUser) continue;
-          lines.push({
-            id: newLineItemId(),
-            name: `${pkg.name} — ${item.name}`,
-            description: item.description || `${SCOPE_PARSED_FROM_NOTES_LABEL} (${item.status || 'confirmed'})`,
-            quantity: 1,
-            qty: 1,
-            unit: 'lot',
-            unitPrice: item.amount,
-            cost: item.amount,
-            total: item.amount,
-            section: pkg.name,
-            source: 'ai-draft',
-            sourceItemId: costCode,
-            costCode,
-            checklistItemId: costCode,
-            isManual: true,
-          });
-        }
-      }
-    }
-    return lines;
-  }
-
-  for (const room of draft.rooms) {
-    if (!roomIsApplyEligible(room, draft, applyConfirmedOnly)) continue;
-
-    const pkg = getScopePackageForRoom(draft, room.name);
-    const resolved = resolveRoomForApply(room, draft);
     const parsedSplit = parsedNoteSplitForPackage(pkg, draft);
-    const costCode = resolvePackageCostCode(pkg, resolved.name, resolved.scope);
-
-    const splitMaterial =
-      materialAmountForPackage(
-        pkg || ({ materialPrice: resolved.materialPrice } as EstimateDraftScopePackage),
-        parsedSplit,
-        applySuggestedSplits
-      ) || (parsedSplit ? 0 : materialPortion(resolved));
-    const splitIsSuggested = parsedSplit?.splitIsSuggested ?? Boolean(resolved.splitIsSuggested);
+    const splitMaterial = materialAmountForPackage(pkg, parsedSplit, applySuggestedSplits);
+    const splitIsSuggested = parsedSplit?.splitIsSuggested ?? Boolean(pkg.splitIsSuggested);
+    const costCode = resolvePackageCostCode(pkg);
 
     if (splitMaterial > 0) {
       lines.push({
         id: newLineItemId(),
-        name: `${room.name} — materials`,
+        name: `${pkg.name} — materials`,
         description: splitIsSuggested
-          ? `Suggested materials split for ${room.name} — adjust after applying.`
-          : `Materials for ${room.name}`,
+          ? `Suggested materials split for ${pkg.name} — adjust after applying.`
+          : `Materials for ${pkg.name}`,
         quantity: 1,
         qty: 1,
         unit: 'lot',
         unitPrice: splitMaterial,
         cost: splitMaterial,
         total: splitMaterial,
-        section: room.name,
+        section: pkg.name,
         source: 'ai-draft',
         sourceItemId: costCode,
         costCode,
@@ -2840,13 +2784,13 @@ function materialLineItemsFromDraft(
       continue;
     }
 
-    if (pkg?.pricingItems?.length) {
+    if (pkg.pricingItems?.length) {
       for (const item of pkg.pricingItems) {
         if (item.pricingType !== 'material' || item.amount == null || item.amount <= 0) continue;
         if (applyConfirmedOnly && item.status === 'ai_suggested' && !item.approvedByUser) continue;
         lines.push({
           id: newLineItemId(),
-          name: `${room.name} — ${item.name}`,
+          name: `${pkg.name} — ${item.name}`,
           description: item.description || `${SCOPE_PARSED_FROM_NOTES_LABEL} (${item.status || 'confirmed'})`,
           quantity: 1,
           qty: 1,
@@ -2854,7 +2798,7 @@ function materialLineItemsFromDraft(
           unitPrice: item.amount,
           cost: item.amount,
           total: item.amount,
-          section: room.name,
+          section: pkg.name,
           source: 'ai-draft',
           sourceItemId: costCode,
           costCode,

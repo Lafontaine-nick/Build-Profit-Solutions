@@ -177,6 +177,7 @@ export default function AIEstimateDraftReviewPricingActions({
   const showRoughUnavailable =
     unpricedCount > 0 &&
     (roughPricingUnavailable || roughTiers.suggestable === 0);
+  const savedRatesPrimary = showRoughUnavailable && showUseSavedPricing;
   const packageMeasurementLines = measuredScopeLines(getScopePackages(draft), draft);
   const measuredLines = packageMeasurementLines.length ? packageMeasurementLines : quickMeasurementLines(draft);
   const suggestCount =
@@ -202,9 +203,13 @@ export default function AIEstimateDraftReviewPricingActions({
     (s) => s.source === 'saved_template'
   );
   const [showReadyItems, setShowReadyItems] = useState(false);
-  const statusLine = showRoughUnavailable
-    ? ROUGH_UNAVAILABLE_COPY
-    : unpricedCount > 0
+  const statusLine = savedRatesPrimary
+    ? roughTiers.manualOnly === 1
+      ? 'No rough estimate for this scope — saved rates available'
+      : `${roughTiers.manualOnly} scopes need manual pricing — saved rates may apply`
+    : showRoughUnavailable
+      ? ROUGH_UNAVAILABLE_COPY
+      : unpricedCount > 0
       ? pricingReadiness.needsMeasurement > 0 && !hasPricing
         ? `${pricingReadiness.ready} ready · ${pricingReadiness.needsMeasurement} need measurements`
         : roughTiers.manualOnly > 0 && roughTiers.suggestable > 0
@@ -263,7 +268,7 @@ export default function AIEstimateDraftReviewPricingActions({
       ) : (
         <Text
           style={{
-            color: showRoughUnavailable
+            color: showRoughUnavailable && !savedRatesPrimary
               ? darkMode
                 ? 'rgba(251, 191, 36, 0.95)'
                 : '#b45309'
@@ -271,14 +276,22 @@ export default function AIEstimateDraftReviewPricingActions({
             fontSize: 12,
             lineHeight: 17,
             marginBottom: 10,
-            fontWeight: showRoughUnavailable ? '600' : '400',
+            fontWeight: showRoughUnavailable && !savedRatesPrimary ? '600' : '400',
           }}
         >
           {statusLine}
         </Text>
       )}
 
-      {showRoughUnavailable ? null : (
+      {savedRatesPrimary ? (
+        <SuggestPricingBtn
+          label="Apply saved rates"
+          onPress={onUseSavedPricing}
+          disabled={busy}
+          loading={suggestingMissingPrices}
+          darkMode={darkMode}
+        />
+      ) : showRoughUnavailable ? null : (
         <SuggestPricingBtn
           label={roughLabel}
           onPress={suggestCount > 0 ? onSuggestRoughPrices : onAddPricesManually}
@@ -304,7 +317,7 @@ export default function AIEstimateDraftReviewPricingActions({
           marginTop: 2,
         }}
       >
-        {showUseSavedPricing ? (
+        {showUseSavedPricing && !savedRatesPrimary ? (
           <SecondaryLink
             label="Saved rates"
             onPress={onUseSavedPricing}

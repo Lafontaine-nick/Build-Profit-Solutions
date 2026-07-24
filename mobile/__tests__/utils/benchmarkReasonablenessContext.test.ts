@@ -1,6 +1,10 @@
 import {
   clearSupersededStageHostPricing,
+  foldAskAiMeasurementsIntoScopeSnapshot,
+  listConfirmScopeAppliedPricingLines,
   mergeScopeMeasurementsPreservingFields,
+  sumStep3ReviewBudgetTotals,
+  resolveAppliedScopeMoneyTotal,
   resolveBenchmarkLivingSf,
   scopeShowsConfirmScopeAppliedPricing,
   sumConfirmScopeAppliedPricingBreakdown,
@@ -18,6 +22,25 @@ describe('benchmarkReasonablenessContext', () => {
     expect(merged.floorAreaSqft).toBe(3098);
     expect(merged.roofSquares).toBe(26);
     expect(merged.itemQuantities?.drywall?.quantity).toBe(10843);
+  });
+
+  it('foldAskAiMeasurementsIntoScopeSnapshot keeps Ask AI disposal price over Step 2 snapshot', () => {
+    const step2Snapshot = {
+      itemQuantities: {
+        cleanup: { quantity: 1000, unit: 'allowance', quantitySource: 'user_entered' },
+        cleanup__allowance: { quantity: 1000, unit: 'allowance', quantitySource: 'user_entered' },
+      },
+    };
+    const refineMeasurements = {
+      itemQuantities: {
+        cleanup: { quantity: 8000, unit: 'allowance', quantitySource: 'user_entered' },
+        cleanup__allowance: { quantity: 8000, unit: 'allowance', quantitySource: 'user_entered' },
+      },
+    };
+    const updatedSnapshot = foldAskAiMeasurementsIntoScopeSnapshot(step2Snapshot, refineMeasurements);
+    expect(updatedSnapshot.itemQuantities?.cleanup?.quantity).toBe(8000);
+    const synced = mergeScopeMeasurementsPreservingFields(refineMeasurements, updatedSnapshot);
+    expect(synced.itemQuantities?.cleanup?.quantity).toBe(8000);
   });
 
   it('resolveBenchmarkLivingSf rejects roof-square confusion', () => {
@@ -280,5 +303,152 @@ describe('benchmarkReasonablenessContext', () => {
         templateKey: 'ground_up',
       })
     ).toBe(67080); // material + labor legs
+  });
+
+  it('itemized Applied lines sum to the Applied pricing breakdown total', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'permits', label: 'Permits / fees', inputType: 'yes_no', state: 'included' },
+      { id: 'plans_engineering', label: 'Plans / engineering', inputType: 'yes_no', state: 'included' },
+      { id: 'cleanup', label: 'Cleanup & disposal', inputType: 'yes_no', state: 'included' },
+    ];
+    const measurements = {
+      itemQuantities: {
+        permits__allowance: { quantity: '32000', unit: 'allowance', quantitySource: 'user_entered' },
+        plans_engineering__allowance: { quantity: '3000', unit: 'allowance', quantitySource: 'user_entered' },
+        cleanup__material: { quantity: '450', unit: 'allowance', quantitySource: 'user_entered' },
+        cleanup__labor: { quantity: '550', unit: 'allowance', quantitySource: 'user_entered' },
+      },
+      pricingAcceptance: {
+        permits: { selectionStatus: 'accepted', totalAmount: 32000, pricingSourceKind: 'national_average' },
+        plans_engineering: {
+          selectionStatus: 'accepted',
+          totalAmount: 3000,
+          pricingSourceKind: 'national_average',
+        },
+        cleanup: {
+          selectionStatus: 'accepted',
+          totalAmount: 1000,
+          materialAmount: 450,
+          laborAmount: 550,
+          pricingSourceKind: 'national_average',
+        },
+      },
+    } as never;
+
+    const breakdown = sumConfirmScopeAppliedPricingBreakdown({
+      items,
+      measurements,
+      templateKey: 'ground_up',
+    });
+    const lines = listConfirmScopeAppliedPricingLines({
+      items,
+      measurements,
+      templateKey: 'ground_up',
+    });
+    const lineSum = Math.round(lines.reduce((sum, line) => sum + line.total, 0) * 100) / 100;
+    expect(lineSum).toBe(breakdown.total);
+    expect(breakdown.total).toBe(36000);
+    expect(resolveAppliedScopeMoneyTotal('cleanup', measurements.itemQuantities, measurements.pricingAcceptance.cleanup)).toBe(
+      1000
+    );
+  });
+
+  it('sumStep3ReviewBudgetTotals includes Ask AI packages not on Confirm Scope checklist', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'cleanup', label: 'Cleanup & disposal', inputType: 'yes_no', state: 'included' },
+      { id: 'framing', label: 'Framing', inputType: 'yes_no', state: 'included' },
+    ];
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: { templateKey: 'ground_up', items },
+      scopePackages: [
+        {
+          name: 'Framing',
+          scope: 'Framing',
+          checklistItemId: 'framing',
+          price: 500000,
+          knownSubtotal: 500000,
+          status: 'user_provided',
+        },
+        {
+          name: 'Cleanup & disposal',
+          scope: 'Final clean',
+          checklistItemId: 'cleanup',
+          price: 1000,
+          knownSubtotal: 1000,
+          status: 'user_provided',
+        },
+        {
+          name: 'Disposal Bid',
+          scope: 'Disposal Bid',
+          price: 8000,
+          knownSubtotal: 8000,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+          scopeQuantities: [{ quantity: 1, unit: 'lump_sum', quantitySource: 'user_entered' }],
+        },
+      ],
+      scopeMeasurements: {
+        itemQuantities: {
+          framing: { quantity: 500000, unit: 'allowance', quantitySource: 'user_entered' },
+          framing__allowance: { quantity: 500000, unit: 'allowance', quantitySource: 'user_entered' },
+          cleanup: { quantity: 1000, unit: 'allowance', quantitySource: 'user_entered' },
+          cleanup__allowance: { quantity: 1000, unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: {
+          framing: { status: 'accepted' },
+          cleanup: { status: 'accepted' },
+        },
+      },
+    } as never;
+
+    const totals = sumStep3ReviewBudgetTotals(draft);
+    expect(totals?.total).toBe(509000);
+    expect(totals!.total - 500000 - 1000).toBe(8000);
+  });
+
+  it('sumStep3ReviewBudgetTotals adds delta when Ask AI raises an applied checklist row', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'cleanup', label: 'Cleanup & disposal', inputType: 'yes_no', state: 'included' },
+      { id: 'framing', label: 'Framing', inputType: 'yes_no', state: 'included' },
+    ];
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: { templateKey: 'ground_up', items },
+      scopePackages: [
+        {
+          name: 'Framing',
+          scope: 'Framing',
+          checklistItemId: 'framing',
+          price: 500000,
+          knownSubtotal: 500000,
+          status: 'user_provided',
+        },
+        {
+          name: 'Cleanup & disposal',
+          scope: 'Final clean',
+          checklistItemId: 'cleanup',
+          price: 8000,
+          knownSubtotal: 8000,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+        },
+      ],
+      scopeMeasurements: {
+        itemQuantities: {
+          framing: { quantity: 500000, unit: 'allowance', quantitySource: 'user_entered' },
+          framing__allowance: { quantity: 500000, unit: 'allowance', quantitySource: 'user_entered' },
+          cleanup: { quantity: 1000, unit: 'allowance', quantitySource: 'user_entered' },
+          cleanup__allowance: { quantity: 1000, unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: {
+          framing: { status: 'accepted', totalAmount: 500000 },
+          cleanup: { status: 'accepted', totalAmount: 1000 },
+        },
+      },
+    } as never;
+
+    const totals = sumStep3ReviewBudgetTotals(draft);
+    expect(totals?.total).toBe(508000);
   });
 });

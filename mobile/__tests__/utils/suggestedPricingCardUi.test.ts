@@ -125,7 +125,7 @@ describe('suggestedPricingCardUi', () => {
     expect(display.whyThisPriceLines.join(' ')).toMatch(/Water, sewer, fire/);
   });
 
-  it('rounds component and total displays while preserving exact internals', () => {
+  it('shows exact apply amounts on suggest cards (no planning rounding)', () => {
     const raw = block({
       material: 443.52,
       labor: 3994.32,
@@ -136,11 +136,10 @@ describe('suggestedPricingCardUi', () => {
       ],
     });
     expect(roundSuggestedDisplayComponent(443.52)).toBe(440);
-    expect(roundSuggestedDisplayComponent(3994.32)).toBe(3990);
     expect(roundSuggestedDisplayTotal(4437.84)).toBe(4440);
-    expect(formatSuggestedComponentMoney(443.52)).toBe('$440');
-    expect(formatSuggestedSplitLine(raw)).toBe('Equipment $440 · Labor $3,990');
-    expect(formatSuggestedDisplayMoney(4437.84)).toBe('$4,440');
+    expect(formatSuggestedComponentMoney(443.52)).toBe('$443.52');
+    expect(formatSuggestedSplitLine(raw)).toBe('Equipment $443.52 · Labor $3,994.32');
+    expect(formatSuggestedDisplayMoney(4437.84)).toBe('$4,437.84');
     expect(raw.total).toBe(4437.84);
     expect(raw.material).toBe(443.52);
   });
@@ -172,7 +171,7 @@ describe('suggestedPricingCardUi', () => {
     expect(display.statusTone).toBe('amber');
     expect(display.actionType).toBe('use_planning_price');
     expect(display.actionLabel).toBe('Apply');
-    expect(display.splitLine).toBe('Material $4,790 · Labor $2,910');
+    expect(display.splitLine).toBe('Material $4,792.10 · Labor $2,911.40');
     expect(display.whyThisPriceLines).toEqual(
       expect.arrayContaining(['Fallback basis: 1,879 sqft living area', 'BPS national benchmark'])
     );

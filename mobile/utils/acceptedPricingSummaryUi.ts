@@ -19,6 +19,7 @@ import {
   hasOnlySuggestedPrefillPricing,
   roughAllowanceSubKey,
 } from '@/utils/scopeItemQuantities';
+import { formatDraftMoney } from '@/utils/estimateAiDraft';
 
 /** User-facing confidence badges on Confirm Scope applied-pricing cards. */
 export const PRICING_CONFIDENCE_LABEL = {
@@ -440,14 +441,14 @@ export function resolveAcceptedPricingDisplay(params: {
   const showConfidenceBadge = shouldShowConfidenceBadge(acceptance);
 
   return {
-    totalLabel: `$${Number(total).toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+    totalLabel: formatDraftMoney(total),
     selectionStatusLabel: selectionStatusLabel(acceptance, params.resolved),
     pricingSourceLabel: acceptance.pricingSourceLabel,
     pricingTypeLabel: acceptance.pricingTypeLabel,
     subtitleLine: acceptedPricingSubtitleLine({
       display: {
         pricingModel,
-        totalLabel: `$${Number(total).toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+        totalLabel: formatDraftMoney(total),
         acceptance,
       },
       resolved: params.resolved,
@@ -1095,10 +1096,6 @@ export function buildPricingDetailRows(params: {
   if (freshness) push('Last updated', freshness);
 
   return rows;
-}
-
-function formatDraftMoney(value: number): string {
-  return `$${Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
 function titleCase(value: string): string {

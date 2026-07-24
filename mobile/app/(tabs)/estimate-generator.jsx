@@ -65,7 +65,11 @@ import {
 } from '../../utils/estimateAiDraftPricing';
 import { draftHasUnpricedScope, isScopeOnlyDraft } from '../../utils/estimateDraftReviewUi';
 import { mergeScopeProgressIntoDraft } from '../../utils/estimateScopeChecklistUi';
-import { mergeScopeMeasurementsPreservingFields } from '../../utils/benchmarkReasonablenessContext';
+import {
+  foldAskAiMeasurementsIntoScopeSnapshot,
+  mergeScopeMeasurementsPreservingFields,
+  syncAskAiPricingAcceptanceFromQuantities,
+} from '../../utils/benchmarkReasonablenessContext';
 import { scopeMeasurementsPayloadForPersist } from '../../utils/scopeItemQuantities';
 import {
   collectSavedEstimateCustomers,
@@ -5275,6 +5279,24 @@ export default function EstimateGeneratorScreen() {
       scopeMeasurements: mergedMeasurements,
     });
   }, []);
+  /** Ask AI refine/clarify — persist pricing into scope snapshot before sync. */
+  const applyAskAiDraftResult = useCallback(
+    (draft) => {
+      if (!draft) return draft;
+      if (draft.scopeMeasurements) {
+        const folded = syncAskAiPricingAcceptanceFromQuantities(
+          foldAskAiMeasurementsIntoScopeSnapshot(
+            latestScopeMeasurementsRef.current,
+            draft.scopeMeasurements
+          )
+        );
+        latestScopeMeasurementsRef.current = folded;
+        draft = { ...draft, scopeMeasurements: folded };
+      }
+      return syncDraftWithLatestScopeMeasurements(draft);
+    },
+    [syncDraftWithLatestScopeMeasurements]
+  );
   const [aiDraftFillToast, setAiDraftFillToast] = useState({ visible: false, roomCount: 0 });
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const [isFirstTime, setIsFirstTime] = useState(false);
@@ -6565,7 +6587,7 @@ export default function EstimateGeneratorScreen() {
       setAiClarifyApplying(true);
       try {
         const result = await applyClarifyAnswersToDraft(aiDraft, answers);
-        setAiDraft(syncDraftWithLatestScopeMeasurements(result.draft));
+        setAiDraft(applyAskAiDraftResult(result.draft));
 
         const answeredKeys = new Set(
           answers.map((a) => String(a.question || '').trim().toLowerCase()).filter(Boolean)
@@ -6592,7 +6614,7 @@ export default function EstimateGeneratorScreen() {
       aiDraft,
       aiClarifyApplying,
       aiClarifyQuestionItems,
-      syncDraftWithLatestScopeMeasurements,
+      applyAskAiDraftResult,
     ]
   );
 
@@ -6612,7 +6634,7 @@ export default function EstimateGeneratorScreen() {
       setAiDraftRefining(true);
       try {
         const result = await refineDraftWithCommand(aiDraft, command);
-        setAiDraft(syncDraftWithLatestScopeMeasurements(result.draft));
+        setAiDraft(applyAskAiDraftResult(result.draft));
         setAiRefineLastCommand(result.command || command);
         setAiRefineAppliedSummary(
           result.appliedSummary?.length ? result.appliedSummary : ['Draft updated']
@@ -6627,7 +6649,7 @@ export default function EstimateGeneratorScreen() {
         setAiDraftRefining(false);
       }
     },
-    [aiDraft, aiDraftRefining, syncDraftWithLatestScopeMeasurements]
+    [aiDraft, aiDraftRefining, applyAskAiDraftResult]
   );
 
   const handleDismissRefineSummary = useCallback(() => {
@@ -6665,7 +6687,7 @@ export default function EstimateGeneratorScreen() {
       const withApproved = mode === 'with_approved';
 
       const runApply = async (draftOverride = null, forceApplySuggestedSplits = false) => {
-        let draftToApply = draftOverride || aiDraft;
+        let draftToApply = draftOverride || syncDraftWithLatestScopeMeasurements(aiDraft);
         // Merge approved pending proposal into packages so Step 3 totals become labor/material lines.
         if (
           draftToApply?.pendingPricingProposal &&
@@ -6789,7 +6811,7 @@ export default function EstimateGeneratorScreen() {
 
       await runApply();
     },
-    [aiDraft, aiSaveToPricingLibrary, bid, bidHasLineItems, syncLocalCustomerFromBid]
+    [aiDraft, aiSaveToPricingLibrary, bid, bidHasLineItems, syncLocalCustomerFromBid, syncDraftWithLatestScopeMeasurements]
   );
 
   const handleApplyAiDraftConfirmed = useCallback(

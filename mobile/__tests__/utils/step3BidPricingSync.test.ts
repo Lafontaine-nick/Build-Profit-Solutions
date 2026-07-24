@@ -265,8 +265,13 @@ describe('Step 3 pricing syncs into final bid line items', () => {
 
     // Framing $32k + permits $3.5k — not framing materials twice ($14k extra).
     expect(materialTotal).toBe(14000);
-    expect(laborTotal).toBe(18000 + 3500);
-    expect(laborTotal + materialTotal).toBe(35500);
+    expect(laborTotal).toBe(18000);
+    const allowanceTotal = (bid.allowanceLineItems as Array<{ amount?: number; total?: number }>).reduce(
+      (s, l) => s + (Number(l.amount ?? l.total) || 0),
+      0
+    );
+    expect(allowanceTotal).toBe(3500);
+    expect(laborTotal + materialTotal + allowanceTotal).toBe(35500);
   });
 
   it('uses labor remainder when package has materials but no laborPrice', () => {
@@ -686,5 +691,59 @@ describe('Step 3 pricing syncs into final bid line items', () => {
     expect(allowanceLines).toHaveLength(2);
     expect(allowanceLines.find((l) => l.name === 'Contingency')?.amount).toBe(5000);
     expect(allowanceLines.find((l) => /Mobilization/i.test(String(l.name || '')))?.amount).toBe(750);
+  });
+
+  it('applies Ask AI Disposal Bid when it exists only on rooms, not scopePackages', () => {
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: {
+        templateKey: 'ground_up',
+        items: [{ id: 'framing', label: 'Framing', inputType: 'yes_no', state: 'included' }],
+      },
+      scopePackages: [
+        {
+          name: 'Framing',
+          scope: 'framing',
+          checklistItemId: 'framing',
+          price: 500000,
+          knownSubtotal: 500000,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+        },
+      ],
+      rooms: [
+        {
+          name: 'Framing',
+          scope: 'framing',
+          price: 500000,
+          priceProvidedByUser: true,
+          priceIncludesLaborAndMaterials: true,
+        },
+        {
+          name: 'Disposal Bid',
+          scope: 'Disposal Bid',
+          price: 8000,
+          priceProvidedByUser: true,
+          priceIncludesLaborAndMaterials: true,
+          scopeQuantities: [{ quantity: 1, unit: 'lump_sum', quantitySource: 'user_entered' }],
+        },
+      ],
+      scopeMeasurements: {
+        itemQuantities: {
+          framing: { quantity: 500000, unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: { framing: { status: 'accepted', totalAmount: 500000 } },
+      },
+    } as unknown as EstimateAiDraft;
+
+    const { bid } = applyDraftToEstimate({}, draft, {
+      applyConfirmedOnly: true,
+      applySuggestedSplits: false,
+    });
+
+    const laborLines = bid.laborLineItems as Array<{ name?: string; total?: number }>;
+    const laborSum = laborLines.reduce((sum, line) => sum + (Number(line.total) || 0), 0);
+    expect(laborLines.some((l) => l.name === 'Disposal Bid' && l.total === 8000)).toBe(true);
+    expect(laborSum).toBe(508000);
   });
 });

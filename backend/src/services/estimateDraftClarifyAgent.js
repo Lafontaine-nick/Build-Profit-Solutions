@@ -169,8 +169,10 @@ function mergePatchQuantities(basePatch, extra) {
     const seen = new Map();
     for (const item of combined) {
       const id =
-        key === 'packageQuantities' || key === 'packagePrices'
+        key === 'packageQuantities'
           ? normalizeName(item.packageName)
+          : key === 'packagePrices'
+            ? `${normalizeName(item.packageName)}::${item.kind || 'lump_sum'}`
           : key === 'addPackages'
             ? normalizeName(item.name)
             : String(item.key || '');
@@ -204,13 +206,199 @@ function parseCommandMoney(raw) {
 function cleanPackageNameFromCommand(raw) {
   return String(raw || '')
     .replace(
-      /\b(can you|please|make|set|add|for|the|a|an|to|be|is|are|price|pricing|cost|total|amount)\b/gi,
+      /\b(can you|please|make|set|add|for|the|a|an|to|be|is|are|price|pricing|cost|total|amount|separate|split|budget|into)\b/gi,
       ' '
     )
-    .replace(/^[\s\-–,.:]+|[\s\-–,.:]+$/g, '')
+    .replace(/^[\s\-–,.:'"]+|[\s\-–,.:'"]+$/g, '')
     .replace(/\s{2,}/g, ' ')
     .trim()
     .slice(0, 120);
+}
+
+function extractQuotedPackageName(text) {
+  const m = String(text || '').match(/\b(?:for\s+)?['"]([^'"]+)['"]/i);
+  return m ? m[1].trim() : null;
+}
+
+/** Pull scope name from quotes, parentheses, or leading "add X". */
+function extractPackageNameHint(text) {
+  const raw = String(text || '');
+  const quoted = extractQuotedPackageName(raw);
+  if (quoted) return quoted;
+  const paren = raw.match(/\(\s*([^)]+)\s*\)/);
+  if (paren?.[1]?.trim()) return paren[1].trim();
+  const addHint = raw.match(
+    /\b(?:add|include)\s+(?:scope\s+item\s+|a\s+|an\s+|the\s+)?['"(]*([a-zA-Z][\w\s/-]{0,80}?)(?:['")\s]|$|\s+to\b|\s+for\b|\s+and\b)/i
+  );
+  if (addHint?.[1]?.trim()) return addHint[1].trim();
+  return null;
+}
+
+function titleCaseScopeName(name) {
+  return String(name || '')
+    .split(/\s+/)
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+    .join(' ');
+}
+
+function appendMaterialLaborSplitToPatch(patch, parsedSplit, draftInput) {
+  patch.packagePrices.push(
+    { packageName: parsedSplit.name, amount: parsedSplit.material, kind: 'material' },
+    { packageName: parsedSplit.name, amount: parsedSplit.labor, kind: 'labor' }
+  );
+  const existing = draftInput ? findRoomForPackageName(draftInput, parsedSplit.name) : null;
+  if (!existing) {
+    const titled = titleCaseScopeName(parsedSplit.name);
+    patch.addPackages.push({
+      name: titled,
+      scope: titled,
+      quantity: null,
+      unit: null,
+      amount: parsedSplit.material + parsedSplit.labor,
+    });
+  }
+}
+
+/** Parse "separate pool into $5k material and $7k labor" and similar phrasing. */
+function tryParseMaterialLaborSplit(text, draftInput) {
+  const raw = String(text || '').trim();
+  if (!commandRequestsMaterialLaborSplit(raw)) return null;
+
+  const moneyLegs = raw.match(
+    /\$?\s*([\d,]+(?:\.\d+)?\s*k?)\s*(?:for\s+)?materials?\s+(?:and\s+|&\s*)\$?\s*([\d,]+(?:\.\d+)?\s*k?)\s*(?:for\s+)?labou?r/i
+  );
+  if (!moneyLegs) return null;
+  const material = parseCommandMoney(moneyLegs[1]);
+  const labor = parseCommandMoney(moneyLegs[2]);
+  if (material == null || labor == null) return null;
+
+  let name = extractPackageNameHint(raw);
+  if (!name) {
+    const namedSplit = raw.match(
+      /\b(?:separate|split)\s+(?:the\s+)?(?:['"]([^'"]+)['"]|(.+?))\s+(?:[\d,$\s]+?\s+)?(?:budget\s+)?into\s+\$?\s*[\d,]/i
+    );
+    if (namedSplit) {
+      const candidate = (namedSplit[1] || namedSplit[2] || '').trim();
+      if (candidate && !/^[\d,$.\s]+$/.test(candidate)) {
+        name = candidate;
+      }
+    }
+  }
+  if (!name) {
+    const forSplit = raw.match(
+      /\b(?:for\s+)?(.+?)\s+(?:can you\s+)?(?:make|set|use|change|update|separate|split)\b/i
+    );
+    if (forSplit) name = forSplit[1].trim();
+  }
+  if (!name) {
+    const leadingName = raw.match(/^(.+?)\s+\$?\s*[\d,]+(?:\.\d+)?\s*k?\s*(?:for\s+)?materials?\s+and/i);
+    if (leadingName) name = leadingName[1].trim();
+  }
+  name = cleanPackageNameFromCommand(name);
+  if (!name) name = extractPackageNameHint(raw);
+  if (!name && draftInput) {
+    for (const room of draftInput.rooms || []) {
+      const rn = normalizeName(room.name);
+      if (rn && normalizeName(raw).includes(rn)) {
+        name = room.name;
+        break;
+      }
+    }
+  }
+  if (!name) return null;
+  return { name, material, labor };
+}
+
+function packagesShareTrade(nameA, nameB) {
+  const a = normalizeName(nameA);
+  const b = normalizeName(nameB);
+  if (!a || !b) return false;
+  if (a === b || a.includes(b) || b.includes(a)) return true;
+  const generic = new Set([
+    'kitchen',
+    'bathroom',
+    'interior',
+    'exterior',
+    'general',
+    'project',
+    'site',
+    'scope',
+    'item',
+    'work',
+    'new',
+    'build',
+  ]);
+  const stop = new Set([
+    'installation',
+    'install',
+    'bid',
+    'allowance',
+    'labor',
+    'material',
+    'the',
+    'and',
+    'for',
+    'to',
+  ]);
+  const tokens = (n) =>
+    n
+      .split(' ')
+      .filter((t) => t.length >= 4 && !stop.has(t) && !generic.has(t));
+  const ta = tokens(a);
+  const tb = tokens(b);
+  return ta.some((t) => tb.includes(t));
+}
+
+/** One scope row per trade — drop sibling install/bid rows and duplicate LLM adds. */
+function consolidateAddPackages(draft, addEntries, priceUpdates) {
+  const rooms = draft?.rooms || [];
+  const out = [];
+  for (const entry of addEntries || []) {
+    const name = String(entry?.name || '').trim();
+    if (!name) continue;
+    if (findRoomForPackageName({ rooms }, name)) continue;
+    if (rooms.some((r) => packagesShareTrade(r.name, name))) continue;
+
+    const amount = Number(entry?.amount);
+    const priceHitsExisting = (priceUpdates || []).some((u) => {
+      const target = findRoomForPackageName({ rooms }, u?.packageName);
+      if (!target) return false;
+      const uAmount = Number(u?.amount);
+      if (amount > 0 && uAmount > 0 && Math.abs(amount - uAmount) > 0.01) return false;
+      return packagesShareTrade(name, target.name);
+    });
+    if (priceHitsExisting) continue;
+
+    if (
+      out.some((kept) => {
+        const keptAmount = Number(kept.amount);
+        const sameMoney =
+          !(amount > 0) ||
+          !(keptAmount > 0) ||
+          Math.abs(amount - keptAmount) < 0.01;
+        return sameMoney && packagesShareTrade(kept.name, name);
+      })
+    ) {
+      continue;
+    }
+    out.push(entry);
+  }
+  return out;
+}
+
+function consolidateRefinePatch(draft, patch) {
+  if (!patch) return patch;
+  const next = { ...patch };
+  next.addPackages = consolidateAddPackages(
+    draft,
+    next.addPackages || [],
+    next.packagePrices || []
+  );
+  return next;
+}
+
+function commandRequestsMaterialLaborSplit(command) {
+  return /\bmaterials?\b/i.test(String(command || '')) && /\blabou?r\b/i.test(String(command || ''));
 }
 
 /**
@@ -218,7 +406,7 @@ function cleanPackageNameFromCommand(raw) {
  * "add X" and "$300 material / $900 labor" work even if the LLM omits fields
  * or invents fake sqft quantities from dollar amounts.
  */
-function buildDeterministicRefinePatchFromCommand(command) {
+function buildDeterministicRefinePatchFromCommand(command, draftInput) {
   const text = String(command || '').trim();
   const patch = { addPackages: [], removePackages: [], packagePrices: [] };
   if (!text) return patch;
@@ -232,18 +420,26 @@ function buildDeterministicRefinePatchFromCommand(command) {
     return patch;
   }
 
+  const parsedSplit = tryParseMaterialLaborSplit(text, draftInput);
+  if (parsedSplit) {
+    appendMaterialLaborSplitToPatch(patch, parsedSplit, draftInput);
+    return patch;
+  }
+
   // "cabinet hardware $300 material and $900 labor" / "make hardware 300 for material and 900 for labor"
   const splitMatch = text.match(
     /(?:for\s+)?(.+?)\s+(?:can you\s+)?(?:make|set|use|change|update)?\s*\$?\s*([\d,]+(?:\.\d+)?\s*k?)\s*(?:for\s+)?materials?\s+(?:and\s+|&\s*)\$?\s*([\d,]+(?:\.\d+)?\s*k?)\s*(?:for\s+)?labou?r/i
   );
   if (splitMatch) {
-    const name = cleanPackageNameFromCommand(splitMatch[1]);
+    let name = cleanPackageNameFromCommand(splitMatch[1]);
+    if (!name) name = extractPackageNameHint(text);
     const material = parseCommandMoney(splitMatch[2]);
     const labor = parseCommandMoney(splitMatch[3]);
     if (name && material != null && labor != null) {
-      patch.packagePrices.push(
-        { packageName: name, amount: material, kind: 'material' },
-        { packageName: name, amount: labor, kind: 'labor' }
+      appendMaterialLaborSplitToPatch(
+        patch,
+        { name, material, labor },
+        draftInput
       );
       return patch;
     }
@@ -256,17 +452,21 @@ function buildDeterministicRefinePatchFromCommand(command) {
   if (splitMatchReverse) {
     const labor = parseCommandMoney(splitMatchReverse[1]);
     const material = parseCommandMoney(splitMatchReverse[2]);
-    const name = cleanPackageNameFromCommand(splitMatchReverse[3]);
+    let name = cleanPackageNameFromCommand(splitMatchReverse[3]);
+    if (!name) name = extractPackageNameHint(text);
     if (name && material != null && labor != null) {
-      patch.packagePrices.push(
-        { packageName: name, amount: material, kind: 'material' },
-        { packageName: name, amount: labor, kind: 'labor' }
+      appendMaterialLaborSplitToPatch(
+        patch,
+        { name, material, labor },
+        draftInput
       );
       return patch;
     }
   }
 
   // "demo $500 labor" / "add for kitchen demo $500 labor" / "cabinet hardware $1200"
+  // Never use single-leg priced parse when the command asks for both material AND labor.
+  if (!commandRequestsMaterialLaborSplit(text)) {
   const pricedMatch = text.match(
     /(?:add\s+(?:for\s+)?|for\s+|set\s+|make\s+)?(.+?)\s+\$?\s*([\d,]+(?:\.\d+)?\s*k?)\s*(?:dollars?)?\s*(labou?r|materials?|lump(?:\s*sum)?|total|allowance)?\s*[.?!]*$/i
   );
@@ -279,22 +479,26 @@ function buildDeterministicRefinePatchFromCommand(command) {
     else if (/material/.test(kindRaw)) kind = 'material';
     if (name && amount != null && amount > 0 && !/\b(sqft|lf|cy|squares?)\b/i.test(pricedMatch[0])) {
       patch.packagePrices.push({ packageName: name, amount, kind });
-      // "add X $N" should also ensure the package exists.
+      // "add X $N" — create a row only when no existing package already matches this trade.
       if (/^add\b/i.test(text)) {
-        const titled = name
-          .split(/\s+/)
-          .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
-          .join(' ');
-        patch.addPackages.push({
-          name: titled,
-          scope: titled,
-          quantity: null,
-          unit: null,
-          amount,
-        });
+        const existing = draftInput ? findRoomForPackageName(draftInput, name) : null;
+        if (!existing) {
+          const titled = name
+            .split(/\s+/)
+            .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+            .join(' ');
+          patch.addPackages.push({
+            name: titled,
+            scope: titled,
+            quantity: null,
+            unit: null,
+            amount,
+          });
+        }
       }
       return patch;
     }
+  }
   }
 
   const addMatch = text.match(
@@ -343,6 +547,31 @@ function buildDeterministicRefinePatchFromCommand(command) {
     }
   }
   return patch;
+}
+
+/** Priced lump-sum "add X for $N" — rules are authoritative; LLM must not add sibling rows. */
+function isDeterministicPricedAddCommand(command, patch) {
+  if (commandRequestsMaterialLaborSplit(command)) return false;
+  const text = String(command || '').trim();
+  if (!/^add\b/i.test(text)) return false;
+  if (!Array.isArray(patch?.packagePrices) || !patch.packagePrices.some((p) => Number(p.amount) > 0)) {
+    return false;
+  }
+  // Split adds use material + labor legs only — never addPackages.
+  const lumpLegs = patch.packagePrices.filter(
+    (p) => p.kind !== 'material' && p.kind !== 'labor'
+  );
+  if (!lumpLegs.length) return false;
+  return !Array.isArray(patch?.addPackages) || patch.addPackages.length <= 1;
+}
+
+/** Both material and labor legs parsed — rules are authoritative; skip LLM. */
+function isDeterministicSplitCommand(command, patch) {
+  if (!commandRequestsMaterialLaborSplit(command)) return false;
+  const prices = Array.isArray(patch?.packagePrices) ? patch.packagePrices : [];
+  const hasMat = prices.some((p) => p.kind === 'material' && Number(p.amount) > 0);
+  const hasLab = prices.some((p) => p.kind === 'labor' && Number(p.amount) > 0);
+  return hasMat && hasLab;
 }
 
 /**
@@ -474,10 +703,11 @@ CRITICAL RULES:
 3. Dollar amounts ("$1200", "$300 material", "$900 labor", "500 labor") go ONLY in packagePrices with kind lump_sum|material|labor. Never invent a matching packageQuantities row like quantity=1200 unit=sqft.
 4. For price changes ("$2k cheaper", "cut flooring by 500"), compute the NEW absolute amount from the current package price in the summary. Put that absolute amount in packagePrices — do not invent a package that isn't in the draft.
 5. For "remove X" / "exclude X" / "customer doing X" / "delete X": add to removePackages (exact package name from the draft) AND exclusions.
-6. For "add X" / "include X" / "add scope item X": put a new entry in addPackages with a clear contractor-facing name. Optionally include quantity/unit and amount if the command states them.
-7. packageName / removePackages names must match draft package names exactly (or the closest clear match).
-8. If the command is unclear or cannot change the draft, return empty arrays and notesAddendum explaining what you need.
-9. Prefer packageQuantities for measurements tied to a named package. Square footage → unit "sqft", never "squares" unless the command says squares.
+6. For "add X for $N" / "add X $N": ONE scope row only. If a matching package already exists in the draft, use packagePrices on that name — do NOT add addPackages. Never create sibling rows (e.g. "Pool Installation" + "Pool Bid" + "Pool Allowance") unless the command explicitly names multiple items.
+7. For material/labor splits ("$8k material $4k labor for cabinets"): put TWO entries in packagePrices on the SAME packageName (kind material + kind labor). Do NOT use addPackages for splits.
+8. packageName / removePackages names must match draft package names exactly (or the closest clear match).
+9. If the command is unclear or cannot change the draft, return empty arrays and notesAddendum explaining what you need.
+10. Prefer packageQuantities for measurements tied to a named package. Square footage → unit "sqft", never "squares" unless the command says squares.
 
 Return ONLY valid JSON:
 {
@@ -625,7 +855,11 @@ function applyClarifyPatch(draftInput, patch, options = {}) {
   }
 
   // 0b. Add packages (refine: "add landscaping", "add scope item fencing").
-  const addEntries = Array.isArray(patch?.addPackages) ? patch.addPackages : [];
+  const addEntries = consolidateAddPackages(
+    draft,
+    Array.isArray(patch?.addPackages) ? patch.addPackages : [],
+    Array.isArray(patch?.packagePrices) ? patch.packagePrices : []
+  );
   if (addEntries.length) {
     let rooms = [...(draft.rooms || [])];
     for (const entry of addEntries) {
@@ -1137,12 +1371,16 @@ async function refineEstimateDraft(draftInput, commandInput, deps = {}) {
   if (!command) throw new Error('A revision command is required');
 
   const enriched = enrichDraft(draftInput);
-  const deterministic = buildDeterministicRefinePatchFromCommand(command);
+  const deterministic = buildDeterministicRefinePatchFromCommand(command, enriched);
 
   const fallback = () => {
-    const { draft, appliedSummary } = applyClarifyPatch(enriched, deterministic, {
-      overwriteProjectInfo: true,
-    });
+    const { draft, appliedSummary } = applyClarifyPatch(
+      enriched,
+      consolidateRefinePatch(enriched, deterministic),
+      {
+        overwriteProjectInfo: true,
+      }
+    );
     if (appliedSummary.length) {
       return { draft, appliedSummary, source: 'rules', command };
     }
@@ -1160,6 +1398,14 @@ async function refineEstimateDraft(draftInput, commandInput, deps = {}) {
   };
 
   if (!openai || !aiModels?.assistant?.estimate) return fallback();
+
+  // Priced "add X for $N" or mat/lab split — rules are authoritative; skip LLM duplicates.
+  if (
+    isDeterministicPricedAddCommand(command, deterministic) ||
+    isDeterministicSplitCommand(command, deterministic)
+  ) {
+    return fallback();
+  }
 
   try {
     const summary = buildDraftStateSummary(enriched);
@@ -1180,7 +1426,15 @@ async function refineEstimateDraft(draftInput, commandInput, deps = {}) {
     const content = completion.choices?.[0]?.message?.content;
     if (!content) return fallback();
     const llmPatch = JSON.parse(content);
-    const patch = mergePatchQuantities(llmPatch, deterministic);
+    const patch = consolidateRefinePatch(
+      enriched,
+      mergePatchQuantities(
+        commandRequestsMaterialLaborSplit(command)
+          ? { ...llmPatch, addPackages: [] }
+          : llmPatch,
+        deterministic
+      )
+    );
     const { draft, appliedSummary } = applyClarifyPatch(enriched, patch, {
       overwriteProjectInfo: true,
     });
@@ -1200,6 +1454,10 @@ module.exports = {
   buildDraftStateSummary,
   buildDeterministicQuantityPatchFromAnswers,
   buildDeterministicRefinePatchFromCommand,
+  mergePatchQuantities,
+  isDeterministicPricedAddCommand,
+  isDeterministicSplitCommand,
+  tryParseMaterialLaborSplit,
   sanitizeQuestionItems,
   MEASUREMENT_KEY_WHITELIST,
 };

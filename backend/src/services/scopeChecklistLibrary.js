@@ -117,9 +117,9 @@ const CHECKLIST_TEMPLATES = {
       {
         id: 'glass_door',
         inputType: 'yes_no',
-        label: 'Shower doors & mirrors',
+        label: 'Shower doors',
         helperText:
-          'Glass shower door / enclosure plus bath mirror — material and install. Towel bars/accessories separate.',
+          'Glass shower door / enclosure — material and install. Towel bars/accessories separate.',
         category: 'shower',
       },
       {
@@ -164,7 +164,7 @@ const CHECKLIST_TEMPLATES = {
         inputType: 'yes_no',
         label: 'Bath accessories',
         helperText:
-          'Towel bars, paper holder, hooks, or accessories. Vanity mirrors are under Shower doors & mirrors.',
+          'Towel bars, paper holder, hooks, or accessories — not shower doors.',
         category: 'fixtures',
       },
       {
@@ -646,9 +646,9 @@ const CHECKLIST_TEMPLATES = {
       {
         id: 'glass_door',
         inputType: 'yes_no',
-        label: 'Shower doors & mirrors',
+        label: 'Shower doors',
         helperText:
-          'Glass shower door / enclosure plus bath mirror — material and install. Count matches tile/prefab showers when known.',
+          'Glass shower door / enclosure — material and install. Count matches tile/prefab showers when known.',
         category: 'finishes',
       },
       {

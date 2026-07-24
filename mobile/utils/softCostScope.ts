@@ -8,6 +8,8 @@ import { LUMP_SUM_RULE_TRADE_NOT_ALLOWANCE_KEYS } from '@/utils/appliedPricingBr
 /** True soft-cost / fee allowances — never Materials/Labor on Step 3. */
 const SOFT_COST_RULE_KEYS = new Set([
   'permits',
+  'cleanup',
+  'haul_off',
   'contingency',
   'plans_engineering',
   'mobilization',

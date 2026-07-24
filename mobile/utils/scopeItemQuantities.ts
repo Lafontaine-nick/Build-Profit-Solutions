@@ -1960,7 +1960,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     allowedUnits: ['each', 'allowance', 'lump_sum', 'sqft'],
     requiresUserQuantity: true,
     quantityHelper:
-      'Towel bars/hooks allowance — vanity mirrors are under Shower doors & mirrors.',
+      'Towel bars/hooks allowance — not shower doors.',
     missingMessage: 'Enter accessories allowance.',
   },
   floor_prep: {
