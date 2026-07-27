@@ -162,7 +162,7 @@ const NATIONAL_TRADE_AVERAGES_LOCAL: Record<
     unit: 'sqft',
     material: 5,
     labor: 7,
-    materialLabel: 'Backer board, membrane & prep materials',
+    materialLabel: 'Backer board, membrane, vapor barrier, tape, screws & insulation',
     laborLabel: 'Waterproofing & backer board labor',
   },
   shower_tile: {

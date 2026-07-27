@@ -356,4 +356,45 @@ describe('ground-up takeoff → material/labor pricing', () => {
     expect(paint.fill?.rateSourceLabel).toMatch(/Blended national/);
     expect(Number(paint.fill?.basis?.quantity)).toBe(5469);
   });
+
+  it('suggests cleanup mat+labor national average — not Final Steps living-SF lump', () => {
+    jest
+      .spyOn(benchmarkEngine, 'getCachedBenchmarkSuggestion')
+      .mockImplementation((id: string) => stageSuggestion(id, 'final-steps', 1_000_000));
+
+    const input = inputWith({
+      itemQuantities: {
+        cleanup__allowance: {
+          quantity: '1000',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        cleanup__material: {
+          quantity: '450',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        cleanup__labor: {
+          quantity: '550',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+      },
+    });
+    const resolved = resolveChecklistItemQuantity('cleanup', input, { templateKey: 'ground_up' });
+    const { fill, comparison } = resolveScopeItemSuggestedPricing(
+      'cleanup',
+      input,
+      'ground_up',
+      resolved
+    );
+
+    expect(fill).toMatchObject({
+      material: 450,
+      labor: 550,
+      total: 1000,
+      lumpSumOnly: false,
+    });
+    expect(comparison).toBeNull();
+  });
 });

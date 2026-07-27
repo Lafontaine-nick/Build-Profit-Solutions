@@ -8,8 +8,9 @@ import { executeFormula } from '@/utils/scopeFormulaRegistry';
 import type { PlanRoomMeasurement } from '@/utils/estimateAiDraft';
 import type { QuickMeasurementFieldKey } from '@/utils/scopeQuickMeasurements';
 import {
-  resolveBathCount,
   resolveEffectiveWetAreaFinish,
+  resolveShowerWallBathCount,
+  resolveTilePanBathCount,
   TYPICAL_SHOWER_FLOOR_SQFT_PER_BATH,
   TYPICAL_SHOWER_WALL_SQFT_PER_BATH,
   type WetAreaFinishChoice,
@@ -413,7 +414,8 @@ export function syncMeasurementsWithSouthernUtahPlanFacts<T extends MeasurementL
 export function getQuickMeasurementEstimate(
   key: QuickMeasurementFieldKey,
   measurements: MeasurementLookup,
-  suppliedFacts?: PlanFacts
+  suppliedFacts?: PlanFacts,
+  templateKey?: string | null
 ): QuickMeasurementEstimate | null {
   const living = n(measurements.floorAreaSqft);
   const baseFacts = suppliedFacts || measurements.planFacts;
@@ -928,18 +930,39 @@ export function getQuickMeasurementEstimate(
     }
     case 'showerWallTileSqft':
     case 'showerFloorTileSqft': {
-      const finish = resolveEffectiveWetAreaFinish({
+      const finishParams = {
         bathCount: measurements.bathCount,
+        tilePanBathCount: measurements.tilePanBathCount,
         prefabBathCount: measurements.prefabBathCount,
+        prefabEnclosureBathCount: measurements.prefabEnclosureBathCount,
         tubBathCount: measurements.tubBathCount,
         wetAreaFinish: measurements.wetAreaFinish,
-      });
-      if (finish !== 'tile') return null;
-      const baths = resolveBathCount({
-        planRooms: rooms,
-        bathCount: measurements.bathCount,
-        bathroomFloorSqft: measurements.bathroomFloorSqft,
-      });
+        templateKey: templateKey ?? measurements.templateKey,
+      };
+      const finish = resolveEffectiveWetAreaFinish(finishParams);
+      if (key === 'showerFloorTileSqft' && finish !== 'tile') return null;
+      if (key === 'showerWallTileSqft' && finish === 'tub') return null;
+      const baths =
+        key === 'showerWallTileSqft'
+          ? resolveShowerWallBathCount({
+              planRooms: rooms,
+              bathCount: measurements.bathCount,
+              tilePanBathCount: measurements.tilePanBathCount,
+              prefabBathCount: measurements.prefabBathCount,
+              prefabEnclosureBathCount: measurements.prefabEnclosureBathCount,
+              tubBathCount: measurements.tubBathCount,
+              bathroomFloorSqft: measurements.bathroomFloorSqft,
+              wetAreaFinish: finish,
+              templateKey: templateKey ?? measurements.templateKey,
+            })
+          : resolveTilePanBathCount({
+              planRooms: rooms,
+              bathCount: measurements.bathCount,
+              tilePanBathCount: measurements.tilePanBathCount,
+              bathroomFloorSqft: measurements.bathroomFloorSqft,
+              wetAreaFinish: finish,
+              templateKey: templateKey ?? measurements.templateKey,
+            });
       if (baths == null) return null;
       const perBath =
         key === 'showerWallTileSqft'

@@ -1,5 +1,6 @@
 import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimateAiDraft';
 import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
+import { resolveAppliedConfirmScopePackagePricing } from '@/utils/appliedScopePackagePricing';
 import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
 import {
@@ -211,6 +212,11 @@ export function lookupRuleKeyForBudgetPackage(name: string, scope = ''): string 
   if (/\binterior[\s-]*(?:paint|painting)\b|\b(?:paint|painting)[\s-]*interior\b/.test(blob)) {
     return 'interior_paint';
   }
+  if (/\bshower\s+tile\s+install|\bshower\s+tile\b(?!\s*(?:demo|removal|tear))/i.test(blob)) return 'shower_tile';
+  if (/\btile\s+removal\b|\bremove\s+existing\s+tile\b/i.test(blob)) return 'floor_demo';
+  if (/\btile\s+install(?:ation)?\b/i.test(blob) && !/\bshower\b/i.test(blob)) return 'floor_tile';
+  if (/\bdrywall\b[^.]{0,40}\b(repair|patch)/i.test(blob)) return 'patch_repair';
+  if (/\bremove\s+existing\s+vanity\b/i.test(blob)) return 'vanity_demo';
   if (/\bpaint\b/.test(blob) && !/\bfloor|tile|exterior\b/.test(blob)) return 'paint';
   if (/\brail(?:ing)?\b/.test(blob)) return 'railing';
   if (/\bdeck(?:ing)?\b/.test(blob) && !/\bdemo|removal\b/.test(blob)) return 'decking';
@@ -436,6 +442,16 @@ export function resolveScopePackageBudgetBreakdown(
           ? Math.max(itemSplitTotal, packageSplitTotal)
           : packageTotal;
   if (total <= 0) {
+    const applied = resolveAppliedConfirmScopePackagePricing(pkg, draft);
+    if (applied && applied.total > 0) {
+      return breakdownFromKnownLegs({
+        total: applied.total,
+        material: applied.material,
+        labor: applied.labor,
+        source: 'manual',
+        basis: pkg.scopeQuantities?.[0] ?? null,
+      });
+    }
     const pending = splitFromPendingProposal(pkg, draft);
     if (pending && (pending.material > 0 || pending.labor > 0)) {
       return breakdownFromKnownLegs({

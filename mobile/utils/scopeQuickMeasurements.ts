@@ -146,14 +146,13 @@ const NOTE_BACKED_QUICK_FIELD_ORDER: QuickMeasurementFieldKey[] = [
 export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]> = {
   bathroom: [
     row(
-      F('bathroomFloorSqft', 'Bath floor', '90', 'sqft', 'interior', true),
+      F('bathroomFloorSqft', 'Bath floor', '90', 'sqft', 'interior'),
       F('showerWallTileSqft', 'Shower walls', '90', 'sqft', 'interior')
     ),
     row(
       F('showerFloorTileSqft', 'Shower floor', '15', 'sqft', 'interior'),
       F('wallPaintSqft', 'Paint', '175', 'sqft', 'interior')
     ),
-    row(F('baseboardLf', 'Baseboard', '24', 'LF', 'interior')),
   ],
   kitchen: [
     row(

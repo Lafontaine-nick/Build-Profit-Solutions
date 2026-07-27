@@ -15,6 +15,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystemLegacy from 'expo-file-system/legacy';
 import {
   fetchPhotoToScope,
+  type PhotoExistingFeature,
   type PhotoScopeDetection,
   type PhotoScopeImage,
 } from '@/utils/estimateAiDraft';
@@ -32,6 +33,8 @@ type SitePhoto = {
   mimeType: string;
 };
 
+export type SitePhotoAttachment = SitePhoto;
+
 export type SitePhotoState = {
   photoCount: number;
   /** True after a successful Detect scope run for the current photo set. */
@@ -48,14 +51,20 @@ type Props = {
   darkMode: boolean;
   disabled?: boolean;
   existingNotes: string;
+  /** Restore thumbnails when reopening Step 1 (same app session). */
+  initialPhotos?: SitePhoto[];
+  /** True when structured detections already ran for this photo set. */
+  initialHasAnalyzed?: boolean;
   /** Called with merged notes + structured detections after successful vision analysis. */
   onNotesMerged: (
     mergedNotes: string,
     detectionCount: number,
-    detections: PhotoScopeDetection[]
+    detections: PhotoScopeDetection[],
+    existingFeatures?: PhotoExistingFeature[]
   ) => void;
   /** Lets parent remind on Generate when photos exist but Detect hasn't run. */
   onPhotoStateChange?: (state: SitePhotoState) => void;
+  onPhotosChange?: (photos: SitePhoto[]) => void;
 };
 
 const MAX_PHOTOS = 4;
@@ -81,13 +90,41 @@ function contractorIntentNotes(notes: string): string {
 }
 
 export default forwardRef<EstimateSitePhotosStripHandle, Props>(function EstimateSitePhotosStrip(
-  { Colors, darkMode, disabled = false, existingNotes, onNotesMerged, onPhotoStateChange },
+  {
+    Colors,
+    darkMode,
+    disabled = false,
+    existingNotes,
+    initialPhotos,
+    initialHasAnalyzed = false,
+    onNotesMerged,
+    onPhotoStateChange,
+    onPhotosChange,
+  },
   ref
 ) {
-  const [photos, setPhotos] = useState<SitePhoto[]>([]);
+  const [photos, setPhotos] = useState<SitePhoto[]>(initialPhotos || []);
   const [analyzing, setAnalyzing] = useState(false);
-  const [hasAnalyzed, setHasAnalyzed] = useState(false);
+  const [hasAnalyzed, setHasAnalyzed] = useState(Boolean(initialHasAnalyzed));
   const analyzePhotosRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    if (initialPhotos?.length) {
+      setPhotos(initialPhotos);
+    }
+  }, [initialPhotos]);
+
+  useEffect(() => {
+    setHasAnalyzed(Boolean(initialHasAnalyzed));
+  }, [initialHasAnalyzed]);
+
+  const updatePhotos = (updater: SitePhoto[] | ((prev: SitePhoto[]) => SitePhoto[])) => {
+    setPhotos((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      onPhotosChange?.(next);
+      return next;
+    });
+  };
 
   useEffect(() => {
     onPhotoStateChange?.({ photoCount: photos.length, hasAnalyzed });
@@ -109,7 +146,7 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
     }
     // New photos need a fresh Detect pass.
     setHasAnalyzed(false);
-    setPhotos((prev) => [...prev, ...next].slice(0, MAX_PHOTOS));
+    updatePhotos((prev) => [...prev, ...next].slice(0, MAX_PHOTOS));
   };
 
   const takePhoto = async () => {
@@ -166,7 +203,7 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
 
   const removePhoto = (id: string) => {
     setHasAnalyzed(false);
-    setPhotos((prev) => prev.filter((p) => p.id !== id));
+    updatePhotos((prev) => prev.filter((p) => p.id !== id));
   };
 
   const analyzePhotos = async () => {
@@ -233,7 +270,8 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
       onNotesMerged(
         result.mergedNotes || result.notesBlock,
         result.detections?.length || 0,
-        result.detections || []
+        result.detections || [],
+        result.existingFeatures || []
       );
       setHasAnalyzed(true);
       if (Platform.OS !== 'web') {

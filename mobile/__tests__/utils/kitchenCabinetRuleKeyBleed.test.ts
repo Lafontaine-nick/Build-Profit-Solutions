@@ -1,4 +1,13 @@
 import { lookupRuleKeyForPackage } from '../../utils/scopeItemQuantities';
+import { parseScopeMeasurementsFromNotes } from '../../utils/scopeMeasurementParser';
+import { getMeasurementRelevance } from '../../utils/getMeasurementRelevance';
+import { resolveQuickMeasurementFields } from '../../utils/quickMeasurementProvenance';
+import { quickMeasurementRowsForTemplate } from '../../utils/scopeQuickMeasurements';
+import {
+  suppressBathroomFalsePositiveFloorDemoScope,
+  stripBathroomFalsePositiveFloorDemoQuantities,
+} from '../../utils/estimateScopeChecklistUi';
+import type { ScopeChecklistItem } from '../../utils/estimateAiDraft';
 
 describe('kitchen package rule keys do not steal cabinet LF/rates', () => {
   test('Cabinet hardware maps to cabinet_hardware, not cabinets', () => {
@@ -129,5 +138,76 @@ describe('cross-trade package rule keys do not steal qty/rates', () => {
   test('plumbing connections does not fall to plumbing_rough catch-all', () => {
     expect(lookupRuleKeyForPackage('Plumbing connections')).toBe('plumbing');
     expect(lookupRuleKeyForPackage('Plumbing rough-in')).toBe('plumbing_rough');
+  });
+});
+
+describe('bathroom wet-area notes do not false-positive floor demo', () => {
+  const BATH_NOTES =
+    'Demo / tear-out of existing bathroom — Existing tub and tile surround visible. Remove existing tub for shower conversion. Tile shower walls. Floor is tiled.';
+
+  test('tear-out near tub/tile surround does not map package text to floor_demo', () => {
+    expect(lookupRuleKeyForPackage('Demo / tear-out of existing bathroom', BATH_NOTES)).toBe('demo');
+    expect(lookupRuleKeyForPackage('Remove existing tub', BATH_NOTES)).toBe('tub_demo');
+  });
+
+  test('parsed notes do not inject floor_demo itemQuantities for wet-area demo language', () => {
+    const parsed = parseScopeMeasurementsFromNotes(BATH_NOTES, { templateKey: 'bathroom' });
+    expect(parsed.itemQuantities?.floor_demo).toBeUndefined();
+  });
+
+  test('bath floor quick measurement stays optional for wet-area-only scope', () => {
+    const included = ['demo', 'tub_demo', 'shower_tile', 'waterproofing', 'plumbing_rough', 'glass_door', 'drywall'];
+    expect(getMeasurementRelevance({ measurementKey: 'bathroomFloorSqft', includedScopeKeys: included }).relevant).toBe(
+      false
+    );
+    const rows = quickMeasurementRowsForTemplate('bathroom', 'bathroom');
+    const results = resolveQuickMeasurementFields({
+      rows,
+      measurements: {},
+      includedScopeKeys: included,
+      templateKey: 'bathroom',
+    });
+    expect(results.find((r) => r.key === 'bathroomFloorSqft')?.state).toBe('not_relevant');
+  });
+
+  test('prefab wet area shows shower wall suggestion without bath floor SF', () => {
+    const included = ['demo', 'tub_demo', 'shower_tile', 'waterproofing', 'plumbing_rough', 'glass_door', 'drywall'];
+    const rows = quickMeasurementRowsForTemplate('bathroom', 'bathroom');
+    const results = resolveQuickMeasurementFields({
+      rows,
+      measurements: { wetAreaFinish: 'prefab' },
+      includedScopeKeys: included,
+      templateKey: 'bathroom',
+    });
+    expect(results.find((r) => r.key === 'bathroomFloorSqft')?.state).toBe('not_relevant');
+    const walls = results.find((r) => r.key === 'showerWallTileSqft');
+    expect(walls?.state).toBe('estimate_available');
+    expect(walls?.estimate?.value).toBe(80);
+    expect(results.find((r) => r.key === 'showerFloorTileSqft')?.state).toBe('not_relevant');
+  });
+
+  test('stale floor_demo scope and quantities are stripped on wet-area-only bathroom hydrate', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'demo', label: 'Demo', state: 'included', inputType: 'yes_no' },
+      { id: 'tub_demo', label: 'Tub demo', state: 'included', inputType: 'yes_no', noteBacked: true },
+      { id: 'floor_demo', label: 'Flooring demo', state: 'included', inputType: 'yes_no', noteBacked: true },
+      { id: 'floor_tile', label: 'Bath floor tile', state: 'included', inputType: 'yes_no', noteBacked: true },
+    ];
+    const suppressed = suppressBathroomFalsePositiveFloorDemoScope(items, 'bathroom', BATH_NOTES);
+    expect(suppressed.find((i) => i.id === 'floor_demo')?.state).toBe('excluded');
+    expect(suppressed.find((i) => i.id === 'floor_tile')?.state).toBe('excluded');
+
+    const stripped = stripBathroomFalsePositiveFloorDemoQuantities(
+      { floor_demo: { quantity: 90, unit: 'sqft' }, demo: { quantity: 1, unit: 'allowance' } },
+      'bathroom',
+      BATH_NOTES
+    );
+    expect(stripped?.floor_demo).toBeUndefined();
+    expect(stripped?.demo).toBeDefined();
+
+    const included = suppressed.filter((i) => i.state === 'included').map((i) => i.id);
+    expect(getMeasurementRelevance({ measurementKey: 'bathroomFloorSqft', includedScopeKeys: included }).relevant).toBe(
+      false
+    );
   });
 });

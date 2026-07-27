@@ -9,13 +9,20 @@ import {
   type NormalizedScopeMeasurements,
 } from '@/utils/scopeItemQuantities';
 import {
+  floorDemoNotesHint,
   inferChoiceFromNotes,
   inferChoicesFromNotes,
   inferItemStateFromNotes,
 } from '@/utils/scopeItemNoteHints';
-import { scopeItemHasNoteSignal, scopeItemNoteBadge } from '@/utils/scopeItemVisualTier';
+import { scopeItemHasNoteSignal, scopeItemNoteBadge, BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS } from '@/utils/scopeItemVisualTier';
 import { mergeScopeMeasurementsPreservingFields } from '@/utils/benchmarkReasonablenessContext';
 import { applyScopeGapExclusionsToDraft } from '@/utils/scopeReviewUi';
+import {
+  primaryWetAreaInstallChoiceFromSteppers,
+  type WetAreaStepperCounts,
+} from '@/utils/planBathRooms';
+import type { WetAreaDemoCounts } from '@/utils/wetAreaExistingDemo';
+import { anyDemoWetAreaActive } from '@/utils/wetAreaExistingDemo';
 
 const FIXTURE_CHOICE_OPTIONS: ScopeChecklistOption[] = [
   { id: 'staying', label: 'Staying' },
@@ -690,9 +697,9 @@ function migrateGroundUpTakeoffScopeItems(
     if (i.id === 'plumbing_trim') {
       return {
         ...i,
-        label: 'Plumbing fixtures & trim',
+        label: 'Plumbing fixtures (trim-out)',
         helperText:
-          'Plumbing fixtures and trim-out package (toilets, faucets, trim). Not plumbing rough-in.',
+          'Set faucets, toilet, and hookups — fixture trim-out. Not baseboard trim or rough-in.',
         category: i.category || 'mep',
       };
     }
@@ -953,7 +960,8 @@ function itemIdFromQuantityKey(key: string): string {
 
 function injectNoteBackedPricedItems(
   items: ScopeChecklistItem[],
-  measurements?: NormalizedScopeMeasurements
+  measurements?: NormalizedScopeMeasurements,
+  templateKey?: string | null
 ): ScopeChecklistItem[] {
   const itemQuantities = measurements?.itemQuantities || {};
   const existingIds = new Set(items.map((item) => item.id));
@@ -963,6 +971,17 @@ function injectNoteBackedPricedItems(
   for (const key of Object.keys(itemQuantities)) {
     const itemId = itemIdFromQuantityKey(key);
     if (!itemId || existingIds.has(itemId) || addedIds.has(itemId)) continue;
+    if (
+      itemId === 'floor_demo' &&
+      String(templateKey || '').toLowerCase() === 'bathroom' &&
+      items.some(
+        (i) =>
+          ['demo', 'tub_demo', 'shower_floor_demo'].includes(i.id) &&
+          (i.state === 'included' || i.noteBacked)
+      )
+    ) {
+      continue;
+    }
     if (!getChecklistItemQuantityRule(itemId)) continue;
 
     const copy = NOTE_BACKED_SCOPE_COPY[itemId] || {
@@ -983,6 +1002,110 @@ function injectNoteBackedPricedItems(
   }
 
   return additions.length ? [...items, ...additions] : items;
+}
+
+const BATH_WET_AREA_DEMO_IDS = ['demo', 'tub_demo', 'shower_floor_demo'] as const;
+
+function bathroomHasWetAreaDemoInScope(items: ScopeChecklistItem[]): boolean {
+  return items.some(
+    (i) => BATH_WET_AREA_DEMO_IDS.includes(i.id as (typeof BATH_WET_AREA_DEMO_IDS)[number]) && checklistItemInScope(i)
+  );
+}
+
+/**
+ * Tub/shower tear-out language must not keep flooring demo in scope — that
+ * falsely blocks Bath floor SF on wet-area-only bathroom remodels.
+ */
+export function suppressBathroomFalsePositiveFloorDemoScope(
+  items: ScopeChecklistItem[],
+  templateKey?: string | null,
+  notes?: string | null,
+  measurements?: NormalizedScopeMeasurements | null
+): ScopeChecklistItem[] {
+  if (String(templateKey || '').toLowerCase() !== 'bathroom') return items;
+  if (floorDemoNotesHint(String(notes || '').toLowerCase())) return items;
+  if (
+    stepperCountActive(
+      (measurements as { demoBathFloorTileCount?: number | null } | null | undefined)
+        ?.demoBathFloorTileCount
+    ) ||
+    positiveSqft(measurements?.bathroomFloorSqft)
+  ) {
+    return items;
+  }
+  if (!bathroomHasWetAreaDemoInScope(items)) return items;
+
+  return items.map((item) => {
+    if (item.state !== 'included') return item;
+    if (item.id === 'floor_demo') {
+      return { ...item, state: 'excluded' as const, noteBacked: false };
+    }
+    if (
+      item.id === 'floor_tile' &&
+      item.noteBacked &&
+      inferItemStateFromNotes('floor_tile', notes) !== 'included'
+    ) {
+      return { ...item, state: 'excluded' as const, noteBacked: false };
+    }
+    return item;
+  });
+}
+
+/** Drop stale floor_demo itemQuantities parsed from tub/shower tile tear-out phrasing. */
+export function stripBathroomFalsePositiveFloorDemoQuantities<
+  T extends Record<string, unknown> | undefined,
+>(itemQuantities: T, templateKey?: string | null, notes?: string | null): T {
+  if (!itemQuantities?.floor_demo) return itemQuantities;
+  if (String(templateKey || '').toLowerCase() !== 'bathroom') return itemQuantities;
+  if (floorDemoNotesHint(String(notes || '').toLowerCase())) return itemQuantities;
+
+  const next = { ...itemQuantities } as Record<string, unknown>;
+  for (const key of Object.keys(next)) {
+    if (key === 'floor_demo' || key.startsWith('floor_demo__')) delete next[key];
+  }
+  return next as T;
+}
+
+/** Bathroom fixture rows that must stay on Confirm Scope even when notes/photos omit them. */
+export { BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS } from '@/utils/scopeItemVisualTier';
+
+function createDefaultBathroomChecklistItem(id: string): ScopeChecklistItem | null {
+  if (id === 'toilet') {
+    const config = CHOICE_ITEM_CONFIG.toilet;
+    return {
+      id: 'toilet',
+      inputType: 'choice',
+      label: config.label,
+      helperText: config.helperText,
+      options: config.options,
+      category: 'fixtures',
+      state: 'unsure',
+      choiceId: null,
+    };
+  }
+  return null;
+}
+
+/** Inject standard bathroom fixture cards when AI/photo scope omitted them. */
+export function ensureBathroomChecklistItems(
+  items: ScopeChecklistItem[],
+  templateKey?: string | null
+): ScopeChecklistItem[] {
+  if (String(templateKey || '').toLowerCase() !== 'bathroom') return items;
+  const existing = new Set(items.map((item) => item.id));
+  const additions: ScopeChecklistItem[] = [];
+  for (const id of BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS) {
+    if (existing.has(id)) continue;
+    const row = createDefaultBathroomChecklistItem(id);
+    if (row) additions.push(row);
+  }
+  if (!additions.length) return items;
+
+  const fixturesIdx = items.findIndex((item) => item.id === 'lighting' || item.category === 'fixtures');
+  if (fixturesIdx >= 0) {
+    return [...items.slice(0, fixturesIdx), ...additions, ...items.slice(fixturesIdx)];
+  }
+  return [...items, ...additions];
 }
 
 function shouldSuppressGenericDemo(
@@ -1006,11 +1129,17 @@ export function hydrateScopeChecklistFromNotes(
   measurements?: NormalizedScopeMeasurements
 ): ScopeChecklistItem[] {
   const scopedItems = items.filter((item) => !shouldSuppressGenericDemo(item, templateKey, measurements));
-  const withNoteBacked = injectNoteBackedPricedItems(scopedItems, measurements);
-  const normalized = normalizeScopeChecklistItems(withNoteBacked, templateKey, { notes, measurements });
+  const withNoteBacked = injectNoteBackedPricedItems(scopedItems, measurements, templateKey);
+  const withBathroomDefaults = ensureBathroomChecklistItems(withNoteBacked, templateKey);
+  const normalized = normalizeScopeChecklistItems(withBathroomDefaults, templateKey, { notes, measurements });
   // Notes may flip drywall/paint/tile to Yes after structural migrate — re-promote children.
   const inferred = applyScopeInferencesFromNotes(normalized, notes, templateKey, measurements);
-  return applyGroundUpStageHostDemotions(inferred, templateKey);
+  return suppressBathroomFalsePositiveFloorDemoScope(
+    applyGroundUpStageHostDemotions(inferred, templateKey),
+    templateKey,
+    notes,
+    measurements
+  );
 }
 
 /** Strip UI-only derived lines before saving scope back to the draft. */
@@ -1105,6 +1234,11 @@ const WET_AREA_INSTALL_DERIVED: Record<
     label: 'Prefab shower pan / base install',
     helperText: 'Labor + materials for prefab pan or acrylic base.',
   },
+  prefab_enclosure: {
+    id: 'prefab_shower_enclosure',
+    label: 'Prefab shower enclosure',
+    helperText: 'Labor + materials for prefab surround / one-piece enclosure.',
+  },
   tile_pan: {
     id: 'shower_pan',
     label: 'Tile shower pan (mud pan build)',
@@ -1112,7 +1246,15 @@ const WET_AREA_INSTALL_DERIVED: Record<
   },
 };
 
-export const WET_AREA_DERIVED_ITEM_IDS = new Set(['tub_install', 'prefab_shower_pan', 'shower_pan']);
+export const WET_AREA_DERIVED_ITEM_IDS = new Set([
+  'tub_install',
+  'prefab_shower_pan',
+  'prefab_shower_enclosure',
+  'shower_pan',
+]);
+
+/** Demo sub-lines controlled from QM steppers (no separate Confirm Scope card). */
+export const WET_AREA_DEMO_EMBEDDED_IDS = new Set(['tub_demo', 'shower_floor_demo']);
 
 /** Inject the matching labor + materials card directly under wet area install. */
 export function expandWetAreaDerivedScopeItems(items: ScopeChecklistItem[]): ScopeChecklistItem[] {
@@ -1138,6 +1280,233 @@ export function expandWetAreaDerivedScopeItems(items: ScopeChecklistItem[]): Sco
   return result;
 }
 
+function stepperCountActive(value: number | null | undefined): boolean {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0;
+}
+
+function positiveSqft(value: string | number | null | undefined): boolean {
+  const n = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(n) && n > 0;
+}
+
+/** Auto-include shower wall/floor tile scope when QM steppers or SF fields are set. */
+export function syncWetAreaTileScopeItems(
+  items: ScopeChecklistItem[],
+  params: {
+    bathCount?: number | null;
+    tilePanBathCount?: number | null;
+    showerWallTileSqft?: string | number | null;
+    showerFloorTileSqft?: string | number | null;
+  }
+): ScopeChecklistItem[] {
+  const wallActive =
+    stepperCountActive(params.bathCount) || positiveSqft(params.showerWallTileSqft);
+  const floorActive =
+    stepperCountActive(params.tilePanBathCount) || positiveSqft(params.showerFloorTileSqft);
+  if (!wallActive && !floorActive) return syncWaterproofingFromTileScopeItems(items);
+
+  let changed = false;
+  const next = items.map((row) => {
+    if (row.id === 'shower_tile' && wallActive && row.state !== 'included') {
+      changed = true;
+      return { ...row, state: 'included' as const };
+    }
+    if (row.id === 'shower_floor_tile' && floorActive && row.state !== 'included') {
+      changed = true;
+      return { ...row, state: 'included' as const };
+    }
+    return row;
+  });
+  return syncWaterproofingFromTileScopeItems(changed ? next : items);
+}
+
+const SHOWER_TILE_SCOPE_IDS = new Set(['shower_tile', 'shower_floor_tile']);
+
+/** Tile shower work requires waterproofing — auto-select when wall/floor tile is in scope. */
+export function syncWaterproofingFromTileScopeItems(items: ScopeChecklistItem[]): ScopeChecklistItem[] {
+  const showerTileIncluded = items.some(
+    (row) => SHOWER_TILE_SCOPE_IDS.has(row.id) && row.state === 'included'
+  );
+  if (!showerTileIncluded) return items;
+
+  let changed = false;
+  const next = items.map((row) => {
+    if (row.id === 'waterproofing' && row.state === 'unsure') {
+      changed = true;
+      return { ...row, state: 'included' as const };
+    }
+    return row;
+  });
+  return changed ? next : items;
+}
+
+/** Sync checklist wet area + derived lines from plan-style stepper counts. */
+export function syncWetAreaScopeFromSteppers(
+  items: ScopeChecklistItem[],
+  params: {
+    counts: WetAreaStepperCounts;
+    keepingExisting?: boolean;
+    showerWallTileSqft?: string | number | null;
+    showerFloorTileSqft?: string | number | null;
+  }
+): ScopeChecklistItem[] {
+  const withoutDerived = items.filter((i) => !WET_AREA_DERIVED_ITEM_IDS.has(i.id));
+  const choiceId = primaryWetAreaInstallChoiceFromSteppers({
+    counts: params.counts,
+    keepingExisting: params.keepingExisting,
+  });
+
+  let next = withoutDerived.map((row) => {
+    if (row.id === 'wet_area_install' && choiceId) {
+      return { ...row, choiceId, state: choiceIdToState(choiceId) };
+    }
+    return row;
+  });
+
+  const derivedKeys: string[] = [];
+  if (stepperCountActive(params.counts.tubBathCount)) derivedKeys.push('tub');
+  if (stepperCountActive(params.counts.prefabBathCount)) derivedKeys.push('prefab');
+  if (stepperCountActive(params.counts.prefabEnclosureBathCount)) derivedKeys.push('prefab_enclosure');
+  if (stepperCountActive(params.counts.tilePanBathCount)) derivedKeys.push('tile_pan');
+
+  const derivedItems: ScopeChecklistItem[] = derivedKeys.map((key) => {
+    const spec = WET_AREA_INSTALL_DERIVED[key];
+    return {
+      id: spec.id,
+      label: spec.label,
+      helperText: spec.helperText,
+      inputType: 'yes_no',
+      state: 'included',
+      category: 'shower',
+      derivedFrom: 'wet_area_install',
+    };
+  });
+
+  const wetIdx = next.findIndex((i) => i.id === 'wet_area_install');
+  if (wetIdx >= 0 && derivedItems.length) {
+    next = [...next.slice(0, wetIdx + 1), ...derivedItems, ...next.slice(wetIdx + 1)];
+  } else if (derivedItems.length) {
+    next = [...next, ...derivedItems];
+  }
+  return syncWetAreaTileScopeItems(next, {
+    bathCount: params.counts.bathCount,
+    tilePanBathCount: params.counts.tilePanBathCount,
+    showerWallTileSqft: params.showerWallTileSqft,
+    showerFloorTileSqft: params.showerFloorTileSqft,
+  });
+}
+
+/** Auto-include bathroom floor tile scope when bath floor SF is set in QM. */
+export function syncBathroomFloorTileScopeItems(
+  items: ScopeChecklistItem[],
+  params: { bathroomFloorSqft?: string | number | null }
+): ScopeChecklistItem[] {
+  if (!positiveSqft(params.bathroomFloorSqft)) return items;
+  let changed = false;
+  const next = items.map((row) => {
+    if (row.id === 'floor_tile' && row.state !== 'included') {
+      changed = true;
+      return { ...row, state: 'included' as const };
+    }
+    return row;
+  });
+  return changed ? next : items;
+}
+
+const INTERIOR_PAINT_SCOPE_IDS = new Set(['paint', 'interior_paint', 'prep']);
+
+/** Auto-include interior paint scope when wall/ceiling paint SF is set in Quick measurements. */
+export function syncInteriorPaintScopeItems(
+  items: ScopeChecklistItem[],
+  params: { wallPaintSqft?: string | number | null }
+): ScopeChecklistItem[] {
+  if (!positiveSqft(params.wallPaintSqft)) return items;
+  let changed = false;
+  const next = items.map((row) => {
+    if (INTERIOR_PAINT_SCOPE_IDS.has(row.id) && row.state !== 'included') {
+      changed = true;
+      return { ...row, state: 'included' as const };
+    }
+    return row;
+  });
+  return changed ? next : items;
+}
+
+function wetAreaGenericDemoActive(demo: WetAreaDemoCounts): boolean {
+  return (
+    stepperCountActive(demo.demoTubCount) ||
+    stepperCountActive(demo.demoTilePanCount) ||
+    stepperCountActive(demo.demoPrefabPanCount) ||
+    stepperCountActive(demo.demoPrefabEnclosureCount) ||
+    stepperCountActive(demo.demoShowerDoorCount)
+  );
+}
+
+/** Auto-include demo scope rows from QM existing/demo steppers. */
+export function syncWetAreaDemoScopeItems(
+  items: ScopeChecklistItem[],
+  params: {
+    demo: WetAreaDemoCounts;
+    reuseExistingShowerDoor?: boolean;
+    installShowerDoorCount?: number | null;
+  }
+): ScopeChecklistItem[] {
+  const showerFloorDemo =
+    stepperCountActive(params.demo.demoTilePanCount) ||
+    stepperCountActive(params.demo.demoPrefabPanCount) ||
+    stepperCountActive(params.demo.demoPrefabEnclosureCount);
+  const genericDemo =
+    stepperCountActive(params.demo.demoTileWallCount) || wetAreaGenericDemoActive(params.demo);
+
+  let changed = false;
+  const next = items.map((row) => {
+    if (row.id === 'floor_demo' && stepperCountActive(params.demo.demoBathFloorTileCount)) {
+      if (row.state !== 'included') {
+        changed = true;
+        return { ...row, state: 'included' as const };
+      }
+      return row;
+    }
+    if (row.id === 'tub_demo' && stepperCountActive(params.demo.demoTubCount)) {
+      if (row.state !== 'included') {
+        changed = true;
+        return { ...row, state: 'included' as const };
+      }
+      return row;
+    }
+    if (row.id === 'shower_floor_demo' && showerFloorDemo) {
+      if (row.state !== 'included') {
+        changed = true;
+        return { ...row, state: 'included' as const };
+      }
+      return row;
+    }
+    if (row.id === 'demo' && genericDemo) {
+      if (row.state !== 'included') {
+        changed = true;
+        return { ...row, state: 'included' as const };
+      }
+      return row;
+    }
+    if (row.id === 'glass_door') {
+      if (params.reuseExistingShowerDoor) {
+        if (row.state !== 'excluded') {
+          changed = true;
+          return { ...row, state: 'excluded' as const };
+        }
+        return row;
+      }
+      if (stepperCountActive(params.installShowerDoorCount) && row.state !== 'included') {
+        changed = true;
+        return { ...row, state: 'included' as const };
+      }
+    }
+    return row;
+  });
+  return changed ? next : items;
+}
+
 /** Kitchen-specific helper copy (ids overlap with bathroom checklist). */
 export const KITCHEN_CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   demo: 'Remove cabinets, counters, and built-ins.',
@@ -1146,19 +1515,29 @@ export const KITCHEN_CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   appliances: 'Reconnect and install appliances after cabinets.',
 };
 
+/** Bathroom-specific helper copy (shower vs bath floor demo are separate scope lines). */
+export const BATHROOM_CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
+  demo: 'Remove shower wall and shower floor tile — bath floor demo is a separate line.',
+  floor_demo: 'Remove bathroom floor tile, LVP, or vinyl — often includes thinset grind (separate from shower).',
+};
+
 /** Shorter contractor-friendly helper copy (overrides server text in Confirm Scope UI). */
 export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   demo: 'Remove fixtures, tile, and finishes.',
   floor_demo: 'Remove existing floor tile, LVP, vinyl, or flooring.',
   tub_demo: 'Demo and haul off the existing bathtub.',
   shower_floor_demo: 'Demo existing shower base, prefab pan, or shower floor tile.',
+  vanity_demo: 'Demo and haul off the existing vanity cabinet — not the top alone.',
+  countertop_demo: 'Demo and haul off the existing vanity top or bathroom counter.',
   wet_area_install: 'Tub install, prefab pan/base, or tile shower pan — labor + materials.',
   tub_install: 'Labor + materials for tub supply and install.',
   prefab_shower_pan: 'Labor + materials for prefab pan or acrylic base.',
+  prefab_shower_enclosure: 'Labor + materials for prefab surround / one-piece enclosure.',
   shower_pan: 'Labor + materials for mud pan build (slope, drain, liner).',
   shower_tile: 'Shower wall tile labor and materials.',
   shower_floor_tile: 'Shower floor tile labor and materials.',
-  waterproofing: 'Membrane and backer before tile.',
+  waterproofing:
+    'Backer board (Hardie, foam, DensShield), RedGard-class membrane, vapor barrier, tape, screws, and wall-cavity insulation — before tile.',
   shower_pan: 'Prefab pan/base or custom tile shower pan.',
   shower_niche: 'Frame, waterproof, and tile niche.',
   shower_bench_curb: 'Build, waterproof, and tile bench or curb.',
@@ -1220,6 +1599,9 @@ export function checklistDisplayHelper(
   if (templateKey === 'kitchen' && KITCHEN_CHECKLIST_HELPER_OVERRIDES[item.id]) {
     return KITCHEN_CHECKLIST_HELPER_OVERRIDES[item.id];
   }
+  if (templateKey === 'bathroom' && BATHROOM_CHECKLIST_HELPER_OVERRIDES[item.id]) {
+    return BATHROOM_CHECKLIST_HELPER_OVERRIDES[item.id];
+  }
   return CHECKLIST_HELPER_OVERRIDES[item.id] || item.helperText;
 }
 
@@ -1254,14 +1636,10 @@ export type ScopeChecklistGroup = {
 
 export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
   bathroom: [
-    { title: 'Demo', itemIds: ['demo', 'floor_demo', 'tub_demo', 'shower_floor_demo'] },
+    { title: 'Demo', itemIds: ['demo', 'floor_demo', 'tub_demo', 'shower_floor_demo', 'vanity_demo', 'countertop_demo'] },
     {
       title: 'Wet area finish',
       itemIds: [
-        'wet_area_install',
-        'tub_install',
-        'prefab_shower_pan',
-        'shower_pan',
         'waterproofing',
         'shower_tile',
         'shower_floor_tile',
@@ -1273,7 +1651,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     { title: 'Bathroom Floor', itemIds: ['floor_tile'] },
     {
       title: 'Fixtures',
-      itemIds: ['toilet', 'vanity', 'lighting', 'exhaust_fan', 'mirror_accessories'],
+      itemIds: ['toilet', 'vanity', 'countertops', 'lighting', 'exhaust_fan', 'mirror_accessories'],
     },
     {
       title: 'Trades',
@@ -1541,6 +1919,7 @@ function itemNeedsMeasurement(
 
 /** Scope groups that stay open on first load even when items are still "Not sure". */
 const SCOPE_GROUPS_DEFAULT_EXPANDED: Record<string, ReadonlySet<string>> = {
+  bathroom: new Set(['Demo', 'Fixtures']),
   kitchen: new Set(['Cabinets & Counters', 'Tile & Flooring', 'Appliances', 'Trades']),
   // Keep Structure open so new opening cards (windows / doors / garage) stay visible.
   ground_up: new Set(['Structure']),
@@ -1562,6 +1941,7 @@ export function initialScopeGroupCollapse(
       alwaysExpand.has(group.title) ||
       group.items.some(
         (item) =>
+          (templateKey === 'bathroom' && BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS.has(item.id)) ||
           checklistItemInScope(item) ||
           itemNeedsMeasurement(item, measurements, templateKey, notes) ||
           scopeItemHasNoteSignal(item, visualCtx) ||

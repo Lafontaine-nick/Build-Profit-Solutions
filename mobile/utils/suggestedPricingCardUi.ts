@@ -174,6 +174,24 @@ export function displayPriceSourceLabel(rateSourceLabel: string | null | undefin
   return stripped.length > 28 ? `${stripped.slice(0, 25).trimEnd()}…` : stripped;
 }
 
+/** True when suggested fill uses BPS national benchmark rates (not saved/local pricing). */
+export function isNationalAverageSuggestedBlock(
+  block: Pick<
+    SuggestedPricingBlock,
+    'materialSource' | 'laborSource' | 'rateSourceLabel' | 'costBuckets' | 'pricingRecordId'
+  >,
+  pricingSourceLabel?: string | null
+): boolean {
+  if (block.materialSource === 'national_average' || block.laborSource === 'national_average') {
+    return true;
+  }
+  if (block.costBuckets?.some((b) => b.source === 'national_average')) return true;
+  if (/national/i.test(String(block.rateSourceLabel || ''))) return true;
+  if (String(block.pricingRecordId || '').startsWith('bps_national:')) return true;
+  const chip = String(pricingSourceLabel || '').trim();
+  return chip === 'BPS national benchmark' || chip === 'National average';
+}
+
 /**
  * Display-only rounding for suggested / planning totals.
  * Under $1k → nearest $10; $1k–$10k → nearest $10; over $10k → nearest $50.
@@ -553,8 +571,13 @@ export function buildSuggestedPricingCardDisplay(input: {
     statusLine =
       fallbackCopy?.hint || 'Add the correct measurement for more accurate pricing.';
   } else if (confidenceLevel === 'low') {
-    statusTone = 'amber';
-    statusLine = 'Local pricing not verified';
+    if (isNationalAverageSuggestedBlock(block, pricingSource)) {
+      statusTone = 'neutral';
+      statusLine = 'National average';
+    } else {
+      statusTone = 'amber';
+      statusLine = 'Local pricing not verified';
+    }
   } else if (input.confidenceLabel) {
     statusLine = String(input.confidenceLabel).trim();
   }

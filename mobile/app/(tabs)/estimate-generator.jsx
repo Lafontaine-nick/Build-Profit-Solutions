@@ -94,6 +94,7 @@ import {
 import {
   applyDraftToEstimate,
   applyPhotoDetectionsToDraft,
+  applyPhotoExistingFeaturesToDraft,
   applyPlanImportToDraft,
   applyScopeAssumptionsToDraft,
   fetchEstimateDraftFromNotes,
@@ -5238,6 +5239,10 @@ export default function EstimateGeneratorScreen() {
   const [aiScopeAssumptionsApplying, setAiScopeAssumptionsApplying] = useState(false);
   /** Survives Step 2 → Step 1 Back so regenerate can re-seed plan measurements. */
   const [aiLastPlanImport, setAiLastPlanImport] = useState(null);
+  /** Survives Step 2 → Step 1 Back so Regenerate keeps structured photo scope. */
+  const [aiPhotoDetections, setAiPhotoDetections] = useState([]);
+  const [aiPhotoExistingFeatures, setAiPhotoExistingFeatures] = useState([]);
+  const [aiSitePhotos, setAiSitePhotos] = useState([]);
   // Stable draft identity — avoid `{ ...aiDraft }` on every parent re-render (keyboard open)
   // which used to thrash Confirm Scope and make Needs confirmation inputs jump on tap.
   const aiScopeAssumptionsDraft = useMemo(
@@ -5709,6 +5714,15 @@ export default function EstimateGeneratorScreen() {
           const fromDraft = planImportPayloadFromDraft(saved.draft);
           if (fromDraft) setAiLastPlanImport(fromDraft);
         }
+        if (Array.isArray(saved.photoDetections)) {
+          setAiPhotoDetections(saved.photoDetections);
+        }
+        if (Array.isArray(saved.photoExistingFeatures)) {
+          setAiPhotoExistingFeatures(saved.photoExistingFeatures);
+        }
+        if (Array.isArray(saved.sitePhotos)) {
+          setAiSitePhotos(saved.sitePhotos);
+        }
       } catch (e) {
         console.warn('restore AI draft progress failed', e);
       }
@@ -5888,7 +5902,7 @@ export default function EstimateGeneratorScreen() {
     ]
   );
 
-  const handleGenerateAiDraft = useCallback(async (notes, photoDetections, planImport) => {
+  const handleGenerateAiDraft = useCallback(async (notes, photoDetections, planImport, sitePhotos, photoExistingFeatures) => {
     if (aiDraftGenerating) return;
     const effectivePlanImport =
       planImport ||
@@ -5897,6 +5911,9 @@ export default function EstimateGeneratorScreen() {
       null;
     setAiDraftGenerating(true);
     setAiDraftNotes(notes);
+    setAiPhotoDetections(Array.isArray(photoDetections) ? photoDetections : []);
+    setAiPhotoExistingFeatures(Array.isArray(photoExistingFeatures) ? photoExistingFeatures : []);
+    setAiSitePhotos(Array.isArray(sitePhotos) ? sitePhotos : []);
     setAiDraft(null);
       latestScopeMeasurementsRef.current = null;
     AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
@@ -5930,6 +5947,9 @@ export default function EstimateGeneratorScreen() {
       if (photoDetections?.length) {
         draft = applyPhotoDetectionsToDraft(draft, photoDetections);
       }
+      if (photoExistingFeatures?.length) {
+        draft = applyPhotoExistingFeaturesToDraft(draft, photoExistingFeatures);
+      }
       // Step 1 plan import: seed Quick measurements + draft scope detections.
       if (
         (effectivePlanImport?.measurements && Object.keys(effectivePlanImport.measurements).length) ||
@@ -5955,6 +5975,9 @@ export default function EstimateGeneratorScreen() {
           if (photoDetections?.length) {
             draft = applyPhotoDetectionsToDraft(draft, photoDetections);
           }
+          if (photoExistingFeatures?.length) {
+            draft = applyPhotoExistingFeaturesToDraft(draft, photoExistingFeatures);
+          }
           draft = applyPlanImportToDraft(draft, effectivePlanImport);
           if (draft.scopeMeasurements) {
             latestScopeMeasurementsRef.current = draft.scopeMeasurements;
@@ -5965,6 +5988,20 @@ export default function EstimateGeneratorScreen() {
       setAiSaveToPricingLibrary(!/\b(test|demo|sample|example)\b/.test(draftTitle));
       setAiDraft(draft);
       setShowAiBuilderModal(false);
+      AsyncStorage.setItem(
+        AI_DRAFT_PROGRESS_STORAGE_KEY,
+        JSON.stringify({
+          draft,
+          notes,
+          fromAssistant: aiDraftFromAssistant,
+          planImport: effectivePlanImport || planImportPayloadFromDraft(draft),
+          photoDetections: Array.isArray(photoDetections) ? photoDetections : [],
+          photoExistingFeatures: Array.isArray(photoExistingFeatures) ? photoExistingFeatures : [],
+          sitePhotos: Array.isArray(sitePhotos) ? sitePhotos : [],
+          stage: 'scope',
+          updatedAt: Date.now(),
+        })
+      ).catch((e) => console.warn('persist AI draft after generate failed', e));
 
       if (isComplexEstimateTier(draft)) {
         setShowAiScopeAssumptionsModal(true);
@@ -5995,6 +6032,7 @@ export default function EstimateGeneratorScreen() {
     }
   }, [
     aiDraft,
+    aiDraftFromAssistant,
     aiDraftGenerating,
     aiLastPlanImport,
     savedBidTemplates,
@@ -6026,13 +6064,16 @@ export default function EstimateGeneratorScreen() {
           notes: scopeNotes,
           fromAssistant: aiDraftFromAssistant,
           planImport: aiLastPlanImport || planImportPayloadFromDraft(nextDraft),
+          photoDetections: aiPhotoDetections,
+          photoExistingFeatures: aiPhotoExistingFeatures,
+          sitePhotos: aiSitePhotos,
           stage: 'scope',
           updatedAt: Date.now(),
         })
       ).catch((e) => console.warn('persist AI scope progress failed', e));
       return nextDraft;
     });
-  }, [aiDraftFromAssistant, aiDraftNotes, aiLastPlanImport, syncDraftWithLatestScopeMeasurements]);
+  }, [aiDraftFromAssistant, aiDraftNotes, aiLastPlanImport, aiPhotoDetections, aiPhotoExistingFeatures, aiSitePhotos, syncDraftWithLatestScopeMeasurements]);
 
   const handleConfirmScopeAssumptions = useCallback(
     async (confirmedItems, scopeMeasurements) => {
@@ -9938,6 +9979,8 @@ export default function EstimateGeneratorScreen() {
     setAiDraft(null);
     setAiDraftNotes('');
     setAiLastPlanImport(null);
+    setAiPhotoDetections([]);
+    setAiSitePhotos([]);
     AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
     setEstimateAiInitialQuestion('');
     setShowAiBuilderModal(true);
@@ -13463,6 +13506,8 @@ export default function EstimateGeneratorScreen() {
     setAiDraftNotes('');
     setAiDraft(null);
     setAiLastPlanImport(null);
+    setAiPhotoDetections([]);
+    setAiSitePhotos([]);
     setAiClarifyQuestions(null);
     setAiClarifyQuestionItems(null);
     setAiClarifyAppliedSummary(null);
@@ -24745,6 +24790,9 @@ export default function EstimateGeneratorScreen() {
           setAiDraft(null);
           setAiDraftNotes('');
           setAiLastPlanImport(null);
+          setAiPhotoDetections([]);
+          setAiPhotoExistingFeatures([]);
+          setAiSitePhotos([]);
           AsyncStorage.removeItem(AI_DRAFT_PROGRESS_STORAGE_KEY).catch(() => {});
           setShowAiBuilderModal(true);
         }}
@@ -24755,6 +24803,9 @@ export default function EstimateGeneratorScreen() {
         generating={aiDraftGenerating}
         initialNotes={aiDraftNotes}
         initialPlanImport={aiBuilderInitialPlanImport}
+        initialPhotoDetections={aiPhotoDetections}
+        initialPhotoExistingFeatures={aiPhotoExistingFeatures}
+        initialSitePhotos={aiSitePhotos}
         hasExistingDraft={Boolean(aiDraft)}
         fromAssistant={aiDraftFromAssistant}
         onBack={() => {
@@ -24783,6 +24834,9 @@ export default function EstimateGeneratorScreen() {
         onPlanImportChange={(next) => {
           setAiLastPlanImport(next || null);
         }}
+        onPhotoDetectionsChange={setAiPhotoDetections}
+        onPhotoExistingFeaturesChange={setAiPhotoExistingFeatures}
+        onSitePhotosChange={setAiSitePhotos}
         onGenerate={handleGenerateAiDraft}
       />
 
@@ -24809,6 +24863,7 @@ export default function EstimateGeneratorScreen() {
         onScopeOnly={handleScopeAssumptionsScopeOnly}
         onPersistProgress={handlePersistScopeProgress}
         pricingContext={aiScopePricingContext}
+        hasSitePhotos={aiSitePhotos.length > 0}
       />
 
       <AIEstimateDraftReviewModal

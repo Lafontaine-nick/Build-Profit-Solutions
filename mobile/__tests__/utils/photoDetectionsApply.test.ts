@@ -95,6 +95,20 @@ describe('applyPhotoDetectionsToDraft', () => {
     expect(invalid.scopeChecklist!.items[0].choiceId).toBeNull();
   });
 
+  test('remaps cross-template detection ids onto the active checklist', () => {
+    const draft = draftWithItems([
+      { id: 'exterior', label: 'Exterior finishes', state: 'unsure' },
+      { id: 'mep_rough', label: 'MEP rough', state: 'unsure' },
+    ]);
+    const next = applyPhotoDetectionsToDraft(draft, [
+      { itemId: 'exterior_finishes', state: 'included', confidence: 0.9 },
+      { itemId: 'electrical_rough', state: 'included', confidence: 0.85 },
+    ]);
+    const byId = Object.fromEntries(next.scopeChecklist!.items.map((i) => [i.id, i]));
+    expect(byId.exterior.state).toBe('included');
+    expect(byId.mep_rough.state).toBe('included');
+  });
+
   test('returns draft unchanged when there are no detections or no checklist', () => {
     const draft = draftWithItems([{ id: 'tub_demo', label: 'Tub', state: 'unsure' }]);
     expect(applyPhotoDetectionsToDraft(draft, [])).toBe(draft);

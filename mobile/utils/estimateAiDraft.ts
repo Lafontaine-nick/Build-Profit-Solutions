@@ -26,8 +26,10 @@ import {
   type MeasurementUnit,
 } from '@/utils/measurementSemantics';
 import { tagPlanDetectedQuickMeasurementKeys } from '@/utils/quickMeasurementProvenance';
+import { stripBathroomFalsePositiveFloorDemoQuantities } from '@/utils/estimateScopeChecklistUi';
 import { syncMeasurementsWithSouthernUtahPlanFacts } from '@/utils/quickMeasurementEstimates';
 import { sumBathFloorSqft } from '@/utils/planBathRooms';
+import { applyExistingFeaturesToMeasurements } from '@/utils/wetAreaExistingDemo';
 import type {
   MeasurementSuggestion,
   PlanBuildingAreas,
@@ -222,12 +224,63 @@ export type ScopeMeasurements = {
   wetAreaFinish?: import('@/utils/planBathRooms').WetAreaFinishChoice | null;
   /** Tile shower / tiled wet-area bath count (drives shower SF planning). */
   bathCount?: number | null;
+  /** Tile shower pan (mud pan) — bathroom photo jobs split from bathCount (walls). */
+  tilePanBathCount?: number | null;
   /** Prefab pan baths — does not clear or replace tile shower SF. */
   prefabBathCount?: number | null;
+  /** Prefab shower enclosure / surround unit count. */
+  prefabEnclosureBathCount?: number | null;
   /** Tub baths — does not clear or replace tile shower SF. */
   tubBathCount?: number | null;
   /** Glass shower door / enclosure count (Wet area finish). */
   showerDoorCount?: number | null;
+  /** Existing wet-area features (QM — bathroom photo/notes). */
+  existingTubCount?: number | null;
+  existingTileWallCount?: number | null;
+  existingTilePanCount?: number | null;
+  existingPrefabPanCount?: number | null;
+  existingPrefabEnclosureCount?: number | null;
+  existingShowerDoorCount?: number | null;
+  existingBathFloorTileCount?: number | null;
+  /** Bathroom fixtures QM — vanity / countertop existing, install, demo. */
+  bathroomExistingVanityCount?: number | null;
+  bathroomExistingCounterCount?: number | null;
+  bathroomInstallVanityCount?: number | null;
+  bathroomInstallCounterCount?: number | null;
+  bathroomDemoVanityCount?: number | null;
+  bathroomDemoCounterCount?: number | null;
+  /** Demo tear-out selections derived from existing + install (QM). */
+  demoTubCount?: number | null;
+  demoTileWallCount?: number | null;
+  demoTilePanCount?: number | null;
+  demoPrefabPanCount?: number | null;
+  demoPrefabEnclosureCount?: number | null;
+  demoShowerDoorCount?: number | null;
+  demoBathFloorTileCount?: number | null;
+  /** Keep existing glass door — no new door install scope. */
+  reuseExistingShowerDoor?: boolean | null;
+  /** Per-demo-row manual overrides when contractor adjusts auto demo counts. */
+  demoWetAreaManualOverrides?: Partial<Record<string, boolean>> | null;
+  /** Kitchen QM — existing / install / demo scope panels (photo/notes jobs). */
+  kitchenExistingCabinetCount?: number | null;
+  kitchenExistingCounterCount?: number | null;
+  kitchenExistingApplianceCount?: number | null;
+  kitchenExistingBacksplashCount?: number | null;
+  kitchenExistingFloorCount?: number | null;
+  kitchenInstallCabinetCount?: number | null;
+  kitchenInstallCounterCount?: number | null;
+  kitchenInstallApplianceCount?: number | null;
+  kitchenInstallBacksplashCount?: number | null;
+  kitchenInstallFlooringCount?: number | null;
+  kitchenInstallIslandCount?: number | null;
+  kitchenDemoCabinetCount?: number | null;
+  kitchenDemoApplianceCount?: number | null;
+  kitchenDemoFloorCount?: number | null;
+  kitchenDemoWallCount?: number | null;
+  /** Flooring QM — existing / install / demo scope panels. */
+  flooringExistingCount?: number | null;
+  flooringInstallScopeCount?: number | null;
+  flooringDemoScopeCount?: number | null;
   /** Garage door schedule by type (Confirm Scope openings). */
   garageDoorSingleCount?: number | null;
   garageDoorDoubleCount?: number | null;
@@ -615,11 +668,15 @@ export function repairDraftRatePricingFromNotes(draft: EstimateAiDraft, notes: s
     return { ...draft, originalNotes: draft.originalNotes || text };
   }
 
-  const mergedItemQuantities = {
-    ...stripRatePricingSubkeys(draft.scopeMeasurements?.itemQuantities),
-    ...stripRatePricingSubkeys(draft.scopeChecklist?.suggestedMeasurements?.itemQuantities),
-    ...(parsed.itemQuantities || {}),
-  };
+  const mergedItemQuantities = stripBathroomFalsePositiveFloorDemoQuantities(
+    {
+      ...stripRatePricingSubkeys(draft.scopeMeasurements?.itemQuantities),
+      ...stripRatePricingSubkeys(draft.scopeChecklist?.suggestedMeasurements?.itemQuantities),
+      ...(parsed.itemQuantities || {}),
+    },
+    draft.scopeChecklist?.templateKey,
+    text
+  );
   if (parsed.itemQuantities?.floor_demo && !parsed.itemQuantities?.demo) {
     delete mergedItemQuantities.demo;
   }
@@ -791,6 +848,12 @@ export type PhotoScopeDetection = {
   evidence?: string | null;
 };
 
+export type PhotoExistingFeature = {
+  feature: string;
+  confidence?: number;
+  evidence?: string | null;
+};
+
 export type PhotoToScopeResult = {
   success: boolean;
   reason?: string | null;
@@ -798,6 +861,7 @@ export type PhotoToScopeResult = {
   notesBlock: string;
   mergedNotes: string;
   detections: PhotoScopeDetection[];
+  existingFeatures?: PhotoExistingFeature[];
   templateKey?: string | null;
   projectTypeHint?: string | null;
 };
@@ -834,6 +898,9 @@ export async function fetchPhotoToScope(params: {
     notesBlock: payload.notesBlock || '',
     mergedNotes: payload.mergedNotes || params.existingNotes || '',
     detections: Array.isArray(payload.detections) ? (payload.detections as PhotoScopeDetection[]) : [],
+    existingFeatures: Array.isArray(payload.existingFeatures)
+      ? (payload.existingFeatures as PhotoExistingFeature[])
+      : [],
     templateKey: payload.templateKey ?? null,
     projectTypeHint: payload.projectTypeHint ?? null,
   };
@@ -1013,6 +1080,18 @@ function remapDetectionItemId(itemId: string, allowedIds: Set<string>): string |
   return null;
 }
 
+export function applyPhotoExistingFeaturesToDraft(
+  draft: EstimateAiDraft,
+  features: PhotoExistingFeature[] | null | undefined
+): EstimateAiDraft {
+  if (!features?.length) return draft;
+  const scopeMeasurements = applyExistingFeaturesToMeasurements(
+    draft.scopeMeasurements || {},
+    features
+  );
+  return { ...draft, scopeMeasurements };
+}
+
 /**
  * Apply structured vision detections directly onto the draft's Step 2 checklist,
  * so photo scope doesn't depend on notes-text regex re-parsing. Only fills items
@@ -1025,38 +1104,9 @@ export function applyPhotoDetectionsToDraft(
   const items = draft?.scopeChecklist?.items;
   if (!items?.length || !detections?.length) return draft;
 
-  const byId = new Map<string, PhotoScopeDetection>();
-  for (const d of detections) {
-    if (!d?.itemId || (d.confidence ?? 0) < PHOTO_DETECTION_MIN_CONFIDENCE) continue;
-    if (d.state !== 'included' && d.state !== 'excluded') continue;
-    if (!byId.has(d.itemId)) byId.set(d.itemId, d);
-  }
-  if (!byId.size) return draft;
+  const { items: nextItems, appliedCount } = applyScopeDetectionsToChecklistItems(items, detections);
+  if (!appliedCount) return draft;
 
-  let changed = false;
-  const nextItems = items.map((item) => {
-    const detection = byId.get(item.id);
-    if (!detection) return item;
-
-    if (item.inputType === 'choice') {
-      if (item.choiceId && item.choiceId !== 'unsure') return item;
-      const validChoice =
-        detection.choiceId && (item.options || []).some((o) => o.id === detection.choiceId)
-          ? detection.choiceId
-          : null;
-      if (!validChoice) return item;
-      changed = true;
-      return { ...item, choiceId: validChoice, state: 'included' as const, noteBacked: true };
-    }
-
-    if (item.inputType === 'multi_choice') return item;
-
-    if (item.state !== 'unsure') return item;
-    changed = true;
-    return { ...item, state: detection.state, noteBacked: true };
-  });
-
-  if (!changed) return draft;
   return {
     ...draft,
     scopeChecklist: { ...draft.scopeChecklist!, items: nextItems },

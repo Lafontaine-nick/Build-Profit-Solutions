@@ -163,6 +163,7 @@ Rules:
 7. Set success false ONLY for clearly non-jobsite content (selfies with no room, food, memes, pure screenshots/documents, ID cards). NEVER set success false because the room/trade differs from notes, or because photos are a bathroom/kitchen/roof/etc. when notes suggested something else.
 8. If unsure about an item, use state "unsure" or omit it — still return success true with whatever you can see.
 9. projectTypeHint must reflect the PHOTOS (bathroom, kitchen, roofing, flooring, painting, deck_patio, room_remodel, addition, ground_up, other).
+10. For bathroom/shower/tub photos, also return existingFeatures — EXISTING wet-area fixtures visible now (not planned new work). Use feature ids: tub, tile_shower_walls, tile_shower_pan, prefab_shower_pan, prefab_shower_enclosure, shower_door. Omit features you cannot see.
 
 Schema:
 {
@@ -175,6 +176,13 @@ Schema:
       "itemId": "checklist id from the allowed list",
       "state": "included|excluded|unsure",
       "choiceId": "string | null",
+      "confidence": 0-1,
+      "evidence": "what was visible in the photo"
+    }
+  ],
+  "existingFeatures": [
+    {
+      "feature": "tub|tile_shower_walls|tile_shower_pan|prefab_shower_pan|prefab_shower_enclosure|shower_door",
       "confidence": 0-1,
       "evidence": "what was visible in the photo"
     }
@@ -233,6 +241,34 @@ function sanitizeDetections(rawDetections, catalog) {
   return out.sort((a, b) => b.confidence - a.confidence).slice(0, 24);
 }
 
+const EXISTING_WET_AREA_FEATURES = new Set([
+  'tub',
+  'tile_shower_walls',
+  'tile_shower_pan',
+  'prefab_shower_pan',
+  'prefab_shower_enclosure',
+  'shower_door',
+]);
+
+function sanitizeExistingFeatures(rawFeatures) {
+  const out = [];
+  const seen = new Set();
+  for (const row of Array.isArray(rawFeatures) ? rawFeatures : []) {
+    const feature = String(row?.feature || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '_');
+    if (!EXISTING_WET_AREA_FEATURES.has(feature) || seen.has(feature)) continue;
+    seen.add(feature);
+    out.push({
+      feature,
+      confidence: Math.max(0, Math.min(1, Number(row?.confidence) || 0)),
+      evidence: String(row?.evidence || '').trim().slice(0, 240) || null,
+    });
+  }
+  return out.sort((a, b) => b.confidence - a.confidence);
+}
+
 function formatScopeNotesFromVision({ scopeText, detections }) {
   const lines = [];
   const prose = String(scopeText || '').trim();
@@ -261,6 +297,7 @@ function resolveTemplateKey(visionType, fallback) {
  */
 function normalizeVisionParsed(parsed, catalog, templateKeyFallback) {
   const detections = sanitizeDetections(parsed?.detections, catalog);
+  const existingFeatures = sanitizeExistingFeatures(parsed?.existingFeatures);
   const scopeText = String(parsed?.scopeText || '').trim().slice(0, 4000);
   const visionType = parsed?.projectTypeHint ? String(parsed.projectTypeHint).slice(0, 40) : null;
   const reason = parsed?.reason != null ? String(parsed.reason).slice(0, 300) : null;
@@ -275,6 +312,7 @@ function normalizeVisionParsed(parsed, catalog, templateKeyFallback) {
       scopeText: '',
       notesBlock: '',
       detections: [],
+      existingFeatures: [],
       templateKey: templateKeyFallback,
       projectTypeHint: null,
       shouldRetryWithoutNotes: isSpuriousTradeMismatchRejection(reason),
@@ -289,6 +327,7 @@ function normalizeVisionParsed(parsed, catalog, templateKeyFallback) {
       scopeText: '',
       notesBlock: '',
       detections: [],
+      existingFeatures: [],
       templateKey: templateKeyFallback,
       projectTypeHint: null,
       shouldRetryWithoutNotes: true,
@@ -304,6 +343,7 @@ function normalizeVisionParsed(parsed, catalog, templateKeyFallback) {
       scopeText: '',
       notesBlock: '',
       detections: [],
+      existingFeatures: [],
       templateKey: templateKeyFallback,
       projectTypeHint: null,
       shouldRetryWithoutNotes: spurious,
@@ -316,6 +356,7 @@ function normalizeVisionParsed(parsed, catalog, templateKeyFallback) {
     scopeText,
     notesBlock,
     detections,
+    existingFeatures,
     templateKey: resolveTemplateKey(visionType, templateKeyFallback),
     projectTypeHint: visionType,
     shouldRetryWithoutNotes: false,
@@ -476,6 +517,7 @@ async function analyzeSitePhotosForScope({
     scopeText: normalized.scopeText,
     notesBlock: normalized.notesBlock,
     detections: normalized.detections,
+    existingFeatures: normalized.existingFeatures,
     templateKey: normalized.templateKey,
     projectTypeHint: normalized.projectTypeHint,
   };
@@ -502,6 +544,7 @@ module.exports = {
   mergePhotoNotesIntoJobNotes,
   formatScopeNotesFromVision,
   sanitizeDetections,
+  sanitizeExistingFeatures,
   collectAllowedItems,
   isSpuriousTradeMismatchRejection,
   normalizeVisionParsed,

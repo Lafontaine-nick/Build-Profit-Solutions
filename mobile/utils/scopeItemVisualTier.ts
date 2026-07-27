@@ -33,6 +33,9 @@ export const SCOPE_ITEM_TIER_OPACITY: Record<ScopeItemVisualTier, number> = {
   muted: 0.35,
 };
 
+/** Bathroom fixture rows that stay visible even when notes/photos omit them. */
+export const BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS = new Set(['toilet']);
+
 export type ScopeItemVisualContext = {
   notes?: string | null;
   templateKey?: string | null;
@@ -142,6 +145,9 @@ export function scopeItemShowsFromNotesBadge(item: ScopeChecklistItem, ctx: Scop
 
 export function scopeItemVisualTier(item: ScopeChecklistItem, ctx: ScopeItemVisualContext): ScopeItemVisualTier {
   if (itemIsExcluded(item)) return 'muted';
+  if (ctx.templateKey === 'bathroom' && BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS.has(item.id)) {
+    return 'primary';
+  }
   if (checklistItemInScope(item)) return 'primary';
   if (scopeItemHasNoteSignal(item, ctx)) return 'primary';
   return 'secondary';

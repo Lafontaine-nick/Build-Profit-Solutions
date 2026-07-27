@@ -5,6 +5,7 @@ import {
 } from '@/utils/acceptedPricingSummaryUi';
 import { emptyQuickMeasurementInput } from '@/utils/scopeQuickMeasurements';
 import {
+  buildNormalizedScopeMeasurementsFromInput,
   canonicalTileScopeKey,
   getNationalAverageBudgetSplit,
   resolveChecklistItemQuantity,
@@ -184,5 +185,28 @@ describe('tile national-average subtype pricing', () => {
     // Tile-only on a prepared pan — above bath floor, near shower wall.
     expect(floor.labor + floor.material).toBeGreaterThan(bathFloor.labor + bathFloor.material);
     expect(floor.labor + floor.material).toBeLessThan(wall.labor + wall.material + 0.01);
+  });
+
+  it('includes backer board assembly components in the waterproofing benchmark profile', () => {
+    const normalized = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('waterproofing', normalized, {
+      templateKey: 'bathroom',
+    });
+    const pricing = resolveScopeItemSuggestedPricing('waterproofing', input, 'bathroom', resolved);
+    const included = (pricing.fill?.benchmarkScopeProfile?.scopeAssumptions || [])
+      .filter((a) => a.status === 'included')
+      .map((a) => a.scopeKey);
+    expect(included).toEqual(
+      expect.arrayContaining([
+        'backer_board',
+        'liquid_membrane',
+        'vapor_barrier',
+        'seam_tape',
+        'fasteners',
+        'cavity_insulation',
+        'waterproofing_labor',
+      ])
+    );
+    expect(pricing.fill?.total).toBe(1920);
   });
 });

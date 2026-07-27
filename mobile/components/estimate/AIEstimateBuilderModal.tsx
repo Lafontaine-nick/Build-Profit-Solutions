@@ -4,6 +4,7 @@ import {
   View,
   Text,
   TouchableOpacity,
+  Pressable,
   TextInput,
   Platform,
   StyleSheet,
@@ -24,12 +25,13 @@ import AIEstimateDisclaimer from '@/components/estimate/AIEstimateDisclaimer';
 import EstimateVoiceDictationButton from '@/components/estimate/EstimateVoiceDictationButton';
 import EstimateSitePhotosStrip, {
   type EstimateSitePhotosStripHandle,
+  type SitePhotoAttachment,
   type SitePhotoState,
 } from '@/components/estimate/EstimateSitePhotosStrip';
 import EstimatePlanImportStrip, {
   type PlanImportApplyResult,
 } from '@/components/estimate/EstimatePlanImportStrip';
-import type { PhotoScopeDetection, PlanImportPayload } from '@/utils/estimateAiDraft';
+import type { PhotoExistingFeature, PhotoScopeDetection, PlanImportPayload } from '@/utils/estimateAiDraft';
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import {
   buildImportedPlanSummaryText,
@@ -44,6 +46,11 @@ type Props = {
   initialNotes?: string;
   /** Restore plan takeoff when reopening Step 1 after Confirm Scope Back. */
   initialPlanImport?: PlanImportPayload | null;
+  /** Restore vision detections when reopening Step 1 (Regenerate / Back). */
+  initialPhotoDetections?: PhotoScopeDetection[];
+  initialPhotoExistingFeatures?: PhotoExistingFeature[];
+  /** Restore attached photo thumbnails for the same session. */
+  initialSitePhotos?: SitePhotoAttachment[];
   /** True when a Confirm Scope / review draft already exists — show Continue instead of wiping. */
   hasExistingDraft?: boolean;
   fromAssistant?: boolean;
@@ -55,10 +62,15 @@ type Props = {
   onContinueDraft?: () => void;
   /** Keep parent lastPlanImport in sync when user imports/replaces a plan. */
   onPlanImportChange?: (planImport: PlanImportPayload | null) => void;
+  onPhotoDetectionsChange?: (detections: PhotoScopeDetection[]) => void;
+  onPhotoExistingFeaturesChange?: (features: PhotoExistingFeature[]) => void;
+  onSitePhotosChange?: (photos: SitePhotoAttachment[]) => void;
   onGenerate: (
     notes: string,
     photoDetections?: PhotoScopeDetection[],
-    planImport?: PlanImportPayload | null
+    planImport?: PlanImportPayload | null,
+    sitePhotos?: SitePhotoAttachment[],
+    photoExistingFeatures?: PhotoExistingFeature[]
   ) => void;
 };
 
@@ -67,6 +79,9 @@ export default function AIEstimateBuilderModal({
   generating = false,
   initialNotes = '',
   initialPlanImport = null,
+  initialPhotoDetections = [],
+  initialPhotoExistingFeatures = [],
+  initialSitePhotos = [],
   hasExistingDraft = false,
   fromAssistant = false,
   embedded = false,
@@ -74,14 +89,22 @@ export default function AIEstimateBuilderModal({
   onBack,
   onContinueDraft,
   onPlanImportChange,
+  onPhotoDetectionsChange,
+  onPhotoExistingFeaturesChange,
+  onSitePhotosChange,
   onGenerate,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const photosStripRef = useRef<EstimateSitePhotosStripHandle>(null);
+  const notesInputRef = useRef<TextInput>(null);
   const [notes, setNotes] = useState('');
+  /** View mode lets the page scroll without focusing the notes field (photo-detect blocks). */
+  const [notesEditing, setNotesEditing] = useState(false);
   const [photoDetections, setPhotoDetections] = useState<PhotoScopeDetection[]>([]);
+  const [photoExistingFeatures, setPhotoExistingFeatures] = useState<PhotoExistingFeature[]>([]);
+  const [sitePhotos, setSitePhotos] = useState<SitePhotoAttachment[]>([]);
   const [photoState, setPhotoState] = useState<SitePhotoState>({
     photoCount: 0,
     hasAnalyzed: false,
@@ -99,8 +122,14 @@ export default function AIEstimateBuilderModal({
       // Reset only when the modal opens — not when initialNotes identity changes mid-session
       // (that was wiping planImport after Apply to bid).
       setNotes(initialNotes || '');
-      setPhotoDetections([]);
-      setPhotoState({ photoCount: 0, hasAnalyzed: false });
+      setNotesEditing(!(initialNotes || '').trim());
+      setPhotoDetections(initialPhotoDetections || []);
+      setPhotoExistingFeatures(initialPhotoExistingFeatures || []);
+      setSitePhotos(initialSitePhotos || []);
+      setPhotoState({
+        photoCount: initialSitePhotos?.length || 0,
+        hasAnalyzed: Boolean(initialPhotoDetections?.length),
+      });
       // Restore plan import when resuming a draft session; otherwise start clean.
       setPlanImport(initialPlanImport || null);
       setPlanSummaryExpanded(false);
@@ -110,13 +139,19 @@ export default function AIEstimateBuilderModal({
       setLocalGenerating(false);
     }
     wasVisibleRef.current = visible;
-  }, [visible, initialNotes, initialPlanImport]);
+  }, [visible, initialNotes, initialPlanImport, initialPhotoDetections, initialSitePhotos]);
 
   useEffect(() => {
     if (!generating) {
       setLocalGenerating(false);
     }
   }, [generating]);
+
+  useEffect(() => {
+    if (!notesEditing) return;
+    const id = requestAnimationFrame(() => notesInputRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [notesEditing]);
 
   useEffect(() => {
     if (!visible || Platform.OS === 'web') return undefined;
@@ -145,6 +180,7 @@ export default function AIEstimateBuilderModal({
   };
 
   const handleTranscript = (text: string) => {
+    setNotesEditing(true);
     setNotes((prev) => {
       const existing = prev.trim();
       return existing ? `${existing}\n${text}` : text;
@@ -154,10 +190,15 @@ export default function AIEstimateBuilderModal({
   const handlePhotoNotesMerged = (
     mergedNotes: string,
     detectionCount: number,
-    detections: PhotoScopeDetection[]
+    detections: PhotoScopeDetection[],
+    existingFeatures?: PhotoExistingFeature[]
   ) => {
     setNotes(mergedNotes);
+    setNotesEditing(false);
     setPhotoDetections(detections || []);
+    setPhotoExistingFeatures(existingFeatures || []);
+    onPhotoDetectionsChange?.(detections || []);
+    onPhotoExistingFeaturesChange?.(existingFeatures || []);
     // Defer alert so it doesn't fight the modal / picker dismiss animation.
     setTimeout(() => {
       if (detectionCount > 0) {
@@ -283,7 +324,9 @@ export default function AIEstimateBuilderModal({
       const notesForGenerate =
         trimmed ||
         (semanticsOn && importedPlanSummary ? importedPlanSummary : trimmed);
-      await Promise.resolve(onGenerate(notesForGenerate, photoDetections, planImport));
+      await Promise.resolve(
+        onGenerate(notesForGenerate, photoDetections, planImport, sitePhotos, photoExistingFeatures)
+      );
     } catch {
       setLocalGenerating(false);
     }
@@ -351,6 +394,17 @@ export default function AIEstimateBuilderModal({
 
   const canGenerate = (Boolean(notes.trim()) || (semanticsOn && hasPlanImport)) && !busy;
 
+  const dismissNotesEditing = () => {
+    notesInputRef.current?.blur();
+    Keyboard.dismiss();
+    if (notes.trim()) {
+      setNotesEditing(false);
+    }
+  };
+
+  const notesMinHeight = embedded ? 360 : 320;
+  const showNotesEditor = notesEditing || !notes.trim();
+
   const notesField = (
     <>
       <Text style={{ color: Colors.sub, fontSize: 13, lineHeight: 18, marginBottom: 14 }}>
@@ -374,8 +428,14 @@ export default function AIEstimateBuilderModal({
         darkMode={darkMode}
         disabled={busy}
         existingNotes={notes}
+        initialPhotos={sitePhotos}
+        initialHasAnalyzed={photoState.hasAnalyzed}
         onNotesMerged={handlePhotoNotesMerged}
         onPhotoStateChange={setPhotoState}
+        onPhotosChange={(next) => {
+          setSitePhotos(next);
+          onSitePhotosChange?.(next);
+        }}
       />
 
       {semanticsOn && importedPlanSummary ? (
@@ -444,28 +504,44 @@ export default function AIEstimateBuilderModal({
           onTranscript={handleTranscript}
         />
       </View>
-      <TextInput
-        value={notes}
-        onChangeText={setNotes}
-        editable={!busy}
-        multiline
-        scrollEnabled={false}
-        textAlignVertical="top"
-        blurOnSubmit
-        returnKeyType="done"
-        submitBehavior="blurAndSubmit"
-        onSubmitEditing={() => Keyboard.dismiss()}
-        placeholder="Example: Josh whole-home remodel — master bath $14,750 (materials $6,900 / labor $7,850), kitchen $23,400 lump sum, guest bath 420 sqft tile $4/sqft + labor $5.75/sqft..."
-        placeholderTextColor={placeholderColor}
-        style={[
-          styles.notesInput,
-          inputShell,
-          {
-            color: Colors.text,
-            minHeight: embedded ? 360 : 320,
-          },
-        ]}
-      />
+      {showNotesEditor ? (
+        <TextInput
+          ref={notesInputRef}
+          value={notes}
+          onChangeText={setNotes}
+          editable={!busy}
+          multiline
+          scrollEnabled={false}
+          textAlignVertical="top"
+          blurOnSubmit
+          returnKeyType="done"
+          submitBehavior="blurAndSubmit"
+          onSubmitEditing={dismissNotesEditing}
+          onBlur={() => {
+            if (notes.trim()) setNotesEditing(false);
+          }}
+          placeholder="Example: Josh whole-home remodel — master bath $14,750 (materials $6,900 / labor $7,850), kitchen $23,400 lump sum, guest bath 420 sqft tile $4/sqft + labor $5.75/sqft..."
+          placeholderTextColor={placeholderColor}
+          style={[
+            styles.notesInput,
+            inputShell,
+            {
+              color: Colors.text,
+              minHeight: notesMinHeight,
+            },
+          ]}
+        />
+      ) : (
+        <Pressable
+          disabled={busy}
+          delayPressIn={150}
+          onPress={() => setNotesEditing(true)}
+          style={[styles.notesInput, inputShell, styles.notesViewShell]}
+        >
+          <Text style={{ color: Colors.text, fontSize: 15, lineHeight: 22 }}>{notes}</Text>
+          <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 10 }}>Tap to edit</Text>
+        </Pressable>
+      )}
 
       <AIEstimateDisclaimer variant="compact" />
     </>
@@ -564,6 +640,7 @@ export default function AIEstimateBuilderModal({
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled={false}
+          onScrollBeginDrag={notesEditing && notes.trim() ? dismissNotesEditing : undefined}
         >
           {notesField}
         </ScrollView>
@@ -604,6 +681,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 15,
     lineHeight: 22,
+  },
+  notesViewShell: {
+    minHeight: undefined,
   },
   primaryBtn: {
     borderRadius: 12,

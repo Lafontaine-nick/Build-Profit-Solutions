@@ -1,4 +1,9 @@
 import type { PlanRoomMeasurement } from '@/utils/estimateAiDraft';
+import {
+  inferWetAreaInstallSteppersFromIntent,
+  mergeInferredWetAreaInstallSteppers,
+  reconcileExclusiveShowerPanSteppers,
+} from '@/utils/wetAreaInstallInference';
 
 /** Wet-area finish choice that gates shower tile Quick Measurements. */
 export type WetAreaFinishChoice = 'tile' | 'tub' | 'prefab';
@@ -52,20 +57,86 @@ function positiveCount(value: unknown): number | null {
   return Math.round(n);
 }
 
+/** Photo/notes single-bath jobs split tile walls vs tile pan steppers. */
+export function isSplitTileWetAreaCounts(params: {
+  templateKey?: string | null;
+  wholeHomeLayout?: boolean;
+}): boolean {
+  if (params.wholeHomeLayout) return false;
+  return String(params.templateKey || '').toLowerCase() === 'bathroom';
+}
+
 /**
  * Effective wet-area finish for gating shower tile SF.
  * Tile baths win when present so prefab/tub counts can coexist without clearing tile SF.
+ * Split bathroom mode: bathCount = tile walls only; tilePanBathCount drives floor finish.
  */
 export function resolveEffectiveWetAreaFinish(params: {
   bathCount?: number | null;
+  tilePanBathCount?: number | null;
   prefabBathCount?: number | null;
+  prefabEnclosureBathCount?: number | null;
   tubBathCount?: number | null;
   wetAreaFinish?: WetAreaFinishChoice | null;
+  templateKey?: string | null;
+  wholeHomeLayout?: boolean;
 }): WetAreaFinishChoice | null {
+  const split = isSplitTileWetAreaCounts(params);
+  if (split) {
+    if (positiveCount(params.tilePanBathCount)) return 'tile';
+    if (positiveCount(params.prefabBathCount) || positiveCount(params.prefabEnclosureBathCount)) {
+      return 'prefab';
+    }
+    if (positiveCount(params.tubBathCount)) return 'tub';
+    return params.wetAreaFinish ?? null;
+  }
   if (positiveCount(params.bathCount)) return 'tile';
   if (positiveCount(params.prefabBathCount)) return 'prefab';
   if (positiveCount(params.tubBathCount)) return 'tub';
   return params.wetAreaFinish ?? null;
+}
+
+/** Shower wall planning count — split mode uses tile-wall stepper, with finish fallback. */
+export function resolveShowerWallBathCount(params: {
+  planRooms?: PlanRoomMeasurement[] | null;
+  bathCount?: number | null;
+  tilePanBathCount?: number | null;
+  prefabBathCount?: number | null;
+  prefabEnclosureBathCount?: number | null;
+  tubBathCount?: number | null;
+  bathroomFloorSqft?: number | string | null;
+  wetAreaFinish?: WetAreaFinishChoice | null;
+  templateKey?: string | null;
+  wholeHomeLayout?: boolean;
+}): number | null {
+  if (isSplitTileWetAreaCounts(params)) {
+    const explicit = positiveCount(params.bathCount);
+    if (explicit) return explicit;
+    const finish = resolveEffectiveWetAreaFinish(params);
+    if (finish === 'prefab' || finish === 'tile') {
+      return resolveBathCount({ ...params, wetAreaFinish: finish });
+    }
+    return null;
+  }
+  return resolveBathCount(params);
+}
+
+/** Tile shower pan count for floor SF — split mode uses tilePanBathCount stepper. */
+export function resolveTilePanBathCount(params: {
+  planRooms?: PlanRoomMeasurement[] | null;
+  bathCount?: number | null;
+  tilePanBathCount?: number | null;
+  bathroomFloorSqft?: number | string | null;
+  wetAreaFinish?: WetAreaFinishChoice | null;
+  templateKey?: string | null;
+  wholeHomeLayout?: boolean;
+}): number | null {
+  if (isSplitTileWetAreaCounts(params)) {
+    return positiveCount(params.tilePanBathCount);
+  }
+  const finish = resolveEffectiveWetAreaFinish(params);
+  if (finish !== 'tile') return null;
+  return resolveBathCount(params);
 }
 
 /**
@@ -77,11 +148,23 @@ export function resolveBathCount(params: {
   planRooms?: PlanRoomMeasurement[] | null;
   bathCount?: number | null;
   bathroomFloorSqft?: number | string | null;
+  /** Single-bathroom photo/notes jobs — wet area choice implies one bath for shower estimates. */
+  wetAreaFinish?: WetAreaFinishChoice | null;
+  templateKey?: string | null;
 }): number | null {
   const explicit = positiveCount(params.bathCount);
   if (explicit) return explicit;
   const floor = Number(String(params.bathroomFloorSqft ?? '').replace(/,/g, ''));
   if (Number.isFinite(floor) && floor > 0) return 1;
+  if (
+    String(params.templateKey || '').toLowerCase() === 'bathroom' &&
+    params.wetAreaFinish &&
+    (params.wetAreaFinish === 'tile' ||
+      params.wetAreaFinish === 'prefab' ||
+      params.wetAreaFinish === 'tub')
+  ) {
+    return 1;
+  }
   return null;
 }
 
@@ -108,7 +191,7 @@ export function wetAreaFinishFromChecklistChoice(
 ): WetAreaFinishChoice | null {
   if (choiceId === 'tile_pan') return 'tile';
   if (choiceId === 'tub') return 'tub';
-  if (choiceId === 'prefab') return 'prefab';
+  if (choiceId === 'prefab' || choiceId === 'prefab_enclosure') return 'prefab';
   return null;
 }
 
@@ -123,16 +206,78 @@ export function checklistChoiceFromWetAreaFinish(
 }
 
 /**
- * Plan-style bath counters (tile / prefab / tub / doors) — ground-up and plan imports.
- * Bathroom remodels from photos/notes use checklist "Wet area install" instead.
+ * Plan-style wet-area steppers — ground-up, plan imports, and photo/notes bathroom remodels.
  */
 export function shouldShowPlanWetAreaFinishSteppers(params: {
   templateKey?: string | null;
   planBathRoomCount?: number;
   wholeHomeLayout?: boolean;
+  /** Single-bath photo/notes bathroom template (not whole-home plan import). */
+  bathroomPhotoJob?: boolean;
 }): boolean {
+  if (params.bathroomPhotoJob) return true;
   if (params.wholeHomeLayout) return true;
   if ((params.planBathRoomCount ?? 0) > 0) return true;
   if (params.templateKey === 'bathroom') return false;
   return params.templateKey === 'ground_up' || params.templateKey === 'addition';
+}
+
+export type WetAreaStepperCounts = {
+  bathCount: number | null;
+  tilePanBathCount: number | null;
+  prefabBathCount: number | null;
+  prefabEnclosureBathCount: number | null;
+  tubBathCount: number | null;
+  showerDoorCount: number | null;
+};
+
+/** Seed stepper counts from persisted measurements, scope checklist, and notes intent. */
+export function hydrateWetAreaStepperCounts(params: {
+  measurements: Partial<WetAreaStepperCounts> & { wetAreaFinish?: WetAreaFinishChoice | null };
+  wetAreaInstallChoiceId?: string | null;
+  showerTileIncluded?: boolean;
+  showerFloorTileIncluded?: boolean;
+  glassDoorIncluded?: boolean;
+  notes?: string | null;
+  templateKey?: string | null;
+  wholeHomeLayout?: boolean;
+}): WetAreaStepperCounts {
+  const split = isSplitTileWetAreaCounts(params);
+  const base: WetAreaStepperCounts = {
+    bathCount: positiveCount(params.measurements.bathCount),
+    tilePanBathCount: positiveCount(params.measurements.tilePanBathCount),
+    prefabBathCount: positiveCount(params.measurements.prefabBathCount),
+    prefabEnclosureBathCount: positiveCount(params.measurements.prefabEnclosureBathCount),
+    tubBathCount: positiveCount(params.measurements.tubBathCount),
+    showerDoorCount: positiveCount(params.measurements.showerDoorCount),
+  };
+  if (!split) return base;
+  const choice = params.wetAreaInstallChoiceId;
+  if (choice === 'staying' || choice === 'not_in_scope') return base;
+
+  const inferred = inferWetAreaInstallSteppersFromIntent({
+    notes: params.notes,
+    wetAreaInstallChoiceId: choice,
+    showerTileIncluded: params.showerTileIncluded,
+    showerFloorTileIncluded: params.showerFloorTileIncluded,
+    glassDoorIncluded: params.glassDoorIncluded,
+  });
+  return reconcileExclusiveShowerPanSteppers(
+    mergeInferredWetAreaInstallSteppers(base, inferred)
+  );
+}
+
+/** Primary wet_area_install choice for legacy single-select sync. */
+export function primaryWetAreaInstallChoiceFromSteppers(params: {
+  counts: WetAreaStepperCounts;
+  keepingExisting?: boolean;
+}): string | null {
+  if (params.keepingExisting) return 'staying';
+  const { counts } = params;
+  if (positiveCount(counts.tilePanBathCount)) return 'tile_pan';
+  if (positiveCount(counts.prefabBathCount)) return 'prefab';
+  if (positiveCount(counts.prefabEnclosureBathCount)) return 'prefab_enclosure';
+  if (positiveCount(counts.tubBathCount)) return 'tub';
+  if (positiveCount(counts.bathCount)) return null;
+  return 'not_in_scope';
 }

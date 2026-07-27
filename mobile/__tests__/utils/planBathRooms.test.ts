@@ -6,6 +6,8 @@ import {
   resolveBathCount,
   resolveEffectiveWetAreaFinish,
   resolveShowerDoorCount,
+  resolveShowerWallBathCount,
+  resolveTilePanBathCount,
   shouldShowPlanWetAreaFinishSteppers,
   sumBathFloorSqft,
   wetAreaFinishFromChecklistChoice,
@@ -47,6 +49,9 @@ describe('planBathRooms', () => {
     expect(resolveBathCount({ bathCount: 2, bathroomFloorSqft: 90 })).toBe(2);
     expect(resolveBathCount({ bathroomFloorSqft: 90 })).toBe(1);
     expect(resolveBathCount({})).toBeNull();
+    expect(
+      resolveBathCount({ wetAreaFinish: 'prefab', templateKey: 'bathroom' })
+    ).toBe(1);
   });
 
   test('resolveEffectiveWetAreaFinish keeps tile when prefab/tub counts are also set', () => {
@@ -79,15 +84,57 @@ describe('planBathRooms', () => {
     expect(checklistChoiceFromWetAreaFinish(null)).toBeNull();
   });
 
-  test('shouldShowPlanWetAreaFinishSteppers hides bath counters for photo bathroom remodels', () => {
+  test('shouldShowPlanWetAreaFinishSteppers shows bath counters for photo bathroom remodels', () => {
     expect(
       shouldShowPlanWetAreaFinishSteppers({ templateKey: 'bathroom', planBathRoomCount: 0 })
     ).toBe(false);
+    expect(
+      shouldShowPlanWetAreaFinishSteppers({
+        templateKey: 'bathroom',
+        planBathRoomCount: 0,
+        bathroomPhotoJob: true,
+      })
+    ).toBe(true);
     expect(
       shouldShowPlanWetAreaFinishSteppers({ templateKey: 'bathroom', planBathRoomCount: 2 })
     ).toBe(true);
     expect(shouldShowPlanWetAreaFinishSteppers({ templateKey: 'ground_up' })).toBe(true);
     expect(shouldShowPlanWetAreaFinishSteppers({ templateKey: 'addition' })).toBe(true);
     expect(shouldShowPlanWetAreaFinishSteppers({ wholeHomeLayout: true })).toBe(true);
+  });
+
+  test('split tile mode separates wall vs pan finish gating', () => {
+    expect(
+      resolveEffectiveWetAreaFinish({
+        bathCount: 1,
+        templateKey: 'bathroom',
+      })
+    ).toBeNull();
+    expect(
+      resolveEffectiveWetAreaFinish({
+        bathCount: 1,
+        tilePanBathCount: 1,
+        templateKey: 'bathroom',
+      })
+    ).toBe('tile');
+    expect(
+      resolveEffectiveWetAreaFinish({
+        bathCount: 1,
+        prefabBathCount: 1,
+        templateKey: 'bathroom',
+      })
+    ).toBe('prefab');
+  });
+
+  test('resolveShowerWallBathCount and resolveTilePanBathCount in split mode', () => {
+    expect(
+      resolveShowerWallBathCount({ bathCount: 1, templateKey: 'bathroom' })
+    ).toBe(1);
+    expect(
+      resolveTilePanBathCount({ tilePanBathCount: 1, templateKey: 'bathroom' })
+    ).toBe(1);
+    expect(
+      resolveTilePanBathCount({ bathCount: 1, templateKey: 'bathroom' })
+    ).toBeNull();
   });
 });

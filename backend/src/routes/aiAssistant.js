@@ -15761,6 +15761,7 @@ router.post('/photo-to-scope', async (req, res) => {
       notesBlock: result.notesBlock,
       mergedNotes,
       detections: result.detections,
+      existingFeatures: result.existingFeatures || [],
       templateKey: result.templateKey,
       projectTypeHint: result.projectTypeHint,
     });

@@ -1,11 +1,15 @@
 import {
   clearSupersededStageHostPricing,
+  computeAppliedBuildCostPerLivingSf,
   foldAskAiMeasurementsIntoScopeSnapshot,
+  formatBuildCostPerLivingSf,
   listConfirmScopeAppliedPricingLines,
   mergeScopeMeasurementsPreservingFields,
   sumStep3ReviewBudgetTotals,
   resolveAppliedScopeMoneyTotal,
+  resolveAppliedBuildCostArea,
   resolveBenchmarkLivingSf,
+  shouldShowAppliedBuildCostPerSf,
   scopeShowsConfirmScopeAppliedPricing,
   sumConfirmScopeAppliedPricingBreakdown,
   sumConfirmScopeAppliedPricingTotal,
@@ -450,5 +454,79 @@ describe('benchmarkReasonablenessContext', () => {
 
     const totals = sumStep3ReviewBudgetTotals(draft);
     expect(totals?.total).toBe(508000);
+  });
+
+  it('computeAppliedBuildCostPerLivingSf rounds whole dollars like benchmark engine', () => {
+    expect(computeAppliedBuildCostPerLivingSf(546626.47, 3098)).toBe(176);
+    expect(computeAppliedBuildCostPerLivingSf(0, 3098)).toBeNull();
+    expect(computeAppliedBuildCostPerLivingSf(100000, 0)).toBeNull();
+    expect(formatBuildCostPerLivingSf(176)).toBe('$176');
+    expect(formatBuildCostPerLivingSf(null)).toBe('—');
+  });
+
+  it('shouldShowAppliedBuildCostPerSf is true for whole-home builds only', () => {
+    expect(shouldShowAppliedBuildCostPerSf('ground_up')).toBe(true);
+    expect(shouldShowAppliedBuildCostPerSf('addition')).toBe(true);
+    expect(shouldShowAppliedBuildCostPerSf('bathroom')).toBe(false);
+    expect(shouldShowAppliedBuildCostPerSf('kitchen')).toBe(false);
+    expect(shouldShowAppliedBuildCostPerSf('room_remodel')).toBe(false);
+  });
+
+  it('resolveAppliedBuildCostArea uses bath floor for bathroom when living SF missing', () => {
+    expect(
+      resolveAppliedBuildCostArea({
+        measurementsInput: { bathroomFloorSqft: '90', itemQuantities: {} } as never,
+        templateKey: 'bathroom',
+      })
+    ).toEqual({ sqft: 90, unitSuffix: 'SF' });
+    expect(
+      resolveAppliedBuildCostArea({
+        measurementsInput: { floorAreaSqft: '3098', itemQuantities: {} } as never,
+        templateKey: 'bathroom',
+      })
+    ).toEqual({ sqft: 3098, unitSuffix: 'living SF' });
+    expect(
+      resolveAppliedBuildCostArea({
+        measurementsInput: {
+          showerWallTileSqft: '80',
+          showerFloorTileSqft: '95',
+          itemQuantities: {},
+        } as never,
+        templateKey: 'bathroom',
+      })
+    ).toEqual({ sqft: 80, unitSuffix: 'SF' });
+  });
+
+  it('resolveAppliedBuildCostArea supports kitchen, painting, roofing, and generic fallbacks', () => {
+    expect(
+      resolveAppliedBuildCostArea({
+        measurementsInput: { kitchenFloorSqft: '180', itemQuantities: {} } as never,
+        templateKey: 'kitchen',
+      })
+    ).toEqual({ sqft: 180, unitSuffix: 'SF' });
+    expect(
+      resolveAppliedBuildCostArea({
+        measurementsInput: { wallPaintSqft: '1500', itemQuantities: {} } as never,
+        templateKey: 'painting',
+      })
+    ).toEqual({ sqft: 1500, unitSuffix: 'SF' });
+    expect(
+      resolveAppliedBuildCostArea({
+        measurementsInput: { roofSquares: '28', itemQuantities: {} } as never,
+        templateKey: 'roofing',
+      })
+    ).toEqual({ sqft: 2800, unitSuffix: 'SF' });
+    expect(
+      resolveAppliedBuildCostArea({
+        measurementsInput: { deckSqft: '320', itemQuantities: {} } as never,
+        templateKey: 'deck_patio',
+      })
+    ).toEqual({ sqft: 320, unitSuffix: 'SF' });
+    expect(
+      resolveAppliedBuildCostArea({
+        measurementsInput: { drywallSqft: '800', itemQuantities: {} } as never,
+        templateKey: 'unknown_trade',
+      })
+    ).toEqual({ sqft: 800, unitSuffix: 'SF' });
   });
 });

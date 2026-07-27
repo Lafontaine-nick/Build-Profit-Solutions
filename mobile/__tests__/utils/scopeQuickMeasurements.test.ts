@@ -140,6 +140,16 @@ describe('scopeQuickMeasurements', () => {
     expect(counts.filled).toBe(2);
   });
 
+  it('bathroom quick measurements omit baseboard unless notes include LF', () => {
+    const keys = quickMeasurementRowsForTemplate('bathroom', 'bathroom')
+      .flat()
+      .map((field) => field.key);
+    expect(keys).toEqual(
+      expect.arrayContaining(['bathroomFloorSqft', 'showerWallTileSqft', 'showerFloorTileSqft', 'wallPaintSqft'])
+    );
+    expect(keys).not.toContain('baseboardLf');
+  });
+
   it('keeps kitchen quick fields when checklist is kitchen even if projectType is flooring', () => {
     const rows = quickMeasurementRowsForTemplate('kitchen', 'flooring');
     const keys = rows.flat().map((field) => field.key);

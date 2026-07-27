@@ -8,6 +8,7 @@ import {
   type BudgetSplitSource,
   type ItemBudgetBreakdown,
 } from '@/utils/scopeBudgetBreakdown';
+import { resolveAppliedConfirmScopePackageAmount } from '@/utils/appliedScopePackagePricing';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
 
 export type ScopePackageBudgetBreakdown = ItemBudgetBreakdown;
@@ -65,6 +66,10 @@ export function scopePackagePricedAmount(
     }
   }
   if (fromPkg > 0) return fromPkg;
+  if (draft) {
+    const applied = resolveAppliedConfirmScopePackageAmount(pkg, draft);
+    if (applied > 0) return applied;
+  }
   return proposalTotalForScopeName(draft?.pendingPricingProposal, pkg.name);
 }
 

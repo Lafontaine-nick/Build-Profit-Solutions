@@ -201,4 +201,30 @@ describe('getQuickMeasurementEstimate', () => {
     expect(wall!.formulaVersion).toBe('2.3.0');
     expect(floor!.value).toBe(30);
   });
+
+  test('prefab pan keeps shower wall estimate but not shower floor tile SF', () => {
+    expect(
+      getQuickMeasurementEstimate('showerFloorTileSqft', {
+        ...FOOTPRINT_MEASUREMENTS,
+        wetAreaFinish: 'prefab',
+        bathroomFloorSqft: '90',
+      })
+    ).toBeNull();
+    const wall = getQuickMeasurementEstimate('showerWallTileSqft', {
+      ...FOOTPRINT_MEASUREMENTS,
+      wetAreaFinish: 'prefab',
+      bathroomFloorSqft: '90',
+    });
+    expect(wall).not.toBeNull();
+    expect(wall!.value).toBe(80);
+
+    const wallFromWetAreaOnly = getQuickMeasurementEstimate(
+      'showerWallTileSqft',
+      { ...FOOTPRINT_MEASUREMENTS, wetAreaFinish: 'prefab' },
+      undefined,
+      'bathroom'
+    );
+    expect(wallFromWetAreaOnly).not.toBeNull();
+    expect(wallFromWetAreaOnly!.value).toBe(80);
+  });
 });

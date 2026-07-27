@@ -46,15 +46,17 @@ const CHECKLIST_TEMPLATES = {
       {
         id: 'demo',
         inputType: 'yes_no',
-        label: 'Demo / tear-out of existing bathroom',
-        helperText: 'Remove and dispose of existing fixtures, tile, and finishes.',
+        label: 'Shower tile demo / tear-out',
+        helperText:
+          'Remove shower wall and shower floor tile. Bathroom floor demo is a separate line.',
         category: 'demo',
       },
       {
         id: 'floor_demo',
         inputType: 'yes_no',
-        label: 'Flooring demo / removal',
-        helperText: 'Remove existing floor tile, LVP, vinyl, or flooring.',
+        label: 'Bathroom floor demo / removal',
+        helperText:
+          'Remove bathroom floor tile, LVP, or vinyl — often includes thinset grind (separate from shower).',
         category: 'demo',
       },
       {
@@ -72,6 +74,20 @@ const CHECKLIST_TEMPLATES = {
         category: 'demo',
       },
       {
+        id: 'vanity_demo',
+        inputType: 'yes_no',
+        label: 'Remove existing vanity cabinet',
+        helperText: 'Demo and haul off the existing vanity base or cabinet — not the countertop alone.',
+        category: 'demo',
+      },
+      {
+        id: 'countertop_demo',
+        inputType: 'yes_no',
+        label: 'Remove existing countertop',
+        helperText: 'Demo and haul off the existing vanity top, laminate, or stone counter.',
+        category: 'demo',
+      },
+      {
         id: 'wet_area_install',
         inputType: 'choice',
         label: 'Wet area install',
@@ -83,7 +99,8 @@ const CHECKLIST_TEMPLATES = {
         id: 'waterproofing',
         inputType: 'yes_no',
         label: 'Shower waterproofing & backer board',
-        helperText: 'Membrane, backer, and prep before tile.',
+        helperText:
+          'Backer board, RedGard-class membrane, vapor barrier, tape, screws, and wall-cavity insulation at the shower — before tile.',
         category: 'shower',
       },
       {
@@ -212,8 +229,8 @@ const CHECKLIST_TEMPLATES = {
       {
         id: 'plumbing_trim',
         inputType: 'yes_no',
-        label: 'Final plumbing trim (faucets, toilet set, hookups)',
-        helperText: 'Set fixtures and finish connections.',
+        label: 'Plumbing fixtures (faucets, toilet, hookups)',
+        helperText: 'Set fixtures and finish connections — trim-out, not baseboard or rough-in.',
         category: 'closeout',
       },
       {
@@ -693,6 +710,10 @@ const CHECKLIST_YES_HINTS = {
   tub_demo: /\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,60}\b(tub|bathtub)\b|\b(tub|bathtub)\b[^.]{0,60}\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b/,
   shower_floor_demo:
     /\b(remove|demo|tear[\s-]?out)\b[^.]{0,50}\b(shower\s+(?:pan|floor|base)|pan\s+insert|mud\s+pan)\b|\b(shower\s+(?:pan|floor|base)|prefab\s+pan)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out)\b/,
+  vanity_demo:
+    /\b(remove|demo|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,50}\bvanity\b|\bvanity\b[^.]{0,50}\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b/,
+  countertop_demo:
+    /\b(remove|demo|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,50}\b(countertops?|counters?)\b|\b(countertops?|counters?)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b/,
   shower_tile: /\b(shower\s+wall\s+tile|shower\s+tile|tile\s+shower|new\s+shower\s+tile)\b/,
   wet_area_install: /\b(tub\s+install|new\s+tub|shower\s+pan|prefab\s+pan|tile\s+pan|mud\s+pan|tub[\s-]to[\s-]shower)\b/,
   shower_floor_tile: /\b(shower\s+floor\s+tile|tile\s+shower\s+floor)\b/,
@@ -714,6 +735,9 @@ const CHECKLIST_YES_HINTS = {
   vanity: /\b(vanity|countertops?\s+and\s+vanity)\b/,
   plumbing: /\b(plumb(?:ing)?|rough\s+plumb(?:ing)?|water\s+lines?|drain(?:age)?|sewer|bathroom\s+rough)\b/,
   plumbing_rough: /\b(plumb(?:ing)?\s+rough|rough\s+plumb(?:ing)?|rough[\s-]?in|relocat.*plumb)\b/,
+  /** Contractor "plumbing trim" = fixture set / trim-out — not baseboard. */
+  plumbing_trim:
+    /\b(?:(?:final\s+)?plumbing\s+(?:fixtures?|trim(?:[\s-]?out)?)|(?:new\s+)?plumbing\s+fixtures?|fixture\s+hookups?|faucets?,?\s+toilet(?:\s+set)?|toilet\s+set(?:\s+and\s+hookups?)?)\b/,
   electrical: /\b(electrical|new\s+circuits?|wiring|outlets?|switches?|gfci|panel)\b/,
   electrical_rough: /\b(electrical|new\s+circuits?|wiring|gfci)\b/,
   plans_engineering: /\b(plans?|drawings?|engineering|architect(?:ural)?|design\s+docs?)\b/,
@@ -739,9 +763,9 @@ const CHECKLIST_YES_HINTS = {
   drywall: /\b(drywall|sheetrock|gypsum|hang\s+and\s+finish)\b/,
   cabinets_counters: /\b(cabinets?|cabinetry|counters?|countertops?|kitchenette|quartz|granite)\b/,
   tile: /\b(tile|shower\s+tile|floor\s+tile|backsplash)\b/,
-  trim: /\b(trim|baseboards?|interior\s+doors?|casing|moulding|molding)\b/,
+  trim: /\b(baseboards?|crown|moulding|molding|casing|interior\s+trim|finish\s+trim)\b/,
   interior_trim: /\b(interior\s+(?:doors?|trim)|baseboards?|casing|door\s+trim)\b/,
-  plumbing_trim: /\b(plumbing\s+(?:fixtures?|trim|trim[\s-]?out)|bathroom|toilet|vanity|shower|sink|faucet)\b/,
+  plumbing_trim: /\b(?:(?:final\s+)?plumbing\s+(?:fixtures?|trim(?:[\s-]?out)?)|(?:new\s+)?plumbing\s+fixtures?|fixture\s+hookups?|faucets?,?\s+toilet(?:\s+set)?|toilet\s+set(?:\s+and\s+hookups?)?)\b/,
   electrical_trim: /\b(electrical\s+(?:trim|trim[\s-]?out|devices?|fixtures?)|outlets?|switches?|lighting)\b/,
   hvac_startup: /\b(hvac\s+(?:startup|registers?|trim)|registers?|start\s+up\s+hvac)\b/,
   final_inspections: /\b(final\s+inspection|final\s+inspections|inspection\s+closeout)\b/,
@@ -769,7 +793,6 @@ const CHECKLIST_YES_HINTS = {
   ductwork: /\b(duct(?:work)?|ducting)\b/,
   decking: /\b(deck(?:ing)?|composite\s+deck)\b/,
   railing: /\b(rail(?:ing)?|guardrail)\b/,
-  trim: /\b(baseboards?|trim|crown|moulding|molding|casing)\b/,
   pour_flatwork: /\b(concrete\s+patio|slab|flatwork|sidewalk|driveway)\b/,
   trenching: /\b(trench(?:ing)?|utility\s+trench)\b/,
   hang: /\b(hang\s+drywall|drywall\s+hang)\b/,
@@ -901,10 +924,32 @@ function floorDemoNotesHint(n) {
   return bareTileDemo.test(n) && !/\b(shower|tub|bathtub|wet\s+area)\b/.test(n);
 }
 
+/** Trim & baseboard scope — not plumbing/electrical/shower fixture trim-out. */
+function inferTrimStateFromNotes(n) {
+  if (
+    /\b(?:(?:final\s+)?plumbing\s+trim|plumbing\s+fixtures?|electrical\s+trim|shower\s+trim|trim[\s-]?out)\b/.test(
+      n
+    ) &&
+    !/\b(baseboards?|trim\s+(?:&|and)\s+baseboard|interior\s+trim|finish\s+trim)\b/.test(n)
+  ) {
+    return 'unsure';
+  }
+  if (/\b(baseboards?|crown|moulding|molding|casing)\b/.test(n)) return 'included';
+  if (
+    /\b(?:interior|finish)\s+trim\b|\btrim\s+(?:&|and)\s+(?:baseboards?|doors?)\b|\b(?:baseboards?|doors?)\s+(?:&|and)\s+trim\b|\btrim\s+install(?:ation)?\b|\binstall\s+(?:new\s+)?baseboards?\b/.test(
+      n
+    )
+  ) {
+    return 'included';
+  }
+  return 'unsure';
+}
+
 function inferItemStateFromNotes(itemId, notes) {
   const n = String(notes || '').toLowerCase();
   if (CHECKLIST_NO_HINTS[itemId]?.test(n)) return 'excluded';
   if (itemId === 'floor_demo') return floorDemoNotesHint(n) ? 'included' : 'unsure';
+  if (itemId === 'trim') return inferTrimStateFromNotes(n);
   if (CHECKLIST_YES_HINTS[itemId]?.test(n)) return 'included';
   return 'unsure';
 }

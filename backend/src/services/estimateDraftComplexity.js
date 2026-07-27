@@ -376,6 +376,20 @@ function buildScopeChecklist(draft, estimateTier, originalNotes) {
 
   items.push(...noteBackedChecklistItems(items, parsedMeasurements));
 
+  if (templateKey === 'bathroom' && !items.some((i) => i.id === 'toilet')) {
+    const templateToilet = template.items.find((i) => i.id === 'toilet');
+    if (templateToilet) {
+      const lightingIdx = items.findIndex((i) => i.id === 'lighting');
+      const insertAt = lightingIdx >= 0 ? lightingIdx : items.length;
+      items.splice(insertAt, 0, {
+        ...templateToilet,
+        inputType: 'choice',
+        choiceId: null,
+        state: 'unsure',
+      });
+    }
+  }
+
   const inScopeCount = items.filter((i) => i.state === 'included').length;
   const unsureCount = items.filter((i) => i.state === 'unsure').length;
   const outOfScopeCount = items.filter((i) => i.state === 'excluded').length;
@@ -450,7 +464,8 @@ const CHECKLIST_ITEM_TO_TASK_ID = {
 const CHECKLIST_EXTRA_ROOMS = {
   waterproofing: {
     name: 'Shower Waterproofing & Backer Board',
-    scope: 'Shower waterproofing membrane and backer board before tile',
+    scope:
+      'Shower wall backer board (Hardie, foam, or DensShield-class), RedGard-class liquid membrane, vapor barrier, seam tape, screws, and wall-cavity insulation before tile',
     usesSqft: true,
   },
   electrical_rough: {

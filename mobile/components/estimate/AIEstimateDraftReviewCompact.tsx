@@ -432,7 +432,7 @@ export default function AIEstimateDraftReviewCompact({
           draft.totalValidation?.calculatedLineItemsTotal ??
           (pendingTotal > 0 ? pendingTotal : null);
   const partialCount = scopePackages.filter((p) => p.status === 'partial_pricing').length;
-  const missingPriceCount = scopePackages.filter((p) => p.status === 'missing_price').length;
+  const missingPriceCount = scopePackages.filter((p) => scopePackageNeedsManualPrice(p, draft)).length;
   const hideRowStatus = shouldHidePerRowStatus(scopePackages);
   const uniformStatusLabel = getUniformStatusLabel(scopePackages);
   const visibleScope = showAllScope

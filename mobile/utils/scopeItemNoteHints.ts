@@ -9,9 +9,13 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   tub_demo: /\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,60}\b(tub|bathtub)\b|\b(tub|bathtub)\b[^.]{0,60}\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b/,
   shower_floor_demo:
     /\b(remove|demo|tear[\s-]?out)\b[^.]{0,50}\b(shower\s+(?:pan|floor|base)|pan\s+insert|mud\s+pan)\b|\b(shower\s+(?:pan|floor|base)|prefab\s+pan)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out)\b/,
-  shower_tile: /\b(shower\s+wall\s+tile|shower\s+tile|tile\s+shower|new\s+shower\s+tile)\b/,
-  wet_area_install: /\b(tub\s+install|new\s+tub|shower\s+pan|prefab\s+pan|tile\s+pan|mud\s+pan|tub[\s-]to[\s-]shower)\b/,
-  shower_floor_tile: /\b(shower\s+floor\s+tile|tile\s+shower\s+floor)\b/,
+  vanity_demo:
+    /\b(remove|demo|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,50}\bvanity\b|\bvanity\b[^.]{0,50}\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b/,
+  countertop_demo:
+    /\b(remove|demo|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,50}\b(countertops?|counters?)\b|\b(countertops?|counters?)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b/,
+  shower_tile: /\b(shower\s+wall\s+tile|shower\s+tile|tile\s+shower|new\s+shower\s+tile|tile\s+(?:the\s+)?(?:shower\s+)?walls?)\b/,
+  wet_area_install: /\b(tub\s+install|new\s+tub|shower\s+pan|prefab\s+pan|tile\s+pan|mud\s+pan|tub[\s-]to[\s-]shower|prefab\s+shower\s+enclosure)\b/,
+  shower_floor_tile: /\b(shower\s+floor\s+tile|tile\s+shower\s+floor|tile\s+(?:the\s+)?shower\s+floor)\b/,
   shower_niche: /\b(shower\s+niche|tile\s+niche|niche)\b/,
   shower_bench_curb: /\b(shower\s+bench|curb|bench)\b/,
   floor_tile: /\b(floor\s+tile|tile\s+floor|new\s+floor\s+tile)\b/,
@@ -33,6 +37,8 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   glass_door: /\b(shower\s+door|glass\s+shower)\b/,
   vanity: /\b(vanity|countertops?\s+and\s+vanity)\b/,
   plumbing_rough: /\b(plumb(?:ing)?\s+rough|rough[\s-]?in|relocat.*plumb)\b/,
+  plumbing_trim:
+    /\b(?:(?:final\s+)?plumbing\s+(?:fixtures?|trim(?:[\s-]?out)?)|(?:new\s+)?plumbing\s+fixtures?|fixture\s+hookups?|faucets?,?\s+toilet(?:\s+set)?|toilet\s+set(?:\s+and\s+hookups?)?)\b/,
   electrical_rough: /\b(electrical|new\s+circuits?|wiring|gfci)\b/,
   irrigation: /\b(irrigation|sprinkler)\b/,
   sod_turf: /\b(sod|turf|grass)\b/,
@@ -52,7 +58,6 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   finish_tape: /\b(tape|mud|finish\s+drywall)\b/,
   interior_paint: /\b(interior\s+paint|paint\s+(?:walls|interior))\b/,
   exterior_paint: /\b(exterior\s+paint|paint\s+exterior)\b/,
-  trim: /\b(baseboards?|trim|crown|moulding|molding|casing)\b/,
   permits: /\b(permit)\b/,
   cleanup: /\b(cleanup|disposal|dumpster|debris|final\s+clean)\b/,
 };
@@ -70,7 +75,7 @@ const CHECKLIST_NO_HINTS: Record<string, RegExp> = {
  * when the job has no shower/tub context — "demo the existing tile and tub"
  * means shower wall tile, not flooring. Mirrors backend scopeChecklistLibrary.
  */
-function floorDemoNotesHint(n: string): boolean {
+export function floorDemoNotesHint(n: string): boolean {
   if (/\bfloor\s+demo\b/.test(n)) return true;
   const verbs = '(?:demo|demolition|remove|removal|tear[\\s-]?out)';
   const floorish = '(?:floor(?:ing)?|lvp|vinyl|laminate|carpet|kitchen\\s+floor|floor\\s+tile|tile\\s+floor)';
@@ -83,6 +88,27 @@ function floorDemoNotesHint(n: string): boolean {
   return bareTileDemo.test(n) && !/\b(shower|tub|bathtub|wet\s+area)\b/.test(n);
 }
 
+/** Trim & baseboard scope — not plumbing/electrical/shower fixture trim-out. */
+function inferTrimStateFromNotes(n: string): 'included' | 'unsure' {
+  if (
+    /\b(?:(?:final\s+)?plumbing\s+trim|plumbing\s+fixtures?|electrical\s+trim|shower\s+trim|trim[\s-]?out)\b/.test(
+      n
+    ) &&
+    !/\b(baseboards?|trim\s+(?:&|and)\s+baseboard|interior\s+trim|finish\s+trim)\b/.test(n)
+  ) {
+    return 'unsure';
+  }
+  if (/\b(baseboards?|crown|moulding|molding|casing)\b/.test(n)) return 'included';
+  if (
+    /\b(?:interior|finish)\s+trim\b|\btrim\s+(?:&|and)\s+(?:baseboards?|doors?)\b|\b(?:baseboards?|doors?)\s+(?:&|and)\s+trim\b|\btrim\s+install(?:ation)?\b|\binstall\s+(?:new\s+)?baseboards?\b/.test(
+      n
+    )
+  ) {
+    return 'included';
+  }
+  return 'unsure';
+}
+
 export function inferItemStateFromNotes(
   itemId: string,
   notes: string | null | undefined
@@ -90,6 +116,7 @@ export function inferItemStateFromNotes(
   const n = String(notes || '').toLowerCase();
   if (CHECKLIST_NO_HINTS[itemId]?.test(n)) return 'excluded';
   if (itemId === 'floor_demo') return floorDemoNotesHint(n) ? 'included' : 'unsure';
+  if (itemId === 'trim') return inferTrimStateFromNotes(n);
   if (CHECKLIST_YES_HINTS[itemId]?.test(n)) return 'included';
   return 'unsure';
 }
@@ -108,6 +135,9 @@ export function inferChoiceFromNotes(itemId: string, notes: string | null | unde
   if (itemId === 'wet_area_install' || itemId === 'tub_shower') {
     if (/\b(stay|staying|keep(?:ing)?\s+existing)\b.*\b(tub|shower)\b|\b(tub|shower)\b.*\b(stay|staying|keep)\b/.test(n)) {
       return 'staying';
+    }
+    if (/\b(prefab\s+shower\s+enclosure|prefab\s+enclosure|one[\s-]?piece\s+enclosure)\b/.test(n)) {
+      return 'prefab_enclosure';
     }
     if (/\b(prefab|pre[\s-]?fab|acrylic|fiberglass|plastic\s+pan|pan\s+insert)\b/.test(n)) return 'prefab';
     if (/\b(tile\s+pan|mud\s+pan|mortar\s+bed|hot\s+mop|custom\s+pan)\b/.test(n)) return 'tile_pan';

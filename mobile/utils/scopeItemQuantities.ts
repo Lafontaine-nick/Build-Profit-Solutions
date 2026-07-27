@@ -578,7 +578,12 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     labor: 1.75,
     sourceLabel: 'Suggested · National Average · basic floor prep (not flooring)',
   },
-  waterproofing: { unit: 'sqft', material: 5, labor: 7, sourceLabel: 'Suggested budget split · National Average' },
+  waterproofing: {
+    unit: 'sqft',
+    material: 5,
+    labor: 7,
+    sourceLabel: 'Suggested budget split · National Average · backer + membrane assembly',
+  },
   electrical_rough: { unit: 'each', material: 50, labor: 125, sourceLabel: 'Suggested budget split · National Average · per circuit/device' },
   plumbing_rough: { unit: 'each', material: 150, labor: 350, sourceLabel: 'Suggested budget split · National Average · per rough-in point' },
   railing: { unit: 'lf', material: 15, labor: 25, sourceLabel: 'Suggested budget split · National Average' },
@@ -1393,14 +1398,64 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   },
   waterproofing: {
     category: 'waterproofing',
-    rootCause: 'Build Profit national-average waterproofing is modeled as membrane/material plus standard installation.',
+    rootCause:
+      'Build Profit national-average shower waterproofing is modeled as a complete wall substrate system before tile: backer board, liquid membrane, vapor barrier, seam tape, fasteners, and cavity insulation at the shower.',
     assumptions: [
-      assumption('waterproofing_material', 'included', 'Waterproofing material', 'Standard membrane/liquid waterproofing material is included.'),
-      assumption('waterproofing_labor', 'included', 'Waterproofing labor', 'Standard waterproofing installation labor is included.'),
-      assumption('substrate_repair', 'excluded', 'Substrate repair', 'Substrate repair or replacement is not included.'),
+      assumption(
+        'backer_board',
+        'included',
+        'Backer board',
+        '1/2" cement board (Hardie), foam board (GoBoard/Wedi-class), or fiber-cement board (DensShield-class) is included.'
+      ),
+      assumption(
+        'liquid_membrane',
+        'included',
+        'Liquid waterproofing',
+        'Roll-on or brush-applied membrane (RedGard, Hydro Ban, or equivalent) is included.'
+      ),
+      assumption(
+        'vapor_barrier',
+        'included',
+        'Vapor barrier',
+        'Poly or rated vapor retarder at shower walls (behind backer / in assembly) is included.'
+      ),
+      assumption(
+        'seam_tape',
+        'included',
+        'Seam tape',
+        'Mesh or fiber tape at backer board seams and transitions is included.'
+      ),
+      assumption(
+        'fasteners',
+        'included',
+        'Screws & fasteners',
+        'Backer screws, washers, and standard fasteners are included.'
+      ),
+      assumption(
+        'cavity_insulation',
+        'included',
+        'Wall-cavity insulation',
+        'Batt or foam insulation in stud bays at the shower walls is included (not whole-home attic/envelope insulation).'
+      ),
+      assumption(
+        'waterproofing_labor',
+        'included',
+        'Installation labor',
+        'Labor to install backer, membrane, vapor barrier, tape, and insulation at the shower is included.'
+      ),
+      assumption('substrate_repair', 'excluded', 'Substrate / framing repair', 'Stud repair, rot remediation, or major framing correction is not included.'),
       assumption('flood_test', 'conditional', 'Flood test', 'Flood testing requires confirmation.', {
         conditionText: 'Include only when required by scope, code, or inspector.',
       }),
+      assumption(
+        'premium_sheet_membrane',
+        'conditional',
+        'Premium sheet-membrane systems',
+        'Full Kerdi/Wedi sheet kits, niches, and corner bands may exceed the standard $/SF allowance.',
+        {
+          conditionText: 'Edit material/labor or use a lump sum when specifying a full sheet-membrane system.',
+        }
+      ),
     ],
   },
   floor_prep: {
@@ -1828,6 +1883,18 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     defaultQuantity: 1,
     quantityHelper: 'Assuming 1 tub removal. Edit if multiple.',
   },
+  vanity_demo: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'lump_sum', 'allowance'],
+    defaultQuantity: 1,
+    quantityHelper: 'Assuming 1 vanity cabinet removal. Edit if multiple.',
+  },
+  countertop_demo: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'lump_sum', 'allowance'],
+    defaultQuantity: 1,
+    quantityHelper: 'Assuming 1 countertop removal. Edit if multiple.',
+  },
   shower_floor_demo: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft'],
@@ -1850,7 +1917,8 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     allowedUnits: ['sqft'],
     measurementKey: 'showerWallTileSqft',
     requiresUserQuantity: true,
-    quantityHelper: 'Usually same as shower wall tile sqft.',
+    quantityHelper:
+      'Shower wall sqft — includes backer, RedGard-class membrane, vapor barrier, tape, screws, and wall-cavity insulation.',
     missingMessage: 'Enter shower waterproofing sqft.',
   },
   floor_tile: {
@@ -2525,7 +2593,26 @@ function sumMeasurementKeys(
   return { quantity: total, parts };
 }
 
-function aggregatedMeasurementSourceLabel(parts: number): string {
+function aggregatedMeasurementSourceLabel(
+  parts: number,
+  keys?: Array<keyof NormalizedScopeMeasurements>
+): string {
+  const keySet = new Set(keys || []);
+  if (
+    keySet.has('showerWallTileSqft') &&
+    keySet.has('showerFloorTileSqft') &&
+    !keySet.has('bathroomFloorSqft')
+  ) {
+    if (parts >= 2) return 'Shower walls + shower floor';
+    return 'Shower tile tear-out';
+  }
+  if (
+    keySet.has('bathroomFloorSqft') &&
+    !keySet.has('showerWallTileSqft') &&
+    !keySet.has('showerFloorTileSqft')
+  ) {
+    return 'Bathroom floor tile';
+  }
   if (parts >= 3) return 'Floor + shower walls + shower floor';
   if (parts === 2) return 'Combined tear-out sqft';
   return 'From room measurement';
@@ -2685,6 +2772,28 @@ const KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRul
     measurementKeys: ['kitchenFloorSqft', 'flooringSqft', 'floorAreaSqft', 'bathroomFloorSqft'],
     quantityHelper: 'Enter kitchen floor sqft for flooring install.',
     missingMessage: 'Enter kitchen floor sqft.',
+  },
+};
+
+/** Bathroom shares checklist ids with kitchen — shower demo vs bath floor demo are separate lines. */
+const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule> = {
+  demo: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    aggregateMeasurementKeys: ['showerWallTileSqft', 'showerFloorTileSqft'],
+    canUseRoomSqft: false,
+    quantityHelper:
+      'Sums shower wall + shower floor tile for shower tear-out (bath floor is a separate line).',
+  },
+  floor_demo: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['bathroomFloorSqft'],
+    canUseRoomSqft: false,
+    requiresUserQuantity: false,
+    quantityHelper:
+      'Uses bathroom floor sqft — often includes thinset removal (separate from shower demo).',
+    missingMessage: 'Enter bathroom floor demo sqft.',
   },
 };
 
@@ -3172,6 +3281,8 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
   shear_sheathing: { unit: 'sqft', measurementKeys: ['floorAreaSqft'] },
   hardware: { unit: 'allowance' },
   tub_demo: { unit: 'each' },
+  vanity_demo: { unit: 'each' },
+  countertop_demo: { unit: 'each' },
   wet_area_install: { unit: 'each' },
   tub_install: { unit: 'each' },
   prefab_shower_pan: { unit: 'each' },
@@ -3720,6 +3831,8 @@ export function getChecklistItemQuantityRule(
     rule = ADDITION_CHECKLIST_ITEM_QUANTITY_RULES[itemId];
   } else if (templateKey === 'kitchen' && KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES[itemId]) {
     rule = KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES[itemId];
+  } else if (templateKey === 'bathroom' && BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES[itemId]) {
+    rule = BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES[itemId];
   } else {
     rule = CHECKLIST_ITEM_QUANTITY_RULES[itemId];
   }
@@ -4520,6 +4633,23 @@ function firstMeasurementQuantityForRule(
   return firstMeasurementForRule(rule, measurementsInput)?.quantity ?? null;
 }
 
+/** floor_demo pricing count — prefer resolved/rule takeoff before whole-room floorAreaSqft. */
+function floorDemoPricingSqftCount(
+  resolved: Pick<ResolvedItemQuantity, 'quantity' | 'unit' | 'dualCount'>,
+  rule: ScopeItemQuantityRule,
+  measurementsInput: ScopeMeasurementsInputExtended
+): number | null {
+  if (resolved.dualCount?.unit === 'sqft' && resolved.dualCount.quantity > 0) {
+    return resolved.dualCount.quantity;
+  }
+  if (resolved.quantity != null && resolved.unit === 'sqft' && resolved.quantity > 0) {
+    return resolved.quantity;
+  }
+  const fromRule = firstMeasurementQuantityForRule(rule, measurementsInput);
+  if (fromRule && fromRule > 0) return fromRule;
+  return parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+}
+
 function measurementUnitForKey(key: keyof Omit<NormalizedScopeMeasurements, 'itemQuantities'>, fallbackUnit: string): string {
   if (/Sqft$/.test(key)) return 'sqft';
   if (/Lf$/.test(key)) return 'lf';
@@ -4617,8 +4747,7 @@ export function resolveBudgetSplitQuantity(
     return resolved.quantity;
   }
   if (itemId === 'floor_demo' && average.unit === 'sqft') {
-    const floorArea = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
-    if (floorArea && floorArea > 0) return floorArea;
+    return floorDemoPricingSqftCount(resolved, rule, measurementsInput);
   }
   return measurementMatch?.quantity ?? null;
 }
@@ -4648,7 +4777,7 @@ export function resolveSuggestedBudgetSplitDisplay(
     resolved.dualCount?.unit === average.unit && resolved.dualCount.quantity > 0
       ? resolved.dualCount.quantity
       : itemId === 'floor_demo' && average.unit === 'sqft'
-        ? parseScopeMeasurementInput(measurementsInput.floorAreaSqft) ?? firstMeasurementQuantityForRule(rule, measurementsInput)
+        ? floorDemoPricingSqftCount(resolved, rule, measurementsInput)
         : measurementMatch?.quantity ?? null;
 
   const hasNoteTotal = resolved.quantitySource === 'notes' || resolved.dualAllowance?.quantity != null;
@@ -4942,6 +5071,11 @@ function benchmarkSuggestedPricingBlock(
 
   // Separate trades never inherit the living-SF stage lump (fill or comparison).
   if (isSeparateTrade && !isStageHost && measurementSemanticsV1Enabled()) {
+    return null;
+  }
+
+  // Cleanup/haul-off: dumpster + final clean mat/labor — not the living-SF Final Steps package.
+  if (itemId === 'cleanup' && measurementSemanticsV1Enabled()) {
     return null;
   }
 
@@ -5566,10 +5700,7 @@ export function resolveScopeItemSuggestedPricing(
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule) return empty;
 
-  if (
-    rule.splitTotalOnly &&
-    !itemHasUserEnteredPricing(measurementsInput.itemQuantities || {}, itemId)
-  ) {
+  if (rule.splitTotalOnly) {
     const splitOnly = buildSplitTotalOnlySuggestedFill(itemId, pricingContext);
     if (splitOnly?.fill) return splitOnly;
   }
@@ -5725,8 +5856,7 @@ export function resolveScopeItemSuggestedPricing(
     resolved.dualCount?.unit === unit && resolved.dualCount.quantity > 0
       ? resolved.dualCount.quantity
       : itemId === 'floor_demo' && unit === 'sqft'
-        ? parseScopeMeasurementInput(measurementsInput.floorAreaSqft) ??
-          firstMeasurementQuantityForRule(rule, measurementsInput)
+        ? floorDemoPricingSqftCount(resolved, rule, measurementsInput)
         : resolved.quantity != null && resolved.unit === unit && resolved.quantity > 0
           ? resolved.quantity
           : measurementMatch?.unit === unit
@@ -6722,13 +6852,6 @@ function resolveDualAllowanceQuantity(
       quantitySource: 'inferred',
     };
   }
-  if (!countEntry && itemId === 'floor_demo' && measurements.floorAreaSqft) {
-    countEntry = {
-      quantity: measurements.floorAreaSqft,
-      unit: rule.defaultUnit,
-      quantitySource: 'inferred',
-    };
-  }
   if (!countEntry && Array.isArray(rule.measurementKeys)) {
     const quantity = rule.measurementKeys
       .map((key) => measurements[key])
@@ -6740,6 +6863,13 @@ function resolveDualAllowanceQuantity(
         quantitySource: 'inferred',
       };
     }
+  }
+  if (!countEntry && itemId === 'floor_demo' && measurements.floorAreaSqft) {
+    countEntry = {
+      quantity: measurements.floorAreaSqft,
+      unit: rule.defaultUnit,
+      quantitySource: 'inferred',
+    };
   }
 
   const hydrated = withRatePricingHydratedFromNotes(
@@ -7095,7 +7225,7 @@ function resolveChecklistItemQuantityCore(
         quantity: agg.quantity,
         unit: rule.defaultUnit,
         quantitySource: 'inferred',
-        sourceLabel: aggregatedMeasurementSourceLabel(agg.parts),
+        sourceLabel: aggregatedMeasurementSourceLabel(agg.parts, rule.aggregateMeasurementKeys),
         pricingReady: true,
         quantityHelper: rule.quantityHelper,
         showInput: true,
@@ -7284,18 +7414,21 @@ export function resolveChecklistItemQuantity(
 const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   { test: /\bbath(?:room)?\s+demo\b|\bdemo\b.*\bbath/i, key: 'demo' },
   // Flooring / tile demo before any install matcher (carpet alone used to → flooring $).
+  // Flooring demo — bare "tile" must not match tub surround / shower wall tear-out.
   {
-    test: /\b(carpet|lvp|laminate|vinyl|tile|flooring|floor)\b[^.]{0,40}\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b|\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,40}\b(carpet|lvp|laminate|vinyl|tile|flooring|floor)\b/i,
+    test: /\b(carpet|lvp|laminate|vinyl|flooring|floor(?:\s+tile)?|tile\s+floor)\b[^.]{0,40}\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b|\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,40}\b(carpet|lvp|laminate|vinyl|flooring|floor(?:\s+tile)?|tile\s+floor)\b/i,
     key: 'floor_demo',
   },
-  { test: /\btile\s+demo|\btile\s+removal|\btile\s+demolition/i, key: 'floor_demo' },
+  { test: /\b(?:floor\s+tile|tile\s+floor)\s+(?:demo|demolition|removal)\b|\bfloor\s+tile\s+demo/i, key: 'floor_demo' },
   { test: /\bfloor\s+demo|\bflooring\s+demo/i, key: 'floor_demo' },
+  { test: /\btile\s+removal\b|\bremove\s+existing\s+tile\b/i, key: 'floor_demo' },
   {
     test: /\b(lvp|laminate|vinyl|carpet|flooring)\b.*\b(install|installation)\b|\b(install|installation)\b.*\b(lvp|laminate|vinyl|carpet|flooring)\b/i,
     key: 'flooring',
   },
   { test: /\b(lvp|laminate|vinyl)\b|\bflooring\s+install/i, key: 'flooring' },
   { test: /\bshower\s+floor\s+tile|\btile\s+shower\s+floor/i, key: 'shower_floor_tile' },
+  { test: /\bshower\s+tile\s+install(?:ation)?\b|\bshower\s+tile\b(?!\s*(?:demo|removal|tear))/i, key: 'shower_tile' },
   { test: /\bprefab\s+shower\s+pan|\bshower\s+pan\s+install/i, key: 'prefab_shower_pan' },
   { test: /\btile\s+shower\s+pan|\bmud\s+pan/i, key: 'shower_pan' },
   { test: /\bshower\s+pan|\btile\s+pan/i, key: 'shower_pan' },
@@ -7303,6 +7436,14 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   {
     test: /\b(tub|bathtub)\b[^.]{0,40}\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b|\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,40}\b(tub|bathtub)\b/i,
     key: 'tub_demo',
+  },
+  {
+    test: /\bvanity\b[^.]{0,40}\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b|\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,40}\bvanity\b|\bremove\s+existing\s+vanity\b/i,
+    key: 'vanity_demo',
+  },
+  {
+    test: /\b(countertops?|counters?)\b[^.]{0,40}\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b|\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,40}\b(countertops?|counters?)\b/i,
+    key: 'countertop_demo',
   },
   { test: /\btub\s+install|\btub\s+installation|\b(?:new\s+)?bathtub\s+install/i, key: 'tub_install' },
   { test: /\bshower\s+niche\b/i, key: 'shower_niche' },
@@ -7400,6 +7541,7 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
     test: /\bbath(?:room)?\s+floor\s+tile\b|\bfloor\s+tile\b|\btile\s+floor\b/i,
     key: 'floor_tile',
   },
+  { test: /\btile\s+install(?:ation)?\b/i, key: 'floor_tile' },
   { test: /\bvanity\b/i, key: 'vanity' },
   { test: /\btoilet\b/i, key: 'toilet' },
   // Framing hardware before framing $/sqft.
@@ -7458,6 +7600,7 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   // Drywall hang/finish/patch before bare drywall/patch.
   { test: /\bhang\b[^.]{0,30}\bdrywall\b|\bdrywall\b[^.]{0,30}\bhang\b/i, key: 'hang' },
   { test: /\b(tape|mud|finish)\b[^.]{0,30}\bdrywall\b|\bdrywall\b[^.]{0,30}\b(tape|mud|finish)\b/i, key: 'finish_tape' },
+  { test: /\bdrywall\b[^.]{0,40}\b(repair|patch)/i, key: 'patch_repair' },
   { test: /\bpatch\b[^.]{0,30}\b(drywall|sheetrock|gypsum)\b|\b(drywall|sheetrock)\b[^.]{0,30}\bpatch\b/i, key: 'patch_repair' },
   { test: /\bdrywall\b/i, key: 'drywall' },
   // Exterior/interior must win over the generic paint key so Confirm Scope rates
@@ -7539,6 +7682,26 @@ export function ruleKeysToTryForPackage(name: string, scope = ''): string[] {
   // Interior / generic paint share Confirm Scope keys; exterior must stay isolated.
   if (primary === 'interior_paint' || primary === 'paint' || primary === 'paint_trim') {
     for (const alias of ['paint_trim', 'interior_paint', 'paint'] as const) {
+      if (!keys.includes(alias)) keys.push(alias);
+    }
+  }
+  if (
+    primary === 'floor_demo' ||
+    primary === 'demo' ||
+    /\btile\s+removal\b/i.test(blob) ||
+    /\bremove\s+existing\s+tile\b/i.test(blob)
+  ) {
+    for (const alias of ['floor_demo', 'demo', 'tub_demo'] as const) {
+      if (!keys.includes(alias)) keys.push(alias);
+    }
+  }
+  if (
+    primary === 'floor_tile' ||
+    primary === 'shower_tile' ||
+    primary === 'shower_floor_tile' ||
+    /\btile\s+install\b/i.test(blob)
+  ) {
+    for (const alias of ['shower_tile', 'shower_floor_tile', 'floor_tile'] as const) {
       if (!keys.includes(alias)) keys.push(alias);
     }
   }
@@ -7794,9 +7957,17 @@ export function scopeMeasurementsToPayload(
       sanitized.bathCount != null && Number(sanitized.bathCount) > 0
         ? Math.round(Number(sanitized.bathCount))
         : null,
+    tilePanBathCount:
+      sanitized.tilePanBathCount != null && Number(sanitized.tilePanBathCount) > 0
+        ? Math.round(Number(sanitized.tilePanBathCount))
+        : null,
     prefabBathCount:
       sanitized.prefabBathCount != null && Number(sanitized.prefabBathCount) > 0
         ? Math.round(Number(sanitized.prefabBathCount))
+        : null,
+    prefabEnclosureBathCount:
+      sanitized.prefabEnclosureBathCount != null && Number(sanitized.prefabEnclosureBathCount) > 0
+        ? Math.round(Number(sanitized.prefabEnclosureBathCount))
         : null,
     tubBathCount:
       sanitized.tubBathCount != null && Number(sanitized.tubBathCount) > 0
@@ -7805,6 +7976,167 @@ export function scopeMeasurementsToPayload(
     showerDoorCount:
       sanitized.showerDoorCount != null && Number(sanitized.showerDoorCount) > 0
         ? Math.round(Number(sanitized.showerDoorCount))
+        : null,
+    existingTubCount:
+      sanitized.existingTubCount != null && Number(sanitized.existingTubCount) > 0
+        ? Math.round(Number(sanitized.existingTubCount))
+        : null,
+    existingTileWallCount:
+      sanitized.existingTileWallCount != null && Number(sanitized.existingTileWallCount) > 0
+        ? Math.round(Number(sanitized.existingTileWallCount))
+        : null,
+    existingTilePanCount:
+      sanitized.existingTilePanCount != null && Number(sanitized.existingTilePanCount) > 0
+        ? Math.round(Number(sanitized.existingTilePanCount))
+        : null,
+    existingPrefabPanCount:
+      sanitized.existingPrefabPanCount != null && Number(sanitized.existingPrefabPanCount) > 0
+        ? Math.round(Number(sanitized.existingPrefabPanCount))
+        : null,
+    existingPrefabEnclosureCount:
+      sanitized.existingPrefabEnclosureCount != null &&
+      Number(sanitized.existingPrefabEnclosureCount) > 0
+        ? Math.round(Number(sanitized.existingPrefabEnclosureCount))
+        : null,
+    existingShowerDoorCount:
+      sanitized.existingShowerDoorCount != null && Number(sanitized.existingShowerDoorCount) > 0
+        ? Math.round(Number(sanitized.existingShowerDoorCount))
+        : null,
+    existingBathFloorTileCount:
+      sanitized.existingBathFloorTileCount != null && Number(sanitized.existingBathFloorTileCount) > 0
+        ? Math.round(Number(sanitized.existingBathFloorTileCount))
+        : null,
+    bathroomExistingVanityCount:
+      sanitized.bathroomExistingVanityCount != null && Number(sanitized.bathroomExistingVanityCount) > 0
+        ? Math.round(Number(sanitized.bathroomExistingVanityCount))
+        : null,
+    bathroomExistingCounterCount:
+      sanitized.bathroomExistingCounterCount != null && Number(sanitized.bathroomExistingCounterCount) > 0
+        ? Math.round(Number(sanitized.bathroomExistingCounterCount))
+        : null,
+    bathroomInstallVanityCount:
+      sanitized.bathroomInstallVanityCount != null && Number(sanitized.bathroomInstallVanityCount) > 0
+        ? Math.round(Number(sanitized.bathroomInstallVanityCount))
+        : null,
+    bathroomInstallCounterCount:
+      sanitized.bathroomInstallCounterCount != null && Number(sanitized.bathroomInstallCounterCount) > 0
+        ? Math.round(Number(sanitized.bathroomInstallCounterCount))
+        : null,
+    bathroomDemoVanityCount:
+      sanitized.bathroomDemoVanityCount != null && Number(sanitized.bathroomDemoVanityCount) > 0
+        ? Math.round(Number(sanitized.bathroomDemoVanityCount))
+        : null,
+    bathroomDemoCounterCount:
+      sanitized.bathroomDemoCounterCount != null && Number(sanitized.bathroomDemoCounterCount) > 0
+        ? Math.round(Number(sanitized.bathroomDemoCounterCount))
+        : null,
+    demoTubCount:
+      sanitized.demoTubCount != null && Number(sanitized.demoTubCount) > 0
+        ? Math.round(Number(sanitized.demoTubCount))
+        : null,
+    demoTileWallCount:
+      sanitized.demoTileWallCount != null && Number(sanitized.demoTileWallCount) > 0
+        ? Math.round(Number(sanitized.demoTileWallCount))
+        : null,
+    demoTilePanCount:
+      sanitized.demoTilePanCount != null && Number(sanitized.demoTilePanCount) > 0
+        ? Math.round(Number(sanitized.demoTilePanCount))
+        : null,
+    demoPrefabPanCount:
+      sanitized.demoPrefabPanCount != null && Number(sanitized.demoPrefabPanCount) > 0
+        ? Math.round(Number(sanitized.demoPrefabPanCount))
+        : null,
+    demoPrefabEnclosureCount:
+      sanitized.demoPrefabEnclosureCount != null && Number(sanitized.demoPrefabEnclosureCount) > 0
+        ? Math.round(Number(sanitized.demoPrefabEnclosureCount))
+        : null,
+    demoShowerDoorCount:
+      sanitized.demoShowerDoorCount != null && Number(sanitized.demoShowerDoorCount) > 0
+        ? Math.round(Number(sanitized.demoShowerDoorCount))
+        : null,
+    demoBathFloorTileCount:
+      sanitized.demoBathFloorTileCount != null && Number(sanitized.demoBathFloorTileCount) > 0
+        ? Math.round(Number(sanitized.demoBathFloorTileCount))
+        : null,
+    reuseExistingShowerDoor: sanitized.reuseExistingShowerDoor ? true : null,
+    demoWetAreaManualOverrides:
+      sanitized.demoWetAreaManualOverrides &&
+      Object.keys(sanitized.demoWetAreaManualOverrides).length
+        ? sanitized.demoWetAreaManualOverrides
+        : undefined,
+    kitchenExistingCabinetCount:
+      sanitized.kitchenExistingCabinetCount != null && Number(sanitized.kitchenExistingCabinetCount) > 0
+        ? Math.round(Number(sanitized.kitchenExistingCabinetCount))
+        : null,
+    kitchenExistingCounterCount:
+      sanitized.kitchenExistingCounterCount != null && Number(sanitized.kitchenExistingCounterCount) > 0
+        ? Math.round(Number(sanitized.kitchenExistingCounterCount))
+        : null,
+    kitchenExistingApplianceCount:
+      sanitized.kitchenExistingApplianceCount != null && Number(sanitized.kitchenExistingApplianceCount) > 0
+        ? Math.round(Number(sanitized.kitchenExistingApplianceCount))
+        : null,
+    kitchenExistingBacksplashCount:
+      sanitized.kitchenExistingBacksplashCount != null &&
+      Number(sanitized.kitchenExistingBacksplashCount) > 0
+        ? Math.round(Number(sanitized.kitchenExistingBacksplashCount))
+        : null,
+    kitchenExistingFloorCount:
+      sanitized.kitchenExistingFloorCount != null && Number(sanitized.kitchenExistingFloorCount) > 0
+        ? Math.round(Number(sanitized.kitchenExistingFloorCount))
+        : null,
+    kitchenInstallCabinetCount:
+      sanitized.kitchenInstallCabinetCount != null && Number(sanitized.kitchenInstallCabinetCount) > 0
+        ? Math.round(Number(sanitized.kitchenInstallCabinetCount))
+        : null,
+    kitchenInstallCounterCount:
+      sanitized.kitchenInstallCounterCount != null && Number(sanitized.kitchenInstallCounterCount) > 0
+        ? Math.round(Number(sanitized.kitchenInstallCounterCount))
+        : null,
+    kitchenInstallApplianceCount:
+      sanitized.kitchenInstallApplianceCount != null && Number(sanitized.kitchenInstallApplianceCount) > 0
+        ? Math.round(Number(sanitized.kitchenInstallApplianceCount))
+        : null,
+    kitchenInstallBacksplashCount:
+      sanitized.kitchenInstallBacksplashCount != null &&
+      Number(sanitized.kitchenInstallBacksplashCount) > 0
+        ? Math.round(Number(sanitized.kitchenInstallBacksplashCount))
+        : null,
+    kitchenInstallFlooringCount:
+      sanitized.kitchenInstallFlooringCount != null && Number(sanitized.kitchenInstallFlooringCount) > 0
+        ? Math.round(Number(sanitized.kitchenInstallFlooringCount))
+        : null,
+    kitchenInstallIslandCount:
+      sanitized.kitchenInstallIslandCount != null && Number(sanitized.kitchenInstallIslandCount) > 0
+        ? Math.round(Number(sanitized.kitchenInstallIslandCount))
+        : null,
+    kitchenDemoCabinetCount:
+      sanitized.kitchenDemoCabinetCount != null && Number(sanitized.kitchenDemoCabinetCount) > 0
+        ? Math.round(Number(sanitized.kitchenDemoCabinetCount))
+        : null,
+    kitchenDemoApplianceCount:
+      sanitized.kitchenDemoApplianceCount != null && Number(sanitized.kitchenDemoApplianceCount) > 0
+        ? Math.round(Number(sanitized.kitchenDemoApplianceCount))
+        : null,
+    kitchenDemoFloorCount:
+      sanitized.kitchenDemoFloorCount != null && Number(sanitized.kitchenDemoFloorCount) > 0
+        ? Math.round(Number(sanitized.kitchenDemoFloorCount))
+        : null,
+    kitchenDemoWallCount:
+      sanitized.kitchenDemoWallCount != null && Number(sanitized.kitchenDemoWallCount) > 0
+        ? Math.round(Number(sanitized.kitchenDemoWallCount))
+        : null,
+    flooringExistingCount:
+      sanitized.flooringExistingCount != null && Number(sanitized.flooringExistingCount) > 0
+        ? Math.round(Number(sanitized.flooringExistingCount))
+        : null,
+    flooringInstallScopeCount:
+      sanitized.flooringInstallScopeCount != null && Number(sanitized.flooringInstallScopeCount) > 0
+        ? Math.round(Number(sanitized.flooringInstallScopeCount))
+        : null,
+    flooringDemoScopeCount:
+      sanitized.flooringDemoScopeCount != null && Number(sanitized.flooringDemoScopeCount) > 0
+        ? Math.round(Number(sanitized.flooringDemoScopeCount))
         : null,
     garageDoorSingleCount:
       sanitized.garageDoorSingleCount != null && Number(sanitized.garageDoorSingleCount) > 0
@@ -7915,9 +8247,17 @@ export function scopeMeasurementsInputFromPayload(
       payload.bathCount != null && Number(payload.bathCount) > 0
         ? Math.round(Number(payload.bathCount))
         : null,
+    tilePanBathCount:
+      payload.tilePanBathCount != null && Number(payload.tilePanBathCount) > 0
+        ? Math.round(Number(payload.tilePanBathCount))
+        : null,
     prefabBathCount:
       payload.prefabBathCount != null && Number(payload.prefabBathCount) > 0
         ? Math.round(Number(payload.prefabBathCount))
+        : null,
+    prefabEnclosureBathCount:
+      payload.prefabEnclosureBathCount != null && Number(payload.prefabEnclosureBathCount) > 0
+        ? Math.round(Number(payload.prefabEnclosureBathCount))
         : null,
     tubBathCount:
       payload.tubBathCount != null && Number(payload.tubBathCount) > 0
@@ -7926,6 +8266,163 @@ export function scopeMeasurementsInputFromPayload(
     showerDoorCount:
       payload.showerDoorCount != null && Number(payload.showerDoorCount) > 0
         ? Math.round(Number(payload.showerDoorCount))
+        : null,
+    existingTubCount:
+      payload.existingTubCount != null && Number(payload.existingTubCount) > 0
+        ? Math.round(Number(payload.existingTubCount))
+        : null,
+    existingTileWallCount:
+      payload.existingTileWallCount != null && Number(payload.existingTileWallCount) > 0
+        ? Math.round(Number(payload.existingTileWallCount))
+        : null,
+    existingTilePanCount:
+      payload.existingTilePanCount != null && Number(payload.existingTilePanCount) > 0
+        ? Math.round(Number(payload.existingTilePanCount))
+        : null,
+    existingPrefabPanCount:
+      payload.existingPrefabPanCount != null && Number(payload.existingPrefabPanCount) > 0
+        ? Math.round(Number(payload.existingPrefabPanCount))
+        : null,
+    existingPrefabEnclosureCount:
+      payload.existingPrefabEnclosureCount != null &&
+      Number(payload.existingPrefabEnclosureCount) > 0
+        ? Math.round(Number(payload.existingPrefabEnclosureCount))
+        : null,
+    existingShowerDoorCount:
+      payload.existingShowerDoorCount != null && Number(payload.existingShowerDoorCount) > 0
+        ? Math.round(Number(payload.existingShowerDoorCount))
+        : null,
+    existingBathFloorTileCount:
+      payload.existingBathFloorTileCount != null && Number(payload.existingBathFloorTileCount) > 0
+        ? Math.round(Number(payload.existingBathFloorTileCount))
+        : null,
+    bathroomExistingVanityCount:
+      payload.bathroomExistingVanityCount != null && Number(payload.bathroomExistingVanityCount) > 0
+        ? Math.round(Number(payload.bathroomExistingVanityCount))
+        : null,
+    bathroomExistingCounterCount:
+      payload.bathroomExistingCounterCount != null && Number(payload.bathroomExistingCounterCount) > 0
+        ? Math.round(Number(payload.bathroomExistingCounterCount))
+        : null,
+    bathroomInstallVanityCount:
+      payload.bathroomInstallVanityCount != null && Number(payload.bathroomInstallVanityCount) > 0
+        ? Math.round(Number(payload.bathroomInstallVanityCount))
+        : null,
+    bathroomInstallCounterCount:
+      payload.bathroomInstallCounterCount != null && Number(payload.bathroomInstallCounterCount) > 0
+        ? Math.round(Number(payload.bathroomInstallCounterCount))
+        : null,
+    bathroomDemoVanityCount:
+      payload.bathroomDemoVanityCount != null && Number(payload.bathroomDemoVanityCount) > 0
+        ? Math.round(Number(payload.bathroomDemoVanityCount))
+        : null,
+    bathroomDemoCounterCount:
+      payload.bathroomDemoCounterCount != null && Number(payload.bathroomDemoCounterCount) > 0
+        ? Math.round(Number(payload.bathroomDemoCounterCount))
+        : null,
+    demoTubCount:
+      payload.demoTubCount != null && Number(payload.demoTubCount) > 0
+        ? Math.round(Number(payload.demoTubCount))
+        : null,
+    demoTileWallCount:
+      payload.demoTileWallCount != null && Number(payload.demoTileWallCount) > 0
+        ? Math.round(Number(payload.demoTileWallCount))
+        : null,
+    demoTilePanCount:
+      payload.demoTilePanCount != null && Number(payload.demoTilePanCount) > 0
+        ? Math.round(Number(payload.demoTilePanCount))
+        : null,
+    demoPrefabPanCount:
+      payload.demoPrefabPanCount != null && Number(payload.demoPrefabPanCount) > 0
+        ? Math.round(Number(payload.demoPrefabPanCount))
+        : null,
+    demoPrefabEnclosureCount:
+      payload.demoPrefabEnclosureCount != null && Number(payload.demoPrefabEnclosureCount) > 0
+        ? Math.round(Number(payload.demoPrefabEnclosureCount))
+        : null,
+    demoShowerDoorCount:
+      payload.demoShowerDoorCount != null && Number(payload.demoShowerDoorCount) > 0
+        ? Math.round(Number(payload.demoShowerDoorCount))
+        : null,
+    demoBathFloorTileCount:
+      payload.demoBathFloorTileCount != null && Number(payload.demoBathFloorTileCount) > 0
+        ? Math.round(Number(payload.demoBathFloorTileCount))
+        : null,
+    reuseExistingShowerDoor: payload.reuseExistingShowerDoor ? true : null,
+    demoWetAreaManualOverrides: payload.demoWetAreaManualOverrides,
+    kitchenExistingCabinetCount:
+      payload.kitchenExistingCabinetCount != null && Number(payload.kitchenExistingCabinetCount) > 0
+        ? Math.round(Number(payload.kitchenExistingCabinetCount))
+        : null,
+    kitchenExistingCounterCount:
+      payload.kitchenExistingCounterCount != null && Number(payload.kitchenExistingCounterCount) > 0
+        ? Math.round(Number(payload.kitchenExistingCounterCount))
+        : null,
+    kitchenExistingApplianceCount:
+      payload.kitchenExistingApplianceCount != null && Number(payload.kitchenExistingApplianceCount) > 0
+        ? Math.round(Number(payload.kitchenExistingApplianceCount))
+        : null,
+    kitchenExistingBacksplashCount:
+      payload.kitchenExistingBacksplashCount != null &&
+      Number(payload.kitchenExistingBacksplashCount) > 0
+        ? Math.round(Number(payload.kitchenExistingBacksplashCount))
+        : null,
+    kitchenExistingFloorCount:
+      payload.kitchenExistingFloorCount != null && Number(payload.kitchenExistingFloorCount) > 0
+        ? Math.round(Number(payload.kitchenExistingFloorCount))
+        : null,
+    kitchenInstallCabinetCount:
+      payload.kitchenInstallCabinetCount != null && Number(payload.kitchenInstallCabinetCount) > 0
+        ? Math.round(Number(payload.kitchenInstallCabinetCount))
+        : null,
+    kitchenInstallCounterCount:
+      payload.kitchenInstallCounterCount != null && Number(payload.kitchenInstallCounterCount) > 0
+        ? Math.round(Number(payload.kitchenInstallCounterCount))
+        : null,
+    kitchenInstallApplianceCount:
+      payload.kitchenInstallApplianceCount != null && Number(payload.kitchenInstallApplianceCount) > 0
+        ? Math.round(Number(payload.kitchenInstallApplianceCount))
+        : null,
+    kitchenInstallBacksplashCount:
+      payload.kitchenInstallBacksplashCount != null &&
+      Number(payload.kitchenInstallBacksplashCount) > 0
+        ? Math.round(Number(payload.kitchenInstallBacksplashCount))
+        : null,
+    kitchenInstallFlooringCount:
+      payload.kitchenInstallFlooringCount != null && Number(payload.kitchenInstallFlooringCount) > 0
+        ? Math.round(Number(payload.kitchenInstallFlooringCount))
+        : null,
+    kitchenInstallIslandCount:
+      payload.kitchenInstallIslandCount != null && Number(payload.kitchenInstallIslandCount) > 0
+        ? Math.round(Number(payload.kitchenInstallIslandCount))
+        : null,
+    kitchenDemoCabinetCount:
+      payload.kitchenDemoCabinetCount != null && Number(payload.kitchenDemoCabinetCount) > 0
+        ? Math.round(Number(payload.kitchenDemoCabinetCount))
+        : null,
+    kitchenDemoApplianceCount:
+      payload.kitchenDemoApplianceCount != null && Number(payload.kitchenDemoApplianceCount) > 0
+        ? Math.round(Number(payload.kitchenDemoApplianceCount))
+        : null,
+    kitchenDemoFloorCount:
+      payload.kitchenDemoFloorCount != null && Number(payload.kitchenDemoFloorCount) > 0
+        ? Math.round(Number(payload.kitchenDemoFloorCount))
+        : null,
+    kitchenDemoWallCount:
+      payload.kitchenDemoWallCount != null && Number(payload.kitchenDemoWallCount) > 0
+        ? Math.round(Number(payload.kitchenDemoWallCount))
+        : null,
+    flooringExistingCount:
+      payload.flooringExistingCount != null && Number(payload.flooringExistingCount) > 0
+        ? Math.round(Number(payload.flooringExistingCount))
+        : null,
+    flooringInstallScopeCount:
+      payload.flooringInstallScopeCount != null && Number(payload.flooringInstallScopeCount) > 0
+        ? Math.round(Number(payload.flooringInstallScopeCount))
+        : null,
+    flooringDemoScopeCount:
+      payload.flooringDemoScopeCount != null && Number(payload.flooringDemoScopeCount) > 0
+        ? Math.round(Number(payload.flooringDemoScopeCount))
         : null,
     garageDoorSingleCount:
       payload.garageDoorSingleCount != null && Number(payload.garageDoorSingleCount) > 0
@@ -8238,9 +8735,82 @@ export function initialScopeMeasurementInputExtended(
     planRooms: saved?.planRooms?.length ? saved.planRooms : suggested?.planRooms,
     wetAreaFinish: saved?.wetAreaFinish ?? suggested?.wetAreaFinish ?? null,
     bathCount: saved?.bathCount ?? suggested?.bathCount ?? null,
+    tilePanBathCount: saved?.tilePanBathCount ?? suggested?.tilePanBathCount ?? null,
     prefabBathCount: saved?.prefabBathCount ?? suggested?.prefabBathCount ?? null,
+    prefabEnclosureBathCount:
+      saved?.prefabEnclosureBathCount ?? suggested?.prefabEnclosureBathCount ?? null,
     tubBathCount: saved?.tubBathCount ?? suggested?.tubBathCount ?? null,
     showerDoorCount: saved?.showerDoorCount ?? suggested?.showerDoorCount ?? null,
+    existingTubCount: saved?.existingTubCount ?? suggested?.existingTubCount ?? null,
+    existingTileWallCount: saved?.existingTileWallCount ?? suggested?.existingTileWallCount ?? null,
+    existingTilePanCount: saved?.existingTilePanCount ?? suggested?.existingTilePanCount ?? null,
+    existingPrefabPanCount: saved?.existingPrefabPanCount ?? suggested?.existingPrefabPanCount ?? null,
+    existingPrefabEnclosureCount:
+      saved?.existingPrefabEnclosureCount ?? suggested?.existingPrefabEnclosureCount ?? null,
+    existingShowerDoorCount:
+      saved?.existingShowerDoorCount ?? suggested?.existingShowerDoorCount ?? null,
+    existingBathFloorTileCount:
+      saved?.existingBathFloorTileCount ?? suggested?.existingBathFloorTileCount ?? null,
+    bathroomExistingVanityCount:
+      saved?.bathroomExistingVanityCount ?? suggested?.bathroomExistingVanityCount ?? null,
+    bathroomExistingCounterCount:
+      saved?.bathroomExistingCounterCount ?? suggested?.bathroomExistingCounterCount ?? null,
+    bathroomInstallVanityCount:
+      saved?.bathroomInstallVanityCount ?? suggested?.bathroomInstallVanityCount ?? null,
+    bathroomInstallCounterCount:
+      saved?.bathroomInstallCounterCount ?? suggested?.bathroomInstallCounterCount ?? null,
+    bathroomDemoVanityCount:
+      saved?.bathroomDemoVanityCount ?? suggested?.bathroomDemoVanityCount ?? null,
+    bathroomDemoCounterCount:
+      saved?.bathroomDemoCounterCount ?? suggested?.bathroomDemoCounterCount ?? null,
+    demoTubCount: saved?.demoTubCount ?? suggested?.demoTubCount ?? null,
+    demoTileWallCount: saved?.demoTileWallCount ?? suggested?.demoTileWallCount ?? null,
+    demoTilePanCount: saved?.demoTilePanCount ?? suggested?.demoTilePanCount ?? null,
+    demoPrefabPanCount: saved?.demoPrefabPanCount ?? suggested?.demoPrefabPanCount ?? null,
+    demoPrefabEnclosureCount:
+      saved?.demoPrefabEnclosureCount ?? suggested?.demoPrefabEnclosureCount ?? null,
+    demoShowerDoorCount: saved?.demoShowerDoorCount ?? suggested?.demoShowerDoorCount ?? null,
+    demoBathFloorTileCount:
+      saved?.demoBathFloorTileCount ?? suggested?.demoBathFloorTileCount ?? null,
+    reuseExistingShowerDoor: saved?.reuseExistingShowerDoor ?? suggested?.reuseExistingShowerDoor ?? null,
+    demoWetAreaManualOverrides:
+      saved?.demoWetAreaManualOverrides ?? suggested?.demoWetAreaManualOverrides ?? null,
+    kitchenExistingCabinetCount:
+      saved?.kitchenExistingCabinetCount ?? suggested?.kitchenExistingCabinetCount ?? null,
+    kitchenExistingCounterCount:
+      saved?.kitchenExistingCounterCount ?? suggested?.kitchenExistingCounterCount ?? null,
+    kitchenExistingApplianceCount:
+      saved?.kitchenExistingApplianceCount ?? suggested?.kitchenExistingApplianceCount ?? null,
+    kitchenExistingBacksplashCount:
+      saved?.kitchenExistingBacksplashCount ?? suggested?.kitchenExistingBacksplashCount ?? null,
+    kitchenExistingFloorCount:
+      saved?.kitchenExistingFloorCount ?? suggested?.kitchenExistingFloorCount ?? null,
+    kitchenInstallCabinetCount:
+      saved?.kitchenInstallCabinetCount ?? suggested?.kitchenInstallCabinetCount ?? null,
+    kitchenInstallCounterCount:
+      saved?.kitchenInstallCounterCount ?? suggested?.kitchenInstallCounterCount ?? null,
+    kitchenInstallApplianceCount:
+      saved?.kitchenInstallApplianceCount ?? suggested?.kitchenInstallApplianceCount ?? null,
+    kitchenInstallBacksplashCount:
+      saved?.kitchenInstallBacksplashCount ?? suggested?.kitchenInstallBacksplashCount ?? null,
+    kitchenInstallFlooringCount:
+      saved?.kitchenInstallFlooringCount ?? suggested?.kitchenInstallFlooringCount ?? null,
+    kitchenInstallIslandCount:
+      saved?.kitchenInstallIslandCount ?? suggested?.kitchenInstallIslandCount ?? null,
+    kitchenDemoCabinetCount:
+      saved?.kitchenDemoCabinetCount ?? suggested?.kitchenDemoCabinetCount ?? null,
+    kitchenDemoApplianceCount:
+      saved?.kitchenDemoApplianceCount ?? suggested?.kitchenDemoApplianceCount ?? null,
+    kitchenDemoFloorCount:
+      saved?.kitchenDemoFloorCount ?? suggested?.kitchenDemoFloorCount ?? null,
+    kitchenDemoWallCount:
+      saved?.kitchenDemoWallCount ?? suggested?.kitchenDemoWallCount ?? null,
+    flooringExistingCount:
+      saved?.flooringExistingCount ?? suggested?.flooringExistingCount ?? null,
+    flooringInstallScopeCount:
+      saved?.flooringInstallScopeCount ?? suggested?.flooringInstallScopeCount ?? null,
+    flooringDemoScopeCount:
+      saved?.flooringDemoScopeCount ?? suggested?.flooringDemoScopeCount ?? null,
     garageDoorSingleCount: saved?.garageDoorSingleCount ?? suggested?.garageDoorSingleCount ?? null,
     garageDoorDoubleCount: saved?.garageDoorDoubleCount ?? suggested?.garageDoorDoubleCount ?? null,
     garageDoorRvCount: saved?.garageDoorRvCount ?? suggested?.garageDoorRvCount ?? null,

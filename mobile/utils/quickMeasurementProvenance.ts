@@ -143,7 +143,9 @@ export function resolveQuickMeasurementFields(params: {
     planRooms?: import('@/utils/estimateAiDraft').PlanRoomMeasurement[];
     wetAreaFinish?: import('@/utils/planBathRooms').WetAreaFinishChoice | null;
     bathCount?: number | null;
+    tilePanBathCount?: number | null;
     prefabBathCount?: number | null;
+    prefabEnclosureBathCount?: number | null;
     tubBathCount?: number | null;
   };
   noteValues?: Partial<Record<QuickMeasurementFieldKey, string>>;
@@ -153,6 +155,7 @@ export function resolveQuickMeasurementFields(params: {
   includedScopeKeys: Iterable<string>;
   /** When ground_up / addition, show the full Quick measurements field list. */
   templateKey?: string | null;
+  wholeHomeLayout?: boolean;
 }): QuickMeasurementFieldResult[] {
   const noteValues = params.noteValues || {};
   const noteBackedKeys = params.noteBackedKeys || [];
@@ -178,15 +181,23 @@ export function resolveQuickMeasurementFields(params: {
       includedScopeKeys,
       noteBackedKeys: noteKeySet,
       templateKey: params.templateKey,
+      wholeHomeLayout: params.wholeHomeLayout,
+      tilePanBathCount: params.measurements.tilePanBathCount,
       wetAreaFinish: resolveEffectiveWetAreaFinish({
         bathCount: params.measurements.bathCount,
+        tilePanBathCount: params.measurements.tilePanBathCount,
         prefabBathCount: params.measurements.prefabBathCount,
+        prefabEnclosureBathCount: params.measurements.prefabEnclosureBathCount,
         tubBathCount: params.measurements.tubBathCount,
         wetAreaFinish: params.measurements.wetAreaFinish,
+        templateKey: params.templateKey,
+        wholeHomeLayout: params.wholeHomeLayout,
       }),
     });
 
-    const estimate = !filled && relevance.relevant ? getQuickMeasurementEstimate(field.key, params.measurements) : null;
+    const estimate = !filled && relevance.relevant
+      ? getQuickMeasurementEstimate(field.key, params.measurements, undefined, params.templateKey)
+      : null;
 
     const state = resolveFieldState({
       filled,

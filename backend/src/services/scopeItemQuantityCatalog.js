@@ -88,7 +88,8 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
     canUseRoomSqft: false,
     requiresUserQuantity: true,
     pricingMethod: 'unit_rate',
-    quantityHelper: 'Usually same as shower wall tile sqft.',
+    quantityHelper:
+      'Shower wall sqft — includes backer, RedGard-class membrane, vapor barrier, tape, screws, and wall-cavity insulation.',
     missingMessage: 'Enter shower waterproofing sqft.',
   },
   floor_tile: {
@@ -544,10 +545,10 @@ const DEFAULT_SCOPE_ITEM_RULE = {
 const PACKAGE_NAME_TO_RULE_KEY = [
   { test: /\bbath(?:room)?\s+demo\b|\bdemo\b.*\bbath/i, key: 'demo' },
   {
-    test: /\b(carpet|lvp|laminate|vinyl|tile|flooring|floor)\b[^.]{0,40}\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b|\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,40}\b(carpet|lvp|laminate|vinyl|tile|flooring|floor)\b/i,
+    test: /\b(carpet|lvp|laminate|vinyl|flooring|floor(?:\s+tile)?|tile\s+floor)\b[^.]{0,40}\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b|\b(demo|demolition|removal|remove|tear[\s-]?out|rip[\s-]?out)\b[^.]{0,40}\b(carpet|lvp|laminate|vinyl|flooring|floor(?:\s+tile)?|tile\s+floor)\b/i,
     key: 'floor_demo',
   },
-  { test: /\btile\s+demo|\btile\s+removal|\btile\s+demolition/i, key: 'floor_demo' },
+  { test: /\b(?:floor\s+tile|tile\s+floor)\s+(?:demo|demolition|removal)\b|\bfloor\s+tile\s+demo/i, key: 'floor_demo' },
   { test: /\bfloor\s+demo|\bflooring\s+demo/i, key: 'floor_demo' },
   { test: /^\s*flooring\s*$/i, key: 'flooring' },
   { test: /\b(lvp|laminate|vinyl|carpet|flooring)\b.*\b(install|installation)\b|\b(install|installation)\b.*\b(lvp|laminate|vinyl|carpet|flooring)\b/i, key: 'flooring' },
@@ -792,6 +793,31 @@ const KITCHEN_CHECKLIST_QUANTITY_RULES = {
     pricingMethod: 'unit_rate',
     quantityHelper: 'Enter kitchen floor sqft for flooring removal.',
     missingMessage: 'Enter kitchen floor demo sqft.',
+  },
+};
+
+/** Bathroom shares checklist ids with kitchen — shower demo vs bath floor demo are separate lines. */
+const BATHROOM_CHECKLIST_QUANTITY_RULES = {
+  demo: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    aggregateMeasurementKeys: ['showerWallTileSqft', 'showerFloorTileSqft'],
+    canUseRoomSqft: false,
+    requiresUserQuantity: false,
+    pricingMethod: 'unit_rate',
+    quantityHelper:
+      'Sums shower wall + shower floor tile for shower tear-out (bath floor is a separate line).',
+  },
+  floor_demo: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['bathroomFloorSqft'],
+    canUseRoomSqft: false,
+    requiresUserQuantity: false,
+    pricingMethod: 'unit_rate',
+    quantityHelper:
+      'Uses bathroom floor sqft — often includes thinset removal (separate from shower demo).',
+    missingMessage: 'Enter bathroom floor demo sqft.',
   },
 };
 
@@ -1086,6 +1112,9 @@ function getRuleForChecklistItem(itemId, templateKey) {
   if (templateKey === 'kitchen' && KITCHEN_CHECKLIST_QUANTITY_RULES[itemId]) {
     return KITCHEN_CHECKLIST_QUANTITY_RULES[itemId];
   }
+  if (templateKey === 'bathroom' && BATHROOM_CHECKLIST_QUANTITY_RULES[itemId]) {
+    return BATHROOM_CHECKLIST_QUANTITY_RULES[itemId];
+  }
   return CHECKLIST_ITEM_QUANTITY_RULES[itemId] || DEFAULT_SCOPE_ITEM_RULE;
 }
 
@@ -1175,7 +1204,23 @@ function sumMeasurementKeys(measurements, keys) {
   return { quantity: total, parts };
 }
 
-function aggregatedMeasurementSourceLabel(parts) {
+function aggregatedMeasurementSourceLabel(parts, keys = []) {
+  const keySet = new Set(keys);
+  if (
+    keySet.has('showerWallTileSqft') &&
+    keySet.has('showerFloorTileSqft') &&
+    !keySet.has('bathroomFloorSqft')
+  ) {
+    if (parts >= 2) return 'Shower walls + shower floor';
+    return 'Shower tile tear-out';
+  }
+  if (
+    keySet.has('bathroomFloorSqft') &&
+    !keySet.has('showerWallTileSqft') &&
+    !keySet.has('showerFloorTileSqft')
+  ) {
+    return 'Bathroom floor tile';
+  }
   if (parts >= 3) return 'Floor + shower walls + shower floor';
   if (parts === 2) return 'Combined tear-out sqft';
   return 'From room measurement';
@@ -1608,7 +1653,7 @@ function resolveQuantityForChecklistItem(itemId, ctx = {}) {
         unit: rule.defaultUnit,
         quantitySource: QUANTITY_SOURCES.inferred,
         label: packageName,
-        sourceLabel: aggregatedMeasurementSourceLabel(agg.parts),
+        sourceLabel: aggregatedMeasurementSourceLabel(agg.parts, rule.aggregateMeasurementKeys),
         rule,
         pricingReady: true,
       };

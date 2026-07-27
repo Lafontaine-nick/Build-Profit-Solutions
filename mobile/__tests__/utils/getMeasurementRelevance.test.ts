@@ -15,9 +15,17 @@ describe('getMeasurementRelevance', () => {
     expect(
       getMeasurementRelevance({
         measurementKey: 'bathroomFloorSqft',
-        includedScopeKeys: ['tile_flooring'],
+        includedScopeKeys: ['floor_tile'],
       }).relevant
     ).toBe(true);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'bathroomFloorSqft',
+        includedScopeKeys: ['demo', 'shower_tile', 'waterproofing', 'drywall'],
+        templateKey: 'bathroom',
+        wetAreaFinish: 'prefab',
+      }).relevant
+    ).toBe(false);
   });
 
   test('shower measurements are only relevant when shower/waterproofing scope is included', () => {
@@ -113,6 +121,13 @@ describe('getMeasurementRelevance', () => {
     });
     expect(showerTub.relevant).toBe(false);
 
+    const showerWallPrefab = getMeasurementRelevance({
+      measurementKey: 'showerWallTileSqft',
+      includedScopeKeys: ['shower_tile'],
+      wetAreaFinish: 'prefab',
+    });
+    expect(showerWallPrefab.relevant).toBe(true);
+
     const showerPrefab = getMeasurementRelevance({
       measurementKey: 'showerFloorTileSqft',
       includedScopeKeys: ['tile_flooring'],
@@ -132,5 +147,12 @@ describe('getMeasurementRelevance', () => {
       includedScopeKeys: ['cabinets_counters'],
     });
     expect(cabinets.relevant).toBe(true);
+  });
+
+  test('baseboard LF is only relevant when trim/baseboard scope is included', () => {
+    expect(getMeasurementRelevance({ measurementKey: 'baseboardLf', includedScopeKeys: ['plumbing_trim'] }).relevant).toBe(
+      false
+    );
+    expect(getMeasurementRelevance({ measurementKey: 'baseboardLf', includedScopeKeys: ['trim'] }).relevant).toBe(true);
   });
 });

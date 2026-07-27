@@ -9,6 +9,7 @@
  * Confirm Scope grouping stays accurate across templates.
  */
 import type { QuickMeasurementFieldKey } from '@/utils/scopeQuickMeasurements';
+import { isSplitTileWetAreaCounts } from '@/utils/planBathRooms';
 
 export type MeasurementRelevance = {
   relevant: boolean;
@@ -39,7 +40,7 @@ function isWholeHomeTemplate(templateKey?: string | null): boolean {
 
 /** Quick Measurement key → checklist item ids that consume it for pricing/quantity. */
 const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> = {
-  bathroomFloorSqft: ['tile_flooring', 'flooring', 'floor_tile', 'bathroom', 'bath_floor', 'interior_finishes'],
+  bathroomFloorSqft: ['floor_tile', 'floor_demo', 'flooring', 'floor_prep'],
   concreteSqft: ['concrete', 'pour_flatwork', 'sidewalk', 'patio', 'driveway', 'concrete_patio'],
   concreteCy: ['foundation', 'pour_foundation'],
   excavationCy: ['excavation', 'sitework'],
@@ -73,23 +74,66 @@ export function getMeasurementRelevance(params: {
   noteBackedKeys?: Iterable<QuickMeasurementFieldKey>;
   /** When set, tub/prefab hide shower tile measurements; tile keeps them. */
   wetAreaFinish?: import('@/utils/planBathRooms').WetAreaFinishChoice | null;
+  tilePanBathCount?: number | null;
+  wholeHomeLayout?: boolean;
   /** ground_up / addition show the full field list — not only scopes currently included. */
   templateKey?: string | null;
 }): MeasurementRelevance {
   const { measurementKey } = params;
   const relatedScopeKeys = RELATED_SCOPE_KEYS[measurementKey] || [];
   const wholeHome = isWholeHomeTemplate(params.templateKey);
+  const splitTile = isSplitTileWetAreaCounts({
+    templateKey: params.templateKey,
+    wholeHomeLayout: params.wholeHomeLayout,
+  });
 
-  // Tub / prefab wet areas do not need shower tile SF suggestions.
+  // Tub / prefab pans use a manufactured base — shower floor tile SF is not used.
+  if (measurementKey === 'showerFloorTileSqft') {
+    if (splitTile) {
+      const tilePan = Number(params.tilePanBathCount);
+      if (!(Number.isFinite(tilePan) && tilePan > 0)) {
+        return {
+          relevant: false,
+          blockingPrice: false,
+          relatedScopeKeys,
+          reason: 'Set tile shower pan to unlock shower floor measurements.',
+        };
+      }
+    } else if (params.wetAreaFinish === 'tub' || params.wetAreaFinish === 'prefab') {
+      return {
+        relevant: false,
+        blockingPrice: false,
+        relatedScopeKeys,
+        reason: 'Shower floor tile SF is not used for tub or prefab wet-area finishes.',
+      };
+    }
+  }
+
+  // Alcove tub — no tiled shower walls to take off (prefab can still have tile walls).
+  if (measurementKey === 'showerWallTileSqft' && params.wetAreaFinish === 'tub') {
+    return {
+      relevant: false,
+      blockingPrice: false,
+      relatedScopeKeys,
+      reason: 'Shower wall tile SF is not used for tub wet-area finishes.',
+    };
+  }
+
+  const includedSet = new Set(params.includedScopeKeys);
+  const floorWorkScope = ['floor_tile', 'floor_demo', 'flooring', 'floor_prep'];
+  const floorWorkIncluded = floorWorkScope.some((id) => includedSet.has(id));
+
+  // Single-bath remodel — bath floor SF only when floor work is actually in the bid.
   if (
-    (measurementKey === 'showerWallTileSqft' || measurementKey === 'showerFloorTileSqft') &&
-    (params.wetAreaFinish === 'tub' || params.wetAreaFinish === 'prefab')
+    measurementKey === 'bathroomFloorSqft' &&
+    String(params.templateKey || '').toLowerCase() === 'bathroom' &&
+    !floorWorkIncluded
   ) {
     return {
       relevant: false,
       blockingPrice: false,
       relatedScopeKeys,
-      reason: 'Shower tile measurements are not used for tub or prefab wet-area finishes.',
+      reason: 'Not needed unless bath floor tile or flooring demo/install is in this bid.',
     };
   }
 
@@ -108,7 +152,6 @@ export function getMeasurementRelevance(params: {
     return { relevant: true, blockingPrice: false, relatedScopeKeys: [] };
   }
 
-  const includedSet = new Set(params.includedScopeKeys);
   const noteSet = new Set(params.noteBackedKeys || []);
   const scopeIncluded = relatedScopeKeys.some((id) => includedSet.has(id));
   const relevant = scopeIncluded || noteSet.has(measurementKey);

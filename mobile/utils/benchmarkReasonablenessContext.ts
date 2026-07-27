@@ -35,6 +35,7 @@ import {
   appliedPricingBucketForScope,
   inferNationalMaterialLaborSplit,
 } from '@/utils/appliedPricingBreakdownBuckets';
+import { isWholeHomeQuickMeasurementTemplate } from '@/utils/scopeQuickMeasurements';
 
 export type ConfirmScopeAppliedPricingBreakdown = {
   total: number;
@@ -274,6 +275,133 @@ export function resolveBenchmarkLivingSf(params: {
   }
 
   return unique[0] ?? null;
+}
+
+export type AppliedBuildCostArea = {
+  sqft: number;
+  /** Suffix after $/amount — whole-home uses living SF; room/trade jobs use SF. */
+  unitSuffix: 'living SF' | 'SF';
+};
+
+const LIVING_SF_BASIS_KEY = 'floorAreaSqft';
+
+/** Sqft measurement keys tried for every template after living SF and template-specific keys. */
+const GENERIC_BUILD_COST_SQFT_KEYS = [
+  'floorAreaSqft',
+  'flooringSqft',
+  'kitchenFloorSqft',
+  'bathroomFloorSqft',
+  'drywallSqft',
+  'wallPaintSqft',
+  'exteriorPaintSqft',
+  'deckSqft',
+  'concreteSqft',
+  'landscapeSqft',
+  'sodSqft',
+  'paverSqft',
+  'rockMulchSqft',
+  'showerWallTileSqft',
+  'showerFloorTileSqft',
+  'backsplashSqft',
+  'countertopSqft',
+] as const;
+
+/** Primary sqft basis per checklist template (Quick measurements primary fields). */
+const TEMPLATE_BUILD_COST_SQFT_KEYS: Record<string, readonly string[]> = {
+  bathroom: ['bathroomFloorSqft', 'showerWallTileSqft', 'showerFloorTileSqft'],
+  kitchen: ['kitchenFloorSqft', 'flooringSqft', 'floorAreaSqft'],
+  flooring: ['floorAreaSqft', 'flooringSqft', 'kitchenFloorSqft', 'bathroomFloorSqft'],
+  landscaping: ['landscapeSqft', 'sodSqft', 'paverSqft', 'rockMulchSqft'],
+  roofing: ['__roofSquaresSqft__', 'floorAreaSqft'],
+  drywall: ['drywallSqft', 'floorAreaSqft', 'flooringSqft'],
+  painting: ['wallPaintSqft', 'exteriorPaintSqft', 'floorAreaSqft'],
+  concrete: ['concreteSqft', 'floorAreaSqft'],
+  deck_patio: ['deckSqft', 'concreteSqft'],
+  excavation: ['floorAreaSqft', 'concreteSqft'],
+  room_remodel: [
+    'bathroomFloorSqft',
+    'kitchenFloorSqft',
+    'flooringSqft',
+    'drywallSqft',
+    'floorAreaSqft',
+  ],
+  ground_up: ['floorAreaSqft', 'flooringSqft'],
+  addition: ['floorAreaSqft', 'flooringSqft'],
+};
+
+function readMeasurementFieldSqft(
+  params: {
+    measurementsInput?: ScopeMeasurementsInputExtended | null;
+    norm?: NormalizedScopeMeasurements | null;
+    draftMeasurements?: ScopeMeasurements | null;
+  },
+  key: string
+): number | null {
+  if (key === '__roofSquaresSqft__') {
+    const squares =
+      readLivingCandidate(params.measurementsInput?.roofSquares) ??
+      params.norm?.roofSquares ??
+      readLivingCandidate(params.draftMeasurements?.roofSquares) ??
+      null;
+    return squares != null && squares > 0 ? squares * 100 : null;
+  }
+
+  const fromInput = readLivingCandidate(
+    (params.measurementsInput as Record<string, unknown> | null | undefined)?.[key]
+  );
+  const fromNorm = params.norm
+    ? readLivingCandidate((params.norm as Record<string, unknown>)[key])
+    : null;
+  const fromDraft = readLivingCandidate(
+    (params.draftMeasurements as Record<string, unknown> | null | undefined)?.[key]
+  );
+  return fromInput ?? fromNorm ?? fromDraft ?? null;
+}
+
+function unitSuffixForBasisKey(key: string): AppliedBuildCostArea['unitSuffix'] {
+  return key === LIVING_SF_BASIS_KEY ? 'living SF' : 'SF';
+}
+
+function firstBuildCostAreaFromKeys(
+  params: {
+    measurementsInput?: ScopeMeasurementsInputExtended | null;
+    norm?: NormalizedScopeMeasurements | null;
+    draftMeasurements?: ScopeMeasurements | null;
+  },
+  keys: readonly string[]
+): AppliedBuildCostArea | null {
+  for (const key of keys) {
+    const sqft = readMeasurementFieldSqft(params, key);
+    if (sqft != null && sqft > 0) {
+      return { sqft, unitSuffix: unitSuffixForBasisKey(key) };
+    }
+  }
+  return null;
+}
+
+/**
+ * Denominator for Build cost / SF on Confirm Scope — all job templates.
+ * Whole-home / plan → living SF; room & trade jobs → primary Quick measurement sqft.
+ */
+export function resolveAppliedBuildCostArea(params: {
+  measurementsInput?: ScopeMeasurementsInputExtended | null;
+  norm?: NormalizedScopeMeasurements | null;
+  draftMeasurements?: ScopeMeasurements | null;
+  templateKey?: string | null;
+}): AppliedBuildCostArea | null {
+  const living = resolveBenchmarkLivingSf(params);
+  if (living != null && living > 0) {
+    return { sqft: living, unitSuffix: 'living SF' };
+  }
+
+  const template = String(params.templateKey || '').toLowerCase();
+  const templateKeys = TEMPLATE_BUILD_COST_SQFT_KEYS[template];
+  if (templateKeys?.length) {
+    const fromTemplate = firstBuildCostAreaFromKeys(params, templateKeys);
+    if (fromTemplate) return fromTemplate;
+  }
+
+  return firstBuildCostAreaFromKeys(params, GENERIC_BUILD_COST_SQFT_KEYS);
 }
 
 function benchmarkStageForReasonablenessItem(itemId: string): string | null {
@@ -636,4 +764,27 @@ export function sumStep3ReviewBudgetTotals(
     allowance: Math.round((applied.allowance + extra.allowance) * 100) / 100,
     total: Math.round((applied.total + extra.total) * 100) / 100,
   };
+}
+
+/** Build cost / SF on Confirm Scope — whole-home builds only, not room/trade remodels. */
+export function shouldShowAppliedBuildCostPerSf(templateKey?: string | null): boolean {
+  return isWholeHomeQuickMeasurementTemplate(templateKey);
+}
+
+/** Whole-dollar $/living SF — matches benchmark engine + BenchmarkReasonablenessCard. */
+export function computeAppliedBuildCostPerLivingSf(
+  appliedTotal: number,
+  livingSf: number | null | undefined
+): number | null {
+  const total = Number(appliedTotal);
+  const sqft = Number(livingSf);
+  if (!Number.isFinite(total) || total <= 0 || !Number.isFinite(sqft) || sqft <= 0) return null;
+  return Math.round(total / sqft);
+}
+
+export function formatBuildCostPerLivingSf(amount: number | null | undefined): string {
+  if (amount == null) return '—';
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return '—';
+  return `$${Math.round(n).toLocaleString()}`;
 }

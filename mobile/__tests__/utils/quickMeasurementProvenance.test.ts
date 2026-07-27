@@ -214,7 +214,7 @@ describe('splitWetAreaQuickMeasurementFields', () => {
         wetAreaFinish: 'tile',
         bathCount: 2,
       },
-      includedScopeKeys: ['roofing', 'tile_flooring', 'interior_finishes', 'cabinets_counters'],
+      includedScopeKeys: ['roofing', 'floor_tile', 'tile_flooring', 'interior_finishes', 'cabinets_counters'],
     });
     const groups = groupQuickMeasurementFields(results);
     expect(groups.suggestions.map((r) => r.key)).toEqual(
@@ -239,7 +239,7 @@ describe('pinQuickMeasurementFieldInGroup', () => {
     const empty = resolveQuickMeasurementFields({
       rows,
       measurements: { ...emptyQuickMeasurementInput(), floorAreaSqft: '1879' },
-      includedScopeKeys: ['tile_flooring', 'cabinets'],
+      includedScopeKeys: ['floor_tile', 'cabinets'],
     });
     const emptyGroups = groupQuickMeasurementFields(empty);
     const bathIndex = emptyGroups.needsConfirmation.findIndex((r) => r.key === 'bathroomFloorSqft');
@@ -249,7 +249,7 @@ describe('pinQuickMeasurementFieldInGroup', () => {
       rows,
       measurements: { ...emptyQuickMeasurementInput(), floorAreaSqft: '1879', bathroomFloorSqft: '95' },
       userOverrides: { bathroomFloorSqft: true },
-      includedScopeKeys: ['tile_flooring', 'cabinets'],
+      includedScopeKeys: ['floor_tile', 'cabinets'],
     });
     const filledGroups = groupQuickMeasurementFields(filled);
     expect(filledGroups.confirmed.map((r) => r.key)).toContain('bathroomFloorSqft');

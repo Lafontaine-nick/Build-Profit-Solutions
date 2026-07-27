@@ -339,8 +339,10 @@ describe('resolveScopeItemSuggestedPricing', () => {
     // Suggestion stays available so the user can switch back from a manual edit.
     expect(fill).toMatchObject({
       mode: 'suggested_price',
+      material: 450,
+      labor: 550,
+      total: 1000,
     });
-    expect(fill?.total).toBeGreaterThan(0);
     expect(comparison).toBeNull();
   });
 

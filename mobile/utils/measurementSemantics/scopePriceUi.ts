@@ -135,6 +135,8 @@ export const GROUND_UP_COMPARISON_ONLY_STAGE_KEYS = new Set([
   'exterior-finishes',
   'major-systems-rough-ins',
   'interior-finishes',
+  // Cleanup/disposal is mat+labor — not the living-SF Final Steps package.
+  'final-steps',
 ]);
 
 export function isGroundUpStageComparisonOnly(

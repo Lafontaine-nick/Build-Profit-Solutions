@@ -191,6 +191,29 @@ describe('estimateDraftComplexity', () => {
     expect(checklist.items.some((i) => i.id === 'exhaust_fan')).toBe(true);
   });
 
+  test('plumbing trim in bathroom notes does not auto-include trim & baseboard scope', () => {
+    const notes =
+      'Bathroom remodel. Tile shower walls, new shower pan, move rough plumbing, shower door, final plumbing trim with new fixtures.';
+    const checklist = buildScopeChecklist({ projectType: 'bathroom', rooms: [] }, 'room_remodel', notes);
+    expect(checklist.items.find((i) => i.id === 'plumbing_trim')?.state).toBe('included');
+    expect(checklist.items.find((i) => i.id === 'trim')?.state).toBe('unsure');
+  });
+
+  test('bathroom checklist includes toilet even when notes omit it', () => {
+    const notes = 'Tile shower walls, waterproofing, and glass shower door.';
+    const checklist = buildScopeChecklist({ projectType: 'bathroom', rooms: [] }, 'room_remodel', notes);
+    const toilet = checklist.items.find((i) => i.id === 'toilet');
+    expect(toilet).toBeTruthy();
+    expect(toilet.inputType).toBe('choice');
+    expect(toilet.state).toBe('unsure');
+  });
+
+  test('baseboard language still includes trim scope', () => {
+    const notes = 'Install LVP and baseboards throughout 220 LF.';
+    const checklist = buildScopeChecklist({ projectType: 'flooring', rooms: [] }, 'room_remodel', notes);
+    expect(checklist.items.find((i) => i.id === 'trim')?.state).toBe('included');
+  });
+
   test('builds landscaping checklist from project type', () => {
     const draft = { projectType: 'landscaping', rooms: [] };
     const checklist = buildScopeChecklist(draft, 'room_remodel', 'Backyard landscaping with sod and pavers');

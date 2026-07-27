@@ -5,16 +5,25 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import type { BenchmarkReasonableness } from '@/utils/benchmarkEngine';
 import type { ConfirmScopeAppliedPricingBreakdown, ConfirmScopeAppliedPricingLine } from '@/utils/benchmarkReasonablenessContext';
+import ConfirmScopeAppliedPricingSummary from '@/components/estimate/ConfirmScopeAppliedPricingSummary';
 import { formatDraftMoney } from '@/utils/estimateAiDraft';
 import { estimateFlowCardStyle } from '@/utils/estimateFlowCardStyle';
 
 type Props = {
-  value: BenchmarkReasonableness;
+  /** Full benchmark payload — enables variance + Compare. */
+  value?: BenchmarkReasonableness | null;
+  /** Fallback $/living SF when benchmark API has not returned yet. */
+  buildCostPerLivingSf?: number | null;
+  buildCostUnitSuffix?: 'living SF' | 'SF';
   darkMode: boolean;
   /** Applied Confirm Scope dollars — total + material / labor / allowances. */
   appliedBreakdown?: ConfirmScopeAppliedPricingBreakdown | null;
   /** Per-scope Applied lines — same totals as scope cards. */
   appliedLines?: ConfirmScopeAppliedPricingLine[];
+  /** Card chrome — footer uses tighter margins. */
+  embedded?: boolean;
+  /** Whole-home builds only — hide $/SF for remodels and trade jobs. */
+  showBuildCostPerSf?: boolean;
 };
 
 const APP_GREEN = '#22c55e';
@@ -27,10 +36,14 @@ function formatWholeDollars(amount: number): string {
 }
 
 export default function BenchmarkReasonablenessCard({
-  value,
+  value = null,
+  buildCostPerLivingSf = null,
+  buildCostUnitSuffix = 'living SF',
   darkMode,
   appliedBreakdown = null,
   appliedLines = [],
+  embedded = false,
+  showBuildCostPerSf = true,
 }: Props) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [itemizeOpen, setItemizeOpen] = useState(false);
@@ -39,20 +52,26 @@ export default function BenchmarkReasonablenessCard({
   const text = darkMode ? '#ffffff' : Colors.text;
   const muted = darkMode ? 'rgba(255,255,255,0.72)' : Colors.sub;
   const farOff =
-    value.variancePercent != null && Math.abs(value.variancePercent) > 20;
+    value?.variancePercent != null && Math.abs(value.variancePercent) > 20;
   const verdictColor = farOff ? '#f59e0b' : APP_GREEN;
 
   const variance =
-    value.variancePercent == null
+    value?.variancePercent == null
       ? null
       : `${Math.abs(value.variancePercent).toFixed(0)}% ${
           value.variancePercent >= 0 ? 'above' : 'below'
         } planning baseline`;
 
   const cardStyle = [
-    estimateFlowCardStyle(Colors, darkMode, { marginBottom: 14 }),
+    estimateFlowCardStyle(Colors, darkMode, { marginBottom: embedded ? 8 : 14 }),
     styles.cardPad,
   ];
+
+  const resolvedPerLivingSf = showBuildCostPerSf
+    ? value?.currentPerLivingSf ?? buildCostPerLivingSf ?? null
+    : null;
+  const showCompare =
+    showBuildCostPerSf && value != null && value.blendedPlanningPerLivingSf > 0;
 
   const showBreakdown =
     appliedBreakdown != null &&
@@ -61,107 +80,98 @@ export default function BenchmarkReasonablenessCard({
       appliedBreakdown.labor > 0 ||
       appliedBreakdown.allowance > 0);
 
-  return (
-    <View style={cardStyle}>
-      {showBreakdown ? (
-        <>
-          <Text style={[styles.label, { color: text }]}>Applied pricing</Text>
-          <Text style={[styles.primary, { color: text }]} accessibilityRole="text">
-            {formatDraftMoney(appliedBreakdown.total)}
+  if (!showBreakdown && !(resolvedPerLivingSf != null && resolvedPerLivingSf > 0)) {
+    return null;
+  }
+
+  const itemizeBlock =
+    showBreakdown && appliedLines.length > 0 ? (
+      <>
+        <Pressable
+          onPress={() => setItemizeOpen((open) => !open)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: itemizeOpen }}
+          accessibilityLabel={itemizeOpen ? 'Hide applied scope list' : 'Show applied scope list'}
+          style={[styles.detailsToggle, { marginTop: 10 }]}
+        >
+          <Text style={[styles.detailsToggleText, { color: text }]}>
+            {itemizeOpen ? 'Hide scopes' : `Itemize (${appliedLines.length})`}
           </Text>
-          <View style={styles.breakdownRow}>
-            <Text style={[styles.breakdownText, { color: muted }]}>
-              Material {formatDraftMoney(appliedBreakdown.material)}
-            </Text>
-            <Text style={[styles.breakdownDot, { color: muted }]}>·</Text>
-            <Text style={[styles.breakdownText, { color: muted }]}>
-              Labor {formatDraftMoney(appliedBreakdown.labor)}
-            </Text>
-            <Text style={[styles.breakdownDot, { color: muted }]}>·</Text>
-            <Text style={[styles.breakdownText, { color: muted }]}>
-              Allowances {formatDraftMoney(appliedBreakdown.allowance)}
+          <Ionicons
+            name={itemizeOpen ? 'chevron-up' : 'chevron-down'}
+            size={14}
+            color={text}
+          />
+        </Pressable>
+        {itemizeOpen ? (
+          <View style={[styles.detailsBlock, { marginTop: 6 }]}>
+            {appliedLines.map((line) => (
+              <Text key={line.itemId} style={[styles.detailRow, { color: muted }]}>
+                {line.label} {formatDraftMoney(line.total)}
+              </Text>
+            ))}
+            <Text style={[styles.disclaimer, { color: muted }]}>
+              Sum of these lines matches Applied pricing above.
             </Text>
           </View>
-          {appliedLines.length > 0 ? (
-            <>
-              <Pressable
-                onPress={() => setItemizeOpen((open) => !open)}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: itemizeOpen }}
-                accessibilityLabel={itemizeOpen ? 'Hide applied scope list' : 'Show applied scope list'}
-                style={[styles.detailsToggle, { marginTop: 10 }]}
-              >
-                <Text style={[styles.detailsToggleText, { color: text }]}>
-                  {itemizeOpen ? 'Hide scopes' : `Itemize (${appliedLines.length})`}
-                </Text>
-                <Ionicons
-                  name={itemizeOpen ? 'chevron-up' : 'chevron-down'}
-                  size={14}
-                  color={text}
-                />
-              </Pressable>
-              {itemizeOpen ? (
-                <View style={[styles.detailsBlock, { marginTop: 6 }]}>
-                  {appliedLines.map((line) => (
-                    <Text key={line.itemId} style={[styles.detailRow, { color: muted }]}>
-                      {line.label} {formatDraftMoney(line.total)}
-                    </Text>
-                  ))}
-                  <Text style={[styles.disclaimer, { color: muted }]}>
-                    Sum of these lines matches Applied pricing above.
-                  </Text>
-                </View>
-              ) : null}
-            </>
-          ) : null}
-          <View style={[styles.divider, { backgroundColor: darkMode ? 'rgba(255,255,255,0.1)' : Colors.line }]} />
-        </>
-      ) : null}
+        ) : null}
+      </>
+    ) : null;
 
-      <Text style={[styles.label, { color: text }]}>Build cost / SF</Text>
-      <Text style={[styles.primary, { color: text }]} accessibilityRole="text">
-        {formatWholeDollars(value.currentPerLivingSf)}
-        <Text style={[styles.primaryUnit, { color: muted }]}>/living SF</Text>
-      </Text>
+  return (
+    <View style={cardStyle}>
+      <ConfirmScopeAppliedPricingSummary
+        breakdown={
+          appliedBreakdown ?? { material: 0, labor: 0, allowance: 0, total: 0 }
+        }
+        buildCostPerLivingSf={resolvedPerLivingSf}
+        buildCostUnitSuffix={buildCostUnitSuffix}
+        darkMode={darkMode}
+        middleContent={itemizeBlock}
+      />
 
-      {variance ? (
+      {showBuildCostPerSf && variance && value ? (
         <Text style={[styles.verdict, { color: verdictColor }]}>{variance}</Text>
       ) : null}
 
-      <Pressable
-        onPress={() => setDetailsOpen((open) => !open)}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: detailsOpen }}
-        accessibilityLabel={
-          detailsOpen ? 'Hide benchmark comparisons' : 'Show Local, National, and planning baseline'
-        }
-        style={styles.detailsToggle}
-      >
-        <Text style={[styles.detailsToggleText, { color: text }]}>
-          {detailsOpen ? 'Hide' : 'Compare'}
-        </Text>
-        <Ionicons
-          name={detailsOpen ? 'chevron-up' : 'chevron-down'}
-          size={14}
-          color={text}
-        />
-      </Pressable>
+      {showCompare ? (
+        <>
+          <Pressable
+            onPress={() => setDetailsOpen((open) => !open)}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: detailsOpen }}
+            accessibilityLabel={
+              detailsOpen ? 'Hide benchmark comparisons' : 'Show Local, National, and planning baseline'
+            }
+            style={styles.detailsToggle}
+          >
+            <Text style={[styles.detailsToggleText, { color: text }]}>
+              {detailsOpen ? 'Hide' : 'Compare'}
+            </Text>
+            <Ionicons
+              name={detailsOpen ? 'chevron-up' : 'chevron-down'}
+              size={14}
+              color={text}
+            />
+          </Pressable>
 
-      {detailsOpen ? (
-        <View style={styles.detailsBlock}>
-          <Text style={[styles.detailRow, { color: muted }]}>
-            Local {formatWholeDollars(value.localDetachedMedianPerLivingSf)}
-          </Text>
-          <Text style={[styles.detailRow, { color: muted }]}>
-            National {formatWholeDollars(value.nationalPerLivingSf)}
-          </Text>
-          <Text style={[styles.detailRow, { color: muted }]}>
-            Planning baseline {formatWholeDollars(value.blendedPlanningPerLivingSf)}
-          </Text>
-          <Text style={[styles.disclaimer, { color: muted }]}>
-            Comparison only — estimate values unchanged.
-          </Text>
-        </View>
+          {detailsOpen ? (
+            <View style={styles.detailsBlock}>
+              <Text style={[styles.detailRow, { color: muted }]}>
+                Local {formatWholeDollars(value!.localDetachedMedianPerLivingSf)}
+              </Text>
+              <Text style={[styles.detailRow, { color: muted }]}>
+                National {formatWholeDollars(value!.nationalPerLivingSf)}
+              </Text>
+              <Text style={[styles.detailRow, { color: muted }]}>
+                Planning baseline {formatWholeDollars(value!.blendedPlanningPerLivingSf)}
+              </Text>
+              <Text style={[styles.disclaimer, { color: muted }]}>
+                Comparison only — estimate values unchanged.
+              </Text>
+            </View>
+          ) : null}
+        </>
       ) : null}
     </View>
   );
@@ -170,43 +180,6 @@ export default function BenchmarkReasonablenessCard({
 const styles = StyleSheet.create({
   cardPad: {
     paddingVertical: 16,
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0.2,
-  },
-  primary: {
-    fontSize: 28,
-    fontWeight: '700',
-    letterSpacing: -0.5,
-    marginTop: 8,
-  },
-  primaryUnit: {
-    fontSize: 14,
-    fontWeight: '500',
-    letterSpacing: 0,
-  },
-  breakdownRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    marginTop: 8,
-    gap: 4,
-  },
-  breakdownText: {
-    fontSize: 12,
-    fontWeight: '600',
-    lineHeight: 17,
-  },
-  breakdownDot: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    marginTop: 14,
-    marginBottom: 12,
   },
   verdict: {
     fontSize: 13,
