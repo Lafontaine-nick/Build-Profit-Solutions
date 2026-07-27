@@ -35,6 +35,12 @@ import {
   resolveSlidingDoorsLumpSuggestedFill,
   totalGarageDoorCount,
 } from '@/utils/exteriorOpeningsPricing';
+import {
+  isBathroomVanityCountertopScope,
+  resolveBathroomVanityCountertopMaterialType,
+  resolveBathroomVanityCountertopSuggestedPricing,
+} from '@/utils/bathroomVanityCountertopPricing';
+import { resolveBathroomWetAreaDemoSuggestedPricing } from '@/utils/bathroomWetAreaDemoPricing';
 import { resolveExteriorFlatworkLumpSuggestedFill } from '@/utils/exteriorFlatworkPricing';
 import { resolveGroundUpFinishPackageLump } from '@/utils/groundUpFinishPackages';
 import {
@@ -541,6 +547,115 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     category: 'wet_area',
     pricingMethod: 'material_labor',
   },
+  /**
+   * Tile mud pan build (~$1,475 each). Liner, drain, mud-bed materials, and a simple
+   * entry curb (~2× 2×4 + screws). Curb frame labor is ~1 hr — not a tiled bench.
+   */
+  tile_shower_pan: {
+    unit: 'each',
+    material: 400,
+    labor: 1075,
+    materialBucketLabel: 'Pan liner, drain, mud & curb lumber',
+    laborBucketLabel: 'Mud pan build & curb frame labor',
+    sourceLabel: 'Suggested budget split · National Average · tile shower pan (mud pan + entry curb)',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'tile',
+    category: 'wet_area',
+    pricingMethod: 'material_labor',
+  },
+  prefab_shower_pan: {
+    unit: 'each',
+    material: 850,
+    labor: 650,
+    materialBucketLabel: 'Prefab shower pan / base materials',
+    laborBucketLabel: 'Prefab shower pan install labor',
+    sourceLabel: 'Suggested budget split · National Average · prefab shower pan',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'tile',
+    category: 'wet_area',
+    pricingMethod: 'material_labor',
+  },
+  shower_bench: {
+    unit: 'each',
+    material: 350,
+    labor: 650,
+    materialBucketLabel: 'Shower bench materials & tile',
+    laborBucketLabel: 'Shower bench build & tile labor',
+    sourceLabel: 'Suggested budget split · National Average · shower bench (not entry curb)',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'tile',
+    category: 'wet_area',
+    pricingMethod: 'material_labor',
+  },
+  shower_niche: {
+    unit: 'each',
+    material: 275,
+    labor: 450,
+    materialBucketLabel: 'Niche kit / backer / tile materials',
+    laborBucketLabel: 'Niche frame, waterproof & tile labor',
+    sourceLabel: 'Suggested budget split · National Average · shower niche',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'tile',
+    category: 'wet_area',
+    pricingMethod: 'material_labor',
+  },
+  tub: {
+    unit: 'each',
+    material: 1200,
+    labor: 850,
+    materialBucketLabel: 'Tub / surround materials',
+    laborBucketLabel: 'Tub install labor',
+    sourceLabel: 'Suggested budget split · National Average · tub install',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'plumbing',
+    category: 'wet_area',
+    pricingMethod: 'material_labor',
+  },
+  toilet: {
+    unit: 'each',
+    material: 425,
+    labor: 475,
+    materialBucketLabel: 'Toilet & rough-in materials',
+    laborBucketLabel: 'Toilet install labor',
+    sourceLabel: 'Suggested budget split · National Average · toilet install',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'plumbing',
+    category: 'fixtures',
+    pricingMethod: 'material_labor',
+  },
+  exhaust_fan: {
+    unit: 'each',
+    material: 150,
+    labor: 275,
+    materialBucketLabel: 'Exhaust fan & vent materials',
+    laborBucketLabel: 'Exhaust fan install labor',
+    sourceLabel: 'Suggested budget split · National Average · bath exhaust fan',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'electrical',
+    category: 'fixtures',
+    pricingMethod: 'material_labor',
+  },
   paint: {
     unit: 'sqft',
     material: 0.85,
@@ -837,6 +952,9 @@ const NATIONAL_AVERAGE_BUDGET_SPLIT_ALIASES: Record<string, string> = {
   tile_flooring: 'flooring',
   /** AI draft / planning key → checklist id. */
   shower_door: 'glass_door',
+  shower_pan: 'tile_shower_pan',
+  tub_install: 'tub',
+  shower_bench_curb: 'shower_bench',
   ...TILE_NATIONAL_AVERAGE_ALIASES,
 };
 
@@ -1065,6 +1183,34 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
         conditionText: 'Confirm walls are within normal install tolerance.',
         recommendedContractorAction: 'confirm_conditions',
       }),
+    ],
+  },
+  tile_shower_pan: {
+    category: 'wet_area',
+    rootCause:
+      'Build Profit national-average tile shower pan (~$1,475 each) includes liner, drain, mud-bed materials, and a simple entry curb (~2× 2×4 lumber + screws). Curb framing is ~1 hr — not a tiled bench. Tile on the curb face is on the shower floor tile line.',
+    assumptions: [
+      assumption('pan_liner', 'included', 'Shower pan liner', 'PVC or CPE shower pan liner is included.'),
+      assumption('drain', 'included', 'Drain assembly', 'Standard shower drain assembly is included.'),
+      assumption('mud_bed', 'included', 'Mud-bed / mortar materials', 'Sand, portland, and wire mesh for the mortar bed are included.'),
+      assumption(
+        'curb_lumber',
+        'included',
+        'Entry curb lumber',
+        'Simple entry curb — typically 2× 2×4 studs plus screws/fasteners (~$25 materials).'
+      ),
+      assumption('pan_labor', 'included', 'Mud pan build labor', 'Pitch, pack, and waterproof the mortar pan before floor tile.'),
+      assumption(
+        'curb_frame_labor',
+        'included',
+        'Curb frame labor',
+        'Frame the entry curb (~1 hr) — lumber box only, not tile finish.'
+      ),
+      assumption('floor_tile', 'excluded', 'Shower floor tile', 'Floor tile setting is on the shower floor tile line.'),
+      assumption('waterproofing', 'excluded', 'Wall waterproofing', 'Wall backer and membrane are on the waterproofing line.'),
+      assumption('curb_tile', 'excluded', 'Curb tile finish', 'Tile on the curb face is on shower floor tile, not here.'),
+      assumption('bench', 'excluded', 'Shower bench', 'Tiled shower bench is a separate scope.'),
+      assumption('curb_only_standalone', 'excluded', 'Standalone curb-only line', 'Entry curb is included here — do not add a separate curb line.'),
     ],
   },
   shower_floor_tile: {
@@ -1933,7 +2079,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     defaultUnit: 'each',
     allowedUnits: ['each'],
     defaultQuantity: 1,
-    quantityHelper: 'Mud pan build — labor + materials (1 shower).',
+    quantityHelper: 'Mud pan build — liner, concrete/mud, entry curb, drain, and labor (1 shower).',
   },
   wet_area_install: {
     defaultUnit: 'each',
@@ -1967,11 +2113,17 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     defaultQuantity: 1,
     quantityHelper: 'Assuming 1 niche. Edit count if different.',
   },
+  shower_bench: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'lf'],
+    defaultQuantity: 1,
+    quantityHelper: 'Assuming 1 shower bench — or enter linear feet.',
+  },
   shower_bench_curb: {
     defaultUnit: 'each',
     allowedUnits: ['each', 'lf'],
     defaultQuantity: 1,
-    quantityHelper: 'Assuming 1 bench/curb — or enter linear feet.',
+    quantityHelper: 'Assuming 1 shower bench — or enter linear feet.',
   },
   tub_shower: {
     defaultUnit: 'sqft',
@@ -2783,7 +2935,7 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRu
     aggregateMeasurementKeys: ['showerWallTileSqft', 'showerFloorTileSqft'],
     canUseRoomSqft: false,
     quantityHelper:
-      'Sums shower wall + shower floor tile for shower tear-out (bath floor is a separate line).',
+      'Shower wall + floor tile sqft, plus tub or prefab pan/base removal when selected in Demo / tear-out.',
   },
   floor_demo: {
     defaultUnit: 'sqft',
@@ -3288,6 +3440,7 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
   prefab_shower_pan: { unit: 'each' },
   shower_pan: { unit: 'each' },
   shower_niche: { unit: 'each' },
+  shower_bench: { unit: 'each' },
   shower_bench_curb: { unit: 'each' },
   vanity: { unit: 'each' },
   toilet: { unit: 'each' },
@@ -3824,22 +3977,23 @@ export function getChecklistItemQuantityRule(
   itemId: string,
   templateKey?: string | null
 ): ScopeItemQuantityRule | undefined {
+  const resolvedId = itemId === 'shower_bench_curb' ? 'shower_bench' : itemId;
   let rule: ScopeItemQuantityRule | undefined;
-  if (templateKey === 'ground_up' && GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES[itemId]) {
-    rule = GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES[itemId];
-  } else if (templateKey === 'addition' && ADDITION_CHECKLIST_ITEM_QUANTITY_RULES[itemId]) {
-    rule = ADDITION_CHECKLIST_ITEM_QUANTITY_RULES[itemId];
-  } else if (templateKey === 'kitchen' && KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES[itemId]) {
-    rule = KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES[itemId];
-  } else if (templateKey === 'bathroom' && BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES[itemId]) {
-    rule = BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES[itemId];
+  if (templateKey === 'ground_up' && GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId]) {
+    rule = GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
+  } else if (templateKey === 'addition' && ADDITION_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId]) {
+    rule = ADDITION_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
+  } else if (templateKey === 'kitchen' && KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId]) {
+    rule = KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
+  } else if (templateKey === 'bathroom' && BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId]) {
+    rule = BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
   } else {
-    rule = CHECKLIST_ITEM_QUANTITY_RULES[itemId];
+    rule = CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
   }
   if (!rule) return undefined;
 
   // Measurement-semantics: do not resolve primary takeoff from living SF for physical trades.
-  if (measurementSemanticsV1Enabled() && NO_LIVING_SF_PRIMARY_SEED_KEYS.has(itemId)) {
+  if (measurementSemanticsV1Enabled() && NO_LIVING_SF_PRIMARY_SEED_KEYS.has(resolvedId)) {
     const keys = (rule.measurementKeys || (rule.measurementKey ? [rule.measurementKey] : [])).filter(
       (key) => key !== 'floorAreaSqft'
     );
@@ -5705,6 +5859,48 @@ export function resolveScopeItemSuggestedPricing(
     if (splitOnly?.fill) return splitOnly;
   }
 
+  if (isBathroomVanityCountertopScope(itemId, templateKey)) {
+    const materialType = resolveBathroomVanityCountertopMaterialType({
+      storedType: (measurementsInput as Record<string, unknown>).bathroomVanityCountertopMaterialType,
+    });
+    if (materialType === 'unknown' || materialType === 'other_manual') {
+      return empty;
+    }
+    const sqft =
+      resolved.unit === 'sqft' && resolved.quantity
+        ? resolved.quantity
+        : parseScopeMeasurementInput(measurementsInput.countertopSqft);
+    const installCount = parseScopeMeasurementInput(
+      String((measurementsInput as Record<string, unknown>).bathroomInstallCounterCount ?? '')
+    );
+    const eachCount =
+      resolved.unit === 'each' && resolved.quantity
+        ? resolved.quantity
+        : installCount && installCount > 0
+          ? installCount
+          : 1;
+    const vanityCountertop = resolveBathroomVanityCountertopSuggestedPricing({
+      materialType,
+      quantitySqft: sqft,
+      quantityEach: eachCount,
+    });
+    if (vanityCountertop.fill) return vanityCountertop as ScopeItemSuggestedPricing;
+    return empty;
+  }
+
+  if (itemId === 'demo' && String(templateKey || '').toLowerCase() === 'bathroom') {
+    const tileSqft =
+      resolved.unit === 'sqft' && resolved.quantity && resolved.quantity > 0
+        ? resolved.quantity
+        : 0;
+    const wetAreaDemo = resolveBathroomWetAreaDemoSuggestedPricing({
+      measurementsInput,
+      tileSqft,
+      sourceLabel: resolved.sourceLabel,
+    });
+    if (wetAreaDemo.fill) return wetAreaDemo as ScopeItemSuggestedPricing;
+  }
+
   // Ground-up fixture packages — blended barometer + national × state as flat installed
   // allowance unless the user already entered pricing. Landscaping uses Material/Labor below.
   if (
@@ -7447,6 +7643,8 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   },
   { test: /\btub\s+install|\btub\s+installation|\b(?:new\s+)?bathtub\s+install/i, key: 'tub_install' },
   { test: /\bshower\s+niche\b/i, key: 'shower_niche' },
+  { test: /\bshower\s+bench\b/i, key: 'shower_bench' },
+  { test: /\bshower\s+curb\b/i, key: 'shower_pan' },
   { test: /\bshower\s+bench\b|\bshower\s+curb\b/i, key: 'shower_bench_curb' },
   // HVAC ventilation before bath exhaust fan.
   {
@@ -7531,6 +7729,7 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   { test: /\bexcavat/i, key: 'excavation' },
   { test: /\brail(?:ing)?\b|\bguardrail\b/i, key: 'railing' },
   { test: /\bshower\s+wall\s+tile\b|\bshower\b[^.]{0,30}\bwall\b[^.]{0,20}\btile\b|\btile\b[^.]{0,30}\bshower\s+wall\b/i, key: 'shower_tile' },
+  { test: /\bwet\s+area\s+install\b/i, key: 'wet_area_install' },
   { test: /\bwaterproof|\bbacker\s+board/i, key: 'waterproofing' },
   // Ground-up "Tile & flooring" must not fall through unmapped (or map to bath floor_tile).
   {
@@ -7702,6 +7901,15 @@ export function ruleKeysToTryForPackage(name: string, scope = ''): string[] {
     /\btile\s+install\b/i.test(blob)
   ) {
     for (const alias of ['shower_tile', 'shower_floor_tile', 'floor_tile'] as const) {
+      if (!keys.includes(alias)) keys.push(alias);
+    }
+  }
+  if (
+    primary === 'shower_bench' ||
+    primary === 'shower_bench_curb' ||
+    /\bshower\s+bench\b/i.test(blob)
+  ) {
+    for (const alias of ['shower_bench', 'shower_bench_curb'] as const) {
       if (!keys.includes(alias)) keys.push(alias);
     }
   }
@@ -8030,6 +8238,11 @@ export function scopeMeasurementsToPayload(
       sanitized.bathroomDemoCounterCount != null && Number(sanitized.bathroomDemoCounterCount) > 0
         ? Math.round(Number(sanitized.bathroomDemoCounterCount))
         : null,
+    bathroomVanityCountertopMaterialType:
+      typeof sanitized.bathroomVanityCountertopMaterialType === 'string' &&
+      sanitized.bathroomVanityCountertopMaterialType.trim()
+        ? sanitized.bathroomVanityCountertopMaterialType.trim()
+        : null,
     demoTubCount:
       sanitized.demoTubCount != null && Number(sanitized.demoTubCount) > 0
         ? Math.round(Number(sanitized.demoTubCount))
@@ -8320,6 +8533,11 @@ export function scopeMeasurementsInputFromPayload(
       payload.bathroomDemoCounterCount != null && Number(payload.bathroomDemoCounterCount) > 0
         ? Math.round(Number(payload.bathroomDemoCounterCount))
         : null,
+    bathroomVanityCountertopMaterialType:
+      typeof payload.bathroomVanityCountertopMaterialType === 'string' &&
+      payload.bathroomVanityCountertopMaterialType.trim()
+        ? payload.bathroomVanityCountertopMaterialType.trim()
+        : null,
     demoTubCount:
       payload.demoTubCount != null && Number(payload.demoTubCount) > 0
         ? Math.round(Number(payload.demoTubCount))
@@ -8518,6 +8736,8 @@ export type ScopeMeasurementsInputExtended = ReturnType<typeof emptyQuickMeasure
   pricingOverrideLog?: import('@/utils/measurementSemantics').PricingOverrideLog[];
   /** Applied stage/component benchmark keys — blocks double application. */
   appliedBenchmarkKeys?: string[];
+  /** Bathroom vanity countertop pricing profile (custom vs prefab). */
+  bathroomVanityCountertopMaterialType?: string | null;
   quickMeasurementSources?: import('@/utils/quickMeasurementProvenance').QuickMeasurementSourceMap;
   quickMeasurementUserOverrides?: import('@/utils/quickMeasurementProvenance').QuickMeasurementOverrideMap;
   planFacts?: import('@/utils/planMeasurementFacts').PlanFacts;
@@ -8763,6 +8983,10 @@ export function initialScopeMeasurementInputExtended(
       saved?.bathroomDemoVanityCount ?? suggested?.bathroomDemoVanityCount ?? null,
     bathroomDemoCounterCount:
       saved?.bathroomDemoCounterCount ?? suggested?.bathroomDemoCounterCount ?? null,
+    bathroomVanityCountertopMaterialType:
+      saved?.bathroomVanityCountertopMaterialType ??
+      suggested?.bathroomVanityCountertopMaterialType ??
+      null,
     demoTubCount: saved?.demoTubCount ?? suggested?.demoTubCount ?? null,
     demoTileWallCount: saved?.demoTileWallCount ?? suggested?.demoTileWallCount ?? null,
     demoTilePanCount: saved?.demoTilePanCount ?? suggested?.demoTilePanCount ?? null,

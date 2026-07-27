@@ -529,7 +529,7 @@ const CHECKLIST_EXTRA_ROOMS = {
   },
   shower_pan: {
     name: 'Tile Shower Pan (Mud Pan)',
-    scope: 'Build tile shower pan — labor and materials (slope, drain, liner, mud bed, waterproofing prep)',
+    scope: 'Build tile shower pan — liner, concrete/mud, entry curb, drain, and pan labor',
   },
   prefab_shower_pan: {
     name: 'Prefab Shower Pan Install',
@@ -546,9 +546,13 @@ const CHECKLIST_EXTRA_ROOMS = {
     scope: 'Frame, waterproof, and tile shower niche',
     isFixture: true,
   },
+  shower_bench: {
+    name: 'Shower Bench',
+    scope: 'Build, waterproof, and tile a shower bench',
+  },
   shower_bench_curb: {
-    name: 'Shower Bench / Curb',
-    scope: 'Build, waterproof, and tile bench or curb',
+    name: 'Shower Bench',
+    scope: 'Build, waterproof, and tile a shower bench',
   },
   exhaust_fan: {
     name: 'Exhaust Fan / Ventilation',
@@ -716,7 +720,7 @@ function defaultMissingPriceItemsForExtra(itemId) {
   const map = {
     tub_install: ['Tub / surround materials', 'Tub install labor'],
     prefab_shower_pan: ['Prefab pan / base materials', 'Shower pan install labor'],
-    shower_pan: ['Pan liner, drain & mud materials', 'Tile shower pan build labor'],
+    shower_pan: ['Pan liner, drain & mud materials', 'Mud pan build & curb frame labor'],
   };
   return map[itemId] || ['Materials / supplies', 'Install labor'];
 }

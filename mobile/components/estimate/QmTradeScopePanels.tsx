@@ -1,5 +1,5 @@
 import React, { startTransition, useCallback, useEffect, useRef, useState } from 'react';
-import { Text, TouchableOpacity, View } from 'react-native';
+import { Pressable, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { getColors } from '@/theme/getColors';
 import type { ScopeMeasurementsInputExtended } from '@/utils/scopeItemQuantities';
 import {
@@ -35,12 +35,16 @@ import {
   readBathroomExistingFixtureCounts,
   readBathroomInstallFixtureCounts,
   resolveBathroomFixtureDemoFromIntent,
-  syncPairedBathroomDemoFromInstall,
   type BathroomDemoFixtureCounts,
   type BathroomExistingFixtureCounts,
   type BathroomFixtureDemoOverrideKey,
   type BathroomInstallFixtureCounts,
 } from '@/utils/qmScopePanels/bathroomFixtures';
+import {
+  BATHROOM_VANITY_COUNTERTOP_MATERIAL_OPTIONS,
+  normalizeBathroomVanityCountertopMaterialType,
+  type BathroomVanityCountertopMaterialType,
+} from '@/utils/bathroomVanityCountertopPricing';
 
 type Colors = ReturnType<typeof getColors>;
 
@@ -191,6 +195,7 @@ function QmScopePanelSection({
   applying,
   darkMode,
   Colors,
+  footer,
 }: {
   title: string;
   titleColor: string;
@@ -203,6 +208,7 @@ function QmScopePanelSection({
   applying: boolean;
   darkMode: boolean;
   Colors: Colors;
+  footer?: React.ReactNode;
 }) {
   return (
     <View
@@ -232,6 +238,71 @@ function QmScopePanelSection({
           Colors={Colors}
         />
       ))}
+      {footer}
+    </View>
+  );
+}
+
+function QmSqftMeasurementRow({
+  label,
+  helperText,
+  value,
+  placeholder,
+  onChangeText,
+  applying,
+  darkMode,
+  Colors,
+}: {
+  label: string;
+  helperText?: string;
+  value: string;
+  placeholder?: string;
+  onChangeText: (text: string) => void;
+  applying: boolean;
+  darkMode: boolean;
+  Colors: Colors;
+}) {
+  return (
+    <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line }}>
+      <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 13, fontWeight: '600', marginBottom: 4 }}>
+        {label}
+      </Text>
+      {helperText ? (
+        <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, lineHeight: 15, marginBottom: 8 }}>
+          {helperText}
+        </Text>
+      ) : null}
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          borderWidth: 1,
+          borderRadius: 10,
+          borderColor: darkMode ? 'rgba(255,255,255,0.16)' : Colors.line,
+          backgroundColor: darkMode ? 'rgba(0,0,0,0.25)' : Colors.surface,
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+        }}
+      >
+        <TextInput
+          value={value}
+          onChangeText={onChangeText}
+          editable={!applying}
+          keyboardType="decimal-pad"
+          placeholder={placeholder || 'sqft'}
+          placeholderTextColor={darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'}
+          style={{
+            flex: 1,
+            color: darkMode ? '#F5F7FA' : Colors.text,
+            fontSize: 16,
+            fontWeight: '700',
+            padding: 0,
+          }}
+        />
+        <Text style={{ color: captionColor(darkMode, Colors), fontSize: 13, fontWeight: '600', marginLeft: 8 }}>
+          sqft
+        </Text>
+      </View>
     </View>
   );
 }
@@ -598,6 +669,7 @@ export function QmBathroomFixturesPanels({
   showExistingPanel,
   applying,
   onBathroomFixturesQmChange,
+  onBathroomCountertopMaterialChange,
   darkMode,
   Colors,
 }: {
@@ -613,6 +685,9 @@ export function QmBathroomFixturesPanels({
     install: BathroomInstallFixtureCounts;
     demo: BathroomDemoFixtureCounts;
   }) => void;
+  onBathroomCountertopMaterialChange?: (
+    materialType: BathroomVanityCountertopMaterialType | null
+  ) => void;
   darkMode: boolean;
   Colors: Colors;
 }) {
@@ -630,6 +705,26 @@ export function QmBathroomFixturesPanels({
   const demoOverridesRef = useRef<Partial<Record<BathroomFixtureDemoOverrideKey, boolean>>>({});
   const demoRef = useRef(demo);
   demoRef.current = demo;
+  const [selectedCountertopMaterial, setSelectedCountertopMaterial] =
+    useState<BathroomVanityCountertopMaterialType | null>(() =>
+      normalizeBathroomVanityCountertopMaterialType(measurements.bathroomVanityCountertopMaterialType)
+    );
+  const materialWritePendingRef = useRef(false);
+
+  useEffect(() => {
+    const external = normalizeBathroomVanityCountertopMaterialType(
+      measurements.bathroomVanityCountertopMaterialType
+    );
+    if (materialWritePendingRef.current) {
+      if (external === selectedCountertopMaterial) {
+        materialWritePendingRef.current = false;
+      }
+      return;
+    }
+    if (external !== selectedCountertopMaterial) {
+      setSelectedCountertopMaterial(external);
+    }
+  }, [measurements.bathroomVanityCountertopMaterialType, selectedCountertopMaterial]);
 
   useEffect(() => {
     if (genRef.current !== appliedRef.current) return;
@@ -659,18 +754,22 @@ export function QmBathroomFixturesPanels({
         demoOverridesRef.current = { ...demoOverridesRef.current, [demoOverride.key]: true };
         mergedDemo = { ...demoRef.current, [demoOverride.key]: demoOverride.value };
       } else {
-        mergedDemo = syncPairedBathroomDemoFromInstall(
-          nextInstall,
-          demoRef.current,
-          demoOverridesRef.current
-        );
+        // Install/existing steppers do not auto-set demo — user picks Remove rows separately.
+        mergedDemo = { ...demoRef.current };
       }
       queueMicrotask(() => {
         if (gen !== genRef.current) return;
         startTransition(() => {
           setDemo(mergedDemo);
           demoRef.current = mergedDemo;
-          setMeasurements((prev) => ({ ...prev, ...nextExisting, ...nextInstall, ...mergedDemo }));
+          setMeasurements((prev) => ({
+            ...prev,
+            ...nextExisting,
+            ...nextInstall,
+            ...mergedDemo,
+            countertopSqft: prev.countertopSqft,
+            bathroomVanityCountertopMaterialType: prev.bathroomVanityCountertopMaterialType,
+          }));
           appliedRef.current = genRef.current;
           onBathroomFixturesQmChange?.({
             existing: nextExisting,
@@ -704,15 +803,31 @@ export function QmBathroomFixturesPanels({
       const gen = ++genRef.current;
       setInstall((prev) => {
         const current = prev[key] ?? 0;
-        const next = {
+        const nextInstall = {
           ...prev,
           [key]: clampQmCount(current + delta < 1 ? null : current + delta),
         };
-        commit(existing, next, gen);
-        return next;
+        if (
+          key === 'bathroomInstallCounterCount' &&
+          nextInstall.bathroomInstallCounterCount == null
+        ) {
+          setSelectedCountertopMaterial(null);
+          materialWritePendingRef.current = false;
+          queueMicrotask(() => {
+            startTransition(() => {
+              setMeasurements((m) => ({
+                ...m,
+                countertopSqft: '',
+                bathroomVanityCountertopMaterialType: null,
+              }));
+            });
+          });
+        }
+        commit(existing, nextInstall, gen);
+        return nextInstall;
       });
     },
-    [commit, existing]
+    [commit, existing, setMeasurements]
   );
 
   const adjustDemo = useCallback(
@@ -742,6 +857,27 @@ export function QmBathroomFixturesPanels({
     borderColor: darkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(100, 116, 139, 0.22)',
     backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(100, 116, 139, 0.05)',
   };
+
+  const showCountertopSqft = (install.bathroomInstallCounterCount ?? 0) > 0;
+  const countertopSqftValue = String(measurements.countertopSqft ?? '').trim();
+
+  const handleCountertopMaterialPress = useCallback(
+    (materialId: BathroomVanityCountertopMaterialType) => {
+      const next = selectedCountertopMaterial === materialId ? null : materialId;
+      materialWritePendingRef.current = true;
+      setSelectedCountertopMaterial(next);
+      queueMicrotask(() => {
+        startTransition(() => {
+          setMeasurements((prev) => ({
+            ...prev,
+            bathroomVanityCountertopMaterialType: next,
+          }));
+          onBathroomCountertopMaterialChange?.(next);
+        });
+      });
+    },
+    [selectedCountertopMaterial, onBathroomCountertopMaterialChange, setMeasurements]
+  );
 
   return (
     <>
@@ -778,6 +914,74 @@ export function QmBathroomFixturesPanels({
         applying={applying}
         darkMode={darkMode}
         Colors={Colors}
+        footer={
+          showCountertopSqft ? (
+            <View style={{ gap: 12 }}>
+              <View>
+                <Text
+                  style={{
+                    color: vanityFixtureGrey.titleColor,
+                    fontSize: 13,
+                    fontWeight: '700',
+                    marginBottom: 8,
+                  }}
+                >
+                  Countertop material
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {BATHROOM_VANITY_COUNTERTOP_MATERIAL_OPTIONS.map((opt) => {
+                    const active = selectedCountertopMaterial === opt.id;
+                    return (
+                      <Pressable
+                        key={opt.id}
+                        disabled={applying}
+                        onPress={() => handleCountertopMaterialPress(opt.id)}
+                        hitSlop={6}
+                        style={({ pressed }) => ({
+                          paddingHorizontal: 10,
+                          paddingVertical: 8,
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          opacity: applying ? 0.55 : pressed ? 0.88 : 1,
+                          borderColor: active
+                            ? Colors.primary
+                            : vanityFixtureGrey.borderColor,
+                          backgroundColor: active
+                            ? darkMode
+                              ? 'rgba(56, 189, 248, 0.14)'
+                              : 'rgba(14, 165, 233, 0.08)'
+                            : 'transparent',
+                        })}
+                      >
+                        <Text
+                          style={{
+                            color: active ? Colors.primary : vanityFixtureGrey.titleColor,
+                            fontSize: 12,
+                            fontWeight: active ? '700' : '500',
+                          }}
+                        >
+                          {opt.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+              <QmSqftMeasurementRow
+                label="Countertop sqft"
+                helperText="Vanity top or bath counter area — feeds vanity countertop pricing."
+                value={countertopSqftValue}
+                placeholder="e.g. 10"
+                onChangeText={(text) => {
+                  setMeasurements((prev) => ({ ...prev, countertopSqft: text }));
+                }}
+                applying={applying}
+                darkMode={darkMode}
+                Colors={Colors}
+              />
+            </View>
+          ) : null
+        }
       />
     </>
   );

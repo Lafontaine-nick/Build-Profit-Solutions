@@ -7,7 +7,8 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
-import { formatDraftMoney, getScopePackages } from '@/utils/estimateAiDraft';
+import { formatDraftMoney } from '@/utils/estimateAiDraft';
+import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
 import {
   formatScopeQuantity,
   getStillNeededList,
@@ -64,7 +65,7 @@ export default function AIEstimateDraftReviewScopeOnly({
   showDetailsContent,
 }: Props) {
   const [showDetails, setShowDetails] = useState(false);
-  const scopePackages = getScopePackages(draft);
+  const scopePackages = getScopePackagesForReview(draft);
   const stillNeeded = getStillNeededList(draft);
   const hasPricing = draftHasApplyablePricing(draft);
   const hasUnpriced = draftHasUnpricedScope(draft);

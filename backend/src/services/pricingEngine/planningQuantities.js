@@ -37,22 +37,22 @@ const FIXTURE_PLANNING_RATES = {
     laborLabel: 'Prefab shower pan install labor',
   },
   tile_shower_pan: {
-    material: 450,
-    labor: 1200,
-    materialLabel: 'Tile shower pan materials (liner, drain, mud)',
-    laborLabel: 'Tile shower pan / mud pan build labor',
+    material: 400,
+    labor: 1075,
+    materialLabel: 'Pan liner, drain, mud & curb lumber',
+    laborLabel: 'Mud pan build & curb frame labor',
   },
   shower_niche: {
-    material: 200,
-    labor: 400,
+    material: 275,
+    labor: 450,
     materialLabel: 'Niche kit / backer / tile materials',
     laborLabel: 'Niche frame, waterproof & tile labor',
   },
   shower_bench: {
-    material: 300,
-    labor: 450,
-    materialLabel: 'Bench / curb materials & tile',
-    laborLabel: 'Bench / curb build & tile labor',
+    material: 350,
+    labor: 650,
+    materialLabel: 'Shower bench materials & tile',
+    laborLabel: 'Shower bench build & tile labor',
   },
   exhaust_fan: {
     material: 150,
@@ -118,7 +118,8 @@ function isRemodelContext(draft) {
 function resolveFixtureKind(scopeName) {
   const n = String(scopeName || '').toLowerCase();
   if (/shower\s+niche|\bniche\b/.test(n) && !/kitchen|counter/.test(n)) return 'shower_niche';
-  if (/shower\s+bench|\bcurb\b/.test(n) && !/demolition|demo|removal/.test(n)) return 'shower_bench';
+  if (/shower\s+bench/.test(n) && !/demolition|demo|removal/.test(n)) return 'shower_bench';
+  if (/\bcurb\b/.test(n) && !/demolition|demo|removal/.test(n)) return 'tile_shower_pan';
   if (/exhaust\s+fan|\bventilation\b/.test(n)) return 'exhaust_fan';
   if (/mirror|\bbath\s+accessories/.test(n)) return 'mirror_accessories';
   if (/\blighting|\blight\s+fixture/.test(n) && /\binstall/.test(n)) return 'lighting_fixture';

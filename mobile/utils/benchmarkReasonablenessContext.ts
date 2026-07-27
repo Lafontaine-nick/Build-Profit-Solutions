@@ -1,6 +1,7 @@
 import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
 import type { EstimateAiDraft, EstimateDraftScopePackage, ScopeMeasurements } from '@/utils/estimateAiDraft';
 import { getScopePackages } from '@/utils/estimateAiDraft';
+import { flattenChecklistDisplayOrder } from '@/utils/scopePackagesForReview';
 import { scopePackagePricedAmount } from '@/utils/estimateDraftReviewUi';
 import { resolveScopePackageBudgetBreakdown } from '@/utils/scopeBudgetBreakdown';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
@@ -546,7 +547,8 @@ export function listConfirmScopeAppliedPricingLines(params: {
   templateKey?: string | null;
 }): ConfirmScopeAppliedPricingLine[] {
   const lines: ConfirmScopeAppliedPricingLine[] = [];
-  for (const item of params.items) {
+  const orderedItems = flattenChecklistDisplayOrder(params.items, params.templateKey);
+  for (const item of orderedItems) {
     if (!checklistItemInScope(item)) continue;
     if (
       !hasAcceptedScopePricing(
@@ -602,7 +604,8 @@ export function sumConfirmScopeAppliedPricingBreakdown(params: {
     labor: 0,
     allowance: 0,
   };
-  for (const item of params.items) {
+  const orderedItems = flattenChecklistDisplayOrder(params.items, params.templateKey);
+  for (const item of orderedItems) {
     if (!checklistItemInScope(item)) continue;
     if (
       !hasAcceptedScopePricing(

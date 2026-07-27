@@ -5,6 +5,17 @@
 
 import { formatDraftMoney } from '@/utils/estimateAiDraft';
 import { formatUnitLabel, type SuggestedPricingBlock } from '@/utils/scopeItemQuantities';
+import { BATHROOM_VANITY_COUNTERTOP_VIEW_DETAILS } from '@/utils/bathroomVanityCountertopPricing';
+
+export function minimumProjectNoteForSuggestedBlock(block: SuggestedPricingBlock): string | null {
+  if (/small-project minimum applied/i.test(String(block.helper || ''))) {
+    return 'Small-project minimum may apply';
+  }
+  if (String(block.pricingRecordId || '').includes(':min')) {
+    return 'Small-project minimum may apply';
+  }
+  return null;
+}
 
 /** Scopes temporarily priced from living area when the correct measurement is missing. */
 export const LIVING_AREA_FALLBACK_SCOPE_IDS = new Set([
@@ -574,12 +585,19 @@ export function buildSuggestedPricingCardDisplay(input: {
     if (isNationalAverageSuggestedBlock(block, pricingSource)) {
       statusTone = 'neutral';
       statusLine = 'National average';
+      const minimumNote = minimumProjectNoteForSuggestedBlock(block);
+      if (minimumNote) allowanceExtraNote = minimumNote;
     } else {
       statusTone = 'amber';
       statusLine = 'Local pricing not verified';
     }
   } else if (input.confidenceLabel) {
     statusLine = String(input.confidenceLabel).trim();
+  }
+
+  const minimumProjectNote = minimumProjectNoteForSuggestedBlock(block);
+  if (minimumProjectNote && !allowanceExtraNote) {
+    allowanceExtraNote = minimumProjectNote;
   }
 
   // Current amount already exists — never show soft-cost “needs allowance” status.
@@ -610,6 +628,12 @@ export function buildSuggestedPricingCardDisplay(input: {
   if (fallbackBasisLine) whyThisPriceLines.push(fallbackBasisLine);
   if (pricingSource) whyThisPriceLines.push(pricingSource);
   if (allowanceExtraNote) whyThisPriceLines.push(allowanceExtraNote);
+  if (
+    itemId === 'countertops' &&
+    block.benchmarkScopeProfile?.audit?.rootCause === BATHROOM_VANITY_COUNTERTOP_VIEW_DETAILS
+  ) {
+    whyThisPriceLines.push(BATHROOM_VANITY_COUNTERTOP_VIEW_DETAILS);
+  }
   if (unitRateLine && /reference only/i.test(unitRateLine)) {
     whyThisPriceLines.push(unitRateLine);
   }

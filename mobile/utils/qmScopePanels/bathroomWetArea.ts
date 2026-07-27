@@ -14,15 +14,16 @@ import {
   syncWetAreaTileScopeItems,
   syncWaterproofingFromTileScopeItems,
   syncBathroomFloorTileScopeItems,
-  WET_AREA_DEMO_EMBEDDED_IDS,
-  WET_AREA_DERIVED_ITEM_IDS,
 } from '@/utils/estimateScopeChecklistUi';
 import type { QmPanelDefinition, QmPanelHydrateContext } from '@/utils/qmScopePanels/types';
 
 export const BATHROOM_WET_AREA_EMBEDDED_IDS = new Set([
   'wet_area_install',
-  ...WET_AREA_DERIVED_ITEM_IDS,
-  ...WET_AREA_DEMO_EMBEDDED_IDS,
+  'tub_install',
+  'prefab_shower_pan',
+  'prefab_shower_enclosure',
+  'tub_demo',
+  'shower_floor_demo',
 ]);
 
 function hydrateBathroom(ctx: QmPanelHydrateContext): Record<string, unknown> {

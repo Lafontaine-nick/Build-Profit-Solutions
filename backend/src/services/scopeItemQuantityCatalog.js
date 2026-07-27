@@ -107,7 +107,7 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
     defaultQuantity: 1,
     requiresUserQuantity: false,
     pricingMethod: 'each',
-    quantityHelper: 'Mud pan build — labor + materials (1 shower).',
+    quantityHelper: 'Mud pan build — liner, concrete/mud, entry curb, drain, and labor (1 shower).',
   },
   wet_area_install: {
     defaultUnit: 'each',
@@ -151,13 +151,21 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
     pricingMethod: 'each',
     quantityHelper: 'Assuming 1 niche. Edit count if different.',
   },
+  shower_bench: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'lf'],
+    defaultQuantity: 1,
+    requiresUserQuantity: false,
+    pricingMethod: 'each',
+    quantityHelper: 'Assuming 1 shower bench — or enter linear feet.',
+  },
   shower_bench_curb: {
     defaultUnit: 'each',
     allowedUnits: ['each', 'lf'],
     defaultQuantity: 1,
     requiresUserQuantity: false,
     pricingMethod: 'each',
-    quantityHelper: 'Assuming 1 bench/curb — or enter linear feet.',
+    quantityHelper: 'Assuming 1 shower bench — or enter linear feet.',
   },
   tub_shower: {
     defaultUnit: 'sqft',
@@ -563,6 +571,8 @@ const PACKAGE_NAME_TO_RULE_KEY = [
   },
   { test: /\btub\s+install|\btub\s+installation|\b(?:new\s+)?bathtub\s+install/i, key: 'tub_install' },
   { test: /\bshower\s+niche\b/i, key: 'shower_niche' },
+  { test: /\bshower\s+bench\b/i, key: 'shower_bench' },
+  { test: /\bshower\s+curb\b/i, key: 'shower_pan' },
   { test: /\bshower\s+bench\b|\bshower\s+curb\b/i, key: 'shower_bench_curb' },
   {
     test: /\b(hvac|furnace|duct|mechanical)\b[^.]{0,40}\bventilation\b|\bventilation\b[^.]{0,40}\b(hvac|duct|mechanical)\b/i,

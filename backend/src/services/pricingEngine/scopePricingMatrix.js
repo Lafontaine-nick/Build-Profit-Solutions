@@ -239,8 +239,8 @@ const SCOPE_ITEM_RULES = [
     userWarningText: 'Confirm whether this is prefab niche install or custom framed/tiled niche.',
   },
   {
-    itemType: 'shower_bench_curb',
-    test: (b) => /\bshower\s+bench|\bcurb\b/.test(b),
+    itemType: 'shower_bench',
+    test: (b) => /\bshower\s+bench\b/.test(b),
     tradeCategory: 'bathroom_fixture',
     scopeCategory: 'shower_bench',
     allowedUnits: ['each', 'lf', 'lump_sum'],

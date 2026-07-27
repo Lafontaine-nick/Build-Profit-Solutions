@@ -28,6 +28,10 @@ import {
 import { tagPlanDetectedQuickMeasurementKeys } from '@/utils/quickMeasurementProvenance';
 import { stripBathroomFalsePositiveFloorDemoQuantities } from '@/utils/estimateScopeChecklistUi';
 import { syncMeasurementsWithSouthernUtahPlanFacts } from '@/utils/quickMeasurementEstimates';
+import {
+  getScopePackagesForReview,
+  withReconciledScopePackages,
+} from '@/utils/scopePackagesForReview';
 import { sumBathFloorSqft } from '@/utils/planBathRooms';
 import { applyExistingFeaturesToMeasurements } from '@/utils/wetAreaExistingDemo';
 import type {
@@ -249,6 +253,8 @@ export type ScopeMeasurements = {
   bathroomInstallCounterCount?: number | null;
   bathroomDemoVanityCount?: number | null;
   bathroomDemoCounterCount?: number | null;
+  /** Bathroom vanity countertop material profile for national-average pricing. */
+  bathroomVanityCountertopMaterialType?: string | null;
   /** Demo tear-out selections derived from existing + install (QM). */
   demoTubCount?: number | null;
   demoTileWallCount?: number | null;
@@ -1719,7 +1725,10 @@ export async function applyScopeAssumptionsToDraft(
     throw new Error(payload?.message || payload?.error || 'Failed to apply scope assumptions');
   }
 
-  return syncSelectedScopePricing(overlayScopeMeasurements(payload.draft, scopeMeasurements));
+  return withReconciledScopePackages(
+    syncSelectedScopePricing(overlayScopeMeasurements(payload.draft, scopeMeasurements)),
+    confirmedItems
+  );
 }
 
 export function draftHasCombinedRoomPrices(draft: EstimateAiDraft | null): boolean {
@@ -2377,14 +2386,28 @@ function buildScopeDescription(draft: EstimateAiDraft): string {
     parts.push(draft.contractScope.trim());
   }
 
-  const rooms = draft.rooms || [];
-  if (rooms.length > 0) {
-    const roomBlocks = rooms.map((room) => {
-      const header = room.name.trim();
-      const body = room.scope.trim();
-      return body ? `${header}\n${body}` : header;
-    });
-    parts.push(roomBlocks.join('\n\n'));
+  const useChecklistScopeOrder =
+    draft.scopeAssumptionsConfirmed || (draft.confirmedAssumptions?.length ?? 0) > 0;
+  if (useChecklistScopeOrder) {
+    const packages = getScopePackages(draft);
+    if (packages.length > 0) {
+      const roomBlocks = packages.map((pkg) => {
+        const header = String(pkg.name || '').trim();
+        const body = String(pkg.scope || '').trim();
+        return body ? `${header}\n${body}` : header;
+      });
+      parts.push(roomBlocks.join('\n\n'));
+    }
+  } else {
+    const rooms = draft.rooms || [];
+    if (rooms.length > 0) {
+      const roomBlocks = rooms.map((room) => {
+        const header = room.name.trim();
+        const body = room.scope.trim();
+        return body ? `${header}\n${body}` : header;
+      });
+      parts.push(roomBlocks.join('\n\n'));
+    }
   }
 
   const allowances = draft.allowances || [];
@@ -2533,9 +2556,7 @@ function packageAllowanceAmount(pkg: EstimateDraftScopePackage): number {
 
 /** Scope rows for apply — synced scopePackages plus Ask AI rooms missing from scopePackages. */
 function resolveDraftPackagesForApply(draft: EstimateAiDraft): EstimateDraftScopePackage[] {
-  const packages = draft.scopePackages?.length
-    ? [...draft.scopePackages]
-    : getScopePackages(draft);
+  const packages = [...getScopePackages(draft)];
   if (!draft.rooms?.length) return packages;
 
   const seen = new Set(
@@ -3091,7 +3112,7 @@ export function syncConfirmScopeMeasurementsFromPackages(draft: EstimateAiDraft)
   };
 }
 
-export function getScopePackages(draft: EstimateAiDraft): EstimateDraftScopePackage[] {
+export function getScopePackagesRaw(draft: EstimateAiDraft): EstimateDraftScopePackage[] {
   if (draft.scopePackages?.length) {
     return draft.scopePackages.map((pkg) => applySelectedPricingToScopePackage(pkg, draft));
   }
@@ -3128,4 +3149,8 @@ export function getScopePackages(draft: EstimateAiDraft): EstimateDraftScopePack
     priceProvidedByUser: Boolean(room.priceProvidedByUser),
     applyEligible: room.applyEligible ?? (room.price != null || (room.knownSubtotal || 0) > 0),
   }, draft));
+}
+
+export function getScopePackages(draft: EstimateAiDraft): EstimateDraftScopePackage[] {
+  return getScopePackagesForReview(draft);
 }

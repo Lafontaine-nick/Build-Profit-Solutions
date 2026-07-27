@@ -12,7 +12,8 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
-import { formatDraftMoney, getScopePackages } from '@/utils/estimateAiDraft';
+import { formatDraftMoney } from '@/utils/estimateAiDraft';
+import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
 import {
   compactPackageAmount,
   compactPackageStatusLabel,
@@ -394,10 +395,12 @@ export default function AIEstimateDraftReviewCompact({
   showDetailsContent,
 }: Props) {
   const [showDetails, setShowDetails] = useState(false);
-  const [showAllScope, setShowAllScope] = useState(false);
+  const [showAllScope, setShowAllScope] = useState(
+    () => Boolean(draft.scopeAssumptionsConfirmed || draft.confirmedAssumptions?.length)
+  );
   const [editingPricingFor, setEditingPricingFor] = useState<string | null>(null);
   const [expandedBudgetSplits, setExpandedBudgetSplits] = useState<Record<string, true>>({});
-  const scopePackages = getScopePackages(draft);
+  const scopePackages = getScopePackagesForReview(draft);
   const appliedScopeBreakdown = useMemo(() => sumStep3ReviewBudgetTotals(draft), [draft]);
   if (__DEV__) {
     const q = draft.scopeMeasurements?.itemQuantities || {};

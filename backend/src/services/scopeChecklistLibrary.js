@@ -48,7 +48,7 @@ const CHECKLIST_TEMPLATES = {
         inputType: 'yes_no',
         label: 'Shower tile demo / tear-out',
         helperText:
-          'Remove shower wall and shower floor tile. Bathroom floor demo is a separate line.',
+          'Remove shower wall tile, shower base or pan (tile or prefab), and tub when present. Bathroom floor demo is a separate line.',
         category: 'demo',
       },
       {
@@ -104,6 +104,14 @@ const CHECKLIST_TEMPLATES = {
         category: 'shower',
       },
       {
+        id: 'shower_pan',
+        inputType: 'yes_no',
+        label: 'Tile shower pan (mud pan build)',
+        helperText:
+          'Shower pan liner, concrete/mud-bed materials, entry curb build, drain assembly, and pan labor — before floor tile.',
+        category: 'shower',
+      },
+      {
         id: 'shower_tile',
         inputType: 'yes_no',
         label: 'Shower wall tile installation',
@@ -125,10 +133,10 @@ const CHECKLIST_TEMPLATES = {
         category: 'shower',
       },
       {
-        id: 'shower_bench_curb',
+        id: 'shower_bench',
         inputType: 'yes_no',
-        label: 'Shower bench / curb',
-        helperText: 'Build, waterproof, and tile bench or curb.',
+        label: 'Shower bench',
+        helperText: 'Build, waterproof, and tile a shower bench — not the shower entry curb.',
         category: 'shower',
       },
       {
@@ -718,7 +726,8 @@ const CHECKLIST_YES_HINTS = {
   wet_area_install: /\b(tub\s+install|new\s+tub|shower\s+pan|prefab\s+pan|tile\s+pan|mud\s+pan|tub[\s-]to[\s-]shower)\b/,
   shower_floor_tile: /\b(shower\s+floor\s+tile|tile\s+shower\s+floor)\b/,
   shower_niche: /\b(shower\s+niche|tile\s+niche|niche)\b/,
-  shower_bench_curb: /\b(shower\s+bench|curb|bench)\b/,
+  shower_bench: /\b(shower\s+bench)\b/,
+  shower_pan: /\b(tile\s+pan|mud\s+pan|mortar\s+bed|shower\s+curb|shower\s+entry\s+curb)\b/,
   floor_tile: /\b(floor\s+tile|tile\s+floor|new\s+floor\s+tile)\b/,
   floor_prep: /\b(floor\s+prep|subfloor|level(?:ing)?|underlayment)\b/,
   exhaust_fan: /\b(exhaust\s+fan|bath\s+fan|ventilation)\b/,

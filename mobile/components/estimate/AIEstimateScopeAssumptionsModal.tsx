@@ -1,4 +1,12 @@
-import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  startTransition,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -67,6 +75,7 @@ import {
   WET_AREA_DERIVED_ITEM_IDS,
   scopeChecklistSummaryCounts,
 } from '@/utils/estimateScopeChecklistUi';
+import { finalizeWetAreaInstallScopeFromMeasurements } from '@/utils/wetAreaInstallScopeGate';
 import {
   buildNormalizedScopeMeasurementsFromInput,
   allowanceSplitSubKey,
@@ -164,6 +173,9 @@ import {
   syncKitchenQmScopeItems,
   syncBathroomFixtureQmScopeItems,
   syncQmPanelScopeItems,
+  shouldHideBathroomFixtureScopeCardInQmEmbed,
+  BATHROOM_FIXTURES_QM_EMBEDDED_IDS,
+  expandBathroomFixtureScopeDisplayItems,
 } from '@/utils/qmScopePanels';
 import {
   QmBathroomFixturesPanels,
@@ -301,7 +313,7 @@ const QUANTITY_NEEDED_LABELS: Record<string, string> = {
   waterproofing: 'shower wall sqft',
   shower_pan: 'mud pan count (labor + materials)',
   shower_niche: 'niche count',
-  shower_bench_curb: 'bench/curb count or LF',
+  shower_bench: 'bench count or LF',
   floor_tile: 'bathroom floor sqft',
   floor_prep: 'floor sqft or allowance',
   paint: 'wall/ceiling paint sqft',
@@ -5108,6 +5120,7 @@ function CollapsibleQuickMeasurements({
   onKitchenQmChange,
   onFlooringQmChange,
   onBathroomFixturesQmChange,
+  onBathroomCountertopMaterialChange,
   onShowerDoorCountChange,
   onGarageDoorCountsChange,
   wetAreaInstallChoiceId,
@@ -5161,6 +5174,9 @@ function CollapsibleQuickMeasurements({
     install: import('@/utils/qmScopePanels/bathroomFixtures').BathroomInstallFixtureCounts;
     demo: import('@/utils/qmScopePanels/bathroomFixtures').BathroomDemoFixtureCounts;
   }) => void;
+  onBathroomCountertopMaterialChange?: (
+    materialType: import('@/utils/bathroomVanityCountertopPricing').BathroomVanityCountertopMaterialType | null
+  ) => void;
   /** Keep checklist glass_door in sync when Wet area finish door count changes. */
   onShowerDoorCountChange?: (count: number | null) => void;
   /** Keep checklist garage_doors in sync when QM type counts change. */
@@ -6642,6 +6658,7 @@ function CollapsibleQuickMeasurements({
                   showExistingPanel={!hasSitePhotos}
                   applying={applying}
                   onBathroomFixturesQmChange={onBathroomFixturesQmChange}
+                  onBathroomCountertopMaterialChange={onBathroomCountertopMaterialChange}
                   darkMode={darkMode}
                   Colors={Colors}
                 />
@@ -7017,7 +7034,10 @@ export default function AIEstimateScopeAssumptionsModal({
   const selectedPricingRef = useRef<Record<string, SuggestedPricingBlock>>({});
   const scrollRef = useRef<ScrollView>(null);
   const scrollContentRef = useRef<View>(null);
+  const scrollOffsetYRef = useRef(0);
   const quickMeasurementsRef = useRef<View>(null);
+  const pendingQmDoneScrollRef = useRef(false);
+  const qmDoneFirstScopeItemIdRef = useRef<string | null>(null);
 
   const reasonablenessLivingSf = useMemo(
     () =>
@@ -7083,6 +7103,13 @@ export default function AIEstimateScopeAssumptionsModal({
         ? { ...row, label: 'Exterior Envelope' }
         : row
     );
+    if (String(checklist?.templateKey || '').toLowerCase() === 'bathroom') {
+      expanded = expandBathroomFixtureScopeDisplayItems(
+        expanded,
+        measurements as Record<string, unknown>,
+        checklist?.templateKey
+      );
+    }
     if (String(checklist?.templateKey || '').toLowerCase() === 'ground_up') {
       expanded = ensureGroundUpFlatworkScopeCard(expanded);
       expanded = ensureGroundUpOpeningScopeCards(expanded);
@@ -7123,7 +7150,14 @@ export default function AIEstimateScopeAssumptionsModal({
       ];
     }
     return [...expanded, stageCard];
-  }, [items, checklist?.templateKey]);
+  }, [
+    items,
+    checklist?.templateKey,
+    measurements.bathroomInstallVanityCount,
+    measurements.bathroomInstallCounterCount,
+    measurements.bathroomDemoVanityCount,
+    measurements.bathroomDemoCounterCount,
+  ]);
 
   /** Applied Confirm Scope dollars — same list as scope cards (flatwork / openings / wet-area). */
   const step2AppliedPricingBreakdown = useMemo(
@@ -7600,6 +7634,25 @@ export default function AIEstimateScopeAssumptionsModal({
     );
   }, [onPersistProgress, applying, scopeMeasurementsPayloadForCurrentState]);
 
+  const handleBathroomCountertopMaterialChange = useCallback(
+    (materialType: import('@/utils/bathroomVanityCountertopPricing').BathroomVanityCountertopMaterialType | null) => {
+      startTransition(() => {
+        setItems((prev) =>
+          prev.map((row) =>
+            row.id === 'countertops'
+              ? {
+                  ...row,
+                  choiceId: materialType,
+                  state: 'included' as const,
+                }
+              : row
+          )
+        );
+      });
+    },
+    []
+  );
+
   const visualCtx = useMemo<ScopeItemVisualContext>(
     () => ({
       notes: scopeNotes,
@@ -7674,20 +7727,32 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.planRooms,
     measurements.planFacts,
   ]);
+  const qmScopeEmbeddedInQuickMeasurements = useCallback(
+    (itemId: string) => {
+      if (!qmEmbeddedScopeIds.has(itemId)) return false;
+      if (
+        shouldHideBathroomFixtureScopeCardInQmEmbed(
+          itemId,
+          measurements as Record<string, unknown>,
+          items
+        )
+      ) {
+        return true;
+      }
+      if (BATHROOM_FIXTURES_QM_EMBEDDED_IDS.has(itemId)) return false;
+      return true;
+    },
+    [qmEmbeddedScopeIds, measurements, items]
+  );
   const scopeGroupedItems = useMemo(() => {
     if (!embedQmScopeInQuickMeasurements) return groupedItems;
     return groupedItems
       .map((group) => ({
         ...group,
-        items: group.items.filter((item) => !qmEmbeddedScopeIds.has(item.id)),
+        items: group.items.filter((item) => !qmScopeEmbeddedInQuickMeasurements(item.id)),
       }))
       .filter((group) => group.items.length > 0);
-  }, [groupedItems, embedQmScopeInQuickMeasurements, qmEmbeddedScopeIds]);
-
-  const qmScopeEmbeddedInQuickMeasurements = useCallback(
-    (itemId: string) => qmEmbeddedScopeIds.has(itemId),
-    [qmEmbeddedScopeIds]
-  );
+  }, [groupedItems, embedQmScopeInQuickMeasurements, qmScopeEmbeddedInQuickMeasurements]);
 
   // QM steppers / shower SF → auto-include shower wall & floor tile scope cards.
   useEffect(() => {
@@ -8700,6 +8765,49 @@ export default function AIEstimateScopeAssumptionsModal({
     }
   }, [groupedItems]);
 
+  const scrollToFirstScopeAfterQmDone = useCallback(() => {
+    const content = scrollContentRef.current;
+    if (!content) {
+      scrollRef.current?.scrollTo({ y: 0, animated: false });
+      return;
+    }
+
+    const firstScopeItemId = qmDoneFirstScopeItemIdRef.current;
+    const node = firstScopeItemId ? itemRefs.current[firstScopeItemId] : null;
+
+    const applyScroll = (targetY: number) => {
+      const y = Math.max(0, targetY);
+      const delta = Math.abs(y - scrollOffsetYRef.current);
+      scrollRef.current?.scrollTo({
+        y,
+        animated: delta > 0 && delta <= 200,
+      });
+    };
+
+    if (node) {
+      node.measureLayout(content, (_x, itemY) => {
+        applyScroll(itemY - 12);
+      });
+      return;
+    }
+
+    const qm = quickMeasurementsRef.current;
+    if (qm) {
+      qm.measureLayout(content, (_x, _y, _w, qmH) => {
+        applyScroll(Number(qmH) + 8);
+      });
+      return;
+    }
+
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (quickMeasurementsOpen || !pendingQmDoneScrollRef.current) return;
+    pendingQmDoneScrollRef.current = false;
+    scrollToFirstScopeAfterQmDone();
+  }, [quickMeasurementsOpen, scrollToFirstScopeAfterQmDone]);
+
   /** After Quick Measurements Done: collapse panel and land on the first scope group. */
   const handleQuickMeasurementsDone = useCallback(() => {
     Keyboard.dismiss();
@@ -8709,41 +8817,31 @@ export default function AIEstimateScopeAssumptionsModal({
       setCollapsedGroups((prev) => ({ ...prev, [firstGroup.title]: false }));
     }
 
-    const firstScopeItemId = scopeGroupedItems
-      .flatMap((g) => g.items)
-      .find(
-        (item) => !(embedQmScopeInQuickMeasurements && qmScopeEmbeddedInQuickMeasurements(item.id))
-      )?.id;
+    const firstScopeItemId =
+      scopeGroupedItems
+        .flatMap((g) => g.items)
+        .find(
+          (item) => !(embedQmScopeInQuickMeasurements && qmScopeEmbeddedInQuickMeasurements(item.id))
+        )?.id ?? null;
 
-    setQuickMeasurementsOpen(false);
+    qmDoneFirstScopeItemIdRef.current = firstScopeItemId;
+    pendingQmDoneScrollRef.current = true;
 
-    const scrollToFirstScope = () => {
-      const content = scrollContentRef.current;
-      if (!content) {
-        scrollRef.current?.scrollTo({ y: 0, animated: false });
-        return;
-      }
-      const node = firstScopeItemId ? itemRefs.current[firstScopeItemId] : null;
-      if (node) {
-        node.measureLayout(content, (_x, itemY) => {
-          scrollRef.current?.scrollTo({ y: Math.max(0, itemY - 12), animated: true });
-        });
-        return;
-      }
-      const qm = quickMeasurementsRef.current;
-      if (qm) {
-        qm.measureLayout(content, (_x, _y, _w, qmH) => {
-          scrollRef.current?.scrollTo({ y: Math.max(0, Number(qmH) + 8), animated: true });
-        });
-        return;
-      }
-      scrollRef.current?.scrollTo({ y: 0, animated: false });
-    };
+    const content = scrollContentRef.current;
+    const qm = quickMeasurementsRef.current;
+    const collapseQm = () => setQuickMeasurementsOpen(false);
 
-    // Measure after collapse layout settles — pre-collapse math overshot on tall QM cards.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(scrollToFirstScope);
-    });
+    // Snap to the QM card top before collapse so a tall expanded card cannot leave a
+    // stale deep scroll offset that jumps to the page bottom when content shrinks.
+    if (content && qm) {
+      qm.measureLayout(content, (_x, qmY) => {
+        scrollRef.current?.scrollTo({ y: Math.max(0, qmY - 8), animated: false });
+        collapseQm();
+      });
+      return;
+    }
+
+    collapseQm();
   }, [scopeGroupedItems, embedQmScopeInQuickMeasurements, qmScopeEmbeddedInQuickMeasurements]);
 
   const handleScopeGapResolutionsChange = useCallback(
@@ -8919,8 +9017,10 @@ export default function AIEstimateScopeAssumptionsModal({
     if (embedQmScopeInQuickMeasurements && qmScopeEmbeddedInQuickMeasurements(item.id)) {
       return null;
     }
-    const row =
-      item.derivedFrom === 'wet_area_install' || WET_AREA_DERIVED_ITEM_IDS.has(item.id) ? (
+    const useWetAreaLineCard =
+      item.id !== 'shower_pan' &&
+      (item.derivedFrom === 'wet_area_install' || WET_AREA_DERIVED_ITEM_IDS.has(item.id));
+    const row = useWetAreaLineCard ? (
       <WetAreaInstallLineCard
         item={item}
         templateKey={checklist?.templateKey}
@@ -8988,9 +9088,19 @@ export default function AIEstimateScopeAssumptionsModal({
         templateKey={checklist?.templateKey}
         originalNotes={scopeNotes}
         onSelect={(choiceId) => {
+          const isBathroomCountertop =
+            item.id === 'countertops' && String(templateKey || '').toLowerCase() === 'bathroom';
+          const nextChoiceId =
+            isBathroomCountertop && item.choiceId === choiceId ? null : choiceId;
           setItems((prev) => {
             const next = prev.map((row) =>
-              row.id === item.id ? { ...row, choiceId, state: choiceIdToState(choiceId) } : row
+              row.id === item.id
+                ? {
+                    ...row,
+                    choiceId: nextChoiceId,
+                    state: nextChoiceId ? choiceIdToState(nextChoiceId) : row.state,
+                  }
+                : row
             );
             if (item.id !== 'wet_area_install') return next;
             return next.map((row) => {
@@ -9013,6 +9123,12 @@ export default function AIEstimateScopeAssumptionsModal({
             if (finish) {
               setMeasurementsSynced((m) => ({ ...m, wetAreaFinish: finish }));
             }
+          }
+          if (isBathroomCountertop) {
+            setMeasurementsSynced((m) => ({
+              ...m,
+              bathroomVanityCountertopMaterialType: nextChoiceId,
+            }));
           }
         }}
         measurementsInput={measurements}
@@ -9112,7 +9228,11 @@ export default function AIEstimateScopeAssumptionsModal({
       });
     }
     // Persist display-only cards (flatwork / openings) that were Yes'd in UI.
-    const confirmItems = displayItems.length ? displayItems : items;
+    const baseItems = displayItems.length ? displayItems : items;
+    const confirmItems = finalizeWetAreaInstallScopeFromMeasurements(
+      scopeChecklistItemsForPersist(baseItems),
+      payload
+    );
     onConfirm(confirmItems, payload);
   };
 
@@ -9166,6 +9286,10 @@ export default function AIEstimateScopeAssumptionsModal({
         keyboardDismissMode="on-drag"
         automaticallyAdjustKeyboardInsets={false}
         showsVerticalScrollIndicator
+        scrollEventThrottle={16}
+        onScroll={(e) => {
+          scrollOffsetYRef.current = e.nativeEvent.contentOffset.y;
+        }}
       >
         <View ref={scrollContentRef} collapsable={false}>
         <AIEstimateDisclaimer variant="review" />
@@ -9251,6 +9375,7 @@ export default function AIEstimateScopeAssumptionsModal({
               syncBathroomFixtureQmScopeItems(prev, { ...existing, ...install, ...demo })
             );
           }}
+          onBathroomCountertopMaterialChange={handleBathroomCountertopMaterialChange}
           onShowerDoorCountChange={(count) => {
             if (count == null || count < 1) return;
             setItems((prev) => {

@@ -184,6 +184,11 @@ const YES_NO_LABEL_OVERRIDES: Record<string, { label: string; helperText?: strin
     helperText:
       'Glass shower door / enclosure — material and install. Towel bars/accessories separate.',
   },
+  shower_bench: {
+    label: 'Shower bench',
+    helperText:
+      'Build, waterproof, and tile a shower bench — not the shower entry curb (included on the mud pan build line).',
+  },
 };
 
 /** Normalize server or cached checklist rows so choice questions never show Yes/No. */
@@ -235,6 +240,20 @@ function choiceIdToState(choiceId: string | null | undefined): 'included' | 'exc
   if (!choiceId || choiceId === 'unsure') return 'unsure';
   if (choiceId === 'not_in_scope') return 'excluded';
   return 'included';
+}
+
+/** Map legacy combined bench/curb row to shower bench only (curb → mud pan build). */
+function migrateShowerBenchCurbScopeItem(items: ScopeChecklistItem[]): ScopeChecklistItem[] {
+  return items.map((item) => {
+    if (item.id !== 'shower_bench_curb') return item;
+    return {
+      ...item,
+      id: 'shower_bench',
+      label: 'Shower bench',
+      helperText:
+        'Build, waterproof, and tile a shower bench — not the shower entry curb (included on the mud pan build line).',
+    };
+  });
 }
 
 /** Map legacy tub_shower + shower_pan rows to wet_area_install when reopening saved drafts. */
@@ -403,7 +422,7 @@ export function normalizeScopeChecklistItems(
   inferenceCtx?: KitchenScopeInferenceCtx
 ): ScopeChecklistItem[] {
   const migrated = migrateGroundUpTakeoffScopeItems(
-    migrateLegacyBathroomScopeItems(items),
+    migrateShowerBenchCurbScopeItem(migrateLegacyBathroomScopeItems(items)),
     templateKey
   ).map(normalizeScopeChecklistItem);
   // Do not force soft-cost Yes here — that would overwrite an intentional Not sure
@@ -1069,6 +1088,9 @@ export function stripBathroomFalsePositiveFloorDemoQuantities<
 /** Bathroom fixture rows that must stay on Confirm Scope even when notes/photos omit them. */
 export { BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS } from '@/utils/scopeItemVisualTier';
 
+/** Bathroom rows driven by Vanity & countertop QM — absent from older AI checklists. */
+export const BATHROOM_QM_FIXTURE_SCOPE_IDS = ['countertops'] as const;
+
 function createDefaultBathroomChecklistItem(id: string): ScopeChecklistItem | null {
   if (id === 'toilet') {
     const config = CHOICE_ITEM_CONFIG.toilet;
@@ -1083,6 +1105,18 @@ function createDefaultBathroomChecklistItem(id: string): ScopeChecklistItem | nu
       choiceId: null,
     };
   }
+  if (id === 'countertops') {
+    return {
+      id: 'countertops',
+      inputType: 'yes_no',
+      label: 'Counters',
+      helperText:
+        CHECKLIST_HELPER_OVERRIDES.countertops ||
+        'Countertop sqft — kitchen, baths, and elsewhere.',
+      category: 'fixtures',
+      state: 'unsure',
+    };
+  }
   return null;
 }
 
@@ -1094,7 +1128,8 @@ export function ensureBathroomChecklistItems(
   if (String(templateKey || '').toLowerCase() !== 'bathroom') return items;
   const existing = new Set(items.map((item) => item.id));
   const additions: ScopeChecklistItem[] = [];
-  for (const id of BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS) {
+  const requiredIds = [...BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS, ...BATHROOM_QM_FIXTURE_SCOPE_IDS];
+  for (const id of requiredIds) {
     if (existing.has(id)) continue;
     const row = createDefaultBathroomChecklistItem(id);
     if (row) additions.push(row);
@@ -1242,7 +1277,8 @@ const WET_AREA_INSTALL_DERIVED: Record<
   tile_pan: {
     id: 'shower_pan',
     label: 'Tile shower pan (mud pan build)',
-    helperText: 'Labor + materials — slope, drain, liner, and mud bed.',
+    helperText:
+      'Shower pan liner, concrete/mud-bed materials, entry curb build, drain assembly, and pan labor — before floor tile.',
   },
 };
 
@@ -1260,17 +1296,19 @@ export const WET_AREA_DEMO_EMBEDDED_IDS = new Set(['tub_demo', 'shower_floor_dem
 export function expandWetAreaDerivedScopeItems(items: ScopeChecklistItem[]): ScopeChecklistItem[] {
   const withoutDerived = items.filter((i) => !WET_AREA_DERIVED_ITEM_IDS.has(i.id));
   const wet = withoutDerived.find((i) => i.id === 'wet_area_install');
-  const spec = wet?.choiceId ? WET_AREA_INSTALL_DERIVED[wet.choiceId] : null;
+  if (!wet || !checklistItemInScope(wet)) return withoutDerived;
+  const spec = wet.choiceId ? WET_AREA_INSTALL_DERIVED[wet.choiceId] : null;
   if (!spec) return withoutDerived;
 
+  const existingPan = withoutDerived.find((i) => i.id === spec.id);
   const derived: ScopeChecklistItem = {
     id: spec.id,
     label: spec.label,
     helperText: spec.helperText,
     inputType: 'yes_no',
-    state: 'included',
+    state: existingPan?.state === 'excluded' ? 'excluded' : 'included',
     category: 'shower',
-    derivedFrom: 'wet_area_install',
+    ...(spec.id !== 'shower_pan' ? { derivedFrom: 'wet_area_install' as const } : {}),
   };
 
   const idx = withoutDerived.findIndex((i) => i.id === 'wet_area_install');
@@ -1352,17 +1390,6 @@ export function syncWetAreaScopeFromSteppers(
   }
 ): ScopeChecklistItem[] {
   const withoutDerived = items.filter((i) => !WET_AREA_DERIVED_ITEM_IDS.has(i.id));
-  const choiceId = primaryWetAreaInstallChoiceFromSteppers({
-    counts: params.counts,
-    keepingExisting: params.keepingExisting,
-  });
-
-  let next = withoutDerived.map((row) => {
-    if (row.id === 'wet_area_install' && choiceId) {
-      return { ...row, choiceId, state: choiceIdToState(choiceId) };
-    }
-    return row;
-  });
 
   const derivedKeys: string[] = [];
   if (stepperCountActive(params.counts.tubBathCount)) derivedKeys.push('tub');
@@ -1370,16 +1397,37 @@ export function syncWetAreaScopeFromSteppers(
   if (stepperCountActive(params.counts.prefabEnclosureBathCount)) derivedKeys.push('prefab_enclosure');
   if (stepperCountActive(params.counts.tilePanBathCount)) derivedKeys.push('tile_pan');
 
+  const choiceId = primaryWetAreaInstallChoiceFromSteppers({
+    counts: params.counts,
+    keepingExisting: params.keepingExisting,
+  });
+
+  let next = withoutDerived.map((row) => {
+    if (row.id !== 'wet_area_install') return row;
+    if (params.keepingExisting) {
+      return { ...row, choiceId: 'staying', state: 'included' as const };
+    }
+    if (derivedKeys.length === 0) {
+      return { ...row, choiceId: 'not_in_scope', state: 'excluded' as const };
+    }
+    if (choiceId) {
+      return { ...row, choiceId, state: choiceIdToState(choiceId) };
+    }
+    // Wall-tile steppers without a tub/pan install — no wet-area install line.
+    return { ...row, choiceId: 'not_in_scope', state: 'excluded' as const };
+  });
+
   const derivedItems: ScopeChecklistItem[] = derivedKeys.map((key) => {
     const spec = WET_AREA_INSTALL_DERIVED[key];
+    const existing = withoutDerived.find((row) => row.id === spec.id);
     return {
       id: spec.id,
       label: spec.label,
       helperText: spec.helperText,
       inputType: 'yes_no',
-      state: 'included',
+      state: existing?.state === 'excluded' ? 'excluded' : 'included',
       category: 'shower',
-      derivedFrom: 'wet_area_install',
+      ...(spec.id !== 'shower_pan' ? { derivedFrom: 'wet_area_install' as const } : {}),
     };
   });
 
@@ -1517,7 +1565,7 @@ export const KITCHEN_CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
 
 /** Bathroom-specific helper copy (shower vs bath floor demo are separate scope lines). */
 export const BATHROOM_CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
-  demo: 'Remove shower wall and shower floor tile — bath floor demo is a separate line.',
+  demo: 'Remove shower wall tile, shower base or pan (tile or prefab), and tub when present — bath floor demo is a separate line.',
   floor_demo: 'Remove bathroom floor tile, LVP, or vinyl — often includes thinset grind (separate from shower).',
 };
 
@@ -1533,14 +1581,15 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   tub_install: 'Labor + materials for tub supply and install.',
   prefab_shower_pan: 'Labor + materials for prefab pan or acrylic base.',
   prefab_shower_enclosure: 'Labor + materials for prefab surround / one-piece enclosure.',
-  shower_pan: 'Labor + materials for mud pan build (slope, drain, liner).',
+  shower_pan:
+    'Shower pan liner, concrete/mud-bed materials, entry curb build, drain assembly, and pan labor — before floor tile.',
   shower_tile: 'Shower wall tile labor and materials.',
   shower_floor_tile: 'Shower floor tile labor and materials.',
   waterproofing:
     'Backer board (Hardie, foam, DensShield), RedGard-class membrane, vapor barrier, tape, screws, and wall-cavity insulation — before tile.',
-  shower_pan: 'Prefab pan/base or custom tile shower pan.',
+  shower_bench: 'Build, waterproof, and tile a shower bench — not the shower entry curb.',
   shower_niche: 'Frame, waterproof, and tile niche.',
-  shower_bench_curb: 'Build, waterproof, and tile bench or curb.',
+  shower_bench_curb: 'Build, waterproof, and tile a shower bench — not the shower entry curb.',
   floor_tile: 'Bathroom floor tile labor and materials.',
   floor_prep: 'Basic patch/level prep only (~$2.50/sqft national) — not finished flooring.',
   plumbing_rough: 'New/relocated lines priced per rough-in point, not fixture hookup only.',
@@ -1641,10 +1690,15 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
       title: 'Wet area finish',
       itemIds: [
         'waterproofing',
+        'wet_area_install',
+        'tub_install',
+        'prefab_shower_pan',
+        'prefab_shower_enclosure',
+        'shower_pan',
         'shower_tile',
         'shower_floor_tile',
         'shower_niche',
-        'shower_bench_curb',
+        'shower_bench',
         'glass_door',
       ],
     },
@@ -1655,7 +1709,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     },
     {
       title: 'Trades',
-      itemIds: ['plumbing_rough', 'electrical_rough', 'floor_prep', 'drywall', 'paint', 'trim'],
+      itemIds: ['plumbing_rough', 'electrical_rough', 'floor_prep', 'drywall', 'paint', 'interior_paint', 'trim'],
     },
     {
       title: 'Trim-out & Closeout',

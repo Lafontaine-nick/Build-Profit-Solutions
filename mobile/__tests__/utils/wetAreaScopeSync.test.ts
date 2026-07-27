@@ -7,6 +7,7 @@ import {
   syncBathroomFloorTileScopeItems,
   syncInteriorPaintScopeItems,
 } from '@/utils/estimateScopeChecklistUi';
+import { finalizeWetAreaInstallScopeFromMeasurements } from '@/utils/wetAreaInstallScopeGate';
 
 const baseItems: ScopeChecklistItem[] = [
   {
@@ -84,6 +85,57 @@ describe('wetAreaScopeSync', () => {
     expect(next.find((r) => r.id === 'shower_floor_tile')?.state).toBe('included');
   });
 
+  test('syncWetAreaScopeFromSteppers excludes wet area when all install steppers are cleared', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'wet_area_install',
+        label: 'Wet area install',
+        inputType: 'choice',
+        choiceId: 'tile_pan',
+        state: 'included',
+      },
+      ...baseItems,
+    ];
+    const next = syncWetAreaScopeFromSteppers(items, {
+      counts: {
+        bathCount: null,
+        tilePanBathCount: null,
+        prefabBathCount: null,
+        prefabEnclosureBathCount: null,
+        tubBathCount: null,
+        showerDoorCount: null,
+      },
+    });
+    expect(next.find((r) => r.id === 'wet_area_install')?.choiceId).toBe('not_in_scope');
+    expect(next.find((r) => r.id === 'shower_pan')).toBeUndefined();
+  });
+
+  test('syncWetAreaScopeFromSteppers clears stale pan choice when only wall-tile steppers are set', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'wet_area_install',
+        label: 'Wet area install',
+        inputType: 'choice',
+        choiceId: 'tile_pan',
+        state: 'included',
+      },
+      ...baseItems,
+    ];
+    const next = syncWetAreaScopeFromSteppers(items, {
+      counts: {
+        bathCount: 1,
+        tilePanBathCount: null,
+        prefabBathCount: null,
+        prefabEnclosureBathCount: null,
+        tubBathCount: null,
+        showerDoorCount: null,
+      },
+    });
+    expect(next.find((r) => r.id === 'wet_area_install')?.choiceId).toBe('not_in_scope');
+    expect(next.find((r) => r.id === 'shower_pan')).toBeUndefined();
+    expect(next.find((r) => r.id === 'shower_tile')?.state).toBe('included');
+  });
+
   test('syncWetAreaDemoScopeItems includes tub_demo and generic demo', () => {
     const items: ScopeChecklistItem[] = [
       { id: 'tub_demo', label: 'Remove tub', inputType: 'yes_no', state: 'unsure' },
@@ -129,11 +181,28 @@ describe('wetAreaScopeSync', () => {
     expect(next.find((r) => r.id === 'trim')?.state).toBe('unsure');
   });
 
-  test('syncInteriorPaintScopeItems promotes interior_paint alias id', () => {
+  test('finalizeWetAreaInstallScopeFromMeasurements drops install lines when steppers are zero', () => {
     const items: ScopeChecklistItem[] = [
-      { id: 'interior_paint', label: 'Interior paint', inputType: 'yes_no', state: 'unsure' },
+      {
+        id: 'wet_area_install',
+        label: 'Wet area install',
+        inputType: 'choice',
+        choiceId: 'tile_pan',
+        state: 'included',
+      },
+      {
+        id: 'shower_pan',
+        label: 'Tile shower pan (mud pan build)',
+        inputType: 'yes_no',
+        state: 'included',
+        derivedFrom: 'wet_area_install',
+      },
     ];
-    const next = syncInteriorPaintScopeItems(items, { wallPaintSqft: 320 });
-    expect(next.find((r) => r.id === 'interior_paint')?.state).toBe('included');
+    const next = finalizeWetAreaInstallScopeFromMeasurements(items, {
+      tilePanBathCount: null,
+      bathCount: 1,
+    });
+    expect(next.find((r) => r.id === 'wet_area_install')?.choiceId).toBe('not_in_scope');
+    expect(next.find((r) => r.id === 'shower_pan')).toBeUndefined();
   });
 });
