@@ -51,20 +51,40 @@ export function scopePackagePricedAmount(
   draft?: EstimateAiDraft | null
 ): number {
   const fromPkg = pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0;
+  const userProvided = Boolean(
+    pkg.priceProvidedByUser ||
+      pkg.status === 'user_provided' ||
+      pkg.priceSource === 'user_provided'
+  );
+  const confirmedFromScope = Boolean(
+    draft?.scopeAssumptionsConfirmed || draft?.confirmedAssumptions?.length
+  );
+
   if (draft) {
+    const applied = resolveAppliedConfirmScopePackageAmount(pkg, draft);
+
+    if (confirmedFromScope) {
+      if (userProvided && fromPkg > 0) {
+        const breakdown = resolveScopePackageBudgetBreakdown(pkg, draft);
+        if (breakdown?.total && breakdown.total > 0) {
+          if (Math.abs(fromPkg - breakdown.total) > 0.01) return fromPkg;
+          return breakdown.total;
+        }
+        return fromPkg;
+      }
+      if (applied > 0) return applied;
+      return 0;
+    }
+
     const breakdown = resolveScopePackageBudgetBreakdown(pkg, draft);
     if (breakdown?.total && breakdown.total > 0) {
-      // Ask AI / manual row price wins over stale Confirm Scope measurement splits.
-      if (
-        pkg.priceProvidedByUser &&
-        fromPkg > 0 &&
-        Math.abs(fromPkg - breakdown.total) > 0.01
-      ) {
+      if (userProvided && fromPkg > 0 && Math.abs(fromPkg - breakdown.total) > 0.01) {
         return fromPkg;
       }
       return breakdown.total;
     }
   }
+
   if (fromPkg > 0) return fromPkg;
   if (draft) {
     const applied = resolveAppliedConfirmScopePackageAmount(pkg, draft);

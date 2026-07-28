@@ -11,6 +11,7 @@ import {
   ruleKeysToTryForPackage,
   type ScopeMeasurementsInputExtended,
 } from '@/utils/scopeItemQuantities';
+import { confirmScopeDisplayItemsFromDraft } from '@/utils/scopePackagesForReview';
 
 export type AppliedConfirmScopePackagePricing = {
   ruleKey: string;
@@ -51,8 +52,11 @@ function draftMeasurementsForAppliedPricing(draft: EstimateAiDraft): ScopeMeasur
 }
 
 function ruleKeysForPackage(pkg: EstimateDraftScopePackage): string[] {
+  // Package already tied to a Confirm Scope row — never inherit sibling pricing via name regex
+  // (e.g. "Plumbing fixtures … toilet …" must not pull toilet's Applied dollars).
+  if (pkg.checklistItemId) return [pkg.checklistItemId];
+
   const keys: string[] = [];
-  if (pkg.checklistItemId) keys.push(pkg.checklistItemId);
   for (const key of ruleKeysToTryForPackage(pkg.name, pkg.scope || '')) {
     if (!keys.includes(key)) keys.push(key);
   }
@@ -69,10 +73,8 @@ export function resolveAppliedConfirmScopePackagePricing(
   draft: EstimateAiDraft | null | undefined
 ): AppliedConfirmScopePackagePricing | null {
   if (!draft) return null;
-  const items = draft.confirmedAssumptions?.length
-    ? draft.confirmedAssumptions
-    : draft.scopeChecklist?.items;
-  if (!items?.length) return null;
+  const items = confirmScopeDisplayItemsFromDraft(draft);
+  if (!items.length) return null;
   if (!draft.scopeAssumptionsConfirmed && !draft.confirmedAssumptions?.length) return null;
 
   const measurements = draftMeasurementsForAppliedPricing(draft);

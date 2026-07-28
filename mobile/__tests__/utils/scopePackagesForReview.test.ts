@@ -1,8 +1,11 @@
 import {
   getScopePackagesForReview,
   flattenChecklistDisplayOrder,
+  flattenConfirmScopeVisibleRows,
+  buildConfirmScopeDisplayItems,
   reconcileScopePackagesForReview,
   hydrateChecklistItemsForScopeReview,
+  confirmScopeReviewRowsFromDraft,
 } from '@/utils/scopePackagesForReview';
 import { SCOPE_CHECKLIST_GROUPS } from '@/utils/estimateScopeChecklistUi';
 import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
@@ -73,6 +76,128 @@ describe('scopePackagesForReview', () => {
     expect(showerTileIdx).toBeLessThan(cleanupIdx);
   });
 
+  it('Step 3 package rows match Step 2 selected scope order (excluding wet-area picker)', () => {
+    const checklistItems = bathroomChecklistFromGroups().map((item) =>
+      item.id === 'wet_area_install'
+        ? {
+            ...item,
+            inputType: 'choice' as const,
+            choiceId: 'tile_pan',
+            state: 'included' as const,
+          }
+        : item
+    );
+    const measurements = { tilePanBathCount: 1, bathCount: 1 };
+    const displayItems = buildConfirmScopeDisplayItems(checklistItems, measurements, 'bathroom');
+    const step2Rows = flattenConfirmScopeVisibleRows(displayItems, {
+      templateKey: 'bathroom',
+      measurements,
+      forStep3Review: false,
+    });
+    const step3Rows = flattenConfirmScopeVisibleRows(displayItems, {
+      templateKey: 'bathroom',
+      measurements,
+      forStep3Review: true,
+    });
+
+    const step2Ids = step2Rows.map((row) => row.id).filter((id) => id !== 'wet_area_install');
+    const step3Ids = step3Rows.map((row) => row.id);
+    expect(step3Ids).toEqual(step2Ids);
+
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: { templateKey: 'bathroom' },
+      confirmedAssumptions: checklistItems,
+      scopeMeasurements: measurements,
+      scopePackages: [],
+      rooms: [],
+    } as unknown as EstimateAiDraft;
+    const packages = getScopePackagesForReview(draft);
+    expect(packages.map((p) => p.checklistItemId)).toEqual(step3Ids);
+    expect(confirmScopeReviewRowsFromDraft(draft).map((row) => row.id)).toEqual(step3Ids);
+  });
+
+  it('Step 3 excludes unselected scope items while preserving top-to-bottom order', () => {
+    const checklistItems = bathroomChecklistFromGroups().map((item) => {
+      if (item.id === 'demo' || item.id === 'cleanup') {
+        return { ...item, state: 'excluded' as const };
+      }
+      if (item.id === 'wet_area_install') {
+        return {
+          ...item,
+          inputType: 'choice' as const,
+          choiceId: 'tile_pan',
+          state: 'included' as const,
+        };
+      }
+      return item;
+    });
+    const measurements = { tilePanBathCount: 1, bathCount: 1 };
+    const displayItems = buildConfirmScopeDisplayItems(checklistItems, measurements, 'bathroom');
+    const step3Rows = flattenConfirmScopeVisibleRows(displayItems, {
+      templateKey: 'bathroom',
+      measurements,
+      forStep3Review: true,
+    });
+    const step3Ids = step3Rows.map((row) => row.id);
+
+    expect(step3Ids).not.toContain('demo');
+    expect(step3Ids).not.toContain('cleanup');
+    expect(step3Ids).not.toContain('wet_area_install');
+
+    const allIncludedIds = flattenConfirmScopeVisibleRows(displayItems, {
+      templateKey: 'bathroom',
+      measurements,
+      forStep3Review: false,
+    })
+      .map((row) => row.id)
+      .filter((id) => id !== 'wet_area_install');
+    let matched = 0;
+    for (let i = 0; i < allIncludedIds.length && matched < step3Ids.length; i++) {
+      if (step3Ids[matched] === allIncludedIds[i]) matched++;
+    }
+    expect(matched).toBe(step3Ids.length);
+  });
+
+  it('applyDraftToEstimate scope text matches Step 3 selected rows (PDF export source)', () => {
+    const checklistItems = bathroomChecklistFromGroups().map((item) => {
+      if (item.id === 'demo' || item.id === 'cleanup') {
+        return { ...item, state: 'excluded' as const };
+      }
+      if (item.id === 'wet_area_install') {
+        return {
+          ...item,
+          inputType: 'choice' as const,
+          choiceId: 'tile_pan',
+          state: 'included' as const,
+        };
+      }
+      return item;
+    });
+    const measurements = { tilePanBathCount: 1, bathCount: 1 };
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: { templateKey: 'bathroom' },
+      confirmedAssumptions: checklistItems,
+      scopeMeasurements: measurements,
+      scopePackages: [],
+      rooms: [],
+    } as unknown as EstimateAiDraft;
+
+    const step3Packages = getScopePackagesForReview(draft);
+    const step3Ids = step3Packages.map((p) => p.checklistItemId).filter(Boolean);
+    expect(step3Ids).not.toContain('demo');
+    expect(step3Ids).not.toContain('cleanup');
+
+    const { bid } = applyDraftToEstimate({}, draft);
+    const scopeDesc = String(bid.scopeDescription || '');
+    for (const pkg of step3Packages) {
+      expect(scopeDesc).toContain(String(pkg.name || '').trim());
+    }
+    expect(scopeDesc).not.toMatch(/^Demo$/m);
+    expect(scopeDesc.toLowerCase()).not.toContain('cleanup, haul-off');
+  });
+
   it('uses Confirm Scope checklist labels on matched AI packages', () => {
     const draft = {
       scopeAssumptionsConfirmed: true,
@@ -114,10 +239,11 @@ describe('scopePackagesForReview', () => {
 
     const packages = reconcileScopePackagesForReview(draft);
     expect(packages[0].name).toBe('Shower tile demo / tear-out');
-    expect(packages[0].price).toBe(522.5);
+    expect(packages[0].price).toBeNull();
     expect(packages[1].name).toBe('Bathroom floor demo / removal');
-    expect(packages[1].price).toBe(660);
+    expect(packages[1].price).toBeNull();
     expect(packages[2].name).toBe('Shower waterproofing & backer board');
+    expect(packages[2].price).toBeNull();
   });
 
   it('does not append orphan AI packages after checklist rows (no duplicates)', () => {
@@ -164,7 +290,7 @@ describe('scopePackagesForReview', () => {
     expect(names.filter((n) => /tile shower pan|mud pan build/i.test(n))).toHaveLength(1);
     expect(names.filter((n) => /prefabricated quartz/i.test(n))).toHaveLength(1);
     expect(packages.length).toBeLessThanOrEqual(8);
-    expect(packages.find((p) => p.name === 'Cleanup, haul-off & disposal')?.price).toBe(1000);
+    expect(packages.find((p) => p.name === 'Cleanup, haul-off & disposal')?.price).toBeNull();
     expect(packages[packages.length - 1].name).toBe('Cleanup, haul-off & disposal');
   });
 

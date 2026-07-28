@@ -1,7 +1,7 @@
 import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
 import type { EstimateAiDraft, EstimateDraftScopePackage, ScopeMeasurements } from '@/utils/estimateAiDraft';
-import { getScopePackages } from '@/utils/estimateAiDraft';
-import { flattenChecklistDisplayOrder } from '@/utils/scopePackagesForReview';
+import { getScopePackages, getScopePackagesRaw } from '@/utils/estimateAiDraft';
+import { flattenChecklistDisplayOrder, confirmScopeDisplayItemsFromDraft } from '@/utils/scopePackagesForReview';
 import { scopePackagePricedAmount } from '@/utils/estimateDraftReviewUi';
 import { resolveScopePackageBudgetBreakdown } from '@/utils/scopeBudgetBreakdown';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
@@ -640,11 +640,10 @@ export function sumAppliedScopePricingFromDraft(
   draft: EstimateAiDraft | null | undefined
 ): ConfirmScopeAppliedPricingBreakdown | null {
   if (!draft) return null;
-  const items = draft.confirmedAssumptions?.length
-    ? draft.confirmedAssumptions
-    : draft.scopeChecklist?.items;
-  if (!items?.length) return null;
   if (!draft.scopeAssumptionsConfirmed && !draft.confirmedAssumptions?.length) return null;
+
+  const items = confirmScopeDisplayItemsFromDraft(draft);
+  if (!items.length) return null;
 
   const base = initialScopeMeasurementInputExtended(draft);
   const templateKey = draft.scopeChecklist?.templateKey;
@@ -688,6 +687,16 @@ function scopePackageInAppliedBreakdown(
   return split.material + split.labor + split.allowance > 0;
 }
 
+function isUserProvidedScopePackage(
+  pkg: Pick<EstimateDraftScopePackage, 'priceProvidedByUser' | 'status' | 'priceSource'>
+): boolean {
+  return Boolean(
+    pkg.priceProvidedByUser ||
+      pkg.status === 'user_provided' ||
+      pkg.priceSource === 'user_provided'
+  );
+}
+
 function bucketExtraScopePackageAmount(
   pkg: EstimateDraftScopePackage,
   draft: EstimateAiDraft,
@@ -706,6 +715,19 @@ function bucketExtraScopePackageAmount(
   return { material, labor, allowance };
 }
 
+function scopePackageOnChecklist(
+  pkg: Pick<EstimateDraftScopePackage, 'name' | 'scope' | 'checklistItemId'>,
+  items: ScopeChecklistItem[]
+): boolean {
+  const ruleKey =
+    pkg.checklistItemId ||
+    lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
+    null;
+  if (!ruleKey) return false;
+  const item = items.find((i) => i.id === ruleKey);
+  return Boolean(item && checklistItemInScope(item));
+}
+
 /**
  * Step 3 review totals — Confirm Scope applied pricing plus Ask AI revisions
  * (updated checklist rows and packages not on the Confirm Scope checklist).
@@ -716,10 +738,8 @@ export function sumStep3ReviewBudgetTotals(
   const applied = sumAppliedScopePricingFromDraft(draft);
   if (!draft || !applied || !(applied.total > 0)) return applied;
 
-  const items = draft.confirmedAssumptions?.length
-    ? draft.confirmedAssumptions
-    : draft.scopeChecklist?.items;
-  if (!items?.length) return applied;
+  const items = confirmScopeDisplayItemsFromDraft(draft);
+  if (!items.length) return applied;
 
   const base = initialScopeMeasurementInputExtended(draft);
   const templateKey = draft.scopeChecklist?.templateKey;
@@ -729,7 +749,7 @@ export function sumStep3ReviewBudgetTotals(
   );
 
   const extra = { material: 0, labor: 0, allowance: 0, total: 0 };
-  for (const pkg of getScopePackages(draft)) {
+  for (const pkg of getScopePackagesRaw(draft)) {
     const amount = scopePackagePricedAmount(pkg, draft);
     if (!(amount > 0)) continue;
 
@@ -738,25 +758,37 @@ export function sumStep3ReviewBudgetTotals(
       lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
       null;
 
-    let appliedAmount = 0;
-    if (
-      ruleKey &&
-      scopePackageInAppliedBreakdown(pkg, items, measurements, templateKey)
-    ) {
-      appliedAmount = resolveAppliedScopeMoneyTotal(
-        ruleKey,
+    const inAppliedBreakdown =
+      Boolean(ruleKey) &&
+      scopePackageInAppliedBreakdown(pkg, items, measurements, templateKey);
+
+    if (inAppliedBreakdown) {
+      const appliedAmount = resolveAppliedScopeMoneyTotal(
+        ruleKey!,
         measurements.itemQuantities,
-        measurements.pricingAcceptance?.[ruleKey]
+        measurements.pricingAcceptance?.[ruleKey!]
       );
+      const delta = amount - appliedAmount;
+      if (delta > 0.01) {
+        const buckets = bucketExtraScopePackageAmount(pkg, draft, delta);
+        extra.material += buckets.material;
+        extra.labor += buckets.labor;
+        extra.allowance += buckets.allowance;
+        extra.total += delta;
+      }
+      continue;
     }
 
-    const delta = amount - appliedAmount;
-    if (!(delta > 0.01)) continue;
-    const buckets = bucketExtraScopePackageAmount(pkg, draft, delta);
+    // Ask AI / Step 3 manual rows not on the Confirm Scope checklist (e.g. Disposal Bid).
+    // Do not add stale AI package prices for checklist rows that never got Applied pricing.
+    if (!isUserProvidedScopePackage(pkg)) continue;
+    if (scopePackageOnChecklist(pkg, items)) continue;
+
+    const buckets = bucketExtraScopePackageAmount(pkg, draft, amount);
     extra.material += buckets.material;
     extra.labor += buckets.labor;
     extra.allowance += buckets.allowance;
-    extra.total += delta;
+    extra.total += amount;
   }
 
   if (!(extra.total > 0)) return applied;

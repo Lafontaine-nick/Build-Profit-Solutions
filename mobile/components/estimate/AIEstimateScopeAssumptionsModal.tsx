@@ -75,6 +75,14 @@ import {
   WET_AREA_DERIVED_ITEM_IDS,
   scopeChecklistSummaryCounts,
 } from '@/utils/estimateScopeChecklistUi';
+import {
+  BATHROOM_TOILET_RELOCATE_FLOOR_OPTIONS,
+  isToiletRelocateSuggestedBlock,
+  resolveToiletRelocateQuantitySourceLabel,
+  toiletRelocateFloorTypeFromPricingRecord,
+  type BathroomToiletRelocateFloorType,
+} from '@/utils/bathroomFixtureChoicePricing';
+import ToiletRelocatePricingDetails from '@/components/estimate/ToiletRelocatePricingDetails';
 import { finalizeWetAreaInstallScopeFromMeasurements } from '@/utils/wetAreaInstallScopeGate';
 import {
   buildNormalizedScopeMeasurementsFromInput,
@@ -251,6 +259,7 @@ import {
   sumConfirmScopeAppliedPricingTotal,
   listConfirmScopeAppliedPricingLines,
 } from '@/utils/benchmarkReasonablenessContext';
+import { buildConfirmScopeDisplayItems } from '@/utils/scopePackagesForReview';
 import { mergeSuggestedPricingBlocksIntoMeasurements } from '@/utils/mergeSuggestedPricingBlocks';
 import {
   assertBenchmarkDoesNotOverwritePrimary,
@@ -623,6 +632,7 @@ function resolveFormulaTargetSuggestedPricing(params: {
   pricingContext?: ScopePricingContext | null;
   intelligence: ScopeItemIntelligence;
   suggested: ReturnType<typeof resolveScopeItemSuggestedPricing>;
+  choiceId?: string | null;
 }): ReturnType<typeof resolveScopeItemSuggestedPricing> {
   const formula = params.intelligence.formula;
   if (!formula || calculatedQuantityAlreadyActive(params.intelligence)) {
@@ -667,7 +677,8 @@ function resolveFormulaTargetSuggestedPricing(params: {
       dualLabor: undefined,
       dualAllowance: undefined,
     },
-    params.pricingContext
+    params.pricingContext,
+    params.choiceId
   );
 }
 
@@ -1253,6 +1264,15 @@ function SuggestedBudgetSplitRows({
         >
           {display.statusLine}
         </Text>
+      ) : null}
+
+      {isToiletRelocateSuggestedBlock(block.pricingRecordId) ? (
+        <ToiletRelocatePricingDetails
+          floorType={toiletRelocateFloorTypeFromPricingRecord(block.pricingRecordId)}
+          darkMode={darkMode}
+          captionColor={caption}
+          textColor={text}
+        />
       ) : null}
 
       {stageCoversLine ? (
@@ -2901,6 +2921,13 @@ function QuantitySection({
     resolved = overlayDualRatePricingDisplay(itemId, resolved, norm, originalNotes, templateKey);
   }
   if (!resolved.showInput && !resolved.pricingReady) return null;
+  const quantityRowSourceLabel = resolveToiletRelocateQuantitySourceLabel({
+    itemId,
+    choiceId,
+    floorType: measurementsInput.bathroomToiletRelocateFloorType,
+    floorTypeSource: measurementsInput.bathroomToiletRelocateFloorTypeSource,
+    defaultSourceLabel: resolved.sourceLabel,
+  });
   const inputShell = inputShellStyle(Colors, darkMode);
   const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8';
   const focusQuantityField = (targetItemId: string, field: 'count' | 'allowance' = 'count') => {
@@ -2988,7 +3015,8 @@ function QuantitySection({
             measurementsInput,
             templateKey,
             displayResolved,
-            pricingContext
+            pricingContext,
+            choiceId
           );
       let suggestedBudgetSplit = initialSuggested.fill;
       let suggestedComparisonSplit = initialSuggested.comparison;
@@ -3015,6 +3043,7 @@ function QuantitySection({
           pricingContext,
           intelligence,
           suggested: initialSuggested,
+          choiceId,
         });
         suggestedBudgetSplit = formulaSuggested.fill;
         suggestedComparisonSplit = formulaSuggested.comparison;
@@ -3167,7 +3196,7 @@ function QuantitySection({
                     displayResolved.dualCount.quantity,
                     fieldLabels?.countUnit || displayResolved.dualCount.unit
                   )}
-                  label={displayResolved.sourceLabel}
+                  label={quantityRowSourceLabel}
                   pill={displayResolved.quantitySource === 'notes' ? <SourcePill kind="notes" /> : undefined}
                   emphasized
                   darkMode={darkMode}
@@ -3282,7 +3311,8 @@ function QuantitySection({
             measurementsInput,
             templateKey,
             resolved,
-            pricingContext
+            pricingContext,
+            choiceId
           );
       const planningIntelligence = resolveScopeItemIntelligence({
         scopeKey: itemId,
@@ -3306,6 +3336,7 @@ function QuantitySection({
         pricingContext,
         intelligence: planningIntelligence,
         suggested: planningSuggested,
+        choiceId,
       });
       const planningFill = formulaPlanning.fill;
       const planningComparison = formulaPlanning.comparison;
@@ -3520,7 +3551,8 @@ function QuantitySection({
     measurementsInput,
     templateKey,
     resolved,
-    pricingContext
+    pricingContext,
+    choiceId
   );
   let suggestedBudgetSplit = initialSuggested.fill;
   let suggestedComparisonSplit = initialSuggested.comparison;
@@ -3546,6 +3578,7 @@ function QuantitySection({
     pricingContext,
     intelligence,
     suggested: initialSuggested,
+    choiceId,
   });
   suggestedBudgetSplit = formulaSuggested.fill;
   suggestedComparisonSplit = formulaSuggested.comparison;
@@ -3771,7 +3804,7 @@ function QuantitySection({
                   itemId
                 )}
                 pill={resolved.quantitySource === 'notes' ? <SourcePill kind="notes" /> : undefined}
-                label={resolved.sourceLabel}
+                label={quantityRowSourceLabel}
                 emphasized
                 darkMode={darkMode}
                 Colors={Colors}
@@ -4726,6 +4759,7 @@ function ChoiceRow({
   onRevertCalculatedQuantity,
   pricingEditorRequest,
   onPricingEditorRequestHandled,
+  onBathroomToiletRelocateFloorTypeChange,
   visualCtx,
   Colors,
   darkMode,
@@ -4736,6 +4770,9 @@ function ChoiceRow({
   templateKey?: string | null;
   originalNotes?: string | null;
   onSelect: (choiceId: string) => void;
+  onBathroomToiletRelocateFloorTypeChange?: (
+    floorType: BathroomToiletRelocateFloorType | null
+  ) => void;
   measurementsInput: ScopeMeasurementsInputExtended;
   onItemQuantityChange: (
     itemId: string,
@@ -4786,6 +4823,11 @@ function ChoiceRow({
   const helper = checklistDisplayHelper(item, templateKey);
   const tier = scopeItemVisualTier(item, visualCtx);
   const noteBadge = scopeItemNoteBadge(item, visualCtx);
+  const showToiletRelocateFloorPrompt =
+    item.id === 'toilet' &&
+    item.choiceId === 'relocating' &&
+    String(templateKey || '').toLowerCase() === 'bathroom';
+  const storedToiletRelocateFloor = measurementsInput.bathroomToiletRelocateFloorType ?? null;
 
   return (
     <View style={embedded ? styles.qmEmbeddedScopeBlock : scopeCardStyle(tier, Colors, darkMode)}>
@@ -4850,6 +4892,47 @@ function ChoiceRow({
           );
         })}
       </View>
+      {showToiletRelocateFloorPrompt ? (
+        <View style={{ marginTop: 10 }}>
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 8, lineHeight: 15 }}>
+            What type of floor is the toilet located on?
+          </Text>
+          <View style={styles.choiceWrap}>
+            {BATHROOM_TOILET_RELOCATE_FLOOR_OPTIONS.map((opt) => {
+              const active = storedToiletRelocateFloor === opt.id;
+              return (
+                <TouchableOpacity
+                  key={opt.id}
+                  activeOpacity={0.88}
+                  onPress={() => {
+                    hapticTap();
+                    const next = storedToiletRelocateFloor === opt.id ? null : opt.id;
+                    onBathroomToiletRelocateFloorTypeChange?.(next);
+                  }}
+                  style={[
+                    styles.choiceChipWide,
+                    {
+                      borderColor: active ? '#60a5fa' : darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                      backgroundColor: active ? 'rgba(96,165,250,0.18)' : darkMode ? 'rgba(255,255,255,0.04)' : 'transparent',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: active ? '#60a5fa' : captionColor(darkMode, Colors),
+                      fontSize: 12,
+                      fontWeight: active ? '800' : '600',
+                      textAlign: 'center',
+                    }}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
       <QuantitySection
         itemId={item.id}
         choiceId={item.choiceId}
@@ -7097,67 +7180,22 @@ export default function AIEstimateScopeAssumptionsModal({
     ]
   );
 
-  const displayItems = useMemo(() => {
-    let expanded = expandWetAreaDerivedScopeItems(items).map((row) =>
-      row.id === 'exterior' && row.label === 'Exterior finishes'
-        ? { ...row, label: 'Exterior Envelope' }
-        : row
-    );
-    if (String(checklist?.templateKey || '').toLowerCase() === 'bathroom') {
-      expanded = expandBathroomFixtureScopeDisplayItems(
-        expanded,
+  const displayItems = useMemo(
+    () =>
+      buildConfirmScopeDisplayItems(
+        items,
         measurements as Record<string, unknown>,
         checklist?.templateKey
-      );
-    }
-    if (String(checklist?.templateKey || '').toLowerCase() === 'ground_up') {
-      expanded = ensureGroundUpFlatworkScopeCard(expanded);
-      expanded = ensureGroundUpOpeningScopeCards(expanded);
-    }
-    if (!measurementSemanticsV1Enabled() || !benchmarkEngineV1Enabled()) return expanded;
-    if (expanded.some((row) => row.id === 'interior_finishes')) return expanded;
-    const finishChildIds = new Set([
-      'insulation',
-      'drywall',
-      'paint_trim',
-      'cabinets_counters',
-      'cabinets',
-      'countertops',
-      'tile_flooring',
-      'floor_tile',
-      'shower_tile',
-      'shower_floor_tile',
-      'appliances',
-    ]);
-    const hasFinishChild = expanded.some(
-      (row) => finishChildIds.has(row.id) && checklistItemInScope(row)
-    );
-    if (!hasFinishChild) return expanded;
-    const stageCard: ScopeChecklistItem = {
-      id: 'interior_finishes',
-      label: 'Interior Finishes',
-      helperText:
-        'Planning comparison only — price drywall, paint, cabinets, counters, and tile separately.',
-      state: 'excluded',
-      category: 'Finishes',
-    };
-    const drywallIdx = expanded.findIndex((row) => row.id === 'drywall');
-    if (drywallIdx >= 0) {
-      return [
-        ...expanded.slice(0, drywallIdx),
-        stageCard,
-        ...expanded.slice(drywallIdx),
-      ];
-    }
-    return [...expanded, stageCard];
-  }, [
-    items,
-    checklist?.templateKey,
-    measurements.bathroomInstallVanityCount,
-    measurements.bathroomInstallCounterCount,
-    measurements.bathroomDemoVanityCount,
-    measurements.bathroomDemoCounterCount,
-  ]);
+      ),
+    [
+      items,
+      checklist?.templateKey,
+      measurements.bathroomInstallVanityCount,
+      measurements.bathroomInstallCounterCount,
+      measurements.bathroomDemoVanityCount,
+      measurements.bathroomDemoCounterCount,
+    ]
+  );
 
   /** Applied Confirm Scope dollars — same list as scope cards (flatwork / openings / wet-area). */
   const step2AppliedPricingBreakdown = useMemo(
@@ -7653,6 +7691,22 @@ export default function AIEstimateScopeAssumptionsModal({
     []
   );
 
+  const handleBathroomToiletRelocateFloorTypeChange = useCallback(
+    (floorType: BathroomToiletRelocateFloorType | null) => {
+      setMeasurementsSynced((prev) => {
+        const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+        delete pricingAcceptance.toilet;
+        return {
+          ...prev,
+          bathroomToiletRelocateFloorType: floorType,
+          bathroomToiletRelocateFloorTypeSource: floorType ? 'user_selected' : null,
+          pricingAcceptance,
+        };
+      });
+    },
+    []
+  );
+
   const visualCtx = useMemo<ScopeItemVisualContext>(
     () => ({
       notes: scopeNotes,
@@ -7856,7 +7910,8 @@ export default function AIEstimateScopeAssumptionsModal({
         measurements,
         checklist?.templateKey,
         resolved,
-        pricingContext
+        pricingContext,
+        item.choiceId
       );
       const intelligence = resolveScopeItemIntelligence({
         scopeKey: item.id,
@@ -7880,6 +7935,7 @@ export default function AIEstimateScopeAssumptionsModal({
         pricingContext,
         intelligence,
         suggested: initialSuggested,
+        choiceId: item.choiceId,
       });
       // Applyable fills only — never included-in-stage or comparison-only cards.
       if (
@@ -9130,7 +9186,15 @@ export default function AIEstimateScopeAssumptionsModal({
               bathroomVanityCountertopMaterialType: nextChoiceId,
             }));
           }
+          if (item.id === 'toilet' && nextChoiceId !== 'relocating') {
+            setMeasurementsSynced((m) => ({
+              ...m,
+              bathroomToiletRelocateFloorType: null,
+              bathroomToiletRelocateFloorTypeSource: null,
+            }));
+          }
         }}
+        onBathroomToiletRelocateFloorTypeChange={handleBathroomToiletRelocateFloorTypeChange}
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
         onBatchItemQuantityChange={handleBatchItemQuantityChange}

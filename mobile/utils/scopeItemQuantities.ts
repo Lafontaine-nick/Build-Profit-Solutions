@@ -41,6 +41,7 @@ import {
   resolveBathroomVanityCountertopSuggestedPricing,
 } from '@/utils/bathroomVanityCountertopPricing';
 import { resolveBathroomWetAreaDemoSuggestedPricing } from '@/utils/bathroomWetAreaDemoPricing';
+import { resolveBathroomFixtureChoiceSuggestedPricing } from '@/utils/bathroomFixtureChoicePricing';
 import { resolveExteriorFlatworkLumpSuggestedFill } from '@/utils/exteriorFlatworkPricing';
 import { resolveGroundUpFinishPackageLump } from '@/utils/groundUpFinishPackages';
 import {
@@ -5848,11 +5849,22 @@ export function resolveScopeItemSuggestedPricing(
     ResolvedItemQuantity,
     'quantity' | 'unit' | 'quantitySource' | 'dualCount' | 'dualMaterial' | 'dualLabor' | 'dualAllowance'
   >,
-  pricingContext?: ScopePricingContext | null
+  pricingContext?: ScopePricingContext | null,
+  choiceId?: string | null
 ): ScopeItemSuggestedPricing {
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule) return empty;
+
+  const fixtureChoicePricing = resolveBathroomFixtureChoiceSuggestedPricing({
+    itemId,
+    templateKey,
+    choiceId,
+    quantity: resolved.quantity,
+    unit: resolved.unit,
+    toiletRelocateFloorType: measurementsInput.bathroomToiletRelocateFloorType,
+  });
+  if (fixtureChoicePricing !== undefined) return fixtureChoicePricing;
 
   if (rule.splitTotalOnly) {
     const splitOnly = buildSplitTotalOnlySuggestedFill(itemId, pricingContext);
@@ -7742,6 +7754,11 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   },
   { test: /\btile\s+install(?:ation)?\b/i, key: 'floor_tile' },
   { test: /\bvanity\b/i, key: 'vanity' },
+  // Fixture trim-out labels mention "toilet" as scope — must not map to the toilet choice card.
+  {
+    test: /\bplumbing\s+fixtures?\b|\bplumb(?:ing)?\s+fixtures?\s+&\s*trim|\bfixture\s+hookups?\b/i,
+    key: 'plumbing_trim',
+  },
   { test: /\btoilet\b/i, key: 'toilet' },
   // Framing hardware before framing $/sqft.
   {
@@ -8243,6 +8260,18 @@ export function scopeMeasurementsToPayload(
       sanitized.bathroomVanityCountertopMaterialType.trim()
         ? sanitized.bathroomVanityCountertopMaterialType.trim()
         : null,
+    bathroomToiletRelocateFloorType:
+      sanitized.bathroomToiletRelocateFloorType === 'open_wood_framed' ||
+      sanitized.bathroomToiletRelocateFloorType === 'finished_wood_framed' ||
+      sanitized.bathroomToiletRelocateFloorType === 'concrete_slab' ||
+      sanitized.bathroomToiletRelocateFloorType === 'unsure'
+        ? sanitized.bathroomToiletRelocateFloorType
+        : null,
+    bathroomToiletRelocateFloorTypeSource:
+      sanitized.bathroomToiletRelocateFloorTypeSource === 'user_selected' ||
+      sanitized.bathroomToiletRelocateFloorTypeSource === 'ai_inferred'
+        ? sanitized.bathroomToiletRelocateFloorTypeSource
+        : null,
     demoTubCount:
       sanitized.demoTubCount != null && Number(sanitized.demoTubCount) > 0
         ? Math.round(Number(sanitized.demoTubCount))
@@ -8538,6 +8567,18 @@ export function scopeMeasurementsInputFromPayload(
       payload.bathroomVanityCountertopMaterialType.trim()
         ? payload.bathroomVanityCountertopMaterialType.trim()
         : null,
+    bathroomToiletRelocateFloorType:
+      payload.bathroomToiletRelocateFloorType === 'open_wood_framed' ||
+      payload.bathroomToiletRelocateFloorType === 'finished_wood_framed' ||
+      payload.bathroomToiletRelocateFloorType === 'concrete_slab' ||
+      payload.bathroomToiletRelocateFloorType === 'unsure'
+        ? payload.bathroomToiletRelocateFloorType
+        : null,
+    bathroomToiletRelocateFloorTypeSource:
+      payload.bathroomToiletRelocateFloorTypeSource === 'user_selected' ||
+      payload.bathroomToiletRelocateFloorTypeSource === 'ai_inferred'
+        ? payload.bathroomToiletRelocateFloorTypeSource
+        : null,
     demoTubCount:
       payload.demoTubCount != null && Number(payload.demoTubCount) > 0
         ? Math.round(Number(payload.demoTubCount))
@@ -8738,6 +8779,10 @@ export type ScopeMeasurementsInputExtended = ReturnType<typeof emptyQuickMeasure
   appliedBenchmarkKeys?: string[];
   /** Bathroom vanity countertop pricing profile (custom vs prefab). */
   bathroomVanityCountertopMaterialType?: string | null;
+  /** Bathroom toilet relocate floor type (open/finished wood, slab, unsure). */
+  bathroomToiletRelocateFloorType?: string | null;
+  /** Whether toilet relocate floor type was user-selected or AI-inferred. */
+  bathroomToiletRelocateFloorTypeSource?: 'user_selected' | 'ai_inferred' | null;
   quickMeasurementSources?: import('@/utils/quickMeasurementProvenance').QuickMeasurementSourceMap;
   quickMeasurementUserOverrides?: import('@/utils/quickMeasurementProvenance').QuickMeasurementOverrideMap;
   planFacts?: import('@/utils/planMeasurementFacts').PlanFacts;
@@ -8986,6 +9031,14 @@ export function initialScopeMeasurementInputExtended(
     bathroomVanityCountertopMaterialType:
       saved?.bathroomVanityCountertopMaterialType ??
       suggested?.bathroomVanityCountertopMaterialType ??
+      null,
+    bathroomToiletRelocateFloorType:
+      saved?.bathroomToiletRelocateFloorType ??
+      suggested?.bathroomToiletRelocateFloorType ??
+      null,
+    bathroomToiletRelocateFloorTypeSource:
+      saved?.bathroomToiletRelocateFloorTypeSource ??
+      suggested?.bathroomToiletRelocateFloorTypeSource ??
       null,
     demoTubCount: saved?.demoTubCount ?? suggested?.demoTubCount ?? null,
     demoTileWallCount: saved?.demoTileWallCount ?? suggested?.demoTileWallCount ?? null,

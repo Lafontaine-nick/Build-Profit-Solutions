@@ -456,6 +456,72 @@ describe('benchmarkReasonablenessContext', () => {
     expect(totals?.total).toBe(508000);
   });
 
+  it('sumStep3ReviewBudgetTotals does not double-count stale AI packages without Applied pricing', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'toilet',
+        label: 'Toilet',
+        inputType: 'choice',
+        state: 'included',
+        choiceId: 'relocating',
+      },
+      {
+        id: 'plumbing_trim',
+        label: 'Plumbing fixtures (faucets, toilet, hookups)',
+        inputType: 'yes_no',
+        state: 'included',
+      },
+      { id: 'cleanup', label: 'Cleanup & disposal', inputType: 'yes_no', state: 'included' },
+    ];
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: { templateKey: 'bathroom', items },
+      confirmedAssumptions: items,
+      scopePackages: [
+        {
+          name: 'Plumbing fixtures (faucets, toilet, hookups)',
+          scope: 'Trim-out',
+          checklistItemId: 'plumbing_trim',
+          price: 900,
+          knownSubtotal: 900,
+          status: 'ai_suggested',
+          priceSource: 'national_trade_average',
+        },
+        {
+          name: 'Cleanup, haul-off & disposal',
+          scope: 'Final clean',
+          checklistItemId: 'cleanup',
+          price: 1000,
+          knownSubtotal: 1000,
+          status: 'user_provided',
+        },
+      ],
+      scopeMeasurements: {
+        itemQuantities: {
+          toilet: { quantity: '1', unit: 'each', quantitySource: 'user_entered' },
+          toilet__material: { quantity: '500', unit: 'allowance', quantitySource: 'user_entered' },
+          toilet__labor: { quantity: '1600', unit: 'allowance', quantitySource: 'user_entered' },
+          cleanup: { quantity: '1000', unit: 'allowance', quantitySource: 'user_entered' },
+          cleanup__allowance: { quantity: '1000', unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: {
+          toilet: { status: 'accepted', totalAmount: 2100, materialAmount: 500, laborAmount: 1600 },
+          cleanup: { status: 'accepted', totalAmount: 1000 },
+        },
+      },
+    } as never;
+
+    const applied = sumConfirmScopeAppliedPricingBreakdown({
+      items,
+      measurements: draft.scopeMeasurements,
+      templateKey: 'bathroom',
+    });
+    expect(applied.total).toBe(3100);
+
+    const totals = sumStep3ReviewBudgetTotals(draft);
+    expect(totals?.total).toBe(3100);
+  });
+
   it('computeAppliedBuildCostPerLivingSf rounds whole dollars like benchmark engine', () => {
     expect(computeAppliedBuildCostPerLivingSf(546626.47, 3098)).toBe(176);
     expect(computeAppliedBuildCostPerLivingSf(0, 3098)).toBeNull();

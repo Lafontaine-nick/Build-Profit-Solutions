@@ -255,6 +255,10 @@ export type ScopeMeasurements = {
   bathroomDemoCounterCount?: number | null;
   /** Bathroom vanity countertop material profile for national-average pricing. */
   bathroomVanityCountertopMaterialType?: string | null;
+  /** Bathroom toilet relocate — floor construction type for conditional pricing. */
+  bathroomToiletRelocateFloorType?: string | null;
+  /** Whether toilet relocate floor type was user-selected or AI-inferred. */
+  bathroomToiletRelocateFloorTypeSource?: 'user_selected' | 'ai_inferred' | null;
   /** Demo tear-out selections derived from existing + install (QM). */
   demoTubCount?: number | null;
   demoTileWallCount?: number | null;
@@ -1873,11 +1877,9 @@ function selectedPricingForScopeName(
   // Prefer Confirm Scope checklist id when packages already carry it — name regex
   // has repeatedly mapped Electrical fixtures → electrical_rough, etc.
   if (checklistItemId) {
-    const byId = selectedPricingForRuleKey(draft, checklistItemId);
-    if (byId) return byId;
+    return selectedPricingForRuleKey(draft, checklistItemId);
   }
   for (const ruleKey of ruleKeysToTryForPackage(name, scope)) {
-    if (checklistItemId && ruleKey === checklistItemId) continue;
     const selected = selectedPricingForRuleKey(draft, ruleKey);
     if (selected) return selected;
   }
@@ -1943,6 +1945,7 @@ function isAutoCalculatedUnconfirmedPackage(
   if (pkg.priceProvidedByUser || pkg.status === 'user_provided' || pkg.priceSource === 'user_provided') {
     return false;
   }
+  if (pkg.status === 'confirmed') return false;
   if (
     ruleKey &&
     hasAcceptedScopePricing(
@@ -1953,15 +1956,8 @@ function isAutoCalculatedUnconfirmedPackage(
   ) {
     return false;
   }
-  return (
-    pkg.status === 'calculated' ||
-    pkg.status === 'rough_price' ||
-    pkg.status === 'ai_suggested' ||
-    pkg.priceSource === 'notes' ||
-    pkg.pricedFromSqftAllowances === true ||
-    pkg.priceSource === 'national_trade_average' ||
-    pkg.priceSource === 'national_high_side_planning'
-  );
+  // Strip backend/AI row prices that never got Applied on Confirm Scope.
+  return true;
 }
 
 /** Drop takeoff/backend prices that never got Applied on Confirm Scope. */

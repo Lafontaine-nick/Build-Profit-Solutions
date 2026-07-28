@@ -15,8 +15,12 @@ import {
   scopePackageNeedsManualPrice,
   scopePackagePricedAmount,
 } from '@/utils/estimateDraftReviewUi';
-import { sumStep3ReviewBudgetTotals } from '@/utils/benchmarkReasonablenessContext';
+import {
+  sumAppliedScopePricingFromDraft,
+  sumStep3ReviewBudgetTotals,
+} from '@/utils/benchmarkReasonablenessContext';
 import { buildAcceptanceFromSuggestedBlock } from '@/utils/acceptedPricingSummaryUi';
+import { resolveAppliedConfirmScopePackageAmount } from '@/utils/appliedScopePackagePricing';
 
 /** AI draft package labels from bathroom remodel Step 3 review. */
 const BATHROOM_PACKAGES = [
@@ -142,21 +146,75 @@ describe('bathroom Step 2 → Step 3 package label mapping', () => {
     expect(lookupRuleKeyForPackage('Remove existing vanity cabinet')).toBe('vanity_demo');
     expect(lookupRuleKeyForPackage('Plumbing (Bathroom)')).toBe('plumbing_rough');
     expect(lookupRuleKeyForPackage('Shower Waterproofing & Backer Board')).toBe('waterproofing');
+    expect(lookupRuleKeyForPackage('Plumbing fixtures (faucets, toilet, hookups)')).toBe(
+      'plumbing_trim'
+    );
+  });
+
+  it('plumbing_trim Step 3 row does not inherit toilet Applied pricing', () => {
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: { templateKey: 'bathroom' },
+      confirmedAssumptions: [
+        {
+          id: 'toilet',
+          label: 'Toilet',
+          inputType: 'choice',
+          state: 'included',
+          choiceId: 'replacing',
+        },
+        {
+          id: 'plumbing_trim',
+          label: 'Plumbing fixtures (faucets, toilet, hookups)',
+          inputType: 'yes_no',
+          state: 'included',
+        },
+      ],
+      scopePackages: [
+        {
+          name: 'Plumbing fixtures (faucets, toilet, hookups)',
+          scope: 'Trim-out',
+          checklistItemId: 'plumbing_trim',
+          price: 900,
+          knownSubtotal: 900,
+          status: 'missing_price',
+        },
+      ],
+      scopeMeasurements: {
+        itemQuantities: {
+          toilet: { quantity: '1', unit: 'each', quantitySource: 'user_entered' },
+          toilet__material: { quantity: '200', unit: 'allowance', quantitySource: 'user_entered' },
+          toilet__labor: { quantity: '700', unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: {
+          toilet: { status: 'accepted', totalAmount: 900, materialAmount: 200, laborAmount: 700 },
+        },
+      },
+    } as unknown as EstimateAiDraft;
+
+    const pkg = draft.scopePackages![0];
+    expect(resolveAppliedConfirmScopePackageAmount(pkg, draft)).toBe(0);
+    expect(scopePackagePricedAmount(pkg, draft)).toBe(0);
   });
 });
 
 describe('bathroom Step 2 → Step 3 pricing sync (review rows)', () => {
+  const byChecklistId = (
+    packages: ReturnType<typeof getScopePackages>,
+    id: string
+  ) => packages.find((p) => p.checklistItemId === id || p.costCode === id)!;
+
   it('shows applied Confirm Scope prices on Step 3 rows, not Add price', () => {
     const draft = bathroomDraftWithAppliedPricing();
     const packages = getScopePackages(draft);
 
-    const demo = packages.find((p) => p.name === 'Bathroom Demo')!;
-    const showerTile = packages.find((p) => p.name === 'Shower Tile Installation')!;
-    const floorTile = packages.find((p) => p.name === 'Tile Installation')!;
-    const waterproofing = packages.find((p) => p.name === 'Shower Waterproofing & Backer Board')!;
-    const glass = packages.find((p) => p.name === 'Glass Shower Door Install')!;
-    const paint = packages.find((p) => p.name === 'Interior Painting')!;
-    const cleanup = packages.find((p) => p.name === 'Cleanup, Haul-off & Disposal')!;
+    const demo = byChecklistId(packages, 'demo');
+    const showerTile = byChecklistId(packages, 'shower_tile');
+    const floorTile = byChecklistId(packages, 'floor_tile');
+    const waterproofing = byChecklistId(packages, 'waterproofing');
+    const glass = byChecklistId(packages, 'glass_door');
+    const paint = byChecklistId(packages, 'interior_paint');
+    const cleanup = byChecklistId(packages, 'cleanup');
 
     expect(scopePackagePricedAmount(demo, draft)).toBe(522.5);
     expect(scopePackageNeedsManualPrice(demo, draft)).toBe(false);
@@ -173,20 +231,26 @@ describe('bathroom Step 2 → Step 3 pricing sync (review rows)', () => {
     expect(scopePackagePricedAmount(paint, draft)).toBe(167.5);
     expect(scopePackagePricedAmount(cleanup, draft)).toBe(1000);
 
-    const tileRemoval = packages.find((p) => p.name === 'Tile Removal')!;
+    const tileRemoval = byChecklistId(packages, 'floor_demo');
     expect(scopePackagePricedAmount(tileRemoval, draft)).toBe(660);
     expect(scopePackageNeedsManualPrice(tileRemoval, draft)).toBe(false);
   });
 
-  it('hero total aligns with priced scope rows', () => {
+  it('hero total matches Confirm Scope applied pricing (Step 2 footer)', () => {
     const draft = bathroomDraftWithAppliedPricing();
     const hero = sumStep3ReviewBudgetTotals(draft);
+    const applied = sumAppliedScopePricingFromDraft(draft);
+    expect(hero?.total).toBe(applied?.total);
     expect(hero?.total).toBeGreaterThan(0);
+  });
 
+  it('Step 3 row amounts sum to the same total as Step 2 Applied pricing', () => {
+    const draft = bathroomDraftWithAppliedPricing();
+    const applied = sumAppliedScopePricingFromDraft(draft);
     const rowSum = getScopePackages(draft).reduce(
       (sum, pkg) => sum + scopePackagePricedAmount(pkg, draft),
       0
     );
-    expect(rowSum).toBeGreaterThanOrEqual(hero!.total - 1);
+    expect(rowSum).toBeCloseTo(applied!.total, 2);
   });
 });

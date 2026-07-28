@@ -6,6 +6,13 @@
 import { formatDraftMoney } from '@/utils/estimateAiDraft';
 import { formatUnitLabel, type SuggestedPricingBlock } from '@/utils/scopeItemQuantities';
 import { BATHROOM_VANITY_COUNTERTOP_VIEW_DETAILS } from '@/utils/bathroomVanityCountertopPricing';
+import {
+  buildToiletRelocatePricingDetails,
+  isToiletRelocateSuggestedBlock,
+  toiletRelocateFloorTypeFromPricingRecord,
+  TOILET_RELOCATE_UNSURE_STATUS,
+  TOILET_RELOCATE_PRICING_DISCLAIMER,
+} from '@/utils/bathroomFixtureChoicePricing';
 
 export function minimumProjectNoteForSuggestedBlock(block: SuggestedPricingBlock): string | null {
   if (/small-project minimum applied/i.test(String(block.helper || ''))) {
@@ -487,6 +494,10 @@ export function buildSuggestedPricingCardDisplay(input: {
   forceCompact?: boolean;
 }): SuggestedPricingCardDisplay {
   const { block, itemId } = input;
+  const toiletRelocate = isToiletRelocateSuggestedBlock(block.pricingRecordId);
+  const toiletFloorType = toiletRelocate
+    ? toiletRelocateFloorTypeFromPricingRecord(block.pricingRecordId)
+    : null;
   const isAdjusted = Boolean(input.adjusted || block.rateSourceLabel.startsWith('Adjusted · '));
   const quantitySource = normalizeQuantitySource(input.quantitySource);
   const isFallbackPricing = isLivingAreaFallbackPricing({
@@ -576,6 +587,17 @@ export function buildSuggestedPricingCardDisplay(input: {
     } else {
       statusLine = 'Planning allowance';
     }
+  } else if (toiletRelocate && toiletFloorType) {
+    const details = buildToiletRelocatePricingDetails(toiletFloorType);
+    allowanceExtraNote = details.planningRangeLabel;
+    if (toiletFloorType === 'unsure') {
+      statusTone = 'amber';
+      statusLine = TOILET_RELOCATE_UNSURE_STATUS;
+      pricingStatus = 'review_required';
+    } else if (block.splitConfidence === 'medium') {
+      statusTone = 'neutral';
+      statusLine = 'National average';
+    }
   } else if (isFallbackPricing) {
     statusTone = 'amber';
     // One amber ask — title/hint stacks were duplicating this on Windows etc.
@@ -628,6 +650,7 @@ export function buildSuggestedPricingCardDisplay(input: {
   if (fallbackBasisLine) whyThisPriceLines.push(fallbackBasisLine);
   if (pricingSource) whyThisPriceLines.push(pricingSource);
   if (allowanceExtraNote) whyThisPriceLines.push(allowanceExtraNote);
+  if (toiletRelocate) whyThisPriceLines.push(TOILET_RELOCATE_PRICING_DISCLAIMER);
   if (
     itemId === 'countertops' &&
     block.benchmarkScopeProfile?.audit?.rootCause === BATHROOM_VANITY_COUNTERTOP_VIEW_DETAILS
