@@ -259,6 +259,52 @@ export type ScopeMeasurements = {
   bathroomToiletRelocateFloorType?: string | null;
   /** Whether toilet relocate floor type was user-selected or AI-inferred. */
   bathroomToiletRelocateFloorTypeSource?: 'user_selected' | 'ai_inferred' | null;
+  /** Bathroom shower/tub rough-in — wall & floor access for valve, head, and drain lines. */
+  bathroomShowerRoughAccessType?: string | null;
+  /** Whether shower rough-in access was user-selected or AI-inferred. */
+  bathroomShowerRoughAccessTypeSource?: 'user_selected' | 'ai_inferred' | null;
+  /** In-place stub-out vs relocating shower/tub valve, head, or drain lines. */
+  bathroomShowerRoughWorkType?: string | null;
+  /** Whether shower rough-in work type was user-selected or AI-inferred. */
+  bathroomShowerRoughWorkTypeSource?: 'user_selected' | 'ai_inferred' | null;
+  /** Shower, bathtub, or tub/shower combination being roughed in. */
+  bathroomShowerRoughFixtureType?: string | null;
+  bathroomShowerRoughFixtureTypeSource?: 'user_selected' | 'ai_inferred' | null;
+  /** Remodel demolition exposes plumbing vs separate access required. */
+  bathroomShowerRoughPlumbingExposed?: string | null;
+  bathroomShowerRoughPlumbingExposedSource?: 'user_selected' | 'demo_detected' | 'ai_inferred' | null;
+  /** @deprecated Migrated to bathroomShowerRoughPlumbingExposed. */
+  bathroomShowerRoughWallAccess?: string | null;
+  /** @deprecated Migrated to bathroomShowerRoughPlumbingExposedSource. */
+  bathroomShowerRoughWallAccessSource?: 'user_selected' | 'ai_inferred' | null;
+  /** Wood-framed floor vs concrete slab. */
+  bathroomShowerRoughFloorConstruction?: string | null;
+  bathroomShowerRoughFloorConstructionSource?: 'user_selected' | 'ai_inferred' | null;
+  /** Same-location slab — is cutting or below-slab drain work required? */
+  bathroomShowerRoughSlabWorkRequired?: string | null;
+  bathroomShowerRoughSlabWorkRequiredSource?: 'user_selected' | 'ai_inferred' | null;
+  /** Localized prime/paint scope after bath drywall repair. */
+  bathroomPaintRepairScope?: string | null;
+  bathroomPaintRepairScopeSource?: 'user_selected' | 'ai_inferred' | null;
+  /** Also repaint full room — price on Interior painting (can combine with localized repair scope). */
+  bathroomPaintRepairEntireRoom?: boolean | null;
+  bathroomPaintRepairEntireRoomSource?: 'user_selected' | 'ai_inferred' | null;
+  /** Wall/ceiling paintable SF for entire-room add-on on paint_repair. */
+  bathroomPaintRepairEntireRoomSqft?: string | number | null;
+  bathroomPaintRepairEntireRoomSqftSource?: 'user_selected' | 'ai_inferred' | null;
+  /** One-line combined drywall + texture + prime + paint assembly. */
+  bathroomDrywallPaintUseCombinedAssembly?: boolean | null;
+  bathroomDrywallPaintUseCombinedAssemblySource?: 'user_selected' | 'ai_inferred' | null;
+  /** Interior paint mobilization — bundled vs standalone minimum. */
+  bathroomInteriorPaintMobilization?: string | null;
+  bathroomInteriorPaintMobilizationSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomInteriorPaintSurface?: string | null;
+  bathroomInteriorPaintSurfaceSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomInteriorPaintCondition?: string | null;
+  bathroomInteriorPaintConditionSource?: 'user_selected' | 'ai_inferred' | null;
+  /** Shower door style tier — standard slider vs premium frameless. */
+  bathroomGlassDoorStyle?: string | null;
+  bathroomGlassDoorStyleSource?: 'user_selected' | 'ai_inferred' | null;
   /** Demo tear-out selections derived from existing + install (QM). */
   demoTubCount?: number | null;
   demoTileWallCount?: number | null;

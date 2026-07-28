@@ -182,7 +182,7 @@ const YES_NO_LABEL_OVERRIDES: Record<string, { label: string; helperText?: strin
   glass_door: {
     label: 'Shower doors',
     helperText:
-      'Glass shower door / enclosure — material and install. Towel bars/accessories separate.',
+      'Glass shower door / enclosure — material and install. Choose standard slider or premium frameless. Mirror and accessories are separate.',
   },
   shower_bench: {
     label: 'Shower bench',
@@ -1143,6 +1143,72 @@ export function ensureBathroomChecklistItems(
   return [...items, ...additions];
 }
 
+/** Inject localized paint-repair row for bathroom remodels (single card for patch + paint). */
+export function ensureBathroomPaintRepairItem(
+  items: ScopeChecklistItem[],
+  templateKey?: string | null
+): ScopeChecklistItem[] {
+  if (String(templateKey || '').toLowerCase() !== 'bathroom') return items;
+  if (items.some((row) => row.id === 'paint_repair')) return items;
+  const paintRepair: ScopeChecklistItem = {
+    id: 'paint_repair',
+    inputType: 'yes_no',
+    label: BATHROOM_CHECKLIST_LABEL_OVERRIDES.paint_repair,
+    helperText: BATHROOM_CHECKLIST_HELPER_OVERRIDES.paint_repair,
+    category: 'trades',
+    state: 'unsure',
+  };
+  const tradesIdx = items.findIndex((row) =>
+    ['floor_prep', 'plumbing_rough', 'electrical_rough', 'trim'].includes(row.id)
+  );
+  if (tradesIdx >= 0) {
+    return [...items.slice(0, tradesIdx + 1), paintRepair, ...items.slice(tradesIdx + 1)];
+  }
+  return [...items, paintRepair];
+}
+
+/** Hide the legacy drywall patch card — patch SF and pricing live on paint_repair. */
+export function suppressBathroomDrywallChecklistItems(
+  items: ScopeChecklistItem[],
+  templateKey?: string | null
+): ScopeChecklistItem[] {
+  if (String(templateKey || '').toLowerCase() !== 'bathroom') return items;
+  const legacyDrywall = items.find(
+    (row) =>
+      (row.id === 'drywall' || row.id === 'patch_repair') &&
+      (row.state === 'included' || row.state === 'unsure')
+  );
+  let next = items;
+  if (legacyDrywall) {
+    next = next.map((row) => {
+      if (row.id !== 'paint_repair' || row.state !== 'excluded') return row;
+      return { ...row, state: legacyDrywall.state === 'included' ? ('included' as const) : ('unsure' as const) };
+    });
+  }
+  return next.filter((row) => row.id !== 'drywall' && row.id !== 'patch_repair');
+}
+
+/** Hide interior paint rows — full-room and repair-area paint live on paint_repair. */
+export function suppressBathroomInteriorPaintChecklistItems(
+  items: ScopeChecklistItem[],
+  templateKey?: string | null
+): ScopeChecklistItem[] {
+  if (String(templateKey || '').toLowerCase() !== 'bathroom') return items;
+  const legacyPaint = items.find(
+    (row) =>
+      (row.id === 'interior_paint' || row.id === 'paint') &&
+      (row.state === 'included' || row.state === 'unsure')
+  );
+  let next = items;
+  if (legacyPaint) {
+    next = next.map((row) => {
+      if (row.id !== 'paint_repair' || row.state !== 'excluded') return row;
+      return { ...row, state: legacyPaint.state === 'included' ? ('included' as const) : ('unsure' as const) };
+    });
+  }
+  return next.filter((row) => row.id !== 'interior_paint' && row.id !== 'paint');
+}
+
 function shouldSuppressGenericDemo(
   item: ScopeChecklistItem,
   templateKey?: string | null,
@@ -1166,20 +1232,35 @@ export function hydrateScopeChecklistFromNotes(
   const scopedItems = items.filter((item) => !shouldSuppressGenericDemo(item, templateKey, measurements));
   const withNoteBacked = injectNoteBackedPricedItems(scopedItems, measurements, templateKey);
   const withBathroomDefaults = ensureBathroomChecklistItems(withNoteBacked, templateKey);
-  const normalized = normalizeScopeChecklistItems(withBathroomDefaults, templateKey, { notes, measurements });
+  const withPaintRepair = ensureBathroomPaintRepairItem(withBathroomDefaults, templateKey);
+  const withoutLegacyDrywall = suppressBathroomDrywallChecklistItems(withPaintRepair, templateKey);
+  const normalized = normalizeScopeChecklistItems(withoutLegacyDrywall, templateKey, { notes, measurements });
   // Notes may flip drywall/paint/tile to Yes after structural migrate — re-promote children.
   const inferred = applyScopeInferencesFromNotes(normalized, notes, templateKey, measurements);
-  return suppressBathroomFalsePositiveFloorDemoScope(
-    applyGroundUpStageHostDemotions(inferred, templateKey),
-    templateKey,
-    notes,
-    measurements
+  return suppressBathroomInteriorPaintChecklistItems(
+    suppressBathroomFalsePositiveFloorDemoScope(
+      applyGroundUpStageHostDemotions(inferred, templateKey),
+      templateKey,
+      notes,
+      measurements
+    ),
+    templateKey
   );
 }
 
 /** Strip UI-only derived lines before saving scope back to the draft. */
 export function scopeChecklistItemsForPersist(items: ScopeChecklistItem[]): ScopeChecklistItem[] {
-  return items.filter((i) => !i.derivedFrom && !WET_AREA_DERIVED_ITEM_IDS.has(i.id));
+  const base = items.filter((i) => !i.derivedFrom && !WET_AREA_DERIVED_ITEM_IDS.has(i.id));
+  if (base.some((i) => i.id === 'paint_repair')) {
+    return base.filter(
+      (i) =>
+        i.id !== 'drywall' &&
+        i.id !== 'patch_repair' &&
+        i.id !== 'interior_paint' &&
+        i.id !== 'paint'
+    );
+  }
+  return base;
 }
 
 /** Restore Confirm Scope form from saved assumptions or the original checklist. */
@@ -1470,9 +1551,11 @@ export function syncInteriorPaintScopeItems(
   params: { wallPaintSqft?: string | number | null }
 ): ScopeChecklistItem[] {
   if (!positiveSqft(params.wallPaintSqft)) return items;
+  const bathroomPaintRepair = items.some((row) => row.id === 'paint_repair');
+  const targetIds = bathroomPaintRepair ? new Set(['paint_repair']) : INTERIOR_PAINT_SCOPE_IDS;
   let changed = false;
   const next = items.map((row) => {
-    if (INTERIOR_PAINT_SCOPE_IDS.has(row.id) && row.state !== 'included') {
+    if (targetIds.has(row.id) && row.state !== 'included') {
       changed = true;
       return { ...row, state: 'included' as const };
     }
@@ -1567,6 +1650,26 @@ export const KITCHEN_CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
 export const BATHROOM_CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   demo: 'Remove shower wall tile, shower base or pan (tile or prefab), and tub when present — bath floor demo is a separate line.',
   floor_demo: 'Remove bathroom floor tile, LVP, or vinyl — often includes thinset grind (separate from shower).',
+  plumbing_trim:
+    'Trim-out hookups only — lav faucet and shower/tub valve connections. Toilet and vanity installs are separate lines when selected above.',
+  plumbing_rough:
+    'Shower and tub rough-in — valve, head supply (in wall), and floor drain. Pick fixture type, same-location vs relocated, whether remodel demolition exposes the plumbing, and floor construction. Toilet rough-in is on Toilet; lav/sink rough-in is on Vanity.',
+  drywall:
+    'Legacy — use Interior painting/patch and repair for bathroom paint scope.',
+  paint_repair:
+    'Enter patch SF or room wall/ceiling SF, pick paint scope below, then apply pricing.',
+  interior_paint:
+    'Wall and ceiling surface area — not room floor SF. Standalone small scopes use a $350 minimum for mobilization and prep.',
+  paint:
+    'Wall and ceiling surface area — not room floor SF. Standalone small scopes use a $350 minimum for mobilization and prep.',
+};
+
+export const BATHROOM_CHECKLIST_LABEL_OVERRIDES: Record<string, string> = {
+  plumbing_rough: 'Plumbing rough-in (shower / tub)',
+  drywall: 'Drywall repair / patching + texture',
+  paint_repair: 'Interior painting/patch and repair',
+  interior_paint: 'Interior painting — prep, labor, and paint',
+  paint: 'Interior painting — prep, labor, and paint',
 };
 
 /** Shorter contractor-friendly helper copy (overrides server text in Confirm Scope UI). */
@@ -1635,7 +1738,7 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
     'Exterior painted surface SF. Mid-market national includes tape/masking and light soffit/fascia — not stucco install.',
   interior_trim:
     'Finish trim, interior doors, door hardware & shelving package until detailed takeoff.',
-  plumbing_trim: 'Set fixtures and finish connections.',
+  plumbing_trim: 'Set fixtures and finish connections — excludes toilet/vanity when those are separate scope lines.',
   electrical_trim: 'Devices, plates, and bulbs.',
   permits: 'Confirm permit and impact fees for the project jurisdiction.',
   cleanup: 'Final clean (Labor) and dumpsters/dump fees (Material). Adjust or set Material to $0 if no dumpster.',
@@ -1654,6 +1757,16 @@ export function checklistDisplayHelper(
   return CHECKLIST_HELPER_OVERRIDES[item.id] || item.helperText;
 }
 
+export function checklistDisplayLabel(
+  item: ScopeChecklistItem,
+  templateKey?: string | null
+): string {
+  if (templateKey === 'bathroom' && BATHROOM_CHECKLIST_LABEL_OVERRIDES[item.id]) {
+    return BATHROOM_CHECKLIST_LABEL_OVERRIDES[item.id];
+  }
+  return item.label;
+}
+
 export const QUANTITY_NEEDED_LABELS_BY_TEMPLATE: Record<string, Record<string, string>> = {
   kitchen: {
     demo: 'cabinet demo lump sum or LF',
@@ -1665,6 +1778,7 @@ export const QUANTITY_NEEDED_LABELS_BY_TEMPLATE: Record<string, Record<string, s
   bathroom: {
     demo: 'tear-out sqft (floor + shower)',
     floor_demo: 'bathroom floor sqft',
+    plumbing_rough: 'fixture type, work type, plumbing exposure & floor construction',
   },
 };
 
@@ -1709,7 +1823,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     },
     {
       title: 'Trades',
-      itemIds: ['plumbing_rough', 'electrical_rough', 'floor_prep', 'drywall', 'paint', 'interior_paint', 'trim'],
+      itemIds: ['plumbing_rough', 'electrical_rough', 'floor_prep', 'paint_repair', 'trim'],
     },
     {
       title: 'Trim-out & Closeout',

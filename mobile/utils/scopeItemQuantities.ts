@@ -40,8 +40,14 @@ import {
   resolveBathroomVanityCountertopMaterialType,
   resolveBathroomVanityCountertopSuggestedPricing,
 } from '@/utils/bathroomVanityCountertopPricing';
-import { resolveBathroomWetAreaDemoSuggestedPricing } from '@/utils/bathroomWetAreaDemoPricing';
 import { resolveBathroomFixtureChoiceSuggestedPricing } from '@/utils/bathroomFixtureChoicePricing';
+import {
+  mergeBathroomPaintRepairEntireRoom,
+  mergeBathroomPaintRepairLocalizedScope,
+  sanitizeBathroomPaintRepairEntireRoom,
+  sanitizeBathroomPaintRepairScopeForPersist,
+} from '@/utils/bathroomDrywallPaintScope';
+import { resolveStep2ComponentSuggestedPricing } from '@/utils/confirmScopeStep2Pricing';
 import { resolveExteriorFlatworkLumpSuggestedFill } from '@/utils/exteriorFlatworkPricing';
 import { resolveGroundUpFinishPackageLump } from '@/utils/groundUpFinishPackages';
 import {
@@ -531,15 +537,15 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     pricingMethod: 'material_labor',
   },
   /**
-   * Builder mid shower door + bath mirror (~$3,250 each). Scales with showerDoorCount.
-   * Door ~$2,750 installed; mirror mat+hang ~$500. Semi-frameless — not luxury frameless.
-   * Local SHV house packages $4,500–$6,500 (often 2 doors ≈ $3,250/ea); 3 doors ≈ $9,750.
+   * Standard sliding shower door installed (door only). Scales with showerDoorCount.
+   * Retail door kits ~$700–$1,200; installed mid-market ~$1,400–$2,100/door.
+   * Premium frameless is priced via bathroomGlassDoorPricing tier resolver.
    */
   glass_door: {
     unit: 'each',
-    material: 2100,
-    labor: 1150,
-    sourceLabel: 'Suggested budget split · National Average · shower door & mirror (builder mid)',
+    material: 950,
+    labor: 700,
+    sourceLabel: 'Suggested budget split · National Average · shower door installed (standard slider)',
     rateSource: 'bps_national_benchmark',
     scopeProfileSource: 'bps_standard_assumption',
     productionStatus: 'review_required',
@@ -639,6 +645,81 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     productionStatus: 'review_required',
     geographicBasis: 'national',
     trade: 'plumbing',
+    category: 'fixtures',
+    pricingMethod: 'material_labor',
+  },
+  vanity: {
+    unit: 'each',
+    material: 650,
+    labor: 450,
+    materialBucketLabel: 'Vanity cabinet materials',
+    laborBucketLabel: 'Vanity install labor',
+    sourceLabel: 'Suggested budget split · National Average · vanity cabinet install',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'cabinets',
+    category: 'fixtures',
+    pricingMethod: 'material_labor',
+  },
+  vanity_demo: {
+    unit: 'each',
+    material: 25,
+    labor: 200,
+    materialBucketLabel: 'Disposal / protection materials',
+    laborBucketLabel: 'Vanity demo & haul labor',
+    sourceLabel: 'Suggested budget split · National Average · vanity cabinet removal',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'demo',
+    category: 'demo',
+    pricingMethod: 'material_labor',
+  },
+  countertop_demo: {
+    unit: 'each',
+    material: 0,
+    labor: 175,
+    laborBucketLabel: 'Countertop demo & haul labor',
+    sourceLabel: 'Suggested budget split · National Average · countertop removal',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'demo',
+    category: 'demo',
+    pricingMethod: 'material_labor',
+  },
+  plumbing_trim: {
+    unit: 'allowance',
+    material: 150,
+    labor: 300,
+    materialBucketLabel: 'Trim-out supplies',
+    laborBucketLabel: 'Fixture hookup labor',
+    sourceLabel:
+      'Suggested budget split · National Average · plumbing trim-out hookups (non-bath fallback)',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'plumbing',
+    category: 'fixtures',
+    pricingMethod: 'material_labor',
+  },
+  mirror_accessories: {
+    unit: 'allowance',
+    material: 200,
+    labor: 175,
+    materialBucketLabel: 'Accessories allowance',
+    laborBucketLabel: 'Install labor',
+    sourceLabel: 'Suggested budget split · National Average · bath accessories allowance',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'general',
     category: 'fixtures',
     pricingMethod: 'material_labor',
   },
@@ -1169,16 +1250,18 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   glass_door: {
     category: 'wet_area',
     rootCause:
-      'Build Profit builder-mid shower door & mirror package is modeled per installed glass door/enclosure plus one bath mirror (~$3,250). Semi-frameless / standard tempered glass — not luxury custom frameless. Total scales with door count (local house packages often $4,500–$6,500 for ~2 doors).',
+      'Build Profit standard shower door package is modeled per installed glass door/enclosure (~$1,650 standard slider, ~$2,500 premium frameless). Door hardware and install labor included — bath mirror and accessories are separate lines. Total scales with door count.',
     assumptions: [
       assumption('door_unit', 'included', 'Glass door / enclosure unit', 'Standard tempered glass shower door or enclosure unit is included.'),
       assumption('door_hardware', 'included', 'Door hardware', 'Standard hinges, track, or clips for the shower door are included.'),
-      assumption('mirror_material', 'included', 'Bath mirror material', 'Standard bath vanity mirror material is included (one per door count).'),
-      assumption('mirror_install', 'included', 'Mirror install', 'Standard mirror hang/install labor is included.'),
       assumption('install_labor', 'included', 'Door install labor', 'Standard two-person shower-door install labor is included.'),
       assumption('sealing', 'included', 'Basic sealing', 'Basic silicone sealing at the door unit is included.', { impact: 'medium' }),
+      assumption('mirror_material', 'excluded', 'Bath mirror', 'Vanity mirror material and install are not included on this line.'),
       assumption('towel_bars', 'excluded', 'Towel bars / accessories', 'Towel bars, paper holders, and robe hooks are not included.'),
-      assumption('custom_frameless', 'excluded', 'Luxury custom frameless', 'Heavy custom frameless / specialty glass packages are not included.'),
+      assumption('custom_frameless', 'conditional', 'Luxury custom frameless', 'Heavy custom frameless / specialty glass may exceed the premium frameless tier.', {
+        conditionText: 'Confirm door style — use Premium frameless or custom quote if needed.',
+        recommendedContractorAction: 'confirm_conditions',
+      }),
       assumption('medicine_cabinet', 'excluded', 'Medicine cabinet', 'Medicine cabinets and lighted mirrors are not included.'),
       assumption('out_of_plumb', 'conditional', 'Out-of-plumb corrections', 'Significant out-of-plumb wall corrections may require extra labor.', {
         conditionText: 'Confirm walls are within normal install tolerance.',
@@ -1357,14 +1440,19 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   plumbing_rough: {
     category: 'plumbing',
     rootCause:
-      'Build Profit national-average plumbing rough-in is modeled per rough-in point (fixture stub-out), not per floor sqft.',
+      'Build Profit national-average plumbing rough-in is modeled per rough-in point (supply/drain stub-out). In bath remodels this line is for shower/tub wet-area relocations — toilet and lav rough-in belong on their fixture lines.',
     assumptions: [
       assumption('rough_labor', 'included', 'Rough-in labor', 'Standard rough-in labor is included.'),
       assumption('standard_fittings', 'included', 'Standard fittings', 'Common rough-in fittings and supplies are included.'),
       assumption('point_basis', 'included', 'Per rough-in point', 'Rates are per supply/drain rough-in point, not floor sqft.', {
         impact: 'medium',
       }),
-      assumption('fixtures', 'excluded', 'Fixtures', 'Fixtures and trim-out are not included.'),
+      assumption('wet_area_rough', 'included', 'Shower/tub rough-in', 'Supply and drain rough-in for shower, tub, or wet-area relocations when counted.', {
+        impact: 'medium',
+      }),
+      assumption('toilet_rough', 'excluded', 'Toilet rough-in / relocation', 'Toilet drain and supply relocation is on the Toilet fixture line when selected.'),
+      assumption('lav_rough', 'excluded', 'Lavatory / vanity rough-in', 'Lav sink supply and drain rough-in is on the Vanity fixture line when selected.'),
+      assumption('fixtures', 'excluded', 'Fixtures & trim-out', 'Fixtures and trim-out hookups are not included.'),
       assumption('permits', 'excluded', 'Permits', 'Permits and inspection fees are not included.'),
       assumption('trenching', 'excluded', 'Trenching', 'Trenching, sawcutting, and excavation are not included.'),
       assumption('patching', 'excluded', 'Patching', 'Wall, floor, and concrete patching are not included.'),
@@ -1668,6 +1756,91 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
       assumption('drainage', 'conditional', 'Drainage', 'Drainage requirements need confirmation.', {
         conditionText: 'Price separately when drainage improvements are required.',
       }),
+    ],
+  },
+  vanity: {
+    category: 'fixtures',
+    rootCause:
+      'Build Profit national-average vanity install (~$1,100 each) is a mid-market cabinet box plus standard set — not countertop, faucet, or trim-out hookups.',
+    assumptions: [
+      assumption('vanity_box', 'included', 'Vanity cabinet', 'Standard vanity cabinet material is included.'),
+      assumption('vanity_install', 'included', 'Vanity set labor', 'Level, secure, and set the vanity cabinet is included.'),
+      assumption('countertop', 'excluded', 'Countertop', 'Countertop material, fabrication, and install are on the countertop line.'),
+      assumption('plumbing_trim', 'excluded', 'Faucet / trim hookups', 'Lav faucet trim-out and supply connections are on plumbing trim, not here.'),
+      assumption('demo', 'excluded', 'Demolition', 'Existing vanity removal is on vanity demo.'),
+      assumption('plumbing_rough', 'excluded', 'Plumbing rough-in', 'New or relocated rough-in points are not included.'),
+      assumption('mirror', 'excluded', 'Mirror', 'Mirror and accessories are separate lines.'),
+    ],
+  },
+  vanity_demo: {
+    category: 'demo',
+    rootCause:
+      'Build Profit national-average vanity demo (~$225 each) is cabinet disconnect, removal, and haul — not countertop-only demo.',
+    assumptions: [
+      assumption('disconnect', 'included', 'Disconnect', 'Basic disconnect at the cabinet is included.', { impact: 'medium' }),
+      assumption('cabinet_removal', 'included', 'Cabinet removal', 'Remove and haul the vanity cabinet body is included.'),
+      assumption('countertop_demo', 'excluded', 'Countertop demo', 'Countertop-only removal is on countertop demo.'),
+      assumption('plumbing_rough', 'excluded', 'Plumbing rough-in changes', 'Rough-in changes are not included.'),
+      assumption('patch_repair', 'excluded', 'Wall/floor patch', 'Drywall or floor patch after removal is not included.'),
+    ],
+  },
+  countertop_demo: {
+    category: 'demo',
+    rootCause:
+      'Build Profit national-average countertop demo (~$175 each) is top removal and haul — not vanity cabinet demo.',
+    assumptions: [
+      assumption('top_removal', 'included', 'Countertop removal', 'Remove and haul the vanity top or bath counter is included.'),
+      assumption('vanity_demo', 'excluded', 'Vanity cabinet demo', 'Vanity cabinet removal is on vanity demo.'),
+      assumption('plumbing_rough', 'excluded', 'Plumbing rough-in changes', 'Rough-in changes are not included.'),
+      assumption('patch_repair', 'excluded', 'Wall/floor patch', 'Drywall or floor patch is not included.'),
+    ],
+  },
+  plumbing_trim: {
+    category: 'fixtures',
+    rootCause:
+      'Build Profit bathroom plumbing trim is trim-out hookup labor and minor supplies — not fixture purchases, rough-in, or installs priced on separate toilet/vanity lines.',
+    assumptions: [
+      assumption('lav_hookup', 'conditional', 'Lavatory faucet hookup', 'Connect lav supply/stop and faucet when vanity is a separate line.', {
+        conditionText: 'Included when vanity is in scope on its own line.',
+        recommendedContractorAction: 'confirm_conditions',
+      }),
+      assumption('shower_trim', 'conditional', 'Shower/tub trim hookup', 'Set shower valve trim and tub spout when wet-area work is in scope.', {
+        conditionText: 'Included when shower/tub wet-area scopes are selected.',
+        recommendedContractorAction: 'confirm_conditions',
+      }),
+      assumption('toilet_hookup', 'conditional', 'Toilet trim hookup', 'Set toilet flange/wax ring/supply when toilet is not a separate Fixtures line.', {
+        conditionText: 'Excluded when toilet has its own Fixtures row.',
+        recommendedContractorAction: 'confirm_conditions',
+      }),
+      assumption('toilet_fixture', 'excluded', 'Toilet fixture install', 'Toilet purchase and full install are on the toilet line when selected separately.'),
+      assumption('vanity_fixture', 'excluded', 'Vanity cabinet install', 'Vanity cabinet set is on the vanity line when selected separately.'),
+      assumption('countertop', 'excluded', 'Countertop', 'Countertop material and install are not included.'),
+      assumption('plumbing_rough', 'excluded', 'Plumbing rough-in', 'Rough-in points are on plumbing rough-in.'),
+      assumption('fixture_allowance', 'excluded', 'Fixture purchases', 'Fixture and faucet purchases are not included — hookup labor only.'),
+    ],
+  },
+  mirror_accessories: {
+    category: 'fixtures',
+    rootCause:
+      'Build Profit national-average bath accessories (~$375 allowance) covers towel bars, hooks, and paper holders with install — not shower doors or medicine cabinets.',
+    assumptions: [
+      assumption('accessories_material', 'included', 'Accessories allowance', 'Standard bath accessory material allowance is included.'),
+      assumption('accessories_install', 'included', 'Install labor', 'Standard drill/mount labor for bars and hooks is included.'),
+      assumption('glass_door', 'excluded', 'Shower door', 'Glass shower doors are on the glass door line.'),
+      assumption('mirror', 'excluded', 'Vanity mirror', 'Vanity mirror may be on the glass door package when bundled.'),
+      assumption('medicine_cabinet', 'excluded', 'Medicine cabinet', 'Medicine cabinets and lighted mirrors are not included.'),
+    ],
+  },
+  toilet: {
+    category: 'fixtures',
+    rootCause:
+      'Build Profit national-average toilet install (~$900 each) is mid-market fixture allowance plus set — not rough-in relocation or trim-out when those are separate lines.',
+    assumptions: [
+      assumption('toilet_fixture', 'included', 'Toilet fixture allowance', 'Standard toilet fixture allowance is included.'),
+      assumption('toilet_install', 'included', 'Toilet set labor', 'Set, seal, and connect at existing rough is included.'),
+      assumption('plumbing_rough', 'excluded', 'Plumbing rough-in', 'New or relocated rough-in is on plumbing rough-in.'),
+      assumption('plumbing_trim', 'excluded', 'Trim-out hookups', 'Trim-out is on plumbing trim when toilet is not bundled there.'),
+      assumption('floor_repair', 'excluded', 'Floor repair', 'Floor patch or tile repair after set is not included.'),
     ],
   },
 };
@@ -2179,7 +2352,8 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
   mirror_accessories: {
     defaultUnit: 'allowance',
     allowedUnits: ['each', 'allowance', 'lump_sum', 'sqft'],
-    requiresUserQuantity: true,
+    defaultQuantity: 1,
+    requiresUserQuantity: false,
     quantityHelper:
       'Towel bars/hooks allowance — not shower doors.',
     missingMessage: 'Enter accessories allowance.',
@@ -2226,7 +2400,8 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
   plumbing_trim: {
     defaultUnit: 'allowance',
     allowedUnits: ['allowance', 'lump_sum'],
-    requiresUserQuantity: true,
+    defaultQuantity: 1,
+    requiresUserQuantity: false,
     lumpSumOnly: false,
     quantityHelper: 'Price plumbing fixtures & trim-out with material and labor.',
     missingMessage: 'Enter plumbing trim pricing (material + labor).',
@@ -2947,6 +3122,34 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRu
     quantityHelper:
       'Uses bathroom floor sqft — often includes thinset removal (separate from shower demo).',
     missingMessage: 'Enter bathroom floor demo sqft.',
+  },
+  plumbing_rough: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.plumbing_rough,
+    quantityHelper:
+      'Pick fixture type, same-location vs relocated, whether remodel demolition exposes the plumbing, and floor construction. Valve, head, and drain rough-in only — toilet and lav are on Toilet and Vanity.',
+    missingMessage: 'Select work type and plumbing exposure, or enter shower/tub rough-in pricing.',
+  },
+  drywall: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.drywall,
+    quantityHelper:
+      'Enter localized patch SF at shower or plumbing openings (wall surface, not floor). Primer and paint are on Interior painting/patch and repair.',
+    missingMessage: 'Enter patch/repair SF to price drywall and texture.',
+  },
+  patch_repair: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.patch_repair,
+    quantityHelper:
+      'Enter localized patch SF at shower or plumbing openings (wall surface, not floor). Primer and paint are separate.',
+    missingMessage: 'Enter patch/repair SF to price drywall and texture.',
+  },
+  paint_repair: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'each', 'allowance', 'lump_sum'],
+    measurementKeys: ['drywallSqft'],
+    pricingBasisMeasurementKey: 'drywallSqft',
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter patch SF (affected area) or room wall/ceiling SF (full room), pick paint scope above, then apply pricing.',
+    missingMessage: 'Enter SF and select paint scope.',
   },
 };
 
@@ -5001,6 +5204,8 @@ export type ScopePricingContext = {
   state?: string | null;
   zipCode?: string | null;
   city?: string | null;
+  /** In-scope Confirm Scope rows — used for bathroom trim-out component pricing. */
+  checklistItems?: Array<{ id: string; state?: string; choiceId?: string | null }> | null;
 };
 
 export type TemplateRateMatch = {
@@ -5171,6 +5376,22 @@ export type ScopeItemSuggestedPricing = {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+function pricingRateDefined(rate: number | null | undefined): rate is number {
+  return rate != null && Number.isFinite(rate);
+}
+
+function hasAnyPricingRate(
+  materialRate: number | null | undefined,
+  laborRate: number | null | undefined
+): boolean {
+  return pricingRateDefined(materialRate) || pricingRateDefined(laborRate);
+}
+
+/** Mid-market planning band for national-average takeoff fills. */
+function planningComparisonRange(total: number): { low: number; high: number } {
+  return { low: Math.round(total * 0.75), high: Math.round(total * 1.35) };
 }
 
 function medianPositive(values: number[]): number | null {
@@ -5871,6 +6092,15 @@ export function resolveScopeItemSuggestedPricing(
     if (splitOnly?.fill) return splitOnly;
   }
 
+  const componentSuggested = resolveStep2ComponentSuggestedPricing({
+    itemId,
+    templateKey,
+    measurementsInput,
+    resolved,
+    pricingContext,
+  });
+  if (componentSuggested !== undefined) return componentSuggested;
+
   if (isBathroomVanityCountertopScope(itemId, templateKey)) {
     const materialType = resolveBathroomVanityCountertopMaterialType({
       storedType: (measurementsInput as Record<string, unknown>).bathroomVanityCountertopMaterialType,
@@ -5898,19 +6128,6 @@ export function resolveScopeItemSuggestedPricing(
     });
     if (vanityCountertop.fill) return vanityCountertop as ScopeItemSuggestedPricing;
     return empty;
-  }
-
-  if (itemId === 'demo' && String(templateKey || '').toLowerCase() === 'bathroom') {
-    const tileSqft =
-      resolved.unit === 'sqft' && resolved.quantity && resolved.quantity > 0
-        ? resolved.quantity
-        : 0;
-    const wetAreaDemo = resolveBathroomWetAreaDemoSuggestedPricing({
-      measurementsInput,
-      tileSqft,
-      sourceLabel: resolved.sourceLabel,
-    });
-    if (wetAreaDemo.fill) return wetAreaDemo as ScopeItemSuggestedPricing;
   }
 
   // Ground-up fixture packages — blended barometer + national × state as flat installed
@@ -6621,7 +6838,7 @@ export function resolveScopeItemSuggestedPricing(
   const laborRateSource: PricingLegSource = template?.laborRate ? 'template' : 'national_average';
   const templateName = template?.source ?? null;
 
-  if (!materialRate && !laborRate) return empty;
+  if (!hasAnyPricingRate(materialRate, laborRate)) return empty;
 
   // Notes breakdown (canonical from the resolved item).
   const noteMaterial = resolved.dualMaterial?.quantity ?? null;
@@ -6646,9 +6863,9 @@ export function resolveScopeItemSuggestedPricing(
     if (benchmarkComparison) {
       return { fill: null, comparison: benchmarkComparison };
     }
-    if (!materialRate || !laborRate) return empty;
-    const material = round2(count * materialRate);
-    const labor = round2(count * laborRate);
+    if (!hasAnyPricingRate(materialRate, laborRate)) return empty;
+    const material = round2(count * (materialRate ?? 0));
+    const labor = round2(count * (laborRate ?? 0));
     return {
       fill: null,
       comparison: {
@@ -6676,7 +6893,7 @@ export function resolveScopeItemSuggestedPricing(
 
   // Case B: exactly one leg from notes -> fill the missing leg.
   if (noteMaterial != null && noteLabor == null) {
-    if (!laborRate) return empty;
+    if (!pricingRateDefined(laborRate)) return empty;
     const labor = round2(count * laborRate);
     const material = round2(noteMaterial);
     return {
@@ -6706,7 +6923,7 @@ export function resolveScopeItemSuggestedPricing(
     };
   }
   if (noteLabor != null && noteMaterial == null) {
-    if (!materialRate) return empty;
+    if (!pricingRateDefined(materialRate)) return empty;
     const material = round2(count * materialRate);
     const labor = round2(noteLabor);
     // Demo/removal notes often give one labor total — keep compact card + budget split panel.
@@ -6771,7 +6988,7 @@ export function resolveScopeItemSuggestedPricing(
     if (benchmarkComparison) {
       return { fill: null, comparison: benchmarkComparison };
     }
-    if (!materialRate) return empty;
+    if (!pricingRateDefined(materialRate)) return empty;
     const material = Math.min(noteTotal, round2(count * materialRate));
     const labor = round2(noteTotal - material);
     if (material <= 0 || labor <= 0) return empty;
@@ -6833,7 +7050,7 @@ export function resolveScopeItemSuggestedPricing(
     String(unit || '').toLowerCase()
   );
   const hasPhysicalTakeoffRates = Boolean(
-    isPhysicalTakeoffUnit && count > 0 && materialRate && laborRate
+    isPhysicalTakeoffUnit && count > 0 && hasAnyPricingRate(materialRate, laborRate)
   );
   if (!template && !hasPhysicalTakeoffRates) {
     const benchmarkFill = benchmarkSuggestedPricingBlock(
@@ -6849,9 +7066,10 @@ export function resolveScopeItemSuggestedPricing(
       return { fill: benchmarkFill, comparison: null };
     }
   }
-  if (!materialRate || !laborRate) return empty;
-  const material = round2(count * materialRate);
-  const labor = round2(count * laborRate);
+  if (!hasAnyPricingRate(materialRate, laborRate)) return empty;
+  const material = round2(count * (materialRate ?? 0));
+  const labor = round2(count * (laborRate ?? 0));
+  if (material + labor <= 0) return empty;
   const takeoffFill: SuggestedPricingBlock = {
     material,
     labor,
@@ -6898,6 +7116,10 @@ export function resolveScopeItemSuggestedPricing(
     benchmarkStageKey: benchmarkStageForScopeKey(itemId),
     benchmarkScopeKey: itemId,
     benchmarkAction: 'price_ready',
+    comparisonRange:
+      materialRateSource === 'national_average' || laborRateSource === 'national_average'
+        ? planningComparisonRange(round2(material + labor))
+        : undefined,
   };
   // Comparison = pure national on the same qty/unit as fill (not living-SF stage lump).
   // Stage living-SF packages stay on hosts without unit-rate fills (sitework / exterior / MEP).
@@ -8272,6 +8494,180 @@ export function scopeMeasurementsToPayload(
       sanitized.bathroomToiletRelocateFloorTypeSource === 'ai_inferred'
         ? sanitized.bathroomToiletRelocateFloorTypeSource
         : null,
+    bathroomShowerRoughAccessType:
+      sanitized.bathroomShowerRoughAccessType === 'open_wood_framed' ||
+      sanitized.bathroomShowerRoughAccessType === 'finished_wood_framed' ||
+      sanitized.bathroomShowerRoughAccessType === 'concrete_slab' ||
+      sanitized.bathroomShowerRoughAccessType === 'unsure'
+        ? sanitized.bathroomShowerRoughAccessType
+        : null,
+    bathroomShowerRoughAccessTypeSource:
+      sanitized.bathroomShowerRoughAccessTypeSource === 'user_selected' ||
+      sanitized.bathroomShowerRoughAccessTypeSource === 'ai_inferred'
+        ? sanitized.bathroomShowerRoughAccessTypeSource
+        : null,
+    bathroomShowerRoughWorkType:
+      sanitized.bathroomShowerRoughWorkType === 'in_place' ||
+      sanitized.bathroomShowerRoughWorkType === 'relocation' ||
+      sanitized.bathroomShowerRoughWorkType === 'unsure'
+        ? sanitized.bathroomShowerRoughWorkType
+        : null,
+    bathroomShowerRoughWorkTypeSource:
+      sanitized.bathroomShowerRoughWorkTypeSource === 'user_selected' ||
+      sanitized.bathroomShowerRoughWorkTypeSource === 'ai_inferred'
+        ? sanitized.bathroomShowerRoughWorkTypeSource
+        : null,
+    bathroomShowerRoughFixtureType:
+      sanitized.bathroomShowerRoughFixtureType === 'shower' ||
+      sanitized.bathroomShowerRoughFixtureType === 'bathtub' ||
+      sanitized.bathroomShowerRoughFixtureType === 'tub_shower_combo' ||
+      sanitized.bathroomShowerRoughFixtureType === 'unsure'
+        ? sanitized.bathroomShowerRoughFixtureType
+        : null,
+    bathroomShowerRoughFixtureTypeSource:
+      sanitized.bathroomShowerRoughFixtureTypeSource === 'user_selected' ||
+      sanitized.bathroomShowerRoughFixtureTypeSource === 'ai_inferred'
+        ? sanitized.bathroomShowerRoughFixtureTypeSource
+        : null,
+    bathroomShowerRoughWallAccess:
+      sanitized.bathroomShowerRoughWallAccess === 'open_framing' ||
+      sanitized.bathroomShowerRoughWallAccess === 'finished_wall' ||
+      sanitized.bathroomShowerRoughWallAccess === 'unsure'
+        ? sanitized.bathroomShowerRoughWallAccess
+        : null,
+    bathroomShowerRoughWallAccessSource:
+      sanitized.bathroomShowerRoughWallAccessSource === 'user_selected' ||
+      sanitized.bathroomShowerRoughWallAccessSource === 'ai_inferred'
+        ? sanitized.bathroomShowerRoughWallAccessSource
+        : null,
+    bathroomShowerRoughPlumbingExposed:
+      sanitized.bathroomShowerRoughPlumbingExposed === 'exposed_by_demo' ||
+      sanitized.bathroomShowerRoughPlumbingExposed === 'separate_access_required' ||
+      sanitized.bathroomShowerRoughPlumbingExposed === 'unsure'
+        ? sanitized.bathroomShowerRoughPlumbingExposed
+        : sanitized.bathroomShowerRoughWallAccess === 'open_framing'
+          ? 'exposed_by_demo'
+          : sanitized.bathroomShowerRoughWallAccess === 'finished_wall'
+            ? 'separate_access_required'
+            : null,
+    bathroomShowerRoughPlumbingExposedSource:
+      sanitized.bathroomShowerRoughPlumbingExposedSource === 'user_selected' ||
+      sanitized.bathroomShowerRoughPlumbingExposedSource === 'demo_detected' ||
+      sanitized.bathroomShowerRoughPlumbingExposedSource === 'ai_inferred'
+        ? sanitized.bathroomShowerRoughPlumbingExposedSource
+        : sanitized.bathroomShowerRoughWallAccess === 'open_framing' ||
+            sanitized.bathroomShowerRoughWallAccess === 'finished_wall'
+          ? sanitized.bathroomShowerRoughWallAccessSource === 'user_selected' ||
+            sanitized.bathroomShowerRoughWallAccessSource === 'ai_inferred'
+            ? sanitized.bathroomShowerRoughWallAccessSource
+            : 'user_selected'
+          : null,
+    bathroomShowerRoughFloorConstruction:
+      sanitized.bathroomShowerRoughFloorConstruction === 'wood_framed' ||
+      sanitized.bathroomShowerRoughFloorConstruction === 'concrete_slab' ||
+      sanitized.bathroomShowerRoughFloorConstruction === 'unsure'
+        ? sanitized.bathroomShowerRoughFloorConstruction
+        : null,
+    bathroomShowerRoughFloorConstructionSource:
+      sanitized.bathroomShowerRoughFloorConstructionSource === 'user_selected' ||
+      sanitized.bathroomShowerRoughFloorConstructionSource === 'ai_inferred'
+        ? sanitized.bathroomShowerRoughFloorConstructionSource
+        : null,
+    bathroomShowerRoughSlabWorkRequired:
+      sanitized.bathroomShowerRoughSlabWorkRequired === 'yes' ||
+      sanitized.bathroomShowerRoughSlabWorkRequired === 'no' ||
+      sanitized.bathroomShowerRoughSlabWorkRequired === 'unsure'
+        ? sanitized.bathroomShowerRoughSlabWorkRequired
+        : null,
+    bathroomShowerRoughSlabWorkRequiredSource:
+      sanitized.bathroomShowerRoughSlabWorkRequiredSource === 'user_selected' ||
+      sanitized.bathroomShowerRoughSlabWorkRequiredSource === 'ai_inferred'
+        ? sanitized.bathroomShowerRoughSlabWorkRequiredSource
+        : null,
+    bathroomPaintRepairScope: sanitizeBathroomPaintRepairScopeForPersist(sanitized.bathroomPaintRepairScope),
+    bathroomPaintRepairScopeSource:
+      sanitized.bathroomPaintRepairScopeSource === 'user_selected' ||
+      sanitized.bathroomPaintRepairScopeSource === 'ai_inferred'
+        ? sanitized.bathroomPaintRepairScopeSource
+        : null,
+    bathroomPaintRepairEntireRoom: sanitizeBathroomPaintRepairEntireRoom(
+      sanitized.bathroomPaintRepairEntireRoom,
+      sanitized.bathroomPaintRepairScope
+    ),
+    bathroomPaintRepairEntireRoomSource:
+      sanitized.bathroomPaintRepairEntireRoomSource === 'user_selected' ||
+      sanitized.bathroomPaintRepairEntireRoomSource === 'ai_inferred'
+        ? sanitized.bathroomPaintRepairEntireRoomSource
+        : sanitized.bathroomPaintRepairScope === 'entire_room' ||
+            sanitized.bathroomPaintRepairScope === 'full_room'
+          ? sanitized.bathroomPaintRepairScopeSource === 'user_selected' ||
+            sanitized.bathroomPaintRepairScopeSource === 'ai_inferred'
+            ? sanitized.bathroomPaintRepairScopeSource
+            : null
+          : null,
+    bathroomPaintRepairEntireRoomSqft: measurementFieldString(sanitized.bathroomPaintRepairEntireRoomSqft),
+    bathroomPaintRepairEntireRoomSqftSource:
+      sanitized.bathroomPaintRepairEntireRoomSqftSource === 'user_selected' ||
+      sanitized.bathroomPaintRepairEntireRoomSqftSource === 'ai_inferred'
+        ? sanitized.bathroomPaintRepairEntireRoomSqftSource
+        : null,
+    bathroomDrywallPaintUseCombinedAssembly:
+      sanitized.bathroomDrywallPaintUseCombinedAssembly === true ||
+      sanitized.bathroomDrywallPaintUseCombinedAssembly === false
+        ? sanitized.bathroomDrywallPaintUseCombinedAssembly
+        : null,
+    bathroomDrywallPaintUseCombinedAssemblySource:
+      sanitized.bathroomDrywallPaintUseCombinedAssemblySource === 'user_selected' ||
+      sanitized.bathroomDrywallPaintUseCombinedAssemblySource === 'ai_inferred'
+        ? sanitized.bathroomDrywallPaintUseCombinedAssemblySource
+        : null,
+    bathroomInteriorPaintMobilization:
+      sanitized.bathroomInteriorPaintMobilization === 'bundled' ||
+      sanitized.bathroomInteriorPaintMobilization === 'standalone' ||
+      sanitized.bathroomInteriorPaintMobilization === 'unsure'
+        ? sanitized.bathroomInteriorPaintMobilization
+        : null,
+    bathroomInteriorPaintMobilizationSource:
+      sanitized.bathroomInteriorPaintMobilizationSource === 'user_selected' ||
+      sanitized.bathroomInteriorPaintMobilizationSource === 'ai_inferred'
+        ? sanitized.bathroomInteriorPaintMobilizationSource
+        : null,
+    bathroomInteriorPaintSurface:
+      sanitized.bathroomInteriorPaintSurface === 'walls' ||
+      sanitized.bathroomInteriorPaintSurface === 'ceiling' ||
+      sanitized.bathroomInteriorPaintSurface === 'walls_and_ceiling' ||
+      sanitized.bathroomInteriorPaintSurface === 'unsure'
+        ? sanitized.bathroomInteriorPaintSurface
+        : null,
+    bathroomInteriorPaintSurfaceSource:
+      sanitized.bathroomInteriorPaintSurfaceSource === 'user_selected' ||
+      sanitized.bathroomInteriorPaintSurfaceSource === 'ai_inferred'
+        ? sanitized.bathroomInteriorPaintSurfaceSource
+        : null,
+    bathroomInteriorPaintCondition:
+      sanitized.bathroomInteriorPaintCondition === 'same_color' ||
+      sanitized.bathroomInteriorPaintCondition === 'color_change' ||
+      sanitized.bathroomInteriorPaintCondition === 'new_drywall' ||
+      sanitized.bathroomInteriorPaintCondition === 'stained_damaged' ||
+      sanitized.bathroomInteriorPaintCondition === 'unsure'
+        ? sanitized.bathroomInteriorPaintCondition
+        : null,
+    bathroomInteriorPaintConditionSource:
+      sanitized.bathroomInteriorPaintConditionSource === 'user_selected' ||
+      sanitized.bathroomInteriorPaintConditionSource === 'ai_inferred'
+        ? sanitized.bathroomInteriorPaintConditionSource
+        : null,
+    bathroomGlassDoorStyle:
+      sanitized.bathroomGlassDoorStyle === 'standard_slider' ||
+      sanitized.bathroomGlassDoorStyle === 'premium_frameless' ||
+      sanitized.bathroomGlassDoorStyle === 'unsure'
+        ? sanitized.bathroomGlassDoorStyle
+        : null,
+    bathroomGlassDoorStyleSource:
+      sanitized.bathroomGlassDoorStyleSource === 'user_selected' ||
+      sanitized.bathroomGlassDoorStyleSource === 'ai_inferred'
+        ? sanitized.bathroomGlassDoorStyleSource
+        : null,
     demoTubCount:
       sanitized.demoTubCount != null && Number(sanitized.demoTubCount) > 0
         ? Math.round(Number(sanitized.demoTubCount))
@@ -8579,6 +8975,179 @@ export function scopeMeasurementsInputFromPayload(
       payload.bathroomToiletRelocateFloorTypeSource === 'ai_inferred'
         ? payload.bathroomToiletRelocateFloorTypeSource
         : null,
+    bathroomShowerRoughAccessType:
+      payload.bathroomShowerRoughAccessType === 'open_wood_framed' ||
+      payload.bathroomShowerRoughAccessType === 'finished_wood_framed' ||
+      payload.bathroomShowerRoughAccessType === 'concrete_slab' ||
+      payload.bathroomShowerRoughAccessType === 'unsure'
+        ? payload.bathroomShowerRoughAccessType
+        : null,
+    bathroomShowerRoughAccessTypeSource:
+      payload.bathroomShowerRoughAccessTypeSource === 'user_selected' ||
+      payload.bathroomShowerRoughAccessTypeSource === 'ai_inferred'
+        ? payload.bathroomShowerRoughAccessTypeSource
+        : null,
+    bathroomShowerRoughWorkType:
+      payload.bathroomShowerRoughWorkType === 'in_place' ||
+      payload.bathroomShowerRoughWorkType === 'relocation' ||
+      payload.bathroomShowerRoughWorkType === 'unsure'
+        ? payload.bathroomShowerRoughWorkType
+        : null,
+    bathroomShowerRoughWorkTypeSource:
+      payload.bathroomShowerRoughWorkTypeSource === 'user_selected' ||
+      payload.bathroomShowerRoughWorkTypeSource === 'ai_inferred'
+        ? payload.bathroomShowerRoughWorkTypeSource
+        : null,
+    bathroomShowerRoughFixtureType:
+      payload.bathroomShowerRoughFixtureType === 'shower' ||
+      payload.bathroomShowerRoughFixtureType === 'bathtub' ||
+      payload.bathroomShowerRoughFixtureType === 'tub_shower_combo' ||
+      payload.bathroomShowerRoughFixtureType === 'unsure'
+        ? payload.bathroomShowerRoughFixtureType
+        : null,
+    bathroomShowerRoughFixtureTypeSource:
+      payload.bathroomShowerRoughFixtureTypeSource === 'user_selected' ||
+      payload.bathroomShowerRoughFixtureTypeSource === 'ai_inferred'
+        ? payload.bathroomShowerRoughFixtureTypeSource
+        : null,
+    bathroomShowerRoughWallAccess:
+      payload.bathroomShowerRoughWallAccess === 'open_framing' ||
+      payload.bathroomShowerRoughWallAccess === 'finished_wall' ||
+      payload.bathroomShowerRoughWallAccess === 'unsure'
+        ? payload.bathroomShowerRoughWallAccess
+        : null,
+    bathroomShowerRoughWallAccessSource:
+      payload.bathroomShowerRoughWallAccessSource === 'user_selected' ||
+      payload.bathroomShowerRoughWallAccessSource === 'ai_inferred'
+        ? payload.bathroomShowerRoughWallAccessSource
+        : null,
+    bathroomShowerRoughPlumbingExposed:
+      payload.bathroomShowerRoughPlumbingExposed === 'exposed_by_demo' ||
+      payload.bathroomShowerRoughPlumbingExposed === 'separate_access_required' ||
+      payload.bathroomShowerRoughPlumbingExposed === 'unsure'
+        ? payload.bathroomShowerRoughPlumbingExposed
+        : payload.bathroomShowerRoughWallAccess === 'open_framing'
+          ? 'exposed_by_demo'
+          : payload.bathroomShowerRoughWallAccess === 'finished_wall'
+            ? 'separate_access_required'
+            : null,
+    bathroomShowerRoughPlumbingExposedSource:
+      payload.bathroomShowerRoughPlumbingExposedSource === 'user_selected' ||
+      payload.bathroomShowerRoughPlumbingExposedSource === 'demo_detected' ||
+      payload.bathroomShowerRoughPlumbingExposedSource === 'ai_inferred'
+        ? payload.bathroomShowerRoughPlumbingExposedSource
+        : payload.bathroomShowerRoughWallAccess === 'open_framing' ||
+            payload.bathroomShowerRoughWallAccess === 'finished_wall'
+          ? payload.bathroomShowerRoughWallAccessSource === 'user_selected' ||
+            payload.bathroomShowerRoughWallAccessSource === 'ai_inferred'
+            ? payload.bathroomShowerRoughWallAccessSource
+            : 'user_selected'
+          : null,
+    bathroomShowerRoughFloorConstruction:
+      payload.bathroomShowerRoughFloorConstruction === 'wood_framed' ||
+      payload.bathroomShowerRoughFloorConstruction === 'concrete_slab' ||
+      payload.bathroomShowerRoughFloorConstruction === 'unsure'
+        ? payload.bathroomShowerRoughFloorConstruction
+        : null,
+    bathroomShowerRoughFloorConstructionSource:
+      payload.bathroomShowerRoughFloorConstructionSource === 'user_selected' ||
+      payload.bathroomShowerRoughFloorConstructionSource === 'ai_inferred'
+        ? payload.bathroomShowerRoughFloorConstructionSource
+        : null,
+    bathroomShowerRoughSlabWorkRequired:
+      payload.bathroomShowerRoughSlabWorkRequired === 'yes' ||
+      payload.bathroomShowerRoughSlabWorkRequired === 'no' ||
+      payload.bathroomShowerRoughSlabWorkRequired === 'unsure'
+        ? payload.bathroomShowerRoughSlabWorkRequired
+        : null,
+    bathroomShowerRoughSlabWorkRequiredSource:
+      payload.bathroomShowerRoughSlabWorkRequiredSource === 'user_selected' ||
+      payload.bathroomShowerRoughSlabWorkRequiredSource === 'ai_inferred'
+        ? payload.bathroomShowerRoughSlabWorkRequiredSource
+        : null,
+    bathroomPaintRepairScope: sanitizeBathroomPaintRepairScopeForPersist(payload.bathroomPaintRepairScope),
+    bathroomPaintRepairScopeSource:
+      payload.bathroomPaintRepairScopeSource === 'user_selected' ||
+      payload.bathroomPaintRepairScopeSource === 'ai_inferred'
+        ? payload.bathroomPaintRepairScopeSource
+        : null,
+    bathroomPaintRepairEntireRoom: sanitizeBathroomPaintRepairEntireRoom(
+      payload.bathroomPaintRepairEntireRoom,
+      payload.bathroomPaintRepairScope
+    ),
+    bathroomPaintRepairEntireRoomSource:
+      payload.bathroomPaintRepairEntireRoomSource === 'user_selected' ||
+      payload.bathroomPaintRepairEntireRoomSource === 'ai_inferred'
+        ? payload.bathroomPaintRepairEntireRoomSource
+        : payload.bathroomPaintRepairScope === 'entire_room'
+          ? payload.bathroomPaintRepairScopeSource === 'user_selected' ||
+            payload.bathroomPaintRepairScopeSource === 'ai_inferred'
+            ? payload.bathroomPaintRepairScopeSource
+            : null
+          : null,
+    bathroomPaintRepairEntireRoomSqft: measurementFieldString(payload.bathroomPaintRepairEntireRoomSqft),
+    bathroomPaintRepairEntireRoomSqftSource:
+      payload.bathroomPaintRepairEntireRoomSqftSource === 'user_selected' ||
+      payload.bathroomPaintRepairEntireRoomSqftSource === 'ai_inferred'
+        ? payload.bathroomPaintRepairEntireRoomSqftSource
+        : null,
+    bathroomDrywallPaintUseCombinedAssembly:
+      payload.bathroomDrywallPaintUseCombinedAssembly === true ||
+      payload.bathroomDrywallPaintUseCombinedAssembly === false
+        ? payload.bathroomDrywallPaintUseCombinedAssembly
+        : null,
+    bathroomDrywallPaintUseCombinedAssemblySource:
+      payload.bathroomDrywallPaintUseCombinedAssemblySource === 'user_selected' ||
+      payload.bathroomDrywallPaintUseCombinedAssemblySource === 'ai_inferred'
+        ? payload.bathroomDrywallPaintUseCombinedAssemblySource
+        : null,
+    bathroomInteriorPaintMobilization:
+      payload.bathroomInteriorPaintMobilization === 'bundled' ||
+      payload.bathroomInteriorPaintMobilization === 'standalone' ||
+      payload.bathroomInteriorPaintMobilization === 'unsure'
+        ? payload.bathroomInteriorPaintMobilization
+        : null,
+    bathroomInteriorPaintMobilizationSource:
+      payload.bathroomInteriorPaintMobilizationSource === 'user_selected' ||
+      payload.bathroomInteriorPaintMobilizationSource === 'ai_inferred'
+        ? payload.bathroomInteriorPaintMobilizationSource
+        : null,
+    bathroomInteriorPaintSurface:
+      payload.bathroomInteriorPaintSurface === 'walls' ||
+      payload.bathroomInteriorPaintSurface === 'ceiling' ||
+      payload.bathroomInteriorPaintSurface === 'walls_and_ceiling' ||
+      payload.bathroomInteriorPaintSurface === 'unsure'
+        ? payload.bathroomInteriorPaintSurface
+        : null,
+    bathroomInteriorPaintSurfaceSource:
+      payload.bathroomInteriorPaintSurfaceSource === 'user_selected' ||
+      payload.bathroomInteriorPaintSurfaceSource === 'ai_inferred'
+        ? payload.bathroomInteriorPaintSurfaceSource
+        : null,
+    bathroomInteriorPaintCondition:
+      payload.bathroomInteriorPaintCondition === 'same_color' ||
+      payload.bathroomInteriorPaintCondition === 'color_change' ||
+      payload.bathroomInteriorPaintCondition === 'new_drywall' ||
+      payload.bathroomInteriorPaintCondition === 'stained_damaged' ||
+      payload.bathroomInteriorPaintCondition === 'unsure'
+        ? payload.bathroomInteriorPaintCondition
+        : null,
+    bathroomInteriorPaintConditionSource:
+      payload.bathroomInteriorPaintConditionSource === 'user_selected' ||
+      payload.bathroomInteriorPaintConditionSource === 'ai_inferred'
+        ? payload.bathroomInteriorPaintConditionSource
+        : null,
+    bathroomGlassDoorStyle:
+      payload.bathroomGlassDoorStyle === 'standard_slider' ||
+      payload.bathroomGlassDoorStyle === 'premium_frameless' ||
+      payload.bathroomGlassDoorStyle === 'unsure'
+        ? payload.bathroomGlassDoorStyle
+        : null,
+    bathroomGlassDoorStyleSource:
+      payload.bathroomGlassDoorStyleSource === 'user_selected' ||
+      payload.bathroomGlassDoorStyleSource === 'ai_inferred'
+        ? payload.bathroomGlassDoorStyleSource
+        : null,
     demoTubCount:
       payload.demoTubCount != null && Number(payload.demoTubCount) > 0
         ? Math.round(Number(payload.demoTubCount))
@@ -8783,6 +9352,43 @@ export type ScopeMeasurementsInputExtended = ReturnType<typeof emptyQuickMeasure
   bathroomToiletRelocateFloorType?: string | null;
   /** Whether toilet relocate floor type was user-selected or AI-inferred. */
   bathroomToiletRelocateFloorTypeSource?: 'user_selected' | 'ai_inferred' | null;
+  /** Bathroom shower/tub rough-in wall & floor access (valve, head, drain). */
+  bathroomShowerRoughAccessType?: string | null;
+  /** Whether shower rough-in access was user-selected or AI-inferred. */
+  bathroomShowerRoughAccessTypeSource?: 'user_selected' | 'ai_inferred' | null;
+  /** In-place stub-out vs relocating shower/tub valve, head, or drain lines. */
+  bathroomShowerRoughWorkType?: string | null;
+  /** Whether shower rough-in work type was user-selected or AI-inferred. */
+  bathroomShowerRoughWorkTypeSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomShowerRoughFixtureType?: string | null;
+  bathroomShowerRoughFixtureTypeSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomShowerRoughWallAccess?: string | null;
+  bathroomShowerRoughWallAccessSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomShowerRoughPlumbingExposed?: string | null;
+  bathroomShowerRoughPlumbingExposedSource?:
+    | 'user_selected'
+    | 'demo_detected'
+    | 'ai_inferred'
+    | null;
+  bathroomShowerRoughFloorConstruction?: string | null;
+  bathroomShowerRoughFloorConstructionSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomShowerRoughSlabWorkRequired?: string | null;
+  bathroomShowerRoughSlabWorkRequiredSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomDrywallPaintUseCombinedAssemblySource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomPaintRepairScope?: string | null;
+  bathroomPaintRepairScopeSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomPaintRepairEntireRoom?: boolean | null;
+  bathroomPaintRepairEntireRoomSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomPaintRepairEntireRoomSqft?: string | number | null;
+  bathroomPaintRepairEntireRoomSqftSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomInteriorPaintMobilization?: string | null;
+  bathroomInteriorPaintMobilizationSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomInteriorPaintSurface?: string | null;
+  bathroomInteriorPaintSurfaceSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomInteriorPaintCondition?: string | null;
+  bathroomInteriorPaintConditionSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomGlassDoorStyle?: string | null;
+  bathroomGlassDoorStyleSource?: 'user_selected' | 'ai_inferred' | null;
   quickMeasurementSources?: import('@/utils/quickMeasurementProvenance').QuickMeasurementSourceMap;
   quickMeasurementUserOverrides?: import('@/utils/quickMeasurementProvenance').QuickMeasurementOverrideMap;
   planFacts?: import('@/utils/planMeasurementFacts').PlanFacts;
@@ -9040,6 +9646,131 @@ export function initialScopeMeasurementInputExtended(
       saved?.bathroomToiletRelocateFloorTypeSource ??
       suggested?.bathroomToiletRelocateFloorTypeSource ??
       null,
+    bathroomShowerRoughAccessType:
+      saved?.bathroomShowerRoughAccessType ??
+      suggested?.bathroomShowerRoughAccessType ??
+      null,
+    bathroomShowerRoughAccessTypeSource:
+      saved?.bathroomShowerRoughAccessTypeSource ??
+      suggested?.bathroomShowerRoughAccessTypeSource ??
+      null,
+    bathroomShowerRoughWorkType:
+      saved?.bathroomShowerRoughWorkType ??
+      suggested?.bathroomShowerRoughWorkType ??
+      null,
+    bathroomShowerRoughWorkTypeSource:
+      saved?.bathroomShowerRoughWorkTypeSource ??
+      suggested?.bathroomShowerRoughWorkTypeSource ??
+      null,
+    bathroomShowerRoughFixtureType:
+      saved?.bathroomShowerRoughFixtureType ??
+      suggested?.bathroomShowerRoughFixtureType ??
+      null,
+    bathroomShowerRoughFixtureTypeSource:
+      saved?.bathroomShowerRoughFixtureTypeSource ??
+      suggested?.bathroomShowerRoughFixtureTypeSource ??
+      null,
+    bathroomShowerRoughWallAccess:
+      saved?.bathroomShowerRoughWallAccess ??
+      suggested?.bathroomShowerRoughWallAccess ??
+      null,
+    bathroomShowerRoughWallAccessSource:
+      saved?.bathroomShowerRoughWallAccessSource ??
+      suggested?.bathroomShowerRoughWallAccessSource ??
+      null,
+    bathroomShowerRoughPlumbingExposed:
+      saved?.bathroomShowerRoughPlumbingExposed ??
+      suggested?.bathroomShowerRoughPlumbingExposed ??
+      (saved?.bathroomShowerRoughWallAccess === 'open_framing' ||
+      suggested?.bathroomShowerRoughWallAccess === 'open_framing'
+        ? 'exposed_by_demo'
+        : saved?.bathroomShowerRoughWallAccess === 'finished_wall' ||
+            suggested?.bathroomShowerRoughWallAccess === 'finished_wall'
+          ? 'separate_access_required'
+          : null),
+    bathroomShowerRoughPlumbingExposedSource:
+      saved?.bathroomShowerRoughPlumbingExposedSource ??
+      suggested?.bathroomShowerRoughPlumbingExposedSource ??
+      (saved?.bathroomShowerRoughWallAccess === 'open_framing' ||
+      suggested?.bathroomShowerRoughWallAccess === 'open_framing' ||
+      saved?.bathroomShowerRoughWallAccess === 'finished_wall' ||
+      suggested?.bathroomShowerRoughWallAccess === 'finished_wall'
+        ? saved?.bathroomShowerRoughWallAccessSource ??
+          suggested?.bathroomShowerRoughWallAccessSource ??
+          'user_selected'
+        : null),
+    bathroomShowerRoughFloorConstruction:
+      saved?.bathroomShowerRoughFloorConstruction ??
+      suggested?.bathroomShowerRoughFloorConstruction ??
+      null,
+    bathroomShowerRoughFloorConstructionSource:
+      saved?.bathroomShowerRoughFloorConstructionSource ??
+      suggested?.bathroomShowerRoughFloorConstructionSource ??
+      null,
+    bathroomShowerRoughSlabWorkRequired:
+      saved?.bathroomShowerRoughSlabWorkRequired ??
+      suggested?.bathroomShowerRoughSlabWorkRequired ??
+      null,
+    bathroomShowerRoughSlabWorkRequiredSource:
+      saved?.bathroomShowerRoughSlabWorkRequiredSource ??
+      suggested?.bathroomShowerRoughSlabWorkRequiredSource ??
+      null,
+    bathroomPaintRepairScope: mergeBathroomPaintRepairLocalizedScope(
+      saved?.bathroomPaintRepairScope,
+      suggested?.bathroomPaintRepairScope
+    ),
+    bathroomPaintRepairScopeSource:
+      saved?.bathroomPaintRepairScopeSource ?? suggested?.bathroomPaintRepairScopeSource ?? null,
+    bathroomPaintRepairEntireRoom: mergeBathroomPaintRepairEntireRoom(
+      saved?.bathroomPaintRepairEntireRoom,
+      suggested?.bathroomPaintRepairEntireRoom,
+      saved?.bathroomPaintRepairScope ?? suggested?.bathroomPaintRepairScope
+    ),
+    bathroomPaintRepairEntireRoomSource:
+      saved?.bathroomPaintRepairEntireRoomSource ??
+      suggested?.bathroomPaintRepairEntireRoomSource ??
+      (saved?.bathroomPaintRepairScope === 'entire_room' ||
+      suggested?.bathroomPaintRepairScope === 'entire_room'
+        ? saved?.bathroomPaintRepairScopeSource ?? suggested?.bathroomPaintRepairScopeSource ?? null
+        : null),
+    bathroomPaintRepairEntireRoomSqft:
+      saved?.bathroomPaintRepairEntireRoomSqft ?? suggested?.bathroomPaintRepairEntireRoomSqft ?? null,
+    bathroomPaintRepairEntireRoomSqftSource:
+      saved?.bathroomPaintRepairEntireRoomSqftSource ??
+      suggested?.bathroomPaintRepairEntireRoomSqftSource ??
+      null,
+    bathroomDrywallPaintUseCombinedAssembly:
+      saved?.bathroomDrywallPaintUseCombinedAssembly ??
+      suggested?.bathroomDrywallPaintUseCombinedAssembly ??
+      null,
+    bathroomDrywallPaintUseCombinedAssemblySource:
+      saved?.bathroomDrywallPaintUseCombinedAssemblySource ??
+      suggested?.bathroomDrywallPaintUseCombinedAssemblySource ??
+      null,
+    bathroomInteriorPaintMobilization:
+      saved?.bathroomInteriorPaintMobilization ??
+      suggested?.bathroomInteriorPaintMobilization ??
+      null,
+    bathroomInteriorPaintMobilizationSource:
+      saved?.bathroomInteriorPaintMobilizationSource ??
+      suggested?.bathroomInteriorPaintMobilizationSource ??
+      null,
+    bathroomInteriorPaintSurface:
+      saved?.bathroomInteriorPaintSurface ?? suggested?.bathroomInteriorPaintSurface ?? null,
+    bathroomInteriorPaintSurfaceSource:
+      saved?.bathroomInteriorPaintSurfaceSource ??
+      suggested?.bathroomInteriorPaintSurfaceSource ??
+      null,
+    bathroomInteriorPaintCondition:
+      saved?.bathroomInteriorPaintCondition ?? suggested?.bathroomInteriorPaintCondition ?? null,
+    bathroomInteriorPaintConditionSource:
+      saved?.bathroomInteriorPaintConditionSource ??
+      suggested?.bathroomInteriorPaintConditionSource ??
+      null,
+    bathroomGlassDoorStyle:
+      saved?.bathroomGlassDoorStyle ?? suggested?.bathroomGlassDoorStyle ?? null,
+    bathroomGlassDoorStyleSource:
+      saved?.bathroomGlassDoorStyleSource ?? suggested?.bathroomGlassDoorStyleSource ?? null,
     demoTubCount: saved?.demoTubCount ?? suggested?.demoTubCount ?? null,
     demoTileWallCount: saved?.demoTileWallCount ?? suggested?.demoTileWallCount ?? null,
     demoTilePanCount: saved?.demoTilePanCount ?? suggested?.demoTilePanCount ?? null,

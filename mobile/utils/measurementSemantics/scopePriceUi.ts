@@ -2,6 +2,7 @@ import { getTradeMeasurementProfile, missingStatusForScope } from './tradeMeasur
 import { measurementStatusLabel } from './records';
 import type { MeasurementStatus } from './types';
 import { measurementSemanticsV1Enabled } from './flags';
+import { resolveStep2MissingStatusLabel } from '@/utils/confirmScopeStep2Pricing';
 
 export type BenchmarkLevel = 'scope' | 'component' | 'stage' | 'overall';
 
@@ -271,7 +272,13 @@ export function formatDisplayMoneyNearest100(total: number | null | undefined): 
   return `$${rounded.toLocaleString()}`;
 }
 
-export function missingStatusDisplayLabel(scopeKey: string): string {
+export function missingStatusDisplayLabel(
+  scopeKey: string,
+  templateKey?: string | null
+): string {
+  const tierLabel = resolveStep2MissingStatusLabel(scopeKey, templateKey);
+  if (tierLabel) return tierLabel;
+
   // Soft-cost allowances — always user-facing fee/allowance language (never "Needs takeoff").
   if (scopeKey === 'permits') return 'Needs local fee confirmation';
   if (scopeKey === 'plans_engineering' || scopeKey === 'cleanup') return 'Needs allowance';

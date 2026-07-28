@@ -195,8 +195,9 @@ const CHECKLIST_TEMPLATES = {
       {
         id: 'plumbing_rough',
         inputType: 'yes_no',
-        label: 'Plumbing rough-in (new lines / relocation)',
-        helperText: 'New/relocated lines, not fixture hookup only.',
+        label: 'Plumbing rough-in (shower / tub)',
+        helperText:
+          'Shower and tub supply/drain rough-in only. Toilet rough-in is on Toilet; lav/sink rough-in is on Vanity.',
         category: 'trades',
       },
       {

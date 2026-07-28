@@ -47,6 +47,7 @@ import {
 } from '@/utils/estimateAiDraft';
 import {
   checklistDisplayHelper,
+  checklistDisplayLabel,
   choiceIdsToScopeState,
   createCustomScopeItem,
   groupScopeChecklistItems,
@@ -75,6 +76,76 @@ import {
   WET_AREA_DERIVED_ITEM_IDS,
   scopeChecklistSummaryCounts,
 } from '@/utils/estimateScopeChecklistUi';
+import {
+  BATHROOM_SHOWER_ROUGH_FIXTURE_OPTIONS,
+  BATHROOM_SHOWER_ROUGH_FLOOR_OPTIONS,
+  BATHROOM_SHOWER_ROUGH_PLUMBING_EXPOSED_OPTIONS,
+  BATHROOM_SHOWER_ROUGH_SLAB_WORK_OPTIONS,
+  BATHROOM_SHOWER_ROUGH_WORK_TYPE_OPTIONS,
+  buildShowerRoughPricingContext,
+  detectShowerRoughAccessOverlap,
+  detectShowerRoughScopeOverlap,
+  formatShowerRoughConditionSummary,
+  inferPlumbingExposedFromDemoScope,
+  shouldShowShowerRoughSlabWorkPrompt,
+  SHOWER_ROUGH_ACCESS_OVERLAP_WARNING,
+  SHOWER_ROUGH_DEMO_DETECTED_LABEL,
+  SHOWER_ROUGH_OVERLAP_WARNING,
+  isShowerRoughSuggestedBlock,
+  showerRoughContextFromPricingRecord,
+  type BathroomShowerRoughFixtureType,
+  type BathroomShowerRoughFloorConstruction,
+  type BathroomShowerRoughPlumbingExposed,
+  type BathroomShowerRoughSlabWorkRequired,
+  type BathroomShowerRoughWorkType,
+} from '@/utils/bathroomPlumbingRoughPricing';
+import ShowerRoughPricingDetails from '@/components/estimate/ShowerRoughPricingDetails';
+import InteriorPaintPricingDetails from '@/components/estimate/InteriorPaintPricingDetails';
+import {
+  BATHROOM_INTERIOR_PAINT_CONDITION_OPTIONS,
+  BATHROOM_INTERIOR_PAINT_MOBILIZATION_OPTIONS,
+  BATHROOM_INTERIOR_PAINT_SURFACE_OPTIONS,
+  detectInteriorPaintRepairOverlap,
+  interiorPaintContextFromPricingRecord,
+  isInteriorPaintSuggestedBlock,
+  resolveInteriorPaintCondition,
+  resolveInteriorPaintMobilization,
+  resolveInteriorPaintSurface,
+  type BathroomInteriorPaintCondition,
+  type BathroomInteriorPaintMobilization,
+  type BathroomInteriorPaintSurface,
+} from '@/utils/bathroomInteriorPaintPricing';
+import {
+  BATHROOM_PAINT_REPAIR_SCOPE_OPTIONS,
+  DRYWALL_PAINT_COMBINED_OVERLAP_WARNING,
+  DRYWALL_PAINT_COMBINED_SUMMARY_LABEL,
+  DRYWALL_PAINT_INTERIOR_OVERLAP_WARNING,
+  DRYWALL_PAINT_WET_AREA_NOTE,
+  PAINT_REPAIR_FULL_ROOM_NOTE,
+  detectDrywallPaintCombinedOverlap,
+  detectDrywallPaintInteriorOverlap,
+  formatPaintRepairScopeSummary,
+  hasPaintRepairScopeSelection,
+  paintRepairInScope,
+  resolveBathroomPaintRepairMissingLabel,
+  resolveBathroomPaintRepairScope,
+  resolvePaintRepairEntireRoom,
+  formatBathroomFullRoomPaintSqftHint,
+  type BathroomPaintRepairScope,
+} from '@/utils/bathroomDrywallPaintScope';
+import {
+  buildBathroomDrywallPaintCombinedSummary,
+  buildBathroomSeparateDrywallPaintSuggestedBlock,
+  resolveBathroomPaintRepairSuggestedPricing,
+} from '@/utils/bathroomPaintRepairPricing';
+import type { SuggestedPricingApplyRow } from '@/utils/mergeSuggestedPricingBlocks';
+import { formatBathroomDrywallPatchSqftHint, resolveBathroomDrywallPatchSuggestedPricing } from '@/utils/bathroomDrywallPatchPricing';
+import {
+  BATHROOM_GLASS_DOOR_STYLE_OPTIONS,
+  GLASS_DOOR_DOOR_ONLY_NOTE,
+  resolveBathroomGlassDoorStyle,
+  type BathroomGlassDoorStyle,
+} from '@/utils/bathroomGlassDoorPricing';
 import {
   BATHROOM_TOILET_RELOCATE_FLOOR_OPTIONS,
   isToiletRelocateSuggestedBlock,
@@ -284,6 +355,7 @@ import {
   type ScopeMeasurementState,
 } from '@/utils/measurementSemantics';
 import { PLANNING_BID_CONFIDENCE_COPY } from '@/utils/getMeasurementRelevance';
+import { step2TierNeedsInlineTakeoffEntry } from '@/utils/confirmScopeStep2Pricing';
 import BenchmarkReasonablenessCard from '@/components/estimate/BenchmarkReasonablenessCard';
 import {
   buildSuggestedPricingCardDisplay,
@@ -1273,6 +1345,37 @@ function SuggestedBudgetSplitRows({
           captionColor={caption}
           textColor={text}
         />
+      ) : null}
+
+      {isShowerRoughSuggestedBlock(block.pricingRecordId) ? (
+        <ShowerRoughPricingDetails
+          context={
+            showerRoughContextFromPricingRecord(block.pricingRecordId) ??
+            buildShowerRoughPricingContext({})
+          }
+          darkMode={darkMode}
+          captionColor={caption}
+          textColor={text}
+        />
+      ) : null}
+
+      {isInteriorPaintSuggestedBlock(block.pricingRecordId) ? (
+        (() => {
+          const ctx = interiorPaintContextFromPricingRecord(block.pricingRecordId);
+          if (!ctx) return null;
+          return (
+            <InteriorPaintPricingDetails
+              sqft={ctx.sqft}
+              mobilization={ctx.mobilization}
+              surface={ctx.surface}
+              condition={ctx.condition}
+              total={block.total}
+              darkMode={darkMode}
+              captionColor={caption}
+              textColor={text}
+            />
+          );
+        })()
       ) : null}
 
       {stageCoversLine ? (
@@ -2458,9 +2561,17 @@ function MaterialLaborSplitEditor({
   });
   const lastBasisQtyRef = useRef<number | null>(null);
   const didPrefillRef = useRef(false);
+  const [basisFocused, setBasisFocused] = useState(false);
+  const [basisDraft, setBasisDraft] = useState(pricingBasisValue);
+
+  useEffect(() => {
+    if (!basisFocused) {
+      setBasisDraft(pricingBasisValue);
+    }
+  }, [pricingBasisValue, basisFocused]);
 
   const effectiveBasisQty =
-    parseMoneyAmount(pricingBasisValue) ||
+    parseMoneyAmount(basisFocused ? basisDraft : pricingBasisValue) ||
     (pricingBasis && pricingBasis.quantity > 0 ? pricingBasis.quantity : 0);
 
   // Prefill empty Material/Labor from Suggested pricing once per editor open.
@@ -2719,7 +2830,7 @@ function MaterialLaborSplitEditor({
   })();
 
   const editorBasis =
-    entryMode === 'takeoff' && !splitTotalOnly && effectiveBasisQty > 0
+    entryMode === 'takeoff' && !splitTotalOnly && effectiveBasisQty > 0 && !basisFocused
       ? { quantity: effectiveBasisQty, unit: pricingBasis?.unit || basisUnit }
       : null;
 
@@ -2745,7 +2856,7 @@ function MaterialLaborSplitEditor({
       ) : showTakeoffBasis ? (
         <PricingInputField
           label={basisFieldLabel}
-          value={pricingBasisValue}
+          value={basisFocused ? basisDraft : pricingBasisValue}
           suffix={formatCountFieldSuffix(basisUnit) ?? undefined}
           placeholder={pricingBasis ? String(pricingBasis.quantity) : `Enter ${basisUnitLabel}`}
           helper={
@@ -2754,9 +2865,17 @@ function MaterialLaborSplitEditor({
               : undefined
           }
           embedded
-          onFocus={() => focusQuantityField(sqftBasisKey)}
-          onChangeText={handleBasisChange}
-          onBlur={() => blurQuantityField(sqftBasisKey)}
+          onFocus={() => {
+            setBasisFocused(true);
+            setBasisDraft(pricingBasisValue);
+            focusQuantityField(sqftBasisKey);
+          }}
+          onChangeText={setBasisDraft}
+          onBlur={() => {
+            setBasisFocused(false);
+            handleBasisChange(basisDraft);
+            blurQuantityField(sqftBasisKey);
+          }}
           Colors={Colors}
           darkMode={darkMode}
           applying={applying}
@@ -2814,6 +2933,75 @@ function MaterialLaborSplitEditor({
   );
 }
 
+function inlineTakeoffQuantityLabel(
+  itemId: string,
+  templateKey?: string | null,
+  unit?: string | null
+): string {
+  if (
+    String(templateKey || '').toLowerCase() === 'bathroom' &&
+    (itemId === 'drywall' || itemId === 'patch_repair' || itemId === 'paint_repair')
+  ) {
+    return 'Patch/repair SF';
+  }
+  return pricingBasisFieldLabel(itemId, unit);
+}
+
+function InlineTakeoffCountInput({
+  label,
+  value,
+  unit,
+  onFocus,
+  onCommit,
+  onBlur,
+  Colors,
+  darkMode,
+  applying,
+}: {
+  label: string;
+  value: string;
+  unit?: string | null;
+  onFocus: () => void;
+  onCommit: (text: string) => void;
+  onBlur: () => void;
+  Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
+  applying: boolean;
+}) {
+  const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    if (!focused) {
+      setDraft(value);
+    }
+  }, [value, focused]);
+
+  return (
+    <PricingInputField
+      label={label}
+      value={focused ? draft : value}
+      suffix={formatCountFieldSuffix(unit) ?? undefined}
+      placeholder="0"
+      embedded
+      onFocus={() => {
+        setFocused(true);
+        setDraft(value);
+        onFocus();
+      }}
+      onChangeText={setDraft}
+      onBlur={() => {
+        setFocused(false);
+        onCommit(draft);
+        onBlur();
+      }}
+      Colors={Colors}
+      darkMode={darkMode}
+      applying={applying}
+    />
+  );
+}
+
 function QuantitySection({
   itemId,
   choiceId,
@@ -2835,6 +3023,7 @@ function QuantitySection({
   scopeItemLabel,
   pricingEditorRequest,
   onPricingEditorRequestHandled,
+  suppressSuggestedPricing = false,
   Colors,
   darkMode,
   applying,
@@ -2845,6 +3034,8 @@ function QuantitySection({
   templateKey?: string | null;
   originalNotes?: string | null;
   scopeItemLabel: string;
+  /** Parent renders a bundled suggestion (e.g. separate drywall + paint lines). */
+  suppressSuggestedPricing?: boolean;
   measurementsInput: ScopeMeasurementsInputExtended;
   onItemQuantityChange: (
     itemId: string,
@@ -3069,12 +3260,14 @@ function QuantitySection({
         measurementsInput,
         templateKey
       );
-      const hideSuggestion = shouldHideSuggestedPanel({
-        itemId,
-        itemQuantities: measurementsInput.itemQuantities,
-        pricingAcceptance: measurementsInput.pricingAcceptance,
-        suggestedTotal: suggestedBudgetSplit?.total ?? null,
-      });
+      const hideSuggestion =
+        suppressSuggestedPricing ||
+        shouldHideSuggestedPanel({
+          itemId,
+          itemQuantities: measurementsInput.itemQuantities,
+          pricingAcceptance: measurementsInput.pricingAcceptance,
+          suggestedTotal: suggestedBudgetSplit?.total ?? null,
+        });
       const acceptedDisplay = accepted
         ? resolveAcceptedPricingDisplay({
             itemId,
@@ -3340,14 +3533,16 @@ function QuantitySection({
       });
       const planningFill = formulaPlanning.fill;
       const planningComparison = formulaPlanning.comparison;
-      const hidePlanningSuggestion = shouldHideSuggestedPanel({
+      const hidePlanningSuggestion =
+        suppressSuggestedPricing ||
+        shouldHideSuggestedPanel({
         itemId,
         itemQuantities: measurementsInput.itemQuantities,
         pricingAcceptance: measurementsInput.pricingAcceptance,
         suggestedTotal: planningFill?.total ?? null,
       });
       const neededStatusLine = measurementSemanticsV1Enabled()
-        ? missingStatusDisplayLabel(itemId)
+        ? missingStatusDisplayLabel(itemId, templateKey)
         : resolved.missingMessage || 'Enter quantity and/or allowance';
       const softCostAllowance = isSoftCostAllowanceScope(itemId, rule.lumpSumOnly);
       // Pricing card owns the single “needs count” / planning status — don’t stack outer copy.
@@ -3538,13 +3733,34 @@ function QuantitySection({
   // Only the explicit open flag — field focus must not trap the editor open.
   const showEditor = pricingEditorOpen;
   const neededLabel = measurementSemanticsV1Enabled()
-    ? missingStatusDisplayLabel(itemId).replace(/^Needs\s+/i, '')
+    ? (itemId === 'paint_repair' && String(templateKey || '').toLowerCase() === 'bathroom'
+        ? resolveBathroomPaintRepairMissingLabel({
+            bathroomPaintRepairScope: measurementsInput.bathroomPaintRepairScope,
+            bathroomPaintRepairEntireRoom: measurementsInput.bathroomPaintRepairEntireRoom,
+            enteredTakeoffSqft: Number(
+              String(measurementsInput.itemQuantities?.paint_repair?.quantity ?? '').replace(/,/g, '')
+            ) || null,
+          })?.replace(/^Needs\s+/i, '') ??
+          missingStatusDisplayLabel(itemId, templateKey).replace(/^Needs\s+/i, '')
+        : missingStatusDisplayLabel(itemId, templateKey).replace(/^Needs\s+/i, ''))
     : (templateKey && QUANTITY_NEEDED_LABELS_BY_TEMPLATE[templateKey]?.[itemId]) ||
       QUANTITY_NEEDED_LABELS[itemId] ||
       quantityNeededLabel(itemId, templateKey, rule.defaultUnit);
-  const neededStatusLine = measurementSemanticsV1Enabled()
-    ? missingStatusDisplayLabel(itemId)
-    : `Needs ${neededLabel}`;
+  const paintRepairMissing =
+    itemId === 'paint_repair' && String(templateKey || '').toLowerCase() === 'bathroom'
+      ? resolveBathroomPaintRepairMissingLabel({
+          bathroomPaintRepairScope: measurementsInput.bathroomPaintRepairScope,
+          bathroomPaintRepairEntireRoom: measurementsInput.bathroomPaintRepairEntireRoom,
+          enteredTakeoffSqft: Number(
+            String(measurementsInput.itemQuantities?.paint_repair?.quantity ?? '').replace(/,/g, '')
+          ) || null,
+        })
+      : null;
+  const neededStatusLine =
+    paintRepairMissing ??
+    (measurementSemanticsV1Enabled()
+      ? missingStatusDisplayLabel(itemId, templateKey)
+      : `Needs ${neededLabel}`);
 
   const initialSuggested = resolveScopeItemSuggestedPricing(
     itemId,
@@ -3670,12 +3886,14 @@ function QuantitySection({
             measurementsInput,
             templateKey
           );
-          const hideSuggestion = shouldHideSuggestedPanel({
-            itemId,
-            itemQuantities: measurementsInput.itemQuantities,
-            pricingAcceptance: measurementsInput.pricingAcceptance,
-            suggestedTotal: suggestedBudgetSplit?.total ?? null,
-          });
+          const hideSuggestion =
+            suppressSuggestedPricing ||
+            shouldHideSuggestedPanel({
+              itemId,
+              itemQuantities: measurementsInput.itemQuantities,
+              pricingAcceptance: measurementsInput.pricingAcceptance,
+              suggestedTotal: suggestedBudgetSplit?.total ?? null,
+            });
           const acceptedDisplay = accepted
             ? resolveAcceptedPricingDisplay({
                 itemId,
@@ -3875,7 +4093,9 @@ function QuantitySection({
       (itemId === 'tile_flooring' || itemId === 'flooring') &&
       isGrossFlooringDerivedFromLiving({ flooringSqft: flooringSf, floorAreaSqft: livingSf });
     const softCostAllowance = isSoftCostAllowanceScope(itemId, rule.lumpSumOnly);
-    const hidePlanningSuggestion = shouldHideSuggestedPanel({
+    const hidePlanningSuggestion =
+      suppressSuggestedPricing ||
+      shouldHideSuggestedPanel({
       itemId,
       itemQuantities: measurementsInput.itemQuantities,
       pricingAcceptance: measurementsInput.pricingAcceptance,
@@ -3898,7 +4118,7 @@ function QuantitySection({
               Status: Needs finish allocation and material-specific takeoff
             </Text>
           </View>
-        ) : cardOwnsMissingCopy ? null : (
+        ) : cardOwnsMissingCopy || suggestedBudgetSplit ? null : (
           <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
             {neededStatusLine}
           </Text>
@@ -3907,6 +4127,27 @@ function QuantitySection({
           <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 4, lineHeight: 15 }}>
             {rule.quantityHelper}
           </Text>
+        ) : null}
+        {step2TierNeedsInlineTakeoffEntry(itemId, templateKey, resolved) ? (
+          <InlineTakeoffCountInput
+            label={inlineTakeoffQuantityLabel(itemId, templateKey, resolved.unit || rule.defaultUnit)}
+            value={itemInput?.quantity ?? ''}
+            unit={resolved.unit || rule.defaultUnit}
+            onFocus={() => focusQuantityField(itemId, 'count')}
+            onCommit={(text) => {
+              onItemQuantityChange(
+                itemId,
+                text,
+                'count',
+                resolved.unit || rule.defaultUnit,
+                'user_entered'
+              );
+            }}
+            onBlur={() => blurQuantityField(itemId, 'count')}
+            Colors={Colors}
+            darkMode={darkMode}
+            applying={applying}
+          />
         ) : null}
         {!hidePlanningSuggestion && suggestedBudgetSplit ? (
           <SuggestedBudgetSplitRows
@@ -3959,6 +4200,7 @@ function QuantitySection({
   // Keep the original benchmark/suggestion available while editing so the user can
   // switch back. Do not overlay editor values onto the Apply card.
   const showEditorSuggestedPanel =
+    !suppressSuggestedPricing &&
     Boolean(suggestedBudgetSplit) &&
     (!(editorMoneyTotal > 0) ||
       Math.abs((suggestedBudgetSplit?.total || 0) - editorMoneyTotal) >= 0.01);
@@ -4275,7 +4517,7 @@ function WetAreaInstallLineCard({
   return (
     <View style={embedded ? styles.qmEmbeddedScopeBlock : scopeCardStyle(tier, Colors, darkMode)}>
       <ScopeItemTitleRow
-        label={item.label}
+        label={checklistDisplayLabel(item, templateKey)}
         noteBadge={noteBadge}
         darkMode={darkMode}
         Colors={Colors}
@@ -4309,7 +4551,7 @@ function WetAreaInstallLineCard({
         onRevertCalculatedQuantity={onRevertCalculatedQuantity}
         pricingEditorRequest={pricingEditorRequest}
         onPricingEditorRequestHandled={onPricingEditorRequestHandled}
-        scopeItemLabel={item.label}
+        scopeItemLabel={checklistDisplayLabel(item, templateKey)}
         Colors={Colors}
         darkMode={darkMode}
         applying={applying}
@@ -4332,6 +4574,7 @@ function YesNoRow({
   onItemQuantityBlur,
   onItemQuantityFocus,
   onApplySuggestedPricing,
+  onApplySuggestedPricingRows,
   onClearAcceptedPricing,
   onScopeGapResolutionsChange,
   onScopeGapPriceSeparately,
@@ -4340,6 +4583,19 @@ function YesNoRow({
   pricingEditorRequest,
   onPricingEditorRequestHandled,
   onSaveCustomPricing,
+  onBathroomToiletRelocateFloorTypeChange,
+  onBathroomShowerRoughWorkTypeChange,
+  onBathroomShowerRoughFixtureTypeChange,
+  onBathroomShowerRoughPlumbingExposedChange,
+  onBathroomShowerRoughFloorConstructionChange,
+  onBathroomShowerRoughSlabWorkRequiredChange,
+  onBathroomPaintRepairScopeChange,
+  onBathroomDrywallPaintCombinedAssemblyChange,
+  onBathroomInteriorPaintMobilizationChange,
+  onBathroomInteriorPaintSurfaceChange,
+  onBathroomInteriorPaintConditionChange,
+  onBathroomGlassDoorStyleChange,
+  scopeChecklistItems,
   visualCtx,
   Colors,
   darkMode,
@@ -4372,6 +4628,7 @@ function YesNoRow({
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   onApplySuggestedPricing?: (itemId: string, block: SuggestedPricingBlock) => void;
+  onApplySuggestedPricingRows?: (rows: SuggestedPricingApplyRow[]) => void;
   onClearAcceptedPricing?: (itemId: string) => void;
   onScopeGapResolutionsChange?: (next: ScopeGapResolutionsMap) => void;
   onScopeGapPriceSeparately?: (
@@ -4391,6 +4648,35 @@ function YesNoRow({
   pricingEditorRequest?: { itemId: string; token: number } | null;
   onPricingEditorRequestHandled?: () => void;
   onSaveCustomPricing?: () => void;
+  onBathroomToiletRelocateFloorTypeChange?: (
+    floorType: BathroomToiletRelocateFloorType | null
+  ) => void;
+  onBathroomShowerRoughWorkTypeChange?: (
+    workType: BathroomShowerRoughWorkType | null
+  ) => void;
+  onBathroomShowerRoughFixtureTypeChange?: (
+    fixtureType: BathroomShowerRoughFixtureType | null
+  ) => void;
+  onBathroomShowerRoughPlumbingExposedChange?: (
+    plumbingExposed: BathroomShowerRoughPlumbingExposed | null
+  ) => void;
+  onBathroomShowerRoughFloorConstructionChange?: (
+    floorConstruction: BathroomShowerRoughFloorConstruction | null
+  ) => void;
+  onBathroomShowerRoughSlabWorkRequiredChange?: (
+    slabWorkRequired: BathroomShowerRoughSlabWorkRequired | null
+  ) => void;
+  onBathroomPaintRepairScopeChange?: (scope: BathroomPaintRepairScope | null) => void;
+  onBathroomDrywallPaintCombinedAssemblyChange?: (useCombined: boolean | null) => void;
+  onBathroomInteriorPaintMobilizationChange?: (
+    mobilization: BathroomInteriorPaintMobilization | null
+  ) => void;
+  onBathroomInteriorPaintSurfaceChange?: (surface: BathroomInteriorPaintSurface | null) => void;
+  onBathroomInteriorPaintConditionChange?: (
+    condition: BathroomInteriorPaintCondition | null
+  ) => void;
+  onBathroomGlassDoorStyleChange?: (style: BathroomGlassDoorStyle | null) => void;
+  scopeChecklistItems?: ScopeChecklistItem[];
   visualCtx: ScopeItemVisualContext;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
@@ -4402,10 +4688,270 @@ function YesNoRow({
   const helper = isCustom ? 'Added manually. Price as total, sqft, or LF.' : checklistDisplayHelper(item, templateKey);
   const [renaming, setRenaming] = useState(false);
   const [draftLabel, setDraftLabel] = useState(item.label);
+  const [plumbingRoughPromptExpanded, setPlumbingRoughPromptExpanded] = useState(false);
+  const showPlumbingRoughAccessPrompt =
+    item.id === 'plumbing_rough' &&
+    item.state === 'included' &&
+    String(templateKey || '').toLowerCase() === 'bathroom';
+  const plumbingRoughPriceApplied = Boolean(measurementsInput.pricingAcceptance?.plumbing_rough);
+  const showPlumbingRoughQuestions =
+    showPlumbingRoughAccessPrompt &&
+    (!plumbingRoughPriceApplied || plumbingRoughPromptExpanded);
+  const showPlumbingRoughCollapsedSummary =
+    showPlumbingRoughAccessPrompt &&
+    plumbingRoughPriceApplied &&
+    !plumbingRoughPromptExpanded;
+  const showerRoughCtx = buildShowerRoughPricingContext({
+    fixtureType: measurementsInput.bathroomShowerRoughFixtureType,
+    workType: measurementsInput.bathroomShowerRoughWorkType,
+    plumbingExposed: measurementsInput.bathroomShowerRoughPlumbingExposed,
+    plumbingExposedSource: measurementsInput.bathroomShowerRoughPlumbingExposedSource,
+    floorConstruction: measurementsInput.bathroomShowerRoughFloorConstruction,
+    slabWorkRequired: measurementsInput.bathroomShowerRoughSlabWorkRequired,
+    wallAccess: measurementsInput.bathroomShowerRoughWallAccess,
+    legacyAccessType:
+      measurementsInput.bathroomShowerRoughAccessType ??
+      measurementsInput.bathroomToiletRelocateFloorType,
+    checklistItems: scopeChecklistItems,
+  });
+  const storedFixtureType = measurementsInput.bathroomShowerRoughFixtureType ?? null;
+  const storedPlumbingWorkType = measurementsInput.bathroomShowerRoughWorkType ?? null;
+  const storedPlumbingExposed = measurementsInput.bathroomShowerRoughPlumbingExposed ?? null;
+  const storedPlumbingExposedSource = measurementsInput.bathroomShowerRoughPlumbingExposedSource ?? null;
+  const storedFloorConstruction = measurementsInput.bathroomShowerRoughFloorConstruction ?? null;
+  const storedSlabWork = measurementsInput.bathroomShowerRoughSlabWorkRequired ?? null;
+  const showSlabWorkPrompt = shouldShowShowerRoughSlabWorkPrompt(showerRoughCtx);
+  const relocateOverlap = detectShowerRoughScopeOverlap({
+    checklistItems: scopeChecklistItems,
+    workType: storedPlumbingWorkType,
+  });
+  const accessOverlap = detectShowerRoughAccessOverlap({
+    checklistItems: scopeChecklistItems,
+    plumbingExposed: storedPlumbingExposed,
+  });
+  const showConditionSummary =
+    storedFixtureType ||
+    storedPlumbingWorkType ||
+    storedPlumbingExposed ||
+    storedFloorConstruction;
+
+  const showDrywallPaintOptions =
+    item.id === 'paint_repair' &&
+    item.state === 'included' &&
+    String(templateKey || '').toLowerCase() === 'bathroom';
+  const storedPaintRepairScope = measurementsInput.bathroomPaintRepairScope ?? null;
+  const resolvedPaintRepairScope = resolveBathroomPaintRepairScope(storedPaintRepairScope);
+  const storedPaintEntireRoom =
+    resolvedPaintRepairScope === 'full_room' ||
+    resolvePaintRepairEntireRoom({
+      entireRoom: measurementsInput.bathroomPaintRepairEntireRoom,
+      legacyScope: storedPaintRepairScope,
+    });
+  const paintRepairScopeSelectionComplete = hasPaintRepairScopeSelection({
+    localizedScope: storedPaintRepairScope,
+    entireRoom: measurementsInput.bathroomPaintRepairEntireRoom,
+    legacyScope: storedPaintRepairScope,
+  });
+  const combinedEligible = resolvedPaintRepairScope === 'affected_area' || !resolvedPaintRepairScope;
+  const useCombinedAssembly =
+    combinedEligible && measurementsInput.bathroomDrywallPaintUseCombinedAssembly !== false;
+  const combinedSummary =
+    showDrywallPaintOptions
+      ? buildBathroomDrywallPaintCombinedSummary({
+          checklistItems: scopeChecklistItems,
+          showerWallTileSqft: Number(measurementsInput.showerWallTileSqft) || null,
+          paintRepairScope: storedPaintRepairScope,
+        })
+      : null;
+  const interiorPaintOverlap = detectDrywallPaintInteriorOverlap({
+    checklistItems: scopeChecklistItems,
+    paintRepairScope: storedPaintRepairScope,
+    paintRepairEntireRoom: measurementsInput.bathroomPaintRepairEntireRoom,
+  });
+  const combinedAssemblyOverlap = detectDrywallPaintCombinedOverlap({
+    checklistItems: scopeChecklistItems,
+    useCombinedAssembly,
+  });
+  const userPaintRepairSqft = Number(
+    String(measurementsInput.itemQuantities?.paint_repair?.quantity ?? '').replace(/,/g, '')
+  );
+  const entireRoomPaintSqft =
+    resolvedPaintRepairScope === 'full_room' && userPaintRepairSqft > 0 ? userPaintRepairSqft : 0;
+  const patchRepairSqft =
+    resolvedPaintRepairScope === 'affected_area'
+      ? userPaintRepairSqft > 0
+        ? userPaintRepairSqft
+        : Number(
+            measurementsInput.itemQuantities?.drywall?.quantity ?? measurementsInput.drywallSqft ?? ''
+          )
+      : 0;
+  const showPaintRepairScopePrompt =
+    item.id === 'paint_repair' &&
+    item.state === 'included' &&
+    String(templateKey || '').toLowerCase() === 'bathroom';
+  const showDrywallPatchSqftHint =
+    showPaintRepairScopePrompt &&
+    resolvedPaintRepairScope === 'affected_area' &&
+    !(Number.isFinite(patchRepairSqft) && patchRepairSqft > 0);
+  const showFullRoomPaintSqftHint =
+    showPaintRepairScopePrompt &&
+    resolvedPaintRepairScope === 'full_room' &&
+    !(Number.isFinite(entireRoomPaintSqft) && entireRoomPaintSqft > 0);
+  const paintRepairScopeApplied = Boolean(measurementsInput.pricingAcceptance?.paint_repair);
+  const [paintRepairPromptExpanded, setPaintRepairPromptExpanded] = useState(false);
+  const showPaintRepairQuestions =
+    showPaintRepairScopePrompt && (!paintRepairScopeApplied || paintRepairPromptExpanded);
+  const showPaintRepairCollapsed =
+    showPaintRepairScopePrompt && paintRepairScopeApplied && !paintRepairPromptExpanded;
+  const paintInteriorOverlapOnCard = detectDrywallPaintInteriorOverlap({
+    checklistItems: scopeChecklistItems,
+    paintRepairScope: storedPaintRepairScope,
+    paintRepairEntireRoom: measurementsInput.bathroomPaintRepairEntireRoom,
+  });
+  const separateDrywallPatchFill = useMemo(() => {
+    if (!showPaintRepairScopePrompt || useCombinedAssembly || resolvedPaintRepairScope === 'full_room') {
+      return null;
+    }
+    if (!(patchRepairSqft > 0)) return null;
+    if (measurementsInput.pricingAcceptance?.drywall) return null;
+    return (
+      resolveBathroomDrywallPatchSuggestedPricing({
+        checklistItems: scopeChecklistItems,
+        quantity: patchRepairSqft,
+        showerWallTileSqft: Number(measurementsInput.showerWallTileSqft) || null,
+        useCombinedAssembly: false,
+        paintRepairScope: storedPaintRepairScope,
+      })?.fill ?? null
+    );
+  }, [
+    showPaintRepairScopePrompt,
+    useCombinedAssembly,
+    patchRepairSqft,
+    measurementsInput.pricingAcceptance?.drywall,
+    measurementsInput.showerWallTileSqft,
+    scopeChecklistItems,
+    storedPaintRepairScope,
+  ]);
+
+  const separateLinesPaintFill = useMemo(() => {
+    if (!showPaintRepairScopePrompt || useCombinedAssembly) return null;
+    if (measurementsInput.pricingAcceptance?.paint_repair) return null;
+    const isFullRoom = resolvedPaintRepairScope === 'full_room';
+    const isAffectedArea = resolvedPaintRepairScope === 'affected_area';
+    if (!isFullRoom && !isAffectedArea) return null;
+    if (isAffectedArea && !(patchRepairSqft > 0)) return null;
+    if (isFullRoom && !(entireRoomPaintSqft > 0)) return null;
+    return (
+      resolveBathroomPaintRepairSuggestedPricing({
+        checklistItems: scopeChecklistItems,
+        patchSqft: patchRepairSqft > 0 ? patchRepairSqft : null,
+        showerWallTileSqft: Number(measurementsInput.showerWallTileSqft) || null,
+        paintRepairScope: storedPaintRepairScope,
+        paintRepairEntireRoom: measurementsInput.bathroomPaintRepairEntireRoom,
+        entireRoomSqft: entireRoomPaintSqft > 0 ? entireRoomPaintSqft : null,
+        interiorPaintMobilization: measurementsInput.bathroomInteriorPaintMobilization,
+        interiorPaintSurface: measurementsInput.bathroomInteriorPaintSurface,
+        interiorPaintCondition: measurementsInput.bathroomInteriorPaintCondition,
+        useCombinedAssembly: false,
+      })?.fill ?? null
+    );
+  }, [
+    showPaintRepairScopePrompt,
+    useCombinedAssembly,
+    patchRepairSqft,
+    entireRoomPaintSqft,
+    resolvedPaintRepairScope,
+    storedPaintEntireRoom,
+    measurementsInput.pricingAcceptance?.paint_repair,
+    measurementsInput.showerWallTileSqft,
+    measurementsInput.bathroomPaintRepairEntireRoom,
+    measurementsInput.bathroomInteriorPaintMobilization,
+    measurementsInput.bathroomInteriorPaintSurface,
+    measurementsInput.bathroomInteriorPaintCondition,
+    scopeChecklistItems,
+    storedPaintRepairScope,
+  ]);
+
+  const separateLinesMergedBlock = useMemo(() => {
+    if (!separateLinesPaintFill) return null;
+    if (resolvedPaintRepairScope === 'full_room') return separateLinesPaintFill;
+    return buildBathroomSeparateDrywallPaintSuggestedBlock({
+      drywall: separateDrywallPatchFill,
+      paint: separateLinesPaintFill,
+      patchSqft: patchRepairSqft > 0 ? patchRepairSqft : entireRoomPaintSqft,
+    });
+  }, [
+    separateDrywallPatchFill,
+    separateLinesPaintFill,
+    patchRepairSqft,
+    entireRoomPaintSqft,
+    resolvedPaintRepairScope,
+  ]);
+
+  const paintRepairBundledPricing = Boolean(separateLinesMergedBlock);
+
+  useEffect(() => {
+    if (!paintRepairScopeApplied) setPaintRepairPromptExpanded(false);
+  }, [paintRepairScopeApplied]);
+
+  const showInteriorPaintScopePrompt =
+    (item.id === 'interior_paint' || item.id === 'paint') &&
+    item.state === 'included' &&
+    String(templateKey || '').toLowerCase() === 'bathroom';
+  const interiorPaintScopeApplied = Boolean(
+    measurementsInput.pricingAcceptance?.interior_paint || measurementsInput.pricingAcceptance?.paint
+  );
+  const [interiorPaintPromptExpanded, setInteriorPaintPromptExpanded] = useState(false);
+  const showInteriorPaintQuestions =
+    showInteriorPaintScopePrompt && (!interiorPaintScopeApplied || interiorPaintPromptExpanded);
+  const showInteriorPaintCollapsed =
+    showInteriorPaintScopePrompt && interiorPaintScopeApplied && !interiorPaintPromptExpanded;
+  const storedInteriorMobilization = resolveInteriorPaintMobilization(
+    measurementsInput.bathroomInteriorPaintMobilization
+  );
+  const storedInteriorSurface = resolveInteriorPaintSurface(
+    measurementsInput.bathroomInteriorPaintSurface
+  );
+  const storedInteriorCondition = resolveInteriorPaintCondition(
+    measurementsInput.bathroomInteriorPaintCondition
+  );
+  const interiorPaintRepairOverlap = detectInteriorPaintRepairOverlap({
+    checklistItems: scopeChecklistItems,
+    paintRepairScope: storedPaintRepairScope,
+    paintRepairEntireRoom: measurementsInput.bathroomPaintRepairEntireRoom,
+  });
+
+  useEffect(() => {
+    if (!interiorPaintScopeApplied) setInteriorPaintPromptExpanded(false);
+  }, [interiorPaintScopeApplied]);
+
+  const showGlassDoorStylePrompt =
+    item.id === 'glass_door' &&
+    item.state === 'included' &&
+    String(templateKey || '').toLowerCase() === 'bathroom';
+  const glassDoorStyleApplied = Boolean(measurementsInput.pricingAcceptance?.glass_door);
+  const [glassDoorPromptExpanded, setGlassDoorPromptExpanded] = useState(false);
+  const showGlassDoorQuestions =
+    showGlassDoorStylePrompt && (!glassDoorStyleApplied || glassDoorPromptExpanded);
+  const showGlassDoorCollapsed =
+    showGlassDoorStylePrompt && glassDoorStyleApplied && !glassDoorPromptExpanded;
+  const storedGlassDoorStyle = resolveBathroomGlassDoorStyle(
+    measurementsInput.bathroomGlassDoorStyle
+  );
+
+  useEffect(() => {
+    if (!glassDoorStyleApplied) setGlassDoorPromptExpanded(false);
+  }, [glassDoorStyleApplied]);
 
   useEffect(() => {
     setDraftLabel(item.label);
   }, [item.label]);
+
+  useEffect(() => {
+    if (!plumbingRoughPriceApplied) {
+      setPlumbingRoughPromptExpanded(false);
+    }
+  }, [plumbingRoughPriceApplied]);
 
   const saveRename = () => {
     const trimmed = draftLabel.trim();
@@ -4441,7 +4987,7 @@ function YesNoRow({
         </View>
       ) : (
         <ScopeItemTitleRow
-          label={item.label}
+          label={checklistDisplayLabel(item, templateKey)}
           noteBadge={noteBadge}
           rightAccessory={
             isCustom ? (
@@ -4521,6 +5067,680 @@ function YesNoRow({
           />
         ) : null}
       </View>
+      {showPlumbingRoughCollapsedSummary ? (
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={() => {
+            hapticTap();
+            setPlumbingRoughPromptExpanded(true);
+          }}
+          style={{ marginTop: 10 }}
+          accessibilityRole="button"
+          accessibilityLabel="Edit shower rough-in conditions"
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+            <Text
+              style={{
+                flex: 1,
+                color: captionColor(darkMode, Colors),
+                fontSize: 11,
+                lineHeight: 16,
+                fontWeight: '600',
+              }}
+            >
+              {formatShowerRoughConditionSummary(showerRoughCtx)}
+            </Text>
+            <Text style={{ color: '#0f766e', fontSize: 12, fontWeight: '700' }}>Edit</Text>
+          </View>
+        </TouchableOpacity>
+      ) : null}
+      {showPlumbingRoughQuestions ? (
+        <View style={{ marginTop: 10 }}>
+          {plumbingRoughPriceApplied ? (
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={() => {
+                hapticTap();
+                setPlumbingRoughPromptExpanded(false);
+              }}
+              style={{ alignSelf: 'flex-start', marginBottom: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Done editing shower rough-in conditions"
+            >
+              <Text style={{ color: '#0f766e', fontSize: 12, fontWeight: '700' }}>Done</Text>
+            </TouchableOpacity>
+          ) : null}
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 8, lineHeight: 15 }}>
+            What fixture is being roughed in?
+          </Text>
+          <View style={styles.choiceWrap}>
+            {BATHROOM_SHOWER_ROUGH_FIXTURE_OPTIONS.map((opt) => {
+              const active = storedFixtureType === opt.id;
+              return (
+                <TouchableOpacity
+                  key={opt.id}
+                  activeOpacity={0.88}
+                  onPress={() => {
+                    hapticTap();
+                    onBathroomShowerRoughFixtureTypeChange?.(
+                      storedFixtureType === opt.id ? null : opt.id
+                    );
+                  }}
+                  style={[
+                    styles.choiceChipWide,
+                    {
+                      borderColor: active ? '#60a5fa' : darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                      backgroundColor: active ? 'rgba(96,165,250,0.18)' : darkMode ? 'rgba(255,255,255,0.04)' : 'transparent',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: active ? '#60a5fa' : captionColor(darkMode, Colors),
+                      fontSize: 12,
+                      fontWeight: active ? '800' : '600',
+                      textAlign: 'center',
+                    }}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 12, marginBottom: 8, lineHeight: 15 }}>
+            Is the plumbing staying in the same location?
+          </Text>
+          <View style={styles.choiceWrap}>
+            {BATHROOM_SHOWER_ROUGH_WORK_TYPE_OPTIONS.map((opt) => {
+              const active = storedPlumbingWorkType === opt.id;
+              return (
+                <TouchableOpacity
+                  key={opt.id}
+                  activeOpacity={0.88}
+                  onPress={() => {
+                    hapticTap();
+                    onBathroomShowerRoughWorkTypeChange?.(
+                      storedPlumbingWorkType === opt.id ? null : opt.id
+                    );
+                  }}
+                  style={[
+                    styles.choiceChipWide,
+                    {
+                      borderColor: active ? '#60a5fa' : darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                      backgroundColor: active ? 'rgba(96,165,250,0.18)' : darkMode ? 'rgba(255,255,255,0.04)' : 'transparent',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: active ? '#60a5fa' : captionColor(darkMode, Colors),
+                      fontSize: 12,
+                      fontWeight: active ? '800' : '600',
+                      textAlign: 'center',
+                    }}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 12, marginBottom: 8, lineHeight: 15 }}>
+            Will remodel demolition expose the plumbing?
+          </Text>
+          {storedPlumbingExposedSource === 'demo_detected' && storedPlumbingExposed === 'exposed_by_demo' ? (
+            <Text style={{ color: '#60a5fa', fontSize: 10, marginBottom: 8, lineHeight: 14, fontWeight: '600' }}>
+              {SHOWER_ROUGH_DEMO_DETECTED_LABEL}
+            </Text>
+          ) : (
+            <Text style={{ color: captionColor(darkMode, Colors), fontSize: 10, marginBottom: 8, lineHeight: 14 }}>
+              On most shower remodels, demo removes tile and opens the wall — pick Yes unless the plumber must create separate access elsewhere.
+            </Text>
+          )}
+          <View style={styles.choiceWrap}>
+            {BATHROOM_SHOWER_ROUGH_PLUMBING_EXPOSED_OPTIONS.map((opt) => {
+              const active = storedPlumbingExposed === opt.id;
+              return (
+                <TouchableOpacity
+                  key={opt.id}
+                  activeOpacity={0.88}
+                  onPress={() => {
+                    hapticTap();
+                    onBathroomShowerRoughPlumbingExposedChange?.(
+                      storedPlumbingExposed === opt.id ? null : opt.id
+                    );
+                  }}
+                  style={[
+                    styles.choiceChipWide,
+                    {
+                      borderColor: active ? '#60a5fa' : darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                      backgroundColor: active ? 'rgba(96,165,250,0.18)' : darkMode ? 'rgba(255,255,255,0.04)' : 'transparent',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: active ? '#60a5fa' : captionColor(darkMode, Colors),
+                      fontSize: 12,
+                      fontWeight: active ? '800' : '600',
+                      textAlign: 'center',
+                    }}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 12, marginBottom: 8, lineHeight: 15 }}>
+            What is the floor construction?
+          </Text>
+          <View style={styles.choiceWrap}>
+            {BATHROOM_SHOWER_ROUGH_FLOOR_OPTIONS.map((opt) => {
+              const active = storedFloorConstruction === opt.id;
+              return (
+                <TouchableOpacity
+                  key={opt.id}
+                  activeOpacity={0.88}
+                  onPress={() => {
+                    hapticTap();
+                    onBathroomShowerRoughFloorConstructionChange?.(
+                      storedFloorConstruction === opt.id ? null : opt.id
+                    );
+                  }}
+                  style={[
+                    styles.choiceChipWide,
+                    {
+                      borderColor: active ? '#60a5fa' : darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                      backgroundColor: active ? 'rgba(96,165,250,0.18)' : darkMode ? 'rgba(255,255,255,0.04)' : 'transparent',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: active ? '#60a5fa' : captionColor(darkMode, Colors),
+                      fontSize: 12,
+                      fontWeight: active ? '800' : '600',
+                      textAlign: 'center',
+                    }}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {showSlabWorkPrompt ? (
+            <>
+              <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 12, marginBottom: 8, lineHeight: 15 }}>
+                Is concrete cutting or below-slab drain modification required?
+              </Text>
+              <View style={styles.choiceRow}>
+                {BATHROOM_SHOWER_ROUGH_SLAB_WORK_OPTIONS.map((opt) => {
+                  const active = storedSlabWork === opt.id;
+                  return (
+                    <YesNoChip
+                      key={opt.id}
+                      label={opt.label}
+                      active={active}
+                      variant={opt.id === 'yes' ? 'yes' : opt.id === 'no' ? 'no' : 'unsure'}
+                      onPress={() => {
+                        hapticTap();
+                        onBathroomShowerRoughSlabWorkRequiredChange?.(
+                          storedSlabWork === opt.id ? null : opt.id
+                        );
+                      }}
+                      Colors={Colors}
+                      darkMode={darkMode}
+                    />
+                  );
+                })}
+              </View>
+            </>
+          ) : null}
+
+          {showConditionSummary ? (
+            <Text
+              style={{
+                color: captionColor(darkMode, Colors),
+                fontSize: 11,
+                marginTop: 12,
+                lineHeight: 16,
+                fontWeight: '600',
+              }}
+            >
+              {formatShowerRoughConditionSummary(showerRoughCtx)}
+            </Text>
+          ) : null}
+
+          {accessOverlap ? (
+            <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 12, lineHeight: 16, fontWeight: '600' }}>
+              {SHOWER_ROUGH_ACCESS_OVERLAP_WARNING}
+            </Text>
+          ) : null}
+
+          {relocateOverlap.overlap ? (
+            <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 12, lineHeight: 16, fontWeight: '600' }}>
+              {SHOWER_ROUGH_OVERLAP_WARNING}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {showDrywallPatchSqftHint ? (
+        <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 10, lineHeight: 16 }}>
+          {formatBathroomDrywallPatchSqftHint({
+            showerWallTileSqft: Number(measurementsInput.showerWallTileSqft) || null,
+          })}
+        </Text>
+      ) : null}
+
+      {showFullRoomPaintSqftHint ? (
+        <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 10, lineHeight: 16 }}>
+          {formatBathroomFullRoomPaintSqftHint({
+            wallPaintSqft: measurementsInput.wallPaintSqft,
+            bathroomFloorSqft: measurementsInput.bathroomFloorSqft,
+          })}
+        </Text>
+      ) : null}
+
+      {showDrywallPaintOptions && combinedEligible ? (
+        <View style={{ marginTop: 10 }}>
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 8, lineHeight: 15 }}>
+            Use one combined repair assembly?
+          </Text>
+          <View style={styles.choiceRow}>
+            <YesNoChip
+              label="Combined patch, texture, prime, and paint"
+              active={useCombinedAssembly}
+              variant="yes"
+              onPress={() => {
+                hapticTap();
+                onBathroomDrywallPaintCombinedAssemblyChange?.(useCombinedAssembly ? null : true);
+              }}
+              Colors={Colors}
+              darkMode={darkMode}
+            />
+            <YesNoChip
+              label="Separate lines"
+              active={!useCombinedAssembly}
+              variant="no"
+              onPress={() => {
+                hapticTap();
+                onBathroomDrywallPaintCombinedAssemblyChange?.(false);
+              }}
+              Colors={Colors}
+              darkMode={darkMode}
+            />
+          </View>
+          {combinedSummary && !useCombinedAssembly ? (
+            <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 10, lineHeight: 16 }}>
+              {`Combined planning allowance: $${combinedSummary.drywallTotal.toLocaleString()} drywall + $${combinedSummary.paintTotal.toLocaleString()} paint = $${combinedSummary.combinedTotal.toLocaleString()} (range $${combinedSummary.range.low.toLocaleString()}–$${combinedSummary.range.high.toLocaleString()}). ${DRYWALL_PAINT_COMBINED_SUMMARY_LABEL}`}
+            </Text>
+          ) : null}
+          {combinedAssemblyOverlap ? (
+            <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 10, lineHeight: 16, fontWeight: '600' }}>
+              {DRYWALL_PAINT_COMBINED_OVERLAP_WARNING}
+            </Text>
+          ) : null}
+          {interiorPaintOverlap ? (
+            <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 10, lineHeight: 16, fontWeight: '600' }}>
+              {DRYWALL_PAINT_INTERIOR_OVERLAP_WARNING}
+            </Text>
+          ) : null}
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 10, marginTop: 8, lineHeight: 14 }}>
+            {DRYWALL_PAINT_WET_AREA_NOTE}
+          </Text>
+        </View>
+      ) : null}
+
+      {showPaintRepairCollapsed ? (
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={() => {
+            hapticTap();
+            setPaintRepairPromptExpanded(true);
+          }}
+          style={{ marginTop: 10 }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+            <Text style={{ flex: 1, color: captionColor(darkMode, Colors), fontSize: 11, lineHeight: 16, fontWeight: '600' }}>
+              {formatPaintRepairScopeSummary({
+                localizedScope: storedPaintRepairScope,
+                entireRoom: measurementsInput.bathroomPaintRepairEntireRoom,
+                legacyScope: storedPaintRepairScope,
+              })}
+            </Text>
+            <Text style={{ color: '#0f766e', fontSize: 12, fontWeight: '700' }}>Edit</Text>
+          </View>
+        </TouchableOpacity>
+      ) : null}
+
+      {showPaintRepairQuestions ? (
+        <View style={{ marginTop: 10 }}>
+          {paintRepairScopeApplied ? (
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={() => {
+                hapticTap();
+                setPaintRepairPromptExpanded(false);
+              }}
+              style={{ alignSelf: 'flex-start', marginBottom: 8 }}
+            >
+              <Text style={{ color: '#0f766e', fontSize: 12, fontWeight: '700' }}>Done</Text>
+            </TouchableOpacity>
+          ) : null}
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 8, lineHeight: 15 }}>
+            What painting is required after the drywall repair?
+          </Text>
+          <View style={styles.choiceWrap}>
+            {BATHROOM_PAINT_REPAIR_SCOPE_OPTIONS.map((opt) => {
+              const active = resolvedPaintRepairScope === opt.id;
+              return (
+                <TouchableOpacity
+                  key={opt.id}
+                  activeOpacity={0.88}
+                  onPress={() => {
+                    hapticTap();
+                    onBathroomPaintRepairScopeChange?.(active ? null : opt.id);
+                  }}
+                  style={[
+                    styles.choiceChipWide,
+                    {
+                      borderColor: active ? '#60a5fa' : darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                      backgroundColor: active ? 'rgba(96,165,250,0.18)' : darkMode ? 'rgba(255,255,255,0.04)' : 'transparent',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: active ? '#60a5fa' : captionColor(darkMode, Colors),
+                      fontSize: 12,
+                      fontWeight: active ? '800' : '600',
+                      textAlign: 'center',
+                    }}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {resolvedPaintRepairScope === 'full_room' ? (
+            <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 10, lineHeight: 15 }}>
+              {PAINT_REPAIR_FULL_ROOM_NOTE}
+            </Text>
+          ) : null}
+          {paintInteriorOverlapOnCard ? (
+            <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 10, lineHeight: 16, fontWeight: '600' }}>
+              {DRYWALL_PAINT_INTERIOR_OVERLAP_WARNING}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {separateLinesMergedBlock && separateLinesPaintFill ? (
+        <View style={{ marginTop: 10 }}>
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 6, lineHeight: 15 }}>
+            {resolvedPaintRepairScope === 'full_room'
+              ? 'Full-room paint — patch included'
+              : separateDrywallPatchFill
+                ? 'Separate lines — patch/texture + paint'
+                : 'Paint — affected area'}
+          </Text>
+          <SuggestedBudgetSplitRows
+            block={separateLinesMergedBlock}
+            Colors={Colors}
+            darkMode={darkMode}
+            onUsePricing={() =>
+              onApplySuggestedPricingRows?.([
+                ...(separateDrywallPatchFill
+                  ? [{ itemId: 'drywall', block: separateDrywallPatchFill }]
+                  : []),
+                { itemId: 'paint_repair', block: separateLinesPaintFill },
+              ])
+            }
+            itemId="paint_repair"
+            quantitySource="user"
+            hasPrimaryTakeoff
+          />
+        </View>
+      ) : null}
+
+      {showInteriorPaintCollapsed ? (
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={() => {
+            hapticTap();
+            setInteriorPaintPromptExpanded(true);
+          }}
+          style={{ marginTop: 10 }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+            <Text style={{ flex: 1, color: captionColor(darkMode, Colors), fontSize: 11, lineHeight: 16, fontWeight: '600' }}>
+              {[
+                BATHROOM_INTERIOR_PAINT_MOBILIZATION_OPTIONS.find((opt) => opt.id === storedInteriorMobilization)
+                  ?.label,
+                BATHROOM_INTERIOR_PAINT_SURFACE_OPTIONS.find((opt) => opt.id === storedInteriorSurface)?.label,
+                BATHROOM_INTERIOR_PAINT_CONDITION_OPTIONS.find((opt) => opt.id === storedInteriorCondition)?.label,
+              ]
+                .filter(Boolean)
+                .join(' · ') || 'Interior paint scope selected'}
+            </Text>
+            <Text style={{ color: '#0f766e', fontSize: 12, fontWeight: '700' }}>Edit</Text>
+          </View>
+        </TouchableOpacity>
+      ) : null}
+
+      {showInteriorPaintQuestions ? (
+        <View style={{ marginTop: 10 }}>
+          {interiorPaintScopeApplied ? (
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={() => {
+                hapticTap();
+                setInteriorPaintPromptExpanded(false);
+              }}
+              style={{ alignSelf: 'flex-start', marginBottom: 8 }}
+            >
+              <Text style={{ color: '#0f766e', fontSize: 12, fontWeight: '700' }}>Done</Text>
+            </TouchableOpacity>
+          ) : null}
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 8, lineHeight: 15 }}>
+            Is this area part of a larger painting scope?
+          </Text>
+          <View style={styles.choiceWrap}>
+            {BATHROOM_INTERIOR_PAINT_MOBILIZATION_OPTIONS.map((opt) => {
+              const active = storedInteriorMobilization === opt.id;
+              return (
+                <TouchableOpacity
+                  key={opt.id}
+                  activeOpacity={0.88}
+                  onPress={() => {
+                    hapticTap();
+                    onBathroomInteriorPaintMobilizationChange?.(active ? null : opt.id);
+                  }}
+                  style={[
+                    styles.choiceChipWide,
+                    {
+                      borderColor: active ? '#60a5fa' : darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                      backgroundColor: active ? 'rgba(96,165,250,0.18)' : darkMode ? 'rgba(255,255,255,0.04)' : 'transparent',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: active ? '#60a5fa' : captionColor(darkMode, Colors),
+                      fontSize: 12,
+                      fontWeight: active ? '800' : '600',
+                      textAlign: 'center',
+                    }}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 12, marginBottom: 8, lineHeight: 15 }}>
+            What surface is being painted?
+          </Text>
+          <View style={styles.choiceWrap}>
+            {BATHROOM_INTERIOR_PAINT_SURFACE_OPTIONS.map((opt) => {
+              const active = storedInteriorSurface === opt.id;
+              return (
+                <TouchableOpacity
+                  key={opt.id}
+                  activeOpacity={0.88}
+                  onPress={() => {
+                    hapticTap();
+                    onBathroomInteriorPaintSurfaceChange?.(active ? null : opt.id);
+                  }}
+                  style={[
+                    styles.choiceChipWide,
+                    {
+                      borderColor: active ? '#60a5fa' : darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                      backgroundColor: active ? 'rgba(96,165,250,0.18)' : darkMode ? 'rgba(255,255,255,0.04)' : 'transparent',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: active ? '#60a5fa' : captionColor(darkMode, Colors),
+                      fontSize: 12,
+                      fontWeight: active ? '800' : '600',
+                      textAlign: 'center',
+                    }}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginTop: 12, marginBottom: 8, lineHeight: 15 }}>
+            What is the painting condition?
+          </Text>
+          <View style={styles.choiceWrap}>
+            {BATHROOM_INTERIOR_PAINT_CONDITION_OPTIONS.map((opt) => {
+              const active = storedInteriorCondition === opt.id;
+              return (
+                <TouchableOpacity
+                  key={opt.id}
+                  activeOpacity={0.88}
+                  onPress={() => {
+                    hapticTap();
+                    onBathroomInteriorPaintConditionChange?.(active ? null : opt.id);
+                  }}
+                  style={[
+                    styles.choiceChipWide,
+                    {
+                      borderColor: active ? '#60a5fa' : darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                      backgroundColor: active ? 'rgba(96,165,250,0.18)' : darkMode ? 'rgba(255,255,255,0.04)' : 'transparent',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: active ? '#60a5fa' : captionColor(darkMode, Colors),
+                      fontSize: 12,
+                      fontWeight: active ? '800' : '600',
+                      textAlign: 'center',
+                    }}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {interiorPaintRepairOverlap ? (
+            <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 10, lineHeight: 16, fontWeight: '600' }}>
+              {DRYWALL_PAINT_INTERIOR_OVERLAP_WARNING}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
+      {showGlassDoorCollapsed ? (
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={() => {
+            hapticTap();
+            setGlassDoorPromptExpanded(true);
+          }}
+          style={{ marginTop: 10 }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+            <Text style={{ flex: 1, color: captionColor(darkMode, Colors), fontSize: 11, lineHeight: 16, fontWeight: '600' }}>
+              {BATHROOM_GLASS_DOOR_STYLE_OPTIONS.find((opt) => opt.id === storedGlassDoorStyle)?.label ||
+                'Shower door style selected'}
+            </Text>
+            <Text style={{ color: '#0f766e', fontSize: 12, fontWeight: '700' }}>Edit</Text>
+          </View>
+        </TouchableOpacity>
+      ) : null}
+
+      {showGlassDoorQuestions ? (
+        <View style={{ marginTop: 10 }}>
+          {glassDoorStyleApplied ? (
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={() => {
+                hapticTap();
+                setGlassDoorPromptExpanded(false);
+              }}
+              style={{ alignSelf: 'flex-start', marginBottom: 8 }}
+            >
+              <Text style={{ color: '#0f766e', fontSize: 12, fontWeight: '700' }}>Done</Text>
+            </TouchableOpacity>
+          ) : null}
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 8, lineHeight: 15 }}>
+            What type of shower door?
+          </Text>
+          <View style={styles.choiceWrap}>
+            {BATHROOM_GLASS_DOOR_STYLE_OPTIONS.map((opt) => {
+              const active = storedGlassDoorStyle === opt.id;
+              return (
+                <TouchableOpacity
+                  key={opt.id}
+                  activeOpacity={0.88}
+                  onPress={() => {
+                    hapticTap();
+                    onBathroomGlassDoorStyleChange?.(active ? null : opt.id);
+                  }}
+                  style={[
+                    styles.choiceChipWide,
+                    {
+                      borderColor: active ? '#60a5fa' : darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+                      backgroundColor: active ? 'rgba(96,165,250,0.18)' : darkMode ? 'rgba(255,255,255,0.04)' : 'transparent',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: active ? '#60a5fa' : captionColor(darkMode, Colors),
+                      fontSize: 12,
+                      fontWeight: active ? '800' : '600',
+                      textAlign: 'center',
+                    }}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 10, marginTop: 8, lineHeight: 14 }}>
+            {GLASS_DOOR_DOOR_ONLY_NOTE}
+          </Text>
+        </View>
+      ) : null}
       {isCustom ? (
         <CustomScopePricingSection
           itemId={item.id}
@@ -4556,6 +5776,7 @@ function YesNoRow({
           onItemQuantityBlur={onItemQuantityBlur}
           onItemQuantityFocus={onItemQuantityFocus}
           onApplySuggestedPricing={onApplySuggestedPricing}
+          onApplySuggestedPricingRows={onApplySuggestedPricingRows}
           onClearAcceptedPricing={onClearAcceptedPricing}
           onScopeGapResolutionsChange={onScopeGapResolutionsChange}
           onScopeGapPriceSeparately={onScopeGapPriceSeparately}
@@ -4563,7 +5784,8 @@ function YesNoRow({
           onRevertCalculatedQuantity={onRevertCalculatedQuantity}
           pricingEditorRequest={pricingEditorRequest}
           onPricingEditorRequestHandled={onPricingEditorRequestHandled}
-          scopeItemLabel={item.label}
+          suppressSuggestedPricing={paintRepairBundledPricing}
+          scopeItemLabel={checklistDisplayLabel(item, templateKey)}
           Colors={Colors}
           darkMode={darkMode}
           applying={applying}
@@ -4654,7 +5876,7 @@ function MultiChoiceRow({
   return (
     <View style={scopeCardStyle(tier, Colors, darkMode)}>
       <ScopeItemTitleRow
-        label={item.label}
+        label={checklistDisplayLabel(item, templateKey)}
         noteBadge={noteBadge}
         darkMode={darkMode}
         Colors={Colors}
@@ -4731,7 +5953,7 @@ function MultiChoiceRow({
         onRevertCalculatedQuantity={onRevertCalculatedQuantity}
         pricingEditorRequest={pricingEditorRequest}
         onPricingEditorRequestHandled={onPricingEditorRequestHandled}
-        scopeItemLabel={item.label}
+        scopeItemLabel={checklistDisplayLabel(item, templateKey)}
         Colors={Colors}
         darkMode={darkMode}
         applying={applying}
@@ -4833,7 +6055,7 @@ function ChoiceRow({
     <View style={embedded ? styles.qmEmbeddedScopeBlock : scopeCardStyle(tier, Colors, darkMode)}>
       {!embedded ? (
         <ScopeItemTitleRow
-          label={item.label}
+          label={checklistDisplayLabel(item, templateKey)}
           noteBadge={noteBadge}
           darkMode={darkMode}
           Colors={Colors}
@@ -4953,7 +6175,7 @@ function ChoiceRow({
         onRevertCalculatedQuantity={onRevertCalculatedQuantity}
         pricingEditorRequest={pricingEditorRequest}
         onPricingEditorRequestHandled={onPricingEditorRequestHandled}
-        scopeItemLabel={item.label}
+        scopeItemLabel={checklistDisplayLabel(item, templateKey)}
         Colors={Colors}
         darkMode={darkMode}
         applying={applying}
@@ -7197,6 +8419,14 @@ export default function AIEstimateScopeAssumptionsModal({
     ]
   );
 
+  const enrichedPricingContext = useMemo(
+    () =>
+      displayItems.length
+        ? { ...(pricingContext || {}), checklistItems: displayItems }
+        : pricingContext,
+    [pricingContext, displayItems]
+  );
+
   /** Applied Confirm Scope dollars — same list as scope cards (flatwork / openings / wet-area). */
   const step2AppliedPricingBreakdown = useMemo(
     () =>
@@ -7691,11 +8921,214 @@ export default function AIEstimateScopeAssumptionsModal({
     []
   );
 
+  const handleBathroomShowerRoughFixtureTypeChange = useCallback(
+    (fixtureType: BathroomShowerRoughFixtureType | null) => {
+      setMeasurementsSynced((prev) => {
+        const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+        delete pricingAcceptance.plumbing_rough;
+        return {
+          ...prev,
+          bathroomShowerRoughFixtureType: fixtureType,
+          bathroomShowerRoughFixtureTypeSource: fixtureType ? 'user_selected' : null,
+          pricingAcceptance,
+        };
+      });
+    },
+    []
+  );
+
+  const handleBathroomShowerRoughWorkTypeChange = useCallback(
+    (workType: BathroomShowerRoughWorkType | null) => {
+      setMeasurementsSynced((prev) => {
+        const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+        delete pricingAcceptance.plumbing_rough;
+        return {
+          ...prev,
+          bathroomShowerRoughWorkType: workType,
+          bathroomShowerRoughWorkTypeSource: workType ? 'user_selected' : null,
+          bathroomShowerRoughSlabWorkRequired:
+            workType === 'relocation' ? null : prev.bathroomShowerRoughSlabWorkRequired,
+          bathroomShowerRoughSlabWorkRequiredSource:
+            workType === 'relocation' ? null : prev.bathroomShowerRoughSlabWorkRequiredSource,
+          pricingAcceptance,
+        };
+      });
+    },
+    []
+  );
+
+  const handleBathroomShowerRoughPlumbingExposedChange = useCallback(
+    (plumbingExposed: BathroomShowerRoughPlumbingExposed | null) => {
+      setMeasurementsSynced((prev) => {
+        const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+        delete pricingAcceptance.plumbing_rough;
+        return {
+          ...prev,
+          bathroomShowerRoughPlumbingExposed: plumbingExposed,
+          bathroomShowerRoughPlumbingExposedSource: plumbingExposed ? 'user_selected' : null,
+          pricingAcceptance,
+        };
+      });
+    },
+    []
+  );
+
+  const handleBathroomShowerRoughFloorConstructionChange = useCallback(
+    (floorConstruction: BathroomShowerRoughFloorConstruction | null) => {
+      setMeasurementsSynced((prev) => {
+        const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+        delete pricingAcceptance.plumbing_rough;
+        return {
+          ...prev,
+          bathroomShowerRoughFloorConstruction: floorConstruction,
+          bathroomShowerRoughFloorConstructionSource: floorConstruction ? 'user_selected' : null,
+          bathroomShowerRoughSlabWorkRequired:
+            floorConstruction !== 'concrete_slab' ? null : prev.bathroomShowerRoughSlabWorkRequired,
+          bathroomShowerRoughSlabWorkRequiredSource:
+            floorConstruction !== 'concrete_slab' ? null : prev.bathroomShowerRoughSlabWorkRequiredSource,
+          pricingAcceptance,
+        };
+      });
+    },
+    []
+  );
+
+  const handleBathroomShowerRoughSlabWorkRequiredChange = useCallback(
+    (slabWorkRequired: BathroomShowerRoughSlabWorkRequired | null) => {
+      setMeasurementsSynced((prev) => {
+        const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+        delete pricingAcceptance.plumbing_rough;
+        return {
+          ...prev,
+          bathroomShowerRoughSlabWorkRequired: slabWorkRequired,
+          bathroomShowerRoughSlabWorkRequiredSource: slabWorkRequired ? 'user_selected' : null,
+          pricingAcceptance,
+        };
+      });
+    },
+    []
+  );
+
+  const handleBathroomPaintRepairScopeChange = useCallback(
+    (scope: BathroomPaintRepairScope | null) => {
+      setMeasurementsSynced((prev) => {
+        const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+        delete pricingAcceptance.paint_repair;
+        delete pricingAcceptance.drywall;
+        delete pricingAcceptance.patch_repair;
+        delete pricingAcceptance.interior_paint;
+        delete pricingAcceptance.paint;
+        const isFullRoom = scope === 'full_room';
+        const itemQuantities = { ...prev.itemQuantities };
+        delete itemQuantities.paint_repair;
+        return {
+          ...prev,
+          bathroomPaintRepairScope: scope,
+          bathroomPaintRepairScopeSource: scope ? 'user_selected' : null,
+          bathroomPaintRepairEntireRoom: isFullRoom ? true : scope === 'affected_area' ? false : null,
+          bathroomPaintRepairEntireRoomSource: scope ? 'user_selected' : null,
+          bathroomPaintRepairEntireRoomSqft: null,
+          bathroomPaintRepairEntireRoomSqftSource: null,
+          itemQuantities,
+          pricingAcceptance,
+        };
+      });
+    },
+    []
+  );
+
+  const handleBathroomDrywallPaintCombinedAssemblyChange = useCallback(
+    (useCombined: boolean | null) => {
+      setMeasurementsSynced((prev) => {
+        const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+        delete pricingAcceptance.drywall;
+        delete pricingAcceptance.patch_repair;
+        delete pricingAcceptance.paint_repair;
+        return {
+          ...prev,
+          bathroomDrywallPaintUseCombinedAssembly: useCombined,
+          bathroomDrywallPaintUseCombinedAssemblySource:
+            useCombined == null ? null : 'user_selected',
+          pricingAcceptance,
+        };
+      });
+    },
+    []
+  );
+
+  const handleBathroomInteriorPaintMobilizationChange = useCallback(
+    (mobilization: BathroomInteriorPaintMobilization | null) => {
+      setMeasurementsSynced((prev) => {
+        const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+        delete pricingAcceptance.interior_paint;
+        delete pricingAcceptance.paint;
+        return {
+          ...prev,
+          bathroomInteriorPaintMobilization: mobilization,
+          bathroomInteriorPaintMobilizationSource: mobilization ? 'user_selected' : null,
+          pricingAcceptance,
+        };
+      });
+    },
+    []
+  );
+
+  const handleBathroomInteriorPaintSurfaceChange = useCallback(
+    (surface: BathroomInteriorPaintSurface | null) => {
+      setMeasurementsSynced((prev) => {
+        const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+        delete pricingAcceptance.interior_paint;
+        delete pricingAcceptance.paint;
+        return {
+          ...prev,
+          bathroomInteriorPaintSurface: surface,
+          bathroomInteriorPaintSurfaceSource: surface ? 'user_selected' : null,
+          pricingAcceptance,
+        };
+      });
+    },
+    []
+  );
+
+  const handleBathroomInteriorPaintConditionChange = useCallback(
+    (condition: BathroomInteriorPaintCondition | null) => {
+      setMeasurementsSynced((prev) => {
+        const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+        delete pricingAcceptance.interior_paint;
+        delete pricingAcceptance.paint;
+        return {
+          ...prev,
+          bathroomInteriorPaintCondition: condition,
+          bathroomInteriorPaintConditionSource: condition ? 'user_selected' : null,
+          pricingAcceptance,
+        };
+      });
+    },
+    []
+  );
+
+  const handleBathroomGlassDoorStyleChange = useCallback(
+    (style: BathroomGlassDoorStyle | null) => {
+      setMeasurementsSynced((prev) => {
+        const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+        delete pricingAcceptance.glass_door;
+        return {
+          ...prev,
+          bathroomGlassDoorStyle: style,
+          bathroomGlassDoorStyleSource: style ? 'user_selected' : null,
+          pricingAcceptance,
+        };
+      });
+    },
+    []
+  );
+
   const handleBathroomToiletRelocateFloorTypeChange = useCallback(
     (floorType: BathroomToiletRelocateFloorType | null) => {
       setMeasurementsSynced((prev) => {
         const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
         delete pricingAcceptance.toilet;
+        delete pricingAcceptance.plumbing_rough;
         return {
           ...prev,
           bathroomToiletRelocateFloorType: floorType,
@@ -7706,6 +9139,42 @@ export default function AIEstimateScopeAssumptionsModal({
     },
     []
   );
+
+  useEffect(() => {
+    const inferred = inferPlumbingExposedFromDemoScope(displayItems);
+    setMeasurementsSynced((prev) => {
+      if (prev.bathroomShowerRoughPlumbingExposedSource === 'user_selected') {
+        return prev;
+      }
+      if (inferred) {
+        if (
+          prev.bathroomShowerRoughPlumbingExposed === inferred.plumbingExposed &&
+          prev.bathroomShowerRoughPlumbingExposedSource === inferred.source
+        ) {
+          return prev;
+        }
+        const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+        delete pricingAcceptance.plumbing_rough;
+        return {
+          ...prev,
+          bathroomShowerRoughPlumbingExposed: inferred.plumbingExposed,
+          bathroomShowerRoughPlumbingExposedSource: inferred.source,
+          pricingAcceptance,
+        };
+      }
+      if (prev.bathroomShowerRoughPlumbingExposedSource === 'demo_detected') {
+        const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+        delete pricingAcceptance.plumbing_rough;
+        return {
+          ...prev,
+          bathroomShowerRoughPlumbingExposed: null,
+          bathroomShowerRoughPlumbingExposedSource: null,
+          pricingAcceptance,
+        };
+      }
+      return prev;
+    });
+  }, [displayItems]);
 
   const visualCtx = useMemo<ScopeItemVisualContext>(
     () => ({
@@ -7910,7 +9379,7 @@ export default function AIEstimateScopeAssumptionsModal({
         measurements,
         checklist?.templateKey,
         resolved,
-        pricingContext,
+        enrichedPricingContext,
         item.choiceId
       );
       const intelligence = resolveScopeItemIntelligence({
@@ -7932,7 +9401,7 @@ export default function AIEstimateScopeAssumptionsModal({
         measurementsInput: measurements,
         templateKey: checklist?.templateKey,
         resolved,
-        pricingContext,
+        pricingContext: enrichedPricingContext,
         intelligence,
         suggested: initialSuggested,
         choiceId: item.choiceId,
@@ -7973,7 +9442,7 @@ export default function AIEstimateScopeAssumptionsModal({
       // a stage allowance is already applied — merge clears the allowance on apply.
       return true;
     });
-  }, [displayItems, measurements, normMeasurements, checklist?.templateKey, scopeNotes, pricingContext, scopeAssemblyContext, benchmarkRefresh]);
+  }, [displayItems, measurements, normMeasurements, checklist?.templateKey, scopeNotes, enrichedPricingContext, scopeAssemblyContext, benchmarkRefresh]);
 
   const suggestedPricingFooterBreakdown = useMemo(() => {
     let readyCount = 0;
@@ -8176,7 +9645,7 @@ export default function AIEstimateScopeAssumptionsModal({
             nextInput,
             checklist?.templateKey,
             resolved,
-            pricingContext
+            enrichedPricingContext
           ).fill;
 
           if (suggested) {
@@ -8206,6 +9675,12 @@ export default function AIEstimateScopeAssumptionsModal({
               delete next[itemId];
               return next;
             })()
+          : source === 'user_entered' && field === 'count' && !/__(allowance|sqft_basis|material|labor)$/.test(itemId)
+            ? (() => {
+                const next = { ...(prev.pricingAcceptance || {}) };
+                delete next[itemId];
+                return next;
+              })()
           : source === 'user_entered' && /__(allowance|sqft_basis|material|labor)$/.test(itemId)
             ? markManualPricingAdjustment(
                 prev.pricingAcceptance?.[baseItemId],
@@ -8786,7 +10261,7 @@ export default function AIEstimateScopeAssumptionsModal({
           : validation?.warnings?.[0] ||
             'This benchmark is a planning estimate for the current project context.';
       const statusNote = measurementSemanticsV1Enabled()
-        ? `\n\n${missingStatusDisplayLabel(itemId)}.`
+        ? `\n\n${missingStatusDisplayLabel(itemId, checklist?.templateKey)}.`
         : '';
       Alert.alert(
         'Apply suggested amount?',
@@ -9195,6 +10670,18 @@ export default function AIEstimateScopeAssumptionsModal({
           }
         }}
         onBathroomToiletRelocateFloorTypeChange={handleBathroomToiletRelocateFloorTypeChange}
+        onBathroomShowerRoughFixtureTypeChange={handleBathroomShowerRoughFixtureTypeChange}
+        onBathroomShowerRoughWorkTypeChange={handleBathroomShowerRoughWorkTypeChange}
+        onBathroomShowerRoughPlumbingExposedChange={handleBathroomShowerRoughPlumbingExposedChange}
+        onBathroomShowerRoughFloorConstructionChange={handleBathroomShowerRoughFloorConstructionChange}
+        onBathroomShowerRoughSlabWorkRequiredChange={handleBathroomShowerRoughSlabWorkRequiredChange}
+        onBathroomPaintRepairScopeChange={handleBathroomPaintRepairScopeChange}
+        onBathroomDrywallPaintCombinedAssemblyChange={handleBathroomDrywallPaintCombinedAssemblyChange}
+        onBathroomInteriorPaintMobilizationChange={handleBathroomInteriorPaintMobilizationChange}
+        onBathroomInteriorPaintSurfaceChange={handleBathroomInteriorPaintSurfaceChange}
+        onBathroomInteriorPaintConditionChange={handleBathroomInteriorPaintConditionChange}
+        onBathroomGlassDoorStyleChange={handleBathroomGlassDoorStyleChange}
+        scopeChecklistItems={displayItems}
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
         onBatchItemQuantityChange={handleBatchItemQuantityChange}
@@ -9219,7 +10706,7 @@ export default function AIEstimateScopeAssumptionsModal({
         item={item}
         templateKey={checklist?.templateKey}
         originalNotes={scopeNotes}
-        onSetState={(state) =>
+        onSetState={(state) => {
           setItems((prev) => {
             let next = prev.map((row) => (row.id === item.id ? { ...row, state } : row));
             next = applyKitchenScopeInferences(next, checklist?.templateKey, {
@@ -9230,8 +10717,27 @@ export default function AIEstimateScopeAssumptionsModal({
               next = syncWaterproofingFromTileScopeItems(next);
             }
             return next;
-          })
-        }
+          });
+          if (item.id === 'plumbing_rough' && state !== 'included') {
+            setMeasurementsSynced((m) => ({
+              ...m,
+              bathroomShowerRoughFixtureType: null,
+              bathroomShowerRoughFixtureTypeSource: null,
+              bathroomShowerRoughWorkType: null,
+              bathroomShowerRoughWorkTypeSource: null,
+              bathroomShowerRoughPlumbingExposed: null,
+              bathroomShowerRoughPlumbingExposedSource: null,
+              bathroomShowerRoughWallAccess: null,
+              bathroomShowerRoughWallAccessSource: null,
+              bathroomShowerRoughFloorConstruction: null,
+              bathroomShowerRoughFloorConstructionSource: null,
+              bathroomShowerRoughSlabWorkRequired: null,
+              bathroomShowerRoughSlabWorkRequiredSource: null,
+              bathroomShowerRoughAccessType: null,
+              bathroomShowerRoughAccessTypeSource: null,
+            }));
+          }
+        }}
         onRename={
           isCustomScopeItem(item)
             ? (label) => setItems((prev) => prev.map((row) => (row.id === item.id ? { ...row, label } : row)))
@@ -9239,6 +10745,19 @@ export default function AIEstimateScopeAssumptionsModal({
         }
         onDelete={isCustomScopeItem(item) ? () => handleDeleteCustomItem(item.id) : undefined}
         onSaveCustomPricing={isCustomScopeItem(item) ? persistScopeProgressNow : undefined}
+        onBathroomToiletRelocateFloorTypeChange={handleBathroomToiletRelocateFloorTypeChange}
+        onBathroomShowerRoughFixtureTypeChange={handleBathroomShowerRoughFixtureTypeChange}
+        onBathroomShowerRoughWorkTypeChange={handleBathroomShowerRoughWorkTypeChange}
+        onBathroomShowerRoughPlumbingExposedChange={handleBathroomShowerRoughPlumbingExposedChange}
+        onBathroomShowerRoughFloorConstructionChange={handleBathroomShowerRoughFloorConstructionChange}
+        onBathroomShowerRoughSlabWorkRequiredChange={handleBathroomShowerRoughSlabWorkRequiredChange}
+        onBathroomPaintRepairScopeChange={handleBathroomPaintRepairScopeChange}
+        onBathroomDrywallPaintCombinedAssemblyChange={handleBathroomDrywallPaintCombinedAssemblyChange}
+        onBathroomInteriorPaintMobilizationChange={handleBathroomInteriorPaintMobilizationChange}
+        onBathroomInteriorPaintSurfaceChange={handleBathroomInteriorPaintSurfaceChange}
+        onBathroomInteriorPaintConditionChange={handleBathroomInteriorPaintConditionChange}
+        onBathroomGlassDoorStyleChange={handleBathroomGlassDoorStyleChange}
+        scopeChecklistItems={displayItems}
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
         onBatchItemQuantityChange={handleBatchItemQuantityChange}
@@ -9246,6 +10765,7 @@ export default function AIEstimateScopeAssumptionsModal({
         onItemQuantityBlur={handleItemQuantityBlur}
         onItemQuantityFocus={handleItemQuantityFocus}
         onApplySuggestedPricing={handleApplySuggestedPricing}
+        onApplySuggestedPricingRows={applySuggestedPricingBlocks}
         onClearAcceptedPricing={handleClearAcceptedPricing}
         onScopeGapResolutionsChange={handleScopeGapResolutionsChange}
         onScopeGapPriceSeparately={handleScopeGapPriceSeparately}
@@ -9344,7 +10864,7 @@ export default function AIEstimateScopeAssumptionsModal({
         style={{ flex: 1 }}
         contentContainerStyle={{
           paddingHorizontal: 16,
-          paddingBottom: insets.bottom + (showCustomItemInput ? 220 : 120),
+          paddingBottom: insets.bottom + (showCustomItemInput ? 260 : 200),
         }}
         keyboardShouldPersistTaps="always"
         keyboardDismissMode="on-drag"
@@ -9715,7 +11235,7 @@ export default function AIEstimateScopeAssumptionsModal({
   );
 
   return (
-    <ScopePricingContextValue.Provider value={pricingContext}>
+    <ScopePricingContextValue.Provider value={enrichedPricingContext}>
       <ScopeAssemblyContextValue.Provider value={scopeAssemblyContext}>
         <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={handleBack}>
           <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />

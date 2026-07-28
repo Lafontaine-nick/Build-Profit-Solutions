@@ -8,7 +8,10 @@ import {
   type BudgetSplitSource,
   type ItemBudgetBreakdown,
 } from '@/utils/scopeBudgetBreakdown';
-import { resolveAppliedConfirmScopePackageAmount } from '@/utils/appliedScopePackagePricing';
+import {
+  resolveAppliedConfirmScopePackageAmount,
+  resolveNationalAverageScopePackageAmount,
+} from '@/utils/appliedScopePackagePricing';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
 
 export type ScopePackageBudgetBreakdown = ItemBudgetBreakdown;
@@ -73,6 +76,8 @@ export function scopePackagePricedAmount(
         return fromPkg;
       }
       if (applied > 0) return applied;
+      const nationalAverage = resolveNationalAverageScopePackageAmount(pkg, draft);
+      if (nationalAverage > 0) return nationalAverage;
       return 0;
     }
 
@@ -89,6 +94,8 @@ export function scopePackagePricedAmount(
   if (draft) {
     const applied = resolveAppliedConfirmScopePackageAmount(pkg, draft);
     if (applied > 0) return applied;
+    const nationalAverage = resolveNationalAverageScopePackageAmount(pkg, draft);
+    if (nationalAverage > 0) return nationalAverage;
   }
   return proposalTotalForScopeName(draft?.pendingPricingProposal, pkg.name);
 }

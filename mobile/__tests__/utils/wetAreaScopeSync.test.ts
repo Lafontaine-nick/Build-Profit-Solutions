@@ -181,6 +181,16 @@ describe('wetAreaScopeSync', () => {
     expect(next.find((r) => r.id === 'trim')?.state).toBe('unsure');
   });
 
+  test('syncInteriorPaintScopeItems targets paint_repair on bathroom checklists', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'paint_repair', label: 'Paint repair', inputType: 'yes_no', state: 'unsure' },
+      { id: 'interior_paint', label: 'Interior paint', inputType: 'yes_no', state: 'unsure' },
+    ];
+    const next = syncInteriorPaintScopeItems(items, { wallPaintSqft: '384' });
+    expect(next.find((r) => r.id === 'paint_repair')?.state).toBe('included');
+    expect(next.find((r) => r.id === 'interior_paint')?.state).toBe('unsure');
+  });
+
   test('finalizeWetAreaInstallScopeFromMeasurements drops install lines when steppers are zero', () => {
     const items: ScopeChecklistItem[] = [
       {

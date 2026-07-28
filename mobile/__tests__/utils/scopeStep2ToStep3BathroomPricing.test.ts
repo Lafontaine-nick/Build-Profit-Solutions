@@ -6,6 +6,8 @@ import {
 import {
   initialScopeMeasurementInputExtended,
   lookupRuleKeyForPackage,
+  resolveChecklistItemQuantity,
+  resolveScopeItemSuggestedPricing,
   scopeMeasurementsPayloadForPersist,
 } from '@/utils/scopeItemQuantities';
 import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
@@ -114,10 +116,12 @@ function bathroomDraftWithAppliedPricing(): EstimateAiDraft {
     waterproofing: { quantity: '80', unit: 'sqft', quantitySource: 'user_entered' },
     waterproofing__material: { quantity: '400', unit: 'allowance', quantitySource: 'user_entered' },
     waterproofing__labor: { quantity: '560', unit: 'allowance', quantitySource: 'user_entered' },
-    glass_door: { quantity: '3250', unit: 'allowance', quantitySource: 'user_entered' },
+    glass_door: { quantity: '1650', unit: 'allowance', quantitySource: 'user_entered' },
+    glass_door__material: { quantity: '950', unit: 'allowance', quantitySource: 'user_entered' },
+    glass_door__labor: { quantity: '700', unit: 'allowance', quantitySource: 'user_entered' },
     interior_paint: { quantity: '50', unit: 'sqft', quantitySource: 'user_entered' },
     interior_paint__material: { quantity: '75', unit: 'allowance', quantitySource: 'user_entered' },
-    interior_paint__labor: { quantity: '92.5', unit: 'allowance', quantitySource: 'user_entered' },
+    interior_paint__labor: { quantity: '275', unit: 'allowance', quantitySource: 'user_entered' },
     cleanup: { quantity: '1000', unit: 'allowance', quantitySource: 'user_entered' },
   };
   input.pricingAcceptance = {
@@ -126,8 +130,8 @@ function bathroomDraftWithAppliedPricing(): EstimateAiDraft {
     shower_tile: acceptanceBlock(2080, 960, 1120),
     floor_tile: acceptanceBlock(2520, 960, 1560),
     waterproofing: acceptanceBlock(960, 400, 560),
-    glass_door: acceptanceBlock(3250, 0, 0),
-    interior_paint: acceptanceBlock(167.5, 75, 92.5),
+    glass_door: acceptanceBlock(1650, 950, 700),
+    interior_paint: acceptanceBlock(350, 75, 275),
     cleanup: acceptanceBlock(1000, 0, 0),
   };
 
@@ -195,6 +199,7 @@ describe('bathroom Step 2 → Step 3 package label mapping', () => {
     const pkg = draft.scopePackages![0];
     expect(resolveAppliedConfirmScopePackageAmount(pkg, draft)).toBe(0);
     expect(scopePackagePricedAmount(pkg, draft)).toBe(0);
+    expect(scopePackageNeedsManualPrice(pkg, draft)).toBe(true);
   });
 });
 
@@ -227,8 +232,8 @@ describe('bathroom Step 2 → Step 3 pricing sync (review rows)', () => {
     expect(scopePackageNeedsManualPrice(floorTile, draft)).toBe(false);
 
     expect(scopePackagePricedAmount(waterproofing, draft)).toBe(960);
-    expect(scopePackagePricedAmount(glass, draft)).toBe(3250);
-    expect(scopePackagePricedAmount(paint, draft)).toBe(167.5);
+    expect(scopePackagePricedAmount(glass, draft)).toBe(1650);
+    expect(scopePackagePricedAmount(paint, draft)).toBe(350);
     expect(scopePackagePricedAmount(cleanup, draft)).toBe(1000);
 
     const tileRemoval = byChecklistId(packages, 'floor_demo');
@@ -252,5 +257,74 @@ describe('bathroom Step 2 → Step 3 pricing sync (review rows)', () => {
       0
     );
     expect(rowSum).toBeCloseTo(applied!.total, 2);
+  });
+
+  it('fills unpriced in-scope rows with national average planning prices on Step 3', () => {
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: { templateKey: 'bathroom' },
+      confirmedAssumptions: [
+        { id: 'vanity_demo', label: 'Remove vanity', state: 'included', inputType: 'yes_no' },
+        { id: 'countertop_demo', label: 'Remove countertop', state: 'included', inputType: 'yes_no' },
+        {
+          id: 'vanity',
+          label: 'New vanity',
+          state: 'included',
+          inputType: 'choice',
+          choiceId: 'replacing',
+        },
+        { id: 'mirror_accessories', label: 'Bath accessories', state: 'included', inputType: 'yes_no' },
+        { id: 'plumbing_trim', label: 'Plumbing fixtures', state: 'included', inputType: 'yes_no' },
+        { id: 'plumbing_rough', label: 'Plumbing rough-in', state: 'included', inputType: 'yes_no' },
+        { id: 'shower_tile', label: 'Shower tile', state: 'included', inputType: 'yes_no' },
+        { id: 'drywall', label: 'Drywall repair', state: 'included', inputType: 'yes_no' },
+      ],
+      scopeMeasurements: {
+        showerWallTileSqft: 80,
+        bathroomDemoVanityCount: 1,
+        bathroomDemoCounterCount: 1,
+        bathroomInstallVanityCount: 1,
+      },
+      scopePackages: [],
+      rooms: [],
+    } as unknown as EstimateAiDraft;
+
+    const packages = getScopePackages(draft);
+    const vanityDemo = packages.find((p) => p.checklistItemId === 'vanity_demo')!;
+    const countertopDemo = packages.find((p) => p.checklistItemId === 'countertop_demo')!;
+    const vanity = packages.find((p) => p.checklistItemId === 'vanity')!;
+    const plumbingTrim = packages.find((p) => p.checklistItemId === 'plumbing_trim')!;
+    const plumbingRough = packages.find((p) => p.checklistItemId === 'plumbing_rough')!;
+    const drywall = packages.find((p) => p.checklistItemId === 'drywall')!;
+
+    expect(scopePackagePricedAmount(vanityDemo, draft)).toBe(225);
+    expect(scopePackagePricedAmount(countertopDemo, draft)).toBe(175);
+    expect(scopePackagePricedAmount(vanity, draft)).toBe(1100);
+    expect(scopePackagePricedAmount(plumbingTrim, draft)).toBe(750);
+    expect(scopePackagePricedAmount(plumbingRough, draft)).toBe(1750);
+    expect(scopePackagePricedAmount(drywall, draft)).toBe(0);
+    expect(scopePackageNeedsManualPrice(vanityDemo, draft)).toBe(false);
+    expect(scopePackageNeedsManualPrice(plumbingTrim, draft)).toBe(false);
+    expect(scopePackageNeedsManualPrice(plumbingRough, draft)).toBe(false);
+    expect(scopePackageNeedsManualPrice(drywall, draft)).toBe(true);
+  });
+
+  it('Step 2 suggested pricing includes labor-only countertop demo national average', () => {
+    const input = initialScopeMeasurementInputExtended({
+      scopeChecklist: { templateKey: 'bathroom' },
+      scopeMeasurements: { bathroomDemoCounterCount: 1 },
+    } as never);
+    const resolved = resolveChecklistItemQuantity('countertop_demo', input, {
+      templateKey: 'bathroom',
+    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'countertop_demo',
+      input,
+      'bathroom',
+      resolved
+    );
+    expect(fill?.total).toBe(175);
+    expect(fill?.material).toBe(0);
+    expect(fill?.labor).toBe(175);
   });
 });

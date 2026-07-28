@@ -1,6 +1,6 @@
 import type { EstimateAiDraft, EstimateDraftScopePackage } from '@/utils/estimateAiDraft';
 import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
-import { resolveAppliedConfirmScopePackagePricing } from '@/utils/appliedScopePackagePricing';
+import { resolveAppliedConfirmScopePackagePricing, resolveNationalAverageScopePackagePricing } from '@/utils/appliedScopePackagePricing';
 import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
 import {
@@ -449,6 +449,16 @@ export function resolveScopePackageBudgetBreakdown(
         material: applied.material,
         labor: applied.labor,
         source: 'manual',
+        basis: pkg.scopeQuantities?.[0] ?? null,
+      });
+    }
+    const nationalAverage = resolveNationalAverageScopePackagePricing(pkg, draft);
+    if (nationalAverage && nationalAverage.total > 0) {
+      return breakdownFromKnownLegs({
+        total: nationalAverage.total,
+        material: nationalAverage.material,
+        labor: nationalAverage.labor,
+        source: 'suggested',
         basis: pkg.scopeQuantities?.[0] ?? null,
       });
     }

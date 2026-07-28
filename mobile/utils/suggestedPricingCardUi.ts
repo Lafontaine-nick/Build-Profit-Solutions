@@ -13,6 +13,35 @@ import {
   TOILET_RELOCATE_UNSURE_STATUS,
   TOILET_RELOCATE_PRICING_DISCLAIMER,
 } from '@/utils/bathroomFixtureChoicePricing';
+import {
+  formatShowerRoughConditionSummary,
+  formatShowerRoughQuantityLabel,
+  formatShowerRoughSuggestedTitle,
+  isShowerRoughSuggestedBlock,
+  showerRoughConditionsUserSelected,
+  showerRoughConditionsConfirmed,
+  showerRoughContextFromPricingRecord,
+  SHOWER_ROUGH_DEMO_DETECTED_LABEL,
+  SHOWER_ROUGH_QUANTITY_SOURCE_SELECTED,
+  SHOWER_ROUGH_SLAB_UNSURE_STATUS,
+} from '@/utils/bathroomPlumbingRoughPricing';
+import {
+  buildInteriorPaintPricingDetails,
+  computeInteriorPaintSuggestedTotal,
+  formatInteriorPaintQuantityLine,
+  formatInteriorPaintSuggestedTitle,
+  interiorPaintContextFromPricingRecord,
+  INTERIOR_PAINT_BASE_RATE_NOTE,
+  isInteriorPaintSuggestedBlock,
+} from '@/utils/bathroomInteriorPaintPricing';
+import {
+  buildGlassDoorPricingDetails,
+  formatGlassDoorQuantityLine,
+  formatGlassDoorSuggestedTitle,
+  glassDoorContextFromPricingRecord,
+  GLASS_DOOR_RETAIL_BENCHMARK_NOTE,
+  isGlassDoorSuggestedBlock,
+} from '@/utils/bathroomGlassDoorPricing';
 
 export function minimumProjectNoteForSuggestedBlock(block: SuggestedPricingBlock): string | null {
   if (/small-project minimum applied/i.test(String(block.helper || ''))) {
@@ -304,6 +333,11 @@ export function isLivingAreaFallbackPricing(input: {
     .toLowerCase();
   if (!LIVING_AREA_FALLBACK_SCOPE_IDS.has(id)) return false;
   if (input.block.lumpSumOnly) return false;
+  if (isShowerRoughSuggestedBlock(input.block.pricingRecordId)) return false;
+  if (isInteriorPaintSuggestedBlock(input.block.pricingRecordId)) return false;
+  const basisUnit = String(input.block.basis?.unit || '').toLowerCase();
+  // Component lump-sum planning (e.g. bath shower rough-in by wall/floor access).
+  if (basisUnit === 'allowance' || basisUnit === 'lump_sum') return false;
   if (input.hasPrimaryTakeoff === true) return false;
   const qs = normalizeQuantitySource(input.quantitySource);
   if (qs === 'notes' || qs === 'plan' || qs === 'user' || qs === 'calculated') {
@@ -477,6 +511,39 @@ export function formatSuggestedUnitRateLine(block: SuggestedPricingBlock): strin
   })}/${unitLabel}`;
 }
 
+function formatShowerRoughQuantityProvenanceLine(
+  ctx: NonNullable<ReturnType<typeof showerRoughContextFromPricingRecord>>,
+  quantitySource: SuggestedQuantitySource
+): string {
+  if (showerRoughConditionsConfirmed(ctx)) {
+    return formatShowerRoughConditionSummary(ctx);
+  }
+  const label = formatShowerRoughQuantityLabel(ctx.fixtureType);
+  if (showerRoughConditionsUserSelected(ctx)) {
+    return `${label} · ${SHOWER_ROUGH_QUANTITY_SOURCE_SELECTED}`;
+  }
+  if (ctx.fixtureType === 'unsure') {
+    return `${label} · Planning assumption`;
+  }
+  if (quantitySource === 'assumption' || quantitySource === 'fallback' || quantitySource === 'unknown') {
+    return `${label} · Planning assumption`;
+  }
+  return `${label} · Price based on selected conditions`;
+}
+
+function formatInteriorPaintQuantityProvenanceLine(
+  ctx: NonNullable<ReturnType<typeof interiorPaintContextFromPricingRecord>>,
+  quantitySource: SuggestedQuantitySource
+): string {
+  const provenance =
+    quantitySource === 'user' || quantitySource === 'notes' || quantitySource === 'plan'
+      ? 'User-entered wall/ceiling surface area'
+      : quantitySource === 'calculated'
+        ? 'Calculated wall/ceiling surface area'
+        : 'User-entered wall/ceiling surface area';
+  return formatInteriorPaintQuantityLine(ctx.sqft, provenance);
+}
+
 export function buildSuggestedPricingCardDisplay(input: {
   itemId: string;
   block: SuggestedPricingBlock;
@@ -498,6 +565,25 @@ export function buildSuggestedPricingCardDisplay(input: {
   const toiletFloorType = toiletRelocate
     ? toiletRelocateFloorTypeFromPricingRecord(block.pricingRecordId)
     : null;
+  const showerRough = isShowerRoughSuggestedBlock(block.pricingRecordId);
+  const showerCtx = showerRough ? showerRoughContextFromPricingRecord(block.pricingRecordId) : null;
+  const interiorPaint = isInteriorPaintSuggestedBlock(block.pricingRecordId);
+  const interiorPaintCtx = interiorPaint
+    ? interiorPaintContextFromPricingRecord(block.pricingRecordId)
+    : null;
+  const interiorPaintDetails =
+    interiorPaint && interiorPaintCtx
+      ? buildInteriorPaintPricingDetails({
+          ...interiorPaintCtx,
+          ...computeInteriorPaintSuggestedTotal(interiorPaintCtx),
+        })
+      : null;
+  const glassDoor = isGlassDoorSuggestedBlock(block.pricingRecordId);
+  const glassDoorCtx = glassDoor ? glassDoorContextFromPricingRecord(block.pricingRecordId) : null;
+  const glassDoorDetails =
+    glassDoor && glassDoorCtx
+      ? buildGlassDoorPricingDetails(glassDoorCtx)
+      : null;
   const isAdjusted = Boolean(input.adjusted || block.rateSourceLabel.startsWith('Adjusted · '));
   const quantitySource = normalizeQuantitySource(input.quantitySource);
   const isFallbackPricing = isLivingAreaFallbackPricing({
@@ -517,9 +603,11 @@ export function buildSuggestedPricingCardDisplay(input: {
     hasCurrentPricing,
   });
   const pricingSource = displayPriceSourceLabel(
-    isAdjusted
-      ? block.rateSourceLabel.replace(/^Adjusted · /, '') || 'User adjusted'
-      : block.rateSourceLabel
+    interiorPaint
+      ? 'National-average planning allowance'
+      : isAdjusted
+        ? block.rateSourceLabel.replace(/^Adjusted · /, '') || 'User adjusted'
+        : block.rateSourceLabel
   );
 
   const fallbackCopy = FALLBACK_MEASUREMENT_COPY[itemId] || null;
@@ -598,6 +686,40 @@ export function buildSuggestedPricingCardDisplay(input: {
       statusTone = 'neutral';
       statusLine = 'National average';
     }
+  } else if (showerRough && showerCtx) {
+    if (block.splitConfidence === 'low') {
+      statusTone = 'amber';
+      if (showerCtx.slabWorkRequired === 'unsure' && showerCtx.workType === 'in_place') {
+        statusLine = SHOWER_ROUGH_SLAB_UNSURE_STATUS;
+      } else {
+        statusLine =
+          'Planning assumption — confirm fixture type, work type, and remodel conditions before finalizing.';
+      }
+      pricingStatus = 'review_required';
+    } else if (showerCtx.plumbingExposedSource === 'demo_detected') {
+      statusTone = 'neutral';
+      statusLine = SHOWER_ROUGH_DEMO_DETECTED_LABEL;
+    } else if (showerRoughConditionsUserSelected(showerCtx) || showerRoughConditionsConfirmed(showerCtx)) {
+      statusTone = 'neutral';
+      statusLine = SHOWER_ROUGH_QUANTITY_SOURCE_SELECTED;
+    }
+  } else if (interiorPaint && interiorPaintDetails) {
+    statusTone = interiorPaintDetails.confidence === 'low' ? 'amber' : 'neutral';
+    statusLine = interiorPaintDetails.statusLine;
+    if (interiorPaintDetails.confidence === 'low') {
+      pricingStatus = 'review_required';
+    }
+    allowanceExtraNote = INTERIOR_PAINT_BASE_RATE_NOTE;
+  } else if (glassDoor && glassDoorDetails) {
+    statusTone = glassDoorDetails.confidence === 'low' ? 'amber' : 'neutral';
+    statusLine =
+      glassDoorDetails.style === 'unsure'
+        ? 'Planning assumption — priced as standard slider until style is confirmed.'
+        : 'National-average planning allowance';
+    if (glassDoorDetails.confidence === 'low') {
+      pricingStatus = 'review_required';
+    }
+    allowanceExtraNote = GLASS_DOOR_RETAIL_BENCHMARK_NOTE;
   } else if (isFallbackPricing) {
     statusTone = 'amber';
     // One amber ask — title/hint stacks were duplicating this on Windows etc.
@@ -635,22 +757,56 @@ export function buildSuggestedPricingCardDisplay(input: {
 
   const quantityLine = block.installedBudgetBenchmark
     ? formatInstalledBudgetQuantityLine(block)
-    : isFallbackPricing || lumpSumOnly
-      ? null
-      : formatQuantityProvenanceLine({
-          quantity: block.basis?.quantity,
-          unit: block.basis?.unit,
-          provenance: quantitySource === 'unknown' ? 'assumption' : quantitySource,
-        });
+    : showerRough && showerCtx
+      ? formatShowerRoughQuantityProvenanceLine(showerCtx, quantitySource)
+      : interiorPaint && interiorPaintCtx
+        ? formatInteriorPaintQuantityProvenanceLine(interiorPaintCtx, quantitySource)
+        : glassDoor && glassDoorCtx
+          ? formatGlassDoorQuantityLine(glassDoorCtx.doorCount, glassDoorCtx.style)
+          : isFallbackPricing || lumpSumOnly
+          ? null
+          : formatQuantityProvenanceLine({
+              quantity: block.basis?.quantity,
+              unit: block.basis?.unit,
+              provenance: quantitySource === 'unknown' ? 'assumption' : quantitySource,
+            });
 
   const fallbackBasisLine = isFallbackPricing ? formatFallbackBasisLine({ livingSf }) : null;
   const compactLine = formatCompactSuggestedLine(block.total);
-  const unitRateLine = isFallbackPricing ? null : formatSuggestedUnitRateLine(block);
+  const unitRateLine =
+    showerRough && showerCtx
+      ? `${formatSuggestedDisplayMoney(block.total)}/each`
+      : interiorPaint && interiorPaintDetails
+        ? interiorPaintDetails.effectiveRateLabel
+        : glassDoor && glassDoorDetails
+          ? `$${glassDoorDetails.perDoor.toLocaleString()}/door installed`
+          : isFallbackPricing
+          ? null
+          : formatSuggestedUnitRateLine(block);
 
   if (fallbackBasisLine) whyThisPriceLines.push(fallbackBasisLine);
   if (pricingSource) whyThisPriceLines.push(pricingSource);
   if (allowanceExtraNote) whyThisPriceLines.push(allowanceExtraNote);
   if (toiletRelocate) whyThisPriceLines.push(TOILET_RELOCATE_PRICING_DISCLAIMER);
+  if (interiorPaint && interiorPaintDetails) {
+    if (interiorPaintDetails.includesScopeLine) {
+      whyThisPriceLines.push(interiorPaintDetails.includesScopeLine);
+    }
+    if (interiorPaintDetails.planningAssumption) {
+      whyThisPriceLines.push(interiorPaintDetails.planningAssumption);
+    }
+    if (interiorPaintDetails.shortExcludesLine) {
+      whyThisPriceLines.push(interiorPaintDetails.shortExcludesLine);
+    }
+  }
+  if (glassDoor && glassDoorDetails) {
+    if (glassDoorDetails.includesScopeLine) {
+      whyThisPriceLines.push(glassDoorDetails.includesScopeLine);
+    }
+    if (glassDoorDetails.planningAssumption) {
+      whyThisPriceLines.push(glassDoorDetails.planningAssumption);
+    }
+  }
   if (
     itemId === 'countertops' &&
     block.benchmarkScopeProfile?.audit?.rootCause === BATHROOM_VANITY_COUNTERTOP_VIEW_DETAILS
@@ -670,14 +826,20 @@ export function buildSuggestedPricingCardDisplay(input: {
     isFallbackPricing,
     pricingBasisLabel: fallbackBasisLine,
     actionType,
-    title: suggestedCardTitle({
-      lumpSumOnly,
-      isComparison: block.isComparison,
-      mode: block.mode,
-      rateSourceLabel: block.rateSourceLabel,
-      isFallbackPricing,
-      installedBudgetBenchmark: block.installedBudgetBenchmark,
-    }),
+    title: showerRough && showerCtx
+      ? formatShowerRoughSuggestedTitle(showerCtx.fixtureType)
+      : interiorPaint
+        ? formatInteriorPaintSuggestedTitle()
+        : glassDoor && glassDoorCtx
+          ? formatGlassDoorSuggestedTitle(glassDoorCtx.style)
+          : suggestedCardTitle({
+          lumpSumOnly,
+          isComparison: block.isComparison,
+          mode: block.mode,
+          rateSourceLabel: block.rateSourceLabel,
+          isFallbackPricing,
+          installedBudgetBenchmark: block.installedBudgetBenchmark,
+        }),
     quantityLine,
     fallbackBasisLine,
     missingMeasurementTitle: null,

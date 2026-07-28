@@ -829,6 +829,12 @@ const BATHROOM_CHECKLIST_QUANTITY_RULES = {
       'Uses bathroom floor sqft — often includes thinset removal (separate from shower demo).',
     missingMessage: 'Enter bathroom floor demo sqft.',
   },
+  plumbing_rough: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.plumbing_rough,
+    quantityHelper:
+      'Shower/tub supply and drain relocation — pick access condition below. Toilet and lav rough-in are on Toilet and Vanity.',
+    missingMessage: 'Select access condition or enter shower/tub rough-in pricing.',
+  },
 };
 
 function additionFloorAreaRule(quantityHelper, missingMessage = 'Enter pricing basis or lump sum.') {

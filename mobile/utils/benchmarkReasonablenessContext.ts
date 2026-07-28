@@ -3,6 +3,7 @@ import type { EstimateAiDraft, EstimateDraftScopePackage, ScopeMeasurements } fr
 import { getScopePackages, getScopePackagesRaw } from '@/utils/estimateAiDraft';
 import { flattenChecklistDisplayOrder, confirmScopeDisplayItemsFromDraft } from '@/utils/scopePackagesForReview';
 import { scopePackagePricedAmount } from '@/utils/estimateDraftReviewUi';
+import { resolveNationalAverageScopePackageAmount } from '@/utils/appliedScopePackagePricing';
 import { resolveScopePackageBudgetBreakdown } from '@/utils/scopeBudgetBreakdown';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
 import {
@@ -779,10 +780,21 @@ export function sumStep3ReviewBudgetTotals(
       continue;
     }
 
+    if (scopePackageOnChecklist(pkg, items)) {
+      const nationalAverage = resolveNationalAverageScopePackageAmount(pkg, draft);
+      if (nationalAverage > 0 && Math.abs(amount - nationalAverage) < 0.02) {
+        const buckets = bucketExtraScopePackageAmount(pkg, draft, amount);
+        extra.material += buckets.material;
+        extra.labor += buckets.labor;
+        extra.allowance += buckets.allowance;
+        extra.total += amount;
+      }
+      continue;
+    }
+
     // Ask AI / Step 3 manual rows not on the Confirm Scope checklist (e.g. Disposal Bid).
     // Do not add stale AI package prices for checklist rows that never got Applied pricing.
     if (!isUserProvidedScopePackage(pkg)) continue;
-    if (scopePackageOnChecklist(pkg, items)) continue;
 
     const buckets = bucketExtraScopePackageAmount(pkg, draft, amount);
     extra.material += buckets.material;

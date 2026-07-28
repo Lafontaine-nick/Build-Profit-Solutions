@@ -274,8 +274,8 @@ describe('ground-up takeoff → material/labor pricing', () => {
     // Inferred from tile + prefab when showerDoorCount is unset.
     expect(resolved).toMatchObject({ quantity: 3, unit: 'each' });
     const priced = resolveScopeItemSuggestedPricing('glass_door', input as any, 'ground_up', resolved);
-    // Builder mid door+mirror $2,100 + $1,150 = $3,250 each × 3
-    expect(priced.fill).toMatchObject({ material: 6300, labor: 3450, total: 9750 });
+    // Standard slider $950 + $700 = $1,650 each × 3
+    expect(priced.fill).toMatchObject({ material: 2850, labor: 2100, total: 4950 });
 
     const twoDoorInput = inputWith({ showerDoorCount: 2, bathCount: 3 } as any);
     const explicit = resolveChecklistItemQuantity('glass_door', twoDoorInput as any, {
@@ -288,7 +288,7 @@ describe('ground-up takeoff → material/labor pricing', () => {
       'ground_up',
       explicit
     );
-    expect(pricedTwo.fill).toMatchObject({ material: 4200, labor: 2300, total: 6500 });
+    expect(pricedTwo.fill).toMatchObject({ material: 1900, labor: 1400, total: 3300 });
   });
 
   it('prices roofing from roofSquares with material + labor and locks Exterior Envelope to comparison', () => {
