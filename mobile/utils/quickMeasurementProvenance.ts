@@ -156,6 +156,8 @@ export function resolveQuickMeasurementFields(params: {
   /** When ground_up / addition, show the full Quick measurements field list. */
   templateKey?: string | null;
   wholeHomeLayout?: boolean;
+  keepingExistingWetArea?: boolean;
+  wetAreaInstallChoiceId?: string | null;
 }): QuickMeasurementFieldResult[] {
   const noteValues = params.noteValues || {};
   const noteBackedKeys = params.noteBackedKeys || [];
@@ -176,6 +178,8 @@ export function resolveQuickMeasurementFields(params: {
     const sourceTag = params.sourceMap?.[field.key];
     const isUserOverride = Boolean(params.userOverrides?.[field.key]);
 
+    const keepingExisting =
+      params.keepingExistingWetArea || params.wetAreaInstallChoiceId === 'staying';
     const relevance = getMeasurementRelevance({
       measurementKey: field.key,
       includedScopeKeys,
@@ -183,6 +187,8 @@ export function resolveQuickMeasurementFields(params: {
       templateKey: params.templateKey,
       wholeHomeLayout: params.wholeHomeLayout,
       tilePanBathCount: params.measurements.tilePanBathCount,
+      keepingExistingWetArea: keepingExisting,
+      wetAreaInstallChoiceId: params.wetAreaInstallChoiceId,
       wetAreaFinish: resolveEffectiveWetAreaFinish({
         bathCount: params.measurements.bathCount,
         tilePanBathCount: params.measurements.tilePanBathCount,

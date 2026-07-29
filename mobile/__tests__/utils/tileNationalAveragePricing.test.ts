@@ -57,8 +57,8 @@ describe('tile national-average subtype pricing', () => {
       labor: 18,
     });
     expect(getNationalAverageBudgetSplit('shower_floor_tile', 'sqft')).toMatchObject({
-      material: 8,
-      labor: 17,
+      material: 9,
+      labor: 21,
     });
   });
 
@@ -80,7 +80,7 @@ describe('tile national-average subtype pricing', () => {
     expect(pricing.fill?.total).not.toBe(3520);
   });
 
-  it('prices shower floor tile at $8 material + $17 labor ($25/SF)', () => {
+  it('prices shower floor tile at $9 material + $21 labor ($30/SF)', () => {
     const resolved = resolveChecklistItemQuantity('shower_floor_tile', input, {
       templateKey: 'ground_up',
     });
@@ -90,8 +90,8 @@ describe('tile national-average subtype pricing', () => {
       'ground_up',
       resolved
     );
-    // Fixture shower floor SF is 40 → 40 × $25 = $1,000.
-    expect(pricing.fill).toMatchObject({ material: 320, labor: 680, total: 1000 });
+    // Fixture shower floor SF is 40 → 40 × $30 = $1,200.
+    expect(pricing.fill).toMatchObject({ material: 360, labor: 840, total: 1200 });
   });
 
   it('prices standard floor tile and dry wall tile at their own labor bands', () => {
@@ -181,10 +181,10 @@ describe('tile national-average subtype pricing', () => {
     const floor = getNationalAverageBudgetSplit('shower_floor_tile', 'sqft')!;
     const bathFloor = getNationalAverageBudgetSplit('floor_tile', 'sqft')!;
     expect(wall.labor + wall.material).toBe(26);
-    expect(floor.labor + floor.material).toBe(25);
-    // Tile-only on a prepared pan — above bath floor, near shower wall.
+    expect(floor.labor + floor.material).toBe(30);
+    // Tile-only on a prepared pan — above bath floor; premium vs wall for slope/drain work.
     expect(floor.labor + floor.material).toBeGreaterThan(bathFloor.labor + bathFloor.material);
-    expect(floor.labor + floor.material).toBeLessThan(wall.labor + wall.material + 0.01);
+    expect(floor.labor + floor.material).toBeGreaterThan(wall.labor + wall.material);
   });
 
   it('includes backer board assembly components in the waterproofing benchmark profile', () => {

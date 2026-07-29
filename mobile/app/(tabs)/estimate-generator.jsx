@@ -111,6 +111,7 @@ import {
   syncConfirmScopeMeasurementsFromPackages,
   syncSelectedScopePricing,
 } from '../../utils/estimateAiDraft';
+import { sumStep3ReviewBudgetTotals } from '../../utils/benchmarkReasonablenessContext';
 import { getBidAllowanceLineItemsTotal } from '../../utils/estimateAllowances';
 import { formatEstimateAiError } from '../../utils/resolveAiBackendUrl';
 import {
@@ -6741,7 +6742,17 @@ export default function EstimateGeneratorScreen() {
         }
         setAiDraftApplying(true);
         try {
-          const { bid: appliedBid, materialsCart: nextCart } = applyDraftToEstimate(bid, draftToApply, {
+          // Drop prior AI line items so Bid Summary cannot keep stale inflated rows.
+          const bidBaseForApply = {
+            ...bid,
+            laborLineItems: [],
+            materialLineItems: [],
+            allowanceLineItems: [],
+          };
+          const { bid: appliedBid, materialsCart: nextCart } = applyDraftToEstimate(
+            bidBaseForApply,
+            draftToApply,
+            {
             scopeOnly,
             // Apply Confirmed Only keeps Step 2–3 confirmed splits only.
             // Do not invent National Average material/labor splits for allowance packages.
@@ -6751,7 +6762,8 @@ export default function EstimateGeneratorScreen() {
                 ? true
                 : Boolean(draftToApply.applySuggestedSplits),
             applyConfirmedOnly: scopeOnly ? false : applyConfirmedOnly,
-          });
+            }
+          );
           const nextBid = {
             ...appliedBid,
             aiSaveToPricingLibrary: aiSaveToPricingLibrary,
@@ -9865,6 +9877,62 @@ export default function EstimateGeneratorScreen() {
     if (!isLoaded || forceRefresh === 0) return;
     void silentPersistEstimateDraft();
   }, [forceRefresh, isLoaded, silentPersistEstimateDraft]);
+
+  // Bid Summary must match Step 3 Applied totals. Older applies kept AI confirmed
+  // packages that Step 3 excluded — heal from the draft snapshot automatically.
+  const step3BidReconcileRef = useRef('');
+  useEffect(() => {
+    if (!isLoaded) return;
+    const snapshot = bid?.aiEstimateDraftSnapshot;
+    const draft = snapshot?.draft;
+    if (!draft) return;
+    if (!draft.scopeAssumptionsConfirmed && !draft.confirmedAssumptions?.length) return;
+
+    const step3 = sumStep3ReviewBudgetTotals(draft);
+    if (!step3 || !(step3.total > 0)) return;
+
+    const materials = materialTotalForBidAndCart(bid, materialsCart);
+    const labor =
+      bid.laborLineItems?.reduce(
+        (sum, item) => sum + (Number(item.total) || Number(item.totalCost) || 0),
+        0
+      ) || 0;
+    const allowances = getEstimateAllowanceLineItemsTotal(bid);
+    const subtotal = materials + labor + allowances;
+    // Only heal clear inflation (e.g. ~$37k bid vs ~$20k Step 3), not tiny rounding.
+    if (!(subtotal > step3.total * 1.05 + 100)) return;
+
+    const reconcileKey = `${snapshot.savedAt || ''}:${Math.round(step3.total)}:${Math.round(subtotal)}`;
+    if (step3BidReconcileRef.current === reconcileKey) return;
+    step3BidReconcileRef.current = reconcileKey;
+
+    const syncedDraft = syncDraftWithLatestScopeMeasurements(draft);
+    const { bid: fixedBid, materialsCart: fixedCart } = applyDraftToEstimate(
+      {
+        ...bid,
+        laborLineItems: [],
+        materialLineItems: [],
+        allowanceLineItems: [],
+      },
+      syncedDraft,
+      { applyConfirmedOnly: true, applySuggestedSplits: false }
+    );
+    const nextBid = { ...fixedBid, aiSaveToPricingLibrary: bid.aiSaveToPricingLibrary };
+    lastSavedBidRef.current = null;
+    pendingSaveRef.current = null;
+    setBid(nextBid);
+    setMaterialsCart(fixedCart);
+    void AsyncStorage.setItem(BID_STORAGE_KEY, JSON.stringify(nextBid));
+    void AsyncStorage.setItem('bps.materialsCart', JSON.stringify(fixedCart));
+  }, [
+    isLoaded,
+    bid?.aiEstimateDraftSnapshot?.savedAt,
+    bid?.laborLineItems,
+    bid?.materialLineItems,
+    bid?.allowanceLineItems,
+    materialsCart,
+    syncDraftWithLatestScopeMeasurements,
+  ]);
 
   useEffect(() => {
     if (!isLoaded || isInitialLoadRef.current) return;

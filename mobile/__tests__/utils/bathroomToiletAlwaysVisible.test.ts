@@ -4,6 +4,7 @@ import {
   hydrateScopeChecklistFromNotes,
   initialScopeGroupCollapse,
   groupScopeChecklistItems,
+  normalizeScopeChecklistItems,
 } from '@/utils/estimateScopeChecklistUi';
 import { scopeItemVisualTier } from '@/utils/scopeItemVisualTier';
 
@@ -55,5 +56,54 @@ describe('bathroom toilet always visible on Confirm Scope', () => {
       measurements: { itemQuantities: {} },
     });
     expect(tier).toBe('primary');
+  });
+
+  test('normalizeScopeChecklistItems upgrades stale toilet options to include Reset', () => {
+    const staleOptions = [
+      { id: 'staying', label: 'Staying' },
+      { id: 'replacing', label: 'Replacing' },
+      { id: 'relocating', label: 'Relocating' },
+      { id: 'not_in_scope', label: 'Not in this bid' },
+      { id: 'unsure', label: 'Not sure yet' },
+    ];
+    const [toilet] = normalizeScopeChecklistItems(
+      [
+        {
+          id: 'toilet',
+          label: 'Toilet',
+          inputType: 'choice',
+          state: 'unsure',
+          choiceId: 'staying',
+          options: staleOptions,
+        },
+      ],
+      'bathroom'
+    );
+    expect(toilet.options?.map((opt) => opt.id)).toEqual([
+      'reset',
+      'replacing',
+      'relocating',
+      'not_in_scope',
+      'unsure',
+    ]);
+    expect(toilet.helperText).toMatch(/reset/i);
+    expect(toilet.helperText).not.toMatch(/staying/i);
+  });
+
+  test('clears legacy toilet staying choice on normalize', () => {
+    const [toilet] = normalizeScopeChecklistItems(
+      [
+        {
+          id: 'toilet',
+          label: 'Toilet',
+          inputType: 'choice',
+          state: 'included',
+          choiceId: 'staying',
+        },
+      ],
+      'bathroom'
+    );
+    expect(toilet.choiceId).toBeNull();
+    expect(toilet.state).toBe('unsure');
   });
 });

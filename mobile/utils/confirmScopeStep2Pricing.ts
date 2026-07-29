@@ -3,7 +3,6 @@ import { resolveBathroomGlassDoorSuggestedPricing } from '@/utils/bathroomGlassD
 import {
   parseEnteredBathroomPatchSqft,
   resolveBathroomDrywallPatchSuggestedPricing,
-  resolvePlanningBathroomPatchSqft,
 } from '@/utils/bathroomDrywallPatchPricing';
 import { resolveBathroomPaintRepairScope, shouldUseCombinedDrywallPaintAssembly } from '@/utils/bathroomDrywallPaintScope';
 import { resolveBathroomInteriorPaintSuggestedPricing } from '@/utils/bathroomInteriorPaintPricing';
@@ -15,6 +14,10 @@ import type {
   ScopeItemSuggestedPricing,
   ScopeMeasurementsInputExtended,
   ScopePricingContext,
+} from '@/utils/scopeItemQuantities';
+import {
+  readStoredSqftPricingBasis,
+  shouldSuppressSuggestedPricingAfterApply,
 } from '@/utils/scopeItemQuantities';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 
@@ -100,8 +103,16 @@ const GROUND_UP_STEP2_PRICING_TIER: Record<string, Step2PricingTierConfig> = {
 };
 
 const BATHROOM_STEP2_PRICING_TIER: Record<string, Step2PricingTierConfig> = {
-  demo: { tier: 'auto_planning' },
-  floor_demo: { tier: 'auto_planning' },
+  demo: {
+    tier: 'takeoff_required',
+    takeoffLabel: 'shower tile demo SF',
+    benchmarkUnitHint: '~$5.50/SF tile demo ($0.50 mat + $5 labor) · tub/prefab add-ons when selected',
+  },
+  floor_demo: {
+    tier: 'takeoff_required',
+    takeoffLabel: 'bathroom floor demo SF',
+    benchmarkUnitHint: '~$5.50/SF',
+  },
   vanity_demo: { tier: 'auto_planning' },
   countertop_demo: { tier: 'auto_planning' },
   shower_tile: { tier: 'takeoff_required', takeoffLabel: 'shower wall tile SF' },
@@ -112,7 +123,7 @@ const BATHROOM_STEP2_PRICING_TIER: Record<string, Step2PricingTierConfig> = {
     tier: 'prompt_first',
     promptKey: 'glass_door_style',
     takeoffLabel: 'shower door count',
-    benchmarkUnitHint: '$1,650 standard slider · $2,500 premium frameless installed (per door)',
+    benchmarkUnitHint: '$1,450 standard slider · $2,500 premium frameless installed (per door)',
   },
   toilet: { tier: 'prompt_first', promptKey: 'toilet_relocate_floor' },
   vanity: { tier: 'auto_planning' },
@@ -215,12 +226,18 @@ export function step2TierNeedsInlineTakeoffEntry(
   templateKey?: string | null,
   resolved?: { pricingReady?: boolean } | null
 ): boolean {
+  const template = String(templateKey || '').toLowerCase();
+  if (itemId === 'paint_repair' && template === 'bathroom') {
+    // Keep patch SF editable on-card even after pricingReady (global drywallSqft must not lock it).
+    return true;
+  }
+  if ((itemId === 'demo' || itemId === 'floor_demo') && template === 'bathroom') {
+    // Demo is $/sqft — keep SF editable so job-specific areas replace inferred install SF.
+    return true;
+  }
   if (resolved?.pricingReady) return false;
   const config = resolveStep2PricingTier(itemId, templateKey).tier;
   if (config === 'takeoff_required') return true;
-  if (itemId === 'paint_repair' && String(templateKey || '').toLowerCase() === 'bathroom') {
-    return true;
-  }
   return false;
 }
 
@@ -248,14 +265,27 @@ export function resolveStep2ComponentSuggestedPricing(
   if (template !== 'bathroom') return undefined;
 
   const { itemId, measurementsInput, resolved, pricingContext } = params;
+  const itemQuantities = measurementsInput.itemQuantities || {};
+  if (
+    shouldSuppressSuggestedPricingAfterApply(
+      itemId,
+      itemQuantities,
+      measurementsInput.pricingAcceptance
+    )
+  ) {
+    return { fill: null, comparison: null };
+  }
+
   const checklistItems = pricingContext?.checklistItems;
   const qty = resolved.quantity;
 
   if (itemId === 'demo') {
+    const storedBasis = readStoredSqftPricingBasis(itemQuantities, itemId);
     const tileSqft =
-      resolved.unit === 'sqft' && resolved.quantity && resolved.quantity > 0
+      storedBasis ??
+      (resolved.unit === 'sqft' && resolved.quantity && resolved.quantity > 0
         ? resolved.quantity
-        : 0;
+        : 0);
     const wetAreaDemo = resolveBathroomWetAreaDemoSuggestedPricing({
       measurementsInput,
       tileSqft,
@@ -312,17 +342,15 @@ export function resolveStep2ComponentSuggestedPricing(
 
   if (itemId === 'paint_repair') {
     const showerWallTileSqft = parseScopeMeasurementInput(measurementsInput.showerWallTileSqft);
+    const paintRepairQty = parseScopeMeasurementInput(
+      String(measurementsInput.itemQuantities?.paint_repair?.quantity ?? '')
+    );
     const enteredPatchSf = parseEnteredBathroomPatchSqft({
       paintRepairQuantity:
-        resolved.unit === 'sqft' && qty != null && qty > 0 ? qty : null,
-      drywallQuantity: parseScopeMeasurementInput(measurementsInput.itemQuantities?.drywall?.quantity),
-      drywallSqft: parseScopeMeasurementInput(measurementsInput.drywallSqft),
+        paintRepairQty ??
+        (resolved.unit === 'sqft' && qty != null && qty > 0 ? qty : null),
     });
-    const planningPatchSf = resolvePlanningBathroomPatchSqft({
-      checklistItems,
-      showerWallTileSqft,
-      enteredPatchSqft: enteredPatchSf,
-    });
+    const planningPatchSf = enteredPatchSf;
     const paintRepairScope = measurementsInput.bathroomPaintRepairScope;
     const useCombinedAssembly = measurementsInput.bathroomDrywallPaintUseCombinedAssembly;
 
@@ -331,6 +359,7 @@ export function resolveStep2ComponentSuggestedPricing(
         useCombinedAssembly,
         paintRepairScope,
       }) &&
+      planningPatchSf != null &&
       planningPatchSf > 0
     ) {
       const assembly = resolveBathroomDrywallPatchSuggestedPricing({

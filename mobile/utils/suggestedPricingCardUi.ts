@@ -751,6 +751,10 @@ export function buildSuggestedPricingCardDisplay(input: {
     allowanceExtraNote = null;
   }
 
+  if (statusLine && /\bnational[\s-]*average\b/i.test(statusLine)) {
+    statusTone = 'amber';
+  }
+
   const displayTotal = isAdjusted
     ? formatDraftMoney(block.total)
     : formatSuggestedDisplayMoney(block.total);

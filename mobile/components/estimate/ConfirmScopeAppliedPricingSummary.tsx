@@ -1,5 +1,5 @@
 import React, { useMemo, type ReactNode } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import type { ConfirmScopeAppliedPricingBreakdown } from '@/utils/benchmarkReasonablenessContext';
@@ -16,6 +16,8 @@ type Props = {
   align?: 'left' | 'center';
   /** Optional slot between applied breakdown and build cost / SF (e.g. itemize list). */
   middleContent?: ReactNode;
+  /** Tappable hint when scopes still need confirmation before pricing (e.g. toilet, paint). */
+  scopeConfirmDisclaimer?: { label: string; onPress: () => void } | null;
 };
 
 export default function ConfirmScopeAppliedPricingSummary({
@@ -25,6 +27,7 @@ export default function ConfirmScopeAppliedPricingSummary({
   darkMode,
   align = 'left',
   middleContent = null,
+  scopeConfirmDisclaimer = null,
 }: Props) {
   const { theme } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
@@ -63,6 +66,19 @@ export default function ConfirmScopeAppliedPricingSummary({
       ) : null}
 
       {middleContent}
+
+      {scopeConfirmDisclaimer ? (
+        <Pressable
+          onPress={scopeConfirmDisclaimer.onPress}
+          accessibilityRole="button"
+          accessibilityLabel={scopeConfirmDisclaimer.label}
+          style={[styles.scopeConfirmLink, align === 'center' ? styles.scopeConfirmLinkCenter : null]}
+        >
+          <Text style={[styles.scopeConfirmLinkText, { color: '#fbbf24' }]}>
+            {scopeConfirmDisclaimer.label}
+          </Text>
+        </Pressable>
+      ) : null}
 
       {showApplied && showBuildCost ? (
         <View
@@ -125,6 +141,18 @@ const styles = StyleSheet.create({
   breakdownDot: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  scopeConfirmLink: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
+  },
+  scopeConfirmLinkCenter: {
+    alignSelf: 'center',
+  },
+  scopeConfirmLinkText: {
+    fontSize: 13,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
   divider: {
     height: StyleSheet.hairlineWidth,

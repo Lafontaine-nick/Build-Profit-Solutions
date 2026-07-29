@@ -2,18 +2,26 @@ import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
 import { wetAreaInScope } from '@/utils/bathroomPlumbingTrimPricing';
 import {
   BATHROOM_DRYWALL_PATCH_REF_SQFT,
+  defaultBathroomEntireRoomPaintSqft,
   DRYWALL_PATCH_PRIMER_PAINT_EXCLUDED,
   DRYWALL_PATCH_TEXTURE_INCLUDES_SCOPE,
   DRYWALL_PAINT_COMBINED_SUMMARY_LABEL,
   DRYWALL_PAINT_PRICING_DISCLAIMER,
   DRYWALL_PAINT_WET_AREA_NOTE,
   formatDrywallPatchQuantityLine,
+  resolveBathroomPaintRepairScope,
   scaleBathroomRepairAllowance,
   shouldUseCombinedDrywallPaintAssembly,
   splitMaterialLabor,
 } from '@/utils/bathroomDrywallPaintScope';
-import { checklistItemInScope } from '@/utils/scopeItemQuantities';
-import type { ScopeItemSuggestedPricing } from '@/utils/scopeItemQuantities';
+import {
+  checklistItemInScope,
+  type QuantitySource,
+  type ScopeItemQuantityValue,
+  type ScopeItemSuggestedPricing,
+  type ScopeMeasurementsInputExtended,
+} from '@/utils/scopeItemQuantities';
+import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 
 const PATCH_SCOPE_IDS = new Set([
   'demo',
@@ -195,11 +203,16 @@ export function formatBathroomDrywallPatchSqftHint(params: {
 
 export function parseEnteredBathroomPatchSqft(params: {
   paintRepairQuantity?: number | null;
+  /** @deprecated Legacy fallback — avoid for paint_repair card display/pricing. */
   drywallQuantity?: number | null;
+  /** @deprecated Legacy fallback — avoid for paint_repair card display/pricing. */
   drywallSqft?: number | null;
 }): number | null {
-  const candidates = [params.paintRepairQuantity, params.drywallQuantity, params.drywallSqft];
-  for (const value of candidates) {
+  if (params.paintRepairQuantity != null && params.paintRepairQuantity > 0) {
+    return params.paintRepairQuantity;
+  }
+  const legacy = [params.drywallQuantity, params.drywallSqft];
+  for (const value of legacy) {
     if (value != null && value > 0) return value;
   }
   return null;
@@ -286,5 +299,78 @@ export function resolveBathroomDrywallPatchSuggestedPricing(params: {
       splitConfidence: 'medium',
     },
     comparison: null,
+  };
+}
+
+const PAINT_REPAIR_USER_LOCKED_SOURCES = new Set<QuantitySource>([
+  'user_entered',
+  'manual_override',
+  'calculated_confirmed',
+  'notes',
+  'plan_vision',
+]);
+
+function paintRepairQuantityIsUserLocked(entry?: ScopeItemQuantityValue): boolean {
+  const source = entry?.quantitySource;
+  return source != null && PAINT_REPAIR_USER_LOCKED_SOURCES.has(source);
+}
+
+/** SF for paint_repair count from Quick measurements + selected paint scope. */
+export function resolveBathroomPaintRepairQuantityFromMeasurements(params: {
+  measurementsInput: ScopeMeasurementsInputExtended;
+  checklistItems?: Array<Pick<ScopeChecklistItem, 'id' | 'state' | 'choiceId'>> | null;
+  paintRepairScope?: string | null;
+}): number | null {
+  const scope = resolveBathroomPaintRepairScope(
+    params.paintRepairScope ?? params.measurementsInput.bathroomPaintRepairScope
+  );
+  if (scope === 'full_room') {
+    const fromQm = parseScopeMeasurementInput(
+      String(params.measurementsInput.wallPaintSqft ?? '')
+    );
+    if (fromQm != null && fromQm > 0) return Math.round(fromQm);
+    return defaultBathroomEntireRoomPaintSqft({
+      wallPaintSqft: params.measurementsInput.wallPaintSqft,
+      bathroomFloorSqft: params.measurementsInput.bathroomFloorSqft,
+    });
+  }
+  return null;
+}
+
+/** Mirror Quick measurements / scope selection into paint_repair count when the user has not typed SF. */
+export function syncBathroomPaintRepairItemQuantity(
+  input: ScopeMeasurementsInputExtended,
+  checklistItems?: Array<Pick<ScopeChecklistItem, 'id' | 'state' | 'choiceId'>> | null
+): ScopeMeasurementsInputExtended {
+  const existing = input.itemQuantities?.paint_repair;
+  if (paintRepairQuantityIsUserLocked(existing)) return input;
+
+  const sqft = resolveBathroomPaintRepairQuantityFromMeasurements({
+    measurementsInput: input,
+    checklistItems,
+  });
+
+  if (sqft == null || sqft <= 0) {
+    if (existing?.quantitySource === 'inferred' && String(existing.quantity || '').trim()) {
+      const itemQuantities = { ...(input.itemQuantities || {}) };
+      delete itemQuantities.paint_repair;
+      return { ...input, itemQuantities };
+    }
+    return input;
+  }
+
+  const currentQty = parseScopeMeasurementInput(String(existing?.quantity ?? ''));
+  if (currentQty === sqft && existing?.quantitySource === 'inferred') return input;
+
+  return {
+    ...input,
+    itemQuantities: {
+      ...(input.itemQuantities || {}),
+      paint_repair: {
+        quantity: String(sqft),
+        unit: 'sqft',
+        quantitySource: 'inferred',
+      },
+    },
   };
 }

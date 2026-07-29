@@ -17,6 +17,20 @@ describe('bathroom wet-area demo pricing', () => {
     });
     expect(fill?.total).toBe(522.5);
     expect(fill?.basis).toMatchObject({ quantity: 95, unit: 'sqft' });
+    expect(String(fill?.helper || '')).toMatch(/\$5\.50\/SF/i);
+  });
+
+  test('scales tile demo with job-specific sqft', () => {
+    const small = resolveBathroomWetAreaDemoSuggestedPricing({
+      measurementsInput: { demoTileWallCount: 1 },
+      tileSqft: 40,
+    });
+    const large = resolveBathroomWetAreaDemoSuggestedPricing({
+      measurementsInput: { demoTileWallCount: 1 },
+      tileSqft: 120,
+    });
+    expect(small.fill?.total).toBe(220);
+    expect(large.fill?.total).toBe(660);
   });
 
   test('includes tub removal allowance when tub demo stepper is set', () => {

@@ -130,7 +130,14 @@ export function inferChoiceFromNotes(itemId: string, notes: string | null | unde
     if (/\b(replace|new|remove\s+and\s+replace)\b.*\btoilet\b|\btoilet\b.*\b(replace|new)\b/.test(n)) {
       return 'replacing';
     }
-    if (/\btoilet\b.*\bstay|\bstay.*\btoilet\b/.test(n)) return 'staying';
+    if (
+      /\b(reset|re[\s-]?set|remove\s+and\s+reinstall|reinstall)\b.*\btoilet\b|\btoilet\b.*\b(reset|re[\s-]?set|remove\s+and\s+reinstall|reinstall)\b/.test(
+        n
+      )
+    ) {
+      return 'reset';
+    }
+    if (/\btoilet\b.*\bstay|\bstay.*\btoilet\b/.test(n)) return 'not_in_scope';
   }
 
   if (itemId === 'wet_area_install' || itemId === 'tub_shower') {

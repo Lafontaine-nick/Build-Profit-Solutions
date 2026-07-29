@@ -85,6 +85,36 @@ describe('wetAreaScopeSync', () => {
     expect(next.find((r) => r.id === 'shower_floor_tile')?.state).toBe('included');
   });
 
+  test('syncWetAreaScopeFromSteppers keeps wall tile and excludes floor when keeping existing tub', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'wet_area_install',
+        label: 'Wet area install',
+        inputType: 'choice',
+        choiceId: 'tile_pan',
+        state: 'included',
+      },
+      ...baseItems.map((row) =>
+        row.id === 'shower_floor_tile' ? { ...row, state: 'included' as const } : row
+      ),
+    ];
+    const next = syncWetAreaScopeFromSteppers(items, {
+      counts: {
+        bathCount: 1,
+        tilePanBathCount: null,
+        prefabBathCount: null,
+        prefabEnclosureBathCount: null,
+        tubBathCount: null,
+        showerDoorCount: null,
+      },
+      keepingExisting: true,
+      showerFloorTileSqft: '15',
+    });
+    expect(next.find((r) => r.id === 'wet_area_install')?.choiceId).toBe('staying');
+    expect(next.find((r) => r.id === 'shower_tile')?.state).toBe('included');
+    expect(next.find((r) => r.id === 'shower_floor_tile')?.state).toBe('excluded');
+  });
+
   test('syncWetAreaScopeFromSteppers excludes wet area when all install steppers are cleared', () => {
     const items: ScopeChecklistItem[] = [
       {

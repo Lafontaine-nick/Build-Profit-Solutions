@@ -66,6 +66,9 @@ export function isSplitTileWetAreaCounts(params: {
   return String(params.templateKey || '').toLowerCase() === 'bathroom';
 }
 
+/** Max quantity on bathroom quick-measurement steppers (multi-shower / multi-fixture). */
+export const BATHROOM_QM_STEPPER_MAX = 12;
+
 /**
  * Effective wet-area finish for gating shower tile SF.
  * Tile baths win when present so prefab/tub counts can coexist without clearing tile SF.

@@ -16,6 +16,7 @@ import {
   compactPackageAmount,
   scopePackageNeedsManualPrice,
   scopePackagePricedAmount,
+  sumLiveScopePackageTotals,
 } from '@/utils/estimateDraftReviewUi';
 import {
   sumAppliedScopePricingFromDraft,
@@ -259,7 +260,7 @@ describe('bathroom Step 2 → Step 3 pricing sync (review rows)', () => {
     expect(rowSum).toBeCloseTo(applied!.total, 2);
   });
 
-  it('fills unpriced in-scope rows with national average planning prices on Step 3', () => {
+  it('keeps Step 3 row totals aligned with applied-only hero after Confirm Scope', () => {
     const draft = {
       scopeAssumptionsConfirmed: true,
       scopeChecklist: { templateKey: 'bathroom' },
@@ -297,16 +298,18 @@ describe('bathroom Step 2 → Step 3 pricing sync (review rows)', () => {
     const plumbingRough = packages.find((p) => p.checklistItemId === 'plumbing_rough')!;
     const drywall = packages.find((p) => p.checklistItemId === 'drywall')!;
 
-    expect(scopePackagePricedAmount(vanityDemo, draft)).toBe(225);
-    expect(scopePackagePricedAmount(countertopDemo, draft)).toBe(175);
-    expect(scopePackagePricedAmount(vanity, draft)).toBe(1100);
-    expect(scopePackagePricedAmount(plumbingTrim, draft)).toBe(750);
-    expect(scopePackagePricedAmount(plumbingRough, draft)).toBe(1750);
+    expect(scopePackagePricedAmount(vanityDemo, draft)).toBe(0);
+    expect(scopePackagePricedAmount(countertopDemo, draft)).toBe(0);
+    expect(scopePackagePricedAmount(vanity, draft)).toBe(0);
+    expect(scopePackagePricedAmount(plumbingTrim, draft)).toBe(0);
+    expect(scopePackagePricedAmount(plumbingRough, draft)).toBe(0);
     expect(scopePackagePricedAmount(drywall, draft)).toBe(0);
-    expect(scopePackageNeedsManualPrice(vanityDemo, draft)).toBe(false);
-    expect(scopePackageNeedsManualPrice(plumbingTrim, draft)).toBe(false);
-    expect(scopePackageNeedsManualPrice(plumbingRough, draft)).toBe(false);
+    expect(scopePackageNeedsManualPrice(vanityDemo, draft)).toBe(true);
+    expect(scopePackageNeedsManualPrice(plumbingTrim, draft)).toBe(true);
+    expect(scopePackageNeedsManualPrice(plumbingRough, draft)).toBe(true);
     expect(scopePackageNeedsManualPrice(drywall, draft)).toBe(true);
+    expect(sumLiveScopePackageTotals(draft)).toBe(0);
+    expect(sumAppliedScopePricingFromDraft(draft)?.total ?? 0).toBe(0);
   });
 
   it('Step 2 suggested pricing includes labor-only countertop demo national average', () => {

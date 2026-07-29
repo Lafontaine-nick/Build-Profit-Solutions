@@ -522,6 +522,57 @@ describe('benchmarkReasonablenessContext', () => {
     expect(totals?.total).toBe(3100);
   });
 
+  it('sumStep3ReviewBudgetTotals does not add unapplied national-average checklist rows', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'plumbing_rough', label: 'Plumbing rough-in', inputType: 'yes_no', state: 'included' },
+      { id: 'cleanup', label: 'Cleanup & disposal', inputType: 'yes_no', state: 'included' },
+    ];
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: { templateKey: 'bathroom', items },
+      confirmedAssumptions: items,
+      scopePackages: [
+        {
+          name: 'Plumbing rough-in (shower / tub)',
+          scope: 'Rough-in',
+          checklistItemId: 'plumbing_rough',
+          price: 1750,
+          knownSubtotal: 1750,
+          status: 'ai_suggested',
+          priceSource: 'national_trade_average',
+        },
+        {
+          name: 'Cleanup, haul-off & disposal',
+          scope: 'Final clean',
+          checklistItemId: 'cleanup',
+          price: 1000,
+          knownSubtotal: 1000,
+          status: 'user_provided',
+        },
+      ],
+      scopeMeasurements: {
+        showerWallTileSqft: 80,
+        itemQuantities: {
+          cleanup: { quantity: '1000', unit: 'allowance', quantitySource: 'user_entered' },
+          cleanup__allowance: { quantity: '1000', unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: {
+          cleanup: { status: 'accepted', totalAmount: 1000 },
+        },
+      },
+    } as never;
+
+    const applied = sumConfirmScopeAppliedPricingBreakdown({
+      items,
+      measurements: draft.scopeMeasurements,
+      templateKey: 'bathroom',
+    });
+    expect(applied.total).toBe(1000);
+
+    const totals = sumStep3ReviewBudgetTotals(draft);
+    expect(totals?.total).toBe(1000);
+  });
+
   it('computeAppliedBuildCostPerLivingSf rounds whole dollars like benchmark engine', () => {
     expect(computeAppliedBuildCostPerLivingSf(546626.47, 3098)).toBe(176);
     expect(computeAppliedBuildCostPerLivingSf(0, 3098)).toBeNull();

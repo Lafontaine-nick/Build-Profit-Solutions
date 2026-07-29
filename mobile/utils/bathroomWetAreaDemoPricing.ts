@@ -162,7 +162,9 @@ function buildHelper(params: {
 }): string {
   const parts: string[] = [];
   if (params.tileSqft > 0) {
-    parts.push(`${params.tileSqft.toLocaleString()} sqft shower tile`);
+    parts.push(
+      `${params.tileSqft.toLocaleString()} sqft shower tile @ $${TILE_DEMO_INSTALLED_RATE.toFixed(2)}/SF`
+    );
   }
   if (params.includesTub) parts.push('tub removal');
   if (params.includesPrefabEnclosure) parts.push('prefab enclosure');

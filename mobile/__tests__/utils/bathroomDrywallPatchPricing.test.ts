@@ -1,3 +1,7 @@
+import {
+  buildNormalizedScopeMeasurementsFromInput,
+  resolveChecklistItemQuantity,
+} from '@/utils/scopeItemQuantities';
 import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
 import {
   ensureBathroomPaintRepairItem,
@@ -8,6 +12,7 @@ import {
   defaultBathroomDrywallPatchSqft,
   formatBathroomDrywallPatchSqftHint,
   resolveBathroomDrywallPatchSuggestedPricing,
+  syncBathroomPaintRepairItemQuantity,
 } from '@/utils/bathroomDrywallPatchPricing';
 import { detectDrywallPaintInteriorOverlap } from '@/utils/bathroomDrywallPaintScope';
 import {
@@ -115,9 +120,10 @@ describe('bathroom drywall checklist consolidation', () => {
 });
 
 describe('resolveBathroomPaintRepairSuggestedPricing', () => {
-  it('prices affected area at $500 for 36 sqft planning area', () => {
+  it('prices affected area at $500 when patch SF is entered', () => {
     const result = resolveBathroomPaintRepairSuggestedPricing({
       checklistItems: [item('paint_repair'), item('shower_tile')],
+      patchSqft: 36,
       showerWallTileSqft: 80,
       paintRepairScope: 'affected_area',
       useCombinedAssembly: false,
@@ -127,9 +133,20 @@ describe('resolveBathroomPaintRepairSuggestedPricing', () => {
     expect(result?.fill?.labor).toBe(375);
   });
 
-  it('migrates legacy touch_up to affected area pricing', () => {
+  it('does not price affected area without entered patch SF', () => {
     const result = resolveBathroomPaintRepairSuggestedPricing({
       checklistItems: [item('paint_repair'), item('shower_tile')],
+      showerWallTileSqft: 80,
+      paintRepairScope: 'affected_area',
+      useCombinedAssembly: false,
+    });
+    expect(result?.fill).toBeNull();
+  });
+
+  it('migrates legacy touch_up to affected area pricing when patch SF is entered', () => {
+    const result = resolveBathroomPaintRepairSuggestedPricing({
+      checklistItems: [item('paint_repair'), item('shower_tile')],
+      patchSqft: 36,
       showerWallTileSqft: 80,
       paintRepairScope: 'touch_up',
       useCombinedAssembly: false,
@@ -192,11 +209,12 @@ describe('drywall/paint overlap helpers', () => {
     ).toBe(false);
   });
 
-  it('builds combined drywall + paint summary', () => {
+  it('builds combined drywall + paint summary when patch SF is entered', () => {
     const summary = buildBathroomDrywallPaintCombinedSummary({
       checklistItems: [item('drywall'), item('paint_repair'), item('shower_tile')],
       showerWallTileSqft: 80,
       paintRepairScope: 'affected_area',
+      enteredPatchSqft: 36,
     });
     expect(summary?.combinedTotal).toBe(900);
   });
@@ -224,5 +242,96 @@ describe('drywall/paint overlap helpers', () => {
     expect(merged.total).toBe(drywall.total + paint.total);
     expect(merged.basis).toEqual({ quantity: 36, unit: 'sqft' });
     expect(merged.helper).toMatch(/Apply once to price all lines/i);
+  });
+});
+
+describe('syncBathroomPaintRepairItemQuantity', () => {
+  it('fills full-room count from Quick measurements Paint SF', () => {
+    const next = syncBathroomPaintRepairItemQuantity(
+      {
+        wallPaintSqft: '350',
+        bathroomPaintRepairScope: 'full_room',
+        itemQuantities: {},
+      },
+      [item('shower_tile')]
+    );
+    expect(next.itemQuantities?.paint_repair).toEqual({
+      quantity: '350',
+      unit: 'sqft',
+      quantitySource: 'inferred',
+    });
+  });
+
+  it('does not auto-fill affected-area patch SF from shower tile', () => {
+    const next = syncBathroomPaintRepairItemQuantity(
+      {
+        wallPaintSqft: '350',
+        showerWallTileSqft: '80',
+        bathroomPaintRepairScope: 'affected_area',
+        itemQuantities: {},
+      },
+      [item('shower_tile'), item('demo')]
+    );
+    expect(next.itemQuantities?.paint_repair).toBeUndefined();
+  });
+
+  it('does not overwrite user-entered paint_repair SF', () => {
+    const input = {
+      wallPaintSqft: '350',
+      bathroomPaintRepairScope: 'full_room',
+      itemQuantities: {
+        paint_repair: { quantity: '280', unit: 'sqft', quantitySource: 'user_entered' as const },
+      },
+    };
+    expect(syncBathroomPaintRepairItemQuantity(input, [item('shower_tile')])).toBe(input);
+  });
+
+  it('updates inferred count when Quick measurements Paint changes', () => {
+    const first = syncBathroomPaintRepairItemQuantity(
+      {
+        wallPaintSqft: '80',
+        bathroomPaintRepairScope: 'full_room',
+        itemQuantities: {},
+      },
+      [item('shower_tile')]
+    );
+    const second = syncBathroomPaintRepairItemQuantity(
+      {
+        ...first,
+        wallPaintSqft: '400',
+      },
+      [item('shower_tile')]
+    );
+    expect(second.itemQuantities?.paint_repair?.quantity).toBe('400');
+  });
+});
+
+describe('paint_repair quantity resolution', () => {
+  it('does not inherit global drywallSqft when paint_repair SF is unset', () => {
+    const norm = buildNormalizedScopeMeasurementsFromInput(
+      {
+        drywallSqft: '8',
+        itemQuantities: {},
+      },
+      { templateKey: 'bathroom' }
+    );
+    const resolved = resolveChecklistItemQuantity('paint_repair', norm, { templateKey: 'bathroom' });
+    expect(resolved.quantity).toBeNull();
+    expect(resolved.pricingReady).toBe(false);
+  });
+
+  it('uses paint_repair itemQuantities for entered patch SF', () => {
+    const norm = buildNormalizedScopeMeasurementsFromInput(
+      {
+        drywallSqft: '8',
+        itemQuantities: {
+          paint_repair: { quantity: '80', unit: 'sqft', quantitySource: 'user_entered' },
+        },
+      },
+      { templateKey: 'bathroom' }
+    );
+    const resolved = resolveChecklistItemQuantity('paint_repair', norm, { templateKey: 'bathroom' });
+    expect(resolved.quantity).toBe(80);
+    expect(resolved.quantitySource).toBe('user_entered');
   });
 });

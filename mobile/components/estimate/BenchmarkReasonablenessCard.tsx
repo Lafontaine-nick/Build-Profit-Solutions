@@ -24,6 +24,7 @@ type Props = {
   embedded?: boolean;
   /** Whole-home builds only — hide $/SF for remodels and trade jobs. */
   showBuildCostPerSf?: boolean;
+  scopeConfirmDisclaimer?: { label: string; onPress: () => void } | null;
 };
 
 const APP_GREEN = '#22c55e';
@@ -44,6 +45,7 @@ export default function BenchmarkReasonablenessCard({
   appliedLines = [],
   embedded = false,
   showBuildCostPerSf = true,
+  scopeConfirmDisclaimer = null,
 }: Props) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [itemizeOpen, setItemizeOpen] = useState(false);
@@ -128,6 +130,7 @@ export default function BenchmarkReasonablenessCard({
         buildCostUnitSuffix={buildCostUnitSuffix}
         darkMode={darkMode}
         middleContent={itemizeBlock}
+        scopeConfirmDisclaimer={scopeConfirmDisclaimer}
       />
 
       {showBuildCostPerSf && variance && value ? (

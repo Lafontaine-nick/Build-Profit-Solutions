@@ -174,7 +174,7 @@ const NATIONAL_TRADE_AVERAGES_LOCAL: Record<
   },
   shower_floor_tile: {
     unit: 'sqft',
-    material: 10,
+    material: 9,
     labor: 21,
     materialLabel: 'Shower floor tile materials allowance',
     laborLabel: 'Shower floor tile install labor',

@@ -1,6 +1,5 @@
 import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
 import {
-  defaultBathroomDrywallPatchSqft,
   patchWorkLikelyInScope,
   resolveBathroomDrywallPatchSuggestedPricing,
 } from '@/utils/bathroomDrywallPatchPricing';
@@ -162,12 +161,11 @@ export function resolveBathroomPaintRepairSuggestedPricing(params: {
   }
 
   const sqft =
-    params.patchSqft != null && params.patchSqft > 0
-      ? params.patchSqft
-      : defaultBathroomDrywallPatchSqft({
-          checklistItems: items,
-          showerWallTileSqft: params.showerWallTileSqft,
-        }) || BATHROOM_DRYWALL_PATCH_REF_SQFT;
+    params.patchSqft != null && params.patchSqft > 0 ? params.patchSqft : null;
+
+  if (sqft == null) {
+    return { fill: null, comparison: null };
+  }
 
   const details = buildPaintRepairPricingDetails({ sqft, scope: 'affected_area' });
 
@@ -262,6 +260,7 @@ export function buildBathroomDrywallPaintCombinedSummary(params: {
   checklistItems?: Array<Pick<ScopeChecklistItem, 'id' | 'state' | 'choiceId'>> | null;
   showerWallTileSqft?: number | null;
   paintRepairScope?: string | null;
+  enteredPatchSqft?: number | null;
 }): {
   drywallTotal: number;
   paintTotal: number;
@@ -271,11 +270,8 @@ export function buildBathroomDrywallPaintCombinedSummary(params: {
   range: { low: number; high: number };
   sqft: number;
 } | null {
-  const sqft = defaultBathroomDrywallPatchSqft({
-    checklistItems: params.checklistItems,
-    showerWallTileSqft: params.showerWallTileSqft,
-  });
-  if (sqft <= 0) return null;
+  if (!(params.enteredPatchSqft != null && params.enteredPatchSqft > 0)) return null;
+  const sqft = Math.round(params.enteredPatchSqft);
 
   const drywall = resolveBathroomDrywallPatchSuggestedPricing({
     checklistItems: params.checklistItems,
@@ -285,6 +281,7 @@ export function buildBathroomDrywallPaintCombinedSummary(params: {
   });
   const paint = resolveBathroomPaintRepairSuggestedPricing({
     checklistItems: params.checklistItems,
+    patchSqft: sqft,
     paintRepairScope: params.paintRepairScope ?? 'affected_area',
     showerWallTileSqft: params.showerWallTileSqft,
     useCombinedAssembly: false,

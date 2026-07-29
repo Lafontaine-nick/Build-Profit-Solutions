@@ -45,6 +45,7 @@ import {
   normalizeBathroomVanityCountertopMaterialType,
   type BathroomVanityCountertopMaterialType,
 } from '@/utils/bathroomVanityCountertopPricing';
+import { BATHROOM_QM_STEPPER_MAX } from '@/utils/planBathRooms';
 
 type Colors = ReturnType<typeof getColors>;
 
@@ -196,6 +197,7 @@ function QmScopePanelSection({
   darkMode,
   Colors,
   footer,
+  stepperMax,
 }: {
   title: string;
   titleColor: string;
@@ -209,7 +211,9 @@ function QmScopePanelSection({
   darkMode: boolean;
   Colors: Colors;
   footer?: React.ReactNode;
+  stepperMax?: number;
 }) {
+  const max = stepperMax ?? 1;
   return (
     <View
       style={{
@@ -234,6 +238,7 @@ function QmScopePanelSection({
           value={counts[row.key] ?? null}
           onAdjust={(d) => onAdjust(row.key, d)}
           applying={applying}
+          max={max}
           darkMode={darkMode}
           Colors={Colors}
         />
@@ -789,7 +794,7 @@ export function QmBathroomFixturesPanels({
         const current = prev[key] ?? 0;
         const next = {
           ...prev,
-          [key]: clampQmCount(current + delta < 1 ? null : current + delta),
+          [key]: clampQmCount(current + delta < 1 ? null : current + delta, BATHROOM_QM_STEPPER_MAX),
         };
         commit(next, install, gen);
         return next;
@@ -805,7 +810,7 @@ export function QmBathroomFixturesPanels({
         const current = prev[key] ?? 0;
         const nextInstall = {
           ...prev,
-          [key]: clampQmCount(current + delta < 1 ? null : current + delta),
+          [key]: clampQmCount(current + delta < 1 ? null : current + delta, BATHROOM_QM_STEPPER_MAX),
         };
         if (
           key === 'bathroomInstallCounterCount' &&
@@ -835,7 +840,7 @@ export function QmBathroomFixturesPanels({
       const gen = ++genRef.current;
       setDemo((prev) => {
         const current = prev[key] ?? 0;
-        const cleaned = clampQmCount(current + delta < 1 ? null : current + delta);
+        const cleaned = clampQmCount(current + delta < 1 ? null : current + delta, BATHROOM_QM_STEPPER_MAX);
         const next = { ...prev, [key]: cleaned };
         demoRef.current = next;
         commit(existing, install, gen, { key, value: cleaned });
@@ -892,6 +897,7 @@ export function QmBathroomFixturesPanels({
           counts={existing as Record<string, number | null>}
           onAdjust={(key, d) => adjustExisting(key as keyof BathroomExistingFixtureCounts, d)}
           applying={applying}
+          stepperMax={BATHROOM_QM_STEPPER_MAX}
           darkMode={darkMode}
           Colors={Colors}
         />
@@ -912,6 +918,7 @@ export function QmBathroomFixturesPanels({
           }
         }}
         applying={applying}
+        stepperMax={BATHROOM_QM_STEPPER_MAX}
         darkMode={darkMode}
         Colors={Colors}
         footer={

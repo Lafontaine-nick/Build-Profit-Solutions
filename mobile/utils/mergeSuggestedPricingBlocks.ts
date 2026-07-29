@@ -8,6 +8,7 @@ import { syncScopeGapPricingStatuses } from '@/utils/scopeReviewUi';
 import {
   allowanceSplitSubKey,
   getChecklistItemQuantityRuleOrDefault,
+  primaryQuantityForAppliedSuggestedBlock,
   roughAllowanceSubKey,
   type ScopeMeasurementsInputExtended,
   type SuggestedPricingBlock,
@@ -150,9 +151,10 @@ export function mergeSuggestedPricingBlocksIntoMeasurements(
       };
     }
     if (!rule.dualAllowanceField) {
+      const primary = primaryQuantityForAppliedSuggestedBlock(block, rule);
       itemQuantities[itemId] = {
-        quantity: String(block.basis?.quantity ?? block.storedTotalExact ?? block.total),
-        unit: block.basis?.unit || 'allowance',
+        quantity: primary.quantity,
+        unit: primary.unit,
         quantitySource: 'user_entered',
       };
     }

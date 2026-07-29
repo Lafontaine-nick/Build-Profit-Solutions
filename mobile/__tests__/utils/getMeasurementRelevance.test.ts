@@ -155,4 +155,23 @@ describe('getMeasurementRelevance', () => {
     );
     expect(getMeasurementRelevance({ measurementKey: 'baseboardLf', includedScopeKeys: ['trim'] }).relevant).toBe(true);
   });
+
+  test('shower floor SF is hidden when keeping existing tub/shower', () => {
+    const staying = getMeasurementRelevance({
+      measurementKey: 'showerFloorTileSqft',
+      includedScopeKeys: ['shower_tile'],
+      templateKey: 'bathroom',
+      wetAreaInstallChoiceId: 'staying',
+    });
+    expect(staying.relevant).toBe(false);
+    expect(staying.reason).toMatch(/keeping the existing tub/i);
+
+    const wallsOnly = getMeasurementRelevance({
+      measurementKey: 'showerWallTileSqft',
+      includedScopeKeys: ['shower_tile'],
+      templateKey: 'bathroom',
+      keepingExistingWetArea: true,
+    });
+    expect(wallsOnly.relevant).toBe(true);
+  });
 });

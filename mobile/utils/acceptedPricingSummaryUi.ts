@@ -18,6 +18,7 @@ import {
   hasCompleteUserSelectedPricing,
   hasOnlySuggestedPrefillPricing,
   roughAllowanceSubKey,
+  shouldSuppressSuggestedPricingAfterApply,
 } from '@/utils/scopeItemQuantities';
 import { formatDraftMoney } from '@/utils/estimateAiDraft';
 
@@ -352,15 +353,15 @@ export function resolveAcceptedMoneyTotal(params: {
   const dualAllowance = Number(params.resolved.dualAllowance?.quantity);
   if (Number.isFinite(dualAllowance) && dualAllowance > 0) return dualAllowance;
 
+  const acceptedMaterial = Number(params.acceptance?.materialAmount ?? 0) || 0;
+  const acceptedLabor = Number(params.acceptance?.laborAmount ?? 0) || 0;
+  if (acceptedMaterial + acceptedLabor > 0) return acceptedMaterial + acceptedLabor;
+
   const unit = String(params.resolved.unit || '').toLowerCase();
   if ((unit === 'allowance' || unit === 'lump_sum') && params.resolved.quantity != null) {
     const qty = Number(params.resolved.quantity);
     if (Number.isFinite(qty) && qty > 0) return qty;
   }
-
-  const acceptedMaterial = Number(params.acceptance?.materialAmount ?? 0) || 0;
-  const acceptedLabor = Number(params.acceptance?.laborAmount ?? 0) || 0;
-  if (acceptedMaterial + acceptedLabor > 0) return acceptedMaterial + acceptedLabor;
 
   const accepted = Number(params.acceptance?.totalAmount);
   if (Number.isFinite(accepted) && accepted > 0) return accepted;
@@ -1148,6 +1149,15 @@ export function shouldHideSuggestedPanel(params: {
   pricingAcceptance?: Record<string, ScopePricingAcceptanceMetadata>;
   suggestedTotal?: number | null;
 }): boolean {
+  if (
+    shouldSuppressSuggestedPricingAfterApply(
+      params.itemId,
+      params.itemQuantities,
+      params.pricingAcceptance
+    )
+  ) {
+    return true;
+  }
   if (!hasAcceptedScopePricing(params.itemId, params.itemQuantities, params.pricingAcceptance)) {
     return false;
   }

@@ -1,6 +1,8 @@
 import { applyDraftToEstimate } from '@/utils/estimateAiDraft';
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { applyPricingProposalToDraft } from '@/utils/estimateAiDraftPricing';
+import { sumStep3ReviewBudgetTotals, sumAppliedScopePricingFromDraft } from '@/utils/benchmarkReasonablenessContext';
+import { buildAcceptanceFromSuggestedBlock } from '@/utils/acceptedPricingSummaryUi';
 
 describe('Step 3 pricing syncs into final bid line items', () => {
   it('preserves existing scopePackages when applying a rough proposal', () => {
@@ -745,5 +747,330 @@ describe('Step 3 pricing syncs into final bid line items', () => {
     const laborSum = laborLines.reduce((sum, line) => sum + (Number(line.total) || 0), 0);
     expect(laborLines.some((l) => l.name === 'Disposal Bid' && l.total === 8000)).toBe(true);
     expect(laborSum).toBe(508000);
+  });
+
+  it('apply Confirmed Only matches Step 3 totals — skips stale AI confirmed checklist prices', () => {
+    const acceptance = (total: number, material: number, labor: number) =>
+      buildAcceptanceFromSuggestedBlock({
+        total,
+        material,
+        labor,
+        lumpSumOnly: !(material > 0 && labor > 0),
+        rateSourceLabel: 'National Average',
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+      });
+
+    const draft = {
+      projectType: 'bathroom',
+      estimateTier: 'room_remodel',
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: {
+        templateKey: 'bathroom',
+        items: [
+          { id: 'demo', label: 'Demo', state: 'included', inputType: 'yes_no' },
+          { id: 'floor_tile', label: 'Floor tile', state: 'included', inputType: 'yes_no' },
+          { id: 'toilet', label: 'Toilet', state: 'included', inputType: 'yes_no' },
+          { id: 'vanity', label: 'Vanity', state: 'included', inputType: 'yes_no' },
+          { id: 'plumbing_rough', label: 'Plumbing rough', state: 'included', inputType: 'yes_no' },
+          { id: 'cleanup', label: 'Cleanup', state: 'included', inputType: 'yes_no' },
+        ],
+      },
+      scopePackages: [
+        {
+          name: 'Bathroom Demo',
+          scope: 'demo',
+          checklistItemId: 'demo',
+          price: 522.5,
+          materialPrice: 209,
+          laborPrice: 313.5,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+          applyEligible: true,
+        },
+        {
+          name: 'Tile Installation',
+          scope: 'floor tile',
+          checklistItemId: 'floor_tile',
+          price: 2520,
+          materialPrice: 960,
+          laborPrice: 1560,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+          applyEligible: true,
+        },
+        {
+          name: 'Toilet Installation',
+          scope: 'toilet',
+          checklistItemId: 'toilet',
+          price: 2500,
+          status: 'confirmed',
+          priceSource: 'ai_rough_estimate',
+          // AI drafts often set applyEligible without Confirm Scope Applied —
+          // must still be excluded from Bid Summary.
+          applyEligible: true,
+          priceIncludesLaborAndMaterials: true,
+        },
+        {
+          name: 'Vanity Installation',
+          scope: 'vanity',
+          checklistItemId: 'vanity',
+          price: 3500,
+          status: 'confirmed',
+          priceSource: 'ai_rough_estimate',
+          applyEligible: true,
+          priceIncludesLaborAndMaterials: true,
+        },
+        {
+          name: 'Plumbing (Bathroom)',
+          scope: 'plumbing rough',
+          checklistItemId: 'plumbing_rough',
+          price: 4500,
+          status: 'confirmed',
+          priceSource: 'ai_rough_estimate',
+          applyEligible: true,
+          priceIncludesLaborAndMaterials: true,
+        },
+        {
+          name: 'Cleanup, Haul-off & Disposal',
+          scope: 'cleanup',
+          checklistItemId: 'cleanup',
+          price: 1000,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+          applyEligible: true,
+        },
+      ],
+      scopeMeasurements: {
+        bathroomFloorSqft: 120,
+        itemQuantities: {
+          demo__material: { quantity: '209', unit: 'allowance', quantitySource: 'user_entered' },
+          demo__labor: { quantity: '313.5', unit: 'allowance', quantitySource: 'user_entered' },
+          floor_tile__material: { quantity: '960', unit: 'allowance', quantitySource: 'user_entered' },
+          floor_tile__labor: { quantity: '1560', unit: 'allowance', quantitySource: 'user_entered' },
+          cleanup: { quantity: '1000', unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: {
+          demo: acceptance(522.5, 209, 313.5),
+          floor_tile: acceptance(2520, 960, 1560),
+          cleanup: acceptance(1000, 0, 0),
+        },
+      },
+      applySuggestedSplits: false,
+    } as unknown as EstimateAiDraft;
+
+    const step3Applied = sumAppliedScopePricingFromDraft(draft);
+    expect(step3Applied?.total).toBeCloseTo(4042.5, 2);
+
+    const { bid } = applyDraftToEstimate({}, draft, {
+      applyConfirmedOnly: true,
+      applySuggestedSplits: false,
+    });
+
+    const laborTotal = (bid.laborLineItems as Array<{ total?: number }>).reduce(
+      (s, l) => s + (Number(l.total) || 0),
+      0
+    );
+    const materialTotal = (bid.materialLineItems as Array<{ total?: number }>).reduce(
+      (s, l) => s + (Number(l.total) || 0),
+      0
+    );
+    const allowanceTotal = (bid.allowanceLineItems as Array<{ amount?: number; total?: number }>).reduce(
+      (s, l) => s + (Number(l.amount ?? l.total) || 0),
+      0
+    );
+
+    expect(materialTotal + laborTotal + allowanceTotal).toBeCloseTo(step3Applied!.total, 2);
+    // Stale AI confirmed+applyEligible rows ($2,500 + $3,500 + $4,500) must not inflate the bid.
+    expect(materialTotal + laborTotal + allowanceTotal).toBeLessThan(9000);
+    expect(materialTotal + laborTotal + allowanceTotal).toBeCloseTo(4042.5, 2);
+    expect(
+      (bid.laborLineItems as Array<{ name?: string }>).some((l) => /Toilet|Vanity|Plumbing/i.test(String(l.name)))
+    ).toBe(false);
+  });
+
+  it('Bid Summary subtotal matches Step 3 when AI confirmed+applyEligible extras exist', () => {
+    const acceptance = (total: number, material: number, labor: number) =>
+      buildAcceptanceFromSuggestedBlock({
+        total,
+        material,
+        labor,
+        lumpSumOnly: !(material > 0 && labor > 0),
+        rateSourceLabel: 'National Average',
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+      });
+
+    // Mirrors the ~$20k Step 3 vs ~$37k Bid Summary bug: Applied scopes only,
+    // plus AI packages marked confirmed/applyEligible that Step 3 correctly ignores.
+    const draft = {
+      projectType: 'bathroom',
+      estimateTier: 'room_remodel',
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: {
+        templateKey: 'bathroom',
+        items: [
+          { id: 'demo', label: 'Demo', state: 'included', inputType: 'yes_no' },
+          { id: 'floor_tile', label: 'Floor tile', state: 'included', inputType: 'yes_no' },
+          { id: 'shower_tile', label: 'Shower tile', state: 'included', inputType: 'yes_no' },
+          { id: 'waterproofing', label: 'Waterproofing', state: 'included', inputType: 'yes_no' },
+          { id: 'glass_door', label: 'Glass door', state: 'included', inputType: 'yes_no' },
+          { id: 'interior_paint', label: 'Paint', state: 'included', inputType: 'yes_no' },
+          { id: 'cleanup', label: 'Cleanup', state: 'included', inputType: 'yes_no' },
+          { id: 'toilet', label: 'Toilet', state: 'included', inputType: 'yes_no' },
+          { id: 'vanity', label: 'Vanity', state: 'included', inputType: 'yes_no' },
+          { id: 'plumbing_rough', label: 'Plumbing rough', state: 'included', inputType: 'yes_no' },
+        ],
+      },
+      scopePackages: [
+        {
+          name: 'Bathroom Demo',
+          checklistItemId: 'demo',
+          price: 522.5,
+          materialPrice: 209,
+          laborPrice: 313.5,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+          applyEligible: true,
+        },
+        {
+          name: 'Tile Installation',
+          checklistItemId: 'floor_tile',
+          price: 2520,
+          materialPrice: 960,
+          laborPrice: 1560,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+          applyEligible: true,
+        },
+        {
+          name: 'Shower Tile Installation',
+          checklistItemId: 'shower_tile',
+          price: 2080,
+          materialPrice: 960,
+          laborPrice: 1120,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+          applyEligible: true,
+        },
+        {
+          name: 'Shower Waterproofing & Backer Board',
+          checklistItemId: 'waterproofing',
+          price: 960,
+          materialPrice: 400,
+          laborPrice: 560,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+          applyEligible: true,
+        },
+        {
+          name: 'Glass Shower Door Install',
+          checklistItemId: 'glass_door',
+          price: 1650,
+          materialPrice: 950,
+          laborPrice: 700,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+          applyEligible: true,
+        },
+        {
+          name: 'Interior Painting',
+          checklistItemId: 'interior_paint',
+          price: 350,
+          materialPrice: 75,
+          laborPrice: 275,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+          applyEligible: true,
+        },
+        {
+          name: 'Cleanup, Haul-off & Disposal',
+          checklistItemId: 'cleanup',
+          price: 1000,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+          applyEligible: true,
+        },
+        {
+          name: 'Toilet Installation',
+          checklistItemId: 'toilet',
+          price: 2500,
+          status: 'confirmed',
+          applyEligible: true,
+          priceSource: 'ai_rough_estimate',
+        },
+        {
+          name: 'Vanity Installation',
+          checklistItemId: 'vanity',
+          price: 3500,
+          status: 'confirmed',
+          applyEligible: true,
+          priceSource: 'ai_rough_estimate',
+        },
+        {
+          name: 'Plumbing (Bathroom)',
+          checklistItemId: 'plumbing_rough',
+          price: 4500,
+          status: 'confirmed',
+          applyEligible: true,
+          priceSource: 'ai_rough_estimate',
+        },
+      ],
+      scopeMeasurements: {
+        bathroomFloorSqft: 120,
+        showerWallTileSqft: 80,
+        itemQuantities: {
+          demo__material: { quantity: '209', unit: 'allowance', quantitySource: 'user_entered' },
+          demo__labor: { quantity: '313.5', unit: 'allowance', quantitySource: 'user_entered' },
+          floor_tile__material: { quantity: '960', unit: 'allowance', quantitySource: 'user_entered' },
+          floor_tile__labor: { quantity: '1560', unit: 'allowance', quantitySource: 'user_entered' },
+          shower_tile__material: { quantity: '960', unit: 'allowance', quantitySource: 'user_entered' },
+          shower_tile__labor: { quantity: '1120', unit: 'allowance', quantitySource: 'user_entered' },
+          waterproofing__material: { quantity: '400', unit: 'allowance', quantitySource: 'user_entered' },
+          waterproofing__labor: { quantity: '560', unit: 'allowance', quantitySource: 'user_entered' },
+          glass_door__material: { quantity: '950', unit: 'allowance', quantitySource: 'user_entered' },
+          glass_door__labor: { quantity: '700', unit: 'allowance', quantitySource: 'user_entered' },
+          interior_paint__material: { quantity: '75', unit: 'allowance', quantitySource: 'user_entered' },
+          interior_paint__labor: { quantity: '275', unit: 'allowance', quantitySource: 'user_entered' },
+          cleanup: { quantity: '1000', unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: {
+          demo: acceptance(522.5, 209, 313.5),
+          floor_tile: acceptance(2520, 960, 1560),
+          shower_tile: acceptance(2080, 960, 1120),
+          waterproofing: acceptance(960, 400, 560),
+          glass_door: acceptance(1650, 950, 700),
+          interior_paint: acceptance(350, 75, 275),
+          cleanup: acceptance(1000, 0, 0),
+        },
+      },
+      applySuggestedSplits: false,
+    } as unknown as EstimateAiDraft;
+
+    const step3 = sumStep3ReviewBudgetTotals(draft);
+    expect(step3?.total).toBeCloseTo(9082.5, 2);
+
+    const { bid } = applyDraftToEstimate({}, draft, {
+      applyConfirmedOnly: true,
+      applySuggestedSplits: false,
+    });
+
+    const laborTotal = (bid.laborLineItems as Array<{ total?: number }>).reduce(
+      (s, l) => s + (Number(l.total) || 0),
+      0
+    );
+    const materialTotal = (bid.materialLineItems as Array<{ total?: number }>).reduce(
+      (s, l) => s + (Number(l.total) || 0),
+      0
+    );
+    const allowanceTotal = (bid.allowanceLineItems as Array<{ amount?: number; total?: number }>).reduce(
+      (s, l) => s + (Number(l.amount ?? l.total) || 0),
+      0
+    );
+    const bidSubtotal = materialTotal + laborTotal + allowanceTotal;
+
+    expect(bidSubtotal).toBeCloseTo(step3!.total, 2);
+    // Without the fix, toilet+vanity+plumbing (~$10.5k) inflate Bid Summary past Step 3.
+    expect(bidSubtotal).toBeLessThan(10000);
   });
 });

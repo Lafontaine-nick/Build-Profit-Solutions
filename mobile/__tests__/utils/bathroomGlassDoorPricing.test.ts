@@ -19,25 +19,25 @@ describe('bathroomGlassDoorPricing', () => {
     expect(resolveBathroomGlassDoorDoorCount({})).toBe(1);
   });
 
-  test('standard slider prices at $1,650 per door installed', () => {
+  test('standard slider prices at $1,450 per door installed', () => {
     const details = buildGlassDoorPricingDetails({
       style: 'standard_slider',
       doorCount: 1,
     });
     expect(details).toMatchObject({
-      material: 950,
-      labor: 700,
-      total: 1650,
-      perDoor: 1650,
+      material: 835,
+      labor: 615,
+      total: 1450,
+      perDoor: 1450,
     });
 
     const twoDoors = buildGlassDoorPricingDetails({
       style: 'standard_slider',
       doorCount: 2,
     });
-    expect(twoDoors.total).toBe(3300);
-    expect(twoDoors.material).toBe(1900);
-    expect(twoDoors.labor).toBe(1400);
+    expect(twoDoors.total).toBe(2900);
+    expect(twoDoors.material).toBe(1670);
+    expect(twoDoors.labor).toBe(1230);
   });
 
   test('premium frameless prices at $2,500 per door installed', () => {
@@ -59,9 +59,9 @@ describe('bathroomGlassDoorPricing', () => {
       style: 'unsure',
     });
     expect(pricing?.fill).toMatchObject({
-      material: 950,
-      labor: 700,
-      total: 1650,
+      material: 835,
+      labor: 615,
+      total: 1450,
       splitConfidence: 'low',
       pricingRecordId: 'bps_national:glass_door:bathroom:unsure:1ea',
     });

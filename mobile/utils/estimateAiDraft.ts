@@ -9,6 +9,7 @@ import {
   lookupRuleKeyForPackage,
   normalizeScopeMeasurements,
   resolveChecklistItemQuantity,
+  checklistItemInScope,
 } from '@/utils/scopeItemQuantities';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
 import { hasAcceptedScopePricing } from '@/utils/acceptedPricingSummaryUi';
@@ -31,6 +32,7 @@ import { syncMeasurementsWithSouthernUtahPlanFacts } from '@/utils/quickMeasurem
 import {
   getScopePackagesForReview,
   withReconciledScopePackages,
+  confirmScopeDisplayItemsFromDraft,
 } from '@/utils/scopePackagesForReview';
 import { sumBathFloorSqft } from '@/utils/planBathRooms';
 import { applyExistingFeaturesToMeasurements } from '@/utils/wetAreaExistingDemo';
@@ -1991,7 +1993,6 @@ function isAutoCalculatedUnconfirmedPackage(
   if (pkg.priceProvidedByUser || pkg.status === 'user_provided' || pkg.priceSource === 'user_provided') {
     return false;
   }
-  if (pkg.status === 'confirmed') return false;
   if (
     ruleKey &&
     hasAcceptedScopePricing(
@@ -2002,7 +2003,29 @@ function isAutoCalculatedUnconfirmedPackage(
   ) {
     return false;
   }
-  // Strip backend/AI row prices that never got Applied on Confirm Scope.
+
+  const confirmedFromScope = Boolean(
+    draft.scopeAssumptionsConfirmed || draft.confirmedAssumptions?.length
+  );
+
+  // Before Confirm Scope, keep AI-approved / applyEligible package prices.
+  if (!confirmedFromScope) {
+    if (pkg.status === 'confirmed' && pkg.applyEligible) return false;
+    if (pkg.applyEligible) return false;
+    return true;
+  }
+
+  // After Confirm Scope: checklist rows without Applied pricing are stripped even
+  // when AI marked them confirmed+applyEligible (that path inflated Bid Summary).
+  if (ruleKey) {
+    const onChecklist = confirmScopeDisplayItemsFromDraft(draft).some(
+      (item) => item.id === ruleKey && checklistItemInScope(item)
+    );
+    if (onChecklist) return true;
+  }
+
+  // Off-checklist Ask AI rows may still use applyEligible / confirmed.
+  if (pkg.applyEligible || pkg.status === 'confirmed') return false;
   return true;
 }
 
@@ -2575,7 +2598,46 @@ function effectiveLaborTotal(
   return total > 0 ? total : null;
 }
 
-function packageIsApplyEligible(pkg: EstimateDraftScopePackage, applyConfirmedOnly: boolean): boolean {
+function packageHasAppliedOrUserPricing(
+  pkg: EstimateDraftScopePackage,
+  draft: EstimateAiDraft
+): boolean {
+  if (pkg.priceProvidedByUser || pkg.status === 'user_provided' || pkg.priceSource === 'user_provided') {
+    return true;
+  }
+
+  const ruleKey =
+    pkg.checklistItemId || lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') || null;
+  if (!ruleKey) {
+    // Off-checklist Ask AI rows (e.g. Disposal Bid) may rely on applyEligible.
+    return Boolean(pkg.applyEligible);
+  }
+
+  // Checklist rows must have Confirm Scope Applied pricing — do not trust
+  // applyEligible alone (AI drafts often mark confirmed packages eligible).
+  return hasAcceptedScopePricing(
+    ruleKey,
+    draft.scopeMeasurements?.itemQuantities || {},
+    draft.scopeMeasurements?.pricingAcceptance
+  );
+}
+
+function packageIsOnConfirmScopeChecklist(
+  pkg: EstimateDraftScopePackage,
+  draft: EstimateAiDraft
+): boolean {
+  const ruleKey =
+    pkg.checklistItemId || lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') || null;
+  if (!ruleKey) return false;
+  const items = confirmScopeDisplayItemsFromDraft(draft);
+  return items.some((item) => item.id === ruleKey && checklistItemInScope(item));
+}
+
+function packageIsApplyEligible(
+  pkg: EstimateDraftScopePackage,
+  applyConfirmedOnly: boolean,
+  draft?: EstimateAiDraft
+): boolean {
   if (pkg.status === 'missing_price') return false;
   // Approved rough/AI pricing is apply-eligible once the user confirmed it in Step 3.
   if (
@@ -2586,7 +2648,14 @@ function packageIsApplyEligible(pkg: EstimateDraftScopePackage, applyConfirmedOn
   ) {
     return false;
   }
+  // Apply Confirmed Only must match Step 3 — skip checklist rows without Applied pricing.
+  if (applyConfirmedOnly && draft && packageIsOnConfirmScopeChecklist(pkg, draft)) {
+    return packageHasAppliedOrUserPricing(pkg, draft);
+  }
   if (pkg.applyEligible) return true;
+  if (pkg.priceProvidedByUser || pkg.status === 'user_provided' || pkg.priceSource === 'user_provided') {
+    return true;
+  }
   const amount = pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0;
   return amount > 0;
 }
@@ -2596,18 +2665,59 @@ function packageAllowanceAmount(pkg: EstimateDraftScopePackage): number {
   return Number.isFinite(amount) && amount > 0 ? amount : 0;
 }
 
+function packageRuleKeyForApply(pkg: {
+  checklistItemId?: string | null;
+  name?: string | null;
+  scope?: string | null;
+}): string | null {
+  return (
+    pkg.checklistItemId ||
+    lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
+    null
+  );
+}
+
 /** Scope rows for apply — synced scopePackages plus Ask AI rooms missing from scopePackages. */
-function resolveDraftPackagesForApply(draft: EstimateAiDraft): EstimateDraftScopePackage[] {
+function resolveDraftPackagesForApply(
+  draft: EstimateAiDraft,
+  applyConfirmedOnly = false
+): EstimateDraftScopePackage[] {
   const packages = [...getScopePackages(draft)];
   if (!draft.rooms?.length) return packages;
 
-  const seen = new Set(
+  const seenNames = new Set(
     packages.map((p) => String(p.name || '').trim().toLowerCase()).filter(Boolean)
   );
+  const seenRuleKeys = new Set(
+    packages.map((p) => packageRuleKeyForApply(p)).filter(Boolean) as string[]
+  );
+  const confirmedFromScope = Boolean(
+    draft.scopeAssumptionsConfirmed || draft.confirmedAssumptions?.length
+  );
   const merged = [...packages];
+
   for (const room of draft.rooms) {
     const key = String(room.name || '').trim().toLowerCase();
-    if (!key || seen.has(key)) continue;
+    if (!key || seenNames.has(key)) continue;
+
+    const ruleKey =
+      (room as { checklistItemId?: string | null }).checklistItemId ||
+      lookupRuleKeyForPackage(room.name || '', room.scope || '') ||
+      null;
+    // Same checklist trade under a different room name must not apply twice.
+    if (ruleKey && seenRuleKeys.has(ruleKey)) continue;
+
+    if (confirmedFromScope && applyConfirmedOnly) {
+      const userOwned = Boolean(
+        room.priceProvidedByUser || room.packageStatus === 'user_provided'
+      );
+      if (!userOwned) continue;
+      // Checklist coverage comes from reconciled packages only after Confirm Scope.
+      if (ruleKey && packageIsOnConfirmScopeChecklist({ name: room.name, scope: room.scope, checklistItemId: ruleKey }, draft)) {
+        continue;
+      }
+    }
+
     merged.push(
       applySelectedPricingToScopePackage(
         {
@@ -2636,11 +2746,13 @@ function resolveDraftPackagesForApply(draft: EstimateAiDraft): EstimateDraftScop
           priceIncludesLaborAndMaterials: room.priceIncludesLaborAndMaterials,
           missingPriceItems: room.missingPriceItems || [],
           pricingItems: room.pricingItems || [],
+          checklistItemId: ruleKey,
         } as EstimateDraftScopePackage,
         draft
       )
     );
-    seen.add(key);
+    seenNames.add(key);
+    if (ruleKey) seenRuleKeys.add(ruleKey);
   }
   return merged;
 }
@@ -2662,8 +2774,8 @@ function allowanceLineItemsFromDraft(
 ): Record<string, unknown>[] {
   const lines: Record<string, unknown>[] = [];
 
-  for (const pkg of resolveDraftPackagesForApply(draft)) {
-    if (!packageIsApplyEligible(pkg, applyConfirmedOnly)) continue;
+  for (const pkg of resolveDraftPackagesForApply(draft, applyConfirmedOnly)) {
+    if (!packageIsApplyEligible(pkg, applyConfirmedOnly, draft)) continue;
     if (!isSoftCostScopePackage(pkg, draft)) continue;
     const total = packageAllowanceAmount(pkg);
     if (total <= 0) continue;
@@ -2810,8 +2922,8 @@ function laborLineItemsFromDraft(
   const lines: Record<string, unknown>[] = [];
   const applySuggestedSplits = Boolean(draft.applySuggestedSplits);
 
-  for (const pkg of resolveDraftPackagesForApply(draft)) {
-    if (!packageIsApplyEligible(pkg, applyConfirmedOnly)) continue;
+  for (const pkg of resolveDraftPackagesForApply(draft, applyConfirmedOnly)) {
+    if (!packageIsApplyEligible(pkg, applyConfirmedOnly, draft)) continue;
     if (isSoftCostScopePackage(pkg, draft)) continue;
 
     const parsedSplit = parsedNoteSplitForPackage(pkg, draft);
@@ -2864,8 +2976,8 @@ function materialLineItemsFromDraft(
   const lines: Record<string, unknown>[] = [];
   const applySuggestedSplits = Boolean(draft.applySuggestedSplits);
 
-  for (const pkg of resolveDraftPackagesForApply(draft)) {
-    if (!packageIsApplyEligible(pkg, applyConfirmedOnly)) continue;
+  for (const pkg of resolveDraftPackagesForApply(draft, applyConfirmedOnly)) {
+    if (!packageIsApplyEligible(pkg, applyConfirmedOnly, draft)) continue;
     if (isSoftCostScopePackage(pkg, draft)) continue;
 
     const parsedSplit = parsedNoteSplitForPackage(pkg, draft);

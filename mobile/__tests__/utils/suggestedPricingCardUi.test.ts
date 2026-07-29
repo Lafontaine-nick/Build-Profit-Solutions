@@ -197,7 +197,7 @@ describe('suggestedPricingCardUi', () => {
     expect(display.quantityLine).toBe('132 CY · From notes');
     expect(display.sourceLine).toBe('BPS national benchmark');
     expect(display.statusLine).toBe('National average');
-    expect(display.statusTone).toBe('neutral');
+    expect(display.statusTone).toBe('amber');
     expect(display.actionLabel).toBe('Apply');
     expect(display.title).toBe('Suggested pricing');
     expect(display.whyThisPriceLines).toContain('BPS national benchmark');

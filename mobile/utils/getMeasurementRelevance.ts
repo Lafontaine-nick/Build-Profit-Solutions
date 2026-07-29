@@ -46,7 +46,7 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> = 
   excavationCy: ['excavation', 'sitework'],
   roofSquares: ['roofing', 'shingles_roofing', 'roof_tie_in', 'tear_off'],
   drywallSqft: ['drywall', 'hang', 'finish_tape', 'interior_finishes'],
-  wallPaintSqft: ['paint', 'interior_paint', 'paint_trim', 'interior_finishes'],
+  wallPaintSqft: ['paint', 'interior_paint', 'paint_repair', 'paint_trim', 'interior_finishes'],
   // Exterior wall faces inform insulation envelope walls (not drywall interior surface).
   exteriorPaintSqft: ['exterior_paint', 'paint_trim', 'stucco', 'exterior', 'insulation'],
   cabinetLf: ['cabinets', 'cabinets_counters'],
@@ -78,6 +78,9 @@ export function getMeasurementRelevance(params: {
   wholeHomeLayout?: boolean;
   /** ground_up / addition show the full field list — not only scopes currently included. */
   templateKey?: string | null;
+  /** Retile walls only — existing tub/pan stays; shower floor SF is not used. */
+  keepingExistingWetArea?: boolean;
+  wetAreaInstallChoiceId?: string | null;
 }): MeasurementRelevance {
   const { measurementKey } = params;
   const relatedScopeKeys = RELATED_SCOPE_KEYS[measurementKey] || [];
@@ -89,6 +92,17 @@ export function getMeasurementRelevance(params: {
 
   // Tub / prefab pans use a manufactured base — shower floor tile SF is not used.
   if (measurementKey === 'showerFloorTileSqft') {
+    if (
+      params.keepingExistingWetArea ||
+      params.wetAreaInstallChoiceId === 'staying'
+    ) {
+      return {
+        relevant: false,
+        blockingPrice: false,
+        relatedScopeKeys,
+        reason: 'Shower floor tile is not used when keeping the existing tub/shower.',
+      };
+    }
     if (splitTile) {
       const tilePan = Number(params.tilePanBathCount);
       if (!(Number.isFinite(tilePan) && tilePan > 0)) {

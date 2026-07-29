@@ -22,10 +22,10 @@ const STYLE_BANDS: Record<
   { material: number; labor: number; total: number; range: { low: number; high: number } }
 > = {
   standard_slider: {
-    material: 950,
-    labor: 700,
-    total: 1650,
-    range: { low: 1400, high: 2100 },
+    material: 835,
+    labor: 615,
+    total: 1450,
+    range: { low: 1200, high: 1900 },
   },
   premium_frameless: {
     material: 1550,

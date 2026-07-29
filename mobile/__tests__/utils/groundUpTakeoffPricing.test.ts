@@ -215,8 +215,8 @@ describe('ground-up takeoff → material/labor pricing', () => {
       'ground_up',
       resolveChecklistItemQuantity('shower_floor_tile', input, { templateKey: 'ground_up' })
     );
-    // 50 × $8 / $17
-    expect(showerFloor.fill).toMatchObject({ material: 400, labor: 850, total: 1250 });
+    // 50 × $9 / $21
+    expect(showerFloor.fill).toMatchObject({ material: 450, labor: 1050, total: 1500 });
 
     const bathFloor = resolveScopeItemSuggestedPricing(
       'floor_tile',
@@ -274,8 +274,8 @@ describe('ground-up takeoff → material/labor pricing', () => {
     // Inferred from tile + prefab when showerDoorCount is unset.
     expect(resolved).toMatchObject({ quantity: 3, unit: 'each' });
     const priced = resolveScopeItemSuggestedPricing('glass_door', input as any, 'ground_up', resolved);
-    // Standard slider $950 + $700 = $1,650 each × 3
-    expect(priced.fill).toMatchObject({ material: 2850, labor: 2100, total: 4950 });
+    // Standard slider $835 + $615 = $1,450 each × 3
+    expect(priced.fill).toMatchObject({ material: 2505, labor: 1845, total: 4350 });
 
     const twoDoorInput = inputWith({ showerDoorCount: 2, bathCount: 3 } as any);
     const explicit = resolveChecklistItemQuantity('glass_door', twoDoorInput as any, {
@@ -288,7 +288,7 @@ describe('ground-up takeoff → material/labor pricing', () => {
       'ground_up',
       explicit
     );
-    expect(pricedTwo.fill).toMatchObject({ material: 1900, labor: 1400, total: 3300 });
+    expect(pricedTwo.fill).toMatchObject({ material: 1670, labor: 1230, total: 2900 });
   });
 
   it('prices roofing from roofSquares with material + labor and locks Exterior Envelope to comparison', () => {

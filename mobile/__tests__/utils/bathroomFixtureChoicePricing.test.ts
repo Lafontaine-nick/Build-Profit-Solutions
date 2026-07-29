@@ -10,7 +10,7 @@ import { resolveScopeItemSuggestedPricing } from '@/utils/scopeItemQuantities';
 import { buildSuggestedPricingCardDisplay } from '@/utils/suggestedPricingCardUi';
 
 describe('bathroomFixtureChoicePricing', () => {
-  it('returns no suggested price when toilet is staying', () => {
+  it('returns no suggested price for legacy toilet staying choice id', () => {
     const result = resolveBathroomFixtureChoiceSuggestedPricing({
       itemId: 'toilet',
       templateKey: 'bathroom',
@@ -99,6 +99,34 @@ describe('bathroomFixtureChoicePricing', () => {
         defaultSourceLabel: 'AI assumption',
       })
     ).toBe('AI assumption');
+  });
+
+  it('returns reset pricing with labor-heavy split', () => {
+    const result = resolveBathroomFixtureChoiceSuggestedPricing({
+      itemId: 'toilet',
+      templateKey: 'bathroom',
+      choiceId: 'reset',
+      quantity: 1,
+      unit: 'each',
+    });
+    expect(result?.fill?.total).toBe(250);
+    expect(result?.fill?.material).toBe(25);
+    expect(result?.fill?.labor).toBe(225);
+    expect(result?.fill?.rateSourceLabel).toMatch(/toilet reset/i);
+    expect(result?.fill?.pricingRecordId).toBe('bps_national:toilet:reset:1ea');
+    expect(result?.fill?.comparisonRange).toEqual({ low: 175, high: 325 });
+  });
+
+  it('scales reset pricing by toilet count', () => {
+    const result = resolveBathroomFixtureChoiceSuggestedPricing({
+      itemId: 'toilet',
+      templateKey: 'bathroom',
+      choiceId: 'reset',
+      quantity: 2,
+      unit: 'each',
+    });
+    expect(result?.fill?.total).toBe(500);
+    expect(result?.fill?.labor).toBe(450);
   });
 
   it('falls through for toilet replace so default national average applies', () => {

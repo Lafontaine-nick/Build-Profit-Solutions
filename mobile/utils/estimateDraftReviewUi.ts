@@ -76,8 +76,8 @@ export function scopePackagePricedAmount(
         return fromPkg;
       }
       if (applied > 0) return applied;
-      const nationalAverage = resolveNationalAverageScopePackageAmount(pkg, draft);
-      if (nationalAverage > 0) return nationalAverage;
+      // After Confirm Scope, Step 3 hero totals are applied-only — do not show
+      // national-average planning $ on rows that were never Applied (keeps row sum = hero).
       return 0;
     }
 

@@ -7,6 +7,7 @@ import type { ScopeItemSuggestedPricing } from '@/utils/scopeItemQuantities';
 export type BathroomFixtureChoiceId =
   | 'staying'
   | 'replacing'
+  | 'reset'
   | 'relocating'
   | 'not_in_scope'
   | 'unsure';
@@ -46,6 +47,17 @@ const TOILET_REPLACE_EACH = {
   labor: 475,
   total: 900,
 } as const;
+
+/** Remove existing toilet and reinstall same unit at the same rough — labor-heavy. */
+const TOILET_RESET_EACH = {
+  material: 25,
+  labor: 225,
+  total: 250,
+  range: { low: 175, high: 325 },
+} as const;
+
+const TOILET_RESET_MATERIAL_LABEL = 'Reset supplies (wax ring, bolts, supply line)';
+const TOILET_RESET_LABOR_LABEL = 'Toilet remove & reinstall labor';
 
 const GENERAL_EXCLUDES = [
   'Long-distance toilet relocation',
@@ -222,6 +234,7 @@ const TOILET_RELOCATE_FLOOR_CONTENT: Record<BathroomToiletRelocateFloorType, Toi
 const BATHROOM_FIXTURE_CHOICE_IDS = new Set<BathroomFixtureChoiceId>([
   'staying',
   'replacing',
+  'reset',
   'relocating',
   'not_in_scope',
   'unsure',
@@ -397,6 +410,55 @@ function buildToiletRelocateScopeProfile(params: {
   };
 }
 
+function buildToiletResetPricing(count: number): ScopeItemSuggestedPricing {
+  const material = round2(TOILET_RESET_EACH.material * count);
+  const labor = round2(TOILET_RESET_EACH.labor * count);
+  const total = round2(TOILET_RESET_EACH.total * count);
+  return {
+    fill: {
+      material,
+      labor,
+      total,
+      materialSource: 'national_average',
+      laborSource: 'national_average',
+      rateSourceLabel: 'Suggested budget split · National Average · toilet reset',
+      helper: `${count.toLocaleString()} each · remove & reinstall same toilet at existing rough`,
+      mode: 'suggested_price',
+      basis: { quantity: count, unit: 'each' },
+      splitSource: 'source',
+      splitConfidence: 'medium',
+      comparisonRange: {
+        low: round2(TOILET_RESET_EACH.range.low * count),
+        high: round2(TOILET_RESET_EACH.range.high * count),
+      },
+      costBuckets: [
+        {
+          key: 'material',
+          label: TOILET_RESET_MATERIAL_LABEL,
+          amount: material,
+          rate: TOILET_RESET_EACH.material,
+          source: 'national_average',
+        },
+        {
+          key: 'labor',
+          label: TOILET_RESET_LABOR_LABEL,
+          amount: labor,
+          rate: TOILET_RESET_EACH.labor,
+          source: 'national_average',
+        },
+      ],
+      pricingRecordId: 'bps_national:toilet:reset:1ea',
+      productionStatus: 'review_required',
+      benchmarkLevel: 'component',
+      benchmarkScopeKey: 'toilet',
+      benchmarkAction: 'price_ready',
+      storedTotalExact: total,
+      impliedUnitRateLabel: `$${TOILET_RESET_EACH.total.toLocaleString()}/each`,
+    },
+    comparison: null,
+  };
+}
+
 function buildToiletRelocatePricing(
   count: number,
   floorType?: string | null
@@ -486,6 +548,7 @@ export function resolveBathroomFixtureChoiceSuggestedPricing(params: {
   if (!choiceId || choiceId === 'not_in_scope' || choiceId === 'unsure') return undefined;
 
   if (choiceId === 'staying') {
+    // Legacy stay-in-place (toilet option removed — persisted drafts may still have this id).
     return { fill: null, comparison: null };
   }
 
@@ -497,6 +560,11 @@ export function resolveBathroomFixtureChoiceSuggestedPricing(params: {
 
   if (choiceId === 'replacing') return undefined;
 
+  if (choiceId === 'reset') {
+    const count = unit === 'each' && quantity != null && quantity > 0 ? quantity : 1;
+    return buildToiletResetPricing(count);
+  }
+
   if (choiceId === 'relocating') {
     const count = unit === 'each' && quantity != null && quantity > 0 ? quantity : 1;
     return buildToiletRelocatePricing(count, toiletRelocateFloorType);
@@ -507,6 +575,7 @@ export function resolveBathroomFixtureChoiceSuggestedPricing(params: {
 
 export const BATHROOM_FIXTURE_CHOICE_PRICING = {
   toiletReplaceEach: TOILET_REPLACE_EACH,
+  toiletResetEach: TOILET_RESET_EACH,
   toiletRelocateDefault: TOILET_RELOCATE_FLOOR_CONTENT.open_wood_framed,
   toiletRelocateProfiles: TOILET_RELOCATE_FLOOR_CONTENT,
 } as const;

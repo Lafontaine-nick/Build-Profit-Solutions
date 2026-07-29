@@ -15,6 +15,10 @@ import {
   inferItemStateFromNotes,
 } from '@/utils/scopeItemNoteHints';
 import { scopeItemHasNoteSignal, scopeItemNoteBadge, BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS } from '@/utils/scopeItemVisualTier';
+import { hasAcceptedScopePricing } from '@/utils/acceptedPricingSummaryUi';
+import { hasPaintRepairScopeSelection } from '@/utils/bathroomDrywallPaintScope';
+import { resolveBathroomVanityCountertopMaterialType } from '@/utils/bathroomVanityCountertopPricing';
+import { resolveStep2PricingTier } from '@/utils/confirmScopeStep2Pricing';
 import { mergeScopeMeasurementsPreservingFields } from '@/utils/benchmarkReasonablenessContext';
 import { applyScopeGapExclusionsToDraft } from '@/utils/scopeReviewUi';
 import {
@@ -26,6 +30,15 @@ import { anyDemoWetAreaActive } from '@/utils/wetAreaExistingDemo';
 
 const FIXTURE_CHOICE_OPTIONS: ScopeChecklistOption[] = [
   { id: 'staying', label: 'Staying' },
+  { id: 'replacing', label: 'Replacing' },
+  { id: 'relocating', label: 'Relocating' },
+  { id: 'not_in_scope', label: 'Not in this bid' },
+  { id: 'unsure', label: 'Not sure yet' },
+];
+
+/** Toilet-only — reset replaces legacy "staying" (no separate stay-in-place option). */
+const TOILET_FIXTURE_CHOICE_OPTIONS: ScopeChecklistOption[] = [
+  { id: 'reset', label: 'Reset' },
   { id: 'replacing', label: 'Replacing' },
   { id: 'relocating', label: 'Relocating' },
   { id: 'not_in_scope', label: 'Not in this bid' },
@@ -109,8 +122,8 @@ const CHOICE_ITEM_CONFIG: Record<
   },
   toilet: {
     label: 'Toilet',
-    helperText: 'Pick one — staying, replacing, or relocating?',
-    options: FIXTURE_CHOICE_OPTIONS,
+    helperText: 'Pick one — reset, replacing, or relocating?',
+    options: TOILET_FIXTURE_CHOICE_OPTIONS,
   },
   vanity: {
     label: 'Vanity & countertop',
@@ -170,8 +183,9 @@ function normalizeMultiChoiceItem(item: ScopeChecklistItem): ScopeChecklistItem 
 }
 
 function defaultOptionsForItem(item: ScopeChecklistItem): ScopeChecklistOption[] {
-  if (item.options?.length) return item.options;
+  // Canonical config wins over stale persisted options (e.g. toilet reset chip added later).
   if (CHOICE_ITEM_CONFIG[item.id]) return CHOICE_ITEM_CONFIG[item.id].options;
+  if (item.options?.length) return item.options;
   if (item.id === 'vanity') return FIXTURE_CHOICE_NO_RELOCATE;
   if (item.id === 'walls_moving') return WALL_CHOICE_OPTIONS;
   return FIXTURE_CHOICE_OPTIONS;
@@ -213,6 +227,11 @@ export function normalizeScopeChecklistItem(item: ScopeChecklistItem): ScopeChec
   const config = CHOICE_ITEM_CONFIG[item.id];
   const options = defaultOptionsForItem(item);
   let choiceId = item.choiceId ?? null;
+
+  // Legacy toilet "staying" (no work) — option removed; clear so user picks reset/replace/etc.
+  if (item.id === 'toilet' && choiceId === 'staying') {
+    choiceId = null;
+  }
 
   if (!choiceId && item.state === 'excluded') choiceId = 'not_in_scope';
   if (!choiceId && item.state === 'unsure') choiceId = 'unsure';
@@ -1417,16 +1436,31 @@ export function syncWetAreaTileScopeItems(
     tilePanBathCount?: number | null;
     showerWallTileSqft?: string | number | null;
     showerFloorTileSqft?: string | number | null;
+    keepingExisting?: boolean;
   }
 ): ScopeChecklistItem[] {
+  let scopedItems = items;
+  if (params.keepingExisting) {
+    let changed = false;
+    scopedItems = items.map((row) => {
+      if (row.id === 'shower_floor_tile' && row.state !== 'excluded') {
+        changed = true;
+        return { ...row, state: 'excluded' as const };
+      }
+      return row;
+    });
+    if (!changed) scopedItems = items;
+  }
+
   const wallActive =
     stepperCountActive(params.bathCount) || positiveSqft(params.showerWallTileSqft);
-  const floorActive =
-    stepperCountActive(params.tilePanBathCount) || positiveSqft(params.showerFloorTileSqft);
-  if (!wallActive && !floorActive) return syncWaterproofingFromTileScopeItems(items);
+  const floorActive = params.keepingExisting
+    ? false
+    : stepperCountActive(params.tilePanBathCount) || positiveSqft(params.showerFloorTileSqft);
+  if (!wallActive && !floorActive) return syncWaterproofingFromTileScopeItems(scopedItems);
 
   let changed = false;
-  const next = items.map((row) => {
+  const next = scopedItems.map((row) => {
     if (row.id === 'shower_tile' && wallActive && row.state !== 'included') {
       changed = true;
       return { ...row, state: 'included' as const };
@@ -1437,7 +1471,7 @@ export function syncWetAreaTileScopeItems(
     }
     return row;
   });
-  return syncWaterproofingFromTileScopeItems(changed ? next : items);
+  return syncWaterproofingFromTileScopeItems(changed ? next : scopedItems);
 }
 
 const SHOWER_TILE_SCOPE_IDS = new Set(['shower_tile', 'shower_floor_tile']);
@@ -1520,9 +1554,10 @@ export function syncWetAreaScopeFromSteppers(
   }
   return syncWetAreaTileScopeItems(next, {
     bathCount: params.counts.bathCount,
-    tilePanBathCount: params.counts.tilePanBathCount,
+    tilePanBathCount: params.keepingExisting ? null : params.counts.tilePanBathCount,
     showerWallTileSqft: params.showerWallTileSqft,
-    showerFloorTileSqft: params.showerFloorTileSqft,
+    showerFloorTileSqft: params.keepingExisting ? null : params.showerFloorTileSqft,
+    keepingExisting: params.keepingExisting,
   });
 }
 
@@ -2131,6 +2166,110 @@ export function createCustomScopeItem(label: string): ScopeChecklistItem {
     state: 'included',
     category: 'custom',
   };
+}
+
+export type ScopeItemNeedingConfirmation = {
+  itemId: string;
+  label: string;
+  reason?: string;
+};
+
+export type ScopePricingQuestionsOptions = {
+  templateKey?: string | null;
+  notes?: string | null;
+  pricingAcceptance?: Record<string, import('@/utils/estimateAiDraft').ScopePricingAcceptanceMetadata>;
+  bathroomPaintRepairScope?: string | null;
+  bathroomPaintRepairEntireRoom?: boolean | null;
+  bathroomToiletRelocateFloorType?: string | null;
+  bathroomVanityCountertopMaterialType?: string | null;
+};
+
+/** True when a scope card still shows unanswered Step 2 pricing prompts (not takeoff-only gaps). */
+export function scopeItemNeedsPricingQuestions(
+  item: ScopeChecklistItem,
+  measurements: NormalizedScopeMeasurements,
+  options?: ScopePricingQuestionsOptions
+): ScopeItemNeedingConfirmation | null {
+  const templateKey = options?.templateKey;
+  const notes = options?.notes;
+  const visualCtx = { measurements, templateKey, notes };
+
+  if (WET_AREA_DEMO_EMBEDDED_IDS.has(item.id)) return null;
+  if (hasAcceptedScopePricing(item.id, measurements.itemQuantities, options?.pricingAcceptance)) {
+    return null;
+  }
+
+  const tierConfig = resolveStep2PricingTier(item.id, templateKey);
+  const label = checklistDisplayLabel(item, templateKey);
+
+  if (item.inputType === 'choice') {
+    if (item.choiceId && item.choiceId !== 'unsure') {
+      if (
+        item.id === 'toilet' &&
+        item.choiceId === 'relocating' &&
+        !options?.bathroomToiletRelocateFloorType
+      ) {
+        return { itemId: item.id, label, reason: 'Select floor type' };
+      }
+      return null;
+    }
+    if (tierConfig.tier !== 'prompt_first' && !BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS.has(item.id)) {
+      return null;
+    }
+    if (BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS.has(item.id) || scopeItemHasNoteSignal(item, visualCtx)) {
+      return { itemId: item.id, label, reason: 'Pick scope option' };
+    }
+    return null;
+  }
+
+  if (!checklistItemInScope(item)) return null;
+  if (tierConfig.tier !== 'prompt_first') return null;
+
+  switch (tierConfig.promptKey) {
+    case 'paint_repair_scope':
+      if (
+        !hasPaintRepairScopeSelection({
+          localizedScope: options?.bathroomPaintRepairScope,
+          entireRoom: options?.bathroomPaintRepairEntireRoom,
+          legacyScope: options?.bathroomPaintRepairScope,
+        })
+      ) {
+        return { itemId: item.id, label, reason: 'Select paint scope' };
+      }
+      return null;
+    case 'vanity_countertop_material': {
+      const materialType = resolveBathroomVanityCountertopMaterialType({
+        storedType: options?.bathroomVanityCountertopMaterialType,
+        notes,
+      });
+      if (materialType === 'unknown') {
+        return { itemId: item.id, label, reason: 'Select countertop material' };
+      }
+      return null;
+    }
+    default:
+      // plumbing rough, glass door, interior paint — defaults allow Apply without more prompts.
+      return null;
+  }
+}
+
+/** Scope rows with unanswered pricing prompts — e.g. toilet fixture choice, paint scope chips. */
+export function listScopeItemsNeedingConfirmation(
+  items: ScopeChecklistItem[],
+  measurements: NormalizedScopeMeasurements,
+  options?: ScopePricingQuestionsOptions
+): ScopeItemNeedingConfirmation[] {
+  const results: ScopeItemNeedingConfirmation[] = [];
+  const seen = new Set<string>();
+
+  for (const item of items) {
+    const pending = scopeItemNeedsPricingQuestions(item, measurements, options);
+    if (!pending || seen.has(pending.itemId)) continue;
+    seen.add(pending.itemId);
+    results.push(pending);
+  }
+
+  return results;
 }
 
 export function markAllUnsureAsExcluded(items: ScopeChecklistItem[]): ScopeChecklistItem[] {

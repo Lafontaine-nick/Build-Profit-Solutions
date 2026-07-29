@@ -139,4 +139,52 @@ describe('Step 3 subtotal consistency', () => {
     expect(applied?.total).toBeCloseTo(4438, 0);
     expect(sumLiveScopePackageTotals(synced)).toBeCloseTo(4438, 0);
   });
+
+  it('visible Step 3 row amounts sum to hero applied total (excludes unapplied national averages)', () => {
+    const items = [
+      { id: 'plumbing_rough', label: 'Plumbing rough-in', inputType: 'yes_no', state: 'included' },
+      { id: 'cleanup', label: 'Cleanup & disposal', inputType: 'yes_no', state: 'included' },
+    ];
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: { templateKey: 'bathroom', items },
+      confirmedAssumptions: items,
+      scopePackages: [
+        {
+          name: 'Plumbing rough-in (shower / tub)',
+          scope: 'Rough-in',
+          checklistItemId: 'plumbing_rough',
+          price: 1750,
+          knownSubtotal: 1750,
+          status: 'ai_suggested',
+          priceSource: 'national_trade_average',
+        },
+        {
+          name: 'Cleanup, haul-off & disposal',
+          scope: 'Final clean',
+          checklistItemId: 'cleanup',
+          price: 1000,
+          knownSubtotal: 1000,
+          status: 'user_provided',
+        },
+      ],
+      scopeMeasurements: {
+        showerWallTileSqft: 80,
+        itemQuantities: {
+          cleanup: { quantity: '1000', unit: 'allowance', quantitySource: 'user_entered' },
+          cleanup__allowance: { quantity: '1000', unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: {
+          cleanup: { status: 'accepted', totalAmount: 1000 },
+        },
+      },
+    } as unknown as EstimateAiDraft;
+
+    const synced = syncSelectedScopePricing(draft);
+    const hero = sumAppliedScopePricingFromDraft(synced)?.total;
+    const rowSum = sumLiveScopePackageTotals(synced);
+    expect(hero).toBe(1000);
+    expect(rowSum).toBe(1000);
+    expect(scopePackagePricedAmount(synced.scopePackages![0], synced)).toBe(0);
+  });
 });

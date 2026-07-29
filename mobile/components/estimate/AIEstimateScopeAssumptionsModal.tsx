@@ -75,6 +75,7 @@ import {
   toggleWallLayoutChoiceIds,
   WET_AREA_DERIVED_ITEM_IDS,
   scopeChecklistSummaryCounts,
+  listScopeItemsNeedingConfirmation,
 } from '@/utils/estimateScopeChecklistUi';
 import {
   BATHROOM_SHOWER_ROUGH_FIXTURE_OPTIONS,
@@ -139,7 +140,7 @@ import {
   resolveBathroomPaintRepairSuggestedPricing,
 } from '@/utils/bathroomPaintRepairPricing';
 import type { SuggestedPricingApplyRow } from '@/utils/mergeSuggestedPricingBlocks';
-import { formatBathroomDrywallPatchSqftHint, resolveBathroomDrywallPatchSuggestedPricing } from '@/utils/bathroomDrywallPatchPricing';
+import { formatBathroomDrywallPatchSqftHint, resolveBathroomDrywallPatchSuggestedPricing, syncBathroomPaintRepairItemQuantity } from '@/utils/bathroomDrywallPatchPricing';
 import {
   BATHROOM_GLASS_DOOR_STYLE_OPTIONS,
   GLASS_DOOR_DOOR_ONLY_NOTE,
@@ -173,12 +174,14 @@ import {
   isDualAllowanceItem,
   overlayDualRatePricingDisplay,
   prepareScopeMeasurementsInputForUi,
+  primaryQuantityForAppliedSuggestedBlock,
   resolveChecklistItemQuantity,
   resolveDualRatePricingDisplayFromNotes,
   resolveScopeItemSuggestedPricing,
   isPlaceholderAllowancePricing,
   roughAllowanceSubKey,
   scopeMeasurementsPayloadForPersist,
+  shouldSuppressSuggestedPricingAfterApply,
   syncItemQuantitiesToMeasurementFields,
   resolveAllowanceEditorPricingBasis,
   resolveAllowanceEditorDefaultBasisUnit,
@@ -225,6 +228,7 @@ import {
   checklistChoiceFromWetAreaFinish,
   hydrateWetAreaStepperCounts,
   isSplitTileWetAreaCounts,
+  BATHROOM_QM_STEPPER_MAX,
   listBathPlanRooms,
   resolveBathCount,
   resolveEffectiveWetAreaFinish,
@@ -940,11 +944,29 @@ function ScopeIntelligenceNotice({
         </Text>
       ) : null}
       {otherNotice && warningExpanded ? (
-        <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
+        <Text
+          style={[
+            styles.intelligenceNoticeText,
+            {
+              color: /national average/i.test(otherNotice)
+                ? '#fbbf24'
+                : captionColor(darkMode, Colors),
+            },
+          ]}
+        >
           {otherNotice}
         </Text>
       ) : otherNotice && !warningFull ? (
-        <Text style={[styles.intelligenceNoticeText, { color: captionColor(darkMode, Colors) }]}>
+        <Text
+          style={[
+            styles.intelligenceNoticeText,
+            {
+              color: /national average/i.test(otherNotice)
+                ? '#fbbf24'
+                : captionColor(darkMode, Colors),
+            },
+          ]}
+        >
           {otherNotice}
         </Text>
       ) : null}
@@ -2938,11 +2960,12 @@ function inlineTakeoffQuantityLabel(
   templateKey?: string | null,
   unit?: string | null
 ): string {
-  if (
-    String(templateKey || '').toLowerCase() === 'bathroom' &&
-    (itemId === 'drywall' || itemId === 'patch_repair' || itemId === 'paint_repair')
-  ) {
-    return 'Patch/repair SF';
+  if (String(templateKey || '').toLowerCase() === 'bathroom') {
+    if (itemId === 'drywall' || itemId === 'patch_repair' || itemId === 'paint_repair') {
+      return 'Patch/repair SF';
+    }
+    if (itemId === 'demo') return 'Shower tile demo SF';
+    if (itemId === 'floor_demo') return 'Bathroom floor demo SF';
   }
   return pricingBasisFieldLabel(itemId, unit);
 }
@@ -3152,9 +3175,10 @@ function QuantitySection({
     // Only the explicit open flag — field focus must not trap the editor open.
     const showEditor = pricingEditorOpen;
 
-    const hasUserSelectedPricing = hasCompleteUserSelectedPricing(
-      measurementsInput.itemQuantities,
-      itemId
+    const hasUserSelectedPricing = shouldSuppressSuggestedPricingAfterApply(
+      itemId,
+      measurementsInput.itemQuantities || {},
+      measurementsInput.pricingAcceptance
     );
 
     if (!showEditor && originalNotes?.trim() && !hasUserSelectedPricing) {
@@ -3494,9 +3518,10 @@ function QuantitySection({
     }
 
     if (!showEditor) {
-      const planningSuggested = hasCompleteUserSelectedPricing(
-        measurementsInput.itemQuantities,
-        itemId
+      const planningSuggested = shouldSuppressSuggestedPricingAfterApply(
+        itemId,
+        measurementsInput.itemQuantities || {},
+        measurementsInput.pricingAcceptance
       )
         ? { fill: null as SuggestedPricingBlock | null, comparison: null as SuggestedPricingBlock | null }
         : resolveScopeItemSuggestedPricing(
@@ -3824,20 +3849,6 @@ function QuantitySection({
   };
 
   if (resolved.pricingReady && !showEditor) {
-    if (__DEV__ && itemId === 'demo') {
-      const raw = measurementsInput.itemQuantities || {};
-      console.log('🧮 Demo quantity render', {
-        rawDemo: raw.demo,
-        resolved: {
-          quantity: resolved.quantity,
-          unit: resolved.unit,
-          source: resolved.quantitySource,
-          label: resolved.sourceLabel,
-        },
-        hasNotes: Boolean(originalNotes?.trim()),
-      });
-    }
-
     if (resolved.combinedAllowanceRole === 'included_in_combined') {
       const combinedTotal = resolved.combinedAllowanceTotal ?? resolved.quantity ?? 0;
       return (
@@ -3956,9 +3967,43 @@ function QuantitySection({
             calculatedRevertLabel && onRevertCalculatedQuantity
               ? () => onRevertCalculatedQuantity(itemId)
               : undefined;
+          const showInlineSqftTakeoff =
+            step2TierNeedsInlineTakeoffEntry(itemId, templateKey, resolved) &&
+            String(resolved.unit || rule.defaultUnit).toLowerCase() === 'sqft';
+          const inlineSqftTakeoff = showInlineSqftTakeoff ? (
+            <InlineTakeoffCountInput
+              label={inlineTakeoffQuantityLabel(
+                itemId,
+                templateKey,
+                resolved.unit || rule.defaultUnit
+              )}
+              value={
+                itemInput?.quantity ??
+                (resolved.quantity != null && resolved.quantity > 0
+                  ? String(resolved.quantity)
+                  : '')
+              }
+              unit={resolved.unit || rule.defaultUnit}
+              onFocus={() => focusQuantityField(itemId, 'count')}
+              onCommit={(text) => {
+                onItemQuantityChange(
+                  itemId,
+                  text,
+                  'count',
+                  resolved.unit || rule.defaultUnit,
+                  'user_entered'
+                );
+              }}
+              onBlur={() => blurQuantityField(itemId, 'count')}
+              Colors={Colors}
+              darkMode={darkMode}
+              applying={applying}
+            />
+          ) : null;
           if (accepted && acceptedDisplay) {
             return (
               <>
+                {inlineSqftTakeoff}
                 <AcceptedPricingSummary
                   display={acceptedDisplay}
                   intelligence={intelligence}
@@ -4014,19 +4059,23 @@ function QuantitySection({
           }
           return (
             <>
-              <PricingAmountRow
-                value={formatResolvedQuantityDisplay(
-                  resolved.quantity ?? 0,
-                  resolved.unit,
-                  resolved.quantitySource,
-                  itemId
-                )}
-                pill={resolved.quantitySource === 'notes' ? <SourcePill kind="notes" /> : undefined}
-                label={quantityRowSourceLabel}
-                emphasized
-                darkMode={darkMode}
-                Colors={Colors}
-              />
+              {showInlineSqftTakeoff ? (
+                inlineSqftTakeoff
+              ) : (
+                <PricingAmountRow
+                  value={formatResolvedQuantityDisplay(
+                    resolved.quantity ?? 0,
+                    resolved.unit,
+                    resolved.quantitySource,
+                    itemId
+                  )}
+                  pill={resolved.quantitySource === 'notes' ? <SourcePill kind="notes" /> : undefined}
+                  label={quantityRowSourceLabel}
+                  emphasized
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              )}
               <ScopeIntelligenceNotice
                 intelligence={intelligence}
                 Colors={Colors}
@@ -4436,6 +4485,58 @@ function YesNoChip({
   );
 }
 
+function AssemblyChoiceChip({
+  label,
+  active,
+  variant,
+  onPress,
+  Colors,
+  darkMode,
+}: {
+  label: string;
+  active: boolean;
+  variant: 'yes' | 'no';
+  onPress: () => void;
+  Colors: ReturnType<typeof getColors>;
+  darkMode: boolean;
+}) {
+  let borderColor = darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line;
+  let backgroundColor = darkMode ? 'rgba(255,255,255,0.04)' : 'transparent';
+  let textColor = captionColor(darkMode, Colors);
+
+  if (active) {
+    if (variant === 'yes') {
+      borderColor = '#22c55e';
+      backgroundColor = '#22c55e';
+      textColor = '#0f172a';
+    } else {
+      borderColor = darkMode ? 'rgba(255,255,255,0.2)' : Colors.line;
+      backgroundColor = darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)';
+      textColor = Colors.text;
+    }
+  }
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.88}
+      onPress={onPress}
+      style={[styles.assemblyChoiceChip, { borderColor, backgroundColor }]}
+    >
+      <Text
+        style={{
+          color: textColor,
+          fontSize: 12,
+          fontWeight: active ? '800' : '600',
+          textAlign: 'center',
+          lineHeight: 16,
+        }}
+      >
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
 function WetAreaInstallLineCard({
   item,
   templateKey,
@@ -4755,12 +4856,22 @@ function YesNoRow({
   const combinedEligible = resolvedPaintRepairScope === 'affected_area' || !resolvedPaintRepairScope;
   const useCombinedAssembly =
     combinedEligible && measurementsInput.bathroomDrywallPaintUseCombinedAssembly !== false;
+  const userPaintRepairSqft = Number(
+    String(measurementsInput.itemQuantities?.paint_repair?.quantity ?? '').replace(/,/g, '')
+  );
+  const entireRoomPaintSqft =
+    resolvedPaintRepairScope === 'full_room' && userPaintRepairSqft > 0 ? userPaintRepairSqft : 0;
+  const patchRepairSqft =
+    resolvedPaintRepairScope === 'affected_area' && userPaintRepairSqft > 0
+      ? userPaintRepairSqft
+      : 0;
   const combinedSummary =
     showDrywallPaintOptions
       ? buildBathroomDrywallPaintCombinedSummary({
           checklistItems: scopeChecklistItems,
           showerWallTileSqft: Number(measurementsInput.showerWallTileSqft) || null,
           paintRepairScope: storedPaintRepairScope,
+          enteredPatchSqft: patchRepairSqft > 0 ? patchRepairSqft : null,
         })
       : null;
   const interiorPaintOverlap = detectDrywallPaintInteriorOverlap({
@@ -4772,19 +4883,6 @@ function YesNoRow({
     checklistItems: scopeChecklistItems,
     useCombinedAssembly,
   });
-  const userPaintRepairSqft = Number(
-    String(measurementsInput.itemQuantities?.paint_repair?.quantity ?? '').replace(/,/g, '')
-  );
-  const entireRoomPaintSqft =
-    resolvedPaintRepairScope === 'full_room' && userPaintRepairSqft > 0 ? userPaintRepairSqft : 0;
-  const patchRepairSqft =
-    resolvedPaintRepairScope === 'affected_area'
-      ? userPaintRepairSqft > 0
-        ? userPaintRepairSqft
-        : Number(
-            measurementsInput.itemQuantities?.drywall?.quantity ?? measurementsInput.drywallSqft ?? ''
-          )
-      : 0;
   const showPaintRepairScopePrompt =
     item.id === 'paint_repair' &&
     item.state === 'included' &&
@@ -5354,9 +5452,9 @@ function YesNoRow({
           <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 8, lineHeight: 15 }}>
             Use one combined repair assembly?
           </Text>
-          <View style={styles.choiceRow}>
-            <YesNoChip
-              label="Combined patch, texture, prime, and paint"
+          <View style={styles.assemblyChoiceRow}>
+            <AssemblyChoiceChip
+              label={'Combined patch,\ntexture, prime & paint'}
               active={useCombinedAssembly}
               variant="yes"
               onPress={() => {
@@ -5366,7 +5464,7 @@ function YesNoRow({
               Colors={Colors}
               darkMode={darkMode}
             />
-            <YesNoChip
+            <AssemblyChoiceChip
               label="Separate lines"
               active={!useCombinedAssembly}
               variant="no"
@@ -6508,6 +6606,12 @@ function CollapsibleQuickMeasurements({
   const editingFieldKeyRef = useRef<QuickMeasurementFieldKey | null>(null);
   const editingEstimateRef = useRef<QuickMeasurementEstimate | null>(null);
   const editingPinActiveRef = useRef(false);
+  const [keepingExistingWetArea, setKeepingExistingWetArea] = useState(
+    () => wetAreaInstallChoiceId === 'staying'
+  );
+  useEffect(() => {
+    setKeepingExistingWetArea(wetAreaInstallChoiceId === 'staying');
+  }, [wetAreaInstallChoiceId]);
   const editingHomeRef = useRef<{
     homeGroup: QuickMeasurementGroupId | null;
     homeIndex: number | null;
@@ -6616,6 +6720,8 @@ function CollapsibleQuickMeasurements({
         includedScopeKeys,
         templateKey: effectiveTemplateKey,
         wholeHomeLayout,
+        keepingExistingWetArea,
+        wetAreaInstallChoiceId,
       }),
     [
       rows,
@@ -6625,6 +6731,8 @@ function CollapsibleQuickMeasurements({
       includedScopeKeys,
       effectiveTemplateKey,
       wholeHomeLayout,
+      keepingExistingWetArea,
+      wetAreaInstallChoiceId,
     ]
   );
   const physicalSections = useMemo(() => {
@@ -6758,7 +6866,7 @@ function CollapsibleQuickMeasurements({
     onSummaryChange?.(summary);
   }, [summary, onSummaryChange]);
 
-  const clampBathCount = (next: number | null, max = bathroomPhotoWetArea ? 1 : 12) =>
+  const clampBathCount = (next: number | null, max = BATHROOM_QM_STEPPER_MAX) =>
     next != null && Number.isFinite(next) && next > 0
       ? Math.min(max, Math.round(next))
       : null;
@@ -6772,9 +6880,6 @@ function CollapsibleQuickMeasurements({
     tubBathCount: measurements.tubBathCount ?? null,
     showerDoorCount: measurements.showerDoorCount ?? null,
   });
-  const [keepingExistingWetArea, setKeepingExistingWetArea] = useState(
-    () => wetAreaInstallChoiceId === 'staying'
-  );
   const [existingCounts, setExistingCounts] = useState<WetAreaExistingCounts>(() =>
     readWetAreaExistingCounts(measurements)
   );
@@ -6817,18 +6922,13 @@ function CollapsibleQuickMeasurements({
     measurements.showerDoorCount,
   ]);
 
-  useEffect(() => {
-    if (stepperGenRef.current !== stepperAppliedGenRef.current) return;
-    setKeepingExistingWetArea(wetAreaInstallChoiceId === 'staying');
-  }, [wetAreaInstallChoiceId]);
-
   const displayTileWallCount = stepperCounts.bathCount;
   const displayTilePanCount = stepperCounts.tilePanBathCount;
   const displayPrefabPanCount = stepperCounts.prefabBathCount;
   const displayPrefabEnclosureCount = stepperCounts.prefabEnclosureBathCount;
   const displayTubBathCount = stepperCounts.tubBathCount;
   const displayShowerDoorCount = stepperCounts.showerDoorCount;
-  const wetAreaStepperMax = bathroomPhotoWetArea ? 1 : 12;
+  const wetAreaStepperMax = BATHROOM_QM_STEPPER_MAX;
 
   const buildInstallCounts = useCallback(
     (overrides?: Partial<WetAreaStepperCounts>): WetAreaStepperCounts => ({
@@ -6950,6 +7050,7 @@ function CollapsibleQuickMeasurements({
               tubBathCount: latest.tubBathCount,
               showerDoorCount: latest.showerDoorCount,
               wetAreaFinish,
+              ...(options?.keepingExisting ? { showerFloorTileSqft: undefined } : {}),
               itemQuantities,
             };
           });
@@ -7009,7 +7110,19 @@ function CollapsibleQuickMeasurements({
     [clampBathCount, bathroomPhotoWetArea, scheduleWetAreaCommit, wetAreaStepperMax]
   );
 
-  const adjustTileBathCount = useCallback((delta: number) => adjustStepperCount('bathCount', delta), [adjustStepperCount]);
+  const adjustTileBathCount = useCallback(
+    (delta: number) => {
+      const gen = ++stepperGenRef.current;
+      setStepperCounts((prev) => {
+        const current = prev.bathCount ?? 0;
+        const cleaned = clampBathCount(current + delta < 1 ? null : current + delta, wetAreaStepperMax);
+        const next = { ...prev, bathCount: cleaned };
+        scheduleWetAreaCommit(next, gen, { keepingExisting: keepingExistingWetArea });
+        return next;
+      });
+    },
+    [clampBathCount, keepingExistingWetArea, scheduleWetAreaCommit, wetAreaStepperMax]
+  );
   const adjustTilePanCount = useCallback((delta: number) => adjustStepperCount('tilePanBathCount', delta), [adjustStepperCount]);
   const adjustPrefabBathCount = useCallback((delta: number) => adjustStepperCount('prefabBathCount', delta), [adjustStepperCount]);
   const adjustPrefabEnclosureCount = useCallback(
@@ -7037,7 +7150,7 @@ function CollapsibleQuickMeasurements({
       return;
     }
     const cleared: WetAreaStepperCounts = {
-      bathCount: null,
+      bathCount: stepperCounts.bathCount,
       tilePanBathCount: null,
       prefabBathCount: null,
       prefabEnclosureBathCount: null,
@@ -7344,11 +7457,95 @@ function CollapsibleQuickMeasurements({
     );
   };
 
+  const renderDemoSqftField = (
+    label: string,
+    helperText: string,
+    field: 'showerWallTileSqft' | 'showerFloorTileSqft' | 'bathroomFloorSqft'
+  ) => {
+    const value = String(measurements[field] ?? '');
+    return (
+      <View
+        style={{
+          marginBottom: 10,
+          marginTop: -2,
+          paddingLeft: 2,
+        }}
+      >
+        <Text
+          style={{
+            color: darkMode ? '#F5F7FA' : Colors.text,
+            fontSize: 12,
+            fontWeight: '700',
+            marginBottom: 2,
+          }}
+        >
+          {label}
+        </Text>
+        <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, lineHeight: 15, marginBottom: 6 }}>
+          {helperText}
+        </Text>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            borderWidth: 1,
+            borderRadius: 10,
+            borderColor: darkMode ? 'rgba(255,255,255,0.16)' : Colors.line,
+            backgroundColor: darkMode ? 'rgba(0,0,0,0.25)' : Colors.surface,
+            paddingHorizontal: 12,
+            paddingVertical: 8,
+          }}
+        >
+          <TextInput
+            value={value}
+            onChangeText={(text) => {
+              const cleaned = String(text || '').replace(/[^\d.]/g, '');
+              setMeasurements((prev) => {
+                const itemQuantities = { ...(prev.itemQuantities || {}) };
+                const pricingAcceptance = { ...(prev.pricingAcceptance || {}) };
+                // Recalculate demo from wall + pan SF (drop stale card override).
+                if (field === 'showerWallTileSqft' || field === 'showerFloorTileSqft') {
+                  delete itemQuantities.demo;
+                  delete pricingAcceptance.demo;
+                }
+                if (field === 'bathroomFloorSqft') {
+                  delete itemQuantities.floor_demo;
+                  delete pricingAcceptance.floor_demo;
+                }
+                return {
+                  ...prev,
+                  [field]: cleaned,
+                  itemQuantities,
+                  pricingAcceptance,
+                };
+              });
+            }}
+            editable={!applying}
+            keyboardType="decimal-pad"
+            placeholder="Enter sqft"
+            placeholderTextColor={darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'}
+            style={{
+              flex: 1,
+              color: darkMode ? '#F5F7FA' : Colors.text,
+              fontSize: 16,
+              fontWeight: '700',
+              padding: 0,
+            }}
+          />
+          <Text style={{ color: captionColor(darkMode, Colors), fontSize: 13, fontWeight: '600', marginLeft: 8 }}>
+            sqft
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
   const renderBathCountStepper = (
     label: string,
     value: number | null,
     onAdjust: (delta: number) => void,
-    max = wetAreaStepperMax
+    max = wetAreaStepperMax,
+    disabled = false
   ) => (
     <View
       style={{
@@ -7356,6 +7553,7 @@ function CollapsibleQuickMeasurements({
         alignItems: 'center',
         justifyContent: 'space-between',
         marginBottom: 8,
+        opacity: disabled ? 0.45 : 1,
       }}
     >
       <Text
@@ -7372,7 +7570,7 @@ function CollapsibleQuickMeasurements({
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <TouchableOpacity
           onPress={() => onAdjust(-1)}
-          disabled={applying || !value}
+          disabled={applying || disabled || !value}
           activeOpacity={0.6}
           delayPressIn={0}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -7384,7 +7582,7 @@ function CollapsibleQuickMeasurements({
             borderColor: darkMode ? 'rgba(255,255,255,0.16)' : Colors.line,
             alignItems: 'center',
             justifyContent: 'center',
-            opacity: applying || !value ? 0.4 : 1,
+            opacity: applying || disabled || !value ? 0.4 : 1,
           }}
         >
           <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 18, fontWeight: '700' }}>−</Text>
@@ -7402,7 +7600,7 @@ function CollapsibleQuickMeasurements({
         </Text>
         <TouchableOpacity
           onPress={() => onAdjust(1)}
-          disabled={applying || (value != null && value >= max)}
+          disabled={applying || disabled || (value != null && value >= max)}
           activeOpacity={0.6}
           delayPressIn={0}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -7414,7 +7612,7 @@ function CollapsibleQuickMeasurements({
             borderColor: darkMode ? 'rgba(255,255,255,0.16)' : Colors.line,
             alignItems: 'center',
             justifyContent: 'center',
-            opacity: applying || (value != null && value >= max) ? 0.4 : 1,
+            opacity: applying || disabled || (value != null && value >= max) ? 0.4 : 1,
           }}
         >
           <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 18, fontWeight: '700' }}>+</Text>
@@ -7482,6 +7680,7 @@ function CollapsibleQuickMeasurements({
         {sectionTitle('Demo / tear-out', '#f87171')}
         <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, lineHeight: 15, marginBottom: 8 }}>
           Auto-filled from {showExistingWetAreaPanel ? 'existing + install' : 'photos, notes, and install'} — adjust if needed.
+          Tile demo is priced by sqft (~$5.50/SF).
         </Text>
         {renderBathCountStepper('Remove tub', demoCounts.demoTubCount, (d) =>
           adjustDemoCount('demoTubCount', d)
@@ -7489,9 +7688,23 @@ function CollapsibleQuickMeasurements({
         {renderBathCountStepper('Remove tile shower walls', demoCounts.demoTileWallCount, (d) =>
           adjustDemoCount('demoTileWallCount', d)
         )}
+        {demoCounts.demoTileWallCount != null && demoCounts.demoTileWallCount > 0
+          ? renderDemoSqftField(
+              'Demo wall tile sqft',
+              'Tear-out wall area for this job (also used for new shower wall tile takeoff).',
+              'showerWallTileSqft'
+            )
+          : null}
         {renderBathCountStepper('Remove tile shower pan', demoCounts.demoTilePanCount, (d) =>
           adjustDemoCount('demoTilePanCount', d)
         )}
+        {demoCounts.demoTilePanCount != null && demoCounts.demoTilePanCount > 0
+          ? renderDemoSqftField(
+              'Demo pan / shower floor sqft',
+              'Tear-out pan area for this job (also used for new shower floor tile takeoff).',
+              'showerFloorTileSqft'
+            )
+          : null}
         {renderBathCountStepper('Remove prefab pan', demoCounts.demoPrefabPanCount, (d) =>
           adjustDemoCount('demoPrefabPanCount', d)
         )}
@@ -7504,6 +7717,13 @@ function CollapsibleQuickMeasurements({
         {renderBathCountStepper('Remove bathroom floor tile', demoCounts.demoBathFloorTileCount, (d) =>
           adjustDemoCount('demoBathFloorTileCount', d)
         )}
+        {demoCounts.demoBathFloorTileCount != null && demoCounts.demoBathFloorTileCount > 0
+          ? renderDemoSqftField(
+              'Demo bathroom floor sqft',
+              'Floor tear-out area — priced on Bathroom floor demo (separate from shower).',
+              'bathroomFloorSqft'
+            )
+          : null}
       </View>
     );
   };
@@ -7534,10 +7754,34 @@ function CollapsibleQuickMeasurements({
       {bathroomPhotoWetArea ? (
         <>
           {renderBathCountStepper('Tile shower walls', displayTileWallCount, adjustTileBathCount)}
-          {renderBathCountStepper('Tile shower pan', displayTilePanCount, adjustTilePanCount)}
-          {renderBathCountStepper('Prefab shower pan', displayPrefabPanCount, adjustPrefabBathCount)}
-          {renderBathCountStepper('Prefab shower enclosure', displayPrefabEnclosureCount, adjustPrefabEnclosureCount)}
-          {renderBathCountStepper('Tub install', displayTubBathCount, adjustTubBathCount)}
+          {renderBathCountStepper(
+            'Tile shower pan',
+            displayTilePanCount,
+            adjustTilePanCount,
+            wetAreaStepperMax,
+            keepingExistingWetArea
+          )}
+          {renderBathCountStepper(
+            'Prefab shower pan',
+            displayPrefabPanCount,
+            adjustPrefabBathCount,
+            wetAreaStepperMax,
+            keepingExistingWetArea
+          )}
+          {renderBathCountStepper(
+            'Prefab shower enclosure',
+            displayPrefabEnclosureCount,
+            adjustPrefabEnclosureCount,
+            wetAreaStepperMax,
+            keepingExistingWetArea
+          )}
+          {renderBathCountStepper(
+            'Tub install',
+            displayTubBathCount,
+            adjustTubBathCount,
+            wetAreaStepperMax,
+            keepingExistingWetArea
+          )}
           <TouchableOpacity
             onPress={toggleKeepingExistingWetArea}
             disabled={applying}
@@ -8428,14 +8672,18 @@ export default function AIEstimateScopeAssumptionsModal({
   );
 
   /** Applied Confirm Scope dollars — same list as scope cards (flatwork / openings / wet-area). */
+  const measurementsForAppliedPricing = useMemo(
+    () => clearSupersededStageHostPricing(measurements, checklist?.templateKey),
+    [measurements, checklist?.templateKey]
+  );
   const step2AppliedPricingBreakdown = useMemo(
     () =>
       sumConfirmScopeAppliedPricingBreakdown({
         items: displayItems,
-        measurements,
+        measurements: measurementsForAppliedPricing,
         templateKey: checklist?.templateKey,
       }),
-    [displayItems, measurements, checklist?.templateKey]
+    [displayItems, measurementsForAppliedPricing, checklist?.templateKey]
   );
   const step2AppliedEstimateTotal = step2AppliedPricingBreakdown.total;
   const step2AppliedBuildCostPerLivingSf = useMemo(
@@ -8449,10 +8697,10 @@ export default function AIEstimateScopeAssumptionsModal({
     () =>
       listConfirmScopeAppliedPricingLines({
         items: displayItems,
-        measurements,
+        measurements: measurementsForAppliedPricing,
         templateKey: checklist?.templateKey,
       }),
-    [displayItems, measurements, checklist?.templateKey]
+    [displayItems, measurementsForAppliedPricing, checklist?.templateKey]
   );
 
   const benchmarkFetchKey = useMemo(
@@ -8559,6 +8807,7 @@ export default function AIEstimateScopeAssumptionsModal({
     };
   }, [benchmarkFetchKey, showAppliedBuildCostPerSf]);
   const itemRefs = useRef<Record<string, View | null>>({});
+  const pendingScrollToScopeItemRef = useRef<string | null>(null);
   const focusedQuantityRef = useRef<string | null>(null);
   const [pricingEditorRequest, setPricingEditorRequest] = useState<{ itemId: string; token: number } | null>(
     null
@@ -8617,9 +8866,13 @@ export default function AIEstimateScopeAssumptionsModal({
     for (const [itemId, block] of Object.entries(selectedPricingRef.current)) {
       const rule = getChecklistItemQuantityRule(itemId, checklist?.templateKey);
       const allowanceKey = rule?.dualAllowanceField ? roughAllowanceSubKey(itemId) : `${itemId}__allowance`;
+      const primary = primaryQuantityForAppliedSuggestedBlock(
+        block,
+        getChecklistItemQuantityRuleOrDefault(itemId, checklist?.templateKey)
+      );
       itemQuantities[itemId] = {
-        quantity: Number(block.basis?.quantity ?? block.total),
-        unit: block.basis?.unit || (rule?.dualAllowanceField ? rule.defaultUnit : 'allowance'),
+        quantity: Number(primary.quantity),
+        unit: primary.unit || (rule?.dualAllowanceField ? rule.defaultUnit : 'allowance'),
         quantitySource: 'user_entered',
       };
       itemQuantities[allowanceKey] = {
@@ -9308,6 +9561,19 @@ export default function AIEstimateScopeAssumptionsModal({
     );
   }, [measurements.wallPaintSqft]);
 
+  // Quick measurements Paint / shower tile → paint_repair count when scope is selected.
+  useEffect(() => {
+    if (String(checklist?.templateKey || '').toLowerCase() !== 'bathroom') return;
+    setMeasurementsSynced((prev) => syncBathroomPaintRepairItemQuantity(prev, items));
+  }, [
+    checklist?.templateKey,
+    measurements.wallPaintSqft,
+    measurements.showerWallTileSqft,
+    measurements.bathroomFloorSqft,
+    measurements.bathroomPaintRepairScope,
+    items,
+  ]);
+
   // Shower wall/floor tile in scope → auto-select waterproofing & backer board.
   useEffect(() => {
     setItems((prev) => syncWaterproofingFromTileScopeItems(prev));
@@ -9444,6 +9710,30 @@ export default function AIEstimateScopeAssumptionsModal({
     });
   }, [displayItems, measurements, normMeasurements, checklist?.templateKey, scopeNotes, enrichedPricingContext, scopeAssemblyContext, benchmarkRefresh]);
 
+  const scopeItemsNeedingConfirmation = useMemo(
+    () =>
+      listScopeItemsNeedingConfirmation(displayItems, normMeasurements, {
+        templateKey: checklist?.templateKey,
+        notes: scopeNotes,
+        pricingAcceptance: measurements.pricingAcceptance,
+        bathroomPaintRepairScope: measurements.bathroomPaintRepairScope,
+        bathroomPaintRepairEntireRoom: measurements.bathroomPaintRepairEntireRoom,
+        bathroomToiletRelocateFloorType: measurements.bathroomToiletRelocateFloorType,
+        bathroomVanityCountertopMaterialType: measurements.bathroomVanityCountertopMaterialType,
+      }),
+    [
+      displayItems,
+      normMeasurements,
+      checklist?.templateKey,
+      scopeNotes,
+      measurements.pricingAcceptance,
+      measurements.bathroomPaintRepairScope,
+      measurements.bathroomPaintRepairEntireRoom,
+      measurements.bathroomToiletRelocateFloorType,
+      measurements.bathroomVanityCountertopMaterialType,
+    ]
+  );
+
   const suggestedPricingFooterBreakdown = useMemo(() => {
     let readyCount = 0;
     let benchmarkOnlyCount = 0;
@@ -9485,67 +9775,6 @@ export default function AIEstimateScopeAssumptionsModal({
     },
     [checklist?.templateKey, persistScopeProgressNow, setMeasurementsSynced]
   );
-
-  const handleUseAllSuggestedPricing = useCallback(() => {
-    const rows = unconfirmedSuggestedPricing;
-    if (!rows.length) return;
-
-    const needsReview = rows.filter(({ itemId, block }) => {
-      const evidence = block.benchmarkEvidence;
-      if (!evidence) return false;
-      const unitMismatch = Boolean(
-        evidence.primaryTakeoff?.unit &&
-          evidence.primaryTakeoff.unit !== evidence.benchmarkBasis.unit
-      );
-      const validation = measurementValidationRequiredForBenchmark()
-        ? validatePricingBasis({
-            itemId,
-            primaryQuantity: evidence.primaryTakeoff?.quantity,
-            primaryUnit: evidence.primaryTakeoff?.unit,
-            pricingQuantity: evidence.blendedBenchmark.appliedQuantity,
-            pricingUnit: evidence.blendedBenchmark.unit,
-            rate: evidence.blendedBenchmark.rate,
-            rateUnit: evidence.blendedBenchmark.unit,
-            calculatedTotal: block.total,
-            measurementStatus: missingStatusForScope(itemId),
-            selectedSource: 'local_benchmark',
-          })
-        : null;
-      return Boolean(
-        evidence.priceConfidence === 'low' ||
-          evidence.quantityConfidence === 'low' ||
-          unitMismatch ||
-          validation?.requiresExplicitOverride
-      );
-    });
-
-    // Always apply every ready suggestion. Planning / low-confidence rows get one
-    // confirm, then Apply all — never "confirm individually" which left Framing stuck.
-    if (!needsReview.length) {
-      applySuggestedPricingBlocks(rows);
-      return;
-    }
-
-    const reviewNames = needsReview
-      .slice(0, 3)
-      .map((row) => row.label || row.itemId.replace(/_/g, ' '))
-      .join(', ');
-    const more =
-      needsReview.length > 3 ? ` (+${needsReview.length - 3} more)` : '';
-    Alert.alert(
-      'Apply all suggested prices?',
-      `${rows.length} price${rows.length === 1 ? '' : 's'} will be applied. ${
-        needsReview.length
-      } planning estimate${needsReview.length === 1 ? '' : 's'} (${reviewNames}${more}) still need review later — you can edit any price after applying.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Apply all',
-          onPress: () => applySuggestedPricingBlocks(rows),
-        },
-      ]
-    );
-  }, [applySuggestedPricingBlocks, unconfirmedSuggestedPricing]);
 
   const handleItemQuantityChange = (
     itemId: string,
@@ -10069,15 +10298,17 @@ export default function AIEstimateScopeAssumptionsModal({
             measurementState,
           };
         } else if (!rule.dualAllowanceField) {
+          const primary = primaryQuantityForAppliedSuggestedBlock(block, rule);
           itemQuantities[itemId] = {
-            quantity: String(block.basis?.quantity ?? block.total),
-            unit: block.basis?.unit || 'allowance',
+            quantity: primary.quantity,
+            unit: primary.unit,
             quantitySource: 'user_entered',
           };
         } else {
+          const primary = primaryQuantityForAppliedSuggestedBlock(block, rule);
           itemQuantities[itemId] = {
-            quantity: String(block.basis?.quantity ?? block.total),
-            unit: block.basis?.unit || rule.defaultUnit,
+            quantity: primary.quantity,
+            unit: primary.unit || rule.defaultUnit,
             quantitySource: 'user_entered',
           };
         }
@@ -10282,19 +10513,127 @@ export default function AIEstimateScopeAssumptionsModal({
     ]
   );
 
+  const performScrollToScopeItem = useCallback((targetItemId: string): boolean => {
+    const node = itemRefs.current[targetItemId];
+    const content = scrollContentRef.current;
+    if (!node || !content) return false;
+    node.measureLayout(
+      content,
+      (_x, y) => {
+        scrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true });
+        if (pendingScrollToScopeItemRef.current === targetItemId) {
+          pendingScrollToScopeItemRef.current = null;
+        }
+      },
+      () => {
+        /* layout not ready — deferred retry handles this */
+      }
+    );
+    return true;
+  }, []);
+
   const scrollToScopeItem = useCallback((targetItemId: string) => {
     const group = groupedItems.find((g) => g.items.some((row) => row.id === targetItemId));
     if (group?.title) {
       setCollapsedGroups((prev) => ({ ...prev, [group.title]: false }));
     }
-    const node = itemRefs.current[targetItemId];
-    const content = scrollContentRef.current;
-    if (node && content) {
-      node.measureLayout(content, (_x, y) => {
-        scrollRef.current?.scrollTo({ y: Math.max(0, y - 12), animated: true });
-      });
-    }
+    pendingScrollToScopeItemRef.current = targetItemId;
   }, [groupedItems]);
+
+  useLayoutEffect(() => {
+    const targetItemId = pendingScrollToScopeItemRef.current;
+    if (!targetItemId) return;
+
+    if (performScrollToScopeItem(targetItemId)) return;
+
+    const retryId = requestAnimationFrame(() => {
+      if (pendingScrollToScopeItemRef.current === targetItemId) {
+        performScrollToScopeItem(targetItemId);
+      }
+    });
+    return () => cancelAnimationFrame(retryId);
+  }, [collapsedGroups, groupedItems, displayItems, performScrollToScopeItem]);
+
+  const handleConfirmScopeItemsPress = useCallback(() => {
+    const pending = scopeItemsNeedingConfirmation;
+    if (!pending.length) return;
+    hapticTap();
+    if (pending.length === 1) {
+      scrollToScopeItem(pending[0].itemId);
+      return;
+    }
+    Alert.alert(
+      'Confirm scope items',
+      'These scopes still need pricing questions answered on the list below.',
+      [
+        ...pending.map((item) => ({
+          text: item.label,
+          onPress: () => {
+            scrollToScopeItem(item.itemId);
+          },
+        })),
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  }, [scopeItemsNeedingConfirmation, scrollToScopeItem]);
+
+  const handleUseAllSuggestedPricing = useCallback(() => {
+    const rows = unconfirmedSuggestedPricing;
+    if (!rows.length) return;
+
+    const needsReview = rows.filter(({ itemId, block }) => {
+      const evidence = block.benchmarkEvidence;
+      if (!evidence) return false;
+      const unitMismatch = Boolean(
+        evidence.primaryTakeoff?.unit &&
+          evidence.primaryTakeoff.unit !== evidence.benchmarkBasis.unit
+      );
+      const validation = measurementValidationRequiredForBenchmark()
+        ? validatePricingBasis({
+            itemId,
+            primaryQuantity: evidence.primaryTakeoff?.quantity,
+            primaryUnit: evidence.primaryTakeoff?.unit,
+            pricingQuantity: evidence.blendedBenchmark.appliedQuantity,
+            pricingUnit: evidence.blendedBenchmark.unit,
+            rate: evidence.blendedBenchmark.rate,
+            rateUnit: evidence.blendedBenchmark.unit,
+            calculatedTotal: block.total,
+            measurementStatus: missingStatusForScope(itemId),
+            selectedSource: 'local_benchmark',
+          })
+        : null;
+      return Boolean(
+        evidence.priceConfidence === 'low' ||
+          evidence.quantityConfidence === 'low' ||
+          unitMismatch ||
+          validation?.requiresExplicitOverride
+      );
+    });
+
+    if (!needsReview.length) {
+      applySuggestedPricingBlocks(rows);
+      return;
+    }
+
+    const reviewNames = needsReview
+      .slice(0, 3)
+      .map((row) => row.label || row.itemId.replace(/_/g, ' '))
+      .join(', ');
+    const more = needsReview.length > 3 ? ` (+${needsReview.length - 3} more)` : '';
+    Alert.alert(
+      'Apply all suggested prices?',
+      `${rows.length} price${rows.length === 1 ? '' : 's'} will be applied. ${
+        needsReview.length
+      } planning estimate${needsReview.length === 1 ? '' : 's'} (${reviewNames}${more}) still need review later — you can edit any price after applying.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Apply all',
+          onPress: () => applySuggestedPricingBlocks(rows),
+        },
+      ]
+    );
+  }, [applySuggestedPricingBlocks, unconfirmedSuggestedPricing]);
 
   const scrollToFirstScopeAfterQmDone = useCallback(() => {
     const content = scrollContentRef.current;
@@ -11049,6 +11388,16 @@ export default function AIEstimateScopeAssumptionsModal({
             darkMode={darkMode}
             appliedBreakdown={step2AppliedPricingBreakdown}
             appliedLines={step2AppliedPricingLines}
+            scopeConfirmDisclaimer={
+              scopeItemsNeedingConfirmation.length
+                ? {
+                    label: `Confirm ${scopeItemsNeedingConfirmation.length} scope${
+                      scopeItemsNeedingConfirmation.length === 1 ? '' : 's'
+                    }`,
+                    onPress: handleConfirmScopeItemsPress,
+                  }
+                : null
+            }
           />
         ) : null}
 
@@ -11563,6 +11912,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     marginTop: 10,
+  },
+  assemblyChoiceRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'stretch',
+  },
+  assemblyChoiceChip: {
+    flex: 1,
+    minHeight: 58,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   choiceWrap: {
     flexDirection: 'row',

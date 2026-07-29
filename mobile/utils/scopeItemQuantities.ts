@@ -520,13 +520,13 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     pricingMethod: 'material_labor',
   },
   /**
-   * Shower floor tile-setting only (~$25/SF mid-market). Pan, waterproofing,
+   * Shower floor tile-setting only (~$30/SF mid-market). Pan, waterproofing,
    * and mud bed are separate — prior $31/SF overstated tile-only work.
    */
   shower_floor_tile: {
     unit: 'sqft',
-    material: 8,
-    labor: 17,
+    material: 9,
+    labor: 21,
     sourceLabel: 'Suggested budget split · National Average · shower floor tile',
     rateSource: 'bps_national_benchmark',
     scopeProfileSource: 'bps_standard_assumption',
@@ -538,13 +538,13 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   },
   /**
    * Standard sliding shower door installed (door only). Scales with showerDoorCount.
-   * Retail door kits ~$700–$1,200; installed mid-market ~$1,400–$2,100/door.
+   * Retail door kits ~$700–$1,200; installed mid-market ~$1,200–$1,900/door.
    * Premium frameless is priced via bathroomGlassDoorPricing tier resolver.
    */
   glass_door: {
     unit: 'each',
-    material: 950,
-    labor: 700,
+    material: 835,
+    labor: 615,
     sourceLabel: 'Suggested budget split · National Average · shower door installed (standard slider)',
     rateSource: 'bps_national_benchmark',
     scopeProfileSource: 'bps_standard_assumption',
@@ -1250,7 +1250,7 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   glass_door: {
     category: 'wet_area',
     rootCause:
-      'Build Profit standard shower door package is modeled per installed glass door/enclosure (~$1,650 standard slider, ~$2,500 premium frameless). Door hardware and install labor included — bath mirror and accessories are separate lines. Total scales with door count.',
+      'Build Profit standard shower door package is modeled per installed glass door/enclosure (~$1,450 standard slider, ~$2,500 premium frameless). Door hardware and install labor included — bath mirror and accessories are separate lines. Total scales with door count.',
     assumptions: [
       assumption('door_unit', 'included', 'Glass door / enclosure unit', 'Standard tempered glass shower door or enclosure unit is included.'),
       assumption('door_hardware', 'included', 'Door hardware', 'Standard hinges, track, or clips for the shower door are included.'),
@@ -1300,7 +1300,7 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   shower_floor_tile: {
     category: 'tile',
     rootCause:
-      'Build Profit national-average shower floor tile ($25/SF planning) is tile-setting on an existing pitched floor. Shower pan construction, waterproofing, and drain assembly are separate scopes.',
+      'Build Profit national-average shower floor tile ($30/SF planning) is tile-setting on an existing pitched floor. Shower pan construction, waterproofing, and drain assembly are separate scopes.',
     assumptions: [
       assumption('tile_material', 'included', 'Standard shower-floor tile allowance', 'Standard shower-floor tile allowance is included.'),
       assumption('tile_installation', 'included', 'Standard installation labor', 'Standard shower-floor tile-setting labor is included.'),
@@ -3110,17 +3110,19 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRu
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     aggregateMeasurementKeys: ['showerWallTileSqft', 'showerFloorTileSqft'],
     canUseRoomSqft: false,
+    requiresUserQuantity: true,
     quantityHelper:
-      'Shower wall + floor tile sqft, plus tub or prefab pan/base removal when selected in Demo / tear-out.',
+      'Enter shower wall + pan tear-out SF (priced ~$5.50/SF). Tub/prefab add-ons come from Demo / tear-out counts.',
+    missingMessage: 'Enter shower tile demo sqft.',
   },
   floor_demo: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKeys: ['bathroomFloorSqft'],
     canUseRoomSqft: false,
-    requiresUserQuantity: false,
+    requiresUserQuantity: true,
     quantityHelper:
-      'Uses bathroom floor sqft — often includes thinset removal (separate from shower demo).',
+      'Enter bathroom floor demo SF — priced ~$5.50/SF (separate from shower demo).',
     missingMessage: 'Enter bathroom floor demo sqft.',
   },
   plumbing_rough: {
@@ -3144,11 +3146,10 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRu
   paint_repair: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'each', 'allowance', 'lump_sum'],
-    measurementKeys: ['drywallSqft'],
-    pricingBasisMeasurementKey: 'drywallSqft',
+    // Patch SF is stored on paint_repair only — do not inherit global drywallSqft.
     requiresUserQuantity: true,
     quantityHelper:
-      'Enter patch SF (affected area) or room wall/ceiling SF (full room), pick paint scope above, then apply pricing.',
+      'Enter patch SF (affected area) or room wall/ceiling SF (full room), pick paint scope above, then apply pricing. Quick measurements Paint can pre-fill room SF.',
     missingMessage: 'Enter SF and select paint scope.',
   },
 };
@@ -3547,6 +3548,163 @@ export const DEFAULT_SCOPE_ALLOWANCE_QUANTITY_RULE: ScopeItemQuantityRule = {
 
 export function usesAllowanceSplitEditor(rule: ScopeItemQuantityRule): boolean {
   return !rule.dualAllowanceField;
+}
+
+/** Applied/stored material+labor split — wins over a stale primary count (e.g. 1 allowance). */
+function resolveStoredAllowanceSplitQuantity(
+  itemId: string,
+  measurements: NormalizedScopeMeasurements,
+  rule: ScopeItemQuantityRule,
+  override?: ScopeItemQuantityValue | null
+): ResolvedItemQuantity | null {
+  if (!usesAllowanceSplitEditor(rule)) return null;
+
+  const materialEntry = parseStoredItemQuantity(measurements, allowanceSplitSubKey(itemId, 'material'));
+  const laborEntry = parseStoredItemQuantity(measurements, allowanceSplitSubKey(itemId, 'labor'));
+  const storedAllowance = parseStoredItemQuantity(measurements, allowanceSplitSubKey(itemId, 'allowance'));
+  const splitTotal = (materialEntry?.quantity ?? 0) + (laborEntry?.quantity ?? 0);
+
+  const overrideMoney =
+    override &&
+    ['allowance', 'lump_sum'].includes(String(override.unit || '').toLowerCase()) &&
+    override.quantity != null &&
+    override.quantity > 0 &&
+    !isPlaceholderAllowancePricing(override.quantity, override.unit, itemId)
+      ? override.quantity
+      : null;
+
+  const total =
+    storedAllowance?.quantity ??
+    (splitTotal > 0 ? splitTotal : null) ??
+    (overrideMoney != null && overrideMoney > (rule.defaultQuantity ?? 1) ? overrideMoney : null);
+
+  if (total == null || total <= 0) return null;
+
+  const quantitySource =
+    storedAllowance?.quantitySource ||
+    materialEntry?.quantitySource ||
+    laborEntry?.quantitySource ||
+    override?.quantitySource ||
+    'user_entered';
+
+  return {
+    quantity: total,
+    unit: 'allowance',
+    quantitySource,
+    sourceLabel: sourceLabel(quantitySource),
+    pricingReady: true,
+    quantityHelper: rule.quantityHelper,
+    showInput: true,
+    dualMaterial: materialEntry,
+    dualLabor: laborEntry,
+  };
+}
+
+/** Primary item quantity after Apply — never store a count (1 allowance) as the dollar total. */
+export function primaryQuantityForAppliedSuggestedBlock(
+  block: SuggestedPricingBlock,
+  rule: ScopeItemQuantityRule
+): { quantity: string; unit: string } {
+  const basisUnit = block.basis?.unit || 'allowance';
+  const basisQty = block.basis?.quantity;
+  const moneyBasisUnits = new Set(['allowance', 'lump_sum']);
+  if (
+    moneyBasisUnits.has(basisUnit) &&
+    basisQty != null &&
+    basisQty > 0 &&
+    basisQty < block.total
+  ) {
+    return { quantity: String(block.total), unit: 'allowance' };
+  }
+  return {
+    quantity: String(basisQty ?? block.total),
+    unit: basisUnit,
+  };
+}
+
+type SuggestedPricingResolvedQty = Pick<
+  ResolvedItemQuantity,
+  'quantity' | 'unit' | 'quantitySource' | 'dualCount' | 'dualMaterial' | 'dualLabor'
+>;
+
+/**
+ * Physical takeoff count for rate × qty — never treat an applied dollar total
+ * (e.g. $375 allowance) as a multiplier (375 × $375 = $140k).
+ */
+function resolveSuggestedPricingPhysicalCount(
+  itemId: string,
+  rule: ScopeItemQuantityRule,
+  resolved: SuggestedPricingResolvedQty,
+  unit: string,
+  itemQuantities?: Record<string, ScopeItemQuantityLike>
+): number | null {
+  if (itemQuantities && unit === 'sqft') {
+    const storedBasis = readStoredSqftPricingBasis(itemQuantities, itemId);
+    if (storedBasis != null) return storedBasis;
+  }
+
+  if (resolved.dualCount?.unit === unit && resolved.dualCount.quantity > 0) {
+    return resolved.dualCount.quantity;
+  }
+
+  if (
+    usesAllowanceSplitEditor(rule) &&
+    ['allowance', 'lump_sum'].includes(unit)
+  ) {
+    const defaultCount = rule.defaultQuantity ?? 1;
+    const mat = resolved.dualMaterial?.quantity ?? 0;
+    const lab = resolved.dualLabor?.quantity ?? 0;
+    const splitTotal = mat + lab;
+    const qty = resolved.quantity;
+    if (splitTotal > 0) {
+      if (
+        qty == null ||
+        qty <= 0 ||
+        Math.abs(qty - splitTotal) < 0.02 ||
+        qty > defaultCount + 0.001
+      ) {
+        return defaultCount;
+      }
+    }
+    if (
+      qty != null &&
+      qty > 0 &&
+      resolved.unit === unit &&
+      qty <= defaultCount + 0.001
+    ) {
+      return qty;
+    }
+    if (
+      qty != null &&
+      qty > defaultCount + 0.001 &&
+      splitTotal <= 0 &&
+      ['allowance', 'lump_sum'].includes(String(resolved.unit || '').toLowerCase())
+    ) {
+      return defaultCount;
+    }
+  }
+
+  if (resolved.quantity != null && resolved.unit === unit && resolved.quantity > 0) {
+    return resolved.quantity;
+  }
+
+  return null;
+}
+
+function splitLegsFromNotes(resolved: SuggestedPricingResolvedQty): boolean {
+  return (
+    resolved.dualMaterial?.quantitySource === 'notes' ||
+    resolved.dualLabor?.quantitySource === 'notes' ||
+    resolved.quantitySource === 'notes'
+  );
+}
+
+function splitLegsUserEntered(resolved: SuggestedPricingResolvedQty): boolean {
+  if (resolved.dualMaterial?.quantity == null || resolved.dualLabor?.quantity == null) {
+    return false;
+  }
+  const source = resolved.quantitySource || 'user_entered';
+  return EXPLICIT_ITEM_QUANTITY_SOURCES.has(source) && source !== 'notes';
 }
 
 type PricingBasisPreference = {
@@ -4377,8 +4535,23 @@ function explicitItemQuantityOverride(
     (itemId === 'cabinets' && notesHaveCombinedCabinetsCounters(ctx.notes));
   const baseLabel = sourceLabel(override.quantitySource || 'user_entered');
   const combinedCabinetsCounters = itemId === 'cabinets' && includesCountertops;
+  const materialEntry = usesAllowanceSplitEditor(rule)
+    ? parseStoredItemQuantity(measurements, allowanceSplitSubKey(itemId, 'material'))
+    : null;
+  const laborEntry = usesAllowanceSplitEditor(rule)
+    ? parseStoredItemQuantity(measurements, allowanceSplitSubKey(itemId, 'labor'))
+    : null;
+  const splitTotal = (materialEntry?.quantity ?? 0) + (laborEntry?.quantity ?? 0);
+  let quantity = override.quantity;
+  if (
+    usesAllowanceSplitEditor(rule) &&
+    splitTotal > 0 &&
+    (Math.abs(quantity - splitTotal) < 0.02 || quantity > (rule.defaultQuantity ?? 1) + 0.001)
+  ) {
+    quantity = splitTotal;
+  }
   return {
-    quantity: override.quantity,
+    quantity,
     unit: normalizedOverrideUnitForRule(itemId, ctx.templateKey, override.unit, rule),
     quantitySource: override.quantitySource || 'user_entered',
     sourceLabel: combinedCabinetsCounters
@@ -4387,6 +4560,8 @@ function explicitItemQuantityOverride(
     pricingReady: true,
     quantityHelper: rule.quantityHelper,
     showInput: true,
+    dualMaterial: materialEntry,
+    dualLabor: laborEntry,
     ...(combinedCabinetsCounters
       ? {
           combinedAllowanceRole: 'combined_total' as const,
@@ -4619,6 +4794,48 @@ export function hasCompleteUserSelectedPricing(
     Number(labor.quantity || 0) > 0 &&
     Number(allowance.quantity || 0) > 0
   );
+}
+
+/** Applied material + labor split (even when __allowance metadata is missing). */
+export function hasUserEnteredMaterialLaborSplit(
+  itemQuantities: Record<string, ScopeItemQuantityLike>,
+  itemId: string
+): boolean {
+  const material = itemQuantities[allowanceSplitSubKey(itemId, 'material')];
+  const labor = itemQuantities[allowanceSplitSubKey(itemId, 'labor')];
+  return (
+    material?.quantitySource === 'user_entered' &&
+    labor?.quantitySource === 'user_entered' &&
+    Number(material.quantity || 0) > 0 &&
+    Number(labor.quantity || 0) > 0
+  );
+}
+
+/** Sqft takeoff stored when the user tapped Apply (demo__sqft_basis). */
+export function readStoredSqftPricingBasis(
+  itemQuantities: Record<string, ScopeItemQuantityLike>,
+  itemId: string
+): number | null {
+  const entry = itemQuantities[allowanceSplitSubKey(itemId, 'sqft_basis')];
+  const unit = String(entry?.unit || '').toLowerCase();
+  const qty = Number(String(entry?.quantity ?? '').replace(/,/g, ''));
+  if (unit === 'sqft' && Number.isFinite(qty) && qty > 0) return qty;
+  return null;
+}
+
+/**
+ * After Apply, do not compute a second suggested total — it often uses stale QM
+ * aggregates or treats applied dollar totals as multipliers (375 × $375, 935 sf, etc.).
+ * Manual_adjusted pricing may still show a comparison suggest when totals differ.
+ */
+export function shouldSuppressSuggestedPricingAfterApply(
+  itemId: string,
+  itemQuantities: Record<string, ScopeItemQuantityLike>,
+  pricingAcceptance?: Record<string, { selectionStatus?: string }>
+): boolean {
+  if (hasUserEnteredMaterialLaborSplit(itemQuantities, itemId)) return true;
+  if (pricingAcceptance?.[itemId]?.selectionStatus === 'accepted') return true;
+  return false;
 }
 
 /** True when Edit only seeded Suggest values (user has not committed a price). */
@@ -6077,6 +6294,17 @@ export function resolveScopeItemSuggestedPricing(
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule) return empty;
 
+  const itemQuantities = measurementsInput.itemQuantities || {};
+  if (
+    shouldSuppressSuggestedPricingAfterApply(
+      itemId,
+      itemQuantities,
+      measurementsInput.pricingAcceptance
+    )
+  ) {
+    return empty;
+  }
+
   const fixtureChoicePricing = resolveBathroomFixtureChoiceSuggestedPricing({
     itemId,
     templateKey,
@@ -6276,17 +6504,14 @@ export function resolveScopeItemSuggestedPricing(
 
   let unit = average?.unit || preferredUnit;
 
-  // Quantity in the rate unit (e.g. 850 sqft, 220 lf).
+  // Quantity in the rate unit (e.g. 850 sqft, 220 lf) — not applied dollar totals.
   let count =
-    resolved.dualCount?.unit === unit && resolved.dualCount.quantity > 0
-      ? resolved.dualCount.quantity
-      : itemId === 'floor_demo' && unit === 'sqft'
-        ? floorDemoPricingSqftCount(resolved, rule, measurementsInput)
-        : resolved.quantity != null && resolved.unit === unit && resolved.quantity > 0
-          ? resolved.quantity
-          : measurementMatch?.unit === unit
-            ? measurementMatch.quantity
-            : firstMeasurementQuantityForRule(rule, measurementsInput);
+    resolveSuggestedPricingPhysicalCount(itemId, rule, resolved, unit, itemQuantities) ??
+    (itemId === 'floor_demo' && unit === 'sqft'
+      ? floorDemoPricingSqftCount(resolved, rule, measurementsInput)
+      : measurementMatch?.unit === unit
+        ? measurementMatch.quantity
+        : firstMeasurementQuantityForRule(rule, measurementsInput));
   if ((!count || count <= 0) && (rule.defaultUnit === 'allowance' || rule.defaultUnit === 'lump_sum')) {
     const { average: flatAverageBase } = regionalAdjustedNationalAverage(itemId, rule.defaultUnit, pricingContext);
     const flatAverage = flatAverageBase;
@@ -6852,43 +7077,48 @@ export function resolveScopeItemSuggestedPricing(
 
   // Case A: notes priced both legs -> collapsible comparison only.
   if (noteMaterial != null && noteLabor != null) {
-    const benchmarkComparison = !template
-      ? benchmarkSuggestedPricingBlock(
-          itemId,
-          true,
-          measurementsInput.pricingAcceptance,
-          templateKey
-        )
-      : null;
-    if (benchmarkComparison) {
-      return { fill: null, comparison: benchmarkComparison };
+    if (splitLegsUserEntered(resolved) && !splitLegsFromNotes(resolved)) {
+      return empty;
     }
-    if (!hasAnyPricingRate(materialRate, laborRate)) return empty;
-    const material = round2(count * (materialRate ?? 0));
-    const labor = round2(count * (laborRate ?? 0));
-    return {
-      fill: null,
-      comparison: {
-        material,
-        labor,
-        total: round2(material + labor),
-        materialSource: materialRateSource,
-        laborSource: laborRateSource,
-        rateSourceLabel: rateSourceLabelFor(materialRateSource, laborRateSource, templateName, regional),
-        templateName,
-        helper: `${basisHelper} · suggested comparison`,
-        mode: 'suggested_price',
-        isComparison: true,
-        basis,
-        benchmarkScopeProfile: buildNationalAverageBenchmarkScopeProfile({
-          itemId,
-          average,
-          quantity: count,
+    if (splitLegsFromNotes(resolved)) {
+      const benchmarkComparison = !template
+        ? benchmarkSuggestedPricingBlock(
+            itemId,
+            true,
+            measurementsInput.pricingAcceptance,
+            templateKey
+          )
+        : null;
+      if (benchmarkComparison) {
+        return { fill: null, comparison: benchmarkComparison };
+      }
+      if (!hasAnyPricingRate(materialRate, laborRate)) return empty;
+      const material = round2(count * (materialRate ?? 0));
+      const labor = round2(count * (laborRate ?? 0));
+      return {
+        fill: null,
+        comparison: {
+          material,
+          labor,
           total: round2(material + labor),
-          regional,
-        }),
-      },
-    };
+          materialSource: materialRateSource,
+          laborSource: laborRateSource,
+          rateSourceLabel: rateSourceLabelFor(materialRateSource, laborRateSource, templateName, regional),
+          templateName,
+          helper: `${basisHelper} · suggested comparison`,
+          mode: 'suggested_price',
+          isComparison: true,
+          basis,
+          benchmarkScopeProfile: buildNationalAverageBenchmarkScopeProfile({
+            itemId,
+            average,
+            quantity: count,
+            total: round2(material + labor),
+            regional,
+          }),
+        },
+      };
+    }
   }
 
   // Case B: exactly one leg from notes -> fill the missing leg.
@@ -7618,7 +7848,12 @@ function resolveChecklistItemQuantityCore(
       ctx.templateKey
     );
     if (dual) return dual;
-  } else if (
+  } else {
+    const allowanceSplit = resolveStoredAllowanceSplitQuantity(itemId, measurements, rule, override);
+    if (allowanceSplit) return allowanceSplit;
+  }
+
+  if (
     override?.quantity != null &&
     override.quantity > 0 &&
     !isPlaceholderAllowancePricing(override.quantity, override.unit, itemId)
@@ -7766,46 +8001,8 @@ function resolveChecklistItemQuantityCore(
   const fromNotes = resolvedQuantityFromNotes(itemId, measurements, ctx);
   if (fromNotes) return fromNotes;
 
-  if (usesAllowanceSplitEditor(rule)) {
-    const allowanceEntry =
-      parseStoredItemQuantity(measurements, allowanceSplitSubKey(itemId, 'allowance')) ??
-      (override &&
-      ['allowance', 'lump_sum'].includes(override.unit || '') &&
-      override.quantity != null &&
-      override.quantity > 0 &&
-      !isPlaceholderAllowancePricing(override.quantity, override.unit, itemId)
-        ? {
-            quantity: override.quantity,
-            unit: override.unit || 'allowance',
-            quantitySource: override.quantitySource,
-          }
-        : null);
-    const materialEntry = parseStoredItemQuantity(measurements, allowanceSplitSubKey(itemId, 'material'));
-    const laborEntry = parseStoredItemQuantity(measurements, allowanceSplitSubKey(itemId, 'labor'));
-    const splitTotal =
-      (materialEntry?.quantity ?? 0) + (laborEntry?.quantity ?? 0);
-    const total = allowanceEntry?.quantity ?? (splitTotal > 0 ? splitTotal : null);
-    if (total != null && total > 0) {
-      return {
-        quantity: total,
-        unit: 'allowance',
-        quantitySource:
-          allowanceEntry?.quantitySource ||
-          materialEntry?.quantitySource ||
-          laborEntry?.quantitySource ||
-          'user_entered',
-        sourceLabel: sourceLabel(
-          allowanceEntry?.quantitySource ||
-            materialEntry?.quantitySource ||
-            laborEntry?.quantitySource ||
-            'user_entered'
-        ),
-        pricingReady: true,
-        quantityHelper: rule.quantityHelper,
-        showInput: true,
-      };
-    }
-  }
+  const allowanceSplitFallback = resolveStoredAllowanceSplitQuantity(itemId, measurements, rule, override);
+  if (allowanceSplitFallback) return allowanceSplitFallback;
 
   return {
     quantity: null,

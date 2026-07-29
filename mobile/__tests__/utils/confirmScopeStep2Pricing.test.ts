@@ -23,6 +23,13 @@ describe('confirmScopeStep2Pricing tiers', () => {
     expect(step2TierExpectsSuggestedFill('electrical_rough', 'bathroom')).toBe(false);
   });
 
+  it('classifies bathroom shower demo as takeoff_required with editable SF', () => {
+    expect(resolveStep2PricingTier('demo', 'bathroom').tier).toBe('takeoff_required');
+    expect(resolveStep2PricingTier('demo', 'bathroom').benchmarkUnitHint).toMatch(/\$5\.50\/SF/);
+    expect(step2TierNeedsInlineTakeoffEntry('demo', 'bathroom', { pricingReady: false })).toBe(true);
+    expect(step2TierNeedsInlineTakeoffEntry('demo', 'bathroom', { pricingReady: true })).toBe(true);
+  });
+
   it('classifies bathroom drywall patch as takeoff_required', () => {
     expect(resolveStep2PricingTier('drywall', 'bathroom').tier).toBe('takeoff_required');
     expect(step2TierExpectsSuggestedFill('drywall', 'bathroom')).toBe(false);
@@ -84,6 +91,9 @@ describe('confirmScopeStep2Pricing tiers', () => {
     expect(step2TierNeedsInlineTakeoffEntry('paint_repair', 'bathroom', { pricingReady: false })).toBe(
       true
     );
+    expect(step2TierNeedsInlineTakeoffEntry('paint_repair', 'bathroom', { pricingReady: true })).toBe(
+      true
+    );
     expect(step2TierNeedsInlineTakeoffEntry('drywall', 'bathroom', { pricingReady: false })).toBe(
       true
     );
@@ -94,7 +104,7 @@ describe('confirmScopeStep2Pricing tiers', () => {
     expect(tier.tier).toBe('prompt_first');
     expect(tier.promptKey).toBe('glass_door_style');
     expect(step2PricingPromptKey('glass_door', 'bathroom')).toBe('glass_door_style');
-    expect(tier.benchmarkUnitHint).toMatch(/\$1,650/);
+    expect(tier.benchmarkUnitHint).toMatch(/\$1,450/);
 
     const input = initialScopeMeasurementInputExtended({
       scopeChecklist: { templateKey: 'bathroom' },
@@ -105,7 +115,7 @@ describe('confirmScopeStep2Pricing tiers', () => {
       measurementsInput: { ...input, bathroomGlassDoorStyle: 'standard_slider' },
       resolved: { quantity: 1, unit: 'each' },
     });
-    expect(standard?.fill?.total).toBe(1650);
+    expect(standard?.fill?.total).toBe(1450);
 
     const premium = resolveStep2ComponentSuggestedPricing({
       itemId: 'glass_door',
@@ -140,7 +150,7 @@ describe('confirmScopeStep2Pricing tiers', () => {
     expect(combined?.fill?.benchmarkScopeKey).toBe('paint_repair');
   });
 
-  it('shows combined planning price for affected area before patch SF is entered', () => {
+  it('does not show combined pricing for affected area until patch SF is entered', () => {
     const input = initialScopeMeasurementInputExtended({
       scopeChecklist: { templateKey: 'bathroom' },
       scopeMeasurements: {
@@ -160,7 +170,7 @@ describe('confirmScopeStep2Pricing tiers', () => {
       resolved: { quantity: null, unit: 'sqft', quantitySource: 'missing' },
       pricingContext: { checklistItems },
     });
-    expect(combined?.fill?.total).toBe(700);
+    expect(combined?.fill).toBeNull();
   });
 
   it('shows paint-only affected area when separate lines is selected', () => {
@@ -190,5 +200,55 @@ describe('confirmScopeStep2Pricing tiers', () => {
   it('exposes benchmark unit hints for takeoff-required trades', () => {
     expect(resolveStep2BenchmarkUnitHint('electrical_rough', 'bathroom')).toMatch(/\$175/);
     expect(resolveStep2PricingTier('mep_rough', 'ground_up').tier).toBe('comparison_only');
+  });
+});
+
+describe('bathroom shower tile demo suggested pricing', () => {
+  it('suppresses a second suggest row after Apply (95 sf + tub = $872.50)', () => {
+    const applied = resolveStep2ComponentSuggestedPricing({
+      itemId: 'demo',
+      templateKey: 'bathroom',
+      measurementsInput: {
+        demoTileWallCount: 1,
+        demoTubCount: 1,
+        showerWallTileSqft: '800',
+        showerFloorTileSqft: '135',
+        itemQuantities: {
+          demo__sqft_basis: { quantity: '95', unit: 'sqft', quantitySource: 'user_entered' },
+          demo__material: { quantity: '97.5', unit: 'allowance', quantitySource: 'user_entered' },
+          demo__labor: { quantity: '775', unit: 'allowance', quantitySource: 'user_entered' },
+          demo__allowance: { quantity: '872.5', unit: 'allowance', quantitySource: 'user_entered' },
+        },
+      },
+      resolved: {
+        quantity: 935,
+        unit: 'sqft',
+        quantitySource: 'inferred',
+        dualMaterial: { quantity: 97.5, unit: 'allowance' },
+        dualLabor: { quantity: 775, unit: 'allowance' },
+      },
+      pricingContext: {},
+    });
+    expect(applied).toEqual({ fill: null, comparison: null });
+  });
+
+  it('uses stored sqft basis instead of inflated aggregate measurements', () => {
+    const suggest = resolveStep2ComponentSuggestedPricing({
+      itemId: 'demo',
+      templateKey: 'bathroom',
+      measurementsInput: {
+        demoTileWallCount: 1,
+        demoTubCount: 1,
+        showerWallTileSqft: '800',
+        showerFloorTileSqft: '135',
+        itemQuantities: {
+          demo__sqft_basis: { quantity: '95', unit: 'sqft', quantitySource: 'user_entered' },
+        },
+      },
+      resolved: { quantity: 935, unit: 'sqft', quantitySource: 'inferred' },
+      pricingContext: {},
+    });
+    expect(suggest?.fill?.total).toBe(872.5);
+    expect(suggest?.fill?.basis).toMatchObject({ quantity: 95, unit: 'sqft' });
   });
 });

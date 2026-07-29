@@ -8,6 +8,7 @@ import {
   resolveAllowanceEditorDefaultBasisUnit,
   resolveAllowanceEditorPricingBasis,
   resolveChecklistItemQuantity,
+  primaryQuantityForAppliedSuggestedBlock,
   resolveScopeItemSuggestedPricing,
   resolveTemplateRateForItem,
   resolveDualRatePricingDisplayFromNotes,
@@ -875,5 +876,79 @@ describe('resolveTemplateRateForItem', () => {
     };
     const { fill } = resolveScopeItemSuggestedPricing('drywall', input, 'ground_up', resolved);
     expect(fill?.basis).toEqual({ quantity: 5469, unit: 'sqft' });
+  });
+});
+
+describe('allowance split apply pricing', () => {
+  it('stores dollar total on primary id when basis is 1 allowance', () => {
+    const rule = getChecklistItemQuantityRuleOrDefault('mirror_accessories', 'bathroom');
+    const primary = primaryQuantityForAppliedSuggestedBlock(
+      {
+        total: 375,
+        material: 200,
+        labor: 175,
+        basis: { quantity: 1, unit: 'allowance' },
+      } as any,
+      rule
+    );
+    expect(primary).toEqual({ quantity: '375', unit: 'allowance' });
+  });
+
+  it('resolves applied bath accessories from split subkeys, not stale count', () => {
+    const input = inputWith({
+      itemQuantities: {
+        mirror_accessories: { quantity: '1', unit: 'allowance', quantitySource: 'user_entered' },
+        mirror_accessories__allowance: { quantity: '375', unit: 'allowance', quantitySource: 'user_entered' },
+        mirror_accessories__material: { quantity: '200', unit: 'allowance', quantitySource: 'user_entered' },
+        mirror_accessories__labor: { quantity: '175', unit: 'allowance', quantitySource: 'user_entered' },
+      },
+    });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('mirror_accessories', measurements, {
+      templateKey: 'bathroom',
+    });
+    expect(resolved.quantity).toBe(375);
+    expect(resolved.dualMaterial?.quantity).toBe(200);
+    expect(resolved.dualLabor?.quantity).toBe(175);
+  });
+
+  it('does not multiply bath accessories allowance dollars as a qty (375 × $375)', () => {
+    const input = inputWith({
+      itemQuantities: {
+        mirror_accessories: { quantity: '375', unit: 'allowance', quantitySource: 'user_entered' },
+        mirror_accessories__allowance: { quantity: '375', unit: 'allowance', quantitySource: 'user_entered' },
+        mirror_accessories__material: { quantity: '200', unit: 'allowance', quantitySource: 'user_entered' },
+        mirror_accessories__labor: { quantity: '175', unit: 'allowance', quantitySource: 'user_entered' },
+      },
+    });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('mirror_accessories', measurements, {
+      templateKey: 'bathroom',
+    });
+    const { fill, comparison } = resolveScopeItemSuggestedPricing(
+      'mirror_accessories',
+      input,
+      'bathroom',
+      resolved
+    );
+    expect(fill).toBeNull();
+    expect(comparison).toBeNull();
+  });
+
+  it('suggests ~$375 for bath accessories before apply (1 allowance × national average)', () => {
+    const input = inputWith({});
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('mirror_accessories', measurements, {
+      templateKey: 'bathroom',
+    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'mirror_accessories',
+      input,
+      'bathroom',
+      resolved
+    );
+    expect(fill?.total).toBeGreaterThanOrEqual(350);
+    expect(fill?.total).toBeLessThanOrEqual(400);
+    expect(fill?.basis?.quantity).toBe(1);
   });
 });

@@ -3,7 +3,6 @@ import type { EstimateAiDraft, EstimateDraftScopePackage, ScopeMeasurements } fr
 import { getScopePackages, getScopePackagesRaw } from '@/utils/estimateAiDraft';
 import { flattenChecklistDisplayOrder, confirmScopeDisplayItemsFromDraft } from '@/utils/scopePackagesForReview';
 import { scopePackagePricedAmount } from '@/utils/estimateDraftReviewUi';
-import { resolveNationalAverageScopePackageAmount } from '@/utils/appliedScopePackagePricing';
 import { resolveScopePackageBudgetBreakdown } from '@/utils/scopeBudgetBreakdown';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
 import {
@@ -716,19 +715,6 @@ function bucketExtraScopePackageAmount(
   return { material, labor, allowance };
 }
 
-function scopePackageOnChecklist(
-  pkg: Pick<EstimateDraftScopePackage, 'name' | 'scope' | 'checklistItemId'>,
-  items: ScopeChecklistItem[]
-): boolean {
-  const ruleKey =
-    pkg.checklistItemId ||
-    lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
-    null;
-  if (!ruleKey) return false;
-  const item = items.find((i) => i.id === ruleKey);
-  return Boolean(item && checklistItemInScope(item));
-}
-
 /**
  * Step 3 review totals — Confirm Scope applied pricing plus Ask AI revisions
  * (updated checklist rows and packages not on the Confirm Scope checklist).
@@ -764,6 +750,7 @@ export function sumStep3ReviewBudgetTotals(
       scopePackageInAppliedBreakdown(pkg, items, measurements, templateKey);
 
     if (inAppliedBreakdown) {
+      if (!isUserProvidedScopePackage(pkg)) continue;
       const appliedAmount = resolveAppliedScopeMoneyTotal(
         ruleKey!,
         measurements.itemQuantities,
@@ -780,17 +767,8 @@ export function sumStep3ReviewBudgetTotals(
       continue;
     }
 
-    if (scopePackageOnChecklist(pkg, items)) {
-      const nationalAverage = resolveNationalAverageScopePackageAmount(pkg, draft);
-      if (nationalAverage > 0 && Math.abs(amount - nationalAverage) < 0.02) {
-        const buckets = bucketExtraScopePackageAmount(pkg, draft, amount);
-        extra.material += buckets.material;
-        extra.labor += buckets.labor;
-        extra.allowance += buckets.allowance;
-        extra.total += amount;
-      }
-      continue;
-    }
+    // Checklist rows without Applied pricing may show national-average planning $ on
+    // the row — do not fold those into Step 3 totals (must match Step 2 Applied pricing).
 
     // Ask AI / Step 3 manual rows not on the Confirm Scope checklist (e.g. Disposal Bid).
     // Do not add stale AI package prices for checklist rows that never got Applied pricing.

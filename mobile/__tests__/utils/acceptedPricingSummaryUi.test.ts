@@ -624,6 +624,29 @@ describe('acceptedPricingSummaryUi', () => {
     ).toBe(true);
   });
 
+  it('hides suggest row after Apply even when a stale suggest total would mismatch', () => {
+    const itemQuantities = {
+      demo__sqft_basis: { quantity: '95', unit: 'sqft', quantitySource: 'user_entered' as const },
+      demo__material: { quantity: '97.5', unit: 'allowance', quantitySource: 'user_entered' as const },
+      demo__labor: { quantity: '775', unit: 'allowance', quantitySource: 'user_entered' as const },
+      demo__allowance: { quantity: '872.5', unit: 'allowance', quantitySource: 'user_entered' as const },
+    };
+    const pricingAcceptance = {
+      demo: {
+        ...buildAcceptanceFromSuggestedBlock(suggestedBlock({ total: 872.5, material: 97.5, labor: 775 })),
+        selectionStatus: 'accepted' as const,
+      },
+    };
+    expect(
+      shouldHideSuggestedPanel({
+        itemId: 'demo',
+        itemQuantities,
+        pricingAcceptance,
+        suggestedTotal: 5148.75,
+      })
+    ).toBe(true);
+  });
+
   it('clears applied price so the original Suggest card can return', () => {
     const itemQuantities = {
       excavation: { quantity: '132', unit: 'cy', quantitySource: 'user_entered' as const },
@@ -772,6 +795,48 @@ describe('acceptedPricingSummaryUi', () => {
         },
       })
     ).toBe(2000);
+  });
+
+  it('uses acceptance material+labor when primary quantity is a stale allowance count', () => {
+    const acceptance = buildAcceptanceFromSuggestedBlock(
+      suggestedBlock({ total: 375, material: 200, labor: 175 })
+    );
+    expect(
+      resolveAcceptedMoneyTotal({
+        resolved: {
+          quantity: 1,
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+          sourceLabel: 'User entered',
+          pricingReady: true,
+          showInput: true,
+        },
+        acceptance,
+      })
+    ).toBe(375);
+  });
+
+  it('shows applied bath accessories total after Apply, not $1 allowance count', () => {
+    const acceptance = buildAcceptanceFromSuggestedBlock(
+      suggestedBlock({ total: 375, material: 200, labor: 175 })
+    );
+    const display = resolveAcceptedPricingDisplay({
+      itemId: 'mirror_accessories',
+      resolved: {
+        quantity: 1,
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+        sourceLabel: 'User entered',
+        pricingReady: true,
+        showInput: true,
+        dualMaterial: { quantity: 200, unit: 'allowance' },
+        dualLabor: { quantity: 175, unit: 'allowance' },
+      },
+      acceptance,
+      suggestedBlock: suggestedBlock({ total: 375, material: 200, labor: 175 }),
+      intelligence: intelligence(),
+    });
+    expect(display.totalLabel).toBe('$375');
   });
 
   it('does not keep $2 from stale __allowance when Labor is deleted to empty', () => {

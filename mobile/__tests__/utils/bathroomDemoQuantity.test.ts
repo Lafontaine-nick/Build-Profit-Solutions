@@ -21,6 +21,20 @@ describe('bathroom demo quantity split', () => {
     expect(resolved?.sourceLabel).toBe('Shower walls + shower floor');
   });
 
+  test('user-entered demo SF overrides install wall + pan aggregate', () => {
+    const withUserSf = normalizeScopeMeasurements({
+      bathroomFloorSqft: '45',
+      showerWallTileSqft: '120',
+      showerFloorTileSqft: '30',
+      itemQuantities: {
+        demo: { quantity: 80, unit: 'sqft', quantitySource: 'user_entered' },
+      },
+    });
+    const resolved = resolveChecklistItemQuantity('demo', withUserSf, { templateKey: 'bathroom' });
+    expect(resolved?.quantity).toBe(80);
+    expect(resolved?.quantitySource).toBe('user_entered');
+  });
+
   test('floor_demo uses bathroom floor sqft only', () => {
     const resolved = resolveChecklistItemQuantity('floor_demo', measurements, {
       templateKey: 'bathroom',
