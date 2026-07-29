@@ -23,11 +23,14 @@ describe('confirmScopeStep2Pricing tiers', () => {
     expect(step2TierExpectsSuggestedFill('electrical_rough', 'bathroom')).toBe(false);
   });
 
-  it('classifies bathroom shower demo as takeoff_required with editable SF', () => {
+  it('classifies bathroom shower demo as takeoff_required without on-card SF (QM owns it)', () => {
     expect(resolveStep2PricingTier('demo', 'bathroom').tier).toBe('takeoff_required');
     expect(resolveStep2PricingTier('demo', 'bathroom').benchmarkUnitHint).toMatch(/\$5\.50\/SF/);
-    expect(step2TierNeedsInlineTakeoffEntry('demo', 'bathroom', { pricingReady: false })).toBe(true);
-    expect(step2TierNeedsInlineTakeoffEntry('demo', 'bathroom', { pricingReady: true })).toBe(true);
+    expect(step2TierNeedsInlineTakeoffEntry('demo', 'bathroom', { pricingReady: false })).toBe(false);
+    expect(step2TierNeedsInlineTakeoffEntry('demo', 'bathroom', { pricingReady: true })).toBe(false);
+    expect(step2TierNeedsInlineTakeoffEntry('floor_demo', 'bathroom', { pricingReady: false })).toBe(
+      false
+    );
   });
 
   it('classifies bathroom drywall patch as takeoff_required', () => {

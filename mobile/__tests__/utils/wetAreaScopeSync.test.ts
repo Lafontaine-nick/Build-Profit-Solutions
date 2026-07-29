@@ -232,7 +232,7 @@ describe('wetAreaScopeSync', () => {
       },
       {
         id: 'shower_pan',
-        label: 'Tile shower pan (mud pan build)',
+        label: 'Shower mud pan build',
         inputType: 'yes_no',
         state: 'included',
         derivedFrom: 'wet_area_install',

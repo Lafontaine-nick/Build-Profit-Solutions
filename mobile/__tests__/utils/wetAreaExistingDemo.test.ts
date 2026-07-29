@@ -1,12 +1,14 @@
 import {
   applyExistingFeaturesToMeasurements,
   emptyWetAreaExistingCounts,
+  inferExistingWetAreaFromNotes,
   mergeDemoCountsWithOverrides,
   reconcileExistingWetAreaCounts,
   resolveAutoDemoWetAreaCounts,
   resolveDemoWetAreaFromIntent,
   resolveEffectiveExistingWetArea,
 } from '../../utils/wetAreaExistingDemo';
+import { inferWetAreaInstallSteppersFromIntent } from '../../utils/wetAreaInstallInference';
 
 describe('wetAreaExistingDemo', () => {
   test('resolveAutoDemoWetAreaCounts clears demo when keeping existing', () => {
@@ -198,7 +200,7 @@ describe('wetAreaExistingDemo', () => {
     expect(demo.demoBathFloorTileCount).toBe(1);
   });
 
-  test('bath floor tile demo when bathroom floor SF set without explicit existing', () => {
+  test('bathroom floor SF alone does not imply bath floor demo', () => {
     const demo = resolveDemoWetAreaFromIntent({
       notes: '',
       existing: emptyWetAreaExistingCounts(),
@@ -211,8 +213,46 @@ describe('wetAreaExistingDemo', () => {
         showerDoorCount: null,
       },
       bathroomFloorSqft: '45',
+      floorDemoIncluded: true,
+      floorTileIncluded: true,
     });
-    expect(demo.demoBathFloorTileCount).toBe(1);
+    expect(demo.demoBathFloorTileCount).toBeNull();
+  });
+
+  test('shower-only notes do not auto-demo bathroom floor', () => {
+    const notes =
+      'Demo shower walls, demo prefab shower pan, and tile shower walls, and tile shower pan. Install soap niche.';
+    const existing = inferExistingWetAreaFromNotes(notes);
+    const install = inferWetAreaInstallSteppersFromIntent({ notes });
+    const demo = resolveDemoWetAreaFromIntent({
+      notes,
+      existing,
+      install,
+      floorDemoIncluded: true,
+      floorTileIncluded: true,
+      bathroomFloorSqft: '40',
+    });
+    expect(demo.demoPrefabPanCount).toBe(1);
+    expect(demo.demoTileWallCount).toBe(1);
+    expect(demo.demoBathFloorTileCount).toBeNull();
+    expect(demo.demoTilePanCount).toBeNull();
+  });
+
+  test('demo shower walls notes select wall demo without install steppers', () => {
+    const demo = resolveDemoWetAreaFromIntent({
+      notes: 'Demo shower walls and demo prefab shower pan.',
+      existing: { existingPrefabPanCount: 1 },
+      install: {
+        bathCount: null,
+        tilePanBathCount: null,
+        prefabBathCount: null,
+        prefabEnclosureBathCount: null,
+        tubBathCount: null,
+        showerDoorCount: null,
+      },
+    });
+    expect(demo.demoTileWallCount).toBe(1);
+    expect(demo.demoPrefabPanCount).toBe(1);
   });
 
   test('photo bath_floor_tile feature seeds existing count', () => {
@@ -229,5 +269,38 @@ describe('wetAreaExistingDemo', () => {
     ]);
     expect(next.existingTubCount).toBe(1);
     expect(next.existingTileWallCount).toBeNull();
+  });
+
+  test('demo prefab pan + install tile pan notes do not mark existing tile pan', () => {
+    const notes =
+      'Demo shower walls, demo prefab shower pan, and tile shower walls, and tile shower pan. Install soap niche.';
+    const existing = inferExistingWetAreaFromNotes(notes);
+    expect(existing.existingPrefabPanCount).toBe(1);
+    expect(existing.existingTilePanCount).toBeNull();
+    expect(existing.existingTileWallCount).toBeNull();
+
+    const install = inferWetAreaInstallSteppersFromIntent({ notes });
+    expect(install.bathCount).toBe(1);
+    expect(install.tilePanBathCount).toBe(1);
+    expect(install.prefabBathCount).toBeNull();
+
+    const demo = resolveDemoWetAreaFromIntent({
+      notes,
+      existing,
+      install,
+    });
+    expect(demo.demoPrefabPanCount).toBe(1);
+    expect(demo.demoTilePanCount).toBeNull();
+  });
+
+  test('notes demo prefab pan wins over photo tile_shower_pan mis-tag', () => {
+    const notes = 'Demo prefab shower pan and tile shower pan.';
+    const existing = resolveEffectiveExistingWetArea({
+      measurements: { existingTilePanCount: 1 },
+      notes,
+      hasSitePhotos: true,
+    });
+    expect(existing.existingPrefabPanCount).toBe(1);
+    expect(existing.existingTilePanCount).toBeNull();
   });
 });

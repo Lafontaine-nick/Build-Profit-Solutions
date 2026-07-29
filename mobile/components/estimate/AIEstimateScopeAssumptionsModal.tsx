@@ -6983,6 +6983,15 @@ function CollapsibleQuickMeasurements({
       if (demoOverride) {
         stored[demoOverride.key] = demoOverride.value;
       }
+      // Drop a stale "walls off" override when notes/inference require wall demo.
+      if (
+        !demoOverride &&
+        auto.demoTileWallCount &&
+        overrides.demoTileWallCount &&
+        !(Number(stored.demoTileWallCount) > 0)
+      ) {
+        delete overrides.demoTileWallCount;
+      }
       const merged = mergeDemoCountsWithOverrides({ auto, stored, overrides });
       latestExistingDemoRef.current = {
         existing: effectiveExisting,
@@ -7205,9 +7214,9 @@ function CollapsibleQuickMeasurements({
       Boolean(measurements.reuseExistingShowerDoor),
       ++existingDemoGenRef.current
     );
-    // Re-infer bath floor demo when bathroom floor SF is added or changed.
+    // Re-infer demo when notes/floor SF change (walls + prefab pan from job notes).
     // eslint-disable-next-line react-hooks/exhaustive-deps -- avoid loop via scheduleExistingDemoCommit identity
-  }, [bathroomPhotoWetArea, measurements.bathroomFloorSqft]);
+  }, [bathroomPhotoWetArea, measurements.bathroomFloorSqft, notes]);
 
   const adjustExistingCount = useCallback(
     (key: keyof WetAreaExistingCounts, delta: number) => {
@@ -7680,7 +7689,7 @@ function CollapsibleQuickMeasurements({
         {sectionTitle('Demo / tear-out', '#f87171')}
         <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, lineHeight: 15, marginBottom: 8 }}>
           Auto-filled from {showExistingWetAreaPanel ? 'existing + install' : 'photos, notes, and install'} — adjust if needed.
-          Tile demo is priced by sqft (~$5.50/SF).
+          Tile by sqft (~$5.50/SF) · tub/prefab pan $350 · enclosure $600 · door $125.
         </Text>
         {renderBathCountStepper('Remove tub', demoCounts.demoTubCount, (d) =>
           adjustDemoCount('demoTubCount', d)
@@ -7755,7 +7764,7 @@ function CollapsibleQuickMeasurements({
         <>
           {renderBathCountStepper('Tile shower walls', displayTileWallCount, adjustTileBathCount)}
           {renderBathCountStepper(
-            'Tile shower pan',
+            'Mud pan (tile shower)',
             displayTilePanCount,
             adjustTilePanCount,
             wetAreaStepperMax,

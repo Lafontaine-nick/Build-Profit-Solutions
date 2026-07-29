@@ -91,7 +91,7 @@ export function toggleWallLayoutChoiceIds(current: string[] | undefined, optionI
 
 const SHOWER_PAN_CHOICE_OPTIONS: ScopeChecklistOption[] = [
   { id: 'prefab', label: 'Prefab pan / base' },
-  { id: 'tile_pan', label: 'Tile shower pan' },
+  { id: 'tile_pan', label: 'Mud pan (tile shower)' },
   { id: 'not_in_scope', label: 'Not in this bid' },
   { id: 'unsure', label: 'Not sure yet' },
 ];
@@ -99,7 +99,7 @@ const SHOWER_PAN_CHOICE_OPTIONS: ScopeChecklistOption[] = [
 const WET_AREA_INSTALL_OPTIONS: ScopeChecklistOption[] = [
   { id: 'tub', label: 'Tub install' },
   { id: 'prefab', label: 'Prefab shower pan / base' },
-  { id: 'tile_pan', label: 'Tile shower pan' },
+  { id: 'tile_pan', label: 'Mud pan (tile shower)' },
   { id: 'staying', label: 'Keeping existing tub/shower' },
   { id: 'not_in_scope', label: 'Not in this bid' },
   { id: 'unsure', label: 'Not sure yet' },
@@ -137,7 +137,7 @@ const CHOICE_ITEM_CONFIG: Record<
   },
   shower_pan: {
     label: 'Shower pan',
-    helperText: 'Pick one — prefab pan/base or tile shower pan?',
+    helperText: 'Pick one — prefab pan/base or custom mud pan?',
     options: SHOWER_PAN_CHOICE_OPTIONS,
   },
 };
@@ -1376,9 +1376,9 @@ const WET_AREA_INSTALL_DERIVED: Record<
   },
   tile_pan: {
     id: 'shower_pan',
-    label: 'Tile shower pan (mud pan build)',
+    label: 'Shower mud pan build',
     helperText:
-      'Shower pan liner, concrete/mud-bed materials, entry curb build, drain assembly, and pan labor — before floor tile.',
+      'Liner, mud bed, drain, and entry curb — substrate only. Floor tile is a separate Shower floor tile line.',
   },
 };
 
@@ -1715,14 +1715,15 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   shower_floor_demo: 'Demo existing shower base, prefab pan, or shower floor tile.',
   vanity_demo: 'Demo and haul off the existing vanity cabinet — not the top alone.',
   countertop_demo: 'Demo and haul off the existing vanity top or bathroom counter.',
-  wet_area_install: 'Tub install, prefab pan/base, or tile shower pan — labor + materials.',
+  wet_area_install: 'Tub install, prefab pan/base, or custom mud pan — labor + materials.',
   tub_install: 'Labor + materials for tub supply and install.',
   prefab_shower_pan: 'Labor + materials for prefab pan or acrylic base.',
   prefab_shower_enclosure: 'Labor + materials for prefab surround / one-piece enclosure.',
   shower_pan:
-    'Shower pan liner, concrete/mud-bed materials, entry curb build, drain assembly, and pan labor — before floor tile.',
+    'Liner, mud bed, drain, and entry curb — substrate only. Floor tile is a separate Shower floor tile line.',
   shower_tile: 'Shower wall tile labor and materials.',
-  shower_floor_tile: 'Shower floor tile labor and materials.',
+  shower_floor_tile:
+    'Floor tile setting on the mud pan — tile/thinset/grout only (pan build is separate).',
   waterproofing:
     'Backer board (Hardie, foam, DensShield), RedGard-class membrane, vapor barrier, tape, screws, and wall-cavity insulation — before tile.',
   shower_bench: 'Build, waterproof, and tile a shower bench — not the shower entry curb.',

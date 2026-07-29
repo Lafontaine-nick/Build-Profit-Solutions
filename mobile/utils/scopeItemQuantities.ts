@@ -564,7 +564,7 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     labor: 1075,
     materialBucketLabel: 'Pan liner, drain, mud & curb lumber',
     laborBucketLabel: 'Mud pan build & curb frame labor',
-    sourceLabel: 'Suggested budget split · National Average · tile shower pan (mud pan + entry curb)',
+    sourceLabel: 'Suggested budget split · National Average · shower mud pan build + entry curb',
     rateSource: 'bps_national_benchmark',
     scopeProfileSource: 'bps_standard_assumption',
     productionStatus: 'review_required',
@@ -1272,7 +1272,7 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   tile_shower_pan: {
     category: 'wet_area',
     rootCause:
-      'Build Profit national-average tile shower pan (~$1,475 each) includes liner, drain, mud-bed materials, and a simple entry curb (~2× 2×4 lumber + screws). Curb framing is ~1 hr — not a tiled bench. Tile on the curb face is on the shower floor tile line.',
+      'Build Profit national-average shower mud pan build (~$1,475 each) includes liner, drain, mud-bed materials, and a simple entry curb (~2× 2×4 lumber + screws). Curb framing is ~1 hr — not a tiled bench. Floor tile and curb tile finish are on the Shower floor tile line, not here.',
     assumptions: [
       assumption('pan_liner', 'included', 'Shower pan liner', 'PVC or CPE shower pan liner is included.'),
       assumption('drain', 'included', 'Drain assembly', 'Standard shower drain assembly is included.'),
@@ -2253,7 +2253,8 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     defaultUnit: 'each',
     allowedUnits: ['each'],
     defaultQuantity: 1,
-    quantityHelper: 'Mud pan build — liner, concrete/mud, entry curb, drain, and labor (1 shower).',
+    quantityHelper:
+      'Mud pan build only — liner, mud bed, curb, drain (1 shower). Floor tile is separate.',
   },
   wet_area_install: {
     defaultUnit: 'each',
@@ -2278,7 +2279,8 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     allowedUnits: ['sqft'],
     measurementKey: 'showerFloorTileSqft',
     requiresUserQuantity: true,
-    quantityHelper: 'Enter shower floor tile sqft — not bathroom floor sqft.',
+    quantityHelper:
+      'Floor tile on the mud pan (tile/thinset/grout). Pan build is the separate mud pan line.',
     missingMessage: 'Enter shower floor tile sqft.',
   },
   shower_niche: {
@@ -3112,7 +3114,7 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRu
     canUseRoomSqft: false,
     requiresUserQuantity: true,
     quantityHelper:
-      'Enter shower wall + pan tear-out SF (priced ~$5.50/SF). Tub/prefab add-ons come from Demo / tear-out counts.',
+      'Enter shower wall + pan tear-out SF (~$5.50/SF). Tub/prefab pan $350 · enclosure $600 · door $125 from Demo / tear-out counts.',
     missingMessage: 'Enter shower tile demo sqft.',
   },
   floor_demo: {

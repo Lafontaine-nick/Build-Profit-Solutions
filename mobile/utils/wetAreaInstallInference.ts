@@ -34,9 +34,35 @@ function notesMentionTileShowerWalls(n: string): boolean {
   );
 }
 
-function notesMentionTileShowerPan(n: string): boolean {
+function notesMentionDemoTileShowerPan(n: string): boolean {
   return (
-    /\b(shower\s+floor\s+tile|tile\s+shower\s+floor)\b/.test(n) ||
+    /\b(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\s+(?:the\s+)?(?:existing\s+)?tile\s+(?:shower\s+)?pan\b/.test(
+      n
+    ) ||
+    /\btile\s+(?:shower\s+)?pan\s+(?:to\s+)?(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/.test(
+      n
+    )
+  );
+}
+
+function notesMentionDemoPrefabPan(n: string): boolean {
+  return (
+    /\b(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\s+(?:the\s+)?(?:existing\s+)?prefab\s+(?:shower\s+)?pan\b/.test(
+      n
+    ) ||
+    /\bprefab\s+(?:shower\s+)?pan\s+(?:to\s+)?(remove|demo|demolition|tear[\s-]?out|rip[\s-]?out)\b/.test(
+      n
+    )
+  );
+}
+
+function notesMentionTileShowerPan(n: string): boolean {
+  // Tear-out "demo tile shower pan" is existing condition — not new install.
+  if (notesMentionDemoTileShowerPan(n) && !/\b(and|install|new|retile)\s+tile\s+shower\s+pan\b/.test(n)) {
+    return false;
+  }
+  return (
+    /\b(shower\s+floor\s+tile|tile\s+shower\s+floor|tile\s+shower\s+pan)\b/.test(n) ||
     /\b(tile\s+pan|mud\s+pan|mortar\s+bed|hot\s+mop|custom\s+pan)\b/.test(n) ||
     (showerJobContext(n) && /\btile\s+(?:the\s+)?shower\s+floor\b/.test(n))
   );
@@ -50,6 +76,10 @@ function notesMentionPrefabEnclosure(n: string): boolean {
 
 function notesMentionPrefabPan(n: string): boolean {
   if (notesMentionPrefabEnclosure(n)) return false;
+  // "demo prefab shower pan" is tear-out — do not treat as installing a new prefab pan.
+  if (notesMentionDemoPrefabPan(n) && !/\b(install|new)\b[^.]{0,50}\bprefab\s+(?:shower\s+)?pan\b/.test(n)) {
+    return false;
+  }
   return /\b(prefab\s+shower\s+pan|prefab\s+pan|install\s+(?:a\s+)?prefab|acrylic\s+(?:shower\s+)?pan|fiberglass\s+pan|pan\s+insert)\b/.test(
     n
   );

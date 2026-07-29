@@ -79,6 +79,16 @@ describe('wetAreaInstallInference', () => {
     expect(inferred.prefabBathCount).toBeNull();
   });
 
+  test('demo prefab pan + tile shower pan installs tile pan only', () => {
+    const inferred = inferWetAreaInstallSteppersFromIntent({
+      notes:
+        'Demo shower walls, demo prefab shower pan, and tile shower walls, and tile shower pan.',
+    });
+    expect(inferred.bathCount).toBe(1);
+    expect(inferred.tilePanBathCount).toBe(1);
+    expect(inferred.prefabBathCount).toBeNull();
+  });
+
   test('reconcile clears prefab when both pans were saved', () => {
     const reconciled = reconcileExclusiveShowerPanSteppers({
       bathCount: 1,

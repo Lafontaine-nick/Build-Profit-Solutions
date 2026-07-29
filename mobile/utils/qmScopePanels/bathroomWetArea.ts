@@ -3,10 +3,12 @@ import { isSplitTileWetAreaCounts } from '@/utils/planBathRooms';
 import { hydrateWetAreaStepperCounts } from '@/utils/planBathRooms';
 import {
   emptyWetAreaExistingCounts,
+  mergeDemoCountsWithOverrides,
   readWetAreaDemoCounts,
   readWetAreaExistingCounts,
   resolveDemoWetAreaFromIntent,
   resolveEffectiveExistingWetArea,
+  type WetAreaDemoOverrideKey,
 } from '@/utils/wetAreaExistingDemo';
 import {
   syncWetAreaDemoScopeItems,
@@ -72,21 +74,28 @@ function hydrateBathroom(ctx: QmPanelHydrateContext): Record<string, unknown> {
       })();
 
   const savedDemo = readWetAreaDemoCounts(ctx.measurements);
-  const hasSavedDemo = Object.values(savedDemo).some((v) => v != null);
-  const demo = hasSavedDemo
-    ? savedDemo
-    : resolveDemoWetAreaFromIntent({
-        notes: ctx.notes,
-        existing: effectiveExisting,
-        install: steppers,
-        keepingExisting: wet?.choiceId === 'staying',
-        reuseExistingShowerDoor: Boolean(ctx.measurements.reuseExistingShowerDoor),
-        tubDemoIncluded: tubDemo?.state === 'included',
-        showerFloorDemoIncluded: showerFloorDemo?.state === 'included',
-        floorDemoIncluded: floorDemo?.state === 'included',
-        floorTileIncluded: floorTile?.state === 'included',
-        bathroomFloorSqft: ctx.measurements.bathroomFloorSqft,
-      });
+  const autoDemo = resolveDemoWetAreaFromIntent({
+    notes: ctx.notes,
+    existing: effectiveExisting,
+    install: steppers,
+    keepingExisting: wet?.choiceId === 'staying',
+    reuseExistingShowerDoor: Boolean(ctx.measurements.reuseExistingShowerDoor),
+    tubDemoIncluded: tubDemo?.state === 'included',
+    showerFloorDemoIncluded: showerFloorDemo?.state === 'included',
+    floorDemoIncluded: floorDemo?.state === 'included',
+    floorTileIncluded: floorTile?.state === 'included',
+    bathroomFloorSqft: ctx.measurements.bathroomFloorSqft,
+  });
+  // Re-infer each open so wet-area-only notes clear false-positive bath floor demo.
+  // Manual stepper edits are preserved via demoWetAreaManualOverrides.
+  const demoOverrides = (ctx.measurements.demoWetAreaManualOverrides || {}) as Partial<
+    Record<WetAreaDemoOverrideKey, boolean>
+  >;
+  const demo = mergeDemoCountsWithOverrides({
+    auto: autoDemo,
+    stored: savedDemo,
+    overrides: demoOverrides,
+  });
 
   return {
     ...ctx.measurements,

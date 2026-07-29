@@ -106,7 +106,8 @@ const BATHROOM_STEP2_PRICING_TIER: Record<string, Step2PricingTierConfig> = {
   demo: {
     tier: 'takeoff_required',
     takeoffLabel: 'shower tile demo SF',
-    benchmarkUnitHint: '~$5.50/SF tile demo ($0.50 mat + $5 labor) · tub/prefab add-ons when selected',
+    benchmarkUnitHint:
+      '~$5.50/SF tile · tub/prefab pan $350 · enclosure $600 · shower door $125',
   },
   floor_demo: {
     tier: 'takeoff_required',
@@ -232,8 +233,8 @@ export function step2TierNeedsInlineTakeoffEntry(
     return true;
   }
   if ((itemId === 'demo' || itemId === 'floor_demo') && template === 'bathroom') {
-    // Demo is $/sqft — keep SF editable so job-specific areas replace inferred install SF.
-    return true;
+    // SF is entered in Demo / tear-out Quick Measurements — no duplicate on-card takeoff box.
+    return false;
   }
   if (resolved?.pricingReady) return false;
   const config = resolveStep2PricingTier(itemId, templateKey).tier;
