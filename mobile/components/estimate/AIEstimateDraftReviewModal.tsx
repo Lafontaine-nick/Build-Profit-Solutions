@@ -169,7 +169,9 @@ export default function AIEstimateDraftReviewModal({
   };
   const confStyle = confidenceLevel ? confidenceColors[confidenceLevel] : confidenceColors.medium;
   const scopeOnly = isScopeOnlyDraft(draft);
-  const showPricingActions = draftHasUnpricedScope(draft);
+  const showPricingActions =
+    draftHasUnpricedScope(draft) ||
+    (showUseSavedPricing && !draft?.savedPricingApplySummary);
   const scopeHasPricing = draftHasApplyablePricing(draft);
   const warnings = draft ? dedupeDraftWarnings(draft) : [];
   const needsReview = draft?.needsReviewItems?.length

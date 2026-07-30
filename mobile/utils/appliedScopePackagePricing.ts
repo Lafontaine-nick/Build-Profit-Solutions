@@ -126,6 +126,25 @@ export function resolveAppliedConfirmScopePackageAmount(
   return resolveAppliedConfirmScopePackagePricing(pkg, draft)?.total ?? 0;
 }
 
+/** Step 2 pricing acceptance metadata for a Step 3 scope row, when present. */
+export function resolveConfirmScopePackagePricingAcceptance(
+  pkg: EstimateDraftScopePackage,
+  draft: EstimateAiDraft | null | undefined
+): ScopePricingAcceptanceMetadata | null {
+  if (!draft) return null;
+  const items = confirmScopeDisplayItemsFromDraft(draft);
+  if (!items.length) return null;
+  const measurements = draftMeasurementsForAppliedPricing(draft);
+  const acceptanceMap = measurements.pricingAcceptance || {};
+  for (const ruleKey of ruleKeysForPackage(pkg)) {
+    const item = items.find((i) => i.id === ruleKey);
+    if (!item || !checklistItemInScope(item)) continue;
+    const acceptance = acceptanceMap[ruleKey];
+    if (acceptance) return acceptance;
+  }
+  return null;
+}
+
 function pricingContextFromDraft(draft: EstimateAiDraft): ScopePricingContext | null {
   const items = confirmScopeDisplayItemsFromDraft(draft);
   if (!items.length) return null;

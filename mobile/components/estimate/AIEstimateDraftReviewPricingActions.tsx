@@ -173,6 +173,8 @@ export default function AIEstimateDraftReviewPricingActions({
     scopePackageNeedsManualPrice(pkg, draft)
   );
   const unpricedCount = unpricedPackages.length;
+  const allPricedWithSavedRates =
+    unpricedCount === 0 && hasPricing && showUseSavedPricing && !draft.savedPricingApplySummary;
   const roughTiers = countUnpricedRoughPricingTiers(draft);
   const showRoughUnavailable =
     unpricedCount > 0 &&
@@ -228,9 +230,36 @@ export default function AIEstimateDraftReviewPricingActions({
   return (
     <View style={estimateFlowCardStyle(Colors, darkMode, { marginBottom: 12 })}>
       <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '800', marginBottom: 6 }}>
-        {hasPricing ? 'Finish pricing' : 'Add pricing'}
+        {allPricedWithSavedRates
+          ? 'Saved rates'
+          : hasPricing
+            ? 'Finish pricing'
+            : 'Add pricing'}
       </Text>
 
+      {allPricedWithSavedRates ? (
+        <>
+          <Text
+            style={{
+              color: Colors.sub,
+              fontSize: 12,
+              lineHeight: 17,
+              marginBottom: 10,
+            }}
+          >
+            All scope items are priced. Apply saved template or library rates to replace planning
+            prices before you apply to the bid.
+          </Text>
+          <SuggestPricingBtn
+            label="Apply saved rates"
+            onPress={onUseSavedPricing}
+            disabled={busy}
+            loading={suggestingMissingPrices}
+            darkMode={darkMode}
+          />
+        </>
+      ) : (
+        <>
       {measuredLines.length > 0 && !showRoughUnavailable ? (
         <View style={{ marginBottom: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -345,6 +374,8 @@ export default function AIEstimateDraftReviewPricingActions({
           {draft.pricingMemoryMessage}
         </Text>
       ) : null}
+        </>
+      )}
     </View>
   );
 }

@@ -24,6 +24,8 @@ import {
 import type { ScopeItemIntelligence } from '@/utils/scopeIntelligence';
 import {
   isNationalAverageComparisonBlock,
+  resolveScopeItemSuggestedPricing,
+  shouldSuppressSuggestedPricingAfterApply,
   type ResolvedItemQuantity,
   type SuggestedPricingBlock,
 } from '@/utils/scopeItemQuantities';
@@ -645,6 +647,91 @@ describe('acceptedPricingSummaryUi', () => {
         suggestedTotal: 5148.75,
       })
     ).toBe(true);
+  });
+
+  it('keeps benchmark row visible for user-entered pricing even when totals match', () => {
+    const itemQuantities = {
+      waterproofing__allowance: {
+        quantity: '1100',
+        unit: 'allowance',
+        quantitySource: 'user_entered' as const,
+      },
+    };
+    const pricingAcceptance = {
+      waterproofing: {
+        selectionStatus: 'user_entered' as const,
+        pricingSourceLabel: 'User entered',
+        pricingSourceKind: 'user_entered' as const,
+        pricingTypeLabel: 'Flat allowance',
+        geographicBasis: 'National',
+        totalAmount: 1100,
+      },
+    };
+    expect(
+      shouldHideSuggestedPanel({
+        itemId: 'waterproofing',
+        itemQuantities,
+        pricingAcceptance,
+        suggestedTotal: 1100,
+      })
+    ).toBe(false);
+  });
+
+  it('keeps benchmark row visible when user-entered pricing diverges from benchmark', () => {
+    const itemQuantities = {
+      waterproofing__allowance: {
+        quantity: '1400',
+        unit: 'allowance',
+        quantitySource: 'user_entered' as const,
+      },
+    };
+    const pricingAcceptance = {
+      waterproofing: {
+        selectionStatus: 'user_entered' as const,
+        pricingSourceLabel: 'User entered',
+        pricingSourceKind: 'user_entered' as const,
+        pricingTypeLabel: 'Flat allowance',
+        geographicBasis: 'National',
+        totalAmount: 1400,
+      },
+    };
+    expect(
+      shouldHideSuggestedPanel({
+        itemId: 'waterproofing',
+        itemQuantities,
+        pricingAcceptance,
+        suggestedTotal: 960,
+      })
+    ).toBe(false);
+  });
+
+  it('still resolves sqft benchmark after user-entered material/labor split', () => {
+    const itemQuantities = {
+      waterproofing__sqft_basis: { quantity: '80', unit: 'sqft', quantitySource: 'user_entered' as const },
+      waterproofing__material: { quantity: '400', unit: 'allowance', quantitySource: 'user_entered' as const },
+      waterproofing__labor: { quantity: '560', unit: 'allowance', quantitySource: 'user_entered' as const },
+      waterproofing__allowance: { quantity: '960', unit: 'allowance', quantitySource: 'user_entered' as const },
+    };
+    const pricingAcceptance = {
+      waterproofing: {
+        selectionStatus: 'user_entered' as const,
+        pricingSourceLabel: 'User entered',
+        pricingSourceKind: 'user_entered' as const,
+        pricingTypeLabel: 'Flat allowance',
+        geographicBasis: 'National',
+        totalAmount: 1400,
+      },
+    };
+    expect(
+      shouldSuppressSuggestedPricingAfterApply('waterproofing', itemQuantities, pricingAcceptance)
+    ).toBe(false);
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'waterproofing',
+      { itemQuantities, showerWallTileSqft: '80' } as any,
+      'bathroom',
+      { quantity: 80, unit: 'sqft', quantitySource: 'user_entered' }
+    );
+    expect(fill?.total).toBe(960);
   });
 
   it('clears applied price so the original Suggest card can return', () => {

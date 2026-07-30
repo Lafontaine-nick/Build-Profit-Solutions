@@ -4835,16 +4835,15 @@ export function readStoredSqftPricingBasis(
 /**
  * After Apply, do not compute a second suggested total — it often uses stale QM
  * aggregates or treats applied dollar totals as multipliers (375 × $375, 935 sf, etc.).
- * Manual_adjusted pricing may still show a comparison suggest when totals differ.
+ * User-entered / manual_adjusted pricing keeps the benchmark row for comparison.
  */
 export function shouldSuppressSuggestedPricingAfterApply(
   itemId: string,
-  itemQuantities: Record<string, ScopeItemQuantityLike>,
+  _itemQuantities: Record<string, ScopeItemQuantityLike>,
   pricingAcceptance?: Record<string, { selectionStatus?: string }>
 ): boolean {
-  if (hasUserEnteredMaterialLaborSplit(itemQuantities, itemId)) return true;
-  if (pricingAcceptance?.[itemId]?.selectionStatus === 'accepted') return true;
-  return false;
+  void _itemQuantities;
+  return pricingAcceptance?.[itemId]?.selectionStatus === 'accepted';
 }
 
 /** True when Edit only seeded Suggest values (user has not committed a price). */

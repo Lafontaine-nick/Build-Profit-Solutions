@@ -1139,9 +1139,8 @@ export function currentScopePricingTotal(
 }
 
 /**
- * Hide the suggested panel only when pricing is already accepted/entered AND it
- * matches the suggestion. If the user edited away from the suggestion, keep the
- * panel so they can switch back.
+ * Hide the suggested panel only when pricing was applied from Suggest and matches
+ * the benchmark. User-entered / manual pricing always keeps the comparison row.
  */
 export function shouldHideSuggestedPanel(params: {
   itemId: string;
@@ -1163,6 +1162,12 @@ export function shouldHideSuggestedPanel(params: {
   }
   const suggested = Number(params.suggestedTotal);
   if (!(Number.isFinite(suggested) && suggested > 0)) return true;
+
+  // Manual entry (not applied from Suggest) — always show benchmark for comparison.
+  if (params.pricingAcceptance?.[params.itemId]?.selectionStatus !== 'accepted') {
+    return false;
+  }
+
   const current = currentScopePricingTotal(
     params.itemId,
     params.itemQuantities,

@@ -16,6 +16,8 @@ import { formatDraftMoney } from '@/utils/estimateAiDraft';
 import { getScopePackagesForReview } from '@/utils/scopePackagesForReview';
 import {
   compactPackageAmount,
+  compactPackagePricingSourceColor,
+  compactPackagePricingSourceLabel,
   compactPackageStatusLabel,
   dedupeMissingPriceSuggestions,
   formatScopeQuantity,
@@ -667,6 +669,7 @@ export default function AIEstimateDraftReviewCompact({
           // Soft costs are flat allowances — never show a fake Material $0 / Labor split.
           const budgetBreakdown = isSoftCost ? null : resolvedBreakdown;
           const statusLabel = compactPackageStatusLabel(pkg, draft);
+          const pricingSourceLabel = compactPackagePricingSourceLabel(pkg, draft);
           const hint = !amount ? scopePackagePricingHint(pkg) : null;
           const needsPrice = scopePackageNeedsManualPrice(pkg, draft);
           const isEditingPricing = editingPricingFor === pkg.name;
@@ -682,6 +685,7 @@ export default function AIEstimateDraftReviewCompact({
           const showStatus =
             !hideRowStatus &&
             amount &&
+            !pricingSourceLabel &&
             pkg.status !== 'user_provided' &&
             pkg.status !== 'confirmed' &&
             statusLabel !== 'Confirmed';
@@ -808,6 +812,22 @@ export default function AIEstimateDraftReviewCompact({
                     {showStatus ? (
                       <Text style={{ color: Colors.sub, fontSize: 10, marginTop: 2 }}>
                         {statusLabel}
+                      </Text>
+                    ) : null}
+                    {pricingSourceLabel ? (
+                      <Text
+                        style={{
+                          color: compactPackagePricingSourceColor(
+                            pricingSourceLabel,
+                            darkMode,
+                            Colors.sub
+                          ),
+                          fontSize: 10,
+                          fontWeight: '600',
+                          marginTop: 2,
+                        }}
+                      >
+                        {pricingSourceLabel}
                       </Text>
                     ) : null}
                   </View>

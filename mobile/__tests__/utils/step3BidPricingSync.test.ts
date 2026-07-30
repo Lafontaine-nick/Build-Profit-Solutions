@@ -3,6 +3,7 @@ import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { applyPricingProposalToDraft } from '@/utils/estimateAiDraftPricing';
 import { sumStep3ReviewBudgetTotals, sumAppliedScopePricingFromDraft } from '@/utils/benchmarkReasonablenessContext';
 import { buildAcceptanceFromSuggestedBlock } from '@/utils/acceptedPricingSummaryUi';
+import { compactPackagePricingSourceLabel } from '@/utils/estimateDraftReviewUi';
 
 describe('Step 3 pricing syncs into final bid line items', () => {
   it('preserves existing scopePackages when applying a rough proposal', () => {
@@ -1072,5 +1073,91 @@ describe('Step 3 pricing syncs into final bid line items', () => {
     expect(bidSubtotal).toBeCloseTo(step3!.total, 2);
     // Without the fix, toilet+vanity+plumbing (~$10.5k) inflate Bid Summary past Step 3.
     expect(bidSubtotal).toBeLessThan(10000);
+  });
+});
+
+describe('Step 3 scope row pricing source labels', () => {
+  it('shows User entered from pricingAcceptance metadata', () => {
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: {
+        templateKey: 'bathroom',
+        items: [
+          {
+            id: 'waterproofing',
+            label: 'Shower waterproofing & backer board',
+            inputType: 'yes_no',
+            state: 'included',
+          },
+        ],
+      },
+      scopeMeasurements: {
+        itemQuantities: {
+          waterproofing__allowance: {
+            quantity: '1400',
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+        },
+        pricingAcceptance: {
+          waterproofing: {
+            selectionStatus: 'user_entered',
+            pricingSourceLabel: 'User entered',
+            pricingSourceKind: 'user_entered',
+            totalAmount: 1400,
+          },
+        },
+      },
+    } as unknown as EstimateAiDraft;
+    const label = compactPackagePricingSourceLabel(
+      {
+        name: 'Shower waterproofing & backer board',
+        scope: 'waterproofing',
+        checklistItemId: 'waterproofing',
+        status: 'user_provided',
+      },
+      draft
+    );
+    expect(label).toBe('User entered');
+  });
+
+  it('shows Applied when user tapped Apply on Step 2', () => {
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: {
+        templateKey: 'bathroom',
+        items: [
+          {
+            id: 'waterproofing',
+            label: 'Shower waterproofing & backer board',
+            inputType: 'yes_no',
+            state: 'included',
+          },
+        ],
+      },
+      scopeMeasurements: {
+        itemQuantities: {
+          waterproofing__allowance: { quantity: '1100', unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: {
+          waterproofing: {
+            selectionStatus: 'accepted',
+            pricingSourceLabel: 'BPS national benchmark',
+            pricingSourceKind: 'national_average',
+            totalAmount: 1100,
+          },
+        },
+      },
+    } as unknown as EstimateAiDraft;
+    const label = compactPackagePricingSourceLabel(
+      {
+        name: 'Shower waterproofing & backer board',
+        scope: 'waterproofing',
+        checklistItemId: 'waterproofing',
+        status: 'user_provided',
+      },
+      draft
+    );
+    expect(label).toBe('Applied');
   });
 });

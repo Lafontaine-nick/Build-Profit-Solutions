@@ -10,8 +10,10 @@ import {
 } from '@/utils/scopeBudgetBreakdown';
 import {
   resolveAppliedConfirmScopePackageAmount,
+  resolveConfirmScopePackagePricingAcceptance,
   resolveNationalAverageScopePackageAmount,
 } from '@/utils/appliedScopePackagePricing';
+import type { ScopePricingAcceptanceMetadata } from '@/utils/acceptedPricingSummaryUi';
 import { isSoftCostScopePackage } from '@/utils/softCostScope';
 
 export type ScopePackageBudgetBreakdown = ItemBudgetBreakdown;
@@ -238,6 +240,55 @@ export function compactPackageStatusLabel(
     return 'Matched rate';
   }
   return STATUS_SHORT[pkg.status || ''] || 'Review';
+}
+
+function pricingAcceptanceSourceLabel(
+  acceptance: ScopePricingAcceptanceMetadata
+): string {
+  if (acceptance.selectionStatus === 'accepted') return 'Applied';
+  if (acceptance.selectionStatus === 'manual_adjusted') return 'User adjusted';
+  if (acceptance.selectionStatus === 'user_entered') return 'User entered';
+  const label = String(acceptance.pricingSourceLabel || '').trim();
+  if (label) return label;
+  if (acceptance.pricingSourceKind === 'national_average') return 'BPS national benchmark';
+  if (acceptance.pricingSourceKind === 'saved_rate') return 'Saved rate';
+  if (acceptance.pricingSourceKind === 'local_benchmark') return 'Local benchmark';
+  return 'Applied';
+}
+
+/** Pricing provenance for Step 3 scope rows (mirrors Step 2 Applied card status). */
+export function compactPackagePricingSourceLabel(
+  pkg: EstimateDraftScopePackage,
+  draft?: EstimateAiDraft | null
+): string | null {
+  if (!draft) return null;
+  const acceptance = resolveConfirmScopePackagePricingAcceptance(pkg, draft);
+  if (acceptance) return pricingAcceptanceSourceLabel(acceptance);
+  if (
+    pkg.priceProvidedByUser ||
+    pkg.status === 'user_provided' ||
+    pkg.priceSource === 'user_provided'
+  ) {
+    return 'User entered';
+  }
+  if (pkg.status === 'confirmed') return 'Confirmed';
+  if (pkg.status === 'rough_price') return 'Rough estimate';
+  return null;
+}
+
+export function compactPackagePricingSourceColor(
+  label: string,
+  darkMode: boolean,
+  subColor: string
+): string {
+  const normalized = label.trim().toLowerCase();
+  if (normalized === 'user entered' || normalized === 'user adjusted') {
+    return darkMode ? '#4ade80' : '#22c55e';
+  }
+  if (normalized === 'applied' || normalized === 'bps national benchmark') {
+    return darkMode ? 'rgba(255,255,255,0.62)' : subColor;
+  }
+  return darkMode ? 'rgba(255,255,255,0.62)' : subColor;
 }
 
 export function pendingProposalCalculatedTotal(draft: EstimateAiDraft | null | undefined): number {
