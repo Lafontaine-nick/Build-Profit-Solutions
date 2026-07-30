@@ -34,6 +34,28 @@ describe('bathroom toilet always visible on Confirm Scope', () => {
     expect(hydrated.some((row) => row.id === 'toilet')).toBe(true);
   });
 
+  test('all scope groups stay expanded on first load', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'toilet',
+        label: 'Toilet',
+        inputType: 'choice',
+        state: 'unsure',
+        choiceId: null,
+        options: [],
+      },
+      { id: 'floor_tile', label: 'Bath floor tile', inputType: 'yes_no', state: 'unsure' },
+      { id: 'plumbing_rough', label: 'Plumbing rough-in', inputType: 'yes_no', state: 'unsure' },
+      { id: 'plumbing_trim', label: 'Plumbing trim', inputType: 'yes_no', state: 'unsure' },
+    ];
+    const grouped = groupScopeChecklistItems(items, 'bathroom');
+    const collapsed = initialScopeGroupCollapse(grouped, { itemQuantities: {} }, 'bathroom', '');
+    for (const group of grouped) {
+      if (!group.title) continue;
+      expect(collapsed[group.title]).toBe(false);
+    }
+  });
+
   test('Fixtures group stays expanded and toilet renders at full emphasis without notes', () => {
     const items: ScopeChecklistItem[] = [
       {

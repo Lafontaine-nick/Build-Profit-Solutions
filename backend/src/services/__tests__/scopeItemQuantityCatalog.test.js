@@ -265,7 +265,8 @@ describe('scopeItemQuantityCatalog', () => {
     expect(prefabPan.unit).toBe('each');
 
     const tilePan = resolveQuantityForChecklistItem('shower_pan', { measurements });
-    expect(tilePan.quantity).toBe(1);
+    expect(tilePan.quantity).toBe(25);
+    expect(tilePan.unit).toBe('sqft');
     expect(tilePan.pricingReady).toBe(true);
 
     const wetTub = resolveQuantityForChecklistItem('wet_area_install', {

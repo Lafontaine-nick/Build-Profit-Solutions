@@ -231,6 +231,8 @@ export type WetAreaStepperCounts = {
   prefabBathCount: number | null;
   prefabEnclosureBathCount: number | null;
   tubBathCount: number | null;
+  /** Bathroom floor tile install (outside shower) — coexists with wet-area finish. */
+  bathFloorTileCount: number | null;
   showerDoorCount: number | null;
 };
 
@@ -240,6 +242,7 @@ export function hydrateWetAreaStepperCounts(params: {
   wetAreaInstallChoiceId?: string | null;
   showerTileIncluded?: boolean;
   showerFloorTileIncluded?: boolean;
+  bathFloorTileIncluded?: boolean;
   glassDoorIncluded?: boolean;
   notes?: string | null;
   templateKey?: string | null;
@@ -252,6 +255,7 @@ export function hydrateWetAreaStepperCounts(params: {
     prefabBathCount: positiveCount(params.measurements.prefabBathCount),
     prefabEnclosureBathCount: positiveCount(params.measurements.prefabEnclosureBathCount),
     tubBathCount: positiveCount(params.measurements.tubBathCount),
+    bathFloorTileCount: positiveCount(params.measurements.bathFloorTileCount),
     showerDoorCount: positiveCount(params.measurements.showerDoorCount),
   };
   if (!split) return base;
@@ -265,9 +269,14 @@ export function hydrateWetAreaStepperCounts(params: {
     showerFloorTileIncluded: params.showerFloorTileIncluded,
     glassDoorIncluded: params.glassDoorIncluded,
   });
-  return reconcileExclusiveShowerPanSteppers(
+  const merged = reconcileExclusiveShowerPanSteppers(
     mergeInferredWetAreaInstallSteppers(base, inferred)
   );
+  // Re-resolve from notes each open so shower-floor phrasing cannot leave Bath floor on.
+  if (!inferred.bathFloorTileCount) {
+    merged.bathFloorTileCount = null;
+  }
+  return merged;
 }
 
 /** Primary wet_area_install choice for legacy single-select sync. */

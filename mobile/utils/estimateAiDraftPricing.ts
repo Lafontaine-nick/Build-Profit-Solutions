@@ -21,6 +21,10 @@ import {
   getNationalAverageBudgetSplit,
   getRegionalAdjustedNationalAverageBudgetSplit,
 } from '@/utils/scopeItemQuantities';
+import {
+  buildConfirmScopeUnpricedPricingProposal,
+  draftEligibleForConfirmScopeUnpricedPricing,
+} from '@/utils/confirmScopeUnpricedPricing';
 import { getBuilderBudgetSoftCostAllowance } from '@/utils/southernUtahCalibratedRates';
 import {
   lookupRuleKeyForBudgetPackage,
@@ -113,10 +117,11 @@ const FIXTURE_PLANNING_RATES_LOCAL: Record<
     laborLabel: 'Prefab shower pan install labor',
   },
   tile_shower_pan: {
-    material: 400,
-    labor: 1075,
+    material: 27,
+    labor: 72,
     materialLabel: 'Pan liner, drain, mud & curb lumber',
     laborLabel: 'Mud pan build & curb frame labor',
+    unit: 'sqft',
   },
   shower_niche: {
     material: 275,
@@ -771,6 +776,9 @@ export type PricingProposal = {
   pricingMode?: 'saved_only' | 'suggest';
   requiresConfirmBeforeApply?: boolean;
   canApplyWithoutConfirm?: boolean;
+  /** When true, list only Confirm Scope rows missing Applied pricing (Step 2 format). */
+  confirmScopeOnly?: boolean;
+  confirmScopeRows?: Array<{ itemId: string; block: import('@/utils/scopeItemQuantities').SuggestedPricingBlock }>;
 };
 
 export const PRICING_SOURCE_LABELS: Record<string, string> = {
@@ -948,7 +956,7 @@ export function comparisonMaterialDetail(
   return null;
 }
 
-function scopeItemsToProposalLines(scopeItems: PricingScopeItemProposal[]): PricingProposalLine[] {
+export function scopeItemsToProposalLines(scopeItems: PricingScopeItemProposal[]): PricingProposalLine[] {
   return scopeItems.flatMap((it) =>
     (it.proposedRates || []).map((p) => ({
       packageName: it.scopeName,
@@ -3246,6 +3254,18 @@ export async function fetchRoughPricingProposal(
   savedTemplates: unknown[] = [],
   location?: { projectLocation?: string; zipCode?: string; state?: string | null; city?: string | null }
 ): Promise<PricingProposal> {
+  if (draftEligibleForConfirmScopeUnpricedPricing(draft)) {
+    const confirmOnly = buildConfirmScopeUnpricedPricingProposal(draft);
+    if (!confirmOnly.empty) {
+      return applyRoughPricingTiers(confirmOnly, draft);
+    }
+    return normalizePricingProposal({
+      ...confirmOnly,
+      empty: true,
+      message: 'All included scopes already have pricing from Confirm Scope.',
+    });
+  }
+
   const templates = await resolveSavedBidTemplates(savedTemplates);
   const localFallback = buildRoughPricingProposalLocal(draft, location);
   try {
@@ -3428,22 +3448,25 @@ function buildRoughPricingProposalLocal(
     if (roughAutoPricingBlockedName(`${pkg.name} ${pkg.scope || ''}`.toLowerCase())) continue;
     const trade = inferTradeFromPackage(pkg, draft);
 
-    if (trade === 'bathroom_fixture' && qty?.unit === 'each') {
+    if (trade === 'bathroom_fixture') {
       const fixture = resolveFixtureKindLocal(pkg.name);
       const band = fixture ? FIXTURE_PLANNING_RATES_LOCAL[fixture] : null;
-      if (band) {
-        const quantity = qty.quantity > 0 ? qty.quantity : 1;
+      const isSqftPan = fixture === 'tile_shower_pan';
+      const fixtureUnit = isSqftPan ? 'sqft' : 'each';
+      if (band && (qty?.unit === fixtureUnit || (isSqftPan && qty?.unit === 'sqft'))) {
+        const quantity =
+          qty && qty.quantity > 0 ? qty.quantity : isSqftPan ? 15 : 1;
         const pushFixture = (lineType: 'material' | 'labor', label: string, unitRate: number) => {
           const total = roundMoney(unitRate * quantity);
           lines.push({
             packageName: pkg.name,
             lineType,
             label,
-            unitType: 'each',
+            unitType: fixtureUnit,
             quantity,
             unitRate,
             total,
-            formula: `${quantity.toLocaleString()} each × $${unitRate}/each = $${formatMoney(total)}`,
+            formula: `${quantity.toLocaleString()} ${fixtureUnit} × $${unitRate}/${fixtureUnit} = $${formatMoney(total)}`,
             priceSource: 'national_trade_average',
             sourceLabel: NATIONAL_SOURCE_LABEL,
             confidence: lineType === 'labor' ? 'medium' : 'low',
@@ -3841,6 +3864,10 @@ export function buildProposalFromMissingSuggestions(
   draft: EstimateAiDraft,
   suggestions: MissingPriceSuggestion[]
 ): PricingProposal {
+  if (draftEligibleForConfirmScopeUnpricedPricing(draft)) {
+    return buildConfirmScopeUnpricedPricingProposal(draft);
+  }
+
   const lines: PricingProposalLine[] = [];
   const coveredLineKeys = new Set<string>();
 

@@ -11,11 +11,7 @@ describe('planningQuantities fixtures', () => {
   });
 
   test('lookupFixturePlanningRates returns labor and material for each install type', () => {
-    for (const name of [
-      'Tub Installation',
-      'Prefab Shower Pan Install',
-      'Tile Shower Pan (Mud Pan)',
-    ]) {
+    for (const name of ['Tub Installation', 'Prefab Shower Pan Install']) {
       const result = lookupFixturePlanningRates({
         scopeName: name,
         quantity: 1,
@@ -24,6 +20,18 @@ describe('planningQuantities fixtures', () => {
       expect(result.available).toBe(true);
       expect(result.rates.some((r) => r.pricingType === 'material')).toBe(true);
       expect(result.rates.some((r) => r.pricingType === 'labor')).toBe(true);
+      expect(result.rates.every((r) => r.unit === 'each')).toBe(true);
     }
+
+    const mudPan = lookupFixturePlanningRates({
+      scopeName: 'Tile Shower Pan (Mud Pan)',
+      quantity: 20,
+      unit: 'sqft',
+    });
+    expect(mudPan.available).toBe(true);
+    expect(mudPan.rates.some((r) => r.pricingType === 'material' && r.unit === 'sqft')).toBe(true);
+    expect(mudPan.rates.some((r) => r.pricingType === 'labor' && r.unit === 'sqft')).toBe(true);
+    expect(mudPan.rates.find((r) => r.pricingType === 'material')?.rate).toBe(27);
+    expect(mudPan.rates.find((r) => r.pricingType === 'labor')?.rate).toBe(72);
   });
 });

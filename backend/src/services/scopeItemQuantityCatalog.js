@@ -102,12 +102,14 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
     quantityHelper: 'Uses bathroom floor sqft.',
   },
   shower_pan: {
-    defaultUnit: 'each',
-    allowedUnits: ['each'],
-    defaultQuantity: 1,
-    requiresUserQuantity: false,
-    pricingMethod: 'each',
-    quantityHelper: 'Mud pan build — liner, concrete/mud, entry curb, drain, and labor (1 shower).',
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft'],
+    measurementKey: 'showerFloorTileSqft',
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper:
+      'Uses shower floor sqft — liner, mud bed, curb, and drain scale with pan size. Floor tile is separate.',
+    missingMessage: 'Enter shower floor sqft for mud pan build.',
   },
   wet_area_install: {
     defaultUnit: 'each',

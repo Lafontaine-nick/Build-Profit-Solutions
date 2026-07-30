@@ -238,6 +238,8 @@ export type ScopeMeasurements = {
   prefabEnclosureBathCount?: number | null;
   /** Tub baths — does not clear or replace tile shower SF. */
   tubBathCount?: number | null;
+  /** Bathroom floor tile install count (outside shower) — Wet area finish. */
+  bathFloorTileCount?: number | null;
   /** Glass shower door / enclosure count (Wet area finish). */
   showerDoorCount?: number | null;
   /** Existing wet-area features (QM — bathroom photo/notes). */

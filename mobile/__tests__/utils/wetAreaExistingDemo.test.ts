@@ -47,6 +47,7 @@ describe('wetAreaExistingDemo', () => {
         prefabBathCount: null,
         prefabEnclosureBathCount: null,
         tubBathCount: null,
+        bathFloorTileCount: null,
         showerDoorCount: null,
       },
     });
@@ -101,7 +102,7 @@ describe('wetAreaExistingDemo', () => {
     const demo = resolveDemoWetAreaFromIntent({
       notes: 'Demo existing shower and tile the walls.',
       existing: { existingTubCount: 1, existingTileWallCount: 1 },
-      install: { bathCount: null, tilePanBathCount: null, prefabBathCount: null, prefabEnclosureBathCount: null, tubBathCount: null, showerDoorCount: null },
+      install: { bathCount: null, tilePanBathCount: null, prefabBathCount: null, prefabEnclosureBathCount: null, tubBathCount: null, bathFloorTileCount: null, showerDoorCount: null },
     });
     expect(demo.demoTubCount).toBe(1);
     expect(demo.demoTileWallCount).toBe(1);
@@ -117,6 +118,7 @@ describe('wetAreaExistingDemo', () => {
         prefabBathCount: null,
         prefabEnclosureBathCount: null,
         tubBathCount: null,
+        bathFloorTileCount: null,
         showerDoorCount: 1,
       },
     });
@@ -133,6 +135,7 @@ describe('wetAreaExistingDemo', () => {
         prefabBathCount: null,
         prefabEnclosureBathCount: null,
         tubBathCount: null,
+        bathFloorTileCount: null,
         showerDoorCount: 1,
       },
     });
@@ -153,10 +156,82 @@ describe('wetAreaExistingDemo', () => {
     const demo = resolveDemoWetAreaFromIntent({
       notes: 'Bathroom remodel.',
       existing: emptyWetAreaExistingCounts(),
-      install: { bathCount: 1, tilePanBathCount: 1, prefabBathCount: null, prefabEnclosureBathCount: null, tubBathCount: null, showerDoorCount: null },
+      install: {
+        bathCount: null,
+        tilePanBathCount: null,
+        prefabBathCount: null,
+        prefabEnclosureBathCount: null,
+        tubBathCount: null,
+        bathFloorTileCount: null,
+        showerDoorCount: null,
+      },
     });
     expect(demo.demoTubCount).toBeNull();
     expect(demo.demoTileWallCount).toBeNull();
+  });
+
+  test('install steppers select matching demo without existing', () => {
+    const emptyInstall = {
+      bathCount: null,
+      tilePanBathCount: null,
+      prefabBathCount: null,
+      prefabEnclosureBathCount: null,
+      tubBathCount: null,
+      bathFloorTileCount: null,
+      showerDoorCount: null,
+    };
+    expect(
+      resolveAutoDemoWetAreaCounts({
+        existing: emptyWetAreaExistingCounts(),
+        install: { ...emptyInstall, bathCount: 1 },
+      }).demoTileWallCount
+    ).toBe(1);
+    expect(
+      resolveAutoDemoWetAreaCounts({
+        existing: emptyWetAreaExistingCounts(),
+        install: { ...emptyInstall, tilePanBathCount: 1 },
+      }).demoTilePanCount
+    ).toBe(1);
+    expect(
+      resolveAutoDemoWetAreaCounts({
+        existing: emptyWetAreaExistingCounts(),
+        install: { ...emptyInstall, prefabBathCount: 1 },
+      }).demoPrefabPanCount
+    ).toBe(1);
+    expect(
+      resolveAutoDemoWetAreaCounts({
+        existing: emptyWetAreaExistingCounts(),
+        install: { ...emptyInstall, prefabEnclosureBathCount: 1 },
+      }).demoPrefabEnclosureCount
+    ).toBe(1);
+    expect(
+      resolveAutoDemoWetAreaCounts({
+        existing: emptyWetAreaExistingCounts(),
+        install: { ...emptyInstall, tubBathCount: 1 },
+      }).demoTubCount
+    ).toBe(1);
+    expect(
+      resolveAutoDemoWetAreaCounts({
+        existing: emptyWetAreaExistingCounts(),
+        install: { ...emptyInstall, showerDoorCount: 1 },
+      }).demoShowerDoorCount
+    ).toBeNull();
+  });
+
+  test('bath floor stepper selects remove bathroom floor without existing', () => {
+    const demo = resolveAutoDemoWetAreaCounts({
+      existing: emptyWetAreaExistingCounts(),
+      install: {
+        bathCount: null,
+        tilePanBathCount: null,
+        prefabBathCount: null,
+        prefabEnclosureBathCount: null,
+        tubBathCount: null,
+        bathFloorTileCount: 1,
+        showerDoorCount: null,
+      },
+    });
+    expect(demo.demoBathFloorTileCount).toBe(1);
   });
 
   test('resolveEffectiveExistingWetArea merges photo measurements and notes', () => {
@@ -192,10 +267,62 @@ describe('wetAreaExistingDemo', () => {
         prefabBathCount: null,
         prefabEnclosureBathCount: null,
         tubBathCount: null,
+        bathFloorTileCount: null,
         showerDoorCount: null,
       },
       floorTileIncluded: true,
       bathroomFloorSqft: '45',
+    });
+    expect(demo.demoBathFloorTileCount).toBe(1);
+  });
+
+  test('mud pan install demos existing prefab pan (conversion)', () => {
+    const demo = resolveAutoDemoWetAreaCounts({
+      existing: { existingPrefabPanCount: 1, existingTileWallCount: 1 },
+      install: {
+        bathCount: 1,
+        tilePanBathCount: 1,
+        prefabBathCount: null,
+        prefabEnclosureBathCount: null,
+        tubBathCount: null,
+        bathFloorTileCount: null,
+        showerDoorCount: null,
+      },
+    });
+    expect(demo.demoTileWallCount).toBe(1);
+    expect(demo.demoPrefabPanCount).toBe(1);
+    expect(demo.demoTilePanCount).toBeNull();
+  });
+
+  test('prefab pan install demos existing tile pan (conversion)', () => {
+    const demo = resolveAutoDemoWetAreaCounts({
+      existing: { existingTilePanCount: 1 },
+      install: {
+        bathCount: null,
+        tilePanBathCount: null,
+        prefabBathCount: 1,
+        prefabEnclosureBathCount: null,
+        tubBathCount: null,
+        bathFloorTileCount: null,
+        showerDoorCount: null,
+      },
+    });
+    expect(demo.demoTilePanCount).toBe(1);
+    expect(demo.demoPrefabPanCount).toBeNull();
+  });
+
+  test('bath floor stepper demos existing bath floor', () => {
+    const demo = resolveAutoDemoWetAreaCounts({
+      existing: { existingBathFloorTileCount: 1 },
+      install: {
+        bathCount: null,
+        tilePanBathCount: null,
+        prefabBathCount: null,
+        prefabEnclosureBathCount: null,
+        tubBathCount: null,
+        bathFloorTileCount: 1,
+        showerDoorCount: null,
+      },
     });
     expect(demo.demoBathFloorTileCount).toBe(1);
   });
@@ -210,6 +337,7 @@ describe('wetAreaExistingDemo', () => {
         prefabBathCount: null,
         prefabEnclosureBathCount: null,
         tubBathCount: null,
+        bathFloorTileCount: null,
         showerDoorCount: null,
       },
       bathroomFloorSqft: '45',
@@ -248,6 +376,7 @@ describe('wetAreaExistingDemo', () => {
         prefabBathCount: null,
         prefabEnclosureBathCount: null,
         tubBathCount: null,
+        bathFloorTileCount: null,
         showerDoorCount: null,
       },
     });

@@ -63,6 +63,8 @@ import {
   countSavedPricingScopeItems,
   draftHasApplyablePricing,
 } from '../../utils/estimateAiDraftPricing';
+import { applyConfirmScopeUnpricedPricingProposal } from '../../utils/confirmScopeUnpricedPricing';
+import { fetchPricingLibraryRatesForScopeContext } from '../../utils/scopePricingLibraryContext';
 import { draftHasUnpricedScope, isScopeOnlyDraft } from '../../utils/estimateDraftReviewUi';
 import { mergeScopeProgressIntoDraft } from '../../utils/estimateScopeChecklistUi';
 import {
@@ -5179,7 +5181,8 @@ export default function EstimateGeneratorScreen() {
   const saveCustomerForFutureBidsRef = useRef(true);
   const [customerFillToast, setCustomerFillToast] = useState({ visible: false, name: '' });
   const [savedBidTemplates, setSavedBidTemplates] = useState([]);
-  // Saved templates + the active bid feed saved $/unit rates into Step 2 suggested pricing.
+  const [pricingLibraryRates, setPricingLibraryRates] = useState([]);
+  // Saved templates, pricing library, and the active bid feed saved $/unit into Step 2.
   const aiScopePricingContext = useMemo(
     () => ({
       templates: (savedBidTemplates || [])
@@ -5189,6 +5192,7 @@ export default function EstimateGeneratorScreen() {
           laborLineItems: tpl?.payload?.laborLineItems || [],
         }))
         .filter((tpl) => tpl.materialLineItems.length || tpl.laborLineItems.length),
+      libraryRates: pricingLibraryRates,
       bid: {
         name: bid?.title || 'This bid',
         materialLineItems: bid?.materialLineItems || [],
@@ -5200,6 +5204,7 @@ export default function EstimateGeneratorScreen() {
     }),
     [
       savedBidTemplates,
+      pricingLibraryRates,
       bid?.materialLineItems,
       bid?.laborLineItems,
       bid?.title,
@@ -5693,10 +5698,28 @@ export default function EstimateGeneratorScreen() {
         if (!cancelled) setSavedBidTemplates(templates);
       })
       .catch(() => {});
+    fetchPricingLibraryRatesForScopeContext()
+      .then((rates) => {
+        if (!cancelled) setPricingLibraryRates(rates);
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!showAiScopeAssumptionsModal) return;
+    let cancelled = false;
+    fetchPricingLibraryRatesForScopeContext()
+      .then((rates) => {
+        if (!cancelled) setPricingLibraryRates(rates);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [showAiScopeAssumptionsModal]);
 
   useEffect(() => {
     let cancelled = false;
@@ -6537,14 +6560,23 @@ export default function EstimateGeneratorScreen() {
     (proposalOverride) => {
       const proposal = proposalOverride || aiRoughPricingProposal;
       if (!aiDraft || !proposal || proposal.empty) return;
-      setAiDraft(applyPricingProposalToDraft(aiDraft, proposal, { approved: true }));
+      if (proposal.confirmScopeOnly) {
+        const includedIds = new Set((proposal.scopeItems || []).map((item) => item.scopeItemId));
+        setAiDraft(
+          syncDraftWithLatestScopeMeasurements(
+            applyConfirmScopeUnpricedPricingProposal(aiDraft, proposal, includedIds)
+          )
+        );
+      } else {
+        setAiDraft(applyPricingProposalToDraft(aiDraft, proposal, { approved: true }));
+      }
       setShowAiRoughPricingModal(false);
       resumeDraftReviewAfterPricingModal();
       if (Platform.OS !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
     },
-    [aiDraft, aiRoughPricingProposal, resumeDraftReviewAfterPricingModal]
+    [aiDraft, aiRoughPricingProposal, resumeDraftReviewAfterPricingModal, syncDraftWithLatestScopeMeasurements]
   );
 
   const handleApplyBudgetSplitProposal = useCallback(
@@ -25031,15 +25063,25 @@ export default function EstimateGeneratorScreen() {
         proposal={aiRoughPricingProposal}
         pricingMode="suggest"
         title={
-          aiRoughPricingProposal?.source === 'ai_rough_estimate' &&
-          (aiDraft?.pricingMemoryMissingSuggestions?.length ?? 0) > 0
-            ? 'Suggested missing prices'
-            : aiRoughPricingProposal?.anyRealSource
-              ? 'Suggested pricing'
-              : 'Suggested pricing (review sources)'
+          aiRoughPricingProposal?.confirmScopeOnly
+            ? 'Finish pricing'
+            : aiRoughPricingProposal?.source === 'ai_rough_estimate' &&
+              (aiDraft?.pricingMemoryMissingSuggestions?.length ?? 0) > 0
+              ? 'Suggested missing prices'
+              : aiRoughPricingProposal?.anyRealSource
+                ? 'Suggested pricing'
+                : 'Suggested pricing (review sources)'
         }
-        subtitle="Suggested planning prices. Review and adjust before applying."
-        applyLabel="Apply selected suggested prices"
+        subtitle={
+          aiRoughPricingProposal?.confirmScopeOnly
+            ? 'Scopes you did not apply on Confirm Scope — same planning prices as Step 2.'
+            : 'Suggested planning prices. Review and adjust before applying.'
+        }
+        applyLabel={
+          aiRoughPricingProposal?.confirmScopeOnly
+            ? 'Apply pricing'
+            : 'Apply selected suggested prices'
+        }
         onApply={handleApplyRoughPricingProposal}
         onAddManually={() => {
           setShowAiRoughPricingModal(false);

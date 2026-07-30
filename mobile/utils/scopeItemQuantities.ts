@@ -71,6 +71,10 @@ import {
   resolveItemRatePricingFromNotes,
 } from '@/utils/scopeRatePricingParser';
 import {
+  resolveLibraryRateForItem,
+  type ScopePricingLibraryRate,
+} from '@/utils/scopePricingLibraryContext';
+import {
   emptyQuickMeasurementInput,
   type QuickMeasurementFieldKey,
 } from '@/utils/scopeQuickMeasurements';
@@ -555,13 +559,13 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     pricingMethod: 'material_labor',
   },
   /**
-   * Tile mud pan build (~$1,475 each). Liner, drain, mud-bed materials, and a simple
-   * entry curb (~2× 2×4 + screws). Curb frame labor is ~1 hr — not a tiled bench.
+   * Tile mud pan build (~$99/SF · ~$1,485 at 15 SF typical shower floor). Liner, drain,
+   * mud-bed materials, and entry curb scale with pan area — curb frame labor is ~1 hr, not a bench.
    */
   tile_shower_pan: {
-    unit: 'each',
-    material: 400,
-    labor: 1075,
+    unit: 'sqft',
+    material: 27,
+    labor: 72,
     materialBucketLabel: 'Pan liner, drain, mud & curb lumber',
     laborBucketLabel: 'Mud pan build & curb frame labor',
     sourceLabel: 'Suggested budget split · National Average · shower mud pan build + entry curb',
@@ -1272,7 +1276,7 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   tile_shower_pan: {
     category: 'wet_area',
     rootCause:
-      'Build Profit national-average shower mud pan build (~$1,475 each) includes liner, drain, mud-bed materials, and a simple entry curb (~2× 2×4 lumber + screws). Curb framing is ~1 hr — not a tiled bench. Floor tile and curb tile finish are on the Shower floor tile line, not here.',
+      'Build Profit national-average shower mud pan build (~$99/SF · ~$1,485 at 15 SF typical shower floor) includes liner, drain, mud-bed materials, and entry curb scaled to pan area. Curb framing is ~1 hr — not a tiled bench. Floor tile and curb tile finish are on the Shower floor tile line, not here.',
     assumptions: [
       assumption('pan_liner', 'included', 'Shower pan liner', 'PVC or CPE shower pan liner is included.'),
       assumption('drain', 'included', 'Drain assembly', 'Standard shower drain assembly is included.'),
@@ -2250,11 +2254,13 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     quantityHelper: 'Uses bathroom floor sqft — not whole-home living area.',
   },
   shower_pan: {
-    defaultUnit: 'each',
-    allowedUnits: ['each'],
-    defaultQuantity: 1,
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft'],
+    measurementKey: 'showerFloorTileSqft',
+    requiresUserQuantity: true,
     quantityHelper:
-      'Mud pan build only — liner, mud bed, curb, drain (1 shower). Floor tile is separate.',
+      'Uses shower floor sqft — liner, mud bed, curb, and drain scale with pan size. Floor tile is separate.',
+    missingMessage: 'Enter shower floor sqft for mud pan build.',
   },
   wet_area_install: {
     defaultUnit: 'each',
@@ -3738,6 +3744,7 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
   baseboard: { unit: 'lf', measurementKeys: ['baseboardLf'] },
   shower_tile: { unit: 'sqft', measurementKeys: ['showerWallTileSqft'] },
   shower_floor_tile: { unit: 'sqft', measurementKeys: ['showerFloorTileSqft'] },
+  shower_pan: { unit: 'sqft', measurementKeys: ['showerFloorTileSqft'] },
   waterproofing: { unit: 'sqft', measurementKeys: ['showerWallTileSqft'] },
   backsplash: { unit: 'sqft', measurementKeys: ['backsplashSqft'] },
   countertops: { unit: 'sqft', measurementKeys: ['countertopSqft'] },
@@ -3802,7 +3809,7 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
   wet_area_install: { unit: 'each' },
   tub_install: { unit: 'each' },
   prefab_shower_pan: { unit: 'each' },
-  shower_pan: { unit: 'each' },
+  shower_pan: { unit: 'sqft', measurementKeys: ['showerFloorTileSqft'] },
   shower_niche: { unit: 'each' },
   shower_bench: { unit: 'each' },
   shower_bench_curb: { unit: 'each' },
@@ -5416,10 +5423,12 @@ export type ScopePricingTemplateSource = {
   laborLineItems?: ScopePricingLineItem[] | null;
 };
 
-/** Saved templates + the active bid, used to derive $/unit rates by trade family. */
+/** Saved templates, pricing library, and the active bid — $/unit by trade family. */
 export type ScopePricingContext = {
   templates?: ScopePricingTemplateSource[] | null;
   bid?: ScopePricingTemplateSource | null;
+  /** Median unit rates learned from past applied bids (backend pricing library). */
+  libraryRates?: ScopePricingLibraryRate[] | null;
   state?: string | null;
   zipCode?: string | null;
   city?: string | null;
@@ -5501,8 +5510,8 @@ function averageMatchingRate(
 
 /**
  * Resolve a $/unit material + labor rate for a checklist item from saved
- * templates and the active bid, matched within the same trade family and unit.
- * The active bid is checked first (most specific to the current job).
+ * templates, pricing library, and the active bid, matched within the same trade
+ * family and unit. Priority: active bid → pricing library → saved templates.
  */
 export function resolveTemplateRateForItem(
   itemId: string,
@@ -5516,12 +5525,23 @@ export function resolveTemplateRateForItem(
   if (!matcher) return null;
 
   const targetUnit = normalizeRateUnit(unit);
-  const sources: ScopePricingTemplateSource[] = [
-    ...(ctx.bid ? [ctx.bid] : []),
-    ...((ctx.templates || []).filter(Boolean) as ScopePricingTemplateSource[]),
-  ];
 
-  for (const source of sources) {
+  if (ctx.bid) {
+    const materialRate = averageMatchingRate(ctx.bid.materialLineItems, matcher, targetUnit);
+    const laborRate = averageMatchingRate(ctx.bid.laborLineItems, matcher, targetUnit);
+    if (materialRate || laborRate) {
+      return {
+        materialRate: materialRate ?? null,
+        laborRate: laborRate ?? null,
+        source: String(ctx.bid.name || 'Saved pricing'),
+      };
+    }
+  }
+
+  const library = resolveLibraryRateForItem(itemId, unit, ctx.libraryRates, matcher);
+  if (library) return library;
+
+  for (const source of (ctx.templates || []).filter(Boolean) as ScopePricingTemplateSource[]) {
     const materialRate = averageMatchingRate(source.materialLineItems, matcher, targetUnit);
     const laborRate = averageMatchingRate(source.laborLineItems, matcher, targetUnit);
     if (materialRate || laborRate) {
@@ -8619,6 +8639,10 @@ export function scopeMeasurementsToPayload(
       sanitized.tubBathCount != null && Number(sanitized.tubBathCount) > 0
         ? Math.round(Number(sanitized.tubBathCount))
         : null,
+    bathFloorTileCount:
+      sanitized.bathFloorTileCount != null && Number(sanitized.bathFloorTileCount) > 0
+        ? Math.round(Number(sanitized.bathFloorTileCount))
+        : null,
     showerDoorCount:
       sanitized.showerDoorCount != null && Number(sanitized.showerDoorCount) > 0
         ? Math.round(Number(sanitized.showerDoorCount))
@@ -9100,6 +9124,10 @@ export function scopeMeasurementsInputFromPayload(
       payload.tubBathCount != null && Number(payload.tubBathCount) > 0
         ? Math.round(Number(payload.tubBathCount))
         : null,
+    bathFloorTileCount:
+      payload.bathFloorTileCount != null && Number(payload.bathFloorTileCount) > 0
+        ? Math.round(Number(payload.bathFloorTileCount))
+        : null,
     showerDoorCount:
       payload.showerDoorCount != null && Number(payload.showerDoorCount) > 0
         ? Math.round(Number(payload.showerDoorCount))
@@ -9535,8 +9563,12 @@ export type ScopeMeasurementsInputExtended = ReturnType<typeof emptyQuickMeasure
   planRooms?: import('@/utils/estimateAiDraft').PlanRoomMeasurement[];
   wetAreaFinish?: import('@/utils/planBathRooms').WetAreaFinishChoice | null;
   bathCount?: number | null;
+  tilePanBathCount?: number | null;
   prefabBathCount?: number | null;
+  prefabEnclosureBathCount?: number | null;
   tubBathCount?: number | null;
+  /** Bathroom floor tile install count (outside shower). */
+  bathFloorTileCount?: number | null;
   showerDoorCount?: number | null;
   garageDoorSingleCount?: number | null;
   garageDoorDoubleCount?: number | null;
@@ -9810,6 +9842,7 @@ export function initialScopeMeasurementInputExtended(
     prefabEnclosureBathCount:
       saved?.prefabEnclosureBathCount ?? suggested?.prefabEnclosureBathCount ?? null,
     tubBathCount: saved?.tubBathCount ?? suggested?.tubBathCount ?? null,
+    bathFloorTileCount: saved?.bathFloorTileCount ?? suggested?.bathFloorTileCount ?? null,
     showerDoorCount: saved?.showerDoorCount ?? suggested?.showerDoorCount ?? null,
     existingTubCount: saved?.existingTubCount ?? suggested?.existingTubCount ?? null,
     existingTileWallCount: saved?.existingTileWallCount ?? suggested?.existingTileWallCount ?? null,

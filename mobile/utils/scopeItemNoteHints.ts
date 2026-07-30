@@ -19,7 +19,8 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   shower_niche: /\b(shower\s+niche|tile\s+niche|niche)\b/,
   shower_bench: /\bshower\s+bench\b/,
   shower_pan: /\b(tile\s+pan|mud\s+pan|mortar\s+bed|shower\s+curb|shower\s+entry\s+curb)\b/,
-  floor_tile: /\b(floor\s+tile|tile\s+floor|new\s+floor\s+tile)\b/,
+  floor_tile:
+    /\b(tile\s+bath(?:room)?\s+floor|bath(?:room)?\s+floor\s+tile|tile\s+(?:the\s+)?bath(?:room)?\s+floor|new\s+bath(?:room)?\s+floor(?:\s+tile)?|(?<!shower\s)floor\s+tile|(?<!shower\s)tile\s+floor|new\s+floor\s+tile)\b/,
   flooring: /\b(install\s+(?:lvp|laminate|vinyl|carpet|flooring)|(?:lvp|laminate|vinyl|carpet|flooring)\s+(?:install|installation))\b/,
   floor_prep: /\b(floor\s+prep|subfloor|level(?:ing)?|underlayment)\b/,
   exhaust_fan: /\b(exhaust\s+fan|bath\s+fan|ventilation)\b/,

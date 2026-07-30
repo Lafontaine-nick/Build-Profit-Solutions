@@ -186,6 +186,7 @@ export function resolveQuickMeasurementFields(params: {
       noteBackedKeys: noteKeySet,
       templateKey: params.templateKey,
       wholeHomeLayout: params.wholeHomeLayout,
+      bathCount: params.measurements.bathCount,
       tilePanBathCount: params.measurements.tilePanBathCount,
       keepingExistingWetArea: keepingExisting,
       wetAreaInstallChoiceId: params.wetAreaInstallChoiceId,
@@ -344,7 +345,8 @@ export function splitWetAreaQuickMeasurementFields(groups: QuickMeasurementUiGro
     suggestions: pull(groups.suggestions),
     needsConfirmation: pull(groups.needsConfirmation),
     confirmed: pull(groups.confirmed),
-    more: groups.more,
+    // Pull wet-area keys out of More too — Bath floor / Shower SF live under Wet area install.
+    more: pull(groups.more),
   };
 
   const order = new Map(WET_AREA_QUICK_MEASUREMENT_KEYS.map((key, index) => [key, index]));

@@ -37,10 +37,11 @@ const FIXTURE_PLANNING_RATES = {
     laborLabel: 'Prefab shower pan install labor',
   },
   tile_shower_pan: {
-    material: 400,
-    labor: 1075,
+    material: 27,
+    labor: 72,
     materialLabel: 'Pan liner, drain, mud & curb lumber',
     laborLabel: 'Mud pan build & curb frame labor',
+    unit: 'sqft',
   },
   shower_niche: {
     material: 275,
@@ -193,6 +194,14 @@ function inferPlanningQuantity(packageName, scopeText, draft) {
   }
 
   const fixture = resolveFixtureKind(packageName);
+  if (fixture === 'tile_shower_pan') {
+    return {
+      quantity: 15,
+      unit: 'sqft',
+      label: 'Planning default (typical shower floor / mud pan area)',
+      isPlanningDefault: true,
+    };
+  }
   if (fixture && /\binstall/.test(blob)) {
     return {
       quantity: 1,
@@ -219,14 +228,27 @@ function lookupFixturePlanningRates(scopeItem) {
   const band = fixture ? FIXTURE_PLANNING_RATES[fixture] : null;
   if (!band) return { available: false, rates: [], fixture: null };
 
+  const isSqftPan = fixture === 'tile_shower_pan';
+  const defaultQty = isSqftPan ? 15 : 1;
+  const defaultUnit = isSqftPan ? 'sqft' : 'each';
   const quantity =
-    scopeItem.quantity != null && Number(scopeItem.quantity) > 0 ? Number(scopeItem.quantity) : 1;
+    scopeItem.quantity != null && Number(scopeItem.quantity) > 0
+      ? Number(scopeItem.quantity)
+      : defaultQty;
+  const unit =
+    isSqftPan || String(scopeItem.unit || '').toLowerCase() === 'sqft' ? 'sqft' : defaultUnit;
 
-  const assumptions = [
-    'National planning allowance per fixture (not live pricing)',
-    'Verify fixture grade, rough-in changes, and local labor rates',
-    'Your saved bids override these when template lines match',
-  ];
+  const assumptions = isSqftPan
+    ? [
+        'National planning allowance per shower floor SF (not live pricing)',
+        'Verify shower size, drain location, and local labor rates',
+        'Your saved bids override these when template lines match',
+      ]
+    : [
+        'National planning allowance per fixture (not live pricing)',
+        'Verify fixture grade, rough-in changes, and local labor rates',
+        'Your saved bids override these when template lines match',
+      ];
 
   const rates = [];
   if (band.material > 0) {
@@ -234,7 +256,7 @@ function lookupFixturePlanningRates(scopeItem) {
       pricingType: 'material',
       label: band.materialLabel,
       rate: band.material,
-      unit: 'each',
+      unit,
       quantity,
       confidence: 'low',
       assumptions,
@@ -245,7 +267,7 @@ function lookupFixturePlanningRates(scopeItem) {
       pricingType: 'labor',
       label: band.laborLabel,
       rate: band.labor,
-      unit: 'each',
+      unit,
       quantity,
       confidence: 'medium',
       assumptions,

@@ -33,6 +33,15 @@ export const SCOPE_ITEM_TIER_OPACITY: Record<ScopeItemVisualTier, number> = {
   muted: 0.35,
 };
 
+/** Not-sure cards stay readable but sit below Yes / included cards. */
+export const SCOPE_ITEM_UNSURE_OPACITY = 0.82;
+
+export type ScopeCardAccent = {
+  opacity: number;
+  backgroundColor?: string;
+  borderColor?: string;
+};
+
 /** Bathroom fixture rows that stay visible even when notes/photos omit them. */
 export const BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS = new Set(['toilet']);
 
@@ -151,6 +160,42 @@ export function scopeItemVisualTier(item: ScopeChecklistItem, ctx: ScopeItemVisu
   if (checklistItemInScope(item)) return 'primary';
   if (scopeItemHasNoteSignal(item, ctx)) return 'primary';
   return 'secondary';
+}
+
+export function scopeItemIsUnsure(
+  item: Pick<ScopeChecklistItem, 'state' | 'choiceId' | 'inputType' | 'choiceIds'>
+): boolean {
+  if (item.state === 'unsure') return true;
+  if (item.choiceId === 'unsure') return true;
+  const ids = item.choiceIds ?? [];
+  return item.inputType === 'multi_choice' && ids.length === 1 && ids[0] === 'unsure';
+}
+
+/** Card chrome — all Not sure rows share the same subdued look (shower bench, floor demo, etc.). */
+export function scopeCardAccentForItem(
+  tier: ScopeItemVisualTier,
+  item: Pick<ScopeChecklistItem, 'state' | 'choiceId' | 'inputType' | 'choiceIds'>,
+  darkMode: boolean
+): ScopeCardAccent {
+  if (tier === 'muted' || itemIsExcluded(item as ScopeChecklistItem)) {
+    return { opacity: SCOPE_ITEM_TIER_OPACITY.muted };
+  }
+  if (scopeItemIsUnsure(item)) {
+    return {
+      opacity: SCOPE_ITEM_UNSURE_OPACITY,
+      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.055)' : 'rgba(248, 250, 252, 0.96)',
+      borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : 'rgba(148, 163, 184, 0.22)',
+    };
+  }
+  return { opacity: SCOPE_ITEM_TIER_OPACITY[tier] };
+}
+
+/** @deprecated Use scopeCardAccentForItem */
+export function scopeCardOpacityForItem(
+  tier: ScopeItemVisualTier,
+  item: Pick<ScopeChecklistItem, 'state' | 'choiceId' | 'inputType' | 'choiceIds'>
+): number {
+  return scopeCardAccentForItem(tier, item, true).opacity;
 }
 
 export function scopeChecklistNoteSummary(

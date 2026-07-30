@@ -220,8 +220,8 @@ const SCOPE_ITEM_RULES = [
     test: (b) => /\bmud\s+pan|\btile\s+shower\s+pan|\bshower\s+pan\b/.test(b) && !/\bdemo/.test(b),
     tradeCategory: 'bathroom_fixture',
     scopeCategory: 'shower_pan',
-    allowedUnits: ['each', 'lump_sum'],
-    pricingMethod: 'each',
+    allowedUnits: ['sqft', 'lump_sum'],
+    pricingMethod: 'unit_rate',
     validSourceTypes: VALID_SOURCE_TYPES.all,
     needsApproval: true,
     userWarningText:

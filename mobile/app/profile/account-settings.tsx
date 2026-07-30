@@ -23,6 +23,7 @@ import {
   clearOnboardingCompleteForUser,
 } from '@/lib/onboardingStorage';
 import WebPageShell from '@/components/layout/WebPageShell';
+import ContractorPricingMemorySettings from '@/components/estimate/ContractorPricingMemorySettings';
 import {
   FIRST_ESTIMATE_WALKTHROUGH_COMPLETE_KEY,
   FIRST_ESTIMATE_WALKTHROUGH_PROGRESS_KEY,
@@ -375,6 +376,20 @@ export default function AccountSettingsScreen() {
           {settingItems
             .filter(item => ['sync', 'location', 'analytics'].includes(item.id))
             .map(renderSettingItem)}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>
+            Estimating & Pricing
+          </Text>
+          <View
+            style={[
+              styles.settingItem,
+              { backgroundColor: theme.card, flexDirection: 'column', alignItems: 'stretch' },
+            ]}
+          >
+            <ContractorPricingMemorySettings compact />
+          </View>
         </View>
 
         <View style={styles.section}>

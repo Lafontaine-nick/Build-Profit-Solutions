@@ -52,6 +52,7 @@ function hydrateBathroom(ctx: QmPanelHydrateContext): Record<string, unknown> {
     wetAreaInstallChoiceId: wet?.choiceId ?? ctx.wetAreaInstallChoiceId,
     showerTileIncluded: showerTile ? showerTile.state === 'included' : ctx.showerTileIncluded,
     showerFloorTileIncluded: showerFloorTile?.state === 'included',
+    bathFloorTileIncluded: floorTile?.state === 'included',
     glassDoorIncluded: glassDoor ? glassDoor.state === 'included' : ctx.glassDoorIncluded,
     notes: ctx.notes,
     templateKey: 'bathroom',
@@ -113,6 +114,7 @@ function syncBathroom(items: ScopeChecklistItem[], m: Record<string, unknown>): 
       prefabBathCount: m.prefabBathCount as number | null,
       prefabEnclosureBathCount: m.prefabEnclosureBathCount as number | null,
       tubBathCount: m.tubBathCount as number | null,
+      bathFloorTileCount: m.bathFloorTileCount as number | null,
       showerDoorCount: m.showerDoorCount as number | null,
     },
     keepingExisting: false,
@@ -127,6 +129,7 @@ function syncBathroom(items: ScopeChecklistItem[], m: Record<string, unknown>): 
   });
   next = syncBathroomFloorTileScopeItems(next, {
     bathroomFloorSqft: m.bathroomFloorSqft as string | number | null | undefined,
+    bathFloorTileCount: m.bathFloorTileCount as number | null | undefined,
   });
   next = syncWetAreaDemoScopeItems(next, {
     demo: readWetAreaDemoCounts(m),

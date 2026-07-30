@@ -345,6 +345,7 @@ function ScopeCard({
   showLiveComparison,
   isSavedOnly,
   isSuggestMode,
+  confirmScopeSimple,
   included,
   onToggleIncluded,
   isEditing,
@@ -361,6 +362,8 @@ function ScopeCard({
   showLiveComparison: boolean;
   isSavedOnly?: boolean;
   isSuggestMode?: boolean;
+  /** Step 2-style card — material/labor/total only, no vendor compare or checkboxes. */
+  confirmScopeSimple?: boolean;
   included?: boolean;
   onToggleIncluded?: () => void;
   isEditing?: boolean;
@@ -386,7 +389,9 @@ function ScopeCard({
       ? suggestItemNeedsPricing(item)
       : isSavedOnly && scopeTotal <= 0 && (item.warnings?.length ?? 0) > 0;
   const canEdit = Boolean((isSavedOnly || isSuggestMode) && scopeTotal > 0 && onToggleEdit);
-  const canToggleInclude = Boolean(isSuggestMode && onToggleIncluded && suggestItemSelectable(item));
+  const canToggleInclude = Boolean(
+    isSuggestMode && onToggleIncluded && suggestItemSelectable(item) && !confirmScopeSimple
+  );
   const conf = item.recommended?.confidence;
   const fadeWhenUnchecked =
     canToggleInclude && !included && !isSuggestMode && !suggestItemIsRoughPlanningItem(item);
@@ -580,6 +585,7 @@ function ScopeCard({
             ) : null}
           </View>
           {(() => {
+            if (confirmScopeSimple) return null;
             const rv = reviewStatusVisual(item.reviewStatus);
             if (!rv) return null;
             return (
@@ -615,7 +621,7 @@ function ScopeCard({
               )}
             </Text>
           ) : null}
-          {item.priceRangeHint?.combinedTotal ? (
+          {!confirmScopeSimple && item.priceRangeHint?.combinedTotal ? (
             <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 4 }}>
               Typical range: ${Math.round(item.priceRangeHint.combinedTotal.low).toLocaleString()}–$
               {Math.round(item.priceRangeHint.combinedTotal.high).toLocaleString()}
@@ -623,7 +629,7 @@ function ScopeCard({
           ) : null}
         </View>
       </View>
-      {isSuggestMode && conf ? (
+      {isSuggestMode && conf && !confirmScopeSimple ? (
         <View style={styles.cardMetaRow}>
           <ConfidenceBadge confidence={conf} compact />
           {canToggleInclude && !included ? (
@@ -650,14 +656,16 @@ function ScopeCard({
         (item.proposedRates || []).map((line, i) => (
           <View key={`pr-${i}`}>
             <RateRow line={line} scopeName={item.scopeName} Colors={Colors} sourceMode={sourceMode} />
-            <MaterialCompareRow
-              item={item}
-              line={line}
-              onSelectMaterial={(source) => onSelectMaterial(item.scopeItemId, source)}
-              Colors={Colors}
-              enabled={showLiveComparison}
-              sourceMode={sourceMode}
-            />
+            {!confirmScopeSimple ? (
+              <MaterialCompareRow
+                item={item}
+                line={line}
+                onSelectMaterial={(source) => onSelectMaterial(item.scopeItemId, source)}
+                Colors={Colors}
+                enabled={showLiveComparison}
+                sourceMode={sourceMode}
+              />
+            ) : null}
           </View>
         ))
       )}
@@ -665,7 +673,7 @@ function ScopeCard({
       {showScopeTotal && scopeTotal > 0 ? (
         <View style={[styles.scopeTotalRow, { borderTopColor: Colors.line }]}>
           <Text style={{ color: Colors.sub, fontSize: 12 }}>
-            {item.roughPricingTier === 'planning' ? 'Planning midpoint' : 'Scope total'}
+            {confirmScopeSimple || item.roughPricingTier === 'planning' ? 'Scope total' : 'Planning midpoint'}
           </Text>
           <Text style={{ color: Colors.text, fontSize: 15, fontWeight: '800' }}>
             {formatDraftMoney(scopeTotal)}
@@ -673,7 +681,7 @@ function ScopeCard({
         </View>
       ) : null}
 
-      {(canEdit && !isEditing) || hasDetails ? (
+      {!confirmScopeSimple && (canEdit && !isEditing) || hasDetails ? (
         <View style={styles.cardActionsRow}>
           {canEdit && !isEditing ? (
             <TouchableOpacity onPress={onToggleEdit} activeOpacity={0.75} style={styles.cardActionLink}>
@@ -714,7 +722,8 @@ function ScopeCard({
         </View>
       ) : null}
 
-      {(item.warnings || [])
+      {!confirmScopeSimple &&
+        (item.warnings || [])
         .filter(
           (w) =>
             w &&
@@ -900,13 +909,16 @@ export default function AIEstimatePricingProposalModal({
     if (proposal) {
       const normalized = normalizePricingProposal(proposal);
       setWorkingProposal(normalized);
-      if (normalized.pricingMode === 'suggest' || pricingModeProp === 'suggest') {
+      if (normalized.confirmScopeOnly) {
+        setIncludedScopeIds(new Set((normalized.scopeItems || []).map((item) => item.scopeItemId)));
+      } else if (normalized.pricingMode === 'suggest' || pricingModeProp === 'suggest') {
         setIncludedScopeIds(defaultIncludedSuggestScopeIds(normalized.scopeItems || []));
       }
     }
   }, [visible, proposal, pricingModeProp]);
 
   const display = normalizePricingProposal(visible ? workingProposal || proposal : null);
+  const isConfirmScopeOnly = Boolean(display.confirmScopeOnly);
   const isSavedOnly =
     pricingModeProp === 'saved_only' || display.pricingMode === 'saved_only';
   const isSuggestMode = !isSavedOnly;
@@ -970,9 +982,13 @@ export default function AIEstimatePricingProposalModal({
 
   const suggestApplyLabel = useMemo(() => {
     if (!isSuggestMode) return applyLabel || 'Apply suggested pricing';
+    if (isConfirmScopeOnly) {
+      const n = display.scopeItems?.length ?? 0;
+      return n > 0 ? `Apply ${n} price${n === 1 ? '' : 's'}` : 'Apply pricing';
+    }
     if (validSelectedSuggestCount <= 0) return 'Apply valid selected prices';
     return `Apply ${validSelectedSuggestCount} valid selected price${validSelectedSuggestCount === 1 ? '' : 's'}`;
-  }, [isSuggestMode, validSelectedSuggestCount, applyLabel]);
+  }, [isSuggestMode, isConfirmScopeOnly, display.scopeItems?.length, validSelectedSuggestCount, applyLabel]);
 
   const savedApplyLabel = useMemo(() => {
     if (!isSavedOnly || !savedCounts) return applyLabel || 'Apply saved pricing';
@@ -1128,11 +1144,11 @@ export default function AIEstimatePricingProposalModal({
               />
             ) : null}
 
-            {!isSavedOnly ? (
+            {!isSavedOnly && !isConfirmScopeOnly ? (
               <SourceLegend sources={legendSources} mode="suggest" Colors={Colors} />
             ) : null}
 
-            {isSuggestMode ? (
+            {isSuggestMode && !isConfirmScopeOnly ? (
               <SuggestSelectionBar
                 allSelected={allSuggestSelected}
                 someSelected={someSuggestSelected}
@@ -1162,7 +1178,7 @@ export default function AIEstimatePricingProposalModal({
               </View>
             ) : null}
 
-            {showRoughSavedNote ? (
+            {showRoughSavedNote && !isConfirmScopeOnly ? (
               <View
                 style={[
                   styles.infoBanner,
@@ -1179,7 +1195,7 @@ export default function AIEstimatePricingProposalModal({
               </View>
             ) : null}
 
-            {!isSavedOnly && display.supplierZipIsFallback ? (
+            {!isSavedOnly && !isConfirmScopeOnly && display.supplierZipIsFallback ? (
               <View
                 style={[
                   styles.infoBanner,
@@ -1194,7 +1210,7 @@ export default function AIEstimatePricingProposalModal({
               </View>
             ) : null}
 
-            {!isSavedOnly && display.anyFallbackOnly && !display.anyRealSource ? (
+            {!isSavedOnly && !isConfirmScopeOnly && display.anyFallbackOnly && !display.anyRealSource ? (
               <View
                 style={[
                   styles.infoBanner,
@@ -1213,11 +1229,12 @@ export default function AIEstimatePricingProposalModal({
                   <ScopeCard
                     key={item.scopeItemId}
                     item={item}
-                    showScopeTotal={multiScope}
+                    showScopeTotal={multiScope || isConfirmScopeOnly}
                     onSelectMaterial={handleSelectMaterial}
-                    showLiveComparison={!isSavedOnly}
+                    showLiveComparison={!isSavedOnly && !isConfirmScopeOnly}
                     isSavedOnly={isSavedOnly}
                     isSuggestMode={isSuggestMode}
+                    confirmScopeSimple={isConfirmScopeOnly}
                     included={includedScopeIds.has(item.scopeItemId)}
                     onToggleIncluded={() =>
                       setIncludedScopeIds((prev) => {
@@ -1274,7 +1291,9 @@ export default function AIEstimatePricingProposalModal({
 
             <View style={[styles.totalBox, { borderColor: Colors.line }]}>
               <Text style={{ color: Colors.sub, fontSize: 13 }}>
-                {isSuggestMode
+                {isConfirmScopeOnly
+                  ? 'Total'
+                  : isSuggestMode
                   ? validSelectedSuggestCount > 0
                     ? 'Total (valid selected)'
                     : 'Total suggested'
@@ -1283,9 +1302,15 @@ export default function AIEstimatePricingProposalModal({
                     : 'Total suggested'}
               </Text>
               <Text style={{ color: Colors.text, fontSize: 22, fontWeight: '800' }}>
-                {formatDraftMoney(isSuggestMode ? suggestTotalSelected : display.totalSuggested)}
+                {formatDraftMoney(
+                  isConfirmScopeOnly
+                    ? display.totalSuggested
+                    : isSuggestMode
+                      ? suggestTotalSelected
+                      : display.totalSuggested
+                )}
               </Text>
-              {isSuggestMode || display.disclaimer ? (
+              {!isConfirmScopeOnly && (isSuggestMode || display.disclaimer) ? (
                 <TouchableOpacity
                   onPress={() => setShowDisclaimer((v) => !v)}
                   style={styles.disclaimerToggle}
@@ -1316,9 +1341,11 @@ export default function AIEstimatePricingProposalModal({
               <TouchableOpacity
                 style={[
                   styles.primaryBtn,
-                  isSuggestMode && validSelectedSuggestCount <= 0 && { opacity: 0.45 },
+                  isSuggestMode &&
+                    !isConfirmScopeOnly &&
+                    validSelectedSuggestCount <= 0 && { opacity: 0.45 },
                 ]}
-                disabled={isSuggestMode && validSelectedSuggestCount <= 0}
+                disabled={isSuggestMode && !isConfirmScopeOnly && validSelectedSuggestCount <= 0}
                 onPress={() => {
                   if (!workingProposal) return;
                   const toApply = isSuggestMode
@@ -1344,7 +1371,7 @@ export default function AIEstimatePricingProposalModal({
                   {savedStillNeedCaption}
                 </Text>
               ) : null}
-              {isSuggestMode && suggestUncheckedCaption ? (
+              {isSuggestMode && !isConfirmScopeOnly && suggestUncheckedCaption ? (
                 <Text style={{ color: Colors.sub, fontSize: 12, textAlign: 'center', lineHeight: 17 }}>
                   {suggestUncheckedCaption}
                 </Text>

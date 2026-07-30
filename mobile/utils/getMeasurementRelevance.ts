@@ -74,6 +74,8 @@ export function getMeasurementRelevance(params: {
   noteBackedKeys?: Iterable<QuickMeasurementFieldKey>;
   /** When set, tub/prefab hide shower tile measurements; tile keeps them. */
   wetAreaFinish?: import('@/utils/planBathRooms').WetAreaFinishChoice | null;
+  /** Tile shower walls stepper — gates shower wall SF on bathroom photo/notes jobs. */
+  bathCount?: number | null;
   tilePanBathCount?: number | null;
   wholeHomeLayout?: boolean;
   /** ground_up / addition show the full field list — not only scopes currently included. */
@@ -119,6 +121,19 @@ export function getMeasurementRelevance(params: {
         blockingPrice: false,
         relatedScopeKeys,
         reason: 'Shower floor tile SF is not used for tub or prefab wet-area finishes.',
+      };
+    }
+  }
+
+  // Bathroom photo/notes — shower wall SF only while Tile shower walls stepper is on.
+  if (measurementKey === 'showerWallTileSqft' && splitTile) {
+    const walls = Number(params.bathCount);
+    if (!(Number.isFinite(walls) && walls > 0)) {
+      return {
+        relevant: false,
+        blockingPrice: false,
+        relatedScopeKeys,
+        reason: 'Set tile shower walls to unlock shower wall measurements.',
       };
     }
   }

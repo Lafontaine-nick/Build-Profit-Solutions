@@ -117,6 +117,11 @@ const BATHROOM_STEP2_PRICING_TIER: Record<string, Step2PricingTierConfig> = {
   vanity_demo: { tier: 'auto_planning' },
   countertop_demo: { tier: 'auto_planning' },
   shower_tile: { tier: 'takeoff_required', takeoffLabel: 'shower wall tile SF' },
+  shower_pan: {
+    tier: 'takeoff_required',
+    takeoffLabel: 'shower floor sqft (mud pan area)',
+    benchmarkUnitHint: '~$99/SF mud pan build ($27 mat + $72 labor) · scales with pan size',
+  },
   shower_floor_tile: { tier: 'takeoff_required', takeoffLabel: 'shower floor tile SF' },
   floor_tile: { tier: 'auto_planning' },
   waterproofing: { tier: 'auto_planning' },
@@ -234,6 +239,13 @@ export function step2TierNeedsInlineTakeoffEntry(
   }
   if ((itemId === 'demo' || itemId === 'floor_demo') && template === 'bathroom') {
     // SF is entered in Demo / tear-out Quick Measurements — no duplicate on-card takeoff box.
+    return false;
+  }
+  if (
+    (itemId === 'shower_pan' || itemId === 'shower_floor_tile') &&
+    template === 'bathroom'
+  ) {
+    // Shower floor SF is entered in Wet area install Quick Measurements.
     return false;
   }
   if (resolved?.pricingReady) return false;

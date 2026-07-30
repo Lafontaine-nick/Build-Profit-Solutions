@@ -530,6 +530,7 @@ const CHECKLIST_EXTRA_ROOMS = {
   shower_pan: {
     name: 'Tile Shower Pan (Mud Pan)',
     scope: 'Build tile shower pan — liner, concrete/mud, entry curb, drain, and pan labor',
+    usesSqft: true,
   },
   prefab_shower_pan: {
     name: 'Prefab Shower Pan Install',

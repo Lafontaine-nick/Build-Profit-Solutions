@@ -26,6 +26,18 @@ function captionColor(darkMode: boolean, Colors: ReturnType<typeof getColors>) {
   return darkMode ? 'rgba(255,255,255,0.62)' : Colors.sub;
 }
 
+function selectionStatusColor(
+  label: string,
+  darkMode: boolean,
+  Colors: ReturnType<typeof getColors>
+) {
+  const normalized = label.trim().toLowerCase();
+  if (normalized === 'user entered' || normalized === 'user adjusted') {
+    return darkMode ? '#4ade80' : '#22c55e';
+  }
+  return captionColor(darkMode, Colors);
+}
+
 function calculatedQuantityAlreadyActive(intelligence: ScopeItemIntelligence): boolean {
   const formula = intelligence.formula;
   const current = intelligence.quantity.value;
@@ -375,7 +387,14 @@ export function AcceptedPricingSummary({
     <View style={{ gap: 6 }}>
       <View style={styles.summaryTopRow}>
         <Text style={[styles.totalText, { color: darkMode ? '#F5F7FA' : Colors.text }]}>{display.totalLabel}</Text>
-        <Text style={[styles.statusText, { color: captionColor(darkMode, Colors) }]}>{display.selectionStatusLabel}</Text>
+        <Text
+          style={[
+            styles.statusText,
+            { color: selectionStatusColor(display.selectionStatusLabel, darkMode, Colors) },
+          ]}
+        >
+          {display.selectionStatusLabel}
+        </Text>
       </View>
       <Text style={[styles.typeText, { color: captionColor(darkMode, Colors) }]}>{methodLine}</Text>
       {display.pricingModel === 'material_labor_split' && display.subtitleLine ? (

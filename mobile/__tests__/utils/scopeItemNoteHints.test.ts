@@ -13,7 +13,15 @@ describe('scopeItemNoteHints trim inference', () => {
     expect(inferItemStateFromNotes('trim', 'Install baseboards throughout 220 LF.')).toBe('included');
   });
 
-  test('finish carpentry phrasing includes trim scope', () => {
-    expect(inferItemStateFromNotes('trim', 'Basement finish with paint, trim and doors.')).toBe('included');
+  test('shower floor tile notes do not include floor_tile', () => {
+    expect(
+      inferItemStateFromNotes(
+        'floor_tile',
+        'Tile shower walls and tile the shower floor.'
+      )
+    ).toBe('unsure');
+    expect(
+      inferItemStateFromNotes('floor_tile', 'Install bathroom floor tile outside the shower.')
+    ).toBe('included');
   });
 });

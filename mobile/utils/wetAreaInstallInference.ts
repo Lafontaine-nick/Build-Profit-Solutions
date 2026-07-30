@@ -12,6 +12,7 @@ const EMPTY_STEPPERS: WetAreaStepperCounts = {
   prefabBathCount: null,
   prefabEnclosureBathCount: null,
   tubBathCount: null,
+  bathFloorTileCount: null,
   showerDoorCount: null,
 };
 
@@ -97,6 +98,25 @@ function notesMentionTubInstall(n: string): boolean {
   );
 }
 
+function notesMentionBathFloorTile(n: string): boolean {
+  // Explicit bath-floor install only — never treat shower floor tile as bath floor.
+  if (/\b(tile\s+bath(?:room)?\s+floor|bath(?:room)?\s+floor\s+tile|tile\s+(?:the\s+)?bath(?:room)?\s+floor)\b/.test(n)) {
+    return true;
+  }
+  if (/\b(?:install|retile|new)\b[^.]{0,40}\bbath(?:room)?\s+floor(?:\s+tile)?\b/.test(n)) {
+    return true;
+  }
+  // Bare "floor tile" / "tile floor" only when notes have no shower context.
+  if (/\bshower\b/.test(n)) return false;
+  if (/\b(?:new\s+)?floor\s+tile\b/.test(n) || /\btile\s+floor\b/.test(n)) {
+    if (/\b(demo|remove|tear[\s-]?out)\b[^.]{0,40}\b(?:floor\s+tile|tile\s+floor)\b/.test(n)) {
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
 function notesMentionShowerDoor(n: string): boolean {
   return /\b(shower\s+door|glass\s+shower\s+door|install\s+(?:a\s+)?shower\s+door)\b/.test(n);
 }
@@ -106,6 +126,7 @@ export type WetAreaInstallInferenceInput = {
   wetAreaInstallChoiceId?: string | null;
   showerTileIncluded?: boolean;
   showerFloorTileIncluded?: boolean;
+  bathFloorTileIncluded?: boolean;
   glassDoorIncluded?: boolean;
 };
 
@@ -146,6 +167,9 @@ export function inferWetAreaInstallSteppersFromIntent(
   }
   if (choice === 'tile_pan' && !out.tilePanBathCount) {
     out.tilePanBathCount = 1;
+  }
+  if (notesMentionBathFloorTile(n)) {
+    out.bathFloorTileCount = 1;
   }
 
   if (input.glassDoorIncluded || notesMentionShowerDoor(n)) {

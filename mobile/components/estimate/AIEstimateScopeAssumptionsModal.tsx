@@ -274,6 +274,7 @@ import {
 import { estimateFlowCardStyle, estimateFlowDividerColor } from '@/utils/estimateFlowCardStyle';
 import {
   SCOPE_ITEM_TIER_OPACITY,
+  scopeCardAccentForItem,
   scopeChecklistNoteSummary,
   scopeItemNoteBadge,
   scopeItemVisualTier,
@@ -396,7 +397,7 @@ const QUANTITY_NEEDED_LABELS: Record<string, string> = {
   shower_tile: 'shower wall sqft',
   shower_floor_tile: 'shower floor sqft',
   waterproofing: 'shower wall sqft',
-  shower_pan: 'mud pan count (labor + materials)',
+  shower_pan: 'shower floor sqft (mud pan area)',
   shower_niche: 'niche count',
   shower_bench: 'bench count or LF',
   floor_tile: 'bathroom floor sqft',
@@ -2194,10 +2195,20 @@ function chooseBestScopeNotes(
 
 function scopeCardStyle(
   tier: ReturnType<typeof scopeItemVisualTier>,
+  item: Pick<ScopeChecklistItem, 'state' | 'choiceId' | 'inputType' | 'choiceIds'>,
   Colors: ReturnType<typeof getColors>,
   darkMode: boolean
 ) {
-  return [styles.card, estimateFlowCardStyle(Colors, darkMode), { opacity: SCOPE_ITEM_TIER_OPACITY[tier] }];
+  const accent = scopeCardAccentForItem(tier, item, darkMode);
+  return [
+    styles.card,
+    estimateFlowCardStyle(Colors, darkMode),
+    {
+      opacity: accent.opacity,
+      ...(accent.backgroundColor ? { backgroundColor: accent.backgroundColor } : {}),
+      ...(accent.borderColor ? { borderColor: accent.borderColor } : {}),
+    },
+  ];
 }
 
 function isCustomScopeItem(item: ScopeChecklistItem): boolean {
@@ -4616,7 +4627,7 @@ function WetAreaInstallLineCard({
   const noteBadge = scopeItemNoteBadge(item, visualCtx);
 
   return (
-    <View style={embedded ? styles.qmEmbeddedScopeBlock : scopeCardStyle(tier, Colors, darkMode)}>
+    <View style={embedded ? styles.qmEmbeddedScopeBlock : scopeCardStyle(tier, item, Colors, darkMode)}>
       <ScopeItemTitleRow
         label={checklistDisplayLabel(item, templateKey)}
         noteBadge={noteBadge}
@@ -5059,7 +5070,7 @@ function YesNoRow({
   };
 
   return (
-    <View style={scopeCardStyle(tier, Colors, darkMode)}>
+    <View style={scopeCardStyle(tier, item, Colors, darkMode)}>
       {isCustom && renaming ? (
         <View style={styles.customRenameRow}>
           <TextInput
@@ -5856,15 +5867,7 @@ function YesNoRow({
         <QuantitySection
           itemId={item.id}
           choiceId={item.choiceId}
-          inScope={
-            item.state === 'included' ||
-            // Soft-cost planning allowances stay visible on Not sure (pricing is hidden only for No).
-            (item.state === 'unsure' &&
-              (item.id === 'permits' ||
-                item.id === 'plans_engineering' ||
-                item.id === 'cleanup' ||
-                item.id === 'contingency'))
-          }
+          inScope={item.state === 'included'}
           templateKey={templateKey}
           originalNotes={originalNotes}
           measurementsInput={measurementsInput}
@@ -5972,7 +5975,7 @@ function MultiChoiceRow({
   const noteBadge = scopeItemNoteBadge(item, visualCtx);
 
   return (
-    <View style={scopeCardStyle(tier, Colors, darkMode)}>
+    <View style={scopeCardStyle(tier, item, Colors, darkMode)}>
       <ScopeItemTitleRow
         label={checklistDisplayLabel(item, templateKey)}
         noteBadge={noteBadge}
@@ -6150,7 +6153,7 @@ function ChoiceRow({
   const storedToiletRelocateFloor = measurementsInput.bathroomToiletRelocateFloorType ?? null;
 
   return (
-    <View style={embedded ? styles.qmEmbeddedScopeBlock : scopeCardStyle(tier, Colors, darkMode)}>
+    <View style={embedded ? styles.qmEmbeddedScopeBlock : scopeCardStyle(tier, item, Colors, darkMode)}>
       {!embedded ? (
         <ScopeItemTitleRow
           label={checklistDisplayLabel(item, templateKey)}
@@ -6878,6 +6881,7 @@ function CollapsibleQuickMeasurements({
     prefabBathCount: measurements.prefabBathCount ?? null,
     prefabEnclosureBathCount: measurements.prefabEnclosureBathCount ?? null,
     tubBathCount: measurements.tubBathCount ?? null,
+    bathFloorTileCount: measurements.bathFloorTileCount ?? null,
     showerDoorCount: measurements.showerDoorCount ?? null,
   });
   const [existingCounts, setExistingCounts] = useState<WetAreaExistingCounts>(() =>
@@ -6911,6 +6915,7 @@ function CollapsibleQuickMeasurements({
       prefabBathCount: measurements.prefabBathCount ?? null,
       prefabEnclosureBathCount: measurements.prefabEnclosureBathCount ?? null,
       tubBathCount: measurements.tubBathCount ?? null,
+      bathFloorTileCount: measurements.bathFloorTileCount ?? null,
       showerDoorCount: measurements.showerDoorCount ?? null,
     });
   }, [
@@ -6919,6 +6924,7 @@ function CollapsibleQuickMeasurements({
     measurements.prefabBathCount,
     measurements.prefabEnclosureBathCount,
     measurements.tubBathCount,
+    measurements.bathFloorTileCount,
     measurements.showerDoorCount,
   ]);
 
@@ -6927,6 +6933,7 @@ function CollapsibleQuickMeasurements({
   const displayPrefabPanCount = stepperCounts.prefabBathCount;
   const displayPrefabEnclosureCount = stepperCounts.prefabEnclosureBathCount;
   const displayTubBathCount = stepperCounts.tubBathCount;
+  const displayBathFloorTileCount = stepperCounts.bathFloorTileCount;
   const displayShowerDoorCount = stepperCounts.showerDoorCount;
   const wetAreaStepperMax = BATHROOM_QM_STEPPER_MAX;
 
@@ -6938,6 +6945,7 @@ function CollapsibleQuickMeasurements({
       prefabEnclosureBathCount:
         overrides?.prefabEnclosureBathCount ?? stepperCounts.prefabEnclosureBathCount,
       tubBathCount: overrides?.tubBathCount ?? stepperCounts.tubBathCount,
+      bathFloorTileCount: overrides?.bathFloorTileCount ?? stepperCounts.bathFloorTileCount,
       showerDoorCount: overrides?.showerDoorCount ?? stepperCounts.showerDoorCount,
     }),
     [stepperCounts]
@@ -6983,15 +6991,15 @@ function CollapsibleQuickMeasurements({
       if (demoOverride) {
         stored[demoOverride.key] = demoOverride.value;
       }
-      // Drop a stale "walls off" override when notes/inference require wall demo.
-      if (
-        !demoOverride &&
-        auto.demoTileWallCount &&
-        overrides.demoTileWallCount &&
-        !(Number(stored.demoTileWallCount) > 0)
-      ) {
-        delete overrides.demoTileWallCount;
+      // Drop stale "demo off" overrides when install/notes inference turns that row back on.
+      if (!demoOverride) {
+        (Object.keys(auto) as WetAreaDemoOverrideKey[]).forEach((key) => {
+          if (auto[key] && overrides[key] && !(Number(stored[key]) > 0)) {
+            delete overrides[key];
+          }
+        });
       }
+      demoOverridesRef.current = overrides;
       const merged = mergeDemoCountsWithOverrides({ auto, stored, overrides });
       latestExistingDemoRef.current = {
         existing: effectiveExisting,
@@ -7057,6 +7065,7 @@ function CollapsibleQuickMeasurements({
               prefabBathCount: latest.prefabBathCount,
               prefabEnclosureBathCount: latest.prefabEnclosureBathCount,
               tubBathCount: latest.tubBathCount,
+              bathFloorTileCount: latest.bathFloorTileCount,
               showerDoorCount: latest.showerDoorCount,
               wetAreaFinish,
               ...(options?.keepingExisting ? { showerFloorTileSqft: undefined } : {}),
@@ -7139,6 +7148,10 @@ function CollapsibleQuickMeasurements({
     [adjustStepperCount]
   );
   const adjustTubBathCount = useCallback((delta: number) => adjustStepperCount('tubBathCount', delta), [adjustStepperCount]);
+  const adjustBathFloorTileCount = useCallback(
+    (delta: number) => adjustStepperCount('bathFloorTileCount', delta),
+    [adjustStepperCount]
+  );
   const adjustShowerDoorCount = useCallback(
     (delta: number) => adjustStepperCount('showerDoorCount', delta),
     [adjustStepperCount]
@@ -7164,6 +7177,7 @@ function CollapsibleQuickMeasurements({
       prefabBathCount: null,
       prefabEnclosureBathCount: null,
       tubBathCount: null,
+      bathFloorTileCount: stepperCounts.bathFloorTileCount,
       showerDoorCount: stepperCounts.showerDoorCount,
     };
     setKeepingExistingWetArea(true);
@@ -7791,6 +7805,11 @@ function CollapsibleQuickMeasurements({
             wetAreaStepperMax,
             keepingExistingWetArea
           )}
+          {renderBathCountStepper(
+            'Bath floor',
+            displayBathFloorTileCount,
+            adjustBathFloorTileCount
+          )}
           <TouchableOpacity
             onPress={toggleKeepingExistingWetArea}
             disabled={applying}
@@ -7883,7 +7902,9 @@ function CollapsibleQuickMeasurements({
           </TouchableOpacity>
         </View>
       ) : null}
-      {wetAreaFields.map((result, index) => {
+      {wetAreaFields
+        .filter((result) => result.relevant)
+        .map((result, index) => {
         const variant = wetAreaFieldVariant(result);
         const homeGroup: QuickMeasurementGroupId =
           result.state === 'confirmed'
@@ -9010,6 +9031,16 @@ export default function AIEstimateScopeAssumptionsModal({
         templateKey: checklist.templateKey,
         wholeHomeLayout: false,
       }, nextMeasurements);
+      // QM sync can re-include wet-area demo rows; re-suppress photo false-positive floor demo.
+      normalized = suppressBathroomFalsePositiveFloorDemoScope(
+        normalized,
+        checklist.templateKey,
+        scopeNotes,
+        {
+          ...norm,
+          ...readWetAreaDemoCounts(nextMeasurements),
+        } as typeof norm
+      );
       setItems(normalized);
       setMeasurementsSynced(nextMeasurements);
       const displayForHydrate = expandWetAreaDerivedScopeItems(normalized);
@@ -9551,6 +9582,7 @@ export default function AIEstimateScopeAssumptionsModal({
       });
       next = syncBathroomFloorTileScopeItems(next, {
         bathroomFloorSqft: measurements.bathroomFloorSqft,
+        bathFloorTileCount: measurements.bathFloorTileCount,
       });
       return next;
     });
@@ -9561,6 +9593,7 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.showerWallTileSqft,
     measurements.showerFloorTileSqft,
     measurements.bathroomFloorSqft,
+    measurements.bathFloorTileCount,
   ]);
 
   // Paint SF in Quick measurements → auto-select Interior painting (Yes).
@@ -11278,14 +11311,19 @@ export default function AIEstimateScopeAssumptionsModal({
             );
           }}
           onWetAreaSteppersChange={(counts, options) => {
-            setItems((prev) =>
-              syncWetAreaScopeFromSteppers(prev, {
+            setItems((prev) => {
+              let next = syncWetAreaScopeFromSteppers(prev, {
                 counts,
                 keepingExisting: options?.keepingExisting,
                 showerWallTileSqft: measurements.showerWallTileSqft,
                 showerFloorTileSqft: measurements.showerFloorTileSqft,
-              })
-            );
+              });
+              next = syncBathroomFloorTileScopeItems(next, {
+                bathroomFloorSqft: measurements.bathroomFloorSqft,
+                bathFloorTileCount: counts.bathFloorTileCount,
+              });
+              return next;
+            });
           }}
           onWetAreaExistingDemoChange={({ demo, reuseExistingShowerDoor }) => {
             setItems((prev) =>

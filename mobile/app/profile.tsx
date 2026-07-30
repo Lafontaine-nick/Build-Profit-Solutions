@@ -94,6 +94,7 @@ import {
 } from '@/lib/profileAvatar';
 import { evaluateContractorProfileCompletion } from '@/lib/profileCompletion';
 import { clearProfileCompletionReminderDismissed } from '@/lib/profileCompletionReminderStorage';
+import ContractorPricingMemorySettings from '@/components/estimate/ContractorPricingMemorySettings';
 
 /**
  * In-memory defaults only — never persisted as-is. Avoids debounced autosave racing
@@ -2763,7 +2764,39 @@ export default function ProfileScreen() {
           </>
         ))}
 
-        {/* Data & Privacy */}
+        {/* Estimating — pricing library learn + Step 2 saved-rate suggestions */}
+        {(!settingsSearch.trim() ||
+          [
+            'pricing memory',
+            'pricing library',
+            'saved pricing',
+            'saved template',
+            'learn when',
+            'enable pricing',
+            'contractor pricing',
+            'estimating',
+          ].some((term) => filterSettings(term))) && (
+          <View style={styles.settingsGroupContainer}>
+            <Text
+              style={[
+                styles.settingsGroupTitle,
+                { color: theme.subtext, opacity: darkMode ? 1 : 0.85 },
+              ]}
+            >
+              ESTIMATING & PRICING
+            </Text>
+            <View
+              style={[
+                styles.settingsGroup,
+                { backgroundColor: theme.card, borderColor: theme.border },
+              ]}
+            >
+              <View style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
+                <ContractorPricingMemorySettings compact />
+              </View>
+            </View>
+          </View>
+        )}
 
         {/* Legal & Support */}
         {renderSection('Legal & Support', (

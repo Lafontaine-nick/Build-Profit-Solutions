@@ -25,11 +25,12 @@ const baseItems: ScopeChecklistItem[] = [
 ];
 
 describe('wetAreaScopeSync', () => {
-  test('syncWetAreaTileScopeItems includes floor tile when shower floor SF is set', () => {
+  test('syncWetAreaTileScopeItems does not include from SF alone — steppers required', () => {
     const next = syncWetAreaTileScopeItems(baseItems, {
       showerFloorTileSqft: '15',
+      showerWallTileSqft: '80',
     });
-    expect(next.find((r) => r.id === 'shower_floor_tile')?.state).toBe('included');
+    expect(next.find((r) => r.id === 'shower_floor_tile')?.state).toBe('unsure');
     expect(next.find((r) => r.id === 'shower_tile')?.state).toBe('unsure');
   });
 
@@ -40,6 +41,21 @@ describe('wetAreaScopeSync', () => {
     });
     expect(next.find((r) => r.id === 'shower_tile')?.state).toBe('included');
     expect(next.find((r) => r.id === 'shower_floor_tile')?.state).toBe('included');
+  });
+
+  test('syncWetAreaTileScopeItems clears wall/floor Yes when steppers off', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'shower_tile', label: 'Shower wall tile', inputType: 'yes_no', state: 'included' },
+      { id: 'shower_floor_tile', label: 'Shower floor tile', inputType: 'yes_no', state: 'included' },
+    ];
+    const next = syncWetAreaTileScopeItems(items, {
+      bathCount: null,
+      tilePanBathCount: null,
+      showerWallTileSqft: '80',
+      showerFloorTileSqft: '15',
+    });
+    expect(next.find((r) => r.id === 'shower_tile')?.state).toBe('unsure');
+    expect(next.find((r) => r.id === 'shower_floor_tile')?.state).toBe('unsure');
   });
 
   test('syncWaterproofingFromTileScopeItems includes waterproofing when shower wall tile is Yes', () => {
@@ -60,12 +76,12 @@ describe('wetAreaScopeSync', () => {
     expect(next.find((r) => r.id === 'waterproofing')?.state).toBe('excluded');
   });
 
-  test('syncWetAreaTileScopeItems includes waterproofing when shower wall SF is set', () => {
+  test('syncWetAreaTileScopeItems includes waterproofing when wall stepper is set', () => {
     const items: ScopeChecklistItem[] = [
       ...baseItems,
       { id: 'waterproofing', label: 'Waterproofing', inputType: 'yes_no', state: 'unsure' },
     ];
-    const next = syncWetAreaTileScopeItems(items, { showerWallTileSqft: '80' });
+    const next = syncWetAreaTileScopeItems(items, { bathCount: 1, showerWallTileSqft: '80' });
     expect(next.find((r) => r.id === 'shower_tile')?.state).toBe('included');
     expect(next.find((r) => r.id === 'waterproofing')?.state).toBe('included');
   });
@@ -78,6 +94,7 @@ describe('wetAreaScopeSync', () => {
         prefabBathCount: null,
         prefabEnclosureBathCount: null,
         tubBathCount: null,
+        bathFloorTileCount: null,
         showerDoorCount: null,
       },
       showerFloorTileSqft: '15',
@@ -105,6 +122,7 @@ describe('wetAreaScopeSync', () => {
         prefabBathCount: null,
         prefabEnclosureBathCount: null,
         tubBathCount: null,
+        bathFloorTileCount: null,
         showerDoorCount: null,
       },
       keepingExisting: true,
@@ -133,6 +151,7 @@ describe('wetAreaScopeSync', () => {
         prefabBathCount: null,
         prefabEnclosureBathCount: null,
         tubBathCount: null,
+        bathFloorTileCount: null,
         showerDoorCount: null,
       },
     });
@@ -158,6 +177,7 @@ describe('wetAreaScopeSync', () => {
         prefabBathCount: null,
         prefabEnclosureBathCount: null,
         tubBathCount: null,
+        bathFloorTileCount: null,
         showerDoorCount: null,
       },
     });
@@ -197,8 +217,58 @@ describe('wetAreaScopeSync', () => {
     const items: ScopeChecklistItem[] = [
       { id: 'floor_tile', label: 'Bath floor tile', inputType: 'yes_no', state: 'unsure' },
     ];
+    // SF alone does not select — Bath floor stepper does.
     const next = syncBathroomFloorTileScopeItems(items, { bathroomFloorSqft: '45' });
+    expect(next.find((r) => r.id === 'floor_tile')?.state).toBe('unsure');
+  });
+
+  test('syncBathroomFloorTileScopeItems includes floor_tile when Tile bath floor stepper set', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'floor_tile', label: 'Bath floor tile', inputType: 'yes_no', state: 'unsure' },
+    ];
+    const next = syncBathroomFloorTileScopeItems(items, { bathFloorTileCount: 1 });
     expect(next.find((r) => r.id === 'floor_tile')?.state).toBe('included');
+  });
+
+  test('syncBathroomFloorTileScopeItems clears floor_tile Yes when bath floor SF empty', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'floor_tile',
+        label: 'Bath floor tile',
+        inputType: 'yes_no',
+        state: 'included',
+        noteBacked: true,
+      },
+    ];
+    const next = syncBathroomFloorTileScopeItems(items, { bathroomFloorSqft: null });
+    expect(next.find((r) => r.id === 'floor_tile')?.state).toBe('unsure');
+  });
+
+  test('syncBathroomFloorTileScopeItems keeps floor_tile when stepper on even if SF empty', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'floor_tile', label: 'Bath floor tile', inputType: 'yes_no', state: 'included' },
+    ];
+    const next = syncBathroomFloorTileScopeItems(items, {
+      bathroomFloorSqft: null,
+      bathFloorTileCount: 1,
+    });
+    expect(next.find((r) => r.id === 'floor_tile')?.state).toBe('included');
+  });
+
+  test('syncWetAreaDemoScopeItems clears floor_demo Yes when bath floor demo stepper off', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'floor_demo',
+        label: 'Remove floor',
+        inputType: 'yes_no',
+        state: 'included',
+        noteBacked: true,
+      },
+    ];
+    const next = syncWetAreaDemoScopeItems(items, {
+      demo: { demoBathFloorTileCount: null },
+    });
+    expect(next.find((r) => r.id === 'floor_demo')?.state).toBe('unsure');
   });
 
   test('syncInteriorPaintScopeItems includes paint when wallPaintSqft is set', () => {

@@ -63,7 +63,15 @@ describe('wetAreaInstallInference', () => {
 
   test('merge keeps user-entered counts over inference', () => {
     const merged = mergeInferredWetAreaInstallSteppers(
-      { bathCount: 1, tilePanBathCount: null, prefabBathCount: null, prefabEnclosureBathCount: null, tubBathCount: null, showerDoorCount: null },
+      {
+        bathCount: 1,
+        tilePanBathCount: null,
+        prefabBathCount: null,
+        prefabEnclosureBathCount: null,
+        tubBathCount: null,
+        bathFloorTileCount: null,
+        showerDoorCount: null,
+      },
       inferWetAreaInstallSteppersFromIntent({ notes: 'Install prefab shower pan.' })
     );
     expect(merged.bathCount).toBe(1);
@@ -89,6 +97,33 @@ describe('wetAreaInstallInference', () => {
     expect(inferred.prefabBathCount).toBeNull();
   });
 
+  test('tile bath floor notes select bathFloorTileCount', () => {
+    expect(
+      inferWetAreaInstallSteppersFromIntent({
+        notes: 'Demo shower and tile bath floor.',
+      }).bathFloorTileCount
+    ).toBe(1);
+    expect(
+      inferWetAreaInstallSteppersFromIntent({
+        notes: 'Install bathroom floor tile outside the shower.',
+      }).bathFloorTileCount
+    ).toBe(1);
+    expect(
+      inferWetAreaInstallSteppersFromIntent({
+        notes: 'Tile shower walls and tile the shower floor.',
+      }).bathFloorTileCount
+    ).toBeNull();
+  });
+
+  test('checklist floor_tile alone does not select bathFloorTileCount', () => {
+    expect(
+      inferWetAreaInstallSteppersFromIntent({
+        notes: 'Tile shower walls and tile shower pan.',
+        bathFloorTileIncluded: true,
+      }).bathFloorTileCount
+    ).toBeNull();
+  });
+
   test('reconcile clears prefab when both pans were saved', () => {
     const reconciled = reconcileExclusiveShowerPanSteppers({
       bathCount: 1,
@@ -96,6 +131,7 @@ describe('wetAreaInstallInference', () => {
       prefabBathCount: 1,
       prefabEnclosureBathCount: null,
       tubBathCount: null,
+      bathFloorTileCount: null,
       showerDoorCount: null,
     });
     expect(reconciled.tilePanBathCount).toBe(1);

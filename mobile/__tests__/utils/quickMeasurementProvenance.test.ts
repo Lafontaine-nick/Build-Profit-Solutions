@@ -231,6 +231,22 @@ describe('splitWetAreaQuickMeasurementFields', () => {
       'showerFloorTileSqft',
     ]);
   });
+
+  test('removes bath floor from More measurements (lives under Wet area install)', () => {
+    const groups = {
+      fromPlan: [],
+      suggestions: [],
+      needsConfirmation: [],
+      confirmed: [],
+      more: [
+        { key: 'bathroomFloorSqft' as const, state: 'not_relevant' as const, relevant: false },
+        { key: 'wallPaintSqft' as const, state: 'not_relevant' as const, relevant: false },
+      ],
+    };
+    const split = splitWetAreaQuickMeasurementFields(groups as any);
+    expect(split.groups.more.map((r) => r.key)).toEqual(['wallPaintSqft']);
+    expect(split.wetArea.map((r) => r.key)).toContain('bathroomFloorSqft');
+  });
 });
 
 describe('pinQuickMeasurementFieldInGroup', () => {

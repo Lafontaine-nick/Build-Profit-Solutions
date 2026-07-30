@@ -175,7 +175,7 @@ describe('bathroom wet-area notes do not false-positive floor demo', () => {
     const rows = quickMeasurementRowsForTemplate('bathroom', 'bathroom');
     const results = resolveQuickMeasurementFields({
       rows,
-      measurements: { wetAreaFinish: 'prefab' },
+      measurements: { wetAreaFinish: 'prefab', bathCount: 1 },
       includedScopeKeys: included,
       templateKey: 'bathroom',
     });
@@ -194,8 +194,8 @@ describe('bathroom wet-area notes do not false-positive floor demo', () => {
       { id: 'floor_tile', label: 'Bath floor tile', state: 'included', inputType: 'yes_no', noteBacked: true },
     ];
     const suppressed = suppressBathroomFalsePositiveFloorDemoScope(items, 'bathroom', BATH_NOTES);
-    expect(suppressed.find((i) => i.id === 'floor_demo')?.state).toBe('excluded');
-    expect(suppressed.find((i) => i.id === 'floor_tile')?.state).toBe('excluded');
+    expect(suppressed.find((i) => i.id === 'floor_demo')?.state).toBe('unsure');
+    expect(suppressed.find((i) => i.id === 'floor_tile')?.state).toBe('unsure');
 
     const stripped = stripBathroomFalsePositiveFloorDemoQuantities(
       { floor_demo: { quantity: 90, unit: 'sqft' }, demo: { quantity: 1, unit: 'allowance' } },
@@ -209,5 +209,25 @@ describe('bathroom wet-area notes do not false-positive floor demo', () => {
     expect(getMeasurementRelevance({ measurementKey: 'bathroomFloorSqft', includedScopeKeys: included }).relevant).toBe(
       false
     );
+  });
+
+  test('photo floor_demo stays off for prefab pan notes even when bath floor SF is set', () => {
+    const notes =
+      'Demo shower walls, demo prefab shower pan, and tile shower walls, and tile shower pan. Install soap niche.';
+    const items: ScopeChecklistItem[] = [
+      { id: 'demo', label: 'Demo', state: 'included', inputType: 'yes_no', noteBacked: true },
+      { id: 'shower_floor_demo', label: 'Shower floor demo', state: 'included', inputType: 'yes_no', noteBacked: true },
+      {
+        id: 'floor_demo',
+        label: 'Bathroom floor demo',
+        state: 'included',
+        inputType: 'yes_no',
+        noteBacked: true,
+      },
+    ];
+    const suppressed = suppressBathroomFalsePositiveFloorDemoScope(items, 'bathroom', notes, {
+      bathroomFloorSqft: 120,
+    } as any);
+    expect(suppressed.find((i) => i.id === 'floor_demo')?.state).toBe('unsure');
   });
 });

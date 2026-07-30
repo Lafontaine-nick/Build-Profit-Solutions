@@ -170,8 +170,44 @@ describe('getMeasurementRelevance', () => {
       measurementKey: 'showerWallTileSqft',
       includedScopeKeys: ['shower_tile'],
       templateKey: 'bathroom',
+      bathCount: 1,
       keepingExistingWetArea: true,
     });
     expect(wallsOnly.relevant).toBe(true);
+  });
+
+  test('bathroom photo/notes hide shower SF when wall/pan steppers are off', () => {
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'showerWallTileSqft',
+        includedScopeKeys: ['shower_tile'],
+        templateKey: 'bathroom',
+        bathCount: null,
+      }).relevant
+    ).toBe(false);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'showerWallTileSqft',
+        includedScopeKeys: ['shower_tile'],
+        templateKey: 'bathroom',
+        bathCount: 1,
+      }).relevant
+    ).toBe(true);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'showerFloorTileSqft',
+        includedScopeKeys: ['shower_floor_tile'],
+        templateKey: 'bathroom',
+        tilePanBathCount: null,
+      }).relevant
+    ).toBe(false);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'showerFloorTileSqft',
+        includedScopeKeys: ['shower_floor_tile'],
+        templateKey: 'bathroom',
+        tilePanBathCount: 1,
+      }).relevant
+    ).toBe(true);
   });
 });

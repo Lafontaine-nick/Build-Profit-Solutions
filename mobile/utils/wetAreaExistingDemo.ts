@@ -420,7 +420,17 @@ function setDemoIf(
   if (condition) demo[key] = 1;
 }
 
-/** Derive demo tear-out counts from photos, notes, checklist, existing, and new install. */
+/** Derive demo tear-out counts from photos, notes, checklist, existing, and new install.
+ *
+ * Manual Wet area install → Demo / tear-out (like-for-like even without photo existing):
+ * - Tile shower walls → Remove tile shower walls
+ * - Mud pan → Remove tile shower pan (or existing prefab pan/enclosure when known)
+ * - Prefab pan → Remove prefab pan (or existing tile pan when known)
+ * - Prefab enclosure → Remove prefab enclosure
+ * - Tub install → Remove tub
+ * - Bath floor → Remove bathroom floor tile
+ * - Shower doors → never from install alone (notes / reuse toggle)
+ */
 export function resolveDemoWetAreaFromIntent(input: DemoWetAreaInferenceInput): WetAreaDemoCounts {
   const empty: WetAreaDemoCounts = {
     demoTubCount: null,
@@ -438,6 +448,19 @@ export function resolveDemoWetAreaFromIntent(input: DemoWetAreaInferenceInput): 
   const ins = input.install;
   const newWet = installingNewWetArea(ins);
   const conversionDemo = notesMentionWetAreaConversionDemo(n);
+  const installingTileWalls = positiveCount(ins.bathCount);
+  const installingTilePan = positiveCount(ins.tilePanBathCount);
+  const installingPrefabPan = positiveCount(ins.prefabBathCount);
+  const installingPrefabEnclosure = positiveCount(ins.prefabEnclosureBathCount);
+  const installingTub = positiveCount(ins.tubBathCount);
+  const installingNewShowerFloor = Boolean(
+    installingTilePan || installingPrefabPan || installingPrefabEnclosure || installingTub
+  );
+  const hasExistingTub = positiveCount(ex.existingTubCount);
+  const hasExistingTilePan = positiveCount(ex.existingTilePanCount);
+  const hasExistingPrefabPan = positiveCount(ex.existingPrefabPanCount);
+  const hasExistingEnclosure = positiveCount(ex.existingPrefabEnclosureCount);
+  const hasExistingTileWalls = positiveCount(ex.existingTileWallCount);
 
   const demo: WetAreaDemoCounts = { ...empty };
 
@@ -446,9 +469,10 @@ export function resolveDemoWetAreaFromIntent(input: DemoWetAreaInferenceInput): 
     'demoTubCount',
     Boolean(
       input.tubDemoIncluded ||
-        (notesMentionDemoTub(n) && positiveCount(ex.existingTubCount)) ||
-        (conversionDemo && positiveCount(ex.existingTubCount)) ||
-        (positiveCount(ex.existingTubCount) && newWet)
+        installingTub ||
+        (notesMentionDemoTub(n) && hasExistingTub) ||
+        (conversionDemo && hasExistingTub) ||
+        (hasExistingTub && newWet)
     )
   );
 
@@ -456,29 +480,33 @@ export function resolveDemoWetAreaFromIntent(input: DemoWetAreaInferenceInput): 
     demo,
     'demoTileWallCount',
     Boolean(
-      // Explicit "demo shower walls" is enough — do not wait for install steppers/photos.
       notesMentionDemoTileWalls(n) ||
-        (conversionDemo && positiveCount(ex.existingTileWallCount)) ||
-        (positiveCount(ex.existingTileWallCount) && positiveCount(ins.bathCount))
+        installingTileWalls ||
+        (conversionDemo && hasExistingTileWalls)
     )
   );
 
   const floorDemoFromNotes =
     input.showerFloorDemoIncluded ||
     (notesMentionDemoShowerFloor(n) &&
-      (positiveCount(ex.existingTilePanCount) ||
-        positiveCount(ex.existingPrefabPanCount) ||
-        positiveCount(ex.existingPrefabEnclosureCount)));
+      (hasExistingTilePan || hasExistingPrefabPan || hasExistingEnclosure));
+
+  // New shower floor displaces whatever pan/enclosure exists (conversion).
+  const displaceExistingShowerFloor = installingNewShowerFloor && !hasExistingTub;
+
+  // Like-for-like when existing type is unknown — don't invent the wrong pan demo during conversion.
+  const otherFloorExisting = hasExistingPrefabPan || hasExistingEnclosure;
+  const otherThanTilePanExisting = hasExistingTilePan || hasExistingEnclosure;
+  const otherThanEnclosureExisting = hasExistingTilePan || hasExistingPrefabPan;
 
   setDemoIf(
     demo,
     'demoTilePanCount',
     Boolean(
-      !positiveCount(ex.existingTubCount) &&
-        ((floorDemoFromNotes &&
-          positiveCount(ex.existingTilePanCount) &&
-          !positiveCount(ex.existingPrefabPanCount)) ||
-          (positiveCount(ex.existingTilePanCount) && positiveCount(ins.tilePanBathCount)))
+      !hasExistingTub &&
+        ((hasExistingTilePan &&
+          (floorDemoFromNotes || displaceExistingShowerFloor || installingTilePan)) ||
+          (installingTilePan && !otherFloorExisting))
     )
   );
 
@@ -486,11 +514,11 @@ export function resolveDemoWetAreaFromIntent(input: DemoWetAreaInferenceInput): 
     demo,
     'demoPrefabPanCount',
     Boolean(
-      !positiveCount(ex.existingTubCount) &&
-        ((floorDemoFromNotes &&
-          positiveCount(ex.existingPrefabPanCount) &&
-          !positiveCount(ex.existingPrefabEnclosureCount)) ||
-          (positiveCount(ex.existingPrefabPanCount) && positiveCount(ins.prefabBathCount)))
+      !hasExistingTub &&
+        ((hasExistingPrefabPan &&
+          !hasExistingEnclosure &&
+          (floorDemoFromNotes || displaceExistingShowerFloor || installingPrefabPan)) ||
+          (installingPrefabPan && !otherThanTilePanExisting))
     )
   );
 
@@ -498,14 +526,14 @@ export function resolveDemoWetAreaFromIntent(input: DemoWetAreaInferenceInput): 
     demo,
     'demoPrefabEnclosureCount',
     Boolean(
-      !positiveCount(ex.existingTubCount) &&
-        ((floorDemoFromNotes && positiveCount(ex.existingPrefabEnclosureCount)) ||
-          (positiveCount(ex.existingPrefabEnclosureCount) &&
-            positiveCount(ins.prefabEnclosureBathCount)) ||
-          // Existing prefab surround + notes say demo walls + new tile walls.
-          (notesMentionDemoTileWalls(n) &&
-            positiveCount(ex.existingPrefabEnclosureCount) &&
-            positiveCount(ins.bathCount)))
+      !hasExistingTub &&
+        ((hasExistingEnclosure &&
+          (floorDemoFromNotes ||
+            displaceExistingShowerFloor ||
+            installingPrefabEnclosure ||
+            installingTileWalls ||
+            (notesMentionDemoTileWalls(n) && installingTileWalls))) ||
+          (installingPrefabEnclosure && !otherThanEnclosureExisting))
     )
   );
 
@@ -521,17 +549,18 @@ export function resolveDemoWetAreaFromIntent(input: DemoWetAreaInferenceInput): 
     )
   );
 
-  // Bath floor demo is NOT implied by shower work, floor SF alone, or a false-positive
-  // floor_demo checklist flag. Require explicit notes or existing bath floor + new floor.
+  // Bath floor: Wet area "Bath floor" stepper always implies tear-out of the old finish.
   const notesWantBathFloorDemo = notesMentionDemoBathFloorTile(n);
-  const installingBathFloor =
+  const installingBathFloorStepper = positiveCount(ins.bathFloorTileCount);
+  const installingBathFloorOtherwise =
     Boolean(input.floorTileIncluded) || positiveSqft(input.bathroomFloorSqft);
   setDemoIf(
     demo,
     'demoBathFloorTileCount',
     Boolean(
       notesWantBathFloorDemo ||
-        (positiveCount(ex.existingBathFloorTileCount) && installingBathFloor)
+        installingBathFloorStepper ||
+        (positiveCount(ex.existingBathFloorTileCount) && installingBathFloorOtherwise)
     )
   );
 
