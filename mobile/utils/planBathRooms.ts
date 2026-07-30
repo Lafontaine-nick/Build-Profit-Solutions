@@ -1,7 +1,7 @@
 import type { PlanRoomMeasurement } from '@/utils/estimateAiDraft';
 import {
+  applyNotesInferredWetAreaInstallSteppers,
   inferWetAreaInstallSteppersFromIntent,
-  mergeInferredWetAreaInstallSteppers,
   reconcileExclusiveShowerPanSteppers,
 } from '@/utils/wetAreaInstallInference';
 
@@ -262,21 +262,18 @@ export function hydrateWetAreaStepperCounts(params: {
   const choice = params.wetAreaInstallChoiceId;
   if (choice === 'staying' || choice === 'not_in_scope') return base;
 
+  const notesDriven = Boolean(String(params.notes ?? '').trim());
   const inferred = inferWetAreaInstallSteppersFromIntent({
     notes: params.notes,
-    wetAreaInstallChoiceId: choice,
+    // Notes-only jobs re-infer each open — stale checklist choiceId must not override notes.
+    wetAreaInstallChoiceId:
+      notesDriven && choice !== 'staying' && choice !== 'not_in_scope' ? null : choice,
     showerTileIncluded: params.showerTileIncluded,
     showerFloorTileIncluded: params.showerFloorTileIncluded,
+    bathFloorTileIncluded: params.bathFloorTileIncluded,
     glassDoorIncluded: params.glassDoorIncluded,
   });
-  const merged = reconcileExclusiveShowerPanSteppers(
-    mergeInferredWetAreaInstallSteppers(base, inferred)
-  );
-  // Re-resolve from notes each open so shower-floor phrasing cannot leave Bath floor on.
-  if (!inferred.bathFloorTileCount) {
-    merged.bathFloorTileCount = null;
-  }
-  return merged;
+  return applyNotesInferredWetAreaInstallSteppers(base, inferred, { notes: params.notes });
 }
 
 /** Primary wet_area_install choice for legacy single-select sync. */

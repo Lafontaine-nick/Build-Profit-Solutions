@@ -6837,7 +6837,11 @@ export default function EstimateGeneratorScreen() {
                 markupPct: Number(nextBid.markupPct) || null,
                 region: nextBid.customerState ? String(nextBid.customerState) : null,
               },
-            });
+            }).then(() =>
+              fetchPricingLibraryRatesForScopeContext()
+                .then((rates) => setPricingLibraryRates(rates))
+                .catch(() => {})
+            );
           }
         } catch (e) {
           console.warn('handleApplyAiDraft failed', e);

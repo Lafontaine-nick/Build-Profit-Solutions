@@ -182,7 +182,9 @@ export default function AIEstimateDraftReviewModal({
     ? 96 + insets.bottom
     : footerExpanded
       ? 280 + insets.bottom
-      : 88 + insets.bottom;
+      : onToggleSaveToPricingLibrary
+        ? 132 + insets.bottom
+        : 88 + insets.bottom;
   const clarifyCard =
     onSubmitClarifyAnswers &&
     onDismissClarify &&
@@ -368,28 +370,28 @@ export default function AIEstimateDraftReviewModal({
           )
         ) : null}
 
+        {!scopeOnly && onToggleSaveToPricingLibrary ? (
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingHorizontal: 4,
+            }}
+          >
+            <Text style={{ color: Colors.sub, fontSize: 12, flex: 1, marginRight: 8 }}>
+              Save approved pricing to my library
+            </Text>
+            <Switch
+              value={saveToPricingLibrary}
+              onValueChange={onToggleSaveToPricingLibrary}
+              disabled={busy}
+            />
+          </View>
+        ) : null}
+
         {footerExpanded ? (
           <>
-            {onToggleSaveToPricingLibrary ? (
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  paddingHorizontal: 4,
-                }}
-              >
-                <Text style={{ color: Colors.sub, fontSize: 12, flex: 1, marginRight: 8 }}>
-                  Save approved pricing to my library
-                </Text>
-                <Switch
-                  value={saveToPricingLibrary}
-                  onValueChange={onToggleSaveToPricingLibrary}
-                  disabled={busy}
-                />
-              </View>
-            ) : null}
-
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8 }}>
               <TouchableOpacity activeOpacity={0.88} disabled={busy} onPress={onRegenerate}>
                 <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>Edit notes & regenerate</Text>

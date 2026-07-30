@@ -97,6 +97,11 @@ const RATE_PRICING_MATCHERS: Array<{ id: string; match: RegExp; exclude?: RegExp
     match: /\b(shower\s+wall\s+tile|shower\s+tile|tile\s+shower)\b/i,
   },
   {
+    id: 'waterproofing',
+    match: /\b(waterproof|backer\s+board|kerdi|red\s*gard|redgard|schluter|membrane)\b/i,
+    exclude: /\b(floor\s+tile|bath(?:room)?\s+floor)\b/i,
+  },
+  {
     id: 'paint',
     match: /\b(paint(?:ing)?|primer|walls?\s+and\s+(?:the\s+)?ceiling)\b/i,
     exclude: /\b(exterior|interior\s+paint|paint\s+interior)\b/i,

@@ -264,6 +264,7 @@ import {
   QmBathroomFixturesPanels,
   QmFlooringScopePanels,
   QmKitchenScopePanels,
+  qmNeutralScopePanelStyle,
 } from '@/components/estimate/QmTradeScopePanels';
 import {
   GARAGE_DOOR_TYPE_RATES,
@@ -343,6 +344,7 @@ import {
   coversLabelList,
   FOOTER_PLANNING_BENCHMARK_INFO,
   footerSuggestedPricingSummary,
+  scopeHasCommittedConfirmScopePrice,
   isGrossFlooringDerivedFromLiving,
   livingSfBenchmarkRecord,
   livingSfPricingRecord,
@@ -560,12 +562,12 @@ function SourcePill({
     kind === 'notes'
       ? SCOPE_PARSED_FROM_NOTES_LABEL
       : kind === 'template'
-        ? 'Saved rate'
+        ? 'Saved pricing'
         : kind === 'benchmark'
           ? 'Local benchmark'
         : kind === 'remainder'
           ? 'Remainder'
-          : 'BPS national benchmark';
+          : 'National average';
   const text = displayPriceSourceLabel(label || defaultText);
   const color =
     kind === 'notes'
@@ -1241,18 +1243,31 @@ function SuggestedBudgetSplitRows({
     forceCompact,
   });
 
-  const isNationalComparison = /national\s*average\s*comparison/i.test(
-    String(block.rateSourceLabel || '')
-  );
-  // National comparison is opt-in (secondary CTA). Stage lumps stay view-only.
+  const rateLabel = String(block.rateSourceLabel || '');
+  const isNationalAverageSource = /national\s*average/i.test(rateLabel);
+  const isNationalComparison =
+    /national\s*average\s*comparison/i.test(rateLabel) ||
+    (Boolean(block.isComparison) && isNationalAverageSource);
+  // When the contractor already entered/applied a price, national rows are
+  // comparison-only — never count as "price ready" Apply targets.
+  // Stage lumps stay view-only.
   const canWritePrice =
     Boolean(onUsePricing) &&
     action !== 'included_in_stage' &&
+    !(
+      hasCurrentPricing &&
+      (isNationalAverageSource ||
+        isNationalComparison ||
+        action === 'comparison_only' ||
+        Boolean(block.isComparison))
+    ) &&
     (isNationalComparison ||
       (action !== 'comparison_only' && !(block.isComparison && usesBenchmark && semantics)));
 
   const writeActionLabel = isNationalComparison
-    ? 'Use this pricing'
+    ? display.presentation === 'compact'
+      ? 'Apply'
+      : 'Use this pricing'
     : display.actionLabel;
 
   if (display.presentation === 'compact') {
@@ -1547,6 +1562,7 @@ function ComparisonToggle({
   livingSf,
   confidenceLabel,
   editAction,
+  hasCurrentPricing = false,
 }: {
   block: SuggestedPricingBlock;
   Colors: ReturnType<typeof getColors>;
@@ -1559,7 +1575,41 @@ function ComparisonToggle({
   confidenceLabel?: string | null;
   /** When set, Compare and Edit share one row with separate pill buttons. */
   editAction?: React.ReactNode;
+  /** Active applied/entered price — national comparison is view-only. */
+  hasCurrentPricing?: boolean;
 }) {
+  const cardProps = {
+    itemId,
+    quantitySource,
+    hasPrimaryTakeoff,
+    livingSf,
+    confidenceLabel,
+    hasCurrentPricing,
+  };
+
+  const isNationalComparison =
+    /national\s*average\s*comparison/i.test(String(block.rateSourceLabel || '')) ||
+    (Boolean(block.isComparison) && /national\s*average/i.test(String(block.rateSourceLabel || '')));
+
+  if (isNationalComparison) {
+    return (
+      <View style={editAction ? undefined : { marginTop: 8 }}>
+        <SuggestedBudgetSplitRows
+          block={block}
+          Colors={Colors}
+          darkMode={darkMode}
+          // Already-priced scopes keep the national row for comparison only.
+          onUsePricing={hasCurrentPricing ? undefined : onUsePricing}
+          forceCompact
+          {...cardProps}
+        />
+        {editAction ? (
+          <ScopePricingSecondaryActions edit={editAction} />
+        ) : null}
+      </View>
+    );
+  }
+
   const usesTemplate = block.materialSource === 'template' || block.laborSource === 'template';
   const hasBenchmark = Boolean(block.benchmarkEvidence);
   const includedInStage =
@@ -1576,14 +1626,6 @@ function ComparisonToggle({
     if (includedInStage || usesTemplate) setOpen(true);
   }, [includedInStage, usesTemplate, block.templateName]);
 
-  const cardProps = {
-    itemId,
-    quantitySource,
-    hasPrimaryTakeoff,
-    livingSf,
-    confidenceLabel,
-  };
-
   if (includedInStage) {
     return (
       <View style={{ marginTop: 8 }}>
@@ -1598,15 +1640,7 @@ function ComparisonToggle({
     );
   }
 
-  const isNationalComparison = /national\s*average\s*comparison/i.test(
-    String(block.rateSourceLabel || '')
-  );
-
-  const compareLabel = open
-    ? 'Hide'
-    : isNationalComparison
-      ? 'National avg'
-      : 'Benchmarks';
+  const compareLabel = open ? 'Hide' : 'Benchmarks';
 
   const compareButton = (
     <ScopeSecondaryActionButton
@@ -1631,9 +1665,7 @@ function ComparisonToggle({
           Colors={Colors}
           darkMode={darkMode}
           // National average comparison can be applied; stage lumps stay view-only.
-          onUsePricing={
-            isNationalComparison || !comparisonOnly ? onUsePricing : undefined
-          }
+          onUsePricing={!comparisonOnly ? onUsePricing : undefined}
           {...cardProps}
         />
       ) : null}
@@ -3234,16 +3266,17 @@ function QuantitySection({
 
     if (resolved.pricingReady && !showEditor) {
       const displayResolved = mergeNotesSplitForDisplay();
+      const rawSuggested = resolveScopeItemSuggestedPricing(
+        itemId,
+        measurementsInput,
+        templateKey,
+        displayResolved,
+        pricingContext,
+        choiceId
+      );
       const initialSuggested = hasUserSelectedPricing
-        ? { fill: null, comparison: null }
-        : resolveScopeItemSuggestedPricing(
-            itemId,
-            measurementsInput,
-            templateKey,
-            displayResolved,
-            pricingContext,
-            choiceId
-          );
+        ? { fill: null, comparison: rawSuggested.comparison }
+        : rawSuggested;
       let suggestedBudgetSplit = initialSuggested.fill;
       let suggestedComparisonSplit = initialSuggested.comparison;
       const intelligence = resolveScopeItemIntelligence({
@@ -3260,17 +3293,19 @@ function QuantitySection({
         itemQuantities: measurementsInput.itemQuantities,
         pricingAccepted: Boolean(measurementsInput.pricingAcceptance?.[itemId]),
       });
-      if (!hasUserSelectedPricing) {
-        const formulaSuggested = resolveFormulaTargetSuggestedPricing({
-          itemId,
-          measurementsInput,
-          templateKey,
-          resolved: displayResolved,
-          pricingContext,
-          intelligence,
-          suggested: initialSuggested,
-          choiceId,
-        });
+      const formulaSuggested = resolveFormulaTargetSuggestedPricing({
+        itemId,
+        measurementsInput,
+        templateKey,
+        resolved: displayResolved,
+        pricingContext,
+        intelligence,
+        suggested: rawSuggested,
+        choiceId,
+      });
+      if (hasUserSelectedPricing) {
+        suggestedComparisonSplit = formulaSuggested.comparison;
+      } else {
         suggestedBudgetSplit = formulaSuggested.fill;
         suggestedComparisonSplit = formulaSuggested.comparison;
       }
@@ -3515,6 +3550,18 @@ function QuantitySection({
                   )}
                   livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
                   confidenceLabel={intelligence?.pricing?.confidenceLabel}
+                  hasCurrentPricing={
+                    scopeHasCommittedConfirmScopePrice({
+                      itemId,
+                      itemQuantities: measurementsInput.itemQuantities,
+                      pricingAcceptance: measurementsInput.pricingAcceptance,
+                    }) ||
+                    hasAcceptedScopePricing(
+                      itemId,
+                      measurementsInput.itemQuantities,
+                      measurementsInput.pricingAcceptance
+                    )
+                  }
                   editAction={<EditQuantityLink onPress={openPricingEditor} stretch />}
                 />
               ) : (
@@ -3529,20 +3576,22 @@ function QuantitySection({
     }
 
     if (!showEditor) {
-      const planningSuggested = shouldSuppressSuggestedPricingAfterApply(
+      const rawPlanningSuggested = resolveScopeItemSuggestedPricing(
+        itemId,
+        measurementsInput,
+        templateKey,
+        resolved,
+        pricingContext,
+        choiceId
+      );
+      const suppressFill = shouldSuppressSuggestedPricingAfterApply(
         itemId,
         measurementsInput.itemQuantities || {},
         measurementsInput.pricingAcceptance
-      )
-        ? { fill: null as SuggestedPricingBlock | null, comparison: null as SuggestedPricingBlock | null }
-        : resolveScopeItemSuggestedPricing(
-            itemId,
-            measurementsInput,
-            templateKey,
-            resolved,
-            pricingContext,
-            choiceId
-          );
+      );
+      const planningSuggested = suppressFill
+        ? { fill: null as SuggestedPricingBlock | null, comparison: rawPlanningSuggested.comparison }
+        : rawPlanningSuggested;
       const planningIntelligence = resolveScopeItemIntelligence({
         scopeKey: itemId,
         templateKey,
@@ -3979,7 +4028,13 @@ function QuantitySection({
               ? () => onRevertCalculatedQuantity(itemId)
               : undefined;
           const showInlineSqftTakeoff =
-            step2TierNeedsInlineTakeoffEntry(itemId, templateKey, resolved) &&
+            !accepted &&
+            step2TierNeedsInlineTakeoffEntry(
+              itemId,
+              templateKey,
+              resolved,
+              Boolean(measurementsInput.pricingAcceptance?.[itemId])
+            ) &&
             String(resolved.unit || rule.defaultUnit).toLowerCase() === 'sqft';
           const inlineSqftTakeoff = showInlineSqftTakeoff ? (
             <InlineTakeoffCountInput
@@ -4131,6 +4186,18 @@ function QuantitySection({
                   )}
                   livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
                   confidenceLabel={intelligence?.pricing?.confidenceLabel}
+                  hasCurrentPricing={
+                    scopeHasCommittedConfirmScopePrice({
+                      itemId,
+                      itemQuantities: measurementsInput.itemQuantities,
+                      pricingAcceptance: measurementsInput.pricingAcceptance,
+                    }) ||
+                    hasAcceptedScopePricing(
+                      itemId,
+                      measurementsInput.itemQuantities,
+                      measurementsInput.pricingAcceptance
+                    )
+                  }
                   editAction={<EditQuantityLink onPress={openPricingEditor} stretch />}
                 />
               ) : (
@@ -4140,7 +4207,7 @@ function QuantitySection({
               )}
             </>
           );
-        })()}
+          })()}
       </View>
     );
   }
@@ -4188,7 +4255,12 @@ function QuantitySection({
             {rule.quantityHelper}
           </Text>
         ) : null}
-        {step2TierNeedsInlineTakeoffEntry(itemId, templateKey, resolved) ? (
+        {step2TierNeedsInlineTakeoffEntry(
+          itemId,
+          templateKey,
+          resolved,
+          Boolean(measurementsInput.pricingAcceptance?.[itemId])
+        ) ? (
           <InlineTakeoffCountInput
             label={inlineTakeoffQuantityLabel(itemId, templateKey, resolved.unit || rule.defaultUnit)}
             value={itemInput?.quantity ?? ''}
@@ -4444,6 +4516,14 @@ function QuantitySection({
           )}
           livingSf={Number(String(measurementsInput.floorAreaSqft || '').replace(/,/g, '')) || null}
           confidenceLabel={intelligence?.pricing?.confidenceLabel}
+          hasCurrentPricing={
+            editorMoneyTotal > 0 ||
+            scopeHasCommittedConfirmScopePrice({
+              itemId,
+              itemQuantities: measurementsInput.itemQuantities,
+              pricingAcceptance: measurementsInput.pricingAcceptance,
+            })
+          }
         />
       ) : null}
     </View>
@@ -7644,20 +7724,22 @@ function CollapsibleQuickMeasurements({
     </View>
   );
 
-  const renderExistingWetAreaPanel = () => (
+  const renderExistingWetAreaPanel = () => {
+    const existingPanelStyle = qmNeutralScopePanelStyle(darkMode);
+    return (
     <View
       style={[
         styles.quickMeasurementSection,
         styles.wetAreaSection,
         {
-          borderColor: darkMode ? 'rgba(56, 189, 248, 0.28)' : 'rgba(14, 165, 233, 0.22)',
-          backgroundColor: darkMode ? 'rgba(56, 189, 248, 0.06)' : 'rgba(56, 189, 248, 0.05)',
+          borderColor: existingPanelStyle.borderColor,
+          backgroundColor: existingPanelStyle.backgroundColor,
           marginTop: 0,
           marginBottom: 8,
         },
       ]}
     >
-      {sectionTitle('Existing wet area', '#38bdf8')}
+      {sectionTitle('Existing wet area', existingPanelStyle.titleColor)}
       <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, lineHeight: 15, marginBottom: 8 }}>
         What is in the space now — set manually for notes-only jobs.
       </Text>
@@ -7683,7 +7765,8 @@ function CollapsibleQuickMeasurements({
         adjustExistingCount('existingBathFloorTileCount', d)
       )}
     </View>
-  );
+    );
+  };
 
   const renderDemoTearOutPanel = () => {
     if (keepingExistingWetArea) return null;
@@ -9676,7 +9759,29 @@ export default function AIEstimateScopeAssumptionsModal({
     const rows: UnconfirmedSuggestedPricing[] = [];
     for (const item of displayItems) {
       if (!checklistItemInScope(item)) continue;
-      if (hasAcceptedScopePricing(item.id, measurements.itemQuantities, measurements.pricingAcceptance)) continue;
+      // "Not sure" means the scope is not selected yet. Do not count or bulk-apply
+      // its pricing suggestion until the contractor chooses Yes/included.
+      if (item.state === 'unsure') continue;
+      // Any committed/manual/applied price — national average is comparison-only.
+      if (
+        scopeHasCommittedConfirmScopePrice({
+          itemId: item.id,
+          itemQuantities: measurements.itemQuantities,
+          pricingAcceptance: measurements.pricingAcceptance,
+        }) ||
+        hasAcceptedScopePricing(
+          item.id,
+          measurements.itemQuantities,
+          measurements.pricingAcceptance
+        ) ||
+        scopeShowsConfirmScopeAppliedPricing(
+          item.id,
+          measurements,
+          checklist?.templateKey
+        )
+      ) {
+        continue;
+      }
       const resolved = resolveChecklistItemQuantity(item.id, normMeasurements, {
         choiceId: item.choiceId,
         templateKey: checklist?.templateKey,
@@ -9779,7 +9884,39 @@ export default function AIEstimateScopeAssumptionsModal({
   const suggestedPricingFooterBreakdown = useMemo(() => {
     let readyCount = 0;
     let benchmarkOnlyCount = 0;
+    const selectedScopeIds = new Set(
+      displayItems
+        .filter((item) => checklistItemInScope(item) && item.state !== 'unsure')
+        .map((item) => item.id)
+    );
+    const readyRows: UnconfirmedSuggestedPricing[] = [];
     for (const row of unconfirmedSuggestedPricing) {
+      // The suggestion list can briefly retain a row while a Yes/No/Not sure
+      // choice is being synchronized. Count only currently selected scope items.
+      if (!selectedScopeIds.has(row.itemId)) continue;
+      if (
+        scopeHasCommittedConfirmScopePrice({
+          itemId: row.itemId,
+          itemQuantities: measurements.itemQuantities,
+          pricingAcceptance: measurements.pricingAcceptance,
+        }) ||
+        hasAcceptedScopePricing(
+          row.itemId,
+          measurements.itemQuantities,
+          measurements.pricingAcceptance
+        )
+      ) {
+        continue;
+      }
+      // National / comparison rows are never "price ready".
+      if (
+        row.block.isComparison ||
+        row.block.benchmarkAction === 'comparison_only' ||
+        row.block.benchmarkAction === 'included_in_stage' ||
+        /national\s*average\s*comparison/i.test(String(row.block.rateSourceLabel || ''))
+      ) {
+        continue;
+      }
       const isBenchmark =
         row.block.laborSource === 'local_benchmark' || Boolean(row.block.benchmarkEvidence);
       const action = row.block.benchmarkAction;
@@ -9787,10 +9924,11 @@ export default function AIEstimateScopeAssumptionsModal({
         benchmarkOnlyCount += 1;
       } else {
         readyCount += 1;
+        readyRows.push(row);
       }
     }
-    return { readyCount, benchmarkOnlyCount };
-  }, [unconfirmedSuggestedPricing]);
+    return { readyCount, benchmarkOnlyCount, readyRows };
+  }, [displayItems, measurements.itemQuantities, measurements.pricingAcceptance, unconfirmedSuggestedPricing]);
 
   const applySuggestedPricingBlocks = useCallback(
     (rows: UnconfirmedSuggestedPricing[]) => {
@@ -10433,6 +10571,25 @@ export default function AIEstimateScopeAssumptionsModal({
       ) {
         return;
       }
+      // Never replace an already-committed price via the national comparison row
+      // or footer bulk-apply path — that was adding phantom dollars (e.g. $960).
+      if (
+        (isNationalAverageComparisonBlock(block) ||
+          block.isComparison ||
+          /national\s*average/i.test(String(block.rateSourceLabel || ''))) &&
+        (scopeHasCommittedConfirmScopePrice({
+          itemId,
+          itemQuantities: measurements.itemQuantities,
+          pricingAcceptance: measurements.pricingAcceptance,
+        }) ||
+          hasAcceptedScopePricing(
+            itemId,
+            measurements.itemQuantities,
+            measurements.pricingAcceptance
+          ))
+      ) {
+        return;
+      }
 
       const stageKey =
         block.benchmarkStageKey || benchmarkStageForScopeKey(itemId);
@@ -10551,6 +10708,7 @@ export default function AIEstimateScopeAssumptionsModal({
     [
       applySuggestedPricingNow,
       measurements.appliedBenchmarkKeys,
+      measurements.itemQuantities,
       measurements.pricingAcceptance,
     ]
   );
@@ -10620,7 +10778,9 @@ export default function AIEstimateScopeAssumptionsModal({
   }, [scopeItemsNeedingConfirmation, scrollToScopeItem]);
 
   const handleUseAllSuggestedPricing = useCallback(() => {
-    const rows = unconfirmedSuggestedPricing;
+    // Only apply rows the footer counted as ready — never national comparisons
+    // or scopes that already have committed pricing.
+    const rows = suggestedPricingFooterBreakdown.readyRows;
     if (!rows.length) return;
 
     const needsReview = rows.filter(({ itemId, block }) => {
@@ -10675,7 +10835,7 @@ export default function AIEstimateScopeAssumptionsModal({
         },
       ]
     );
-  }, [applySuggestedPricingBlocks, unconfirmedSuggestedPricing]);
+  }, [applySuggestedPricingBlocks, suggestedPricingFooterBreakdown.readyRows]);
 
   const scrollToFirstScopeAfterQmDone = useCallback(() => {
     const content = scrollContentRef.current;
@@ -11538,7 +11698,9 @@ export default function AIEstimateScopeAssumptionsModal({
           )}
         </TouchableOpacity>
 
-        {unconfirmedSuggestedPricing.length > 0 || quickMeasurementSummary.needsConfirmation > 0 ? (
+        {suggestedPricingFooterBreakdown.readyCount > 0 ||
+        suggestedPricingFooterBreakdown.benchmarkOnlyCount > 0 ||
+        quickMeasurementSummary.needsConfirmation > 0 ? (
           <View style={styles.bulkSuggestedPricingLink}>
             {quickMeasurementSummary.needsConfirmation > 0 ? (
               <TouchableOpacity
@@ -11574,10 +11736,11 @@ export default function AIEstimateScopeAssumptionsModal({
                 </Text>
                 <Ionicons name="information-circle-outline" size={16} color="#fbbf24" />
               </TouchableOpacity>
-            ) : (
+            ) : suggestedPricingFooterBreakdown.readyCount > 0 ||
+              suggestedPricingFooterBreakdown.benchmarkOnlyCount > 0 ? (
               <TouchableOpacity
                 onPress={handleUseAllSuggestedPricing}
-                disabled={applying}
+                disabled={applying || suggestedPricingFooterBreakdown.readyCount === 0}
                 activeOpacity={0.75}
                 style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                 accessibilityLabel={
@@ -11588,14 +11751,10 @@ export default function AIEstimateScopeAssumptionsModal({
                 }
               >
                 <Text style={styles.bulkSuggestedPricingBtnText}>
-                  {measurementSemanticsV1Enabled()
-                    ? footerSuggestedPricingSummary({
-                        readyCount: suggestedPricingFooterBreakdown.readyCount,
-                        benchmarkOnlyCount: suggestedPricingFooterBreakdown.benchmarkOnlyCount,
-                      }) || `${unconfirmedSuggestedPricing.length} suggested`
-                    : `Use ${unconfirmedSuggestedPricing.length} suggested price${
-                        unconfirmedSuggestedPricing.length === 1 ? '' : 's'
-                      } in estimate`}
+                  {footerSuggestedPricingSummary({
+                    readyCount: suggestedPricingFooterBreakdown.readyCount,
+                    benchmarkOnlyCount: suggestedPricingFooterBreakdown.benchmarkOnlyCount,
+                  })}
                 </Text>
                 {measurementSemanticsV1Enabled() && suggestedPricingFooterBreakdown.benchmarkOnlyCount > 0 ? (
                   <TouchableOpacity
@@ -11607,7 +11766,7 @@ export default function AIEstimateScopeAssumptionsModal({
                   </TouchableOpacity>
                 ) : null}
               </TouchableOpacity>
-            )}
+            ) : null}
           </View>
         ) : null}
 

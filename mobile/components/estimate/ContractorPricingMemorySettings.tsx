@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, Switch, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import {
@@ -9,6 +10,8 @@ import {
   type PricingMemorySettings,
 } from '@/utils/contractorPricingMemory';
 import { clearAllSavedPricingData, countSavedPricingSources } from '@/utils/estimateSavedPricingCleanup';
+import ContractorPricingLibraryModal from '@/components/estimate/ContractorPricingLibraryModal';
+import SavedBidTemplatesBrowserModal from '@/components/estimate/SavedBidTemplatesBrowserModal';
 
 type Props = {
   compact?: boolean;
@@ -22,6 +25,8 @@ export default function ContractorPricingMemorySettings({ compact = false }: Pro
   const [settings, setSettings] = useState<PricingMemorySettings | null>(null);
   const [rateCount, setRateCount] = useState(0);
   const [templateCount, setTemplateCount] = useState(0);
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -123,6 +128,29 @@ export default function ContractorPricingMemorySettings({ compact = false }: Pro
     </View>
   );
 
+  const browseRow = (label: string, detail: string, onPress: () => void) => (
+    <TouchableOpacity
+      key={label}
+      onPress={onPress}
+      activeOpacity={0.7}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 12,
+        borderTopWidth: 1,
+        borderTopColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.08)',
+        gap: 12,
+      }}
+    >
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>{label}</Text>
+        <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 2 }}>{detail}</Text>
+      </View>
+      <MaterialIcons name="chevron-right" size={22} color={Colors.text} />
+    </TouchableOpacity>
+  );
+
   return (
     <View>
       {!compact ? (
@@ -131,8 +159,9 @@ export default function ContractorPricingMemorySettings({ compact = false }: Pro
         </Text>
       ) : null}
       <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 12, lineHeight: 17 }}>
-        Learns from bids you apply, submit, win, or save as templates — never from canceled or unapplied AI
-        drafts. Suggestions require your approval before applying.
+        Saves rates you type or confirm manually — per-unit or flat allowances (permits, plans, fees). Not
+        auto-calculated splits. Learns when you apply, submit, win, or complete bids. Suggestions always
+        require your approval.
       </Text>
       {row('Enable pricing memory', 'pricingMemoryEnabled')}
       {row('Exclude test/demo bids', 'excludeTestBids')}
@@ -141,9 +170,22 @@ export default function ContractorPricingMemorySettings({ compact = false }: Pro
       {row('Learn on won bids', 'learnOnWon')}
       {row('Learn on completed projects', 'learnOnCompleted')}
       {row('Learn from saved templates', 'learnOnSavedTemplate')}
-      <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 4, marginBottom: 8 }}>
-        Saved bid templates: {templateCount} · Library rates: {rateCount}
-      </Text>
+      <View style={{ marginTop: 4, marginBottom: 8 }}>
+        {browseRow(
+          'Pricing library',
+          rateCount === 0
+            ? 'No saved rates yet — tap to learn more'
+            : `${rateCount} saved rate${rateCount === 1 ? '' : 's'}`,
+          () => setShowLibrary(true)
+        )}
+        {browseRow(
+          'Saved bid templates',
+          templateCount === 0
+            ? 'No templates yet — tap to learn more'
+            : `${templateCount} template${templateCount === 1 ? '' : 's'}`,
+          () => setShowTemplates(true)
+        )}
+      </View>
       <TouchableOpacity
         onPress={handleClear}
         disabled={saving || (rateCount === 0 && templateCount === 0)}
@@ -158,6 +200,21 @@ export default function ContractorPricingMemorySettings({ compact = false }: Pro
           Reset all saved pricing
         </Text>
       </TouchableOpacity>
+
+      <ContractorPricingLibraryModal
+        visible={showLibrary}
+        onClose={() => {
+          setShowLibrary(false);
+          void load();
+        }}
+      />
+      <SavedBidTemplatesBrowserModal
+        visible={showTemplates}
+        onClose={() => {
+          setShowTemplates(false);
+          void load();
+        }}
+      />
     </View>
   );
 }

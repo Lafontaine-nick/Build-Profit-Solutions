@@ -48,11 +48,11 @@ function block(overrides: Partial<SuggestedPricingBlock> = {}): SuggestedPricing
 }
 
 describe('suggestedPricingCardUi', () => {
-  it('shortens national source labels to BPS national benchmark', () => {
+  it('shortens national source labels to National average', () => {
     expect(displayPriceSourceLabel('Suggested · National Average (builder-budget calibrated)')).toBe(
-      'BPS national benchmark'
+      'National average'
     );
-    expect(displayPriceSourceLabel('National Average')).toBe('BPS national benchmark');
+    expect(displayPriceSourceLabel('National Average')).toBe('National average');
   });
 
   it('normalizes quantity provenance separately from pricing source', () => {
@@ -119,9 +119,9 @@ describe('suggestedPricingCardUi', () => {
     expect(display.missingMeasurementTitle).toBeNull();
     expect(display.missingMeasurementHint).toBeNull();
     expect(display.actionLabel).toBe('Apply');
-    expect(display.sourceLine).toBe('BPS national benchmark');
+    expect(display.sourceLine).toBe('National average');
     expect(display.allowanceExtraNote).toMatch(/Water, sewer, fire/i);
-    expect(display.whyThisPriceLines.join(' ')).toMatch(/BPS national benchmark/);
+    expect(display.whyThisPriceLines.join(' ')).toMatch(/National average/);
     expect(display.whyThisPriceLines.join(' ')).toMatch(/Water, sewer, fire/);
   });
 
@@ -173,7 +173,7 @@ describe('suggestedPricingCardUi', () => {
     expect(display.actionLabel).toBe('Apply');
     expect(display.splitLine).toBe('Material $4,792.10 · Labor $2,911.40');
     expect(display.whyThisPriceLines).toEqual(
-      expect.arrayContaining(['Fallback basis: 1,879 sqft living area', 'BPS national benchmark'])
+      expect.arrayContaining(['Fallback basis: 1,879 sqft living area', 'National average'])
     );
   });
 
@@ -195,18 +195,26 @@ describe('suggestedPricingCardUi', () => {
       confidenceLabel: 'Planning estimate',
     });
     expect(display.quantityLine).toBe('132 CY · From notes');
-    expect(display.sourceLine).toBe('BPS national benchmark');
+    expect(display.sourceLine).toBe('National average');
     expect(display.statusLine).toBe('National average');
     expect(display.statusTone).toBe('amber');
     expect(display.actionLabel).toBe('Apply');
     expect(display.title).toBe('Suggested pricing');
-    expect(display.whyThisPriceLines).toContain('BPS national benchmark');
+    expect(display.whyThisPriceLines).toContain('National average');
   });
 
   it('keeps Suggested pricing title readable', () => {
     expect(suggestedCardTitle(block())).toBe('Suggested pricing');
     expect(suggestedCardTitle({ lumpSumOnly: true })).toBe('Suggested allowance');
     expect(suggestedCardTitle({ isFallbackPricing: true })).toBe('Suggested planning price');
+    expect(
+      suggestedCardTitle({
+        materialSource: 'template',
+        laborSource: 'template',
+        rateSourceLabel: 'Saved pricing',
+      })
+    ).toBe('Saved pricing');
+    expect(displayPriceSourceLabel('Saved pricing')).toBe('Saved pricing');
   });
 
   it('hides redundant each suffix on count fields', () => {
@@ -237,7 +245,7 @@ describe('suggestedPricingCardUi', () => {
     expect(
       shouldUseCompactSuggestedAlternative({ currentTotal: 3000, suggestedTotal: 3000 })
     ).toBe(false);
-    expect(formatCompactSuggestedLine(3000)).toBe('Suggested $3,000');
+    expect(formatCompactSuggestedLine(3000)).toBe('$3,000');
 
     const display = buildSuggestedPricingCardDisplay({
       itemId: 'plans_engineering',
@@ -255,7 +263,7 @@ describe('suggestedPricingCardUi', () => {
     expect(display.missingMeasurementTitle).toBeNull();
     expect(display.missingMeasurementHint).toBeNull();
     expect(display.actionLabel).toBe('Apply');
-    expect(display.compactLine).toBe('Suggested $3,000');
+    expect(display.compactLine).toBe('$3,000');
   });
 
   it('forceCompact collapses soft-cost idle cards while keeping Apply', () => {
@@ -273,7 +281,7 @@ describe('suggestedPricingCardUi', () => {
     });
     expect(display.presentation).toBe('compact');
     expect(display.actionLabel).toBe('Apply');
-    expect(display.compactLine).toBe('Suggested $3,000');
+    expect(display.compactLine).toBe('$3,000');
   });
 
   it('keeps landscaping installed-package prose in whyThisPriceLines (not card chrome)', () => {

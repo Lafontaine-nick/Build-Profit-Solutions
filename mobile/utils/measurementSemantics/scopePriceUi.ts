@@ -438,6 +438,62 @@ export function footerSuggestedPricingSummary(input: {
   return parts.length ? parts.join(' · ') : null;
 }
 
+/** Selection statuses that mean the contractor already committed a price. */
+const COMMITTED_PRICING_SELECTION_STATUSES = new Set([
+  'accepted',
+  'user_entered',
+  'manual_override',
+  'manual_adjusted',
+]);
+
+/** True when Confirm Scope already has an active price for this scope. */
+export function scopeHasCommittedConfirmScopePrice(params: {
+  itemId: string;
+  itemQuantities?: Record<
+    string,
+    {
+      quantity?: string | number | null;
+      unit?: string | null;
+      quantitySource?: string | null;
+    } | undefined
+  > | null;
+  pricingAcceptance?: Record<string, { selectionStatus?: string | null } | undefined> | null;
+}): boolean {
+  const selectionStatus = String(
+    params.pricingAcceptance?.[params.itemId]?.selectionStatus || ''
+  ).toLowerCase();
+  if (COMMITTED_PRICING_SELECTION_STATUSES.has(selectionStatus)) return true;
+
+  const isMoneyEntry = (
+    entry:
+      | {
+          quantity?: string | number | null;
+          unit?: string | null;
+          quantitySource?: string | null;
+        }
+      | undefined,
+    requireMoneyUnit: boolean
+  ) => {
+    if (!entry) return false;
+    const source = String(entry.quantitySource || '').toLowerCase();
+    if (source !== 'user_entered' && source !== 'manual_override') return false;
+    if (!(Number(String(entry.quantity ?? '').replace(/,/g, '')) > 0)) return false;
+    if (!requireMoneyUnit) return true;
+    const unit = String(entry.unit || '').toLowerCase();
+    return unit === 'allowance' || unit === 'lump_sum';
+  };
+
+  // Split/allowance money legs — never treat physical takeoff (sqft/lf) as a price.
+  if (
+    isMoneyEntry(params.itemQuantities?.[`${params.itemId}__allowance`], false) ||
+    isMoneyEntry(params.itemQuantities?.[`${params.itemId}__material`], false) ||
+    isMoneyEntry(params.itemQuantities?.[`${params.itemId}__labor`], false)
+  ) {
+    return true;
+  }
+  return isMoneyEntry(params.itemQuantities?.[params.itemId], true);
+}
+
 export const FOOTER_PLANNING_BENCHMARK_INFO =
   'Planning benchmarks require a detailed takeoff or quote before final bidding.';
 

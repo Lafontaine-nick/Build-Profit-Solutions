@@ -97,6 +97,9 @@ describe('confirmScopeStep2Pricing tiers', () => {
     expect(step2TierNeedsInlineTakeoffEntry('paint_repair', 'bathroom', { pricingReady: true })).toBe(
       true
     );
+    expect(step2TierNeedsInlineTakeoffEntry('paint_repair', 'bathroom', { pricingReady: true }, true)).toBe(
+      false
+    );
     expect(step2TierNeedsInlineTakeoffEntry('drywall', 'bathroom', { pricingReady: false })).toBe(
       true
     );
@@ -221,6 +224,9 @@ describe('bathroom shower tile demo suggested pricing', () => {
           demo__material: { quantity: '97.5', unit: 'allowance', quantitySource: 'user_entered' },
           demo__labor: { quantity: '775', unit: 'allowance', quantitySource: 'user_entered' },
           demo__allowance: { quantity: '872.5', unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: {
+          demo: { selectionStatus: 'accepted', totalAmount: 872.5 },
         },
       },
       resolved: {

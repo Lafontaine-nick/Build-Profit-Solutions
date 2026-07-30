@@ -9,6 +9,7 @@ import {
   footerSuggestedPricingSummary,
   isGrossFlooringDerivedFromLiving,
   missingStatusDisplayLabel,
+  scopeHasCommittedConfirmScopePrice,
 } from '@/utils/measurementSemantics';
 import {
   getChecklistItemQuantityRule,
@@ -300,12 +301,43 @@ describe('Step 2 benchmark + measurement-status binding', () => {
       })
     ).toBe('1 price ready · 4 planning benchmarks');
     expect(
+      footerSuggestedPricingSummary({
+        readyCount: 0,
+        benchmarkOnlyCount: 0,
+      })
+    ).toBeNull();
+    expect(
       classifySuggestedPricingState({
         itemId: 'framing',
         hasPrimaryTakeoff: false,
         isLocalBenchmark: true,
       })
     ).toBe('benchmark_available');
+  });
+
+  it('treats user-entered waterproofing as committed so national $960 is not price-ready', () => {
+    expect(
+      scopeHasCommittedConfirmScopePrice({
+        itemId: 'waterproofing',
+        itemQuantities: {
+          waterproofing__allowance: {
+            quantity: '1100',
+            unit: 'allowance',
+            quantitySource: 'user_entered',
+          },
+        },
+        pricingAcceptance: {
+          waterproofing: { selectionStatus: 'user_entered', totalAmount: 1100 },
+        },
+      })
+    ).toBe(true);
+    expect(
+      scopeHasCommittedConfirmScopePrice({
+        itemId: 'waterproofing',
+        itemQuantities: {},
+        pricingAcceptance: {},
+      })
+    ).toBe(false);
   });
 
   it('preserves legacy behavior when feature flags are off', () => {

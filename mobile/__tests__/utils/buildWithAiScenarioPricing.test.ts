@@ -100,7 +100,7 @@ describe('Build with AI scenario pricing', () => {
       });
 
       expect(display.selectionStatusLabel).toBe('Applied');
-      expect(display.pricingSourceLabel).toBe('BPS national benchmark');
+      expect(display.pricingSourceLabel).toBe('National average');
       expect(display.totalLabel).toBe('$3,500');
       expect(display.warningMessage).toBe(
         'Based on national average pricing. Review before sending the estimate.'

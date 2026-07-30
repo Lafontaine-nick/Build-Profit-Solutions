@@ -2,10 +2,11 @@ import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import { isSplitTileWetAreaCounts } from '@/utils/planBathRooms';
 import { hydrateWetAreaStepperCounts } from '@/utils/planBathRooms';
 import {
-  emptyWetAreaExistingCounts,
+  inferExistingWetAreaFromNotes,
   mergeDemoCountsWithOverrides,
   readWetAreaDemoCounts,
   readWetAreaExistingCounts,
+  reconcileExistingWetAreaCounts,
   resolveDemoWetAreaFromIntent,
   resolveEffectiveExistingWetArea,
   type WetAreaDemoOverrideKey,
@@ -71,7 +72,8 @@ function hydrateBathroom(ctx: QmPanelHydrateContext): Record<string, unknown> {
     : (() => {
         const saved = readWetAreaExistingCounts(ctx.measurements);
         const hasUserSaved = Object.values(saved).some((v) => v != null);
-        return hasUserSaved ? saved : emptyWetAreaExistingCounts();
+        if (hasUserSaved) return reconcileExistingWetAreaCounts(saved);
+        return reconcileExistingWetAreaCounts(inferExistingWetAreaFromNotes(ctx.notes));
       })();
 
   const savedDemo = readWetAreaDemoCounts(ctx.measurements);

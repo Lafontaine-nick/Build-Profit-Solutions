@@ -22,9 +22,12 @@ export type PricingLibrarySection = {
   items: Array<{
     id: string;
     scopeItemName: string;
+    checklistItemId?: string | null;
     category: string;
     unitType: string;
     unitRate: number | null;
+    quantity?: number | null;
+    totalAmount?: number | null;
     usageCount: number;
     lastUsedAt: string;
     pricingSource: string;

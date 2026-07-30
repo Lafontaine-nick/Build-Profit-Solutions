@@ -74,7 +74,7 @@ describe('resolveScopeItemSuggestedPricing regional adjustment', () => {
       ],
     });
     expect(fill).toMatchObject({ material: 3000, labor: 4000, total: 7000 });
-    expect(fill?.rateSourceLabel).toContain('Saved rate');
+    expect(fill?.rateSourceLabel).toContain('Saved pricing');
   });
 
   it('scales permit allowance for higher-cost states', () => {

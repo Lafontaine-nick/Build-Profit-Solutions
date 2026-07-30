@@ -126,7 +126,7 @@ export function shouldUseCompactSuggestedAlternative(params: {
 export function formatCompactSuggestedLine(total: number | null | undefined): string | null {
   const formatted = formatAppliedDisplayMoney(total);
   if (formatted === '—') return null;
-  return `Suggested ${formatted}`;
+  return formatted;
 }
 
 export function compactSuggestedActionLabel(lumpSumOnly?: boolean): string {
@@ -188,7 +188,7 @@ const FALLBACK_MEASUREMENT_COPY: Record<
 export function displayPriceSourceLabel(rateSourceLabel: string | null | undefined): string {
   const raw = String(rateSourceLabel || '').trim();
   const stripped = raw.replace(/^Suggested · /, '').replace(/^Adjusted · /, '').trim();
-  if (!stripped) return 'BPS national benchmark';
+  if (!stripped) return 'National average';
   // Keep full blended barometer labels (e.g. "Blended national + barometer · Plan 41 · CA").
   if (/blended\s*national\s*\+\s*barometer/i.test(stripped)) {
     return stripped.length > 52 ? `${stripped.slice(0, 49).trimEnd()}…` : stripped;
@@ -197,7 +197,7 @@ export function displayPriceSourceLabel(rateSourceLabel: string | null | undefin
     return 'National average';
   }
   if (/national/i.test(stripped) || /builder-budget/i.test(stripped)) {
-    return 'BPS national benchmark';
+    return 'National average';
   }
   // Keep full Southern Utah comparable labels (e.g. "Southern Utah comparable · Plan 41").
   if (/southern\s*utah\s*comparable/i.test(stripped)) {
@@ -206,8 +206,8 @@ export function displayPriceSourceLabel(rateSourceLabel: string | null | undefin
   if (/southern\s*utah|local\s*benchmark/i.test(stripped)) {
     return 'Local benchmark';
   }
-  if (/saved|template|company/i.test(stripped)) {
-    return 'Saved contractor pricing';
+  if (/saved|template|company|pricing library/i.test(stripped)) {
+    return 'Saved pricing';
   }
   if (/user\s*adjust/i.test(stripped)) {
     return 'User adjusted';
@@ -221,7 +221,7 @@ export function displayPriceSourceLabel(rateSourceLabel: string | null | undefin
   return stripped.length > 28 ? `${stripped.slice(0, 25).trimEnd()}…` : stripped;
 }
 
-/** True when suggested fill uses BPS national benchmark rates (not saved/local pricing). */
+/** True when suggested fill uses national average rates (not saved/local pricing). */
 export function isNationalAverageSuggestedBlock(
   block: Pick<
     SuggestedPricingBlock,
@@ -364,8 +364,14 @@ export function suggestedCardTitle(input: {
   rateSourceLabel?: string;
   isFallbackPricing?: boolean;
   installedBudgetBenchmark?: boolean;
+  materialSource?: string | null;
+  laborSource?: string | null;
 }): string {
   const adjusted = String(input.rateSourceLabel || '').startsWith('Adjusted · ');
+  const usesSavedPricing =
+    input.materialSource === 'template' ||
+    input.laborSource === 'template' ||
+    /saved\s*pricing|pricing\s*library|saved\s*rate/i.test(String(input.rateSourceLabel || ''));
   // Installed local paint budgets display as pricing (not a soft-cost allowance).
   if (input.installedBudgetBenchmark) {
     return adjusted ? 'Adjusted pricing' : 'Suggested pricing';
@@ -375,10 +381,11 @@ export function suggestedCardTitle(input: {
   if (input.mode === 'note_total_split' && !adjusted) return 'Budget split';
   if (input.isComparison) {
     if (/national\s*average\s*comparison/i.test(String(input.rateSourceLabel || ''))) {
-      return 'National comparison';
+      return 'National average';
     }
     return 'Suggested comparison';
   }
+  if (usesSavedPricing) return adjusted ? 'Adjusted saved pricing' : 'Saved pricing';
   return adjusted ? 'Adjusted pricing' : 'Suggested pricing';
 }
 
@@ -843,6 +850,8 @@ export function buildSuggestedPricingCardDisplay(input: {
           rateSourceLabel: block.rateSourceLabel,
           isFallbackPricing,
           installedBudgetBenchmark: block.installedBudgetBenchmark,
+          materialSource: block.materialSource,
+          laborSource: block.laborSource,
         }),
     quantityLine,
     fallbackBasisLine,

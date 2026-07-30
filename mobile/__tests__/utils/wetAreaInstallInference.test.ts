@@ -1,8 +1,10 @@
 import {
+  applyNotesInferredWetAreaInstallSteppers,
   inferWetAreaInstallSteppersFromIntent,
   mergeInferredWetAreaInstallSteppers,
   reconcileExclusiveShowerPanSteppers,
 } from '../../utils/wetAreaInstallInference';
+import { hydrateWetAreaStepperCounts } from '../../utils/planBathRooms';
 
 describe('wetAreaInstallInference', () => {
   test('tile walls + tile shower floor from explicit notes', () => {
@@ -136,5 +138,46 @@ describe('wetAreaInstallInference', () => {
     });
     expect(reconciled.tilePanBathCount).toBe(1);
     expect(reconciled.prefabBathCount).toBeNull();
+  });
+
+  test('notes re-hydrate clears stale tub/prefab saved on shower-only job', () => {
+    const notes =
+      'Demo shower walls, demo prefab shower pan, and tile shower walls, and tile shower pan. Install soap niche.';
+    const inferred = inferWetAreaInstallSteppersFromIntent({ notes });
+    const hydrated = applyNotesInferredWetAreaInstallSteppers(
+      {
+        bathCount: 1,
+        tilePanBathCount: null,
+        prefabBathCount: 1,
+        prefabEnclosureBathCount: null,
+        tubBathCount: 1,
+        bathFloorTileCount: null,
+        showerDoorCount: null,
+      },
+      inferred,
+      { notes }
+    );
+    expect(hydrated.bathCount).toBe(1);
+    expect(hydrated.tilePanBathCount).toBe(1);
+    expect(hydrated.prefabBathCount).toBeNull();
+    expect(hydrated.tubBathCount).toBeNull();
+  });
+
+  test('stale wet_area_install tub choice does not override shower-only notes', () => {
+    const notes =
+      'Demo shower walls, demo prefab shower pan, and tile shower walls, and tile shower pan.';
+    const hydrated = hydrateWetAreaStepperCounts({
+      measurements: {
+        bathCount: 1,
+        prefabBathCount: 1,
+        tubBathCount: 1,
+      },
+      wetAreaInstallChoiceId: 'tub',
+      notes,
+      templateKey: 'bathroom',
+    });
+    expect(hydrated.tubBathCount).toBeNull();
+    expect(hydrated.tilePanBathCount).toBe(1);
+    expect(hydrated.prefabBathCount).toBeNull();
   });
 });

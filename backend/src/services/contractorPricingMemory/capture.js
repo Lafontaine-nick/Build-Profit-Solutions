@@ -4,14 +4,46 @@
 
 const { parseSquareFeetFromText, parseLinearFeetFromText } = require('../estimateDraftFromNotes');
 
-const CAPTURE_SOURCES = new Set([
-  'user_provided',
-  'calculated',
-  'approved_ai_suggested',
-  'saved_template',
-]);
+/** Pricing library only stores rates the contractor typed or confirmed manually. */
+const CAPTURE_SOURCES = new Set(['user_provided']);
+
+function isManuallyProvidedPackage(pkg) {
+  if (!pkg) return false;
+  if (
+    pkg.status === 'calculated' ||
+    pkg.status === 'rough_price' ||
+    pkg.status === 'missing_price'
+  ) {
+    return false;
+  }
+  if (pkg.status === 'ai_suggested' && !pkg.splitApprovedByUser) return false;
+  if (pkg.priceProvidedByUser) return true;
+  if (pkg.status === 'user_provided') return true;
+  const src = String(pkg.priceSource || '').toLowerCase();
+  if (src === 'user_provided' || src === 'manual') return true;
+  return pkg.status === 'confirmed' && Boolean(pkg.priceProvidedByUser);
+}
 
 const CAPTURE_BID_STATUSES = new Set(['applied', 'submitted', 'won', 'completed', 'lost']);
+
+/** Checklist items priced as flat allowances (permits, plans, fees). */
+const LUMP_SUM_CHECKLIST_IDS = new Set([
+  'permits',
+  'plans_engineering',
+  'contingency',
+  'appliances',
+  'cleanup',
+  'haul_off',
+  'survey',
+  'mobilization',
+  'general_conditions',
+  'supervision',
+  'overhead_profit',
+  'final_inspections',
+  'emergency_fee',
+  'interior_finishes',
+  'mirror_accessories',
+]);
 
 function isTestBid(meta = {}) {
   if (meta.isTestBid || meta.isDemo) return true;
@@ -20,12 +52,19 @@ function isTestBid(meta = {}) {
 }
 
 function shouldCapturePackage(pkg) {
-  if (!pkg) return false;
-  if (pkg.status === 'missing_price') return false;
-  if (pkg.status === 'rough_price') return false;
-  if (pkg.status === 'ai_suggested' && !pkg.splitApprovedByUser) return false;
-  if (['calculated', 'user_provided', 'confirmed', 'partial_pricing'].includes(pkg.status)) {
-    return (pkg.price != null && pkg.price > 0) || (pkg.knownSubtotal != null && pkg.knownSubtotal > 0);
+  if (!isManuallyProvidedPackage(pkg)) return false;
+  if (pkg.laborPrice != null && pkg.laborPrice > 0) return true;
+  if (pkg.materialPrice != null && pkg.materialPrice > 0) return true;
+  if (pkg.price != null && pkg.price > 0) return true;
+  if (pkg.knownSubtotal != null && pkg.knownSubtotal > 0) return true;
+  if (Array.isArray(pkg.pricingItems)) {
+    return pkg.pricingItems.some(
+      (item) =>
+        item.amount != null &&
+        item.amount > 0 &&
+        item.status !== 'rough_price' &&
+        item.status !== 'ai_suggested'
+    );
   }
   return false;
 }
@@ -48,19 +87,54 @@ function parseQuantityFromPackage(pkg, draft) {
   if (lf) return { quantity: lf, unitType: 'lf' };
   const sqft = parseSquareFeetFromText(scope, draft?.projectDescription);
   if (sqft) return { quantity: sqft, unitType: 'sqft' };
+  const fromMeasurements = sqftFromDraftMeasurements(pkg, draft);
+  if (fromMeasurements) return fromMeasurements;
   return { quantity: null, unitType: null };
 }
 
+/** Sqft takeoff from persisted scope measurements when package text omits area. */
+function sqftFromDraftMeasurements(pkg, draft) {
+  const id = String(pkg.checklistItemId || '').trim();
+  const sm = draft.scopeMeasurements || {};
+  const byChecklist = {
+    waterproofing: ['showerWallTileSqft'],
+    shower_tile: ['showerWallTileSqft'],
+    shower_floor_tile: ['showerFloorTileSqft'],
+    shower_pan: ['showerFloorTileSqft'],
+    floor_tile: ['bathroomFloorSqft', 'kitchenFloorSqft', 'floorAreaSqft'],
+    floor_demo: ['bathroomFloorSqft', 'kitchenFloorSqft', 'floorAreaSqft', 'flooringSqft'],
+    flooring: ['bathroomFloorSqft', 'kitchenFloorSqft', 'floorAreaSqft', 'flooringSqft'],
+    demo: ['bathroomFloorSqft', 'kitchenFloorSqft', 'floorAreaSqft'],
+    interior_paint: ['wallPaintSqft'],
+    patch_repair: ['drywallSqft'],
+    drywall: ['drywallSqft'],
+  };
+  const keys = byChecklist[id];
+  if (keys) {
+    for (const key of keys) {
+      const raw = sm[key];
+      const n = Number(String(raw ?? '').replace(/,/g, ''));
+      if (Number.isFinite(n) && n > 0) return { quantity: n, unitType: 'sqft' };
+    }
+  }
+  const iq = sm.itemQuantities?.[id];
+  if (iq) {
+    const unit = String(iq.unit || '').toLowerCase();
+    if (/sqft|sf|sq\.?\s*ft/.test(unit)) {
+      const n = Number(String(iq.quantity ?? '').replace(/,/g, ''));
+      if (Number.isFinite(n) && n > 0) return { quantity: n, unitType: 'sqft' };
+    }
+  }
+  return null;
+}
+
 function entriesFromPackage(pkg, draft, meta) {
+  if (!isManuallyProvidedPackage(pkg)) return [];
   const entries = [];
   const { quantity: parsedQty, unitType: parsedUnit } = parseQuantityFromPackage(pkg, draft);
   const trade = pkg.trade || draft.projectType || 'other';
-  const pricingSource =
-    pkg.status === 'calculated'
-      ? 'calculated'
-      : pkg.splitIsSuggested && pkg.splitApprovedByUser
-        ? 'approved_ai_suggested'
-        : 'user_provided';
+  const checklistItemId = pkg.checklistItemId || pkg.costCode || null;
+  const pricingSource = 'user_provided';
 
   const pushRate = (scopeItemName, category, amount, unitType, quantity) => {
     if (amount == null || amount <= 0) return;
@@ -75,6 +149,7 @@ function entriesFromPackage(pkg, draft, meta) {
       trade,
       category,
       scopeItemName,
+      checklistItemId,
       unitType: uType,
       quantity: qty,
       unitRate,
@@ -102,14 +177,17 @@ function entriesFromPackage(pkg, draft, meta) {
   }
 
   if (pkg.laborPrice == null && pkg.materialPrice == null && pkg.price != null && pkg.price > 0) {
+    const lumpId = String(checklistItemId || '').trim();
+    const lumpUnitType = LUMP_SUM_CHECKLIST_IDS.has(lumpId) ? 'allowance' : 'lump_sum';
     entries.push({
       projectType: draft.projectType || 'other',
       trade,
       category: 'lump_sum',
       scopeItemName: pkg.name,
-      unitType: 'lump_sum',
-      quantity: null,
-      unitRate: null,
+      checklistItemId,
+      unitType: lumpUnitType,
+      quantity: lumpUnitType === 'allowance' ? 1 : null,
+      unitRate: lumpUnitType === 'allowance' ? Math.round(pkg.price) : null,
       totalAmount: Math.round(pkg.price),
       pricingSource,
       bidStatus: meta.bidStatus || 'applied',
@@ -126,6 +204,12 @@ function entriesFromPackage(pkg, draft, meta) {
     if (item.amount == null || item.amount <= 0) continue;
     if (item.status === 'ai_suggested' && !item.approvedByUser) continue;
     if (item.status === 'rough_price') continue;
+    if (item.status === 'calculated') continue;
+    const itemManual =
+      item.priceProvidedByUser ||
+      item.status === 'user_provided' ||
+      ['user_provided', 'manual'].includes(String(item.priceSource || '').toLowerCase());
+    if (!itemManual) continue;
     const cat =
       item.pricingType === 'material' ? 'material' : item.pricingType === 'labor' ? 'labor' : 'labor';
     pushRate(
@@ -140,39 +224,13 @@ function entriesFromPackage(pkg, draft, meta) {
   return entries;
 }
 
-function entriesFromAllowances(draft, meta) {
-  const entries = [];
-  for (const a of draft.allowances || []) {
-    if (a.status !== 'calculated' && a.status !== 'confirmed') continue;
-    const rate = a.rate ?? a.amount;
-    if (rate == null || rate <= 0) continue;
-    const unitType = inferUnitType(a.unit, a.name, a.description);
-    entries.push({
-      projectType: draft.projectType || 'other',
-      trade: draft.detectedTrades?.[0] || draft.projectType || 'other',
-      category: a.kind === 'material' ? 'material' : a.kind === 'labor' ? 'labor' : 'material',
-      scopeItemName: a.name || a.description || 'Allowance',
-      unitType,
-      quantity: a.quantity,
-      unitRate: rate,
-      materialAmount: a.kind === 'material' && a.calculatedAmount ? a.calculatedAmount : null,
-      laborAmount: a.kind === 'labor' && a.calculatedAmount ? a.calculatedAmount : null,
-      totalAmount: a.calculatedAmount || null,
-      pricingSource: 'calculated',
-      bidStatus: meta.bidStatus || 'applied',
-      region: meta.region || null,
-      isTestBid: isTestBid(meta),
-    });
-  }
-  return entries;
-}
-
 function entriesFromBidLineItems(bid, meta) {
   const entries = [];
   const labor = Array.isArray(bid?.laborLineItems) ? bid.laborLineItems : [];
   const materials = Array.isArray(bid?.materialLineItems) ? bid.materialLineItems : [];
 
   for (const line of labor) {
+    if (!line.priceProvidedByUser) continue;
     const total = Number(line.total || line.totalCost || line.rate || 0);
     if (total <= 0) continue;
     if (line.source === 'ai-draft' && line.splitIsSuggested && !line.splitApprovedByUser) continue;
@@ -184,7 +242,7 @@ function entriesFromBidLineItems(bid, meta) {
       unitType: 'lump_sum',
       totalAmount: Math.round(total),
       laborAmount: Math.round(total),
-      pricingSource: line.priceProvidedByUser ? 'user_provided' : 'calculated',
+      pricingSource: 'user_provided',
       bidStatus: meta.bidStatus || 'applied',
       projectId: bid.id || meta.projectId,
       isTestBid: isTestBid(meta),
@@ -192,6 +250,7 @@ function entriesFromBidLineItems(bid, meta) {
   }
 
   for (const line of materials) {
+    if (!line.priceProvidedByUser) continue;
     const total = Number(line.total || line.cost || line.unitPrice || 0);
     if (total <= 0) continue;
     entries.push({
@@ -232,15 +291,13 @@ function extractCaptureEntries(payload) {
     }
   }
 
-  entries.push(...entriesFromAllowances(draft, meta));
-
   if (entries.length === 0 && bid) {
     entries.push(...entriesFromBidLineItems(bid, meta));
   }
 
   return entries.filter((e) => {
     if (!e.scopeItemName) return false;
-    if (!CAPTURE_SOURCES.has(e.pricingSource) && e.pricingSource !== 'saved_template') return false;
+    if (!CAPTURE_SOURCES.has(e.pricingSource)) return false;
     return (e.unitRate != null && e.unitRate > 0) || (e.totalAmount != null && e.totalAmount > 0);
   });
 }
@@ -248,5 +305,6 @@ function extractCaptureEntries(payload) {
 module.exports = {
   extractCaptureEntries,
   isTestBid,
+  isManuallyProvidedPackage,
   shouldCapturePackage,
 };

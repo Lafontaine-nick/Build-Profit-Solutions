@@ -6,6 +6,10 @@ import {
   pricingMemoryFetch,
   type MissingPriceSuggestion,
 } from '@/utils/contractorPricingMemory';
+import {
+  deriveLibraryScopeRate,
+  pricingLibrarySectionsToScopeRates,
+} from '@/utils/scopePricingLibraryContext';
 import { loadSavedBidTemplates } from '@/utils/estimateSavedBidTemplates';
 import { expandJobScopeDraft } from '@/utils/estimateDraftScopeSplit';
 import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
@@ -3606,21 +3610,41 @@ async function buildSavedPricingProposalLocal(draft: EstimateAiDraft): Promise<P
   let lumpRates: LibraryRate[] = [];
   try {
     const lib = await fetchPricingLibrary();
+    const flattened = pricingLibrarySectionsToScopeRates(lib.sections);
+    for (const rate of flattened) {
+      const ut = String(rate.unitType || '').toLowerCase();
+      const entry: LibraryRate = {
+        scopeItemName: rate.scopeItemName,
+        unitType: rate.unitType,
+        unitRate: rate.unitRate,
+        category: rate.category,
+      };
+      if (['lump_sum', 'lot', 'flat', 'allowance'].includes(ut)) {
+        lumpRates.push(entry);
+      } else if (['sqft', 'lf', 'hr', 'each'].includes(ut)) {
+        unitRates.push(entry);
+      }
+    }
+    // Include raw lump rows that only have totalAmount (legacy captures).
     for (const section of lib.sections || []) {
       for (const rate of section.items || []) {
-        const ut = String(rate.unitType || '').toLowerCase();
-        const amount = rate.unitRate ?? 0;
-        if (amount <= 0) continue;
+        const derived = deriveLibraryScopeRate(rate);
+        if (!derived || !(derived.unitRate > 0)) continue;
         const entry: LibraryRate = {
           scopeItemName: rate.scopeItemName,
-          unitType: rate.unitType,
-          unitRate: amount,
+          unitType: derived.unitType,
+          unitRate: derived.unitRate,
           category: rate.category,
         };
+        const ut = derived.unitType;
         if (['lump_sum', 'lot', 'flat', 'allowance'].includes(ut)) {
-          lumpRates.push(entry);
+          if (!lumpRates.some((r) => r.scopeItemName === entry.scopeItemName && r.unitRate === entry.unitRate)) {
+            lumpRates.push(entry);
+          }
         } else if (['sqft', 'lf', 'hr', 'each'].includes(ut)) {
-          unitRates.push(entry);
+          if (!unitRates.some((r) => r.scopeItemName === entry.scopeItemName && r.unitRate === entry.unitRate)) {
+            unitRates.push(entry);
+          }
         }
       }
     }

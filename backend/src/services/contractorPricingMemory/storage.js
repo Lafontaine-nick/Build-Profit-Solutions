@@ -81,6 +81,7 @@ function normalizeEntry(entry, userId) {
     category: entry.category || 'labor',
     scopeItemName,
     normalizedScopeKey: entry.normalizedScopeKey || normalizeScopeKey(scopeItemName),
+    checklistItemId: entry.checklistItemId || null,
     unitType: entry.unitType || 'lump_sum',
     quantity: entry.quantity != null ? Number(entry.quantity) : null,
     unitRate: entry.unitRate != null ? Number(entry.unitRate) : null,
@@ -162,6 +163,10 @@ function updateSettings(userId, patch) {
   return store.settings;
 }
 
+function isManualLibraryEntry(e) {
+  return String(e.pricingSource || 'user_provided') === 'user_provided';
+}
+
 function listEntries(userId, filters = {}) {
   const store = loadUserStore(userId);
   let entries = store.entries;
@@ -172,6 +177,10 @@ function listEntries(userId, filters = {}) {
     entries = entries.filter((e) => e.projectType === filters.projectType);
   }
   return entries.sort((a, b) => new Date(b.lastUsedAt) - new Date(a.lastUsedAt));
+}
+
+function listLibraryEntries(userId, filters = {}) {
+  return listEntries(userId, filters).filter((e) => isManualLibraryEntry(e));
 }
 
 function clearMemory(userId) {
@@ -212,7 +221,7 @@ function deleteEntriesForProject(userId, projectId) {
 }
 
 function getLibraryGrouped(userId) {
-  const entries = listEntries(userId);
+  const entries = listLibraryEntries(userId);
   const byTrade = {};
   for (const e of entries) {
     const trade = e.trade || e.projectType || 'other';
@@ -222,6 +231,7 @@ function getLibraryGrouped(userId) {
     byTrade[trade].items.push({
       id: e.id,
       scopeItemName: e.scopeItemName,
+      checklistItemId: e.checklistItemId || null,
       category: e.category,
       unitType: e.unitType,
       unitRate: e.unitRate,
@@ -297,6 +307,8 @@ module.exports = {
   getSettings,
   updateSettings,
   listEntries,
+  listLibraryEntries,
+  isManualLibraryEntry,
   clearMemory,
   updateEntry,
   deleteEntry,

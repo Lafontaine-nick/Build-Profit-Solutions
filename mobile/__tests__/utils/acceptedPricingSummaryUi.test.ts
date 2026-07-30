@@ -126,7 +126,7 @@ function displayForPermits(acceptance = buildAcceptanceFromSuggestedBlock(sugges
 describe('acceptedPricingSummaryUi', () => {
   it('builds national-average acceptance metadata from suggested block', () => {
     const acceptance = buildAcceptanceFromSuggestedBlock(suggestedBlock());
-    expect(acceptance.pricingSourceLabel).toBe('BPS national benchmark');
+    expect(acceptance.pricingSourceLabel).toBe('National average');
     expect(acceptance.pricingSourceKind).toBe('national_average');
     expect(acceptance.selectionStatus).toBe('accepted');
     expect(acceptance.pricingTypeLabel).toBe('Flat allowance');
@@ -171,7 +171,7 @@ describe('acceptedPricingSummaryUi', () => {
   it('keeps accepted source, confidence, source message, and edit metadata without generic disclosure', () => {
     const display = displayForPermits();
     expect(display.selectionStatusLabel).toBe('Applied');
-    expect(display.pricingSourceLabel).toBe('BPS national benchmark');
+    expect(display.pricingSourceLabel).toBe('National average');
     expect(display.confidenceLabel).toBe('Planning estimate');
     expect(display.warningMessage).toBe(
       'Based on national average pricing. Review before sending the estimate.'
@@ -606,7 +606,7 @@ describe('acceptedPricingSummaryUi', () => {
   it('preserves pricing acceptance metadata after removing generic disclosure', () => {
     const acceptance = buildAcceptanceFromSuggestedBlock(suggestedBlock());
     expect(acceptance.totalAmount).toBe(3500);
-    expect(acceptance.originalPricingSourceLabel).toBe('BPS national benchmark');
+    expect(acceptance.originalPricingSourceLabel).toBe('National average');
     expect(acceptance.geographicBasis).toBe('National');
   });
 
@@ -725,13 +725,16 @@ describe('acceptedPricingSummaryUi', () => {
     expect(
       shouldSuppressSuggestedPricingAfterApply('waterproofing', itemQuantities, pricingAcceptance)
     ).toBe(false);
-    const { fill } = resolveScopeItemSuggestedPricing(
+    const { fill, comparison } = resolveScopeItemSuggestedPricing(
       'waterproofing',
       { itemQuantities, showerWallTileSqft: '80' } as any,
       'bathroom',
       { quantity: 80, unit: 'sqft', quantitySource: 'user_entered' }
     );
-    expect(fill?.total).toBe(960);
+    // Active manual pricing — national average must not be an applyable fill.
+    expect(fill).toBeNull();
+    expect(comparison?.total).toBe(960);
+    expect(comparison?.isComparison).toBe(true);
   });
 
   it('clears applied price so the original Suggest card can return', () => {
@@ -1044,12 +1047,12 @@ describe('acceptedPricingSummaryUi', () => {
   });
 
   it('labels retail and national sources from suggested block', () => {
-    expect(pricingSourceLabelFromBlock(suggestedBlock())).toBe('BPS national benchmark');
+    expect(pricingSourceLabelFromBlock(suggestedBlock())).toBe('National average');
     expect(
       pricingSourceLabelFromBlock(
         suggestedBlock({ materialSource: 'template', laborSource: 'template', templateName: 'My saved bid' })
       )
-    ).toBe('Saved rate');
+    ).toBe('Saved pricing');
   });
 
   it('uses pricing intelligence confidence for national average', () => {
@@ -1156,7 +1159,7 @@ describe('acceptedPricingSummaryUi', () => {
     it('returns only one source-related message and keeps badge consistency', () => {
       const display = displayForPermits();
       expect(display.warningMessage?.split('.').length).toBeLessThanOrEqual(3);
-      expect(display.pricingSourceLabel).toBe('BPS national benchmark');
+      expect(display.pricingSourceLabel).toBe('National average');
       expect(display.warningMessage).toContain('national average pricing');
     });
   });

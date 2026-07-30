@@ -3,7 +3,7 @@
  */
 
 const { parseSquareFeetFromText, parseLinearFeetFromText, extractProjectSquareFeet } = require('../estimateDraftFromNotes');
-const { listEntries, getSettings } = require('./storage');
+const { listEntries, listLibraryEntries, getSettings } = require('./storage');
 
 function roundMoney(n) {
   return Math.round(Number(n) || 0);
@@ -43,7 +43,7 @@ function buildSuggestionsForDraft(draft, userId) {
     };
   }
 
-  const entries = listEntries(userId);
+  const entries = listLibraryEntries(userId);
   if (entries.length === 0) {
     return {
       enabled: true,

@@ -1142,7 +1142,7 @@ describe('Step 3 scope row pricing source labels', () => {
         pricingAcceptance: {
           waterproofing: {
             selectionStatus: 'accepted',
-            pricingSourceLabel: 'BPS national benchmark',
+            pricingSourceLabel: 'National average',
             pricingSourceKind: 'national_average',
             totalAmount: 1100,
           },

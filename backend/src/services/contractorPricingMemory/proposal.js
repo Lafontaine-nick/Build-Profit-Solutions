@@ -3,7 +3,7 @@
  */
 
 const { extractScopeQuantitiesForPackage } = require('../estimateDraftQuantityPrice');
-const { listEntries, getSettings } = require('./storage');
+const { listLibraryEntries, getSettings } = require('./storage');
 const { buildSuggestionsForDraft } = require('./suggest');
 
 const { AI_FALLBACK_RATES } = require('../pricingEngine/constants');
@@ -276,7 +276,7 @@ function buildSavedPricingProposal(draft, userId, options = {}) {
     };
   }
 
-  const entries = listEntries(userId).filter((e) => !e.isTestBid && e.unitRate > 0);
+  const entries = listLibraryEntries(userId).filter((e) => !e.isTestBid && e.unitRate > 0);
   const memory = buildSuggestionsForDraft(draft, userId);
 
   const lines = [];

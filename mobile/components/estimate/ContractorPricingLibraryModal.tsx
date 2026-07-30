@@ -25,6 +25,30 @@ type Props = {
   onClose: () => void;
 };
 
+function formatLibraryRateLine(item: {
+  unitRate: number | null;
+  unitType: string;
+  quantity?: number | null;
+  totalAmount?: number | null;
+  category?: string;
+}): string {
+  const unit = String(item.unitType || '').toLowerCase();
+  const direct = Number(item.unitRate);
+  if (Number.isFinite(direct) && direct > 0) {
+    return `$${direct}/${unit}`;
+  }
+  const total = Number(item.totalAmount);
+  const qty = Number(item.quantity);
+  if (Number.isFinite(total) && total > 0 && Number.isFinite(qty) && qty > 0) {
+    const per = Math.round((total / qty) * 100) / 100;
+    return `$${per}/${unit} · $${total.toLocaleString()} total`;
+  }
+  if (Number.isFinite(total) && total > 0) {
+    return `$${total.toLocaleString()} ${unit}`;
+  }
+  return '—';
+}
+
 export default function ContractorPricingLibraryModal({ visible, onClose }: Props) {
   const insets = useSafeAreaInsets();
   const { theme, darkMode } = useTheme();
@@ -77,8 +101,9 @@ export default function ContractorPricingLibraryModal({ visible, onClose }: Prop
           </TouchableOpacity>
         </View>
         <Text style={{ color: Colors.sub, fontSize: 13, paddingHorizontal: 16, marginBottom: 12 }}>
-          Rates learned from bids you applied, submitted, won, or saved as templates. Suggestions always
-          require your approval.
+          Rates you entered manually on past bids — per-unit (e.g. waterproofing $/sqft) or flat allowances
+          (permits, plans, fees). Auto-calculated splits are not saved. Suggestions always require your
+          approval.
         </Text>
 
         {loading ? (
@@ -87,7 +112,8 @@ export default function ContractorPricingLibraryModal({ visible, onClose }: Prop
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24 }}>
             {sections.length === 0 ? (
               <Text style={{ color: Colors.sub, fontSize: 14 }}>
-                No saved pricing yet. Apply or submit a real bid to start building your library.
+                No manually entered rates yet. Type prices on Confirm Scope or in manual pricing, then apply
+                the bid.
               </Text>
             ) : (
               sections.map((section) => (
@@ -111,9 +137,10 @@ export default function ContractorPricingLibraryModal({ visible, onClose }: Prop
                           {item.scopeItemName}
                         </Text>
                         <Text style={{ color: '#60a5fa', fontSize: 13, marginTop: 4 }}>
-                          {item.unitRate != null ? `$${item.unitRate}/${item.unitType}` : '—'}
+                          {formatLibraryRateLine(item)}
                         </Text>
                         <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2 }}>
+                          {item.category ? `${item.category} · ` : ''}
                           Used {item.usageCount} time{item.usageCount === 1 ? '' : 's'} ·{' '}
                           {item.pricingSource?.replace(/_/g, ' ')}
                         </Text>

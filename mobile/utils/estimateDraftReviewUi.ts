@@ -236,7 +236,7 @@ export function compactPackageStatusLabel(
   if (pendingTotal > 0 && (pkg.status === 'missing_price' || !pkg.status)) {
     const src = draft?.pendingPricingProposal?.primarySource || draft?.pendingPricingProposal?.source;
     if (src === 'saved_template') return 'Saved template';
-    if (src === 'saved_pricing') return 'Saved rate';
+    if (src === 'saved_pricing') return 'Saved pricing';
     return 'Matched rate';
   }
   return STATUS_SHORT[pkg.status || ''] || 'Review';
@@ -250,8 +250,8 @@ function pricingAcceptanceSourceLabel(
   if (acceptance.selectionStatus === 'user_entered') return 'User entered';
   const label = String(acceptance.pricingSourceLabel || '').trim();
   if (label) return label;
-  if (acceptance.pricingSourceKind === 'national_average') return 'BPS national benchmark';
-  if (acceptance.pricingSourceKind === 'saved_rate') return 'Saved rate';
+  if (acceptance.pricingSourceKind === 'national_average') return 'National average';
+  if (acceptance.pricingSourceKind === 'saved_rate') return 'Saved pricing';
   if (acceptance.pricingSourceKind === 'local_benchmark') return 'Local benchmark';
   return 'Applied';
 }

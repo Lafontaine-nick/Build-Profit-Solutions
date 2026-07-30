@@ -103,6 +103,11 @@ const GROUND_UP_STEP2_PRICING_TIER: Record<string, Step2PricingTierConfig> = {
 };
 
 const BATHROOM_STEP2_PRICING_TIER: Record<string, Step2PricingTierConfig> = {
+  // Planning host only — never bulk-apply a stage allowance on bathroom remodel.
+  interior_finishes: {
+    tier: 'comparison_only',
+    takeoffLabel: 'child finish trade lines',
+  },
   demo: {
     tier: 'takeoff_required',
     takeoffLabel: 'shower tile demo SF',
@@ -230,11 +235,12 @@ export function step2TierExpectsSuggestedFill(
 export function step2TierNeedsInlineTakeoffEntry(
   itemId: string,
   templateKey?: string | null,
-  resolved?: { pricingReady?: boolean } | null
+  resolved?: { pricingReady?: boolean } | null,
+  pricingApplied?: boolean
 ): boolean {
   const template = String(templateKey || '').toLowerCase();
   if (itemId === 'paint_repair' && template === 'bathroom') {
-    // Keep patch SF editable on-card even after pricingReady (global drywallSqft must not lock it).
+    if (pricingApplied) return false;
     return true;
   }
   if ((itemId === 'demo' || itemId === 'floor_demo') && template === 'bathroom') {
@@ -278,6 +284,11 @@ export function resolveStep2ComponentSuggestedPricing(
   if (template !== 'bathroom') return undefined;
 
   const { itemId, measurementsInput, resolved, pricingContext } = params;
+  // Bathroom Interior Finishes is a planning host only — never an applyable fill.
+  if (resolveStep2PricingTier(itemId, params.templateKey).tier === 'comparison_only') {
+    return { fill: null, comparison: null };
+  }
+
   const itemQuantities = measurementsInput.itemQuantities || {};
   if (
     shouldSuppressSuggestedPricingAfterApply(

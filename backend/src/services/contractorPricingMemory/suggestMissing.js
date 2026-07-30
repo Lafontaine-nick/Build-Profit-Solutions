@@ -4,7 +4,7 @@
 
 const { parseSquareFeetFromText, parseLinearFeetFromText, extractProjectSquareFeet } = require('../estimateDraftFromNotes');
 const { NATIONAL_TRADE_AVERAGES } = require('../pricingEngine/constants');
-const { listEntries, getSettings } = require('./storage');
+const { listLibraryEntries, getSettings } = require('./storage');
 const { buildSuggestionsForDraft } = require('./suggest');
 const { entryMatchesMissingItem, normalizeScopeKey } = require('./normalize');
 
@@ -372,7 +372,7 @@ function buildMissingPriceSuggestions(draft, userId, options = {}) {
   };
 
   if (settings.pricingMemoryEnabled) {
-    const entries = listEntries(userId).filter((e) => !e.isTestBid);
+    const entries = listLibraryEntries(userId).filter((e) => !e.isTestBid);
     add(suggestionsFromHistory(entries, draft, missingEntries));
   }
 

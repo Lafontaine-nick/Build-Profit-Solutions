@@ -14,7 +14,7 @@ const {
   approveCalibrationSuggestions,
 } = require('../services/contractorPricingMemory');
 const { getPricingProposal, toLegacyProposal } = require('../services/pricingEngine');
-const { updateEntry, deleteEntry, deleteEntriesForProject, getLibraryGrouped } = require('../services/contractorPricingMemory/storage');
+const { updateEntry, deleteEntry, deleteEntriesForProject, getLibraryGrouped, listLibraryEntries } = require('../services/contractorPricingMemory/storage');
 const { enrichDraft } = require('../services/estimateDraftEnrichment');
 
 const authenticateToken = async (req, res, next) => {
@@ -69,7 +69,7 @@ router.get('/rates', (req, res) => {
   const userId = req.user.userId;
   const trade = req.query.trade || null;
   const projectType = req.query.projectType || null;
-  const entries = listEntries(userId, { trade, projectType });
+  const entries = listLibraryEntries(userId, { trade, projectType });
   res.json({
     success: true,
     count: entries.length,

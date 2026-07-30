@@ -204,7 +204,39 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(fill).toMatchObject({ material: 6000, labor: 4000, mode: 'suggested_price' });
     expect(fill?.materialSource).toBe('template');
     expect(fill?.laborSource).toBe('template');
-    expect(fill?.rateSourceLabel).toContain('Saved rate');
+    expect(fill?.rateSourceLabel).toContain('Saved pricing');
+  });
+
+  it('includes national average comparison when saved library pricing is the fill', () => {
+    const input = inputWith({ showerWallTileSqft: '80' });
+    const resolved = { quantity: 80, unit: 'sqft', quantitySource: 'notes' as const };
+    const pricingContext: ScopePricingContext = {
+      libraryRates: [
+        {
+          scopeItemName: 'Shower waterproofing & backer board — materials',
+          category: 'material',
+          unitType: 'sqft',
+          unitRate: 5,
+        },
+        {
+          scopeItemName: 'Shower waterproofing & backer board — labor',
+          category: 'labor',
+          unitType: 'sqft',
+          unitRate: 8.75,
+        },
+      ],
+    };
+    const { fill, comparison } = resolveScopeItemSuggestedPricing(
+      'waterproofing',
+      input,
+      'bathroom',
+      resolved,
+      pricingContext
+    );
+    expect(fill?.materialSource).toBe('template');
+    expect(fill?.total).toBe(1100);
+    expect(comparison).toMatchObject({ isComparison: true, total: 960 });
+    expect(comparison?.rateSourceLabel).toMatch(/national average comparison/i);
   });
 
   it('uses CY national average rates when concrete is measured in cubic yards', () => {
@@ -337,14 +369,15 @@ describe('resolveScopeItemSuggestedPricing', () => {
     const resolved = resolveChecklistItemQuantity('cleanup', measurements, { templateKey: 'addition' });
 
     const { fill, comparison } = resolveScopeItemSuggestedPricing('cleanup', input, 'addition', resolved);
-    // Suggestion stays available so the user can switch back from a manual edit.
-    expect(fill).toMatchObject({
+    // Manual entry is active — suggestion stays as comparison-only (not "price ready").
+    expect(fill).toBeNull();
+    expect(comparison).toMatchObject({
       mode: 'suggested_price',
       material: 450,
       labor: 550,
       total: 1000,
+      isComparison: true,
     });
-    expect(comparison).toBeNull();
   });
 
   it('keeps ground-up permit suggestion available after editing the allowance', () => {
@@ -359,10 +392,13 @@ describe('resolveScopeItemSuggestedPricing', () => {
     });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
     const resolved = resolveChecklistItemQuantity('permits', measurements, { templateKey: 'ground_up' });
-    const { fill } = resolveScopeItemSuggestedPricing('permits', input, 'ground_up', resolved);
-    expect(fill).toMatchObject({
+    const { fill, comparison } = resolveScopeItemSuggestedPricing('permits', input, 'ground_up', resolved);
+    // Manual entry is active — soft-cost national stays comparison-only.
+    expect(fill).toBeNull();
+    expect(comparison).toMatchObject({
       lumpSumOnly: true,
       total: 32000,
+      isComparison: true,
     });
   });
 
@@ -912,13 +948,19 @@ describe('allowance split apply pricing', () => {
     expect(resolved.dualLabor?.quantity).toBe(175);
   });
 
-  it('does not multiply bath accessories allowance dollars as a qty (375 × $375)', () => {
+  it('shows national benchmark for user-entered bath accessories split (does not multiply 375 × $375)', () => {
     const input = inputWith({
       itemQuantities: {
         mirror_accessories: { quantity: '375', unit: 'allowance', quantitySource: 'user_entered' },
         mirror_accessories__allowance: { quantity: '375', unit: 'allowance', quantitySource: 'user_entered' },
         mirror_accessories__material: { quantity: '200', unit: 'allowance', quantitySource: 'user_entered' },
         mirror_accessories__labor: { quantity: '175', unit: 'allowance', quantitySource: 'user_entered' },
+      },
+      pricingAcceptance: {
+        mirror_accessories: {
+          selectionStatus: 'user_entered',
+          totalAmount: 375,
+        },
       },
     });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
@@ -932,7 +974,128 @@ describe('allowance split apply pricing', () => {
       resolved
     );
     expect(fill).toBeNull();
-    expect(comparison).toBeNull();
+    expect(comparison?.total).toBeGreaterThanOrEqual(350);
+    expect(comparison?.total).toBeLessThanOrEqual(400);
+    expect(comparison?.total).not.toBe(375 * 375);
+    expect(comparison?.isComparison).toBe(true);
+  });
+
+  it('shows national benchmark for user-entered flat bath accessories allowance', () => {
+    const input = inputWith({
+      itemQuantities: {
+        mirror_accessories: { quantity: '500', unit: 'allowance', quantitySource: 'user_entered' },
+        mirror_accessories__allowance: { quantity: '500', unit: 'allowance', quantitySource: 'user_entered' },
+      },
+      pricingAcceptance: {
+        mirror_accessories: {
+          selectionStatus: 'user_entered',
+          totalAmount: 500,
+        },
+      },
+    });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('mirror_accessories', measurements, {
+      templateKey: 'bathroom',
+    });
+    const { fill, comparison } = resolveScopeItemSuggestedPricing(
+      'mirror_accessories',
+      input,
+      'bathroom',
+      resolved
+    );
+    expect(fill).toBeNull();
+    expect(comparison?.total).toBeGreaterThanOrEqual(350);
+    expect(comparison?.total).toBeLessThanOrEqual(400);
+    expect(comparison?.isComparison).toBe(true);
+  });
+
+  it('shows sqft national benchmark when waterproofing is user-entered flat allowance with shower wall takeoff', () => {
+    const input = inputWith({
+      showerWallTileSqft: '80',
+      itemQuantities: {
+        waterproofing__allowance: { quantity: '1600', unit: 'allowance', quantitySource: 'user_entered' },
+      },
+      pricingAcceptance: {
+        waterproofing: {
+          selectionStatus: 'user_entered',
+          totalAmount: 1600,
+        },
+      },
+    });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('waterproofing', measurements, {
+      templateKey: 'bathroom',
+    });
+    const { fill, comparison } = resolveScopeItemSuggestedPricing(
+      'waterproofing',
+      input,
+      'bathroom',
+      resolved
+    );
+    // Manual price is active — national average is comparison-only, not a ready fill.
+    expect(fill).toBeNull();
+    expect(comparison?.total).toBe(960);
+    expect(comparison?.isComparison).toBe(true);
+    expect(comparison?.basis).toEqual({ quantity: 80, unit: 'sqft' });
+  });
+
+  it('uses shower wall takeoff instead of stale 1 SF when waterproofing flat allowance is user-entered', () => {
+    const input = inputWith({
+      showerWallTileSqft: '80',
+      itemQuantities: {
+        waterproofing__sqft_basis: { quantity: '1', unit: 'sqft', quantitySource: 'user_entered' },
+        waterproofing__allowance: { quantity: '1100', unit: 'allowance', quantitySource: 'user_entered' },
+      },
+      pricingAcceptance: {
+        waterproofing: {
+          selectionStatus: 'user_entered',
+          totalAmount: 1100,
+        },
+      },
+    });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('waterproofing', measurements, {
+      templateKey: 'bathroom',
+    });
+    const { fill, comparison } = resolveScopeItemSuggestedPricing(
+      'waterproofing',
+      input,
+      'bathroom',
+      resolved
+    );
+    expect(fill).toBeNull();
+    expect(comparison?.total).toBe(960);
+    expect(comparison?.total).not.toBe(12);
+    expect(comparison?.isComparison).toBe(true);
+  });
+
+  it('shows national benchmark for user-entered shower niche flat allowance', () => {
+    const input = inputWith({
+      itemQuantities: {
+        shower_niche: { quantity: '875', unit: 'allowance', quantitySource: 'user_entered' },
+        shower_niche__allowance: { quantity: '875', unit: 'allowance', quantitySource: 'user_entered' },
+      },
+      pricingAcceptance: {
+        shower_niche: {
+          selectionStatus: 'user_entered',
+          totalAmount: 875,
+        },
+      },
+    });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('shower_niche', measurements, {
+      templateKey: 'bathroom',
+    });
+    const { fill, comparison } = resolveScopeItemSuggestedPricing(
+      'shower_niche',
+      input,
+      'bathroom',
+      resolved
+    );
+    expect(fill).toBeNull();
+    expect(comparison?.total).toBeGreaterThanOrEqual(700);
+    expect(comparison?.total).toBeLessThanOrEqual(750);
+    expect(comparison?.isComparison).toBe(true);
   });
 
   it('suggests ~$375 for bath accessories before apply (1 allowance × national average)', () => {

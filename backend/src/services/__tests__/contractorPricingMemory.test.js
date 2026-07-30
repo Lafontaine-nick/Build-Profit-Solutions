@@ -22,7 +22,7 @@ describe('contractorPricingMemory', () => {
     expect(entries.length).toBe(0);
   });
 
-  test('captures calculated flooring rates on apply', () => {
+  test('does not capture calculated allowance rates on apply', () => {
     const draft = normalizeDraft(
       {
         projectType: 'other',
@@ -47,20 +47,78 @@ describe('contractorPricingMemory', () => {
       draft,
       meta: { bidStatus: 'applied' },
     });
+    expect(result.captured).toBe(0);
+  });
+
+  test('captures manually entered waterproofing rates on apply', () => {
+    const draft = {
+      projectType: 'bathroom',
+      scopePackages: [
+        {
+          name: 'Shower waterproofing & backer board',
+          checklistItemId: 'waterproofing',
+          status: 'user_provided',
+          priceProvidedByUser: true,
+          laborPrice: 700,
+          materialPrice: 400,
+          scope: '80 sqft shower walls',
+        },
+      ],
+    };
+
+    const result = capturePricingMemory(userId, {
+      draft,
+      meta: { bidStatus: 'applied' },
+    });
     expect(result.captured).toBeGreaterThan(0);
 
     const memory = buildSuggestionsForDraft(
       normalizeDraft({
-        projectType: 'other',
-        projectDescription: '900 sqft LVP install',
-        rooms: [{ name: 'Flooring', scope: '900 sqft laminate', price: null, priceIncludesLaborAndMaterials: false }],
-        allowances: [],
-        detectedTrades: ['flooring'],
+        projectType: 'bathroom',
+        scopePackages: [
+          {
+            name: 'Shower waterproofing',
+            checklistItemId: 'waterproofing',
+            status: 'missing_price',
+            scope: '80 sqft',
+          },
+        ],
       }),
       userId
     );
     expect(memory.suggestions.length).toBeGreaterThan(0);
-    expect(memory.suggestions[0].label).toMatch(/past approved bids/i);
+  });
+
+  test('captures manually entered lump-sum permits allowance on apply', () => {
+    const draft = {
+      projectType: 'ground_up',
+      scopePackages: [
+        {
+          name: 'Permits',
+          checklistItemId: 'permits',
+          status: 'user_provided',
+          priceProvidedByUser: true,
+          price: 4200,
+          scope: 'Building permits and impact fees',
+        },
+      ],
+    };
+
+    const result = capturePricingMemory(userId, {
+      draft,
+      meta: { bidStatus: 'applied' },
+    });
+    expect(result.captured).toBe(1);
+
+    const { listLibraryEntries } = require('../contractorPricingMemory/storage');
+    const entry = listLibraryEntries(userId)[0];
+    expect(entry).toMatchObject({
+      checklistItemId: 'permits',
+      unitType: 'allowance',
+      totalAmount: 4200,
+      unitRate: 4200,
+      pricingSource: 'user_provided',
+    });
   });
 
   test('skips test bids when excludeTestBids is on', () => {

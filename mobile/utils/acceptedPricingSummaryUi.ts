@@ -129,12 +129,12 @@ export function pricingSourceLabelFromBlock(block: SuggestedPricingBlock): strin
     return 'Local benchmark';
   }
   const usesTemplate = block.materialSource === 'template' || block.laborSource === 'template';
-  if (usesTemplate) return 'Saved rate';
+  if (usesTemplate) return 'Saved pricing';
   if (block.materialSource === 'notes' || block.laborSource === 'notes') return 'From notes';
   if (block.rateSourceLabel.includes('National') || /builder-budget/i.test(block.rateSourceLabel)) {
-    return 'BPS national benchmark';
+    return 'National average';
   }
-  return 'BPS national benchmark';
+  return 'National average';
 }
 
 export function pricingSourceKindFromBlock(block: SuggestedPricingBlock): ScopePricingAcceptanceMetadata['pricingSourceKind'] {

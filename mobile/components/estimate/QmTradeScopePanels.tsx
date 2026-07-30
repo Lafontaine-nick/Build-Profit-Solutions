@@ -53,6 +53,14 @@ function captionColor(darkMode: boolean, Colors: Colors) {
   return darkMode ? 'rgba(245,247,250,0.62)' : Colors.sub;
 }
 
+export function qmNeutralScopePanelStyle(darkMode: boolean) {
+  return {
+    titleColor: darkMode ? '#94a3b8' : '#64748b',
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(100, 116, 139, 0.22)',
+    backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(100, 116, 139, 0.05)',
+  };
+}
+
 type StepperRow = {
   key: string;
   label: string;
@@ -465,9 +473,7 @@ export function QmKitchenScopePanels({
       {showExistingPanel ? (
         <QmScopePanelSection
           title="Existing kitchen"
-          titleColor="#38bdf8"
-          borderColor={darkMode ? 'rgba(56, 189, 248, 0.28)' : 'rgba(14, 165, 233, 0.22)'}
-          backgroundColor={darkMode ? 'rgba(56, 189, 248, 0.06)' : 'rgba(56, 189, 248, 0.05)'}
+          {...qmNeutralScopePanelStyle(darkMode)}
           caption={existingCaption}
           rows={KITCHEN_EXISTING_ROWS}
           counts={existing as Record<string, number | null>}
@@ -619,9 +625,7 @@ export function QmFlooringScopePanels({
       {showExistingPanel ? (
         <QmScopePanelSection
           title="Existing floor"
-          titleColor="#38bdf8"
-          borderColor={darkMode ? 'rgba(56, 189, 248, 0.28)' : 'rgba(14, 165, 233, 0.22)'}
-          backgroundColor={darkMode ? 'rgba(56, 189, 248, 0.06)' : 'rgba(56, 189, 248, 0.05)'}
+          {...qmNeutralScopePanelStyle(darkMode)}
           caption="What is in the space now — set manually for notes-only jobs."
           rows={[{ key: 'flooringExistingCount', label: 'Existing flooring' }]}
           counts={existing as Record<string, number | null>}
@@ -857,11 +861,7 @@ export function QmBathroomFixturesPanels({
     ? 'Set install and demo for this bid — auto-filled from existing + install.'
     : 'Set install and demo — auto-filled from photos, notes, and install.';
 
-  const vanityFixtureGrey = {
-    titleColor: darkMode ? '#94a3b8' : '#64748b',
-    borderColor: darkMode ? 'rgba(148, 163, 184, 0.28)' : 'rgba(100, 116, 139, 0.22)',
-    backgroundColor: darkMode ? 'rgba(148, 163, 184, 0.06)' : 'rgba(100, 116, 139, 0.05)',
-  };
+  const vanityFixtureGrey = qmNeutralScopePanelStyle(darkMode);
 
   const showCountertopSqft = (install.bathroomInstallCounterCount ?? 0) > 0;
   const countertopSqftValue = String(measurements.countertopSqft ?? '').trim();
@@ -889,9 +889,7 @@ export function QmBathroomFixturesPanels({
       {showExistingPanel ? (
         <QmScopePanelSection
           title="Existing fixtures"
-          titleColor="#38bdf8"
-          borderColor={darkMode ? 'rgba(56, 189, 248, 0.28)' : 'rgba(14, 165, 233, 0.22)'}
-          backgroundColor={darkMode ? 'rgba(56, 189, 248, 0.06)' : 'rgba(56, 189, 248, 0.05)'}
+          {...qmNeutralScopePanelStyle(darkMode)}
           caption={existingCaption}
           rows={BATHROOM_EXISTING_FIXTURE_ROWS}
           counts={existing as Record<string, number | null>}

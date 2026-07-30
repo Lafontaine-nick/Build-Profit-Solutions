@@ -72,6 +72,7 @@ import {
 } from '@/utils/scopeRatePricingParser';
 import {
   resolveLibraryRateForItem,
+  resolveLibraryLumpSumForItem,
   type ScopePricingLibraryRate,
 } from '@/utils/scopePricingLibraryContext';
 import {
@@ -3648,7 +3649,16 @@ function resolveSuggestedPricingPhysicalCount(
 ): number | null {
   if (itemQuantities && unit === 'sqft') {
     const storedBasis = readStoredSqftPricingBasis(itemQuantities, itemId);
-    if (storedBasis != null) return storedBasis;
+    if (storedBasis != null) {
+      if (
+        storedBasis <= 1 &&
+        hasUserEnteredFlatAllowancePricing(itemQuantities, itemId)
+      ) {
+        // Stale 1 SF placeholder — prefer QM takeoff in the caller.
+      } else {
+        return storedBasis;
+      }
+    }
   }
 
   if (resolved.dualCount?.unit === unit && resolved.dualCount.quantity > 0) {
@@ -3693,7 +3703,28 @@ function resolveSuggestedPricingPhysicalCount(
   }
 
   if (resolved.quantity != null && resolved.unit === unit && resolved.quantity > 0) {
+    if (itemQuantities && hasUserEnteredFlatAllowancePricing(itemQuantities, itemId)) {
+      const defaultCount = rule.defaultQuantity ?? 1;
+      const allowanceEntry = itemQuantities[roughAllowanceSubKey(itemId)];
+      const allowanceTotal = Number(String(allowanceEntry?.quantity ?? '').replace(/,/g, ''));
+      if (
+        unit === rule.defaultUnit &&
+        resolved.quantity > defaultCount + 0.001 &&
+        (allowanceTotal > 0 ? Math.abs(resolved.quantity - allowanceTotal) < 0.02 : true)
+      ) {
+        return defaultCount;
+      }
+    }
     return resolved.quantity;
+  }
+
+  if (
+    itemQuantities &&
+    hasUserEnteredFlatAllowancePricing(itemQuantities, itemId) &&
+    unit === rule.defaultUnit &&
+    (rule.defaultQuantity ?? 1) > 0
+  ) {
+    return rule.defaultQuantity ?? 1;
   }
 
   return null;
@@ -5446,7 +5477,7 @@ const TEMPLATE_FAMILY_FALLBACK: Record<string, RegExp> = {
   countertops: /counter\s*top|quartz|granite|laminate\s*top|solid\s*surface|butcher\s*block/i,
   cabinets: /cabinet|cabinetry|vanity/i,
   floor_prep: /floor\s*prep|underlayment|leveling|self\s*level|patch/i,
-  waterproofing: /waterproof|kerdi|redgard|red\s*guard|schluter|membrane/i,
+  waterproofing: /waterproof|backer\s*board|kerdi|redgard|red\s*guard|schluter|membrane/i,
   demo: /demo|demolition|tear\s*out|removal|remove|haul/i,
   floor_demo: /demo|demolition|tear\s*out|removal|remove/i,
 };
@@ -5515,7 +5546,8 @@ function averageMatchingRate(
 export function resolveTemplateRateForItem(
   itemId: string,
   unit: string | null | undefined,
-  ctx?: ScopePricingContext | null
+  ctx?: ScopePricingContext | null,
+  takeoffQuantity?: number | null
 ): TemplateRateMatch | null {
   if (!ctx) return null;
   const matcher =
@@ -5524,6 +5556,16 @@ export function resolveTemplateRateForItem(
   if (!matcher) return null;
 
   const targetUnit = normalizeRateUnit(unit);
+
+  // Saved pricing library beats stale line items on the active bid (often national-average prefill).
+  const library = resolveLibraryRateForItem(
+    itemId,
+    unit,
+    ctx.libraryRates,
+    matcher,
+    takeoffQuantity
+  );
+  if (library) return library;
 
   if (ctx.bid) {
     const materialRate = averageMatchingRate(ctx.bid.materialLineItems, matcher, targetUnit);
@@ -5536,9 +5578,6 @@ export function resolveTemplateRateForItem(
       };
     }
   }
-
-  const library = resolveLibraryRateForItem(itemId, unit, ctx.libraryRates, matcher);
-  if (library) return library;
 
   for (const source of (ctx.templates || []).filter(Boolean) as ScopePricingTemplateSource[]) {
     const materialRate = averageMatchingRate(source.materialLineItems, matcher, targetUnit);
@@ -5921,7 +5960,7 @@ function rateSourceLabelFor(
   average?: NationalAverageBudgetSplit | null
 ): string {
   const usesTemplate = materialSource === 'template' || laborSource === 'template';
-  if (usesTemplate && templateName) return 'Suggested · Saved rate';
+  if (usesTemplate) return 'Saved pricing';
   if (regional && regional.multiplier !== 1) return regional.rateSourceLabel;
   if (
     (materialSource === 'national_average' || laborSource === 'national_average') &&
@@ -6251,6 +6290,304 @@ function resolveSouthernUtahPaintTrimSuggestedFill(params: {
   return null;
 }
 
+function userHasCommittedScopePricing(
+  itemId: string,
+  itemQuantities: Record<string, ScopeItemQuantityLike>,
+  pricingAcceptance?: Record<string, { selectionStatus?: string }>
+): boolean {
+  if (
+    pricingAcceptance?.[itemId]?.selectionStatus === 'user_entered' ||
+    pricingAcceptance?.[itemId]?.selectionStatus === 'manual_adjusted'
+  ) {
+    return true;
+  }
+  return (
+    hasUserEnteredFlatAllowancePricing(itemQuantities, itemId) ||
+    hasUserEnteredMaterialLaborSplit(itemQuantities, itemId)
+  );
+}
+
+/** National benchmark row for user-entered pricing — never treat dollar totals as qty multipliers. */
+function resolveNationalAveragePhysicalCountForBenchmark(
+  itemId: string,
+  rule: ScopeItemQuantityRule,
+  measurementsInput: ScopeMeasurementsInputExtended,
+  resolved: SuggestedPricingResolvedQty,
+  safeAllowanceCount?: number | null
+): { count: number; unit: string } | null {
+  const itemQuantities = measurementsInput.itemQuantities || {};
+  const measurementMatch = firstMeasurementForRule(rule, measurementsInput);
+  const fromMeasurement = firstMeasurementQuantityForRule(rule, measurementsInput);
+  const storedSqft = readStoredSqftPricingBasis(itemQuantities, itemId);
+  const allowanceEntry = itemQuantities[roughAllowanceSubKey(itemId)];
+  const allowanceTotal = Number(String(allowanceEntry?.quantity ?? '').replace(/,/g, ''));
+
+  let unit =
+    rule.defaultUnit === 'allowance' || rule.defaultUnit === 'lump_sum'
+      ? rule.defaultUnit
+      : measurementMatch?.unit || rule.defaultUnit || 'sqft';
+
+  let count: number | null = safeAllowanceCount ?? null;
+
+  if (fromMeasurement != null && fromMeasurement > 0) {
+    const takeoffUnit = measurementMatch?.unit || rule.defaultUnit;
+    if (count == null || (takeoffUnit === 'sqft' && count <= 1 && fromMeasurement > 1)) {
+      count = fromMeasurement;
+      unit = takeoffUnit;
+    }
+  }
+
+  if ((count == null || count <= 0) && measurementMatch && measurementMatch.quantity > 0) {
+    count = measurementMatch.quantity;
+    unit = measurementMatch.unit;
+  }
+
+  if ((count == null || count <= 0) && storedSqft != null && storedSqft > 1) {
+    count = storedSqft;
+    unit = 'sqft';
+  }
+
+  if (count == null || count <= 0) {
+    count = resolveSuggestedPricingPhysicalCount(itemId, rule, resolved, unit, itemQuantities);
+  }
+
+  if (count != null && count > 0 && hasUserEnteredFlatAllowancePricing(itemQuantities, itemId)) {
+    const defaultCount = rule.defaultQuantity ?? 1;
+    if (
+      unit === rule.defaultUnit &&
+      count > defaultCount + 0.001 &&
+      (allowanceTotal > 0 ? Math.abs(count - allowanceTotal) < 0.02 : true)
+    ) {
+      count = defaultCount;
+    }
+    if (
+      unit === 'sqft' &&
+      count <= 1 &&
+      allowanceTotal > 50 &&
+      fromMeasurement != null &&
+      fromMeasurement > 1
+    ) {
+      count = fromMeasurement;
+      unit = measurementMatch?.unit || 'sqft';
+    }
+  }
+
+  if ((!count || count <= 0) && (rule.defaultUnit === 'allowance' || rule.defaultUnit === 'lump_sum')) {
+    const { average: flatAverage } = regionalAdjustedNationalAverage(itemId, rule.defaultUnit, null);
+    if (flatAverage?.labor || flatAverage?.material) {
+      count = rule.defaultQuantity ?? 1;
+      unit = flatAverage.unit || rule.defaultUnit;
+    }
+  }
+
+  if (
+    (!count || count <= 0) &&
+    rule.defaultQuantity != null &&
+    hasUserEnteredFlatAllowancePricing(itemQuantities, itemId)
+  ) {
+    count = rule.defaultQuantity;
+    unit = rule.defaultUnit;
+  }
+
+  if (count == null || count <= 0) return null;
+  return { count, unit };
+}
+
+function buildNationalAverageRateFill(
+  itemId: string,
+  count: number,
+  unit: string,
+  pricingContext?: ScopePricingContext | null
+): ScopeItemSuggestedPricing | null {
+  if (unit === 'allowance' || unit === 'lump_sum') {
+    return buildSplitTotalOnlySuggestedFill(itemId, pricingContext);
+  }
+  const { average, regional } = regionalAdjustedNationalAverage(itemId, unit, pricingContext);
+  const materialRate = average?.material ?? null;
+  const laborRate = average?.labor ?? null;
+  if (!hasAnyPricingRate(materialRate, laborRate)) return null;
+  const material = round2(count * (materialRate ?? 0));
+  const labor = round2(count * (laborRate ?? 0));
+  const total = round2(material + labor);
+  if (total <= 0) return null;
+  const national = getNationalAverageBudgetSplit(itemId, unit);
+  return {
+    fill: {
+      material,
+      labor,
+      total,
+      materialSource: 'national_average',
+      laborSource: 'national_average',
+      rateSourceLabel:
+        national?.sourceLabel ??
+        rateSourceLabelFor('national_average', 'national_average', null, regional, average),
+      helper: `Based on ${count.toLocaleString()} ${unit}`,
+      mode: 'suggested_price',
+      lumpSumOnly: false,
+      basis: { quantity: count, unit },
+      benchmarkScopeProfile: buildNationalAverageBenchmarkScopeProfile({
+        itemId,
+        average,
+        quantity: count,
+        total,
+        regional,
+      }),
+      costBuckets: buildSuggestedPricingCostBuckets({
+        itemId,
+        average,
+        material,
+        labor,
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+      }),
+      pricingRecordId: `bps_national:${itemId}:${unit}`,
+      productionStatus: average?.productionStatus || 'review_required',
+      benchmarkLevel: 'component',
+      benchmarkScopeKey: itemId,
+      benchmarkAction: 'price_ready',
+    },
+    comparison: null,
+  };
+}
+
+function isPerUnitRateMistakenForTotal(
+  fill: SuggestedPricingBlock | null | undefined,
+  itemId: string,
+  rule: ScopeItemQuantityRule,
+  pricingContext?: ScopePricingContext | null
+): boolean {
+  if (!fill) return false;
+  const basisUnit = fill.basis?.unit || rule.defaultUnit;
+  if (!['sqft', 'living_sqft'].includes(String(basisUnit).toLowerCase())) return false;
+  const basisQty = fill.basis?.quantity ?? 0;
+  if (basisQty > 1) return false;
+  const { average } = regionalAdjustedNationalAverage(itemId, basisUnit, pricingContext);
+  const perUnit = round2((average?.material ?? 0) + (average?.labor ?? 0));
+  return perUnit > 0 && Math.abs(fill.total - perUnit) < 0.02;
+}
+
+/** After the contractor already priced a scope, national average is comparison-only. */
+function asNationalAverageComparisonOnly(
+  result: ScopeItemSuggestedPricing | null
+): ScopeItemSuggestedPricing | null {
+  if (!result) return null;
+  const block = result.comparison || result.fill;
+  if (!block || !(block.total > 0)) {
+    return result.fill || result.comparison ? { fill: null, comparison: result.comparison } : null;
+  }
+  return {
+    fill: null,
+    comparison: {
+      ...block,
+      isComparison: true,
+      benchmarkAction: 'comparison_only',
+      rateSourceLabel: /national\s*average/i.test(String(block.rateSourceLabel || ''))
+        ? String(block.rateSourceLabel).includes('comparison')
+          ? block.rateSourceLabel
+          : 'National average comparison'
+        : 'National average comparison',
+      helper: String(block.helper || '')
+        .replace(/\s*·\s*suggested comparison$/i, '')
+        .concat(' · suggested comparison'),
+    },
+  };
+}
+
+function withUserEnteredNationalBenchmarkFallback(
+  itemId: string,
+  rule: ScopeItemQuantityRule,
+  measurementsInput: ScopeMeasurementsInputExtended,
+  resolved: SuggestedPricingResolvedQty,
+  templateKey: string | null | undefined,
+  pricingContext: ScopePricingContext | null | undefined,
+  result: ScopeItemSuggestedPricing
+): ScopeItemSuggestedPricing {
+  if (
+    shouldSuppressSuggestedPricingAfterApply(
+      itemId,
+      measurementsInput.itemQuantities || {},
+      measurementsInput.pricingAcceptance
+    )
+  ) {
+    return result;
+  }
+  if (!userHasCommittedScopePricing(itemId, measurementsInput.itemQuantities || {}, measurementsInput.pricingAcceptance)) {
+    return result;
+  }
+
+  // Manual/user pricing is already active — never leave national average as an
+  // applyable fill (that drives the footer "N prices ready" count).
+  if (result.fill && !result.fill.isComparison) {
+    return {
+      fill: null,
+      comparison:
+        result.comparison ||
+        asNationalAverageComparisonOnly({ fill: result.fill, comparison: null })?.comparison ||
+        null,
+    };
+  }
+
+  const needsFallback =
+    (!result.fill && !result.comparison) ||
+    isPerUnitRateMistakenForTotal(result.fill, itemId, rule, pricingContext);
+  if (!needsFallback) return result;
+
+  const physical = resolveNationalAveragePhysicalCountForBenchmark(
+    itemId,
+    rule,
+    measurementsInput,
+    resolved
+  );
+  if (!physical) {
+    if (rule.defaultUnit === 'allowance' || rule.defaultUnit === 'lump_sum' || rule.splitTotalOnly) {
+      const flat = asNationalAverageComparisonOnly(
+        buildSplitTotalOnlySuggestedFill(itemId, pricingContext)
+      );
+      if (flat?.comparison) return flat;
+    }
+    return result;
+  }
+
+  const benchmark = asNationalAverageComparisonOnly(
+    buildNationalAverageRateFill(itemId, physical.count, physical.unit, pricingContext)
+  );
+  return benchmark?.comparison ? benchmark : result;
+}
+
+/** National benchmark row for user-entered pricing — never treat dollar totals as qty multipliers. */
+function buildNationalBenchmarkForUserEnteredPricing(
+  itemId: string,
+  rule: ScopeItemQuantityRule,
+  measurementsInput: ScopeMeasurementsInputExtended,
+  resolved: SuggestedPricingResolvedQty,
+  templateKey: string | null | undefined,
+  pricingContext?: ScopePricingContext | null,
+  safeAllowanceCount?: number | null
+): ScopeItemSuggestedPricing | null {
+  void templateKey;
+  if (rule.splitTotalOnly) {
+    return asNationalAverageComparisonOnly(buildSplitTotalOnlySuggestedFill(itemId, pricingContext));
+  }
+
+  const physical = resolveNationalAveragePhysicalCountForBenchmark(
+    itemId,
+    rule,
+    measurementsInput,
+    resolved,
+    safeAllowanceCount
+  );
+  if (!physical) {
+    if (rule.defaultUnit === 'allowance' || rule.defaultUnit === 'lump_sum') {
+      return asNationalAverageComparisonOnly(buildSplitTotalOnlySuggestedFill(itemId, pricingContext));
+    }
+    return null;
+  }
+
+  return asNationalAverageComparisonOnly(
+    buildNationalAverageRateFill(itemId, physical.count, physical.unit, pricingContext)
+  );
+}
+
 function buildSplitTotalOnlySuggestedFill(
   itemId: string,
   pricingContext?: ScopePricingContext | null
@@ -6338,7 +6675,13 @@ export function resolveScopeItemSuggestedPricing(
 
   if (rule.splitTotalOnly) {
     const splitOnly = buildSplitTotalOnlySuggestedFill(itemId, pricingContext);
-    if (splitOnly?.fill) return splitOnly;
+    if (splitOnly?.fill) {
+      // Manual/user pricing is active — never leave national average as applyable.
+      if (userHasCommittedScopePricing(itemId, itemQuantities, measurementsInput.pricingAcceptance)) {
+        return asNationalAverageComparisonOnly(splitOnly) || empty;
+      }
+      return splitOnly;
+    }
   }
 
   const componentSuggested = resolveStep2ComponentSuggestedPricing({
@@ -6348,7 +6691,15 @@ export function resolveScopeItemSuggestedPricing(
     resolved,
     pricingContext,
   });
-  if (componentSuggested !== undefined) return componentSuggested;
+  if (componentSuggested !== undefined) {
+    if (
+      componentSuggested.fill &&
+      userHasCommittedScopePricing(itemId, itemQuantities, measurementsInput.pricingAcceptance)
+    ) {
+      return asNationalAverageComparisonOnly(componentSuggested) || empty;
+    }
+    return componentSuggested;
+  }
 
   if (isBathroomVanityCountertopScope(itemId, templateKey)) {
     const materialType = resolveBathroomVanityCountertopMaterialType({
@@ -6536,9 +6887,25 @@ export function resolveScopeItemSuggestedPricing(
   if ((!count || count <= 0) && (rule.defaultUnit === 'allowance' || rule.defaultUnit === 'lump_sum')) {
     const { average: flatAverageBase } = regionalAdjustedNationalAverage(itemId, rule.defaultUnit, pricingContext);
     const flatAverage = flatAverageBase;
-    if (rule.lumpSumOnly && (flatAverage?.labor || flatAverage?.material)) {
-      count = 1;
+    if (flatAverage?.labor || flatAverage?.material) {
+      count = rule.defaultQuantity ?? 1;
       unit = flatAverage?.unit || rule.defaultUnit;
+    }
+  }
+  if (userHasCommittedScopePricing(itemId, itemQuantities, measurementsInput.pricingAcceptance)) {
+    const fromMeasurement = firstMeasurementQuantityForRule(rule, measurementsInput);
+    if (
+      fromMeasurement &&
+      fromMeasurement > 0 &&
+      ['sqft', 'living_sqft'].includes(String(unit).toLowerCase()) &&
+      (!count || count <= 1) &&
+      fromMeasurement > 1
+    ) {
+      count = fromMeasurement;
+    }
+    if ((!count || count <= 0) && rule.defaultQuantity != null) {
+      count = rule.defaultQuantity;
+      unit = rule.defaultUnit;
     }
   }
   // Ground-up framing: always prefer covered framed SF (living + garage) for planning rates.
@@ -6957,6 +7324,17 @@ export function resolveScopeItemSuggestedPricing(
       templateKey
     );
     if (benchmarkOnly) return benchmarkOnly;
+    if (userHasCommittedScopePricing(itemId, itemQuantities, measurementsInput.pricingAcceptance)) {
+      const userBenchmark = buildNationalBenchmarkForUserEnteredPricing(
+        itemId,
+        rule,
+        measurementsInput,
+        resolved,
+        templateKey,
+        pricingContext
+      );
+      if (userBenchmark?.fill || userBenchmark?.comparison) return userBenchmark;
+    }
     return empty;
   }
 
@@ -6994,6 +7372,40 @@ export function resolveScopeItemSuggestedPricing(
       itemId
     );
     const copy = flatAllowanceCopyFor(itemId);
+    if (userEnteredFlat) {
+      // Prefer ground-up soft-cost barometer (permits/plans) over remodel national.
+      const softCost = getBuilderBudgetSoftCostAllowance(itemId, templateKey);
+      if (softCost?.amount) {
+        const total = round2(softCost.amount);
+        return {
+          fill: null,
+          comparison: {
+            material: 0,
+            labor: total,
+            total,
+            materialSource: 'national_average',
+            laborSource: 'national_average',
+            rateSourceLabel: 'National average comparison',
+            helper: `${softCost.note} · suggested comparison`,
+            mode: 'suggested_price',
+            lumpSumOnly: true,
+            isComparison: true,
+            benchmarkAction: 'comparison_only',
+            pricingRecordId: `bps_soft_cost:${itemId}:allowance`,
+            productionStatus: 'review_required',
+          },
+        };
+      }
+      const userBenchmark = buildNationalBenchmarkForUserEnteredPricing(
+        itemId,
+        rule,
+        measurementsInput,
+        resolved,
+        templateKey,
+        pricingContext
+      );
+      if (userBenchmark?.comparison || userBenchmark?.fill) return userBenchmark;
+    }
     const noteTotal = userEnteredFlat
       ? null
       : resolved.dualAllowance?.quantity ??
@@ -7015,6 +7427,29 @@ export function resolveScopeItemSuggestedPricing(
           lumpSumOnly: true,
         },
         comparison: null,
+      };
+    }
+    const libraryLump = resolveLibraryLumpSumForItem(itemId, pricingContext?.libraryRates);
+    if (libraryLump != null && libraryLump > 0) {
+      const total = round2(libraryLump);
+      return {
+        fill: {
+          material: 0,
+          labor: total,
+          total,
+          materialSource: 'template',
+          laborSource: 'template',
+          rateSourceLabel: 'Saved pricing',
+          helper: copy.suggested || 'Saved allowance from your pricing library',
+          mode: 'suggested_price',
+          lumpSumOnly: true,
+          basis: { quantity: 1, unit: 'allowance' },
+        },
+        comparison: buildPureNationalAverageComparisonBlock({
+          itemId,
+          basis: { quantity: 1, unit: 'allowance' },
+          fillTotal: total,
+        }),
       };
     }
     // Ground-up soft costs (permits / plans): use bid barometer, not remodel-scale national.
@@ -7077,7 +7512,7 @@ export function resolveScopeItemSuggestedPricing(
     };
   }
 
-  const template = resolveTemplateRateForItem(itemId, unit, pricingContext);
+  const template = resolveTemplateRateForItem(itemId, unit, pricingContext, count);
   const materialRate = template?.materialRate ?? average?.material ?? null;
   const laborRate = template?.laborRate ?? average?.labor ?? null;
   const materialRateSource: PricingLegSource = template?.materialRate ? 'template' : 'national_average';
@@ -7099,6 +7534,16 @@ export function resolveScopeItemSuggestedPricing(
   // Case A: notes priced both legs -> collapsible comparison only.
   if (noteMaterial != null && noteLabor != null) {
     if (splitLegsUserEntered(resolved) && !splitLegsFromNotes(resolved)) {
+      const userBenchmark = buildNationalBenchmarkForUserEnteredPricing(
+        itemId,
+        rule,
+        measurementsInput,
+        resolved,
+        templateKey,
+        pricingContext,
+        rule.defaultQuantity ?? 1
+      );
+      if (userBenchmark?.fill || userBenchmark?.comparison) return userBenchmark;
       return empty;
     }
     if (splitLegsFromNotes(resolved)) {
@@ -7373,19 +7818,25 @@ export function resolveScopeItemSuggestedPricing(
         : undefined,
   };
   // Comparison = pure national on the same qty/unit as fill (not living-SF stage lump).
-  // Stage living-SF packages stay on hosts without unit-rate fills (sitework / exterior / MEP).
-  const nationalComparison =
-    hasPhysicalTakeoffRates && !template
-      ? buildPureNationalAverageComparisonBlock({
-          itemId,
-          basis: takeoffFill.basis,
-          fillTotal: takeoffFill.total,
-        })
-      : null;
-  return {
-    fill: takeoffFill,
-    comparison: nationalComparison,
-  };
+  const nationalComparison = hasPhysicalTakeoffRates
+    ? buildPureNationalAverageComparisonBlock({
+        itemId,
+        basis: takeoffFill.basis,
+        fillTotal: takeoffFill.total,
+      })
+    : null;
+  return withUserEnteredNationalBenchmarkFallback(
+    itemId,
+    rule,
+    measurementsInput,
+    resolved,
+    templateKey,
+    pricingContext,
+    {
+      fill: takeoffFill,
+      comparison: nationalComparison,
+    }
+  );
 }
 
 /** Last-resort display merge: sqft × $/sqft from notes and/or baked itemQuantities subkeys. */

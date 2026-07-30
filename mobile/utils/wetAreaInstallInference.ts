@@ -207,3 +207,22 @@ export function mergeInferredWetAreaInstallSteppers(
   }
   return reconcileExclusiveShowerPanSteppers(out);
 }
+
+/** Merge inference into saved counts, then drop steppers notes no longer support (stale draft fields). */
+export function applyNotesInferredWetAreaInstallSteppers(
+  base: WetAreaStepperCounts,
+  inferred: WetAreaStepperCounts,
+  options?: { notes?: string | null }
+): WetAreaStepperCounts {
+  const notesDriven = Boolean(String(options?.notes ?? '').trim());
+  const merged = mergeInferredWetAreaInstallSteppers(base, inferred);
+  if (!notesDriven) return merged;
+  const keys = Object.keys(EMPTY_STEPPERS) as (keyof WetAreaStepperCounts)[];
+  const out = { ...merged };
+  for (const key of keys) {
+    if (positiveCount(inferred[key]) == null) {
+      out[key] = null;
+    }
+  }
+  return reconcileExclusiveShowerPanSteppers(out);
+}
