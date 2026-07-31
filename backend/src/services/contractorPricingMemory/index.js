@@ -19,12 +19,9 @@ const {
 function shouldLearnForEvent(settings, bidStatus) {
   if (!settings.pricingMemoryEnabled) return false;
   const status = String(bidStatus || '').toLowerCase();
-  if (status === 'applied') return settings.learnOnApply !== false;
-  if (status === 'submitted') return settings.learnOnSubmit !== false;
-  if (status === 'won') return settings.learnOnWon !== false;
-  if (status === 'completed') return settings.learnOnCompleted !== false;
-  if (status === 'saved_template') return settings.learnOnSavedTemplate !== false;
-  return false;
+  // Pricing memory is intentionally learned only from Step 3 Apply. Later
+  // lifecycle events and saved templates must not create library rates.
+  return status === 'applied';
 }
 
 function capturePricingMemory(userId, payload) {

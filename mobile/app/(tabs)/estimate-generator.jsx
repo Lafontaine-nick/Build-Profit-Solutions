@@ -9938,7 +9938,10 @@ export default function EstimateGeneratorScreen() {
     // Only heal clear inflation (e.g. ~$37k bid vs ~$20k Step 3), not tiny rounding.
     if (!(subtotal > step3.total * 1.05 + 100)) return;
 
-    const reconcileKey = `${snapshot.savedAt || ''}:${Math.round(step3.total)}:${Math.round(subtotal)}`;
+    // Do not include snapshot.savedAt here. The reconciliation itself triggers
+    // persistence, which can refresh savedAt and otherwise make this effect
+    // reconcile the same inflated bid repeatedly.
+    const reconcileKey = `${Math.round(step3.total)}:${Math.round(subtotal)}`;
     if (step3BidReconcileRef.current === reconcileKey) return;
     step3BidReconcileRef.current = reconcileKey;
 

@@ -23,7 +23,6 @@ import type { QmPanelDefinition, QmPanelHydrateContext } from '@/utils/qmScopePa
 export const BATHROOM_WET_AREA_EMBEDDED_IDS = new Set([
   'wet_area_install',
   'tub_install',
-  'prefab_shower_pan',
   'prefab_shower_enclosure',
   'tub_demo',
   'shower_floor_demo',

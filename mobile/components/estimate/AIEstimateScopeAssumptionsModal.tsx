@@ -703,6 +703,15 @@ function calculatedQuantityAlreadyActive(intelligence: ScopeItemIntelligence): b
   });
 }
 
+function isNationalAveragePricingBlock(block: SuggestedPricingBlock | null | undefined): boolean {
+  if (!block) return false;
+  return (
+    block.materialSource === 'national_average' ||
+    block.laborSource === 'national_average' ||
+    /national\s*average/i.test(String(block.rateSourceLabel || ''))
+  );
+}
+
 function resolveFormulaTargetSuggestedPricing(params: {
   itemId: string;
   measurementsInput: ScopeMeasurementsInputExtended;
@@ -3309,6 +3318,17 @@ function QuantitySection({
         suggestedBudgetSplit = formulaSuggested.fill;
         suggestedComparisonSplit = formulaSuggested.comparison;
       }
+      // Do not show two Apply choices when both the primary suggestion and
+      // comparison are national-average versions of the same scope.
+      if (
+        suggestedBudgetSplit &&
+        (itemId === 'countertops' ||
+          (isNationalAveragePricingBlock(suggestedBudgetSplit) &&
+            (isNationalAveragePricingBlock(suggestedComparisonSplit) ||
+              Boolean(suggestedComparisonSplit?.isComparison))))
+      ) {
+        suggestedComparisonSplit = null;
+      }
       const applySuggestedPricingBlock = (block: SuggestedPricingBlock) => {
         if (onApplySuggestedPricing) {
           onApplySuggestedPricing(itemId, block);
@@ -3617,7 +3637,14 @@ function QuantitySection({
         choiceId,
       });
       const planningFill = formulaPlanning.fill;
-      const planningComparison = formulaPlanning.comparison;
+      const planningComparison =
+        planningFill &&
+        (itemId === 'countertops' ||
+          (isNationalAveragePricingBlock(planningFill) &&
+            (isNationalAveragePricingBlock(formulaPlanning.comparison) ||
+              Boolean(formulaPlanning.comparison?.isComparison))))
+          ? null
+          : formulaPlanning.comparison;
       const hidePlanningSuggestion =
         suppressSuggestedPricing ||
         shouldHideSuggestedPanel({
@@ -3883,6 +3910,17 @@ function QuantitySection({
   });
   suggestedBudgetSplit = formulaSuggested.fill;
   suggestedComparisonSplit = formulaSuggested.comparison;
+  // Countertop pricing already has one primary suggested price. Do not render
+  // the older generic national-average comparison as a second Apply choice.
+  if (
+    suggestedBudgetSplit &&
+    (itemId === 'countertops' ||
+      (isNationalAveragePricingBlock(suggestedBudgetSplit) &&
+        (isNationalAveragePricingBlock(suggestedComparisonSplit) ||
+          Boolean(suggestedComparisonSplit?.isComparison))))
+  ) {
+    suggestedComparisonSplit = null;
+  }
   const pricingBasis =
     resolveAllowanceEditorPricingBasis(itemId, measurementsInput, templateKey) ??
     parseBudgetSplitBasis(suggestedBudgetSplit);
@@ -4035,7 +4073,12 @@ function QuantitySection({
               resolved,
               Boolean(measurementsInput.pricingAcceptance?.[itemId])
             ) &&
-            String(resolved.unit || rule.defaultUnit).toLowerCase() === 'sqft';
+            String(resolved.unit || rule.defaultUnit).toLowerCase() === 'sqft' &&
+            !(
+              itemId === 'paint_repair' &&
+              String(templateKey || '').toLowerCase() === 'bathroom' &&
+              resolveBathroomPaintRepairScope(measurementsInput.bathroomPaintRepairScope) === 'full_room'
+            );
           const inlineSqftTakeoff = showInlineSqftTakeoff ? (
             <InlineTakeoffCountInput
               label={inlineTakeoffQuantityLabel(
@@ -4260,6 +4303,11 @@ function QuantitySection({
           templateKey,
           resolved,
           Boolean(measurementsInput.pricingAcceptance?.[itemId])
+        ) &&
+        !(
+          itemId === 'paint_repair' &&
+          String(templateKey || '').toLowerCase() === 'bathroom' &&
+          resolveBathroomPaintRepairScope(measurementsInput.bathroomPaintRepairScope) === 'full_room'
         ) ? (
           <InlineTakeoffCountInput
             label={inlineTakeoffQuantityLabel(itemId, templateKey, resolved.unit || rule.defaultUnit)}
@@ -8225,6 +8273,38 @@ function CollapsibleQuickMeasurements({
       {title}
     </Text>
   );
+  const kitchenEmbeddedMeasurementKeys = new Set<QuickMeasurementFieldKey>([
+    'kitchenFloorSqft',
+    'backsplashSqft',
+    'countertopSqft',
+    'cabinetLf',
+  ]);
+  const shouldRenderGeneralResult = (result: QuickMeasurementFieldResult) =>
+    !(kitchenQmJob && kitchenEmbeddedMeasurementKeys.has(result.key));
+  const renderDisplayedResultField = (
+    result: QuickMeasurementFieldResult,
+    variant: 'calm' | 'needs_confirmation' | 'suggestion' | 'more',
+    homeGroup?: QuickMeasurementGroupId,
+    homeIndex?: number
+  ) =>
+    !shouldRenderGeneralResult(result)
+      ? null
+      : renderResultField(result, variant, homeGroup, homeIndex);
+  const kitchenMeasurementFooter = kitchenQmJob ? (
+    <View style={{ gap: 12, marginTop: 8 }}>
+      {['kitchenFloorSqft', 'backsplashSqft', 'countertopSqft', 'cabinetLf'].map((key, index) => {
+        const result = resultByKey.get(key as QuickMeasurementFieldKey);
+        if (!result || !result.relevant) return null;
+        return renderResultField(
+          result,
+          fieldVariantForResult(result),
+          homeGroupForResult(result),
+          index,
+          true
+        );
+      })}
+    </View>
+  ) : null;
 
   return (
     <View
@@ -8337,6 +8417,7 @@ function CollapsibleQuickMeasurements({
                   showExistingPanel={!hasSitePhotos}
                   applying={applying}
                   onKitchenQmChange={onKitchenQmChange}
+                  measurementFooter={kitchenMeasurementFooter}
                   darkMode={darkMode}
                   Colors={Colors}
                 />
@@ -8355,16 +8436,16 @@ function CollapsibleQuickMeasurements({
                 />
               ) : null}
 
-              {displayGroups.fromPlan.length > 0 ? (
+              {displayGroups.fromPlan.some(shouldRenderGeneralResult) ? (
                 <View style={styles.quickMeasurementSection}>
                   {sectionTitle('From plan')}
                   {displayGroups.fromPlan.map((result, index) =>
-                    renderResultField(result, 'calm', 'fromPlan', index)
+                    renderDisplayedResultField(result, 'calm', 'fromPlan', index)
                   )}
                 </View>
               ) : null}
 
-              {displayGroups.suggestions.length > 0 ? (
+              {displayGroups.suggestions.some(shouldRenderGeneralResult) ? (
                 <View style={styles.quickMeasurementSection}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                     {sectionTitle('Suggestions')}
@@ -8382,12 +8463,12 @@ function CollapsibleQuickMeasurements({
                     ) : null}
                   </View>
                   {displayGroups.suggestions.map((result, index) =>
-                    renderResultField(result, 'suggestion', 'suggestions', index)
+                    renderDisplayedResultField(result, 'suggestion', 'suggestions', index)
                   )}
                 </View>
               ) : null}
 
-              {displayGroups.needsConfirmation.length > 0 ? (
+              {displayGroups.needsConfirmation.some(shouldRenderGeneralResult) ? (
                 <View
                   style={[
                     styles.quickMeasurementSection,
@@ -8397,12 +8478,12 @@ function CollapsibleQuickMeasurements({
                 >
                   {sectionTitle('Needs confirmation', '#fbbf24')}
                   {displayGroups.needsConfirmation.map((result, index) =>
-                    renderResultField(result, 'needs_confirmation', 'needsConfirmation', index)
+                    renderDisplayedResultField(result, 'needs_confirmation', 'needsConfirmation', index)
                   )}
                 </View>
               ) : null}
 
-              {displayGroups.confirmed.length > 0 ? (
+              {displayGroups.confirmed.some(shouldRenderGeneralResult) ? (
                 <View
                   style={[
                     styles.quickMeasurementSection,
@@ -8412,12 +8493,12 @@ function CollapsibleQuickMeasurements({
                 >
                   {sectionTitle('Confirmed')}
                   {displayGroups.confirmed.map((result, index) =>
-                    renderResultField(result, 'calm', 'confirmed', index)
+                    renderDisplayedResultField(result, 'calm', 'confirmed', index)
                   )}
                 </View>
               ) : null}
 
-              {displayGroups.more.length > 0 ? (
+              {displayGroups.more.some(shouldRenderGeneralResult) ? (
                 <View
                   style={[
                     styles.quickMeasurementSection,
@@ -8439,7 +8520,9 @@ function CollapsibleQuickMeasurements({
                       color={captionColor(darkMode, Colors)}
                     />
                   </TouchableOpacity>
-                  {moreExpanded ? displayGroups.more.map((result) => renderResultField(result, 'more')) : null}
+                  {moreExpanded
+                    ? displayGroups.more.map((result) => renderDisplayedResultField(result, 'more'))
+                    : null}
                 </View>
               ) : null}
             </>

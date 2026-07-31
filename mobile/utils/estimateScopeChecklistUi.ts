@@ -1779,6 +1779,10 @@ export const BATHROOM_CHECKLIST_LABEL_OVERRIDES: Record<string, string> = {
   paint: 'Interior painting — prep, labor, and paint',
 };
 
+export const KITCHEN_CHECKLIST_LABEL_OVERRIDES: Record<string, string> = {
+  island: 'Island cabinet/base install',
+};
+
 /** Shorter contractor-friendly helper copy (overrides server text in Confirm Scope UI). */
 export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   demo: 'Remove fixtures, tile, and finishes.',
@@ -1871,6 +1875,9 @@ export function checklistDisplayLabel(
 ): string {
   if (templateKey === 'bathroom' && BATHROOM_CHECKLIST_LABEL_OVERRIDES[item.id]) {
     return BATHROOM_CHECKLIST_LABEL_OVERRIDES[item.id];
+  }
+  if (templateKey === 'kitchen' && KITCHEN_CHECKLIST_LABEL_OVERRIDES[item.id]) {
+    return KITCHEN_CHECKLIST_LABEL_OVERRIDES[item.id];
   }
   return item.label;
 }

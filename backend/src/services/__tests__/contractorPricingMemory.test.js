@@ -89,6 +89,38 @@ describe('contractorPricingMemory', () => {
     expect(memory.suggestions.length).toBeGreaterThan(0);
   });
 
+  test('does not save an applied national-average price to the library', () => {
+    const draft = {
+      projectType: 'bathroom',
+      scopeMeasurements: {
+        pricingAcceptance: {
+          shower_tile: {
+            selectionStatus: 'accepted',
+            pricingSourceKind: 'national_average',
+            pricingSourceLabel: 'National Average',
+          },
+        },
+      },
+      scopePackages: [
+        {
+          name: 'Shower wall tile installation',
+          checklistItemId: 'shower_tile',
+          status: 'user_provided',
+          priceProvidedByUser: true,
+          laborPrice: 1440,
+          materialPrice: 640,
+          scope: '80 sqft shower walls',
+        },
+      ],
+    };
+
+    const result = capturePricingMemory(userId, {
+      draft,
+      meta: { bidStatus: 'applied' },
+    });
+    expect(result.captured).toBe(0);
+  });
+
   test('captures manually entered lump-sum permits allowance on apply', () => {
     const draft = {
       projectType: 'ground_up',

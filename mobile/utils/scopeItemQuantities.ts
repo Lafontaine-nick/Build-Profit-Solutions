@@ -580,8 +580,8 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   },
   prefab_shower_pan: {
     unit: 'each',
-    material: 850,
-    labor: 650,
+    material: 400,
+    labor: 600,
     materialBucketLabel: 'Prefab shower pan / base materials',
     laborBucketLabel: 'Prefab shower pan install labor',
     sourceLabel: 'Suggested budget split · National Average · prefab shower pan',
@@ -9425,6 +9425,14 @@ export function scopeMeasurementsToPayload(
       sanitized.kitchenDemoCabinetCount != null && Number(sanitized.kitchenDemoCabinetCount) > 0
         ? Math.round(Number(sanitized.kitchenDemoCabinetCount))
         : null,
+    kitchenDemoCounterCount:
+      sanitized.kitchenDemoCounterCount != null && Number(sanitized.kitchenDemoCounterCount) > 0
+        ? Math.round(Number(sanitized.kitchenDemoCounterCount))
+        : null,
+    kitchenDemoIslandCount:
+      sanitized.kitchenDemoIslandCount != null && Number(sanitized.kitchenDemoIslandCount) > 0
+        ? Math.round(Number(sanitized.kitchenDemoIslandCount))
+        : null,
     kitchenDemoApplianceCount:
       sanitized.kitchenDemoApplianceCount != null && Number(sanitized.kitchenDemoApplianceCount) > 0
         ? Math.round(Number(sanitized.kitchenDemoApplianceCount))
@@ -9904,6 +9912,14 @@ export function scopeMeasurementsInputFromPayload(
     kitchenDemoCabinetCount:
       payload.kitchenDemoCabinetCount != null && Number(payload.kitchenDemoCabinetCount) > 0
         ? Math.round(Number(payload.kitchenDemoCabinetCount))
+        : null,
+    kitchenDemoCounterCount:
+      payload.kitchenDemoCounterCount != null && Number(payload.kitchenDemoCounterCount) > 0
+        ? Math.round(Number(payload.kitchenDemoCounterCount))
+        : null,
+    kitchenDemoIslandCount:
+      payload.kitchenDemoIslandCount != null && Number(payload.kitchenDemoIslandCount) > 0
+        ? Math.round(Number(payload.kitchenDemoIslandCount))
         : null,
     kitchenDemoApplianceCount:
       payload.kitchenDemoApplianceCount != null && Number(payload.kitchenDemoApplianceCount) > 0
@@ -10489,6 +10505,10 @@ export function initialScopeMeasurementInputExtended(
       saved?.kitchenInstallIslandCount ?? suggested?.kitchenInstallIslandCount ?? null,
     kitchenDemoCabinetCount:
       saved?.kitchenDemoCabinetCount ?? suggested?.kitchenDemoCabinetCount ?? null,
+    kitchenDemoCounterCount:
+      saved?.kitchenDemoCounterCount ?? suggested?.kitchenDemoCounterCount ?? null,
+    kitchenDemoIslandCount:
+      saved?.kitchenDemoIslandCount ?? suggested?.kitchenDemoIslandCount ?? null,
     kitchenDemoApplianceCount:
       saved?.kitchenDemoApplianceCount ?? suggested?.kitchenDemoApplianceCount ?? null,
     kitchenDemoFloorCount:

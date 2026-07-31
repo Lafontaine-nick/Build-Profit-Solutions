@@ -7,8 +7,25 @@ const { parseSquareFeetFromText, parseLinearFeetFromText } = require('../estimat
 /** Pricing library only stores rates the contractor typed or confirmed manually. */
 const CAPTURE_SOURCES = new Set(['user_provided']);
 
-function isManuallyProvidedPackage(pkg) {
+function packagePricingWasManuallyEntered(pkg, draft) {
+  const itemId = String(pkg?.checklistItemId || pkg?.costCode || '').trim();
+  const acceptance = itemId ? draft?.scopeMeasurements?.pricingAcceptance?.[itemId] : null;
+  if (!acceptance) return null;
+  const sourceKind = String(acceptance.pricingSourceKind || '').toLowerCase();
+  const selectionStatus = String(acceptance.selectionStatus || '').toLowerCase();
+  return (
+    sourceKind === 'user_entered' ||
+    selectionStatus === 'manual_adjusted'
+  );
+}
+
+function isManuallyProvidedPackage(pkg, draft) {
   if (!pkg) return false;
+  const acceptanceManual = packagePricingWasManuallyEntered(pkg, draft);
+  // Confirm Scope metadata is authoritative when available. Applying a
+  // national-average/saved-rate suggestion marks the package user-provided
+  // for bid application, but it is not a contractor-entered library rate.
+  if (acceptanceManual === false) return false;
   if (
     pkg.status === 'calculated' ||
     pkg.status === 'rough_price' ||
@@ -51,8 +68,8 @@ function isTestBid(meta = {}) {
   return /\b(test|demo|sample|example)\b/.test(title);
 }
 
-function shouldCapturePackage(pkg) {
-  if (!isManuallyProvidedPackage(pkg)) return false;
+function shouldCapturePackage(pkg, draft) {
+  if (!isManuallyProvidedPackage(pkg, draft)) return false;
   if (pkg.laborPrice != null && pkg.laborPrice > 0) return true;
   if (pkg.materialPrice != null && pkg.materialPrice > 0) return true;
   if (pkg.price != null && pkg.price > 0) return true;
@@ -129,7 +146,7 @@ function sqftFromDraftMeasurements(pkg, draft) {
 }
 
 function entriesFromPackage(pkg, draft, meta) {
-  if (!isManuallyProvidedPackage(pkg)) return [];
+  if (!isManuallyProvidedPackage(pkg, draft)) return [];
   const entries = [];
   const { quantity: parsedQty, unitType: parsedUnit } = parseQuantityFromPackage(pkg, draft);
   const trade = pkg.trade || draft.projectType || 'other';
@@ -286,7 +303,7 @@ function extractCaptureEntries(payload) {
 
   if (Array.isArray(draft.scopePackages)) {
     for (const pkg of draft.scopePackages) {
-      if (!shouldCapturePackage(pkg)) continue;
+      if (!shouldCapturePackage(pkg, draft)) continue;
       entries.push(...entriesFromPackage(pkg, draft, meta));
     }
   }

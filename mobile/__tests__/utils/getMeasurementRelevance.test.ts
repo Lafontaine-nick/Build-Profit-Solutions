@@ -2,10 +2,37 @@ import { getMeasurementRelevance } from '@/utils/getMeasurementRelevance';
 
 describe('getMeasurementRelevance', () => {
   test('core structural measurements are always relevant, regardless of included scopes', () => {
-    for (const key of ['floorAreaSqft', 'garageSqft', 'deckSqft', 'kitchenFloorSqft', 'flooringSqft'] as const) {
+    for (const key of ['floorAreaSqft', 'garageSqft', 'deckSqft', 'flooringSqft']) {
       const result = getMeasurementRelevance({ measurementKey: key, includedScopeKeys: [] });
       expect(result.relevant).toBe(true);
     }
+  });
+
+  test('kitchen floor hides when kitchen flooring work is deselected', () => {
+    expect(getMeasurementRelevance({ measurementKey: 'kitchenFloorSqft', includedScopeKeys: [] }).relevant).toBe(false);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'kitchenFloorSqft',
+        includedScopeKeys: ['flooring'],
+      }).relevant
+    ).toBe(true);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'kitchenFloorSqft',
+        includedScopeKeys: [],
+        noteBackedKeys: ['kitchenFloorSqft'],
+      }).relevant
+    ).toBe(false);
+  });
+
+  test('backsplash is relevant for needs confirmation when selected', () => {
+    expect(getMeasurementRelevance({ measurementKey: 'backsplashSqft', includedScopeKeys: [] }).relevant).toBe(false);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'backsplashSqft',
+        includedScopeKeys: ['backsplash'],
+      }).relevant
+    ).toBe(true);
   });
 
   test('bath floor is scope-gated — not always relevant', () => {

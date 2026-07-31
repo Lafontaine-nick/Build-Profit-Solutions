@@ -334,6 +334,8 @@ export type ScopeMeasurements = {
   kitchenInstallFlooringCount?: number | null;
   kitchenInstallIslandCount?: number | null;
   kitchenDemoCabinetCount?: number | null;
+  kitchenDemoCounterCount?: number | null;
+  kitchenDemoIslandCount?: number | null;
   kitchenDemoApplianceCount?: number | null;
   kitchenDemoFloorCount?: number | null;
   kitchenDemoWallCount?: number | null;

@@ -32,6 +32,24 @@ const authenticateToken = async (req, res, next) => {
     req.user = decoded;
     next();
   } catch (error) {
+    // Clerk session tokens use RS256 and cannot be verified with the app's
+    // local JWT_SECRET. Match the shared auth middleware by reading the
+    // Clerk subject so pricing memory stays attached to the same account
+    // after the app is closed and reopened.
+    try {
+      const jwt = require('jsonwebtoken');
+      const decoded = jwt.decode(token);
+      if (decoded && decoded.sub) {
+        req.user = {
+          userId: decoded.sub,
+          email: decoded.email || decoded.primary_email_address || null,
+          role: decoded.role || 'contractor',
+        };
+        return next();
+      }
+    } catch (decodeError) {
+      console.warn('contractorPricingMemory: could not decode token', decodeError.message);
+    }
     console.warn('contractorPricingMemory: invalid token, dev user', error.message);
     req.user = { userId: 'dev-user-1' };
     next();

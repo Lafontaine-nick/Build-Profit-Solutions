@@ -29,7 +29,6 @@ const ALWAYS_RELEVANT_KEYS = new Set<QuickMeasurementFieldKey>([
   'garageSqft',
   'deckSqft',
   'flooringSqft',
-  'kitchenFloorSqft',
 ]);
 
 /** Whole-home templates keep the full Quick measurements card visible. */
@@ -151,6 +150,19 @@ export function getMeasurementRelevance(params: {
   const includedSet = new Set(params.includedScopeKeys);
   const floorWorkScope = ['floor_tile', 'floor_demo', 'flooring', 'floor_prep'];
   const floorWorkIncluded = floorWorkScope.some((id) => includedSet.has(id));
+
+  // Kitchen floor is a scope-specific takeoff. Keeping it in the always-visible
+  // set leaves a stale "Kitchen floor" confirmation row after flooring is
+  // deselected from the kitchen install panel.
+  if (measurementKey === 'kitchenFloorSqft') {
+    const relevant = floorWorkIncluded;
+    return {
+      relevant,
+      blockingPrice: relevant,
+      relatedScopeKeys: floorWorkScope,
+      reason: relevant ? undefined : 'Not needed unless kitchen flooring or floor demo is included in this bid.',
+    };
+  }
 
   // Single-bath remodel — bath floor SF only when floor work is actually in the bid.
   if (

@@ -80,11 +80,13 @@ const KITCHEN_INSTALL_ROWS: StepperRow[] = [
   { key: 'kitchenInstallBacksplashCount', label: 'New backsplash' },
   { key: 'kitchenInstallFlooringCount', label: 'New flooring' },
   { key: 'kitchenInstallApplianceCount', label: 'Appliance hookup' },
-  { key: 'kitchenInstallIslandCount', label: 'Island' },
+  { key: 'kitchenInstallIslandCount', label: 'Island cabinet/base install' },
 ];
 
 const KITCHEN_DEMO_ROWS: StepperRow[] = [
-  { key: 'kitchenDemoCabinetCount', label: 'Remove cabinets / counters' },
+  { key: 'kitchenDemoCabinetCount', label: 'Remove cabinets' },
+  { key: 'kitchenDemoCounterCount', label: 'Remove countertops (including island)' },
+  { key: 'kitchenDemoIslandCount', label: 'Demo island' },
   { key: 'kitchenDemoApplianceCount', label: 'Appliance removal' },
   { key: 'kitchenDemoFloorCount', label: 'Floor demo' },
   { key: 'kitchenDemoWallCount', label: 'Wall / soffit demo' },
@@ -334,6 +336,7 @@ export function QmKitchenScopePanels({
   showExistingPanel,
   applying,
   onKitchenQmChange,
+  measurementFooter,
   darkMode,
   Colors,
 }: {
@@ -349,6 +352,7 @@ export function QmKitchenScopePanels({
     install: KitchenInstallCounts;
     demo: KitchenDemoCounts;
   }) => void;
+  measurementFooter?: React.ReactNode;
   darkMode: boolean;
   Colors: Colors;
 }) {
@@ -377,6 +381,7 @@ export function QmKitchenScopePanels({
     measurements.kitchenInstallFlooringCount,
     measurements.kitchenInstallIslandCount,
     measurements.kitchenDemoCabinetCount,
+    measurements.kitchenDemoCounterCount,
     measurements.kitchenDemoApplianceCount,
     measurements.kitchenDemoFloorCount,
     measurements.kitchenDemoWallCount,
@@ -399,7 +404,19 @@ export function QmKitchenScopePanels({
         install: nextInstall,
         checklistItems: checklistItems as import('@/utils/estimateAiDraft').ScopeChecklistItem[],
       });
-      let mergedDemo = { ...autoDemo };
+      // A manual demo edit must not let auto-inference's null fields clear
+      // other demo rows that are already selected (e.g. cabinet demo + floor
+      // demo). Preserve the current demo state, then apply only non-null
+      // inferred values and the explicitly edited row.
+      let mergedDemo = demoOverride ? { ...demo } : { ...autoDemo };
+      if (demoOverride) {
+        for (const [key, value] of Object.entries(autoDemo) as [
+          KitchenDemoOverrideKey,
+          number | null,
+        ][]) {
+          if (value != null) mergedDemo[key] = value;
+        }
+      }
       if (demoOverride) {
         demoOverridesRef.current = { ...demoOverridesRef.current, [demoOverride.key]: true };
         mergedDemo = { ...mergedDemo, [demoOverride.key]: demoOverride.value };
@@ -419,7 +436,7 @@ export function QmKitchenScopePanels({
         });
       });
     },
-    [includedScopeKeys, measurements, notes, onKitchenQmChange, setMeasurements]
+    [demo, includedScopeKeys, measurements, notes, onKitchenQmChange, setMeasurements]
   );
 
   const adjustExisting = useCallback(
@@ -493,6 +510,7 @@ export function QmKitchenScopePanels({
         counts={install as Record<string, number | null>}
         onAdjust={(key, d) => adjustInstall(key as keyof KitchenInstallCounts, d)}
         applying={applying}
+        footer={measurementFooter}
         darkMode={darkMode}
         Colors={Colors}
       />
@@ -999,7 +1017,8 @@ export function seedKitchenQmFromIntent(
 ): Record<string, unknown> {
   const hasSaved =
     readKitchenInstallCounts(measurements).kitchenInstallCabinetCount != null ||
-    readKitchenDemoCounts(measurements).kitchenDemoCabinetCount != null;
+    readKitchenDemoCounts(measurements).kitchenDemoCabinetCount != null ||
+    readKitchenDemoCounts(measurements).kitchenDemoIslandCount != null;
   if (hasSaved) return measurements;
   const existing = params.hasSitePhotos
     ? inferExistingKitchenFromNotes(params.notes)

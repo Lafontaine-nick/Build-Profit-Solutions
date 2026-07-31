@@ -160,16 +160,11 @@ export default function ContractorPricingMemorySettings({ compact = false }: Pro
       ) : null}
       <Text style={{ color: Colors.sub, fontSize: 12, marginBottom: 12, lineHeight: 17 }}>
         Saves rates you type or confirm manually — per-unit or flat allowances (permits, plans, fees). Not
-        auto-calculated splits. Learns when you apply, submit, win, or complete bids. Suggestions always
+        auto-calculated splits. Pricing is saved from Step 3 when you apply the bid. Suggestions always
         require your approval.
       </Text>
       {row('Enable pricing memory', 'pricingMemoryEnabled')}
       {row('Exclude test/demo bids', 'excludeTestBids')}
-      {row('Learn when applying draft', 'learnOnApply')}
-      {row('Learn on submitted bids', 'learnOnSubmit')}
-      {row('Learn on won bids', 'learnOnWon')}
-      {row('Learn on completed projects', 'learnOnCompleted')}
-      {row('Learn from saved templates', 'learnOnSavedTemplate')}
       <View style={{ marginTop: 4, marginBottom: 8 }}>
         {browseRow(
           'Pricing library',

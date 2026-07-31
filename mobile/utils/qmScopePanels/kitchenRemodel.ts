@@ -27,6 +27,8 @@ export type KitchenInstallCounts = {
 
 export type KitchenDemoCounts = {
   kitchenDemoCabinetCount: number | null;
+  kitchenDemoCounterCount: number | null;
+  kitchenDemoIslandCount: number | null;
   kitchenDemoApplianceCount: number | null;
   kitchenDemoFloorCount: number | null;
   kitchenDemoWallCount: number | null;
@@ -66,6 +68,8 @@ const INSTALL_KEYS: (keyof KitchenInstallCounts)[] = [
 
 const DEMO_KEYS: (keyof KitchenDemoCounts)[] = [
   'kitchenDemoCabinetCount',
+  'kitchenDemoCounterCount',
+  'kitchenDemoIslandCount',
   'kitchenDemoApplianceCount',
   'kitchenDemoFloorCount',
   'kitchenDemoWallCount',
@@ -95,6 +99,11 @@ export function readKitchenInstallCounts(m: Record<string, unknown>): KitchenIns
 export function readKitchenDemoCounts(m: Record<string, unknown>): KitchenDemoCounts {
   return {
     kitchenDemoCabinetCount: positiveCount(m.kitchenDemoCabinetCount),
+    kitchenDemoCounterCount:
+      m.kitchenDemoCounterCount === undefined
+        ? positiveCount(m.kitchenDemoCabinetCount)
+        : positiveCount(m.kitchenDemoCounterCount),
+    kitchenDemoIslandCount: positiveCount(m.kitchenDemoIslandCount),
     kitchenDemoApplianceCount: positiveCount(m.kitchenDemoApplianceCount),
     kitchenDemoFloorCount: positiveCount(m.kitchenDemoFloorCount),
     kitchenDemoWallCount: positiveCount(m.kitchenDemoWallCount),
@@ -178,7 +187,11 @@ export function inferKitchenInstallFromIntent(params: {
   if (checklistIncluded(items, 'flooring') || inferItemStateFromNotes('flooring', n) === 'included') {
     out.kitchenInstallFlooringCount = 1;
   }
-  if (checklistIncluded(items, 'island') || inferItemStateFromNotes('island', n) === 'included') {
+  const islandCountertopOnly =
+    /\bisland\s+(?:countertops?|counters?)\b|\b(?:countertops?|counters?)\s+on\s+(?:the\s+)?island\b/.test(n);
+  const notesRequestIslandBase =
+    /\b(?:new|install|build|add|replace)\b[^.]{0,30}\bisland\b(?!\s+(?:countertops?|counters?)\b)/.test(n);
+  if ((checklistIncluded(items, 'island') && !islandCountertopOnly) || notesRequestIslandBase) {
     out.kitchenInstallIslandCount = 1;
   }
   if (/\bnew\s+cabinets?\b/.test(n) && !out.kitchenInstallCabinetCount) out.kitchenInstallCabinetCount = 1;
@@ -201,16 +214,31 @@ export function resolveKitchenDemoFromIntent(params: {
   const items = params.checklistItems || [];
   const demo: KitchenDemoCounts = {
     kitchenDemoCabinetCount: null,
+    kitchenDemoCounterCount: null,
+    kitchenDemoIslandCount: null,
     kitchenDemoApplianceCount: null,
     kitchenDemoFloorCount: null,
     kitchenDemoWallCount: null,
   };
+  const islandCountertopOnly =
+    /\bisland\s+(?:countertops?|counters?)\b|\b(?:countertops?|counters?)\s+on\s+(?:the\s+)?island\b/.test(n);
 
+  const explicitCabinetDemo =
+    /\b(?:demo|remove|tear[\s-]?out)\b[^.]{0,50}\b(?:cabinets?|built[\s-]?ins?)\b/.test(n);
+  const explicitCounterDemo =
+    /\b(?:demo|remove|tear[\s-]?out)\b[^.]{0,50}\b(?:countertops?|counters?)\b/.test(n) ||
+    /\b(?:countertops?|counters?)\b[^.]{0,50}\b(?:demo|remove|tear[\s-]?out)\b/.test(n);
   const cabinetDemo =
     checklistIncluded(items, 'demo') ||
     inferItemStateFromNotes('demo', n) === 'included' ||
-    (/\b(demo|remove|tear[\s-]?out)\b[^.]{0,50}\b(cabinets?|counters?|built[\s-]?ins?)\b/.test(n) &&
+    (explicitCabinetDemo &&
       (positiveCount(ex.kitchenExistingCabinetCount) || positiveCount(ex.kitchenExistingCounterCount)));
+  if (explicitCabinetDemo) {
+    demo.kitchenDemoCabinetCount = 1;
+  }
+  if (explicitCounterDemo) {
+    demo.kitchenDemoCounterCount = 1;
+  }
   if (
     cabinetDemo &&
     (positiveCount(ex.kitchenExistingCabinetCount) ||
@@ -225,6 +253,13 @@ export function resolveKitchenDemoFromIntent(params: {
     (positiveCount(ins.kitchenInstallCabinetCount) || positiveCount(ins.kitchenInstallCounterCount))
   ) {
     demo.kitchenDemoCabinetCount = 1;
+  }
+
+  const explicitIslandBaseDemo =
+    /\b(?:demo|remove|tear[\s-]?out)\b[^.]{0,40}\b(?:island\s+(?:cabinet|base)|island)\b/.test(n) ||
+    /\b(?:island\s+(?:cabinet|base)|island)\b[^.]{0,40}\b(?:demo|remove|tear[\s-]?out)\b/.test(n);
+  if (explicitIslandBaseDemo && !islandCountertopOnly) {
+    demo.kitchenDemoIslandCount = 1;
   }
 
   if (
@@ -288,34 +323,45 @@ export function syncKitchenQmScopeItems(
   const demo = readKitchenDemoCounts(m);
   let changed = false;
   const next = items.map((row) => {
-    const include = (cond: boolean) => {
+    const syncIncluded = (cond: boolean) => {
       if (cond && row.state !== 'included') {
         changed = true;
         return { ...row, state: 'included' as const };
+      }
+      // The QM stepper is the source of truth for embedded kitchen scopes.
+      // Remove a previously synced scope when its stepper is turned off;
+      // otherwise its measurement fields remain relevant after deselection.
+      if (!cond && row.state === 'included') {
+        changed = true;
+        return { ...row, state: 'excluded' as const };
       }
       return row;
     };
     switch (row.id) {
       case 'cabinets':
-        return include(positiveCount(install.kitchenInstallCabinetCount) != null);
+        return syncIncluded(positiveCount(install.kitchenInstallCabinetCount) != null);
       case 'countertops':
-        return include(positiveCount(install.kitchenInstallCounterCount) != null);
+        return syncIncluded(positiveCount(install.kitchenInstallCounterCount) != null);
       case 'backsplash':
-        return include(positiveCount(install.kitchenInstallBacksplashCount) != null);
+        return syncIncluded(positiveCount(install.kitchenInstallBacksplashCount) != null);
       case 'flooring':
-        return include(positiveCount(install.kitchenInstallFlooringCount) != null);
+        return syncIncluded(positiveCount(install.kitchenInstallFlooringCount) != null);
       case 'appliances':
-        return include(positiveCount(install.kitchenInstallApplianceCount) != null);
+        return syncIncluded(positiveCount(install.kitchenInstallApplianceCount) != null);
       case 'island':
-        return include(positiveCount(install.kitchenInstallIslandCount) != null);
+        return syncIncluded(positiveCount(install.kitchenInstallIslandCount) != null);
       case 'demo':
-        return include(positiveCount(demo.kitchenDemoCabinetCount) != null);
+        return syncIncluded(
+          positiveCount(demo.kitchenDemoCabinetCount) != null ||
+            positiveCount(demo.kitchenDemoCounterCount) != null ||
+            positiveCount(demo.kitchenDemoIslandCount) != null
+        );
       case 'appliance_removal':
-        return include(positiveCount(demo.kitchenDemoApplianceCount) != null);
+        return syncIncluded(positiveCount(demo.kitchenDemoApplianceCount) != null);
       case 'floor_demo':
-        return include(positiveCount(demo.kitchenDemoFloorCount) != null);
+        return syncIncluded(positiveCount(demo.kitchenDemoFloorCount) != null);
       case 'wall_demo':
-        return include(positiveCount(demo.kitchenDemoWallCount) != null);
+        return syncIncluded(positiveCount(demo.kitchenDemoWallCount) != null);
       default:
         return row;
     }
