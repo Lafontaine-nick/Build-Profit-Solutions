@@ -27,6 +27,8 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   mirror_accessories: /\b(mirror|towel\s+bar|accessories|robe\s+hook)\b/,
   cabinets: /\b(cabinets?|new\s+cabinets)\b/,
   countertops: /\b(countertops?|counters|quartz|granite|install\s+new\s+countertops?)\b/,
+  sink_faucet: /\b(sink|faucet)\b/,
+  garbage_disposal: /\b(garbage\s+disposal|disposal\s+install|new\s+disposal)\b/,
   drywall: /\b(drywall|sheetrock|gypsum|hang\s+and\s+finish)\b/,
   paint_trim: /\b(paint|trim|baseboards?|interior\s+paint)\b/,
   tile_flooring: /\b(tile\s+(?:and\s+)?flooring|flooring|lvp|laminate|vinyl\s+plank|carpet)\b/,
@@ -168,6 +170,21 @@ export function inferChoiceFromNotes(itemId: string, notes: string | null | unde
   if (itemId === 'shower_pan') {
     if (/\b(prefab|pre[\s-]?fab|acrylic|fiberglass|plastic\s+pan|pan\s+insert)\b/.test(n)) return 'prefab';
     if (/\b(tile\s+pan|mud\s+pan|mortar\s+bed|hot\s+mop|custom\s+pan)\b/.test(n)) return 'tile_pan';
+  }
+
+  if (itemId === 'garbage_disposal') {
+    if (/\b(no\s+disposal|disposal\s+not\s+included|without\s+disposal)\b/.test(n)) return 'not_in_scope';
+    if (
+      /\b(reuse|re[\s-]?use|reinstall|re[\s-]?install|existing\s+disposal)\b[^.]{0,50}\bdisposal\b|\bdisposal\b[^.]{0,50}\b(reuse|re[\s-]?use|reinstall|re[\s-]?install|existing)\b/.test(
+        n
+      )
+    ) {
+      return 'reuse_install';
+    }
+    if (/\b(new\s+disposal|replace|replacing)\b[^.]{0,50}\bdisposal\b|\bdisposal\b[^.]{0,50}\b(new|replace|replacing)\b/.test(n)) {
+      return 'replace_install';
+    }
+    if (/\b(garbage\s+disposal|disposal\s+install)\b/.test(n)) return 'replace_install';
   }
 
   return null;

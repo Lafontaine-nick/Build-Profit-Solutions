@@ -279,7 +279,13 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Please try again.';
-      Alert.alert('Photo analysis failed', message);
+      const upstreamUnavailable = /connection error|openai|vision service unavailable/i.test(message);
+      Alert.alert(
+        upstreamUnavailable ? 'AI service unavailable' : 'Photo analysis failed',
+        upstreamUnavailable
+          ? 'The backend is running, but it could not connect to the AI provider. Check the Mac internet/DNS connection and try again.'
+          : message
+      );
     } finally {
       setAnalyzing(false);
     }

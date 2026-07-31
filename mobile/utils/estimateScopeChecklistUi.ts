@@ -28,6 +28,13 @@ import {
 import type { WetAreaDemoCounts } from '@/utils/wetAreaExistingDemo';
 import { anyDemoWetAreaActive } from '@/utils/wetAreaExistingDemo';
 
+const GARBAGE_DISPOSAL_CHOICE_OPTIONS: ScopeChecklistOption[] = [
+  { id: 'reuse_install', label: 'Reuse / install' },
+  { id: 'replace_install', label: 'Replace / install' },
+  { id: 'not_in_scope', label: 'Not in this bid' },
+  { id: 'unsure', label: 'Not sure yet' },
+];
+
 const FIXTURE_CHOICE_OPTIONS: ScopeChecklistOption[] = [
   { id: 'staying', label: 'Staying' },
   { id: 'replacing', label: 'Replacing' },
@@ -129,6 +136,11 @@ const CHOICE_ITEM_CONFIG: Record<
     label: 'Vanity & countertop',
     helperText: 'Pick one — staying or replacing?',
     options: FIXTURE_CHOICE_NO_RELOCATE,
+  },
+  garbage_disposal: {
+    label: 'Garbage disposal',
+    helperText: 'Pick one — reuse/install existing or replace/install new?',
+    options: GARBAGE_DISPOSAL_CHOICE_OPTIONS,
   },
   walls_moving: {
     label: 'Wall layout changes',
@@ -311,6 +323,44 @@ function migrateLegacyBathroomScopeItems(items: ScopeChecklistItem[]): ScopeChec
   return [...items.filter((i) => i.id !== 'tub_shower' && i.id !== 'shower_pan'), wetAreaInstall];
 }
 
+/** Split legacy kitchen sink+faucet+disposal row into separate garbage_disposal choice line. */
+function migrateKitchenSinkDisposalSplit(
+  items: ScopeChecklistItem[],
+  templateKey?: string | null
+): ScopeChecklistItem[] {
+  if (templateKey !== 'kitchen') return items;
+  if (items.some((i) => i.id === 'garbage_disposal')) return items;
+
+  const sinkIdx = items.findIndex((i) => i.id === 'sink_faucet');
+  const sink = sinkIdx >= 0 ? items[sinkIdx] : null;
+  const insertAt = sinkIdx >= 0 ? sinkIdx + 1 : items.length;
+
+  let choiceId: string | null = null;
+  let state: 'included' | 'excluded' | 'unsure' = 'unsure';
+  if (sink?.state === 'included') {
+    state = 'included';
+    choiceId = 'replace_install';
+  } else if (sink?.state === 'excluded') {
+    state = 'excluded';
+    choiceId = 'not_in_scope';
+  }
+
+  const garbageDisposal: ScopeChecklistItem = {
+    id: 'garbage_disposal',
+    inputType: 'choice',
+    label: 'Garbage disposal',
+    helperText: 'Pick one — reuse/install existing or replace/install new?',
+    options: GARBAGE_DISPOSAL_CHOICE_OPTIONS,
+    choiceId,
+    state,
+    category: 'cabinets',
+  };
+
+  const next = [...items];
+  next.splice(insertAt, 0, garbageDisposal);
+  return next;
+}
+
 export type KitchenScopeInferenceCtx = {
   notes?: string | null;
   measurements?: NormalizedScopeMeasurements;
@@ -441,7 +491,10 @@ export function normalizeScopeChecklistItems(
   inferenceCtx?: KitchenScopeInferenceCtx
 ): ScopeChecklistItem[] {
   const migrated = migrateGroundUpTakeoffScopeItems(
-    migrateShowerBenchCurbScopeItem(migrateLegacyBathroomScopeItems(items)),
+    migrateKitchenSinkDisposalSplit(
+      migrateShowerBenchCurbScopeItem(migrateLegacyBathroomScopeItems(items)),
+      templateKey
+    ),
     templateKey
   ).map(normalizeScopeChecklistItem);
   // Do not force soft-cost Yes here — that would overwrite an intentional Not sure
@@ -1751,6 +1804,8 @@ export const KITCHEN_CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   appliance_removal: 'Disconnect and haul off existing appliances.',
   floor_demo: 'Remove existing kitchen flooring.',
   appliances: 'Reconnect and install appliances after cabinets.',
+  sink_faucet: 'Sink and faucet supply and install at existing rough-in.',
+  garbage_disposal: 'Reuse/install existing disposal or replace/install new — priced separately from sink & faucet.',
 };
 
 /** Bathroom-specific helper copy (shower vs bath floor demo are separate scope lines). */
@@ -1780,6 +1835,7 @@ export const BATHROOM_CHECKLIST_LABEL_OVERRIDES: Record<string, string> = {
 };
 
 export const KITCHEN_CHECKLIST_LABEL_OVERRIDES: Record<string, string> = {
+  sink_faucet: 'Sink & faucet',
   island: 'Island cabinet/base install',
 };
 
@@ -1950,7 +2006,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     { title: 'Appliances', itemIds: ['appliance_removal', 'appliances'] },
     {
       title: 'Cabinets & Counters',
-      itemIds: ['cabinets', 'countertops', 'sink_faucet', 'cabinet_hardware', 'island'],
+      itemIds: ['cabinets', 'countertops', 'sink_faucet', 'garbage_disposal', 'cabinet_hardware', 'island'],
     },
     {
       title: 'Tile & Flooring',

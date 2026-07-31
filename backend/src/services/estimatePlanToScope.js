@@ -121,6 +121,7 @@ const KITCHEN_CORE_IDS = [
   'cabinets',
   'countertops',
   'sink_faucet',
+  'garbage_disposal',
   'backsplash',
   'flooring',
   'plumbing',

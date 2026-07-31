@@ -199,7 +199,7 @@ const COST_COMPONENTS: CostComponentKey[] = [
 
 const VOLATILE_TRADES = new Set(['concrete', 'roofing', 'flooring', 'lumber', 'framing', 'fuel', 'sitework']);
 const PERMIT_SCOPES = new Set(['permits', 'plans_engineering', 'utility_coordination']);
-const SERVICE_SCOPES = new Set(['plumbing_trim', 'sink_faucet', 'toilet', 'vanity', 'electrical_trim', 'lighting', 'hvac_startup']);
+const SERVICE_SCOPES = new Set(['plumbing_trim', 'sink_faucet', 'garbage_disposal', 'toilet', 'vanity', 'electrical_trim', 'lighting', 'hvac_startup']);
 
 function notice(ruleKey: string, severity: IntelligenceSeverity, title: string, message: string, recommendedResolution?: string): ScopeValidationNotice {
   return {

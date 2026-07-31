@@ -15,6 +15,7 @@ import {
   liveScopeMoneyFromQuantities,
   markManualPricingAdjustment,
   moneyTotalAfterQuantityEdit,
+  promoteEditorTakeoffBasisToPrimaryItem,
   pricingSourceLabelFromBlock,
   resolveAcceptedMoneyTotal,
   resolveAcceptedPricingDisplay,
@@ -775,6 +776,78 @@ describe('acceptedPricingSummaryUi', () => {
     expect(hasAcceptedScopePricing('excavation', cleared.itemQuantities, cleared.pricingAcceptance)).toBe(
       false
     );
+  });
+
+  it('clears orphan 1 sqft on sink_faucet when pricing editor totals are wiped', () => {
+    const cleared = clearAcceptedScopeItemPricing({
+      itemId: 'sink_faucet',
+      itemQuantities: {
+        sink_faucet: { quantity: '1', unit: 'sqft', quantitySource: 'user_entered' as const },
+        sink_faucet__sqft_basis: { quantity: '1', unit: 'sqft', quantitySource: 'user_entered' as const },
+        sink_faucet__material: { quantity: '', unit: 'allowance', quantitySource: 'user_entered' as const },
+        sink_faucet__labor: { quantity: '', unit: 'allowance', quantitySource: 'user_entered' as const },
+      },
+      pricingAcceptance: {
+        sink_faucet: buildAcceptanceFromSuggestedBlock(
+          suggestedBlock({ material: 200, labor: 175, total: 375, lumpSumOnly: false })
+        ),
+      },
+    });
+    expect(cleared.itemQuantities.sink_faucet).toBeUndefined();
+    expect(cleared.itemQuantities.sink_faucet__sqft_basis).toBeUndefined();
+    expect(hasAcceptedScopePricing('sink_faucet', cleared.itemQuantities, cleared.pricingAcceptance)).toBe(
+      false
+    );
+  });
+
+  it('finalizeScopePricingAfterEditorClose drops sink_faucet phantom count after empty mat/lab Done', () => {
+    const finalized = finalizeScopePricingAfterEditorClose({
+      itemId: 'sink_faucet',
+      itemQuantities: {
+        sink_faucet: { quantity: '1', unit: 'sqft', quantitySource: 'user_entered' as const },
+        sink_faucet__material: { quantity: '', unit: 'allowance', quantitySource: 'user_entered' as const },
+        sink_faucet__labor: { quantity: '', unit: 'allowance', quantitySource: 'user_entered' as const },
+      },
+      pricingAcceptance: {
+        sink_faucet: buildAcceptanceFromSuggestedBlock(
+          suggestedBlock({ material: 200, labor: 175, total: 375, lumpSumOnly: false })
+        ),
+      },
+    });
+    expect(finalized.itemQuantities.sink_faucet).toBeUndefined();
+    expect(finalized.pricingAcceptance.sink_faucet).toBeUndefined();
+  });
+
+  it('keeps sink_faucet takeoff count on Done when pricing is still empty', () => {
+    const finalized = finalizeScopePricingAfterEditorClose({
+      itemId: 'sink_faucet',
+      itemQuantities: {
+        sink_faucet__sqft_basis: { quantity: '2', unit: 'each', quantitySource: 'user_entered' as const },
+        sink_faucet__material: { quantity: '', unit: 'allowance', quantitySource: 'user_entered' as const },
+        sink_faucet__labor: { quantity: '', unit: 'allowance', quantitySource: 'user_entered' as const },
+      },
+      pricingAcceptance: {},
+    });
+    expect(finalized.itemQuantities.sink_faucet).toEqual({
+      quantity: '2',
+      unit: 'each',
+      quantitySource: 'user_entered',
+    });
+    expect(finalized.itemQuantities.sink_faucet__sqft_basis).toBeUndefined();
+    expect(hasAcceptedScopePricing('sink_faucet', finalized.itemQuantities, finalized.pricingAcceptance)).toBe(
+      false
+    );
+  });
+
+  it('promoteEditorTakeoffBasisToPrimaryItem copies user takeoff onto the main item id', () => {
+    const next = promoteEditorTakeoffBasisToPrimaryItem('sink_faucet', {
+      sink_faucet__sqft_basis: { quantity: '2', unit: 'each', quantitySource: 'user_entered' as const },
+    });
+    expect(next.sink_faucet).toEqual({
+      quantity: '2',
+      unit: 'each',
+      quantitySource: 'user_entered',
+    });
   });
 
   it('keeps lump-sum contingency allowance when pricing editor Done is pressed', () => {

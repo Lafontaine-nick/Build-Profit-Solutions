@@ -586,6 +586,7 @@ const SCOPE_UNIT_REGISTRY: Record<string, ScopeRegistryEntry> = {
   }),
   plumbing_trim: FLAT_ALLOWANCE('plumbing'),
   sink_faucet: EACH_SCOPE('plumbing'),
+  garbage_disposal: EACH_SCOPE('plumbing'),
   toilet: EACH_SCOPE('plumbing'),
   vanity: EACH_SCOPE('plumbing'),
   electrical_rough: ENTRY(

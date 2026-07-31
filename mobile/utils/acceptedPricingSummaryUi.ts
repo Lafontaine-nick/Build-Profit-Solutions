@@ -15,10 +15,14 @@ import {
   allowanceSplitSubKey,
   clearSuggestedPrefillPricing,
   formatUnitLabel,
+  getChecklistItemQuantityRuleOrDefault,
   hasCompleteUserSelectedPricing,
   hasOnlySuggestedPrefillPricing,
+  isPlaceholderAllowancePricing,
   roughAllowanceSubKey,
   shouldSuppressSuggestedPricingAfterApply,
+  usesAllowanceSplitEditor,
+  type ScopeItemQuantityRule,
 } from '@/utils/scopeItemQuantities';
 import { formatDraftMoney } from '@/utils/estimateAiDraft';
 
@@ -231,6 +235,67 @@ export function buildAcceptanceFromSuggestedBlock(block: SuggestedPricingBlock):
   };
 }
 
+/** Drop primary count/allowance on item id when it only existed for cleared pricing. */
+export function shouldClearPrimaryItemQuantityOnPricingReset(
+  itemId: string,
+  direct: ScopeItemQuantityValue | undefined,
+  rule: ScopeItemQuantityRule
+): boolean {
+  if (!direct?.quantity || !(Number(direct.quantity) > 0)) return false;
+  const unit = String(direct.unit || '').toLowerCase();
+  if (['allowance', 'lump_sum'].includes(unit)) return true;
+  if (isPlaceholderAllowancePricing(Number(direct.quantity), unit, itemId)) return true;
+
+  const defaultUnit = String(rule.defaultUnit || '').toLowerCase();
+  const hasIndependentTakeoff =
+    Boolean(rule.measurementKey) ||
+    Boolean(rule.measurementKeys?.length) ||
+    Boolean(rule.aggregateMeasurementKeys?.length);
+
+  if (defaultUnit && unit !== defaultUnit) return true;
+
+  // Keep an explicit takeoff count on the correct physical unit (e.g. 2 each).
+  if (
+    (direct.quantitySource === 'user_entered' || direct.quantitySource === 'manual_override') &&
+    defaultUnit &&
+    unit === defaultUnit
+  ) {
+    return false;
+  }
+
+  return (
+    !hasIndependentTakeoff &&
+    usesAllowanceSplitEditor(rule) &&
+    !rule.dualAllowanceField
+  );
+}
+
+/** Move editor takeoff basis onto the primary item id so the collapsed card can show it. */
+export function promoteEditorTakeoffBasisToPrimaryItem(
+  itemId: string,
+  itemQuantities: Record<string, ScopeItemQuantityValue>
+): Record<string, ScopeItemQuantityValue> {
+  const basisKey = allowanceSplitSubKey(itemId, 'sqft_basis');
+  const basis = itemQuantities[basisKey];
+  if (!basis) return itemQuantities;
+  const qty = parsePricingAmount(basis.quantity);
+  if (qty == null) return itemQuantities;
+  const unit = String(basis.unit || '').toLowerCase();
+  if (['allowance', 'lump_sum'].includes(unit)) return itemQuantities;
+  const source = basis.quantitySource;
+  if (source !== 'user_entered' && source !== 'manual_override') return itemQuantities;
+
+  const rule = getChecklistItemQuantityRuleOrDefault(itemId);
+  return {
+    ...itemQuantities,
+    [itemId]: {
+      quantity: String(qty),
+      unit: basis.unit || rule.defaultUnit,
+      quantitySource: source,
+    },
+  };
+}
+
 /**
  * Clear an applied Suggest / national / Edit price so the original Apply card returns.
  * Keeps physical takeoff counts (CY, SF, each) on the item id when present.
@@ -256,10 +321,12 @@ export function clearAcceptedScopeItemPricing(params: {
   ]) {
     delete itemQuantities[key];
   }
-  const direct = itemQuantities[itemId];
-  const unit = String(direct?.unit || '').toLowerCase();
-  if (direct && (unit === 'allowance' || unit === 'lump_sum')) {
-    delete itemQuantities[itemId];
+  const liveMoney = liveScopeMoneyFromQuantities(itemId, itemQuantities);
+  if (!(liveMoney != null && liveMoney > 0)) {
+    const rule = getChecklistItemQuantityRuleOrDefault(itemId);
+    if (shouldClearPrimaryItemQuantityOnPricingReset(itemId, itemQuantities[itemId], rule)) {
+      delete itemQuantities[itemId];
+    }
   }
   return { itemQuantities, pricingAcceptance };
 }
@@ -1235,6 +1302,8 @@ export function finalizeScopePricingAfterEditorClose(params: {
   if (hasOnlySuggestedPrefillPricing(itemQuantities, itemId)) {
     itemQuantities = clearSuggestedPrefillPricing(itemQuantities, itemId);
   }
+
+  itemQuantities = promoteEditorTakeoffBasisToPrimaryItem(itemId, itemQuantities);
 
   const materialKey = allowanceSplitSubKey(itemId, 'material');
   const laborKey = allowanceSplitSubKey(itemId, 'labor');

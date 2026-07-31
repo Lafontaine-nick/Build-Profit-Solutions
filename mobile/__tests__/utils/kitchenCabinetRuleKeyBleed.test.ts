@@ -61,6 +61,8 @@ describe('cross-trade package rule keys do not steal qty/rates', () => {
 
   test('sink faucet disposal does not inherit cleanup', () => {
     expect(lookupRuleKeyForPackage('Sink, faucet & disposal')).toBe('sink_faucet');
+    expect(lookupRuleKeyForPackage('Garbage disposal')).toBe('garbage_disposal');
+    expect(lookupRuleKeyForPackage('Disposal install')).toBe('garbage_disposal');
     expect(lookupRuleKeyForPackage('Job cleanup / haul-off')).toBe('cleanup');
   });
 

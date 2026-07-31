@@ -260,6 +260,7 @@ export async function fetchBackendWithFallback(
   lanTimeout = 8000
 ): Promise<Response> {
   const errors: Error[] = [];
+  const handledBackendErrors: Error[] = [];
 
   for (const url of urls) {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -292,6 +293,12 @@ export async function fetchBackendWithFallback(
       if (response.status >= 400 && response.status < 500 && response.status !== 404) {
         throw new Error(errMsg);
       }
+      if (response.status >= 500) {
+        // Preserve an application-level failure from a reachable backend.
+        // Do not let a later production fallback DNS/network failure rewrite
+        // it as “Could not reach the AI backend.”
+        handledBackendErrors.push(new Error(errMsg));
+      }
       errors.push(new Error(errMsg));
     } catch (error: unknown) {
       if (timeoutId) clearTimeout(timeoutId);
@@ -311,10 +318,12 @@ export async function fetchBackendWithFallback(
       e.message.includes('AbortError')
   );
   if (__DEV__ && hadLanCandidate && lanReachabilityError) {
+    if (handledBackendErrors.length) throw handledBackendErrors[0];
     throw new Error(
       'Could not reach the AI backend. Start the backend on your Mac (npm start in backend/) and confirm your phone is on the same Wi‑Fi.'
     );
   }
+  if (handledBackendErrors.length) throw handledBackendErrors[0];
   if (last?.message === 'Network request failed') {
     throw new Error(
       'Could not reach the AI backend. Start the backend on your Mac (npm start in backend/) and confirm your phone is on the same Wi‑Fi.'

@@ -41,6 +41,7 @@ import {
   resolveBathroomVanityCountertopSuggestedPricing,
 } from '@/utils/bathroomVanityCountertopPricing';
 import { resolveBathroomFixtureChoiceSuggestedPricing } from '@/utils/bathroomFixtureChoicePricing';
+import { resolveKitchenGarbageDisposalChoiceSuggestedPricing } from '@/utils/kitchenGarbageDisposalChoicePricing';
 import {
   mergeBathroomPaintRepairEntireRoom,
   mergeBathroomPaintRepairLocalizedScope,
@@ -241,6 +242,11 @@ export const DUAL_QUANTITY_FIELD_LABELS: Record<
   },
   sink_faucet: {
     count: 'Sink / faucet count',
+    countUnit: 'each',
+    allowance: 'Allowance ($)',
+  },
+  garbage_disposal: {
+    count: 'Disposal count',
     countUnit: 'each',
     allowance: 'Allowance ($)',
   },
@@ -454,6 +460,21 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   flooring: { unit: 'sqft', material: 4, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
   floor_demo: { unit: 'sqft', material: 0.5, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
   demo: { unit: 'sqft', material: 0.5, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
+  cabinet_hardware: {
+    unit: 'each',
+    material: 12,
+    labor: 15,
+    materialBucketLabel: 'Cabinet pull/knob materials',
+    laborBucketLabel: 'Hardware layout, drilling & installation labor',
+    sourceLabel: 'Suggested budget split · National Average · cabinet hardware',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'cabinets',
+    category: 'finish_carpentry',
+    pricingMethod: 'material_labor',
+  },
   /**
    * Tile national planning benchmarks — distinct labor by subtype.
    * Checklist IDs (floor_tile, shower_tile, backsplash, …) alias into these keys.
@@ -665,6 +686,51 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     productionStatus: 'review_required',
     geographicBasis: 'national',
     trade: 'cabinets',
+    category: 'fixtures',
+    pricingMethod: 'material_labor',
+  },
+  cabinet_hardware: {
+    unit: 'each',
+    material: 12,
+    labor: 15,
+    materialBucketLabel: 'Cabinet pull/knob materials',
+    laborBucketLabel: 'Hardware layout, drilling & installation labor',
+    sourceLabel: 'Suggested budget split · National Average · cabinet hardware',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'cabinets',
+    category: 'finish_carpentry',
+    pricingMethod: 'material_labor',
+  },
+  sink_faucet: {
+    unit: 'each',
+    material: 325,
+    labor: 475,
+    materialBucketLabel: 'Sink & faucet materials',
+    laborBucketLabel: 'Sink & faucet install labor',
+    sourceLabel: 'Suggested budget split · National Average · sink & faucet install',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'plumbing',
+    category: 'fixtures',
+    pricingMethod: 'material_labor',
+  },
+  garbage_disposal: {
+    unit: 'each',
+    material: 185,
+    labor: 215,
+    materialBucketLabel: 'Disposal unit materials',
+    laborBucketLabel: 'Disposal replace/install labor',
+    sourceLabel: 'Suggested budget split · National Average · garbage disposal replace/install',
+    rateSource: 'bps_national_benchmark',
+    scopeProfileSource: 'bps_standard_assumption',
+    productionStatus: 'review_required',
+    geographicBasis: 'national',
+    trade: 'plumbing',
     category: 'fixtures',
     pricingMethod: 'material_labor',
   },
@@ -1836,6 +1902,32 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
       assumption('medicine_cabinet', 'excluded', 'Medicine cabinet', 'Medicine cabinets and lighted mirrors are not included.'),
     ],
   },
+  sink_faucet: {
+    category: 'fixtures',
+    rootCause:
+      'Build Profit national-average sink & faucet install (~$800 each) is mid-market fixture allowance plus set — garbage disposal is priced on its own line.',
+    assumptions: [
+      assumption('sink_fixture', 'included', 'Sink & faucet allowance', 'Standard mid-market sink and faucet materials are included.'),
+      assumption('install_labor', 'included', 'Install labor', 'Set sink, faucet, and standard hookups at existing rough-in are included.'),
+      assumption('garbage_disposal', 'excluded', 'Garbage disposal', 'Garbage disposal install or replace is on the Garbage disposal line.'),
+      assumption('plumbing_rough', 'excluded', 'Plumbing rough-in', 'New or relocated rough-in points are not included.'),
+      assumption('countertop', 'excluded', 'Countertop', 'Countertop fabrication and install are on the countertop line.'),
+    ],
+  },
+  garbage_disposal: {
+    category: 'fixtures',
+    rootCause:
+      'Build Profit national-average garbage disposal replace/install (~$400 each) is a new unit plus hookup — reuse/install is a lower labor band when the existing unit is reinstalled.',
+    assumptions: [
+      assumption('disposal_unit', 'included', 'Disposal unit', 'Standard disposal unit allowance is included on replace/install.'),
+      assumption('install_labor', 'included', 'Install labor', 'Hook up, test, and mount at existing drain are included.'),
+      assumption('electrical', 'conditional', 'Electrical connection', 'Cord-and-plug or hardwire connection is included when an outlet or switch leg is already present.', {
+        conditionText: 'Confirm power is available at the sink base.',
+      }),
+      assumption('sink_faucet', 'excluded', 'Sink & faucet', 'Sink and faucet install are on the Sink & faucet line.'),
+      assumption('plumbing_rough', 'excluded', 'Plumbing rough-in', 'New drain or relocated rough-in is not included.'),
+    ],
+  },
   toilet: {
     category: 'fixtures',
     rootCause:
@@ -2479,6 +2571,20 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     requiresUserQuantity: true,
     quantityHelper: 'Enter hardware count or allowance (pulls/knobs).',
     missingMessage: 'Enter cabinet hardware count or allowance.',
+  },
+  sink_faucet: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter sink & faucet count or price material and labor.',
+    missingMessage: 'Enter sink & faucet count or allowance.',
+  },
+  garbage_disposal: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Pick reuse/install or replace/install, then enter disposal count or price.',
+    missingMessage: 'Enter garbage disposal count or allowance.',
   },
   countertops: {
     defaultUnit: 'sqft',
@@ -3852,6 +3958,7 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
   appliances: { unit: 'each' },
   appliance_removal: { unit: 'each' },
   sink_faucet: { unit: 'each' },
+  garbage_disposal: { unit: 'each' },
   cabinet_hardware: { unit: 'each' },
   island: { unit: 'lf', measurementKeys: ['cabinetLf'] },
   plumbing: { unit: 'each' },
@@ -6437,6 +6544,8 @@ function buildNationalAverageRateFill(
         average,
         material,
         labor,
+        materialRate: materialRate ?? 0,
+        laborRate: laborRate ?? 0,
         materialSource: 'national_average',
         laborSource: 'national_average',
       }),
@@ -6672,6 +6781,15 @@ export function resolveScopeItemSuggestedPricing(
     toiletRelocateFloorType: measurementsInput.bathroomToiletRelocateFloorType,
   });
   if (fixtureChoicePricing !== undefined) return fixtureChoicePricing;
+
+  const disposalChoicePricing = resolveKitchenGarbageDisposalChoiceSuggestedPricing({
+    itemId,
+    templateKey,
+    choiceId,
+    quantity: resolved.quantity,
+    unit: resolved.unit,
+  });
+  if (disposalChoicePricing !== undefined) return disposalChoicePricing;
 
   if (rule.splitTotalOnly) {
     const splitOnly = buildSplitTotalOnlySuggestedFill(itemId, pricingContext);
@@ -8593,11 +8711,19 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   // "Counters" (ground-up package label) must map here — `\bcountertop` alone misses it,
   // so Step 3 fell through to kitchen $/living-SF rates (~$55+$95 × living SF).
   { test: /\bcounters?\b|\bcounter\s*tops?\b|\bcountertop/i, key: 'countertops' },
-  // Sink/faucet before cleanup (bare "disposal" used to → cleanup $).
+  // Legacy bundled kitchen package labels stay on sink_faucet before bare disposal matching.
   {
-    test: /\bsink\b|\bfaucet\b|\bgarbage\s+disposal\b|\bdisposals?\b.*\b(sink|faucet|garbage)\b|\bsink[,\s]+faucet/i,
+    test: /\bsink\b[^.]{0,50}\b(?:faucet|disposal)\b|\bfaucet\b[^.]{0,50}\bdisposal\b/i,
     key: 'sink_faucet',
   },
+  // Jobsite/cleanup disposal — not kitchen garbage disposal fixture.
+  {
+    test: /\b(?:cleanup|final\s+clean|jobsite\s+clean|haul[\s-]?off|dumpster|debris|trash)\b[^.]{0,50}\bdisposal\b|\bdisposal\b[^.]{0,50}\b(?:cleanup|haul|dumpster|debris|trash)\b/i,
+    key: 'cleanup',
+  },
+  // Garbage disposal before sink/faucet — bare "disposal" must not map to cleanup $.
+  { test: /\bgarbage\s+disposal\b|\bdisposals?\b/i, key: 'garbage_disposal' },
+  { test: /\bsink\b|\bfaucet\b|\bsink[,\s]+faucet/i, key: 'sink_faucet' },
   { test: /\bplans?\s*(?:&|and|\/|,)?\s*engineering|\bengineering\s*(?:&|and|\/|,)?\s*plans?/i, key: 'plans_engineering' },
   { test: /\bcontingenc/i, key: 'contingency' },
   { test: /\bfinal\s+inspection/i, key: 'final_inspections' },

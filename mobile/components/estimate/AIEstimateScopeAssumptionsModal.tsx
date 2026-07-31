@@ -166,6 +166,7 @@ import {
   formatUnitLabel,
   formatCountFieldSuffix,
   formatDualCountQuantity,
+  getNationalAverageBudgetSplit,
   getChecklistItemQuantityRule,
   getChecklistItemQuantityRuleOrDefault,
   hasCompleteUserSelectedPricing,
@@ -2549,11 +2550,47 @@ function roundMoney2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** Catalog $/unit rates for takeoff scaling (independent of stale editor totals). */
+function nationalAverageUnitRates(
+  itemId?: string,
+  unit?: string | null
+): { materialRate: number; laborRate: number } | null {
+  if (!itemId) return null;
+  const average = getNationalAverageBudgetSplit(itemId, unit);
+  if (!average) return null;
+  const materialRate = Number(average.material) > 0 ? Number(average.material) : 0;
+  const laborRate = Number(average.labor) > 0 ? Number(average.labor) : 0;
+  if (materialRate <= 0 && laborRate <= 0) return null;
+  return { materialRate, laborRate };
+}
+
+/** True when current mat/lab totals are a scale of the catalog $/unit rates. */
+function totalsMatchUnitRates(
+  materialTotal: number,
+  laborTotal: number,
+  rates: { materialRate: number; laborRate: number } | null | undefined
+): boolean {
+  if (!rates) return false;
+  if (!(materialTotal > 0) || !(laborTotal > 0)) return false;
+  if (!(rates.materialRate > 0) || !(rates.laborRate > 0)) return false;
+  const materialScale = materialTotal / rates.materialRate;
+  const laborScale = laborTotal / rates.laborRate;
+  if (!(materialScale > 0.01) || !(laborScale > 0.01)) return false;
+  return Math.abs(materialScale - laborScale) / Math.max(materialScale, laborScale) < 0.02;
+}
+
 /** Unit rates from a suggested pricing block (Material/Labor or Equipment+Labor). */
 function suggestedUnitRatesFromBlock(
   block: SuggestedPricingBlock | null | undefined,
-  basisQty: number
+  basisQty: number,
+  itemId?: string,
+  unit?: string
 ): { materialRate: number; laborRate: number } | null {
+  // Catalog rates win for takeoff scaling. Block totals are often stale for a
+  // different count (e.g. $325+$475 left over from qty 1 while count is 2/3).
+  const nationalRates = nationalAverageUnitRates(itemId, unit || block?.basis?.unit);
+  if (nationalRates) return nationalRates;
+
   if (!block || !(basisQty > 0)) return null;
   const materialBucket =
     block.costBuckets?.find((b) => b.key === 'material' || b.key === 'equipment') ?? null;
@@ -2576,11 +2613,79 @@ function suggestedUnitRatesFromBlock(
   return { materialRate, laborRate };
 }
 
+function resolveTakeoffScaleRates(params: {
+  itemId: string;
+  unit: string;
+  suggestedBlock: SuggestedPricingBlock | null | undefined;
+  suggestedBasisQty: number;
+  materialTotal: number;
+  laborTotal: number;
+  quantity: number;
+  lockedMaterialRate: number | null;
+  lockedLaborRate: number | null;
+  userEditedRates: boolean;
+}): { materialRate: number | null; laborRate: number | null } {
+  const catalogRates = suggestedUnitRatesFromBlock(
+    params.suggestedBlock,
+    params.suggestedBasisQty > 0 ? params.suggestedBasisQty : 1,
+    params.itemId,
+    params.unit
+  );
+
+  // Manual Material/Labor edits keep custom $/unit rates across count changes.
+  if (params.userEditedRates) {
+    return {
+      materialRate: params.lockedMaterialRate,
+      laborRate: params.lockedLaborRate,
+    };
+  }
+
+  // Stale editor totals that are still a multiple of catalog rates → use catalog
+  // (covers the sink/faucet bug where $325+$475 stayed put at qty 2/3).
+  if (
+    catalogRates &&
+    totalsMatchUnitRates(params.materialTotal, params.laborTotal, catalogRates)
+  ) {
+    return catalogRates;
+  }
+
+  // Non-catalog totals already in the editor → treat as custom $/unit.
+  if (
+    params.quantity > 0 &&
+    (params.materialTotal > 0 || params.laborTotal > 0) &&
+    !(catalogRates && totalsMatchUnitRates(params.materialTotal, params.laborTotal, catalogRates))
+  ) {
+    // Empty legs still fall back to catalog when available.
+    return {
+      materialRate:
+        params.materialTotal > 0
+          ? roundMoney2(params.materialTotal / params.quantity)
+          : catalogRates?.materialRate ?? null,
+      laborRate:
+        params.laborTotal > 0
+          ? roundMoney2(params.laborTotal / params.quantity)
+          : catalogRates?.laborRate ?? null,
+    };
+  }
+
+  if (catalogRates) return catalogRates;
+
+  if (params.lockedMaterialRate != null || params.lockedLaborRate != null) {
+    return {
+      materialRate: params.lockedMaterialRate,
+      laborRate: params.lockedLaborRate,
+    };
+  }
+
+  return { materialRate: null, laborRate: null };
+}
+
 /**
  * Material + Labor editor: prefills from Suggested pricing when empty, and keeps
  * $/unit rates stable when Pricing basis quantity changes.
  */
 function MaterialLaborSplitEditor({
+  itemId,
   materialValue,
   laborValue,
   pricingBasisValue,
@@ -2600,7 +2705,9 @@ function MaterialLaborSplitEditor({
   applying,
   splitTotalOnly = false,
   entryMode = 'flat',
+  getPendingUpdatesRef,
 }: {
+  itemId: string;
   materialValue: string;
   laborValue: string;
   pricingBasisValue: string;
@@ -2628,6 +2735,14 @@ function MaterialLaborSplitEditor({
   splitTotalOnly?: boolean;
   /** Flat $ mat/lab vs takeoff-linked qty with optional $/unit. */
   entryMode?: PricingEntryMode;
+  getPendingUpdatesRef?: React.MutableRefObject<
+    (() => Array<{
+      itemId: string;
+      quantity: string;
+      unit?: string;
+      quantitySource?: 'user_entered' | 'suggested_prefill';
+    }>) | null
+  >;
 }) {
   const lockedRatesRef = useRef<{ material: number | null; labor: number | null }>({
     material: null,
@@ -2635,18 +2750,137 @@ function MaterialLaborSplitEditor({
   });
   const lastBasisQtyRef = useRef<number | null>(null);
   const didPrefillRef = useRef(false);
+  /** True only after the contractor types Material/Labor — not after catalog prefill. */
+  const userEditedRatesRef = useRef(false);
   const [basisFocused, setBasisFocused] = useState(false);
   const [basisDraft, setBasisDraft] = useState(pricingBasisValue);
+
+  const effectiveBasisQty =
+    parseMoneyAmount(basisFocused ? basisDraft : pricingBasisValue) ||
+    (pricingBasis && pricingBasis.quantity > 0 ? pricingBasis.quantity : 0);
+
+  const scaleRatesForQuantity = (nextQty: number, previousQty: number) =>
+    resolveTakeoffScaleRates({
+      itemId,
+      unit: basisUnit,
+      suggestedBlock,
+      suggestedBasisQty:
+        suggestedBlock?.basis?.quantity && suggestedBlock.basis.quantity > 0
+          ? suggestedBlock.basis.quantity
+          : previousQty > 0
+            ? previousQty
+            : 1,
+      materialTotal: parseMoneyAmount(materialValue),
+      laborTotal: parseMoneyAmount(laborValue),
+      quantity: previousQty > 0 ? previousQty : nextQty,
+      lockedMaterialRate: lockedRatesRef.current.material,
+      lockedLaborRate: lockedRatesRef.current.labor,
+      userEditedRates: userEditedRatesRef.current,
+    });
+
+  useEffect(() => {
+    if (!getPendingUpdatesRef) return;
+    getPendingUpdatesRef.current = () => {
+      if (entryMode !== 'takeoff' || splitTotalOnly) return [];
+      if (!basisFocused && basisDraft === pricingBasisValue) return [];
+      const nextQty = parseMoneyAmount(basisDraft);
+      const previousQty = lastBasisQtyRef.current ?? effectiveBasisQty;
+      const { materialRate, laborRate } = scaleRatesForQuantity(nextQty, previousQty);
+      lockedRatesRef.current = {
+        material: materialRate,
+        labor: laborRate,
+      };
+      const updates = [
+        {
+          itemId: sqftBasisKey,
+          quantity: basisDraft,
+          unit: basisUnit,
+          quantitySource: 'user_entered' as const,
+        },
+      ];
+      if (!(nextQty > 0)) {
+        updates.push(
+          {
+            itemId,
+            quantity: '',
+            unit: basisUnit,
+            quantitySource: 'user_entered' as const,
+          },
+          {
+            itemId: materialKey,
+            quantity: '',
+            unit: 'allowance',
+            quantitySource: 'user_entered' as const,
+          },
+          {
+            itemId: laborKey,
+            quantity: '',
+            unit: 'allowance',
+            quantitySource: 'user_entered' as const,
+          },
+          {
+            itemId: materialKey.replace(/__material$/, '__allowance'),
+            quantity: '',
+            unit: 'allowance',
+            quantitySource: 'user_entered' as const,
+          }
+        );
+        lastBasisQtyRef.current = null;
+        return updates;
+      }
+      if (nextQty > 0 && materialRate != null && materialRate > 0) {
+        updates.push({
+          itemId: materialKey,
+          quantity: String(roundMoney2(materialRate * nextQty)),
+          unit: 'allowance',
+          quantitySource: 'user_entered' as const,
+        });
+      }
+      if (nextQty > 0 && laborRate != null && laborRate > 0) {
+        updates.push({
+          itemId: laborKey,
+          quantity: String(roundMoney2(laborRate * nextQty)),
+          unit: 'allowance',
+          quantitySource: 'user_entered' as const,
+        });
+      }
+      if (nextQty > 0 && materialRate != null && laborRate != null) {
+        updates.push({
+          itemId: materialKey.replace(/__material$/, '__allowance'),
+          quantity: String(roundMoney2((materialRate + laborRate) * nextQty)),
+          unit: 'allowance',
+          quantitySource: 'user_entered' as const,
+        });
+      }
+      lastBasisQtyRef.current = nextQty > 0 ? nextQty : null;
+      return updates;
+    };
+    return () => {
+      getPendingUpdatesRef.current = null;
+    };
+  }, [
+    getPendingUpdatesRef,
+    entryMode,
+    splitTotalOnly,
+    basisFocused,
+    basisDraft,
+    pricingBasisValue,
+    sqftBasisKey,
+    basisUnit,
+    materialKey,
+    laborKey,
+    materialValue,
+    laborValue,
+    effectiveBasisQty,
+    suggestedBlock,
+    itemId,
+  ]);
 
   useEffect(() => {
     if (!basisFocused) {
       setBasisDraft(pricingBasisValue);
     }
   }, [pricingBasisValue, basisFocused]);
-
-  const effectiveBasisQty =
-    parseMoneyAmount(basisFocused ? basisDraft : pricingBasisValue) ||
-    (pricingBasis && pricingBasis.quantity > 0 ? pricingBasis.quantity : 0);
 
   // Prefill empty Material/Labor from Suggested pricing once per editor open.
   useEffect(() => {
@@ -2656,9 +2890,69 @@ function MaterialLaborSplitEditor({
     if (mat > 0 || lab > 0) {
       didPrefillRef.current = true;
       if (entryMode === 'takeoff' && effectiveBasisQty > 0) {
-        if (mat > 0) lockedRatesRef.current.material = roundMoney2(mat / effectiveBasisQty);
-        if (lab > 0) lockedRatesRef.current.labor = roundMoney2(lab / effectiveBasisQty);
+        const rates = resolveTakeoffScaleRates({
+          itemId,
+          unit: basisUnit,
+          suggestedBlock,
+          suggestedBasisQty:
+            suggestedBlock?.basis?.quantity && suggestedBlock.basis.quantity > 0
+              ? suggestedBlock.basis.quantity
+              : 1,
+          materialTotal: mat,
+          laborTotal: lab,
+          quantity: effectiveBasisQty,
+          lockedMaterialRate: null,
+          lockedLaborRate: null,
+          userEditedRates: false,
+        });
+        const materialRate = rates.materialRate;
+        const laborRate = rates.laborRate;
+        if (materialRate != null) lockedRatesRef.current.material = materialRate;
+        if (laborRate != null) lockedRatesRef.current.labor = laborRate;
         lastBasisQtyRef.current = effectiveBasisQty;
+        // Always reseed takeoff totals from catalog/custom $/unit × count so a
+        // stale $325+$475 (or $487.50+$712.50) does not stick at the wrong qty.
+        if (
+          (materialRate != null && materialRate > 0) ||
+          (laborRate != null && laborRate > 0)
+        ) {
+          const updates: Array<{
+            itemId: string;
+            quantity: string;
+            unit?: string;
+            quantitySource?: 'user_entered' | 'suggested_prefill';
+          }> = [];
+          if (materialRate != null && materialRate > 0) {
+            updates.push({
+              itemId: materialKey,
+              quantity: String(roundMoney2(materialRate * effectiveBasisQty)),
+              unit: 'allowance',
+              quantitySource: 'suggested_prefill',
+            });
+          }
+          if (laborRate != null && laborRate > 0) {
+            updates.push({
+              itemId: laborKey,
+              quantity: String(roundMoney2(laborRate * effectiveBasisQty)),
+              unit: 'allowance',
+              quantitySource: 'suggested_prefill',
+            });
+          }
+          const split =
+            (materialRate != null && materialRate > 0
+              ? materialRate * effectiveBasisQty
+              : 0) +
+            (laborRate != null && laborRate > 0 ? laborRate * effectiveBasisQty : 0);
+          if (split > 0) {
+            updates.push({
+              itemId: materialKey.replace(/__material$/, '__allowance'),
+              quantity: String(roundMoney2(split)),
+              unit: 'allowance',
+              quantitySource: 'suggested_prefill',
+            });
+          }
+          if (updates.length) onBatchItemQuantityChange(updates);
+        }
       }
       return;
     }
@@ -2724,7 +3018,9 @@ function MaterialLaborSplitEditor({
           : suggestedBlock?.basis?.unit || basisUnit;
     const rates = suggestedUnitRatesFromBlock(
       suggestedBlock,
-      suggestedBasisQty > 0 ? suggestedBasisQty : qtyForPrefill
+      suggestedBasisQty > 0 ? suggestedBasisQty : qtyForPrefill,
+      itemId,
+      basisUnit
     );
     if (!rates || !(qtyForPrefill > 0)) return;
     didPrefillRef.current = true;
@@ -2783,6 +3079,96 @@ function MaterialLaborSplitEditor({
     basisUnit,
     onBatchItemQuantityChange,
     entryMode,
+    itemId,
+  ]);
+
+  const previousEntryModeRef = useRef<PricingEntryMode | null>(null);
+  useEffect(() => {
+    const enteredTakeoff = entryMode === 'takeoff' && previousEntryModeRef.current !== 'takeoff';
+    previousEntryModeRef.current = entryMode;
+    if (!enteredTakeoff || splitTotalOnly) return;
+
+    userEditedRatesRef.current = false;
+    const suggestedBasisQty =
+      suggestedBlock?.basis?.quantity && suggestedBlock.basis.quantity > 0
+        ? suggestedBlock.basis.quantity
+        : 1;
+    const rates = resolveTakeoffScaleRates({
+      itemId,
+      unit: basisUnit,
+      suggestedBlock,
+      suggestedBasisQty,
+      materialTotal: parseMoneyAmount(materialValue),
+      laborTotal: parseMoneyAmount(laborValue),
+      quantity: effectiveBasisQty > 0 ? effectiveBasisQty : suggestedBasisQty,
+      lockedMaterialRate: null,
+      lockedLaborRate: null,
+      userEditedRates: false,
+    });
+    if (rates.materialRate == null && rates.laborRate == null) return;
+
+    const quantity = effectiveBasisQty > 0 ? effectiveBasisQty : suggestedBasisQty;
+    lockedRatesRef.current = {
+      material: rates.materialRate,
+      labor: rates.laborRate,
+    };
+    lastBasisQtyRef.current = quantity;
+    const updates: Array<{
+      itemId: string;
+      quantity: string;
+      unit?: string;
+      quantitySource?: 'user_entered' | 'suggested_prefill';
+    }> = [];
+    if (!(effectiveBasisQty > 0)) {
+      updates.push({
+        itemId: sqftBasisKey,
+        quantity: String(quantity),
+        unit: basisUnit,
+        quantitySource: 'suggested_prefill',
+      });
+    }
+    if (rates.materialRate != null && rates.materialRate > 0) {
+      updates.push({
+        itemId: materialKey,
+        quantity: String(roundMoney2(rates.materialRate * quantity)),
+        unit: 'allowance',
+        quantitySource: 'suggested_prefill',
+      });
+    }
+    if (rates.laborRate != null && rates.laborRate > 0) {
+      updates.push({
+        itemId: laborKey,
+        quantity: String(roundMoney2(rates.laborRate * quantity)),
+        unit: 'allowance',
+        quantitySource: 'suggested_prefill',
+      });
+    }
+    const split =
+      ((rates.materialRate != null && rates.materialRate > 0 ? rates.materialRate : 0) +
+        (rates.laborRate != null && rates.laborRate > 0 ? rates.laborRate : 0)) *
+      quantity;
+    if (split > 0) {
+      updates.push({
+        itemId: materialKey.replace(/__material$/, '__allowance'),
+        quantity: String(roundMoney2(split)),
+        unit: 'allowance',
+        quantitySource: 'suggested_prefill',
+      });
+    }
+    if (updates.length) onBatchItemQuantityChange(updates);
+  }, [
+    entryMode,
+    splitTotalOnly,
+    suggestedBlock,
+    itemId,
+    effectiveBasisQty,
+    sqftBasisKey,
+    basisUnit,
+    materialKey,
+    laborKey,
+    materialValue,
+    laborValue,
+    onBatchItemQuantityChange,
   ]);
 
   const handleBasisChange = (text: string) => {
@@ -2799,23 +3185,21 @@ function MaterialLaborSplitEditor({
 
     if (!(nextQty > 0)) {
       lastBasisQtyRef.current = null;
+      updates.push(
+        { itemId, quantity: '', unit: basisUnit },
+        { itemId: materialKey, quantity: '', unit: 'allowance' },
+        { itemId: laborKey, quantity: '', unit: 'allowance' },
+        {
+          itemId: materialKey.replace(/__material$/, '__allowance'),
+          quantity: '',
+          unit: 'allowance',
+        }
+      );
       onBatchItemQuantityChange(updates);
       return;
     }
 
-    // Prefer locked rates; otherwise derive from current totals before rescale.
-    let materialRate = lockedRatesRef.current.material;
-    let laborRate = lockedRatesRef.current.labor;
-    if (prevQty && prevQty > 0) {
-      if (materialRate == null) {
-        const mat = parseMoneyAmount(materialValue);
-        if (mat > 0) materialRate = roundMoney2(mat / prevQty);
-      }
-      if (laborRate == null) {
-        const lab = parseMoneyAmount(laborValue);
-        if (lab > 0) laborRate = roundMoney2(lab / prevQty);
-      }
-    }
+    const { materialRate, laborRate } = scaleRatesForQuantity(nextQty, prevQty);
     lockedRatesRef.current = {
       material: materialRate,
       labor: laborRate,
@@ -2868,6 +3252,7 @@ function MaterialLaborSplitEditor({
       unit: 'allowance',
     });
     onBatchItemQuantityChange(updates);
+    userEditedRatesRef.current = true;
     if (effectiveBasisQty > 0 && amount > 0) {
       lockedRatesRef.current.material = roundMoney2(amount / effectiveBasisQty);
     } else if (!text.trim()) {
@@ -2889,6 +3274,7 @@ function MaterialLaborSplitEditor({
       unit: 'allowance',
     });
     onBatchItemQuantityChange(updates);
+    userEditedRatesRef.current = true;
     if (effectiveBasisQty > 0 && amount > 0) {
       lockedRatesRef.current.labor = roundMoney2(amount / effectiveBasisQty);
     } else if (!text.trim()) {
@@ -2944,7 +3330,13 @@ function MaterialLaborSplitEditor({
             setBasisDraft(pricingBasisValue);
             focusQuantityField(sqftBasisKey);
           }}
-          onChangeText={setBasisDraft}
+          onChangeText={(text) => {
+            setBasisDraft(text);
+            // Scale mat/lab live while typing so count 1/2/3 updates Total immediately.
+            if (parseMoneyAmount(text) > 0) {
+              handleBasisChange(text);
+            }
+          }}
           onBlur={() => {
             setBasisFocused(false);
             handleBasisChange(basisDraft);
@@ -3128,7 +3520,15 @@ function QuantitySection({
       quantitySource?: 'user_entered' | 'suggested_prefill';
     }>
   ) => void;
-  onClearSuggestedPrefill?: (itemId: string) => void;
+  onClearSuggestedPrefill?: (
+    itemId: string,
+    pendingUpdates?: Array<{
+      itemId: string;
+      quantity: string;
+      unit?: string;
+      quantitySource?: 'user_entered' | 'suggested_prefill';
+    }>
+  ) => void;
   onClearAcceptedPricing?: (itemId: string) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
@@ -3158,6 +3558,14 @@ function QuantitySection({
   const [focusedPricingField, setFocusedPricingField] = useState<string | null>(null);
   const [pricingModeOverride, setPricingModeOverride] = useState<AllowanceOrSplitMode | null>(null);
   const [pricingEntryModeOverride, setPricingEntryModeOverride] = useState<PricingEntryMode | null>(null);
+  const pricingEditorPendingRef = useRef<
+    (() => Array<{
+      itemId: string;
+      quantity: string;
+      unit?: string;
+      quantitySource?: 'user_entered' | 'suggested_prefill';
+    }>) | null
+  >(null);
   const pricingContext = React.useContext(ScopePricingContextValue);
   const assemblyContext = React.useContext(ScopeAssemblyContextValue);
   const scopeGapPricingContext = React.useMemo<ScopeGapPricingContext>(
@@ -3205,6 +3613,7 @@ function QuantitySection({
     onItemQuantityBlur(targetItemId, field);
   };
   const closePricingEditor = () => {
+    const pendingUpdates = pricingEditorPendingRef.current?.() ?? [];
     // Close first so focus/blur side effects cannot keep the editor open.
     setFocusedPricingField(null);
     setPricingEditorOpen(false);
@@ -3212,7 +3621,7 @@ function QuantitySection({
     Keyboard.dismiss();
     // Opening Edit seeds Suggest values as suggested_prefill — discard if user
     // never committed so the Apply card returns unchanged.
-    onClearSuggestedPrefill?.(itemId);
+    onClearSuggestedPrefill?.(itemId, pendingUpdates.length ? pendingUpdates : undefined);
   };
 
   if (rule.dualAllowanceField) {
@@ -4485,6 +4894,7 @@ function QuantitySection({
           />
         ) : (
           <MaterialLaborSplitEditor
+            itemId={itemId}
             materialValue={materialValue}
             laborValue={laborValue}
             pricingBasisValue={pricingBasisValue}
@@ -4504,6 +4914,7 @@ function QuantitySection({
             applying={applying}
             splitTotalOnly={rule.splitTotalOnly}
             entryMode={pricingEntryMode}
+            getPendingUpdatesRef={pricingEditorPendingRef}
           />
         )}
       </PricingEditorPanel>
@@ -4721,7 +5132,15 @@ function WetAreaInstallLineCard({
       quantitySource?: 'user_entered' | 'suggested_prefill';
     }>
   ) => void;
-  onClearSuggestedPrefill?: (itemId: string) => void;
+  onClearSuggestedPrefill?: (
+    itemId: string,
+    pendingUpdates?: Array<{
+      itemId: string;
+      quantity: string;
+      unit?: string;
+      quantitySource?: 'user_entered' | 'suggested_prefill';
+    }>
+  ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   onApplySuggestedPricing?: (itemId: string, block: SuggestedPricingBlock) => void;
@@ -4864,7 +5283,15 @@ function YesNoRow({
       quantitySource?: 'user_entered' | 'suggested_prefill';
     }>
   ) => void;
-  onClearSuggestedPrefill?: (itemId: string) => void;
+  onClearSuggestedPrefill?: (
+    itemId: string,
+    pendingUpdates?: Array<{
+      itemId: string;
+      quantity: string;
+      unit?: string;
+      quantitySource?: 'user_entered' | 'suggested_prefill';
+    }>
+  ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   onApplySuggestedPricing?: (itemId: string, block: SuggestedPricingBlock) => void;
@@ -6070,7 +6497,15 @@ function MultiChoiceRow({
       quantitySource?: 'user_entered' | 'suggested_prefill';
     }>
   ) => void;
-  onClearSuggestedPrefill?: (itemId: string) => void;
+  onClearSuggestedPrefill?: (
+    itemId: string,
+    pendingUpdates?: Array<{
+      itemId: string;
+      quantity: string;
+      unit?: string;
+      quantitySource?: 'user_entered' | 'suggested_prefill';
+    }>
+  ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   onApplySuggestedPricing?: (itemId: string, block: SuggestedPricingBlock) => void;
@@ -6242,7 +6677,15 @@ function ChoiceRow({
       quantitySource?: 'user_entered' | 'suggested_prefill';
     }>
   ) => void;
-  onClearSuggestedPrefill?: (itemId: string) => void;
+  onClearSuggestedPrefill?: (
+    itemId: string,
+    pendingUpdates?: Array<{
+      itemId: string;
+      quantity: string;
+      unit?: string;
+      quantitySource?: 'user_entered' | 'suggested_prefill';
+    }>
+  ) => void;
   onItemQuantityBlur: (itemId: string, field?: 'count' | 'allowance') => void;
   onItemQuantityFocus: (itemId: string, field?: 'count' | 'allowance') => void;
   onApplySuggestedPricing?: (itemId: string, block: SuggestedPricingBlock) => void;
@@ -10298,11 +10741,29 @@ export default function AIEstimateScopeAssumptionsModal({
   );
 
   const handleClearSuggestedPrefill = useCallback(
-    (itemId: string) => {
+    (
+      itemId: string,
+      pendingUpdates?: Array<{
+        itemId: string;
+        quantity: string;
+        unit?: string;
+        quantitySource?: 'user_entered' | 'suggested_prefill';
+      }>
+    ) => {
       setMeasurementsSynced((prev) => {
+        const itemQuantities = { ...(prev.itemQuantities || {}) };
+        for (const update of pendingUpdates ?? []) {
+          const baseItemId = update.itemId.replace(/__(allowance|sqft_basis|material|labor)$/, '');
+          const rule = getChecklistItemQuantityRuleOrDefault(baseItemId, checklist?.templateKey);
+          itemQuantities[update.itemId] = {
+            quantity: update.quantity,
+            unit: update.unit || rule.defaultUnit,
+            quantitySource: update.quantitySource || 'user_entered',
+          };
+        }
         const finalized = finalizeScopePricingAfterEditorClose({
           itemId,
-          itemQuantities: prev.itemQuantities || {},
+          itemQuantities,
           pricingAcceptance: prev.pricingAcceptance,
         });
         return {
@@ -10312,7 +10773,7 @@ export default function AIEstimateScopeAssumptionsModal({
         };
       });
     },
-    [setMeasurementsSynced]
+    [checklist?.templateKey, setMeasurementsSynced]
   );
 
   const scrollToFirstMissingMeasurement = useCallback(() => {

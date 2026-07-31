@@ -28,6 +28,23 @@ function inputWith(
 
 // National-average flooring rate: material $4/sqft, labor $5/sqft.
 describe('resolveScopeItemSuggestedPricing', () => {
+  it('prices cabinet hardware at $12 material + $15 labor per piece', () => {
+    const input = inputWith({});
+    const one = resolveScopeItemSuggestedPricing('cabinet_hardware', input, 'kitchen', {
+      quantity: 1,
+      unit: 'each',
+      quantitySource: 'inferred',
+    });
+    const twentyFour = resolveScopeItemSuggestedPricing('cabinet_hardware', input, 'kitchen', {
+      quantity: 24,
+      unit: 'each',
+      quantitySource: 'inferred',
+    });
+
+    expect(one.fill).toMatchObject({ material: 12, labor: 15, total: 27 });
+    expect(twentyFour.fill).toMatchObject({ material: 288, labor: 360, total: 648 });
+  });
+
   it('audits the current excavation national-average suggestion with a defined base-scope profile', () => {
     const input = inputWith({ excavationCy: '50' });
     const resolved = {

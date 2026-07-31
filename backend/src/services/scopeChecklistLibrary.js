@@ -18,6 +18,13 @@ const FIXTURE_CHOICE_NO_RELOCATE = [
   { id: 'unsure', label: 'Not sure yet' },
 ];
 
+const GARBAGE_DISPOSAL_CHOICE_OPTIONS = [
+  { id: 'reuse_install', label: 'Reuse / install' },
+  { id: 'replace_install', label: 'Replace / install' },
+  { id: 'not_in_scope', label: 'Not in this bid' },
+  { id: 'unsure', label: 'Not sure yet' },
+];
+
 const SHOWER_PAN_CHOICE_OPTIONS = [
   { id: 'prefab', label: 'Prefab pan / base' },
   { id: 'tile_pan', label: 'Tile shower pan' },
@@ -289,7 +296,15 @@ const CHECKLIST_TEMPLATES = {
       },
       { id: 'cabinets', inputType: 'yes_no', label: 'New cabinet install', helperText: 'Cabinet supply and installation.', category: 'cabinets' },
       { id: 'countertops', inputType: 'yes_no', label: 'Countertop fabrication & install', helperText: 'Template, fabricate, and install.', category: 'cabinets' },
-      { id: 'sink_faucet', inputType: 'yes_no', label: 'Sink, faucet & disposal', helperText: 'Sink, faucet, and garbage disposal install.', category: 'cabinets' },
+      { id: 'sink_faucet', inputType: 'yes_no', label: 'Sink & faucet', helperText: 'Sink and faucet supply and install at existing rough-in.', category: 'cabinets' },
+      {
+        id: 'garbage_disposal',
+        inputType: 'choice',
+        label: 'Garbage disposal',
+        helperText: 'Reuse/install existing disposal or replace/install new?',
+        options: GARBAGE_DISPOSAL_CHOICE_OPTIONS,
+        category: 'cabinets',
+      },
       { id: 'cabinet_hardware', inputType: 'yes_no', label: 'Cabinet hardware', helperText: 'Pulls, knobs, and install.', category: 'cabinets' },
       { id: 'island', inputType: 'yes_no', label: 'Kitchen island (cabinet + counter)', helperText: 'New or expanded island.', category: 'cabinets' },
       { id: 'backsplash', inputType: 'yes_no', label: 'Backsplash tile install', helperText: 'Backsplash tile labor and materials.', category: 'tile_flooring' },
@@ -999,6 +1014,21 @@ function inferChoiceFromNotes(itemId, notes) {
   if (itemId === 'shower_pan') {
     if (/\b(prefab|pre[\s-]?fab|acrylic|fiberglass|plastic\s+pan|pan\s+insert)\b/.test(n)) return 'prefab';
     if (/\b(tile\s+pan|mud\s+pan|mortar\s+bed|hot\s+mop|custom\s+pan)\b/.test(n)) return 'tile_pan';
+  }
+
+  if (itemId === 'garbage_disposal') {
+    if (/\b(no\s+disposal|disposal\s+not\s+included|without\s+disposal)\b/.test(n)) return 'not_in_scope';
+    if (
+      /\b(reuse|re[\s-]?use|reinstall|re[\s-]?install|existing\s+disposal)\b[^.]{0,50}\bdisposal\b|\bdisposal\b[^.]{0,50}\b(reuse|re[\s-]?use|reinstall|re[\s-]?install|existing)\b/.test(
+        n
+      )
+    ) {
+      return 'reuse_install';
+    }
+    if (/\b(new\s+disposal|replace|replacing)\b[^.]{0,50}\bdisposal\b|\bdisposal\b[^.]{0,50}\b(new|replace|replacing)\b/.test(n)) {
+      return 'replace_install';
+    }
+    if (/\b(garbage\s+disposal|disposal\s+install)\b/.test(n)) return 'replace_install';
   }
 
   return null;
