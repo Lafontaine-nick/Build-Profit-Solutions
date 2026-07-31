@@ -12,7 +12,6 @@ import {
   PAINT_REPAIR_MATCH_ASSUMPTION,
   PAINT_REPAIR_TOUCH_UP_INCLUDES,
   resolveBathroomPaintRepairScope,
-  resolvePaintRepairEntireRoom,
   scaleBathroomRepairAllowance,
   shouldUseCombinedDrywallPaintAssembly,
   splitMaterialLabor,
@@ -129,13 +128,11 @@ export function resolveBathroomPaintRepairSuggestedPricing(params: {
   }
 
   const scope = resolveBathroomPaintRepairScope(params.paintRepairScope);
-  const entireRoomLegacy = resolvePaintRepairEntireRoom({
-    entireRoom: params.paintRepairEntireRoom,
-    legacyScope: params.paintRepairScope,
-  });
   const entireRoomSqft = params.entireRoomSqft;
 
-  if ((scope === 'full_room' || entireRoomLegacy) && entireRoomSqft != null && entireRoomSqft > 0) {
+  // Require the explicit paint-scope button. Do not invent full-room pricing
+  // from a sticky entireRoom boolean when neither option is selected in UI.
+  if (scope === 'full_room' && entireRoomSqft != null && entireRoomSqft > 0) {
     return resolveBathroomPaintRepairFullRoomPricing({
       entireRoomSqft,
       interiorPaintMobilization: params.interiorPaintMobilization,

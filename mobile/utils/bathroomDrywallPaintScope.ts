@@ -170,11 +170,13 @@ export function hasPaintRepairScopeSelection(params: {
   localizedScope?: string | null;
   entireRoom?: boolean | null;
   legacyScope?: string | null;
+  scopeSource?: 'user_selected' | 'ai_inferred' | null;
 }): boolean {
-  return (
-    resolveBathroomPaintRepairScope(params.localizedScope ?? params.legacyScope) != null ||
-    resolvePaintRepairEntireRoom({ entireRoom: params.entireRoom, legacyScope: params.legacyScope })
-  );
+  // Match the Step 2 buttons: only an explicit affected-area / full-room choice
+  // counts. A sticky entireRoom boolean alone must not pre-select paint pricing.
+  void params.entireRoom;
+  if (params.scopeSource === 'ai_inferred') return false;
+  return resolveBathroomPaintRepairScope(params.localizedScope ?? params.legacyScope) != null;
 }
 
 export function sanitizeBathroomPaintRepairScopeForPersist(

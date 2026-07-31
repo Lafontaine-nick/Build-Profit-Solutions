@@ -457,12 +457,22 @@ export function scopeHasCommittedConfirmScopePrice(params: {
       quantitySource?: string | null;
     } | undefined
   > | null;
-  pricingAcceptance?: Record<string, { selectionStatus?: string | null } | undefined> | null;
+  pricingAcceptance?: Record<
+    string,
+    {
+      selectionStatus?: string | null;
+      status?: string | null;
+      totalAmount?: number | string | null;
+    } | undefined
+  > | null;
 }): boolean {
+  const acceptance = params.pricingAcceptance?.[params.itemId];
   const selectionStatus = String(
-    params.pricingAcceptance?.[params.itemId]?.selectionStatus || ''
+    acceptance?.selectionStatus || acceptance?.status || ''
   ).toLowerCase();
   if (COMMITTED_PRICING_SELECTION_STATUSES.has(selectionStatus)) return true;
+  const acceptedTotal = Number(String(acceptance?.totalAmount ?? '').replace(/,/g, ''));
+  if (Number.isFinite(acceptedTotal) && acceptedTotal > 0) return true;
 
   const isMoneyEntry = (
     entry:

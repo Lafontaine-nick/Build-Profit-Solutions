@@ -4943,6 +4943,7 @@ function YesNoRow({
     localizedScope: storedPaintRepairScope,
     entireRoom: measurementsInput.bathroomPaintRepairEntireRoom,
     legacyScope: storedPaintRepairScope,
+    scopeSource: measurementsInput.bathroomPaintRepairScopeSource,
   });
   const combinedEligible = resolvedPaintRepairScope === 'affected_area' || !resolvedPaintRepairScope;
   const useCombinedAssembly =
@@ -9757,8 +9758,64 @@ export default function AIEstimateScopeAssumptionsModal({
 
   const unconfirmedSuggestedPricing = useMemo<UnconfirmedSuggestedPricing[]>(() => {
     const rows: UnconfirmedSuggestedPricing[] = [];
+    const footerScopeKeys = new Set<string>();
+    const bathroomPaintRepairCardVisible =
+      items.some((candidate) => candidate.id === 'paint_repair') ||
+      displayItems.some((candidate) => candidate.id === 'paint_repair');
+    const bathroomPaintRepairScopeSelected =
+      bathroomPaintRepairCardVisible &&
+      hasPaintRepairScopeSelection({
+        localizedScope: measurements.bathroomPaintRepairScope,
+        entireRoom: measurements.bathroomPaintRepairEntireRoom,
+        legacyScope: measurements.bathroomPaintRepairScope,
+        scopeSource: measurements.bathroomPaintRepairScopeSource,
+      });
     for (const item of displayItems) {
       if (!checklistItemInScope(item)) continue;
+      // Interior Finishes is a planning comparison host, not a selectable
+      // price line. Its child trades must be priced separately.
+      if (item.id === 'interior_finishes') continue;
+      // Paint/patch is a two-step scope: Yes selects the card, but the
+      // contractor must still choose affected-area or full-room before it
+      // becomes a ready price.
+      if (
+        bathroomPaintRepairCardVisible &&
+        item.id === 'paint_repair' &&
+        !bathroomPaintRepairScopeSelected
+      ) {
+        continue;
+      }
+      const footerScopeKey =
+        bathroomPaintRepairCardVisible &&
+        new Set([
+          'paint_repair',
+          'interior_paint',
+          'paint',
+          'paint_trim',
+          'prep',
+          'drywall',
+          'patch_repair',
+        ]).has(item.id)
+          ? 'bathroom_paint_repair'
+          : item.id;
+      if (footerScopeKeys.has(footerScopeKey)) continue;
+      // Bathroom patch/full-room paint is one physical card. Legacy QM paint IDs
+      // (interior_paint/paint/prep) and drywall/patch must not create a second
+      // ready row when paint_repair becomes priceable after scope selection.
+      if (
+        bathroomPaintRepairCardVisible &&
+        item.id !== 'paint_repair' &&
+        new Set([
+          'interior_paint',
+          'paint',
+          'paint_trim',
+          'prep',
+          'drywall',
+          'patch_repair',
+        ]).has(item.id)
+      ) {
+        continue;
+      }
       // "Not sure" means the scope is not selected yet. Do not count or bulk-apply
       // its pricing suggestion until the contractor chooses Yes/included.
       if (item.state === 'unsure') continue;
@@ -9828,6 +9885,7 @@ export default function AIEstimateScopeAssumptionsModal({
         suggested.fill.total > 0
       ) {
         rows.push({ itemId: item.id, label: item.label, block: suggested.fill });
+        footerScopeKeys.add(footerScopeKey);
       }
     }
     const tradeStages = new Set(
@@ -9855,7 +9913,7 @@ export default function AIEstimateScopeAssumptionsModal({
       // a stage allowance is already applied — merge clears the allowance on apply.
       return true;
     });
-  }, [displayItems, measurements, normMeasurements, checklist?.templateKey, scopeNotes, enrichedPricingContext, scopeAssemblyContext, benchmarkRefresh]);
+  }, [items, displayItems, measurements, normMeasurements, checklist?.templateKey, scopeNotes, enrichedPricingContext, scopeAssemblyContext, benchmarkRefresh]);
 
   const scopeItemsNeedingConfirmation = useMemo(
     () =>

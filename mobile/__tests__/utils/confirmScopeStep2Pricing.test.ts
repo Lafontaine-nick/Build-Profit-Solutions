@@ -132,6 +132,79 @@ describe('confirmScopeStep2Pricing tiers', () => {
     expect(premium?.fill?.total).toBe(2500);
   });
 
+  it('does not create a ready paint price until paint scope option is selected', () => {
+    const input = initialScopeMeasurementInputExtended({
+      scopeChecklist: { templateKey: 'bathroom' },
+      scopeMeasurements: {
+        showerWallTileSqft: 80,
+        // Sticky flag alone must not count — UI buttons are still unselected.
+        bathroomPaintRepairEntireRoom: true,
+        bathroomPaintRepairScope: null,
+      },
+    } as never);
+    const checklistItems = [
+      { id: 'paint_repair', state: 'included', inputType: 'yes_no' },
+      { id: 'shower_tile', state: 'included', inputType: 'yes_no' },
+    ];
+
+    const beforeOption = resolveStep2ComponentSuggestedPricing({
+      itemId: 'paint_repair',
+      templateKey: 'bathroom',
+      measurementsInput: {
+        ...input,
+        itemQuantities: {
+          paint_repair: { quantity: '80', unit: 'sqft', quantitySource: 'user_entered' },
+        },
+      },
+      resolved: { quantity: 80, unit: 'sqft', quantitySource: 'user_entered' },
+      pricingContext: { checklistItems },
+    });
+    expect(beforeOption).toEqual({ fill: null, comparison: null });
+
+    const afterFullRoom = resolveStep2ComponentSuggestedPricing({
+      itemId: 'paint_repair',
+      templateKey: 'bathroom',
+      measurementsInput: {
+        ...input,
+        bathroomPaintRepairScope: 'full_room',
+        bathroomPaintRepairEntireRoom: true,
+        itemQuantities: {
+          paint_repair: { quantity: '80', unit: 'sqft', quantitySource: 'user_entered' },
+        },
+      },
+      resolved: { quantity: 80, unit: 'sqft', quantitySource: 'user_entered' },
+      pricingContext: { checklistItems },
+    });
+    expect(afterFullRoom?.fill?.total).toBe(1400);
+  });
+
+  it('does not count an AI-inferred paint option as contractor-selected', () => {
+    const input = initialScopeMeasurementInputExtended({
+      scopeChecklist: { templateKey: 'bathroom' },
+      scopeMeasurements: {
+        bathroomPaintRepairScope: 'full_room',
+        bathroomPaintRepairScopeSource: 'ai_inferred',
+      },
+    } as never);
+
+    const result = resolveStep2ComponentSuggestedPricing({
+      itemId: 'paint_repair',
+      templateKey: 'bathroom',
+      measurementsInput: {
+        ...input,
+        itemQuantities: {
+          paint_repair: { quantity: '80', unit: 'sqft', quantitySource: 'user_entered' },
+        },
+      },
+      resolved: { quantity: 80, unit: 'sqft', quantitySource: 'user_entered' },
+      pricingContext: {
+        checklistItems: [{ id: 'paint_repair', state: 'included', inputType: 'yes_no' }],
+      },
+    });
+
+    expect(result).toEqual({ fill: null, comparison: null });
+  });
+
   it('routes combined patch + paint through paint_repair when SF is entered', () => {
     const input = initialScopeMeasurementInputExtended({
       scopeChecklist: { templateKey: 'bathroom' },

@@ -340,6 +340,18 @@ describe('Step 2 benchmark + measurement-status binding', () => {
     ).toBe(false);
   });
 
+  it('treats persisted status/total metadata as already applied', () => {
+    expect(
+      scopeHasCommittedConfirmScopePrice({
+        itemId: 'cleanup',
+        itemQuantities: {},
+        pricingAcceptance: {
+          cleanup: { status: 'accepted', totalAmount: 1000 },
+        },
+      })
+    ).toBe(true);
+  });
+
   it('preserves legacy behavior when feature flags are off', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'false';
     process.env.EXPO_PUBLIC_BUILD_AI_BENCHMARK_ENGINE_V1 = 'false';

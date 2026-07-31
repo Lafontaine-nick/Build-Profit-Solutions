@@ -4,7 +4,11 @@ import {
   parseEnteredBathroomPatchSqft,
   resolveBathroomDrywallPatchSuggestedPricing,
 } from '@/utils/bathroomDrywallPatchPricing';
-import { resolveBathroomPaintRepairScope, shouldUseCombinedDrywallPaintAssembly } from '@/utils/bathroomDrywallPaintScope';
+import {
+  hasPaintRepairScopeSelection,
+  resolveBathroomPaintRepairScope,
+  shouldUseCombinedDrywallPaintAssembly,
+} from '@/utils/bathroomDrywallPaintScope';
 import { resolveBathroomInteriorPaintSuggestedPricing } from '@/utils/bathroomInteriorPaintPricing';
 import { resolveBathroomPaintRepairSuggestedPricing } from '@/utils/bathroomPaintRepairPricing';
 import { resolveBathroomPlumbingRoughSuggestedPricing } from '@/utils/bathroomPlumbingRoughPricing';
@@ -377,6 +381,17 @@ export function resolveStep2ComponentSuggestedPricing(
     const planningPatchSf = enteredPatchSf;
     const paintRepairScope = measurementsInput.bathroomPaintRepairScope;
     const useCombinedAssembly = measurementsInput.bathroomDrywallPaintUseCombinedAssembly;
+
+    // No ready/applyable paint price until the contractor picks affected-area
+    // or full-room. Prevents sticky entireRoom flags from pre-counting paint.
+    if (
+      !hasPaintRepairScopeSelection({
+        localizedScope: paintRepairScope,
+        scopeSource: measurementsInput.bathroomPaintRepairScopeSource,
+      })
+    ) {
+      return { fill: null, comparison: null };
+    }
 
     if (
       shouldUseCombinedDrywallPaintAssembly({

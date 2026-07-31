@@ -1407,9 +1407,14 @@ export const WET_AREA_DEMO_EMBEDDED_IDS = new Set(['tub_demo', 'shower_floor_dem
 
 /** Inject the matching labor + materials card directly under wet area install. */
 export function expandWetAreaDerivedScopeItems(items: ScopeChecklistItem[]): ScopeChecklistItem[] {
+  const wet = items.find((i) => i.id === 'wet_area_install');
+  // A notes-only draft can contain a direct shower_pan row without the newer
+  // wet_area_install parent. Preserve that card so applied mud-pan pricing
+  // never becomes an orphaned line with no Confirm Scope card.
+  if (!wet || !checklistItemInScope(wet)) {
+    return items.filter((i) => !WET_AREA_DERIVED_ITEM_IDS.has(i.id) || i.id === 'shower_pan');
+  }
   const withoutDerived = items.filter((i) => !WET_AREA_DERIVED_ITEM_IDS.has(i.id));
-  const wet = withoutDerived.find((i) => i.id === 'wet_area_install');
-  if (!wet || !checklistItemInScope(wet)) return withoutDerived;
   const spec = wet.choiceId ? WET_AREA_INSTALL_DERIVED[wet.choiceId] : null;
   if (!spec) return withoutDerived;
 
@@ -1637,8 +1642,17 @@ export function syncInteriorPaintScopeItems(
   if (!positiveSqft(params.wallPaintSqft)) return items;
   const bathroomPaintRepair = items.some((row) => row.id === 'paint_repair');
   const targetIds = bathroomPaintRepair ? new Set(['paint_repair']) : INTERIOR_PAINT_SCOPE_IDS;
+  // Bathroom uses one physical paint card. QM paint SF must not also keep legacy
+  // interior_paint/paint/prep selected — that double-counts ready pricing.
+  const legacyPaintIds = bathroomPaintRepair
+    ? new Set(['interior_paint', 'paint', 'paint_trim', 'prep'])
+    : null;
   let changed = false;
   const next = items.map((row) => {
+    if (legacyPaintIds?.has(row.id) && row.state !== 'excluded') {
+      changed = true;
+      return { ...row, state: 'excluded' as const };
+    }
     if (targetIds.has(row.id) && row.state !== 'included') {
       changed = true;
       return { ...row, state: 'included' as const };

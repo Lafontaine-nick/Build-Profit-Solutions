@@ -73,6 +73,18 @@ export function buildConfirmScopeDisplayItems(
   );
   if (String(templateKey || '').toLowerCase() === 'bathroom') {
     expanded = expandBathroomFixtureScopeDisplayItems(expanded, measurements, templateKey);
+    // One paint/patch card only — drop legacy QM paint IDs from the ready list.
+    if (expanded.some((row) => row.id === 'paint_repair')) {
+      expanded = expanded.filter(
+        (row) =>
+          row.id !== 'interior_paint' &&
+          row.id !== 'paint' &&
+          row.id !== 'paint_trim' &&
+          row.id !== 'prep' &&
+          row.id !== 'drywall' &&
+          row.id !== 'patch_repair'
+      );
+    }
   }
   if (String(templateKey || '').toLowerCase() === 'ground_up') {
     expanded = ensureGroundUpFlatworkScopeCard(expanded);

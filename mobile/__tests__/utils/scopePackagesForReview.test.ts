@@ -48,6 +48,21 @@ describe('scopePackagesForReview', () => {
     expect(waterproofIdx).toBeGreaterThan(demoIdx);
   });
 
+  it('keeps a direct notes-inferred mud pan card without a wet-area parent', () => {
+    const items: ScopeChecklistItem[] = [
+      {
+        id: 'shower_pan',
+        label: 'Shower mud pan build',
+        state: 'included',
+        inputType: 'yes_no',
+      },
+    ];
+
+    expect(buildConfirmScopeDisplayItems(items, {}, 'bathroom').map((item) => item.id)).toContain(
+      'shower_pan'
+    );
+  });
+
   it('orders Step 3 rows top-to-bottom like Step 2 checklist groups', () => {
     const draft = {
       scopeAssumptionsConfirmed: true,
