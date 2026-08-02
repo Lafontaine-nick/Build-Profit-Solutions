@@ -1,29 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { buildAiDashboardForUser } = require('../services/aiDashboardService');
+const { authenticateToken } = require('../middleware/authenticateToken');
 
-// Middleware to verify JWT token (optional - allows userId from body in development)
-const authenticateTokenOptional = async (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (token) {
-    try {
-      const jwt = require('jsonwebtoken');
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      req.user = decoded;
-    } catch (error) {
-      // If token is invalid, continue without auth (for development)
-      // In production, you might want to return 403 here
-      if (process.env.NODE_ENV === 'production') {
-        return res.status(403).json({ error: 'Invalid or expired token' });
-      }
-    }
-  }
-  // Continue even without token (allows userId from body)
-  next();
-};
-
+const authenticateTokenOptional = authenticateToken;
 
 /**
  * POST /api/ai/dashboard-insights

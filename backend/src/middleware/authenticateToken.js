@@ -24,17 +24,18 @@ async function authenticateToken(req, res, next) {
     return next();
   } catch (jwtError) {
     try {
-      const decoded = jwt.decode(token);
+      const secretKey = String(process.env.CLERK_SECRET_KEY || '').trim();
+      if (!secretKey || secretKey.includes('your_')) {
+        return res.status(503).json({ error: 'Authentication provider is not configured' });
+      }
+      const { verifyToken } = require('@clerk/backend');
+      const decoded = await verifyToken(token, { secretKey });
       if (decoded && decoded.sub) {
-        let clerkEmail =
+        const clerkEmail =
           decoded.email ||
           (typeof decoded.primary_email_address === 'string'
             ? decoded.primary_email_address
             : null);
-        if (!clerkEmail && Array.isArray(decoded.email_addresses)) {
-          clerkEmail =
-            decoded.email_addresses[0]?.email_address || null;
-        }
         req.user = {
           userId: decoded.sub,
           email: clerkEmail || headerEmail,

@@ -1848,12 +1848,23 @@ function isPricingReadyForPackage(name, scope, ctx = {}) {
 }
 
 function parsedTotalForPackage(name, scope, measurements = {}) {
-  const ruleKey = lookupRuleKeyForPackage(name, scope);
+  const text = `${name || ''} ${scope || ''}`;
+  const ruleKey =
+    lookupRuleKeyForPackage(name, scope) ||
+    (/\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/i.test(text) &&
+    /\b(?:tile|floor|flooring|lvp|vinyl|laminate|carpet)\b/i.test(text)
+      ? 'floor_demo'
+      : null);
   if (!ruleKey) return null;
 
   const itemQuantities = normalizeScopeMeasurements(measurements).itemQuantities || {};
-  const direct = itemQuantities[ruleKey];
-  const allowance = itemQuantities[`${ruleKey}__allowance`];
+  const aliases = [ruleKey];
+  if (ruleKey === 'demo') aliases.push('floor_demo');
+  if (ruleKey === 'interior_paint') aliases.push('paint');
+  const direct = aliases.map((key) => itemQuantities[key]).find(Boolean);
+  const allowance = aliases
+    .map((key) => itemQuantities[`${key}__allowance`])
+    .find(Boolean);
   const total = allowance?.quantity ?? direct?.quantity;
   const unit = allowance?.unit ?? direct?.unit;
 

@@ -3,9 +3,12 @@ const { v4: uuidv4 } = require('uuid');
 const router = express.Router();
 const fs = require('fs').promises;
 const path = require('path');
+const { authenticateToken } = require('../middleware/authenticateToken');
 
 // Storage file path
 const STORAGE_FILE = path.join(__dirname, '../../storage/invoices.json');
+
+router.use(authenticateToken);
 
 // Helper function to load invoices from disk
 async function loadInvoices() {

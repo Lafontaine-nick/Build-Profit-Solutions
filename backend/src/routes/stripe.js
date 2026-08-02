@@ -3,6 +3,7 @@ const router = express.Router();
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const stripeService = require('../services/stripeService');
 const { getMobilePlansCatalog } = require('../services/mobilePlanCatalog');
+const { authenticateToken } = require('../middleware/authenticateToken');
 
 /**
  * Stripe Checkout only allows http(s) success/cancel URLs — not custom schemes.
@@ -35,6 +36,22 @@ function sendDeepLinkHtml(res, { path, stripeQuery }) {
 </html>`;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(html);
+}
+
+function authenticatedEmail(req, requestedEmail) {
+  const ownerEmail = String(req.user?.email || '').trim().toLowerCase();
+  const requested = String(requestedEmail || '').trim().toLowerCase();
+  if (!ownerEmail) {
+    const error = new Error('Authenticated account email is required');
+    error.statusCode = 403;
+    throw error;
+  }
+  if (requested && requested !== ownerEmail) {
+    const error = new Error('Billing account does not belong to the authenticated user');
+    error.statusCode = 403;
+    throw error;
+  }
+  return ownerEmail;
 }
 
 router.get('/checkout-return', (req, res) => {
@@ -89,6 +106,9 @@ router.get('/mobile-plans', async (req, res) => {
   }
 });
 
+// Customer, checkout, subscription, and payment mutations require verified ownership.
+router.use(authenticateToken);
+
 // Create Stripe customer
 router.post('/customer', async (req, res) => {
   try {
@@ -100,10 +120,8 @@ router.post('/customer', async (req, res) => {
       });
     }
 
-    const { email, name } = req.body;
-    if (!email) {
-      return res.status(400).json({ success: false, error: 'email is required' });
-    }
+    const { name } = req.body;
+    const email = authenticatedEmail(req, req.body?.email);
 
     // Try to find existing customer by email first
     const existing = await stripe.customers.list({ email, limit: 1 });
@@ -138,8 +156,9 @@ router.post('/change-plan', async (req, res) => {
       });
     }
 
-    const { email, priceId } = req.body;
-    if (!email || !priceId) {
+    const { priceId } = req.body;
+    const email = authenticatedEmail(req, req.body?.email);
+    if (!priceId) {
       return res.status(400).json({
         success: false,
         error: 'email and priceId are required',
@@ -265,8 +284,9 @@ router.post('/change-plan', async (req, res) => {
 // Create checkout session using plan key (basic|premium) and email/name
 router.post('/subscribe', async (req, res) => {
   try {
-    const { email, name, plan, successUrl, cancelUrl } = req.body;
-    if (!email || !plan) {
+    const { name, plan, successUrl, cancelUrl } = req.body;
+    const email = authenticatedEmail(req, req.body?.email);
+    if (!plan) {
       return res.status(400).json({ success: false, error: 'email and plan are required' });
     }
 
@@ -310,6 +330,9 @@ router.post('/create-checkout-session', async (req, res) => {
         error: 'Missing required fields: customerId and priceId' 
       });
     }
+
+    const customer = await stripe.customers.retrieve(customerId);
+    authenticatedEmail(req, customer?.email);
 
     const session = await stripeService.createCheckoutSession(
       customerId, 
@@ -357,6 +380,8 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 router.get('/customer/:customerId/subscriptions', async (req, res) => {
   try {
     const { customerId } = req.params;
+    const customer = await stripe.customers.retrieve(customerId);
+    authenticatedEmail(req, customer?.email);
     const subscriptions = await stripe.subscriptions.list({
       customer: customerId,
       status: 'all',
@@ -380,24 +405,7 @@ router.get('/subscriptions', async (req, res) => {
       });
     }
 
-    // Get user email from auth token or request
-    const authHeader = req.headers.authorization;
-    let email = null;
-    
-    // Try to extract email from token or use query param
-    if (req.query.email) {
-      email = req.query.email;
-      console.log('📧 Using email from query param:', email);
-    } else if (req.user && req.user.email) {
-      email = req.user.email;
-      console.log('📧 Using email from req.user:', email);
-    }
-    
-    if (!email) {
-      console.log('⚠️ No email provided, returning empty subscriptions');
-      // If no email, return empty array (user might not have subscriptions yet)
-      return res.json({ success: true, subscriptions: [] });
-    }
+    const email = authenticatedEmail(req, req.query.email);
     
     // Find customer by email
     console.log('🔍 Searching for Stripe customer with email:', email);
@@ -470,7 +478,8 @@ router.post('/cancel-subscription', async (req, res) => {
         error: 'subscriptionId is required' 
       });
     }
-    
+    const existingSubscription = await stripe.subscriptions.retrieve(subscriptionId, { expand: ['customer'] });
+    authenticatedEmail(req, existingSubscription.customer?.email);
     const subscription = await stripe.subscriptions.update(subscriptionId, {
       cancel_at_period_end: true,
     });
@@ -486,6 +495,8 @@ router.post('/cancel-subscription', async (req, res) => {
 router.post('/subscriptions/:subscriptionId/cancel', async (req, res) => {
   try {
     const { subscriptionId } = req.params;
+    const existingSubscription = await stripe.subscriptions.retrieve(subscriptionId, { expand: ['customer'] });
+    authenticatedEmail(req, existingSubscription.customer?.email);
     const subscription = await stripe.subscriptions.update(subscriptionId, {
       cancel_at_period_end: true,
     });

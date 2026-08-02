@@ -1,5 +1,8 @@
 const express = require('express');
 const router = express.Router();
+const { authenticateToken } = require('../middleware/authenticateToken');
+
+router.use(authenticateToken);
 
 // AI Predictive Analytics endpoint
 router.post('/predictive-analytics', async (req, res) => {

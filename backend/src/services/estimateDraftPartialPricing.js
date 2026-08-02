@@ -315,6 +315,10 @@ function buildScopePackage(room, draft, originalNotes) {
   );
   let scopeQuantities =
     scopeQuantitiesFromRoom.length > 0 ? scopeQuantitiesFromRoom : scopeQuantitiesFromNotes;
+  const quantitySourceIsNotes =
+    scopeQuantitiesFromRoom.length === 0 &&
+    scopeQuantitiesFromNotes.length > 0 &&
+    !draft.scopeMeasurements;
 
   const {
     resolveQuantityForPackage,
@@ -336,7 +340,7 @@ function buildScopePackage(room, draft, originalNotes) {
         label: catalogResolved.label || sanitizedRoom.name,
         quantity: catalogResolved.quantity,
         unit: catalogResolved.unit,
-        quantitySource: catalogResolved.quantitySource,
+        quantitySource: quantitySourceIsNotes ? 'notes' : catalogResolved.quantitySource,
       },
     ];
   }

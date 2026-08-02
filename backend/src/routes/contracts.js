@@ -1,5 +1,5 @@
+/* global document, HTMLElement */
 const fs = require('fs');
-const path = require('path');
 const express = require('express');
 const { isRenderHosting } = require('../utils/renderEnv');
 const {
@@ -9,6 +9,7 @@ const {
   getPdfChromeEngine,
 } = require('../services/pdfBrowser');
 const { getChromeInstallMountStatus } = require('../services/puppeteerChromeInstall');
+const { authenticateToken } = require('../middleware/authenticateToken');
 
 const router = express.Router();
 
@@ -40,7 +41,7 @@ async function getBrowser() {
   }
 }
 
-router.post('/render-pdf', async (req, res) => {
+router.post('/render-pdf', authenticateToken, async (req, res) => {
   const html = String(req.body?.html || '').trim();
   const filename = sanitizeFilename(req.body?.filename || 'contract.pdf');
   const footerLeft = escapeHtmlFooterText(req.body?.footerLeft);
@@ -52,6 +53,12 @@ router.post('/render-pdf', async (req, res) => {
     return res.status(400).json({
       error: 'Missing HTML',
       message: 'Request body must include a non-empty `html` string.',
+    });
+  }
+  if (Buffer.byteLength(html, 'utf8') > 2_000_000) {
+    return res.status(413).json({
+      error: 'PDF request too large',
+      message: 'HTML payload must be 2 MB or smaller.',
     });
   }
 

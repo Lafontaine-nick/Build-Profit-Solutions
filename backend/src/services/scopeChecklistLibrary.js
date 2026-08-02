@@ -781,7 +781,8 @@ const CHECKLIST_YES_HINTS = {
   exterior_doors: /\b(exterior\s+doors?|entry\s+doors?|iron\s+doors?)\b/,
   sliding_doors: /\b(sliding\s+doors?|patio\s+doors?|sliders?)\b/,
   garage_doors: /\bgarage\s+doors?\b/,
-  windows_doors: /\b(windows?\s*(?:&|and)\s*doors?)\b/,
+  windows_doors:
+    /\b(?:windows?|exterior\s+doors?|entry\s+doors?|sliding\s+doors?|patio\s+doors?|sliders?)\b/,
   exterior_finishes: /\b(exterior\s+finishes|siding|soffit|fascia|exterior\s+trim)\b/,
   hvac: /\b(hvac|furnace|air\s+condition|heat\s+pump|duct(?:work)?|mini\s*split)\b/,
   insulation: /\b(insulat(?:e|ion)|batt\s+insulation|spray\s+foam)\b/,

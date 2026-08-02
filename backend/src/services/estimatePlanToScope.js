@@ -359,7 +359,19 @@ Schema:
  */
 function resolvePlanScopeCatalog(templateKey) {
   if (templateKey && CHECKLIST_TEMPLATES[templateKey]) {
-    return { catalog: collectAllowedItems(templateKey), templateKey };
+    const catalog = collectAllowedItems(templateKey);
+    if (templateKey === 'ground_up') {
+      const ids = new Set(catalog.map((item) => item.id));
+      const aliases = [
+        ['cabinets_counters', 'Cabinets & counters'],
+        ['paint_trim', 'Paint / trim'],
+        ['tile_flooring', 'Tile & flooring'],
+      ];
+      for (const [id, label] of aliases) {
+        if (!ids.has(id)) catalog.push({ id, label, inputType: 'yes_no', options: [] });
+      }
+    }
+    return { catalog, templateKey };
   }
   return { catalog: collectAllowedItems(null), templateKey: null };
 }

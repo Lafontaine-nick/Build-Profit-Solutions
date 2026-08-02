@@ -2,24 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { enrichDraft } = require('../services/estimateDraftEnrichment');
 const { getPricingProposal, toLegacyProposal } = require('../services/pricingEngine');
-
-const authenticateToken = async (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  if (!token) {
-    req.user = { userId: 'dev-user-1' };
-    return next();
-  }
-  try {
-    const jwt = require('jsonwebtoken');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (error) {
-    req.user = { userId: 'dev-user-1' };
-    next();
-  }
-};
+const { authenticateToken } = require('../middleware/authenticateToken');
 
 router.use(authenticateToken);
 

@@ -82,7 +82,7 @@ const ITEM_ALLOWANCE_MATCHERS = [
     id: 'floor_demo',
     // Require floor-specific language — bare "demo … tile" is shower wall/pan tear-out.
     match:
-      /\b(?:demo|demolition|tear[\s-]?out|remove|removal)\b[^.;]{0,80}\b(?:floor(?:ing)?|lvp|vinyl|laminate|carpet|floor\s+tile|tile\s+floor|bath(?:room)?\s+floor)\b|\b(?:floor(?:ing)?|lvp|vinyl|laminate|carpet|floor\s+tile|tile\s+floor|bath(?:room)?\s+floor)\b[^.;]{0,80}\b(?:demo|demolition|tear[\s-]?out|remove|removal)\b/i,
+      /\b(?:demo|demolition|tear[\s-]?out|remove|removal)\b[^.;]{0,80}\b(?:floor(?:ing)?|lvp|vinyl|laminate|carpet|floor\s+tile|tile\s+floor|bath(?:room)?\s+floor|(?:main|master)\s+bath)\b|\b(?:floor(?:ing)?|lvp|vinyl|laminate|carpet|floor\s+tile|tile\s+floor|bath(?:room)?\s+floor|(?:main|master)\s+bath)\b[^.;]{0,80}\b(?:demo|demolition|tear[\s-]?out|remove|removal)\b/i,
     unit: 'allowance',
   },
   {

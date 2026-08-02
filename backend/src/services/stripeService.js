@@ -1,4 +1,9 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const {
+  recordEvent,
+  upsertEntitlement,
+  markPaymentEvent,
+} = require('./stripeEntitlementStore');
 
 const SUBSCRIPTION_PLANS = {
   basic: {
@@ -72,6 +77,11 @@ const createCheckoutSession = async (customerId, priceId, successUrl, cancelUrl)
 
 const handleWebhook = async (event) => {
   try {
+    const firstDelivery = await recordEvent(event);
+    if (!firstDelivery) {
+      console.log(`Ignoring duplicate Stripe webhook ${event.id}`);
+      return;
+    }
     switch (event.type) {
       case 'customer.subscription.created':
         await handleSubscriptionCreated(event.data.object);
@@ -99,27 +109,27 @@ const handleWebhook = async (event) => {
 
 const handleSubscriptionCreated = async (subscription) => {
   console.log('Subscription created:', subscription.id);
-  // Add your business logic here
+  await upsertEntitlement(subscription);
 };
 
 const handleSubscriptionUpdated = async (subscription) => {
   console.log('Subscription updated:', subscription.id);
-  // Add your business logic here
+  await upsertEntitlement(subscription);
 };
 
 const handleSubscriptionDeleted = async (subscription) => {
   console.log('Subscription deleted:', subscription.id);
-  // Add your business logic here
+  await upsertEntitlement({ ...subscription, status: 'canceled' });
 };
 
 const handlePaymentSucceeded = async (invoice) => {
   console.log('Payment succeeded for invoice:', invoice.id);
-  // Add your business logic here
+  await markPaymentEvent(invoice);
 };
 
 const handlePaymentFailed = async (invoice) => {
   console.log('Payment failed for invoice:', invoice.id);
-  // Add your business logic here
+  await markPaymentEvent(invoice);
 };
 
 const getSubscriptionPlans = () => {

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const { authenticateToken } = require('../middleware/authenticateToken');
 
 // Helper to get customer ID from email
 async function getCustomerIdFromEmail(email) {
@@ -17,15 +18,28 @@ async function getCustomerIdFromEmail(email) {
   return null;
 }
 
+function getOwnedEmail(req, requestedEmail) {
+  const authenticatedEmail = String(req.user?.email || '').trim().toLowerCase();
+  const requested = String(requestedEmail || '').trim().toLowerCase();
+  if (!authenticatedEmail) {
+    const error = new Error('Authenticated account email is required');
+    error.statusCode = 403;
+    throw error;
+  }
+  if (requested && requested !== authenticatedEmail) {
+    const error = new Error('Payment account does not belong to the authenticated user');
+    error.statusCode = 403;
+    throw error;
+  }
+  return authenticatedEmail;
+}
+
+router.use(authenticateToken);
+
 // Get payment methods for a customer
 router.get('/', async (req, res) => {
   try {
-    const { email } = req.query;
-    
-    if (!email) {
-      console.log('⚠️ No email provided in payment methods request');
-      return res.json([]); // Return empty array instead of error
-    }
+    const email = getOwnedEmail(req, req.query.email);
 
     console.log('🔍 Looking up payment methods for email:', email);
     const customerId = await getCustomerIdFromEmail(email);
@@ -71,16 +85,17 @@ router.get('/', async (req, res) => {
 router.put('/:id/set-default', async (req, res) => {
   try {
     const { id } = req.params;
-    const { email } = req.body || req.query;
-
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required' });
-    }
+    const email = getOwnedEmail(req, (req.body || {}).email || req.query.email);
 
     const customerId = await getCustomerIdFromEmail(email);
     
     if (!customerId) {
       return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    const paymentMethod = await stripe.paymentMethods.retrieve(id);
+    if (paymentMethod.customer !== customerId) {
+      return res.status(403).json({ error: 'Payment method does not belong to the authenticated user' });
     }
 
     // Update customer's default payment method
@@ -94,7 +109,7 @@ router.put('/:id/set-default', async (req, res) => {
     res.json({ success: true, message: 'Default payment method updated' });
   } catch (error) {
     console.error('Error setting default payment method:', error);
-    res.status(500).json({ error: 'Failed to set default payment method' });
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Failed to set default payment method' });
   }
 });
 
@@ -102,6 +117,9 @@ router.put('/:id/set-default', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const paymentMethod = await stripe.paymentMethods.retrieve(id);
+    const customer = await stripe.customers.retrieve(paymentMethod.customer);
+    getOwnedEmail(req, customer.email);
 
     // Detach payment method from customer
     await stripe.paymentMethods.detach(id);
@@ -110,18 +128,15 @@ router.delete('/:id', async (req, res) => {
     res.json({ success: true, message: 'Payment method deleted' });
   } catch (error) {
     console.error('Error deleting payment method:', error);
-    res.status(500).json({ error: 'Failed to delete payment method' });
+    res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Failed to delete payment method' });
   }
 });
 
 // Create checkout session for adding payment method (setup mode)
 router.post('/checkout-session', async (req, res) => {
   try {
-    const { email, successUrl, cancelUrl } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required' });
-    }
+    const { successUrl, cancelUrl } = req.body;
+    const email = getOwnedEmail(req, req.body?.email);
 
     let customerId = await getCustomerIdFromEmail(email);
     
@@ -159,11 +174,7 @@ router.post('/checkout-session', async (req, res) => {
 // Create setup intent for adding a new payment method (alternative method)
 router.post('/setup-intent', async (req, res) => {
   try {
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required' });
-    }
+    const email = getOwnedEmail(req, req.body?.email);
 
     let customerId = await getCustomerIdFromEmail(email);
     
