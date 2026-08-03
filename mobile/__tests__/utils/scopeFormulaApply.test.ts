@@ -364,6 +364,35 @@ describe('resolveFormulaQuantityApplyTarget', () => {
     });
   });
 
+  it('prices each selected plumbing connection with its own count', () => {
+    const input = {
+      ...emptyQuickMeasurementInput(),
+      itemQuantities: {
+        plumbing: { quantity: '1', unit: 'each', quantitySource: 'user_entered' },
+        plumbing__dishwasher_hookup: { quantity: '2', unit: 'each', quantitySource: 'user_entered' },
+        plumbing__gas_existing_shutoff: { quantity: '1', unit: 'each', quantitySource: 'user_entered' },
+      },
+    } as any;
+    const resolved = resolveChecklistItemQuantity('plumbing', input, {
+      templateKey: 'kitchen',
+    });
+    const pricing = resolveScopeItemSuggestedPricing(
+      'plumbing',
+      input,
+      'kitchen',
+      resolved,
+      undefined,
+      'dishwasher_hookup,gas_existing_shutoff'
+    );
+
+    expect(pricing.fill).toMatchObject({
+      material: 150,
+      labor: 625,
+      total: 775,
+      basis: { quantity: 3, unit: 'each' },
+    });
+  });
+
   it('adds pricing when multiple lighting types are selected', () => {
     const input = {
       ...emptyQuickMeasurementInput(),
@@ -389,6 +418,58 @@ describe('resolveFormulaQuantityApplyTarget', () => {
       total: 1150,
       basis: { quantity: 2, unit: 'each' },
     });
+  });
+
+  it('prices wall removal and wall construction as separate linear-foot rates', () => {
+    const input = {
+      ...emptyQuickMeasurementInput(),
+      itemQuantities: {
+        walls_moving__remove: { quantity: '10', unit: 'lf', quantitySource: 'user_entered' },
+        walls_moving__add: { quantity: '10', unit: 'lf', quantitySource: 'user_entered' },
+      },
+    } as any;
+    const resolved = resolveChecklistItemQuantity('walls_moving', input, {
+      templateKey: 'kitchen',
+    });
+    const pricing = resolveScopeItemSuggestedPricing(
+      'walls_moving',
+      input,
+      'kitchen',
+      resolved,
+      undefined,
+      'remove,add'
+    );
+
+    expect(pricing.fill).toMatchObject({
+      material: 280,
+      labor: 630,
+      total: 910,
+      basis: { quantity: 20, unit: 'lf' },
+    });
+  });
+
+  it('does not show wall pricing until linear feet are entered', () => {
+    const input = {
+      ...emptyQuickMeasurementInput(),
+      itemQuantities: {},
+    } as any;
+    const pricingInput = {
+      ...input,
+      itemQuantities: {},
+    };
+    const resolved = resolveChecklistItemQuantity('walls_moving', input, {
+      templateKey: 'kitchen',
+    });
+    const pricing = resolveScopeItemSuggestedPricing(
+      'walls_moving',
+      pricingInput,
+      'kitchen',
+      resolved,
+      undefined,
+      'remove'
+    );
+
+    expect(pricing.fill).toBeNull();
   });
 
   it('hides paintable-SF takeoff button for interior paint installed budgets', () => {

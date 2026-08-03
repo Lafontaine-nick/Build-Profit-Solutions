@@ -18,6 +18,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '@clerk/clerk-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
@@ -33,6 +34,7 @@ import EstimatePlanImportStrip, {
 } from '@/components/estimate/EstimatePlanImportStrip';
 import type { PhotoExistingFeature, PhotoScopeDetection, PlanImportPayload } from '@/utils/estimateAiDraft';
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
+import { syncClerkTokenToAsyncStorage } from '@/utils/authTokenHelper';
 import {
   buildImportedPlanSummaryText,
   buildPlanReadyJobNotesPrompt,
@@ -95,6 +97,7 @@ export default function AIEstimateBuilderModal({
   onGenerate,
 }: Props) {
   const insets = useSafeAreaInsets();
+  const { getToken } = useAuth();
   const { theme, darkMode } = useTheme();
   const Colors = useMemo(() => getColors(theme), [theme]);
   const photosStripRef = useRef<EstimateSitePhotosStripHandle>(null);
@@ -115,6 +118,16 @@ export default function AIEstimateBuilderModal({
   const [localGenerating, setLocalGenerating] = useState(false);
   const busy = generating || localGenerating;
   const semanticsOn = measurementSemanticsV1Enabled();
+
+  useEffect(() => {
+    if (!visible) return;
+    void getToken()
+      .then((token) => {
+        if (token) return syncClerkTokenToAsyncStorage(token);
+        return undefined;
+      })
+      .catch(() => undefined);
+  }, [getToken, visible]);
 
   const wasVisibleRef = useRef(false);
   useEffect(() => {

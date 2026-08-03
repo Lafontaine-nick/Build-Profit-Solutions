@@ -2598,6 +2598,27 @@ function suggestedUnitRatesFromBlock(
   itemId?: string,
   unit?: string
 ): { materialRate: number; laborRate: number } | null {
+  // Keep the exact national-average rate shown in the suggestion when it has
+  // already been adjusted for the current region. Falling back to the raw
+  // catalog here made Takeoff change $108.50 to $105 for the same 50 sqft.
+  const suggestedBasisQty = Number(block?.basis?.quantity);
+  const usesNationalAverage =
+    block?.materialSource === 'national_average' ||
+    block?.laborSource === 'national_average' ||
+    /national average/i.test(String(block?.rateSourceLabel || ''));
+  if (
+    usesNationalAverage &&
+    Number.isFinite(suggestedBasisQty) &&
+    suggestedBasisQty > 0 &&
+    Number(block?.material) >= 0 &&
+    Number(block?.labor) >= 0
+  ) {
+    return {
+      materialRate: roundMoney2(Number(block?.material) / suggestedBasisQty),
+      laborRate: roundMoney2(Number(block?.labor) / suggestedBasisQty),
+    };
+  }
+
   // Catalog rates win for takeoff scaling. Block totals are often stale for a
   // different count (e.g. $325+$475 left over from qty 1 while count is 2/3).
   const nationalRates = nationalAverageUnitRates(itemId, unit || block?.basis?.unit);
@@ -2794,9 +2815,9 @@ function MaterialLaborSplitEditor({
     if (!getPendingUpdatesRef) return;
     getPendingUpdatesRef.current = () => {
       if (entryMode !== 'takeoff' || splitTotalOnly) return [];
-      if (!basisFocused && basisDraft === pricingBasisValue) return [];
-      const nextQty = parseMoneyAmount(basisDraft);
+      const nextQty = parseMoneyAmount(basisDraft) || effectiveBasisQty;
       const previousQty = lastBasisQtyRef.current ?? effectiveBasisQty;
+      if (!(nextQty > 0)) return [];
       const { materialRate, laborRate } = scaleRatesForQuantity(nextQty, previousQty);
       lockedRatesRef.current = {
         material: materialRate,
@@ -2805,7 +2826,7 @@ function MaterialLaborSplitEditor({
       const updates = [
         {
           itemId: sqftBasisKey,
-          quantity: basisDraft,
+          quantity: basisDraft || String(nextQty),
           unit: basisUnit,
           quantitySource: 'user_entered' as const,
         },
@@ -3503,6 +3524,7 @@ function QuantitySection({
   pricingEditorRequest,
   onPricingEditorRequestHandled,
   suppressSuggestedPricing = false,
+  hideInlineTakeoff = false,
   Colors,
   darkMode,
   applying,
@@ -3515,6 +3537,8 @@ function QuantitySection({
   scopeItemLabel: string;
   /** Parent renders a bundled suggestion (e.g. separate drywall + paint lines). */
   suppressSuggestedPricing?: boolean;
+  /** Parent renders per-choice quantity fields instead of one shared takeoff field. */
+  hideInlineTakeoff?: boolean;
   measurementsInput: ScopeMeasurementsInputExtended;
   onItemQuantityChange: (
     itemId: string,
@@ -4578,6 +4602,7 @@ function QuantitySection({
               ? () => onRevertCalculatedQuantity(itemId)
               : undefined;
           const showInlineSqftTakeoff =
+            !hideInlineTakeoff &&
             !accepted &&
             step2TierNeedsInlineTakeoffEntry(
               itemId,
@@ -4812,17 +4837,17 @@ function QuantitySection({
               Status: Needs finish allocation and material-specific takeoff
             </Text>
           </View>
-        ) : cardOwnsMissingCopy || suggestedBudgetSplit ? null : (
+        ) : hideInlineTakeoff || cardOwnsMissingCopy || suggestedBudgetSplit ? null : (
           <Text style={{ color: '#fbbf24', fontSize: 11, fontWeight: '700', marginBottom: 6 }}>
             {neededStatusLine}
           </Text>
         )}
-        {!showGrossFloorPlanning && !cardOwnsMissingCopy && rule.quantityHelper ? (
+        {!hideInlineTakeoff && !showGrossFloorPlanning && !cardOwnsMissingCopy && rule.quantityHelper ? (
           <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, marginBottom: 4, lineHeight: 15 }}>
             {rule.quantityHelper}
           </Text>
         ) : null}
-        {step2TierNeedsInlineTakeoffEntry(
+        {!hideInlineTakeoff && step2TierNeedsInlineTakeoffEntry(
           itemId,
           templateKey,
           resolved,
@@ -6567,6 +6592,71 @@ function YesNoRow({
   );
 }
 
+function multiChoicePriceRows(
+  itemId: string,
+  choiceIds: string[],
+  quantity: number,
+  itemQuantities: ScopeMeasurementsInputExtended['itemQuantities']
+): Array<{ label: string; quantity: number; unitTotal: number; subtotal: number }> {
+  const rates: Record<string, Record<string, number>> = {
+    plumbing: {
+      dishwasher_hookup: 275,
+      gas_existing_shutoff: 225,
+      gas_branch_line: 750,
+      rough_in: 900,
+    },
+    electrical: {
+      replace_outlet_switch: 85,
+      replace_gfci: 125,
+      add_relocate_outlet_gfci: 275,
+      dedicated_120v: 750,
+      dedicated_240v: 950,
+    },
+    lighting: {
+      standard_existing_location: 325,
+      decorative_existing_location: 475,
+      new_recessed_led: 250,
+      new_location_with_wiring: 650,
+    },
+  };
+  const labels: Record<string, Record<string, string>> = {
+    plumbing: {
+      dishwasher_hookup: 'Dishwasher replacement',
+      gas_existing_shutoff: 'Gas range connection',
+      gas_branch_line: 'New gas branch line',
+      rough_in: 'New plumbing rough-in',
+    },
+    electrical: {
+      replace_outlet_switch: 'Replace outlet or switch',
+      replace_gfci: 'Replace or install GFCI',
+      add_relocate_outlet_gfci: 'Add or relocate outlet/GFCI',
+      dedicated_120v: 'Dedicated 120V circuit',
+      dedicated_240v: 'Dedicated 240V circuit',
+    },
+    lighting: {
+      standard_existing_location: 'Standard fixture',
+      decorative_existing_location: 'Decorative fixture/pendant',
+      new_recessed_led: 'New recessed LED',
+      new_location_with_wiring: 'New lighting location with wiring',
+    },
+  };
+  const itemRates = rates[itemId];
+  if (!itemRates || !(quantity > 0)) return [];
+  return choiceIds
+    .filter((choiceId) => itemRates[choiceId] != null)
+    .map((choiceId) => {
+      const choiceQuantity = Number(itemQuantities?.[`${itemId}__${choiceId}`]?.quantity);
+      const effectiveQuantity =
+        Number.isFinite(choiceQuantity) && choiceQuantity > 0 ? choiceQuantity : quantity;
+      return {
+        label: labels[itemId]?.[choiceId] || choiceId,
+        quantity: effectiveQuantity,
+        unitTotal: itemRates[choiceId],
+        subtotal: effectiveQuantity * itemRates[choiceId],
+      };
+    });
+}
+
 function MultiChoiceRow({
   item,
   templateKey,
@@ -6652,6 +6742,32 @@ function MultiChoiceRow({
   const helper = checklistDisplayHelper(item, templateKey);
   const tier = scopeItemVisualTier(item, visualCtx);
   const noteBadge = scopeItemNoteBadge(item, visualCtx);
+  const wallWorkChoiceIds = choiceIds.filter((id) => id === 'remove' || id === 'add');
+  const selectedQuantity = Number(measurementsInput.itemQuantities[item.id]?.quantity);
+  const choicePricingRows = multiChoicePriceRows(
+    item.id,
+    choiceIds,
+    selectedQuantity,
+    measurementsInput.itemQuantities
+  );
+  const countChoiceItem = ['plumbing', 'electrical', 'lighting'].includes(item.id);
+  const perOptionCountItem = countChoiceItem;
+  const countChoiceRateIds: Record<string, string[]> = {
+    plumbing: ['dishwasher_hookup', 'gas_existing_shutoff', 'gas_branch_line', 'rough_in'],
+    electrical: [
+      'replace_outlet_switch',
+      'replace_gfci',
+      'add_relocate_outlet_gfci',
+      'dedicated_120v',
+      'dedicated_240v',
+    ],
+    lighting: [
+      'standard_existing_location',
+      'decorative_existing_location',
+      'new_recessed_led',
+      'new_location_with_wiring',
+    ],
+  };
 
   return (
     <View style={scopeCardStyle(tier, item, Colors, darkMode)}>
@@ -6714,31 +6830,171 @@ function MultiChoiceRow({
           );
         })}
       </View>
-      <QuantitySection
-        itemId={item.id}
-        choiceId={choiceIds.join(',')}
-        inScope={inScope}
-        templateKey={templateKey}
-        originalNotes={originalNotes}
-        measurementsInput={measurementsInput}
-        onItemQuantityChange={onItemQuantityChange}
-        onBatchItemQuantityChange={onBatchItemQuantityChange}
-        onClearSuggestedPrefill={onClearSuggestedPrefill}
-        onItemQuantityBlur={onItemQuantityBlur}
-        onItemQuantityFocus={onItemQuantityFocus}
-        onApplySuggestedPricing={onApplySuggestedPricing}
-        onClearAcceptedPricing={onClearAcceptedPricing}
-        onScopeGapResolutionsChange={onScopeGapResolutionsChange}
-        onScopeGapPriceSeparately={onScopeGapPriceSeparately}
-        onScopeGapIncludeInParentPrice={onScopeGapIncludeInParentPrice}
-        onRevertCalculatedQuantity={onRevertCalculatedQuantity}
-        pricingEditorRequest={pricingEditorRequest}
-        onPricingEditorRequestHandled={onPricingEditorRequestHandled}
-        scopeItemLabel={checklistDisplayLabel(item, templateKey)}
-        Colors={Colors}
-        darkMode={darkMode}
-        applying={applying}
-      />
+      {perOptionCountItem && inScope ? (
+        choiceIds
+          .filter((choiceId) => countChoiceRateIds[item.id]?.includes(choiceId))
+          .map((choiceId) => {
+            const label =
+              item.options?.find((option) => option.id === choiceId)?.label || choiceId;
+            const quantityKey = `${item.id}__${choiceId}`;
+            return (
+              <View key={quantityKey} style={{ marginTop: 10 }}>
+                <PricingInputField
+                  label={`${label} · count`}
+                  value={measurementsInput.itemQuantities[quantityKey]?.quantity ?? '1'}
+                  suffix="each"
+                  embedded
+                  onFocus={() => onItemQuantityFocus(quantityKey, 'count')}
+                  onChangeText={(text) => onItemQuantityChange(quantityKey, text, 'count', 'each')}
+                  onBlur={() => onItemQuantityBlur(quantityKey, 'count')}
+                  Colors={Colors}
+                  darkMode={darkMode}
+                  applying={applying}
+                />
+              </View>
+            );
+          })
+      ) : countChoiceItem && inScope ? (
+        <View style={{ marginTop: 10 }}>
+          <PricingInputField
+            label="Count"
+            value={
+              measurementsInput.itemQuantities[item.id]?.quantity ||
+              (selectedQuantity > 0 ? String(selectedQuantity) : '1')
+            }
+            suffix="each"
+            embedded
+            onFocus={() => onItemQuantityFocus(item.id, 'count')}
+            onChangeText={(text) => onItemQuantityChange(item.id, text, 'count', 'each')}
+            onBlur={() => onItemQuantityBlur(item.id, 'count')}
+            Colors={Colors}
+            darkMode={darkMode}
+            applying={applying}
+          />
+        </View>
+      ) : null}
+      {choicePricingRows.length ? (
+        <View
+          style={{
+            marginTop: 10,
+            padding: 10,
+            borderRadius: 10,
+            backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+          }}
+        >
+          <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '800', marginBottom: 6 }}>
+            Selected work pricing
+          </Text>
+          {choicePricingRows.map((row) => (
+            <View
+              key={row.label}
+              style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}
+            >
+              <Text style={{ color: captionColor(darkMode, Colors), fontSize: 12 }}>
+                {row.label} · {row.quantity} each
+              </Text>
+              <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}>
+                ${row.subtotal.toLocaleString()}
+              </Text>
+            </View>
+          ))}
+          <View
+            style={{
+              borderTopWidth: 1,
+              borderTopColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line,
+              marginTop: 4,
+              paddingTop: 6,
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+            }}
+          >
+            <Text style={{ color: Colors.text, fontSize: 12, fontWeight: '800' }}>
+              Selected work total
+            </Text>
+            <Text style={{ color: '#22c55e', fontSize: 13, fontWeight: '800' }}>
+              ${choicePricingRows.reduce((sum, row) => sum + row.subtotal, 0).toLocaleString()}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+      {item.id === 'walls_moving' ? (
+        <>
+          {wallWorkChoiceIds.map((wallChoiceId) => {
+            const label =
+              item.options?.find((option) => option.id === wallChoiceId)?.label || wallChoiceId;
+            const quantityKey = `${item.id}__${wallChoiceId}`;
+            return (
+              <View key={quantityKey} style={{ marginTop: 10 }}>
+                <PricingInputField
+                  label={`${label} · linear feet`}
+                  value={measurementsInput.itemQuantities[quantityKey]?.quantity ?? ''}
+                  suffix="LF"
+                  embedded
+                  onFocus={() => onItemQuantityFocus(quantityKey, 'count')}
+                  onChangeText={(text) => onItemQuantityChange(quantityKey, text, 'count', 'lf')}
+                  onBlur={() => onItemQuantityBlur(quantityKey, 'count')}
+                  Colors={Colors}
+                  darkMode={darkMode}
+                  applying={applying}
+                />
+              </View>
+            );
+          })}
+          <QuantitySection
+            itemId={item.id}
+            choiceId={choiceIds.join(',')}
+            inScope={inScope}
+            templateKey={templateKey}
+            originalNotes={originalNotes}
+            measurementsInput={measurementsInput}
+            onItemQuantityChange={onItemQuantityChange}
+            onBatchItemQuantityChange={onBatchItemQuantityChange}
+            onClearSuggestedPrefill={onClearSuggestedPrefill}
+            onItemQuantityBlur={onItemQuantityBlur}
+            onItemQuantityFocus={onItemQuantityFocus}
+            onApplySuggestedPricing={onApplySuggestedPricing}
+            onClearAcceptedPricing={onClearAcceptedPricing}
+            onScopeGapResolutionsChange={onScopeGapResolutionsChange}
+            onScopeGapPriceSeparately={onScopeGapPriceSeparately}
+            onScopeGapIncludeInParentPrice={onScopeGapIncludeInParentPrice}
+            onRevertCalculatedQuantity={onRevertCalculatedQuantity}
+            pricingEditorRequest={pricingEditorRequest}
+            onPricingEditorRequestHandled={onPricingEditorRequestHandled}
+            hideInlineTakeoff
+            scopeItemLabel={checklistDisplayLabel(item, templateKey)}
+            Colors={Colors}
+            darkMode={darkMode}
+            applying={applying}
+          />
+        </>
+      ) : (
+        <QuantitySection
+          itemId={item.id}
+          choiceId={choiceIds.join(',')}
+          inScope={inScope}
+          templateKey={templateKey}
+          originalNotes={originalNotes}
+          measurementsInput={measurementsInput}
+          onItemQuantityChange={onItemQuantityChange}
+          onBatchItemQuantityChange={onBatchItemQuantityChange}
+          onClearSuggestedPrefill={onClearSuggestedPrefill}
+          onItemQuantityBlur={onItemQuantityBlur}
+          onItemQuantityFocus={onItemQuantityFocus}
+          onApplySuggestedPricing={onApplySuggestedPricing}
+          onClearAcceptedPricing={onClearAcceptedPricing}
+          onScopeGapResolutionsChange={onScopeGapResolutionsChange}
+          onScopeGapPriceSeparately={onScopeGapPriceSeparately}
+          onScopeGapIncludeInParentPrice={onScopeGapIncludeInParentPrice}
+          onRevertCalculatedQuantity={onRevertCalculatedQuantity}
+          pricingEditorRequest={pricingEditorRequest}
+          onPricingEditorRequestHandled={onPricingEditorRequestHandled}
+          hideInlineTakeoff={countChoiceItem}
+          scopeItemLabel={checklistDisplayLabel(item, templateKey)}
+          Colors={Colors}
+          darkMode={darkMode}
+          applying={applying}
+        />
+      )}
     </View>
   );
 }
@@ -11876,7 +12132,30 @@ export default function AIEstimateScopeAssumptionsModal({
                 pricingAcceptance: previous.pricingAcceptance,
               });
               const itemQuantities = { ...cleared.itemQuantities };
-              delete itemQuantities[item.id];
+              if (optionId !== 'unsure' && optionId !== 'not_in_scope') {
+                const existingCount = Number(previous.itemQuantities?.[item.id]?.quantity);
+                itemQuantities[item.id] = {
+                  quantity:
+                    Number.isFinite(existingCount) && existingCount > 0
+                      ? String(existingCount)
+                      : '1',
+                  unit: 'each',
+                  quantitySource: 'user_entered',
+                };
+                if (['plumbing', 'electrical', 'lighting'].includes(item.id)) {
+                  const existingOptionCount = Number(
+                    previous.itemQuantities?.[`${item.id}__${optionId}`]?.quantity
+                  );
+                  itemQuantities[`${item.id}__${optionId}`] = {
+                    quantity:
+                      Number.isFinite(existingOptionCount) && existingOptionCount > 0
+                        ? String(existingOptionCount)
+                        : '1',
+                    unit: 'each',
+                    quantitySource: 'user_entered',
+                  };
+                }
+              }
               return {
                 ...previous,
                 itemQuantities,

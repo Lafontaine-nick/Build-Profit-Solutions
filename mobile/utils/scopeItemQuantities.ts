@@ -2475,7 +2475,8 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
   plumbing: {
     defaultUnit: 'each',
     allowedUnits: ['each', 'allowance', 'lump_sum'],
-    requiresUserQuantity: true,
+    requiresUserQuantity: false,
+    defaultQuantity: 1,
     quantityHelper:
       'Choose the connection type, then enter the quantity for the selected connection. Sink/faucet, disposal, and other appliance hookups are separate scope items.',
     missingMessage: 'Enter plumbing connection count or pricing.',
@@ -2487,6 +2488,14 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     quantityHelper:
       'Enter the quantity for each selected outlet, GFCI, relocation, or dedicated circuit type. Lighting is separate.',
     missingMessage: 'Enter electrical item quantity or pricing.',
+  },
+  walls_moving: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter the linear feet of wall removed and/or added. Removal and new wall construction are priced separately.',
+    missingMessage: 'Enter wall linear feet or pricing.',
   },
   electrical_rough: {
     defaultUnit: 'each',
@@ -3750,6 +3759,7 @@ function resolveStoredAllowanceSplitQuantity(
   const materialEntry = parseStoredItemQuantity(measurements, allowanceSplitSubKey(itemId, 'material'));
   const laborEntry = parseStoredItemQuantity(measurements, allowanceSplitSubKey(itemId, 'labor'));
   const storedAllowance = parseStoredItemQuantity(measurements, allowanceSplitSubKey(itemId, 'allowance'));
+  const storedBasis = parseStoredItemQuantity(measurements, allowanceSplitSubKey(itemId, 'sqft_basis'));
   const splitTotal = (materialEntry?.quantity ?? 0) + (laborEntry?.quantity ?? 0);
 
   const overrideMoney =
@@ -3775,9 +3785,12 @@ function resolveStoredAllowanceSplitQuantity(
     override?.quantitySource ||
     'user_entered';
 
+  // Split pricing stores both the dollar total and the physical takeoff. The
+  // card must display the takeoff (for example, 50 sqft), never the dollar
+  // total (for example, $108.50) as if it were a measurement.
   return {
-    quantity: total,
-    unit: 'allowance',
+    quantity: storedBasis?.quantity > 0 ? storedBasis.quantity : total,
+    unit: storedBasis?.quantity > 0 ? storedBasis.unit : 'allowance',
     quantitySource,
     sourceLabel: sourceLabel(quantitySource),
     pricingReady: true,
@@ -6938,12 +6951,47 @@ export function resolveScopeItemSuggestedPricing(
     const selectedTypes = String(choiceId || '')
       .split(',')
       .map((id) => rates[id])
-      .filter((rate): rate is { material: number; labor: number; label: string } => Boolean(rate));
+      .map((rate, index) => ({
+        rate,
+        choiceId: String(choiceId || '').split(',')[index],
+      }))
+      .filter(
+        (entry): entry is {
+          rate: { material: number; labor: number; label: string };
+          choiceId: string;
+        } => Boolean(entry.rate)
+      );
     if (selectedTypes.length) {
-      const count = Math.max(1, Number(resolved.quantity) || 1);
-      const material = round2(count * selectedTypes.reduce((sum, rate) => sum + rate.material, 0));
-      const labor = round2(count * selectedTypes.reduce((sum, rate) => sum + rate.labor, 0));
-      const labels = selectedTypes.map((rate) => rate.label).join(' + ');
+      const directQuantity = Number(itemQuantities[itemId]?.quantity);
+      const fallbackCount =
+        Number.isFinite(directQuantity) && directQuantity > 0
+          ? directQuantity
+          : Math.max(1, Number(resolved.quantity) || 1);
+      const quantities = selectedTypes.map(({ choiceId: selectedChoiceId }) => ({
+        choiceId: selectedChoiceId,
+        quantity:
+          Number(itemQuantities[`${itemId}__${selectedChoiceId}`]?.quantity) || fallbackCount,
+      }));
+      const material = round2(
+        selectedTypes.reduce(
+          (sum, { rate }, index) => sum + quantities[index].quantity * rate.material,
+          0
+        )
+      );
+      const labor = round2(
+        selectedTypes.reduce(
+          (sum, { rate }, index) => sum + quantities[index].quantity * rate.labor,
+          0
+        )
+      );
+      const hasPerOptionQuantities = selectedTypes.some(
+        ({ choiceId: selectedChoiceId }) =>
+          itemQuantities[`${itemId}__${selectedChoiceId}`] != null
+      );
+      const totalQuantity = hasPerOptionQuantities
+        ? round2(quantities.reduce((sum, entry) => sum + entry.quantity, 0))
+        : fallbackCount;
+      const labels = selectedTypes.map(({ rate }) => rate.label).join(' + ');
       return {
         fill: {
           material,
@@ -6952,10 +7000,10 @@ export function resolveScopeItemSuggestedPricing(
           materialSource: 'national_average',
           laborSource: 'national_average',
           rateSourceLabel: `Suggested budget split · National Average · ${labels}`,
-          helper: `${count.toLocaleString()} each selected lighting type`,
+          helper: `${totalQuantity.toLocaleString()} total fixtures across selected types`,
           mode: 'suggested_price',
           lumpSumOnly: false,
-          basis: { quantity: count, unit: 'each' },
+          basis: { quantity: totalQuantity, unit: 'each' },
           benchmarkAction: 'price_ready',
           pricingRecordId: `bps_national:lighting:${String(choiceId)}:each`,
           productionStatus: 'review_required',
@@ -6995,8 +7043,16 @@ export function resolveScopeItemSuggestedPricing(
     };
     const selectedTypes = String(choiceId || '')
       .split(',')
-      .map((id) => rates[id])
-      .filter((rate): rate is { material: number; labor: number; label: string } => Boolean(rate));
+      .map((selectedChoiceId) => ({
+        choiceId: selectedChoiceId,
+        rate: rates[selectedChoiceId],
+      }))
+      .filter(
+        (entry): entry is {
+          choiceId: string;
+          rate: { material: number; labor: number; label: string };
+        } => Boolean(entry.rate)
+      );
     if (selectedTypes.length) {
       const directQuantity = Number(itemQuantities[itemId]?.quantity);
       const appliedAllowance = Number(itemQuantities[`${itemId}__allowance`]?.quantity);
@@ -7005,10 +7061,25 @@ export function resolveScopeItemSuggestedPricing(
         Number.isFinite(appliedAllowance) &&
         directQuantity > 1 &&
         Math.abs(directQuantity - appliedAllowance) < 0.01;
-      const count = staleAppliedCount ? 1 : Math.max(1, Number(resolved.quantity) || 1);
-      const material = round2(count * selectedTypes.reduce((sum, rate) => sum + rate.material, 0));
-      const labor = round2(count * selectedTypes.reduce((sum, rate) => sum + rate.labor, 0));
-      const labels = selectedTypes.map((rate) => rate.label).join(' + ');
+      const fallbackCount = staleAppliedCount ? 1 : Math.max(1, Number(resolved.quantity) || 1);
+      const quantities = selectedTypes.map(({ choiceId: selectedChoiceId }) => {
+        const optionQuantity = Number(itemQuantities[`${itemId}__${selectedChoiceId}`]?.quantity);
+        return Number.isFinite(optionQuantity) && optionQuantity > 0 ? optionQuantity : fallbackCount;
+      });
+      const material = round2(
+        selectedTypes.reduce((sum, { rate }, index) => sum + quantities[index] * rate.material, 0)
+      );
+      const labor = round2(
+        selectedTypes.reduce((sum, { rate }, index) => sum + quantities[index] * rate.labor, 0)
+      );
+      const hasPerOptionQuantities = selectedTypes.some(
+        ({ choiceId: selectedChoiceId }) =>
+          itemQuantities[`${itemId}__${selectedChoiceId}`] != null
+      );
+      const totalQuantity = hasPerOptionQuantities
+        ? round2(quantities.reduce((sum, quantity) => sum + quantity, 0))
+        : fallbackCount;
+      const labels = selectedTypes.map(({ rate }) => rate.label).join(' + ');
       return {
         fill: {
           material,
@@ -7017,12 +7088,83 @@ export function resolveScopeItemSuggestedPricing(
           materialSource: 'national_average',
           laborSource: 'national_average',
           rateSourceLabel: `Suggested budget split · National Average · ${labels}`,
-          helper: `${count.toLocaleString()} each selected electrical type`,
+          helper: `${totalQuantity.toLocaleString()} total electrical items across selected types`,
           mode: 'suggested_price',
           lumpSumOnly: false,
-          basis: { quantity: count, unit: 'each' },
+          basis: { quantity: totalQuantity, unit: 'each' },
           benchmarkAction: 'price_ready',
           pricingRecordId: `bps_national:electrical:${String(choiceId)}:each`,
+          productionStatus: 'review_required',
+        },
+        comparison: null,
+      };
+    }
+    if (String(choiceId || '').split(',').includes('unsure')) return empty;
+  }
+
+  if (itemId === 'walls_moving') {
+    const rates: Record<string, { material: number; labor: number; label: string }> = {
+      remove: {
+        material: 8,
+        labor: 18,
+        label: 'remove and haul existing non-load-bearing wall',
+      },
+      add: {
+        material: 20,
+        labor: 45,
+        label: 'frame, drywall, finish, and install new wall',
+      },
+    };
+    const selectedTypes = String(choiceId || '')
+      .split(',')
+      .map((selectedChoiceId) => ({
+        choiceId: selectedChoiceId,
+        rate: rates[selectedChoiceId],
+      }))
+      .filter(
+        (entry): entry is {
+          choiceId: string;
+          rate: { material: number; labor: number; label: string };
+        } => Boolean(entry.rate)
+      );
+    if (selectedTypes.length) {
+      const quantities = selectedTypes.map(({ choiceId: selectedChoiceId }) => ({
+        choiceId: selectedChoiceId,
+        quantity: Number(
+          measurementsInput.itemQuantities?.[`${itemId}__${selectedChoiceId}`]?.quantity
+        ),
+      }));
+      if (quantities.some(({ quantity }) => !Number.isFinite(quantity) || quantity <= 0)) {
+        return empty;
+      }
+      const material = round2(
+        selectedTypes.reduce(
+          (sum, { rate }, index) => sum + quantities[index].quantity * rate.material,
+          0
+        )
+      );
+      const labor = round2(
+        selectedTypes.reduce(
+          (sum, { rate }, index) => sum + quantities[index].quantity * rate.labor,
+          0
+        )
+      );
+      const totalQuantity = round2(quantities.reduce((sum, entry) => sum + entry.quantity, 0));
+      const labels = selectedTypes.map(({ rate }) => rate.label).join(' + ');
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: `Suggested budget split · National Average · ${labels}`,
+          helper: `Based on ${totalQuantity.toLocaleString()} linear feet across selected wall work`,
+          mode: 'suggested_price',
+          lumpSumOnly: false,
+          basis: { quantity: totalQuantity, unit: 'lf' },
+          benchmarkAction: 'price_ready',
+          pricingRecordId: `bps_national:walls_moving:${String(choiceId)}:lf`,
           productionStatus: 'review_required',
         },
         comparison: null,
@@ -7040,8 +7182,16 @@ export function resolveScopeItemSuggestedPricing(
     };
     const selectedTypes = String(choiceId || '')
       .split(',')
-      .map((id) => rates[id])
-      .filter((rate): rate is { material: number; labor: number; label: string } => Boolean(rate));
+      .map((selectedChoiceId) => ({
+        choiceId: selectedChoiceId,
+        rate: rates[selectedChoiceId],
+      }))
+      .filter(
+        (entry): entry is {
+          choiceId: string;
+          rate: { material: number; labor: number; label: string };
+        } => Boolean(entry.rate)
+      );
     if (selectedTypes.length) {
       const directQuantity = Number(itemQuantities[itemId]?.quantity);
       const appliedAllowance = Number(itemQuantities[`${itemId}__allowance`]?.quantity);
@@ -7050,14 +7200,25 @@ export function resolveScopeItemSuggestedPricing(
         Number.isFinite(appliedAllowance) &&
         directQuantity > 1 &&
         Math.abs(directQuantity - appliedAllowance) < 0.01;
-      const count = staleAppliedCount ? 1 : Math.max(1, Number(resolved.quantity) || 1);
+      const fallbackCount = staleAppliedCount ? 1 : Math.max(1, Number(resolved.quantity) || 1);
+      const quantities = selectedTypes.map(({ choiceId: selectedChoiceId }) => {
+        const optionQuantity = Number(itemQuantities[`${itemId}__${selectedChoiceId}`]?.quantity);
+        return Number.isFinite(optionQuantity) && optionQuantity > 0 ? optionQuantity : fallbackCount;
+      });
       const material = round2(
-        count * selectedTypes.reduce((sum, selected) => sum + selected.material, 0)
+        selectedTypes.reduce((sum, { rate }, index) => sum + quantities[index] * rate.material, 0)
       );
       const labor = round2(
-        count * selectedTypes.reduce((sum, selected) => sum + selected.labor, 0)
+        selectedTypes.reduce((sum, { rate }, index) => sum + quantities[index] * rate.labor, 0)
       );
-      const labels = selectedTypes.map((selected) => selected.label).join(' + ');
+      const hasPerOptionQuantities = selectedTypes.some(
+        ({ choiceId: selectedChoiceId }) =>
+          itemQuantities[`${itemId}__${selectedChoiceId}`] != null
+      );
+      const totalQuantity = hasPerOptionQuantities
+        ? round2(quantities.reduce((sum, quantity) => sum + quantity, 0))
+        : fallbackCount;
+      const labels = selectedTypes.map(({ rate }) => rate.label).join(' + ');
       return {
         fill: {
           material,
@@ -7066,10 +7227,10 @@ export function resolveScopeItemSuggestedPricing(
           materialSource: 'national_average',
           laborSource: 'national_average',
           rateSourceLabel: `Suggested budget split · National Average · ${labels}`,
-          helper: `${count.toLocaleString()} each selected connection type`,
+          helper: `${totalQuantity.toLocaleString()} total connections across selected types`,
           mode: 'suggested_price',
           lumpSumOnly: false,
-          basis: { quantity: count, unit: 'each' },
+          basis: { quantity: totalQuantity, unit: 'each' },
           benchmarkAction: 'price_ready',
           pricingRecordId: `bps_national:plumbing:${String(choiceId)}:each`,
           productionStatus: 'review_required',

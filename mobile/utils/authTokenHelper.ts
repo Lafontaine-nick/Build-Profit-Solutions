@@ -90,23 +90,41 @@ export async function clearAuthToken(): Promise<void> {
  * This is a helper that can be used in components
  */
 export async function getAuthTokenWithFallback(getClerkToken?: () => Promise<string | null>): Promise<string | null> {
-  const token =
-    (await AsyncStorage.getItem('auth_token')) ||
-    (await AsyncStorage.getItem('authToken'));
-  if (token) {
-    return token;
-  }
-  
-  // If not found and Clerk token getter provided, try Clerk
+  const isExpired = (token: string | null): boolean => {
+    if (!token) return true;
+    try {
+      const payload = token.split('.')[1];
+      if (!payload) return false;
+      const decoded = JSON.parse(
+        decodeURIComponent(
+          Array.from(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
+            .map((char) => `%${`00${char.charCodeAt(0).toString(16)}`.slice(-2)}`)
+            .join('')
+        )
+      );
+      return typeof decoded.exp === 'number' && decoded.exp <= Date.now() / 1000;
+    } catch {
+      return false;
+    }
+  };
+
+  // Clerk is authoritative and refreshes an expired session token. AsyncStorage
+  // can contain yesterday's JWT, so reading it first causes AI/photo requests
+  // to reach the backend with an expired token even after the user is signed in.
   if (getClerkToken) {
     const clerkToken = await getClerkToken();
-    if (clerkToken) {
-      // Sync it to AsyncStorage for future use
+    if (clerkToken && !isExpired(clerkToken)) {
       await syncClerkTokenToAsyncStorage(clerkToken);
       return clerkToken;
     }
   }
   
+  // Legacy fallback for non-Clerk/dev flows.
+  const token =
+    (await AsyncStorage.getItem('auth_token')) ||
+    (await AsyncStorage.getItem('authToken'));
+  if (token && !isExpired(token)) return token;
+
   return null;
 }
 

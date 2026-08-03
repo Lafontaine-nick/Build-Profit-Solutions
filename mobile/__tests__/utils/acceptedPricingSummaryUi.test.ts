@@ -850,6 +850,30 @@ describe('acceptedPricingSummaryUi', () => {
     });
   });
 
+  it.each([
+    ['drywall', '55', 'sqft', '119.35'],
+    ['flooring', '240', 'sqft', '1800'],
+    ['electrical', '3', 'each', '1455'],
+  ])('keeps %s takeoff separate from split pricing after editor close', (itemId, quantity, unit, total) => {
+    const finalized = finalizeScopePricingAfterEditorClose({
+      itemId,
+      itemQuantities: {
+        [`${itemId}__sqft_basis`]: { quantity, unit, quantitySource: 'user_entered' as const },
+        [`${itemId}__material`]: { quantity: '48.4', unit: 'allowance', quantitySource: 'user_entered' as const },
+        [`${itemId}__labor`]: { quantity: '70.95', unit: 'allowance', quantitySource: 'user_entered' as const },
+        [`${itemId}__allowance`]: { quantity: total, unit: 'allowance', quantitySource: 'user_entered' as const },
+      },
+      pricingAcceptance: {},
+    });
+
+    expect(finalized.itemQuantities[itemId]).toMatchObject({
+      quantity,
+      unit,
+      quantitySource: 'user_entered',
+    });
+    expect(finalized.itemQuantities[`${itemId}__allowance`]?.quantity).toBe(total);
+  });
+
   it('keeps lump-sum contingency allowance when pricing editor Done is pressed', () => {
     const itemQuantities = {
       contingency__allowance: {

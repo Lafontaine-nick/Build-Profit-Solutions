@@ -404,7 +404,10 @@ async function filterReachableAiAssistantUrls(urls: string[], probeMs = 8000): P
       timeoutId = setTimeout(() => controller.abort(), probeMs);
       const res = await fetch(`${origin}/health`, { method: 'GET', signal: controller.signal });
       if (timeoutId) clearTimeout(timeoutId);
-      if (res.ok) reachableOrigins.push(origin);
+      // Authentication-protected probes commonly return 401/403. That still
+      // proves the backend is reachable; only server failures should exclude
+      // an origin before the real authenticated request is attempted.
+      if (res.status < 500) reachableOrigins.push(origin);
     } catch {
       if (timeoutId) clearTimeout(timeoutId);
     }
