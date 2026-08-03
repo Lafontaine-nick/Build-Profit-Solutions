@@ -1,6 +1,7 @@
 import {
   inferExistingKitchenFromNotes,
   inferKitchenInstallFromIntent,
+  KITCHEN_QM_EMBEDDED_IDS,
   resolveKitchenDemoFromIntent,
   syncKitchenQmScopeItems,
 } from '@/utils/qmScopePanels/kitchenRemodel';
@@ -11,6 +12,10 @@ function item(id: string, state: ScopeChecklistItem['state'] = 'unsure'): ScopeC
 }
 
 describe('kitchenRemodel QM', () => {
+  it('keeps the cabinet install scope card visible in Confirm Scope', () => {
+    expect(KITCHEN_QM_EMBEDDED_IDS.has('cabinets')).toBe(false);
+  });
+
   it('infers existing cabinets from notes', () => {
     const out = inferExistingKitchenFromNotes('demo existing cabinets and install new quartz counters');
     expect(out.kitchenExistingCabinetCount).toBe(1);

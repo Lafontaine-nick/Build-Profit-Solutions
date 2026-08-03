@@ -42,7 +42,6 @@ export const KITCHEN_QM_EMBEDDED_IDS = new Set([
   'floor_demo',
   'wall_demo',
   'appliance_removal',
-  'cabinets',
   'countertops',
   'backsplash',
   'flooring',

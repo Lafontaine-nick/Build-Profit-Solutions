@@ -901,7 +901,12 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   },
   decking: { unit: 'sqft', material: 8, labor: 12, sourceLabel: 'Suggested budget split · National Average' },
   countertops: { unit: 'sqft', material: 35, labor: 25, sourceLabel: 'Suggested budget split · National Average' },
-  cabinets: { unit: 'lf', material: 150, labor: 75, sourceLabel: 'Suggested budget split · National Average' },
+  cabinets: {
+    unit: 'lf',
+    material: 250,
+    labor: 90,
+    sourceLabel: 'Suggested budget split · National Average · standard semi-custom cabinet benchmark',
+  },
   /**
    * New-construction shingle roof (mat + install). Anchored near NAHB 2024 roofing
    * package (~$16.7k on the survey home) rather than a full re-roof mid (~$800/sq),

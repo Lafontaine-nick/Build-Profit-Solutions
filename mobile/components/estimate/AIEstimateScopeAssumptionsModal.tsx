@@ -10845,11 +10845,24 @@ export default function AIEstimateScopeAssumptionsModal({
         .filter((item) => checklistItemInScope(item) && item.state !== 'unsure')
         .map((item) => item.id)
     );
+    const appliedScopeIds = new Set(step2AppliedPricingLines.map((line) => line.itemId));
+    const appliedScopeLabels = new Set(
+      step2AppliedPricingLines.map((line) => String(line.label || '').trim().toLowerCase())
+    );
     const readyRows: UnconfirmedSuggestedPricing[] = [];
     for (const row of unconfirmedSuggestedPricing) {
       // The suggestion list can briefly retain a row while a Yes/No/Not sure
       // choice is being synchronized. Count only currently selected scope items.
       if (!selectedScopeIds.has(row.itemId)) continue;
+      // Applied pricing lines are the source of truth for this footer. This
+      // also prevents stale suggestion rows from being counted after a card
+      // has already been priced.
+      if (
+        appliedScopeIds.has(row.itemId) ||
+        appliedScopeLabels.has(String(row.label || '').trim().toLowerCase())
+      ) {
+        continue;
+      }
       if (
         scopeHasCommittedConfirmScopePrice({
           itemId: row.itemId,
@@ -10883,8 +10896,19 @@ export default function AIEstimateScopeAssumptionsModal({
         readyRows.push(row);
       }
     }
-    return { readyCount, benchmarkOnlyCount, readyRows };
-  }, [displayItems, measurements.itemQuantities, measurements.pricingAcceptance, unconfirmedSuggestedPricing]);
+    return {
+      readyCount,
+      benchmarkOnlyCount,
+      readyRows,
+      readyLabels: readyRows.map((row) => row.label),
+    };
+  }, [
+    displayItems,
+    measurements.itemQuantities,
+    measurements.pricingAcceptance,
+    step2AppliedPricingLines,
+    unconfirmedSuggestedPricing,
+  ]);
 
   const applySuggestedPricingBlocks = useCallback(
     (rows: UnconfirmedSuggestedPricing[]) => {
@@ -12764,6 +12788,9 @@ export default function AIEstimateScopeAssumptionsModal({
                         readyCount: suggestedPricingFooterBreakdown.readyCount,
                         benchmarkOnlyCount: suggestedPricingFooterBreakdown.benchmarkOnlyCount,
                       }),
+                      suggestedPricingFooterBreakdown.readyLabels.length
+                        ? `Waiting to apply: ${suggestedPricingFooterBreakdown.readyLabels.join(', ')}.`
+                        : '',
                       FOOTER_PLANNING_BENCHMARK_INFO,
                       `${quickMeasurementSummary.needsConfirmation} measurement${
                         quickMeasurementSummary.needsConfirmation === 1 ? '' : 's'
