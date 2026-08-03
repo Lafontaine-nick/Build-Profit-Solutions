@@ -1842,6 +1842,7 @@ export const KITCHEN_CHECKLIST_LABEL_OVERRIDES: Record<string, string> = {
 /** Shorter contractor-friendly helper copy (overrides server text in Confirm Scope UI). */
 export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   demo: 'Remove fixtures, tile, and finishes.',
+  backsplash_demo: 'Remove existing backsplash tile and adhesive; wall repair is separate.',
   floor_demo: 'Remove existing floor tile, LVP, vinyl, or flooring.',
   tub_demo: 'Demo and haul off the existing bathtub.',
   shower_floor_demo: 'Demo existing shower base, prefab pan, or shower floor tile.',
@@ -2002,7 +2003,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     },
   ],
   kitchen: [
-    { title: 'Demo', itemIds: ['demo', 'floor_demo', 'wall_demo'] },
+    { title: 'Demo', itemIds: ['demo', 'backsplash_demo', 'floor_demo', 'wall_demo'] },
     { title: 'Appliances', itemIds: ['appliance_removal', 'appliances'] },
     {
       title: 'Cabinets & Counters',

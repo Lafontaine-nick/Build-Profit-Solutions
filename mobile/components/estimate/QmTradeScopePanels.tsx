@@ -86,6 +86,7 @@ const KITCHEN_INSTALL_ROWS: StepperRow[] = [
 const KITCHEN_DEMO_ROWS: StepperRow[] = [
   { key: 'kitchenDemoCabinetCount', label: 'Remove cabinets' },
   { key: 'kitchenDemoCounterCount', label: 'Remove countertops (including island)' },
+  { key: 'kitchenDemoBacksplashCount', label: 'Remove backsplash' },
   { key: 'kitchenDemoIslandCount', label: 'Demo island' },
   { key: 'kitchenDemoApplianceCount', label: 'Appliance removal' },
   { key: 'kitchenDemoFloorCount', label: 'Floor demo' },
@@ -382,6 +383,7 @@ export function QmKitchenScopePanels({
     measurements.kitchenInstallIslandCount,
     measurements.kitchenDemoCabinetCount,
     measurements.kitchenDemoCounterCount,
+    measurements.kitchenDemoBacksplashCount,
     measurements.kitchenDemoApplianceCount,
     measurements.kitchenDemoFloorCount,
     measurements.kitchenDemoWallCount,
@@ -392,7 +394,8 @@ export function QmKitchenScopePanels({
       nextExisting: KitchenExistingCounts,
       nextInstall: KitchenInstallCounts,
       gen: number,
-      demoOverride?: { key: KitchenDemoOverrideKey; value: number | null }
+      demoOverride?: { key: KitchenDemoOverrideKey; value: number | null },
+      currentDemo?: KitchenDemoCounts
     ) => {
       const checklistItems = includedScopeKeys.map((id) => ({
         id,
@@ -408,7 +411,10 @@ export function QmKitchenScopePanels({
       // other demo rows that are already selected (e.g. cabinet demo + floor
       // demo). Preserve the current demo state, then apply only non-null
       // inferred values and the explicitly edited row.
-      let mergedDemo = demoOverride ? { ...demo } : { ...autoDemo };
+      // Use the state snapshot from the row being edited. The closure can be
+      // one render behind during rapid stepper taps, which previously caused
+      // toggling one demo scope to restore or clear a different one.
+      let mergedDemo = demoOverride ? { ...(currentDemo || demo) } : { ...autoDemo };
       if (demoOverride) {
         for (const [key, value] of Object.entries(autoDemo) as [
           KitchenDemoOverrideKey,
@@ -471,7 +477,7 @@ export function QmKitchenScopePanels({
       setDemo((prev) => {
         const current = prev[key] ?? 0;
         const cleaned = clampQmCount(current + delta < 1 ? null : current + delta);
-        commit(existing, install, gen, { key, value: cleaned });
+        commit(existing, install, gen, { key, value: cleaned }, prev);
         return { ...prev, [key]: cleaned };
       });
     },
@@ -1018,6 +1024,7 @@ export function seedKitchenQmFromIntent(
   const hasSaved =
     readKitchenInstallCounts(measurements).kitchenInstallCabinetCount != null ||
     readKitchenDemoCounts(measurements).kitchenDemoCabinetCount != null ||
+    readKitchenDemoCounts(measurements).kitchenDemoBacksplashCount != null ||
     readKitchenDemoCounts(measurements).kitchenDemoIslandCount != null;
   if (hasSaved) return measurements;
   const existing = params.hasSitePhotos

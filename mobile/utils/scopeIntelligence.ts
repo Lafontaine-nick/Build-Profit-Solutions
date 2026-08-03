@@ -423,10 +423,16 @@ const SCOPE_UNIT_REGISTRY: Record<string, ScopeRegistryEntry> = {
   floor_demo: ENTRY('demolition', ['sqft'], ['flooring_area', 'room_floor_area'], ['allowance_amount'], {
     alternateUnits: ['allowance', 'lump_sum'],
   }),
+  backsplash_demo: ENTRY('demolition', ['sqft'], ['tile_area', 'room_wall_area'], ['allowance_amount'], {
+    alternateUnits: ['allowance', 'lump_sum'],
+  }),
   wall_demo: ENTRY('demolition', ['sqft'], ['wall_surface_area'], ['allowance_amount'], {
     alternateUnits: ['allowance', 'lump_sum'],
   }),
   appliance_removal: EACH_SCOPE('demolition'),
+  plumbing: ENTRY('plumbing', ['each'], ['fixture_count'], ['allowance_amount'], {
+    alternateUnits: ['allowance', 'lump_sum'],
+  }),
   excavation: ENTRY('sitework', ['cy'], ['excavation_volume'], ['trench_length', 'trench_width', 'trench_depth', 'site_area'], {
     alternateUnits: ['sqft', 'lf', 'allowance', 'lump_sum'],
     requiredMeasurementTypes: ['excavation_volume'],

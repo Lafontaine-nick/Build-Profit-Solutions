@@ -1,6 +1,8 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { getMetroBackendOrigin, getNetworkInfo } from './networkDetection';
+import { clerkAuthService } from '@/services/clerkAuth';
+import { getAuthTokenWithFallback } from '@/utils/authTokenHelper';
 
 /** Hosted backend origin (no path). TestFlight / App Store builds must use this on cellular, not LAN. */
 export const PRODUCTION_AI_ORIGIN = 'https://build-profit-solutions-backend.onrender.com';
@@ -432,6 +434,7 @@ export async function postAiAssistantJson<T>(
 ): Promise<T> {
   const urls = buildAiAssistantEndpointUrls(routePath);
   const reachableUrls = await filterReachableAiAssistantUrls(urls);
+  const authToken = await getAuthTokenWithFallback(async () => clerkAuthService.getToken());
   if (__DEV__) {
     console.log(
       '🤖 AI POST',
@@ -447,7 +450,10 @@ export async function postAiAssistantJson<T>(
     reachableUrls,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
       body: JSON.stringify(body),
     },
     timeout,

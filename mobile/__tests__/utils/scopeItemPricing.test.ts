@@ -581,6 +581,30 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(resolveAllowanceEditorPricingBasis('utility_trenching', input, 'addition')).toBeNull();
   });
 
+  it('uses the scope card takeoff as the Edit basis across count and area cards', () => {
+    const input = inputWith({
+      flooringSqft: '240',
+      itemQuantities: {
+        cabinet_hardware: { quantity: '3', unit: 'each', quantitySource: 'user_entered' },
+        electrical: { quantity: '4', unit: 'each', quantitySource: 'user_entered' },
+        flooring: { quantity: '240', unit: 'sqft', quantitySource: 'user_entered' },
+      },
+    });
+
+    expect(resolveAllowanceEditorPricingBasis('cabinet_hardware', input, 'kitchen')).toEqual({
+      quantity: 3,
+      unit: 'each',
+    });
+    expect(resolveAllowanceEditorPricingBasis('electrical', input, 'kitchen')).toEqual({
+      quantity: 4,
+      unit: 'each',
+    });
+    expect(resolveAllowanceEditorPricingBasis('flooring', input, 'kitchen')).toEqual({
+      quantity: 240,
+      unit: 'sqft',
+    });
+  });
+
   it('uses foundation concrete CY for ground-up Edit basis — not living SF', () => {
     const input = inputWith({
       floorAreaSqft: '3098',

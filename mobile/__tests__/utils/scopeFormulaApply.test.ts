@@ -255,6 +255,142 @@ describe('resolveFormulaQuantityApplyTarget', () => {
     ).toBe(false);
   });
 
+  it('prioritizes an entered countertop sqft takeoff over cabinet-LF planning math', () => {
+    const formula = calculateFormulaForScope({
+      scopeKey: 'countertops',
+      measurements: {
+        ...emptyQuickMeasurementInput(),
+        countertopSqft: '50',
+        cabinetLf: '100',
+      } as any,
+      projectContext: 'kitchen',
+    });
+
+    expect(formula).toMatchObject({
+      formulaKey: 'countertop_area_from_explicit_takeoff',
+      roundedValue: 50,
+      unit: 'sqft',
+    });
+  });
+
+  it('prices kitchen backsplash demo from the backsplash sqft takeoff', () => {
+    const input = {
+      ...emptyQuickMeasurementInput(),
+      backsplashSqft: '40',
+      itemQuantities: {},
+    } as any;
+    const resolved = resolveChecklistItemQuantity('backsplash_demo', input, {
+      templateKey: 'kitchen',
+    });
+    const pricing = resolveScopeItemSuggestedPricing('backsplash_demo', input, 'kitchen', resolved);
+
+    expect(resolved.quantity).toBe(40);
+    expect(pricing.fill).toMatchObject({
+      material: 20,
+      labor: 200,
+      total: 220,
+      basis: { quantity: 40, unit: 'sqft' },
+    });
+  });
+
+  it('prices generic plumbing connections by connection count, not sqft', () => {
+    const input = {
+      ...emptyQuickMeasurementInput(),
+      itemQuantities: {},
+    } as any;
+    const resolved = resolveChecklistItemQuantity('plumbing', input, {
+      templateKey: 'kitchen',
+    });
+    const pricing = resolveScopeItemSuggestedPricing('plumbing', input, 'kitchen', resolved);
+
+    expect(resolved).toMatchObject({ quantity: 1, unit: 'each' });
+    expect(pricing.fill).toMatchObject({
+      material: 100,
+      labor: 200,
+      total: 300,
+      basis: { quantity: 1, unit: 'each' },
+    });
+  });
+
+  it('prices kitchen plumbing connections by selected connection type', () => {
+    const input = {
+      ...emptyQuickMeasurementInput(),
+      itemQuantities: {},
+    } as any;
+    const resolved = resolveChecklistItemQuantity('plumbing', input, {
+      templateKey: 'kitchen',
+    });
+    const pricing = resolveScopeItemSuggestedPricing(
+      'plumbing',
+      input,
+      'kitchen',
+      resolved,
+      undefined,
+      'gas_existing_shutoff'
+    );
+
+    expect(pricing.fill).toMatchObject({
+      material: 50,
+      labor: 175,
+      total: 225,
+      basis: { quantity: 1, unit: 'each' },
+    });
+  });
+
+  it('adds pricing when multiple plumbing connection types are selected', () => {
+    const input = {
+      ...emptyQuickMeasurementInput(),
+      itemQuantities: {
+        plumbing: { quantity: '2', unit: 'each', quantitySource: 'user_entered' },
+      },
+    } as any;
+    const resolved = resolveChecklistItemQuantity('plumbing', input, {
+      templateKey: 'kitchen',
+    });
+    const pricing = resolveScopeItemSuggestedPricing(
+      'plumbing',
+      input,
+      'kitchen',
+      resolved,
+      undefined,
+      'gas_existing_shutoff,gas_branch_line'
+    );
+
+    expect(pricing.fill).toMatchObject({
+      material: 450,
+      labor: 1500,
+      total: 1950,
+      basis: { quantity: 2, unit: 'each' },
+    });
+  });
+
+  it('adds pricing when multiple lighting types are selected', () => {
+    const input = {
+      ...emptyQuickMeasurementInput(),
+      itemQuantities: {
+        lighting: { quantity: '2', unit: 'each', quantitySource: 'user_entered' },
+      },
+    } as any;
+    const resolved = resolveChecklistItemQuantity('lighting', input, {
+      templateKey: 'bathroom',
+    });
+    const pricing = resolveScopeItemSuggestedPricing(
+      'lighting',
+      input,
+      'bathroom',
+      resolved,
+      undefined,
+      'standard_existing_location,new_recessed_led'
+    );
+
+    expect(pricing.fill).toMatchObject({
+      material: 400,
+      labor: 750,
+      total: 1150,
+      basis: { quantity: 2, unit: 'each' },
+    });
+  });
+
   it('hides paintable-SF takeoff button for interior paint installed budgets', () => {
     const formula = executeFormula('paintable_area_from_floor_area_benchmark', {
       floorAreaSqft: 1879,

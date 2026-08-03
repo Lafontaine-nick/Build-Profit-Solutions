@@ -72,7 +72,6 @@ import {
   WET_AREA_DEMO_EMBEDDED_IDS,
   ensureGroundUpFlatworkScopeCard,
   ensureGroundUpOpeningScopeCards,
-  toggleWallLayoutChoiceIds,
   WET_AREA_DERIVED_ITEM_IDS,
   scopeChecklistSummaryCounts,
   listScopeItemsNeedingConfirmation,
@@ -713,6 +712,13 @@ function isNationalAveragePricingBlock(block: SuggestedPricingBlock | null | und
   );
 }
 
+function isSavedPricingBlock(block: SuggestedPricingBlock | null | undefined): boolean {
+  return Boolean(
+    block &&
+      (block.materialSource === 'local_benchmark' || block.laborSource === 'local_benchmark')
+  );
+}
+
 function resolveFormulaTargetSuggestedPricing(params: {
   itemId: string;
   measurementsInput: ScopeMeasurementsInputExtended;
@@ -728,9 +734,15 @@ function resolveFormulaTargetSuggestedPricing(params: {
     return params.suggested;
   }
 
-  // Auto-preview formula qty for concrete flatwork. Drywall surface undercounts are corrected in
-  // resolveChecklistItemQuantity (living×3.5) so suggested pricing already uses the surface qty.
-  if (!usesAutoFlatworkSqftPricing({ scopeKey: params.itemId, formula })) {
+  // Auto-preview formula qty whenever it is the pricing basis. Flatwork uses
+  // measured sqft instead of converted CY, and kitchen countertops use cabinet
+  // LF × countertop depth. The preview must move as the source measurement moves;
+  // the user can still explicitly apply the calculated quantity to persist it.
+  const isCountertopAreaFormula = formula.formulaKey === 'countertop_area_from_cabinet_lf';
+  if (
+    !usesAutoFlatworkSqftPricing({ scopeKey: params.itemId, formula }) &&
+    !(params.itemId === 'countertops' && isCountertopAreaFormula)
+  ) {
     return params.suggested;
   }
 
@@ -3555,6 +3567,7 @@ function QuantitySection({
   applying: boolean;
 }) {
   const [pricingEditorOpen, setPricingEditorOpen] = useState(false);
+  const [electricalQuantityEditorOpen, setElectricalQuantityEditorOpen] = useState(false);
   const [focusedPricingField, setFocusedPricingField] = useState<string | null>(null);
   const [pricingModeOverride, setPricingModeOverride] = useState<AllowanceOrSplitMode | null>(null);
   const [pricingEntryModeOverride, setPricingEntryModeOverride] = useState<PricingEntryMode | null>(null);
@@ -3594,6 +3607,18 @@ function QuantitySection({
   if (rule?.dualAllowanceField) {
     resolved = overlayDualRatePricingDisplay(itemId, resolved, norm, originalNotes, templateKey);
   }
+  const electricalHasAppliedPricing =
+    itemId === 'electrical' &&
+    (scopeHasCommittedConfirmScopePrice({
+      itemId,
+      itemQuantities: measurementsInput.itemQuantities,
+      pricingAcceptance: measurementsInput.pricingAcceptance,
+    }) ||
+      hasAcceptedScopePricing(
+        itemId,
+        measurementsInput.itemQuantities,
+        measurementsInput.pricingAcceptance
+      ));
   if (!resolved.showInput && !resolved.pricingReady) return null;
   const quantityRowSourceLabel = resolveToiletRelocateQuantitySourceLabel({
     itemId,
@@ -3683,7 +3708,7 @@ function QuantitySection({
     }
 
     if (resolved.pricingReady && !showEditor) {
-      const displayResolved = mergeNotesSplitForDisplay();
+      let displayResolved = mergeNotesSplitForDisplay();
       const rawSuggested = resolveScopeItemSuggestedPricing(
         itemId,
         measurementsInput,
@@ -3721,6 +3746,25 @@ function QuantitySection({
         suggested: rawSuggested,
         choiceId,
       });
+      if (
+        intelligence.formula?.formulaKey === 'countertop_area_from_cabinet_lf' &&
+        !calculatedQuantityAlreadyActive(intelligence)
+      ) {
+        const applyTarget = resolveFormulaQuantityApplyTarget({
+          scopeKey: itemId,
+          formula: intelligence.formula,
+        });
+        displayResolved = {
+          ...displayResolved,
+          quantity: applyTarget.quantity,
+          unit: applyTarget.unit,
+          quantitySource: 'calculated_confirmed',
+          dualCount: {
+            quantity: applyTarget.quantity,
+            unit: applyTarget.unit,
+          },
+        };
+      }
       if (hasUserSelectedPricing) {
         suggestedComparisonSplit = formulaSuggested.comparison;
       } else {
@@ -3963,7 +4007,7 @@ function QuantitySection({
                   confidenceLabel={intelligence?.pricing?.confidenceLabel}
                 />
               ) : null}
-              {suggestedComparisonSplit ? (
+              {isSavedPricingBlock(suggestedComparisonSplit) ? (
                 <ComparisonToggle
                   block={suggestedComparisonSplit}
                   Colors={Colors}
@@ -3991,11 +4035,23 @@ function QuantitySection({
                       measurementsInput.pricingAcceptance
                     )
                   }
-                  editAction={<EditQuantityLink onPress={openPricingEditor} stretch />}
+                  editAction={
+                    itemId === 'electrical' ? (
+                      <EditQuantityLink onPress={() => setPricingEditorOpen(true)} stretch />
+                    ) : (
+                      <EditQuantityLink onPress={openPricingEditor} stretch />
+                    )
+                  }
                 />
               ) : (
                 <ScopePricingSecondaryActions
-                  edit={<EditQuantityLink onPress={openPricingEditor} />}
+                  edit={
+                    itemId === 'electrical' ? (
+                      <EditQuantityLink onPress={() => setPricingEditorOpen(true)} />
+                    ) : (
+                      <EditQuantityLink onPress={openPricingEditor} />
+                    )
+                  }
                 />
               )}
             </>
@@ -4283,7 +4339,7 @@ function QuantitySection({
       ? missingStatusDisplayLabel(itemId, templateKey)
       : `Needs ${neededLabel}`);
 
-  const initialSuggested = resolveScopeItemSuggestedPricing(
+  const initialSuggestedFromCatalog = resolveScopeItemSuggestedPricing(
     itemId,
     measurementsInput,
     templateKey,
@@ -4291,6 +4347,33 @@ function QuantitySection({
     pricingContext,
     choiceId
   );
+  const liveMaterial = parsePricingAmount(materialInput?.quantity);
+  const liveLabor = parsePricingAmount(laborInput?.quantity);
+  const liveManualTotal = (liveMaterial || 0) + (liveLabor || 0);
+  const liveManualBlock: SuggestedPricingBlock | null =
+    liveManualTotal > 0
+      ? {
+          material: liveMaterial || 0,
+          labor: liveLabor || 0,
+          total: liveManualTotal,
+          materialSource: 'template',
+          laborSource: 'template',
+          rateSourceLabel: 'User-entered material and labor',
+          helper: 'Based on the material and labor entered in Edit.',
+          mode: 'suggested_price',
+          lumpSumOnly: false,
+          basis:
+            resolved.quantity != null && resolved.unit
+              ? { quantity: resolved.quantity, unit: resolved.unit }
+              : null,
+          benchmarkAction: 'price_ready',
+          productionStatus: 'review_required',
+        }
+      : null;
+  const initialSuggested = {
+    ...initialSuggestedFromCatalog,
+    fill: initialSuggestedFromCatalog.fill || liveManualBlock,
+  };
   let suggestedBudgetSplit = initialSuggested.fill;
   let suggestedComparisonSplit = initialSuggested.comparison;
   const intelligence = resolveScopeItemIntelligence({
@@ -4385,6 +4468,26 @@ function QuantitySection({
 
     return (
       <View style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}>
+        {itemId === 'electrical' &&
+        !electricalHasAppliedPricing &&
+        !pricingEditorOpen &&
+        (!resolved.pricingReady || electricalQuantityEditorOpen) ? (
+          <PricingInputField
+            label="Count"
+            value={measurementsInput.itemQuantities[itemId]?.quantity ?? ''}
+            suffix="each"
+            embedded
+            onFocus={() => onItemQuantityFocus(itemId, 'count')}
+            onChangeText={(text) => onItemQuantityChange(itemId, text, 'count', 'each')}
+            onBlur={() => {
+              onItemQuantityBlur(itemId, 'count');
+              setElectricalQuantityEditorOpen(false);
+            }}
+            Colors={Colors}
+            darkMode={darkMode}
+            applying={applying}
+          />
+        ) : null}
         {resolved.combinedAllowanceRole === 'combined_total' ? (
           <Text
             style={{
@@ -4622,7 +4725,7 @@ function QuantitySection({
                   confidenceLabel={intelligence?.pricing?.confidenceLabel}
                 />
               ) : null}
-              {suggestedComparisonSplit ? (
+              {isSavedPricingBlock(suggestedComparisonSplit) ? (
                 <ComparisonToggle
                   block={suggestedComparisonSplit}
                   Colors={Colors}
@@ -4650,11 +4753,23 @@ function QuantitySection({
                       measurementsInput.pricingAcceptance
                     )
                   }
-                  editAction={<EditQuantityLink onPress={openPricingEditor} stretch />}
+                  editAction={
+                    itemId === 'electrical' ? (
+                      <EditQuantityLink onPress={() => setPricingEditorOpen(true)} stretch />
+                    ) : (
+                      <EditQuantityLink onPress={openPricingEditor} stretch />
+                    )
+                  }
                 />
               ) : (
                 <ScopePricingSecondaryActions
-                  edit={<EditQuantityLink onPress={openPricingEditor} />}
+                  edit={
+                    itemId === 'electrical' ? (
+                      <EditQuantityLink onPress={() => setPricingEditorOpen(true)} />
+                    ) : (
+                      <EditQuantityLink onPress={openPricingEditor} />
+                    )
+                  }
                 />
               )}
             </>
@@ -4755,7 +4870,7 @@ function QuantitySection({
             confidenceLabel={intelligence?.pricing?.confidenceLabel}
           />
         ) : null}
-        {suggestedComparisonSplit ? (
+        {isSavedPricingBlock(suggestedComparisonSplit) ? (
           <ComparisonToggle
             block={suggestedComparisonSplit}
             Colors={Colors}
@@ -4790,7 +4905,7 @@ function QuantitySection({
   // switch back. Do not overlay editor values onto the Apply card.
   const showEditorSuggestedPanel =
     !suppressSuggestedPricing &&
-    Boolean(suggestedBudgetSplit) &&
+    isSavedPricingBlock(suggestedBudgetSplit) &&
     (!(editorMoneyTotal > 0) ||
       Math.abs((suggestedBudgetSplit?.total || 0) - editorMoneyTotal) >= 0.01);
 
@@ -4959,7 +5074,7 @@ function QuantitySection({
           hasCurrentPricing={editorMoneyTotal > 0}
         />
       ) : null}
-      {suggestedComparisonSplit ? (
+      {isSavedPricingBlock(suggestedComparisonSplit) ? (
         <ComparisonToggle
           block={suggestedComparisonSplit}
           Colors={Colors}
@@ -6532,8 +6647,8 @@ function MultiChoiceRow({
   darkMode: boolean;
   applying: boolean;
 }) {
-  const choiceIds = item.choiceIds ?? [];
-  const inScope = choiceIds.some((id) => id === 'remove' || id === 'add');
+  const choiceIds = item.choiceIds ?? (item.choiceId ? [item.choiceId] : []);
+  const inScope = choiceIds.some((id) => id !== 'not_in_scope' && id !== 'unsure');
   const helper = checklistDisplayHelper(item, templateKey);
   const tier = scopeItemVisualTier(item, visualCtx);
   const noteBadge = scopeItemNoteBadge(item, visualCtx);
@@ -6601,6 +6716,7 @@ function MultiChoiceRow({
       </View>
       <QuantitySection
         itemId={item.id}
+        choiceId={choiceIds.join(',')}
         inScope={inScope}
         templateKey={templateKey}
         originalNotes={originalNotes}
@@ -11082,8 +11198,11 @@ export default function AIEstimateScopeAssumptionsModal({
         } else if (!rule.dualAllowanceField) {
           const primary = primaryQuantityForAppliedSuggestedBlock(block, rule);
           itemQuantities[itemId] = {
-            quantity: primary.quantity,
-            unit: primary.unit,
+            quantity:
+              itemId === 'electrical' && block.basis?.unit === 'each' && block.basis.quantity != null
+                ? String(block.basis.quantity)
+                : primary.quantity,
+            unit: itemId === 'electrical' ? 'each' : primary.unit,
             quantitySource: 'user_entered',
           };
         } else {
@@ -11718,16 +11837,28 @@ export default function AIEstimateScopeAssumptionsModal({
         darkMode={darkMode}
         applying={applying}
       />
-    ) : item.inputType === 'multi_choice' && (item.options?.length ?? 0) > 0 ? (
+    ) : (item.inputType === 'multi_choice' || item.id === 'lighting') &&
+      (item.options?.length ?? 0) > 0 ? (
       <MultiChoiceRow
         item={item}
         templateKey={checklist?.templateKey}
         originalNotes={scopeNotes}
-        onToggle={(optionId) =>
+        onToggle={(optionId) => {
           setItems((prev) =>
             prev.map((row) => {
               if (row.id !== item.id) return row;
-              const choiceIds = toggleWallLayoutChoiceIds(row.choiceIds, optionId);
+              const currentChoiceIds = row.choiceIds ?? (row.choiceId ? [row.choiceId] : []);
+              const choiceIds =
+                optionId === 'unsure' || optionId === 'not_in_scope'
+                  ? currentChoiceIds.length === 1 && currentChoiceIds[0] === optionId
+                    ? []
+                    : [optionId]
+                  : [
+                      ...currentChoiceIds.filter(
+                        (id) => id !== 'unsure' && id !== 'not_in_scope' && id !== optionId
+                      ),
+                      ...(currentChoiceIds.includes(optionId) ? [] : [optionId]),
+                    ];
               return {
                 ...row,
                 choiceIds,
@@ -11735,8 +11866,25 @@ export default function AIEstimateScopeAssumptionsModal({
                 state: choiceIdsToScopeState(choiceIds),
               };
             })
-          )
-        }
+          );
+          // A choice change invalidates the previous rate selection and count.
+          if (item.id === 'electrical' || item.id === 'plumbing' || item.id === 'lighting') {
+            setMeasurementsSynced((previous) => {
+              const cleared = clearAcceptedScopeItemPricing({
+                itemId: item.id,
+                itemQuantities: previous.itemQuantities || {},
+                pricingAcceptance: previous.pricingAcceptance,
+              });
+              const itemQuantities = { ...cleared.itemQuantities };
+              delete itemQuantities[item.id];
+              return {
+                ...previous,
+                itemQuantities,
+                pricingAcceptance: cleared.pricingAcceptance,
+              };
+            });
+          }
+        }}
         measurementsInput={measurements}
         onItemQuantityChange={handleItemQuantityChange}
         onBatchItemQuantityChange={handleBatchItemQuantityChange}
@@ -11810,6 +11958,29 @@ export default function AIEstimateScopeAssumptionsModal({
               bathroomToiletRelocateFloorType: null,
               bathroomToiletRelocateFloorTypeSource: null,
             }));
+          }
+          // Choice-specific pricing must be recalculated when the selected
+          // service changes; do not carry reuse/install or prior fixture rates
+          // into the new choice.
+          if (item.id === 'lighting' || item.id === 'electrical') {
+            // A new price type needs a fresh count entry instead of silently
+            // carrying the prior type's count into the new price.
+            setMeasurementsSynced((previous) => {
+              const cleared = clearAcceptedScopeItemPricing({
+                itemId: item.id,
+                itemQuantities: previous.itemQuantities || {},
+                pricingAcceptance: previous.pricingAcceptance,
+              });
+              const itemQuantities = { ...cleared.itemQuantities };
+              delete itemQuantities[item.id];
+              return {
+                ...previous,
+                itemQuantities,
+                pricingAcceptance: cleared.pricingAcceptance,
+              };
+            });
+          } else if (['garbage_disposal', 'plumbing'].includes(item.id)) {
+            handleClearAcceptedPricing(item.id);
           }
         }}
         onBathroomToiletRelocateFloorTypeChange={handleBathroomToiletRelocateFloorTypeChange}

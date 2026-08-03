@@ -280,6 +280,11 @@ export const DUAL_QUANTITY_FIELD_LABELS: Record<
     countUnit: 'sqft',
     allowance: 'Calculated total ($)',
   },
+  backsplash_demo: {
+    count: 'Backsplash demo area',
+    countUnit: 'sqft',
+    allowance: 'Calculated total ($)',
+  },
 };
 
 /** Clear editor label for count/area fields — never leave measurement-needed scopes as bare "Quantity". */
@@ -458,7 +463,19 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
 > = {
   trim: { unit: 'lf', material: 2, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
   flooring: { unit: 'sqft', material: 4, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
+  lighting: {
+    unit: 'each',
+    material: 200,
+    labor: 275,
+    sourceLabel: 'Suggested budget split · National Average · light fixture supply and installation',
+  },
   floor_demo: { unit: 'sqft', material: 0.5, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
+  backsplash_demo: {
+    unit: 'sqft',
+    material: 0.5,
+    labor: 5,
+    sourceLabel: 'Suggested budget split · National Average · backsplash removal',
+  },
   demo: { unit: 'sqft', material: 0.5, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
   cabinet_hardware: {
     unit: 'each',
@@ -763,6 +780,17 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     category: 'demo',
     pricingMethod: 'material_labor',
   },
+  backsplash_demo: {
+    category: 'demolition',
+    rootCause:
+      'Backsplash demolition is modeled as tile removal, light adhesive scraping, and loading; wall repair and disposal fees are separate.',
+    assumptions: [
+      assumption('removal', 'included', 'Backsplash removal', 'Remove existing backsplash tile and light adhesive scraping.'),
+      assumption('loading', 'included', 'Loading debris', 'Load removed backsplash debris for disposal.'),
+      assumption('wall_repair', 'excluded', 'Wall repair', 'Drywall repair or substrate replacement is separate.'),
+      assumption('dump_fees', 'excluded', 'Dump fees', 'Dump fees and disposal facility charges are separate.'),
+    ],
+  },
   plumbing_trim: {
     unit: 'allowance',
     material: 150,
@@ -854,6 +882,12 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   },
   electrical_rough: { unit: 'each', material: 50, labor: 125, sourceLabel: 'Suggested budget split · National Average · per circuit/device' },
   plumbing_rough: { unit: 'each', material: 150, labor: 350, sourceLabel: 'Suggested budget split · National Average · per rough-in point' },
+  plumbing: {
+    unit: 'each',
+    material: 100,
+    labor: 200,
+    sourceLabel: 'Suggested budget split · National Average · per plumbing connection',
+  },
   railing: { unit: 'lf', material: 15, labor: 25, sourceLabel: 'Suggested budget split · National Average' },
   pour_flatwork: { unit: 'sqft', material: 4, labor: 6, sourceLabel: 'Suggested budget split · National Average' },
   concrete: { unit: 'sqft', material: 4, labor: 6, sourceLabel: 'Suggested budget split · National Average' },
@@ -987,6 +1021,15 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
   string,
   Record<string, NationalAverageBudgetSplit>
 > = {
+  plumbing: {
+    each: NATIONAL_AVERAGE_BUDGET_SPLITS.plumbing,
+  },
+  backsplash_demo: {
+    sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.backsplash_demo,
+  },
+  lighting: {
+    each: NATIONAL_AVERAGE_BUDGET_SPLITS.lighting,
+  },
   concrete: {
     sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.concrete,
     cy: { unit: 'cy', material: 165, labor: 185, sourceLabel: 'Suggested budget split · National Average' },
@@ -2429,6 +2472,22 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
       'Rough-in points = supply/drain relocations. Fixture hookup is on Toilet, Vanity, or Plumbing trim.',
     missingMessage: 'Enter rough-in points and/or a dollar allowance.',
   },
+  plumbing: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Choose the connection type, then enter the quantity for the selected connection. Sink/faucet, disposal, and other appliance hookups are separate scope items.',
+    missingMessage: 'Enter plumbing connection count or pricing.',
+  },
+  electrical: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter the quantity for each selected outlet, GFCI, relocation, or dedicated circuit type. Lighting is separate.',
+    missingMessage: 'Enter electrical item quantity or pricing.',
+  },
   electrical_rough: {
     defaultUnit: 'each',
     allowedUnits: ['each', 'allowance', 'lump_sum', 'hr'],
@@ -2441,8 +2500,9 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
   lighting: {
     defaultUnit: 'each',
     allowedUnits: ['each', 'allowance'],
-    defaultQuantity: 1,
-    quantityHelper: 'Assuming 1 light fixture. Edit count if different.',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter the number of light fixtures to supply and install. Fixture cost and installation are included.',
+    missingMessage: 'Enter light fixture count.',
   },
   exhaust_fan: {
     defaultUnit: 'each',
@@ -3210,6 +3270,19 @@ const KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRul
     quantityHelper: 'Enter kitchen floor sqft for flooring removal.',
     missingMessage: 'Enter kitchen floor demo sqft.',
   },
+  backsplash_demo: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'backsplashSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter backsplash sqft for removal.',
+    missingMessage: 'Enter backsplash demo sqft.',
+  },
+  electrical: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.electrical,
+    quantityHelper:
+      'Enter the quantity for each selected electrical work type. Lighting fixtures and installation are separate.',
+  },
   flooring: {
     ...CHECKLIST_ITEM_QUANTITY_RULES.flooring,
     measurementKeys: ['kitchenFloorSqft', 'flooringSqft', 'floorAreaSqft', 'bathroomFloorSqft'],
@@ -3884,6 +3957,7 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
   shower_pan: { unit: 'sqft', measurementKeys: ['showerFloorTileSqft'] },
   waterproofing: { unit: 'sqft', measurementKeys: ['showerWallTileSqft'] },
   backsplash: { unit: 'sqft', measurementKeys: ['backsplashSqft'] },
+  backsplash_demo: { unit: 'sqft', measurementKeys: ['backsplashSqft'] },
   countertops: { unit: 'sqft', measurementKeys: ['countertopSqft'] },
   cabinets: { unit: 'lf', measurementKeys: ['cabinetLf'] },
   pavers: { unit: 'sqft', measurementKeys: ['paverSqft', 'landscapeSqft'] },
@@ -4321,6 +4395,21 @@ export function resolveAllowanceEditorPricingBasis(
   });
   if (storedQty && storedQty > 0 && !storedIsStale) {
     return { quantity: storedQty, unit: stored?.unit || 'sqft' };
+  }
+
+  // A committed physical takeoff is the source of truth for the editor.
+  // Never fall back to a default basis (often 1) when the scope card already
+  // contains a user-entered count, area, LF, or other matching-unit quantity.
+  const direct = measurementsInput.itemQuantities[itemId];
+  const directQty = parseScopeMeasurementInput(String(direct?.quantity ?? ''));
+  const directUnit = normalizeBasisUnit(String(direct?.unit || ''));
+  if (
+    directQty != null &&
+    directQty > 0 &&
+    directUnit === normalizeBasisUnit(preferredUnit) &&
+    !['allowance', 'lump_sum'].includes(directUnit)
+  ) {
+    return { quantity: directQty, unit: direct?.unit || preferredUnit };
   }
 
   // Prefer Suggest-aligned planning qty before raw measurement keys that can be
@@ -6772,6 +6861,111 @@ export function resolveScopeItemSuggestedPricing(
     return empty;
   }
 
+  // Kitchen backsplash removal has a dedicated national benchmark. Keep this
+  // explicit because the scope-profile catalog also contains a backsplash
+  // demolition definition, which must not be mistaken for a rate record.
+  if (itemId === 'backsplash_demo') {
+    const measuredCount = Number(
+      String(measurementsInput.backsplashSqft ?? '').replace(/,/g, '')
+    );
+    const count =
+      Number.isFinite(measuredCount) && measuredCount > 0
+        ? measuredCount
+        : Number(resolved.dualCount?.quantity ?? resolved.quantity);
+    const unit = String(resolved.dualCount?.unit ?? resolved.unit ?? 'sqft').toLowerCase();
+    if (Number.isFinite(count) && count > 0 && unit === 'sqft') {
+      const material = round2(count * 0.5);
+      const labor = round2(count * 5);
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: 'Suggested budget split · National Average · backsplash removal',
+          helper: `Based on ${count.toLocaleString()} sqft`,
+          mode: 'suggested_price',
+          lumpSumOnly: false,
+          basis: { quantity: count, unit: 'sqft' },
+          benchmarkAction: 'price_ready',
+          pricingRecordId: 'bps_national:backsplash_demo:sqft',
+          productionStatus: 'review_required',
+        },
+        comparison: null,
+      };
+    }
+  }
+
+  // An explicit countertop takeoff is authoritative for the national-average
+  // card. Do not let a notes-derived or stale per-SF split override 35 + 25
+  // installed pricing when the user entered the countertop area.
+  if (itemId === 'countertops') {
+    const count = Number(
+      String(measurementsInput.countertopSqft ?? '').replace(/,/g, '')
+    );
+    if (Number.isFinite(count) && count > 0) {
+      const material = round2(count * 35);
+      const labor = round2(count * 25);
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: 'Suggested budget split · National Average · countertop fabrication and install',
+          helper: `Based on ${count.toLocaleString()} sqft`,
+          mode: 'suggested_price',
+          lumpSumOnly: false,
+          basis: { quantity: count, unit: 'sqft' },
+          benchmarkAction: 'price_ready',
+          pricingRecordId: 'bps_national:countertops:sqft',
+          productionStatus: 'review_required',
+        },
+        comparison: null,
+      };
+    }
+  }
+
+  if (itemId === 'lighting') {
+    const rates: Record<string, { material: number; labor: number; label: string }> = {
+      standard_existing_location: { material: 150, labor: 175, label: 'standard fixture at existing location' },
+      decorative_existing_location: { material: 250, labor: 225, label: 'decorative fixture / pendant at existing location' },
+      new_recessed_led: { material: 50, labor: 200, label: 'new recessed LED light' },
+      new_location_with_wiring: { material: 150, labor: 500, label: 'new lighting location with wiring' },
+    };
+    const selectedTypes = String(choiceId || '')
+      .split(',')
+      .map((id) => rates[id])
+      .filter((rate): rate is { material: number; labor: number; label: string } => Boolean(rate));
+    if (selectedTypes.length) {
+      const count = Math.max(1, Number(resolved.quantity) || 1);
+      const material = round2(count * selectedTypes.reduce((sum, rate) => sum + rate.material, 0));
+      const labor = round2(count * selectedTypes.reduce((sum, rate) => sum + rate.labor, 0));
+      const labels = selectedTypes.map((rate) => rate.label).join(' + ');
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: `Suggested budget split · National Average · ${labels}`,
+          helper: `${count.toLocaleString()} each selected lighting type`,
+          mode: 'suggested_price',
+          lumpSumOnly: false,
+          basis: { quantity: count, unit: 'each' },
+          benchmarkAction: 'price_ready',
+          pricingRecordId: `bps_national:lighting:${String(choiceId)}:each`,
+          productionStatus: 'review_required',
+        },
+        comparison: null,
+      };
+    }
+    if (choiceId === 'not_in_scope' || choiceId === 'unsure') return empty;
+  }
+
   const fixtureChoicePricing = resolveBathroomFixtureChoiceSuggestedPricing({
     itemId,
     templateKey,
@@ -6790,6 +6984,101 @@ export function resolveScopeItemSuggestedPricing(
     unit: resolved.unit,
   });
   if (disposalChoicePricing !== undefined) return disposalChoicePricing;
+
+  if (itemId === 'electrical') {
+    const rates: Record<string, { material: number; labor: number; label: string }> = {
+      replace_outlet_switch: { material: 15, labor: 70, label: 'replace outlet or switch' },
+      replace_gfci: { material: 30, labor: 95, label: 'GFCI outlet' },
+      add_relocate_outlet_gfci: { material: 50, labor: 225, label: 'add or relocate outlet or GFCI' },
+      dedicated_120v: { material: 175, labor: 575, label: 'dedicated 120V appliance circuit' },
+      dedicated_240v: { material: 250, labor: 700, label: 'dedicated 240V appliance circuit' },
+    };
+    const selectedTypes = String(choiceId || '')
+      .split(',')
+      .map((id) => rates[id])
+      .filter((rate): rate is { material: number; labor: number; label: string } => Boolean(rate));
+    if (selectedTypes.length) {
+      const directQuantity = Number(itemQuantities[itemId]?.quantity);
+      const appliedAllowance = Number(itemQuantities[`${itemId}__allowance`]?.quantity);
+      const staleAppliedCount =
+        Number.isFinite(directQuantity) &&
+        Number.isFinite(appliedAllowance) &&
+        directQuantity > 1 &&
+        Math.abs(directQuantity - appliedAllowance) < 0.01;
+      const count = staleAppliedCount ? 1 : Math.max(1, Number(resolved.quantity) || 1);
+      const material = round2(count * selectedTypes.reduce((sum, rate) => sum + rate.material, 0));
+      const labor = round2(count * selectedTypes.reduce((sum, rate) => sum + rate.labor, 0));
+      const labels = selectedTypes.map((rate) => rate.label).join(' + ');
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: `Suggested budget split · National Average · ${labels}`,
+          helper: `${count.toLocaleString()} each selected electrical type`,
+          mode: 'suggested_price',
+          lumpSumOnly: false,
+          basis: { quantity: count, unit: 'each' },
+          benchmarkAction: 'price_ready',
+          pricingRecordId: `bps_national:electrical:${String(choiceId)}:each`,
+          productionStatus: 'review_required',
+        },
+        comparison: null,
+      };
+    }
+    if (String(choiceId || '').split(',').includes('unsure')) return empty;
+  }
+
+  if (itemId === 'plumbing' && String(templateKey || '').toLowerCase() === 'kitchen') {
+    const rates: Record<string, { material: number; labor: number; label: string }> = {
+      dishwasher_hookup: { material: 50, labor: 225, label: 'dishwasher replacement using existing plumbing/electrical' },
+      gas_existing_shutoff: { material: 50, labor: 175, label: 'gas range connection to existing shutoff valve' },
+      gas_branch_line: { material: 175, labor: 575, label: 'new short gas branch line for range' },
+      rough_in: { material: 250, labor: 650, label: 'new plumbing rough-in point' },
+    };
+    const selectedTypes = String(choiceId || '')
+      .split(',')
+      .map((id) => rates[id])
+      .filter((rate): rate is { material: number; labor: number; label: string } => Boolean(rate));
+    if (selectedTypes.length) {
+      const directQuantity = Number(itemQuantities[itemId]?.quantity);
+      const appliedAllowance = Number(itemQuantities[`${itemId}__allowance`]?.quantity);
+      const staleAppliedCount =
+        Number.isFinite(directQuantity) &&
+        Number.isFinite(appliedAllowance) &&
+        directQuantity > 1 &&
+        Math.abs(directQuantity - appliedAllowance) < 0.01;
+      const count = staleAppliedCount ? 1 : Math.max(1, Number(resolved.quantity) || 1);
+      const material = round2(
+        count * selectedTypes.reduce((sum, selected) => sum + selected.material, 0)
+      );
+      const labor = round2(
+        count * selectedTypes.reduce((sum, selected) => sum + selected.labor, 0)
+      );
+      const labels = selectedTypes.map((selected) => selected.label).join(' + ');
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: `Suggested budget split · National Average · ${labels}`,
+          helper: `${count.toLocaleString()} each selected connection type`,
+          mode: 'suggested_price',
+          lumpSumOnly: false,
+          basis: { quantity: count, unit: 'each' },
+          benchmarkAction: 'price_ready',
+          pricingRecordId: `bps_national:plumbing:${String(choiceId)}:each`,
+          productionStatus: 'review_required',
+        },
+        comparison: null,
+      };
+    }
+    if (choiceId === 'not_in_scope' || choiceId === 'unsure') return empty;
+  }
 
   if (rule.splitTotalOnly) {
     const splitOnly = buildSplitTotalOnlySuggestedFill(itemId, pricingContext);

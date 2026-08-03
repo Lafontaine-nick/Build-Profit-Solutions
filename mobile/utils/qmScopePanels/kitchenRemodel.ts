@@ -28,6 +28,7 @@ export type KitchenInstallCounts = {
 export type KitchenDemoCounts = {
   kitchenDemoCabinetCount: number | null;
   kitchenDemoCounterCount: number | null;
+  kitchenDemoBacksplashCount: number | null;
   kitchenDemoIslandCount: number | null;
   kitchenDemoApplianceCount: number | null;
   kitchenDemoFloorCount: number | null;
@@ -69,6 +70,7 @@ const INSTALL_KEYS: (keyof KitchenInstallCounts)[] = [
 const DEMO_KEYS: (keyof KitchenDemoCounts)[] = [
   'kitchenDemoCabinetCount',
   'kitchenDemoCounterCount',
+  'kitchenDemoBacksplashCount',
   'kitchenDemoIslandCount',
   'kitchenDemoApplianceCount',
   'kitchenDemoFloorCount',
@@ -103,6 +105,7 @@ export function readKitchenDemoCounts(m: Record<string, unknown>): KitchenDemoCo
       m.kitchenDemoCounterCount === undefined
         ? positiveCount(m.kitchenDemoCabinetCount)
         : positiveCount(m.kitchenDemoCounterCount),
+    kitchenDemoBacksplashCount: positiveCount(m.kitchenDemoBacksplashCount),
     kitchenDemoIslandCount: positiveCount(m.kitchenDemoIslandCount),
     kitchenDemoApplianceCount: positiveCount(m.kitchenDemoApplianceCount),
     kitchenDemoFloorCount: positiveCount(m.kitchenDemoFloorCount),
@@ -215,6 +218,7 @@ export function resolveKitchenDemoFromIntent(params: {
   const demo: KitchenDemoCounts = {
     kitchenDemoCabinetCount: null,
     kitchenDemoCounterCount: null,
+    kitchenDemoBacksplashCount: null,
     kitchenDemoIslandCount: null,
     kitchenDemoApplianceCount: null,
     kitchenDemoFloorCount: null,
@@ -238,6 +242,12 @@ export function resolveKitchenDemoFromIntent(params: {
   }
   if (explicitCounterDemo) {
     demo.kitchenDemoCounterCount = 1;
+  }
+  if (
+    checklistIncluded(items, 'backsplash_demo') ||
+    inferItemStateFromNotes('backsplash_demo', n) === 'included'
+  ) {
+    demo.kitchenDemoBacksplashCount = 1;
   }
   if (
     cabinetDemo &&
@@ -356,6 +366,8 @@ export function syncKitchenQmScopeItems(
             positiveCount(demo.kitchenDemoCounterCount) != null ||
             positiveCount(demo.kitchenDemoIslandCount) != null
         );
+      case 'backsplash_demo':
+        return syncIncluded(positiveCount(demo.kitchenDemoBacksplashCount) != null);
       case 'appliance_removal':
         return syncIncluded(positiveCount(demo.kitchenDemoApplianceCount) != null);
       case 'floor_demo':

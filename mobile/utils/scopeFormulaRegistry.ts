@@ -536,6 +536,22 @@ const FORMULAS: FormulaDefinition[] = [
     explanation: ({ roundedValue }) => `Using ${roundedValue.toLocaleString()} LF from confirmed perimeter/trim measurement.`,
   },
   {
+    key: 'countertop_area_from_explicit_takeoff',
+    name: 'Countertop area from entered takeoff',
+    trade: 'countertops',
+    applicableScopeKeys: ['countertops'],
+    outputMeasurementType: 'countertop_area',
+    outputUnit: 'sqft',
+    requiredInputs: [input('countertopSqft', 'entered countertop area', 'sqft', ['countertopSqft'])],
+    calculate: ({ countertopSqft }) => ({
+      exactValue: countertopSqft,
+      trace: [`${countertopSqft} sqft entered countertop takeoff`],
+    }),
+    rounding: 'sqft',
+    explanation: ({ roundedValue }) =>
+      `Using ${roundedValue.toLocaleString()} sqft from the entered countertop takeoff.`,
+  },
+  {
     key: 'countertop_area_from_cabinet_lf',
     name: 'Countertop area from cabinet run',
     trade: 'countertops',
@@ -799,6 +815,9 @@ export function shouldShowFormulaQuantityButton(params: {
   projectContext?: string | null;
 }): boolean {
   if (usesAutoFlatworkSqftPricing(params)) return false;
+  // Explicit countertop sqft is already the authoritative pricing basis; do
+  // not offer a second "Use calculated quantity" action for cabinet-LF math.
+  if (params.scopeKey === 'countertops') return false;
   if (
     params.formula.formulaKey === 'countertop_area_from_cabinet_lf' &&
     shouldSkipCountertopCabinetLfFormula(params.projectContext)

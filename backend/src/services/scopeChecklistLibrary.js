@@ -25,6 +25,34 @@ const GARBAGE_DISPOSAL_CHOICE_OPTIONS = [
   { id: 'unsure', label: 'Not sure yet' },
 ];
 
+const PLUMBING_CONNECTION_CHOICE_OPTIONS = [
+  { id: 'dishwasher_hookup', label: 'Dishwasher replacement using existing plumbing/electrical' },
+  { id: 'gas_existing_shutoff', label: 'Gas range connection to existing shutoff valve' },
+  { id: 'gas_branch_line', label: 'New short gas branch line for range' },
+  { id: 'rough_in', label: 'New plumbing rough-in point' },
+  { id: 'not_in_scope', label: 'Not in this bid' },
+  { id: 'unsure', label: 'Not sure yet' },
+];
+
+const ELECTRICAL_WORK_CHOICE_OPTIONS = [
+  { id: 'replace_outlet_switch', label: 'Replace outlets or switches' },
+  { id: 'replace_gfci', label: 'Replace or install GFCI outlets' },
+  { id: 'add_relocate_outlet_gfci', label: 'Add or relocate outlets or GFCIs' },
+  { id: 'dedicated_120v', label: 'Dedicated 120V appliance circuit' },
+  { id: 'dedicated_240v', label: 'Dedicated 240V appliance circuit' },
+  { id: 'other_electrical', label: 'Other electrical work' },
+  { id: 'unsure', label: 'Not sure' },
+];
+
+const LIGHTING_WORK_CHOICE_OPTIONS = [
+  { id: 'standard_existing_location', label: 'Standard fixture — existing location' },
+  { id: 'decorative_existing_location', label: 'Decorative fixture / pendant — existing location' },
+  { id: 'new_recessed_led', label: 'New recessed LED light' },
+  { id: 'new_location_with_wiring', label: 'New lighting location with wiring' },
+  { id: 'not_in_scope', label: 'Not in this bid' },
+  { id: 'unsure', label: 'Not sure yet' },
+];
+
 const SHOWER_PAN_CHOICE_OPTIONS = [
   { id: 'prefab', label: 'Prefab pan / base' },
   { id: 'tile_pan', label: 'Tile shower pan' },
@@ -179,9 +207,11 @@ const CHECKLIST_TEMPLATES = {
       },
       {
         id: 'lighting',
-        inputType: 'yes_no',
+        inputType: 'multi_choice',
         label: 'New lighting fixtures & install',
-        helperText: 'Fixture + install, not fixture cost only.',
+        helperText:
+          'Choose the fixture type and enter the quantity. Fixture cost and installation are included.',
+        options: LIGHTING_WORK_CHOICE_OPTIONS,
         category: 'fixtures',
       },
       {
@@ -278,6 +308,7 @@ const CHECKLIST_TEMPLATES = {
     intro: 'Confirm what work is in this bid before pricing.',
     items: [
       { id: 'demo', inputType: 'yes_no', label: 'Cabinet & countertop demo', helperText: 'Remove cabinets, counters, and built-ins.', category: 'demo' },
+      { id: 'backsplash_demo', inputType: 'yes_no', label: 'Backsplash demo / removal', helperText: 'Remove existing backsplash tile and adhesive; wall repair is separate.', category: 'demo' },
       { id: 'floor_demo', inputType: 'yes_no', label: 'Flooring demo / removal', helperText: 'Remove existing kitchen flooring.', category: 'demo' },
       { id: 'wall_demo', inputType: 'yes_no', label: 'Wall / soffit demo', helperText: 'Remove walls, soffits, or bulkheads.', category: 'demo' },
       {
@@ -310,9 +341,31 @@ const CHECKLIST_TEMPLATES = {
       { id: 'backsplash', inputType: 'yes_no', label: 'Backsplash tile install', helperText: 'Backsplash tile labor and materials.', category: 'tile_flooring' },
       { id: 'flooring', inputType: 'yes_no', label: 'Kitchen flooring install', helperText: 'Floor material and install labor.', category: 'tile_flooring' },
       { id: 'floor_prep', inputType: 'yes_no', label: 'Subfloor / floor prep', helperText: 'Leveling or underlayment before flooring.', category: 'tile_flooring' },
-      { id: 'plumbing', inputType: 'yes_no', label: 'Plumbing connections', helperText: 'Sink, dishwasher, gas line, or rough-in.', category: 'trades' },
-      { id: 'electrical', inputType: 'yes_no', label: 'Electrical & GFCI / outlets', helperText: 'Circuits, outlets, and lighting.', category: 'trades' },
-      { id: 'lighting', inputType: 'yes_no', label: 'Lighting fixtures & install', helperText: 'Fixture + install.', category: 'trades' },
+      {
+        id: 'plumbing',
+        inputType: 'multi_choice',
+        label: 'Plumbing connections',
+        helperText: 'Choose dishwasher replacement, existing gas shutoff, new gas branch line, or new rough-in point; sink, disposal, and other appliance hookups are separate.',
+        options: PLUMBING_CONNECTION_CHOICE_OPTIONS,
+        category: 'trades',
+      },
+      {
+        id: 'electrical',
+        inputType: 'multi_choice',
+        label: 'Electrical outlets, GFCI & circuits',
+        helperText:
+          'Outlets, switches, GFCI protection, relocations, and appliance circuits. Lighting fixtures are priced separately.',
+        options: ELECTRICAL_WORK_CHOICE_OPTIONS,
+        category: 'trades',
+      },
+      {
+        id: 'lighting',
+        inputType: 'multi_choice',
+        label: 'Lighting fixtures & install',
+        helperText: 'Choose the fixture type and enter the quantity. Fixture cost and installation are included.',
+        options: LIGHTING_WORK_CHOICE_OPTIONS,
+        category: 'trades',
+      },
       { id: 'drywall', inputType: 'yes_no', label: 'Drywall / patching', helperText: 'Patch after layout changes.', category: 'trades' },
       { id: 'paint', inputType: 'yes_no', label: 'Interior painting', helperText: 'Prep, labor, and paint.', category: 'trades' },
       { id: 'trim', inputType: 'yes_no', label: 'Trim & baseboard', helperText: 'Trim install labor and materials.', category: 'trades' },
@@ -738,6 +791,8 @@ const CHECKLIST_YES_HINTS = {
     /\b(remove|demo|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,50}\bvanity\b|\bvanity\b[^.]{0,50}\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b/,
   countertop_demo:
     /\b(remove|demo|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,50}\b(countertops?|counters?)\b|\b(countertops?|counters?)\b[^.]{0,50}\b(remove|demo|tear[\s-]?out|rip[\s-]?out)\b/,
+  backsplash_demo:
+    /\b(remove|demo|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b[^.]{0,50}\bbacksplash\b|\bbacksplash\b[^.]{0,50}\b(remove|demo|tear[\s-]?out|rip[\s-]?out|haul[\s-]?off)\b/,
   shower_tile: /\b(shower\s+wall\s+tile|shower\s+tile|tile\s+shower|new\s+shower\s+tile)\b/,
   wet_area_install: /\b(tub\s+install|new\s+tub|shower\s+pan|prefab\s+pan|tile\s+pan|mud\s+pan|tub[\s-]to[\s-]shower)\b/,
   shower_floor_tile: /\b(shower\s+floor\s+tile|tile\s+shower\s+floor)\b/,
