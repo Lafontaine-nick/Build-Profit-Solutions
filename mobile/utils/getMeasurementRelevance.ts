@@ -46,6 +46,8 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> = 
   roofSquares: ['roofing', 'shingles_roofing', 'roof_tie_in', 'tear_off'],
   drywallSqft: ['drywall', 'hang', 'finish_tape', 'interior_finishes'],
   wallPaintSqft: ['paint', 'interior_paint', 'paint_repair', 'paint_trim', 'interior_finishes'],
+  ceilingPaintSqft: ['ceiling_paint', 'interior_paint', 'paint'],
+  paintAreaSqft: ['paint', 'interior_paint', 'ceiling_paint'],
   // Exterior wall faces inform insulation envelope walls (not drywall interior surface).
   exteriorPaintSqft: ['exterior_paint', 'paint_trim', 'stucco', 'exterior', 'insulation'],
   cabinetLf: ['cabinets', 'cabinets_counters'],
@@ -53,6 +55,8 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> = 
   showerWallTileSqft: ['shower_tile', 'waterproofing', 'tile_flooring', 'tile_shower', 'interior_finishes'],
   showerFloorTileSqft: ['shower_tile', 'shower_floor_tile', 'tile_flooring', 'tile_shower', 'interior_finishes'],
   baseboardLf: ['trim', 'baseboard', 'interior_trim', 'paint_trim'],
+  interiorDoorCount: ['door_paint', 'trim_paint'],
+  cabinetPaintSqft: ['cabinet_paint'],
   railingLf: ['railing', 'fencing'],
   backsplashSqft: ['backsplash'],
   paverSqft: ['pavers', 'hardscape', 'landscaping'],
@@ -150,6 +154,18 @@ export function getMeasurementRelevance(params: {
   const includedSet = new Set(params.includedScopeKeys);
   const floorWorkScope = ['floor_tile', 'floor_demo', 'flooring', 'floor_prep'];
   const floorWorkIncluded = floorWorkScope.some((id) => includedSet.has(id));
+
+  if (measurementKey === 'paintAreaSqft') {
+    return {
+      relevant: true,
+      blockingPrice: false,
+      relatedScopeKeys: [],
+      reason:
+        params.templateKey === 'painting'
+          ? 'Reference quantity only — the active combined/separate paint method controls pricing.'
+          : undefined,
+    };
+  }
 
   // Kitchen floor is a scope-specific takeoff. Keeping it in the always-visible
   // set leaves a stale "Kitchen floor" confirmation row after flooring is

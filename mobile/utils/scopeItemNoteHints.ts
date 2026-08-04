@@ -33,12 +33,18 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   garbage_disposal: /\b(garbage\s+disposal|disposal\s+install|new\s+disposal)\b/,
   drywall: /\b(drywall|sheetrock|gypsum|hang\s+and\s+finish)\b/,
   paint_trim: /\b(paint|trim|baseboards?|interior\s+paint)\b/,
+  trim_paint: /\b(paint|trim|baseboards?|base\s*board|casing|crown|moulding|molding)\b/,
   tile_flooring: /\b(tile\s+(?:and\s+)?flooring|flooring|lvp|laminate|vinyl\s+plank|carpet)\b/,
   backsplash: /\b(backsplash)\b/,
   appliances:
     /\b(appliance\s+reinstall|reinstall(?:ing)?\s+(?:old\s+|existing\s+)?appliances?|appliance\s+install|install\s+appliances?|appliance\s+allowance|hookup\s+appliances?|reconnect\s+appliances?|appliance\s+hookup|appliances?\s+(?:&|and)?\s*hookup)\b/,
   island: /\b(island)\b/,
   paint: /\b(paint(?:ing)?|bathroom\s+paint)\b/,
+  prep: /\b(paint(?:ing)?|primer|surface\s+prep|masking|patch(?:ing)?)\b/,
+  door_paint:
+    /\b(?:paint|painting)\b[^.;]{0,40}\b(?:interior\s+)?doors?\b|\b(?:interior\s+)?doors?\b[^.;]{0,40}\b(?:paint|painting)\b/,
+  cabinet_paint:
+    /\b(?:paint|painting|refinish(?:ing)?)\b[^.;]{0,40}\bcabinets?\b|\bcabinets?\b[^.;]{0,40}\b(?:paint|painting|refinish(?:ing)?)\b/,
   lighting: /\b(new\s+lighting|lighting|light\s+fixtures?)\b/,
   glass_door: /\b(shower\s+door|glass\s+shower)\b/,
   vanity: /\b(vanity|countertops?\s+and\s+vanity)\b/,
@@ -197,10 +203,18 @@ export function inferChoicesFromNotes(itemId: string, notes: string | null | und
   if (itemId !== 'walls_moving') return [];
 
   const ids: string[] = [];
-  if (/\b(remove|removing|demo|demolish|tear[\s-]?out)\b.*\bwalls?\b|\bwalls?\b.*\b(remove|removing|demo|demolish|tear[\s-]?out)\b/.test(n)) {
+  if (
+    /\b(remove|removing|demo|demolish|tear[\s-]?out)\b[^.;]{0,60}\bwalls?\b|\bwalls?\b[^.;]{0,60}\b(remove|removing|demo|demolish|tear[\s-]?out)\b/.test(
+      n
+    )
+  ) {
     ids.push('remove');
   }
-  if (/\b(add|adding|moving|new|build)\b.*\bwalls?\b|\bwalls?\b.*\b(add|adding|moving|new|build)\b/.test(n)) {
+  if (
+    /\b(add|adding|moving|new|build)\b[^.;]{0,60}\bwalls?\b|\bwalls?\b[^.;]{0,60}\b(add|adding|moving|new|build)\b/.test(
+      n
+    )
+  ) {
     ids.push('add');
   }
   if (!ids.length && /\b(no\s+wall|walls?\s+not\s+moving|no\s+layout\s+changes?)\b/.test(n)) {

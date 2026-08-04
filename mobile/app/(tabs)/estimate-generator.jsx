@@ -3148,10 +3148,22 @@ function materialTotalForBidAndCart(bid, cart = []) {
   return bid?.aiEstimateDraftSnapshot ? bidMaterials : cartMaterials || bidMaterials;
 }
 
+function appliedAiSnapshotCostTotals(bid) {
+  const draft = bid?.aiEstimateDraftSnapshot?.draft;
+  if (!draft) return null;
+  const totals = sumStep3ReviewBudgetTotals(draft);
+  return totals && totals.total > 0 ? totals : null;
+}
+
 function computeEstimateGrandTotalFromBidAndCart(bid, cart) {
   if (!bid) return 0;
-  const materials = materialTotalForBidAndCart(bid, cart);
-  const labor = (bid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0) || 0;
+  const snapshotTotals = appliedAiSnapshotCostTotals(bid);
+  const materials = snapshotTotals
+    ? snapshotTotals.material
+    : materialTotalForBidAndCart(bid, cart);
+  const labor = snapshotTotals
+    ? snapshotTotals.labor
+    : (bid.laborLineItems || []).reduce((sum, item) => sum + (item.total || 0), 0) || 0;
   const financials = getEstimateStep5Financials(bid, materials, labor);
   return financials.bidPrice;
 }
@@ -5073,13 +5085,19 @@ export default function EstimateGeneratorScreen() {
   const calc = useMemo(() => {
     // On AI-applied bids, the draft-generated bid material lines are authoritative.
     // The separate cart can briefly contain stale rows from a previous estimate/apply attempt.
-    const materials = materialTotalForBidAndCart(bid, materialsCart);
-    const laborFromItems =
-      bid.laborLineItems?.reduce(
-        (sum, item) => sum + (Number(item.total) || Number(item.totalCost) || 0),
-        0
-      ) || 0;
-    const labor = laborFromItems;
+    // Once Confirm Scope has been applied, its totals are more authoritative
+    // than stale persisted line items (which can contain a legacy duplicate
+    // drywall/patch-repair split).
+    const snapshotTotals = appliedAiSnapshotCostTotals(bid);
+    const materials = snapshotTotals
+      ? snapshotTotals.material
+      : materialTotalForBidAndCart(bid, materialsCart);
+    const labor = snapshotTotals
+      ? snapshotTotals.labor
+      : bid.laborLineItems?.reduce(
+          (sum, item) => sum + (Number(item.total) || Number(item.totalCost) || 0),
+          0
+        ) || 0;
     const rentals = rentalCart.length;
     const financials = getEstimateStep5Financials(bid, materials, labor);
     const subtotal = financials.totalCostBeforeMarkup;
@@ -9935,8 +9953,10 @@ export default function EstimateGeneratorScreen() {
       ) || 0;
     const allowances = getEstimateAllowanceLineItemsTotal(bid);
     const subtotal = materials + labor + allowances;
-    // Only heal clear inflation (e.g. ~$37k bid vs ~$20k Step 3), not tiny rounding.
-    if (!(subtotal > step3.total * 1.05 + 100)) return;
+    // Step 3 Applied pricing is authoritative. Even a small duplicate scope
+    // line must be removed (for example legacy drywall + patch_repair data can
+    // duplicate an $86.80 line), rather than being dismissed as rounding.
+    if (!(subtotal > step3.total + 0.01)) return;
 
     // Do not include snapshot.savedAt here. The reconciliation itself triggers
     // persistence, which can refresh savedAt and otherwise make this effect

@@ -577,12 +577,69 @@ const CHECKLIST_TEMPLATES = {
 
   painting: {
     title: 'Painting — confirm project scope',
-    intro: 'Confirm painting scope before pricing.',
+    intro: 'Confirm interior and exterior painting scope before pricing.',
     items: [
-      { id: 'prep', inputType: 'yes_no', label: 'Surface prep / masking', category: 'prep' },
-      { id: 'interior_paint', inputType: 'yes_no', label: 'Interior paint (walls / ceiling)', category: 'paint' },
-      { id: 'exterior_paint', inputType: 'yes_no', label: 'Exterior paint', category: 'paint' },
-      { id: 'trim_paint', inputType: 'yes_no', label: 'Trim / doors / cabinets paint', category: 'paint' },
+      {
+        id: 'prep',
+        inputType: 'yes_no',
+        label: 'Prep & Masking',
+        helperText: 'Floor/furniture protection, masking, light sanding, minor caulking, spot priming, and cleanup prep.',
+        category: 'prep',
+      },
+      {
+        id: 'interior_paint',
+        inputType: 'yes_no',
+        label: 'Walls',
+        helperText: 'Paintable wall surface area only. Standard preparation, protection, painting, and cleanup are included.',
+        category: 'paint',
+      },
+      {
+        id: 'ceiling_paint',
+        inputType: 'yes_no',
+        label: 'Ceilings',
+        helperText: 'Paintable ceiling surface area only. Standard preparation, flat ceiling paint, painting, and cleanup are included.',
+        category: 'paint',
+      },
+      {
+        id: 'trim_paint',
+        inputType: 'yes_no',
+        label: 'Baseboards, trim & molding',
+        helperText:
+          'Baseboards, window casing, door casing, crown, and other interior trim. Use total linear feet. Do not include door slabs or door jambs/frames.',
+        category: 'paint',
+      },
+      {
+        id: 'door_paint',
+        inputType: 'yes_no',
+        label: 'Interior doors & frames',
+        helperText:
+          'Interior door slabs, door edges, and door jambs/frames. Measure by door. Major repairs, stripping, or specialty coatings are separate.',
+        category: 'paint',
+      },
+      {
+        id: 'cabinet_paint',
+        inputType: 'yes_no',
+        label: 'Cabinets',
+        helperText:
+          'Includes cabinet boxes, doors, drawer fronts, and face frames. Refinishing and major repairs are separate.',
+        category: 'paint',
+      },
+      {
+        id: 'exterior_prep',
+        inputType: 'yes_no',
+        label: 'Exterior Prep & Masking',
+        helperText:
+          'Exterior surface cleaning, masking, light scraping, spot priming, and standard prep before exterior painting.',
+        category: 'prep',
+      },
+      {
+        id: 'exterior_paint',
+        inputType: 'yes_no',
+        label: 'Exterior Paint',
+        helperText:
+          'Paintable exterior surface area for siding, stucco, soffits, and fascia. Heavy repairs, access work, and specialty coatings are separate.',
+        category: 'paint',
+      },
       { id: 'cleanup', inputType: 'yes_no', label: 'Cleanup & disposal', category: 'closeout' },
     ],
   },
@@ -757,7 +814,7 @@ const CHECKLIST_TEMPLATES = {
         inputType: 'yes_no',
         label: 'Exterior paint',
         helperText:
-          'Exterior painted surface SF. Mid-market national includes tape/masking and light soffit/fascia — not stucco install.',
+          'Exterior paint application for siding, stucco, soffit, and fascia. Prep, masking, heavy repairs, access work, and specialty coatings are separate.',
         category: 'finishes',
       },
       {
@@ -857,7 +914,11 @@ const CHECKLIST_YES_HINTS = {
   mep_rough: /\b(mep|mechanical|electrical|plumbing|rough[\s-]?in|rough\s+mechanical)\b/,
   tile_flooring: /\b(tile|flooring|floors?|lvp|laminate|carpet|hardwood)\b/,
   paint_trim: /\b(paint|trim|baseboards?|interior\s+paint)\b/,
+  trim_paint: /\b(paint|trim|baseboards?|base\s*board|casing|crown|moulding|molding)\b/,
   interior_paint: /\b(interior\s+paint|paint\s+(?:walls?|ceilings?|interior)|paint\s*\/\s*stain)\b/,
+  prep: /\b(paint(?:ing)?|primer|surface\s+prep|masking|patch(?:ing)?)\b/,
+  door_paint: /\b(?:paint|painting)\b[^.;]{0,40}\b(?:interior\s+)?doors?\b|\b(?:interior\s+)?doors?\b[^.;]{0,40}\b(?:paint|painting)\b/,
+  cabinet_paint: /\b(?:paint|painting|refinish(?:ing)?)\b[^.;]{0,40}\bcabinets?\b|\bcabinets?\b[^.;]{0,40}\b(?:paint|painting|refinish(?:ing)?)\b/,
   exterior_paint: /\b(exterior\s+paint|paint\s+exterior)\b/,
   interior_trim:
     /\b(finish\s+(?:trim|carpentry)|interior\s+(?:trim|doors?)|baseboards?|casing|closet\s+shelving)\b/,
@@ -922,6 +983,17 @@ function checklistTemplateKey(draft, estimateTier) {
   ) {
     return 'bathroom';
   }
+  // A dedicated repaint that mentions an existing kitchen surface is still a
+  // painting job. Route it to the painting checklist unless the notes describe
+  // an actual kitchen remodel/renovation or a new kitchen installation.
+  const dedicatedPaintingIntent = /\b(paint(?:ing)?|repaint|primer|painted)\b/i.test(notes);
+  const actualKitchenRemodelIntent =
+    (/\bkitchen\s+(?:remodel|renovat(?:e|ion)|reface|addition)\b/i.test(notes) &&
+      !/\b(?:no|without|not)\s+(?:a\s+)?kitchen\s+(?:remodel|renovation)\b/i.test(notes)) ||
+    /\b(?:install|replace|new)\b[^.]{0,50}\b(?:kitchen\s+)?(?:cabinet|countertop|backsplash|island|flooring)\b/i.test(notes);
+  if ((projectType === 'painting' || dedicatedPaintingIntent) && !actualKitchenRemodelIntent) {
+    return 'painting';
+  }
   if (
     projectType === 'kitchen' ||
     /\bkitchen(?:\s+remodel)?\b/i.test(notes) ||
@@ -976,13 +1048,6 @@ function checklistTemplateKey(draft, estimateTier) {
   if (projectType === 'drywall' || /\b(drywall\s+(?:hang|finish|patch)|sheetrock)\b/i.test(notes)) {
     return 'drywall';
   }
-  if (
-    projectType === 'painting' ||
-    (/\b(paint(?:ing)?|repaint)\b/i.test(notes) && !/\b(kitchen|bath(?:room)?)\s+remodel\b/i.test(notes))
-  ) {
-    return 'painting';
-  }
-
   if (estimateTier === 'room_remodel') return 'room_remodel';
   return 'room_remodel';
 }
@@ -1103,10 +1168,10 @@ function inferChoicesFromNotes(itemId, notes) {
   if (itemId !== 'walls_moving') return [];
 
   const ids = [];
-  if (/\b(remove|removing|demo|demolish|tear[\s-]?out)\b.*\bwalls?\b|\bwalls?\b.*\b(remove|removing|demo|demolish|tear[\s-]?out)\b/.test(n)) {
+  if (/\b(remove|removing|demo|demolish|tear[\s-]?out)\b[^.;]{0,60}\bwalls?\b|\bwalls?\b[^.;]{0,60}\b(remove|removing|demo|demolish|tear[\s-]?out)\b/.test(n)) {
     ids.push('remove');
   }
-  if (/\b(add|adding|moving|new|build)\b.*\bwalls?\b|\bwalls?\b.*\b(add|adding|moving|new|build)\b/.test(n)) {
+  if (/\b(add|adding|moving|new|build)\b[^.;]{0,60}\bwalls?\b|\bwalls?\b[^.;]{0,60}\b(add|adding|moving|new|build)\b/.test(n)) {
     ids.push('add');
   }
   if (!ids.length && /\b(no\s+wall|walls?\s+not\s+moving|no\s+layout\s+changes?)\b/.test(n)) {

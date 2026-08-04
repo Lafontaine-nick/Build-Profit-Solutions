@@ -428,6 +428,47 @@ Demo old cabinets and haul off $850 lump sum`;
     expect(parsed.itemQuantities?.interior_paint).toMatchObject({ quantity: 3375, unit: 'allowance' });
   });
 
+  test('dedicated interior repaint keeps wall area separate from cabinet area', () => {
+    const notes =
+      'Interior repaint of approximately 1,500 square feet. Paint all interior walls and ceilings with two coats. Paint 200 linear feet of baseboards and trim, plus 6 interior doors and frames. Paint 200 square feet of existing kitchen cabinets.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'painting',
+      projectType: 'painting',
+    });
+    expect(parsed.paintAreaSqft).toBe(1500);
+    expect(parsed.paintPricingMethod).toBe('combined');
+    expect(parsed.combinedPaintableAreaSqft).toBe(1500);
+    expect(parsed.paintAreaNeedsConfirmation).toBe(false);
+    expect(parsed.paintAreaBasis).toBe('combined');
+    expect(parsed.wallPaintSqft).toBeUndefined();
+    expect(parsed.baseboardLf).toBe(200);
+    expect(parsed.interiorDoorCount).toBe(6);
+    expect(parsed.cabinetPaintSqft).toBe(200);
+  });
+
+  test('classifies ambiguous paint area instead of assigning it to walls', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Paint all interior walls and ceilings in a 1,500 square foot house.',
+      { templateKey: 'painting', projectType: 'painting' }
+    );
+    expect(parsed.paintAreaSqft).toBe(1500);
+    expect(parsed.paintAreaNeedsConfirmation).toBe(true);
+    expect(parsed.paintAreaBasis).toBe('floor_area');
+    expect(parsed.wallPaintSqft).toBeUndefined();
+    expect(parsed.ceilingPaintSqft).toBeUndefined();
+  });
+
+  test('keeps explicit wall and ceiling quantities separate', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Paint 2,800 sqft of walls and 1,500 sqft of ceilings.',
+      { templateKey: 'painting', projectType: 'painting' }
+    );
+    expect(parsed.wallPaintSqft).toBe(2800);
+    expect(parsed.ceilingPaintSqft).toBe(1500);
+    expect(parsed.paintPricingMethod).toBe('separate');
+    expect(parsed.paintAreaNeedsConfirmation).toBeUndefined();
+  });
+
   test('demo haul-off does not auto-include cleanup scope item', () => {
     const notes = 'Demo old cabinets and haul off $850 lump sum';
     expect(inferItemStateFromNotes('cleanup', notes)).toBe('unsure');
@@ -486,6 +527,23 @@ describe('trade-specific scope checklists', () => {
     const draft = { projectType: 'painting', rooms: [] };
     expect(checklistTemplateKey(draft, 'room_remodel')).toBe('painting');
     expect(CHECKLIST_TEMPLATES.painting.items.some((i) => i.id === 'interior_paint')).toBe(true);
+    expect(CHECKLIST_TEMPLATES.painting.items.map((i) => i.id)).toEqual(
+      expect.arrayContaining(['prep', 'interior_paint', 'ceiling_paint', 'trim_paint', 'door_paint', 'cabinet_paint', 'cleanup'])
+    );
+  });
+
+  test('keeps a dedicated repaint with kitchen cabinets on painting cards', () => {
+    const draft = {
+      projectType: 'kitchen',
+      rooms: [],
+      originalNotes:
+        'Interior repaint. Paint walls and ceilings, baseboards, six interior doors, and existing kitchen cabinets. No kitchen remodel.',
+    };
+    const checklist = buildScopeChecklist(draft, 'room_remodel', draft.originalNotes);
+    expect(checklist.templateKey).toBe('painting');
+    expect(checklist.items.some((i) => i.id === 'door_paint')).toBe(true);
+    expect(checklist.items.find((i) => i.id === 'trim_paint')?.state).toBe('included');
+    expect(checklist.items.some((i) => i.id === 'countertops')).toBe(false);
   });
 
   test('kitchen flooring uses parsed kitchen sqft', () => {

@@ -281,6 +281,20 @@ describe('wetAreaScopeSync', () => {
     expect(next.find((r) => r.id === 'trim')?.state).toBe('unsure');
   });
 
+  test('syncInteriorPaintScopeItems includes each measured painting scope row', () => {
+    const items: ScopeChecklistItem[] = [
+      { id: 'trim_paint', label: 'Trim', inputType: 'yes_no', state: 'unsure' },
+      { id: 'door_paint', label: 'Doors', inputType: 'yes_no', state: 'unsure' },
+      { id: 'cabinet_paint', label: 'Cabinets', inputType: 'yes_no', state: 'unsure' },
+    ];
+    const next = syncInteriorPaintScopeItems(items, {
+      baseboardLf: '200',
+      interiorDoorCount: '6',
+      cabinetPaintSqft: '200',
+    });
+    expect(next.every((row) => row.state === 'included')).toBe(true);
+  });
+
   test('syncInteriorPaintScopeItems targets paint_repair on bathroom checklists', () => {
     const items: ScopeChecklistItem[] = [
       { id: 'paint_repair', label: 'Paint repair', inputType: 'yes_no', state: 'unsure' },

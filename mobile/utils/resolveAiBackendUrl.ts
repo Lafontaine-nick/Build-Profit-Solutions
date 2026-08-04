@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 import { getMetroBackendOrigin, getNetworkInfo } from './networkDetection';
 import { clerkAuthService } from '@/services/clerkAuth';
 import { getAuthTokenWithFallback } from '@/utils/authTokenHelper';
+import { fetchWorkspaceClerkToken } from '@/utils/workspaceAuthBridge';
 
 /** Hosted backend origin (no path). TestFlight / App Store builds must use this on cellular, not LAN. */
 export const PRODUCTION_AI_ORIGIN = 'https://build-profit-solutions-backend.onrender.com';
@@ -437,7 +438,12 @@ export async function postAiAssistantJson<T>(
 ): Promise<T> {
   const urls = buildAiAssistantEndpointUrls(routePath);
   const reachableUrls = await filterReachableAiAssistantUrls(urls);
-  const authToken = await getAuthTokenWithFallback(async () => clerkAuthService.getToken());
+  // The workspace bridge is registered from the Clerk provider and calls
+  // Clerk's real `getToken()`, which refreshes expired session JWTs. The
+  // legacy auth service only stores a snapshot and can be stale.
+  const authToken =
+    (await fetchWorkspaceClerkToken()) ||
+    (await getAuthTokenWithFallback(async () => clerkAuthService.getToken()));
   if (__DEV__) {
     console.log(
       '🤖 AI POST',

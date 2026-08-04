@@ -14,8 +14,16 @@ export type QuickMeasurementFieldKey =
   | 'showerWallTileSqft'
   | 'showerFloorTileSqft'
   | 'wallPaintSqft'
+  | 'ceilingPaintSqft'
+  | 'paintAreaSqft'
   | 'exteriorPaintSqft'
   | 'baseboardLf'
+  | 'interiorDoorCount'
+  | 'cabinetPaintSqft'
+  | 'cabinetUpperLf'
+  | 'cabinetLowerLf'
+  | 'cabinetTallLf'
+  | 'cabinetRunLf'
   | 'railingLf'
   | 'landscapeSqft'
   | 'sodSqft'
@@ -89,8 +97,32 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Record<QuickMeasurementFieldKey, QuickMeasur
   showerWallTileSqft: F('showerWallTileSqft', 'Shower walls', '90', 'sqft', 'interior'),
   showerFloorTileSqft: F('showerFloorTileSqft', 'Shower floor', '15', 'sqft', 'interior'),
   wallPaintSqft: F('wallPaintSqft', 'Interior paint', '320', 'sqft', 'interior'),
+  ceilingPaintSqft: F('ceilingPaintSqft', 'Ceilings', '320', 'sqft', 'interior'),
+  paintAreaSqft: F('paintAreaSqft', 'Paint area — confirm basis', '1500', 'sqft', 'interior'),
   exteriorPaintSqft: F('exteriorPaintSqft', 'Exterior paint', '2200', 'sqft', 'exterior'),
   baseboardLf: F('baseboardLf', 'Baseboard', '48', 'LF', 'interior'),
+  interiorDoorCount: F('interiorDoorCount', 'Interior doors', '6', 'each', 'interior'),
+  cabinetPaintSqft: F(
+    'cabinetPaintSqft',
+    'Paintable Cabinet Surface Area',
+    '200',
+    'sqft',
+    'interior',
+    undefined,
+    'Enter total paintable surface area for selected doors, drawer fronts, face frames, and exposed cabinet panels. Do not use kitchen floor area.'
+  ),
+  cabinetUpperLf: F('cabinetUpperLf', 'Upper Cabinets', '15', 'LF', 'interior'),
+  cabinetLowerLf: F('cabinetLowerLf', 'Lower Cabinets', '15', 'LF', 'interior'),
+  cabinetTallLf: F('cabinetTallLf', 'Tall / Pantry Cabinets', '0', 'LF', 'interior'),
+  cabinetRunLf: F(
+    'cabinetRunLf',
+    'Cabinet Run Length',
+    '30',
+    'LF',
+    'interior',
+    undefined,
+    'Enter the total linear feet of upper, lower, and pantry cabinets being painted.'
+  ),
   railingLf: F('railingLf', 'Railing', '48', 'LF', 'exterior'),
   landscapeSqft: F('landscapeSqft', 'Coverage', '1200', 'sqft', 'site'),
   sodSqft: F('sodSqft', 'Sod / turf', '900', 'sqft', 'site'),
@@ -136,6 +168,8 @@ const NOTE_BACKED_QUICK_FIELD_ORDER: QuickMeasurementFieldKey[] = [
   'countertopSqft',
   'cabinetLf',
   'wallPaintSqft',
+  'ceilingPaintSqft',
+  'paintAreaSqft',
   'exteriorPaintSqft',
   'drywallSqft',
   'flooringSqft',
@@ -193,9 +227,28 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
   drywall: [row(F('drywallSqft', 'Drywall', '800', 'sqft', 'interior', true))],
   painting: [
     row(
-      F('wallPaintSqft', 'Interior paint', '1500', 'sqft', 'interior', true),
-      F('exteriorPaintSqft', 'Exterior paint', '2200', 'sqft', 'exterior')
+      F('wallPaintSqft', 'Walls', '1500', 'sqft', 'interior', true),
+      F('ceilingPaintSqft', 'Ceilings', '1200', 'sqft', 'interior')
     ),
+    row(F('paintAreaSqft', 'Paint area — confirm basis', '1500', 'sqft', 'interior')),
+    row(
+      F(
+        'baseboardLf',
+        'Baseboard / trim',
+        '200',
+        'LF',
+        'interior',
+        undefined,
+        'Include baseboards, window casing, door casing, crown, and other interior trim. Exclude door slabs and door jambs/frames.'
+      ),
+      F('interiorDoorCount', 'Interior doors', '6', 'each', 'interior')
+    ),
+    row(
+      F('cabinetUpperLf', 'Upper Cabinets', '15', 'LF', 'interior'),
+      F('cabinetLowerLf', 'Lower Cabinets', '15', 'LF', 'interior')
+    ),
+    row(F('cabinetRunLf', 'Cabinet Run Length', '30', 'LF', 'interior')),
+    row(F('exteriorPaintSqft', 'Exterior Paint', '2200', 'sqft', 'exterior')),
   ],
   concrete: [
     row(
@@ -573,8 +626,16 @@ export function emptyQuickMeasurementInput(): Record<QuickMeasurementFieldKey, s
     showerWallTileSqft: '',
     showerFloorTileSqft: '',
     wallPaintSqft: '',
+    ceilingPaintSqft: '',
+    paintAreaSqft: '',
     exteriorPaintSqft: '',
     baseboardLf: '',
+    interiorDoorCount: '',
+    cabinetPaintSqft: '',
+    cabinetUpperLf: '',
+    cabinetLowerLf: '',
+    cabinetTallLf: '',
+    cabinetRunLf: '',
     railingLf: '',
     landscapeSqft: '',
     sodSqft: '',

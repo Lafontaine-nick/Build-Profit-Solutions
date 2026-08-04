@@ -1976,6 +1976,7 @@ function PricingInputField({
   applying,
   embedded = false,
   readOnly = false,
+  commitOnBlur = false,
 }: {
   label: string;
   value: string;
@@ -1995,10 +1996,14 @@ function PricingInputField({
   embedded?: boolean;
   /** Computed totals — display only. */
   readOnly?: boolean;
+  /** Keep the native field stable while parent pricing state recalculates. */
+  commitOnBlur?: boolean;
 }) {
   const [inputMode, setInputMode] = useState<'total' | 'rate'>(defaultInputMode);
   const [rateDraft, setRateDraft] = useState('');
   const [rateEditing, setRateEditing] = useState(false);
+  const [totalDraft, setTotalDraft] = useState(value);
+  const [totalEditing, setTotalEditing] = useState(false);
   const inputShell = inputShellStyle(Colors, darkMode);
   const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8';
   const supportsRateMode = Boolean(basis?.quantity && basis.quantity > 0) && !readOnly;
@@ -2007,7 +2012,14 @@ function PricingInputField({
     supportsRateMode && Number.isFinite(amount) && amount > 0
       ? String(Math.round((amount / basis!.quantity) * 100) / 100)
       : '';
-  const displayValue = inputMode === 'rate' ? (rateEditing ? rateDraft : rateValue) : value;
+  const displayValue =
+    inputMode === 'rate'
+      ? rateEditing
+        ? rateDraft
+        : rateValue
+      : commitOnBlur && totalEditing
+        ? totalDraft
+        : value;
   const activePrefix = inputMode === 'rate' ? '$' : prefix;
   const activeSuffix = inputMode === 'rate' && basis ? `/${formatUnitLabel(basis.unit)}` : suffix;
   const helperText =
@@ -2020,6 +2032,9 @@ function PricingInputField({
       setRateDraft(rateValue);
     }
   }, [inputMode, rateEditing, rateValue]);
+  useEffect(() => {
+    if (commitOnBlur && !totalEditing) setTotalDraft(value);
+  }, [commitOnBlur, totalEditing, value]);
   const handleChangeText = (text: string) => {
     if (inputMode === 'rate' && basis?.quantity) {
       const normalized = String(text || '')
@@ -2037,6 +2052,10 @@ function PricingInputField({
         return;
       }
       onChangeText(String(Math.round(rate * basis.quantity * 100) / 100));
+      return;
+    }
+    if (commitOnBlur) {
+      setTotalDraft(text);
       return;
     }
     onChangeText(text);
@@ -2116,12 +2135,19 @@ function PricingInputField({
             if (inputMode === 'rate') {
               setRateEditing(true);
               setRateDraft(rateValue);
+            } else if (commitOnBlur) {
+              setTotalEditing(true);
+              setTotalDraft(value);
             }
             onFocus();
           }}
           onChangeText={handleChangeText}
           onBlur={() => {
             setRateEditing(false);
+            if (commitOnBlur) {
+              setTotalEditing(false);
+              onChangeText(totalDraft);
+            }
             onBlur();
           }}
           placeholder={placeholder}
@@ -4252,6 +4278,7 @@ function QuantitySection({
             suffix={formatCountFieldSuffix(fieldLabels?.countUnit || resolved.dualCount?.unit || 'each')}
             placeholder="0"
             embedded
+            commitOnBlur
             onFocus={() => focusQuantityField(itemId, 'count')}
             onChangeText={(text) => onItemQuantityChange(itemId, text, 'count')}
             onBlur={() => blurQuantityField(itemId, 'count')}
@@ -4501,6 +4528,7 @@ function QuantitySection({
             value={measurementsInput.itemQuantities[itemId]?.quantity ?? ''}
             suffix="each"
             embedded
+            commitOnBlur
             onFocus={() => onItemQuantityFocus(itemId, 'count')}
             onChangeText={(text) => onItemQuantityChange(itemId, text, 'count', 'each')}
             onBlur={() => {
@@ -6844,6 +6872,7 @@ function MultiChoiceRow({
                   value={measurementsInput.itemQuantities[quantityKey]?.quantity ?? '1'}
                   suffix="each"
                   embedded
+                  commitOnBlur
                   onFocus={() => onItemQuantityFocus(quantityKey, 'count')}
                   onChangeText={(text) => onItemQuantityChange(quantityKey, text, 'count', 'each')}
                   onBlur={() => onItemQuantityBlur(quantityKey, 'count')}
@@ -6864,6 +6893,7 @@ function MultiChoiceRow({
             }
             suffix="each"
             embedded
+            commitOnBlur
             onFocus={() => onItemQuantityFocus(item.id, 'count')}
             onChangeText={(text) => onItemQuantityChange(item.id, text, 'count', 'each')}
             onBlur={() => onItemQuantityBlur(item.id, 'count')}
@@ -6930,6 +6960,7 @@ function MultiChoiceRow({
                   value={measurementsInput.itemQuantities[quantityKey]?.quantity ?? ''}
                   suffix="LF"
                   embedded
+                  commitOnBlur
                   onFocus={() => onItemQuantityFocus(quantityKey, 'count')}
                   onChangeText={(text) => onItemQuantityChange(quantityKey, text, 'count', 'lf')}
                   onBlur={() => onItemQuantityBlur(quantityKey, 'count')}
@@ -7550,6 +7581,51 @@ function CollapsibleQuickMeasurements({
   const [editingVariant, setEditingVariant] = useState<
     'calm' | 'needs_confirmation' | 'suggestion' | 'more' | null
   >(null);
+  const paintInputRef = useRef({ wall: '', ceiling: '' });
+  useEffect(() => {
+    const wall = String(measurements.wallPaintSqft || '');
+    const ceiling = String(measurements.ceilingPaintSqft || '');
+    const changed = paintInputRef.current.wall !== wall || paintInputRef.current.ceiling !== ceiling;
+    if (
+      changed &&
+      measurements.paintPricingMethod === 'combined' &&
+      (Number(wall) > 0 || Number(ceiling) > 0)
+    ) {
+      setMeasurements((prev) => {
+        const itemQuantities = { ...(prev.itemQuantities || {}) };
+        delete itemQuantities.interior_paint;
+        delete itemQuantities.prep;
+        return {
+          ...prev,
+          paintPricingMethod: 'separate',
+          paintAreaNeedsConfirmation: false,
+          itemQuantities,
+        };
+      });
+    }
+    paintInputRef.current = { wall, ceiling };
+  }, [
+    measurements.wallPaintSqft,
+    measurements.ceilingPaintSqft,
+    measurements.paintPricingMethod,
+    setMeasurements,
+  ]);
+  useEffect(() => {
+    if (measurements.cabinetMeasurementMethod !== 'linear_feet') return;
+    const upper = Number(measurements.cabinetUpperLf || 0);
+    const lower = Number(measurements.cabinetLowerLf || 0);
+    const tall = Number(measurements.cabinetTallLf || 0);
+    const detailTotal = upper + lower + tall;
+    if (detailTotal <= 0 || String(measurements.cabinetRunLf || '') === String(detailTotal)) return;
+    setMeasurements((prev) => ({ ...prev, cabinetRunLf: String(detailTotal) }));
+  }, [
+    measurements.cabinetMeasurementMethod,
+    measurements.cabinetUpperLf,
+    measurements.cabinetLowerLf,
+    measurements.cabinetTallLf,
+    measurements.cabinetRunLf,
+    setMeasurements,
+  ]);
   const editingFieldKeyRef = useRef<QuickMeasurementFieldKey | null>(null);
   const editingEstimateRef = useRef<QuickMeasurementEstimate | null>(null);
   const editingPinActiveRef = useRef(false);
@@ -7632,16 +7708,34 @@ function CollapsibleQuickMeasurements({
 
     return { values: out, keys: noteKeys };
   }, [notes, effectiveTemplateKey, projectType]);
-  const rows = useMemo(
-    () =>
-      quickMeasurementRowsForInput(
-        effectiveTemplateKey,
-        projectType,
-        measurements,
-        noteQuickMeasurements.keys
-      ),
-    [effectiveTemplateKey, projectType, measurements, noteQuickMeasurements.keys]
-  );
+  const rows = useMemo(() => {
+    const baseRows = quickMeasurementRowsForInput(
+      effectiveTemplateKey,
+      projectType,
+      measurements,
+      noteQuickMeasurements.keys
+    );
+    if (String(effectiveTemplateKey || '').toLowerCase() !== 'painting' || !measurements.paintScope) {
+      return baseRows;
+    }
+    const scope = measurements.paintScope;
+    const bothWallsCeilings = scope.includes('walls') && scope.includes('ceilings');
+    const allowed = new Set<QuickMeasurementFieldKey>();
+    if (scope.includes('walls') && (!bothWallsCeilings || measurements.paintPricingMethod === 'separate')) {
+      allowed.add('wallPaintSqft');
+    }
+    if (scope.includes('ceilings') && (!bothWallsCeilings || measurements.paintPricingMethod === 'separate')) {
+      allowed.add('ceilingPaintSqft');
+    }
+    if (scope.includes('trim')) allowed.add('baseboardLf');
+    if (scope.includes('doors')) allowed.add('interiorDoorCount');
+    if (scope.includes('cabinets')) allowed.add('cabinetRunLf');
+    if (scope.includes('exterior')) allowed.add('exteriorPaintSqft');
+    if (bothWallsCeilings && measurements.paintPricingMethod === 'combined') allowed.add('paintAreaSqft');
+    return baseRows
+      .map((row) => row.filter((field) => allowed.has(field.key)))
+      .filter((row) => row.length > 0);
+  }, [effectiveTemplateKey, projectType, measurements, noteQuickMeasurements.keys]);
   const fillCounts = useMemo(
     () => countFilledQuickMeasurements(rows, measurements, noteQuickMeasurements.values),
     [rows, measurements, noteQuickMeasurements.values]
@@ -8883,15 +8977,42 @@ function CollapsibleQuickMeasurements({
         setEditingHomeIndex(home.homeIndex);
         setEditingVariant(home.variant);
       }
-      setMeasurements((prev) => ({
-        ...prev,
-        [key]: value,
-        quickMeasurementSources: {
-          ...(prev.quickMeasurementSources || {}),
-          [key]: prev.quickMeasurementSources?.[key] || 'user_entered',
-        },
-        quickMeasurementUserOverrides: { ...(prev.quickMeasurementUserOverrides || {}), [key]: true },
-      }));
+      setMeasurements((prev) => {
+        const nextItemQuantities = { ...(prev.itemQuantities || {}) };
+        const itemMapping: Partial<Record<QuickMeasurementFieldKey, { id: string; unit: string }>> = {
+          backsplashSqft: { id: 'backsplash', unit: 'sqft' },
+          countertopSqft: { id: 'countertops', unit: 'sqft' },
+          cabinetLf: { id: 'cabinets', unit: 'lf' },
+          flooringSqft: { id: 'flooring', unit: 'sqft' },
+          wallPaintSqft: { id: 'paint', unit: 'sqft' },
+          exteriorPaintSqft: { id: 'exterior_paint', unit: 'sqft' },
+          baseboardLf: { id: 'trim', unit: 'lf' },
+          railingLf: { id: 'railing', unit: 'lf' },
+          drywallSqft: { id: 'drywall', unit: 'sqft' },
+        };
+        const mapped = itemMapping[key];
+        if (mapped) {
+          if (String(value || '').trim()) {
+            nextItemQuantities[mapped.id] = {
+              quantity: value,
+              unit: mapped.unit,
+              quantitySource: 'user_entered',
+            };
+          } else {
+            delete nextItemQuantities[mapped.id];
+          }
+        }
+        return {
+          ...prev,
+          [key]: value,
+          itemQuantities: nextItemQuantities,
+          quickMeasurementSources: {
+            ...(prev.quickMeasurementSources || {}),
+            [key]: 'user_entered',
+          },
+          quickMeasurementUserOverrides: { ...(prev.quickMeasurementUserOverrides || {}), [key]: true },
+        };
+      });
     },
     [setMeasurements]
   );
@@ -9056,10 +9177,24 @@ function CollapsibleQuickMeasurements({
     const lockedVariant = isEditing && editingVariant ? editingVariant : variant;
     const estimateForRender =
       result.estimate || (isEditing && lockedVariant === 'suggestion' ? editingEstimateRef.current : null);
+    const displayField =
+      field.key === 'paintAreaSqft'
+        ? {
+            ...field,
+            label:
+              measurements.paintPricingMethod === 'combined'
+                ? 'Combined Paintable Area'
+                : 'Original Paint Area Reference',
+            helperText:
+              measurements.paintPricingMethod === 'combined'
+                ? 'Used once for combined walls-and-ceilings pricing.'
+                : 'Informational source quantity from job notes. Not priced in separate mode.',
+          }
+        : field;
     return (
       <QuickMeasurementField
         key={field.key}
-        field={field}
+        field={displayField}
         value={displayValue}
         fromNotes={fromNotes}
         variant={lockedVariant}
@@ -9120,6 +9255,92 @@ function CollapsibleQuickMeasurements({
       })}
     </View>
   ) : null;
+  const ambiguousPaintArea =
+    String(templateKey || '').toLowerCase() === 'painting' &&
+    Boolean(measurements.paintAreaNeedsConfirmation) &&
+    Number(measurements.paintAreaSqft) > 0;
+  const choosePaintPricingMethod = (method: 'combined' | 'separate') => {
+    setMeasurements((prev) => {
+      const source =
+        prev.originalPaintAreaReferenceSqft ||
+        prev.paintAreaSqft ||
+        prev.combinedPaintableAreaSqft ||
+        '';
+      const combinedQuantity =
+        prev.combinedPaintableAreaSqft ||
+        source ||
+        (Number(prev.wallPaintSqft || 0) + Number(prev.ceilingPaintSqft || 0) || '');
+      const nextItemQuantities = { ...(prev.itemQuantities || {}) };
+      if (method === 'combined' && Number(combinedQuantity) > 0) {
+        const combinedEntry = {
+          quantity: String(combinedQuantity),
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        };
+        nextItemQuantities.interior_paint = combinedEntry;
+        nextItemQuantities.prep = combinedEntry;
+      } else {
+        delete nextItemQuantities.interior_paint;
+        delete nextItemQuantities.prep;
+      }
+      return {
+        ...prev,
+        paintPricingMethod: method,
+        combinedPaintableAreaSqft: method === 'combined' ? combinedQuantity : prev.combinedPaintableAreaSqft,
+        originalPaintAreaReferenceSqft: source || prev.originalPaintAreaReferenceSqft,
+        paintAreaBasis: method === 'combined' ? 'combined' : 'unknown',
+        paintAreaNeedsConfirmation: false,
+        itemQuantities: nextItemQuantities,
+      };
+    });
+  };
+  const choosePaintScope = (surface: NonNullable<ScopeMeasurements['paintScope']>[number]) => {
+    setMeasurements((prev) => {
+      const current = prev.paintScope || [];
+      const nextScope = current.includes(surface)
+        ? current.filter((value) => value !== surface)
+        : [...current, surface];
+      const hasWallsAndCeilings = nextScope.includes('walls') && nextScope.includes('ceilings');
+      const itemQuantities = { ...(prev.itemQuantities || {}) };
+      if (!hasWallsAndCeilings) {
+        delete itemQuantities.interior_paint;
+        delete itemQuantities.prep;
+      }
+      return {
+        ...prev,
+        paintScope: nextScope,
+        paintPricingMethod: hasWallsAndCeilings ? prev.paintPricingMethod : null,
+        itemQuantities,
+      };
+    });
+  };
+  const choosePaintAssumption = (
+    key: 'paintOccupancy' | 'paintApplicationMethod',
+    value:
+      | NonNullable<ScopeMeasurements['paintOccupancy']>
+      | NonNullable<ScopeMeasurements['paintApplicationMethod']>
+  ) => {
+    setMeasurements((prev) => ({
+      ...prev,
+      [key]: prev[key] === value ? null : value,
+      ...(key === 'paintOccupancy' ? { paintOccupancyConfirmed: true } : {}),
+      ...(key === 'paintApplicationMethod' ? { paintApplicationMethodConfirmed: true } : {}),
+    }));
+  };
+  const choosePaintAreaBasis = (basis: 'walls' | 'combined' | 'floor_area' | 'unknown') => {
+    if (basis === 'combined') choosePaintPricingMethod('combined');
+    if (basis === 'walls') choosePaintPricingMethod('separate');
+    const value = measurements.paintAreaSqft || '';
+    if (basis === 'combined' || basis === 'walls') return;
+    setMeasurements((prev) => ({
+      ...prev,
+      paintAreaBasis: basis,
+      paintAreaNeedsConfirmation: basis === 'unknown' || basis === 'floor_area',
+      wallPaintSqft: basis === 'walls' || basis === 'combined' ? value : '',
+      ceilingPaintSqft: '',
+      paintAreaSqft: basis === 'walls' || basis === 'combined' ? '' : value,
+    }));
+  };
 
   return (
     <View
@@ -9154,6 +9375,212 @@ function CollapsibleQuickMeasurements({
       </TouchableOpacity>
       {expanded ? (
         <View style={styles.quickMeasurementsBody}>
+          {ambiguousPaintArea ? (
+            <View
+              style={{
+                borderWidth: 1,
+                borderColor: '#fbbf24',
+                borderRadius: 14,
+                padding: 14,
+                marginBottom: 14,
+                backgroundColor: darkMode ? 'rgba(120, 80, 0, 0.14)' : 'rgba(251, 191, 36, 0.08)',
+              }}
+            >
+              <Text style={{ color: darkMode ? '#fef3c7' : '#78350f', fontWeight: '800', fontSize: 15 }}>
+                Paint Area
+              </Text>
+              <Text style={{ color: captionColor(darkMode, Colors), marginTop: 5 }}>
+                {measurements.paintAreaSqft} sqft detected. What does this measurement represent?
+              </Text>
+              <View style={{ gap: 8, marginTop: 12 }}>
+                {[
+                  ['walls', 'Walls only'],
+                  ['combined', 'Walls and ceilings combined'],
+                  ['floor_area', 'Floor area / home size'],
+                  ['unknown', 'Not sure'],
+                ].map(([basis, label]) => (
+                  <TouchableOpacity
+                    key={basis}
+                    onPress={() => choosePaintAreaBasis(basis as 'walls' | 'combined' | 'floor_area' | 'unknown')}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: darkMode ? 'rgba(255,255,255,0.18)' : Colors.line,
+                      borderRadius: 10,
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                    }}
+                  >
+                    <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontWeight: '700' }}>{label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ) : null}
+          {String(templateKey || '').toLowerCase() === 'painting' ? (
+            <View
+              style={{
+                borderWidth: 1,
+                borderColor: darkMode ? 'rgba(255,255,255,0.15)' : Colors.line,
+                borderRadius: 14,
+                padding: 14,
+                marginBottom: 14,
+              }}
+            >
+              <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontWeight: '800', fontSize: 15 }}>
+                Paint Scope
+              </Text>
+              <Text style={{ color: captionColor(darkMode, Colors), marginTop: 5 }}>
+                Select the painted surfaces included in this bid.
+              </Text>
+              <View style={{ gap: 8, marginTop: 12 }}>
+                {[
+                  ['walls', 'Walls'],
+                  ['ceilings', 'Ceilings'],
+                  ['trim', 'Baseboards / Trim'],
+                  ['doors', 'Interior Doors'],
+                  ['cabinets', 'Cabinets'],
+                  ['exterior', 'Exterior Paint'],
+                ].map(([surface, label]) => {
+                  const selected = measurements.paintScope?.includes(surface as never);
+                  return (
+                    <TouchableOpacity
+                      key={surface}
+                      onPress={() => choosePaintScope(surface as NonNullable<ScopeMeasurements['paintScope']>[number])}
+                      style={{
+                        borderWidth: 1,
+                        borderColor: selected ? '#34d399' : darkMode ? 'rgba(255,255,255,0.18)' : Colors.line,
+                        backgroundColor: selected ? 'rgba(52, 211, 153, 0.12)' : 'transparent',
+                        borderRadius: 10,
+                        paddingVertical: 10,
+                        paddingHorizontal: 12,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Text style={{ color: selected ? '#34d399' : darkMode ? '#F5F7FA' : Colors.text, fontWeight: '700', textAlign: 'center' }}>
+                        {selected ? '✓ ' : ''}{label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {measurements.paintScope?.some((surface) => surface === 'walls' || surface === 'ceilings') ? (
+                <>
+              <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontWeight: '800', fontSize: 15, marginTop: 16 }}>
+                Walls & Ceilings Measurement
+              </Text>
+              <Text style={{ color: captionColor(darkMode, Colors), marginTop: 5 }}>
+                {measurements.paintScope?.includes('walls') && measurements.paintScope?.includes('ceilings')
+                  ? 'Choose one combined area or enter wall and ceiling areas separately.'
+                  : 'The selected surface will be measured separately.'}
+              </Text>
+              {measurements.paintScope?.includes('walls') && measurements.paintScope?.includes('ceilings') ? (
+                <>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                {[
+                  ['combined', 'Combined Area'],
+                  ['separate', 'Separate Areas'],
+                ].map(([method, label]) => {
+                  const selected = measurements.paintPricingMethod === method;
+                  return (
+                    <TouchableOpacity
+                      key={method}
+                      onPress={() => choosePaintPricingMethod(method as 'combined' | 'separate')}
+                      style={{
+                        flex: 1,
+                        borderWidth: 1,
+                        borderColor: selected ? '#34d399' : darkMode ? 'rgba(255,255,255,0.18)' : Colors.line,
+                        backgroundColor: selected ? 'rgba(52, 211, 153, 0.12)' : 'transparent',
+                        borderRadius: 10,
+                        paddingVertical: 10,
+                        paddingHorizontal: 8,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Text style={{ color: selected ? '#34d399' : darkMode ? '#F5F7FA' : Colors.text, fontWeight: '700', fontSize: 12, textAlign: 'center' }}>
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {measurements.paintPricingMethod === 'separate' ? (
+                <View style={{ marginTop: 12 }}>
+                  <Text style={{ color: captionColor(darkMode, Colors), fontSize: 12, fontWeight: '700' }}>
+                    Calculated Total Paintable Area
+                  </Text>
+                  <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 18, fontWeight: '800', marginTop: 3 }}>
+                    {(Number(measurements.wallPaintSqft || 0) + Number(measurements.ceilingPaintSqft || 0)).toLocaleString()} sqft
+                  </Text>
+                </View>
+              ) : null}
+                </>
+              ) : null}
+                </>
+              ) : null}
+              <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontWeight: '800', fontSize: 14, marginTop: 14 }}>
+                Protection & Prep Assumptions
+              </Text>
+              <Text style={{ color: captionColor(darkMode, Colors), marginTop: 4, fontSize: 12 }}>
+                These selections automatically adjust prep, masking, and painting labor. They do not create separate scope items.
+              </Text>
+              {[
+                {
+                  key: 'paintOccupancy' as const,
+                  label: `Job condition${measurements.paintOccupancyConfirmed ? '' : ' · planning assumption'}`,
+                  values: [
+                    ['occupied', 'Occupied'],
+                    ['vacant', 'Vacant'],
+                    ['new_construction', 'New construction'],
+                  ],
+                  selected: measurements.paintOccupancy,
+                },
+                {
+                  key: 'paintApplicationMethod' as const,
+                  label: `Application method${measurements.paintApplicationMethodConfirmed ? '' : ' · planning assumption'}`,
+                  values: [
+                    ['brush_roll', 'Brush / roll'],
+                    ['spray', 'Spray'],
+                    ['mixed', 'Brush/roll + spray'],
+                  ],
+                  selected: measurements.paintApplicationMethod,
+                },
+              ].map((group) => (
+                <View key={group.key} style={{ marginTop: 10 }}>
+                  <Text style={{ color: captionColor(darkMode, Colors), fontSize: 12, fontWeight: '700', marginBottom: 6 }}>
+                    {group.label}
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    {group.values.map(([value, label]) => {
+                      const selected = group.selected === value;
+                      return (
+                        <TouchableOpacity
+                          key={value}
+                          onPress={() => choosePaintAssumption(group.key, value as never)}
+                          style={{
+                            flex: 1,
+                            borderWidth: 1,
+                            borderColor: selected ? '#34d399' : darkMode ? 'rgba(255,255,255,0.18)' : Colors.line,
+                            backgroundColor: selected ? 'rgba(52, 211, 153, 0.12)' : 'transparent',
+                            borderRadius: 10,
+                            paddingVertical: 9,
+                            paddingHorizontal: 6,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Text style={{ color: selected ? '#34d399' : darkMode ? '#F5F7FA' : Colors.text, fontWeight: '700', fontSize: 11, textAlign: 'center' }}>
+                            {label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : null}
           {wholeHomeLayout ? (
             <>
               {displayGroups.suggestions.length > 1 ? (
@@ -10581,9 +11008,35 @@ export default function AIEstimateScopeAssumptionsModal({
   // Paint SF in Quick measurements → auto-select Interior painting (Yes).
   useEffect(() => {
     setItems((prev) =>
-      syncInteriorPaintScopeItems(prev, { wallPaintSqft: measurements.wallPaintSqft })
+      syncInteriorPaintScopeItems(prev, {
+        wallPaintSqft: measurements.wallPaintSqft,
+        ceilingPaintSqft: measurements.ceilingPaintSqft,
+        paintAreaSqft: measurements.paintAreaSqft,
+        paintAreaBasis: measurements.paintAreaBasis,
+        paintAreaNeedsConfirmation: measurements.paintAreaNeedsConfirmation,
+        paintPricingMethod: measurements.paintPricingMethod,
+        combinedPaintableAreaSqft: measurements.combinedPaintableAreaSqft,
+        paintScope: measurements.paintScope,
+        baseboardLf: measurements.baseboardLf,
+        interiorDoorCount: measurements.interiorDoorCount,
+        cabinetPaintSqft: measurements.cabinetPaintSqft,
+        exteriorPaintSqft: measurements.exteriorPaintSqft,
+      })
     );
-  }, [measurements.wallPaintSqft]);
+  }, [
+    measurements.wallPaintSqft,
+    measurements.ceilingPaintSqft,
+    measurements.paintAreaSqft,
+    measurements.paintAreaBasis,
+    measurements.paintAreaNeedsConfirmation,
+    measurements.paintPricingMethod,
+    measurements.combinedPaintableAreaSqft,
+    measurements.paintScope,
+    measurements.baseboardLf,
+    measurements.interiorDoorCount,
+    measurements.cabinetPaintSqft,
+    measurements.exteriorPaintSqft,
+  ]);
 
   // Quick measurements Paint / shower tile → paint_repair count when scope is selected.
   useEffect(() => {
@@ -10670,6 +11123,13 @@ export default function AIEstimateScopeAssumptionsModal({
       });
     for (const item of displayItems) {
       if (!checklistItemInScope(item)) continue;
+      // The matching scope cards are rendered inside the Quick Measurements
+      // panels for photo/notes kitchen jobs. Their measurement rows can still
+      // produce a pricing suggestion, but they are not separate Apply cards
+      // and must not inflate the footer count.
+      if (embedQmScopeInQuickMeasurements && qmScopeEmbeddedInQuickMeasurements(item.id)) {
+        continue;
+      }
       // Interior Finishes is a planning comparison host, not a selectable
       // price line. Its child trades must be priced separately.
       if (item.id === 'interior_finishes') continue;
@@ -10811,7 +11271,19 @@ export default function AIEstimateScopeAssumptionsModal({
       // a stage allowance is already applied — merge clears the allowance on apply.
       return true;
     });
-  }, [items, displayItems, measurements, normMeasurements, checklist?.templateKey, scopeNotes, enrichedPricingContext, scopeAssemblyContext, benchmarkRefresh]);
+  }, [
+    items,
+    displayItems,
+    measurements,
+    normMeasurements,
+    checklist?.templateKey,
+    scopeNotes,
+    enrichedPricingContext,
+    scopeAssemblyContext,
+    benchmarkRefresh,
+    embedQmScopeInQuickMeasurements,
+    qmScopeEmbeddedInQuickMeasurements,
+  ]);
 
   const scopeItemsNeedingConfirmation = useMemo(
     () =>
@@ -10849,6 +11321,23 @@ export default function AIEstimateScopeAssumptionsModal({
     const appliedScopeLabels = new Set(
       step2AppliedPricingLines.map((line) => String(line.label || '').trim().toLowerCase())
     );
+    // Legacy drafts can retain a combined pricing owner after the checklist
+    // splits it into child rows. Do not count those already-applied dollars as
+    // new prices ready to apply.
+    const appliedScopeAliases: Record<string, string[]> = {
+      cabinets_counters: ['cabinets', 'countertops'],
+      cabinets: ['cabinets_counters'],
+      countertops: ['cabinets_counters'],
+      flooring: ['tile_flooring'],
+      tile_flooring: ['flooring'],
+      paint: ['interior_paint', 'paint_trim'],
+      interior_paint: ['paint', 'paint_trim'],
+      paint_trim: ['paint', 'interior_paint'],
+    };
+    const hasAppliedPricingForScope = (itemId: string, label: string): boolean =>
+      appliedScopeIds.has(itemId) ||
+      appliedScopeLabels.has(label) ||
+      (appliedScopeAliases[itemId] || []).some((alias) => appliedScopeIds.has(alias));
     const readyRows: UnconfirmedSuggestedPricing[] = [];
     for (const row of unconfirmedSuggestedPricing) {
       // The suggestion list can briefly retain a row while a Yes/No/Not sure
@@ -10857,10 +11346,7 @@ export default function AIEstimateScopeAssumptionsModal({
       // Applied pricing lines are the source of truth for this footer. This
       // also prevents stale suggestion rows from being counted after a card
       // has already been priced.
-      if (
-        appliedScopeIds.has(row.itemId) ||
-        appliedScopeLabels.has(String(row.label || '').trim().toLowerCase())
-      ) {
+      if (hasAppliedPricingForScope(row.itemId, String(row.label || '').trim().toLowerCase())) {
         continue;
       }
       if (
@@ -12090,6 +12576,16 @@ export default function AIEstimateScopeAssumptionsModal({
     if (embedQmScopeInQuickMeasurements && qmScopeEmbeddedInQuickMeasurements(item.id)) {
       return null;
     }
+    if (
+      String(checklist?.templateKey || '').toLowerCase() === 'painting' &&
+      item.id === 'ceiling_paint' &&
+      item.state === 'excluded' &&
+      measurements.paintPricingMethod === 'combined' &&
+      measurements.paintScope?.includes('walls') &&
+      measurements.paintScope?.includes('ceilings')
+    ) {
+      return null;
+    }
     const useWetAreaLineCard =
       item.id !== 'shower_pan' &&
       (item.derivedFrom === 'wet_area_install' || WET_AREA_DERIVED_ITEM_IDS.has(item.id));
@@ -12885,6 +13381,7 @@ export default function AIEstimateScopeAssumptionsModal({
 const styles = StyleSheet.create({
   shell: { flex: 1 },
   quickMeasurements: {
+    marginHorizontal: -8,
     marginBottom: 14,
   },
   quickMeasurementsHeader: {
@@ -13046,6 +13543,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   card: {
+    marginHorizontal: -8,
     marginBottom: 8,
   },
   cardTitleRow: {

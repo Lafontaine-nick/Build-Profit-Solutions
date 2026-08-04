@@ -254,7 +254,10 @@ export default forwardRef<EstimateSitePhotosStripHandle, Props>(function Estimat
 
       const result = await fetchPhotoToScope({
         images,
-        existingNotes,
+        // Re-analyzing must use only the contractor's intent. Feeding the
+        // previous photo block back to vision creates a hallucination loop
+        // (e.g. a prior "shower tile" guess becomes new job-note context).
+        existingNotes: contractorIntentNotes(existingNotes),
       });
       if (!result.success) {
         Alert.alert(

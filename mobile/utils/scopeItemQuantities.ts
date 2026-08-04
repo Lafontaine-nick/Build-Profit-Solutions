@@ -338,6 +338,14 @@ export type NormalizedScopeMeasurements = {
   exteriorPaintSqft: number | null;
   railingLf: number | null;
   baseboardLf: number | null;
+  interiorDoorCount: number | null;
+  cabinetPaintSqft: number | null;
+  cabinetUpperLf: number | null;
+  cabinetLowerLf: number | null;
+  cabinetTallLf: number | null;
+  cabinetRunLf: number | null;
+  ceilingPaintSqft: number | null;
+  paintAreaSqft: number | null;
   showerWallTileSqft: number | null;
   showerFloorTileSqft: number | null;
   wallPaintSqft: number | null;
@@ -849,15 +857,40 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     labor: 2.5,
     sourceLabel: 'Suggested · National Average · wall/ceiling surface sqft',
   },
-  /**
-   * Mid-market exterior / stucco paint with tape, masking, and basic prep in the rate.
-   * ~$3.75/SF installed (was $3.35). Soffit/fascia accent work is light-included;
-   * heavy trim or multi-story access stays separate.
-   */
+  ceiling_paint: {
+    unit: 'sqft',
+    material: 0.85,
+    labor: 2.5,
+    sourceLabel: 'Suggested · National Average · ceiling surface sqft',
+  },
+  prep: {
+    unit: 'sqft',
+    material: 0.2,
+    labor: 0.8,
+    sourceLabel: 'Suggested · National Average · protection, masking, and standard surface prep',
+  },
+  door_paint: {
+    unit: 'each',
+    material: 20,
+    labor: 105,
+    sourceLabel: 'Suggested · National Average · interior door slab, edges, and frame paint',
+  },
+  cabinet_paint: {
+    unit: 'lf',
+    material: 13.333333,
+    labor: 41.666667,
+    sourceLabel: 'Suggested · National Average · cabinet run length',
+  },
+  exterior_prep: {
+    unit: 'sqft',
+    material: 0.15,
+    labor: 0.65,
+    sourceLabel: 'Suggested · National Average · exterior prep and masking',
+  },
   exterior_paint: {
     unit: 'sqft',
-    material: 1.0,
-    labor: 2.75,
+    material: 0.9,
+    labor: 2.25,
     sourceLabel: 'Suggested · National Average · exterior/stucco paint (mid-market)',
     rateSource: 'bps_national_benchmark',
     scopeProfileSource: 'bps_standard_assumption',
@@ -1489,7 +1522,7 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   exterior_paint: {
     category: 'paint',
     rootCause:
-      'Build Profit mid-market national exterior/stucco paint is modeled per painted exterior surface sqft (not floor area), including standard acrylic/masonry paint, tape/masking, and basic prep.',
+      'Build Profit mid-market national exterior/stucco paint is modeled per painted exterior surface sqft (not floor area). Prep, masking, heavy repairs, access work, and specialty coatings are separate.',
     assumptions: [
       assumption(
         'paint_material',
@@ -2565,6 +2598,14 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     quantityHelper: 'Linear feet around bathroom perimeter.',
     missingMessage: 'Enter baseboard LF.',
   },
+  trim_paint: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'baseboardLf',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter baseboard, casing, crown, and other painted trim in LF.',
+    missingMessage: 'Enter painted trim LF.',
+  },
   glass_door: {
     defaultUnit: 'each',
     allowedUnits: ['each'],
@@ -2942,12 +2983,53 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     quantityHelper: 'Enter interior paint sqft.',
     missingMessage: 'Enter paint sqft.',
   },
+  ceiling_paint: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'ceilingPaintSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter ceiling paint sqft.',
+    missingMessage: 'Enter ceiling paint sqft.',
+  },
+  prep: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    aggregateMeasurementKeys: ['wallPaintSqft', 'ceilingPaintSqft'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Uses the interior wall/ceiling paint area for standard protection and prep.',
+    missingMessage: 'Enter paintable wall/ceiling sqft.',
+  },
+  door_paint: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'interiorDoorCount',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter the number of interior doors and frames.',
+    missingMessage: 'Enter interior door count.',
+  },
+  cabinet_paint: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'cabinetRunLf',
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter total linear feet of upper and lower cabinets being painted. Do not use kitchen floor area.',
+    missingMessage: 'Enter cabinet run LF.',
+  },
   exterior_paint: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKey: 'exteriorPaintSqft',
     requiresUserQuantity: true,
     quantityHelper: 'Enter exterior paint sqft.',
+    missingMessage: 'Enter exterior paint sqft.',
+  },
+  exterior_prep: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'exteriorPaintSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Uses the exterior paint surface area for standard exterior prep and masking.',
     missingMessage: 'Enter exterior paint sqft.',
   },
   excavation: {
@@ -3011,9 +3093,17 @@ export function normalizeScopeMeasurements(measurements?: ScopeMeasurements | nu
     railingLf: num(measurements?.railingLf),
     baseboardLf:
       num(measurements?.baseboardLf) ?? num(measurements?.lf),
+    interiorDoorCount: num(measurements?.interiorDoorCount),
+    cabinetPaintSqft: num(measurements?.cabinetPaintSqft),
+    cabinetUpperLf: num(measurements?.cabinetUpperLf),
+    cabinetLowerLf: num(measurements?.cabinetLowerLf),
+    cabinetTallLf: num(measurements?.cabinetTallLf),
+    cabinetRunLf: num(measurements?.cabinetRunLf),
     showerWallTileSqft: num(measurements?.showerWallTileSqft),
     showerFloorTileSqft: num(measurements?.showerFloorTileSqft),
     wallPaintSqft: num(measurements?.wallPaintSqft),
+    ceilingPaintSqft: num(measurements?.ceilingPaintSqft),
+    paintAreaSqft: num(measurements?.paintAreaSqft),
     bathCount:
       measurements?.bathCount != null && Number(measurements.bathCount) > 0
         ? Math.round(Number(measurements.bathCount))
@@ -3687,7 +3777,7 @@ const GROUND_UP_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityR
     measurementKeys: ['exteriorPaintSqft'],
     requiresUserQuantity: true,
     quantityHelper:
-      'Exterior painted surface SF (stucco/siding). Mid-market national ~$3.75/SF includes tape/masking and light soffit/fascia. Not stucco install.',
+      'Exterior paint application for siding, stucco, soffit, and fascia. Prep, masking, heavy repairs, access work, and specialty coatings are separate.',
     missingMessage: 'Enter exterior paint surface sqft or pricing.',
   },
   interior_trim: {
@@ -3965,6 +4055,7 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
   patch_repair: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
   paint: { unit: 'sqft', measurementKeys: ['wallPaintSqft'] },
   interior_paint: { unit: 'sqft', measurementKeys: ['wallPaintSqft'] },
+  ceiling_paint: { unit: 'sqft', measurementKeys: ['ceilingPaintSqft'] },
   exterior_paint: { unit: 'sqft', measurementKeys: ['exteriorPaintSqft'] },
   prep: { unit: 'sqft', measurementKeys: ['wallPaintSqft'] },
   trim: { unit: 'lf', measurementKeys: ['baseboardLf'] },
@@ -6868,6 +6959,122 @@ export function resolveScopeItemSuggestedPricing(
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule) return empty;
 
+  if (
+    itemId === 'trim_paint' &&
+    String(templateKey || '').toLowerCase() === 'painting' &&
+    Number(resolved.quantity) > 0
+  ) {
+    const quantity = Number(resolved.quantity);
+    const material = round2(quantity * 2);
+    const labor = round2(quantity * 5);
+    return {
+      fill: {
+        material,
+        labor,
+        total: round2(material + labor),
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel: 'Suggested · National Average · painted interior trim LF',
+        helper: `${quantity.toLocaleString()} LF`,
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: 'lf' },
+        benchmarkAction: 'price_ready',
+        pricingRecordId: 'bps_national:trim_paint:lf',
+      },
+      comparison: null,
+    };
+  }
+
+  if (
+    itemId === 'prep' &&
+    String(templateKey || '').toLowerCase() === 'painting' &&
+    Number(resolved.quantity) > 0
+  ) {
+    const occupancy = measurementsInput.paintOccupancy || 'occupied';
+    const application = measurementsInput.paintApplicationMethod || 'brush_roll';
+    const conditionPrepLaborRate =
+      occupancy === 'occupied' ? 0.9 : occupancy === 'new_construction' ? 0.72 : 0.81;
+    const prepMethodMultiplier = application === 'spray' ? 1.1 : application === 'mixed' ? 1.05 : 1;
+    const hasWalls = measurementsInput.paintScope?.includes('walls') || Number(measurementsInput.wallPaintSqft) > 0;
+    const hasCeilings = measurementsInput.paintScope?.includes('ceilings') || Number(measurementsInput.ceilingPaintSqft) > 0;
+    const hasCombinedArea =
+      measurementsInput.paintPricingMethod === 'combined' &&
+      Number(measurementsInput.combinedPaintableAreaSqft || measurementsInput.paintAreaSqft) > 0;
+    const hasTrim = measurementsInput.paintScope?.includes('trim') || Number(measurementsInput.baseboardLf) > 0;
+    const hasDoors = measurementsInput.paintScope?.includes('doors') || Number(measurementsInput.interiorDoorCount) > 0;
+    const scopeMaskingMultiplier =
+      (hasTrim && hasDoors) ? 0.9 :
+      (hasCombinedArea || (hasWalls && hasCeilings)) ? 1 :
+      (hasWalls || hasCeilings) ? 1.1 : 1;
+    const maskingLevel =
+      (hasTrim && hasDoors) ? 'low to medium' :
+      (hasCombinedArea || (hasWalls && hasCeilings)) ? 'medium' :
+      (hasWalls || hasCeilings) ? 'high' : 'standard';
+    const quantity = Number(resolved.quantity);
+    const material = round2(quantity * 0.2 * scopeMaskingMultiplier);
+    const labor = round2(
+      quantity * conditionPrepLaborRate * prepMethodMultiplier * scopeMaskingMultiplier
+    );
+    const total = round2(material + labor);
+    return {
+      fill: {
+        material,
+        labor,
+        total,
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel: 'Suggested · National Average · protection, masking, and surface prep',
+        helper: `${maskingLevel} masking · ${occupancy.replace('_', ' ')} · ${application.replace('_', '/')} application`,
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: resolved.unit || 'sqft' },
+        benchmarkAction: 'price_ready',
+        pricingRecordId: 'bps_national:prep:painting',
+      },
+      comparison: null,
+    };
+  }
+
+  if (
+    (itemId === 'interior_paint' || itemId === 'ceiling_paint') &&
+    String(templateKey || '').toLowerCase() === 'painting' &&
+    Number(resolved.quantity) > 0
+  ) {
+    const occupancy = measurementsInput.paintOccupancy || 'occupied';
+    const application = measurementsInput.paintApplicationMethod || 'brush_roll';
+    const wallRate =
+      occupancy === 'occupied' ? 3.35 : occupancy === 'vacant' ? 3.2 : 3.05;
+    const paintingMethodMultiplier =
+      application === 'spray' ? 0.82 : application === 'mixed' ? 0.95 : 1;
+    const ceilingLaborMultiplier = itemId === 'ceiling_paint' ? 1.15 : 1;
+    const quantity = Number(resolved.quantity);
+    const materialWasteFactor =
+      application === 'spray' ? 1.05 : application === 'mixed' ? 1.02 : 1;
+    const materialRate = 3.35 * 0.26;
+    const laborRate = (wallRate - materialRate) * ceilingLaborMultiplier;
+    const material = round2(quantity * materialRate * materialWasteFactor);
+    const labor = round2(quantity * laborRate * paintingMethodMultiplier);
+    const total = round2(material + labor);
+    return {
+      fill: {
+        material,
+        labor,
+        total,
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel: 'Suggested · National Average · interior paint application',
+        helper: `${quantity.toLocaleString()} sqft · ${application.replace('_', '/')} application`,
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: resolved.unit || 'sqft' },
+        benchmarkAction: 'price_ready',
+        pricingRecordId: `bps_national:${itemId}:painting`,
+      },
+      comparison: null,
+    };
+  }
+
   const itemQuantities = measurementsInput.itemQuantities || {};
   if (
     shouldSuppressSuggestedPricingAfterApply(
@@ -6875,6 +7082,15 @@ export function resolveScopeItemSuggestedPricing(
       itemQuantities,
       measurementsInput.pricingAcceptance
     )
+  ) {
+    return empty;
+  }
+
+  // A garbage disposal is optional and has no implicit quantity. Do not show
+  // a national-average price while its count is zero or missing.
+  if (
+    itemId === 'garbage_disposal' &&
+    !(Number(resolved.dualCount?.quantity ?? resolved.quantity) > 0)
   ) {
     return empty;
   }
@@ -9467,8 +9683,62 @@ export function countScopePricingReadiness(
 ): { ready: number; needsMeasurement: number } {
   let ready = 0;
   let needsMeasurement = 0;
+  const isPainting = String(templateKey || '').toLowerCase() === 'painting';
+  const skippedPaintingIds = new Set([
+    'paint',
+    'interior_paint',
+    'ceiling_paint',
+    'prep',
+    'exterior_prep',
+    'trim_paint',
+    'door_paint',
+    'cabinet_paint',
+    'exterior_paint',
+  ]);
+  if (isPainting) {
+    const active = new Set(
+      items.filter((item) => checklistItemInScope(item)).map((item) => item.id)
+    );
+    const raw = measurements as unknown as {
+      paintPricingMethod?: 'combined' | 'separate' | null;
+      combinedPaintableAreaSqft?: string | number | null;
+      paintAreaSqft?: string | number | null;
+      exteriorPaintSqft?: string | number | null;
+    };
+    const positive = (value: unknown) => Number(value || 0) > 0;
+    const combinedArea = raw.combinedPaintableAreaSqft || raw.paintAreaSqft;
+    const wallReady =
+      raw.paintPricingMethod === 'combined'
+        ? positive(combinedArea) || positive(measurements.itemQuantities?.interior_paint?.quantity)
+        : positive(measurements.wallPaintSqft);
+    const ceilingReady = positive(measurements.ceilingPaintSqft);
+    const paintReadiness: Array<[string, boolean]> = [
+      ['interior_paint', wallReady],
+      ['ceiling_paint', ceilingReady],
+      ['trim_paint', positive(measurements.baseboardLf)],
+      ['door_paint', positive(measurements.interiorDoorCount)],
+      ['cabinet_paint', positive(measurements.cabinetPaintSqft)],
+      ['exterior_paint', positive(raw.exteriorPaintSqft)],
+    ];
+    for (const [id, readyForQuantity] of paintReadiness) {
+      if (!active.has(id)) continue;
+      if (readyForQuantity) ready += 1;
+      else needsMeasurement += 1;
+    }
+    if (active.has('prep')) {
+      if (wallReady || ceilingReady) ready += 1;
+      else if (active.has('interior_paint') || active.has('ceiling_paint')) {
+        // The missing wall/ceiling measurement is counted by the surface card.
+      }
+    }
+    if (active.has('exterior_prep')) {
+      if (positive(raw.exteriorPaintSqft)) ready += 1;
+      else if (active.has('exterior_paint')) needsMeasurement += 1;
+    }
+  }
   for (const item of items) {
     if (!checklistItemInScope(item)) continue;
+    if (isPainting && skippedPaintingIds.has(item.id)) continue;
     if (String(item.id || '').startsWith('custom_')) {
       const base = measurements.itemQuantities?.[item.id];
       const allowance = measurements.itemQuantities?.[`${item.id}__allowance`];
@@ -9584,6 +9854,21 @@ export function buildNormalizedScopeMeasurementsFromInput(
   if (notes) {
     extended = reparseRatePricingIntoItemQuantities(extended, notes, options?.templateKey);
   }
+  if (
+    options?.templateKey === 'painting' &&
+    extended.paintPricingMethod === 'combined' &&
+    Number(extended.combinedPaintableAreaSqft || extended.paintAreaSqft) > 0
+  ) {
+    const quantity = String(extended.combinedPaintableAreaSqft || extended.paintAreaSqft);
+    extended = {
+      ...extended,
+      itemQuantities: {
+        ...extended.itemQuantities,
+        interior_paint: { quantity, unit: 'sqft', quantitySource: 'user_entered' },
+        prep: { quantity, unit: 'sqft', quantitySource: 'user_entered' },
+      },
+    };
+  }
   return normalizeScopeMeasurements(scopeMeasurementsToPayload(extended));
 }
 
@@ -9642,6 +9927,26 @@ export function scopeMeasurementsToPayload(
     deckSqft: parseScopeMeasurementInput(sanitized.deckSqft),
     garageSqft: parseScopeMeasurementInput(sanitized.garageSqft),
     exteriorPaintSqft: parseScopeMeasurementInput(sanitized.exteriorPaintSqft),
+    paintScope: sanitized.paintScope ?? null,
+    wallPaintSqft: parseScopeMeasurementInput(sanitized.wallPaintSqft),
+    ceilingPaintSqft: parseScopeMeasurementInput(sanitized.ceilingPaintSqft),
+    paintAreaSqft: parseScopeMeasurementInput(sanitized.paintAreaSqft),
+    paintAreaBasis: sanitized.paintAreaBasis ?? null,
+    paintAreaNeedsConfirmation: sanitized.paintAreaNeedsConfirmation ?? null,
+    paintPricingMethod: sanitized.paintPricingMethod ?? null,
+    combinedPaintableAreaSqft: parseScopeMeasurementInput(String(sanitized.combinedPaintableAreaSqft ?? '')),
+    originalPaintAreaReferenceSqft: parseScopeMeasurementInput(String(sanitized.originalPaintAreaReferenceSqft ?? '')),
+    paintOccupancy: sanitized.paintOccupancy ?? null,
+    paintApplicationMethod: sanitized.paintApplicationMethod ?? null,
+    paintOccupancyConfirmed: sanitized.paintOccupancyConfirmed ?? null,
+    paintApplicationMethodConfirmed: sanitized.paintApplicationMethodConfirmed ?? null,
+    cabinetMeasurementMethod: sanitized.cabinetMeasurementMethod ?? null,
+    interiorDoorCount: parseScopeMeasurementInput(sanitized.interiorDoorCount),
+    cabinetPaintSqft: parseScopeMeasurementInput(sanitized.cabinetPaintSqft),
+    cabinetUpperLf: parseScopeMeasurementInput(String(sanitized.cabinetUpperLf ?? '')),
+    cabinetLowerLf: parseScopeMeasurementInput(String(sanitized.cabinetLowerLf ?? '')),
+    cabinetTallLf: parseScopeMeasurementInput(String(sanitized.cabinetTallLf ?? '')),
+    cabinetRunLf: parseScopeMeasurementInput(String(sanitized.cabinetRunLf ?? '')),
     railingLf: parseScopeMeasurementInput(sanitized.railingLf),
     planRooms: Array.isArray(sanitized.planRooms) ? sanitized.planRooms : undefined,
     wetAreaFinish:
@@ -10111,6 +10416,7 @@ export function scopeMeasurementsInputFromPayload(
   }
   return {
     ...base,
+    paintScope: payload.paintScope ?? null,
     bathroomFloorSqft: measurementFieldString(payload.bathroomFloorSqft ?? payload.sqft),
     kitchenFloorSqft: measurementFieldString(payload.kitchenFloorSqft),
     floorAreaSqft: measurementFieldString(payload.floorAreaSqft),
@@ -10136,6 +10442,24 @@ export function scopeMeasurementsInputFromPayload(
     showerWallTileSqft: measurementFieldString(payload.showerWallTileSqft),
     showerFloorTileSqft: measurementFieldString(payload.showerFloorTileSqft),
     wallPaintSqft: measurementFieldString(payload.wallPaintSqft),
+    ceilingPaintSqft: measurementFieldString(payload.ceilingPaintSqft),
+    paintAreaSqft: measurementFieldString(payload.paintAreaSqft),
+    paintAreaBasis: payload.paintAreaBasis ?? null,
+    paintAreaNeedsConfirmation: payload.paintAreaNeedsConfirmation ?? null,
+    paintPricingMethod: payload.paintPricingMethod ?? null,
+    combinedPaintableAreaSqft: measurementFieldString(payload.combinedPaintableAreaSqft),
+    originalPaintAreaReferenceSqft: measurementFieldString(payload.originalPaintAreaReferenceSqft),
+    paintOccupancy: payload.paintOccupancy ?? null,
+    paintApplicationMethod: payload.paintApplicationMethod ?? null,
+    paintOccupancyConfirmed: payload.paintOccupancyConfirmed ?? null,
+    paintApplicationMethodConfirmed: payload.paintApplicationMethodConfirmed ?? null,
+    cabinetMeasurementMethod: payload.cabinetMeasurementMethod ?? null,
+    interiorDoorCount: measurementFieldString(payload.interiorDoorCount),
+    cabinetPaintSqft: measurementFieldString(payload.cabinetPaintSqft),
+    cabinetUpperLf: measurementFieldString(payload.cabinetUpperLf),
+    cabinetLowerLf: measurementFieldString(payload.cabinetLowerLf),
+    cabinetTallLf: measurementFieldString(payload.cabinetTallLf),
+    cabinetRunLf: measurementFieldString(payload.cabinetRunLf),
     planRooms: Array.isArray(payload.planRooms) ? payload.planRooms : undefined,
     wetAreaFinish:
       payload.wetAreaFinish === 'tile' ||
@@ -10595,6 +10919,17 @@ export function prepareScopeMeasurementsInputForUi(
 }
 
 export type ScopeMeasurementsInputExtended = ReturnType<typeof emptyQuickMeasurementInput> & {
+  paintScope?: import('@/utils/estimateAiDraft').ScopeMeasurements['paintScope'];
+  paintPricingMethod?: 'combined' | 'separate' | null;
+  combinedPaintableAreaSqft?: string | number | null;
+  originalPaintAreaReferenceSqft?: string | number | null;
+  paintOccupancy?: import('@/utils/estimateAiDraft').ScopeMeasurements['paintOccupancy'];
+  paintApplicationMethod?: import('@/utils/estimateAiDraft').ScopeMeasurements['paintApplicationMethod'];
+  paintOccupancyConfirmed?: import('@/utils/estimateAiDraft').ScopeMeasurements['paintOccupancyConfirmed'];
+  paintApplicationMethodConfirmed?: import('@/utils/estimateAiDraft').ScopeMeasurements['paintApplicationMethodConfirmed'];
+  cabinetMeasurementMethod?: import('@/utils/estimateAiDraft').ScopeMeasurements['cabinetMeasurementMethod'];
+  paintAreaBasis?: import('@/utils/estimateAiDraft').ScopeMeasurements['paintAreaBasis'];
+  paintAreaNeedsConfirmation?: boolean | null;
   itemQuantities: Record<
     string,
     {
@@ -10851,6 +11186,7 @@ export function initialScopeMeasurementInputExtended(
   const base = emptyQuickMeasurementInput();
   let result: ScopeMeasurementsInputExtended = {
     ...base,
+    paintScope: parsedFromNotes.paintScope ?? suggested?.paintScope ?? saved?.paintScope ?? null,
     bathroomFloorSqft:
       pick('bathroomFloorSqft') ||
       (saved?.sqft ? String(saved.sqft) : parsed.sqft ? String(parsed.sqft) : ''),
@@ -10878,6 +11214,60 @@ export function initialScopeMeasurementInputExtended(
     showerWallTileSqft: pick('showerWallTileSqft'),
     showerFloorTileSqft: pick('showerFloorTileSqft'),
     wallPaintSqft: pick('wallPaintSqft'),
+    ceilingPaintSqft: pick('ceilingPaintSqft'),
+    paintAreaSqft: pick('paintAreaSqft'),
+    paintAreaBasis: parsedFromNotes.paintAreaBasis ?? suggested?.paintAreaBasis ?? saved?.paintAreaBasis ?? null,
+    paintAreaNeedsConfirmation:
+      parsedFromNotes.paintAreaNeedsConfirmation ??
+      suggested?.paintAreaNeedsConfirmation ??
+      saved?.paintAreaNeedsConfirmation ??
+      null,
+    paintPricingMethod:
+      parsedFromNotes.paintPricingMethod ??
+      suggested?.paintPricingMethod ??
+      saved?.paintPricingMethod ??
+      (parsedFromNotes.paintAreaBasis === 'combined' ? 'combined' : null),
+    combinedPaintableAreaSqft:
+      suggested?.combinedPaintableAreaSqft ??
+      saved?.combinedPaintableAreaSqft ??
+      (parsedFromNotes.paintAreaBasis === 'combined' ? parsedFromNotes.paintAreaSqft : null),
+    originalPaintAreaReferenceSqft:
+      suggested?.originalPaintAreaReferenceSqft ??
+      saved?.originalPaintAreaReferenceSqft ??
+      parsedFromNotes.paintAreaSqft ??
+      null,
+    paintOccupancy:
+      parsedFromNotes.paintOccupancy ?? suggested?.paintOccupancy ?? saved?.paintOccupancy ?? 'occupied',
+    paintApplicationMethod:
+      parsedFromNotes.paintApplicationMethod ??
+      suggested?.paintApplicationMethod ??
+      saved?.paintApplicationMethod ??
+      'brush_roll',
+    paintOccupancyConfirmed:
+      parsedFromNotes.paintOccupancyConfirmed ??
+      suggested?.paintOccupancyConfirmed ??
+      saved?.paintOccupancyConfirmed ??
+      false,
+    paintApplicationMethodConfirmed:
+      parsedFromNotes.paintApplicationMethodConfirmed ??
+      suggested?.paintApplicationMethodConfirmed ??
+      saved?.paintApplicationMethodConfirmed ??
+      false,
+    cabinetMeasurementMethod: suggested?.cabinetMeasurementMethod ?? saved?.cabinetMeasurementMethod ?? 'linear_feet',
+    cabinetUpperLf: pick('cabinetUpperLf'),
+    cabinetLowerLf: pick('cabinetLowerLf'),
+    cabinetTallLf: pick('cabinetTallLf'),
+    cabinetRunLf:
+      pick('cabinetRunLf') ||
+      (Number(pick('cabinetUpperLf')) + Number(pick('cabinetLowerLf')) + Number(pick('cabinetTallLf')) > 0
+        ? String(
+            Number(pick('cabinetUpperLf')) +
+              Number(pick('cabinetLowerLf')) +
+              Number(pick('cabinetTallLf'))
+          )
+        : ''),
+    interiorDoorCount: pick('interiorDoorCount'),
+    cabinetPaintSqft: pick('cabinetPaintSqft'),
     itemQuantities,
     pricingAcceptance: saved?.pricingAcceptance,
     scopeGapResolutions: saved?.scopeGapResolutions,

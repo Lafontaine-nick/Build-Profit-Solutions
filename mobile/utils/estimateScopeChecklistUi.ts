@@ -609,7 +609,7 @@ function migrateGroundUpTakeoffScopeItems(
         id: 'exterior_paint',
         label: 'Exterior paint',
         helperText:
-          'Exterior painted surface SF. Mid-market national includes tape/masking and light soffit/fascia — not stucco install.',
+          'Exterior paint application for siding, stucco, soffit, and fascia. Prep, masking, heavy repairs, access work, and specialty coatings are separate.',
       });
       insertAt += 1;
     }
@@ -751,7 +751,7 @@ function migrateGroundUpTakeoffScopeItems(
   ensure(
     'exterior_paint',
     'Exterior paint',
-    'Exterior painted surface SF. Mid-market national includes tape/masking and light soffit/fascia — not stucco install.',
+    'Exterior paint application for siding, stucco, soffit, and fascia. Prep, masking, heavy repairs, access work, and specialty coatings are separate.',
     'finishes',
     'interior_paint'
   );
@@ -1685,34 +1685,176 @@ export function syncBathroomFloorTileScopeItems(
   return changed ? next : items;
 }
 
-const INTERIOR_PAINT_SCOPE_IDS = new Set(['paint', 'interior_paint', 'prep']);
+const INTERIOR_PAINT_SCOPE_IDS = new Set([
+  'paint',
+  'interior_paint',
+  'prep',
+  'exterior_prep',
+  'trim_paint',
+  'door_paint',
+  'cabinet_paint',
+  'exterior_paint',
+]);
 
-/** Auto-include interior paint scope when wall/ceiling paint SF is set in Quick measurements. */
+/** Auto-include painting scope rows when their Quick Measurement driver is set. */
 export function syncInteriorPaintScopeItems(
   items: ScopeChecklistItem[],
-  params: { wallPaintSqft?: string | number | null }
+  params: {
+    wallPaintSqft?: string | number | null;
+    ceilingPaintSqft?: string | number | null;
+    paintAreaSqft?: string | number | null;
+    paintAreaBasis?: 'walls' | 'ceilings' | 'combined' | 'floor_area' | 'unknown' | null;
+    paintAreaNeedsConfirmation?: boolean | null;
+    paintPricingMethod?: 'combined' | 'separate' | null;
+    combinedPaintableAreaSqft?: string | number | null;
+    paintScope?: Array<'walls' | 'ceilings' | 'trim' | 'doors' | 'cabinets' | 'exterior'> | null;
+    baseboardLf?: string | number | null;
+    interiorDoorCount?: string | number | null;
+    cabinetPaintSqft?: string | number | null;
+    exteriorPaintSqft?: string | number | null;
+  }
 ): ScopeChecklistItem[] {
-  if (!positiveSqft(params.wallPaintSqft)) return items;
-  const bathroomPaintRepair = items.some((row) => row.id === 'paint_repair');
-  const targetIds = bathroomPaintRepair ? new Set(['paint_repair']) : INTERIOR_PAINT_SCOPE_IDS;
+  const measuredScopeIds = new Set<string>();
+  const explicitScope = params.paintScope;
+  const bothWallsCeilings = Boolean(explicitScope?.includes('walls') && explicitScope.includes('ceilings'));
+  if (explicitScope) {
+    if (explicitScope.includes('walls')) measuredScopeIds.add('interior_paint');
+    if (explicitScope.includes('ceilings')) measuredScopeIds.add('ceiling_paint');
+    if (explicitScope.includes('trim')) measuredScopeIds.add('trim_paint');
+    if (explicitScope.includes('doors')) measuredScopeIds.add('door_paint');
+    if (explicitScope.includes('cabinets')) measuredScopeIds.add('cabinet_paint');
+    if (explicitScope.includes('exterior')) {
+      measuredScopeIds.add('exterior_paint');
+      measuredScopeIds.add('exterior_prep');
+    }
+    if (explicitScope.some((surface) => surface === 'walls' || surface === 'ceilings')) {
+      measuredScopeIds.add('prep');
+    }
+  }
+  if (!explicitScope) {
+    if (positiveSqft(params.wallPaintSqft)) {
+      measuredScopeIds.add('paint');
+      measuredScopeIds.add('interior_paint');
+      measuredScopeIds.add('prep');
+    }
+    if (positiveSqft(params.ceilingPaintSqft)) measuredScopeIds.add('ceiling_paint');
+    if (
+      params.paintPricingMethod !== 'separate' &&
+      params.paintAreaBasis === 'combined' &&
+      positiveSqft(params.paintAreaSqft)
+    ) {
+      measuredScopeIds.add('interior_paint');
+    }
+    if (params.paintAreaBasis === 'walls' && positiveSqft(params.paintAreaSqft)) {
+      measuredScopeIds.add('interior_paint');
+    }
+    if (params.paintPricingMethod === 'combined' && positiveSqft(params.combinedPaintableAreaSqft)) {
+      measuredScopeIds.add('interior_paint');
+    }
+    if (positiveSqft(params.baseboardLf)) measuredScopeIds.add('trim_paint');
+    if (positiveSqft(params.interiorDoorCount)) measuredScopeIds.add('door_paint');
+    if (positiveSqft(params.cabinetPaintSqft)) measuredScopeIds.add('cabinet_paint');
+    if (positiveSqft(params.exteriorPaintSqft)) {
+      measuredScopeIds.add('exterior_paint');
+      measuredScopeIds.add('exterior_prep');
+    }
+  }
+  if (!measuredScopeIds.size && !explicitScope) return items;
+  let workingItems = items;
+  if (explicitScope?.includes('exterior')) {
+    const exteriorRows = [
+      {
+        id: 'exterior_prep',
+        inputType: 'yes_no' as const,
+        label: 'Exterior Prep & Masking',
+        helperText:
+          'Exterior surface cleaning, masking, light scraping, spot priming, and standard prep before exterior painting.',
+        category: 'prep',
+        state: 'included' as const,
+        noteBacked: true,
+      },
+      {
+        id: 'exterior_paint',
+        inputType: 'yes_no' as const,
+        label: 'Exterior Paint',
+        helperText:
+          'Paintable exterior surface area for siding, stucco, soffits, and fascia. Heavy repairs, access work, and specialty coatings are separate.',
+        category: 'paint',
+        state: 'included' as const,
+        noteBacked: true,
+      },
+    ];
+    const missingExteriorRows = exteriorRows.filter((row) => !items.some((item) => item.id === row.id));
+    if (missingExteriorRows.length) workingItems = [...items, ...missingExteriorRows];
+  }
+  const bathroomPaintRepair = workingItems.some((row) => row.id === 'paint_repair');
+  const targetIds = bathroomPaintRepair ? new Set(['paint_repair']) : measuredScopeIds;
   // Bathroom uses one physical paint card. QM paint SF must not also keep legacy
   // interior_paint/paint/prep selected — that double-counts ready pricing.
   const legacyPaintIds = bathroomPaintRepair
     ? new Set(['interior_paint', 'paint', 'paint_trim', 'prep'])
     : null;
   let changed = false;
-  const next = items.map((row) => {
+  const next = workingItems.map((row) => {
+    if (
+      bothWallsCeilings &&
+      params.paintPricingMethod === 'combined' &&
+      row.id === 'ceiling_paint' &&
+      row.state !== 'excluded'
+    ) {
+      changed = true;
+      return { ...row, state: 'excluded' as const, noteBacked: false };
+    }
+    if (explicitScope && INTERIOR_PAINT_SCOPE_IDS.has(row.id)) {
+      const shouldInclude = measuredScopeIds.has(row.id);
+      if (!shouldInclude && row.state !== 'unsure') {
+        changed = true;
+        return { ...row, state: 'unsure' as const, noteBacked: false };
+      }
+    }
+    if (
+      params.paintPricingMethod === 'separate' &&
+      row.id === 'interior_paint' &&
+      row.state === 'included' &&
+      row.label === 'Walls & Ceilings'
+    ) {
+      changed = true;
+      return { ...row, label: 'Walls' };
+    }
+    if (
+      params.paintAreaNeedsConfirmation &&
+      !['walls', 'combined'].includes(params.paintAreaBasis || '') &&
+      (row.id === 'interior_paint' || row.id === 'ceiling_paint') &&
+      row.state === 'included'
+    ) {
+      changed = true;
+      return { ...row, state: 'unsure' as const, noteBacked: false };
+    }
     if (legacyPaintIds?.has(row.id) && row.state !== 'excluded') {
       changed = true;
       return { ...row, state: 'excluded' as const };
     }
     if (targetIds.has(row.id) && row.state !== 'included') {
       changed = true;
-      return { ...row, state: 'included' as const };
+      return {
+        ...row,
+        label:
+          row.id === 'interior_paint' &&
+          params.paintPricingMethod === 'combined'
+            ? 'Walls & Ceilings'
+            : row.label,
+        state: 'included' as const,
+      };
+    }
+    if (row.id === 'interior_paint' && row.state === 'included' && params.paintAreaBasis === 'combined') {
+      if (row.label !== 'Walls & Ceilings') {
+        changed = true;
+        return { ...row, label: 'Walls & Ceilings' };
+      }
     }
     return row;
   });
-  return changed ? next : items;
+  return changed || workingItems !== items ? next : items;
 }
 
 function wetAreaGenericDemoActive(demo: WetAreaDemoCounts): boolean {
@@ -1904,7 +2046,7 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   paint_trim: 'Wall/ceiling paint surface sqft for material and labor.',
   interior_paint: 'Paintable wall/ceiling SF (physical). Local budgets are installed lump sums.',
   exterior_paint:
-    'Exterior painted surface SF. Mid-market national includes tape/masking and light soffit/fascia — not stucco install.',
+    'Exterior paint application for siding, stucco, soffit, and fascia. Prep, masking, heavy repairs, access work, and specialty coatings are separate.',
   interior_trim:
     'Finish trim, interior doors, door hardware & shelving package until detailed takeoff.',
   plumbing_trim: 'Set fixtures and finish connections — excludes toilet/vanity when those are separate scope lines.',
@@ -2182,7 +2324,10 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     { title: 'Closeout', itemIds: ['cleanup'] },
   ],
   painting: [
-    { title: 'Prep & Paint', itemIds: ['prep', 'interior_paint', 'exterior_paint', 'trim_paint'] },
+    {
+      title: 'Interior painting',
+      itemIds: ['prep', 'interior_paint', 'ceiling_paint', 'trim_paint', 'door_paint', 'cabinet_paint'],
+    },
     { title: 'Closeout', itemIds: ['cleanup'] },
   ],
 };

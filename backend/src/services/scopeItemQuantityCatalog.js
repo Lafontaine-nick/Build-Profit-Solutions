@@ -335,6 +335,7 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
     defaultUnit: 'lump_sum',
     allowedUnits: ['lump_sum', 'allowance', 'sqft'],
     defaultQuantity: 1,
+    measurementKey: 'wallDemoSqft',
     requiresUserQuantity: false,
     pricingMethod: 'lump_sum',
     quantityHelper: 'Assuming lump sum wall/soffit demo.',

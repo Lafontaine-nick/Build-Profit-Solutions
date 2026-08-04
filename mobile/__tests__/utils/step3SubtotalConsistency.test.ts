@@ -1,5 +1,5 @@
 import type { EstimateAiDraft } from '@/utils/estimateAiDraft';
-import { syncSelectedScopePricing } from '@/utils/estimateAiDraft';
+import { applyDraftToEstimate, syncSelectedScopePricing } from '@/utils/estimateAiDraft';
 import { sumAppliedScopePricingFromDraft } from '@/utils/benchmarkReasonablenessContext';
 import { resolveScopePackageBudgetBreakdown } from '@/utils/scopeBudgetBreakdown';
 import {
@@ -186,5 +186,61 @@ describe('Step 3 subtotal consistency', () => {
     expect(hero).toBe(1000);
     expect(rowSum).toBe(1000);
     expect(scopePackagePricedAmount(synced.scopePackages![0], synced)).toBe(0);
+  });
+
+  it('does not apply legacy patch_repair and drywall packages twice', () => {
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: {
+        templateKey: 'kitchen',
+        items: [{ id: 'drywall', inputType: 'yes_no', state: 'included' }],
+      },
+      confirmedAssumptions: [{ id: 'drywall', inputType: 'yes_no', state: 'included' }],
+      scopeMeasurements: {
+        itemQuantities: {
+          drywall__material: { quantity: '35.2', unit: 'allowance', quantitySource: 'user_entered' },
+          drywall__labor: { quantity: '51.6', unit: 'allowance', quantitySource: 'user_entered' },
+        },
+        pricingAcceptance: {
+          drywall: { selectionStatus: 'accepted', totalAmount: 86.8 },
+        },
+      },
+      scopePackages: [
+        {
+          name: 'Drywall / patching',
+          checklistItemId: 'drywall',
+          price: 86.8,
+          materialPrice: 35.2,
+          laborPrice: 51.6,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+        },
+        {
+          name: 'Patch repair',
+          checklistItemId: 'patch_repair',
+          price: 86.8,
+          materialPrice: 35.2,
+          laborPrice: 51.6,
+          status: 'user_provided',
+          priceProvidedByUser: true,
+        },
+      ],
+    } as unknown as EstimateAiDraft;
+
+    const applied = applyDraftToEstimate(
+      { laborLineItems: [], materialLineItems: [], allowanceLineItems: [] },
+      draft,
+      { applyConfirmedOnly: true }
+    ).bid;
+
+    const materials = (applied.materialLineItems || []).reduce(
+      (sum, item) => sum + Number(item.total || 0),
+      0
+    );
+    const labor = (applied.laborLineItems || []).reduce(
+      (sum, item) => sum + Number(item.total || 0),
+      0
+    );
+    expect(materials + labor).toBeCloseTo(86.8, 2);
   });
 });

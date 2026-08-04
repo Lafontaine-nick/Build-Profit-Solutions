@@ -3,7 +3,7 @@
  * scope observations + checklist item detections (validated against our templates).
  *
  * Photos add context and scope detection — not measurement or pricing.
- * Vision always uses the full multi-trade catalog and trusts what it sees over notes.
+ * Vision uses the selected project catalog when the notes already establish a project type.
  */
 
 const { CHECKLIST_TEMPLATES, checklistTemplateKey } = require('./scopeChecklistLibrary');
@@ -129,6 +129,12 @@ function guessTemplateKey({ existingNotes, projectTypeHint, templateKeyHint }) {
   }
 }
 
+function contractorIntentNotes(notes) {
+  const marker = '--- Site photos ---';
+  const text = String(notes || '');
+  return (text.includes(marker) ? text.slice(0, text.indexOf(marker)) : text).trim();
+}
+
 function formatCatalogForPrompt(catalog) {
   return catalog.map((c) => `${c.id} (${c.label})`).join(', ');
 }
@@ -150,6 +156,7 @@ How to combine photos and job notes:
 - PHOTOS show current site conditions (what exists, what stage the work is at, finishes, damage).
 - JOB NOTES state the contractor's INTENT (what work they plan to do).
 - When notes are provided, interpret the photos in service of that intent. Example: photo shows a framed, waterproofed shower and notes say "tile the shower floor and walls" → detect tile install scope, not demo.
+- If the job notes clearly establish a project type (for example, kitchen remodel), that project type is authoritative. Do not introduce a different room or trade (for example, bathroom/shower work) from an ambiguous photo.
 - When notes are missing or silent about a photo, describe the visible conditions and the most likely scope, and mark uncertain items "unsure".
 - If notes and photos seem to disagree (different room or trade), still return success true: report what is visible and note the mismatch in scopeText so the contractor can clarify.
 
@@ -357,8 +364,11 @@ function normalizeVisionParsed(parsed, catalog, templateKeyFallback) {
     notesBlock,
     detections,
     existingFeatures,
-    templateKey: resolveTemplateKey(visionType, templateKeyFallback),
-    projectTypeHint: visionType,
+    // An explicit draft/template context is stronger than a model guess from
+    // an ambiguous photo. Otherwise a kitchen photo can incorrectly switch
+    // the entire confirm step to bathroom scope.
+    templateKey: templateKeyFallback || resolveTemplateKey(visionType, null),
+    projectTypeHint: templateKeyFallback || visionType,
     shouldRetryWithoutNotes: false,
   };
 }
@@ -472,13 +482,18 @@ async function analyzeSitePhotosForScope({
     compatibleImages.push(await ensureOpenAiCompatibleImage(img));
   }
 
+  // Never feed a prior generated photo block back into classification. It is
+  // model output, not contractor intent, and can make one hallucination
+  // reinforce itself on every regeneration.
+  const intentNotes = contractorIntentNotes(existingNotes);
   const templateKeyFallback = guessTemplateKey({
-    existingNotes,
+    existingNotes: intentNotes,
     projectTypeHint,
     templateKeyHint,
   });
-  // Always use the full multi-trade catalog so bath/kitchen/roof/etc. are all selectable.
-  const catalog = collectAllowedItems(null);
+  // Once notes/project context establishes a template, do not let vision
+  // hallucinations from another room introduce incompatible scope items.
+  const catalog = collectAllowedItems(templateKeyFallback);
   const systemPrompt = buildSystemPrompt(catalog);
 
   const firstParsed = await runVisionPass({
@@ -488,13 +503,13 @@ async function analyzeSitePhotosForScope({
     catalog,
     systemPrompt,
     images: compatibleImages,
-    existingNotes,
+    existingNotes: intentNotes,
     includeNotes: true,
   });
   let normalized = normalizeVisionParsed(firstParsed, catalog, templateKeyFallback);
 
   // Notes sometimes bias the model into a false "wrong trade" rejection — retry photos only.
-  if (!normalized.success && normalized.shouldRetryWithoutNotes && existingNotes?.trim()) {
+  if (!normalized.success && normalized.shouldRetryWithoutNotes && intentNotes) {
     const retryParsed = await runVisionPass({
       openai,
       aiModels,

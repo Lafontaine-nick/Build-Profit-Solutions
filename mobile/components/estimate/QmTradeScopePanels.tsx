@@ -90,7 +90,7 @@ const KITCHEN_DEMO_ROWS: StepperRow[] = [
   { key: 'kitchenDemoIslandCount', label: 'Demo island' },
   { key: 'kitchenDemoApplianceCount', label: 'Appliance removal' },
   { key: 'kitchenDemoFloorCount', label: 'Floor demo' },
-  { key: 'kitchenDemoWallCount', label: 'Wall / soffit demo' },
+  { key: 'kitchenDemoWallCount', label: 'Wall demo' },
 ];
 
 const BATHROOM_EXISTING_FIXTURE_ROWS: StepperRow[] = [

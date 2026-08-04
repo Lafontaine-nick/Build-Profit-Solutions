@@ -76,6 +76,12 @@ type Props = {
   ) => void;
 };
 
+function contractorIntentNotes(notes: string): string {
+  const marker = '--- Site photos ---';
+  const text = String(notes || '');
+  return (text.includes(marker) ? text.slice(0, text.indexOf(marker)) : text).trim();
+}
+
 export default function AIEstimateBuilderModal({
   visible,
   generating = false,
@@ -335,7 +341,7 @@ export default function AIEstimateBuilderModal({
     try {
       // Prefer user notes; when empty with semantics + plan import, pass summary as notes context.
       const notesForGenerate =
-        trimmed ||
+        contractorIntentNotes(trimmed) ||
         (semanticsOn && importedPlanSummary ? importedPlanSummary : trimmed);
       await Promise.resolve(
         onGenerate(notesForGenerate, photoDetections, planImport, sitePhotos, photoExistingFeatures)
@@ -649,11 +655,10 @@ export default function AIEstimateBuilderModal({
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+          keyboardShouldPersistTaps="always"
+          keyboardDismissMode="none"
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled={false}
-          onScrollBeginDrag={notesEditing && notes.trim() ? dismissNotesEditing : undefined}
         >
           {notesField}
         </ScrollView>

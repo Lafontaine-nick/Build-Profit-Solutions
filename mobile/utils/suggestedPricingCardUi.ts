@@ -260,16 +260,22 @@ export function roundSuggestedDisplayComponent(amount: number | null | undefined
 
 /** Exact apply amount — matches stored totals after Apply (no planning rounding). */
 export function formatSuggestedDisplayMoney(total: number | null | undefined): string {
-  return formatAppliedDisplayMoney(total);
+  const value = Number(total);
+  if (!Number.isFinite(value)) return '—';
+  return `$${Math.round(value).toLocaleString()}`;
 }
 
 export function formatSuggestedComponentMoney(amount: number | null | undefined): string {
-  return formatAppliedDisplayMoney(amount);
+  const value = Number(amount);
+  if (!Number.isFinite(value)) return '—';
+  return `$${Math.round(value).toLocaleString()}`;
 }
 
-/** Keep exact money for user-entered / applied values. */
+/** Keep applied pricing readable as whole-dollar display values. */
 export function formatAppliedDisplayMoney(total: number | null | undefined): string {
-  return formatDraftMoney(total);
+  const value = Number(total);
+  if (!Number.isFinite(value)) return '—';
+  return `$${Math.round(value).toLocaleString()}`;
 }
 
 export function normalizeQuantitySource(

@@ -105,7 +105,8 @@ describe('photo-to-scope rejection recovery', () => {
     expect(result.success).toBe(true);
     expect(result.scopeText).toContain('tub/shower');
     expect(result.detections[0].itemId).toBe('shower_tile');
-    expect(result.templateKey).toBe('bathroom');
+    // Explicit project context wins over a conflicting visual guess.
+    expect(result.templateKey).toBe('roofing');
     expect(result.notesBlock).toContain('Detected from site photos');
   });
 

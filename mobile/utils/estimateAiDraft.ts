@@ -191,6 +191,21 @@ export type PlanRoomMeasurement = {
 };
 
 export type ScopeMeasurements = {
+  paintScope?: Array<'walls' | 'ceilings' | 'trim' | 'doors' | 'cabinets' | 'exterior'> | null;
+  paintAreaBasis?: 'walls' | 'ceilings' | 'combined' | 'floor_area' | 'unknown' | null;
+  paintAreaNeedsConfirmation?: boolean | null;
+  paintAreaSqft?: number | null;
+  paintPricingMethod?: 'combined' | 'separate' | null;
+  combinedPaintableAreaSqft?: number | null;
+  paintOccupancy?: 'occupied' | 'vacant' | 'new_construction' | null;
+  paintApplicationMethod?: 'brush_roll' | 'spray' | 'mixed' | null;
+  paintOccupancyConfirmed?: boolean | null;
+  paintApplicationMethodConfirmed?: boolean | null;
+  cabinetMeasurementMethod?: 'linear_feet' | 'doors_drawers' | 'lump_sum' | 'surface_area' | null;
+  cabinetUpperLf?: number | null;
+  cabinetLowerLf?: number | null;
+  cabinetTallLf?: number | null;
+  cabinetRunLf?: number | null;
   /** Bathroom floor sqft — used for floor tile, demo, etc. */
   bathroomFloorSqft?: number | null;
   kitchenFloorSqft?: number | null;
@@ -201,11 +216,16 @@ export type ScopeMeasurements = {
   backsplashSqft?: number | null;
   countertopSqft?: number | null;
   cabinetLf?: number | null;
+  wallDemoSqft?: number | null;
+  wallDemoLf?: number | null;
   showerWallTileSqft?: number | null;
   showerFloorTileSqft?: number | null;
   wallPaintSqft?: number | null;
+  ceilingPaintSqft?: number | null;
   exteriorPaintSqft?: number | null;
   baseboardLf?: number | null;
+  interiorDoorCount?: number | null;
+  cabinetPaintSqft?: number | null;
   railingLf?: number | null;
   landscapeSqft?: number | null;
   sodSqft?: number | null;
@@ -2686,7 +2706,24 @@ function resolveDraftPackagesForApply(
   draft: EstimateAiDraft,
   applyConfirmedOnly = false
 ): EstimateDraftScopePackage[] {
-  const packages = [...getScopePackages(draft)];
+  const rawPackages = [...getScopePackages(draft)];
+  const preferredDrywallIndex = rawPackages.findIndex(
+    (pkg) => packageRuleKeyForApply(pkg) === 'drywall'
+  );
+  const packages = rawPackages.filter((pkg, index, all) => {
+    // `patch_repair` and `drywall` are sibling IDs for the same physical
+    // trade. Older AI drafts can retain both packages after the checklist
+    // normalizes them to one Drywall / patching line, which duplicated that
+    // line in Step 3 while Confirm Scope counted it once.
+    const ruleKey = packageRuleKeyForApply(pkg);
+    if (ruleKey !== 'patch_repair' && ruleKey !== 'drywall') return true;
+    // Prefer the canonical checklist ID when both legacy siblings exist.
+    if (preferredDrywallIndex >= 0) return index === preferredDrywallIndex;
+    return index === all.findIndex((candidate) => {
+      const candidateKey = packageRuleKeyForApply(candidate);
+      return candidateKey === 'patch_repair' || candidateKey === 'drywall';
+    });
+  });
   if (!draft.rooms?.length) return packages;
 
   const seenNames = new Set(
