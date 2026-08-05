@@ -245,7 +245,10 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       (templateKey === 'painting' ||
         projectType === 'painting' ||
         /\binterior\s+repaint\b|\bpaint\s+all\s+(?:interior\s+)?walls?\b/i.test(blob))
-        ? allQty(text, SQFT_RE).filter((q) => q > 0)
+        ? clauses
+            .filter((clause) => !/\bexterior\b/i.test(clause))
+            .flatMap((clause) => allQty(clause, SQFT_RE))
+            .filter((q) => q > 0)
         : [];
     if (globalPaintAreas.length) {
       largestRelevantPaintSqft = Math.max(largestRelevantPaintSqft, ...globalPaintAreas);
@@ -260,9 +263,10 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   const explicitWallPaintSqft = pickSqftNearPattern(text, /\bwalls?\b/);
   const explicitCeilingPaintSqft = pickSqftNearPattern(text, /\bceilings?\b/);
   const combinedPaintLanguage = /\bwalls?\s*(?:and|&)\s*ceilings?\b|\bceilings?\s*(?:and|&)\s*walls?\b/i.test(blob);
+  const interiorPaintBlob = clauses.filter((clause) => !/\bexterior\b/i.test(clause)).join(' ');
   const floorAreaPaintLanguage =
-    /\b(?:house|home|floor\s+area|living\s+area)\b[^.;]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(blob) ||
-    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;]{0,35}\b(?:house|home|floor\s+area|living\s+area)\b/i.test(blob);
+    /\b(?:house|home|floor\s+area|living\s+area)\b[^.;]{0,35}\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b/i.test(interiorPaintBlob) ||
+    /\b\d[\d,]*(?:\.\d+)?\s*(?:sq\.?\s*ft|sqft|square\s+(?:foot|feet))\b[^.;]{0,35}\b(?:house|home|floor\s+area|living\s+area)\b/i.test(interiorPaintBlob);
 
   if (explicitWallPaintSqft && explicitCeilingPaintSqft && !combinedPaintLanguage) {
     out.paintPricingMethod = 'separate';

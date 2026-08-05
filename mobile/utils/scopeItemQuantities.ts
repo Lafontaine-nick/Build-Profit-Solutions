@@ -11184,9 +11184,15 @@ export function initialScopeMeasurementInputExtended(
   };
 
   const base = emptyQuickMeasurementInput();
+  const hydratedPaintScope = Array.from(
+    new Set([
+      ...(parsedFromNotes.paintScope ?? suggested?.paintScope ?? saved?.paintScope ?? []),
+      ...(Number(parsedFromNotes.exteriorPaintSqft || 0) > 0 ? ['exterior' as const] : []),
+    ])
+  );
   let result: ScopeMeasurementsInputExtended = {
     ...base,
-    paintScope: parsedFromNotes.paintScope ?? suggested?.paintScope ?? saved?.paintScope ?? null,
+    paintScope: hydratedPaintScope.length ? hydratedPaintScope : null,
     bathroomFloorSqft:
       pick('bathroomFloorSqft') ||
       (saved?.sqft ? String(saved.sqft) : parsed.sqft ? String(parsed.sqft) : ''),

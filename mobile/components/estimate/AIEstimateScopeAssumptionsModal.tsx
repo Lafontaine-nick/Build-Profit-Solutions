@@ -10377,6 +10377,14 @@ export default function AIEstimateScopeAssumptionsModal({
         ),
         draft?.scopeMeasurements
       );
+      if (
+        String(checklist.templateKey || '').toLowerCase() === 'painting' &&
+        Number(nextMeasurements.exteriorPaintSqft || 0) > 0
+      ) {
+        nextMeasurements.paintScope = Array.from(
+          new Set([...(nextMeasurements.paintScope || []), 'exterior' as const])
+        );
+      }
       const strippedQuantities = stripBathroomFalsePositiveFloorDemoQuantities(
         nextMeasurements.itemQuantities,
         checklist.templateKey,

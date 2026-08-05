@@ -4,6 +4,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import type { ConfirmScopeAppliedPricingBreakdown } from '@/utils/benchmarkReasonablenessContext';
 import { formatBuildCostPerLivingSf } from '@/utils/benchmarkReasonablenessContext';
+import { formatDraftMoney } from '@/utils/estimateAiDraft';
 import { formatAppliedDisplayMoney } from '@/utils/suggestedPricingCardUi';
 
 type Props = {
@@ -51,15 +52,15 @@ export default function ConfirmScopeAppliedPricingSummary({
           </Text>
           <View style={styles.breakdownRow}>
             <Text style={[styles.breakdownText, { color: muted }]}>
-              Material {formatAppliedDisplayMoney(breakdown.material)}
+              Material {formatDraftMoney(breakdown.material)}
             </Text>
             <Text style={[styles.breakdownDot, { color: muted }]}>·</Text>
             <Text style={[styles.breakdownText, { color: muted }]}>
-              Labor {formatAppliedDisplayMoney(breakdown.labor)}
+              Labor {formatDraftMoney(breakdown.labor)}
             </Text>
             <Text style={[styles.breakdownDot, { color: muted }]}>·</Text>
             <Text style={[styles.breakdownText, { color: muted }]}>
-              Allowances {formatAppliedDisplayMoney(breakdown.allowance)}
+              Allowances {formatDraftMoney(breakdown.allowance)}
             </Text>
           </View>
         </>
