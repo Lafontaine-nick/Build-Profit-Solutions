@@ -12,7 +12,10 @@ function item(id: string, state: ScopeChecklistItem['state'] = 'unsure'): ScopeC
 
 describe('flooringRemodel QM', () => {
   it('infers existing floor from notes', () => {
-    expect(inferExistingFlooringFromNotes('remove existing tile floor').flooringExistingCount).toBe(1);
+    expect(inferExistingFlooringFromNotes('remove existing tile floor')).toMatchObject({
+      flooringExistingCount: 1,
+      flooringExistingTypes: ['tile'],
+    });
   });
 
   it('infers install from notes', () => {
@@ -40,5 +43,16 @@ describe('flooringRemodel QM', () => {
     });
     expect(next.find((r) => r.id === 'flooring')?.state).toBe('included');
     expect(next.find((r) => r.id === 'floor_demo')?.state).toBe('included');
+  });
+
+  it('selects product cards from detected product types without inventing quantities', () => {
+    const items = [item('flooring'), item('flooring_lvp'), item('tile_flooring')];
+    const next = syncFlooringQmScopeItems(items, {
+      flooringProductScope: ['lvp', 'tile'],
+      flooringInstallScopeCount: 1,
+    });
+    expect(next.find((r) => r.id === 'flooring_lvp')?.state).toBe('included');
+    expect(next.find((r) => r.id === 'tile_flooring')?.state).toBe('included');
+    expect(next.find((r) => r.id === 'flooring')?.state).toBe('excluded');
   });
 });

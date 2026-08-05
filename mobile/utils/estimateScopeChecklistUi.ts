@@ -762,8 +762,67 @@ function migrateGroundUpTakeoffScopeItems(
     'finishes',
     'exterior_paint'
   );
+  if (String(templateKey || '').toLowerCase() === 'flooring') {
+    ensure('flooring_lvp', 'LVP', 'Luxury vinyl plank material and standard installation.', 'flooring', 'flooring');
+    ensure('flooring_laminate', 'Laminate', 'Laminate flooring material and standard installation.', 'flooring', 'flooring_lvp');
+    ensure(
+      'flooring_engineered_hardwood',
+      'Engineered hardwood',
+      'Engineered hardwood material and standard installation.',
+      'flooring',
+      'flooring_laminate'
+    );
+    ensure(
+      'flooring_solid_hardwood',
+      'Solid hardwood',
+      'Solid hardwood material and standard installation. Refinishing is separate.',
+      'flooring',
+      'flooring_engineered_hardwood'
+    );
+    ensure(
+      'tile_flooring',
+      'Tile',
+      'Floor tile material and standard installation. Specialty patterns and stone upgrades are separate.',
+      'flooring',
+      'flooring_solid_hardwood'
+    );
+    ensure(
+      'flooring_carpet',
+      'Carpet',
+      'Carpet material, pad, seams, and standard installation.',
+      'flooring',
+      'tile_flooring'
+    );
+    ensure('underlayment', 'Underlayment', 'Underlayment material and installation beneath the selected flooring.', 'flooring', 'floor_prep');
+    ensure('moisture_barrier', 'Moisture barrier', 'Moisture mitigation or vapor barrier beneath flooring.', 'flooring', 'underlayment');
+    ensure(
+      'transitions',
+      'Transitions & reducers',
+      'Transition strips, reducers, thresholds, and related installation.',
+      'trim',
+      'trim'
+    );
+    ensure('quarter_round', 'Quarter round', 'Quarter-round material and installation.', 'trim', 'transitions');
+  }
 
   next = next.map((i) => {
+    if (String(templateKey || '').toLowerCase() === 'flooring' && i.id === 'floor_demo') {
+      return { ...i, label: 'Demo Existing Flooring', helperText: 'Remove existing flooring before installing the selected new flooring.' };
+    }
+    if (String(templateKey || '').toLowerCase() === 'flooring' && i.id === 'flooring') {
+      return { ...i, label: 'New Flooring', helperText: 'Fallback flooring install card when no specific product has been selected.' };
+    }
+    if (String(templateKey || '').toLowerCase() === 'flooring' && i.id === 'floor_prep') {
+      return {
+        ...i,
+        label: 'Floor Prep & Leveling',
+        helperText:
+          'Patching, scraping, grinding, skim coating, and leveling required to prepare the substrate. Underlayment and moisture-control systems are priced separately.',
+      };
+    }
+    if (String(templateKey || '').toLowerCase() === 'flooring' && i.id === 'cleanup') {
+      return { ...i, label: 'Cleanup & Disposal' };
+    }
     if (i.id === 'sitework' && /excavation/i.test(i.label || '')) {
       return { ...i, label: 'Sitework' };
     }

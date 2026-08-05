@@ -437,6 +437,16 @@ function inputShellStyle(Colors: ReturnType<typeof getColors>, darkMode: boolean
   };
 }
 
+function formatMeasurementDisplay(value: string | number | null | undefined): string {
+  const raw = String(value ?? '').replace(/,/g, '');
+  if (!raw) return '';
+  const match = raw.match(/^(-?)(\d*)(\.\d*)?$/);
+  if (!match) return String(value ?? '');
+  const [, sign, integerPart, decimalPart = ''] = match;
+  const integer = integerPart || '0';
+  return `${sign}${integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${decimalPart}`;
+}
+
 function captionColor(darkMode: boolean, Colors: ReturnType<typeof getColors>) {
   return darkMode ? 'rgba(255,255,255,0.62)' : Colors.sub;
 }
@@ -2573,6 +2583,28 @@ function buildNormFromInput(
   return buildNormalizedScopeMeasurementsFromInput(input, { notes, templateKey });
 }
 
+function noteQuantityForScopeItem(
+  itemId: string,
+  parsed: ReturnType<typeof parseScopeMeasurementsFromNotes>
+): number | null {
+  const keyByItem: Record<string, keyof typeof parsed> = {
+    floor_demo: 'floorDemoSqft',
+    floor_prep: 'floorPrepSqft',
+    flooring: 'flooringSqft',
+    flooring_lvp: 'flooringLvpSqft',
+    flooring_laminate: 'flooringLaminateSqft',
+    flooring_engineered_hardwood: 'flooringEngineeredHardwoodSqft',
+    flooring_solid_hardwood: 'flooringSolidHardwoodSqft',
+    tile_flooring: 'flooringTileSqft',
+    flooring_carpet: 'flooringCarpetSqft',
+    trim: 'baseboardLf',
+  };
+  const key = keyByItem[itemId];
+  if (!key) return null;
+  const value = Number(parsed[key]);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
 type UnconfirmedSuggestedPricing = {
   itemId: string;
   label: string;
@@ -3677,6 +3709,17 @@ function QuantitySection({
     floorTypeSource: measurementsInput.bathroomToiletRelocateFloorTypeSource,
     defaultSourceLabel: resolved.sourceLabel,
   });
+  const noteQuantity = originalNotes
+    ? noteQuantityForScopeItem(itemId, parseScopeMeasurementsFromNotes(originalNotes, { templateKey: templateKey ?? undefined }))
+    : null;
+  const currentQuantity = Number(resolved.dualCount?.quantity ?? resolved.quantity);
+  const noteVarianceNotice =
+    noteQuantity != null && Number.isFinite(currentQuantity) && Math.abs(currentQuantity - noteQuantity) > 0.01 ? (
+      <Text style={{ color: '#fbbf24', fontSize: 11, lineHeight: 15, marginTop: 4 }}>
+        Measurement {currentQuantity > noteQuantity ? 'exceeds' : 'is below'} note entry (
+        {formatMeasurementDisplay(currentQuantity)} vs {formatMeasurementDisplay(noteQuantity)} {resolved.unit}).
+      </Text>
+    ) : null;
   const inputShell = inputShellStyle(Colors, darkMode);
   const placeholderColor = darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8';
   const focusQuantityField = (targetItemId: string, field: 'count' | 'allowance' = 'count') => {
@@ -3765,7 +3808,8 @@ function QuantitySection({
         templateKey,
         displayResolved,
         pricingContext,
-        choiceId
+        choiceId,
+        originalNotes
       );
       const initialSuggested = hasUserSelectedPricing
         ? { fill: null, comparison: rawSuggested.comparison }
@@ -3989,6 +4033,7 @@ function QuantitySection({
                   Colors={Colors}
                 />
               ) : null}
+              {noteVarianceNotice}
               {displayResolved.dualMaterial ? (
                 <PricingSplitRow
                   label="Material"
@@ -4750,6 +4795,7 @@ function QuantitySection({
                   Colors={Colors}
                 />
               )}
+              {noteVarianceNotice}
               <ScopeIntelligenceNotice
                 intelligence={intelligence}
                 Colors={Colors}
@@ -5337,7 +5383,22 @@ function WetAreaInstallLineCard({
   applying: boolean;
   embedded?: boolean;
 }) {
-  const helper = checklistDisplayHelper(item, templateKey);
+  let helper = checklistDisplayHelper(item, templateKey);
+  if (String(templateKey || '').toLowerCase() === 'flooring' && item.id === 'floor_demo') {
+    const parsedExisting = parseScopeMeasurementsFromNotes(originalNotes || '', {
+      templateKey,
+    }).flooringExistingTypes;
+    const existingTypes =
+      Array.isArray(measurementsInput.flooringExistingTypes) && measurementsInput.flooringExistingTypes.length
+        ? measurementsInput.flooringExistingTypes
+        : parsedExisting || [];
+    const labels = existingTypes
+      .filter((type) => type !== 'unknown')
+      .map((type) => String(type).replace(/_/g, ' '));
+    helper = labels.length
+      ? `Remove existing ${labels.join(', ')} flooring before installing the selected new flooring.`
+      : 'Remove existing flooring before installing the selected new flooring.';
+  }
   const tier = scopeItemVisualTier(item, visualCtx);
   const noteBadge = scopeItemNoteBadge(item, visualCtx);
 
@@ -5520,7 +5581,22 @@ function YesNoRow({
   const tier = scopeItemVisualTier(item, visualCtx);
   const noteBadge = scopeItemNoteBadge(item, visualCtx);
   const isCustom = isCustomScopeItem(item);
-  const helper = isCustom ? 'Added manually. Price as total, sqft, or LF.' : checklistDisplayHelper(item, templateKey);
+  let helper = isCustom ? 'Added manually. Price as total, sqft, or LF.' : checklistDisplayHelper(item, templateKey);
+  if (!isCustom && String(templateKey || '').toLowerCase() === 'flooring' && item.id === 'floor_demo') {
+    const parsedExisting = parseScopeMeasurementsFromNotes(originalNotes || '', {
+      templateKey,
+    }).flooringExistingTypes;
+    const existingTypes =
+      Array.isArray(measurementsInput.flooringExistingTypes) && measurementsInput.flooringExistingTypes.length
+        ? measurementsInput.flooringExistingTypes
+        : parsedExisting || [];
+    const labels = existingTypes
+      .filter((type) => type !== 'unknown')
+      .map((type) => String(type).replace(/_/g, ' '));
+    helper = labels.length
+      ? `Remove existing ${labels.join(', ')} flooring before installing the selected new flooring.`
+      : 'Remove existing flooring before installing the selected new flooring.';
+  }
   const [renaming, setRenaming] = useState(false);
   const [draftLabel, setDraftLabel] = useState(item.label);
   const [plumbingRoughPromptExpanded, setPlumbingRoughPromptExpanded] = useState(false);
@@ -7403,7 +7479,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
         >
           <TextInput
             nativeID={`quick-measurement-${field.key}`}
-            value={value}
+            value={formatMeasurementDisplay(value)}
             onChangeText={onChangeText}
             onFocus={onFocus}
             onBlur={onBlur}
@@ -7465,7 +7541,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
       >
         <TextInput
           nativeID={`quick-measurement-${field.key}`}
-          value={value}
+          value={formatMeasurementDisplay(value)}
           onChangeText={onChangeText}
           onFocus={onFocus}
           onBlur={onBlur}
@@ -7572,7 +7648,6 @@ function CollapsibleQuickMeasurements({
   darkMode: boolean;
   applying: boolean;
 }) {
-  const [roomsExpanded, setRoomsExpanded] = useState(false);
   const [moreExpanded, setMoreExpanded] = useState(true);
   const [openDetailsKey, setOpenDetailsKey] = useState<QuickMeasurementFieldKey | null>(null);
   const [editingFieldKey, setEditingFieldKey] = useState<QuickMeasurementFieldKey | null>(null);
@@ -7700,6 +7775,19 @@ function CollapsibleQuickMeasurements({
     put('roofSquares', parsed.roofSquares);
     put('drywallSqft', parsed.drywallSqft);
     put('flooringSqft', parsed.flooringSqft);
+    put('flooringLvpSqft', parsed.flooringLvpSqft);
+    put('flooringLaminateSqft', parsed.flooringLaminateSqft);
+    put('flooringEngineeredHardwoodSqft', parsed.flooringEngineeredHardwoodSqft);
+    put('flooringSolidHardwoodSqft', parsed.flooringSolidHardwoodSqft);
+    put('flooringTileSqft', parsed.flooringTileSqft);
+    put('flooringCarpetSqft', parsed.flooringCarpetSqft);
+    put('floorDemoSqft', parsed.floorDemoSqft);
+    put('floorPrepSqft', parsed.floorPrepSqft);
+    put('floorPrepSqft', parsed.floorPrepSqft);
+    put('underlaymentSqft', parsed.underlaymentSqft);
+    put('moistureBarrierSqft', parsed.moistureBarrierSqft);
+    put('transitionLf', parsed.transitionLf);
+    put('quarterRoundLf', parsed.quarterRoundLf);
     put('concreteSqft', parsed.concreteSqft);
     put('concreteCy', parsed.concreteCy);
     put('excavationCy', parsed.excavationCy);
@@ -7715,6 +7803,49 @@ function CollapsibleQuickMeasurements({
       measurements,
       noteQuickMeasurements.keys
     );
+    if (String(effectiveTemplateKey || '').toLowerCase() === 'flooring') {
+      const selected = new Set(includedScopeKeys);
+      const selectedProductScope = new Set(measurements.flooringProductScope || []);
+      const allowed = new Set<QuickMeasurementFieldKey>(['flooringSqft']);
+      const flooringFields: Array<[string, QuickMeasurementFieldKey]> = [
+        ['flooring_lvp', 'flooringLvpSqft'],
+        ['flooring_laminate', 'flooringLaminateSqft'],
+        ['flooring_engineered_hardwood', 'flooringEngineeredHardwoodSqft'],
+        ['flooring_solid_hardwood', 'flooringSolidHardwoodSqft'],
+        ['tile_flooring', 'flooringTileSqft'],
+        ['flooring_carpet', 'flooringCarpetSqft'],
+        ['floor_demo', 'floorDemoSqft'],
+        ['floor_prep', 'floorPrepSqft'],
+        ['floor_prep', 'floorPrepSqft'],
+        ['underlayment', 'underlaymentSqft'],
+        ['moisture_barrier', 'moistureBarrierSqft'],
+        ['transitions', 'transitionLf'],
+        ['quarter_round', 'quarterRoundLf'],
+        ['trim', 'baseboardLf'],
+      ];
+      for (const [itemId, fieldKey] of flooringFields) {
+        const productKey =
+          itemId === 'flooring_lvp'
+            ? 'lvp'
+            : itemId === 'flooring_laminate'
+              ? 'laminate'
+              : itemId === 'flooring_engineered_hardwood'
+                ? 'engineered_hardwood'
+                : itemId === 'flooring_solid_hardwood'
+                  ? 'solid_hardwood'
+                  : itemId === 'tile_flooring'
+                    ? 'tile'
+                    : itemId === 'flooring_carpet'
+                      ? 'carpet'
+                      : null;
+        if (selected.has(itemId) || (productKey && selectedProductScope.has(productKey))) {
+          allowed.add(fieldKey);
+        }
+      }
+      return baseRows
+        .map((row) => row.filter((field) => allowed.has(field.key)))
+        .filter((row) => row.length > 0);
+    }
     if (String(effectiveTemplateKey || '').toLowerCase() !== 'painting' || !measurements.paintScope) {
       return baseRows;
     }
@@ -7735,7 +7866,7 @@ function CollapsibleQuickMeasurements({
     return baseRows
       .map((row) => row.filter((field) => allowed.has(field.key)))
       .filter((row) => row.length > 0);
-  }, [effectiveTemplateKey, projectType, measurements, noteQuickMeasurements.keys]);
+  }, [effectiveTemplateKey, projectType, measurements, noteQuickMeasurements.keys, includedScopeKeys]);
   const fillCounts = useMemo(
     () => countFilledQuickMeasurements(rows, measurements, noteQuickMeasurements.values),
     [rows, measurements, noteQuickMeasurements.values]
@@ -8558,7 +8689,7 @@ function CollapsibleQuickMeasurements({
           }}
         >
           <TextInput
-            value={value}
+            value={formatMeasurementDisplay(value)}
             onChangeText={(text) => {
               const cleaned = String(text || '').replace(/[^\d.]/g, '');
               setMeasurements((prev) => {
@@ -8798,13 +8929,13 @@ function CollapsibleQuickMeasurements({
         styles.quickMeasurementSection,
         styles.wetAreaSection,
         {
-          borderColor: darkMode ? 'rgba(251, 191, 36, 0.28)' : 'rgba(217, 119, 6, 0.22)',
-          backgroundColor: darkMode ? 'rgba(251, 191, 36, 0.06)' : 'rgba(251, 191, 36, 0.05)',
+          borderColor: darkMode ? 'rgba(148,163,184,0.28)' : 'rgba(100,116,139,0.24)',
+          backgroundColor: darkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.05)',
           marginTop: bathroomPhotoWetArea ? 0 : 4,
         },
       ]}
     >
-      {sectionTitle(bathroomPhotoWetArea ? 'Wet area install' : 'Wet area finish', '#fbbf24')}
+      {sectionTitle(bathroomPhotoWetArea ? 'Wet area install' : 'Wet area finish', darkMode ? '#cbd5e1' : '#475569')}
       <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, lineHeight: 15, marginBottom: 8 }}>
         {bathroomPhotoWetArea
           ? 'Set what is in this bid — shower wall and floor fields update below.'
@@ -9002,13 +9133,43 @@ function CollapsibleQuickMeasurements({
             delete nextItemQuantities[mapped.id];
           }
         }
+        const flooringProductMeasurementKeys: QuickMeasurementFieldKey[] = [
+          'flooringLvpSqft',
+          'flooringLaminateSqft',
+          'flooringEngineeredHardwoodSqft',
+          'flooringSolidHardwoodSqft',
+          'flooringTileSqft',
+          'flooringCarpetSqft',
+        ];
+        const existingDemoTotal = Object.entries(nextItemQuantities)
+          .filter(([quantityKey]) => quantityKey.startsWith('floor_demo__'))
+          .reduce((sum, [, entry]) => sum + Number(String(entry?.quantity || '').replace(/,/g, '')), 0);
+        const nextMeasurements = { ...prev, [key]: value };
+        if (flooringProductMeasurementKeys.includes(key) && existingDemoTotal <= 0) {
+          const installTotal = flooringProductMeasurementKeys.reduce(
+            (sum, productKey) => sum + Number(String(nextMeasurements[productKey] || '').replace(/,/g, '')),
+            0
+          );
+          nextMeasurements.floorDemoSqft = installTotal > 0 ? installTotal : null;
+          if (installTotal > 0) {
+            nextItemQuantities.floor_demo = {
+              quantity: installTotal,
+              unit: 'sqft',
+              quantitySource: 'user_entered',
+            };
+          } else {
+            delete nextItemQuantities.floor_demo;
+          }
+        }
         return {
-          ...prev,
-          [key]: value,
+          ...nextMeasurements,
           itemQuantities: nextItemQuantities,
           quickMeasurementSources: {
             ...(prev.quickMeasurementSources || {}),
             [key]: 'user_entered',
+            ...(flooringProductMeasurementKeys.includes(key)
+              ? { floorDemoSqft: 'user_entered' as const }
+              : {}),
           },
           quickMeasurementUserOverrides: { ...(prev.quickMeasurementUserOverrides || {}), [key]: true },
         };
@@ -9115,7 +9276,6 @@ function CollapsibleQuickMeasurements({
   };
 
   const showDone = expanded && fillCounts.filled > 0;
-  const roomCount = Array.isArray(measurements.planRooms) ? measurements.planRooms.length : 0;
   const subtitle =
     summary.relevantTotal > 0
       ? summary.needsConfirmation > 0
@@ -9177,10 +9337,13 @@ function CollapsibleQuickMeasurements({
     const lockedVariant = isEditing && editingVariant ? editingVariant : variant;
     const estimateForRender =
       result.estimate || (isEditing && lockedVariant === 'suggestion' ? editingEstimateRef.current : null);
-    const displayField =
-      field.key === 'paintAreaSqft'
+    const floorPrepExceedsTotal =
+      field.key === 'floorPrepSqft' &&
+      Number(displayValue.replace(/,/g, '')) > Number(measurements.flooringSqft || 0);
+    const displayField = {
+      ...field,
+      ...(field.key === 'paintAreaSqft'
         ? {
-            ...field,
             label:
               measurements.paintPricingMethod === 'combined'
                 ? 'Combined Paintable Area'
@@ -9190,7 +9353,13 @@ function CollapsibleQuickMeasurements({
                 ? 'Used once for combined walls-and-ceilings pricing.'
                 : 'Informational source quantity from job notes. Not priced in separate mode.',
           }
-        : field;
+        : {}),
+      ...(floorPrepExceedsTotal
+        ? {
+            helperText: `${field.helperText || 'Enter only the area requiring floor prep.'} Warning: this exceeds Total Flooring Area; verify the measurement.`,
+          }
+        : {}),
+    };
     return (
       <QuickMeasurementField
         key={field.key}
@@ -9201,7 +9370,7 @@ function CollapsibleQuickMeasurements({
         estimate={estimateForRender}
         detailsOpen={openDetailsKey === field.key}
         onToggleDetails={() => setOpenDetailsKey((prev) => (prev === field.key ? null : field.key))}
-        onChangeText={(value) => setField(field.key, value)}
+        onChangeText={(value) => setField(field.key, value.replace(/,/g, ''))}
         onFocus={
           homeGroup != null && homeIndex != null
             ? () => beginEditingField(field.key, homeGroup, homeIndex, variant, result.estimate)
@@ -9229,8 +9398,31 @@ function CollapsibleQuickMeasurements({
     'countertopSqft',
     'cabinetLf',
   ]);
+  const flooringEmbeddedMeasurementKeys = new Set<QuickMeasurementFieldKey>([
+    'flooringLvpSqft',
+    'flooringLaminateSqft',
+    'flooringEngineeredHardwoodSqft',
+    'flooringSolidHardwoodSqft',
+    'flooringTileSqft',
+    'flooringCarpetSqft',
+    'floorDemoSqft',
+  ]);
+  const flooringInstallSqft =
+    Number(measurements.flooringLvpSqft || 0) +
+    Number(measurements.flooringLaminateSqft || 0) +
+    Number(measurements.flooringEngineeredHardwoodSqft || 0) +
+    Number(measurements.flooringSolidHardwoodSqft || 0) +
+    Number(measurements.flooringTileSqft || 0) +
+    Number(measurements.flooringCarpetSqft || 0);
+  const flooringInstallExceedsTotal =
+    flooringQmJob &&
+    Number(measurements.flooringSqft || 0) > 0 &&
+    flooringInstallSqft > Number(measurements.flooringSqft || 0);
   const shouldRenderGeneralResult = (result: QuickMeasurementFieldResult) =>
-    !(kitchenQmJob && kitchenEmbeddedMeasurementKeys.has(result.key));
+    !(
+      (kitchenQmJob && kitchenEmbeddedMeasurementKeys.has(result.key)) ||
+      (flooringQmJob && flooringEmbeddedMeasurementKeys.has(result.key))
+    );
   const renderDisplayedResultField = (
     result: QuickMeasurementFieldResult,
     variant: 'calm' | 'needs_confirmation' | 'suggestion' | 'more',
@@ -9253,6 +9445,38 @@ function CollapsibleQuickMeasurements({
           true
         );
       })}
+    </View>
+  ) : null;
+  const flooringMeasurementFootersByKey: Partial<Record<string, React.ReactNode>> = {};
+  const flooringProductIdByMeasurementKey: Partial<Record<string, string>> = {
+    flooringLvpSqft: 'lvp',
+    flooringLaminateSqft: 'laminate',
+    flooringEngineeredHardwoodSqft: 'engineered_hardwood',
+    flooringSolidHardwoodSqft: 'solid_hardwood',
+    flooringTileSqft: 'tile',
+    flooringCarpetSqft: 'carpet',
+  };
+  if (flooringQmJob) {
+    Array.from(flooringEmbeddedMeasurementKeys)
+      .filter((key) => key !== 'floorDemoSqft')
+      .forEach((key, index) => {
+        const result = resultByKey.get(key);
+        const productId = flooringProductIdByMeasurementKey[key];
+        if (!result || !result.relevant || !productId) return;
+        flooringMeasurementFootersByKey[productId] = renderResultField(
+          result,
+          fieldVariantForResult(result),
+          homeGroupForResult(result),
+          index,
+          true
+        );
+      });
+  }
+  const flooringMeasurementFooter = flooringQmJob && flooringInstallExceedsTotal ? (
+    <View style={{ marginTop: 12 }}>
+      <Text style={{ color: '#fbbf24', fontSize: 11, lineHeight: 15 }}>
+        Measurements unmatched from notes: selected products exceed Total Flooring Area. This is allowed for corrections, but should be intentional.
+      </Text>
     </View>
   ) : null;
   const ambiguousPaintArea =
@@ -9420,13 +9644,14 @@ function CollapsibleQuickMeasurements({
             <View
               style={{
                 borderWidth: 1,
-                borderColor: darkMode ? 'rgba(255,255,255,0.15)' : Colors.line,
+                borderColor: darkMode ? 'rgba(148,163,184,0.28)' : 'rgba(100,116,139,0.24)',
+                backgroundColor: darkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.05)',
                 borderRadius: 14,
                 padding: 14,
                 marginBottom: 14,
               }}
             >
-              <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontWeight: '800', fontSize: 15 }}>
+              <Text style={{ color: darkMode ? '#cbd5e1' : '#475569', fontWeight: '800', fontSize: 15 }}>
                 Paint Scope
               </Text>
               <Text style={{ color: captionColor(darkMode, Colors), marginTop: 5 }}>
@@ -9448,8 +9673,8 @@ function CollapsibleQuickMeasurements({
                       onPress={() => choosePaintScope(surface as NonNullable<ScopeMeasurements['paintScope']>[number])}
                       style={{
                         borderWidth: 1,
-                        borderColor: selected ? '#34d399' : darkMode ? 'rgba(255,255,255,0.18)' : Colors.line,
-                        backgroundColor: selected ? 'rgba(52, 211, 153, 0.12)' : 'transparent',
+                        borderColor: selected ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
+                        backgroundColor: selected ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
                         borderRadius: 10,
                         paddingVertical: 10,
                         paddingHorizontal: 12,
@@ -9457,7 +9682,7 @@ function CollapsibleQuickMeasurements({
                         justifyContent: 'center',
                       }}
                     >
-                      <Text style={{ color: selected ? '#34d399' : darkMode ? '#F5F7FA' : Colors.text, fontWeight: '700', textAlign: 'center' }}>
+                      <Text style={{ color: selected ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text, fontWeight: '700', textAlign: 'center' }}>
                         {selected ? '✓ ' : ''}{label}
                       </Text>
                     </TouchableOpacity>
@@ -9489,8 +9714,8 @@ function CollapsibleQuickMeasurements({
                       style={{
                         flex: 1,
                         borderWidth: 1,
-                        borderColor: selected ? '#34d399' : darkMode ? 'rgba(255,255,255,0.18)' : Colors.line,
-                        backgroundColor: selected ? 'rgba(52, 211, 153, 0.12)' : 'transparent',
+                        borderColor: selected ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
+                        backgroundColor: selected ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
                         borderRadius: 10,
                         paddingVertical: 10,
                         paddingHorizontal: 8,
@@ -9498,7 +9723,7 @@ function CollapsibleQuickMeasurements({
                         justifyContent: 'center',
                       }}
                     >
-                      <Text style={{ color: selected ? '#34d399' : darkMode ? '#F5F7FA' : Colors.text, fontWeight: '700', fontSize: 12, textAlign: 'center' }}>
+                      <Text style={{ color: selected ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text, fontWeight: '700', fontSize: 12, textAlign: 'center' }}>
                         {label}
                       </Text>
                     </TouchableOpacity>
@@ -9561,8 +9786,8 @@ function CollapsibleQuickMeasurements({
                           style={{
                             flex: 1,
                             borderWidth: 1,
-                            borderColor: selected ? '#34d399' : darkMode ? 'rgba(255,255,255,0.18)' : Colors.line,
-                            backgroundColor: selected ? 'rgba(52, 211, 153, 0.12)' : 'transparent',
+                            borderColor: selected ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
+                            backgroundColor: selected ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
                             borderRadius: 10,
                             paddingVertical: 9,
                             paddingHorizontal: 6,
@@ -9570,7 +9795,7 @@ function CollapsibleQuickMeasurements({
                             justifyContent: 'center',
                           }}
                         >
-                          <Text style={{ color: selected ? '#34d399' : darkMode ? '#F5F7FA' : Colors.text, fontWeight: '700', fontSize: 11, textAlign: 'center' }}>
+                          <Text style={{ color: selected ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text, fontWeight: '700', fontSize: 11, textAlign: 'center' }}>
                             {label}
                           </Text>
                         </TouchableOpacity>
@@ -9673,6 +9898,8 @@ function CollapsibleQuickMeasurements({
                   showExistingPanel={!hasSitePhotos}
                   applying={applying}
                   onFlooringQmChange={onFlooringQmChange}
+                  measurementFooter={flooringMeasurementFooter}
+                  measurementFootersByKey={flooringMeasurementFootersByKey}
                   darkMode={darkMode}
                   Colors={Colors}
                 />
@@ -9843,69 +10070,6 @@ function CollapsibleQuickMeasurements({
             </View>
           ) : null}
 
-          {roomCount > 0 ? (
-            <View
-              style={[
-                styles.quickMeasurementSection,
-                styles.quickMeasurementSectionSplit,
-                { borderTopColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line },
-              ]}
-            >
-              <TouchableOpacity
-                onPress={() => setRoomsExpanded((v) => !v)}
-                activeOpacity={0.7}
-                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
-              >
-                <Text style={[styles.quickMeasurementSectionTitle, { color: captionColor(darkMode, Colors) }]}>
-                  Rooms from plan · {roomCount} room{roomCount === 1 ? '' : 's'} detected
-                </Text>
-                <Ionicons
-                  name={roomsExpanded ? 'chevron-up' : 'chevron-down'}
-                  size={16}
-                  color={captionColor(darkMode, Colors)}
-                />
-              </TouchableOpacity>
-              {roomsExpanded
-                ? (measurements.planRooms || []).map((room, idx) => {
-                    const area =
-                      room.areaSqft != null && Number(room.areaSqft) > 0
-                        ? `${Number(room.areaSqft).toLocaleString()} sqft`
-                        : room.lengthFt != null && room.widthFt != null
-                          ? `${room.lengthFt}×${room.widthFt} ft`
-                          : 'size unclear';
-                    return (
-                      <View
-                        key={`${room.name}-${idx}`}
-                        style={{
-                          flexDirection: 'row',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          paddingVertical: 8,
-                          borderBottomWidth: StyleSheet.hairlineWidth,
-                          borderBottomColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            color: darkMode ? '#F5F7FA' : Colors.text,
-                            fontSize: 13,
-                            fontWeight: '600',
-                            flex: 1,
-                            paddingRight: 12,
-                          }}
-                          numberOfLines={1}
-                        >
-                          {room.name}
-                        </Text>
-                        <Text style={{ color: captionColor(darkMode, Colors), fontSize: 13, fontWeight: '600' }}>
-                          {area}
-                        </Text>
-                      </View>
-                    );
-                  })
-                : null}
-            </View>
-          ) : null}
           {showDone ? (
             <TouchableOpacity
               onPress={onDone || onToggle}
@@ -10086,15 +10250,38 @@ export default function AIEstimateScopeAssumptionsModal({
   );
 
   const displayItems = useMemo(
-    () =>
-      buildConfirmScopeDisplayItems(
+    () => {
+      const expanded = buildConfirmScopeDisplayItems(
         items,
         measurements as Record<string, unknown>,
         checklist?.templateKey
-      ),
+      );
+      if (String(checklist?.templateKey || '').toLowerCase() !== 'flooring') return expanded;
+      const parsedExisting = parseScopeMeasurementsFromNotes(scopeNotes, {
+        templateKey: checklist?.templateKey,
+        projectType: draft?.projectType,
+      }).flooringExistingTypes;
+      const existingTypes = Array.isArray(measurements.flooringExistingTypes) && measurements.flooringExistingTypes.length
+        ? measurements.flooringExistingTypes
+        : parsedExisting || [];
+      const labels = existingTypes
+        .filter((type) => type !== 'unknown')
+        .map((type) => String(type).replace(/_/g, ' '));
+      const description = labels.length
+        ? `Remove existing ${labels.join(', ')} flooring before installing the selected new flooring.`
+        : 'Remove existing flooring before installing the selected new flooring.';
+      return expanded.map((item) =>
+        item.id === 'floor_demo'
+          ? { ...item, label: 'Demo Existing Flooring', helperText: description }
+          : item
+      );
+    },
     [
       items,
       checklist?.templateKey,
+      draft?.projectType,
+      scopeNotes,
+      measurements.flooringExistingTypes,
       measurements.bathroomInstallVanityCount,
       measurements.bathroomInstallCounterCount,
       measurements.bathroomDemoVanityCount,
@@ -12582,6 +12769,20 @@ export default function AIEstimateScopeAssumptionsModal({
 
   const renderItem = (item: ScopeChecklistItem) => {
     if (embedQmScopeInQuickMeasurements && qmScopeEmbeddedInQuickMeasurements(item.id)) {
+      return null;
+    }
+    if (
+      String(checklist?.templateKey || '').toLowerCase() === 'flooring' &&
+      item.id === 'flooring' &&
+      [
+        measurements.flooringLvpSqft,
+        measurements.flooringLaminateSqft,
+        measurements.flooringEngineeredHardwoodSqft,
+        measurements.flooringSolidHardwoodSqft,
+        measurements.flooringTileSqft,
+        measurements.flooringCarpetSqft,
+      ].some((value) => Number(value) > 0)
+    ) {
       return null;
     }
     if (

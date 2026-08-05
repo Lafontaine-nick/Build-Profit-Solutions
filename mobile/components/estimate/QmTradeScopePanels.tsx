@@ -1,5 +1,5 @@
 import React, { startTransition, useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { getColors } from '@/theme/getColors';
 import type { ScopeMeasurementsInputExtended } from '@/utils/scopeItemQuantities';
 import {
@@ -48,6 +48,27 @@ import {
 import { BATHROOM_QM_STEPPER_MAX } from '@/utils/planBathRooms';
 
 type Colors = ReturnType<typeof getColors>;
+
+const styles = StyleSheet.create({
+  qmPanel: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 12 },
+  qmPanelTitle: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
+  qmPanelCaption: { fontSize: 12, lineHeight: 17, marginBottom: 12 },
+  qmOptionWrap: {
+    flexDirection: 'column',
+    gap: 8,
+    alignItems: 'stretch',
+  },
+  qmOption: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qmOptionText: { fontSize: 13, fontWeight: '600' },
+});
 
 function captionColor(darkMode: boolean, Colors: Colors) {
   return darkMode ? 'rgba(245,247,250,0.62)' : Colors.sub;
@@ -278,6 +299,15 @@ function QmSqftMeasurementRow({
   darkMode: boolean;
   Colors: Colors;
 }) {
+  const formattedValue = (() => {
+    const raw = String(value || '').replace(/,/g, '');
+    if (!raw) return '';
+    const match = raw.match(/^(-?)(\d*)(\.\d*)?$/);
+    if (!match) return value;
+    const [, sign, integerPart, decimalPart = ''] = match;
+    const integer = integerPart || '0';
+    return `${sign}${integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${decimalPart}`;
+  })();
   return (
     <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line }}>
       <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 13, fontWeight: '600', marginBottom: 4 }}>
@@ -292,16 +322,16 @@ function QmSqftMeasurementRow({
         style={{
           flexDirection: 'row',
           alignItems: 'center',
-          borderWidth: 1,
+          borderWidth: StyleSheet.hairlineWidth,
           borderRadius: 10,
           borderColor: darkMode ? 'rgba(255,255,255,0.16)' : Colors.line,
-          backgroundColor: darkMode ? 'rgba(0,0,0,0.25)' : Colors.surface,
-          paddingHorizontal: 12,
-          paddingVertical: 8,
+          backgroundColor: darkMode ? '#111111' : Colors.surface,
+          paddingHorizontal: 10,
+          minHeight: 38,
         }}
       >
         <TextInput
-          value={value}
+          value={formattedValue}
           onChangeText={onChangeText}
           editable={!applying}
           keyboardType="decimal-pad"
@@ -310,12 +340,13 @@ function QmSqftMeasurementRow({
           style={{
             flex: 1,
             color: darkMode ? '#F5F7FA' : Colors.text,
-            fontSize: 16,
-            fontWeight: '700',
-            padding: 0,
+            paddingVertical: Platform.OS === 'ios' ? 8 : 6,
+            fontSize: 14,
+            fontWeight: '600',
+            minWidth: 0,
           }}
         />
-        <Text style={{ color: captionColor(darkMode, Colors), fontSize: 13, fontWeight: '600', marginLeft: 8 }}>
+        <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, fontWeight: '700', marginLeft: 6, flexShrink: 0 }}>
           sqft
         </Text>
       </View>
@@ -508,9 +539,9 @@ export function QmKitchenScopePanels({
       ) : null}
       <QmScopePanelSection
         title="Kitchen install"
-        titleColor="#fbbf24"
-        borderColor={darkMode ? 'rgba(251, 191, 36, 0.28)' : 'rgba(217, 119, 6, 0.22)'}
-        backgroundColor={darkMode ? 'rgba(251, 191, 36, 0.06)' : 'rgba(251, 191, 36, 0.05)'}
+        titleColor={darkMode ? '#cbd5e1' : '#475569'}
+        borderColor={darkMode ? 'rgba(148,163,184,0.28)' : 'rgba(100,116,139,0.24)'}
+        backgroundColor={darkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.05)'}
         caption="Set what is in this bid — scope cards sync below."
         rows={KITCHEN_INSTALL_ROWS}
         counts={install as Record<string, number | null>}
@@ -544,6 +575,8 @@ export function QmFlooringScopePanels({
   showExistingPanel,
   applying,
   onFlooringQmChange,
+  measurementFooter,
+  measurementFootersByKey,
   darkMode,
   Colors,
 }: {
@@ -557,6 +590,8 @@ export function QmFlooringScopePanels({
     install: FlooringInstallCounts;
     demo: FlooringDemoCounts;
   }) => void;
+  measurementFooter?: React.ReactNode;
+  measurementFootersByKey?: Partial<Record<string, React.ReactNode>>;
   darkMode: boolean;
   Colors: Colors;
 }) {
@@ -574,8 +609,10 @@ export function QmFlooringScopePanels({
     setDemo(readFlooringDemo(measurements));
   }, [
     measurements.flooringExistingCount,
+    measurements.flooringExistingTypes,
     measurements.flooringInstallScopeCount,
     measurements.flooringDemoScopeCount,
+    measurements.flooringProductScope,
   ]);
 
   const commit = useCallback(
@@ -604,31 +641,124 @@ export function QmFlooringScopePanels({
     [measurements, notes, onFlooringQmChange, setMeasurements]
   );
 
-  const adjustExisting = useCallback(
-    (delta: number) => {
+  const existingFlooringOptions: Array<{
+    id: NonNullable<FlooringExistingCounts['flooringExistingTypes']>[number];
+    label: string;
+  }> = [
+    { id: 'carpet', label: 'Carpet' },
+    { id: 'tile', label: 'Tile' },
+    { id: 'hardwood', label: 'Hardwood' },
+    { id: 'engineered_hardwood', label: 'Engineered Hardwood' },
+    { id: 'laminate', label: 'Laminate' },
+    { id: 'lvp', label: 'LVP' },
+    { id: 'vinyl', label: 'Vinyl' },
+    { id: 'unknown', label: 'Unknown' },
+  ];
+
+  const chooseExistingTypes = useCallback(
+    (type: NonNullable<FlooringExistingCounts['flooringExistingTypes']>[number]) => {
+      const current = existing.flooringExistingTypes || [];
+      const nextTypes =
+        type === 'unknown'
+          ? current.includes('unknown')
+            ? []
+            : ['unknown' as const]
+          : current.includes(type)
+            ? current.filter((value) => value !== type && value !== 'unknown')
+            : [...current.filter((value) => value !== 'unknown'), type];
+      const nextExisting = {
+        flooringExistingCount: nextTypes.length ? 1 : null,
+        flooringExistingTypes: nextTypes.length ? nextTypes : null,
+      };
+      const nextDemoTotal = nextTypes.reduce(
+        (sum, existingType) =>
+          sum + Number(measurements.itemQuantities?.[existingDemoAreaKey(existingType)]?.quantity || 0),
+        0
+      );
       const gen = ++genRef.current;
-      setExisting((prev) => {
-        const current = prev.flooringExistingCount ?? 0;
-        const next = { flooringExistingCount: clampQmCount(current + delta < 1 ? null : current + delta) };
-        commit(next, install, gen);
-        return next;
-      });
+      commit(nextExisting, install, gen);
+      setExisting(nextExisting);
+      const itemQuantities = { ...(measurements.itemQuantities || {}) };
+      if (nextDemoTotal > 0) {
+        itemQuantities.floor_demo = {
+          quantity: nextDemoTotal,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        };
+      } else {
+        delete itemQuantities.floor_demo;
+      }
+      setMeasurements((prev) => ({
+        ...prev,
+        ...nextExisting,
+        floorDemoSqft: nextDemoTotal > 0 ? nextDemoTotal : null,
+        itemQuantities,
+        quickMeasurementSources: {
+          ...(prev.quickMeasurementSources || {}),
+          floorDemoSqft: nextDemoTotal > 0 ? 'user_entered' : 'needs_confirmation',
+        },
+      }));
     },
-    [commit, install]
+    [commit, existing, install, measurements.itemQuantities, setMeasurements]
   );
 
-  const adjustInstall = useCallback(
-    (delta: number) => {
+  const newFlooringOptions: Array<{
+    id: NonNullable<ScopeMeasurementsInputExtended['flooringProductScope']>[number];
+    label: string;
+  }> = [
+    { id: 'lvp', label: 'LVP' },
+    { id: 'laminate', label: 'Laminate' },
+    { id: 'engineered_hardwood', label: 'Engineered Hardwood' },
+    { id: 'solid_hardwood', label: 'Solid Hardwood' },
+    { id: 'tile', label: 'Tile' },
+    { id: 'carpet', label: 'Carpet' },
+  ];
+
+  const chooseNewFlooringTypes = useCallback(
+    (type: NonNullable<ScopeMeasurementsInputExtended['flooringProductScope']>[number]) => {
+      const current = Array.isArray(measurements.flooringProductScope)
+        ? measurements.flooringProductScope
+        : [];
+      const nextProducts = current.includes(type)
+        ? current.filter((value) => value !== type)
+        : [...current, type];
+      const nextInstall = { flooringInstallScopeCount: nextProducts.length ? 1 : null };
       const gen = ++genRef.current;
-      setInstall((prev) => {
-        const current = prev.flooringInstallScopeCount ?? 0;
-        const next = { flooringInstallScopeCount: clampQmCount(current + delta < 1 ? null : current + delta) };
-        commit(existing, next, gen);
-        return next;
-      });
+      commit(existing, nextInstall, gen);
+      setMeasurements((prev) => ({
+        ...prev,
+        flooringProductScope: nextProducts.length ? nextProducts : null,
+        ...nextInstall,
+      }));
+      setInstall(nextInstall);
     },
-    [commit, existing]
+    [commit, existing, measurements.flooringProductScope, setMeasurements]
   );
+
+  const transitionForProduct = (product: string) =>
+    (measurements.floorPrepTransitions || []).find((transition) => transition.newProduct === product) || null;
+
+  const setFloorPrepTransition = (
+    product: string,
+    patch: Partial<{ existingType: string; sqft: number; prepLevel: 0 | 1 | 2 | 3 | 4 }>
+  ) => {
+    setMeasurements((prev) => {
+      const current = Array.isArray(prev.floorPrepTransitions) ? prev.floorPrepTransitions : [];
+      const existingTransition = current.find((transition) => transition.newProduct === product);
+      const nextTransition = {
+        existingType: patch.existingType ?? existingTransition?.existingType ?? '',
+        newProduct: product,
+        sqft: patch.sqft ?? existingTransition?.sqft ?? 0,
+        prepLevel: patch.prepLevel ?? existingTransition?.prepLevel ?? null,
+      };
+      const next = [
+        ...current.filter((transition) => transition.newProduct !== product),
+        nextTransition,
+      ];
+      const totalPrepSqft = next.reduce((sum, transition) => sum + Number(transition.sqft || 0), 0);
+      return { ...prev, floorPrepTransitions: next, floorPrepSqft: totalPrepSqft || null };
+    });
+  };
 
   const adjustDemo = useCallback(
     (delta: number) => {
@@ -644,51 +774,290 @@ export function QmFlooringScopePanels({
     [commit, existing, install]
   );
 
+  function existingDemoAreaKey(type: NonNullable<FlooringExistingCounts['flooringExistingTypes']>[number]) {
+    return `floor_demo__${type}`;
+  }
+  const existingDemoArea = (
+    type: NonNullable<FlooringExistingCounts['flooringExistingTypes']>[number]
+  ): string => {
+    const value = measurements.itemQuantities?.[existingDemoAreaKey(type)]?.quantity;
+    return value == null ? '' : String(value);
+  };
+  const setExistingDemoArea = (
+    type: NonNullable<FlooringExistingCounts['flooringExistingTypes']>[number],
+    value: string
+  ) => {
+    const itemQuantities = { ...(measurements.itemQuantities || {}) };
+    const key = existingDemoAreaKey(type);
+    const numericValue = Number(value.replace(/,/g, ''));
+    if (value.trim() && Number.isFinite(numericValue) && numericValue > 0) {
+      itemQuantities[key] = {
+        quantity: numericValue,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      };
+    } else {
+      delete itemQuantities[key];
+    }
+    const total = (existing.flooringExistingTypes || []).reduce(
+      (sum, existingType) =>
+        sum + Number(itemQuantities[existingDemoAreaKey(existingType)]?.quantity || 0),
+      0
+    );
+    if (total > 0) {
+      itemQuantities.floor_demo = {
+        quantity: total,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      };
+    } else {
+      delete itemQuantities.floor_demo;
+    }
+    setMeasurements((prev) => ({
+      ...prev,
+      floorDemoSqft: total > 0 ? total : null,
+      itemQuantities,
+      quickMeasurementSources: {
+        ...(prev.quickMeasurementSources || {}),
+        floorDemoSqft: total > 0 ? 'user_entered' : 'needs_confirmation',
+      },
+      quickMeasurementUserOverrides: {
+        ...(prev.quickMeasurementUserOverrides || {}),
+        floorDemoSqft: true,
+      },
+    }));
+  };
+
   return (
     <>
       {showExistingPanel ? (
-        <QmScopePanelSection
-          title="Existing floor"
-          {...qmNeutralScopePanelStyle(darkMode)}
-          caption="What is in the space now — set manually for notes-only jobs."
-          rows={[{ key: 'flooringExistingCount', label: 'Existing flooring' }]}
-          counts={existing as Record<string, number | null>}
-          onAdjust={(_, d) => adjustExisting(d)}
-          applying={applying}
-          darkMode={darkMode}
-          Colors={Colors}
-        />
+        <View
+          style={[
+            styles.qmPanel,
+            {
+              borderColor: darkMode ? 'rgba(148,163,184,0.28)' : 'rgba(100,116,139,0.24)',
+              backgroundColor: darkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.05)',
+            },
+          ]}
+        >
+          <Text style={[styles.qmPanelTitle, { color: darkMode ? '#cbd5e1' : '#475569' }]}>Existing flooring</Text>
+          <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b' }]}>
+            Select what is in the space now. Multiple types are allowed.
+          </Text>
+          <View style={styles.qmOptionWrap}>
+            {existingFlooringOptions.map((option) => {
+              const selected = existing.flooringExistingTypes?.includes(option.id) ?? false;
+              return (
+                <React.Fragment key={option.id}>
+                  <TouchableOpacity
+                    onPress={() => chooseExistingTypes(option.id)}
+                    disabled={applying}
+                    style={[
+                      styles.qmOption,
+                      {
+                        borderColor: selected ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
+                        backgroundColor: selected
+                          ? 'rgba(52, 211, 153, 0.12)'
+                          : darkMode
+                            ? '#27272a'
+                            : '#f1f5f9',
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.qmOptionText,
+                        { color: selected ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text },
+                      ]}
+                    >
+                      {selected ? '✓ ' : ''}{option.label}
+                    </Text>
+                  </TouchableOpacity>
+                  {selected && option.id !== 'unknown' ? (
+                    <QmSqftMeasurementRow
+                      label={`${option.label} removal area`}
+                      helperText="Enter the area of this existing flooring type being removed."
+                      value={existingDemoArea(option.id)}
+                      placeholder="Enter"
+                      onChangeText={(value) => setExistingDemoArea(option.id, value)}
+                      applying={applying}
+                      darkMode={darkMode}
+                      Colors={Colors}
+                    />
+                  ) : null}
+                </React.Fragment>
+              );
+            })}
+          </View>
+          {existing.flooringExistingTypes?.includes('vinyl') ? (
+            <View style={{ marginTop: 10 }}>
+              <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginBottom: 6 }]}>
+                How is the existing vinyl installed?
+              </Text>
+              <View style={styles.qmOptionWrap}>
+                {[
+                  ['sheet_vct', 'Sheet Vinyl / VCT'],
+                  ['glue_down', 'Glue-down Vinyl / LVP'],
+                  ['floating', 'Floating Vinyl / LVP'],
+                  ['unknown', 'Not sure'],
+                ].map(([id, label]) => {
+                  const selected = measurements.flooringExistingVinylMethod === id;
+                  return (
+                    <TouchableOpacity
+                      key={id}
+                      onPress={() => setMeasurements((prev) => ({ ...prev, flooringExistingVinylMethod: id as 'sheet_vct' | 'glue_down' | 'floating' | 'unknown' }))}
+                      disabled={applying}
+                      style={[
+                        styles.qmOption,
+                        {
+                          borderColor: selected ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
+                          backgroundColor: selected ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.qmOptionText, { color: selected ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
+                        {selected ? '✓ ' : ''}{label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+        </View>
       ) : null}
-      <QmScopePanelSection
-        title="Flooring install"
-        titleColor="#fbbf24"
-        borderColor={darkMode ? 'rgba(251, 191, 36, 0.28)' : 'rgba(217, 119, 6, 0.22)'}
-        backgroundColor={darkMode ? 'rgba(251, 191, 36, 0.06)' : 'rgba(251, 191, 36, 0.05)'}
-        caption="New floor finish for this bid."
-        rows={[{ key: 'flooringInstallScopeCount', label: 'Install flooring' }]}
-        counts={install as Record<string, number | null>}
-        onAdjust={(_, d) => adjustInstall(d)}
-        applying={applying}
-        darkMode={darkMode}
-        Colors={Colors}
-      />
-      <QmScopePanelSection
-        title="Demo / tear-out"
-        titleColor="#f87171"
-        borderColor={darkMode ? 'rgba(248, 113, 113, 0.28)' : 'rgba(220, 38, 38, 0.2)'}
-        backgroundColor={darkMode ? 'rgba(248, 113, 113, 0.06)' : 'rgba(248, 113, 113, 0.05)'}
-        caption={
-          showExistingPanel
-            ? 'Auto-filled from existing + install — adjust if needed.'
-            : 'Auto-filled from photos, notes, and install — adjust if needed.'
-        }
-        rows={[{ key: 'flooringDemoScopeCount', label: 'Remove existing floor' }]}
-        counts={demo as Record<string, number | null>}
-        onAdjust={(_, d) => adjustDemo(d)}
-        applying={applying}
-        darkMode={darkMode}
-        Colors={Colors}
-      />
+      <View
+        style={[
+          styles.qmPanel,
+          {
+            borderColor: darkMode ? 'rgba(148,163,184,0.28)' : 'rgba(100,116,139,0.24)',
+            backgroundColor: darkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.05)',
+          },
+        ]}
+      >
+        <Text style={[styles.qmPanelTitle, { color: darkMode ? '#cbd5e1' : '#475569' }]}>New Flooring</Text>
+        <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b' }]}>
+          Select every flooring product being installed. Each selected product gets its own SF measurement and pricing card.
+        </Text>
+        <View style={styles.qmOptionWrap}>
+          {newFlooringOptions.map((option) => {
+            const selected = measurements.flooringProductScope?.includes(option.id) ?? false;
+            return (
+              <React.Fragment key={option.id}>
+                <TouchableOpacity
+                  onPress={() => chooseNewFlooringTypes(option.id)}
+                  disabled={applying}
+                  style={[
+                    styles.qmOption,
+                    {
+                      borderColor: selected ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
+                      backgroundColor: selected ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
+                    },
+                  ]}
+                >
+                  <Text style={[styles.qmOptionText, { color: selected ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
+                    {selected ? '✓ ' : ''}{option.label}
+                  </Text>
+                </TouchableOpacity>
+                {selected ? measurementFootersByKey?.[option.id] : null}
+                {selected ? (
+                  <View style={{ marginTop: 4, marginBottom: 4 }}>
+                    <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginBottom: 6 }]}>
+                      Existing floor this replaces
+                    </Text>
+                    <View style={styles.qmOptionWrap}>
+                      {existingFlooringOptions
+                        .map((existingOption) => {
+                          const transition = transitionForProduct(option.id);
+                          const assigned = transition?.existingType === existingOption.id;
+                          return (
+                            <TouchableOpacity
+                              key={`${option.id}-${existingOption.id}`}
+                              onPress={() => setFloorPrepTransition(option.id, { existingType: existingOption.id })}
+                              disabled={applying}
+                              style={[
+                                styles.qmOption,
+                                {
+                                  borderColor: assigned ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
+                                  backgroundColor: assigned
+                                    ? 'rgba(52, 211, 153, 0.12)'
+                                    : darkMode
+                                      ? '#27272a'
+                                      : '#f1f5f9',
+                                },
+                              ]}
+                            >
+                              <Text style={[styles.qmOptionText, { color: assigned ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
+                                {assigned ? '✓ ' : ''}{existingOption.label}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                    </View>
+                    {transitionForProduct(option.id)?.existingType ? (
+                      <View style={{ marginTop: 8 }}>
+                        <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginBottom: 6 }]}>
+                          Recommended prep level
+                        </Text>
+                        <View style={styles.qmOptionWrap}>
+                          {[
+                            ['0', 'No additional prep'],
+                            ['1', 'Light'],
+                            ['2', 'Moderate'],
+                            ['3', 'Heavy'],
+                            ['4', 'Extensive / review'],
+                          ].map(([level, label]) => {
+                            const selectedLevel = String(transitionForProduct(option.id)?.prepLevel ?? '') === level;
+                            return (
+                              <TouchableOpacity
+                                key={`${option.id}-prep-${level}`}
+                                onPress={() => setFloorPrepTransition(option.id, { prepLevel: Number(level) as 0 | 1 | 2 | 3 | 4 })}
+                                disabled={applying}
+                                style={[
+                                  styles.qmOption,
+                                  {
+                                    borderColor: selectedLevel ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
+                                    backgroundColor: selectedLevel
+                                      ? 'rgba(52, 211, 153, 0.12)'
+                                      : darkMode
+                                        ? '#27272a'
+                                        : '#f1f5f9',
+                                  },
+                                ]}
+                              >
+                                <Text style={[styles.qmOptionText, { color: selectedLevel ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
+                                  {selectedLevel ? '✓ ' : ''}{label}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    ) : null}
+                    {transitionForProduct(option.id)?.existingType ? (
+                      <QmSqftMeasurementRow
+                        label={`${option.label} prep area`}
+                        helperText="Enter only the area requiring prep for this transition."
+                        value={String(transitionForProduct(option.id)?.sqft || '')}
+                        placeholder="Enter"
+                        onChangeText={(value) =>
+                          setFloorPrepTransition(option.id, {
+                            sqft: Number(value.replace(/,/g, '')) || 0,
+                          })
+                        }
+                        applying={applying}
+                        darkMode={darkMode}
+                        Colors={Colors}
+                      />
+                    ) : null}
+                  </View>
+                ) : null}
+              </React.Fragment>
+            );
+          })}
+        </View>
+        {measurementFooter}
+      </View>
     </>
   );
 }

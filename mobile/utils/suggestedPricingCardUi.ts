@@ -869,7 +869,7 @@ export function buildSuggestedPricingCardDisplay(input: {
         ? formatSuggestedSplitLine(block)
         : lumpSumOnly
           ? 'Allowance · Flat amount'
-          : formatSuggestedSplitLine(block),
+          : `${formatSuggestedSplitLine(block)}${block.pricingDetail ? ` · ${block.pricingDetail}` : ''}`,
     unitRateLine:
       unitRateLine && /reference only/i.test(unitRateLine) ? null : unitRateLine,
     sourceLine: pricingSource,

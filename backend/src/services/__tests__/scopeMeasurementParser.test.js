@@ -249,6 +249,33 @@ Demo old cabinets and haul off $850 lump sum`;
     expect(parsed.itemQuantities?.trim).toMatchObject({ quantity: 1540, unit: 'allowance' });
   });
 
+  test('flooring parser keeps multiple products and LF add-ons separate', () => {
+    const notes =
+      'Install 600 sqft LVP and 400 sqft tile flooring. Remove 1000 sqft existing tile. Add 1000 sqft underlayment, 48 LF transitions, and 48 LF quarter round.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'flooring', projectType: 'flooring' });
+
+    expect(parsed.flooringLvpSqft).toBe(600);
+    expect(parsed.flooringTileSqft).toBe(400);
+    expect(parsed.floorDemoSqft).toBe(1000);
+    expect(parsed.underlaymentSqft).toBe(1000);
+    expect(parsed.transitionLf).toBe(48);
+    expect(parsed.quarterRoundLf).toBe(48);
+  });
+
+  test('flooring parser extracts room-level SF from notes without using bath/kitchen-only fields', () => {
+    const notes = 'Living Room 420 SF. Kitchen 180 SF. Dining 150 SF. Bedroom 1 180 SF. Bathroom 1 60 SF.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'flooring', projectType: 'flooring' });
+
+    expect(parsed.planRooms).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'Living Room', areaSqft: 420 }),
+        expect.objectContaining({ name: 'Kitchen', areaSqft: 180 }),
+        expect.objectContaining({ name: 'Bedroom 1', areaSqft: 180 }),
+        expect.objectContaining({ name: 'Bathroom 1', areaSqft: 60 }),
+      ])
+    );
+  });
+
   test('mixed custom scope keeps shower sqft and does not leak railing LF into baseboard', () => {
     const notes =
       'Custom shower tile 120 ft.² material 6 a square foot Labor is $14 a square foot. Metal railing 48 linear feet $85 per linear foot. 12 tons of rock $95 per ton.';

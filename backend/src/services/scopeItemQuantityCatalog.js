@@ -376,6 +376,96 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
     quantityHelper: 'Enter kitchen or room floor sqft.',
     missingMessage: 'Enter floor sqft.',
   },
+  flooring_lvp: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'flooringLvpSqft',
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Enter LVP flooring sqft.',
+    missingMessage: 'Enter LVP sqft.',
+  },
+  flooring_laminate: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'flooringLaminateSqft',
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Enter laminate flooring sqft.',
+    missingMessage: 'Enter laminate sqft.',
+  },
+  flooring_engineered_hardwood: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'flooringEngineeredHardwoodSqft',
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Enter engineered hardwood sqft.',
+    missingMessage: 'Enter engineered hardwood sqft.',
+  },
+  flooring_solid_hardwood: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'flooringSolidHardwoodSqft',
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Enter solid hardwood sqft.',
+    missingMessage: 'Enter solid hardwood sqft.',
+  },
+  tile_flooring: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'flooringTileSqft',
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Enter floor tile sqft.',
+    missingMessage: 'Enter floor tile sqft.',
+  },
+  flooring_carpet: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'flooringCarpetSqft',
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Enter carpet sqft.',
+    missingMessage: 'Enter carpet sqft.',
+  },
+  underlayment: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'underlaymentSqft',
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Enter underlayment sqft.',
+    missingMessage: 'Enter underlayment sqft.',
+  },
+  moisture_barrier: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'moistureBarrierSqft',
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Enter moisture barrier sqft.',
+    missingMessage: 'Enter moisture barrier sqft.',
+  },
+  transitions: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'transitionLf',
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Enter transition and reducer LF.',
+    missingMessage: 'Enter transition LF.',
+  },
+  quarter_round: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'quarterRoundLf',
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Enter quarter-round LF.',
+    missingMessage: 'Enter quarter-round LF.',
+  },
   backsplash: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'lf', 'allowance'],
@@ -1027,6 +1117,22 @@ const ADDITION_CHECKLIST_QUANTITY_RULES = {
   ),
 };
 
+const FLOORING_CHECKLIST_QUANTITY_RULES = {
+  floor_prep: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.floor_prep,
+    measurementKey: 'floorPrepSqft',
+    measurementKeys: ['floorPrepSqft'],
+    quantityHelper: 'Enter only the area requiring subfloor or floor prep.',
+    missingMessage: 'Enter prep area sqft.',
+  },
+  trim: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.trim,
+    measurementKey: 'baseboardLf',
+    quantityHelper: 'Enter baseboard and trim linear feet.',
+    missingMessage: 'Enter baseboard/trim LF.',
+  },
+};
+
 /**
  * Ground-up new construction — same living-SF basis as addition for shell/MEP/finishes,
  * with ground_up checklist ids (exterior, mep_rough, roofing, paint_trim, tile_flooring).
@@ -1148,6 +1254,9 @@ function getRuleForChecklistItem(itemId, templateKey) {
   }
   if (templateKey === 'bathroom' && BATHROOM_CHECKLIST_QUANTITY_RULES[itemId]) {
     return BATHROOM_CHECKLIST_QUANTITY_RULES[itemId];
+  }
+  if (templateKey === 'flooring' && FLOORING_CHECKLIST_QUANTITY_RULES[itemId]) {
+    return FLOORING_CHECKLIST_QUANTITY_RULES[itemId];
   }
   return CHECKLIST_ITEM_QUANTITY_RULES[itemId] || DEFAULT_SCOPE_ITEM_RULE;
 }

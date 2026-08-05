@@ -90,6 +90,21 @@ export function buildConfirmScopeDisplayItems(
     expanded = ensureGroundUpFlatworkScopeCard(expanded);
     expanded = ensureGroundUpOpeningScopeCards(expanded);
   }
+  if (String(templateKey || '').toLowerCase() === 'flooring') {
+    const existingTypes = Array.isArray(measurements.flooringExistingTypes)
+      ? measurements.flooringExistingTypes
+          .filter((type): type is string => typeof type === 'string' && type !== 'unknown')
+          .map((type) => type.replace(/_/g, ' '))
+      : [];
+    const existingDescription = existingTypes.length
+      ? `Remove existing ${existingTypes.join(', ')} flooring before installing the selected new flooring.`
+      : 'Remove existing flooring before installing the selected new flooring.';
+    expanded = expanded.map((row) =>
+      row.id === 'floor_demo'
+        ? { ...row, label: 'Demo Existing Flooring', helperText: existingDescription }
+        : row
+    );
+  }
   if (!measurementSemanticsV1Enabled() || !benchmarkEngineV1Enabled()) return expanded;
   if (expanded.some((row) => row.id === 'interior_finishes')) return expanded;
   const hasFinishChild = expanded.some(

@@ -22,6 +22,21 @@ export type ParsedScopeMeasurements = {
   kitchenFloorSqft?: number;
   floorAreaSqft?: number;
   flooringSqft?: number;
+  flooringProductScope?: Array<'lvp' | 'laminate' | 'engineered_hardwood' | 'solid_hardwood' | 'tile' | 'carpet'>;
+  flooringExistingVinylMethod?: 'sheet_vct' | 'glue_down' | 'floating' | 'unknown';
+  planRooms?: Array<{ name: string; areaSqft: number | null; sourceType?: 'user_entered' | 'plan_explicit' | 'unknown' }>;
+  flooringLvpSqft?: number;
+  flooringLaminateSqft?: number;
+  flooringEngineeredHardwoodSqft?: number;
+  flooringSolidHardwoodSqft?: number;
+  flooringTileSqft?: number;
+  flooringCarpetSqft?: number;
+  floorDemoSqft?: number;
+  floorPrepSqft?: number;
+  underlaymentSqft?: number;
+  moistureBarrierSqft?: number;
+  transitionLf?: number;
+  quarterRoundLf?: number;
   backsplashSqft?: number;
   countertopSqft?: number;
   cabinetLf?: number;
@@ -398,6 +413,77 @@ export function parseScopeMeasurementsFromNotes(
     return max > 0 ? max : null;
   })();
   if (flooringSqft) out.flooringSqft = flooringSqft;
+  const flooringProductScope: NonNullable<ParsedScopeMeasurements['flooringProductScope']> = [];
+  if (/\b(?:lvp|luxury\s+vinyl)\b/i.test(blob)) flooringProductScope.push('lvp');
+  if (/\blaminate\b/i.test(blob)) flooringProductScope.push('laminate');
+  if (/\bengineered\s+hardwood\b/i.test(blob)) flooringProductScope.push('engineered_hardwood');
+  if (/\bsolid\s+hardwood\b/i.test(blob)) flooringProductScope.push('solid_hardwood');
+  if (
+    /\b(?:floor|flooring)\s+tile\b|\btile\s+(?:floor|flooring)\b/i.test(blob) ||
+    (templateKey === 'flooring' && /\btile\b/i.test(blob))
+  ) {
+    flooringProductScope.push('tile');
+  }
+  if (/\bcarpet\b/i.test(blob)) flooringProductScope.push('carpet');
+  if (flooringProductScope.length) out.flooringProductScope = flooringProductScope;
+  if (/\b(?:sheet\s+vinyl|sheet\s+vct|vct)\b/i.test(blob)) {
+    out.flooringExistingVinylMethod = 'sheet_vct';
+  } else if (/\b(?:glue[\s-]?down|adhesive[\s-]?backed)\s+(?:vinyl|lvp)\b/i.test(blob)) {
+    out.flooringExistingVinylMethod = 'glue_down';
+  } else if (/\bfloating\s+(?:vinyl|lvp)\b/i.test(blob)) {
+    out.flooringExistingVinylMethod = 'floating';
+  } else if (/\bvinyl\b/i.test(blob) && /\b(?:existing|current|old)\b/i.test(blob)) {
+    out.flooringExistingVinylMethod = 'unknown';
+  }
+  const roomMeasurements: NonNullable<ParsedScopeMeasurements['planRooms']> = [];
+  const roomPattern =
+    /\b(living\s+areas?|living\s+room|great\s+room|kitchens?|dining(?:\s+room)?|hallways?|bedrooms?(?:\s+\d+)?|primary\s+bedroom|bathrooms?(?:\s+\d+)?|offices?|laundry|entries?|foyers?|basements?|mudrooms?)\b/i;
+  for (const clause of clauses) {
+    const roomMatches = [...clause.matchAll(new RegExp(roomPattern.source, 'gi'))];
+    if (!roomMatches.length) continue;
+    const area = firstQty(clause, SQFT_RE);
+    for (const roomMatch of roomMatches) {
+      let name = roomMatch[1].replace(/\s+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      const trailingRoomNumber = name.match(/\s+(\d+)$/);
+      if (trailingRoomNumber && Number(trailingRoomNumber[1]) > 20) name = name.replace(/\s+\d+$/, '');
+      const roomArea = roomMatches.length === 1 ? area : null;
+      if (!roomMeasurements.some((room) => room.name.toLowerCase() === name.toLowerCase())) {
+        roomMeasurements.push({ name, areaSqft: roomArea || null, sourceType: roomArea ? 'user_entered' : 'unknown' });
+      }
+    }
+  }
+  if (roomMeasurements.length) out.planRooms = roomMeasurements;
+  const flooringProductPatterns: Array<[keyof ParsedScopeMeasurements, RegExp]> = [
+    ['flooringLvpSqft', /\b(?:lvp|luxury\s+vinyl)\b/i],
+    ['flooringLaminateSqft', /\blaminate\b/i],
+    ['flooringEngineeredHardwoodSqft', /\bengineered\s+hardwood\b/i],
+    ['flooringSolidHardwoodSqft', /\bsolid\s+hardwood\b/i],
+    ['flooringTileSqft', /\b(?:floor|flooring)\s+tile\b|\btile\s+(?:floor|flooring)\b/i],
+    ['flooringCarpetSqft', /\bcarpet\b/i],
+  ];
+  for (const [key, pattern] of flooringProductPatterns) {
+    const quantity = pickSqftFromClauses([pattern]);
+    if (quantity) out[key] = quantity;
+  }
+  const floorDemoSqft = pickSqftFromClauses([
+    /\b(?:floor|flooring|lvp|laminate|vinyl|carpet|tile)\b[^.;]{0,60}\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b/,
+    /\b(?:demo|demolition|remove|removal|tear[\s-]?out)\b[^.;]{0,60}\b(?:floor|flooring|lvp|laminate|vinyl|carpet|tile)\b/,
+  ]);
+  if (floorDemoSqft) out.floorDemoSqft = floorDemoSqft;
+  const floorPrepSqft = pickSqftFromClauses([
+    /\b(?:floor|subfloor)\s+prep\b/,
+    /\b(?:prep|preparation|leveling|patching|repair|mitigation)\b[^.;]{0,45}\bfloor\b/,
+    /\b(?:prep|preparation)\b/,
+  ]);
+  if (floorPrepSqft) out.floorPrepSqft = floorPrepSqft;
+  const underlaymentSqft = pickSqftFromClauses([/\bunderlayment\b/]);
+  if (underlaymentSqft) out.underlaymentSqft = underlaymentSqft;
+  const moistureBarrierSqft = pickSqftFromClauses([/\b(?:moisture|vapor)\s+barrier\b|\bmoisture\s+mitigation\b/]);
+  if (moistureBarrierSqft) out.moistureBarrierSqft = moistureBarrierSqft;
+  const transitionLf = pickLfNearPattern(text, /\b(?:transition|reducer|threshold)s?\b/i);
+  if (transitionLf) out.transitionLf = transitionLf;
+  const quarterRoundLf = pickLfNearPattern(text, /\bquarter[\s-]?round\b/i);
+  if (quarterRoundLf) out.quarterRoundLf = quarterRoundLf;
 
   const sodSqft = pickSqftFromClauses([/\b(?:new\s+)?sod\b/, /\bturf\b/, /\b(?:new\s+)?grass\b/, /\bexisting\s+sod\b/]);
   if (sodSqft) out.sodSqft = sodSqft;

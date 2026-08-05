@@ -5750,11 +5750,12 @@ export default function EstimateGeneratorScreen() {
         setAiDraft(saved.draft);
         setAiDraftNotes(saved.notes || saved.draft.originalNotes || '');
         setAiDraftFromAssistant(Boolean(saved.fromAssistant));
-        if (saved.planImport) {
+        const fromDraft = planImportPayloadFromDraft(saved.draft);
+        // Do not restore a stale plan payload saved from notes-only measurements.
+        if (saved.planImport && fromDraft) {
           setAiLastPlanImport(saved.planImport);
-        } else {
-          const fromDraft = planImportPayloadFromDraft(saved.draft);
-          if (fromDraft) setAiLastPlanImport(fromDraft);
+        } else if (fromDraft) {
+          setAiLastPlanImport(fromDraft);
         }
         if (Array.isArray(saved.photoDetections)) {
           setAiPhotoDetections(saved.photoDetections);

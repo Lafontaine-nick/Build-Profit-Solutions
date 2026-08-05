@@ -213,6 +213,27 @@ export type ScopeMeasurements = {
   floorAreaSqft?: number | null;
   /** Finished floor install area — separate from building/ADU sqft on addition jobs */
   flooringSqft?: number | null;
+  flooringProductScope?: Array<'lvp' | 'laminate' | 'engineered_hardwood' | 'solid_hardwood' | 'tile' | 'carpet'> | null;
+  flooringLvpSqft?: number | null;
+  flooringLaminateSqft?: number | null;
+  flooringEngineeredHardwoodSqft?: number | null;
+  flooringSolidHardwoodSqft?: number | null;
+  flooringTileSqft?: number | null;
+  flooringCarpetSqft?: number | null;
+  floorDemoSqft?: number | null;
+  floorPrepSqft?: number | null;
+  flooringExistingVinylMethod?: 'sheet_vct' | 'glue_down' | 'floating' | 'unknown' | null;
+  floorPrepLevel?: 0 | 1 | 2 | 3 | 4 | null;
+  floorPrepTransitions?: Array<{
+    existingType: string;
+    newProduct: string;
+    sqft: number;
+    prepLevel?: 0 | 1 | 2 | 3 | 4 | null;
+  }> | null;
+  underlaymentSqft?: number | null;
+  moistureBarrierSqft?: number | null;
+  transitionLf?: number | null;
+  quarterRoundLf?: number | null;
   backsplashSqft?: number | null;
   countertopSqft?: number | null;
   cabinetLf?: number | null;
@@ -361,6 +382,9 @@ export type ScopeMeasurements = {
   kitchenDemoWallCount?: number | null;
   /** Flooring QM — existing / install / demo scope panels. */
   flooringExistingCount?: number | null;
+  flooringExistingTypes?: Array<
+    'carpet' | 'tile' | 'hardwood' | 'engineered_hardwood' | 'laminate' | 'lvp' | 'vinyl' | 'unknown'
+  > | null;
   flooringInstallScopeCount?: number | null;
   flooringDemoScopeCount?: number | null;
   /** Garage door schedule by type (Confirm Scope openings). */
@@ -1694,6 +1718,21 @@ export function planImportPayloadFromDraft(
 ): PlanImportPayload | null {
   const sm = draft?.scopeMeasurements;
   if (!sm) return null;
+  const sourceMap = sm.quickMeasurementSources || {};
+  const hasPlanMeasurementSource = Object.values(sourceMap).some((source) =>
+    source === 'detected_from_plan' ||
+    source === 'measured_from_geometry' ||
+    source === 'calculated_from_components' ||
+    source === 'estimated_from_formula' ||
+    source === 'fallback_multiplier'
+  );
+  const hasPlanFacts =
+    Boolean(sm.planFacts?.fieldEvidence && Object.keys(sm.planFacts.fieldEvidence).length) ||
+    Boolean(sm.planFacts?.geometry && sm.planFacts.geometry.length) ||
+    Boolean(sm.planFacts?.buildingAreas && Object.keys(sm.planFacts.buildingAreas).length);
+  // Notes-derived measurements and parsed rooms are not a plan import. Only
+  // restore the Step 1 plan card when the draft contains takeoff provenance.
+  if (!hasPlanMeasurementSource && !hasPlanFacts) return null;
   const measurements: Record<string, number | string> = {};
   for (const [key, value] of Object.entries(sm)) {
     if (

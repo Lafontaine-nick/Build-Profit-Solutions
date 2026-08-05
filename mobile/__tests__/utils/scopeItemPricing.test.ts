@@ -101,6 +101,37 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(fill?.materialSource).toBe('national_average');
   });
 
+  it('prices distinct flooring products and LF add-ons from their own measurements', () => {
+    const input = inputWith({
+      flooringLvpSqft: '600',
+      flooringTileSqft: '400',
+      transitionLf: '48',
+    });
+    const lvp = resolveScopeItemSuggestedPricing(
+      'flooring_lvp',
+      input,
+      'flooring',
+      { quantity: 600, unit: 'sqft', quantitySource: 'user_entered' }
+    );
+    const tile = resolveScopeItemSuggestedPricing(
+      'tile_flooring',
+      input,
+      'flooring',
+      { quantity: 400, unit: 'sqft', quantitySource: 'user_entered' }
+    );
+    const transitions = resolveScopeItemSuggestedPricing(
+      'transitions',
+      input,
+      'flooring',
+      { quantity: 48, unit: 'lf', quantitySource: 'user_entered' }
+    );
+
+    expect(lvp.fill?.total).toBe(4200);
+    expect(tile.fill?.total).toBeGreaterThan(0);
+    expect(tile.fill?.total).not.toBe(lvp.fill?.total);
+    expect(transitions.fill?.total).toBe(720);
+  });
+
   it('shows saved flooring rates as a comparison instead of splitting a note total into saved material plus remainder', () => {
     const input = inputWith({ floorAreaSqft: '850' });
     const resolved = {
@@ -179,11 +210,107 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(comparison).toBeNull();
     expect(fill).toMatchObject({
       mode: 'note_total_split',
-      material: 425,
-      labor: 2125,
+      material: 255,
+      labor: 2295,
       total: 2550,
       materialSource: 'national_average',
     });
+  });
+
+  it('weights flooring demo pricing by each existing flooring removal area', () => {
+    const input = inputWith({
+      floorDemoSqft: '100',
+      flooringExistingTypes: ['carpet', 'tile'],
+      itemQuantities: {
+        'floor_demo__carpet': { quantity: '60', unit: 'sqft' },
+        'floor_demo__tile': { quantity: '40', unit: 'sqft' },
+      },
+    });
+    const { fill } = resolveScopeItemSuggestedPricing('floor_demo', input, 'flooring', {
+      quantity: 100,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    });
+    expect(fill).toMatchObject({
+      material: 27,
+      labor: 243,
+      total: 270,
+    });
+    expect(fill?.costBuckets?.[0]).toMatchObject({
+      label: 'Equipment, protection & disposal',
+      rate: 0.27,
+    });
+  });
+
+  it.each([
+    ['carpet', 'lvp', null, 0.75, 0.75],
+    ['carpet', 'tile', null, 1.5, 1.5],
+    ['tile', 'lvp', null, 3, 3],
+    ['tile', 'tile', null, 3, 3],
+    ['vinyl', 'lvp', 'sheet_vct', 1.5, 1.5],
+    ['vinyl', 'lvp', 'glue_down', 3, 3],
+    ['vinyl', 'lvp', 'floating', 0.75, 0.75],
+  ])('prices %s to %s floor prep at the correct level', (existing, product, vinylMethod, expectedRate, expectedTotalRate) => {
+    const input = inputWith({
+      floorPrepSqft: '400',
+      flooringExistingTypes: [existing as 'carpet'],
+      flooringProductScope: [product as 'lvp'],
+      flooringExistingVinylMethod: vinylMethod as 'sheet_vct',
+    });
+    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
+      quantity: 400,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    });
+    expect(fill?.total).toBe(400 * expectedTotalRate);
+    expect(fill?.total / 400).toBe(expectedRate);
+  });
+
+  it('applies the level minimum once for a small prep transition', () => {
+    const input = inputWith({
+      floorPrepSqft: '100',
+      flooringExistingTypes: ['carpet'],
+      flooringProductScope: ['lvp'],
+    });
+    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
+      quantity: 100,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    });
+    expect(fill).toMatchObject({ material: 50, labor: 200, total: 250 });
+  });
+
+  it('requires transition assignments when multiple existing and new floors are selected', () => {
+    const input = inputWith({
+      floorPrepSqft: '1700',
+      flooringExistingTypes: ['carpet', 'tile'],
+      flooringProductScope: ['lvp', 'tile'],
+    });
+    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
+      quantity: 1700,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    });
+    expect(fill).toBeNull();
+  });
+
+  it('prices mixed assigned transitions independently by affected area', () => {
+    const input = inputWith({
+      floorPrepSqft: '1700',
+      flooringExistingTypes: ['carpet', 'vinyl'],
+      flooringProductScope: ['tile', 'lvp'],
+      flooringExistingVinylMethod: 'sheet_vct',
+      floorPrepTransitions: [
+        { existingType: 'carpet', newProduct: 'tile', sqft: 500 },
+        { existingType: 'vinyl', newProduct: 'lvp', sqft: 1200 },
+      ],
+    });
+    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
+      quantity: 1700,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    });
+    expect(fill).toMatchObject({ material: 765, labor: 1785, total: 2550 });
   });
 
   it('shows only a comparison when notes priced both legs', () => {

@@ -33,6 +33,19 @@ export type QuickMeasurementFieldKey =
   | 'roofSquares'
   | 'drywallSqft'
   | 'flooringSqft'
+  | 'flooringLvpSqft'
+  | 'flooringLaminateSqft'
+  | 'flooringEngineeredHardwoodSqft'
+  | 'flooringSolidHardwoodSqft'
+  | 'flooringTileSqft'
+  | 'flooringCarpetSqft'
+  | 'floorDemoSqft'
+  | 'floorPrepSqft'
+  | 'floorPrepSqft'
+  | 'underlaymentSqft'
+  | 'moistureBarrierSqft'
+  | 'transitionLf'
+  | 'quarterRoundLf'
   | 'concreteSqft'
   | 'concreteCy'
   | 'excavationCy'
@@ -133,13 +146,34 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Record<QuickMeasurementFieldKey, QuickMeasur
   drywallSqft: F('drywallSqft', 'Drywall', '800', 'sqft', 'interior'),
   flooringSqft: F(
     'flooringSqft',
-    'Flooring',
+    'Total Flooring Area',
     '600',
     'sqft',
     'interior',
     undefined,
     'Usually matches living area unless unfinished space differs.'
   ),
+  flooringLvpSqft: F('flooringLvpSqft', 'LVP', '600', 'sqft', 'interior'),
+  flooringLaminateSqft: F('flooringLaminateSqft', 'Laminate', '600', 'sqft', 'interior'),
+  flooringEngineeredHardwoodSqft: F('flooringEngineeredHardwoodSqft', 'Engineered hardwood', '600', 'sqft', 'interior'),
+  flooringSolidHardwoodSqft: F('flooringSolidHardwoodSqft', 'Solid hardwood', '600', 'sqft', 'interior'),
+  flooringTileSqft: F('flooringTileSqft', 'Tile', '600', 'sqft', 'interior'),
+  flooringCarpetSqft: F('flooringCarpetSqft', 'Carpet', '600', 'sqft', 'interior'),
+  floorDemoSqft: F('floorDemoSqft', 'Floor demo / removal', '600', 'sqft', 'interior'),
+  floorPrepSqft: F(
+    'floorPrepSqft',
+    'Floor prep area',
+    '0',
+    'sqft',
+    'interior',
+    undefined,
+    'Enter only the area requiring subfloor or floor prep. Do not assume the entire flooring area.'
+  ),
+  floorPrepSqft: F('floorPrepSqft', 'Area requiring floor prep', 'Enter only prep area', 'sqft', 'interior'),
+  underlaymentSqft: F('underlaymentSqft', 'Underlayment', '600', 'sqft', 'interior'),
+  moistureBarrierSqft: F('moistureBarrierSqft', 'Moisture barrier', '600', 'sqft', 'interior'),
+  transitionLf: F('transitionLf', 'Transitions / reducers', '48', 'LF', 'interior'),
+  quarterRoundLf: F('quarterRoundLf', 'Quarter round', '48', 'LF', 'interior'),
   concreteSqft: F('concreteSqft', EXTERIOR_FLATWORK_LABEL, '400', 'sqft', 'structure', undefined, EXTERIOR_FLATWORK_HELPER),
   concreteCy: F('concreteCy', 'Concrete', '12', 'CY', 'structure'),
   excavationCy: F('excavationCy', 'Excavation', '45', 'CY', 'site'),
@@ -208,8 +242,34 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
       F('kitchenFloorSqft', 'Kitchen floor', 'e.g. 180', 'sqft', 'interior')
     ),
     row(
-      F('floorAreaSqft', 'Total floor', 'e.g. 1000', 'sqft', 'structure', true),
+      F('floorAreaSqft', 'Total Flooring Area', 'e.g. 1000', 'sqft', 'structure', true),
       F('baseboardLf', 'Baseboard', 'e.g. 200', 'LF', 'interior')
+    ),
+    row(
+      F('flooringSqft', 'Flooring area', 'e.g. 1000', 'sqft', 'interior', true),
+      F('floorDemoSqft', 'Floor demo / removal', 'e.g. 1000', 'sqft', 'interior')
+    ),
+    row(F('floorPrepSqft', 'Floor prep area', 'e.g. 200', 'sqft', 'interior')),
+    row(F('floorPrepSqft', 'Area requiring floor prep', 'e.g. 250', 'sqft', 'interior')),
+    row(
+      F('flooringLvpSqft', 'LVP', 'e.g. 1000', 'sqft', 'interior'),
+      F('flooringLaminateSqft', 'Laminate', 'e.g. 1000', 'sqft', 'interior')
+    ),
+    row(
+      F('flooringEngineeredHardwoodSqft', 'Engineered hardwood', 'e.g. 1000', 'sqft', 'interior'),
+      F('flooringSolidHardwoodSqft', 'Solid hardwood', 'e.g. 1000', 'sqft', 'interior')
+    ),
+    row(
+      F('flooringTileSqft', 'Tile', 'e.g. 1000', 'sqft', 'interior'),
+      F('flooringCarpetSqft', 'Carpet', 'e.g. 1000', 'sqft', 'interior')
+    ),
+    row(
+      F('underlaymentSqft', 'Underlayment', 'e.g. 1000', 'sqft', 'interior'),
+      F('moistureBarrierSqft', 'Moisture barrier', 'e.g. 1000', 'sqft', 'interior')
+    ),
+    row(
+      F('transitionLf', 'Transitions / reducers', 'e.g. 48', 'LF', 'interior'),
+      F('quarterRoundLf', 'Quarter round', 'e.g. 48', 'LF', 'interior')
     ),
   ],
   landscaping: [
@@ -592,7 +652,7 @@ export function quickMeasurementPlaceholder(field: QuickMeasurementFieldDef): st
 
 export function quickMeasurementDisplayLabel(field: QuickMeasurementFieldDef): string {
   if (!measurementSemanticsV1Enabled()) return field.label;
-  if (field.key === 'flooringSqft') return 'Gross interior floor area';
+  if (field.key === 'flooringSqft') return 'Total Flooring Area';
   if (field.key === 'floorAreaSqft' && field.label === 'Floor area') return 'Living area';
   return field.label;
 }
@@ -601,7 +661,7 @@ export function quickMeasurementDisplayLabel(field: QuickMeasurementFieldDef): s
 export function quickMeasurementHelperText(field: QuickMeasurementFieldDef): string | undefined {
   if (field.helperText) return field.helperText;
   if (field.key === 'flooringSqft') {
-    return 'Usually matches living area unless unfinished space differs.';
+    return 'Total SF being replaced or receiving new flooring. Use this as the overall flooring-area reference.';
   }
   if (field.key === 'floorAreaSqft') {
     return 'Heated living area from the plan.';
@@ -645,6 +705,21 @@ export function emptyQuickMeasurementInput(): Record<QuickMeasurementFieldKey, s
     roofSquares: '',
     drywallSqft: '',
     flooringSqft: '',
+    flooringLvpSqft: '',
+    flooringLaminateSqft: '',
+    flooringEngineeredHardwoodSqft: '',
+    flooringSolidHardwoodSqft: '',
+    flooringTileSqft: '',
+    flooringCarpetSqft: '',
+    floorDemoSqft: '',
+    floorPrepSqft: '',
+    flooringExistingVinylMethod: null,
+    floorPrepLevel: null,
+    floorPrepTransitions: null,
+    underlaymentSqft: '',
+    moistureBarrierSqft: '',
+    transitionLf: '',
+    quarterRoundLf: '',
     concreteSqft: '',
     concreteCy: '',
     excavationCy: '',

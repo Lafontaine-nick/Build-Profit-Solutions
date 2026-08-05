@@ -320,6 +320,18 @@ export type NormalizedScopeMeasurements = {
   kitchenFloorSqft: number | null;
   floorAreaSqft: number | null;
   flooringSqft: number | null;
+  flooringLvpSqft: number | null;
+  flooringLaminateSqft: number | null;
+  flooringEngineeredHardwoodSqft: number | null;
+  flooringSolidHardwoodSqft: number | null;
+  flooringTileSqft: number | null;
+  flooringCarpetSqft: number | null;
+  floorDemoSqft: number | null;
+  floorPrepSqft: number | null;
+  underlaymentSqft: number | null;
+  moistureBarrierSqft: number | null;
+  transitionLf: number | null;
+  quarterRoundLf: number | null;
   backsplashSqft: number | null;
   countertopSqft: number | null;
   cabinetLf: number | null;
@@ -471,13 +483,29 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
 > = {
   trim: { unit: 'lf', material: 2, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
   flooring: { unit: 'sqft', material: 4, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
+  flooring_lvp: { unit: 'sqft', material: 3.5, labor: 3.5, sourceLabel: 'Suggested budget split · National Average · LVP' },
+  flooring_laminate: { unit: 'sqft', material: 2.5, labor: 3.25, sourceLabel: 'Suggested budget split · National Average · laminate' },
+  flooring_engineered_hardwood: { unit: 'sqft', material: 5.5, labor: 5.5, sourceLabel: 'Suggested budget split · National Average · engineered hardwood' },
+  flooring_solid_hardwood: { unit: 'sqft', material: 6, labor: 7, sourceLabel: 'Suggested budget split · National Average · solid hardwood' },
+  tile_flooring: { unit: 'sqft', material: 6, labor: 10, sourceLabel: 'Suggested budget split · National Average · floor tile' },
+  flooring_carpet: { unit: 'sqft', material: 2.5, labor: 2.5, sourceLabel: 'Suggested budget split · National Average · carpet' },
   lighting: {
     unit: 'each',
     material: 200,
     labor: 275,
     sourceLabel: 'Suggested budget split · National Average · light fixture supply and installation',
   },
-  floor_demo: { unit: 'sqft', material: 0.5, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
+  floor_demo: {
+    unit: 'sqft',
+    material: 0.3,
+    labor: 2.7,
+    materialBucketLabel: 'Equipment, protection & disposal',
+    sourceLabel: 'Suggested budget split · National Average · flooring demolition',
+  },
+  underlayment: { unit: 'sqft', material: 0.75, labor: 1.25, sourceLabel: 'Suggested budget split · National Average · underlayment' },
+  moisture_barrier: { unit: 'sqft', material: 0.5, labor: 0.75, sourceLabel: 'Suggested budget split · National Average · moisture barrier' },
+  transitions: { unit: 'lf', material: 8, labor: 7, sourceLabel: 'Suggested budget split · National Average · transitions and reducers' },
+  quarter_round: { unit: 'lf', material: 1.5, labor: 2.5, sourceLabel: 'Suggested budget split · National Average · quarter round' },
   backsplash_demo: {
     unit: 'sqft',
     material: 0.5,
@@ -2879,6 +2907,86 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     quantityHelper: 'Enter kitchen or room floor sqft.',
     missingMessage: 'Enter floor sqft.',
   },
+  flooring_lvp: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'flooringLvpSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter LVP flooring sqft.',
+    missingMessage: 'Enter LVP sqft.',
+  },
+  flooring_laminate: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'flooringLaminateSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter laminate flooring sqft.',
+    missingMessage: 'Enter laminate sqft.',
+  },
+  flooring_engineered_hardwood: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'flooringEngineeredHardwoodSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter engineered hardwood sqft.',
+    missingMessage: 'Enter engineered hardwood sqft.',
+  },
+  flooring_solid_hardwood: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'flooringSolidHardwoodSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter solid hardwood sqft.',
+    missingMessage: 'Enter solid hardwood sqft.',
+  },
+  tile_flooring: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'flooringTileSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter floor tile sqft.',
+    missingMessage: 'Enter floor tile sqft.',
+  },
+  flooring_carpet: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'flooringCarpetSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter carpet sqft.',
+    missingMessage: 'Enter carpet sqft.',
+  },
+  underlayment: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'underlaymentSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter underlayment sqft.',
+    missingMessage: 'Enter underlayment sqft.',
+  },
+  moisture_barrier: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'moistureBarrierSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter moisture barrier sqft.',
+    missingMessage: 'Enter moisture barrier sqft.',
+  },
+  transitions: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'transitionLf',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter transition and reducer LF.',
+    missingMessage: 'Enter transition LF.',
+  },
+  quarter_round: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'quarterRoundLf',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter quarter-round LF.',
+    missingMessage: 'Enter quarter-round LF.',
+  },
   sod_turf: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
@@ -3074,6 +3182,18 @@ export function normalizeScopeMeasurements(measurements?: ScopeMeasurements | nu
     kitchenFloorSqft: num(measurements?.kitchenFloorSqft),
     floorAreaSqft: num(measurements?.floorAreaSqft),
     flooringSqft: num(measurements?.flooringSqft),
+    flooringLvpSqft: num(measurements?.flooringLvpSqft),
+    flooringLaminateSqft: num(measurements?.flooringLaminateSqft),
+    flooringEngineeredHardwoodSqft: num(measurements?.flooringEngineeredHardwoodSqft),
+    flooringSolidHardwoodSqft: num(measurements?.flooringSolidHardwoodSqft),
+    flooringTileSqft: num(measurements?.flooringTileSqft),
+    flooringCarpetSqft: num(measurements?.flooringCarpetSqft),
+    floorDemoSqft: num(measurements?.floorDemoSqft),
+    floorPrepSqft: num(measurements?.floorPrepSqft),
+    underlaymentSqft: num(measurements?.underlaymentSqft),
+    moistureBarrierSqft: num(measurements?.moistureBarrierSqft),
+    transitionLf: num(measurements?.transitionLf),
+    quarterRoundLf: num(measurements?.quarterRoundLf),
     backsplashSqft: num(measurements?.backsplashSqft),
     countertopSqft: num(measurements?.countertopSqft),
     cabinetLf: num(measurements?.cabinetLf),
@@ -3443,6 +3563,22 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRu
     quantityHelper:
       'Enter patch SF (affected area) or room wall/ceiling SF (full room), pick paint scope above, then apply pricing. Quick measurements Paint can pre-fill room SF.',
     missingMessage: 'Enter SF and select paint scope.',
+  },
+};
+
+const FLOORING_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule> = {
+  floor_prep: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.floor_prep,
+    measurementKey: 'floorPrepSqft',
+    measurementKeys: ['floorPrepSqft'],
+    quantityHelper: 'Enter only the area requiring subfloor or floor prep.',
+    missingMessage: 'Enter prep area sqft.',
+  },
+  trim: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.trim,
+    measurementKey: 'baseboardLf',
+    quantityHelper: 'Enter baseboard and trim linear feet.',
+    missingMessage: 'Enter baseboard/trim LF.',
   },
 };
 
@@ -4043,11 +4179,21 @@ type PricingBasisPreference = {
 
 const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> = {
   demo: { unit: 'sqft', measurementKeys: ['bathroomFloorSqft', 'floorAreaSqft'] },
-  floor_demo: { unit: 'sqft', measurementKeys: ['bathroomFloorSqft', 'kitchenFloorSqft', 'floorAreaSqft'] },
+  floor_demo: { unit: 'sqft', measurementKeys: ['floorDemoSqft', 'bathroomFloorSqft', 'kitchenFloorSqft', 'floorAreaSqft'] },
   demo_removal: { unit: 'sqft', measurementKeys: ['floorAreaSqft', 'deckSqft', 'concreteSqft', 'drywallSqft'] },
   floor_tile: { unit: 'sqft', measurementKeys: ['bathroomFloorSqft'] },
   flooring: { unit: 'sqft', measurementKeys: ['flooringSqft', 'floorAreaSqft', 'kitchenFloorSqft', 'bathroomFloorSqft'] },
-  floor_prep: { unit: 'sqft', measurementKeys: ['bathroomFloorSqft', 'kitchenFloorSqft', 'floorAreaSqft'] },
+  flooring_lvp: { unit: 'sqft', measurementKeys: ['flooringLvpSqft'] },
+  flooring_laminate: { unit: 'sqft', measurementKeys: ['flooringLaminateSqft'] },
+  flooring_engineered_hardwood: { unit: 'sqft', measurementKeys: ['flooringEngineeredHardwoodSqft'] },
+  flooring_solid_hardwood: { unit: 'sqft', measurementKeys: ['flooringSolidHardwoodSqft'] },
+  tile_flooring: { unit: 'sqft', measurementKeys: ['flooringTileSqft'] },
+  flooring_carpet: { unit: 'sqft', measurementKeys: ['flooringCarpetSqft'] },
+  underlayment: { unit: 'sqft', measurementKeys: ['underlaymentSqft'] },
+  moisture_barrier: { unit: 'sqft', measurementKeys: ['moistureBarrierSqft'] },
+  transitions: { unit: 'lf', measurementKeys: ['transitionLf'] },
+  quarter_round: { unit: 'lf', measurementKeys: ['quarterRoundLf'] },
+  floor_prep: { unit: 'sqft', measurementKeys: ['floorPrepSqft'] },
   drywall: { unit: 'sqft', measurementKeys: ['drywallSqft', 'floorAreaSqft'] },
   hang: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
   finish_tape: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
@@ -4694,6 +4840,8 @@ export function getChecklistItemQuantityRule(
     rule = KITCHEN_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
   } else if (templateKey === 'bathroom' && BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId]) {
     rule = BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
+  } else if (templateKey === 'flooring' && FLOORING_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId]) {
+    rule = FLOORING_CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
   } else {
     rule = CHECKLIST_ITEM_QUANTITY_RULES[resolvedId];
   }
@@ -4932,6 +5080,18 @@ export function syncItemQuantitiesToMeasurementFields(
     ['paint', 'wallPaintSqft'],
     ['interior_paint', 'wallPaintSqft'],
     ['flooring', 'flooringSqft'],
+    ['flooring_lvp', 'flooringLvpSqft'],
+    ['flooring_laminate', 'flooringLaminateSqft'],
+    ['flooring_engineered_hardwood', 'flooringEngineeredHardwoodSqft'],
+    ['flooring_solid_hardwood', 'flooringSolidHardwoodSqft'],
+    ['tile_flooring', 'flooringTileSqft'],
+    ['flooring_carpet', 'flooringCarpetSqft'],
+    ['floor_demo', 'floorDemoSqft'],
+    ['floor_prep', 'floorPrepSqft'],
+    ['underlayment', 'underlaymentSqft'],
+    ['moisture_barrier', 'moistureBarrierSqft'],
+    ['transitions', 'transitionLf'],
+    ['quarter_round', 'quarterRoundLf'],
     ['concrete', 'concreteSqft'],
     ['pour_flatwork', 'concreteSqft'],
   ];
@@ -5947,6 +6107,8 @@ export type SuggestedPricingBlock = {
   includedInStageLabel?: string | null;
   /** Exact total retained for apply; UI may round for display. */
   storedTotalExact?: number | null;
+  /** Material-specific quantity breakdown shown for weighted pricing. */
+  pricingDetail?: string | null;
 };
 
 export type ScopeItemSuggestedPricing = {
@@ -6320,6 +6482,204 @@ export function isNationalAverageComparisonBlock(
   if (!block?.isComparison) return false;
   if (/national\s*average\s*comparison/i.test(String(block.rateSourceLabel || ''))) return true;
   return String(block.pricingRecordId || '').startsWith('bps_national_comparison:');
+}
+
+const FLOORING_DEMO_TOTAL_RATES: Record<string, number> = {
+  carpet: 1.5,
+  laminate: 1.5,
+  lvp: 1.5,
+  vinyl: 2,
+  engineered_hardwood: 3.25,
+  hardwood: 3.75,
+  tile: 4.5,
+  unknown: 3,
+};
+
+function flooringDemoRateFor(
+  type: string,
+  notes: string | null | undefined
+): number {
+  if (
+    type === 'tile' &&
+    /heavy\s+tile|difficult(?:y)?\s+(?:tile\s+)?remov|mud[\s-]?set|thick\s+set/i.test(String(notes || ''))
+  ) {
+    return 5.5;
+  }
+  if (
+    (type === 'vinyl' || type === 'lvp') &&
+    /glue[\s-]?down|adhesive[\s-]?backed/i.test(String(notes || ''))
+  ) {
+    return 3;
+  }
+  return FLOORING_DEMO_TOTAL_RATES[type] ?? FLOORING_DEMO_TOTAL_RATES.unknown;
+}
+
+function flooringDemoNationalAverage(
+  measurementsInput: ScopeMeasurementsInputExtended,
+  fallbackCount: number,
+  originalNotes?: string | null
+): {
+  material: number;
+  labor: number;
+  materialBucketLabel: string;
+  sourceLabel: string;
+  pricingDetail: string | null;
+} {
+  const types = Array.isArray(measurementsInput.flooringExistingTypes)
+    ? measurementsInput.flooringExistingTypes.filter((type) => typeof type === 'string')
+    : [];
+  const itemQuantities = (measurementsInput.itemQuantities || {}) as Record<
+    string,
+    { quantity?: number | string } | undefined
+  >;
+  const areas = types
+    .map((type) => ({
+      type,
+      area: Number(itemQuantities[`floor_demo__${type}`]?.quantity || 0),
+    }))
+    .filter((entry) => entry.area > 0);
+  const weightedArea = areas.reduce((sum, entry) => sum + entry.area, 0);
+  const area = weightedArea > 0 ? weightedArea : Math.max(0, fallbackCount);
+  const weightedRate =
+    weightedArea > 0
+      ? areas.reduce((sum, entry) => sum + entry.area * flooringDemoRateFor(entry.type, originalNotes), 0) /
+        weightedArea
+      : types.length
+        ? types.reduce((sum, type) => sum + flooringDemoRateFor(type, originalNotes), 0) / types.length
+        : FLOORING_DEMO_TOTAL_RATES.unknown;
+  // Equipment, protection and disposal is a transparent 10% planning split
+  // of the exact material-specific demo total, avoiding blended-rate rounding drift.
+  const exactDemoTotal =
+    weightedArea > 0
+      ? areas.reduce((sum, entry) => sum + entry.area * flooringDemoRateFor(entry.type, originalNotes), 0)
+      : area * weightedRate;
+  const materialTotal = round2(exactDemoTotal * 0.1);
+  const laborTotal = round2(exactDemoTotal - materialTotal);
+  const material = area > 0 ? materialTotal / area : 0;
+  const labor = area > 0 ? laborTotal / area : 0;
+  const pricingDetail =
+    areas.length > 0
+      ? [
+          ...areas.map((entry) => {
+            const rate = flooringDemoRateFor(entry.type, originalNotes);
+            const label = entry.type.replace(/_/g, ' ');
+            const title = label.charAt(0).toUpperCase() + label.slice(1);
+            return `${entry.area.toLocaleString()} SF ${title} Demo @ $${rate.toFixed(2)}/SF = $${round2(entry.area * rate).toLocaleString()}`;
+          }),
+          `Total Demo = $${round2(exactDemoTotal).toLocaleString()}`,
+        ].join('\n')
+      : null;
+  return {
+    material,
+    labor,
+    materialBucketLabel: 'Equipment, protection & disposal',
+    sourceLabel: `Suggested budget split · National Average · flooring demolition · ${area.toLocaleString()} SF`,
+    pricingDetail,
+  };
+}
+
+function floorPrepPricing(
+  measurementsInput: ScopeMeasurementsInputExtended,
+  fallbackCount: number
+): { material: number; labor: number; sourceLabel: string; pricingDetail: string | null } {
+  type PrepLevel = 0 | 1 | 2 | 3 | 4;
+  const prepCatalog: Record<PrepLevel, { rate: number; material: number; labor: number; minimum: number }> = {
+    0: { rate: 0, material: 0, labor: 0, minimum: 0 },
+    1: { rate: 0.75, material: 0.15, labor: 0.6, minimum: 250 },
+    2: { rate: 1.5, material: 0.45, labor: 1.05, minimum: 350 },
+    3: { rate: 3, material: 1.05, labor: 1.95, minimum: 500 },
+    4: { rate: 4.5, material: 1.8, labor: 2.7, minimum: 750 },
+  };
+  const existingTypes =
+    Array.isArray(measurementsInput.flooringExistingTypes) && measurementsInput.flooringExistingTypes.length
+      ? measurementsInput.flooringExistingTypes.filter((type) => typeof type === 'string')
+      : ['unknown'];
+  const newProducts =
+    Array.isArray(measurementsInput.flooringProductScope) && measurementsInput.flooringProductScope.length
+      ? measurementsInput.flooringProductScope.filter((type) => typeof type === 'string')
+      : ['unspecified'];
+  const vinylMethod = measurementsInput.flooringExistingVinylMethod || 'unknown';
+  const transitionEntries = Array.isArray(measurementsInput.floorPrepTransitions)
+    ? measurementsInput.floorPrepTransitions.filter(
+        (transition) =>
+          transition &&
+          typeof transition.existingType === 'string' &&
+          transition.existingType &&
+          typeof transition.newProduct === 'string' &&
+          transition.newProduct &&
+          Number(transition.sqft) > 0
+      )
+    : [];
+  const ambiguous = existingTypes.length > 1 && newProducts.length > 1 && transitionEntries.length === 0;
+  const transitions = ambiguous
+    ? []
+    : transitionEntries.length
+      ? transitionEntries
+      : [
+          {
+            existingType: existingTypes[0],
+            newProduct: newProducts[0],
+            sqft: fallbackCount,
+          },
+        ];
+  const levelFor = (existing: string, product: string): PrepLevel => {
+    if (existing === 'carpet' && product === 'carpet') return 0;
+    if ((existing === 'lvp' || existing === 'laminate') && (product === 'lvp' || product === 'laminate')) return 1;
+    if (existing === 'vinyl') {
+      if (vinylMethod === 'glue_down') return 3;
+      if (vinylMethod === 'floating') return 1;
+      return 2;
+    }
+    if (existing === 'carpet') return product === 'tile' || product.includes('hardwood') ? 2 : 1;
+    if (existing === 'tile') return 3;
+    if (existing === 'hardwood' || existing === 'engineered_hardwood') {
+      return product === 'tile' ? 2 : product === 'carpet' ? 1 : 2;
+    }
+    if (existing === 'unknown') return 2;
+    return product === 'carpet' ? 1 : 2;
+  };
+  const label = (value: string) => {
+    const text = value.replace(/_/g, ' ');
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  };
+  const transitionPricing = transitions.map((transition) => {
+    const level =
+      transition.prepLevel != null
+        ? (transition.prepLevel as PrepLevel)
+        : measurementsInput.floorPrepLevel != null
+          ? (measurementsInput.floorPrepLevel as PrepLevel)
+          : levelFor(transition.existingType, transition.newProduct);
+    const catalog = prepCatalog[level];
+    const sqft = Number(transition.sqft);
+    const total = Math.max(sqft * catalog.rate, catalog.minimum);
+    const materialTotal = catalog.rate > 0 ? total * (catalog.material / catalog.rate) : 0;
+    const laborTotal = Math.max(0, total - materialTotal);
+    return { ...transition, level, catalog, sqft, total, materialTotal, laborTotal };
+  });
+  if (ambiguous || !transitionPricing.length) {
+    return {
+      material: 0,
+      labor: 0,
+      sourceLabel: 'Suggested · National Average · floor prep · transition assignment required',
+      pricingDetail: 'Assign each new flooring product to the existing floor it replaces before pricing prep.',
+    };
+  }
+  const totalSqft = transitionPricing.reduce((sum, transition) => sum + transition.sqft, 0);
+  const totalMaterial = transitionPricing.reduce((sum, transition) => sum + transition.materialTotal, 0);
+  const totalLabor = transitionPricing.reduce((sum, transition) => sum + transition.laborTotal, 0);
+  const detail = transitionPricing
+    .map(
+      (transition) =>
+        `${transition.sqft.toLocaleString()} SF ${label(transition.existingType)} → ${label(transition.newProduct)} · Level ${transition.level} @ $${transition.catalog.rate.toFixed(2)}/SF = $${round2(transition.total).toLocaleString()}`
+    )
+    .join('\n');
+  const hasReview = transitionPricing.some((transition) => transition.level === 4);
+  return {
+    material: totalSqft > 0 ? totalMaterial / totalSqft : 0,
+    labor: totalSqft > 0 ? totalLabor / totalSqft : 0,
+    sourceLabel: `Suggested · National Average · floor prep${hasReview ? ' · Review before bid' : ''}`,
+    pricingDetail: `${detail}${hasReview ? '\nReview before bid: extensive substrate correction assumed.' : ''}`,
+  };
 }
 
 /**
@@ -6953,7 +7313,8 @@ export function resolveScopeItemSuggestedPricing(
     'quantity' | 'unit' | 'quantitySource' | 'dualCount' | 'dualMaterial' | 'dualLabor' | 'dualAllowance'
   >,
   pricingContext?: ScopePricingContext | null,
-  choiceId?: string | null
+  choiceId?: string | null,
+  originalNotes?: string | null
 ): ScopeItemSuggestedPricing {
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
@@ -8301,6 +8662,39 @@ export function resolveScopeItemSuggestedPricing(
     };
   }
 
+  let flooringDemoPricingDetail: string | null = null;
+  let floorPrepPricingDetail: string | null = null;
+  if (
+    itemId === 'floor_demo' &&
+    String(templateKey || '').toLowerCase() === 'flooring' &&
+    unit === 'sqft'
+  ) {
+    const demoAverage = flooringDemoNationalAverage(measurementsInput, count, originalNotes);
+    flooringDemoPricingDetail = demoAverage.pricingDetail;
+    average = {
+      ...(average || {}),
+      unit: 'sqft',
+      material: demoAverage.material,
+      labor: demoAverage.labor,
+      materialBucketLabel: demoAverage.materialBucketLabel,
+      sourceLabel: demoAverage.sourceLabel,
+    };
+  }
+  if (
+    itemId === 'floor_prep' &&
+    String(templateKey || '').toLowerCase() === 'flooring' &&
+    unit === 'sqft'
+  ) {
+    const prepAverage = floorPrepPricing(measurementsInput, count);
+    floorPrepPricingDetail = prepAverage.pricingDetail;
+    average = {
+      ...(average || {}),
+      unit: 'sqft',
+      material: prepAverage.material,
+      labor: prepAverage.labor,
+      sourceLabel: prepAverage.sourceLabel,
+    };
+  }
   const template = resolveTemplateRateForItem(itemId, unit, pricingContext, count);
   const materialRate = template?.materialRate ?? average?.material ?? null;
   const laborRate = template?.laborRate ?? average?.labor ?? null;
@@ -8605,6 +8999,12 @@ export function resolveScopeItemSuggestedPricing(
       materialRateSource === 'national_average' || laborRateSource === 'national_average'
         ? planningComparisonRange(round2(material + labor))
         : undefined,
+    pricingDetail:
+      itemId === 'floor_demo'
+        ? flooringDemoPricingDetail
+        : itemId === 'floor_prep'
+          ? floorPrepPricingDetail
+          : null,
   };
   // Comparison = pure national on the same qty/unit as fill (not living-SF stage lump).
   const nationalComparison = hasPhysicalTakeoffRates
@@ -9911,6 +10311,27 @@ export function scopeMeasurementsToPayload(
     kitchenFloorSqft: parseScopeMeasurementInput(sanitized.kitchenFloorSqft),
     floorAreaSqft: parseScopeMeasurementInput(sanitized.floorAreaSqft),
     flooringSqft: parseScopeMeasurementInput(sanitized.flooringSqft),
+    flooringProductScope: Array.isArray(sanitized.flooringProductScope)
+      ? sanitized.flooringProductScope
+      : null,
+    flooringExistingVinylMethod: sanitized.flooringExistingVinylMethod ?? null,
+    floorPrepLevel: sanitized.floorPrepLevel ?? null,
+    floorPrepTransitions: Array.isArray(sanitized.floorPrepTransitions)
+      ? sanitized.floorPrepTransitions
+      : null,
+    flooringLvpSqft: parseScopeMeasurementInput(sanitized.flooringLvpSqft),
+    flooringLaminateSqft: parseScopeMeasurementInput(sanitized.flooringLaminateSqft),
+    flooringEngineeredHardwoodSqft: parseScopeMeasurementInput(sanitized.flooringEngineeredHardwoodSqft),
+    flooringSolidHardwoodSqft: parseScopeMeasurementInput(sanitized.flooringSolidHardwoodSqft),
+    flooringTileSqft: parseScopeMeasurementInput(sanitized.flooringTileSqft),
+    flooringCarpetSqft: parseScopeMeasurementInput(sanitized.flooringCarpetSqft),
+    floorDemoSqft: parseScopeMeasurementInput(sanitized.floorDemoSqft),
+    floorPrepSqft: parseScopeMeasurementInput(sanitized.floorPrepSqft),
+    floorPrepSqft: parseScopeMeasurementInput(sanitized.floorPrepSqft),
+    underlaymentSqft: parseScopeMeasurementInput(sanitized.underlaymentSqft),
+    moistureBarrierSqft: parseScopeMeasurementInput(sanitized.moistureBarrierSqft),
+    transitionLf: parseScopeMeasurementInput(sanitized.transitionLf),
+    quarterRoundLf: parseScopeMeasurementInput(sanitized.quarterRoundLf),
     backsplashSqft: parseScopeMeasurementInput(sanitized.backsplashSqft),
     countertopSqft: parseScopeMeasurementInput(sanitized.countertopSqft),
     cabinetLf: parseScopeMeasurementInput(sanitized.cabinetLf),
@@ -10335,6 +10756,9 @@ export function scopeMeasurementsToPayload(
       sanitized.flooringExistingCount != null && Number(sanitized.flooringExistingCount) > 0
         ? Math.round(Number(sanitized.flooringExistingCount))
         : null,
+    flooringExistingTypes: Array.isArray(sanitized.flooringExistingTypes)
+      ? sanitized.flooringExistingTypes
+      : null,
     flooringInstallScopeCount:
       sanitized.flooringInstallScopeCount != null && Number(sanitized.flooringInstallScopeCount) > 0
         ? Math.round(Number(sanitized.flooringInstallScopeCount))
@@ -10842,6 +11266,9 @@ export function scopeMeasurementsInputFromPayload(
       payload.flooringExistingCount != null && Number(payload.flooringExistingCount) > 0
         ? Math.round(Number(payload.flooringExistingCount))
         : null,
+    flooringExistingTypes: Array.isArray(payload.flooringExistingTypes)
+      ? payload.flooringExistingTypes
+      : null,
     flooringInstallScopeCount:
       payload.flooringInstallScopeCount != null && Number(payload.flooringInstallScopeCount) > 0
         ? Math.round(Number(payload.flooringInstallScopeCount))
@@ -10919,6 +11346,12 @@ export function prepareScopeMeasurementsInputForUi(
 }
 
 export type ScopeMeasurementsInputExtended = ReturnType<typeof emptyQuickMeasurementInput> & {
+  planRooms?: import('@/utils/estimateAiDraft').ScopeMeasurements['planRooms'];
+  flooringExistingTypes?: import('@/utils/estimateAiDraft').ScopeMeasurements['flooringExistingTypes'];
+  flooringProductScope?: import('@/utils/estimateAiDraft').ScopeMeasurements['flooringProductScope'];
+  flooringExistingVinylMethod?: import('@/utils/estimateAiDraft').ScopeMeasurements['flooringExistingVinylMethod'];
+  floorPrepLevel?: import('@/utils/estimateAiDraft').ScopeMeasurements['floorPrepLevel'];
+  floorPrepTransitions?: import('@/utils/estimateAiDraft').ScopeMeasurements['floorPrepTransitions'];
   paintScope?: import('@/utils/estimateAiDraft').ScopeMeasurements['paintScope'];
   paintPricingMethod?: 'combined' | 'separate' | null;
   combinedPaintableAreaSqft?: string | number | null;
@@ -11192,6 +11625,7 @@ export function initialScopeMeasurementInputExtended(
   );
   let result: ScopeMeasurementsInputExtended = {
     ...base,
+    planRooms: parsedFromNotes.planRooms ?? suggested?.planRooms ?? saved?.planRooms,
     paintScope: hydratedPaintScope.length ? hydratedPaintScope : null,
     bathroomFloorSqft:
       pick('bathroomFloorSqft') ||
@@ -11199,6 +11633,30 @@ export function initialScopeMeasurementInputExtended(
     kitchenFloorSqft: pick('kitchenFloorSqft'),
     floorAreaSqft: pick('floorAreaSqft'),
     flooringSqft: pick('flooringSqft'),
+    flooringProductScope:
+      parsedFromNotes.flooringProductScope ??
+      suggested?.flooringProductScope ??
+      saved?.flooringProductScope ??
+      null,
+    flooringExistingVinylMethod:
+      parsedFromNotes.flooringExistingVinylMethod ??
+      suggested?.flooringExistingVinylMethod ??
+      saved?.flooringExistingVinylMethod ??
+      null,
+    floorPrepLevel: suggested?.floorPrepLevel ?? saved?.floorPrepLevel ?? null,
+    floorPrepTransitions: suggested?.floorPrepTransitions ?? saved?.floorPrepTransitions ?? null,
+    flooringLvpSqft: pick('flooringLvpSqft'),
+    flooringLaminateSqft: pick('flooringLaminateSqft'),
+    flooringEngineeredHardwoodSqft: pick('flooringEngineeredHardwoodSqft'),
+    flooringSolidHardwoodSqft: pick('flooringSolidHardwoodSqft'),
+    flooringTileSqft: pick('flooringTileSqft'),
+    flooringCarpetSqft: pick('flooringCarpetSqft'),
+    floorDemoSqft: pick('floorDemoSqft'),
+    floorPrepSqft: pick('floorPrepSqft'),
+    underlaymentSqft: pick('underlaymentSqft'),
+    moistureBarrierSqft: pick('moistureBarrierSqft'),
+    transitionLf: pick('transitionLf'),
+    quarterRoundLf: pick('quarterRoundLf'),
     backsplashSqft: pick('backsplashSqft'),
     countertopSqft: pick('countertopSqft'),
     cabinetLf: pick('cabinetLf'),
@@ -11494,6 +11952,10 @@ export function initialScopeMeasurementInputExtended(
       saved?.kitchenDemoWallCount ?? suggested?.kitchenDemoWallCount ?? null,
     flooringExistingCount:
       saved?.flooringExistingCount ?? suggested?.flooringExistingCount ?? null,
+    flooringExistingTypes:
+      saved?.flooringExistingTypes ?? suggested?.flooringExistingTypes ?? null,
+    flooringProductScope:
+      saved?.flooringProductScope ?? suggested?.flooringProductScope ?? null,
     flooringInstallScopeCount:
       saved?.flooringInstallScopeCount ?? suggested?.flooringInstallScopeCount ?? null,
     flooringDemoScopeCount:
