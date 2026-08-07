@@ -8,6 +8,23 @@ describe('getMeasurementRelevance', () => {
     }
   });
 
+  test('living area is hidden on trade-specific templates like concrete', () => {
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'floorAreaSqft',
+        includedScopeKeys: [],
+        templateKey: 'concrete',
+      }).relevant
+    ).toBe(false);
+    expect(
+      getMeasurementRelevance({
+        measurementKey: 'floorAreaSqft',
+        includedScopeKeys: [],
+        templateKey: 'excavation',
+      }).relevant
+    ).toBe(false);
+  });
+
   test('kitchen floor hides when kitchen flooring work is deselected', () => {
     expect(getMeasurementRelevance({ measurementKey: 'kitchenFloorSqft', includedScopeKeys: [] }).relevant).toBe(false);
     expect(

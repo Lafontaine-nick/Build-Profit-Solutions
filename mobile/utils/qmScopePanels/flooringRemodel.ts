@@ -23,9 +23,191 @@ export type FlooringDemoCounts = {
   flooringDemoScopeCount: number | null;
 };
 
-// Flooring demo remains an independent Confirm Scope card so its pricing and
-// Yes / No / Not sure state can be reviewed separately from the QM controls.
 export const FLOORING_QM_EMBEDDED_IDS = new Set<string>();
+
+/** Confirm Scope cards that use the included-line layout (no Yes/No row). */
+export const FLOORING_CONFIRM_SCOPE_LINE_CARD_IDS = new Set([
+  'floor_demo',
+  'floor_prep',
+  'flooring',
+  'flooring_lvp',
+  'flooring_laminate',
+  'flooring_engineered_hardwood',
+  'flooring_solid_hardwood',
+  'tile_flooring',
+  'flooring_carpet',
+  'flooring_sheet_vinyl',
+  'underlayment',
+  'moisture_barrier',
+  'quarter_round',
+  'trim',
+  'cleanup',
+]);
+
+export function shouldUseFlooringConfirmScopeLineCard(
+  templateKey: string | null | undefined,
+  item: Pick<ScopeChecklistItem, 'id' | 'state' | 'noteBacked'>
+): boolean {
+  return (
+    String(templateKey || '').toLowerCase() === 'flooring' &&
+    FLOORING_CONFIRM_SCOPE_LINE_CARD_IDS.has(item.id) &&
+    item.state === 'included' &&
+    item.noteBacked === true
+  );
+}
+
+export function isFlooringConfirmScopePricingCard(itemId: string | null | undefined): boolean {
+  return FLOORING_CONFIRM_SCOPE_LINE_CARD_IDS.has(String(itemId || ''));
+}
+
+const FLOORING_INSTALL_INCLUDED_LINES: Record<string, string[]> = {
+  flooring: ['Flooring material', 'Standard layout, cutting, and installation'],
+  flooring_lvp: ['Luxury vinyl plank material', 'Standard layout, cutting, and installation'],
+  flooring_laminate: ['Laminate flooring material', 'Standard layout, cutting, and installation'],
+  flooring_engineered_hardwood: ['Engineered hardwood material', 'Standard layout, cutting, and installation'],
+  flooring_solid_hardwood: ['Solid hardwood material', 'Standard layout, cutting, and installation'],
+  tile_flooring: ['Floor tile material', 'Standard layout, cutting, and installation'],
+  flooring_carpet: ['Carpet material and pad', 'Seams and standard installation'],
+  flooring_sheet_vinyl: ['Sheet vinyl / VCT material', 'Standard layout and installation'],
+  underlayment: ['Standard underlayment material', 'Layout and installation', 'Standard seams/taping as required'],
+  moisture_barrier: ['Standard vapor-barrier material', 'Layout', 'Seams and taping', 'Standard installation'],
+  transitions: ['Transition strips, reducers, thresholds, end caps, and related installation'],
+  quarter_round: ['Standard quarter-round material', 'Cutting and fitting', 'Fastening', 'Standard installation'],
+  trim: [
+    'Standard paint-grade baseboard material',
+    'Cut, fit & installation',
+    'Nail-hole filling, caulk & light prep',
+    'Standard finish painting',
+  ],
+  cleanup: ['Final cleaning', 'Debris haul-off from non-flooring scopes'],
+};
+
+export function flooringConfirmScopeSummaryLabel(itemId: string): string {
+  if (itemId === 'floor_demo') return 'Included removal:';
+  if (itemId === 'floor_prep') return 'Included prep:';
+  return 'Included:';
+}
+
+export function flooringConfirmScopeIncludedLines(
+  itemId: string,
+  pricingDetail?: string | null,
+  measurements?: Record<string, unknown>
+): string[] {
+  if (itemId === 'floor_demo') {
+    const lines = String(pricingDetail || '')
+      .split('\n')
+      .filter((line) => /^\d[\d,]*\s+SF\s+/.test(line))
+      .map((line) => line.replace(/\s+removal\s+@\s+\$[\d.]+\/SF\s+=\s+\$[\d,]+$/, ''));
+    return [...lines, 'Protection, cleaning, haul-off, and disposal'];
+  }
+  if (itemId === 'floor_prep') {
+    return String(pricingDetail || '')
+      .split('\n')
+      .filter((line) => /^(Affected prep area|Prep level|Includes):/.test(line));
+  }
+  if (itemId === 'flooring_lvp' && measurements) {
+    let method = measurements.flooringNewLvpInstallMethod;
+    if (!method) {
+      const source = String(measurements.rateSourceLabel || '');
+      if (/floating\/click-lock/i.test(source)) method = 'floating';
+      else if (/glue-down/i.test(source)) method = 'glue_down';
+    }
+    if (method === 'floating') {
+      return ['Floating / click-lock LVP material', 'Standard layout, cutting, and installation'];
+    }
+    if (method === 'glue_down') {
+      return ['Glue-down LVP material', 'Standard layout, cutting, and installation'];
+    }
+    if (method === 'unknown') {
+      return ['Luxury vinyl plank material', 'Install method not confirmed — verify floating vs glue-down'];
+    }
+  }
+  if (itemId === 'flooring_sheet_vinyl' && measurements) {
+    const type = measurements.flooringNewSheetVinylType;
+    if (type === 'sheet_vinyl') {
+      return ['Sheet vinyl material', 'Standard layout, welding/seaming, and installation'];
+    }
+    if (type === 'vct') {
+      return ['VCT tile material', 'Standard layout, adhesive set, and installation'];
+    }
+    if (type === 'unknown') {
+      return ['Sheet vinyl or VCT material', 'Product type not confirmed — verify before bidding'];
+    }
+  }
+  return FLOORING_INSTALL_INCLUDED_LINES[itemId] || [];
+}
+
+export function flooringConfirmScopeMaterialBucketLabel(itemId: string): string {
+  if (itemId === 'floor_prep') return 'Equipment/material';
+  if (itemId === 'floor_demo') {
+    return 'Equipment, protection, cleaning, haul-off & disposal';
+  }
+  return 'Material';
+}
+
+function flooringNewLvpInstallMethodLabel(
+  method: string | null | undefined
+): string | null {
+  if (method === 'floating') return 'Floating / click-lock LVP';
+  if (method === 'glue_down') return 'Glue-down LVP';
+  if (method === 'unknown') return 'LVP — install method not confirmed';
+  return null;
+}
+
+function flooringNewSheetVinylTypeLabel(type: string | null | undefined): string | null {
+  if (type === 'sheet_vinyl') return 'Sheet vinyl installation';
+  if (type === 'vct') return 'VCT installation';
+  if (type === 'unknown') return 'Sheet vinyl / VCT — type not confirmed';
+  return null;
+}
+
+/** Confirm Scope card title for flooring install rows with subtype selections. */
+export function flooringScopeCardLabel(
+  itemId: string,
+  measurements: Record<string, unknown>
+): string | null {
+  if (itemId === 'flooring_lvp') {
+    return flooringNewLvpInstallMethodLabel(measurements.flooringNewLvpInstallMethod as string) || 'LVP installation';
+  }
+  if (itemId === 'flooring_sheet_vinyl') {
+    return flooringNewSheetVinylTypeLabel(measurements.flooringNewSheetVinylType as string) || 'Sheet vinyl / VCT installation';
+  }
+  return null;
+}
+
+/** Confirm Scope helper copy for flooring install rows with subtype selections. */
+export function flooringScopeCardHelper(
+  itemId: string,
+  measurements: Record<string, unknown>
+): string | null {
+  if (itemId === 'flooring_lvp') {
+    const method = measurements.flooringNewLvpInstallMethod;
+    if (method === 'floating') {
+      return 'Floating / click-lock luxury vinyl plank material and standard installation.';
+    }
+    if (method === 'glue_down') {
+      return 'Glue-down luxury vinyl plank material and standard installation.';
+    }
+    if (method === 'unknown') {
+      return 'Luxury vinyl plank material and standard installation. Confirm floating vs glue-down before bidding.';
+    }
+    return 'Luxury vinyl plank material and standard installation. Select install method in measurements.';
+  }
+  if (itemId === 'flooring_sheet_vinyl') {
+    const type = measurements.flooringNewSheetVinylType;
+    if (type === 'sheet_vinyl') {
+      return 'Sheet vinyl material and standard installation.';
+    }
+    if (type === 'vct') {
+      return 'VCT (vinyl composition tile) material and standard installation.';
+    }
+    if (type === 'unknown') {
+      return 'Sheet vinyl or VCT material and standard installation. Confirm product type before bidding.';
+    }
+    return 'Sheet vinyl or VCT material and standard installation. Select product type in measurements.';
+  }
+  return null;
+}
 const FLOORING_MEASUREMENT_SCOPE_MAP: Array<[string, string]> = [
   ['flooring_lvp', 'flooringLvpSqft'],
   ['flooring_laminate', 'flooringLaminateSqft'],
@@ -33,10 +215,10 @@ const FLOORING_MEASUREMENT_SCOPE_MAP: Array<[string, string]> = [
   ['flooring_solid_hardwood', 'flooringSolidHardwoodSqft'],
   ['tile_flooring', 'flooringTileSqft'],
   ['flooring_carpet', 'flooringCarpetSqft'],
+  ['flooring_sheet_vinyl', 'floor_install__sheet_vinyl_vct'],
   ['floor_demo', 'floorDemoSqft'],
   ['underlayment', 'underlaymentSqft'],
   ['moisture_barrier', 'moistureBarrierSqft'],
-  ['transitions', 'transitionLf'],
   ['quarter_round', 'quarterRoundLf'],
 ];
 const FLOORING_PRODUCT_SCOPE_MAP: Array<[string, string]> = [
@@ -46,20 +228,36 @@ const FLOORING_PRODUCT_SCOPE_MAP: Array<[string, string]> = [
   ['flooring_solid_hardwood', 'solid_hardwood'],
   ['tile_flooring', 'tile'],
   ['flooring_carpet', 'carpet'],
+  ['flooring_sheet_vinyl', 'sheet_vinyl_vct'],
 ];
+
+function flooringMeasurementValue(
+  measurements: Record<string, unknown>,
+  key: string
+): number | null {
+  const direct = positiveCount(measurements[key]);
+  if (direct) return direct;
+  if (key.startsWith('floor_install__')) {
+    const entry = measurements.itemQuantities as Record<string, { quantity?: unknown }> | undefined;
+    return positiveCount(entry?.[key]?.quantity);
+  }
+  return null;
+}
 
 /** Product types with measured install SF or explicit QM selection. */
 export function readFlooringProductScope(m: Record<string, unknown>): string[] {
-  const selected = Array.isArray(m.flooringProductScope)
-    ? m.flooringProductScope.map(String).filter(Boolean)
-    : [];
-  const fromSqft = FLOORING_MEASUREMENT_SCOPE_MAP.slice(0, 6)
+  // An array is an explicit QM selection, including [] after a product is
+  // deselected. Do not re-infer removed products from preserved measurements.
+  if (Array.isArray(m.flooringProductScope)) {
+    return [...new Set(m.flooringProductScope.map(String).filter(Boolean))];
+  }
+  const fromSqft = FLOORING_MEASUREMENT_SCOPE_MAP.slice(0, 7)
     .map(([itemId, key]) => {
-      if (!positiveCount(m[key])) return null;
+      if (!flooringMeasurementValue(m, key)) return null;
       return FLOORING_PRODUCT_SCOPE_MAP.find(([id]) => id === itemId)?.[1] ?? null;
     })
     .filter((product): product is string => Boolean(product));
-  return [...new Set([...selected, ...fromSqft])];
+  return [...new Set(fromSqft)];
 }
 
 export function readFlooringExisting(m: Record<string, unknown>): FlooringExistingCounts {
@@ -152,27 +350,54 @@ export function syncFlooringQmScopeItems(
   const hasExistingFlooring =
     positiveCount(existing.flooringExistingCount) ||
     (existing.flooringExistingTypes?.length ?? 0) > 0;
-  const hasMeasuredSpecificProduct = FLOORING_MEASUREMENT_SCOPE_MAP
-    .slice(0, 6)
-    .some(([, key]) => positiveCount(m[key]));
-  const selectedProducts = new Set(
-    Array.isArray(m.flooringProductScope) ? m.flooringProductScope.map(String) : []
-  );
-  const hasSpecificProduct = hasMeasuredSpecificProduct || selectedProducts.size > 0;
+  const explicitProductSelection = Array.isArray(m.flooringProductScope);
+  const selectedProducts = new Set(readFlooringProductScope(m));
+  const hasSpecificProduct = selectedProducts.size > 0;
   let changed = false;
   let next = items.map((row) => {
     const measurementKey = FLOORING_MEASUREMENT_SCOPE_MAP.find(([id]) => id === row.id)?.[1];
     const productScope = FLOORING_PRODUCT_SCOPE_MAP.find(([id]) => id === row.id)?.[1];
-    if (
-      productScope &&
-      hasSpecificProduct &&
-      !selectedProducts.has(productScope) &&
-      row.state === 'included'
-    ) {
-      changed = true;
-      return { ...row, state: 'excluded' as const, noteBacked: false };
+    if (productScope) {
+      if (selectedProducts.has(productScope)) {
+        if (row.state !== 'included') {
+          changed = true;
+          return { ...row, state: 'included' as const, noteBacked: true };
+        }
+      } else if (row.state === 'included') {
+        changed = true;
+        return { ...row, state: 'excluded' as const, noteBacked: false };
+      }
+      return row;
     }
-    if ((measurementKey && positiveCount(m[measurementKey])) || (productScope && selectedProducts.has(productScope))) {
+    if (row.id === 'underlayment' && m.flooringAttachedPad === 'yes') {
+      if (row.state !== 'excluded' || row.noteBacked) {
+        changed = true;
+        return { ...row, state: 'excluded' as const, noteBacked: false };
+      }
+      return row;
+    }
+    if (row.id === 'underlayment' && m.flooringAttachedPad === 'unknown') {
+      if (row.state !== 'unsure' || row.noteBacked) {
+        changed = true;
+        return { ...row, state: 'unsure' as const, noteBacked: false };
+      }
+      return row;
+    }
+    if (row.id === 'moisture_barrier' && m.flooringMoistureMembraneIncluded === 'yes') {
+      if (row.state !== 'excluded' || row.noteBacked) {
+        changed = true;
+        return { ...row, state: 'excluded' as const, noteBacked: false };
+      }
+      return row;
+    }
+    if (row.id === 'moisture_barrier' && m.flooringMoistureMembraneIncluded === 'unknown') {
+      if (row.state !== 'unsure' || row.noteBacked) {
+        changed = true;
+        return { ...row, state: 'unsure' as const, noteBacked: false };
+      }
+      return row;
+    }
+    if (measurementKey && flooringMeasurementValue(m, measurementKey) && !explicitProductSelection) {
       if (row.state !== 'included') {
         changed = true;
         return { ...row, state: 'included' as const, noteBacked: true };
@@ -233,6 +458,11 @@ export function syncFlooringQmScopeItems(
       id: 'flooring_carpet',
       label: 'Carpet installation',
       helperText: 'Carpet material, pad, seams, and standard installation.',
+    },
+    sheet_vinyl_vct: {
+      id: 'flooring_sheet_vinyl',
+      label: 'Sheet vinyl / VCT installation',
+      helperText: 'Sheet vinyl or VCT material and standard installation.',
     },
   };
   const missingProductCards = [...selectedProducts]

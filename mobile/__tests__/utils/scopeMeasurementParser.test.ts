@@ -347,4 +347,58 @@ describe('mobile scope measurement parser', () => {
       pricingReady: true,
     });
   });
+
+  it('does not treat total yard sqft as sod sqft', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Front yard and back yard will have both fake grass and rocks. Backyard is roughly 150 sqft and front yard is 250 sqft.',
+      { templateKey: 'landscaping', projectType: 'landscaping' }
+    );
+
+    expect(parsed.landscapeSqft).toBe(150);
+    expect(parsed.sodSqft).toBeUndefined();
+    expect(parsed.rockMulchSqft).toBeUndefined();
+  });
+
+  it('clears stale notes-derived sod quantity during landscaping hydration', () => {
+    const input = initialScopeMeasurementInputExtended({
+      projectType: 'landscaping',
+      originalNotes:
+        'Front yard and back yard will have both fake grass and rocks. Backyard is roughly 150 sqft and front yard is 250 sqft.',
+      scopeChecklist: { templateKey: 'landscaping' },
+      scopeMeasurements: {
+        sodSqft: 150,
+        itemQuantities: {
+          sod_turf: { quantity: 150, unit: 'sqft', quantitySource: 'notes' },
+        },
+      },
+    });
+
+    expect(input.sodSqft).toBe('');
+    expect(input.itemQuantities?.sod_turf).toBeUndefined();
+  });
+
+  it('does not use total landscape sqft as turf sqft for pricing', () => {
+    const normalized = normalizeScopeMeasurements({
+      landscapeSqft: 150,
+      sodSqft: null,
+      itemQuantities: {},
+    });
+
+    expect(
+      resolveChecklistItemQuantity('sod_turf', normalized, { templateKey: 'landscaping' }).quantity
+    ).toBeNull();
+  });
+
+  it('routes concrete flatwork notes to demo and pour sqft without living area', () => {
+    const notes =
+      "Let's create a bid for some concrete flat work. Demo driveway roughly 100 square feet. Demo excavation dirt and installing walkway. So flat work needed roughly 100 square feet for a walkway.";
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'concrete',
+      projectType: 'concrete',
+    });
+
+    expect(parsed.floorAreaSqft).toBeUndefined();
+    expect(parsed.concreteDemoSqft).toBe(100);
+    expect(parsed.concreteSqft).toBe(100);
+  });
 });

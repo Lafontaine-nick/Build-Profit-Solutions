@@ -217,6 +217,7 @@ const NOTE_BACKED_SCOPE_LABELS = {
   decking: ['Decking / surface install', 'Deck surface labor and materials from notes.'],
   railing: ['Railing / guardrails', 'Railing labor and materials from notes.'],
   sod_turf: ['Sod / turf', 'Sod or turf labor and materials from notes.'],
+  artificial_turf: ['Artificial turf', 'Artificial turf labor and materials from notes.'],
   pavers: ['Pavers', 'Paver labor and materials from notes.'],
   rock_mulch: ['Rock / mulch', 'Rock, mulch, or gravel from notes.'],
   hang: ['Hang drywall', 'Drywall hang labor and materials from notes.'],

@@ -1,5 +1,6 @@
 import { bathroomFixturesQmPanel, BATHROOM_FIXTURES_QM_EMBEDDED_IDS } from '@/utils/qmScopePanels/bathroomFixtures';
 import { bathroomWetAreaQmPanel, BATHROOM_WET_AREA_EMBEDDED_IDS } from '@/utils/qmScopePanels/bathroomWetArea';
+import { concreteQmPanel, CONCRETE_QM_EMBEDDED_IDS } from '@/utils/qmScopePanels/concreteRemodel';
 import { flooringQmPanel, FLOORING_QM_EMBEDDED_IDS } from '@/utils/qmScopePanels/flooringRemodel';
 import { kitchenQmPanel, KITCHEN_QM_EMBEDDED_IDS } from '@/utils/qmScopePanels/kitchenRemodel';
 import { landscapingQmPanel, LANDSCAPING_QM_EMBEDDED_IDS } from '@/utils/qmScopePanels/landscapingRemodel';
@@ -14,11 +15,13 @@ export {
   KITCHEN_QM_EMBEDDED_IDS,
   FLOORING_QM_EMBEDDED_IDS,
   LANDSCAPING_QM_EMBEDDED_IDS,
+  CONCRETE_QM_EMBEDDED_IDS,
 };
 export * from '@/utils/qmScopePanels/bathroomFixtures';
 export * from '@/utils/qmScopePanels/kitchenRemodel';
 export * from '@/utils/qmScopePanels/flooringRemodel';
 export * from '@/utils/qmScopePanels/landscapingRemodel';
+export * from '@/utils/qmScopePanels/concreteRemodel';
 export * from '@/utils/qmScopePanels/simpleTradeRemodel';
 
 const QM_PANELS: QmPanelDefinition[] = [
@@ -27,7 +30,7 @@ const QM_PANELS: QmPanelDefinition[] = [
   kitchenQmPanel,
   flooringQmPanel,
   landscapingQmPanel,
-  simpleTradePanelFor('concrete'),
+  concreteQmPanel,
   simpleTradePanelFor('deck_patio'),
   simpleTradePanelFor('hvac'),
   simpleTradePanelFor('roofing'),

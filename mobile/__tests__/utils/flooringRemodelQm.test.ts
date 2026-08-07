@@ -1,7 +1,13 @@
 import {
   inferExistingFlooringFromNotes,
   inferFlooringInstallFromIntent,
+  readFlooringProductScope,
   resolveFlooringDemoFromIntent,
+  shouldUseFlooringConfirmScopeLineCard,
+  flooringConfirmScopeIncludedLines,
+  flooringConfirmScopeSummaryLabel,
+  flooringScopeCardLabel,
+  flooringScopeCardHelper,
   syncFlooringQmScopeItems,
 } from '@/utils/qmScopePanels/flooringRemodel';
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
@@ -88,5 +94,120 @@ describe('flooringRemodel QM', () => {
     });
     expect(next.find((r) => r.id === 'flooring_lvp')?.state).toBe('included');
     expect(next.find((r) => r.id === 'tile_flooring')?.state).toBe('excluded');
+  });
+
+  it('treats an explicit deselection as authoritative over preserved product measurements', () => {
+    expect(
+      readFlooringProductScope({
+        flooringProductScope: [],
+        flooringTileSqft: 1200,
+      })
+    ).toEqual([]);
+    expect(
+      readFlooringProductScope({
+        flooringProductScope: ['tile'],
+        flooringTileSqft: 1200,
+      })
+    ).toEqual(['tile']);
+  });
+
+  it('re-includes a product card when it is selected again', () => {
+    const items = [item('flooring'), item('tile_flooring', 'excluded')];
+    const next = syncFlooringQmScopeItems(items, {
+      flooringProductScope: ['tile'],
+      flooringTileSqft: 1200,
+      flooringInstallScopeCount: 1,
+    });
+    expect(next.find((r) => r.id === 'tile_flooring')?.state).toBe('included');
+  });
+
+  it('keeps a product card excluded when measurements are preserved after deselection', () => {
+    const items = [item('flooring'), item('tile_flooring', 'included')];
+    const next = syncFlooringQmScopeItems(items, {
+      flooringProductScope: ['carpet'],
+      flooringTileSqft: 1200,
+      flooringCarpetSqft: 500,
+      flooringInstallScopeCount: 1,
+    });
+    expect(next.find((r) => r.id === 'tile_flooring')?.state).toBe('excluded');
+    expect(next.find((r) => r.id === 'flooring_carpet')?.state).toBe('included');
+  });
+
+  it('includes solid hardwood when selected in QM', () => {
+    const items = [item('flooring'), item('flooring_solid_hardwood', 'excluded')];
+    const next = syncFlooringQmScopeItems(items, {
+      flooringProductScope: ['solid_hardwood'],
+      flooringSolidHardwoodSqft: 800,
+      flooringInstallScopeCount: 1,
+    });
+    expect(next.find((r) => r.id === 'flooring_solid_hardwood')?.state).toBe('included');
+  });
+
+  it('uses the included-line card layout for included flooring scope items', () => {
+    expect(
+      shouldUseFlooringConfirmScopeLineCard('flooring', {
+        id: 'floor_demo',
+        state: 'included',
+        noteBacked: true,
+      })
+    ).toBe(true);
+    expect(
+      shouldUseFlooringConfirmScopeLineCard('flooring', {
+        id: 'tile_flooring',
+        state: 'included',
+        noteBacked: true,
+      })
+    ).toBe(true);
+    expect(
+      shouldUseFlooringConfirmScopeLineCard('flooring', {
+        id: 'tile_flooring',
+        state: 'unsure',
+        noteBacked: false,
+      })
+    ).toBe(false);
+    expect(
+      shouldUseFlooringConfirmScopeLineCard('bathroom', {
+        id: 'floor_demo',
+        state: 'included',
+        noteBacked: true,
+      })
+    ).toBe(false);
+  });
+
+  it('builds install included lines for flooring product cards', () => {
+    expect(flooringConfirmScopeIncludedLines('tile_flooring')).toEqual([
+      'Floor tile material',
+      'Standard layout, cutting, and installation',
+    ]);
+    expect(flooringConfirmScopeSummaryLabel('tile_flooring')).toBe('Included:');
+    expect(
+      flooringScopeCardLabel('flooring_lvp', { flooringNewLvpInstallMethod: 'glue_down' })
+    ).toBe('Glue-down LVP');
+    expect(
+      flooringScopeCardHelper('flooring_lvp', { flooringNewLvpInstallMethod: 'floating' })
+    ).toMatch(/Floating \/ click-lock/);
+    expect(
+      flooringConfirmScopeIncludedLines('flooring_lvp', null, {
+        flooringNewLvpInstallMethod: 'glue_down',
+      })
+    ).toEqual(['Glue-down LVP material', 'Standard layout, cutting, and installation']);
+    expect(
+      flooringConfirmScopeIncludedLines('flooring_lvp', null, {
+        rateSourceLabel: 'Suggested budget split · National Average · floating/click-lock LVP',
+      })
+    ).toEqual(['Floating / click-lock LVP material', 'Standard layout, cutting, and installation']);
+  });
+
+  it('creates a sheet vinyl / VCT install card from QM selection', () => {
+    const items = [item('flooring'), item('floor_demo')];
+    const next = syncFlooringQmScopeItems(items, {
+      flooringProductScope: ['sheet_vinyl_vct'],
+      flooringSheetVinylSqft: 1200,
+      flooringInstallScopeCount: 1,
+    });
+    expect(next.find((r) => r.id === 'flooring_sheet_vinyl')).toMatchObject({
+      label: 'Sheet vinyl / VCT installation',
+      state: 'included',
+    });
   });
 });

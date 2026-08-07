@@ -634,11 +634,16 @@ const SCOPE_UNIT_REGISTRY: Record<string, ScopeRegistryEntry> = {
   pavers: ENTRY('hardscape', ['sqft'], ['site_area', 'slab_area'], ['allowance_amount'], {
     alternateUnits: ['allowance', 'lump_sum'],
   }),
-  rock_mulch: ENTRY('landscaping', ['sqft'], ['site_area'], ['ton', 'excavation_volume'], {
+  rock: ENTRY('landscaping', ['sqft'], ['site_area'], ['ton', 'excavation_volume'], {
     alternateUnits: ['cy', 'ton', 'allowance', 'lump_sum'],
   }),
-  plants_trees: EACH_SCOPE('landscaping'),
-  irrigation: ENTRY('irrigation', ['lf'], ['linear_length'], ['site_area'], {
+  mulch: ENTRY('landscaping', ['sqft'], ['site_area'], ['ton', 'excavation_volume'], {
+    alternateUnits: ['cy', 'ton', 'allowance', 'lump_sum'],
+  }),
+  plants: EACH_SCOPE('landscaping'),
+  trees: EACH_SCOPE('landscaping'),
+  landscape_boulders: EACH_SCOPE('landscaping'),
+  irrigation: ENTRY('irrigation', ['zone'], ['linear_length'], ['site_area'], {
     alternateUnits: ['zone', 'allowance', 'lump_sum'],
   }),
   fencing: ENTRY('fencing', ['lf'], ['linear_length'], ['site_area'], {

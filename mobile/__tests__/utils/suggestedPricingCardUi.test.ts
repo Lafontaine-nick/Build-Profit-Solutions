@@ -48,11 +48,11 @@ function block(overrides: Partial<SuggestedPricingBlock> = {}): SuggestedPricing
 }
 
 describe('suggestedPricingCardUi', () => {
-  it('shortens national source labels to National average', () => {
+  it('shortens national source labels to National planning rate', () => {
     expect(displayPriceSourceLabel('Suggested · National Average (builder-budget calibrated)')).toBe(
-      'National average'
+      'National planning rate'
     );
-    expect(displayPriceSourceLabel('National Average')).toBe('National average');
+    expect(displayPriceSourceLabel('National Average')).toBe('National planning rate');
   });
 
   it('normalizes quantity provenance separately from pricing source', () => {
@@ -119,9 +119,9 @@ describe('suggestedPricingCardUi', () => {
     expect(display.missingMeasurementTitle).toBeNull();
     expect(display.missingMeasurementHint).toBeNull();
     expect(display.actionLabel).toBe('Apply');
-    expect(display.sourceLine).toBe('National average');
+    expect(display.sourceLine).toBe('National planning rate');
     expect(display.allowanceExtraNote).toMatch(/Water, sewer, fire/i);
-    expect(display.whyThisPriceLines.join(' ')).toMatch(/National average/);
+    expect(display.whyThisPriceLines.join(' ')).toMatch(/National planning rate/);
     expect(display.whyThisPriceLines.join(' ')).toMatch(/Water, sewer, fire/);
   });
 
@@ -138,7 +138,7 @@ describe('suggestedPricingCardUi', () => {
     expect(roundSuggestedDisplayComponent(443.52)).toBe(440);
     expect(roundSuggestedDisplayTotal(4437.84)).toBe(4440);
     expect(formatSuggestedComponentMoney(443.52)).toBe('$443.52');
-    expect(formatSuggestedSplitLine(raw)).toBe('Equipment $443.52 · Labor $3,994.32');
+    expect(formatSuggestedSplitLine(raw)).toBe('Estimated planning split · Equipment $443.52 · Labor $3,994.32');
     expect(formatSuggestedDisplayMoney(4437.84)).toBe('$4,437.84');
     expect(raw.total).toBe(4437.84);
     expect(raw.material).toBe(443.52);
@@ -171,9 +171,9 @@ describe('suggestedPricingCardUi', () => {
     expect(display.statusTone).toBe('amber');
     expect(display.actionType).toBe('use_planning_price');
     expect(display.actionLabel).toBe('Apply');
-    expect(display.splitLine).toBe('Material $4,792.10 · Labor $2,911.40');
+    expect(display.splitLine).toBe('Estimated planning split · Material $4,792.10 · Labor $2,911.40');
     expect(display.whyThisPriceLines).toEqual(
-      expect.arrayContaining(['Fallback basis: 1,879 sqft living area', 'National average'])
+      expect.arrayContaining(['Fallback basis: 1,879 sqft living area', 'National planning rate'])
     );
   });
 
@@ -195,12 +195,12 @@ describe('suggestedPricingCardUi', () => {
       confidenceLabel: 'Planning estimate',
     });
     expect(display.quantityLine).toBe('132 CY · From notes');
-    expect(display.sourceLine).toBe('National average');
-    expect(display.statusLine).toBe('National average');
+    expect(display.sourceLine).toBe('National planning rate');
+    expect(display.statusLine).toBe('National planning rate');
     expect(display.statusTone).toBe('amber');
     expect(display.actionLabel).toBe('Apply');
     expect(display.title).toBe('Suggested pricing');
-    expect(display.whyThisPriceLines).toContain('National average');
+    expect(display.whyThisPriceLines).toContain('National planning rate');
   });
 
   it('keeps Suggested pricing title readable', () => {
@@ -282,6 +282,22 @@ describe('suggestedPricingCardUi', () => {
     expect(display.presentation).toBe('compact');
     expect(display.actionLabel).toBe('Apply');
     expect(display.compactLine).toBe('$3,000');
+  });
+
+  it('uses blended SF pricing chrome for flooring install cards', () => {
+    const display = buildSuggestedPricingCardDisplay({
+      itemId: 'tile_flooring',
+      block: block({
+        material: 4572,
+        labor: 5712,
+        total: 10284,
+        basis: { quantity: 1200, unit: 'sqft' },
+      }),
+      quantitySource: 'calculated_confirmed',
+    });
+    expect(display.quantityLine).toBe('1,200 SF total · $8.57/SF blended');
+    expect(display.unitRateLine).toBeNull();
+    expect(display.splitLine).toMatch(/Material \$[\d,]+ · Labor \$[\d,]+/);
   });
 
   it('keeps landscaping installed-package prose in whyThisPriceLines (not card chrome)', () => {

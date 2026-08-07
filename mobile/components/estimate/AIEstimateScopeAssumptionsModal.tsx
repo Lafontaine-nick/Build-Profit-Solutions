@@ -169,6 +169,7 @@ import {
   getChecklistItemQuantityRule,
   getChecklistItemQuantityRuleOrDefault,
   hasCompleteUserSelectedPricing,
+  hasFlooringProductTakeoff,
   isNationalAverageComparisonBlock,
   initialScopeMeasurementInputExtended,
   isDualAllowanceItem,
@@ -258,9 +259,21 @@ import {
   isPhotoNotesScopeJob,
   syncFlooringQmScopeItems,
   readFlooringProductScope,
+  shouldUseFlooringConfirmScopeLineCard,
+  isFlooringConfirmScopePricingCard,
+  flooringConfirmScopeIncludedLines,
+  flooringConfirmScopeSummaryLabel,
+  flooringConfirmScopeMaterialBucketLabel,
+  flooringScopeCardLabel,
+  flooringScopeCardHelper,
   syncKitchenQmScopeItems,
   syncBathroomFixtureQmScopeItems,
   syncLandscapingQmScopeItems,
+  isLandscapingQmScopeItemActive,
+  shouldUseLandscapingConfirmScopeLineCard,
+  syncConcreteQmScopeItems,
+  isConcreteQmScopeItemActive,
+  shouldUseConcreteConfirmScopeLineCard,
   syncQmPanelScopeItems,
   shouldHideBathroomFixtureScopeCardInQmEmbed,
   BATHROOM_FIXTURES_QM_EMBEDDED_IDS,
@@ -270,6 +283,7 @@ import {
   QmBathroomFixturesPanels,
   QmFlooringScopePanels,
   QmLandscapingScopePanels,
+  QmConcreteScopePanels,
   QmKitchenScopePanels,
   QmSimpleTradeScopePanels,
   qmNeutralScopePanelStyle,
@@ -420,6 +434,10 @@ const QUANTITY_NEEDED_LABELS: Record<string, string> = {
   countertops: 'countertop sqft',
   backsplash: 'backsplash sqft',
   flooring: 'floor sqft',
+  rock: 'sqft, CY, or tons',
+  mulch: 'sqft, CY, or tons',
+  plants: 'each',
+  trees: 'each',
   rock_mulch: 'sqft, CY, or tons',
   sod_turf: 'turf sqft',
   pavers: 'paver sqft',
@@ -640,7 +658,7 @@ function SourcePill({
           ? 'Local benchmark'
         : kind === 'remainder'
           ? 'Remainder'
-          : 'National average';
+          : 'National planning rate';
   const text = displayPriceSourceLabel(label || defaultText);
   const color =
     kind === 'notes'
@@ -1313,38 +1331,22 @@ function SuggestedBudgetSplitRows({
   const text = pricingTextColor(darkMode, Colors);
   const statusAmber = '#fbbf24';
   const divider = darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.1)';
-  const isFlooringTransitionCard = itemId === 'floor_demo' || itemId === 'floor_prep';
-  const flooringTransitionLines = isFlooringTransitionCard
+  const isFlooringLineCard = isFlooringConfirmScopePricingCard(itemId);
+  const flooringTransitionLines = isFlooringLineCard
     ? String(block.pricingDetail || '')
         .split('\n')
         .filter((line) => /^\d[\d,]*\s+SF\s+/.test(line))
     : [];
-  const floorPrepSummaryLines =
-    itemId === 'floor_prep'
-      ? String(block.pricingDetail || '')
-          .split('\n')
-          .filter((line) => /^(Affected prep area|Prep level|Includes):/.test(line))
-      : [];
   const [flooringTransitionBreakdownOpen, setFlooringTransitionBreakdownOpen] = useState(false);
-  const compactFlooringTransitionLine = (line: string) => {
-    if (itemId === 'floor_demo') {
-      return line.replace(/\s+removal\s+@\s+\$[\d.]+\/SF\s+=\s+\$[\d,]+$/, '');
-    }
-    return line.replace(/\s+@\s+\$[\d.]+\/SF\s+=\s+\$[\d,]+(?:\s+\(minimum[^)]+\))?$/i, '');
-  };
-  const flooringTransitionDisplayLines =
-    itemId === 'floor_prep' && floorPrepSummaryLines.length
-      ? floorPrepSummaryLines
-      : [
-          ...flooringTransitionLines.map((line) => compactFlooringTransitionLine(line)),
-          ...(itemId === 'floor_demo' ? ['Protection, cleaning, haul-off, and disposal'] : []),
-        ];
-  const flooringTransitionSummaryLabel =
-    itemId === 'floor_prep' ? 'Included prep:' : 'Included removal:';
-  const flooringMaterialBucketLabel =
-    itemId === 'floor_prep'
-      ? 'Equipment/material'
-      : 'Equipment, protection, cleaning, haul-off & disposal';
+  const flooringTransitionDisplayLines = isFlooringLineCard
+    ? flooringConfirmScopeIncludedLines(itemId || '', block.pricingDetail, {
+        rateSourceLabel: block.rateSourceLabel,
+      })
+    : [];
+  const flooringTransitionSummaryLabel = flooringConfirmScopeSummaryLabel(itemId || '');
+  const flooringMaterialBucketLabel = flooringConfirmScopeMaterialBucketLabel(itemId || '');
+  const showFlooringBreakdownToggle =
+    isFlooringLineCard && (flooringTransitionLines.length > 0 || block.material > 0 || block.labor > 0);
 
   if (semantics && includedInStage) {
     const stageName = block.includedInStageLabel || stageTitle(block.benchmarkStageKey);
@@ -1371,7 +1373,7 @@ function SuggestedBudgetSplitRows({
   });
 
   const rateLabel = String(block.rateSourceLabel || '');
-  const isNationalAverageSource = /national\s*average/i.test(rateLabel);
+  const isNationalAverageSource = /national\s*average|national\s*planning\s*rate/i.test(rateLabel);
   const isNationalComparison =
     /national\s*average\s*comparison/i.test(rateLabel) ||
     (Boolean(block.isComparison) && isNationalAverageSource);
@@ -1479,7 +1481,7 @@ function SuggestedBudgetSplitRows({
         {displayTotal}
       </Text>
 
-      {isFlooringTransitionCard && flooringTransitionDisplayLines.length ? (
+      {isFlooringLineCard && flooringTransitionDisplayLines.length ? (
         <View style={{ marginTop: 8, gap: 3 }}>
           <Text style={{ color: text, fontSize: 12, fontWeight: '700' }}>{flooringTransitionSummaryLabel}</Text>
           {flooringTransitionDisplayLines.map((line) => (
@@ -1490,17 +1492,17 @@ function SuggestedBudgetSplitRows({
         </View>
       ) : null}
 
-      {display.splitLine && (!isFlooringTransitionCard || !flooringTransitionBreakdownOpen) ? (
+      {display.splitLine && !isFlooringLineCard ? (
         <Text style={{ color: caption, fontSize: 13, fontWeight: '500', marginTop: 6, lineHeight: 18 }}>
           {display.splitLine}
         </Text>
       ) : null}
 
-      {display.unitRateLine ? (
+      {display.unitRateLine && !isFlooringLineCard ? (
         <Text style={{ color: caption, fontSize: 12, marginTop: 2 }}>{display.unitRateLine}</Text>
       ) : null}
 
-      {isFlooringTransitionCard && flooringTransitionLines.length ? (
+      {showFlooringBreakdownToggle ? (
         <>
           <TouchableOpacity
             onPress={() => setFlooringTransitionBreakdownOpen((open) => !open)}
@@ -2799,7 +2801,7 @@ function suggestedUnitRatesFromBlock(
   const usesNationalAverage =
     block?.materialSource === 'national_average' ||
     block?.laborSource === 'national_average' ||
-    /national average/i.test(String(block?.rateSourceLabel || ''));
+    /national average|national planning rate/i.test(String(block?.rateSourceLabel || ''));
   if (
     usesNationalAverage &&
     Number.isFinite(suggestedBasisQty) &&
@@ -4932,6 +4934,12 @@ function QuantitySection({
                 />
               )}
               {noteVarianceNotice}
+              {!(
+                String(templateKey || '').toLowerCase() === 'flooring' &&
+                isFlooringConfirmScopePricingCard(itemId) &&
+                !hideSuggestion &&
+                suggestedBudgetSplit
+              ) ? (
               <ScopeIntelligenceNotice
                 intelligence={intelligence}
                 Colors={Colors}
@@ -4942,6 +4950,7 @@ function QuantitySection({
                 onRevertCalculatedQuantity={onRevertCalculated}
                 calculatedRevertLabel={calculatedRevertLabel}
               />
+              ) : null}
               {!hideSuggestion && suggestedBudgetSplit ? (
                 <SuggestedBudgetSplitRows
                   block={suggestedBudgetSplit}
@@ -5020,6 +5029,7 @@ function QuantitySection({
     const showGrossFloorPlanning =
       measurementSemanticsV1Enabled() &&
       (itemId === 'tile_flooring' || itemId === 'flooring') &&
+      !hasFlooringProductTakeoff(itemId, measurementsInput) &&
       isGrossFlooringDerivedFromLiving({ flooringSqft: flooringSf, floorAreaSqft: livingSf });
     const softCostAllowance = isSoftCostAllowanceScope(itemId, rule.lumpSumOnly);
     const hidePlanningSuggestion =
@@ -5520,21 +5530,27 @@ function WetAreaInstallLineCard({
   embedded?: boolean;
 }) {
   let helper = checklistDisplayHelper(item, templateKey);
-  if (String(templateKey || '').toLowerCase() === 'flooring' && item.id === 'floor_demo') {
+  if (String(templateKey || '').toLowerCase() === 'flooring') {
     helper =
-      'Removes existing flooring and bulk setting material, then cleans the exposed substrate. Includes protection, haul-off, and disposal. Extra residual grinding, patching, skim coating, and leveling are separate under floor prep.';
+      flooringScopeCardHelper(item.id, measurementsInput as Record<string, unknown>) ||
+      (item.id === 'floor_demo'
+        ? 'Removes existing flooring and bulk setting material, then cleans the exposed substrate. Includes protection, haul-off, and disposal. Extra residual grinding, patching, skim coating, and leveling are separate under floor prep.'
+        : item.id === 'floor_prep'
+          ? 'Extra substrate work after demo and cleaning — residual adhesive/thinset grinding, patching, skim coating, or leveling required for the new floor. Ordinary demo cleanup is not included here.'
+          : helper);
   }
-  if (String(templateKey || '').toLowerCase() === 'flooring' && item.id === 'floor_prep') {
-    helper =
-      'Extra substrate work after demo and cleaning — residual adhesive/thinset grinding, patching, skim coating, or leveling required for the new floor. Ordinary demo cleanup is not included here.';
-  }
+  const cardLabel =
+    String(templateKey || '').toLowerCase() === 'flooring'
+      ? flooringScopeCardLabel(item.id, measurementsInput as Record<string, unknown>) ||
+        checklistDisplayLabel(item, templateKey)
+      : checklistDisplayLabel(item, templateKey);
   const tier = scopeItemVisualTier(item, visualCtx);
   const noteBadge = scopeItemNoteBadge(item, visualCtx);
 
   return (
     <View style={embedded ? styles.qmEmbeddedScopeBlock : scopeCardStyle(tier, item, Colors, darkMode)}>
       <ScopeItemTitleRow
-        label={checklistDisplayLabel(item, templateKey)}
+        label={cardLabel}
         noteBadge={noteBadge}
         darkMode={darkMode}
         Colors={Colors}
@@ -5546,7 +5562,11 @@ function WetAreaInstallLineCard({
       ) : null}
       <View style={styles.includedPillRow}>
         <View style={[styles.includedPill, darkMode ? styles.includedPillDark : styles.includedPillLight]}>
-          <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '700' }}>Included · labor + materials</Text>
+          <Text style={{ color: '#22c55e', fontSize: 11, fontWeight: '700' }}>
+            {item.id === 'demo_clearing'
+              ? 'Included · labor + equipment + disposal'
+              : 'Included · labor + materials'}
+          </Text>
         </View>
       </View>
       <QuantitySection
@@ -5554,6 +5574,7 @@ function WetAreaInstallLineCard({
         inScope
         templateKey={templateKey}
         originalNotes={originalNotes}
+        hideInlineTakeoff={['flooring', 'landscaping', 'concrete'].includes(String(templateKey || '').toLowerCase())}
         measurementsInput={measurementsInput}
         onItemQuantityChange={onItemQuantityChange}
         onBatchItemQuantityChange={onBatchItemQuantityChange}
@@ -5568,7 +5589,7 @@ function WetAreaInstallLineCard({
         onRevertCalculatedQuantity={onRevertCalculatedQuantity}
         pricingEditorRequest={pricingEditorRequest}
         onPricingEditorRequestHandled={onPricingEditorRequestHandled}
-        scopeItemLabel={checklistDisplayLabel(item, templateKey)}
+        scopeItemLabel={cardLabel}
         Colors={Colors}
         darkMode={darkMode}
         applying={applying}
@@ -6844,6 +6865,12 @@ function multiChoicePriceRows(
       new_recessed_led: 250,
       new_location_with_wiring: 650,
     },
+    transitions: {
+      standard_transition: 50,
+      reducer: 65,
+      threshold: 75,
+      custom_transition: 100,
+    },
   };
   const labels: Record<string, Record<string, string>> = {
     plumbing: {
@@ -6864,6 +6891,12 @@ function multiChoicePriceRows(
       decorative_existing_location: 'Decorative fixture/pendant',
       new_recessed_led: 'New recessed LED',
       new_location_with_wiring: 'New lighting location with wiring',
+    },
+    transitions: {
+      standard_transition: 'Standard T-molding / transition',
+      reducer: 'Reducer',
+      threshold: 'Threshold / end cap',
+      custom_transition: 'Custom / difficult transition',
     },
   };
   const itemRates = rates[itemId];
@@ -6976,7 +7009,7 @@ function MultiChoiceRow({
     selectedQuantity,
     measurementsInput.itemQuantities
   );
-  const countChoiceItem = ['plumbing', 'electrical', 'lighting'].includes(item.id);
+  const countChoiceItem = ['plumbing', 'electrical', 'lighting', 'transitions'].includes(item.id);
   const perOptionCountItem = countChoiceItem;
   const countChoiceRateIds: Record<string, string[]> = {
     plumbing: ['dishwasher_hookup', 'gas_existing_shutoff', 'gas_branch_line', 'rough_in'],
@@ -6993,6 +7026,7 @@ function MultiChoiceRow({
       'new_recessed_led',
       'new_location_with_wiring',
     ],
+      transitions: ['standard_transition', 'reducer', 'threshold', 'custom_transition'],
   };
 
   return (
@@ -7713,6 +7747,10 @@ function CollapsibleQuickMeasurements({
   expanded,
   onToggle,
   onDone,
+  onFlooringBottomCollapse,
+  onFloorPrepCollapse,
+  scrollRef,
+  scrollContentRef,
   containerRef,
   measurements,
   setMeasurements,
@@ -7742,6 +7780,11 @@ function CollapsibleQuickMeasurements({
   onToggle: () => void;
   /** Collapse Quick Measurements and settle on Plans / first precon card. */
   onDone?: () => void;
+  /** Preserve the outer Confirm Scope position after a flooring card collapses. */
+  onFlooringBottomCollapse?: () => void;
+  onFloorPrepCollapse?: () => void;
+  scrollRef?: React.RefObject<ScrollView | null>;
+  scrollContentRef?: React.RefObject<View | null>;
   containerRef?: React.Ref<View>;
   measurements: ScopeMeasurementsInputExtended;
   setMeasurements: React.Dispatch<React.SetStateAction<ScopeMeasurementsInputExtended>>;
@@ -7778,6 +7821,8 @@ function CollapsibleQuickMeasurements({
   }) => void;
   /** Flooring photo/notes jobs — sync product install cards from full QM measurements. */
   onFlooringScopeSync?: (measurements: Record<string, unknown>) => void;
+  /** Preserve the outer Confirm Scope scroll position after a flooring QM card collapses. */
+  onFlooringBottomCollapse?: () => void;
   /** Bathroom photo/notes jobs — sync vanity install + demo from QM steppers. */
   onBathroomFixturesQmChange?: (params: {
     existing: import('@/utils/qmScopePanels/bathroomFixtures').BathroomExistingFixtureCounts;
@@ -7940,8 +7985,10 @@ function CollapsibleQuickMeasurements({
     put('underlaymentSqft', parsed.underlaymentSqft);
     put('moistureBarrierSqft', parsed.moistureBarrierSqft);
     put('transitionLf', parsed.transitionLf);
+    put('transitionCount', parsed.transitionCount);
     put('quarterRoundLf', parsed.quarterRoundLf);
     put('concreteSqft', parsed.concreteSqft);
+    put('concreteDemoSqft', parsed.concreteDemoSqft);
     put('concreteCy', parsed.concreteCy);
     put('excavationCy', parsed.excavationCy);
     put('deckSqft', parsed.deckSqft);
@@ -7972,7 +8019,6 @@ function CollapsibleQuickMeasurements({
         ['floor_prep', 'floorPrepSqft'],
         ['underlayment', 'underlaymentSqft'],
         ['moisture_barrier', 'moistureBarrierSqft'],
-        ['transitions', 'transitionLf'],
         ['quarter_round', 'quarterRoundLf'],
         ['trim', 'baseboardLf'],
       ];
@@ -9582,15 +9628,20 @@ function CollapsibleQuickMeasurements({
   ]);
   const landscapingEmbeddedMeasurementKeys = new Set<QuickMeasurementFieldKey>([
     'landscapeSqft',
+    'demoClearingSqft',
+    'gradingSqft',
+    'soilPrepSqft',
     'sodSqft',
     'paverSqft',
     'rockMulchSqft',
     'landscapeTons',
   ]);
-  const simpleTradeEmbeddedMeasurementKeys = new Set<QuickMeasurementFieldKey>([
+  const concreteEmbeddedMeasurementKeys = new Set<QuickMeasurementFieldKey>([
     'concreteSqft',
     'concreteCy',
     'excavationCy',
+  ]);
+  const simpleTradeEmbeddedMeasurementKeys = new Set<QuickMeasurementFieldKey>([
     'deckSqft',
     'railingLf',
     'roofSquares',
@@ -9611,7 +9662,8 @@ function CollapsibleQuickMeasurements({
       (kitchenQmJob && kitchenEmbeddedMeasurementKeys.has(result.key)) ||
       (flooringQmJob && flooringEmbeddedMeasurementKeys.has(result.key)) ||
       (landscapingQmJob && landscapingEmbeddedMeasurementKeys.has(result.key)) ||
-      ((concreteQmJob || deckQmJob || hvacQmJob || roofingQmJob) &&
+      (concreteQmJob && concreteEmbeddedMeasurementKeys.has(result.key)) ||
+      ((deckQmJob || hvacQmJob || roofingQmJob) &&
         simpleTradeEmbeddedMeasurementKeys.has(result.key))
     );
   const renderDisplayedResultField = (
@@ -10090,6 +10142,10 @@ function CollapsibleQuickMeasurements({
                   applying={applying}
                   onFlooringQmChange={onFlooringQmChange}
                   onFlooringScopeSync={onFlooringScopeSync}
+                  onFlooringBottomCollapse={onFlooringBottomCollapse}
+                  onFloorPrepCollapse={onFloorPrepCollapse}
+                  scrollRef={scrollRef}
+                  scrollContentRef={scrollContentRef}
                   measurementFooter={flooringMeasurementFooter}
                   measurementFootersByKey={flooringMeasurementFootersByKey}
                   darkMode={darkMode}
@@ -10108,8 +10164,7 @@ function CollapsibleQuickMeasurements({
               ) : null}
 
               {concreteQmJob ? (
-                <QmSimpleTradeScopePanels
-                  scopeKey="concrete"
+                <QmConcreteScopePanels
                   measurements={measurements}
                   setMeasurements={setMeasurements}
                   applying={applying}
@@ -10551,11 +10606,35 @@ export default function AIEstimateScopeAssumptionsModal({
       );
       if (String(checklist?.templateKey || '').toLowerCase() !== 'flooring') return expanded;
       const description = flooringDemoDescription(measurements, scopeNotes, checklist?.templateKey);
-      return expanded.map((item) =>
-        item.id === 'floor_demo'
-          ? { ...item, label: 'Demo Existing Flooring', helperText: description }
-          : item
-      );
+      const flooringOrder = (itemId: string): number => {
+        if (itemId === 'floor_demo') return 0;
+        if (itemId === 'floor_prep') return 1;
+        if (
+          [
+            'flooring_lvp',
+            'flooring_laminate',
+            'flooring_engineered_hardwood',
+            'flooring_solid_hardwood',
+            'tile_flooring',
+            'flooring_carpet',
+            'flooring_sheet_vinyl',
+            'flooring',
+          ].includes(itemId)
+        ) {
+          return 2;
+        }
+        return 3;
+      };
+      return expanded
+        .map((item, index) => ({
+          item:
+            item.id === 'floor_demo'
+              ? { ...item, label: 'Demo Existing Flooring', helperText: description }
+              : item,
+          index,
+        }))
+        .sort((a, b) => flooringOrder(a.item.id) - flooringOrder(b.item.id) || a.index - b.index)
+        .map(({ item }) => item);
     },
     [
       items,
@@ -10564,6 +10643,14 @@ export default function AIEstimateScopeAssumptionsModal({
       scopeNotes,
       measurements.flooringExistingTypes,
       measurements.itemQuantities,
+      measurements.flooringProductScope,
+      measurements.flooringLvpSqft,
+      measurements.flooringLaminateSqft,
+      measurements.flooringEngineeredHardwoodSqft,
+      measurements.flooringSolidHardwoodSqft,
+      measurements.flooringTileSqft,
+      measurements.flooringCarpetSqft,
+      measurements.flooringSheetVinylSqft,
       measurements.bathroomInstallVanityCount,
       measurements.bathroomInstallCounterCount,
       measurements.bathroomDemoVanityCount,
@@ -10939,7 +11026,10 @@ export default function AIEstimateScopeAssumptionsModal({
         scopeNotes
       );
       // Open when scopes still need quantities so users see where to fill them.
-      setQuickMeasurementsOpen(hydratePricing.needsMeasurement > 0);
+      setQuickMeasurementsOpen(
+        hydratePricing.needsMeasurement > 0 ||
+          ['landscaping', 'concrete'].includes(String(checklist.templateKey || '').toLowerCase())
+      );
       setCustomItemLabel('');
       setShowCustomItemInput(false);
       const grouped = groupScopeChecklistItems(displayForHydrate, checklist.templateKey);
@@ -11516,6 +11606,8 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.flooringInstallScopeCount,
     measurements.flooringDemoScopeCount,
     measurements.flooringExistingTypes,
+    measurements.flooringNewLvpInstallMethod,
+    measurements.flooringExistingLvpInstallMethod,
     syncFlooringScopeItemsFromMeasurements,
   ]);
 
@@ -11529,15 +11621,39 @@ export default function AIEstimateScopeAssumptionsModal({
     checklist?.templateKey,
     draft?.projectType,
     measurements.landscapeScope,
+    measurements.demoClearingSqft,
+    measurements.gradingSqft,
+    measurements.soilPrepSqft,
+    measurements.drainageLf,
     measurements.sodSqft,
     measurements.paverSqft,
     measurements.rockMulchSqft,
     measurements.landscapeTons,
+    measurements.plantCount,
+    measurements.treeCount,
+    measurements.irrigationZoneCount,
+    measurements.concreteEdgingLf,
+    measurements.boulderCount,
+    measurements.landscapeLightCount,
   ]);
 
   useEffect(() => {
     const templateKey = String(checklist?.templateKey || draft?.projectType || '').toLowerCase();
-    if (!['concrete', 'deck_patio', 'hvac', 'roofing'].includes(templateKey)) return;
+    if (templateKey !== 'concrete') return;
+    setItems((prev) => syncConcreteQmScopeItems(prev, measurements as Record<string, unknown>));
+  }, [
+    checklist?.templateKey,
+    draft?.projectType,
+    measurements.concreteScope,
+    measurements.concreteDemoSqft,
+    measurements.concreteSqft,
+    measurements.concreteCy,
+    measurements.excavationCy,
+  ]);
+
+  useEffect(() => {
+    const templateKey = String(checklist?.templateKey || draft?.projectType || '').toLowerCase();
+    if (!['deck_patio', 'hvac', 'roofing'].includes(templateKey)) return;
     setItems((prev) =>
       syncQmPanelScopeItems(
         prev,
@@ -13001,6 +13117,15 @@ export default function AIEstimateScopeAssumptionsModal({
     collapseQm();
   }, [scopeGroupedItems, embedQmScopeInQuickMeasurements, qmScopeEmbeddedInQuickMeasurements]);
 
+  const preserveFlooringQmScrollPosition = useCallback(() => {
+    const y = Math.max(0, scrollOffsetYRef.current);
+    setTimeout(() => {
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollTo({ y, animated: false });
+      });
+    }, 120);
+  }, []);
+
   const handleScopeGapResolutionsChange = useCallback(
     (next: ScopeGapResolutionsMap) => {
       setMeasurementsSynced((prev) => {
@@ -13174,6 +13299,22 @@ export default function AIEstimateScopeAssumptionsModal({
     if (embedQmScopeInQuickMeasurements && qmScopeEmbeddedInQuickMeasurements(item.id)) {
       return null;
     }
+    if (String(checklist?.templateKey || '').toLowerCase() === 'landscaping') {
+      const landscapingItemActive =
+        isLandscapingQmScopeItemActive(item.id, measurements as Record<string, unknown>) ||
+        (item.state === 'included' && item.noteBacked === true);
+      if (!landscapingItemActive) {
+        return null;
+      }
+    }
+    if (String(checklist?.templateKey || '').toLowerCase() === 'concrete') {
+      const concreteItemActive =
+        isConcreteQmScopeItemActive(item.id, measurements as Record<string, unknown>) ||
+        (item.state === 'included' && item.noteBacked === true);
+      if (!concreteItemActive) {
+        return null;
+      }
+    }
     if (String(checklist?.templateKey || '').toLowerCase() === 'flooring') {
       const flooringProductScopeByItemId: Record<string, string> = {
         flooring_lvp: 'lvp',
@@ -13182,6 +13323,7 @@ export default function AIEstimateScopeAssumptionsModal({
         flooring_solid_hardwood: 'solid_hardwood',
         tile_flooring: 'tile',
         flooring_carpet: 'carpet',
+        flooring_sheet_vinyl: 'sheet_vinyl_vct',
       };
       const flooringMeasurementByItemId: Record<string, number> = {
         flooring_lvp: Number(measurements.flooringLvpSqft || 0),
@@ -13190,26 +13332,24 @@ export default function AIEstimateScopeAssumptionsModal({
         flooring_solid_hardwood: Number(measurements.flooringSolidHardwoodSqft || 0),
         tile_flooring: Number(measurements.flooringTileSqft || 0),
         flooring_carpet: Number(measurements.flooringCarpetSqft || 0),
+        flooring_sheet_vinyl: Number(measurements.flooringSheetVinylSqft || 0),
       };
+      const explicitProductSelection = Array.isArray(measurements.flooringProductScope);
       const selectedProductScope = new Set(
         readFlooringProductScope(measurements as Record<string, unknown>)
       );
-      const hasSpecificFlooringProduct =
-        selectedProductScope.size > 0 ||
-        Object.values(flooringMeasurementByItemId).some((value) => value > 0);
+      const hasSpecificFlooringProduct = selectedProductScope.size > 0;
       if (item.id === 'flooring' && hasSpecificFlooringProduct) {
         return null;
       }
       const productScope = flooringProductScopeByItemId[item.id];
-      if (productScope && hasSpecificFlooringProduct) {
-        const installSqft =
-          flooringMeasurementByItemId[item.id] ||
-          Number(measurements.itemQuantities?.[`floor_install__${productScope}`]?.quantity || 0) ||
-          Number(measurements.itemQuantities?.[item.id]?.quantity || 0);
-        const shouldShow =
-          selectedProductScope.has(productScope) ||
-          installSqft > 0;
-        if (!shouldShow) return null;
+      if (productScope) {
+        if (explicitProductSelection && !selectedProductScope.has(productScope)) {
+          return null;
+        }
+        if (!explicitProductSelection && hasSpecificFlooringProduct && !selectedProductScope.has(productScope)) {
+          return null;
+        }
       }
     }
     if (
@@ -13225,7 +13365,10 @@ export default function AIEstimateScopeAssumptionsModal({
     const useWetAreaLineCard =
       item.id !== 'shower_pan' &&
       (item.derivedFrom === 'wet_area_install' || WET_AREA_DERIVED_ITEM_IDS.has(item.id));
-    const row = useWetAreaLineCard ? (
+    const useFlooringLineCard = shouldUseFlooringConfirmScopeLineCard(checklist?.templateKey, item);
+    const useLandscapingLineCard = shouldUseLandscapingConfirmScopeLineCard(checklist?.templateKey, item);
+    const useConcreteLineCard = shouldUseConcreteConfirmScopeLineCard(checklist?.templateKey, item);
+    const row = useWetAreaLineCard || useFlooringLineCard || useLandscapingLineCard || useConcreteLineCard ? (
       <WetAreaInstallLineCard
         item={item}
         templateKey={checklist?.templateKey}
@@ -13280,7 +13423,12 @@ export default function AIEstimateScopeAssumptionsModal({
             })
           );
           // A choice change invalidates the previous rate selection and count.
-          if (item.id === 'electrical' || item.id === 'plumbing' || item.id === 'lighting') {
+          if (
+            item.id === 'electrical' ||
+            item.id === 'plumbing' ||
+            item.id === 'lighting' ||
+            item.id === 'transitions'
+          ) {
             setMeasurementsSynced((previous) => {
               const cleared = clearAcceptedScopeItemPricing({
                 itemId: item.id,
@@ -13298,7 +13446,7 @@ export default function AIEstimateScopeAssumptionsModal({
                   unit: 'each',
                   quantitySource: 'user_entered',
                 };
-                if (['plumbing', 'electrical', 'lighting'].includes(item.id)) {
+                if (['plumbing', 'electrical', 'lighting', 'transitions'].includes(item.id)) {
                   const existingOptionCount = Number(
                     previous.itemQuantities?.[`${item.id}__${optionId}`]?.quantity
                   );
@@ -13659,6 +13807,10 @@ export default function AIEstimateScopeAssumptionsModal({
           expanded={quickMeasurementsOpen}
           onToggle={() => setQuickMeasurementsOpen((v) => !v)}
           onDone={handleQuickMeasurementsDone}
+          onFlooringBottomCollapse={preserveFlooringQmScrollPosition}
+          onFloorPrepCollapse={handleQuickMeasurementsDone}
+          scrollRef={scrollRef}
+          scrollContentRef={scrollContentRef}
           containerRef={quickMeasurementsRef}
           measurements={measurements}
           setMeasurements={setMeasurementsSynced}

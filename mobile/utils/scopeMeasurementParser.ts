@@ -37,6 +37,7 @@ export type ParsedScopeMeasurements = {
   underlaymentSqft?: number;
   moistureBarrierSqft?: number;
   transitionLf?: number;
+  transitionCount?: number;
   quarterRoundLf?: number;
   backsplashSqft?: number;
   countertopSqft?: number;
@@ -56,12 +57,14 @@ export type ParsedScopeMeasurements = {
   cabinetRunLf?: number;
   drywallSqft?: number;
   landscapeSqft?: number;
+  artificialTurfSqft?: number;
   sodSqft?: number;
   paverSqft?: number;
   rockMulchSqft?: number;
   landscapeTons?: number;
   roofSquares?: number;
   concreteSqft?: number;
+  concreteDemoSqft?: number;
   concreteCy?: number;
   excavationCy?: number;
   deckSqft?: number;
@@ -78,6 +81,20 @@ const WALL_LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|
 const CY_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:cy|cubic\s+yards?)/gi;
 const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)\s*squares?\b/gi;
 const TON_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:tons?)\b/gi;
+
+const EXTERIOR_FLATWORK_RE =
+  /\b(?:driveway|walkway|sidewalk|flat[\s-]?work|concrete\s+(?:patio|slab|pad)|patio\s+slab|rv\s+pad)\b/i;
+const DEMO_VERB_RE = /\b(?:demo|demolition|remove|removal|tear[\s-]?out|break\s+up|rip\s+out)\b/i;
+
+function isExteriorFlatworkClause(clause: string): boolean {
+  const c = clause.toLowerCase();
+  if (EXTERIOR_FLATWORK_RE.test(c)) return true;
+  return /\bconcrete\b/.test(c) && /\b(?:patio|slab|drive|walk|flat)/.test(c);
+}
+
+function isDemoClause(clause: string): boolean {
+  return DEMO_VERB_RE.test(clause.toLowerCase());
+}
 
 function parseQty(match: RegExpExecArray): number | null {
   const n = Number(String(match[1] ?? match[0]).replace(/,/g, ''));
@@ -231,6 +248,34 @@ export function parseScopeMeasurementsFromNotes(
     for (const pattern of patterns) {
       const near = pickSqftNearPattern(text, pattern);
       if (near) return near;
+    }
+    return null;
+  };
+  // A generic yard/landscape area is not an area for a specific material.
+  // For example, "fake grass and rocks ... backyard is 150 sqft" describes
+  // the total yard, not 150 sqft of turf. Material quantities must be
+  // explicitly tied to the material before the sqft value.
+  const pickExplicitLandscapeMaterialSqft = (patterns: RegExp[]) => {
+    for (const clause of clauses) {
+      const lower = clause.toLowerCase();
+      const quantityRe = new RegExp(SQFT_RE.source, SQFT_RE.flags);
+      let match: RegExpExecArray | null;
+      while ((match = quantityRe.exec(clause)) !== null) {
+        const beforeQuantity = lower.slice(Math.max(0, match.index - 55), match.index);
+        const materialMatches = patterns
+          .map((pattern) => {
+            const materialMatch = [
+              ...beforeQuantity.matchAll(new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`)),
+            ].pop();
+            return materialMatch?.index ?? -1;
+          })
+          .filter((index) => index >= 0);
+        const materialIndex = Math.max(...materialMatches);
+        if (materialIndex < 0) continue;
+        const between = beforeQuantity.slice(materialIndex);
+        if (/\b(?:back|front|side)?\s*yard\b/.test(between)) continue;
+        return parseQty(match);
+      }
     }
     return null;
   };
@@ -488,11 +533,22 @@ export function parseScopeMeasurementsFromNotes(
   if (moistureBarrierSqft) out.moistureBarrierSqft = moistureBarrierSqft;
   const transitionLf = pickLfNearPattern(text, /\b(?:transition|reducer|threshold)s?\b/i);
   if (transitionLf) out.transitionLf = transitionLf;
+  if (transitionLf) out.transitionCount = transitionLf;
   const quarterRoundLf = pickLfNearPattern(text, /\bquarter[\s-]?round\b/i);
   if (quarterRoundLf) out.quarterRoundLf = quarterRoundLf;
 
-  const sodSqft = pickSqftFromClauses([/\b(?:new\s+)?sod\b/, /\bturf\b/, /\b(?:new\s+)?grass\b/, /\bexisting\s+sod\b/]);
+  const sodSqft = pickExplicitLandscapeMaterialSqft([
+    /\b(?:new\s+)?sod\b/,
+    /\bexisting\s+sod\b/,
+  ]);
   if (sodSqft) out.sodSqft = sodSqft;
+  const artificialTurfSqft = pickExplicitLandscapeMaterialSqft([
+    /\bartificial\s+turf\b/,
+    /\bartificial\s+grass\b/,
+    /\bsynthetic\s+grass\b/,
+    /\bturf\b/,
+  ]);
+  if (artificialTurfSqft) out.artificialTurfSqft = artificialTurfSqft;
 
   const paverSqft = pickSqftFromClauses([/\bpavers?\b/, /\bpatio\b.*\bpaver/]);
   if (paverSqft) out.paverSqft = paverSqft;
@@ -558,6 +614,7 @@ export function parseScopeMeasurementsFromNotes(
       }
       if (/\bback\s*splash|backsplash|\bcountertop|\bpaint\b|\bshower\b/i.test(c)) continue;
       if (/\bwall\b|\bsoffit\b|\bbulkhead\b/i.test(c)) continue;
+      if (isExteriorFlatworkClause(c)) continue;
       if (!/\b(demo|demolition|remove|removal|tear[\s-]?out|install|installation|laminate|tile|lvp|vinyl|flooring|floor|carpet)\b/i.test(c)) continue;
       const q = firstQty(clause, SQFT_RE);
       if (q && q > max) max = q;
@@ -659,15 +716,36 @@ export function parseScopeMeasurementsFromNotes(
     }
   }
 
+  const concreteDemoSqft = (() => {
+    let max = 0;
+    for (const clause of clauses) {
+      if (!isDemoClause(clause) || !isExteriorFlatworkClause(clause)) continue;
+      const q = firstQty(clause, SQFT_RE);
+      if (q && q > max) max = q;
+    }
+    return max > 0 ? max : null;
+  })();
+  if (concreteDemoSqft) out.concreteDemoSqft = concreteDemoSqft;
+
   // Do not map covered patio / porch into concrete — those belong on deckSqft.
-  const concreteSqft = pickSqftFromClauses([
-    /\bconcrete\s+flatwork\b/,
-    /\bconcrete\b/,
-    /\bflatwork\b/,
-    /\bslab\b/,
-    /\bdriveway\b/,
-    /\bsidewalk\b/,
-  ]);
+  const concreteSqft = (() => {
+    let max = 0;
+    for (const clause of clauses) {
+      const c = clause.toLowerCase();
+      if (/\bpavers?\b|\bsod\b|\bturf\b|\brock\b|\bmulch\b|\bgravel\b/.test(c)) continue;
+      if (isDemoClause(clause) && isExteriorFlatworkClause(clause)) continue;
+      if (
+        !/\bconcrete\b|\bflat[\s-]?work\b|\bslab\b|\bdriveway\b|\bwalkway\b|\bsidewalk\b/.test(c)
+      ) {
+        continue;
+      }
+      const near =
+        pickSqftNearPattern(clause, /\bconcrete\b|\bflat[\s-]?work\b|\bslab\b|\bdriveway\b|\bwalkway\b|\bsidewalk\b/) ||
+        firstQty(clause, SQFT_RE);
+      if (near && near > max) max = near;
+    }
+    return max > 0 ? max : null;
+  })();
   if (concreteSqft) out.concreteSqft = concreteSqft;
 
   for (const clause of clauses) {

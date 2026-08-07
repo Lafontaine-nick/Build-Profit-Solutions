@@ -336,18 +336,31 @@ export type NormalizedScopeMeasurements = {
   underlaymentSqft: number | null;
   moistureBarrierSqft: number | null;
   transitionLf: number | null;
+  transitionCount: number | null;
   quarterRoundLf: number | null;
   backsplashSqft: number | null;
   countertopSqft: number | null;
   cabinetLf: number | null;
   landscapeSqft: number | null;
+  artificialTurfSqft: number | null;
+  demoClearingSqft: number | null;
+  gradingSqft: number | null;
+  soilPrepSqft: number | null;
   sodSqft: number | null;
   paverSqft: number | null;
   rockMulchSqft: number | null;
   landscapeTons: number | null;
+  plantCount: number | null;
+  treeCount: number | null;
+  irrigationZoneCount: number | null;
+  drainageLf: number | null;
+  concreteEdgingLf: number | null;
+  boulderCount: number | null;
+  landscapeLightCount: number | null;
   roofSquares: number | null;
   drywallSqft: number | null;
   concreteSqft: number | null;
+  concreteDemoSqft: number | null;
   concreteCy: number | null;
   excavationCy: number | null;
   deckSqft: number | null;
@@ -486,14 +499,15 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   string,
   NationalAverageBudgetSplit
 > = {
-  trim: { unit: 'lf', material: 2, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
+  trim: { unit: 'lf', material: 2, labor: 6.5, sourceLabel: 'Suggested budget split · National Average · baseboard install, prep & paint' },
   flooring: { unit: 'sqft', material: 4, labor: 5, sourceLabel: 'Suggested budget split · National Average' },
   flooring_lvp: { unit: 'sqft', material: 3.5, labor: 3.5, sourceLabel: 'Suggested budget split · National Average · LVP' },
   flooring_laminate: { unit: 'sqft', material: 2.5, labor: 3.25, sourceLabel: 'Suggested budget split · National Average · laminate' },
   flooring_engineered_hardwood: { unit: 'sqft', material: 5.5, labor: 5.5, sourceLabel: 'Suggested budget split · National Average · engineered hardwood' },
   flooring_solid_hardwood: { unit: 'sqft', material: 6, labor: 7, sourceLabel: 'Suggested budget split · National Average · solid hardwood' },
   tile_flooring: { unit: 'sqft', material: 6, labor: 10, sourceLabel: 'Suggested budget split · National Average · floor tile' },
-  flooring_carpet: { unit: 'sqft', material: 2.5, labor: 2.5, sourceLabel: 'Suggested budget split · National Average · carpet' },
+  flooring_carpet: { unit: 'sqft', material: 3.5, labor: 1.5, sourceLabel: 'Suggested budget split · National Average · carpet + pad' },
+  flooring_sheet_vinyl: { unit: 'sqft', material: 2.5, labor: 2.5, sourceLabel: 'Suggested budget split · National Average · sheet vinyl' },
   lighting: {
     unit: 'each',
     material: 200,
@@ -507,9 +521,9 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     materialBucketLabel: 'Equipment, protection, haul-off & disposal',
     sourceLabel: 'Suggested budget split · National Average planning estimate · flooring demolition',
   },
-  underlayment: { unit: 'sqft', material: 0.75, labor: 1.25, sourceLabel: 'Suggested budget split · National Average · underlayment' },
-  moisture_barrier: { unit: 'sqft', material: 0.5, labor: 0.75, sourceLabel: 'Suggested budget split · National Average · moisture barrier' },
-  transitions: { unit: 'lf', material: 8, labor: 7, sourceLabel: 'Suggested budget split · National Average · transitions and reducers' },
+  underlayment: { unit: 'sqft', material: 0.75, labor: 0.75, sourceLabel: 'Suggested budget split · National Average · standard underlayment' },
+  moisture_barrier: { unit: 'sqft', material: 0.65, labor: 0.6, sourceLabel: 'Suggested budget split · National Average · vapor barrier' },
+  transitions: { unit: 'each', material: 20, labor: 30, sourceLabel: 'Suggested budget split · National Average · standard transition' },
   quarter_round: { unit: 'lf', material: 1.5, labor: 2.5, sourceLabel: 'Suggested budget split · National Average · quarter round' },
   backsplash_demo: {
     unit: 'sqft',
@@ -955,8 +969,12 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     sourceLabel: 'Suggested budget split · National Average · per plumbing connection',
   },
   railing: { unit: 'lf', material: 15, labor: 25, sourceLabel: 'Suggested budget split · National Average' },
-  pour_flatwork: { unit: 'sqft', material: 4, labor: 6, sourceLabel: 'Suggested budget split · National Average' },
-  concrete: { unit: 'sqft', material: 4, labor: 6, sourceLabel: 'Suggested budget split · National Average' },
+  pour_flatwork: { unit: 'sqft', material: 4, labor: 6, sourceLabel: 'National planning rate · Pour flatwork' },
+  concrete: { unit: 'sqft', material: 4, labor: 6, sourceLabel: 'National planning rate · Concrete flatwork' },
+  forms: { unit: 'sqft', material: 0.75, labor: 1.25, sourceLabel: 'National planning rate · Forms / layout' },
+  reinforcement: { unit: 'sqft', material: 1, labor: 0.75, sourceLabel: 'National planning rate · Rebar / mesh' },
+  finish_seal: { unit: 'sqft', material: 0.5, labor: 1.5, sourceLabel: 'National planning rate · Finish / seal / cure' },
+  concrete_demo: { unit: 'sqft', material: 1, labor: 2.5, materialBucketLabel: 'Equipment & disposal', sourceLabel: 'National planning rate · Concrete demo / removal' },
   drywall: {
     unit: 'sqft',
     // New-construction hang/finish band (~$2.10/SF). Prior $4.50/SF made living×3.5
@@ -991,19 +1009,50 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     sourceLabel: 'Suggested budget split · National Average · exterior wall surface',
   },
   tear_off: { unit: 'squares', material: 50, labor: 200, sourceLabel: 'Suggested budget split · National Average' },
-  pavers: { unit: 'sqft', material: 6, labor: 8, sourceLabel: 'Suggested budget split · National Average' },
+  pavers: { unit: 'sqft', material: 6, labor: 9, sourceLabel: 'National planning rate · Pavers' },
+  demo_clearing: {
+    unit: 'sqft',
+    material: 0.4,
+    labor: 1.1,
+    materialBucketLabel: 'Equipment, haul-off & disposal',
+    sourceLabel: 'National planning rate · Demo / clearing · normal haul-off included',
+  },
+  grading: {
+    unit: 'sqft',
+    material: 0.35,
+    labor: 0.9,
+    materialBucketLabel: 'Grading equipment',
+    sourceLabel: 'National planning rate · Grading',
+  },
+  soil_prep: { unit: 'sqft', material: 0.65, labor: 0.85, sourceLabel: 'National planning rate · Soil prep' },
+  sod_turf: { unit: 'sqft', material: 0.85, labor: 0.9, sourceLabel: 'National planning rate · Sod' },
+  artificial_turf: { unit: 'sqft', material: 8.5, labor: 7.5, sourceLabel: 'National planning rate · Artificial turf · normal base included' },
+  rock: { unit: 'sqft', material: 1.9, labor: 0.85, sourceLabel: 'National planning rate · Decorative rock · 3 inch depth' },
+  mulch: { unit: 'sqft', material: 0.35, labor: 0.25, sourceLabel: 'National planning rate · Mulch' },
+  plants: { unit: 'each', material: 35, labor: 30, sourceLabel: 'National planning rate · Plants / shrubs' },
+  trees: { unit: 'each', material: 250, labor: 200, sourceLabel: 'National planning rate · Standard landscape tree' },
+  /** @deprecated Use `rock` or `mulch` — kept for legacy draft pricing. */
+  rock_mulch: { unit: 'sqft', material: 1.9, labor: 0.85, sourceLabel: 'National planning rate · Decorative rock · 3 inch depth' },
+  /** @deprecated Use `plants` or `trees` — kept for legacy draft pricing. */
+  plants_trees: { unit: 'each', material: 35, labor: 30, sourceLabel: 'National planning rate · Plants / shrubs' },
+  irrigation: { unit: 'zone', material: 650, labor: 600, sourceLabel: 'National planning rate · Sprinkler irrigation' },
+  landscape_lighting: { unit: 'each', material: 90, labor: 60, sourceLabel: 'National planning rate · Landscape lighting' },
+  concrete_edging: { unit: 'lf', material: 4, labor: 6, sourceLabel: 'National planning rate · Concrete edging' },
+  drainage: { unit: 'lf', material: 10, labor: 12, sourceLabel: 'National planning rate · Drainage · review unusual systems' },
+  landscape_boulders: { unit: 'each', material: 250, labor: 150, sourceLabel: 'National planning rate · Standard / medium boulder · review before bid' },
+  mobilization: { unit: 'allowance', material: 750, labor: 0, sourceLabel: 'National planning rate · EXTRA project-level mobilization · review before bid' },
   permits: {
     unit: 'allowance',
     material: 0,
     labor: 3500,
-    sourceLabel: 'Suggested allowance · National Average',
+    sourceLabel: 'National planning rate · Permit allowance',
   },
   cleanup: {
     unit: 'allowance',
     material: 450,
     labor: 550,
     sourceLabel:
-      'Suggested budget split · National Average · ~1 dumpster/disposal + final clean/haul labor',
+      'National planning rate · EXTRA cleanup / haul-off / disposal · review before bid',
   },
   // Appliance install is job-specific — never auto-suggest a national average allowance.
   // Contingency is job-specific — never auto-suggest a national average allowance.
@@ -1043,10 +1092,10 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     sourceLabel: 'Suggested budget split · National Average · excavation',
   },
   pour_foundation: {
-    unit: 'sqft',
-    material: 4,
-    labor: 6,
-    sourceLabel: 'Suggested budget split · National Average · foundation',
+    unit: 'cy',
+    material: 165,
+    labor: 185,
+    sourceLabel: 'National planning rate · Footings / foundation',
   },
 };
 
@@ -1107,7 +1156,22 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
   },
   pour_flatwork: {
     sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.pour_flatwork,
-    cy: { unit: 'cy', material: 165, labor: 185, sourceLabel: 'Suggested budget split · National Average' },
+    cy: { unit: 'cy', material: 165, labor: 185, sourceLabel: 'National planning rate · Footings / foundation' },
+  },
+  pour_foundation: {
+    cy: NATIONAL_AVERAGE_BUDGET_SPLITS.pour_foundation,
+  },
+  forms: {
+    sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.forms,
+  },
+  reinforcement: {
+    sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.reinforcement,
+  },
+  finish_seal: {
+    sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.finish_seal,
+  },
+  site_prep: {
+    cy: NATIONAL_AVERAGE_BUDGET_SPLITS.excavation,
   },
   excavation: {
     cy: { unit: 'cy', material: 5, labor: 45, sourceLabel: 'Suggested budget split · National Average' },
@@ -2148,6 +2212,21 @@ function buildSuggestedPricingCostBuckets(params: {
       },
     ];
   }
+  if (
+    params.itemId === 'trim' &&
+    params.materialSource === 'national_average' &&
+    params.laborSource === 'national_average' &&
+    Math.abs(Number(params.materialRate) - 2) < 0.01 &&
+    Math.abs(Number(params.laborRate) - 6.5) < 0.01
+  ) {
+    const quantity = params.material / 2;
+    return [
+      { key: 'material', label: 'Baseboard / trim material', amount: round2(quantity * 2), rate: 2, source: 'national_average' },
+      { key: 'labor', label: 'Cut, fit & installation labor', amount: round2(quantity * 3.5), rate: 3.5, source: 'national_average' },
+      { key: 'prep', label: 'Fill nail holes, caulk & light prep', amount: round2(quantity), rate: 1, source: 'national_average' },
+      { key: 'paint', label: 'Standard finish painting', amount: round2(quantity * 2), rate: 2, source: 'national_average' },
+    ];
+  }
   const buckets: SuggestedPricingCostBucket[] = [];
   if (params.material > 0) {
     const label = nationalAverageMaterialBucketLabel(params.itemId, params.average);
@@ -2960,6 +3039,14 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     quantityHelper: 'Enter carpet sqft.',
     missingMessage: 'Enter carpet sqft.',
   },
+  flooring_sheet_vinyl: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'flooringSheetVinylSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter sheet vinyl / VCT flooring sqft.',
+    missingMessage: 'Enter sheet vinyl / VCT sqft.',
+  },
   underlayment: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
@@ -2973,16 +3060,16 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKey: 'moistureBarrierSqft',
     requiresUserQuantity: true,
-    quantityHelper: 'Enter moisture barrier sqft.',
-    missingMessage: 'Enter moisture barrier sqft.',
+    quantityHelper: 'Enter vapor / moisture barrier sqft.',
+    missingMessage: 'Enter vapor / moisture barrier sqft.',
   },
   transitions: {
-    defaultUnit: 'lf',
-    allowedUnits: ['lf', 'allowance', 'lump_sum'],
-    measurementKey: 'transitionLf',
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'transitionCount',
     requiresUserQuantity: true,
-    quantityHelper: 'Enter transition and reducer LF.',
-    missingMessage: 'Enter transition LF.',
+    quantityHelper: 'Enter transition pieces.',
+    missingMessage: 'Enter transition piece count.',
   },
   quarter_round: {
     defaultUnit: 'lf',
@@ -2995,26 +3082,122 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
   sod_turf: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
-    measurementKeys: ['sodSqft', 'landscapeSqft'],
+    measurementKeys: ['sodSqft'],
     requiresUserQuantity: true,
     quantityHelper: 'Enter sod/turf sqft.',
     missingMessage: 'Enter sod/turf sqft.',
   },
+  artificial_turf: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'artificialTurfSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter artificial turf sqft.',
+    missingMessage: 'Enter artificial turf sqft.',
+  },
+  demo_clearing: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['demoClearingSqft', 'landscapeSqft'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter landscape clearing sqft.',
+    missingMessage: 'Enter landscape clearing sqft.',
+  },
+  grading: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'cy', 'allowance', 'lump_sum'],
+    measurementKeys: ['gradingSqft', 'landscapeSqft'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter grading sqft or mass excavation quantity.',
+    missingMessage: 'Enter grading quantity.',
+  },
+  soil_prep: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['soilPrepSqft', 'landscapeSqft'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter soil preparation sqft.',
+    missingMessage: 'Enter soil preparation sqft.',
+  },
+  drainage: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'drainageLf',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter drainage LF.',
+    missingMessage: 'Enter drainage LF.',
+  },
+  plants: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'plantCount',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter plant or shrub quantity.',
+    missingMessage: 'Enter plant count.',
+  },
+  trees: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'treeCount',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter tree quantity.',
+    missingMessage: 'Enter tree count.',
+  },
+  landscape_boulders: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'boulderCount',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter standard / medium boulder count.',
+    missingMessage: 'Enter boulder count.',
+  },
+  irrigation: {
+    defaultUnit: 'zone',
+    allowedUnits: ['zone', 'each', 'allowance', 'lump_sum'],
+    measurementKey: 'irrigationZoneCount',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter irrigation zones.',
+    missingMessage: 'Enter irrigation zone count.',
+  },
+  landscape_lighting: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'landscapeLightCount',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter light fixture count.',
+    missingMessage: 'Enter landscape light count.',
+  },
+  concrete_edging: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'concreteEdgingLf',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter concrete edging LF.',
+    missingMessage: 'Enter concrete edging LF.',
+  },
   pavers: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
-    measurementKeys: ['paverSqft', 'landscapeSqft'],
+    measurementKeys: ['paverSqft'],
     requiresUserQuantity: true,
     quantityHelper: 'Enter paver sqft.',
     missingMessage: 'Enter paver sqft.',
   },
-  rock_mulch: {
+  rock: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'cy', 'ton', 'allowance', 'lump_sum'],
-    measurementKeys: ['rockMulchSqft', 'landscapeSqft'],
+    measurementKeys: ['rockMulchSqft', 'landscapeTons'],
     requiresUserQuantity: true,
-    quantityHelper: 'Enter coverage sqft, CY, or tons.',
-    missingMessage: 'Enter rock/mulch quantity.',
+    quantityHelper: 'Enter decorative rock coverage sqft, CY, or tons.',
+    missingMessage: 'Enter rock quantity.',
+  },
+  mulch: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'cy', 'ton', 'allowance', 'lump_sum'],
+    measurementKeys: ['rockMulchSqft', 'landscapeTons'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter mulch coverage sqft, CY, or tons.',
+    missingMessage: 'Enter mulch quantity.',
   },
   tear_off: {
     defaultUnit: 'squares',
@@ -3056,13 +3239,61 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     quantityHelper: 'Enter concrete sqft or CY.',
     missingMessage: 'Enter concrete quantity.',
   },
+  demo_removal: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['concreteDemoSqft', 'concreteSqft', 'floorAreaSqft', 'deckSqft', 'drywallSqft'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter concrete demo removal area in sqft.',
+    missingMessage: 'Enter demo removal area.',
+  },
   pour_flatwork: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'cy', 'allowance', 'lump_sum'],
     measurementKeys: ['concreteSqft', 'concreteCy'],
     requiresUserQuantity: true,
-    quantityHelper: 'Enter concrete sqft or CY.',
-    missingMessage: 'Enter concrete quantity.',
+    quantityHelper: 'Enter flatwork pour area in sqft.',
+    missingMessage: 'Enter flatwork pour area.',
+  },
+  forms: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'concreteSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Uses flatwork pour area from Quick Measurements.',
+    missingMessage: 'Enter flatwork pour area.',
+  },
+  reinforcement: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'concreteSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Uses flatwork pour area from Quick Measurements.',
+    missingMessage: 'Enter flatwork pour area.',
+  },
+  finish_seal: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'concreteSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Uses flatwork pour area from Quick Measurements.',
+    missingMessage: 'Enter flatwork pour area.',
+  },
+  pour_foundation: {
+    defaultUnit: 'cy',
+    allowedUnits: ['cy', 'allowance', 'lump_sum'],
+    measurementKeys: ['concreteCy', 'concreteSqft'],
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter footing or foundation concrete in CY.',
+    missingMessage: 'Enter foundation CY.',
+  },
+  site_prep: {
+    defaultUnit: 'cy',
+    allowedUnits: ['cy', 'sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'excavationCy',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter site prep or excavation CY.',
+    missingMessage: 'Enter excavation CY.',
   },
   hang: {
     defaultUnit: 'sqft',
@@ -3198,18 +3429,31 @@ export function normalizeScopeMeasurements(measurements?: ScopeMeasurements | nu
     underlaymentSqft: num(measurements?.underlaymentSqft),
     moistureBarrierSqft: num(measurements?.moistureBarrierSqft),
     transitionLf: num(measurements?.transitionLf),
+    transitionCount: num(measurements?.transitionCount),
     quarterRoundLf: num(measurements?.quarterRoundLf),
     backsplashSqft: num(measurements?.backsplashSqft),
     countertopSqft: num(measurements?.countertopSqft),
     cabinetLf: num(measurements?.cabinetLf),
     landscapeSqft: num(measurements?.landscapeSqft),
+    artificialTurfSqft: num(measurements?.artificialTurfSqft),
+    demoClearingSqft: num(measurements?.demoClearingSqft),
+    gradingSqft: num(measurements?.gradingSqft),
+    soilPrepSqft: num(measurements?.soilPrepSqft),
     sodSqft: num(measurements?.sodSqft),
     paverSqft: num(measurements?.paverSqft),
     rockMulchSqft: num(measurements?.rockMulchSqft),
     landscapeTons: num(measurements?.landscapeTons),
+    plantCount: num(measurements?.plantCount),
+    treeCount: num(measurements?.treeCount),
+    irrigationZoneCount: num(measurements?.irrigationZoneCount),
+    drainageLf: num(measurements?.drainageLf),
+    concreteEdgingLf: num(measurements?.concreteEdgingLf),
+    boulderCount: num(measurements?.boulderCount),
+    landscapeLightCount: num(measurements?.landscapeLightCount),
     roofSquares: num(measurements?.roofSquares),
     drywallSqft: num(measurements?.drywallSqft),
     concreteSqft: num(measurements?.concreteSqft),
+    concreteDemoSqft: num(measurements?.concreteDemoSqft),
     concreteCy: num(measurements?.concreteCy),
     excavationCy: num(measurements?.excavationCy),
     deckSqft: num(measurements?.deckSqft),
@@ -3570,6 +3814,27 @@ const BATHROOM_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRu
     missingMessage: 'Enter SF and select paint scope.',
   },
 };
+
+/** Per-product install SF from Quick measurements — not the rolled-up flooringSqft total. */
+const FLOORING_PRODUCT_SQFT_MEASUREMENT_KEY: Record<string, string> = {
+  flooring_lvp: 'flooringLvpSqft',
+  flooring_laminate: 'flooringLaminateSqft',
+  flooring_engineered_hardwood: 'flooringEngineeredHardwoodSqft',
+  flooring_solid_hardwood: 'flooringSolidHardwoodSqft',
+  tile_flooring: 'flooringTileSqft',
+  flooring_carpet: 'flooringCarpetSqft',
+  flooring_sheet_vinyl: 'flooringSheetVinylSqft',
+};
+
+export function hasFlooringProductTakeoff(
+  itemId: string,
+  measurements: Record<string, unknown>
+): boolean {
+  const key = FLOORING_PRODUCT_SQFT_MEASUREMENT_KEY[itemId];
+  if (!key) return false;
+  const val = parseScopeMeasurementInput(String(measurements[key] ?? ''));
+  return val != null && val > 0;
+}
 
 const FLOORING_CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule> = {
   floor_prep: {
@@ -4186,7 +4451,7 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
   demo: { unit: 'sqft', measurementKeys: ['bathroomFloorSqft', 'floorAreaSqft'] },
   floor_demo: { unit: 'sqft', measurementKeys: ['floorDemoSqft', 'bathroomFloorSqft', 'kitchenFloorSqft', 'floorAreaSqft'] },
   adhesive_mastic_removal: { unit: 'sqft', measurementKeys: ['floorDemoSqft', 'floorAreaSqft'] },
-  demo_removal: { unit: 'sqft', measurementKeys: ['floorAreaSqft', 'deckSqft', 'concreteSqft', 'drywallSqft'] },
+  demo_removal: { unit: 'sqft', measurementKeys: ['concreteDemoSqft', 'concreteSqft', 'floorAreaSqft', 'deckSqft', 'drywallSqft'] },
   floor_tile: { unit: 'sqft', measurementKeys: ['bathroomFloorSqft'] },
   flooring: { unit: 'sqft', measurementKeys: ['flooringSqft', 'floorAreaSqft', 'kitchenFloorSqft', 'bathroomFloorSqft'] },
   flooring_lvp: { unit: 'sqft', measurementKeys: ['flooringLvpSqft'] },
@@ -4195,9 +4460,10 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
   flooring_solid_hardwood: { unit: 'sqft', measurementKeys: ['flooringSolidHardwoodSqft'] },
   tile_flooring: { unit: 'sqft', measurementKeys: ['flooringTileSqft'] },
   flooring_carpet: { unit: 'sqft', measurementKeys: ['flooringCarpetSqft'] },
+  flooring_sheet_vinyl: { unit: 'sqft', measurementKeys: ['flooringSheetVinylSqft'] },
   underlayment: { unit: 'sqft', measurementKeys: ['underlaymentSqft'] },
   moisture_barrier: { unit: 'sqft', measurementKeys: ['moistureBarrierSqft'] },
-  transitions: { unit: 'lf', measurementKeys: ['transitionLf'] },
+  transitions: { unit: 'each', measurementKeys: ['transitionCount', 'transitionLf'] },
   quarter_round: { unit: 'lf', measurementKeys: ['quarterRoundLf'] },
   floor_prep: { unit: 'sqft', measurementKeys: ['floorPrepSqft'] },
   drywall: { unit: 'sqft', measurementKeys: ['drywallSqft', 'floorAreaSqft'] },
@@ -4221,9 +4487,17 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
   backsplash_demo: { unit: 'sqft', measurementKeys: ['backsplashSqft'] },
   countertops: { unit: 'sqft', measurementKeys: ['countertopSqft'] },
   cabinets: { unit: 'lf', measurementKeys: ['cabinetLf'] },
-  pavers: { unit: 'sqft', measurementKeys: ['paverSqft', 'landscapeSqft'] },
-  sod_turf: { unit: 'sqft', measurementKeys: ['sodSqft', 'landscapeSqft'] },
-  rock_mulch: { unit: 'sqft', measurementKeys: ['rockMulchSqft', 'landscapeSqft'] },
+  pavers: { unit: 'sqft', measurementKeys: ['paverSqft'] },
+  sod_turf: { unit: 'sqft', measurementKeys: ['sodSqft'] },
+  artificial_turf: { unit: 'sqft', measurementKeys: ['artificialTurfSqft'] },
+  rock: { unit: 'sqft', measurementKeys: ['rockMulchSqft', 'landscapeTons'] },
+  mulch: { unit: 'sqft', measurementKeys: ['rockMulchSqft', 'landscapeTons'] },
+  plants: { unit: 'each', measurementKey: 'plantCount' },
+  trees: { unit: 'each', measurementKey: 'treeCount' },
+  irrigation: { unit: 'zone', measurementKeys: ['irrigationZoneCount'] },
+  drainage: { unit: 'lf', measurementKeys: ['drainageLf'] },
+  concrete_edging: { unit: 'lf', measurementKeys: ['concreteEdgingLf'] },
+  landscape_lighting: { unit: 'each', measurementKeys: ['landscapeLightCount'] },
   concrete: { unit: 'sqft', measurementKeys: ['concreteSqft', 'concreteCy'] },
   pour_flatwork: { unit: 'sqft', measurementKeys: ['concreteSqft', 'concreteCy'] },
   concrete_patio: { unit: 'sqft', measurementKeys: ['concreteSqft', 'deckSqft', 'floorAreaSqft'] },
@@ -4231,12 +4505,12 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
   excavation: { unit: 'cy', measurementKeys: ['excavationCy'] },
   trenching: { unit: 'lf' },
   utility_trenching: { unit: 'lf' },
-  grading: { unit: 'sqft', measurementKeys: ['landscapeSqft', 'floorAreaSqft'] },
+  grading: { unit: 'sqft', measurementKeys: ['gradingSqft', 'landscapeSqft', 'floorAreaSqft'] },
   sitework: { unit: 'sqft', measurementKeys: ['landscapeSqft', 'floorAreaSqft'] },
-  site_prep: { unit: 'sqft', measurementKeys: ['concreteSqft', 'landscapeSqft', 'floorAreaSqft'] },
-  soil_prep: { unit: 'sqft', measurementKeys: ['landscapeSqft'] },
+  site_prep: { unit: 'cy', measurementKeys: ['excavationCy', 'concreteSqft', 'landscapeSqft', 'floorAreaSqft'] },
+  soil_prep: { unit: 'sqft', measurementKeys: ['soilPrepSqft', 'landscapeSqft'] },
   clearing: { unit: 'sqft', measurementKeys: ['landscapeSqft', 'floorAreaSqft'] },
-  demo_clearing: { unit: 'sqft', measurementKeys: ['landscapeSqft'] },
+  demo_clearing: { unit: 'sqft', measurementKeys: ['demoClearingSqft', 'landscapeSqft'] },
   backfill: { unit: 'cy', measurementKeys: ['excavationCy'] },
   // Soft-cost dumpster / trash haul — never excavator CY.
   haul_off: { unit: 'allowance' },
@@ -4250,7 +4524,6 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
   tear_off: { unit: 'squares', measurementKeys: ['roofSquares'] },
   shingles_roofing: { unit: 'squares', measurementKeys: ['roofSquares'] },
   decking_repair: { unit: 'sqft', measurementKeys: ['roofSquares'] },
-  underlayment: { unit: 'squares', measurementKeys: ['roofSquares'] },
   flashing: { unit: 'lf' },
   vents_penetrations: { unit: 'each' },
   gutters_downspouts: { unit: 'lf' },
@@ -4260,10 +4533,6 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
   drain_cleaning: { unit: 'lf' },
   water_line: { unit: 'lf' },
   sewer_line: { unit: 'lf' },
-  drainage: { unit: 'lf' },
-  irrigation: { unit: 'sqft', measurementKeys: ['landscapeSqft'] },
-  plants_trees: { unit: 'each' },
-  landscape_lighting: { unit: 'each' },
   mobilization: { unit: 'allowance' },
   emergency_fee: { unit: 'allowance' },
   parts_materials: { unit: 'allowance' },
@@ -4883,9 +5152,9 @@ export function getChecklistItemQuantityRule(
                         ? 'showerFloorTileSqft'
                         : itemId === 'floor_tile'
                           ? 'bathroomFloorSqft'
-                          : itemId === 'tile_flooring' || itemId === 'flooring'
+                          : itemId === 'flooring'
                             ? 'flooringSqft'
-                            : keys[0];
+                            : FLOORING_PRODUCT_SQFT_MEASUREMENT_KEY[resolvedId] ?? keys[0];
     const preferred = preferredPrimaryUnit(itemId);
     return {
       ...rule,
@@ -5096,7 +5365,7 @@ export function syncItemQuantitiesToMeasurementFields(
     ['floor_prep', 'floorPrepSqft'],
     ['underlayment', 'underlaymentSqft'],
     ['moisture_barrier', 'moistureBarrierSqft'],
-    ['transitions', 'transitionLf'],
+    ['transitions', 'transitionCount'],
     ['quarter_round', 'quarterRoundLf'],
     ['concrete', 'concreteSqft'],
     ['pour_flatwork', 'concreteSqft'],
@@ -6503,6 +6772,52 @@ const FLOORING_DEMO_TOTAL_RATES: Record<string, number> = {
   unknown: 3,
 };
 
+function flooringInstallNationalAverage(
+  itemId: string,
+  measurementsInput: ScopeMeasurementsInputExtended
+): { material: number; labor: number; sourceLabel: string } | null {
+  if (itemId === 'flooring_carpet') {
+    return {
+      material: 3.5,
+      labor: 1.5,
+      sourceLabel: 'Suggested budget split · National Average · carpet + pad',
+    };
+  }
+  if (itemId === 'flooring_sheet_vinyl') {
+    if (measurementsInput.flooringNewSheetVinylType === 'vct') {
+      return {
+        material: 3,
+        labor: 4,
+        sourceLabel: 'Suggested budget split · National Average · VCT / vinyl composition tile',
+      };
+    }
+    if (measurementsInput.flooringNewSheetVinylType === 'sheet_vinyl') {
+      return {
+        material: 2.5,
+        labor: 2.5,
+        sourceLabel: 'Suggested budget split · National Average · sheet vinyl',
+      };
+    }
+    return null;
+  }
+  if (itemId !== 'flooring_lvp') return null;
+  if (measurementsInput.flooringNewLvpInstallMethod === 'floating') {
+    return {
+      material: 3.5,
+      labor: 3.5,
+      sourceLabel: 'Suggested budget split · National Average · floating/click-lock LVP',
+    };
+  }
+  if (measurementsInput.flooringNewLvpInstallMethod === 'glue_down') {
+    return {
+      material: 4.25,
+      labor: 4.75,
+      sourceLabel: 'Suggested budget split · National Average · glue-down LVP',
+    };
+  }
+  return null;
+}
+
 function flooringDemoRateFor(
   type: string,
   notes: string | null | undefined,
@@ -7677,6 +7992,401 @@ export function resolveScopeItemSuggestedPricing(
   });
   if (disposalChoicePricing !== undefined) return disposalChoicePricing;
 
+  if (itemId === 'transitions') {
+    const rates: Record<string, { material: number; labor: number; label: string }> = {
+      standard_transition: { material: 20, labor: 30, label: 'standard T-molding / transition' },
+      reducer: { material: 30, labor: 35, label: 'reducer' },
+      threshold: { material: 35, labor: 40, label: 'threshold / end cap' },
+      custom_transition: { material: 40, labor: 60, label: 'custom / difficult transition' },
+    };
+    const selectedTypes = String(choiceId || '')
+      .split(',')
+      .map((selectedChoiceId) => ({ choiceId: selectedChoiceId, rate: rates[selectedChoiceId] }))
+      .filter(
+        (entry): entry is {
+          choiceId: string;
+          rate: { material: number; labor: number; label: string };
+        } => Boolean(entry.rate)
+      );
+    if (selectedTypes.length) {
+      const quantities = selectedTypes.map(({ choiceId: selectedChoiceId }) => ({
+        choiceId: selectedChoiceId,
+        quantity:
+          Number(measurementsInput.itemQuantities?.[`${itemId}__${selectedChoiceId}`]?.quantity) ||
+          Number(resolved.quantity),
+      }));
+      if (quantities.some(({ quantity }) => !Number.isFinite(quantity) || quantity <= 0)) return empty;
+      const material = round2(
+        quantities.reduce(
+          (sum, entry, index) => sum + entry.quantity * selectedTypes[index].rate.material,
+          0
+        )
+      );
+      const labor = round2(
+        quantities.reduce(
+          (sum, entry, index) => sum + entry.quantity * selectedTypes[index].rate.labor,
+          0
+        )
+      );
+      const totalQuantity = round2(quantities.reduce((sum, entry) => sum + entry.quantity, 0));
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: `Suggested budget split · National Average · ${selectedTypes
+            .map(({ rate }) => rate.label)
+            .join(' + ')}`,
+          helper: `${totalQuantity.toLocaleString()} transition pieces`,
+          mode: 'suggested_price',
+          lumpSumOnly: false,
+          basis: { quantity: totalQuantity, unit: 'each' },
+          benchmarkAction: 'price_ready',
+          pricingRecordId: `bps_national:transitions:${selectedTypes.map(({ choiceId: id }) => id).join('+')}:each`,
+          productionStatus: 'review_required',
+        },
+        comparison: null,
+      };
+    }
+    if (String(choiceId || '').split(',').includes('unsure')) return empty;
+  }
+
+  if (
+    itemId === 'demo_removal' &&
+    String(templateKey || '').toLowerCase() === 'concrete' &&
+    Number(resolved.quantity) > 0
+  ) {
+    const split = NATIONAL_AVERAGE_BUDGET_SPLITS.concrete_demo;
+    const quantity = Number(resolved.quantity);
+    const material = round2(quantity * split.material);
+    const labor = round2(quantity * split.labor);
+    return {
+      fill: {
+        material,
+        labor,
+        total: round2(material + labor),
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        costBuckets: [
+          {
+            key: 'equipment',
+            label: split.materialBucketLabel || 'Equipment & disposal',
+            amount: material,
+            rate: split.material,
+            source: 'national_average',
+          },
+          {
+            key: 'labor',
+            label: 'Labor',
+            amount: labor,
+            rate: split.labor,
+            source: 'national_average',
+          },
+        ],
+        rateSourceLabel: split.sourceLabel,
+        helper: `${quantity.toLocaleString()} sqft · normal haul-off included`,
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: 'sqft' },
+        benchmarkAction: 'price_ready',
+        pricingRecordId: 'bps_national:concrete_demo:sqft',
+      },
+      comparison: null,
+    };
+  }
+
+  if (itemId === 'demo_clearing' && Number(resolved.quantity) > 0) {
+    const clearingRates: Record<string, { material: number; labor: number; label: string; minimum: number; review?: boolean }> = {
+      light_clearing: {
+        material: 0.4,
+        labor: 1.1,
+        label: 'Light clearing · normal haul-off included',
+        minimum: 250,
+      },
+      medium_vegetation: {
+        material: 0.7,
+        labor: 1.8,
+        label: 'Medium vegetation clearing',
+        minimum: 350,
+      },
+      dense_vegetation: {
+        material: 1.25,
+        labor: 2.75,
+        label: 'Dense vegetation clearing',
+        minimum: 500,
+        review: false,
+      },
+    };
+    const clearingChoiceId = choiceId ?? measurementsInput.landscapeClearingLevel;
+    const rate =
+      clearingChoiceId === 'unsure'
+        ? { ...clearingRates.medium_vegetation, label: 'Medium vegetation clearing · conditions review required', review: true }
+        : clearingRates[clearingChoiceId || 'light_clearing'] || clearingRates.light_clearing;
+    const quantity = Number(resolved.quantity);
+    let material = round2(quantity * rate.material);
+    let labor = round2(quantity * rate.labor);
+    const minimum = rate.minimum;
+    if (material + labor > 0 && material + labor < minimum) {
+      const scale = minimum / (material + labor);
+      material = round2(material * scale);
+      labor = round2(labor * scale);
+    }
+    return {
+      fill: {
+        material,
+        labor,
+        total: round2(material + labor),
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        costBuckets: [
+          {
+            key: 'equipment',
+            label: 'Equipment, haul-off & disposal',
+            amount: material,
+            rate: rate.material,
+            source: 'national_average',
+          },
+          {
+            key: 'labor',
+            label: 'Labor',
+            amount: labor,
+            rate: rate.labor,
+            source: 'national_average',
+          },
+        ],
+        rateSourceLabel: `National planning rate · ${rate.label}`,
+        helper: `${quantity.toLocaleString()} sqft${material + labor >= minimum && quantity * (rate.material + rate.labor) < minimum ? ` ($${minimum.toLocaleString()} minimum applied)` : ''}${rate.review ? ' · Review clearing conditions before bid' : ''}`,
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: 'sqft' },
+        benchmarkAction: 'price_ready',
+        pricingRecordId: `bps_national:demo_clearing:${clearingChoiceId || 'light_clearing'}:sqft`,
+        productionStatus: rate.review ? 'review_required' : undefined,
+      },
+      comparison: null,
+    };
+  }
+
+  if (itemId === 'irrigation' && Number(resolved.quantity) > 0) {
+    const irrigationRates: Record<string, { material: number; labor: number; label: string; review?: boolean }> = {
+      sprinkler: { material: 650, labor: 600, label: 'sprinkler irrigation' },
+      drip: { material: 375, labor: 375, label: 'drip irrigation' },
+      unsure: { material: 500, labor: 500, label: 'irrigation type not sure', review: true },
+    };
+    const rate = irrigationRates[choiceId || 'sprinkler'] || irrigationRates.sprinkler;
+    const quantity = Number(resolved.quantity);
+    const material = round2(quantity * rate.material);
+    const labor = round2(quantity * rate.labor);
+    return {
+      fill: {
+        material,
+        labor,
+        total: round2(material + labor),
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel: `National planning rate · ${rate.label}`,
+        helper: `${quantity.toLocaleString()} zones${rate.review ? ' · Review before bid' : ''}`,
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: 'zone' },
+        benchmarkAction: 'price_ready',
+        pricingRecordId: `bps_national:irrigation:${choiceId || 'sprinkler'}:zone`,
+        productionStatus: rate.review ? 'review_required' : undefined,
+      },
+      comparison: null,
+    };
+  }
+
+  if (itemId === 'landscape_boulders' && Number(resolved.quantity) > 0) {
+    const quantity = Number(resolved.quantity);
+    const material = round2(quantity * 250);
+    const labor = round2(quantity * 150);
+    return {
+      fill: {
+        material,
+        labor,
+        total: round2(material + labor),
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel: 'National planning rate · Standard / medium boulder · Review before bid',
+        helper: `${quantity.toLocaleString()} each · Review before bid`,
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: 'each' },
+        benchmarkAction: 'price_ready',
+        pricingRecordId: 'bps_national:landscape_boulders:each',
+        productionStatus: 'review_required',
+      },
+      comparison: null,
+    };
+  }
+
+  if (
+    ['sod_turf', 'artificial_turf', 'rock', 'mulch', 'plants', 'trees', 'rock_mulch', 'plants_trees'].includes(
+      itemId
+    ) &&
+    Number(resolved.quantity) > 0
+  ) {
+    const selectedLandscapeScope = Array.isArray(measurementsInput.landscapeScope)
+      ? measurementsInput.landscapeScope.map(String)
+      : [];
+    const normalizedId =
+      itemId === 'rock_mulch'
+        ? selectedLandscapeScope.includes('mulch')
+          ? 'mulch'
+          : 'rock'
+        : itemId === 'plants_trees'
+          ? selectedLandscapeScope.includes('trees') ||
+            (Number(measurementsInput.treeCount) > 0 && !(Number(measurementsInput.plantCount) > 0))
+            ? 'trees'
+            : 'plants'
+          : itemId;
+    const splitById: Record<string, { material: number; labor: number; label: string; unit: string }> = {
+      sod_turf: { material: 0.85, labor: 0.9, label: 'sod', unit: 'sqft' },
+      artificial_turf: {
+        material: 8.5,
+        labor: 7.5,
+        label: 'artificial turf',
+        unit: 'sqft',
+      },
+      rock: { material: 1.9, labor: 0.85, label: 'decorative rock · 3 inch depth', unit: 'sqft' },
+      mulch: { material: 0.35, labor: 0.25, label: 'mulch', unit: 'sqft' },
+      plants: { material: 35, labor: 30, label: 'standard shrub / plant', unit: 'each' },
+      trees: { material: 250, labor: 200, label: 'standard landscape tree', unit: 'each' },
+    };
+    if (itemId === 'rock' || itemId === 'rock_mulch') {
+      if (choiceId === 'premium_heavy' || choiceId === 'unsure') return empty;
+      if (choiceId === 'rock_2in') {
+        splitById.rock = { material: 1.55, labor: 0.7, label: 'decorative rock · 2 inch depth', unit: 'sqft' };
+      }
+    }
+    const split =
+      splitById[normalizedId] ??
+      (() => {
+        const fallback = NATIONAL_AVERAGE_BUDGET_SPLITS[itemId];
+        return {
+          material: fallback.material,
+          labor: fallback.labor,
+          label: fallback.sourceLabel,
+          unit: fallback.unit,
+        };
+      })();
+    const quantity = Number(resolved.quantity);
+    const rockDepthInches =
+      normalizedId === 'rock'
+        ? choiceId === 'rock_2in'
+          ? 2
+          : choiceId === 'rock_3in' || !choiceId
+            ? 3
+            : null
+        : null;
+    const supportingTakeoff =
+      rockDepthInches != null
+        ? ` · approx ${(quantity * (rockDepthInches / 12) / 27).toFixed(2)} CY at ${rockDepthInches} in`
+        : '';
+    let material = round2(quantity * split.material);
+    let labor = round2(quantity * split.labor);
+    const landscapingMinimums: Record<string, number> = {
+      rock: 250,
+    };
+    const minimum = landscapingMinimums[normalizedId];
+    if (minimum && material + labor > 0 && material + labor < minimum) {
+      const scale = minimum / (material + labor);
+      material = round2(material * scale);
+      labor = round2(labor * scale);
+    }
+    return {
+      fill: {
+        material,
+        labor,
+        total: round2(material + labor),
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel: `National planning rate · ${split.label}`,
+        helper: `${quantity.toLocaleString()} ${split.unit || resolved.unit || 'units'}${supportingTakeoff}${
+          minimum && round2(material + labor) >= minimum && quantity * (split.material + split.labor) < minimum
+            ? ` ($${minimum.toLocaleString()} minimum applied)`
+            : ''
+        }`,
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: split.unit || resolved.unit },
+        benchmarkAction: 'price_ready',
+        pricingRecordId: `bps_national:${normalizedId}:${split.label}`,
+      },
+      comparison: null,
+    };
+  }
+
+  if (
+    ['demo_clearing', 'grading', 'soil_prep'].includes(itemId) &&
+    Number(resolved.quantity) > 0
+  ) {
+    const fallback = NATIONAL_AVERAGE_BUDGET_SPLITS[itemId];
+    const quantity = Number(resolved.quantity);
+    let material = round2(quantity * fallback.material);
+    let labor = round2(quantity * fallback.labor);
+    const minimum =
+      itemId === 'demo_clearing' ? 250 : itemId === 'grading' ? 500 : 300;
+    if (material + labor > 0 && material + labor < minimum) {
+      const scale = minimum / (material + labor);
+      material = round2(material * scale);
+      labor = round2(labor * scale);
+    }
+    return {
+      fill: {
+        material,
+        labor,
+        total: round2(material + labor),
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel: fallback.sourceLabel,
+        helper: `${quantity.toLocaleString()} sqft${
+          round2(material + labor) >= minimum && quantity * (fallback.material + fallback.labor) < minimum
+            ? ` ($${minimum.toLocaleString()} minimum applied)`
+            : ''
+        }`,
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: 'sqft' },
+        benchmarkAction: 'price_ready',
+        pricingRecordId: `bps_national:${itemId}:sqft`,
+      },
+      comparison: null,
+    };
+  }
+
+  if (
+    itemId === 'concrete' &&
+    String(templateKey || '').toLowerCase() === 'landscaping' &&
+    Array.isArray(measurementsInput.landscapeScope) &&
+    measurementsInput.landscapeScope.some((id) => String(id) === 'concrete_edging') &&
+    Number(resolved.quantity) > 0
+  ) {
+    const quantity = Number(resolved.quantity);
+    const material = round2(quantity * 4);
+    const labor = round2(quantity * 6);
+    return {
+      fill: {
+        material,
+        labor,
+        total: round2(material + labor),
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        rateSourceLabel: 'National planning rate · Concrete edging',
+        helper: `${quantity.toLocaleString()} LF`,
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: 'lf' },
+        benchmarkAction: 'price_ready',
+        pricingRecordId: 'bps_national:concrete_edging:lf',
+      },
+      comparison: null,
+    };
+  }
+
   if (itemId === 'electrical') {
     const rates: Record<string, { material: number; labor: number; label: string }> = {
       replace_outlet_switch: { material: 15, labor: 70, label: 'replace outlet or switch' },
@@ -8809,6 +9519,19 @@ export function resolveScopeItemSuggestedPricing(
       sourceLabel: prepAverage.sourceLabel,
     };
   }
+  const flooringInstallAverage = flooringInstallNationalAverage(itemId, measurementsInput);
+  const dynamicFlooringInstall = Boolean(
+    flooringInstallAverage && unit === 'sqft' && String(templateKey || '').toLowerCase() === 'flooring'
+  );
+  if (dynamicFlooringInstall && flooringInstallAverage) {
+    average = {
+      ...(average || {}),
+      unit: 'sqft',
+      material: flooringInstallAverage.material,
+      labor: flooringInstallAverage.labor,
+      sourceLabel: flooringInstallAverage.sourceLabel,
+    };
+  }
   const template = resolveTemplateRateForItem(itemId, unit, pricingContext, count);
   const dynamicFloorPrep =
     itemId === 'floor_prep' &&
@@ -8816,10 +9539,16 @@ export function resolveScopeItemSuggestedPricing(
       Array.isArray(measurementsInput.flooringExistingTypes) ||
       Array.isArray(measurementsInput.flooringProductScope)) &&
     unit === 'sqft';
-  const materialRate = dynamicFloorPrep ? average?.material ?? null : template?.materialRate ?? average?.material ?? null;
-  const laborRate = dynamicFloorPrep ? average?.labor ?? null : template?.laborRate ?? average?.labor ?? null;
-  const materialRateSource: PricingLegSource = dynamicFloorPrep ? 'national_average' : template?.materialRate ? 'template' : 'national_average';
-  const laborRateSource: PricingLegSource = dynamicFloorPrep ? 'national_average' : template?.laborRate ? 'template' : 'national_average';
+  const materialRate = dynamicFloorPrep || dynamicFlooringInstall
+    ? average?.material ?? null
+    : template?.materialRate ?? average?.material ?? null;
+  const laborRate = dynamicFloorPrep || dynamicFlooringInstall
+    ? average?.labor ?? null
+    : template?.laborRate ?? average?.labor ?? null;
+  const materialRateSource: PricingLegSource =
+    dynamicFloorPrep || dynamicFlooringInstall ? 'national_average' : template?.materialRate ? 'template' : 'national_average';
+  const laborRateSource: PricingLegSource =
+    dynamicFloorPrep || dynamicFlooringInstall ? 'national_average' : template?.laborRate ? 'template' : 'national_average';
   const templateName = template?.source ?? null;
 
   if (!hasAnyPricingRate(materialRate, laborRate)) return empty;
@@ -9561,6 +10290,22 @@ function resolveChecklistItemQuantityCore(
   }
   const rule = explicitRule ?? DEFAULT_SCOPE_ALLOWANCE_QUANTITY_RULE;
 
+  if (
+    itemId === 'concrete' &&
+    String(ctx.templateKey || '').toLowerCase() === 'landscaping' &&
+    measurements.concreteEdgingLf != null &&
+    measurements.concreteEdgingLf > 0
+  ) {
+    return {
+      quantity: measurements.concreteEdgingLf,
+      unit: 'lf',
+      quantitySource: 'user_entered',
+      sourceLabel: 'User-entered concrete edging LF',
+      pricingReady: true,
+      showInput: true,
+    };
+  }
+
   if (rule.choiceIds?.length && choiceId && !rule.choiceIds.includes(choiceId)) {
     return {
       quantity: null,
@@ -9589,6 +10334,63 @@ function resolveChecklistItemQuantityCore(
 
   const linkedCountertop = resolveLinkedCountertopAllowance(itemId, measurements, ctx.notes);
   if (linkedCountertop) return linkedCountertop;
+
+  // Landscaping QM values are the contractor's current takeoff and must win
+  // over an older or broader notes allowance.
+  if (String(ctx.templateKey || '').toLowerCase() === 'landscaping') {
+    const landscapingMeasurementKeys = rule.measurementKey
+      ? [rule.measurementKey]
+      : rule.measurementKeys || [];
+    for (const key of landscapingMeasurementKeys) {
+      // General yard coverage from notes is not scope-specific QM input.
+      if (key === 'landscapeSqft' || key === 'floorAreaSqft') continue;
+      const value = Number(measurements[key]);
+      if (Number.isFinite(value) && value > 0) {
+        return applyPricingReadyFlags(
+          {
+            quantity: value,
+            unit: measurementUnitForKey(key, rule.defaultUnit),
+            quantitySource: 'user_entered',
+            sourceLabel: 'User-entered Quick Measurement',
+            pricingReady: true,
+            quantityHelper: rule.quantityHelper,
+            showInput: true,
+          },
+          itemId,
+          ctx
+        );
+      }
+    }
+  }
+
+  // Concrete QM values are the contractor's current takeoff and must win
+  // over notes-derived allowances.
+  if (String(ctx.templateKey || '').toLowerCase() === 'concrete') {
+    const concreteMeasurementKeys = rule.measurementKey
+      ? [rule.measurementKey]
+      : rule.measurementKeys || [];
+    for (const key of concreteMeasurementKeys) {
+      if (key === 'floorAreaSqft' || key === 'deckSqft' || key === 'drywallSqft' || key === 'landscapeSqft') {
+        continue;
+      }
+      const value = Number(measurements[key]);
+      if (Number.isFinite(value) && value > 0) {
+        return applyPricingReadyFlags(
+          {
+            quantity: value,
+            unit: measurementUnitForKey(key, rule.defaultUnit),
+            quantitySource: 'user_entered',
+            sourceLabel: 'User-entered Quick Measurement',
+            pricingReady: true,
+            quantityHelper: rule.quantityHelper,
+            showInput: true,
+          },
+          itemId,
+          ctx
+        );
+      }
+    }
+  }
 
   const override = measurements.itemQuantities[itemId];
   const explicitOverride = explicitItemQuantityOverride(measurements, itemId, rule, ctx);
@@ -9926,8 +10728,12 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   { test: /\bgeneral\s+conditions/i, key: 'general_conditions' },
   { test: /\bsupervision|\bsuperintend/i, key: 'supervision' },
   { test: /\boverhead\s*(?:&|and|\/)?\s*profit|\bprofit\s*(?:&|and|\/)?\s*overhead/i, key: 'overhead_profit' },
-  { test: /\brock|\bmulch|\bgravel/i, key: 'rock_mulch' },
-  { test: /\bsod|\bturf/i, key: 'sod_turf' },
+  { test: /\brock|\bgravel/i, key: 'rock' },
+  { test: /\bmulch\b/i, key: 'mulch' },
+  { test: /\bplant|\bshrub/i, key: 'plants' },
+  { test: /\btree\b/i, key: 'trees' },
+  { test: /\b(?:artificial|fake|synthetic)\s+(?:grass|turf)\b|\bturf\b/i, key: 'artificial_turf' },
+  { test: /\bsod\b|\bnatural\s+grass\b/i, key: 'sod_turf' },
   { test: /\bpaver/i, key: 'pavers' },
   // Before flatwork: landscaping helpers say "Not driveway flatwork" and used to steal $8.5k.
   {
@@ -10013,7 +10819,8 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
   { test: /\bwindows?\s*(?:&|and|\/)\s*doors?\b/i, key: 'windows_doors' },
   { test: /\bwindows?\b/i, key: 'windows' },
   { test: /\b(?:interior|french)\s+doors?\b|\bdoor\b/i, key: 'windows_doors' },
-  { test: /\bplant|\btree\b|\bshrub/i, key: 'plants_trees' },
+  { test: /\bplant|\bshrub/i, key: 'plants' },
+  { test: /\btree\b/i, key: 'trees' },
   { test: /\bfoundation\b/i, key: 'pour_foundation' },
   { test: /\bplumb.*\brough|\brough[\s-]?in\b.*\bplumb/i, key: 'plumbing_rough' },
   // Before electrical_rough — "Electrical fixtures" is electrical_trim ($4k), not rough-in.
@@ -10455,22 +11262,37 @@ export function scopeMeasurementsToPayload(
     underlaymentSqft: parseScopeMeasurementInput(sanitized.underlaymentSqft),
     moistureBarrierSqft: parseScopeMeasurementInput(sanitized.moistureBarrierSqft),
     transitionLf: parseScopeMeasurementInput(sanitized.transitionLf),
+    transitionCount: parseScopeMeasurementInput(sanitized.transitionCount),
     quarterRoundLf: parseScopeMeasurementInput(sanitized.quarterRoundLf),
     backsplashSqft: parseScopeMeasurementInput(sanitized.backsplashSqft),
     countertopSqft: parseScopeMeasurementInput(sanitized.countertopSqft),
     cabinetLf: parseScopeMeasurementInput(sanitized.cabinetLf),
     landscapeSqft: parseScopeMeasurementInput(sanitized.landscapeSqft),
+    artificialTurfSqft: parseScopeMeasurementInput(sanitized.artificialTurfSqft),
+    demoClearingSqft: parseScopeMeasurementInput(sanitized.demoClearingSqft),
+    gradingSqft: parseScopeMeasurementInput(sanitized.gradingSqft),
+    soilPrepSqft: parseScopeMeasurementInput(sanitized.soilPrepSqft),
     sodSqft: parseScopeMeasurementInput(sanitized.sodSqft),
     paverSqft: parseScopeMeasurementInput(sanitized.paverSqft),
     rockMulchSqft: parseScopeMeasurementInput(sanitized.rockMulchSqft),
     landscapeTons: parseScopeMeasurementInput(sanitized.landscapeTons),
+    plantCount: parseScopeMeasurementInput(sanitized.plantCount),
+    treeCount: parseScopeMeasurementInput(sanitized.treeCount),
+    irrigationZoneCount: parseScopeMeasurementInput(sanitized.irrigationZoneCount),
+    drainageLf: parseScopeMeasurementInput(sanitized.drainageLf),
+    concreteEdgingLf: parseScopeMeasurementInput(sanitized.concreteEdgingLf),
+    boulderCount: parseScopeMeasurementInput(sanitized.boulderCount),
+    landscapeLightCount: parseScopeMeasurementInput(sanitized.landscapeLightCount),
     landscapeScope: Array.isArray(sanitized.landscapeScope) ? sanitized.landscapeScope : null,
+    landscapeClearingLevel: sanitized.landscapeClearingLevel ?? null,
     tradeScopeSelections: sanitized.tradeScopeSelections ?? null,
     roofSquares: parseScopeMeasurementInput(sanitized.roofSquares),
     drywallSqft: parseScopeMeasurementInput(sanitized.drywallSqft),
     concreteSqft: parseScopeMeasurementInput(sanitized.concreteSqft),
+    concreteDemoSqft: parseScopeMeasurementInput(sanitized.concreteDemoSqft),
     concreteCy: parseScopeMeasurementInput(sanitized.concreteCy),
     excavationCy: parseScopeMeasurementInput(sanitized.excavationCy),
+    concreteScope: Array.isArray(sanitized.concreteScope) ? sanitized.concreteScope : null,
     deckSqft: parseScopeMeasurementInput(sanitized.deckSqft),
     garageSqft: parseScopeMeasurementInput(sanitized.garageSqft),
     exteriorPaintSqft: parseScopeMeasurementInput(sanitized.exteriorPaintSqft),
@@ -10975,17 +11797,31 @@ export function scopeMeasurementsInputFromPayload(
     countertopSqft: measurementFieldString(payload.countertopSqft),
     cabinetLf: measurementFieldString(payload.cabinetLf),
     landscapeSqft: measurementFieldString(payload.landscapeSqft),
+    artificialTurfSqft: measurementFieldString(payload.artificialTurfSqft),
+    demoClearingSqft: measurementFieldString(payload.demoClearingSqft),
+    gradingSqft: measurementFieldString(payload.gradingSqft),
+    soilPrepSqft: measurementFieldString(payload.soilPrepSqft),
     sodSqft: measurementFieldString(payload.sodSqft),
     paverSqft: measurementFieldString(payload.paverSqft),
     rockMulchSqft: measurementFieldString(payload.rockMulchSqft),
     landscapeTons: measurementFieldString(payload.landscapeTons),
+    plantCount: measurementFieldString(payload.plantCount),
+    treeCount: measurementFieldString(payload.treeCount),
+    irrigationZoneCount: measurementFieldString(payload.irrigationZoneCount),
+    drainageLf: measurementFieldString(payload.drainageLf),
+    concreteEdgingLf: measurementFieldString(payload.concreteEdgingLf),
+    boulderCount: measurementFieldString(payload.boulderCount),
+    landscapeLightCount: measurementFieldString(payload.landscapeLightCount),
     landscapeScope: Array.isArray(payload.landscapeScope) ? payload.landscapeScope : null,
+    landscapeClearingLevel: payload.landscapeClearingLevel ?? null,
     tradeScopeSelections: payload.tradeScopeSelections ?? null,
     roofSquares: measurementFieldString(payload.roofSquares),
     drywallSqft: measurementFieldString(payload.drywallSqft),
     concreteSqft: measurementFieldString(payload.concreteSqft),
+    concreteDemoSqft: measurementFieldString(payload.concreteDemoSqft),
     concreteCy: measurementFieldString(payload.concreteCy),
     excavationCy: measurementFieldString(payload.excavationCy),
+    concreteScope: Array.isArray(payload.concreteScope) ? payload.concreteScope : null,
     deckSqft: measurementFieldString(payload.deckSqft),
     garageSqft: measurementFieldString(payload.garageSqft),
     exteriorPaintSqft: measurementFieldString(payload.exteriorPaintSqft),
@@ -11476,6 +12312,8 @@ export function prepareScopeMeasurementsInputForUi(
 export type ScopeMeasurementsInputExtended = ReturnType<typeof emptyQuickMeasurementInput> & {
   /** QM landscaping selections shown in the trade scope panel. */
   landscapeScope?: string[] | null;
+  landscapeClearingLevel?: 'light_clearing' | 'medium_vegetation' | 'dense_vegetation' | 'unsure' | null;
+  concreteScope?: string[] | null;
   tradeScopeSelections?: ScopeMeasurements['tradeScopeSelections'];
   planRooms?: import('@/utils/estimateAiDraft').ScopeMeasurements['planRooms'];
   flooringExistingTypes?: import('@/utils/estimateAiDraft').ScopeMeasurements['flooringExistingTypes'];
@@ -11695,6 +12533,31 @@ export function initialScopeMeasurementInputExtended(
   mergeParsedItemQuantities(parsedFromNotes.itemQuantities as Record<string, ScopeItemQuantityValue>);
   clearStalePricingWhenNotesUnpriced(itemQuantities, scopeNotes, parsedFromNotes.itemQuantities);
 
+  // A total yard measurement must not resurrect an old notes-derived
+  // material quantity after the notes are edited. Keep an explicitly
+  // user-entered allocation, but clear stale sod/rock/paver quantities.
+  if (String(draft?.scopeChecklist?.templateKey || '').toLowerCase() === 'landscaping') {
+    const materialMeasurements = [
+      ['sodSqft', 'sod_turf'],
+      ['artificialTurfSqft', 'artificial_turf'],
+      ['rockMulchSqft', 'rock'],
+      ['rockMulchSqft', 'mulch'],
+      ['paverSqft', 'pavers'],
+    ] as const;
+    for (const [measurementKey, itemId] of materialMeasurements) {
+      if (parsedFromNotes[measurementKey] != null) continue;
+      const savedEntry = saved?.itemQuantities?.[itemId];
+      const currentEntry = itemQuantities[itemId];
+      if (savedEntry?.quantitySource === 'user_entered' || currentEntry?.quantitySource === 'user_entered') {
+        continue;
+      }
+      delete itemQuantities[itemId];
+      delete itemQuantities[`${itemId}__material`];
+      delete itemQuantities[`${itemId}__labor`];
+      delete itemQuantities[`${itemId}__allowance`];
+    }
+  }
+
   const cabinetsEntry = itemQuantities.cabinets;
   if (cabinetsEntry) {
     const combinedFlag =
@@ -11722,6 +12585,34 @@ export function initialScopeMeasurementInputExtended(
     // When notes omit a field (common for plan takeoff), fall through to saved plan import.
     if (parsedNoteValue != null && Number(parsedNoteValue) > 0) {
       return String(parsedNoteValue);
+    }
+
+    if (
+      String(draft?.scopeChecklist?.templateKey || '').toLowerCase() === 'landscaping' &&
+      (key === 'sodSqft' || key === 'artificialTurfSqft' || key === 'rockMulchSqft' || key === 'paverSqft') &&
+      saved?.itemQuantities?.[
+        key === 'sodSqft'
+          ? 'sod_turf'
+          : key === 'artificialTurfSqft'
+            ? 'artificial_turf'
+            : key === 'rockMulchSqft'
+              ? 'rock'
+              : 'pavers'
+      ]?.quantitySource !== 'user_entered' &&
+      itemQuantities[
+        key === 'sodSqft'
+          ? 'sod_turf'
+          : key === 'artificialTurfSqft'
+            ? 'artificial_turf'
+            : key === 'rockMulchSqft'
+              ? 'rock'
+              : 'pavers'
+      ]?.quantitySource !== 'user_entered' &&
+      (key !== 'rockMulchSqft' ||
+        (saved?.itemQuantities?.mulch?.quantitySource !== 'user_entered' &&
+          itemQuantities.mulch?.quantitySource !== 'user_entered'))
+    ) {
+      return '';
     }
 
     // Paint sqft often stale at 45 when it duplicated backsplash on older drafts / parsers
@@ -11800,19 +12691,29 @@ export function initialScopeMeasurementInputExtended(
     underlaymentSqft: pick('underlaymentSqft'),
     moistureBarrierSqft: pick('moistureBarrierSqft'),
     transitionLf: pick('transitionLf'),
+    transitionCount: pick('transitionCount'),
     quarterRoundLf: pick('quarterRoundLf'),
     backsplashSqft: pick('backsplashSqft'),
     countertopSqft: pick('countertopSqft'),
     cabinetLf: pick('cabinetLf'),
     landscapeSqft: pick('landscapeSqft'),
+    artificialTurfSqft: pick('artificialTurfSqft'),
     sodSqft: pick('sodSqft'),
     paverSqft: pick('paverSqft'),
     rockMulchSqft: pick('rockMulchSqft'),
     landscapeTons: pick('landscapeTons'),
     landscapeScope:
-      saved?.landscapeScope ??
-      suggested?.landscapeScope ??
+      (Array.isArray(saved?.landscapeScope) && saved.landscapeScope.length > 0
+        ? saved.landscapeScope
+        : null) ??
+      (Array.isArray(suggested?.landscapeScope) && suggested.landscapeScope.length > 0
+        ? suggested.landscapeScope
+        : null) ??
       (parsedFromNotes as ScopeMeasurements).landscapeScope ??
+      null,
+    landscapeClearingLevel:
+      saved?.landscapeClearingLevel ??
+      suggested?.landscapeClearingLevel ??
       null,
     tradeScopeSelections: saved?.tradeScopeSelections ?? suggested?.tradeScopeSelections ?? null,
     roofSquares: pick('roofSquares'),

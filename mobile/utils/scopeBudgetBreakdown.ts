@@ -27,7 +27,7 @@ export type ItemBudgetBreakdown = {
   basis?: { quantity: number; unit: string } | null;
 };
 
-const MATERIAL_ONLY_BUDGET_KEYS = new Set(['rock_mulch', 'sod_turf', 'plants_trees']);
+const MATERIAL_ONLY_BUDGET_KEYS = new Set(['rock', 'mulch', 'sod_turf', 'plants', 'trees']);
 
 function splitMatchesTotal(material: number, labor: number, total: number): boolean {
   if (material <= 0 || labor <= 0 || total <= 0) return false;
@@ -223,7 +223,9 @@ export function lookupRuleKeyForBudgetPackage(name: string, scope = ''): string 
   if (/\broof(?:ing)?\b|\bshingle|\btie[\s-]?in\b/.test(blob)) return 'shingles_roofing';
   if (/\bfoundation\b/.test(blob)) return 'pour_foundation';
   if (/\bwindow|\bdoor\b/.test(blob)) return 'windows_doors';
-  if (/\bplant|\btree\b|\bshrub/.test(blob)) return 'plants_trees';
+  if (/\bboulder\b/.test(blob)) return 'landscape_boulders';
+  if (/\bplant|\bshrub/.test(blob)) return 'plants';
+  if (/\btree\b/.test(blob)) return 'trees';
   if (/\bsite\s*work|\bgrading\b|\bexcavat/.test(blob)) return 'excavation';
   return null;
 }

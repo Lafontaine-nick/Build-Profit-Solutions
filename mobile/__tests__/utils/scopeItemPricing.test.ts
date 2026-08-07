@@ -127,13 +127,62 @@ describe('resolveScopeItemSuggestedPricing', () => {
       'transitions',
       input,
       'flooring',
-      { quantity: 48, unit: 'lf', quantitySource: 'user_entered' }
+      { quantity: 48, unit: 'each', quantitySource: 'user_entered' }
     );
 
     expect(lvp.fill?.total).toBe(4200);
     expect(tile.fill?.total).toBeGreaterThan(0);
     expect(tile.fill?.total).not.toBe(lvp.fill?.total);
-    expect(transitions.fill?.total).toBe(720);
+    expect(transitions.fill).toMatchObject({ material: 960, labor: 1440, total: 2400 });
+    expect(transitions.fill?.basis?.unit).toBe('each');
+  });
+
+  it('uses the launch flooring add-on planning rates and reconciled splits', () => {
+    const input = inputWith({
+      underlaymentSqft: '800',
+      moistureBarrierSqft: '800',
+      quarterRoundLf: '50',
+    });
+    const underlayment = resolveScopeItemSuggestedPricing('underlayment', input, 'flooring', {
+      quantity: 800,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    });
+    const vaporBarrier = resolveScopeItemSuggestedPricing('moisture_barrier', input, 'flooring', {
+      quantity: 800,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    });
+    const quarterRound = resolveScopeItemSuggestedPricing('quarter_round', input, 'flooring', {
+      quantity: 50,
+      unit: 'lf',
+      quantitySource: 'user_entered',
+    });
+
+    expect(underlayment.fill).toMatchObject({ material: 600, labor: 600, total: 1200 });
+    expect(vaporBarrier.fill).toMatchObject({ material: 520, labor: 480, total: 1000 });
+    expect(quarterRound.fill).toMatchObject({ material: 75, labor: 125, total: 200 });
+  });
+
+  it('prices each transition type from its selected quantity', () => {
+    const input = inputWith({
+      itemQuantities: {
+        'transitions__standard_transition': { quantity: 2, unit: 'each', quantitySource: 'user_entered' },
+        'transitions__reducer': { quantity: 3, unit: 'each', quantitySource: 'user_entered' },
+        'transitions__threshold': { quantity: 2, unit: 'each', quantitySource: 'user_entered' },
+        'transitions__custom_transition': { quantity: 1, unit: 'each', quantitySource: 'user_entered' },
+      },
+    });
+    const transitions = resolveScopeItemSuggestedPricing(
+      'transitions',
+      input,
+      'flooring',
+      { quantity: 8, unit: 'each', quantitySource: 'user_entered' },
+      undefined,
+      'standard_transition,reducer,threshold,custom_transition'
+    );
+
+    expect(transitions.fill).toMatchObject({ material: 240, labor: 305, total: 545 });
   });
 
   it('shows saved flooring rates as a comparison instead of splitting a note total into saved material plus remainder', () => {
@@ -272,6 +321,88 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(fill).toMatchObject({ total, material: 1200 * materialRate, labor: total - 1200 * materialRate });
     expect(fill?.pricingDetail).toContain(`1,200 SF`);
     expect(fill?.pricingDetail).toContain(`$${rate.toFixed(2)}/SF`);
+  });
+
+  it.each([
+    ['floating', 7, 8400],
+    ['glue_down', 9, 10800],
+  ])('updates new LVP installation pricing for %s scope', (method, rate, total) => {
+    const input = inputWith({
+      flooringProductScope: ['lvp'],
+      flooringLvpSqft: '1200',
+      flooringNewLvpInstallMethod: method as 'floating' | 'glue_down',
+    });
+    const { fill } = resolveScopeItemSuggestedPricing('flooring_lvp', input, 'flooring', {
+      quantity: 1200,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    });
+    expect(fill).toMatchObject({ total, material: method === 'glue_down' ? 5100 : 4200 });
+    expect(Number(fill?.total || 0) / 1200).toBe(rate);
+  });
+
+  it.each([
+    ['sheet_vinyl', 5, 3000, 1500, 1500],
+    ['vct', 7, 4200, 1800, 2400],
+  ])('uses the catalog install split for new %s', (type, rate, total, material, labor) => {
+    const input = inputWith({
+      flooringProductScope: ['sheet_vinyl_vct'],
+      flooringSheetVinylSqft: '600',
+      flooringNewSheetVinylType: type as 'sheet_vinyl' | 'vct',
+    });
+    const { fill } = resolveScopeItemSuggestedPricing('flooring_sheet_vinyl', input, 'flooring', {
+      quantity: 600,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    });
+    expect(fill).toMatchObject({ total, material, labor });
+    expect(Number(fill?.total || 0) / 600).toBe(rate);
+  });
+
+  it('uses the catalog carpet and pad install split', () => {
+    const input = inputWith({
+      flooringProductScope: ['carpet'],
+      flooringCarpetSqft: '600',
+    });
+    const { fill } = resolveScopeItemSuggestedPricing('flooring_carpet', input, 'flooring', {
+      quantity: 600,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    });
+    expect(fill).toMatchObject({ total: 3000, material: 2100, labor: 900 });
+  });
+
+  it('prices flooring trim as an all-in LF install with prep and paint', () => {
+    const input = inputWith({ baseboardLf: '200' });
+    const { fill } = resolveScopeItemSuggestedPricing('trim', input, 'flooring', {
+      quantity: 200,
+      unit: 'lf',
+      quantitySource: 'user_entered',
+    });
+    expect(fill).toMatchObject({ total: 1700, material: 400, labor: 1300 });
+    expect(fill?.costBuckets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Baseboard / trim material', amount: 400 }),
+        expect.objectContaining({ label: 'Cut, fit & installation labor', amount: 700 }),
+        expect.objectContaining({ label: 'Fill nail holes, caulk & light prep', amount: 200 }),
+        expect.objectContaining({ label: 'Standard finish painting', amount: 400 }),
+      ])
+    );
+  });
+
+  it('uses per-product tile SF instead of rolled-up flooringSqft for tile install card', () => {
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
+    const input = inputWith({
+      flooringProductScope: ['carpet', 'tile'],
+      floorAreaSqft: '1700',
+      flooringSqft: '1700',
+      flooringCarpetSqft: '500',
+      flooringTileSqft: '1200',
+    });
+    const resolved = resolveChecklistItemQuantity('tile_flooring', input, { templateKey: 'flooring' });
+    expect(resolved).toMatchObject({ quantity: 1200, unit: 'sqft', pricingReady: true });
+    const { fill } = resolveScopeItemSuggestedPricing('tile_flooring', input, 'flooring', resolved);
+    expect(fill?.total).toBeGreaterThan(0);
   });
 
   it('prices carpet and floating LVP demo areas independently', () => {
@@ -1554,5 +1685,177 @@ describe('allowance split apply pricing', () => {
     expect(fill?.total).toBeGreaterThanOrEqual(350);
     expect(fill?.total).toBeLessThanOrEqual(400);
     expect(fill?.basis?.quantity).toBe(1);
+  });
+
+  it('prices trees at the $450/EA national planning rate', () => {
+    const input = inputWith({
+      landscapeScope: ['trees'],
+      treeCount: '5',
+    });
+    const resolved = resolveChecklistItemQuantity('trees', input, { templateKey: 'landscaping' });
+    const { fill } = resolveScopeItemSuggestedPricing('trees', input, 'landscaping', resolved);
+    expect(fill).toMatchObject({
+      material: 1250,
+      labor: 1000,
+      total: 2250,
+      basis: { quantity: 5, unit: 'each' },
+    });
+  });
+
+  it('prices plants separately from trees at $65/EA', () => {
+    const input = inputWith({
+      landscapeScope: ['plants'],
+      plantCount: '5',
+    });
+    const resolved = resolveChecklistItemQuantity('plants', input, { templateKey: 'landscaping' });
+    const { fill } = resolveScopeItemSuggestedPricing('plants', input, 'landscaping', resolved);
+    expect(fill).toMatchObject({
+      material: 175,
+      labor: 150,
+      total: 325,
+      basis: { quantity: 5, unit: 'each' },
+    });
+  });
+
+  it('applies landscaping minimums for demo, soil prep, and rock', () => {
+    const demoInput = inputWith({ demoClearingSqft: '100' });
+    const demo = resolveScopeItemSuggestedPricing(
+      'demo_clearing',
+      demoInput,
+      'landscaping',
+      resolveChecklistItemQuantity('demo_clearing', demoInput, { templateKey: 'landscaping' })
+    );
+    expect(demo.fill?.total).toBe(250);
+
+    const soilInput = inputWith({ soilPrepSqft: '100' });
+    const soil = resolveScopeItemSuggestedPricing(
+      'soil_prep',
+      soilInput,
+      'landscaping',
+      resolveChecklistItemQuantity('soil_prep', soilInput, { templateKey: 'landscaping' })
+    );
+    expect(soil.fill?.total).toBe(300);
+
+    const rockInput = inputWith({ landscapeScope: ['rock'], rockMulchSqft: '50' });
+    const rock = resolveScopeItemSuggestedPricing(
+      'rock',
+      rockInput,
+      'landscaping',
+      resolveChecklistItemQuantity('rock', rockInput, { templateKey: 'landscaping' })
+    );
+    expect(rock.fill?.total).toBe(250);
+  });
+
+  it('uses approved turf, sod, rock-depth, and irrigation planning splits', () => {
+    const turfInput = inputWith({ artificialTurfSqft: '100' });
+    const turf = resolveScopeItemSuggestedPricing(
+      'artificial_turf',
+      turfInput,
+      'landscaping',
+      resolveChecklistItemQuantity('artificial_turf', turfInput, { templateKey: 'landscaping' })
+    );
+    expect(turf.fill).toMatchObject({ material: 850, labor: 750, total: 1600 });
+
+    const sodInput = inputWith({ sodSqft: '100' });
+    const sod = resolveScopeItemSuggestedPricing(
+      'sod_turf',
+      sodInput,
+      'landscaping',
+      resolveChecklistItemQuantity('sod_turf', sodInput, { templateKey: 'landscaping' })
+    );
+    expect(sod.fill).toMatchObject({ material: 85, labor: 90, total: 175 });
+
+    const rockInput = inputWith({ rockMulchSqft: '200' });
+    const rock2 = resolveScopeItemSuggestedPricing(
+      'rock',
+      rockInput,
+      'landscaping',
+      resolveChecklistItemQuantity('rock', rockInput, { templateKey: 'landscaping' }),
+      null,
+      'rock_2in'
+    );
+    expect(rock2.fill).toMatchObject({ material: 310, labor: 140, total: 450 });
+
+    const dripInput = inputWith({ irrigationZoneCount: '2' });
+    const drip = resolveScopeItemSuggestedPricing(
+      'irrigation',
+      dripInput,
+      'landscaping',
+      resolveChecklistItemQuantity('irrigation', dripInput, { templateKey: 'landscaping' }),
+      null,
+      'drip'
+    );
+    expect(drip.fill).toMatchObject({ material: 750, labor: 750, total: 1500 });
+  });
+
+  it('uses demo clearing QM sqft over notes-derived yard coverage in normalized measurements', () => {
+    const notes =
+      'Lets create a landscaping bid, front yard and back yard will have both fake grass and rocks backyard is roughly 150 sqft and front yard is 250 sqft';
+    const input = inputWith({
+      demoClearingSqft: '200',
+      landscapeScope: ['demo_clearing'],
+      landscapeClearingLevel: 'medium_vegetation',
+    });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input, {
+      notes,
+      templateKey: 'landscaping',
+    });
+    const resolved = resolveChecklistItemQuantity('demo_clearing', measurements, {
+      templateKey: 'landscaping',
+      notes,
+    });
+    expect(measurements.demoClearingSqft).toBe(200);
+    expect(resolved.quantity).toBe(200);
+    expect(resolved.quantitySource).toBe('user_entered');
+  });
+
+  it('uses concrete planning rates for flatwork, forms, foundation, and demo', () => {
+    const flatworkInput = inputWith({ concreteScope: ['patios'], concreteSqft: '200' });
+    const flatworkNorm = buildNormalizedScopeMeasurementsFromInput(flatworkInput, { templateKey: 'concrete' });
+    const flatworkResolved = resolveChecklistItemQuantity('pour_flatwork', flatworkNorm, {
+      templateKey: 'concrete',
+    });
+    const flatwork = resolveScopeItemSuggestedPricing(
+      'pour_flatwork',
+      flatworkInput,
+      'concrete',
+      flatworkResolved,
+      null
+    );
+    expect(flatwork.fill).toMatchObject({ material: 800, labor: 1200, total: 2000 });
+
+    const formsInput = inputWith({ concreteScope: ['forms'], concreteSqft: '200' });
+    const formsNorm = buildNormalizedScopeMeasurementsFromInput(formsInput, { templateKey: 'concrete' });
+    const forms = resolveScopeItemSuggestedPricing(
+      'forms',
+      formsInput,
+      'concrete',
+      resolveChecklistItemQuantity('forms', formsNorm, { templateKey: 'concrete' }),
+      null
+    );
+    expect(forms.fill).toMatchObject({ material: 150, labor: 250, total: 400 });
+
+    const foundationInput = inputWith({ concreteScope: ['pour_foundation'], concreteCy: '10' });
+    const foundationNorm = buildNormalizedScopeMeasurementsFromInput(foundationInput, { templateKey: 'concrete' });
+    const foundation = resolveScopeItemSuggestedPricing(
+      'pour_foundation',
+      foundationInput,
+      'concrete',
+      resolveChecklistItemQuantity('pour_foundation', foundationNorm, { templateKey: 'concrete' }),
+      null
+    );
+    expect(foundation.fill?.basis).toEqual({ quantity: 10, unit: 'cy' });
+    expect(foundation.fill?.total).toBeGreaterThan(3000);
+
+    const demoInput = inputWith({ concreteScope: ['demo_removal'], concreteDemoSqft: '100' });
+    const demoNorm = buildNormalizedScopeMeasurementsFromInput(demoInput, { templateKey: 'concrete' });
+    const demo = resolveScopeItemSuggestedPricing(
+      'demo_removal',
+      demoInput,
+      'concrete',
+      resolveChecklistItemQuantity('demo_removal', demoNorm, { templateKey: 'concrete' }),
+      null
+    );
+    expect(demo.fill).toMatchObject({ material: 100, labor: 250, total: 350 });
   });
 });

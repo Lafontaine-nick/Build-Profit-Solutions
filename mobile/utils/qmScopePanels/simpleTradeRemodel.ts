@@ -1,7 +1,7 @@
 import type { ScopeChecklistItem } from '@/utils/estimateAiDraft';
 import type { QmPanelDefinition, QmPanelHydrateContext } from '@/utils/qmScopePanels/types';
 
-export type SimpleTradeScopeKey = 'concrete' | 'deck_patio' | 'hvac' | 'roofing';
+export type SimpleTradeScopeKey = 'deck_patio' | 'hvac' | 'roofing';
 
 type TradeOption = {
   id: string;
@@ -16,19 +16,6 @@ type TradeSpec = {
   embeddedIds: string[];
   options: TradeOption[];
 };
-
-const CONCRETE_OPTIONS: TradeOption[] = [
-  { id: 'driveways', label: 'Driveways', canonicalId: 'pour_flatwork', measurementKey: 'concreteSqft', unit: 'sqft' },
-  { id: 'sidewalks', label: 'Sidewalks', canonicalId: 'pour_flatwork', measurementKey: 'concreteSqft', unit: 'sqft' },
-  { id: 'patios', label: 'Patios', canonicalId: 'pour_flatwork', measurementKey: 'concreteSqft', unit: 'sqft' },
-  { id: 'rv_pads', label: 'RV pads', canonicalId: 'pour_flatwork', measurementKey: 'concreteSqft', unit: 'sqft' },
-  { id: 'walkways', label: 'Walkways', canonicalId: 'pour_flatwork', measurementKey: 'concreteSqft', unit: 'sqft' },
-  { id: 'footings', label: 'Footings', canonicalId: 'pour_foundation', measurementKey: 'concreteCy', unit: 'CY' },
-  { id: 'rebar', label: 'Rebar', canonicalId: 'reinforcement' },
-  { id: 'excavation', label: 'Excavation', canonicalId: 'site_prep', measurementKey: 'excavationCy', unit: 'CY' },
-  { id: 'forms', label: 'Forms', canonicalId: 'forms' },
-  { id: 'finish_options', label: 'Finish options', canonicalId: 'finish_seal' },
-];
 
 const DECK_OPTIONS: TradeOption[] = [
   { id: 'wood_fence', label: 'Wood fence', canonicalId: 'landscaping', measurementKey: 'railingLf', unit: 'LF' },
@@ -66,11 +53,6 @@ const ROOFING_OPTIONS: TradeOption[] = [
 ];
 
 export const SIMPLE_TRADE_SPECS: Record<SimpleTradeScopeKey, TradeSpec> = {
-  concrete: {
-    scopeKey: 'concrete',
-    embeddedIds: ['site_prep', 'forms', 'reinforcement', 'pour_flatwork', 'pour_foundation', 'finish_seal'],
-    options: CONCRETE_OPTIONS,
-  },
   deck_patio: {
     scopeKey: 'deck_patio',
     embeddedIds: ['decking', 'railing', 'stairs', 'landscaping'],

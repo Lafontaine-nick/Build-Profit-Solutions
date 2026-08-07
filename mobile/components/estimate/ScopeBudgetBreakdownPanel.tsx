@@ -161,7 +161,7 @@ export default function ScopeBudgetBreakdownPanel({
                 marginTop: 6,
               }}
             >
-              Notes only gave one total, so materials use National Average and labor gets the remainder.
+              Notes only gave one total, so the national planning rate uses an estimated material/labor split and labor receives the remainder.
             </Text>
           ) : null}
         </View>

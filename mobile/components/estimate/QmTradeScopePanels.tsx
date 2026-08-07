@@ -1,5 +1,5 @@
 import React, { startTransition, useCallback, useEffect, useRef, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { getColors } from '@/theme/getColors';
 import type { ScopeMeasurementsInputExtended } from '@/utils/scopeItemQuantities';
 import {
@@ -33,9 +33,11 @@ import {
   type FloorPrepSeverity,
 } from '@/utils/flooringDemoPrepBoundary';
 import {
-  landscapingScopeCanonicalId,
-  readLandscapingScope,
-} from '@/utils/qmScopePanels/landscapingRemodel';
+  CONCRETE_FLATWORK_OPTIONS,
+  CONCRETE_SCOPE_OPTIONS,
+  concreteScopeCanonicalId,
+  readConcreteScope,
+} from '@/utils/qmScopePanels/concreteRemodel';
 import { simpleTradeSpec, type SimpleTradeScopeKey } from '@/utils/qmScopePanels/simpleTradeRemodel';
 import {
   emptyBathroomExistingFixtureCounts,
@@ -221,8 +223,8 @@ function QmCountStepper({
         >
           <Text style={{ color: darkMode ? '#F5F7FA' : Colors.text, fontSize: 18, fontWeight: '700' }}>+</Text>
         </TouchableOpacity>
+        </View>
       </View>
-    </View>
   );
 }
 
@@ -342,8 +344,8 @@ export function QmSqftMeasurementRow({
           alignItems: 'center',
           borderWidth: StyleSheet.hairlineWidth,
           borderRadius: 10,
-          borderColor: highlighted ? '#FACC15' : darkMode ? 'rgba(255,255,255,0.16)' : Colors.line,
-          backgroundColor: highlighted ? (darkMode ? '#27272a' : '#f1f5f9') : darkMode ? '#111111' : Colors.surface,
+          borderColor: darkMode ? 'rgba(255,255,255,0.16)' : Colors.line,
+          backgroundColor: darkMode ? '#111111' : Colors.surface,
           paddingHorizontal: 10,
           minHeight: 38,
         }}
@@ -359,14 +361,14 @@ export function QmSqftMeasurementRow({
           placeholderTextColor={darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'}
           style={{
             flex: 1,
-            color: highlighted ? '#FEF3C7' : darkMode ? '#F5F7FA' : Colors.text,
+            color: darkMode ? '#F5F7FA' : Colors.text,
             paddingVertical: Platform.OS === 'ios' ? 8 : 6,
             fontSize: 14,
             fontWeight: '600',
             minWidth: 0,
           }}
         />
-        <Text style={{ color: highlighted ? '#FDE68A' : captionColor(darkMode, Colors), fontSize: 11, fontWeight: '700', marginLeft: 6, flexShrink: 0 }}>
+        <Text style={{ color: captionColor(darkMode, Colors), fontSize: 11, fontWeight: '700', marginLeft: 6, flexShrink: 0 }}>
           {unitLabel}
         </Text>
       </View>
@@ -598,6 +600,10 @@ export function QmFlooringScopePanels({
   onFlooringScopeSync,
   measurementFooter,
   measurementFootersByKey,
+  onFlooringBottomCollapse,
+  onFloorPrepCollapse,
+  scrollRef,
+  scrollContentRef,
   darkMode,
   Colors,
 }: {
@@ -614,6 +620,10 @@ export function QmFlooringScopePanels({
   onFlooringScopeSync?: (measurements: Record<string, unknown>) => void;
   measurementFooter?: React.ReactNode;
   measurementFootersByKey?: Partial<Record<string, React.ReactNode>>;
+  onFlooringBottomCollapse?: () => void;
+  onFloorPrepCollapse?: () => void;
+  scrollRef?: React.RefObject<ScrollView | null>;
+  scrollContentRef?: React.RefObject<View | null>;
   darkMode: boolean;
   Colors: Colors;
 }) {
@@ -629,7 +639,23 @@ export function QmFlooringScopePanels({
   const appliedRef = useRef(0);
   const demoManualRef = useRef(false);
   const measurementsRef = useRef(measurements);
+  const existingCardRef = useRef<View>(null);
+  const newCardRef = useRef<View>(null);
+  const prepCardRef = useRef<View>(null);
   measurementsRef.current = measurements;
+
+  const focusCard = useCallback((cardRef: React.RefObject<View | null>) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const card = cardRef.current;
+        const content = scrollContentRef?.current;
+        if (!card || !content) return;
+        card.measureLayout(content, (_x, y) => {
+          scrollRef?.current?.scrollTo({ y: Math.max(0, y - 12), animated: true });
+        });
+      });
+    });
+  }, [scrollContentRef, scrollRef]);
 
   const syncScopeFromSnapshot = useCallback(
     (snapshot: ScopeMeasurementsInputExtended) => {
@@ -847,15 +873,11 @@ export function QmFlooringScopePanels({
       }
       const snapshot = {
         ...measurementsRef.current,
-        flooringProductScope: nextProducts.length ? nextProducts : null,
+        flooringProductScope: nextProducts,
         ...nextInstall,
         ...mergedDemo,
-        ...(nextProducts.includes('lvp') ? {} : { flooringLvpSqft: null }),
-        ...(nextProducts.includes('laminate') ? {} : { flooringLaminateSqft: null }),
-        ...(nextProducts.includes('engineered_hardwood') ? {} : { flooringEngineeredHardwoodSqft: null }),
-        ...(nextProducts.includes('solid_hardwood') ? {} : { flooringSolidHardwoodSqft: null }),
-        ...(nextProducts.includes('tile') ? {} : { flooringTileSqft: null }),
-        ...(nextProducts.includes('carpet') ? {} : { flooringCarpetSqft: null }),
+        // Preserve entered product quantities so deselect/reselect restores
+        // the same scope card and pricing without requiring a new takeoff.
         flooringNewLvpInstallMethod: nextProducts.includes('lvp')
           ? measurementsRef.current.flooringNewLvpInstallMethod
           : null,
@@ -990,6 +1012,7 @@ export function QmFlooringScopePanels({
     solid_hardwood: 'flooringSolidHardwoodSqft',
     tile: 'flooringTileSqft',
     carpet: 'flooringCarpetSqft',
+    sheet_vinyl_vct: 'flooringSheetVinylSqft',
   };
   const newFlooringArea = (product: string): string => {
     const key = newFlooringMeasurementKey[product];
@@ -1003,13 +1026,13 @@ export function QmFlooringScopePanels({
     const numericValue = Number(value.replace(/,/g, ''));
     const prev = measurementsRef.current;
     const itemQuantities = { ...(prev.itemQuantities || {}) };
-    if (!key) {
-      const quantityKey = `floor_install__${product}`;
-      if (value.trim() && Number.isFinite(numericValue) && numericValue > 0) {
-        itemQuantities[quantityKey] = { quantity: numericValue, unit: 'sqft', quantitySource: 'user_entered' };
-      } else {
-        delete itemQuantities[quantityKey];
-      }
+    const quantityKey = `floor_install__${product}`;
+    if (value.trim() && Number.isFinite(numericValue) && numericValue > 0) {
+      // Keep the per-product quantity catalog in sync with the legacy
+      // product-specific fields so the matching scope card can price it.
+      itemQuantities[quantityKey] = { quantity: numericValue, unit: 'sqft', quantitySource: 'user_entered' };
+    } else {
+      delete itemQuantities[quantityKey];
     }
     const next = {
       ...prev,
@@ -1068,6 +1091,7 @@ export function QmFlooringScopePanels({
     <>
       {showExistingPanel ? (
         <View
+          ref={existingCardRef}
           style={[
             styles.qmPanel,
             {
@@ -1103,6 +1127,7 @@ export function QmFlooringScopePanels({
                   <TouchableOpacity
                     onPress={() => chooseExistingTypes(option.id)}
                     disabled={applying}
+                    activeOpacity={1}
                     style={[
                       styles.qmOption,
                       {
@@ -1146,6 +1171,7 @@ export function QmFlooringScopePanels({
                                 }))
                               }
                               disabled={applying}
+                              activeOpacity={1}
                               style={[
                                 styles.qmOption,
                                 {
@@ -1189,6 +1215,7 @@ export function QmFlooringScopePanels({
                                 }))
                               }
                               disabled={applying}
+                              activeOpacity={1}
                               style={[
                                 styles.qmOption,
                                 {
@@ -1262,9 +1289,24 @@ export function QmFlooringScopePanels({
           </View>
           </>
           ) : null}
+          {existingExpanded ? (
+            <TouchableOpacity
+              onPress={() => {
+                setExistingExpanded(false);
+                focusCard(newCardRef);
+              }}
+              activeOpacity={0.75}
+              style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line }}
+            >
+              <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', textAlign: 'center' }]}>
+                Collapse card ⌃
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       ) : null}
       <View
+        ref={newCardRef}
         style={[
           styles.qmPanel,
           {
@@ -1320,6 +1362,7 @@ export function QmFlooringScopePanels({
                 <TouchableOpacity
                   onPress={() => chooseNewFlooringTypes(option.id)}
                   disabled={applying}
+                  activeOpacity={1}
                   style={[
                     styles.qmOption,
                     {
@@ -1370,6 +1413,7 @@ export function QmFlooringScopePanels({
                                   }))
                                 }
                                 disabled={applying}
+                                activeOpacity={1}
                                 style={[
                                   styles.qmOption,
                                   {
@@ -1401,9 +1445,24 @@ export function QmFlooringScopePanels({
         </>
         ) : null}
         {measurementFooter}
+        {newExpanded ? (
+          <TouchableOpacity
+            onPress={() => {
+              setNewExpanded(false);
+              focusCard(prepCardRef);
+            }}
+            activeOpacity={0.75}
+            style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line }}
+          >
+            <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', textAlign: 'center' }]}>
+              Collapse card ⌃
+            </Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
         {selectedNewFlooringOptions.length > 0 ? (
           <View
+            ref={prepCardRef}
             style={[
               styles.qmPanel,
               {
@@ -1499,6 +1558,7 @@ export function QmFlooringScopePanels({
                                   })
                                 }
                                 disabled={applying}
+                                activeOpacity={1}
                                 style={[
                                   styles.qmOption,
                                   {
@@ -1533,6 +1593,20 @@ export function QmFlooringScopePanels({
                   })}
                 </View>
               </>
+            ) : null}
+            {prepExpanded ? (
+              <TouchableOpacity
+                onPress={() => {
+                  setPrepExpanded(false);
+                  onFloorPrepCollapse?.();
+                }}
+                activeOpacity={0.75}
+                style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line }}
+              >
+                <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', textAlign: 'center' }]}>
+                  Collapse card ⌃
+                </Text>
+              </TouchableOpacity>
             ) : null}
           </View>
         ) : null}
@@ -1818,7 +1892,7 @@ export function QmBathroomFixturesPanels({
                           paddingVertical: 8,
                           borderRadius: 999,
                           borderWidth: 1,
-                          opacity: applying ? 0.55 : pressed ? 0.88 : 1,
+                          opacity: applying ? 0.55 : 1,
                           borderColor: active
                             ? Colors.primary
                             : vanityFixtureGrey.borderColor,
@@ -1864,24 +1938,36 @@ export function QmBathroomFixturesPanels({
 }
 
 const LANDSCAPING_SCOPE_OPTIONS: Array<{ id: string; label: string; measurementKey?: string; unit?: string }> = [
-  { id: 'demo_clearing', label: 'Demo / clearing' },
-  { id: 'grading', label: 'Grading' },
-  { id: 'soil_prep', label: 'Soil prep' },
-  { id: 'drainage', label: 'Drainage' },
-  { id: 'artificial_turf', label: 'Artificial turf', measurementKey: 'sodSqft', unit: 'sqft' },
+  { id: 'grading', label: 'Grading', measurementKey: 'gradingSqft', unit: 'sqft' },
+  { id: 'soil_prep', label: 'Soil prep', measurementKey: 'soilPrepSqft', unit: 'sqft' },
+  { id: 'drainage', label: 'Drainage', measurementKey: 'drainageLf', unit: 'LF' },
+  { id: 'artificial_turf', label: 'Artificial turf', measurementKey: 'artificialTurfSqft', unit: 'sqft' },
   { id: 'sod', label: 'Sod', measurementKey: 'sodSqft', unit: 'sqft' },
   { id: 'rock', label: 'Rock', measurementKey: 'rockMulchSqft', unit: 'sqft' },
   { id: 'mulch', label: 'Mulch', measurementKey: 'rockMulchSqft', unit: 'sqft' },
-  { id: 'plants', label: 'Plants', measurementKey: 'landscapeSqft', unit: 'sqft' },
-  { id: 'trees', label: 'Trees', measurementKey: 'landscapeSqft', unit: 'sqft' },
-  { id: 'irrigation', label: 'Irrigation', measurementKey: 'landscapeSqft', unit: 'sqft' },
-  { id: 'concrete_edging', label: 'Concrete edging', measurementKey: 'concreteSqft', unit: 'sqft' },
+  { id: 'plants', label: 'Plants', measurementKey: 'plantCount', unit: 'each' },
+  { id: 'trees', label: 'Trees', measurementKey: 'treeCount', unit: 'each' },
+  { id: 'irrigation', label: 'Irrigation', measurementKey: 'irrigationZoneCount', unit: 'zone' },
+  { id: 'concrete_edging', label: 'Concrete edging', measurementKey: 'concreteEdgingLf', unit: 'LF' },
   { id: 'pavers', label: 'Pavers', measurementKey: 'paverSqft', unit: 'sqft' },
-  { id: 'decorative_boulders', label: 'Decorative boulders', measurementKey: 'rockMulchSqft', unit: 'sqft' },
-  { id: 'landscape_lighting', label: 'Landscape lighting' },
+  { id: 'decorative_boulders', label: 'Decorative boulders', measurementKey: 'boulderCount', unit: 'each' },
+  { id: 'landscape_lighting', label: 'Landscape lighting', measurementKey: 'landscapeLightCount', unit: 'each' },
   { id: 'mobilization', label: 'Equipment / mobilization' },
   { id: 'cleanup', label: 'Cleanup, haul-off & disposal' },
 ];
+
+const LANDSCAPE_CLEARING_LEVEL_OPTIONS = [
+  { id: 'light_clearing', label: 'Light clearing' },
+  { id: 'medium_vegetation', label: 'Medium vegetation clearing' },
+  { id: 'dense_vegetation', label: 'Dense vegetation clearing' },
+  { id: 'unsure', label: 'Not sure' },
+] as const;
+const LANDSCAPE_CLEARING_LEVEL_HELPERS: Record<string, string> = {
+  light_clearing: 'Grass, weeds, light brush, and minor landscape debris.',
+  medium_vegetation: 'Thick brush, vines, heavier vegetation, shrubs, and small saplings.',
+  dense_vegetation: 'Dense overgrowth or heavy vegetation requiring substantially more labor or equipment.',
+  unsure: 'Use the medium planning allowance; review clearing conditions before bid.',
+};
 
 export function QmLandscapingScopePanels({
   measurements,
@@ -1899,14 +1985,333 @@ export function QmLandscapingScopePanels({
   Colors: Colors;
 }) {
   const selected = readLandscapingScope(measurements as Record<string, unknown>);
+  const demoActive = selected.includes('demo_clearing');
+  const [demoExpanded, setDemoExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(true);
   const toggle = (id: string) => {
-    const canonical = landscapingScopeCanonicalId(id);
-    const isSelected = selected.includes(id) || selected.includes(canonical);
-    const next = isSelected
-      ? selected.filter((value) => value !== id && value !== canonical)
-      : [...selected, id];
-    setMeasurements((prev) => ({ ...prev, landscapeScope: next.length ? next : null } as ScopeMeasurementsInputExtended));
+    setMeasurements((prev) => {
+      const current = readLandscapingScope(prev as Record<string, unknown>);
+      const canonical = landscapingScopeCanonicalId(id);
+      const isSelected = current.includes(id) || current.includes(canonical);
+      const next = isSelected
+        ? current.filter((value) => value !== id && value !== canonical)
+        : [...current, id];
+      return { ...prev, landscapeScope: next.length ? next : null } as ScopeMeasurementsInputExtended;
+    });
   };
+  const updateMeasurement = (key: string, value: string) => {
+    setMeasurements((prev) => ({ ...prev, [key]: value }));
+  };
+
+  return (
+    <>
+      <View
+        style={[
+          styles.qmPanel,
+          {
+            borderColor: darkMode ? 'rgba(148,163,184,0.28)' : 'rgba(100,116,139,0.24)',
+            backgroundColor: darkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.05)',
+          },
+        ]}
+      >
+        <TouchableOpacity onPress={() => setDemoExpanded((value) => !value)} activeOpacity={0.75}>
+          <Text style={[styles.qmPanelTitle, { color: darkMode ? '#cbd5e1' : '#475569' }]}>
+            Demo / clearing {demoExpanded ? '⌃' : '⌄'}
+          </Text>
+          <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 }]}>
+            {demoExpanded ? 'Tap to collapse card' : demoActive ? 'Selected · tap to expand card' : 'Tap to expand card'}
+          </Text>
+        </TouchableOpacity>
+        {demoExpanded ? (
+          <>
+            <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 10 }]}>
+              Vegetation and loose landscape debris removal only. Tree removal, excavation, hardscape demolition, and grading are separate.
+            </Text>
+            <TouchableOpacity
+              onPress={() => toggle('demo_clearing')}
+              disabled={applying}
+              activeOpacity={1}
+              style={[
+                styles.qmOption,
+                {
+                  marginTop: 10,
+                  borderColor: demoActive ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
+                  backgroundColor: demoActive ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
+                },
+              ]}
+            >
+              <Text style={[styles.qmOptionText, { color: demoActive ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
+                {demoActive ? '✓ ' : ''}Demo / clearing
+              </Text>
+            </TouchableOpacity>
+            {demoActive ? (
+              <>
+            <QmSqftMeasurementRow
+              label="Demo / clearing area"
+              helperText="Vegetation and loose landscape debris only. Other demolition and excavation are separate."
+              value={String(measurements.demoClearingSqft || '')}
+              placeholder="Enter"
+              unitLabel="sqft"
+              onChangeText={(value) => updateMeasurement('demoClearingSqft', value)}
+              applying={applying}
+              darkMode={darkMode}
+              Colors={Colors}
+              highlighted
+            />
+            <Text style={[styles.qmPanelCaption, { color: darkMode ? '#F5F7FA' : Colors.text, marginTop: 10, marginBottom: 6 }]}>
+              Clearing level
+            </Text>
+            <View style={styles.qmOptionWrap}>
+              {LANDSCAPE_CLEARING_LEVEL_OPTIONS.map((level) => {
+                const selectedLevel = measurements.landscapeClearingLevel === level.id;
+                return (
+                  <TouchableOpacity
+                    key={level.id}
+                    onPress={() => setMeasurements((prev) => ({ ...prev, landscapeClearingLevel: level.id }))}
+                    disabled={applying}
+                    activeOpacity={1}
+                    style={[
+                      styles.qmOption,
+                      {
+                        borderColor: selectedLevel ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
+                        backgroundColor: selectedLevel ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.qmOptionText, { color: selectedLevel ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
+                      {selectedLevel ? '✓ ' : ''}{level.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {measurements.landscapeClearingLevel ? (
+              <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 6 }]}>
+                {LANDSCAPE_CLEARING_LEVEL_HELPERS[measurements.landscapeClearingLevel]}
+              </Text>
+            ) : null}
+            <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 8 }]}>
+              Tree removal, dirt excavation, hardscape demolition, and grading are priced separately.
+            </Text>
+              </>
+            ) : null}
+          </>
+        ) : null}
+      </View>
+      <View
+        style={[
+          styles.qmPanel,
+          {
+            borderColor: darkMode ? 'rgba(148,163,184,0.28)' : 'rgba(100,116,139,0.24)',
+            backgroundColor: darkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.05)',
+          },
+        ]}
+      >
+      <TouchableOpacity onPress={() => setExpanded((value) => !value)} activeOpacity={0.75}>
+        <Text style={[styles.qmPanelTitle, { color: darkMode ? '#cbd5e1' : '#475569' }]}>
+          Landscaping scope {expanded ? '⌃' : '⌄'}
+        </Text>
+        {expanded ? (
+          <Text style={[styles.qmPanelCaption, { color: darkMode ? '#64748b' : '#94a3b8', marginTop: 2 }]}>
+            Tap to collapse card
+          </Text>
+        ) : (
+          <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b' }]}>
+            {selected.length} selected landscape component{selected.length === 1 ? '' : 's'}
+          </Text>
+        )}
+      </TouchableOpacity>
+      {expanded ? (
+        <>
+          <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b' }]}>
+            Select every landscape component in this bid. Use SF, LF, each, or zones as shown for each component.
+          </Text>
+      <View style={styles.qmOptionWrap}>
+        {LANDSCAPING_SCOPE_OPTIONS.map((option) => {
+          const canonical = landscapingScopeCanonicalId(option.id);
+          const preferredAliasByCanonical: Record<string, string> = {
+            sod_turf: 'sod',
+            concrete: 'concrete_edging',
+          };
+          const hasAliasForThisComponent = selected.some(
+            (value) => value !== canonical && landscapingScopeCanonicalId(value) === canonical
+          );
+          const active =
+            selected.includes(option.id) ||
+            (selected.includes(canonical) &&
+              !hasAliasForThisComponent &&
+              option.id === (preferredAliasByCanonical[canonical] || canonical));
+          return (
+            <React.Fragment key={option.id}>
+              <TouchableOpacity
+                onPress={() => toggle(option.id)}
+                disabled={applying}
+                activeOpacity={1}
+                style={[
+                  styles.qmOption,
+                  {
+                    borderColor: active ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
+                    backgroundColor: active ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
+                  },
+                ]}
+              >
+                <Text style={[styles.qmOptionText, { color: active ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
+                  {active ? '✓ ' : ''}{option.label}
+                </Text>
+              </TouchableOpacity>
+              {active && option.measurementKey ? (
+                <>
+                  <QmSqftMeasurementRow
+                    label={`${option.label} area`}
+                    helperText="Use only the area assigned to this landscape component."
+                    value={String((measurements as Record<string, unknown>)[option.measurementKey] || '')}
+                    placeholder="Enter"
+                    unitLabel={option.unit}
+                    onChangeText={(value) => updateMeasurement(option.measurementKey!, value)}
+                    applying={applying}
+                    darkMode={darkMode}
+                    Colors={Colors}
+                    highlighted={active}
+                  />
+                  {option.id === 'demo_clearing' ? (
+                    <View style={{ marginTop: 10 }}>
+                      <Text style={[styles.qmPanelCaption, { color: darkMode ? '#F5F7FA' : Colors.text, marginBottom: 6 }]}>
+                        Clearing level
+                      </Text>
+                      <View style={styles.qmOptionWrap}>
+                        {LANDSCAPE_CLEARING_LEVEL_OPTIONS.map((level) => {
+                          const selectedLevel = measurements.landscapeClearingLevel === level.id;
+                          return (
+                            <TouchableOpacity
+                              key={level.id}
+                              onPress={() =>
+                                setMeasurements((prev) => ({
+                                  ...prev,
+                                  landscapeClearingLevel: level.id,
+                                }))
+                              }
+                              disabled={applying}
+                              activeOpacity={1}
+                              style={[
+                                styles.qmOption,
+                                {
+                                  borderColor: selectedLevel ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
+                                  backgroundColor: selectedLevel
+                                    ? 'rgba(52, 211, 153, 0.12)'
+                                    : darkMode
+                                      ? '#27272a'
+                                      : '#f1f5f9',
+                                },
+                              ]}
+                            >
+                              <Text style={[styles.qmOptionText, { color: selectedLevel ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
+                                {selectedLevel ? '✓ ' : ''}{level.label}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                      {measurements.landscapeClearingLevel ? (
+                        <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 6 }]}>
+                          {LANDSCAPE_CLEARING_LEVEL_HELPERS[measurements.landscapeClearingLevel]}
+                        </Text>
+                      ) : null}
+                      <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 8 }]}>
+                        Tree removal, dirt excavation, hardscape demolition, and grading are priced separately.
+                      </Text>
+                    </View>
+                  ) : null}
+                  <View
+                    style={{
+                      height: 8,
+                      marginTop: 8,
+                      borderTopWidth: 1,
+                      borderTopColor: darkMode ? 'rgba(255,255,255,0.10)' : Colors.line,
+                    }}
+                  />
+                </>
+              ) : null}
+            </React.Fragment>
+          );
+        })}
+      </View>
+      {selected.some((id) => ['rock', 'mulch', 'decorative_boulders'].includes(id)) ? (
+        <>
+          <QmSqftMeasurementRow
+            label="Rock / mulch tonnage"
+            helperText="Optional when the material is being estimated by weight."
+            value={String((measurements as Record<string, unknown>).landscapeTons || '')}
+            placeholder="Enter"
+            unitLabel="tons"
+            onChangeText={(value) => updateMeasurement('landscapeTons', value)}
+            applying={applying}
+            darkMode={darkMode}
+            Colors={Colors}
+            highlighted
+          />
+          <View
+            style={{
+              height: 8,
+              marginTop: 8,
+              borderTopWidth: 1,
+              borderTopColor: darkMode ? 'rgba(255,255,255,0.10)' : Colors.line,
+            }}
+          />
+        </>
+      ) : null}
+      {measurementFooter}
+          <TouchableOpacity
+            onPress={() => setExpanded(false)}
+            activeOpacity={0.75}
+            style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line }}
+          >
+            <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', textAlign: 'center' }]}>
+              Collapse card ⌃
+            </Text>
+          </TouchableOpacity>
+        </>
+      ) : null}
+      </View>
+    </>
+  );
+}
+
+export function QmConcreteScopePanels({
+  measurements,
+  setMeasurements,
+  applying,
+  measurementFooter,
+  darkMode,
+  Colors,
+}: {
+  measurements: ScopeMeasurementsInputExtended;
+  setMeasurements: React.Dispatch<React.SetStateAction<ScopeMeasurementsInputExtended>>;
+  applying: boolean;
+  measurementFooter?: React.ReactNode;
+  darkMode: boolean;
+  Colors: Colors;
+}) {
+  const selected = readConcreteScope(measurements as Record<string, unknown>);
+  const [expanded, setExpanded] = useState(true);
+  const flatworkActive = CONCRETE_FLATWORK_OPTIONS.some((option) => selected.includes(option.id));
+  const needsFlatworkArea =
+    flatworkActive ||
+    selected.includes('forms') ||
+    selected.includes('reinforcement') ||
+    selected.includes('finish_seal');
+
+  const toggle = (id: string) => {
+    setMeasurements((prev) => {
+      const current = readConcreteScope(prev as Record<string, unknown>);
+      const canonical = concreteScopeCanonicalId(id);
+      const isSelected = current.includes(id) || current.includes(canonical);
+      const next = isSelected
+        ? current.filter((value) => value !== id && value !== canonical)
+        : [...current, id];
+      return { ...prev, concreteScope: next.length ? next : null } as ScopeMeasurementsInputExtended;
+    });
+  };
+
   const updateMeasurement = (key: string, value: string) => {
     setMeasurements((prev) => ({ ...prev, [key]: value }));
   };
@@ -1921,72 +2326,136 @@ export function QmLandscapingScopePanels({
         },
       ]}
     >
-      <Text style={[styles.qmPanelTitle, { color: darkMode ? '#cbd5e1' : '#475569' }]}>Landscaping scope</Text>
-      <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b' }]}>
-        Select every landscape component in this bid. Measurements are mostly SF; use coverage area for plant, tree, and irrigation work.
-      </Text>
-      <View style={styles.qmOptionWrap}>
-        {LANDSCAPING_SCOPE_OPTIONS.map((option) => {
-          const canonical = landscapingScopeCanonicalId(option.id);
-          const hasDisplayAlias = selected.some((id) => ['artificial_turf', 'sod', 'rock', 'mulch', 'decorative_boulders', 'plants', 'trees', 'concrete_edging'].includes(id));
-          const active = selected.includes(option.id) || (selected.includes(canonical) && !hasDisplayAlias && option.id === (
-            canonical === 'sod_turf'
-              ? 'artificial_turf'
-              : canonical === 'rock_mulch'
-                ? 'rock'
-                : canonical === 'plants_trees'
-                  ? 'plants'
-                  : canonical === 'concrete'
-                    ? 'concrete_edging'
-                    : canonical
-          ));
-          return (
-            <React.Fragment key={option.id}>
-              <TouchableOpacity
-                onPress={() => toggle(option.id)}
-                disabled={applying}
-                style={[
-                  styles.qmOption,
-                  {
-                    borderColor: active ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
-                    backgroundColor: active ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
-                  },
-                ]}
-              >
-                <Text style={[styles.qmOptionText, { color: active ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
-                  {active ? '✓ ' : ''}{option.label}
-                </Text>
-              </TouchableOpacity>
-              {active && option.measurementKey ? (
-                <QmSqftMeasurementRow
-                  label={`${option.label} area`}
-                  helperText="Use only the area assigned to this landscape component."
-                  value={String((measurements as Record<string, unknown>)[option.measurementKey] || '')}
-                  placeholder="Enter"
-                  onChangeText={(value) => updateMeasurement(option.measurementKey!, value)}
-                  applying={applying}
-                  darkMode={darkMode}
-                  Colors={Colors}
-                />
-              ) : null}
-            </React.Fragment>
-          );
-        })}
-      </View>
-      {selected.some((id) => ['rock', 'mulch', 'decorative_boulders'].includes(id)) ? (
-        <QmSqftMeasurementRow
-          label="Rock / mulch tonnage"
-          helperText="Optional when the material is being estimated by weight."
-          value={String((measurements as Record<string, unknown>).landscapeTons || '')}
-          placeholder="Enter"
-          unitLabel="tons"
-          onChangeText={(value) => updateMeasurement('landscapeTons', value)}
-          applying={applying}
-          darkMode={darkMode}
-          Colors={Colors}
-        />
+      <TouchableOpacity onPress={() => setExpanded((value) => !value)} activeOpacity={0.75}>
+        <Text style={[styles.qmPanelTitle, { color: darkMode ? '#cbd5e1' : '#475569' }]}>
+          Concrete scope {expanded ? '⌃' : '⌄'}
+        </Text>
+        <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 }]}>
+          {expanded ? 'Tap to collapse card' : selected.length ? 'Selected · tap to expand card' : 'Tap to expand card'}
+        </Text>
+      </TouchableOpacity>
+      {expanded ? (
+        <>
+          <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 10 }]}>
+            Select every component in this bid. Flatwork, forms, reinforcement, and finish use the same pour area.
+          </Text>
+
+          <Text style={[styles.qmPanelCaption, { color: darkMode ? '#F5F7FA' : Colors.text, marginTop: 14, marginBottom: 6 }]}>
+            Flatwork type
+          </Text>
+          <View style={styles.qmOptionWrap}>
+            {CONCRETE_FLATWORK_OPTIONS.map((option) => {
+              const active = selected.includes(option.id);
+              return (
+                <TouchableOpacity
+                  key={option.id}
+                  onPress={() => toggle(option.id)}
+                  disabled={applying}
+                  activeOpacity={1}
+                  style={[
+                    styles.qmOption,
+                    {
+                      borderColor: active ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
+                      backgroundColor: active ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
+                    },
+                  ]}
+                >
+                  <Text style={[styles.qmOptionText, { color: active ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
+                    {active ? '✓ ' : ''}{option.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {CONCRETE_SCOPE_OPTIONS.map((option) => {
+            const active =
+              selected.includes(option.id) ||
+              (option.id === 'pour_foundation' && selected.includes('footings'));
+            return (
+              <React.Fragment key={option.id}>
+                <TouchableOpacity
+                  onPress={() => toggle(option.id)}
+                  disabled={applying}
+                  activeOpacity={1}
+                  style={[
+                    styles.qmOption,
+                    {
+                      marginTop: 10,
+                      borderColor: active ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
+                      backgroundColor: active ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
+                    },
+                  ]}
+                >
+                  <Text style={[styles.qmOptionText, { color: active ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
+                    {active ? '✓ ' : ''}{option.label}
+                  </Text>
+                </TouchableOpacity>
+                {active && 'measurementKey' in option && option.measurementKey ? (
+                  <>
+                    <QmSqftMeasurementRow
+                      label={option.label}
+                      helperText={'helperText' in option ? option.helperText : undefined}
+                      value={String((measurements as Record<string, unknown>)[option.measurementKey] || '')}
+                      placeholder="Enter"
+                      unitLabel={option.unit}
+                      onChangeText={(value) => updateMeasurement(option.measurementKey!, value)}
+                      applying={applying}
+                      darkMode={darkMode}
+                      Colors={Colors}
+                      highlighted
+                    />
+                    <View
+                      style={{
+                        height: 8,
+                        marginTop: 8,
+                        borderTopWidth: 1,
+                        borderTopColor: darkMode ? 'rgba(255,255,255,0.10)' : Colors.line,
+                      }}
+                    />
+                  </>
+                ) : null}
+              </React.Fragment>
+            );
+          })}
+
+          {needsFlatworkArea ? (
+            <>
+              <QmSqftMeasurementRow
+                label="Flatwork pour area"
+                helperText="Total slab, sidewalk, driveway, or patio area for pour, forms, reinforcement, and finish."
+                value={String(measurements.concreteSqft || '')}
+                placeholder="Enter"
+                unitLabel="sqft"
+                onChangeText={(value) => updateMeasurement('concreteSqft', value)}
+                applying={applying}
+                darkMode={darkMode}
+                Colors={Colors}
+                highlighted
+              />
+              <View
+                style={{
+                  height: 8,
+                  marginTop: 8,
+                  borderTopWidth: 1,
+                  borderTopColor: darkMode ? 'rgba(255,255,255,0.10)' : Colors.line,
+                }}
+              />
+            </>
+          ) : null}
+
+          {measurementFooter}
+          <TouchableOpacity
+            onPress={() => setExpanded(false)}
+            activeOpacity={0.75}
+            style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line }}
+          >
+            <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', textAlign: 'center' }]}>
+              Collapse card ⌃
+            </Text>
+          </TouchableOpacity>
+        </>
       ) : null}
-      {measurementFooter}
     </View>
   );
 }
@@ -2051,6 +2520,7 @@ export function QmSimpleTradeScopePanels({
               <TouchableOpacity
                 onPress={() => toggle(option.id, option.canonicalId)}
                 disabled={applying}
+                activeOpacity={1}
                 style={[
                   styles.qmOption,
                   {

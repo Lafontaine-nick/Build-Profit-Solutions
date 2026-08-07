@@ -44,16 +44,16 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> = 
   concreteCy: ['foundation', 'pour_foundation'],
   excavationCy: ['excavation', 'sitework'],
   roofSquares: ['roofing', 'shingles_roofing', 'roof_tie_in', 'tear_off'],
-  drywallSqft: ['drywall', 'hang', 'finish_tape', 'interior_finishes'],
-  wallPaintSqft: ['paint', 'interior_paint', 'paint_repair', 'paint_trim', 'interior_finishes'],
+  drywallSqft: ['drywall', 'hang', 'finish_tape'],
+  wallPaintSqft: ['paint', 'interior_paint', 'paint_repair', 'paint_trim'],
   ceilingPaintSqft: ['ceiling_paint', 'interior_paint', 'paint'],
   paintAreaSqft: ['paint', 'interior_paint', 'ceiling_paint'],
   // Exterior wall faces inform insulation envelope walls (not drywall interior surface).
   exteriorPaintSqft: ['exterior_paint', 'paint_trim', 'stucco', 'exterior', 'insulation'],
   cabinetLf: ['cabinets', 'cabinets_counters'],
   countertopSqft: ['countertops', 'cabinets_counters'],
-  showerWallTileSqft: ['shower_tile', 'waterproofing', 'tile_flooring', 'tile_shower', 'interior_finishes'],
-  showerFloorTileSqft: ['shower_tile', 'shower_floor_tile', 'tile_flooring', 'tile_shower', 'interior_finishes'],
+  showerWallTileSqft: ['shower_tile', 'waterproofing', 'tile_flooring', 'tile_shower'],
+  showerFloorTileSqft: ['shower_tile', 'shower_floor_tile', 'tile_flooring', 'tile_shower'],
   baseboardLf: ['trim', 'baseboard', 'interior_trim', 'paint_trim'],
   interiorDoorCount: ['door_paint', 'trim_paint'],
   cabinetPaintSqft: ['cabinet_paint'],
@@ -61,8 +61,11 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> = 
   backsplashSqft: ['backsplash'],
   paverSqft: ['pavers', 'hardscape', 'landscaping'],
   sodSqft: ['sod', 'landscaping'],
-  rockMulchSqft: ['rock_mulch', 'landscaping'],
-  landscapeTons: ['rock_mulch', 'landscaping'],
+  rockMulchSqft: ['rock', 'mulch', 'landscaping'],
+  landscapeTons: ['rock', 'mulch', 'landscaping'],
+  plantCount: ['plants', 'landscaping'],
+  treeCount: ['trees', 'landscaping'],
+  boulderCount: ['landscape_boulders', 'landscaping'],
   landscapeSqft: ['landscaping'],
 };
 
@@ -177,6 +180,30 @@ export function getMeasurementRelevance(params: {
       blockingPrice: relevant,
       relatedScopeKeys: floorWorkScope,
       reason: relevant ? undefined : 'Not needed unless kitchen flooring or floor demo is included in this bid.',
+    };
+  }
+
+  const tradeOnlyTemplate = String(params.templateKey || '').toLowerCase();
+  if (
+    measurementKey === 'floorAreaSqft' &&
+    new Set([
+      'concrete',
+      'excavation',
+      'landscaping',
+      'roofing',
+      'drywall',
+      'painting',
+      'deck_patio',
+      'hvac',
+      'framing',
+      'plumbing_service',
+    ]).has(tradeOnlyTemplate)
+  ) {
+    return {
+      relevant: false,
+      blockingPrice: false,
+      relatedScopeKeys,
+      reason: 'Living area is not used for this trade-specific bid.',
     };
   }
 

@@ -42,6 +42,7 @@ import {
   GLASS_DOOR_RETAIL_BENCHMARK_NOTE,
   isGlassDoorSuggestedBlock,
 } from '@/utils/bathroomGlassDoorPricing';
+import { isFlooringConfirmScopePricingCard } from '@/utils/qmScopePanels/flooringRemodel';
 
 export function minimumProjectNoteForSuggestedBlock(block: SuggestedPricingBlock): string | null {
   if (/small-project minimum applied/i.test(String(block.helper || ''))) {
@@ -188,16 +189,16 @@ const FALLBACK_MEASUREMENT_COPY: Record<
 export function displayPriceSourceLabel(rateSourceLabel: string | null | undefined): string {
   const raw = String(rateSourceLabel || '').trim();
   const stripped = raw.replace(/^Suggested · /, '').replace(/^Adjusted · /, '').trim();
-  if (!stripped) return 'National average';
+  if (!stripped) return 'National planning rate';
   // Keep full blended barometer labels (e.g. "Blended national + barometer · Plan 41 · CA").
   if (/blended\s*national\s*\+\s*barometer/i.test(stripped)) {
     return stripped.length > 52 ? `${stripped.slice(0, 49).trimEnd()}…` : stripped;
   }
   if (/national\s*average\s*comparison/i.test(stripped)) {
-    return 'National average';
+    return 'National planning rate';
   }
   if (/national/i.test(stripped) || /builder-budget/i.test(stripped)) {
-    return 'National average';
+    return 'National planning rate';
   }
   // Keep full Southern Utah comparable labels (e.g. "Southern Utah comparable · Plan 41").
   if (/southern\s*utah\s*comparable/i.test(stripped)) {
@@ -394,7 +395,7 @@ export function suggestedCardTitle(input: {
   if (input.mode === 'note_total_split' && !adjusted) return 'Budget split';
   if (input.isComparison) {
     if (/national\s*average\s*comparison/i.test(String(input.rateSourceLabel || ''))) {
-      return 'National average';
+    return 'National planning rate';
     }
     return 'Suggested comparison';
   }
@@ -486,10 +487,15 @@ export function formatSuggestedSplitLine(block: SuggestedPricingBlock): string |
       ];
   if (!buckets.length) return null;
   const line = buckets.map((b) => `${b.label} ${formatSuggestedComponentMoney(b.amount)}`).join(' · ');
+  const isEstimatedPlanningSplit =
+    block.materialSource === 'national_average' ||
+    block.laborSource === 'national_average' ||
+    buckets.some((bucket) => bucket.source === 'national_average');
+  const prefix = isEstimatedPlanningSplit ? 'Estimated planning split · ' : '';
   if (block.splitSource === 'estimated') {
-    return `Estimated material/labor split · ${line}`;
+    return `Estimated planning split · ${line}`;
   }
-  return line;
+  return `${prefix}${line}`;
 }
 
 export function formatInstalledBudgetQuantityLine(block: SuggestedPricingBlock): string | null {
@@ -704,7 +710,7 @@ export function buildSuggestedPricingCardDisplay(input: {
       pricingStatus = 'review_required';
     } else if (block.splitConfidence === 'medium') {
       statusTone = 'neutral';
-      statusLine = 'National average';
+      statusLine = 'National planning rate';
     }
   } else if (showerRough && showerCtx) {
     if (block.splitConfidence === 'low') {
@@ -748,7 +754,7 @@ export function buildSuggestedPricingCardDisplay(input: {
   } else if (confidenceLevel === 'low') {
     if (isNationalAverageSuggestedBlock(block, pricingSource)) {
       statusTone = 'neutral';
-      statusLine = 'National average';
+      statusLine = 'National planning rate';
       const minimumNote = minimumProjectNoteForSuggestedBlock(block);
       if (minimumNote) allowanceExtraNote = minimumNote;
     } else {
@@ -797,15 +803,17 @@ export function buildSuggestedPricingCardDisplay(input: {
 
   const fallbackBasisLine = isFallbackPricing ? formatFallbackBasisLine({ livingSf }) : null;
   const compactLine = formatCompactSuggestedLine(block.total);
-  const isFlooringTransitionCard = itemId === 'floor_demo' || itemId === 'floor_prep';
+  const isFlooringLineCard = isFlooringConfirmScopePricingCard(itemId);
+  const isFlooringLinearFootCard = itemId === 'trim' || itemId === 'quarter_round';
+  const flooringQuantityUnit = isFlooringLinearFootCard ? 'LF' : itemId === 'transitions' ? 'each' : 'SF';
   const floorTransitionQuantityLine =
-    isFlooringTransitionCard && Number(block.basis?.quantity || 0) > 0
-      ? `${Number(block.basis?.quantity).toLocaleString()} SF total · ${formatSuggestedBlendedRateMoney(
+    isFlooringLineCard && Number(block.basis?.quantity || 0) > 0
+      ? `${Number(block.basis?.quantity).toLocaleString()} ${flooringQuantityUnit} total · ${formatSuggestedBlendedRateMoney(
           block.total / Number(block.basis?.quantity)
-        )}/SF blended`
+        )}/${flooringQuantityUnit}`
       : null;
   const unitRateLine =
-    isFlooringTransitionCard
+    isFlooringLineCard
       ? null
       : showerRough && showerCtx
       ? `${formatSuggestedDisplayMoney(block.total)}/each`
@@ -881,7 +889,7 @@ export function buildSuggestedPricingCardDisplay(input: {
     missingMeasurementHint: null,
     displayTotal,
     splitLine:
-      isFlooringTransitionCard
+      isFlooringLineCard
         ? formatSuggestedSplitLine(block)
         : block.installedBudgetBenchmark || block.splitSource === 'none'
           ? formatSuggestedSplitLine(block)

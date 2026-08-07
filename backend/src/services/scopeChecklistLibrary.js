@@ -519,9 +519,13 @@ const CHECKLIST_TEMPLATES = {
       { id: 'grading', inputType: 'yes_no', label: 'Grading', category: 'sitework' },
       { id: 'soil_prep', inputType: 'yes_no', label: 'Soil prep', category: 'sitework' },
       { id: 'irrigation', inputType: 'yes_no', label: 'Irrigation', category: 'landscape' },
-      { id: 'sod_turf', inputType: 'yes_no', label: 'Sod / turf', category: 'landscape' },
-      { id: 'rock_mulch', inputType: 'yes_no', label: 'Rock / mulch', category: 'landscape' },
-      { id: 'plants_trees', inputType: 'yes_no', label: 'Plants / trees', category: 'landscape' },
+      { id: 'sod_turf', inputType: 'yes_no', label: 'Sod', category: 'landscape' },
+      { id: 'artificial_turf', inputType: 'yes_no', label: 'Artificial turf', category: 'landscape' },
+      { id: 'rock', inputType: 'yes_no', label: 'Decorative rock', category: 'landscape' },
+      { id: 'mulch', inputType: 'yes_no', label: 'Mulch', category: 'landscape' },
+      { id: 'plants', inputType: 'yes_no', label: 'Plants / shrubs', category: 'landscape' },
+      { id: 'trees', inputType: 'yes_no', label: 'Trees', category: 'landscape' },
+      { id: 'landscape_boulders', inputType: 'yes_no', label: 'Decorative boulders', category: 'landscape' },
       { id: 'pavers', inputType: 'yes_no', label: 'Pavers', category: 'hardscape' },
       { id: 'concrete', inputType: 'yes_no', label: 'Concrete flatwork', category: 'hardscape' },
       { id: 'drainage', inputType: 'yes_no', label: 'Drainage', category: 'sitework' },
@@ -1006,10 +1010,14 @@ const CHECKLIST_YES_HINTS = {
     /\b(finish\s+(?:trim|carpentry)|interior\s+(?:trim|doors?)|baseboards?|casing|closet\s+shelving)\b/,
   utility_taps: /\b(utility\s+taps?|water\s+tap|sewer\s+tap|gas\s+tap|utility\s+connections?)\b/,
   irrigation: /\b(irrigation|sprinkler)\b/,
-  sod_turf: /\b(sod|turf|grass)\b/,
+  sod_turf: /\b(sod|natural\s+grass)\b/,
+  artificial_turf: /\b(turf|artificial\s+grass|synthetic\s+grass)\b/,
   pavers: /\b(paver|pavers)\b/,
-  rock_mulch: /\b(rock|mulch|gravel)\b/,
-  plants_trees: /\b(plants?|trees?|shrubs?|planting)\b/,
+  rock: /\b(rock|gravel)\b/,
+  mulch: /\bmulch\b/,
+  plants: /\b(plants?|shrubs?|planting)\b/,
+  trees: /\b(trees?)\b/,
+  landscape_boulders: /\b(?:landscape\s+)?boulders?\b/,
   tear_off: /\b(tear[\s-]?off|remove\s+shingles?|roof\s+demo)\b/,
   shingles_roofing: /\b(shingle|roof(?:ing)?\s+install|new\s+roof)\b/,
   gutters_downspouts: /\b(gutter|downspout)\b/,
@@ -1120,7 +1128,7 @@ function checklistTemplateKey(draft, estimateTier) {
   }
   if (
     projectType === 'concrete' ||
-    /\b(concrete\s+(?:patio|slab|drive|flatwork)|pour\s+concrete)\b/i.test(notes)
+    /\b(?:concrete\s+(?:patio|slab|drive|flat[\s-]?work|walkway|sidewalk)|pour\s+concrete|flat[\s-]?work)\b/i.test(notes)
   ) {
     return 'concrete';
   }

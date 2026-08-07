@@ -12,7 +12,7 @@ type Props = {
 export const AI_ESTIMATE_DISCLAIMER_LINES = [
   'Suggested prices are a planning guide only — not a finished bid or quote.',
   'You are responsible for verifying prices, scope, markup, and totals before sending to a client.',
-  'National averages and suggested labor/material splits are estimates, not numbers from your notes.',
+  'National planning rates and estimated labor/material splits are planning estimates, not numbers from your notes.',
   'This tool does not replace your professional judgment, local codes, or licensed trade requirements.',
 ] as const;
 

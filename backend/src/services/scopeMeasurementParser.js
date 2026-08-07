@@ -14,6 +14,20 @@ const CY_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:cy|cubic\s+yards?)/gi;
 const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)\s*squares?\b/gi;
 const TON_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:tons?)\b/gi;
 
+const EXTERIOR_FLATWORK_RE =
+  /\b(?:driveway|walkway|sidewalk|flat[\s-]?work|concrete\s+(?:patio|slab|pad)|patio\s+slab|rv\s+pad)\b/i;
+const DEMO_VERB_RE = /\b(?:demo|demolition|remove|removal|tear[\s-]?out|break\s+up|rip\s+out)\b/i;
+
+function isExteriorFlatworkClause(clause) {
+  const c = clause.toLowerCase();
+  if (EXTERIOR_FLATWORK_RE.test(c)) return true;
+  return /\bconcrete\b/.test(c) && /\b(?:patio|slab|drive|walk|flat)/.test(c);
+}
+
+function isDemoClause(clause) {
+  return DEMO_VERB_RE.test(clause.toLowerCase());
+}
+
 function parseQty(match) {
   const n = Number(String(match[1] ?? match[0]).replace(/,/g, ''));
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -140,6 +154,34 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     for (const pattern of patterns) {
       const near = pickSqftNearPattern(text, pattern);
       if (near) return near;
+    }
+    return null;
+  };
+  // A generic yard/landscape area is not an area for a specific material.
+  // Require the material to be explicitly tied to the sqft value.
+  const pickExplicitLandscapeMaterialSqft = (patterns) => {
+    for (const clause of clauses) {
+      const lower = clause.toLowerCase();
+      const quantityRe = new RegExp(SQFT_RE.source, SQFT_RE.flags);
+      let match;
+      while ((match = quantityRe.exec(clause)) !== null) {
+        const beforeQuantity = lower.slice(Math.max(0, match.index - 55), match.index);
+        const materialIndexes = patterns
+          .map((pattern) => {
+            const matches = [
+              ...beforeQuantity.matchAll(
+                new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`)
+              ),
+            ];
+            return matches.length ? matches[matches.length - 1].index : -1;
+          })
+          .filter((index) => index >= 0);
+        const materialIndex = Math.max(...materialIndexes);
+        if (materialIndex < 0) continue;
+        const between = beforeQuantity.slice(materialIndex);
+        if (/(?:back|front|side)?\s*yard\b/.test(between)) continue;
+        return parseQty(match);
+      }
     }
     return null;
   };
@@ -423,8 +465,18 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   if (quarterRoundLf) out.quarterRoundLf = quarterRoundLf;
 
   // Landscaping — specific coverage areas first
-  const sodSqft = pickSqftFromClauses([/\b(?:new\s+)?sod\b/, /\bturf\b/, /\b(?:new\s+)?grass\b/, /\bexisting\s+sod\b/]);
+  const sodSqft = pickExplicitLandscapeMaterialSqft([
+    /\b(?:new\s+)?sod\b/,
+    /\bexisting\s+sod\b/,
+  ]);
   if (sodSqft) out.sodSqft = sodSqft;
+  const artificialTurfSqft = pickExplicitLandscapeMaterialSqft([
+    /\bartificial\s+turf\b/,
+    /\bartificial\s+grass\b/,
+    /\bsynthetic\s+grass\b/,
+    /\bturf\b/,
+  ]);
+  if (artificialTurfSqft) out.artificialTurfSqft = artificialTurfSqft;
 
   const paverSqft = pickSqftFromClauses([/\bpavers?\b/, /\bpatio\b.*\bpaver/]);
   if (paverSqft) out.paverSqft = paverSqft;
@@ -495,6 +547,7 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       }
       if (/\bback\s*splash|backsplash|\bcountertop|\bpaint\b|\bshower\b/i.test(c)) continue;
       if (/\bwall\b|\bsoffit\b|\bbulkhead\b/i.test(c)) continue;
+      if (isExteriorFlatworkClause(c)) continue;
       if (!/\b(demo|demolition|remove|removal|tear[\s-]?out|install|installation|laminate|tile|lvp|vinyl|flooring|floor|carpet)\b/i.test(c)) continue;
       const q = firstQty(clause, SQFT_RE);
       if (q && q > max) max = q;
@@ -555,18 +608,35 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     }
   }
 
+  const concreteDemoSqft = (() => {
+    let max = 0;
+    for (const clause of clauses) {
+      if (!isDemoClause(clause) || !isExteriorFlatworkClause(clause)) continue;
+      const q = firstQty(clause, SQFT_RE);
+      if (q && q > max) max = q;
+    }
+    return max > 0 ? max : null;
+  })();
+  if (concreteDemoSqft) out.concreteDemoSqft = concreteDemoSqft;
+
   // Concrete — do not let a paver/landscape patio sqft fill concrete sqft.
   const concreteSqft = (() => {
+    let max = 0;
     for (const clause of clauses) {
       const c = clause.toLowerCase();
       if (/\bpavers?\b|\bsod\b|\bturf\b|\brock\b|\bmulch\b|\bgravel\b/.test(c)) continue;
-      if (!/\bconcrete\b|\bflatwork\b|\bslab\b|\bdriveway\b/.test(c)) continue;
-      const near = pickSqftNearPattern(clause, /\bconcrete\b|\bflatwork\b|\bslab\b|\bdriveway\b/);
-      if (near) return near;
-      const q = firstQty(clause, SQFT_RE);
-      if (q) return q;
+      if (isDemoClause(clause) && isExteriorFlatworkClause(clause)) continue;
+      if (
+        !/\bconcrete\b|\bflat[\s-]?work\b|\bslab\b|\bdriveway\b|\bwalkway\b|\bsidewalk\b/.test(c)
+      ) {
+        continue;
+      }
+      const near =
+        pickSqftNearPattern(clause, /\bconcrete\b|\bflat[\s-]?work\b|\bslab\b|\bdriveway\b|\bwalkway\b|\bsidewalk\b/) ||
+        firstQty(clause, SQFT_RE);
+      if (near && near > max) max = near;
     }
-    return null;
+    return max > 0 ? max : null;
   })();
   if (concreteSqft) out.concreteSqft = concreteSqft;
 

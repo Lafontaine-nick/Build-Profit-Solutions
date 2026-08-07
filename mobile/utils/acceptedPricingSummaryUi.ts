@@ -136,9 +136,9 @@ export function pricingSourceLabelFromBlock(block: SuggestedPricingBlock): strin
   if (usesTemplate) return 'Saved pricing';
   if (block.materialSource === 'notes' || block.laborSource === 'notes') return 'From notes';
   if (block.rateSourceLabel.includes('National') || /builder-budget/i.test(block.rateSourceLabel)) {
-    return 'National average';
+    return 'National planning rate';
   }
-  return 'National average';
+  return 'National planning rate';
 }
 
 export function pricingSourceKindFromBlock(block: SuggestedPricingBlock): ScopePricingAcceptanceMetadata['pricingSourceKind'] {

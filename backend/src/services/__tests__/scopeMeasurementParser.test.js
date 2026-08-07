@@ -538,6 +538,15 @@ Demo old cabinets and haul off $850 lump sum`;
     const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'roofing' });
     expect(parsed.roofSquares).toBe(28);
   });
+
+  test('routes concrete flatwork notes to demo and pour sqft without living area', () => {
+    const notes =
+      "Let's create a bid for some concrete flat work. Demo driveway roughly 100 square feet. Demo excavation dirt and installing walkway. So flat work needed roughly 100 square feet for a walkway.";
+    const parsed = parseScopeMeasurementsFromNotes(notes, { templateKey: 'concrete' });
+    expect(parsed.floorAreaSqft).toBeUndefined();
+    expect(parsed.concreteDemoSqft).toBe(100);
+    expect(parsed.concreteSqft).toBe(100);
+  });
 });
 
 describe('trade-specific scope checklists', () => {
@@ -557,6 +566,13 @@ describe('trade-specific scope checklists', () => {
     expect(CHECKLIST_TEMPLATES.painting.items.map((i) => i.id)).toEqual(
       expect.arrayContaining(['prep', 'interior_paint', 'ceiling_paint', 'trim_paint', 'door_paint', 'cabinet_paint', 'cleanup'])
     );
+  });
+
+  test('routes concrete flat work notes to concrete template over excavation', () => {
+    const notes =
+      "Let's create a bid for some concrete flat work. Demo driveway roughly 100 square feet. Demo excavation dirt and installing walkway.";
+    const draft = { projectType: 'other', rooms: [], originalNotes: notes };
+    expect(checklistTemplateKey(draft, 'room_remodel')).toBe('concrete');
   });
 
   test('keeps a dedicated repaint with kitchen cabinets on painting cards', () => {

@@ -26,10 +26,21 @@ export type QuickMeasurementFieldKey =
   | 'cabinetRunLf'
   | 'railingLf'
   | 'landscapeSqft'
+  | 'artificialTurfSqft'
+  | 'demoClearingSqft'
+  | 'gradingSqft'
+  | 'soilPrepSqft'
   | 'sodSqft'
   | 'paverSqft'
   | 'rockMulchSqft'
   | 'landscapeTons'
+  | 'plantCount'
+  | 'treeCount'
+  | 'irrigationZoneCount'
+  | 'drainageLf'
+  | 'concreteEdgingLf'
+  | 'boulderCount'
+  | 'landscapeLightCount'
   | 'roofSquares'
   | 'drywallSqft'
   | 'flooringSqft'
@@ -44,8 +55,10 @@ export type QuickMeasurementFieldKey =
   | 'underlaymentSqft'
   | 'moistureBarrierSqft'
   | 'transitionLf'
+  | 'transitionCount'
   | 'quarterRoundLf'
   | 'concreteSqft'
+  | 'concreteDemoSqft'
   | 'concreteCy'
   | 'excavationCy'
   | 'deckSqft'
@@ -137,6 +150,7 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Record<QuickMeasurementFieldKey, QuickMeasur
   ),
   railingLf: F('railingLf', 'Railing', '48', 'LF', 'exterior'),
   landscapeSqft: F('landscapeSqft', 'Coverage', '1200', 'sqft', 'site'),
+  artificialTurfSqft: F('artificialTurfSqft', 'Artificial turf', '900', 'sqft', 'site'),
   sodSqft: F('sodSqft', 'Sod / turf', '900', 'sqft', 'site'),
   paverSqft: F('paverSqft', 'Pavers', '180', 'sqft', 'site'),
   rockMulchSqft: F('rockMulchSqft', 'Rock / mulch', '600', 'sqft', 'site'),
@@ -169,8 +183,7 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Record<QuickMeasurementFieldKey, QuickMeasur
     'Enter only the area requiring residual adhesive or thinset removal, grinding, patching, skim coating, or leveling after demolition.'
   ),
   underlaymentSqft: F('underlaymentSqft', 'Underlayment', '600', 'sqft', 'interior'),
-  moistureBarrierSqft: F('moistureBarrierSqft', 'Moisture barrier', '600', 'sqft', 'interior'),
-  transitionLf: F('transitionLf', 'Transitions / reducers', '48', 'LF', 'interior'),
+  moistureBarrierSqft: F('moistureBarrierSqft', 'Vapor / moisture barrier', '600', 'sqft', 'interior'),
   quarterRoundLf: F('quarterRoundLf', 'Quarter round', '48', 'LF', 'interior'),
   concreteSqft: F('concreteSqft', EXTERIOR_FLATWORK_LABEL, '400', 'sqft', 'structure', undefined, EXTERIOR_FLATWORK_HELPER),
   concreteCy: F('concreteCy', 'Concrete', '12', 'CY', 'structure'),
@@ -262,10 +275,9 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
     ),
     row(
       F('underlaymentSqft', 'Underlayment', 'e.g. 1000', 'sqft', 'interior'),
-      F('moistureBarrierSqft', 'Moisture barrier', 'e.g. 1000', 'sqft', 'interior')
+      F('moistureBarrierSqft', 'Vapor / moisture barrier', 'e.g. 1000', 'sqft', 'interior')
     ),
     row(
-      F('transitionLf', 'Transitions / reducers', 'e.g. 48', 'LF', 'interior'),
       F('quarterRoundLf', 'Quarter round', 'e.g. 48', 'LF', 'interior')
     ),
   ],
@@ -695,6 +707,10 @@ export function emptyQuickMeasurementInput(): Record<QuickMeasurementFieldKey, s
     cabinetRunLf: '',
     railingLf: '',
     landscapeSqft: '',
+    artificialTurfSqft: '',
+    demoClearingSqft: '',
+    gradingSqft: '',
+    soilPrepSqft: '',
     sodSqft: '',
     paverSqft: '',
     rockMulchSqft: '',
@@ -719,8 +735,10 @@ export function emptyQuickMeasurementInput(): Record<QuickMeasurementFieldKey, s
     underlaymentSqft: '',
     moistureBarrierSqft: '',
     transitionLf: '',
+    transitionCount: '',
     quarterRoundLf: '',
     concreteSqft: '',
+    concreteDemoSqft: '',
     concreteCy: '',
     excavationCy: '',
     deckSqft: '',

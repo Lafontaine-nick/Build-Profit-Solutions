@@ -98,7 +98,7 @@ start_backend_background() {
   ensure_backend
   echo "Starting backend (logs: $BACKEND_LOG)…"
   : >"$BACKEND_LOG"
-  (cd "$SCRIPT_DIR/backend" && npm start >>"$BACKEND_LOG" 2>&1) &
+  (cd "$SCRIPT_DIR/backend" && node src/server.js >>"$BACKEND_LOG" 2>&1) &
   echo "Backend PID: $!"
   wait_for_api
 }
@@ -107,7 +107,7 @@ case "$MODE" in
   backend)
     ensure_backend
     echo "Backend foreground — http://127.0.0.1:3001/api  (Ctrl+C to stop)"
-    exec npm start
+    exec node src/server.js
     ;;
   web)
     start_backend_background

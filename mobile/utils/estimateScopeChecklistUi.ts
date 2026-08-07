@@ -117,6 +117,17 @@ const CHOICE_ITEM_CONFIG: Record<
   string,
   { label: string; helperText: string; options: ScopeChecklistOption[] }
 > = {
+  transitions: {
+    label: 'Transitions & reducers',
+    helperText: 'Select each transition type needed, then enter quantities.',
+    options: [
+      { id: 'standard_transition', label: 'Standard T-molding / transition' },
+      { id: 'reducer', label: 'Reducer' },
+      { id: 'threshold', label: 'Threshold / end cap' },
+      { id: 'custom_transition', label: 'Custom / difficult transition' },
+      { id: 'unsure', label: 'Not sure' },
+    ],
+  },
   wet_area_install: {
     label: 'Wet area install',
     helperText: 'Pick one — tub, prefab pan, or tile shower pan?',
@@ -152,6 +163,35 @@ const CHOICE_ITEM_CONFIG: Record<
     helperText: 'Pick one — prefab pan/base or custom mud pan?',
     options: SHOWER_PAN_CHOICE_OPTIONS,
   },
+  irrigation: {
+    label: 'Irrigation type',
+    helperText: 'Pick one — sprinkler, drip, or not sure?',
+    options: [
+      { id: 'sprinkler', label: 'Sprinkler irrigation' },
+      { id: 'drip', label: 'Drip irrigation' },
+      { id: 'unsure', label: 'Not sure' },
+    ],
+  },
+  rock: {
+    label: 'Decorative rock depth',
+    helperText: 'Select the installed rock depth before pricing.',
+    options: [
+      { id: 'rock_2in', label: '2 inch depth' },
+      { id: 'rock_3in', label: '3 inch depth' },
+      { id: 'premium_heavy', label: 'Premium / heavy rock' },
+      { id: 'unsure', label: 'Not sure' },
+    ],
+  },
+  demo_clearing: {
+    label: 'Clearing level',
+    helperText: 'Select the clearing intensity. Dirt excavation is priced separately by CY.',
+    options: [
+      { id: 'light_clearing', label: 'Light clearing' },
+      { id: 'medium_vegetation', label: 'Medium vegetation clearing' },
+      { id: 'dense_vegetation', label: 'Dense vegetation clearing' },
+      { id: 'unsure', label: 'Not sure' },
+    ],
+  },
 };
 
 function labelLooksLikeChoiceQuestion(label: string): boolean {
@@ -163,7 +203,7 @@ function labelLooksLikeChoiceQuestion(label: string): boolean {
 }
 
 function isMultiChoiceItem(item: ScopeChecklistItem): boolean {
-  return item.inputType === 'multi_choice' || item.id === 'walls_moving';
+  return item.inputType === 'multi_choice' || item.id === 'walls_moving' || item.id === 'transitions';
 }
 
 function isChoiceItem(item: ScopeChecklistItem): boolean {
@@ -801,7 +841,7 @@ function migrateGroundUpTakeoffScopeItems(
       'tile_flooring'
     );
     ensure('underlayment', 'Underlayment', 'Underlayment material and installation beneath the selected flooring.', 'flooring', 'floor_prep');
-    ensure('moisture_barrier', 'Moisture barrier', 'Moisture mitigation or vapor barrier beneath flooring.', 'flooring', 'underlayment');
+    ensure('moisture_barrier', 'Vapor / moisture barrier', 'Standard polyethylene vapor barrier beneath flooring where required.', 'flooring', 'underlayment');
     ensure(
       'transitions',
       'Transitions & reducers',
@@ -830,6 +870,28 @@ function migrateGroundUpTakeoffScopeItems(
         label: 'Subfloor / floor prep',
         helperText:
           'Extra substrate work after demo and cleaning — residual adhesive/thinset grinding, patching, skim coating, or leveling required for the new floor. Ordinary demo cleanup is not included here.',
+      };
+    }
+    if (String(templateKey || '').toLowerCase() === 'flooring' && i.id === 'underlayment') {
+      return {
+        ...i,
+        label: 'Underlayment',
+        helperText: 'Underlayment material and standard installation beneath the selected flooring.',
+      };
+    }
+    if (String(templateKey || '').toLowerCase() === 'flooring' && i.id === 'moisture_barrier') {
+      return {
+        ...i,
+        label: 'Vapor / moisture barrier',
+        helperText: 'Standard polyethylene vapor barrier beneath flooring where required.',
+      };
+    }
+    if (String(templateKey || '').toLowerCase() === 'flooring' && i.id === 'trim') {
+      return {
+        ...i,
+        label: 'Trim & baseboard install',
+        helperText:
+          'Paint-grade baseboard material, installation, caulking, light prep, and standard finish painting.',
       };
     }
     if (String(templateKey || '').toLowerCase() === 'flooring' && i.id === 'cleanup') {
@@ -2246,7 +2308,16 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     { title: 'Sitework', itemIds: ['demo_clearing', 'grading', 'soil_prep', 'drainage'] },
     {
       title: 'Landscape',
-      itemIds: ['irrigation', 'sod_turf', 'rock_mulch', 'plants_trees'],
+      itemIds: [
+        'irrigation',
+        'sod_turf',
+        'artificial_turf',
+        'rock',
+        'mulch',
+        'plants',
+        'trees',
+        'landscape_boulders',
+      ],
     },
     { title: 'Hardscape', itemIds: ['pavers', 'concrete'] },
     { title: 'Electrical', itemIds: ['landscape_lighting'] },
