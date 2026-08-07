@@ -16,5 +16,7 @@ export const PHOTO_NOTES_QM_TEMPLATES = new Set([
   'drywall',
   'roofing',
   'deck_patio',
+  'concrete',
+  'hvac',
   'landscaping',
 ]);

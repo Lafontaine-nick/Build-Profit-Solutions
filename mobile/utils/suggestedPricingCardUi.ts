@@ -258,6 +258,13 @@ export function roundSuggestedDisplayComponent(amount: number | null | undefined
   return Math.round(n / 10) * 10;
 }
 
+/** Per-SF rate with cents — used for blended floor-prep display. */
+export function formatSuggestedBlendedRateMoney(rate: number | null | undefined): string {
+  const value = Number(rate);
+  if (!Number.isFinite(value)) return '—';
+  return `$${value.toFixed(2)}`;
+}
+
 /** Exact apply amount — matches stored totals after Apply (no planning rounding). */
 export function formatSuggestedDisplayMoney(total: number | null | undefined): string {
   const value = Number(total);
@@ -790,8 +797,17 @@ export function buildSuggestedPricingCardDisplay(input: {
 
   const fallbackBasisLine = isFallbackPricing ? formatFallbackBasisLine({ livingSf }) : null;
   const compactLine = formatCompactSuggestedLine(block.total);
+  const isFlooringTransitionCard = itemId === 'floor_demo' || itemId === 'floor_prep';
+  const floorTransitionQuantityLine =
+    isFlooringTransitionCard && Number(block.basis?.quantity || 0) > 0
+      ? `${Number(block.basis?.quantity).toLocaleString()} SF total · ${formatSuggestedBlendedRateMoney(
+          block.total / Number(block.basis?.quantity)
+        )}/SF blended`
+      : null;
   const unitRateLine =
-    showerRough && showerCtx
+    isFlooringTransitionCard
+      ? null
+      : showerRough && showerCtx
       ? `${formatSuggestedDisplayMoney(block.total)}/each`
       : interiorPaint && interiorPaintDetails
         ? interiorPaintDetails.effectiveRateLabel
@@ -859,17 +875,19 @@ export function buildSuggestedPricingCardDisplay(input: {
           materialSource: block.materialSource,
           laborSource: block.laborSource,
         }),
-    quantityLine,
+    quantityLine: floorTransitionQuantityLine || quantityLine,
     fallbackBasisLine,
     missingMeasurementTitle: null,
     missingMeasurementHint: null,
     displayTotal,
     splitLine:
-      block.installedBudgetBenchmark || block.splitSource === 'none'
+      isFlooringTransitionCard
         ? formatSuggestedSplitLine(block)
-        : lumpSumOnly
-          ? 'Allowance · Flat amount'
-          : `${formatSuggestedSplitLine(block)}${block.pricingDetail ? ` · ${block.pricingDetail}` : ''}`,
+        : block.installedBudgetBenchmark || block.splitSource === 'none'
+          ? formatSuggestedSplitLine(block)
+          : lumpSumOnly
+            ? 'Allowance · Flat amount'
+            : `${formatSuggestedSplitLine(block)}${block.pricingDetail ? ` · ${block.pricingDetail}` : ''}`,
     unitRateLine:
       unitRateLine && /reference only/i.test(unitRateLine) ? null : unitRateLine,
     sourceLine: pricingSource,

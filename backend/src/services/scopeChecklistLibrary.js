@@ -95,6 +95,14 @@ const CHECKLIST_TEMPLATES = {
         category: 'demo',
       },
       {
+        id: 'adhesive_mastic_removal',
+        inputType: 'yes_no',
+        label: 'Adhesive, mastic or thinset removal',
+        helperText:
+          'Optional additional scraping or grinding beyond ordinary removal. Standard flooring demo rates exclude extensive adhesive, mastic, or thinset removal.',
+        category: 'demo',
+      },
+      {
         id: 'tub_demo',
         inputType: 'yes_no',
         label: 'Remove existing tub',
@@ -297,7 +305,8 @@ const CHECKLIST_TEMPLATES = {
         id: 'cleanup',
         inputType: 'yes_no',
         label: 'Cleanup, haul-off & disposal',
-        helperText: 'Final clean, debris haul-off, dump fees.',
+        helperText:
+          'Final project cleaning and debris from other scopes. Flooring demolition already includes normal loading, haul-off, and disposal; additional dumpsters, excessive hauling, and hazardous-material handling are separate.',
         category: 'closeout',
       },
     ],
@@ -396,7 +405,8 @@ const CHECKLIST_TEMPLATES = {
         id: 'floor_demo',
         inputType: 'yes_no',
         label: 'Demo Existing Flooring',
-        helperText: 'Remove existing tile, LVP, vinyl, carpet, or flooring.',
+        helperText:
+          'Removes existing flooring and bulk setting material, then cleans the exposed substrate. Includes protection, haul-off, and disposal. Extra residual grinding, patching, skim coating, and leveling are separate under floor prep.',
         category: 'demo',
       },
       {
@@ -451,8 +461,9 @@ const CHECKLIST_TEMPLATES = {
       {
         id: 'floor_prep',
         inputType: 'yes_no',
-        label: 'Floor Prep & Leveling',
-        helperText: 'Patching, scraping, grinding, skim coating, and leveling required to prepare the substrate. Underlayment and moisture-control systems are priced separately.',
+        label: 'Subfloor / floor prep',
+        helperText:
+          'Extra substrate work after demo and cleaning — residual adhesive/thinset grinding, patching, skim coating, or leveling required for the new floor. Ordinary demo cleanup is not included here.',
         category: 'flooring',
       },
       {
@@ -928,6 +939,7 @@ const CHECKLIST_YES_HINTS = {
   shower_pan: /\b(tile\s+pan|mud\s+pan|mortar\s+bed|shower\s+curb|shower\s+entry\s+curb)\b/,
   floor_tile: /\b(tile\s+bath(?:room)?\s+floor|bath(?:room)?\s+floor\s+tile|tile\s+(?:the\s+)?bath(?:room)?\s+floor|new\s+bath(?:room)?\s+floor(?:\s+tile)?|(?<!shower\s)floor\s+tile|(?<!shower\s)tile\s+floor|new\s+floor\s+tile)\b/,
   floor_prep: /\b(floor\s+prep|subfloor|level(?:ing)?|underlayment)\b/,
+  adhesive_mastic_removal: /\b(adhesive|mastic|thinset|thin\s+set)\b|\b(grind(?:ing)?|scrap(?:e|ing))\b[^.]{0,40}\b(residue|adhesive|mastic|thinset)\b/,
   exhaust_fan: /\b(exhaust\s+fan|bath\s+fan|ventilation)\b/,
   mirror_accessories: /\b(mirror|towel\s+bar|accessories|robe\s+hook)\b/,
   cabinets: /\b(cabinets?|new\s+cabinets)\b/,

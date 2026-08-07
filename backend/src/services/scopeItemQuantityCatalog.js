@@ -53,6 +53,16 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
     pricingMethod: 'unit_rate',
     quantityHelper: 'Uses bathroom floor sqft for floor removal.',
   },
+  adhesive_mastic_removal: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKeys: ['floorDemoSqft', 'floorAreaSqft'],
+    canUseRoomSqft: true,
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Uses the affected removal area only; extensive adhesive, mastic, or thinset work is optional.',
+    missingMessage: 'Enter the affected adhesive or mastic removal sqft.',
+  },
   tub_demo: {
     defaultUnit: 'each',
     allowedUnits: ['each'],

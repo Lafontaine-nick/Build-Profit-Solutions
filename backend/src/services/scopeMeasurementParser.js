@@ -358,14 +358,19 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   }
   if (/\bcarpet\b/i.test(blob)) flooringProductScope.push('carpet');
   if (flooringProductScope.length) out.flooringProductScope = flooringProductScope;
-  if (/\b(?:sheet\s+vinyl|sheet\s+vct|vct)\b/i.test(blob)) {
-    out.flooringExistingVinylMethod = 'sheet_vct';
-  } else if (/\b(?:glue[\s-]?down|adhesive[\s-]?backed)\s+(?:vinyl|lvp)\b/i.test(blob)) {
-    out.flooringExistingVinylMethod = 'glue_down';
+  if (/\b(?:glue[\s-]?down|adhesive[\s-]?backed)\s+(?:vinyl|lvp)\b/i.test(blob)) {
+    out.flooringExistingLvpInstallMethod = 'glue_down';
   } else if (/\bfloating\s+(?:vinyl|lvp)\b/i.test(blob)) {
-    out.flooringExistingVinylMethod = 'floating';
-  } else if (/\bvinyl\b/i.test(blob) && /\b(?:existing|current|old)\b/i.test(blob)) {
-    out.flooringExistingVinylMethod = 'unknown';
+    out.flooringExistingLvpInstallMethod = 'floating';
+  } else if (/\blvp\b/i.test(blob) && /\b(?:existing|current|old)\b/i.test(blob)) {
+    out.flooringExistingLvpInstallMethod = 'unknown';
+  }
+  if (/\b(?:vct|vinyl\s+tile)\b/i.test(blob)) {
+    out.flooringExistingSheetVinylType = 'vct';
+  } else if (/\bsheet\s+vinyl\b/i.test(blob)) {
+    out.flooringExistingSheetVinylType = 'sheet_vinyl';
+  } else if (/\bsheet\s+vinyl|vct|vinyl\s+tile\b/i.test(blob) && /\b(?:existing|current|old)\b/i.test(blob)) {
+    out.flooringExistingSheetVinylType = 'unknown';
   }
   const roomMeasurements = [];
   const roomPattern =

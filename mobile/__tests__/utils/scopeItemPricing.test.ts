@@ -29,7 +29,11 @@ function inputWith(
 // National-average flooring rate: material $4/sqft, labor $5/sqft.
 describe('resolveScopeItemSuggestedPricing', () => {
   it('prices cabinet hardware at $12 material + $15 labor per piece', () => {
-    const input = inputWith({});
+    const input = inputWith({
+      itemQuantities: {
+        floor_prep: { quantity: 1700, unit: 'sqft', quantitySource: 'notes' },
+      },
+    });
     const one = resolveScopeItemSuggestedPricing('cabinet_hardware', input, 'kitchen', {
       quantity: 1,
       unit: 'each',
@@ -232,14 +236,113 @@ describe('resolveScopeItemSuggestedPricing', () => {
       quantitySource: 'user_entered',
     });
     expect(fill).toMatchObject({
-      material: 27,
-      labor: 243,
-      total: 270,
+      material: 57,
+      labor: 228,
+      total: 285,
     });
     expect(fill?.costBuckets?.[0]).toMatchObject({
-      label: 'Equipment, protection & disposal',
-      rate: 0.27,
+      label: 'Equipment, protection, haul-off & disposal',
+      rate: 0.57,
     });
+  });
+
+  it.each([
+    ['lvp', 'floating', 2, 2400],
+    ['lvp', 'glue_down', 3.25, 3900],
+    ['sheet_vinyl_vct', 'sheet_vinyl', 2.25, 2700],
+    ['sheet_vinyl_vct', 'vct', 3.25, 3900],
+  ])('prices %s demo subtype %s at the requested rate', (type, subtype, rate, total) => {
+    const input = inputWith({
+      floorDemoSqft: '1200',
+      flooringExistingTypes: [type as 'lvp'],
+      itemQuantities: {
+        [`floor_demo__${type}`]: { quantity: '1200', unit: 'sqft' },
+      },
+      flooringExistingLvpInstallMethod: type === 'lvp' ? subtype as 'floating' | 'glue_down' : null,
+      flooringExistingSheetVinylType: type === 'sheet_vinyl_vct' ? subtype as 'sheet_vinyl' | 'vct' : null,
+    });
+    const { fill } = resolveScopeItemSuggestedPricing('floor_demo', input, 'flooring', {
+      quantity: 1200,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    });
+    const materialRate = type === 'lvp'
+      ? subtype === 'glue_down' ? 0.55 : 0.4
+      : subtype === 'vct' ? 0.6 : 0.45;
+    expect(fill).toMatchObject({ total, material: 1200 * materialRate, labor: total - 1200 * materialRate });
+    expect(fill?.pricingDetail).toContain(`1,200 SF`);
+    expect(fill?.pricingDetail).toContain(`$${rate.toFixed(2)}/SF`);
+  });
+
+  it('prices carpet and floating LVP demo areas independently', () => {
+    const input = inputWith({
+      floorDemoSqft: '1700',
+      flooringExistingTypes: ['carpet', 'lvp'],
+      flooringExistingLvpInstallMethod: 'floating',
+      itemQuantities: {
+        'floor_demo__carpet': { quantity: '500', unit: 'sqft' },
+        'floor_demo__lvp': { quantity: '1200', unit: 'sqft' },
+      },
+    });
+    const { fill } = resolveScopeItemSuggestedPricing('floor_demo', input, 'flooring', {
+      quantity: 1700,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    });
+    expect(fill).toMatchObject({ total: 3275, material: 655, labor: 2620 });
+  });
+
+  it.each([
+    ['carpet', {}, 1.75, 35, 140],
+    ['tile', {}, 4.5, 90, 360],
+    ['tile', { notes: 'heavy tile with thick mortar bed' }, 5.5, 110, 440],
+    ['solid_hardwood', {}, 4, 65, 335],
+    ['engineered_hardwood', {}, 3.5, 55, 295],
+    ['laminate', {}, 1.75, 30, 145],
+    ['lvp', { flooringExistingLvpInstallMethod: 'floating' }, 2, 40, 160],
+    ['lvp', { flooringExistingLvpInstallMethod: 'glue_down' }, 3.25, 55, 270],
+    ['lvp', { flooringExistingLvpInstallMethod: 'unknown' }, 2.5, 45, 205],
+    ['sheet_vinyl_vct', { flooringExistingSheetVinylType: 'sheet_vinyl' }, 2.25, 45, 180],
+    ['sheet_vinyl_vct', { flooringExistingSheetVinylType: 'vct' }, 3.25, 60, 265],
+    ['sheet_vinyl_vct', { flooringExistingSheetVinylType: 'unknown' }, 2.75, 50, 225],
+    ['unknown', {}, 3, 60, 240],
+  ])('keeps %s all-in rate equal to its two components', (type, overrides, expectedRate, expectedMaterialRate, expectedLaborRate) => {
+    const notes = 'notes' in overrides ? String((overrides as { notes?: string }).notes || '') : null;
+    const input = inputWith({
+      floorDemoSqft: '100',
+      flooringExistingTypes: [type as 'carpet'],
+      itemQuantities: { [`floor_demo__${type}`]: { quantity: '100', unit: 'sqft' } },
+      ...(overrides as Partial<ScopeMeasurementsInputExtended>),
+    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'floor_demo',
+      input,
+      'flooring',
+      { quantity: 100, unit: 'sqft', quantitySource: 'user_entered' },
+      null,
+      null,
+      notes
+    );
+    expect(fill).not.toBeNull();
+    expect(fill!.total).toBeCloseTo(100 * expectedRate, 2);
+    expect(fill!.material).toBeCloseTo(100 * expectedMaterialRate, 2);
+    expect(fill!.labor).toBeCloseTo(100 * expectedLaborRate, 2);
+    expect(fill!.material + fill!.labor).toBeCloseTo(fill!.total, 2);
+  });
+
+  it('prices LVP demo with a reviewable mid-rate when install method is not selected yet', () => {
+    const input = inputWith({
+      floorDemoSqft: '1200',
+      flooringExistingTypes: ['lvp'],
+      itemQuantities: { floor_demo__lvp: { quantity: 1200, unit: 'sqft' } },
+    });
+    const { fill } = resolveScopeItemSuggestedPricing('floor_demo', input, 'flooring', {
+      quantity: 1200,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    });
+    expect(fill?.total).toBe(1200 * 2.5);
+    expect(fill?.rateSourceLabel).toMatch(/Review before bid/i);
   });
 
   it.each([
@@ -247,15 +350,26 @@ describe('resolveScopeItemSuggestedPricing', () => {
     ['carpet', 'tile', null, 1.5, 1.5],
     ['tile', 'lvp', null, 3, 3],
     ['tile', 'tile', null, 3, 3],
-    ['vinyl', 'lvp', 'sheet_vct', 1.5, 1.5],
-    ['vinyl', 'lvp', 'glue_down', 3, 3],
-    ['vinyl', 'lvp', 'floating', 0.75, 0.75],
+    ['sheet_vinyl_vct', 'lvp', 'sheet_vct', 1.5, 1.5],
+    ['lvp', 'lvp', 'glue_down', 3, 3],
+    ['lvp', 'lvp', 'floating', 0.75, 0.75],
   ])('prices %s to %s floor prep at the correct level', (existing, product, vinylMethod, expectedRate, expectedTotalRate) => {
+    const severity =
+      expectedRate === 0.75
+        ? 'light'
+        : expectedRate === 1.5
+          ? 'medium'
+          : expectedRate === 3
+            ? 'heavy'
+            : 'medium';
     const input = inputWith({
-      floorPrepSqft: '400',
       flooringExistingTypes: [existing as 'carpet'],
       flooringProductScope: [product as 'lvp'],
-      flooringExistingVinylMethod: vinylMethod as 'sheet_vct',
+      flooringExistingLvpInstallMethod: existing === 'lvp' ? vinylMethod as 'floating' : null,
+      flooringExistingSheetVinylType: existing === 'sheet_vinyl_vct' ? vinylMethod as 'sheet_vinyl' : null,
+      floorPrepByProduct: {
+        [product]: { sqft: 400, severity },
+      },
     });
     const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
       quantity: 400,
@@ -268,9 +382,11 @@ describe('resolveScopeItemSuggestedPricing', () => {
 
   it('applies the level minimum once for a small prep transition', () => {
     const input = inputWith({
-      floorPrepSqft: '100',
       flooringExistingTypes: ['carpet'],
       flooringProductScope: ['lvp'],
+      floorPrepByProduct: {
+        lvp: { sqft: 100, severity: 'light' },
+      },
     });
     const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
       quantity: 100,
@@ -280,29 +396,186 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(fill).toMatchObject({ material: 50, labor: 200, total: 250 });
   });
 
-  it('requires transition assignments when multiple existing and new floors are selected', () => {
+  it('prices only migrated transition rows that match selected products', () => {
     const input = inputWith({
       floorPrepSqft: '1700',
       flooringExistingTypes: ['carpet', 'tile'],
+      flooringProductScope: ['carpet', 'tile'],
+      floorPrepTransitions: [{ existingType: 'carpet', newProduct: 'carpet', sqft: 500 }],
+    });
+    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
+      quantity: 1700,
+      unit: 'sqft',
+      quantitySource: 'notes',
+    });
+    expect(fill?.total).toBe(500 * 0.75);
+  });
+
+  it('prices per-product prep when cross-type products are selected', () => {
+    const input = inputWith({
+      flooringExistingTypes: ['carpet', 'tile'],
       flooringProductScope: ['lvp', 'tile'],
+      flooringLvpSqft: '1200',
+      flooringTileSqft: '500',
+      floorPrepByProduct: {
+        lvp: { sqft: 1200, severity: 'light' },
+        tile: { sqft: 500, severity: 'heavy' },
+      },
+      itemQuantities: {
+        floor_demo__carpet: { quantity: 1200, unit: 'sqft', quantitySource: 'user_entered' },
+        floor_demo__tile: { quantity: 500, unit: 'sqft', quantitySource: 'user_entered' },
+      },
     });
     const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
       quantity: 1700,
       unit: 'sqft',
       quantitySource: 'user_entered',
     });
+    // tile→tile type-match + carpet→lvp remainder, weighted by install SF
+    expect(fill?.total).toBe(500 * 3 + 1200 * 0.75);
+  });
+
+  it('infers type-matched floor prep transitions for carpet and tile replacements', () => {
+    const input = inputWith({
+      flooringExistingTypes: ['carpet', 'tile'],
+      flooringProductScope: ['carpet', 'tile'],
+      flooringCarpetSqft: '500',
+      flooringTileSqft: '1200',
+      floorPrepByProduct: {
+        carpet: { sqft: 500, severity: 'light' },
+        tile: { sqft: 1200, severity: 'heavy' },
+      },
+      itemQuantities: {
+        floor_demo__carpet: { quantity: 500, unit: 'sqft', quantitySource: 'user_entered' },
+        floor_demo__tile: { quantity: 1200, unit: 'sqft', quantitySource: 'user_entered' },
+      },
+      floorPrepTransitions: [
+        { existingType: 'carpet', newProduct: 'carpet', sqft: 500 },
+        { existingType: 'tile', newProduct: 'tile', sqft: 1200 },
+      ],
+    });
+    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
+      quantity: 1700,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    });
+    expect(fill?.total).toBe(500 * 0.75 + 1200 * 3);
+  });
+
+  it('does not price floor prep from demolition area without confirmed per-product prep', () => {
+    const input = inputWith({
+      flooringExistingTypes: ['carpet', 'tile'],
+      flooringProductScope: ['carpet', 'tile'],
+      itemQuantities: {
+        floor_demo__carpet: { quantity: 500, unit: 'sqft', quantitySource: 'user_entered' },
+        floor_demo__tile: { quantity: 1200, unit: 'sqft', quantitySource: 'user_entered' },
+      },
+    });
+    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
+      quantity: 1700,
+      unit: 'sqft',
+      quantitySource: 'missing',
+    });
     expect(fill).toBeNull();
+  });
+
+  it('does not auto-price floor prep from notes quantity without per-product confirmation', () => {
+    const input = inputWith({
+      flooringExistingTypes: ['carpet', 'tile'],
+      flooringProductScope: ['carpet', 'tile'],
+      flooringCarpetSqft: '500',
+      flooringTileSqft: '1200',
+      itemQuantities: {
+        floor_demo__carpet: { quantity: 500, unit: 'sqft', quantitySource: 'user_entered' },
+        floor_demo__tile: { quantity: 1200, unit: 'sqft', quantitySource: 'user_entered' },
+      },
+    });
+    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
+      quantity: 1700,
+      unit: 'sqft',
+      quantitySource: 'notes',
+    });
+    expect(fill).toBeNull();
+  });
+
+  it('marks floor prep included in demo when custom demolition includes substrate prep', () => {
+    const input = inputWith({
+      flooringDemoIncludesSubstratePrep: 'yes',
+      flooringExistingTypes: ['carpet'],
+      flooringProductScope: ['carpet'],
+    });
+    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
+      quantity: 0,
+      unit: 'sqft',
+      quantitySource: 'missing',
+    });
+    expect(fill?.total).toBe(0);
+    expect(fill?.pricingDetail).toMatch(/Included in demo/i);
+  });
+
+  it('keeps prep pricing visible as review-only when demo coverage is unresolved', () => {
+    const input = inputWith({
+      flooringDemoIncludesSubstratePrep: 'unsure',
+      flooringExistingTypes: ['carpet', 'tile'],
+      flooringProductScope: ['carpet', 'tile'],
+      flooringCarpetSqft: '500',
+      flooringTileSqft: '1200',
+      floorPrepByProduct: {
+        carpet: { sqft: 500, severity: 'light' },
+        tile: { sqft: 1200, severity: 'heavy' },
+      },
+      itemQuantities: {
+        floor_demo__carpet: { quantity: 500, unit: 'sqft', quantitySource: 'user_entered' },
+        floor_demo__tile: { quantity: 1200, unit: 'sqft', quantitySource: 'user_entered' },
+      },
+    });
+    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
+      quantity: 1700,
+      unit: 'sqft',
+      quantitySource: 'user_entered',
+    });
+    expect(fill?.total).toBe(3975);
+    expect(fill?.benchmarkAction).toBe('comparison_only');
+    expect(fill?.pricingDetail).toMatch(/Review before bid/i);
+  });
+
+  it('does not price notes-only floor prep without product scope confirmation', () => {
+    const input = inputWith({
+      itemQuantities: {
+        floor_prep: { quantity: 1700, unit: 'sqft', quantitySource: 'notes' },
+      },
+    });
+    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
+      quantity: 1700,
+      unit: 'sqft',
+      quantitySource: 'notes',
+    });
+    expect(fill).toBeNull();
+  });
+
+  it('prices floor prep when only the normalized prep SF field is present for a single product', () => {
+    const input = inputWith({
+      floorPrepSqft: '400',
+      flooringExistingTypes: ['carpet'],
+      flooringProductScope: ['lvp'],
+    });
+    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
+      quantity: 400,
+      unit: 'sqft',
+      quantitySource: 'inferred',
+    });
+    expect(fill?.total).toBe(400 * 0.75);
   });
 
   it('prices mixed assigned transitions independently by affected area', () => {
     const input = inputWith({
       floorPrepSqft: '1700',
-      flooringExistingTypes: ['carpet', 'vinyl'],
+      flooringExistingTypes: ['carpet', 'sheet_vinyl_vct'],
       flooringProductScope: ['tile', 'lvp'],
-      flooringExistingVinylMethod: 'sheet_vct',
+      flooringExistingSheetVinylType: 'sheet_vinyl',
       floorPrepTransitions: [
         { existingType: 'carpet', newProduct: 'tile', sqft: 500 },
-        { existingType: 'vinyl', newProduct: 'lvp', sqft: 1200 },
+        { existingType: 'sheet_vinyl_vct', newProduct: 'lvp', sqft: 1200 },
       ],
     });
     const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {

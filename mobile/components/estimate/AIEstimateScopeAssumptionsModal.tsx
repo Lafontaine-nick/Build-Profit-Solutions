@@ -194,6 +194,10 @@ import {
   type SuggestedPricingBlock,
 } from '@/utils/scopeItemQuantities';
 import {
+  evaluateFlooringDemoPrepOverlap,
+  isCustomFlooringDemoPriceBlock,
+} from '@/utils/flooringDemoPrepBoundary';
+import {
   countFilledQuickMeasurements,
   emptyQuickMeasurementInput,
   isWholeHomeQuickMeasurementTemplate,
@@ -253,8 +257,10 @@ import {
   hydrateQmPanelMeasurements,
   isPhotoNotesScopeJob,
   syncFlooringQmScopeItems,
+  readFlooringProductScope,
   syncKitchenQmScopeItems,
   syncBathroomFixtureQmScopeItems,
+  syncLandscapingQmScopeItems,
   syncQmPanelScopeItems,
   shouldHideBathroomFixtureScopeCardInQmEmbed,
   BATHROOM_FIXTURES_QM_EMBEDDED_IDS,
@@ -263,7 +269,9 @@ import {
 import {
   QmBathroomFixturesPanels,
   QmFlooringScopePanels,
+  QmLandscapingScopePanels,
   QmKitchenScopePanels,
+  QmSimpleTradeScopePanels,
   qmNeutralScopePanelStyle,
 } from '@/components/estimate/QmTradeScopePanels';
 import {
@@ -445,6 +453,61 @@ function formatMeasurementDisplay(value: string | number | null | undefined): st
   const [, sign, integerPart, decimalPart = ''] = match;
   const integer = integerPart || '0';
   return `${sign}${integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${decimalPart}`;
+}
+
+function flooringDemoLabel(
+  type: string,
+  measurementsInput: ScopeMeasurementsInputExtended,
+  originalNotes?: string | null
+): string {
+  if (type === 'carpet') return 'Carpet and pad';
+  if (type === 'laminate') return 'Floating laminate';
+  if (type === 'solid_hardwood') return 'Solid hardwood';
+  if (type === 'engineered_hardwood') return 'Engineered hardwood';
+  if (type === 'unknown') return 'Existing flooring — type not confirmed';
+  if (type === 'lvp') {
+    if (measurementsInput.flooringExistingLvpInstallMethod === 'glue_down') return 'Glue-down LVP';
+    if (measurementsInput.flooringExistingLvpInstallMethod === 'floating') return 'Floating/click-lock LVP';
+    return 'LVP — installation method not confirmed';
+  }
+  if (type === 'sheet_vinyl_vct') {
+    if (measurementsInput.flooringExistingSheetVinylType === 'sheet_vinyl') return 'Sheet vinyl';
+    if (measurementsInput.flooringExistingSheetVinylType === 'vct') return 'VCT (vinyl composition tile)';
+    return 'Sheet vinyl/VCT — type not confirmed';
+  }
+  if (type === 'tile') {
+    return /heavy\s+tile|difficult(?:y)?\s+(?:tile\s+)?remov|mud[\s-]?set|thick\s+set|multiple\s+tile\s+layers?|bonded\s+underlayment/i.test(
+      String(originalNotes || '')
+    )
+      ? 'Heavy tile or mortar-bed tile'
+      : 'Ceramic/porcelain tile';
+  }
+  return type.replace(/_/g, ' ');
+}
+
+function flooringDemoDescription(
+  measurementsInput: ScopeMeasurementsInputExtended,
+  originalNotes?: string | null,
+  templateKey?: string | null
+): string {
+  const parsed = parseScopeMeasurementsFromNotes(originalNotes || '', { templateKey }).flooringExistingTypes;
+  const types =
+    Array.isArray(measurementsInput.flooringExistingTypes) && measurementsInput.flooringExistingTypes.length
+      ? measurementsInput.flooringExistingTypes
+      : parsed || [];
+  const entries = types
+    .filter((type) => typeof type === 'string')
+    .map((type) => ({
+      type,
+      area: Number(measurementsInput.itemQuantities?.[`floor_demo__${type}`]?.quantity || 0),
+    }))
+    .filter((entry) => entry.area > 0)
+    .map((entry) => `${formatMeasurementDisplay(entry.area)} SF of ${flooringDemoLabel(entry.type, measurementsInput, originalNotes)}`);
+  if (!entries.length) return 'Remove the selected existing flooring before installing the selected new flooring.';
+  const scope = entries.length === 1
+    ? entries[0]
+    : `${entries.slice(0, -1).join(', ')} and ${entries[entries.length - 1]}`;
+  return `Remove ${scope} before installing the selected new flooring.`;
 }
 
 function captionColor(darkMode: boolean, Colors: ReturnType<typeof getColors>) {
@@ -1250,6 +1313,38 @@ function SuggestedBudgetSplitRows({
   const text = pricingTextColor(darkMode, Colors);
   const statusAmber = '#fbbf24';
   const divider = darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.1)';
+  const isFlooringTransitionCard = itemId === 'floor_demo' || itemId === 'floor_prep';
+  const flooringTransitionLines = isFlooringTransitionCard
+    ? String(block.pricingDetail || '')
+        .split('\n')
+        .filter((line) => /^\d[\d,]*\s+SF\s+/.test(line))
+    : [];
+  const floorPrepSummaryLines =
+    itemId === 'floor_prep'
+      ? String(block.pricingDetail || '')
+          .split('\n')
+          .filter((line) => /^(Affected prep area|Prep level|Includes):/.test(line))
+      : [];
+  const [flooringTransitionBreakdownOpen, setFlooringTransitionBreakdownOpen] = useState(false);
+  const compactFlooringTransitionLine = (line: string) => {
+    if (itemId === 'floor_demo') {
+      return line.replace(/\s+removal\s+@\s+\$[\d.]+\/SF\s+=\s+\$[\d,]+$/, '');
+    }
+    return line.replace(/\s+@\s+\$[\d.]+\/SF\s+=\s+\$[\d,]+(?:\s+\(minimum[^)]+\))?$/i, '');
+  };
+  const flooringTransitionDisplayLines =
+    itemId === 'floor_prep' && floorPrepSummaryLines.length
+      ? floorPrepSummaryLines
+      : [
+          ...flooringTransitionLines.map((line) => compactFlooringTransitionLine(line)),
+          ...(itemId === 'floor_demo' ? ['Protection, cleaning, haul-off, and disposal'] : []),
+        ];
+  const flooringTransitionSummaryLabel =
+    itemId === 'floor_prep' ? 'Included prep:' : 'Included removal:';
+  const flooringMaterialBucketLabel =
+    itemId === 'floor_prep'
+      ? 'Equipment/material'
+      : 'Equipment, protection, cleaning, haul-off & disposal';
 
   if (semantics && includedInStage) {
     const stageName = block.includedInStageLabel || stageTitle(block.benchmarkStageKey);
@@ -1384,7 +1479,18 @@ function SuggestedBudgetSplitRows({
         {displayTotal}
       </Text>
 
-      {display.splitLine ? (
+      {isFlooringTransitionCard && flooringTransitionDisplayLines.length ? (
+        <View style={{ marginTop: 8, gap: 3 }}>
+          <Text style={{ color: text, fontSize: 12, fontWeight: '700' }}>{flooringTransitionSummaryLabel}</Text>
+          {flooringTransitionDisplayLines.map((line) => (
+            <Text key={line} style={{ color: caption, fontSize: 12, lineHeight: 16 }}>
+              • {line}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+
+      {display.splitLine && (!isFlooringTransitionCard || !flooringTransitionBreakdownOpen) ? (
         <Text style={{ color: caption, fontSize: 13, fontWeight: '500', marginTop: 6, lineHeight: 18 }}>
           {display.splitLine}
         </Text>
@@ -1392,6 +1498,36 @@ function SuggestedBudgetSplitRows({
 
       {display.unitRateLine ? (
         <Text style={{ color: caption, fontSize: 12, marginTop: 2 }}>{display.unitRateLine}</Text>
+      ) : null}
+
+      {isFlooringTransitionCard && flooringTransitionLines.length ? (
+        <>
+          <TouchableOpacity
+            onPress={() => setFlooringTransitionBreakdownOpen((open) => !open)}
+            activeOpacity={0.75}
+            style={{ marginTop: 8, alignSelf: 'flex-start' }}
+          >
+            <Text style={{ color: '#22c55e', fontSize: 12, fontWeight: '700' }}>
+              {flooringTransitionBreakdownOpen ? 'Hide pricing breakdown' : 'View pricing breakdown'}
+            </Text>
+          </TouchableOpacity>
+          {flooringTransitionBreakdownOpen ? (
+            <View style={{ marginTop: 8, gap: 4 }}>
+              <Text style={{ color: text, fontSize: 12, fontWeight: '700' }}>Pricing breakdown</Text>
+              {flooringTransitionLines.map((line) => (
+                <Text key={`detail-${line}`} style={{ color: caption, fontSize: 12, lineHeight: 17 }}>
+                  {line}
+                </Text>
+              ))}
+              <Text style={{ color: caption, fontSize: 12, lineHeight: 17 }}>
+                {flooringMaterialBucketLabel}: {formatDraftMoney(block.material)}
+              </Text>
+              <Text style={{ color: caption, fontSize: 12, lineHeight: 17 }}>
+                Labor: {formatDraftMoney(block.labor)}
+              </Text>
+            </View>
+          ) : null}
+        </>
       ) : null}
 
       {display.statusLine ? (
@@ -5385,19 +5521,12 @@ function WetAreaInstallLineCard({
 }) {
   let helper = checklistDisplayHelper(item, templateKey);
   if (String(templateKey || '').toLowerCase() === 'flooring' && item.id === 'floor_demo') {
-    const parsedExisting = parseScopeMeasurementsFromNotes(originalNotes || '', {
-      templateKey,
-    }).flooringExistingTypes;
-    const existingTypes =
-      Array.isArray(measurementsInput.flooringExistingTypes) && measurementsInput.flooringExistingTypes.length
-        ? measurementsInput.flooringExistingTypes
-        : parsedExisting || [];
-    const labels = existingTypes
-      .filter((type) => type !== 'unknown')
-      .map((type) => String(type).replace(/_/g, ' '));
-    helper = labels.length
-      ? `Remove existing ${labels.join(', ')} flooring before installing the selected new flooring.`
-      : 'Remove existing flooring before installing the selected new flooring.';
+    helper =
+      'Removes existing flooring and bulk setting material, then cleans the exposed substrate. Includes protection, haul-off, and disposal. Extra residual grinding, patching, skim coating, and leveling are separate under floor prep.';
+  }
+  if (String(templateKey || '').toLowerCase() === 'flooring' && item.id === 'floor_prep') {
+    helper =
+      'Extra substrate work after demo and cleaning — residual adhesive/thinset grinding, patching, skim coating, or leveling required for the new floor. Ordinary demo cleanup is not included here.';
   }
   const tier = scopeItemVisualTier(item, visualCtx);
   const noteBadge = scopeItemNoteBadge(item, visualCtx);
@@ -5583,19 +5712,12 @@ function YesNoRow({
   const isCustom = isCustomScopeItem(item);
   let helper = isCustom ? 'Added manually. Price as total, sqft, or LF.' : checklistDisplayHelper(item, templateKey);
   if (!isCustom && String(templateKey || '').toLowerCase() === 'flooring' && item.id === 'floor_demo') {
-    const parsedExisting = parseScopeMeasurementsFromNotes(originalNotes || '', {
-      templateKey,
-    }).flooringExistingTypes;
-    const existingTypes =
-      Array.isArray(measurementsInput.flooringExistingTypes) && measurementsInput.flooringExistingTypes.length
-        ? measurementsInput.flooringExistingTypes
-        : parsedExisting || [];
-    const labels = existingTypes
-      .filter((type) => type !== 'unknown')
-      .map((type) => String(type).replace(/_/g, ' '));
-    helper = labels.length
-      ? `Remove existing ${labels.join(', ')} flooring before installing the selected new flooring.`
-      : 'Remove existing flooring before installing the selected new flooring.';
+    helper =
+      'Removes the existing flooring and bulk setting material. Includes standard protection, haul-off, and disposal. Final grinding, patching, skim coating, and leveling are separate.';
+  }
+  if (!isCustom && String(templateKey || '').toLowerCase() === 'flooring' && item.id === 'floor_prep') {
+    helper =
+      'Prepares the exposed substrate after demolition. Includes only confirmed residual removal, grinding, patching, skim coating, or leveling required for the new flooring.';
   }
   const [renaming, setRenaming] = useState(false);
   const [draftLabel, setDraftLabel] = useState(item.label);
@@ -7380,6 +7502,34 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
   /** Whole-home card: less helper copy, tighter suggestion chrome. */
   compact?: boolean;
 }) {
+  const isFloorPrepField = field.key === 'floorPrepSqft';
+  const [floorPrepDraft, setFloorPrepDraft] = useState(value);
+  const [floorPrepEditing, setFloorPrepEditing] = useState(false);
+  useEffect(() => {
+    if (!floorPrepEditing) setFloorPrepDraft(value);
+  }, [value, floorPrepEditing]);
+  const inputValue = isFloorPrepField && floorPrepEditing ? floorPrepDraft : value;
+  const handleInputFocus = () => {
+    if (isFloorPrepField) {
+      setFloorPrepDraft(value);
+      setFloorPrepEditing(true);
+    }
+    onFocus?.();
+  };
+  const handleInputChange = (nextValue: string) => {
+    if (isFloorPrepField) {
+      setFloorPrepDraft(nextValue);
+    } else {
+      onChangeText(nextValue);
+    }
+  };
+  const handleInputBlur = () => {
+    if (isFloorPrepField) {
+      onChangeText(floorPrepDraft);
+      setFloorPrepEditing(false);
+    }
+    onBlur?.();
+  };
   const baseInputShell = inputShellStyle(Colors, darkMode);
   // Wet-area panel is already amber-tinted; neutral shells keep bath/shower inputs readable.
   const inputShell = inWetAreaPanel
@@ -7479,10 +7629,10 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
         >
           <TextInput
             nativeID={`quick-measurement-${field.key}`}
-            value={formatMeasurementDisplay(value)}
-            onChangeText={onChangeText}
-            onFocus={onFocus}
-            onBlur={onBlur}
+            value={formatMeasurementDisplay(inputValue)}
+            onChangeText={handleInputChange}
+            onFocus={handleInputFocus}
+            onBlur={handleInputBlur}
             placeholder={estimate ? 'Or enter your own' : quickMeasurementPlaceholder(field)}
             placeholderTextColor={placeholderColor}
             keyboardType="decimal-pad"
@@ -7541,10 +7691,10 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
       >
         <TextInput
           nativeID={`quick-measurement-${field.key}`}
-          value={formatMeasurementDisplay(value)}
-          onChangeText={onChangeText}
-          onFocus={onFocus}
-          onBlur={onBlur}
+          value={formatMeasurementDisplay(inputValue)}
+          onChangeText={handleInputChange}
+          onFocus={handleInputFocus}
+          onBlur={handleInputBlur}
           placeholder={quickMeasurementPlaceholder(field)}
           placeholderTextColor={placeholderColor}
           keyboardType="decimal-pad"
@@ -7576,6 +7726,7 @@ function CollapsibleQuickMeasurements({
   onWetAreaExistingDemoChange,
   onKitchenQmChange,
   onFlooringQmChange,
+  onFlooringScopeSync,
   onBathroomFixturesQmChange,
   onBathroomCountertopMaterialChange,
   onShowerDoorCountChange,
@@ -7625,6 +7776,8 @@ function CollapsibleQuickMeasurements({
     install: import('@/utils/qmScopePanels/flooringRemodel').FlooringInstallCounts;
     demo: import('@/utils/qmScopePanels/flooringRemodel').FlooringDemoCounts;
   }) => void;
+  /** Flooring photo/notes jobs — sync product install cards from full QM measurements. */
+  onFlooringScopeSync?: (measurements: Record<string, unknown>) => void;
   /** Bathroom photo/notes jobs — sync vanity install + demo from QM steppers. */
   onBathroomFixturesQmChange?: (params: {
     existing: import('@/utils/qmScopePanels/bathroomFixtures').BathroomExistingFixtureCounts;
@@ -7881,8 +8034,8 @@ function CollapsibleQuickMeasurements({
   }, [rows]);
 
   const fieldResults = useMemo(
-    () =>
-      resolveQuickMeasurementFields({
+    () => {
+      const resolved = resolveQuickMeasurementFields({
         rows,
         measurements,
         noteValues: noteQuickMeasurements.values,
@@ -7894,7 +8047,13 @@ function CollapsibleQuickMeasurements({
         wholeHomeLayout,
         keepingExistingWetArea,
         wetAreaInstallChoiceId,
-      }),
+      });
+      return resolved.map((result) =>
+        result.key === 'floorPrepSqft' && editingFieldKey === 'floorPrepSqft'
+          ? { ...result, state: 'needs_confirmation' as const }
+          : result
+      );
+    },
     [
       rows,
       measurements,
@@ -7905,6 +8064,7 @@ function CollapsibleQuickMeasurements({
       wholeHomeLayout,
       keepingExistingWetArea,
       wetAreaInstallChoiceId,
+      editingFieldKey,
     ]
   );
   const physicalSections = useMemo(() => {
@@ -7933,6 +8093,16 @@ function CollapsibleQuickMeasurements({
     !wholeHomeLayout && String(effectiveTemplateKey || '').toLowerCase() === 'kitchen';
   const flooringQmJob =
     !wholeHomeLayout && String(effectiveTemplateKey || '').toLowerCase() === 'flooring';
+  const landscapingQmJob =
+    !wholeHomeLayout && String(effectiveTemplateKey || '').toLowerCase() === 'landscaping';
+  const concreteQmJob =
+    !wholeHomeLayout && String(effectiveTemplateKey || '').toLowerCase() === 'concrete';
+  const deckQmJob =
+    !wholeHomeLayout && String(effectiveTemplateKey || '').toLowerCase() === 'deck_patio';
+  const hvacQmJob =
+    !wholeHomeLayout && String(effectiveTemplateKey || '').toLowerCase() === 'hvac';
+  const roofingQmJob =
+    !wholeHomeLayout && String(effectiveTemplateKey || '').toLowerCase() === 'roofing';
   const bathroomFixturesQmJob =
     !wholeHomeLayout && String(effectiveTemplateKey || '').toLowerCase() === 'bathroom';
   const showWetAreaFinishSteppers = useMemo(() => {
@@ -9326,13 +9496,16 @@ function CollapsibleQuickMeasurements({
   ) => {
     const field = fieldByKey.get(result.key);
     if (!field) return null;
-    const displayValue = resolveQuickMeasurementDisplayValue(
-      field.key,
-      measurements,
-      noteQuickMeasurements.values
-    );
+    const displayValue =
+      field.key === 'floorPrepSqft'
+        ? String(measurements[field.key] ?? '')
+        : resolveQuickMeasurementDisplayValue(field.key, measurements, noteQuickMeasurements.values);
     const typed = String(measurements[field.key] ?? '').trim() !== '';
-    const fromNotes = !typed && noteKeySet.has(field.key) && Boolean(noteQuickMeasurements.values[field.key]);
+    const fromNotes =
+      field.key !== 'floorPrepSqft' &&
+      !typed &&
+      noteKeySet.has(field.key) &&
+      Boolean(noteQuickMeasurements.values[field.key]);
     const isEditing = editingFieldKey === field.key;
     const lockedVariant = isEditing && editingVariant ? editingVariant : variant;
     const estimateForRender =
@@ -9407,6 +9580,21 @@ function CollapsibleQuickMeasurements({
     'flooringCarpetSqft',
     'floorDemoSqft',
   ]);
+  const landscapingEmbeddedMeasurementKeys = new Set<QuickMeasurementFieldKey>([
+    'landscapeSqft',
+    'sodSqft',
+    'paverSqft',
+    'rockMulchSqft',
+    'landscapeTons',
+  ]);
+  const simpleTradeEmbeddedMeasurementKeys = new Set<QuickMeasurementFieldKey>([
+    'concreteSqft',
+    'concreteCy',
+    'excavationCy',
+    'deckSqft',
+    'railingLf',
+    'roofSquares',
+  ]);
   const flooringInstallSqft =
     Number(measurements.flooringLvpSqft || 0) +
     Number(measurements.flooringLaminateSqft || 0) +
@@ -9421,7 +9609,10 @@ function CollapsibleQuickMeasurements({
   const shouldRenderGeneralResult = (result: QuickMeasurementFieldResult) =>
     !(
       (kitchenQmJob && kitchenEmbeddedMeasurementKeys.has(result.key)) ||
-      (flooringQmJob && flooringEmbeddedMeasurementKeys.has(result.key))
+      (flooringQmJob && flooringEmbeddedMeasurementKeys.has(result.key)) ||
+      (landscapingQmJob && landscapingEmbeddedMeasurementKeys.has(result.key)) ||
+      ((concreteQmJob || deckQmJob || hvacQmJob || roofingQmJob) &&
+        simpleTradeEmbeddedMeasurementKeys.has(result.key))
     );
   const renderDisplayedResultField = (
     result: QuickMeasurementFieldResult,
@@ -9898,8 +10089,60 @@ function CollapsibleQuickMeasurements({
                   showExistingPanel={!hasSitePhotos}
                   applying={applying}
                   onFlooringQmChange={onFlooringQmChange}
+                  onFlooringScopeSync={onFlooringScopeSync}
                   measurementFooter={flooringMeasurementFooter}
                   measurementFootersByKey={flooringMeasurementFootersByKey}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              ) : null}
+
+              {landscapingQmJob ? (
+                <QmLandscapingScopePanels
+                  measurements={measurements}
+                  setMeasurements={setMeasurements}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              ) : null}
+
+              {concreteQmJob ? (
+                <QmSimpleTradeScopePanels
+                  scopeKey="concrete"
+                  measurements={measurements}
+                  setMeasurements={setMeasurements}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              ) : null}
+              {deckQmJob ? (
+                <QmSimpleTradeScopePanels
+                  scopeKey="deck_patio"
+                  measurements={measurements}
+                  setMeasurements={setMeasurements}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              ) : null}
+              {hvacQmJob ? (
+                <QmSimpleTradeScopePanels
+                  scopeKey="hvac"
+                  measurements={measurements}
+                  setMeasurements={setMeasurements}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              ) : null}
+              {roofingQmJob ? (
+                <QmSimpleTradeScopePanels
+                  scopeKey="roofing"
+                  measurements={measurements}
+                  setMeasurements={setMeasurements}
+                  applying={applying}
                   darkMode={darkMode}
                   Colors={Colors}
                 />
@@ -10191,6 +10434,56 @@ export default function AIEstimateScopeAssumptionsModal({
   const pendingQmDoneScrollRef = useRef(false);
   const qmDoneFirstScopeItemIdRef = useRef<string | null>(null);
 
+  useEffect(() => {
+    if (String(checklist?.templateKey || '').toLowerCase() !== 'flooring') return;
+    const productMeasurementKeys: Record<string, keyof ScopeMeasurementsInputExtended> = {
+      lvp: 'flooringLvpSqft',
+      laminate: 'flooringLaminateSqft',
+      engineered_hardwood: 'flooringEngineeredHardwoodSqft',
+      solid_hardwood: 'flooringSolidHardwoodSqft',
+      tile: 'flooringTileSqft',
+      carpet: 'flooringCarpetSqft',
+    };
+    const products = Array.isArray(measurements.flooringProductScope)
+      ? measurements.flooringProductScope
+      : [];
+    const total = products.reduce((sum, product) => {
+      const key = productMeasurementKeys[product];
+      const directQuantity = key ? Number(measurements[key] || 0) : 0;
+      const itemQuantity = Number(measurements.itemQuantities?.[`floor_install__${product}`]?.quantity || 0);
+      return sum + (directQuantity || itemQuantity);
+    }, 0);
+    const currentTotal = Number(String(measurements.floorAreaSqft || '').replace(/,/g, ''));
+    if (total <= 0 || Math.abs(currentTotal - total) < 0.01) return;
+    setMeasurements((prev) => ({
+      ...prev,
+      floorAreaSqft: total,
+      flooringSqft: total,
+      quickMeasurementSources: {
+        ...(prev.quickMeasurementSources || {}),
+        floorAreaSqft: 'user_entered',
+        flooringSqft: 'user_entered',
+      },
+      quickMeasurementUserOverrides: {
+        ...(prev.quickMeasurementUserOverrides || {}),
+        floorAreaSqft: true,
+        flooringSqft: true,
+      },
+    }));
+  }, [
+    checklist?.templateKey,
+    measurements.flooringProductScope,
+    measurements.flooringLvpSqft,
+    measurements.flooringLaminateSqft,
+    measurements.flooringEngineeredHardwoodSqft,
+    measurements.flooringSolidHardwoodSqft,
+    measurements.flooringTileSqft,
+    measurements.flooringCarpetSqft,
+    measurements.flooringSqft,
+    measurements.floorAreaSqft,
+    measurements.itemQuantities,
+  ]);
+
   const reasonablenessLivingSf = useMemo(
     () =>
       resolveBenchmarkLivingSf({
@@ -10257,19 +10550,7 @@ export default function AIEstimateScopeAssumptionsModal({
         checklist?.templateKey
       );
       if (String(checklist?.templateKey || '').toLowerCase() !== 'flooring') return expanded;
-      const parsedExisting = parseScopeMeasurementsFromNotes(scopeNotes, {
-        templateKey: checklist?.templateKey,
-        projectType: draft?.projectType,
-      }).flooringExistingTypes;
-      const existingTypes = Array.isArray(measurements.flooringExistingTypes) && measurements.flooringExistingTypes.length
-        ? measurements.flooringExistingTypes
-        : parsedExisting || [];
-      const labels = existingTypes
-        .filter((type) => type !== 'unknown')
-        .map((type) => String(type).replace(/_/g, ' '));
-      const description = labels.length
-        ? `Remove existing ${labels.join(', ')} flooring before installing the selected new flooring.`
-        : 'Remove existing flooring before installing the selected new flooring.';
+      const description = flooringDemoDescription(measurements, scopeNotes, checklist?.templateKey);
       return expanded.map((item) =>
         item.id === 'floor_demo'
           ? { ...item, label: 'Demo Existing Flooring', helperText: description }
@@ -10282,6 +10563,7 @@ export default function AIEstimateScopeAssumptionsModal({
       draft?.projectType,
       scopeNotes,
       measurements.flooringExistingTypes,
+      measurements.itemQuantities,
       measurements.bathroomInstallVanityCount,
       measurements.bathroomInstallCounterCount,
       measurements.bathroomDemoVanityCount,
@@ -10447,9 +10729,11 @@ export default function AIEstimateScopeAssumptionsModal({
       typeof update === 'function'
         ? (update as (prev: ScopeMeasurementsInputExtended) => ScopeMeasurementsInputExtended)(previous)
         : update;
+    if (next === previous) return;
     // Drop stage-host Applied dollars once trade children are priced so card
     // badges match the Applied pricing summary (no silent double-count).
     const reconciled = clearSupersededStageHostPricing(next, checklist?.templateKey);
+    if (reconciled === previous) return;
     if (reconciled !== next) {
       const selected = { ...selectedPricingRef.current };
       let selectedChanged = false;
@@ -11037,8 +11321,16 @@ export default function AIEstimateScopeAssumptionsModal({
     []
   );
 
+  const plumbingDemoScopeKey = useMemo(
+    () =>
+      items
+        .map((item) => `${item.id}:${item.state}:${item.choiceId ?? ''}`)
+        .join('|'),
+    [items]
+  );
+
   useEffect(() => {
-    const inferred = inferPlumbingExposedFromDemoScope(displayItems);
+    const inferred = inferPlumbingExposedFromDemoScope(itemsRef.current);
     setMeasurementsSynced((prev) => {
       if (prev.bathroomShowerRoughPlumbingExposedSource === 'user_selected') {
         return prev;
@@ -11071,7 +11363,7 @@ export default function AIEstimateScopeAssumptionsModal({
       }
       return prev;
     });
-  }, [displayItems]);
+  }, [plumbingDemoScopeKey, setMeasurementsSynced]);
 
   const visualCtx = useMemo<ScopeItemVisualContext>(
     () => ({
@@ -11198,6 +11490,71 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.showerFloorTileSqft,
     measurements.bathroomFloorSqft,
     measurements.bathFloorTileCount,
+  ]);
+
+  const syncFlooringScopeItemsFromMeasurements = useCallback((snapshot: Record<string, unknown>) => {
+    setItems((prev) => {
+      const next = syncFlooringQmScopeItems(prev, snapshot);
+      return next === prev ? prev : next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const templateKey = checklist?.templateKey || draft?.projectType;
+    if (String(templateKey || '').toLowerCase() !== 'flooring') return;
+    syncFlooringScopeItemsFromMeasurements(measurements as Record<string, unknown>);
+  }, [
+    checklist?.templateKey,
+    draft?.projectType,
+    measurements.flooringProductScope,
+    measurements.flooringCarpetSqft,
+    measurements.flooringTileSqft,
+    measurements.flooringLvpSqft,
+    measurements.flooringLaminateSqft,
+    measurements.flooringEngineeredHardwoodSqft,
+    measurements.flooringSolidHardwoodSqft,
+    measurements.flooringInstallScopeCount,
+    measurements.flooringDemoScopeCount,
+    measurements.flooringExistingTypes,
+    syncFlooringScopeItemsFromMeasurements,
+  ]);
+
+  // Landscaping QM selections / measurements → keep the saved checklist in sync
+  // before Continue, not only during the initial panel hydration.
+  useEffect(() => {
+    const templateKey = checklist?.templateKey || draft?.projectType;
+    if (String(templateKey || '').toLowerCase() !== 'landscaping') return;
+    setItems((prev) => syncLandscapingQmScopeItems(prev, measurements as Record<string, unknown>));
+  }, [
+    checklist?.templateKey,
+    draft?.projectType,
+    measurements.landscapeScope,
+    measurements.sodSqft,
+    measurements.paverSqft,
+    measurements.rockMulchSqft,
+    measurements.landscapeTons,
+  ]);
+
+  useEffect(() => {
+    const templateKey = String(checklist?.templateKey || draft?.projectType || '').toLowerCase();
+    if (!['concrete', 'deck_patio', 'hvac', 'roofing'].includes(templateKey)) return;
+    setItems((prev) =>
+      syncQmPanelScopeItems(
+        prev,
+        { templateKey, wholeHomeLayout: false },
+        measurements as Record<string, unknown>
+      )
+    );
+  }, [
+    checklist?.templateKey,
+    draft?.projectType,
+    measurements.tradeScopeSelections,
+    measurements.concreteSqft,
+    measurements.concreteCy,
+    measurements.excavationCy,
+    measurements.deckSqft,
+    measurements.railingLf,
+    measurements.roofSquares,
   ]);
 
   // Paint SF in Quick measurements → auto-select Interior painting (Yes).
@@ -12008,7 +12365,8 @@ export default function AIEstimateScopeAssumptionsModal({
       itemId: string,
       block: SuggestedPricingBlock,
       overrideConfirmed = false,
-      replaceStageKey?: string | null
+      replaceStageKey?: string | null,
+      measurementPatch?: Partial<ScopeMeasurementsInputExtended>
     ) => {
       hapticTap();
       const replacedStageOwner = replaceStageKey
@@ -12029,6 +12387,7 @@ export default function AIEstimateScopeAssumptionsModal({
         block.materialSource === 'local_benchmark' || block.laborSource === 'local_benchmark';
 
       setMeasurementsSynced((prev) => {
+        const merged = measurementPatch ? { ...prev, ...measurementPatch } : prev;
         const rule = getChecklistItemQuantityRuleOrDefault(itemId, checklist?.templateKey);
         const allowanceKey = rule.dualAllowanceField
           ? roughAllowanceSubKey(itemId)
@@ -12197,7 +12556,7 @@ export default function AIEstimateScopeAssumptionsModal({
         }
 
         return {
-          ...prev,
+          ...merged,
           itemQuantities,
           pricingOverrideLog,
           appliedBenchmarkKeys,
@@ -12205,7 +12564,7 @@ export default function AIEstimateScopeAssumptionsModal({
             ...pricingAcceptance,
             [itemId]: acceptance,
           },
-          scopeGapResolutions: syncScopeGapPricingStatuses(prev.scopeGapResolutions, {
+          scopeGapResolutions: syncScopeGapPricingStatuses(merged.scopeGapResolutions, {
             itemQuantities,
             pricingAcceptance: {
               ...pricingAcceptance,
@@ -12362,6 +12721,49 @@ export default function AIEstimateScopeAssumptionsModal({
             unitMismatch)) ||
         Boolean(validation?.requiresExplicitOverride);
 
+      const applyFlooringDemoWithDisclosure = (
+        disclosure: 'no' | 'yes' | 'unsure'
+      ) => {
+        applySuggestedPricingNow(itemId, block, false, null, {
+          flooringDemoIncludesSubstratePrep: disclosure,
+        });
+      };
+
+      if (
+        itemId === 'floor_demo' &&
+        isCustomFlooringDemoPriceBlock(block) &&
+        !measurements.flooringDemoIncludesSubstratePrep
+      ) {
+        Alert.alert(
+          'Does this demolition price include final substrate preparation?',
+          'Final grinding, patching, skim coating, and leveling are separate from standard demolition unless your price already includes them.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'No — price floor prep separately',
+              onPress: () => applyFlooringDemoWithDisclosure('no'),
+            },
+            {
+              text: 'Yes — final substrate prep is included',
+              onPress: () => applyFlooringDemoWithDisclosure('yes'),
+            },
+            {
+              text: 'Not sure — review before bid',
+              onPress: () => applyFlooringDemoWithDisclosure('unsure'),
+            },
+          ]
+        );
+        return;
+      }
+
+      if (itemId === 'floor_prep') {
+        const overlap = evaluateFlooringDemoPrepOverlap(measurements);
+        if (overlap.blockAutoApply) {
+          Alert.alert('Possible duplicate scope', overlap.message, [{ text: 'OK', style: 'cancel' }]);
+          return;
+        }
+      }
+
       if (!needsConfirmation) {
         applySuggestedPricingNow(itemId, block);
         return;
@@ -12390,6 +12792,7 @@ export default function AIEstimateScopeAssumptionsModal({
     [
       applySuggestedPricingNow,
       measurements.appliedBenchmarkKeys,
+      measurements.flooringDemoIncludesSubstratePrep,
       measurements.itemQuantities,
       measurements.pricingAcceptance,
     ]
@@ -12771,19 +13174,43 @@ export default function AIEstimateScopeAssumptionsModal({
     if (embedQmScopeInQuickMeasurements && qmScopeEmbeddedInQuickMeasurements(item.id)) {
       return null;
     }
-    if (
-      String(checklist?.templateKey || '').toLowerCase() === 'flooring' &&
-      item.id === 'flooring' &&
-      [
-        measurements.flooringLvpSqft,
-        measurements.flooringLaminateSqft,
-        measurements.flooringEngineeredHardwoodSqft,
-        measurements.flooringSolidHardwoodSqft,
-        measurements.flooringTileSqft,
-        measurements.flooringCarpetSqft,
-      ].some((value) => Number(value) > 0)
-    ) {
-      return null;
+    if (String(checklist?.templateKey || '').toLowerCase() === 'flooring') {
+      const flooringProductScopeByItemId: Record<string, string> = {
+        flooring_lvp: 'lvp',
+        flooring_laminate: 'laminate',
+        flooring_engineered_hardwood: 'engineered_hardwood',
+        flooring_solid_hardwood: 'solid_hardwood',
+        tile_flooring: 'tile',
+        flooring_carpet: 'carpet',
+      };
+      const flooringMeasurementByItemId: Record<string, number> = {
+        flooring_lvp: Number(measurements.flooringLvpSqft || 0),
+        flooring_laminate: Number(measurements.flooringLaminateSqft || 0),
+        flooring_engineered_hardwood: Number(measurements.flooringEngineeredHardwoodSqft || 0),
+        flooring_solid_hardwood: Number(measurements.flooringSolidHardwoodSqft || 0),
+        tile_flooring: Number(measurements.flooringTileSqft || 0),
+        flooring_carpet: Number(measurements.flooringCarpetSqft || 0),
+      };
+      const selectedProductScope = new Set(
+        readFlooringProductScope(measurements as Record<string, unknown>)
+      );
+      const hasSpecificFlooringProduct =
+        selectedProductScope.size > 0 ||
+        Object.values(flooringMeasurementByItemId).some((value) => value > 0);
+      if (item.id === 'flooring' && hasSpecificFlooringProduct) {
+        return null;
+      }
+      const productScope = flooringProductScopeByItemId[item.id];
+      if (productScope && hasSpecificFlooringProduct) {
+        const installSqft =
+          flooringMeasurementByItemId[item.id] ||
+          Number(measurements.itemQuantities?.[`floor_install__${productScope}`]?.quantity || 0) ||
+          Number(measurements.itemQuantities?.[item.id]?.quantity || 0);
+        const shouldShow =
+          selectedProductScope.has(productScope) ||
+          installSqft > 0;
+        if (!shouldShow) return null;
+      }
     }
     if (
       String(checklist?.templateKey || '').toLowerCase() === 'painting' &&
@@ -13279,8 +13706,14 @@ export default function AIEstimateScopeAssumptionsModal({
             setItems((prev) => syncKitchenQmScopeItems(prev, { ...existing, ...install, ...demo }));
           }}
           onFlooringQmChange={({ existing, install, demo }) => {
-            setItems((prev) => syncFlooringQmScopeItems(prev, { ...existing, ...install, ...demo }));
+            syncFlooringScopeItemsFromMeasurements({
+              ...(measurementsRef.current as Record<string, unknown>),
+              ...existing,
+              ...install,
+              ...demo,
+            });
           }}
+          onFlooringScopeSync={syncFlooringScopeItemsFromMeasurements}
           onBathroomFixturesQmChange={({ existing, install, demo }) => {
             setItems((prev) =>
               syncBathroomFixtureQmScopeItems(prev, { ...existing, ...install, ...demo })

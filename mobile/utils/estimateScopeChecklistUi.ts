@@ -763,32 +763,39 @@ function migrateGroundUpTakeoffScopeItems(
     'exterior_paint'
   );
   if (String(templateKey || '').toLowerCase() === 'flooring') {
-    ensure('flooring_lvp', 'LVP', 'Luxury vinyl plank material and standard installation.', 'flooring', 'flooring');
-    ensure('flooring_laminate', 'Laminate', 'Laminate flooring material and standard installation.', 'flooring', 'flooring_lvp');
+    ensure(
+      'adhesive_mastic_removal',
+      'Adhesive, mastic or thinset removal',
+      'Optional additional scraping or grinding beyond ordinary flooring removal.',
+      'demo',
+      'floor_demo'
+    );
+    ensure('flooring_lvp', 'LVP installation', 'Luxury vinyl plank material and standard installation.', 'flooring', 'flooring');
+    ensure('flooring_laminate', 'Laminate installation', 'Laminate flooring material and standard installation.', 'flooring', 'flooring_lvp');
     ensure(
       'flooring_engineered_hardwood',
-      'Engineered hardwood',
+      'Engineered hardwood installation',
       'Engineered hardwood material and standard installation.',
       'flooring',
       'flooring_laminate'
     );
     ensure(
       'flooring_solid_hardwood',
-      'Solid hardwood',
+      'Solid hardwood installation',
       'Solid hardwood material and standard installation. Refinishing is separate.',
       'flooring',
       'flooring_engineered_hardwood'
     );
     ensure(
       'tile_flooring',
-      'Tile',
+      'Tile installation',
       'Floor tile material and standard installation. Specialty patterns and stone upgrades are separate.',
       'flooring',
       'flooring_solid_hardwood'
     );
     ensure(
       'flooring_carpet',
-      'Carpet',
+      'Carpet installation',
       'Carpet material, pad, seams, and standard installation.',
       'flooring',
       'tile_flooring'
@@ -807,7 +814,12 @@ function migrateGroundUpTakeoffScopeItems(
 
   next = next.map((i) => {
     if (String(templateKey || '').toLowerCase() === 'flooring' && i.id === 'floor_demo') {
-      return { ...i, label: 'Demo Existing Flooring', helperText: 'Remove existing flooring before installing the selected new flooring.' };
+      return {
+        ...i,
+        label: 'Demo Existing Flooring',
+        helperText:
+          'Removes existing flooring and bulk setting material, then cleans the exposed substrate. Includes protection, haul-off, and disposal. Extra residual grinding, patching, skim coating, and leveling are separate under floor prep.',
+      };
     }
     if (String(templateKey || '').toLowerCase() === 'flooring' && i.id === 'flooring') {
       return { ...i, label: 'New Flooring', helperText: 'Fallback flooring install card when no specific product has been selected.' };
@@ -815,13 +827,18 @@ function migrateGroundUpTakeoffScopeItems(
     if (String(templateKey || '').toLowerCase() === 'flooring' && i.id === 'floor_prep') {
       return {
         ...i,
-        label: 'Floor Prep & Leveling',
+        label: 'Subfloor / floor prep',
         helperText:
-          'Patching, scraping, grinding, skim coating, and leveling required to prepare the substrate. Underlayment and moisture-control systems are priced separately.',
+          'Extra substrate work after demo and cleaning — residual adhesive/thinset grinding, patching, skim coating, or leveling required for the new floor. Ordinary demo cleanup is not included here.',
       };
     }
     if (String(templateKey || '').toLowerCase() === 'flooring' && i.id === 'cleanup') {
-      return { ...i, label: 'Cleanup & Disposal' };
+      return {
+        ...i,
+        label: 'Cleanup & Disposal',
+        helperText:
+          'Final project cleaning and debris from other scopes. Flooring demolition already includes normal loading, haul-off, and disposal; additional dumpsters, excessive hauling, and hazardous-material handling are separate.',
+      };
     }
     if (i.id === 'sitework' && /excavation/i.test(i.label || '')) {
       return { ...i, label: 'Sitework' };
@@ -2044,7 +2061,10 @@ export const KITCHEN_CHECKLIST_LABEL_OVERRIDES: Record<string, string> = {
 export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   demo: 'Remove fixtures, tile, and finishes.',
   backsplash_demo: 'Remove existing backsplash tile and adhesive; wall repair is separate.',
-  floor_demo: 'Remove existing floor tile, LVP, vinyl, or flooring.',
+  floor_demo:
+    'Remove existing floor tile, LVP, vinyl, or flooring. Standard rates include ordinary scraping during removal; extensive adhesive, mastic, thinset grinding, stairs, hazardous materials, and subfloor repair are separate.',
+  adhesive_mastic_removal:
+    'Optional additional scraping or grinding beyond ordinary removal. Standard flooring demo rates exclude extensive adhesive, mastic, or thinset removal.',
   tub_demo: 'Demo and haul off the existing bathtub.',
   shower_floor_demo: 'Demo existing shower base, prefab pan, or shower floor tile.',
   vanity_demo: 'Demo and haul off the existing vanity cabinet — not the top alone.',
@@ -2064,7 +2084,8 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   shower_niche: 'Frame, waterproof, and tile niche.',
   shower_bench_curb: 'Build, waterproof, and tile a shower bench — not the shower entry curb.',
   floor_tile: 'Bathroom floor tile labor and materials.',
-  floor_prep: 'Basic patch/level prep only (~$2.50/sqft national) — not finished flooring.',
+  floor_prep:
+    'Surface preparation after flooring removal. Enter only the area requiring preparation; structural repairs, moisture mitigation, and subfloor replacement are separate.',
   plumbing_rough: 'New/relocated lines priced per rough-in point, not fixture hookup only.',
   electrical_rough: 'New circuits, boxes, or devices — priced per circuit/device when counted.',
   lighting: 'Fixture + install, not fixture cost only.',
@@ -2111,7 +2132,8 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   plumbing_trim: 'Set fixtures and finish connections — excludes toilet/vanity when those are separate scope lines.',
   electrical_trim: 'Devices, plates, and bulbs.',
   permits: 'Confirm permit and impact fees for the project jurisdiction.',
-  cleanup: 'Final clean (Labor) and dumpsters/dump fees (Material). Adjust or set Material to $0 if no dumpster.',
+  cleanup:
+    'Final project cleaning and debris from other scopes. Flooring demolition already includes normal loading, haul-off, and disposal; additional dumpsters, excessive hauling, and hazardous-material handling are separate.',
 };
 
 export function checklistDisplayHelper(

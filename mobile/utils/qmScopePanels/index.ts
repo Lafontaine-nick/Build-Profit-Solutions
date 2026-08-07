@@ -2,20 +2,35 @@ import { bathroomFixturesQmPanel, BATHROOM_FIXTURES_QM_EMBEDDED_IDS } from '@/ut
 import { bathroomWetAreaQmPanel, BATHROOM_WET_AREA_EMBEDDED_IDS } from '@/utils/qmScopePanels/bathroomWetArea';
 import { flooringQmPanel, FLOORING_QM_EMBEDDED_IDS } from '@/utils/qmScopePanels/flooringRemodel';
 import { kitchenQmPanel, KITCHEN_QM_EMBEDDED_IDS } from '@/utils/qmScopePanels/kitchenRemodel';
+import { landscapingQmPanel, LANDSCAPING_QM_EMBEDDED_IDS } from '@/utils/qmScopePanels/landscapingRemodel';
+import { simpleTradePanelFor } from '@/utils/qmScopePanels/simpleTradeRemodel';
 import { isPhotoNotesScopeJob, PHOTO_NOTES_QM_TEMPLATES } from '@/utils/qmScopePanels/photoNotesJob';
 import type { QmPanelDefinition, QmPanelHydrateContext, QmPhotoNotesContext } from '@/utils/qmScopePanels/types';
 
 export { isPhotoNotesScopeJob, PHOTO_NOTES_QM_TEMPLATES };
-export { BATHROOM_FIXTURES_QM_EMBEDDED_IDS, BATHROOM_WET_AREA_EMBEDDED_IDS, KITCHEN_QM_EMBEDDED_IDS, FLOORING_QM_EMBEDDED_IDS };
+export {
+  BATHROOM_FIXTURES_QM_EMBEDDED_IDS,
+  BATHROOM_WET_AREA_EMBEDDED_IDS,
+  KITCHEN_QM_EMBEDDED_IDS,
+  FLOORING_QM_EMBEDDED_IDS,
+  LANDSCAPING_QM_EMBEDDED_IDS,
+};
 export * from '@/utils/qmScopePanels/bathroomFixtures';
 export * from '@/utils/qmScopePanels/kitchenRemodel';
 export * from '@/utils/qmScopePanels/flooringRemodel';
+export * from '@/utils/qmScopePanels/landscapingRemodel';
+export * from '@/utils/qmScopePanels/simpleTradeRemodel';
 
 const QM_PANELS: QmPanelDefinition[] = [
   bathroomWetAreaQmPanel,
   bathroomFixturesQmPanel,
   kitchenQmPanel,
   flooringQmPanel,
+  landscapingQmPanel,
+  simpleTradePanelFor('concrete'),
+  simpleTradePanelFor('deck_patio'),
+  simpleTradePanelFor('hvac'),
+  simpleTradePanelFor('roofing'),
 ];
 
 export function getActiveQmPanels(ctx: QmPhotoNotesContext): QmPanelDefinition[] {

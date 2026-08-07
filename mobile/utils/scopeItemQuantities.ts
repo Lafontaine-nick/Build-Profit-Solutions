@@ -60,6 +60,11 @@ import {
   resolveInsulationEnvelopePlanningQuantity,
 } from '@/utils/insulationEnvelopeQuantity';
 import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
+import {
+  buildFloorPrepPricingContext,
+  demoCatalogAssumptionNote,
+  resolveConfirmedAffectedPrepArea,
+} from '@/utils/flooringDemoPrepBoundary';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 import { parseScopeItemAllowancesFromNotes } from '@/utils/scopeAllowanceParser';
 import {
@@ -499,8 +504,8 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     unit: 'sqft',
     material: 0.3,
     labor: 2.7,
-    materialBucketLabel: 'Equipment, protection & disposal',
-    sourceLabel: 'Suggested budget split · National Average · flooring demolition',
+    materialBucketLabel: 'Equipment, protection, haul-off & disposal',
+    sourceLabel: 'Suggested budget split · National Average planning estimate · flooring demolition',
   },
   underlayment: { unit: 'sqft', material: 0.75, labor: 1.25, sourceLabel: 'Suggested budget split · National Average · underlayment' },
   moisture_barrier: { unit: 'sqft', material: 0.5, labor: 0.75, sourceLabel: 'Suggested budget split · National Average · moisture barrier' },
@@ -928,12 +933,12 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     category: 'paint',
     pricingMethod: 'material_labor',
   },
-  /** Basic patch/level prep — not full flooring install. Prior $9/sqft was mis-scoped. */
+  /** Fallback only; flooring template pricing uses the selected prep level and minimum. */
   floor_prep: {
     unit: 'sqft',
     material: 0.75,
     labor: 1.75,
-    sourceLabel: 'Suggested · National Average · basic floor prep (not flooring)',
+    sourceLabel: 'Suggested · National Average · selected floor-prep level',
   },
   waterproofing: {
     unit: 'sqft',
@@ -4180,6 +4185,7 @@ type PricingBasisPreference = {
 const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> = {
   demo: { unit: 'sqft', measurementKeys: ['bathroomFloorSqft', 'floorAreaSqft'] },
   floor_demo: { unit: 'sqft', measurementKeys: ['floorDemoSqft', 'bathroomFloorSqft', 'kitchenFloorSqft', 'floorAreaSqft'] },
+  adhesive_mastic_removal: { unit: 'sqft', measurementKeys: ['floorDemoSqft', 'floorAreaSqft'] },
   demo_removal: { unit: 'sqft', measurementKeys: ['floorAreaSqft', 'deckSqft', 'concreteSqft', 'drywallSqft'] },
   floor_tile: { unit: 'sqft', measurementKeys: ['bathroomFloorSqft'] },
   flooring: { unit: 'sqft', measurementKeys: ['flooringSqft', 'floorAreaSqft', 'kitchenFloorSqft', 'bathroomFloorSqft'] },
@@ -5945,6 +5951,7 @@ const TEMPLATE_FAMILY_FALLBACK: Record<string, RegExp> = {
   waterproofing: /waterproof|backer\s*board|kerdi|redgard|red\s*guard|schluter|membrane/i,
   demo: /demo|demolition|tear\s*out|removal|remove|haul/i,
   floor_demo: /demo|demolition|tear\s*out|removal|remove/i,
+  adhesive_mastic_removal: /adhesive|mastic|thinset|thin\s*set|grind(?:ing)?\s+(?:the\s+)?(?:floor|residue)/i,
 };
 
 function normalizeRateUnit(unit?: string | null): string | null {
@@ -6484,34 +6491,113 @@ export function isNationalAverageComparisonBlock(
   return String(block.pricingRecordId || '').startsWith('bps_national_comparison:');
 }
 
+/** National-average planning estimates for standard residential demolition. */
 const FLOORING_DEMO_TOTAL_RATES: Record<string, number> = {
-  carpet: 1.5,
-  laminate: 1.5,
-  lvp: 1.5,
-  vinyl: 2,
-  engineered_hardwood: 3.25,
-  hardwood: 3.75,
+  carpet: 1.75,
+  laminate: 1.75,
+  lvp: 2,
+  sheet_vinyl_vct: 2.25,
+  engineered_hardwood: 3.5,
+  solid_hardwood: 4,
   tile: 4.5,
   unknown: 3,
 };
 
 function flooringDemoRateFor(
   type: string,
-  notes: string | null | undefined
+  notes: string | null | undefined,
+  measurementsInput?: ScopeMeasurementsInputExtended
 ): number {
   if (
     type === 'tile' &&
-    /heavy\s+tile|difficult(?:y)?\s+(?:tile\s+)?remov|mud[\s-]?set|thick\s+set/i.test(String(notes || ''))
-  ) {
-    return 5.5;
+    /heavy\s+tile|difficult(?:y)?\s+(?:tile\s+)?remov|mud[\s-]?set|thick\s+set|multiple\s+tile\s+layers?|bonded\s+underlayment/i.test(
+      String(notes || '')
+    )
+  ) return 5.5;
+  if (type === 'lvp') {
+    if (measurementsInput?.flooringExistingLvpInstallMethod === 'glue_down') return 3.25;
+    if (measurementsInput?.flooringExistingLvpInstallMethod === 'floating') return 2;
+    // Missing/unknown method — keep pricing visible as a reviewable mid-rate.
+    return 2.5;
   }
-  if (
-    (type === 'vinyl' || type === 'lvp') &&
-    /glue[\s-]?down|adhesive[\s-]?backed/i.test(String(notes || ''))
-  ) {
+  if (type === 'sheet_vinyl_vct') {
+    if (measurementsInput?.flooringExistingSheetVinylType === 'vct') return 3.25;
+    if (measurementsInput?.flooringExistingSheetVinylType === 'sheet_vinyl') return 2.25;
+    // Missing/unknown subtype — keep pricing visible as a reviewable mid-rate.
+    return 2.75;
+  }
+  if (type === 'vinyl' && /glue[\s-]?down|adhesive[\s-]?backed/i.test(String(notes || ''))) {
     return 3;
   }
   return FLOORING_DEMO_TOTAL_RATES[type] ?? FLOORING_DEMO_TOTAL_RATES.unknown;
+}
+
+function flooringDemoSplitFor(
+  type: string,
+  notes: string | null | undefined,
+  measurementsInput?: ScopeMeasurementsInputExtended
+): { material: number; labor: number; rate: number; review: boolean } {
+  const rate = flooringDemoRateFor(type, notes, measurementsInput);
+  if (type === 'carpet') return { material: 0.35, labor: 1.4, rate: 1.75, review: false };
+  if (type === 'tile') {
+    const heavy = rate === 5.5;
+    return { material: heavy ? 1.1 : 0.9, labor: heavy ? 4.4 : 3.6, rate, review: heavy };
+  }
+  if (type === 'solid_hardwood') return { material: 0.65, labor: 3.35, rate: 4, review: false };
+  if (type === 'engineered_hardwood') {
+    const review = !/floating|nailed|stapled|glue[\s-]?down/i.test(String(notes || ''));
+    return { material: 0.55, labor: 2.95, rate: 3.5, review };
+  }
+  if (type === 'laminate') return { material: 0.3, labor: 1.45, rate: 1.75, review: false };
+  if (type === 'lvp') {
+    if (measurementsInput?.flooringExistingLvpInstallMethod === 'glue_down') {
+      return { material: 0.55, labor: 2.7, rate: 3.25, review: false };
+    }
+    if (measurementsInput?.flooringExistingLvpInstallMethod === 'floating') {
+      return { material: 0.4, labor: 1.6, rate: 2, review: false };
+    }
+    return { material: 0.45, labor: 2.05, rate: 2.5, review: true };
+  }
+  if (type === 'sheet_vinyl_vct') {
+    if (measurementsInput?.flooringExistingSheetVinylType === 'vct') {
+      return { material: 0.6, labor: 2.65, rate: 3.25, review: false };
+    }
+    if (measurementsInput?.flooringExistingSheetVinylType === 'sheet_vinyl') {
+      return { material: 0.45, labor: 1.8, rate: 2.25, review: false };
+    }
+    return { material: 0.5, labor: 2.25, rate: 2.75, review: true };
+  }
+  return { material: 0.6, labor: 2.4, rate: 3, review: true };
+}
+
+function flooringDemoLabelForPricing(
+  type: string,
+  notes: string | null | undefined,
+  measurementsInput: ScopeMeasurementsInputExtended
+): string {
+  if (type === 'carpet') return 'Carpet and pad';
+  if (type === 'laminate') return 'Floating laminate';
+  if (type === 'solid_hardwood') return 'Solid hardwood';
+  if (type === 'engineered_hardwood') return 'Engineered hardwood';
+  if (type === 'unknown') return 'Existing flooring — type not confirmed';
+  if (type === 'lvp') {
+    if (measurementsInput.flooringExistingLvpInstallMethod === 'glue_down') return 'Glue-down LVP';
+    if (measurementsInput.flooringExistingLvpInstallMethod === 'floating') return 'Floating/click-lock LVP';
+    return 'LVP — installation method not confirmed';
+  }
+  if (type === 'sheet_vinyl_vct') {
+    if (measurementsInput.flooringExistingSheetVinylType === 'vct') return 'VCT (vinyl composition tile)';
+    if (measurementsInput.flooringExistingSheetVinylType === 'sheet_vinyl') return 'Sheet vinyl';
+    return 'Sheet vinyl/VCT — type not confirmed';
+  }
+  if (type === 'tile') {
+    return /heavy\s+tile|difficult(?:y)?\s+(?:tile\s+)?remov|mud[\s-]?set|thick\s+set|multiple\s+tile\s+layers?|bonded\s+underlayment/i.test(
+      String(notes || '')
+    )
+      ? 'Heavy tile or mortar-bed tile'
+      : 'Ceramic/porcelain tile';
+  }
+  return type.replace(/_/g, ' ');
 }
 
 function flooringDemoNationalAverage(
@@ -6540,145 +6626,121 @@ function flooringDemoNationalAverage(
     .filter((entry) => entry.area > 0);
   const weightedArea = areas.reduce((sum, entry) => sum + entry.area, 0);
   const area = weightedArea > 0 ? weightedArea : Math.max(0, fallbackCount);
-  const weightedRate =
-    weightedArea > 0
-      ? areas.reduce((sum, entry) => sum + entry.area * flooringDemoRateFor(entry.type, originalNotes), 0) /
-        weightedArea
-      : types.length
-        ? types.reduce((sum, type) => sum + flooringDemoRateFor(type, originalNotes), 0) / types.length
-        : FLOORING_DEMO_TOTAL_RATES.unknown;
-  // Equipment, protection and disposal is a transparent 10% planning split
-  // of the exact material-specific demo total, avoiding blended-rate rounding drift.
+  if (types.length > 0 && areas.length !== types.length) {
+    return {
+      material: 0,
+      labor: 0,
+      materialBucketLabel: 'Equipment, protection, cleaning, haul-off & disposal',
+      sourceLabel: 'Suggested · National Average · demo area required',
+      pricingDetail: 'Enter a removal area greater than zero for every selected existing flooring type.',
+    };
+  }
+  const pricedAreas = areas.map((entry) => ({
+    ...entry,
+    split: flooringDemoSplitFor(entry.type, originalNotes, measurementsInput),
+  }));
+  const fallbackSplits = types.length
+    ? types.map((type) => flooringDemoSplitFor(type, originalNotes, measurementsInput))
+    : [flooringDemoSplitFor('unknown', originalNotes, measurementsInput)];
+  const fallbackRate = fallbackSplits.reduce((sum, split) => sum + split.rate, 0) / fallbackSplits.length;
   const exactDemoTotal =
     weightedArea > 0
-      ? areas.reduce((sum, entry) => sum + entry.area * flooringDemoRateFor(entry.type, originalNotes), 0)
-      : area * weightedRate;
-  const materialTotal = round2(exactDemoTotal * 0.1);
-  const laborTotal = round2(exactDemoTotal - materialTotal);
+      ? pricedAreas.reduce((sum, entry) => sum + entry.area * entry.split.rate, 0)
+      : area * fallbackRate;
+  const materialTotal =
+    weightedArea > 0
+      ? pricedAreas.reduce((sum, entry) => sum + entry.area * entry.split.material, 0)
+      : area * (fallbackSplits.reduce((sum, split) => sum + split.material, 0) / fallbackSplits.length);
+  const laborTotal =
+    weightedArea > 0
+      ? pricedAreas.reduce((sum, entry) => sum + entry.area * entry.split.labor, 0)
+      : area * (fallbackSplits.reduce((sum, split) => sum + split.labor, 0) / fallbackSplits.length);
   const material = area > 0 ? materialTotal / area : 0;
   const labor = area > 0 ? laborTotal / area : 0;
+  const hasReview = pricedAreas.some((entry) => entry.split.review) || fallbackSplits.some((split) => split.review);
   const pricingDetail =
     areas.length > 0
       ? [
-          ...areas.map((entry) => {
-            const rate = flooringDemoRateFor(entry.type, originalNotes);
-            const label = entry.type.replace(/_/g, ' ');
+          ...pricedAreas.map((entry) => {
+            const rate = entry.split.rate;
+            const label = flooringDemoLabelForPricing(entry.type, originalNotes, measurementsInput);
             const title = label.charAt(0).toUpperCase() + label.slice(1);
-            return `${entry.area.toLocaleString()} SF ${title} Demo @ $${rate.toFixed(2)}/SF = $${round2(entry.area * rate).toLocaleString()}`;
+            return [
+              `${entry.area.toLocaleString()} SF ${title} removal @ $${rate.toFixed(2)}/SF = $${round2(entry.area * rate).toLocaleString()}`,
+              demoCatalogAssumptionNote(entry.type, measurementsInput),
+            ].join('\n');
           }),
-          `Total Demo = $${round2(exactDemoTotal).toLocaleString()}`,
+          'Protection, ordinary substrate cleaning, haul-off, and disposal included.',
+          `Total: $${round2(exactDemoTotal).toLocaleString()}`,
+          `Blended rate: $${(area > 0 ? exactDemoTotal / area : 0).toFixed(2)}/SF`,
+          'Extra residual grinding, patching, skim coating, and leveling are priced under floor prep.',
+          ...(hasReview ? ['Review before bid: verify the existing installation or demolition difficulty.'] : []),
         ].join('\n')
       : null;
   return {
     material,
     labor,
-    materialBucketLabel: 'Equipment, protection & disposal',
-    sourceLabel: `Suggested budget split · National Average · flooring demolition · ${area.toLocaleString()} SF`,
+    materialBucketLabel: 'Equipment, protection, cleaning, haul-off & disposal',
+    sourceLabel: `Suggested budget split · National Average planning estimate · flooring demolition · ${area.toLocaleString()} SF${hasReview ? ' · Review before bid' : ''}`,
     pricingDetail,
   };
 }
 
 function floorPrepPricing(
   measurementsInput: ScopeMeasurementsInputExtended,
-  fallbackCount: number
-): { material: number; labor: number; sourceLabel: string; pricingDetail: string | null } {
-  type PrepLevel = 0 | 1 | 2 | 3 | 4;
-  const prepCatalog: Record<PrepLevel, { rate: number; material: number; labor: number; minimum: number }> = {
-    0: { rate: 0, material: 0, labor: 0, minimum: 0 },
-    1: { rate: 0.75, material: 0.15, labor: 0.6, minimum: 250 },
-    2: { rate: 1.5, material: 0.45, labor: 1.05, minimum: 350 },
-    3: { rate: 3, material: 1.05, labor: 1.95, minimum: 500 },
-    4: { rate: 4.5, material: 1.8, labor: 2.7, minimum: 750 },
-  };
-  const existingTypes =
-    Array.isArray(measurementsInput.flooringExistingTypes) && measurementsInput.flooringExistingTypes.length
-      ? measurementsInput.flooringExistingTypes.filter((type) => typeof type === 'string')
-      : ['unknown'];
-  const newProducts =
-    Array.isArray(measurementsInput.flooringProductScope) && measurementsInput.flooringProductScope.length
-      ? measurementsInput.flooringProductScope.filter((type) => typeof type === 'string')
-      : ['unspecified'];
-  const vinylMethod = measurementsInput.flooringExistingVinylMethod || 'unknown';
-  const transitionEntries = Array.isArray(measurementsInput.floorPrepTransitions)
-    ? measurementsInput.floorPrepTransitions.filter(
-        (transition) =>
-          transition &&
-          typeof transition.existingType === 'string' &&
-          transition.existingType &&
-          typeof transition.newProduct === 'string' &&
-          transition.newProduct &&
-          Number(transition.sqft) > 0
-      )
-    : [];
-  const ambiguous = existingTypes.length > 1 && newProducts.length > 1 && transitionEntries.length === 0;
-  const transitions = ambiguous
-    ? []
-    : transitionEntries.length
-      ? transitionEntries
-      : [
-          {
-            existingType: existingTypes[0],
-            newProduct: newProducts[0],
-            sqft: fallbackCount,
-          },
-        ];
-  const levelFor = (existing: string, product: string): PrepLevel => {
-    if (existing === 'carpet' && product === 'carpet') return 0;
-    if ((existing === 'lvp' || existing === 'laminate') && (product === 'lvp' || product === 'laminate')) return 1;
-    if (existing === 'vinyl') {
-      if (vinylMethod === 'glue_down') return 3;
-      if (vinylMethod === 'floating') return 1;
-      return 2;
-    }
-    if (existing === 'carpet') return product === 'tile' || product.includes('hardwood') ? 2 : 1;
-    if (existing === 'tile') return 3;
-    if (existing === 'hardwood' || existing === 'engineered_hardwood') {
-      return product === 'tile' ? 2 : product === 'carpet' ? 1 : 2;
-    }
-    if (existing === 'unknown') return 2;
-    return product === 'carpet' ? 1 : 2;
-  };
-  const label = (value: string) => {
-    const text = value.replace(/_/g, ' ');
-    return text.charAt(0).toUpperCase() + text.slice(1);
-  };
-  const transitionPricing = transitions.map((transition) => {
-    const level =
-      transition.prepLevel != null
-        ? (transition.prepLevel as PrepLevel)
-        : measurementsInput.floorPrepLevel != null
-          ? (measurementsInput.floorPrepLevel as PrepLevel)
-          : levelFor(transition.existingType, transition.newProduct);
-    const catalog = prepCatalog[level];
-    const sqft = Number(transition.sqft);
-    const total = Math.max(sqft * catalog.rate, catalog.minimum);
-    const materialTotal = catalog.rate > 0 ? total * (catalog.material / catalog.rate) : 0;
-    const laborTotal = Math.max(0, total - materialTotal);
-    return { ...transition, level, catalog, sqft, total, materialTotal, laborTotal };
+  pricingCount: number,
+  quantitySource?: string | null
+): {
+  material: number;
+  labor: number;
+  sourceLabel: string;
+  pricingDetail: string | null;
+  reviewBeforeBid?: boolean;
+} {
+  const context = buildFloorPrepPricingContext(measurementsInput, {
+    pricingCount,
+    quantitySource,
   });
-  if (ambiguous || !transitionPricing.length) {
+  if (!context.ok) {
+    // An unresolved demo disclosure must remain visible for review. Returning
+    // zero rates here made the entire prep card disappear, hiding the overlap
+    // that the user still needs to resolve.
+    if (context.reviewBeforeBid) {
+      const reviewContext = buildFloorPrepPricingContext(
+        { ...measurementsInput, flooringDemoIncludesSubstratePrep: 'no' },
+        { pricingCount, quantitySource }
+      );
+      if (reviewContext.ok && !reviewContext.includedInDemo && reviewContext.totalPrepArea > 0) {
+        return {
+          material: reviewContext.totalMaterial / reviewContext.totalPrepArea,
+          labor: reviewContext.totalLabor / reviewContext.totalPrepArea,
+          sourceLabel: context.sourceLabel,
+          pricingDetail: `${context.pricingDetail}\n\n${reviewContext.pricingDetail}`,
+          reviewBeforeBid: true,
+        };
+      }
+    }
     return {
       material: 0,
       labor: 0,
-      sourceLabel: 'Suggested · National Average · floor prep · transition assignment required',
-      pricingDetail: 'Assign each new flooring product to the existing floor it replaces before pricing prep.',
+      sourceLabel: context.sourceLabel,
+      pricingDetail: context.pricingDetail,
+      reviewBeforeBid: context.reviewBeforeBid,
     };
   }
-  const totalSqft = transitionPricing.reduce((sum, transition) => sum + transition.sqft, 0);
-  const totalMaterial = transitionPricing.reduce((sum, transition) => sum + transition.materialTotal, 0);
-  const totalLabor = transitionPricing.reduce((sum, transition) => sum + transition.laborTotal, 0);
-  const detail = transitionPricing
-    .map(
-      (transition) =>
-        `${transition.sqft.toLocaleString()} SF ${label(transition.existingType)} → ${label(transition.newProduct)} · Level ${transition.level} @ $${transition.catalog.rate.toFixed(2)}/SF = $${round2(transition.total).toLocaleString()}`
-    )
-    .join('\n');
-  const hasReview = transitionPricing.some((transition) => transition.level === 4);
+  if (context.includedInDemo || context.totalPrepArea <= 0) {
+    return {
+      material: 0,
+      labor: 0,
+      sourceLabel: context.sourceLabel,
+      pricingDetail: context.pricingDetail,
+    };
+  }
   return {
-    material: totalSqft > 0 ? totalMaterial / totalSqft : 0,
-    labor: totalSqft > 0 ? totalLabor / totalSqft : 0,
-    sourceLabel: `Suggested · National Average · floor prep${hasReview ? ' · Review before bid' : ''}`,
-    pricingDetail: `${detail}${hasReview ? '\nReview before bid: extensive substrate correction assumed.' : ''}`,
+    material: context.totalPrepArea > 0 ? context.totalMaterial / context.totalPrepArea : 0,
+    labor: context.totalPrepArea > 0 ? context.totalLabor / context.totalPrepArea : 0,
+    sourceLabel: context.sourceLabel,
+    pricingDetail: context.pricingDetail,
   };
 }
 
@@ -8424,6 +8486,30 @@ export function resolveScopeItemSuggestedPricing(
     }
   }
   if (!count || count <= 0) {
+    if (
+      itemId === 'floor_prep' &&
+      measurementsInput.flooringDemoIncludesSubstratePrep === 'yes' &&
+      !(resolveConfirmedAffectedPrepArea(measurementsInput) > 0)
+    ) {
+      const includedPrep = buildFloorPrepPricingContext(measurementsInput);
+      if (includedPrep.ok && includedPrep.includedInDemo) {
+        return {
+          fill: {
+            material: 0,
+            labor: 0,
+            total: 0,
+            materialSource: 'national_average',
+            laborSource: 'national_average',
+            rateSourceLabel: includedPrep.sourceLabel,
+            helper: 'Included in demolition pricing',
+            mode: 'suggested_price',
+            basis: { quantity: 0, unit: 'sqft' },
+            pricingDetail: includedPrep.pricingDetail,
+          },
+          comparison: null,
+        };
+      }
+    }
     const paintTrimMissing = resolveSouthernUtahPaintTrimSuggestedFill({
       itemId,
       templateKey,
@@ -8664,6 +8750,22 @@ export function resolveScopeItemSuggestedPricing(
 
   let flooringDemoPricingDetail: string | null = null;
   let floorPrepPricingDetail: string | null = null;
+  let floorPrepReviewBeforeBid = false;
+  if (itemId === 'adhesive_mastic_removal' && unit === 'sqft') {
+    const adhesiveNotes = String(originalNotes || '');
+    const adhesiveRate = /heavy|grind|difficult|bonded/i.test(adhesiveNotes)
+      ? 2.75
+      : /moderate|mastic/i.test(adhesiveNotes)
+        ? 1.75
+        : 1;
+    average = {
+      ...(average || {}),
+      unit: 'sqft',
+      material: 0,
+      labor: adhesiveRate,
+      sourceLabel: `National Average planning estimate · adhesive/mastic removal · $${adhesiveRate.toFixed(2)}/SF`,
+    };
+  }
   if (
     itemId === 'floor_demo' &&
     String(templateKey || '').toLowerCase() === 'flooring' &&
@@ -8682,11 +8784,23 @@ export function resolveScopeItemSuggestedPricing(
   }
   if (
     itemId === 'floor_prep' &&
-    String(templateKey || '').toLowerCase() === 'flooring' &&
+    (String(templateKey || '').toLowerCase() === 'flooring' ||
+      Array.isArray(measurementsInput.flooringExistingTypes) ||
+      Array.isArray(measurementsInput.flooringProductScope)) &&
     unit === 'sqft'
   ) {
-    const prepAverage = floorPrepPricing(measurementsInput, count);
+    // Confirm Scope can resolve a notes-backed quantity without persisting it
+    // into the QM field. Feed that resolved quantity into the boundary as the
+    // affected prep area; never derive it from demolition SF.
+    const prepMeasurements =
+      Number(measurementsInput.floorPrepSqft || 0) > 0 ||
+      resolved.quantitySource === 'missing' ||
+      resolved.quantitySource === 'default_assumption'
+        ? measurementsInput
+        : { ...measurementsInput, floorPrepSqft: String(count) };
+    const prepAverage = floorPrepPricing(prepMeasurements, count, resolved.quantitySource);
     floorPrepPricingDetail = prepAverage.pricingDetail;
+    floorPrepReviewBeforeBid = Boolean(prepAverage.reviewBeforeBid);
     average = {
       ...(average || {}),
       unit: 'sqft',
@@ -8696,10 +8810,16 @@ export function resolveScopeItemSuggestedPricing(
     };
   }
   const template = resolveTemplateRateForItem(itemId, unit, pricingContext, count);
-  const materialRate = template?.materialRate ?? average?.material ?? null;
-  const laborRate = template?.laborRate ?? average?.labor ?? null;
-  const materialRateSource: PricingLegSource = template?.materialRate ? 'template' : 'national_average';
-  const laborRateSource: PricingLegSource = template?.laborRate ? 'template' : 'national_average';
+  const dynamicFloorPrep =
+    itemId === 'floor_prep' &&
+    (String(templateKey || '').toLowerCase() === 'flooring' ||
+      Array.isArray(measurementsInput.flooringExistingTypes) ||
+      Array.isArray(measurementsInput.flooringProductScope)) &&
+    unit === 'sqft';
+  const materialRate = dynamicFloorPrep ? average?.material ?? null : template?.materialRate ?? average?.material ?? null;
+  const laborRate = dynamicFloorPrep ? average?.labor ?? null : template?.laborRate ?? average?.labor ?? null;
+  const materialRateSource: PricingLegSource = dynamicFloorPrep ? 'national_average' : template?.materialRate ? 'template' : 'national_average';
+  const laborRateSource: PricingLegSource = dynamicFloorPrep ? 'national_average' : template?.laborRate ? 'template' : 'national_average';
   const templateName = template?.source ?? null;
 
   if (!hasAnyPricingRate(materialRate, laborRate)) return empty;
@@ -8963,8 +9083,9 @@ export function resolveScopeItemSuggestedPricing(
       average
     ),
     templateName,
-    helper:
-      itemId === 'exterior_paint'
+    helper: floorPrepReviewBeforeBid
+      ? 'Possible duplicate scope · review whether final substrate preparation is included in demolition before bidding.'
+      : itemId === 'exterior_paint'
         ? exteriorPaintLocalCalibrationMessage()
         : `${basisHelper} · suggested pricing`,
     mode: 'suggested_price',
@@ -8994,7 +9115,7 @@ export function resolveScopeItemSuggestedPricing(
     benchmarkLevel: 'component',
     benchmarkStageKey: benchmarkStageForScopeKey(itemId),
     benchmarkScopeKey: itemId,
-    benchmarkAction: 'price_ready',
+    benchmarkAction: floorPrepReviewBeforeBid ? 'comparison_only' : 'price_ready',
     comparisonRange:
       materialRateSource === 'national_average' || laborRateSource === 'national_average'
         ? planningComparisonRange(round2(material + labor))
@@ -9005,6 +9126,7 @@ export function resolveScopeItemSuggestedPricing(
         : itemId === 'floor_prep'
           ? floorPrepPricingDetail
           : null,
+    isComparison: floorPrepReviewBeforeBid || undefined,
   };
   // Comparison = pure national on the same qty/unit as fill (not living-SF stage lump).
   const nationalComparison = hasPhysicalTakeoffRates
@@ -10314,11 +10436,14 @@ export function scopeMeasurementsToPayload(
     flooringProductScope: Array.isArray(sanitized.flooringProductScope)
       ? sanitized.flooringProductScope
       : null,
-    flooringExistingVinylMethod: sanitized.flooringExistingVinylMethod ?? null,
+    flooringExistingLvpInstallMethod: sanitized.flooringExistingLvpInstallMethod ?? null,
+    flooringExistingSheetVinylType: sanitized.flooringExistingSheetVinylType ?? null,
     floorPrepLevel: sanitized.floorPrepLevel ?? null,
+    flooringDemoIncludesSubstratePrep: sanitized.flooringDemoIncludesSubstratePrep ?? null,
     floorPrepTransitions: Array.isArray(sanitized.floorPrepTransitions)
       ? sanitized.floorPrepTransitions
       : null,
+    floorPrepByProduct: sanitized.floorPrepByProduct ?? null,
     flooringLvpSqft: parseScopeMeasurementInput(sanitized.flooringLvpSqft),
     flooringLaminateSqft: parseScopeMeasurementInput(sanitized.flooringLaminateSqft),
     flooringEngineeredHardwoodSqft: parseScopeMeasurementInput(sanitized.flooringEngineeredHardwoodSqft),
@@ -10326,7 +10451,6 @@ export function scopeMeasurementsToPayload(
     flooringTileSqft: parseScopeMeasurementInput(sanitized.flooringTileSqft),
     flooringCarpetSqft: parseScopeMeasurementInput(sanitized.flooringCarpetSqft),
     floorDemoSqft: parseScopeMeasurementInput(sanitized.floorDemoSqft),
-    floorPrepSqft: parseScopeMeasurementInput(sanitized.floorPrepSqft),
     floorPrepSqft: parseScopeMeasurementInput(sanitized.floorPrepSqft),
     underlaymentSqft: parseScopeMeasurementInput(sanitized.underlaymentSqft),
     moistureBarrierSqft: parseScopeMeasurementInput(sanitized.moistureBarrierSqft),
@@ -10340,6 +10464,8 @@ export function scopeMeasurementsToPayload(
     paverSqft: parseScopeMeasurementInput(sanitized.paverSqft),
     rockMulchSqft: parseScopeMeasurementInput(sanitized.rockMulchSqft),
     landscapeTons: parseScopeMeasurementInput(sanitized.landscapeTons),
+    landscapeScope: Array.isArray(sanitized.landscapeScope) ? sanitized.landscapeScope : null,
+    tradeScopeSelections: sanitized.tradeScopeSelections ?? null,
     roofSquares: parseScopeMeasurementInput(sanitized.roofSquares),
     drywallSqft: parseScopeMeasurementInput(sanitized.drywallSqft),
     concreteSqft: parseScopeMeasurementInput(sanitized.concreteSqft),
@@ -10853,6 +10979,8 @@ export function scopeMeasurementsInputFromPayload(
     paverSqft: measurementFieldString(payload.paverSqft),
     rockMulchSqft: measurementFieldString(payload.rockMulchSqft),
     landscapeTons: measurementFieldString(payload.landscapeTons),
+    landscapeScope: Array.isArray(payload.landscapeScope) ? payload.landscapeScope : null,
+    tradeScopeSelections: payload.tradeScopeSelections ?? null,
     roofSquares: measurementFieldString(payload.roofSquares),
     drywallSqft: measurementFieldString(payload.drywallSqft),
     concreteSqft: measurementFieldString(payload.concreteSqft),
@@ -11346,12 +11474,20 @@ export function prepareScopeMeasurementsInputForUi(
 }
 
 export type ScopeMeasurementsInputExtended = ReturnType<typeof emptyQuickMeasurementInput> & {
+  /** QM landscaping selections shown in the trade scope panel. */
+  landscapeScope?: string[] | null;
+  tradeScopeSelections?: ScopeMeasurements['tradeScopeSelections'];
   planRooms?: import('@/utils/estimateAiDraft').ScopeMeasurements['planRooms'];
   flooringExistingTypes?: import('@/utils/estimateAiDraft').ScopeMeasurements['flooringExistingTypes'];
   flooringProductScope?: import('@/utils/estimateAiDraft').ScopeMeasurements['flooringProductScope'];
-  flooringExistingVinylMethod?: import('@/utils/estimateAiDraft').ScopeMeasurements['flooringExistingVinylMethod'];
+  flooringExistingLvpInstallMethod?: import('@/utils/estimateAiDraft').ScopeMeasurements['flooringExistingLvpInstallMethod'];
+  flooringExistingSheetVinylType?: import('@/utils/estimateAiDraft').ScopeMeasurements['flooringExistingSheetVinylType'];
+  flooringNewLvpInstallMethod?: import('@/utils/estimateAiDraft').ScopeMeasurements['flooringNewLvpInstallMethod'];
+  flooringNewSheetVinylType?: import('@/utils/estimateAiDraft').ScopeMeasurements['flooringNewSheetVinylType'];
   floorPrepLevel?: import('@/utils/estimateAiDraft').ScopeMeasurements['floorPrepLevel'];
+  flooringDemoIncludesSubstratePrep?: import('@/utils/estimateAiDraft').ScopeMeasurements['flooringDemoIncludesSubstratePrep'];
   floorPrepTransitions?: import('@/utils/estimateAiDraft').ScopeMeasurements['floorPrepTransitions'];
+  floorPrepByProduct?: import('@/utils/estimateAiDraft').ScopeMeasurements['floorPrepByProduct'];
   paintScope?: import('@/utils/estimateAiDraft').ScopeMeasurements['paintScope'];
   paintPricingMethod?: 'combined' | 'separate' | null;
   combinedPaintableAreaSqft?: string | number | null;
@@ -11638,13 +11774,21 @@ export function initialScopeMeasurementInputExtended(
       suggested?.flooringProductScope ??
       saved?.flooringProductScope ??
       null,
-    flooringExistingVinylMethod:
-      parsedFromNotes.flooringExistingVinylMethod ??
-      suggested?.flooringExistingVinylMethod ??
-      saved?.flooringExistingVinylMethod ??
+    flooringExistingLvpInstallMethod:
+      parsedFromNotes.flooringExistingLvpInstallMethod ??
+      suggested?.flooringExistingLvpInstallMethod ??
+      saved?.flooringExistingLvpInstallMethod ??
+      null,
+    flooringExistingSheetVinylType:
+      parsedFromNotes.flooringExistingSheetVinylType ??
+      suggested?.flooringExistingSheetVinylType ??
+      saved?.flooringExistingSheetVinylType ??
       null,
     floorPrepLevel: suggested?.floorPrepLevel ?? saved?.floorPrepLevel ?? null,
+    flooringDemoIncludesSubstratePrep:
+      suggested?.flooringDemoIncludesSubstratePrep ?? saved?.flooringDemoIncludesSubstratePrep ?? null,
     floorPrepTransitions: suggested?.floorPrepTransitions ?? saved?.floorPrepTransitions ?? null,
+    floorPrepByProduct: suggested?.floorPrepByProduct ?? saved?.floorPrepByProduct ?? null,
     flooringLvpSqft: pick('flooringLvpSqft'),
     flooringLaminateSqft: pick('flooringLaminateSqft'),
     flooringEngineeredHardwoodSqft: pick('flooringEngineeredHardwoodSqft'),
@@ -11665,6 +11809,12 @@ export function initialScopeMeasurementInputExtended(
     paverSqft: pick('paverSqft'),
     rockMulchSqft: pick('rockMulchSqft'),
     landscapeTons: pick('landscapeTons'),
+    landscapeScope:
+      saved?.landscapeScope ??
+      suggested?.landscapeScope ??
+      (parsedFromNotes as ScopeMeasurements).landscapeScope ??
+      null,
+    tradeScopeSelections: saved?.tradeScopeSelections ?? suggested?.tradeScopeSelections ?? null,
     roofSquares: pick('roofSquares'),
     drywallSqft: pick('drywallSqft'),
     concreteSqft: pick('concreteSqft'),

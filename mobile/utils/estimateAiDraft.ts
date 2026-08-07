@@ -213,7 +213,9 @@ export type ScopeMeasurements = {
   floorAreaSqft?: number | null;
   /** Finished floor install area — separate from building/ADU sqft on addition jobs */
   flooringSqft?: number | null;
-  flooringProductScope?: Array<'lvp' | 'laminate' | 'engineered_hardwood' | 'solid_hardwood' | 'tile' | 'carpet'> | null;
+  flooringProductScope?: Array<
+    'lvp' | 'laminate' | 'engineered_hardwood' | 'solid_hardwood' | 'tile' | 'carpet' | 'sheet_vinyl_vct' | 'unknown'
+  > | null;
   flooringLvpSqft?: number | null;
   flooringLaminateSqft?: number | null;
   flooringEngineeredHardwoodSqft?: number | null;
@@ -222,8 +224,22 @@ export type ScopeMeasurements = {
   flooringCarpetSqft?: number | null;
   floorDemoSqft?: number | null;
   floorPrepSqft?: number | null;
-  flooringExistingVinylMethod?: 'sheet_vct' | 'glue_down' | 'floating' | 'unknown' | null;
+  flooringExistingLvpInstallMethod?: 'floating' | 'glue_down' | 'unknown' | null;
+  flooringExistingSheetVinylType?: 'sheet_vinyl' | 'vct' | 'unknown' | null;
+  flooringNewLvpInstallMethod?: 'floating' | 'glue_down' | 'unknown' | null;
+  flooringNewSheetVinylType?: 'sheet_vinyl' | 'vct' | 'unknown' | null;
   floorPrepLevel?: 0 | 1 | 2 | 3 | 4 | null;
+  /** Custom/local demolition price disclosure — whether final substrate prep is included. */
+  flooringDemoIncludesSubstratePrep?: 'no' | 'yes' | 'unsure' | null;
+  /** Per new-flooring-product prep area and severity (primary QM input). */
+  floorPrepByProduct?: Record<
+    string,
+    {
+      sqft: number | null;
+      severity: 'none' | 'light' | 'medium' | 'heavy' | 'extensive' | null;
+    }
+  > | null;
+  /** @deprecated Legacy transition rows — migrated to floorPrepByProduct when possible. */
   floorPrepTransitions?: Array<{
     existingType: string;
     newProduct: string;
@@ -253,6 +269,8 @@ export type ScopeMeasurements = {
   paverSqft?: number | null;
   rockMulchSqft?: number | null;
   landscapeTons?: number | null;
+  landscapeScope?: string[] | null;
+  tradeScopeSelections?: Partial<Record<'concrete' | 'deck_patio' | 'hvac' | 'roofing', string[] | null>> | null;
   roofSquares?: number | null;
   drywallSqft?: number | null;
   concreteSqft?: number | null;
@@ -383,7 +401,7 @@ export type ScopeMeasurements = {
   /** Flooring QM — existing / install / demo scope panels. */
   flooringExistingCount?: number | null;
   flooringExistingTypes?: Array<
-    'carpet' | 'tile' | 'hardwood' | 'engineered_hardwood' | 'laminate' | 'lvp' | 'vinyl' | 'unknown'
+    'carpet' | 'tile' | 'solid_hardwood' | 'engineered_hardwood' | 'laminate' | 'lvp' | 'sheet_vinyl_vct' | 'unknown'
   > | null;
   flooringInstallScopeCount?: number | null;
   flooringDemoScopeCount?: number | null;

@@ -18,6 +18,12 @@ describe('flooringRemodel QM', () => {
     });
   });
 
+  it('separates existing LVP and sheet vinyl/VCT intent', () => {
+    expect(inferExistingFlooringFromNotes('remove existing LVP and existing sheet vinyl')).toMatchObject({
+      flooringExistingTypes: ['lvp', 'sheet_vinyl_vct'],
+    });
+  });
+
   it('infers install from notes', () => {
     expect(
       inferFlooringInstallFromIntent({ notes: 'install LVP throughout main floor' }).flooringInstallScopeCount
@@ -46,13 +52,41 @@ describe('flooringRemodel QM', () => {
   });
 
   it('selects product cards from detected product types without inventing quantities', () => {
-    const items = [item('flooring'), item('flooring_lvp'), item('tile_flooring')];
+    const items = [item('flooring')];
     const next = syncFlooringQmScopeItems(items, {
       flooringProductScope: ['lvp', 'tile'],
       flooringInstallScopeCount: 1,
     });
-    expect(next.find((r) => r.id === 'flooring_lvp')?.state).toBe('included');
+    expect(next.find((r) => r.id === 'flooring_lvp')).toMatchObject({
+      label: 'LVP installation',
+      state: 'included',
+    });
+    expect(next.find((r) => r.id === 'tile_flooring')).toMatchObject({
+      label: 'Tile installation',
+      state: 'included',
+    });
+    expect(next.find((r) => r.id === 'flooring')?.state).toBe('excluded');
+  });
+
+  it('infers product scope from per-product install SF fields', () => {
+    const items = [item('flooring'), item('flooring_carpet'), item('tile_flooring')];
+    const next = syncFlooringQmScopeItems(items, {
+      flooringCarpetSqft: 500,
+      flooringTileSqft: 1200,
+      flooringInstallScopeCount: 1,
+    });
+    expect(next.find((r) => r.id === 'flooring_carpet')?.state).toBe('included');
     expect(next.find((r) => r.id === 'tile_flooring')?.state).toBe('included');
     expect(next.find((r) => r.id === 'flooring')?.state).toBe('excluded');
+  });
+
+  it('demotes a previously selected product card when it is deselected', () => {
+    const items = [item('flooring'), item('flooring_lvp', 'included'), item('tile_flooring', 'included')];
+    const next = syncFlooringQmScopeItems(items, {
+      flooringProductScope: ['lvp'],
+      flooringInstallScopeCount: 1,
+    });
+    expect(next.find((r) => r.id === 'flooring_lvp')?.state).toBe('included');
+    expect(next.find((r) => r.id === 'tile_flooring')?.state).toBe('excluded');
   });
 });

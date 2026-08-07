@@ -41,7 +41,6 @@ export type QuickMeasurementFieldKey =
   | 'flooringCarpetSqft'
   | 'floorDemoSqft'
   | 'floorPrepSqft'
-  | 'floorPrepSqft'
   | 'underlaymentSqft'
   | 'moistureBarrierSqft'
   | 'transitionLf'
@@ -162,14 +161,13 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Record<QuickMeasurementFieldKey, QuickMeasur
   floorDemoSqft: F('floorDemoSqft', 'Floor demo / removal', '600', 'sqft', 'interior'),
   floorPrepSqft: F(
     'floorPrepSqft',
-    'Floor prep area',
-    '0',
+    'Affected floor-prep area',
+    'Enter only the area requiring residual adhesive or thinset removal, grinding, patching, skim coating, or leveling after demolition.',
     'sqft',
     'interior',
     undefined,
-    'Enter only the area requiring subfloor or floor prep. Do not assume the entire flooring area.'
+    'Enter only the area requiring residual adhesive or thinset removal, grinding, patching, skim coating, or leveling after demolition.'
   ),
-  floorPrepSqft: F('floorPrepSqft', 'Area requiring floor prep', 'Enter only prep area', 'sqft', 'interior'),
   underlaymentSqft: F('underlaymentSqft', 'Underlayment', '600', 'sqft', 'interior'),
   moistureBarrierSqft: F('moistureBarrierSqft', 'Moisture barrier', '600', 'sqft', 'interior'),
   transitionLf: F('transitionLf', 'Transitions / reducers', '48', 'LF', 'interior'),
@@ -249,8 +247,7 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
       F('flooringSqft', 'Flooring area', 'e.g. 1000', 'sqft', 'interior', true),
       F('floorDemoSqft', 'Floor demo / removal', 'e.g. 1000', 'sqft', 'interior')
     ),
-    row(F('floorPrepSqft', 'Floor prep area', 'e.g. 200', 'sqft', 'interior')),
-    row(F('floorPrepSqft', 'Area requiring floor prep', 'e.g. 250', 'sqft', 'interior')),
+    row(F('floorPrepSqft', 'Affected floor-prep area', 'e.g. 250', 'sqft', 'interior')),
     row(
       F('flooringLvpSqft', 'LVP', 'e.g. 1000', 'sqft', 'interior'),
       F('flooringLaminateSqft', 'Laminate', 'e.g. 1000', 'sqft', 'interior')
@@ -713,9 +710,12 @@ export function emptyQuickMeasurementInput(): Record<QuickMeasurementFieldKey, s
     flooringCarpetSqft: '',
     floorDemoSqft: '',
     floorPrepSqft: '',
-    flooringExistingVinylMethod: null,
+    floorPrepByProduct: null,
+    flooringExistingLvpInstallMethod: null,
+    flooringExistingSheetVinylType: null,
     floorPrepLevel: null,
     floorPrepTransitions: null,
+    flooringDemoIncludesSubstratePrep: null,
     underlaymentSqft: '',
     moistureBarrierSqft: '',
     transitionLf: '',

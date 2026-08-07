@@ -11,7 +11,7 @@ function positiveCount(value: unknown): number | null {
 export type FlooringExistingCounts = {
   flooringExistingCount: number | null;
   flooringExistingTypes?: Array<
-    'carpet' | 'tile' | 'hardwood' | 'engineered_hardwood' | 'laminate' | 'lvp' | 'vinyl' | 'unknown'
+    'carpet' | 'tile' | 'solid_hardwood' | 'engineered_hardwood' | 'laminate' | 'lvp' | 'sheet_vinyl_vct' | 'unknown'
   > | null;
 };
 
@@ -48,6 +48,20 @@ const FLOORING_PRODUCT_SCOPE_MAP: Array<[string, string]> = [
   ['flooring_carpet', 'carpet'],
 ];
 
+/** Product types with measured install SF or explicit QM selection. */
+export function readFlooringProductScope(m: Record<string, unknown>): string[] {
+  const selected = Array.isArray(m.flooringProductScope)
+    ? m.flooringProductScope.map(String).filter(Boolean)
+    : [];
+  const fromSqft = FLOORING_MEASUREMENT_SCOPE_MAP.slice(0, 6)
+    .map(([itemId, key]) => {
+      if (!positiveCount(m[key])) return null;
+      return FLOORING_PRODUCT_SCOPE_MAP.find(([id]) => id === itemId)?.[1] ?? null;
+    })
+    .filter((product): product is string => Boolean(product));
+  return [...new Set([...selected, ...fromSqft])];
+}
+
 export function readFlooringExisting(m: Record<string, unknown>): FlooringExistingCounts {
   return {
     flooringExistingCount: positiveCount(m.flooringExistingCount),
@@ -81,11 +95,11 @@ export function inferExistingFlooringFromNotes(notes: string | null | undefined)
     existingClauses.some((clause) => /\b(?:existing|current|old)\b/.test(clause) && pattern.test(clause));
   if (hasExistingType(/\bcarpet\b/)) types.push('carpet');
   if (hasExistingType(/\btile\b/)) types.push('tile');
-  if (hasExistingType(/\bhardwood\b/) && !hasExistingType(/\bengineered\s+hardwood\b/)) types.push('hardwood');
+  if (hasExistingType(/\b(?:solid\s+)?hardwood\b/) && !hasExistingType(/\bengineered\s+hardwood\b/)) types.push('solid_hardwood');
   if (hasExistingType(/\bengineered\s+hardwood\b/)) types.push('engineered_hardwood');
   if (hasExistingType(/\blaminate\b/)) types.push('laminate');
   if (hasExistingType(/\blvp\b/)) types.push('lvp');
-  if (hasExistingType(/\bvinyl\b/)) types.push('vinyl');
+  if (hasExistingType(/\b(?:sheet\s+vinyl|sheet\s+vct|vct|vinyl\s+tile|vinyl)\b/)) types.push('sheet_vinyl_vct');
   return notesMentionExistingFloor(n) ? { flooringExistingCount: 1, flooringExistingTypes: types.length ? types : ['unknown'] } : emptyFlooringExisting();
 }
 
@@ -146,9 +160,18 @@ export function syncFlooringQmScopeItems(
   );
   const hasSpecificProduct = hasMeasuredSpecificProduct || selectedProducts.size > 0;
   let changed = false;
-  const next = items.map((row) => {
+  let next = items.map((row) => {
     const measurementKey = FLOORING_MEASUREMENT_SCOPE_MAP.find(([id]) => id === row.id)?.[1];
     const productScope = FLOORING_PRODUCT_SCOPE_MAP.find(([id]) => id === row.id)?.[1];
+    if (
+      productScope &&
+      hasSpecificProduct &&
+      !selectedProducts.has(productScope) &&
+      row.state === 'included'
+    ) {
+      changed = true;
+      return { ...row, state: 'excluded' as const, noteBacked: false };
+    }
     if ((measurementKey && positiveCount(m[measurementKey])) || (productScope && selectedProducts.has(productScope))) {
       if (row.state !== 'included') {
         changed = true;
@@ -180,6 +203,61 @@ export function syncFlooringQmScopeItems(
     }
     return row;
   });
+  const productCardDefinitions: Record<string, { id: string; label: string; helperText: string }> = {
+    lvp: {
+      id: 'flooring_lvp',
+      label: 'LVP installation',
+      helperText: 'Luxury vinyl plank material and standard installation.',
+    },
+    laminate: {
+      id: 'flooring_laminate',
+      label: 'Laminate installation',
+      helperText: 'Laminate flooring material and standard installation.',
+    },
+    engineered_hardwood: {
+      id: 'flooring_engineered_hardwood',
+      label: 'Engineered hardwood installation',
+      helperText: 'Engineered hardwood material and standard installation.',
+    },
+    solid_hardwood: {
+      id: 'flooring_solid_hardwood',
+      label: 'Solid hardwood installation',
+      helperText: 'Solid hardwood material and standard installation. Refinishing is separate.',
+    },
+    tile: {
+      id: 'tile_flooring',
+      label: 'Tile installation',
+      helperText: 'Floor tile material and standard installation. Specialty patterns and stone upgrades are separate.',
+    },
+    carpet: {
+      id: 'flooring_carpet',
+      label: 'Carpet installation',
+      helperText: 'Carpet material, pad, seams, and standard installation.',
+    },
+  };
+  const missingProductCards = [...selectedProducts]
+    .map((product) => productCardDefinitions[product])
+    .filter((definition): definition is { id: string; label: string; helperText: string } =>
+      Boolean(definition) && !next.some((row) => row.id === definition.id)
+    )
+    .map((definition) => ({
+      id: definition.id,
+      label: definition.label,
+      helperText: definition.helperText,
+      inputType: 'yes_no' as const,
+      state: 'included' as const,
+      category: 'flooring',
+      noteBacked: true,
+    }));
+  if (missingProductCards.length > 0) {
+    changed = true;
+    const insertAt = next.findIndex((row) => row.id === 'floor_demo');
+    if (insertAt >= 0) {
+      next = [...next.slice(0, insertAt), ...missingProductCards, ...next.slice(insertAt)];
+    } else {
+      next = [...next, ...missingProductCards];
+    }
+  }
   return changed ? next : items;
 }
 
@@ -229,10 +307,16 @@ function hydrateFlooring(ctx: QmPanelHydrateContext): Record<string, unknown> {
     ...existing,
     ...install,
     ...demo,
-    flooringProductScope:
-      Array.isArray(saved.flooringProductScope) && saved.flooringProductScope.length
-        ? saved.flooringProductScope
-        : inferredProductScope,
+    flooringProductScope: (() => {
+      const merged = readFlooringProductScope({
+        ...saved,
+        flooringProductScope:
+          Array.isArray(saved.flooringProductScope) && saved.flooringProductScope.length
+            ? saved.flooringProductScope
+            : inferredProductScope,
+      });
+      return merged.length ? merged : null;
+    })(),
   };
 }
 
