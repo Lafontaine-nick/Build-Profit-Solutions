@@ -478,6 +478,8 @@ async function analyzePlanForScope({
   existingNotes = '',
   templateKeyHint = null,
   projectTypeHint = null,
+  estimatingMode = 'whole_project',
+  selectedTrade = null,
   openai,
   aiModels,
   aiRuntime,
@@ -496,6 +498,11 @@ async function analyzePlanForScope({
       : 'No checklist hint — if this is a full house architectural plan set, inferredJobType MUST be ground_up (new construction), not room_remodel.',
     'Uncertain line items may be "unsure". Soft costs (contingency, overhead) stay out unless notes say the GC carries them.',
   ];
+  if (estimatingMode === 'selected_trade' && selectedTrade?.key) {
+    userBits.push(
+      `SELECTED TRADE ROUTE: ${selectedTrade.label}. Keep detections limited to supported ${selectedTrade.label.toLowerCase()} scope. This increment does not produce detailed trade counts; call out missing information for contractor review.`
+    );
+  }
   if (existingNotes?.trim()) {
     userBits.push(
       `Contractor job notes (intent — focus detections accordingly):\n${String(existingNotes).trim().slice(0, 1500)}`
@@ -588,6 +595,15 @@ async function analyzePlanForScope({
     detections,
     inferredJobType: inferredJobType || templateKey,
     templateKeyFallback: templateKey || templateKeyFallback,
+    estimatingMode,
+    selectedTrade: selectedTrade?.key || null,
+    tradeProvenance: {
+      source: 'plan_import',
+      mode: estimatingMode,
+      selectedTrade: selectedTrade?.key || null,
+      routerStatus: selectedTrade?.status || null,
+    },
+    missingInfo: selectedTrade?.missingInfo || [],
   };
 }
 

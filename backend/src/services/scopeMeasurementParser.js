@@ -13,6 +13,7 @@ const WALL_LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|
 const CY_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:cy|cubic\s+yards?)/gi;
 const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)\s*squares?\b/gi;
 const TON_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:tons?)\b/gi;
+const DEPTH_INCHES_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:inches?|["″])/i;
 
 const EXTERIOR_FLATWORK_RE =
   /\b(?:driveway|walkway|sidewalk|flat[\s-]?work|concrete\s+(?:patio|slab|pad)|patio\s+slab|rv\s+pad)\b/i;
@@ -26,6 +27,12 @@ function isExteriorFlatworkClause(clause) {
 
 function isDemoClause(clause) {
   return DEMO_VERB_RE.test(clause.toLowerCase());
+}
+
+function isDirtExcavationClause(clause) {
+  const c = clause.toLowerCase();
+  return /\b(?:dirt|soil|earth|subgrade)\b/.test(c) &&
+    /\b(?:excavat(?:e|ion)|remove|dig|cut\s*(?:\/|and)?\s*fill|soil\s+movement)\b/.test(c);
 }
 
 function parseQty(match) {
@@ -611,13 +618,27 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   const concreteDemoSqft = (() => {
     let max = 0;
     for (const clause of clauses) {
-      if (!isDemoClause(clause) || !isExteriorFlatworkClause(clause)) continue;
+      if (!isDemoClause(clause) || isDirtExcavationClause(clause) || !isExteriorFlatworkClause(clause)) continue;
       const q = firstQty(clause, SQFT_RE);
       if (q && q > max) max = q;
     }
     return max > 0 ? max : null;
   })();
   if (concreteDemoSqft) out.concreteDemoSqft = concreteDemoSqft;
+
+  for (const clause of clauses) {
+    if (!isDemoClause(clause) || isDirtExcavationClause(clause) || !/\bconcrete\b|\bslab\b|\bpatio\b|\bdriveway\b|\bsidewalk\b|\bwalkway\b/i.test(clause)) continue;
+    const depthMatch = clause.match(DEPTH_INCHES_RE);
+    const depth = depthMatch ? Number(depthMatch[1]) : null;
+    if (!depth || !Number.isFinite(depth)) continue;
+    out.concreteDemoThicknessBand =
+      depth >= 7 ? 'structural_7_plus' : depth >= 5 ? 'heavy_5_6' : depth >= 4 ? 'standard_4' : 'thin_2_3';
+    if (/\b(?:rebar|reinforced|reinforcement|welded\s+wire|wire\s+mesh)\b/i.test(clause)) out.concreteDemoReinforced = true;
+    if (/\b(?:limited|no|without)\s+(?:machine|equipment)\s+access\b|\bhand[\s-]?demo\b|\bnarrow\s+access\b|\bno\s+machine\s+access\b/i.test(clause)) out.concreteDemoLimitedAccess = true;
+    break;
+  }
+  if (/\b(?:rebar|reinforced|reinforcement|welded\s+wire|wire\s+mesh)\b/i.test(text) && out.concreteDemoSqft) out.concreteDemoReinforced = true;
+  if (/\b(?:limited|no|without)\s+(?:machine|equipment)\s+access\b|\bhand[\s-]?demo\b|\bnarrow\s+access\b|\bno\s+machine\s+access\b/i.test(text) && out.concreteDemoSqft) out.concreteDemoLimitedAccess = true;
 
   // Concrete — do not let a paver/landscape patio sqft fill concrete sqft.
   const concreteSqft = (() => {
@@ -665,6 +686,21 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
     excavationCy = firstQty(text, CY_RE);
   }
   if (excavationCy) out.excavationCy = excavationCy;
+
+  for (const clause of clauses) {
+    if (!isDirtExcavationClause(clause) && !(/\b(?:dirt|soil|earth|subgrade)\b/.test(blob) && /\b(?:excavat(?:e|ion)|remove|dig)\b/.test(blob))) continue;
+    const area = firstQty(clause, SQFT_RE) || firstQty(text, SQFT_RE);
+    const depthMatch = clause.match(DEPTH_INCHES_RE) || text.match(DEPTH_INCHES_RE);
+    const depth = depthMatch ? Number(depthMatch[1]) : null;
+    if (area && depth && depth > 0) {
+      out.excavationAreaSqft = area;
+      out.excavationDepthInches = depth;
+      if (!out.excavationCy) {
+        out.excavationCy = Math.round((area * (depth / 12) / 27) * 100) / 100;
+      }
+      break;
+    }
+  }
 
   // Tons (mulch/rock)
   const tons = (() => {

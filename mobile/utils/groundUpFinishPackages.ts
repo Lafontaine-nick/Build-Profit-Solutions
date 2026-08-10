@@ -243,9 +243,6 @@ export function resolvePlumbingTrimLumpSuggestedFill(params: {
     scopeKey: 'plumbing_trim',
     scopeNoun: 'plumbing fixtures & trim',
     exclusionNote: 'Not plumbing rough-in.',
-    floorLocal: (raw) => plumbingTrimBarometerLocal(raw, national),
-    floorNote: (raw) =>
-      `Source SHV ($${raw.toLocaleString()}) floored to size-adjusted NAHB plumbing fixtures ($${national.toLocaleString()}) — sheet line is builder-thin vs full fixture package.`,
   });
   const split = splitInstalledPackageByMaterialShare(
     blended.total,
@@ -279,9 +276,6 @@ export function resolveElectricalTrimLumpSuggestedFill(params: {
     scopeKey: 'electrical_trim',
     scopeNoun: 'electrical fixtures',
     exclusionNote: 'Not electrical rough-in.',
-    floorLocal: (raw) => electricalTrimBarometerLocal(raw, national),
-    floorNote: (raw) =>
-      `Source SHV ($${raw.toLocaleString()}) floored to size-adjusted NAHB lighting ($${national.toLocaleString()}) — sheet line is builder-thin vs full fixture package.`,
   });
   const split = splitInstalledPackageByMaterialShare(
     blended.total,

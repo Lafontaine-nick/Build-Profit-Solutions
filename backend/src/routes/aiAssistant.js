@@ -15809,7 +15809,11 @@ router.post('/plan-to-measurements', async (req, res) => {
       projectTypeHint,
       mergeIntoNotes,
       includeScope,
+      estimatingMode,
+      selectedTradeKey,
     } = req.body || {};
+    const { resolvePlanImportSelection } = require('../services/planImportTradeConfig');
+    const planSelection = resolvePlanImportSelection(estimatingMode, selectedTradeKey);
 
     const result = await analyzePlanForMeasurements({
       images,
@@ -15817,6 +15821,8 @@ router.post('/plan-to-measurements', async (req, res) => {
       templateKeyHint,
       projectTypeHint,
       includeScope: includeScope !== false,
+      estimatingMode: planSelection.mode,
+      selectedTrade: planSelection.trade,
       openai,
       aiModels,
       aiRuntime,
@@ -15840,6 +15846,15 @@ router.post('/plan-to-measurements', async (req, res) => {
         notesBlock: '',
         mergedNotes: String(existingNotes || '').trim(),
         scope: result.scope || null,
+        estimatingMode: result.estimatingMode || planSelection.mode,
+        selectedTrade: result.selectedTrade || planSelection.trade?.key || null,
+        tradeProvenance: result.tradeProvenance || {
+          source: 'plan_import',
+          mode: planSelection.mode,
+          selectedTrade: planSelection.trade?.key || null,
+          routerStatus: planSelection.trade?.status || null,
+        },
+        missingInfo: result.missingInfo || planSelection.trade?.missingInfo || [],
       });
     }
 
@@ -15865,6 +15880,15 @@ router.post('/plan-to-measurements', async (req, res) => {
       notesBlock: result.notesBlock,
       mergedNotes,
       scope: result.scope || null,
+      estimatingMode: result.estimatingMode || planSelection.mode,
+      selectedTrade: result.selectedTrade || planSelection.trade?.key || null,
+      tradeProvenance: result.tradeProvenance || {
+        source: 'plan_import',
+        mode: planSelection.mode,
+        selectedTrade: planSelection.trade?.key || null,
+        routerStatus: planSelection.trade?.status || null,
+      },
+      missingInfo: result.missingInfo || planSelection.trade?.missingInfo || [],
     });
   } catch (err) {
     console.error('Error in /plan-to-measurements:', err);

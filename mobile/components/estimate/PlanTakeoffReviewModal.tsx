@@ -21,7 +21,10 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
 import { quickMeasurementFieldMeta } from '@/utils/scopeQuickMeasurements';
-import type { PlanToMeasurementsResult, PhotoScopeDetection } from '@/utils/estimateAiDraft';
+import type {
+  PlanToMeasurementsResult,
+  PhotoScopeDetection,
+} from '@/utils/estimateAiDraft';
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import {
   applyPlanTakeoffButtonLabel,
@@ -36,6 +39,12 @@ import {
   scopeTakeoffStatusLines,
   spacesDetectedTitle,
 } from '@/utils/planTakeoffReviewUi';
+import {
+  planProvenanceColor,
+  resolvePlanMeasurementProvenance,
+  type PlanMeasurementProvenance,
+} from '@/utils/planMeasurementProvenance';
+import { getPlanTradeConfiguration } from '@/utils/planImportTradeConfig';
 
 export type PlanReviewRow = {
   key: string;
@@ -45,6 +54,7 @@ export type PlanReviewRow = {
   unit: string;
   value: string;
   confidence: number | null;
+  provenance: PlanMeasurementProvenance;
   /** Value already present in Quick measurements — applying replaces it. */
   conflictValue: string | null;
   include: boolean;
@@ -59,6 +69,7 @@ export type PlanReviewRoomRow = {
   include: boolean;
   spaceKind: 'living' | 'garage' | 'other';
   sourceLabel?: string | null;
+  provenance: PlanMeasurementProvenance;
 };
 
 type Props = {
@@ -92,11 +103,6 @@ const MEASUREMENT_SORT_ORDER: Record<string, number> = {
   bathroomFloorSqft: 11,
 };
 
-/** Only show Verify when confidence is below high — High badges are noise. */
-function showVerifyBadge(confidence: number | null): boolean {
-  return confidence != null && confidence < 0.85;
-}
-
 function positiveString(v: unknown): string | null {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? String(n) : null;
@@ -123,7 +129,9 @@ export default function PlanTakeoffReviewModal({
   const scopeDetections = useMemo(() => {
     const detections = takeoff?.scope?.detections || [];
     return detections.filter(
-      (d) => (d.confidence ?? 0) >= SCOPE_MIN_CONFIDENCE && (d.state === 'included' || d.state === 'excluded')
+      d =>
+        (d.confidence ?? 0) >= SCOPE_MIN_CONFIDENCE &&
+        (d.state === 'included' || d.state === 'excluded')
     );
   }, [takeoff]);
 
@@ -157,6 +165,20 @@ export default function PlanTakeoffReviewModal({
               assumptions: takeoff.assumptions,
             })
           : null;
+        const provenance = resolvePlanMeasurementProvenance({
+          key,
+          fieldConfidence: takeoff.fieldConfidence?.[key] ?? null,
+          hasExplicitPlanSource:
+            key === 'floorAreaSqft' ||
+            key === 'garageSqft' ||
+            key === 'deckSqft',
+          hasReliableDimensions:
+            key === 'kitchenFloorSqft' || key === 'bathroomFloorSqft',
+          roomDependent:
+            key === 'kitchenFloorSqft' || key === 'bathroomFloorSqft',
+          reconciliationVariancePercent:
+            areaReconciliation?.livingVariancePercent,
+        });
         return {
           key,
           label: display.label,
@@ -165,6 +187,7 @@ export default function PlanTakeoffReviewModal({
           unit: meta.unit,
           value: String(value),
           confidence: takeoff.fieldConfidence?.[key] ?? null,
+          provenance,
           conflictValue,
           include: conflictValue == null,
         };
@@ -182,20 +205,33 @@ export default function PlanTakeoffReviewModal({
         const name = String(room?.name || '').trim();
         if (!name) return null;
         const lengthFt =
-          room.lengthFt != null && Number.isFinite(Number(room.lengthFt)) && Number(room.lengthFt) > 0
+          room.lengthFt != null &&
+          Number.isFinite(Number(room.lengthFt)) &&
+          Number(room.lengthFt) > 0
             ? Number(room.lengthFt)
             : null;
         const widthFt =
-          room.widthFt != null && Number.isFinite(Number(room.widthFt)) && Number(room.widthFt) > 0
+          room.widthFt != null &&
+          Number.isFinite(Number(room.widthFt)) &&
+          Number(room.widthFt) > 0
             ? Number(room.widthFt)
             : null;
         let area =
-          room.areaSqft != null && Number.isFinite(Number(room.areaSqft)) && Number(room.areaSqft) > 0
+          room.areaSqft != null &&
+          Number.isFinite(Number(room.areaSqft)) &&
+          Number(room.areaSqft) > 0
             ? Math.round(Number(room.areaSqft) * 10) / 10
             : null;
         if (area == null && lengthFt != null && widthFt != null) {
           area = Math.round(lengthFt * widthFt * 10) / 10;
         }
+        const provenance = resolvePlanMeasurementProvenance({
+          key: `room:${name}`,
+          hasReliableDimensions: lengthFt != null && widthFt != null,
+          roomDependent: true,
+          reconciliationVariancePercent:
+            areaReconciliation?.livingVariancePercent,
+        });
         return {
           id: `${name}-${idx}`,
           name,
@@ -212,6 +248,7 @@ export default function PlanTakeoffReviewModal({
                 assumptions: takeoff.assumptions,
               })
             : null,
+          provenance,
         };
       })
       .filter((r): r is PlanReviewRoomRow => r != null)
@@ -224,7 +261,9 @@ export default function PlanTakeoffReviewModal({
       });
     setRoomRows(nextRooms);
 
-    setScopeChecked(Object.fromEntries(scopeDetections.map((d) => [d.itemId, true])));
+    setScopeChecked(
+      Object.fromEntries(scopeDetections.map(d => [d.itemId, true]))
+    );
     // Rebuild only when a new takeoff arrives, not on parent re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, takeoff]);
@@ -236,51 +275,75 @@ export default function PlanTakeoffReviewModal({
   const hasMeasurements = rows.length > 0;
   const hasRooms = roomRows.length > 0;
   const hasReadingIssues = lowConfidence.length > 0 || unreadable.length > 0;
-  const includedCount = rows.filter((r) => r.include && Number(r.value) > 0).length;
-  const includedRoomCount = roomRows.filter((r) => r.include && Number(r.areaSqft) > 0).length;
-  const checkedScopeCount = scopeDetections.filter((d) => scopeChecked[d.itemId]).length;
-  const canApply = includedCount > 0 || includedRoomCount > 0 || checkedScopeCount > 0;
-  const livingSpaceCount = roomRows.filter((r) => r.spaceKind === 'living').length;
-  const garageSpaceCount = roomRows.filter((r) => r.spaceKind === 'garage').length;
+  const includedCount = rows.filter(
+    r => r.include && Number(r.value) > 0
+  ).length;
+  const includedRoomCount = roomRows.filter(
+    r => r.include && Number(r.areaSqft) > 0
+  ).length;
+  const checkedScopeCount = scopeDetections.filter(
+    d => scopeChecked[d.itemId]
+  ).length;
+  const canApply =
+    includedCount > 0 || includedRoomCount > 0 || checkedScopeCount > 0;
+  const tradeLabel =
+    takeoff.estimatingMode === 'selected_trade'
+      ? getPlanTradeConfiguration(takeoff.selectedTrade)?.label || 'Trade'
+      : null;
+  const livingSpaceCount = roomRows.filter(
+    r => r.spaceKind === 'living'
+  ).length;
+  const garageSpaceCount = roomRows.filter(
+    r => r.spaceKind === 'garage'
+  ).length;
   const hasRoofQuantity =
     Number(takeoff.measurements?.roofSquares) > 0 ||
-    Number((takeoff.itemQuantities as Record<string, { quantity?: number }> | undefined)?.roofing?.quantity) >
-      0;
+    Number(
+      (
+        takeoff.itemQuantities as
+          | Record<string, { quantity?: number }>
+          | undefined
+      )?.roofing?.quantity
+    ) > 0;
   const hasPlanFloorAreas =
-    (takeoff.rooms || []).some((r) => Number(r.areaSqft) > 0) ||
+    (takeoff.rooms || []).some(r => Number(r.areaSqft) > 0) ||
     Number(takeoff.measurements?.kitchenFloorSqft) > 0 ||
     Number(takeoff.measurements?.bathroomFloorSqft) > 0 ||
     Number(takeoff.measurements?.flooringSqft) > 0;
 
   const setRow = (key: string, patch: Partial<PlanReviewRow>) => {
-    setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+    setRows(prev => prev.map(r => (r.key === key ? { ...r, ...patch } : r)));
   };
 
   const setRoomRow = (id: string, patch: Partial<PlanReviewRoomRow>) => {
-    setRoomRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    setRoomRows(prev => prev.map(r => (r.id === id ? { ...r, ...patch } : r)));
   };
 
   const handleApply = () => {
     const values: Record<string, string> = {};
     for (const row of rows) {
       const n = Number(row.value);
-      if (row.include && Number.isFinite(n) && n > 0) values[row.key] = String(n);
+      if (row.include && Number.isFinite(n) && n > 0)
+        values[row.key] = String(n);
     }
     const rooms = roomRows
-      .filter((r) => r.include)
-      .map((r) => {
+      .filter(r => r.include)
+      .map(r => {
         const area = Number(r.areaSqft);
         return {
           name: r.name,
-          areaSqft: Number.isFinite(area) && area > 0 ? Math.round(area * 10) / 10 : null,
+          areaSqft:
+            Number.isFinite(area) && area > 0
+              ? Math.round(area * 10) / 10
+              : null,
           lengthFt: r.lengthFt,
           widthFt: r.widthFt,
         };
       })
-      .filter((r) => r.name);
+      .filter(r => r.name);
     onApply(
       values,
-      scopeDetections.filter((d) => scopeChecked[d.itemId]),
+      scopeDetections.filter(d => scopeChecked[d.itemId]),
       rooms
     );
   };
@@ -288,8 +351,8 @@ export default function PlanTakeoffReviewModal({
   return (
     <Modal
       visible={visible}
-      animationType="slide"
-      presentationStyle="fullScreen"
+      animationType='slide'
+      presentationStyle='fullScreen'
       onRequestClose={onCancel}
     >
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
@@ -300,27 +363,43 @@ export default function PlanTakeoffReviewModal({
       >
         <View style={{ flex: 1, backgroundColor: Colors.bg }}>
           <AIEstimateFlowHeader
-            title="Review plan takeoff"
-            subtitle="Check numbers before they fill the bid"
+            title={
+              tradeLabel
+                ? `Review ${tradeLabel} Takeoff`
+                : 'Review plan takeoff'
+            }
+            subtitle={
+              tradeLabel
+                ? `Check ${tradeLabel.toLowerCase()} quantities before they fill the bid`
+                : 'Check numbers before they fill the bid'
+            }
             onBack={onCancel}
           />
 
           <ScrollView
             style={{ flex: 1 }}
             contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            keyboardShouldPersistTaps='handled'
+            keyboardDismissMode={
+              Platform.OS === 'ios' ? 'interactive' : 'on-drag'
+            }
             showsVerticalScrollIndicator={false}
           >
             {hasMeasurements ? (
               <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: Colors.sub }]}>Measurements</Text>
-                {rows.map((row) => {
-                  const verify = showVerifyBadge(row.confidence);
+                <Text style={[styles.sectionTitle, { color: Colors.sub }]}>
+                  Measurements
+                </Text>
+                {rows.map(row => {
                   return (
-                    <View key={row.key} style={[styles.row, { borderBottomColor: lineColor }]}>
+                    <View
+                      key={row.key}
+                      style={[styles.row, { borderBottomColor: lineColor }]}
+                    >
                       <TouchableOpacity
-                        onPress={() => setRow(row.key, { include: !row.include })}
+                        onPress={() =>
+                          setRow(row.key, { include: !row.include })
+                        }
                         style={styles.checkbox}
                         hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                       >
@@ -332,39 +411,94 @@ export default function PlanTakeoffReviewModal({
                       </TouchableOpacity>
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <View style={styles.rowLabelLine}>
-                          <Text style={[styles.rowLabel, { color: Colors.text }]} numberOfLines={2}>
+                          <Text
+                            style={[styles.rowLabel, { color: Colors.text }]}
+                            numberOfLines={2}
+                          >
                             {row.label}
                           </Text>
-                          {verify ? (
-                            <View style={styles.verifyBadge}>
-                              <Text style={styles.verifyBadgeText}>Verify</Text>
-                            </View>
-                          ) : null}
+                        </View>
+                        <View
+                          style={[
+                            styles.provenanceBadge,
+                            {
+                              borderColor: planProvenanceColor(
+                                row.provenance.status,
+                                Colors
+                              ),
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.provenanceBadgeText,
+                              {
+                                color: planProvenanceColor(
+                                  row.provenance.status,
+                                  Colors
+                                ),
+                              },
+                            ]}
+                          >
+                            {row.provenance.label}
+                          </Text>
                         </View>
                         {row.subtext ? (
-                          <Text style={[styles.evidenceText, { color: Colors.sub }]} numberOfLines={2}>
+                          <Text
+                            style={[styles.evidenceText, { color: Colors.sub }]}
+                            numberOfLines={2}
+                          >
                             {row.subtext}
                           </Text>
                         ) : null}
                         {row.sourceLabel ? (
-                          <Text style={[styles.evidenceText, { color: Colors.sub }]} numberOfLines={2}>
+                          <Text
+                            style={[styles.evidenceText, { color: Colors.sub }]}
+                            numberOfLines={2}
+                          >
                             {row.sourceLabel}
                           </Text>
                         ) : null}
+                        <Text
+                          style={[
+                            styles.evidenceText,
+                            {
+                              color: planProvenanceColor(
+                                row.provenance.status,
+                                Colors
+                              ),
+                            },
+                          ]}
+                          numberOfLines={2}
+                        >
+                          {row.provenance.reason}
+                        </Text>
                         {row.conflictValue != null ? (
                           <Text style={styles.conflictText}>
                             Replaces your {row.conflictValue} {row.unit}
                           </Text>
                         ) : null}
                       </View>
-                      <View style={[styles.valueShell, { borderColor: lineColor }]}>
+                      <View
+                        style={[styles.valueShell, { borderColor: lineColor }]}
+                      >
                         <TextInput
                           value={row.value}
-                          onChangeText={(t) => setRow(row.key, { value: t })}
-                          keyboardType="decimal-pad"
+                          onChangeText={t =>
+                            setRow(row.key, {
+                              value: t,
+                              provenance: resolvePlanMeasurementProvenance({
+                                key: row.key,
+                                userConfirmed: true,
+                              }),
+                            })
+                          }
+                          keyboardType='decimal-pad'
                           style={[styles.valueInput, { color: Colors.text }]}
                         />
-                        <Text style={[styles.unitText, { color: Colors.sub }]}>{row.unit}</Text>
+                        <Text style={[styles.unitText, { color: Colors.sub }]}>
+                          {row.unit}
+                        </Text>
                       </View>
                     </View>
                   );
@@ -372,9 +506,12 @@ export default function PlanTakeoffReviewModal({
               </View>
             ) : (
               <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: Colors.sub }]}>Measurements</Text>
+                <Text style={[styles.sectionTitle, { color: Colors.sub }]}>
+                  Measurements
+                </Text>
                 <Text style={[styles.emptyText, { color: Colors.sub }]}>
-                  {takeoff.reason || 'No square footage could be read from these pages.'}
+                  {takeoff.reason ||
+                    'No square footage could be read from these pages.'}
                 </Text>
               </View>
             )}
@@ -384,13 +521,23 @@ export default function PlanTakeoffReviewModal({
                 style={[
                   styles.reconcileCard,
                   {
-                    borderColor: darkMode ? 'rgba(148,163,184,0.25)' : Colors.line,
-                    backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : Colors.surface2,
+                    borderColor: darkMode
+                      ? 'rgba(148,163,184,0.25)'
+                      : Colors.line,
+                    backgroundColor: darkMode
+                      ? 'rgba(255,255,255,0.04)'
+                      : Colors.surface2,
                   },
                 ]}
               >
-                <Text style={[styles.reconcileTitle, { color: Colors.text }]}>Area reconciliation</Text>
-                <Text style={[styles.reconcileBlockTitle, { color: Colors.text }]}>Living area</Text>
+                <Text style={[styles.reconcileTitle, { color: Colors.text }]}>
+                  Area reconciliation
+                </Text>
+                <Text
+                  style={[styles.reconcileBlockTitle, { color: Colors.text }]}
+                >
+                  Living area
+                </Text>
                 <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
                   Declared: {formatSf(areaReconciliation.declaredLivingSf)} SF
                 </Text>
@@ -399,16 +546,23 @@ export default function PlanTakeoffReviewModal({
                   {formatSf(areaReconciliation.detectedLivingRoomSf)} SF
                 </Text>
                 <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                  Unassigned: approximately {formatSf(areaReconciliation.unassignedLivingSf)} SF
+                  Unassigned: approximately{' '}
+                  {formatSf(areaReconciliation.unassignedLivingSf)} SF
                 </Text>
                 <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                  Variance: approximately {formatSf(areaReconciliation.livingVariancePercent)}%
+                  Variance: approximately{' '}
+                  {formatSf(areaReconciliation.livingVariancePercent)}%
                 </Text>
                 <Text style={[styles.reconcileStatus, { color: Colors.text }]}>
                   Status: {livingReconciliationStatusLabel(areaReconciliation)}
                 </Text>
 
-                <Text style={[styles.reconcileBlockTitle, { color: Colors.text, marginTop: 10 }]}>
+                <Text
+                  style={[
+                    styles.reconcileBlockTitle,
+                    { color: Colors.text, marginTop: 10 },
+                  ]}
+                >
                   Garage area
                 </Text>
                 <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
@@ -419,18 +573,20 @@ export default function PlanTakeoffReviewModal({
                   {formatSf(areaReconciliation.detectedGarageRoomSf)} SF
                 </Text>
                 <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                  Unassigned: approximately {formatSf(areaReconciliation.unassignedGarageSf)} SF
+                  Unassigned: approximately{' '}
+                  {formatSf(areaReconciliation.unassignedGarageSf)} SF
                 </Text>
                 <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                  Variance: approximately {formatSf(areaReconciliation.garageVariancePercent)}%
+                  Variance: approximately{' '}
+                  {formatSf(areaReconciliation.garageVariancePercent)}%
                 </Text>
                 <Text style={[styles.reconcileStatus, { color: Colors.text }]}>
                   Status: {garageReconciliationStatusLabel(areaReconciliation)}
                 </Text>
 
                 <Text style={[styles.reconcileHint, { color: Colors.sub }]}>
-                  Room dimensions are net detected spaces and may not include bathrooms, halls,
-                  closets, wall area or circulation.
+                  Room dimensions are net detected spaces and may not include
+                  bathrooms, halls, closets, wall area or circulation.
                 </Text>
               </View>
             ) : null}
@@ -457,10 +613,15 @@ export default function PlanTakeoffReviewModal({
                         .join(' · ')
                     : 'Per-room SF for finishes that differ by space (tile, carpet, etc.)'}
                 </Text>
-                {roomRows.map((room) => (
-                  <View key={room.id} style={[styles.row, { borderBottomColor: lineColor }]}>
+                {roomRows.map(room => (
+                  <View
+                    key={room.id}
+                    style={[styles.row, { borderBottomColor: lineColor }]}
+                  >
                     <TouchableOpacity
-                      onPress={() => setRoomRow(room.id, { include: !room.include })}
+                      onPress={() =>
+                        setRoomRow(room.id, { include: !room.include })
+                      }
                       style={styles.checkbox}
                       hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                     >
@@ -471,30 +632,92 @@ export default function PlanTakeoffReviewModal({
                       />
                     </TouchableOpacity>
                     <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={[styles.rowLabel, { color: Colors.text }]} numberOfLines={1}>
-                        {room.name}
-                      </Text>
+                      <View style={styles.rowLabelLine}>
+                        <Text
+                          style={[styles.rowLabel, { color: Colors.text }]}
+                          numberOfLines={1}
+                        >
+                          {room.name}
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.provenanceBadge,
+                          {
+                            borderColor: planProvenanceColor(
+                              room.provenance.status,
+                              Colors
+                            ),
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.provenanceBadgeText,
+                            {
+                              color: planProvenanceColor(
+                                room.provenance.status,
+                                Colors
+                              ),
+                            },
+                          ]}
+                        >
+                          {room.provenance.label}
+                        </Text>
+                      </View>
                       {room.lengthFt != null && room.widthFt != null ? (
-                        <Text style={[styles.evidenceText, { color: Colors.sub }]}>
+                        <Text
+                          style={[styles.evidenceText, { color: Colors.sub }]}
+                        >
                           {room.lengthFt}×{room.widthFt} ft
                         </Text>
                       ) : null}
+                      <Text
+                        style={[
+                          styles.evidenceText,
+                          {
+                            color: planProvenanceColor(
+                              room.provenance.status,
+                              Colors
+                            ),
+                          },
+                        ]}
+                        numberOfLines={2}
+                      >
+                        {room.provenance.reason}
+                      </Text>
                       {room.sourceLabel ? (
-                        <Text style={[styles.evidenceText, { color: Colors.sub }]} numberOfLines={2}>
+                        <Text
+                          style={[styles.evidenceText, { color: Colors.sub }]}
+                          numberOfLines={2}
+                        >
                           {room.sourceLabel}
                         </Text>
                       ) : null}
                     </View>
-                    <View style={[styles.valueShell, { borderColor: lineColor }]}>
+                    <View
+                      style={[styles.valueShell, { borderColor: lineColor }]}
+                    >
                       <TextInput
                         value={room.areaSqft}
-                        onChangeText={(t) => setRoomRow(room.id, { areaSqft: t, include: true })}
-                        keyboardType="decimal-pad"
-                        placeholder="—"
+                        onChangeText={t =>
+                          setRoomRow(room.id, {
+                            areaSqft: t,
+                            include: true,
+                            provenance: resolvePlanMeasurementProvenance({
+                              key: `room:${room.name}`,
+                              userConfirmed: true,
+                            }),
+                          })
+                        }
+                        keyboardType='decimal-pad'
+                        placeholder='—'
                         placeholderTextColor={Colors.sub}
                         style={[styles.valueInput, { color: Colors.text }]}
                       />
-                      <Text style={[styles.unitText, { color: Colors.sub }]}>sqft</Text>
+                      <Text style={[styles.unitText, { color: Colors.sub }]}>
+                        sqft
+                      </Text>
                     </View>
                   </View>
                 ))}
@@ -503,20 +726,30 @@ export default function PlanTakeoffReviewModal({
 
             {hasReadingIssues ? (
               <View style={styles.callout}>
-                <Text style={styles.calloutTitle}>Could not read clearly — enter manually</Text>
-                {lowConfidence.map((f) => {
+                <Text style={styles.calloutTitle}>
+                  Could not read clearly — enter manually
+                </Text>
+                {lowConfidence.map(f => {
                   const meta = quickMeasurementFieldMeta(f.field);
                   return (
-                    <Text key={`low-${f.field}`} style={[styles.calloutLine, { color: Colors.sub }]}>
-                      {meta.label}: read {f.value} {meta.unit}, confidence too low
+                    <Text
+                      key={`low-${f.field}`}
+                      style={[styles.calloutLine, { color: Colors.sub }]}
+                    >
+                      {meta.label}: read {f.value} {meta.unit}, confidence too
+                      low
                     </Text>
                   );
                 })}
                 {unreadable.map((f, idx) => {
                   const meta = quickMeasurementFieldMeta(f.field);
                   return (
-                    <Text key={`unread-${f.field}-${idx}`} style={[styles.calloutLine, { color: Colors.sub }]}>
-                      {meta.label !== f.field ? meta.label : f.field}: {f.reason}
+                    <Text
+                      key={`unread-${f.field}-${idx}`}
+                      style={[styles.calloutLine, { color: Colors.sub }]}
+                    >
+                      {meta.label !== f.field ? meta.label : f.field}:{' '}
+                      {f.reason}
                     </Text>
                   );
                 })}
@@ -525,8 +758,10 @@ export default function PlanTakeoffReviewModal({
 
             {scopeDetections.length ? (
               <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: Colors.sub }]}>Suggested scope</Text>
-                {scopeDetections.map((d) => {
+                <Text style={[styles.sectionTitle, { color: Colors.sub }]}>
+                  Suggested scope
+                </Text>
+                {scopeDetections.map(d => {
                   const statusLines = scopeTakeoffStatusLines({
                     itemId: d.itemId,
                     evidence: d.evidence,
@@ -539,21 +774,29 @@ export default function PlanTakeoffReviewModal({
                       key={d.itemId}
                       style={[styles.row, { borderBottomColor: lineColor }]}
                       onPress={() =>
-                        setScopeChecked((prev) => ({ ...prev, [d.itemId]: !prev[d.itemId] }))
+                        setScopeChecked(prev => ({
+                          ...prev,
+                          [d.itemId]: !prev[d.itemId],
+                        }))
                       }
                       activeOpacity={0.7}
                     >
                       <Ionicons
-                        name={scopeChecked[d.itemId] ? 'checkbox' : 'square-outline'}
+                        name={
+                          scopeChecked[d.itemId] ? 'checkbox' : 'square-outline'
+                        }
                         size={22}
                         color={scopeChecked[d.itemId] ? '#22c55e' : Colors.sub}
                         style={styles.checkbox}
                       />
                       <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={[styles.rowLabel, { color: Colors.text }]} numberOfLines={1}>
+                        <Text
+                          style={[styles.rowLabel, { color: Colors.text }]}
+                          numberOfLines={1}
+                        >
                           {d.label || d.itemId}
                         </Text>
-                        {statusLines.map((line) => (
+                        {statusLines.map(line => (
                           <Text
                             key={`${d.itemId}-${line}`}
                             style={[styles.evidenceText, { color: Colors.sub }]}
@@ -575,7 +818,9 @@ export default function PlanTakeoffReviewModal({
               styles.footer,
               {
                 paddingBottom: footerBottomPad,
-                borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+                borderTopColor: darkMode
+                  ? 'rgba(255,255,255,0.08)'
+                  : Colors.line,
                 backgroundColor: Colors.bg,
               },
             ]}
@@ -587,15 +832,19 @@ export default function PlanTakeoffReviewModal({
               activeOpacity={0.88}
             >
               <Text style={styles.primaryBtnText}>
-                {applyPlanTakeoffButtonLabel({
-                  includedMeasurementCount: includedCount,
-                  checkedScopeCount,
-                  semanticsEnabled: semanticsOn,
-                })}
+                {tradeLabel
+                  ? `Apply ${tradeLabel} Takeoff`
+                  : applyPlanTakeoffButtonLabel({
+                      includedMeasurementCount: includedCount,
+                      checkedScopeCount,
+                      semanticsEnabled: semanticsOn,
+                    })}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={onCancel} style={styles.cancelBtn}>
-              <Text style={{ color: Colors.sub, fontWeight: '700' }}>Cancel</Text>
+              <Text style={{ color: Colors.sub, fontWeight: '700' }}>
+                Cancel
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -618,23 +867,31 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 10,
-    paddingVertical: 11,
+    paddingVertical: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   checkbox: { marginRight: 2 },
-  rowLabelLine: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  rowLabelLine: { marginBottom: 3 },
   rowLabel: { fontSize: 14, fontWeight: '700', flexShrink: 1 },
-  verifyBadge: {
-    paddingHorizontal: 7,
+  provenanceBadge: {
+    borderWidth: 1,
+    paddingHorizontal: 5,
     paddingVertical: 2,
     borderRadius: 7,
-    backgroundColor: 'rgba(245,158,11,0.16)',
+    backgroundColor: 'transparent',
+    alignSelf: 'flex-start',
+    marginBottom: 3,
   },
-  verifyBadgeText: { fontSize: 10.5, fontWeight: '800', color: '#d97706' },
-  conflictText: { fontSize: 11.5, marginTop: 2, fontWeight: '600', color: '#d97706' },
-  evidenceText: { fontSize: 11.5, marginTop: 2, lineHeight: 15 },
+  provenanceBadgeText: { fontSize: 9.5, fontWeight: '800' },
+  conflictText: {
+    fontSize: 11.5,
+    marginTop: 2,
+    fontWeight: '600',
+    color: '#d97706',
+  },
+  evidenceText: { fontSize: 11.5, marginTop: 3, lineHeight: 17 },
   valueShell: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -643,8 +900,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 6,
     gap: 5,
+    minWidth: 116,
+    marginTop: 1,
   },
-  valueInput: { fontSize: 14.5, fontWeight: '700', minWidth: 52, textAlign: 'right', padding: 0 },
+  valueInput: {
+    fontSize: 14.5,
+    fontWeight: '700',
+    minWidth: 52,
+    textAlign: 'right',
+    padding: 0,
+  },
   unitText: { fontSize: 11.5, fontWeight: '600' },
   emptyText: { fontSize: 13.5, lineHeight: 19, marginTop: 4 },
   roomHint: { fontSize: 12, lineHeight: 16, marginBottom: 4 },

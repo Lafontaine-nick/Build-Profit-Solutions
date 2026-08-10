@@ -32,7 +32,11 @@ import EstimateSitePhotosStrip, {
 import EstimatePlanImportStrip, {
   type PlanImportApplyResult,
 } from '@/components/estimate/EstimatePlanImportStrip';
-import type { PhotoExistingFeature, PhotoScopeDetection, PlanImportPayload } from '@/utils/estimateAiDraft';
+import type {
+  PhotoExistingFeature,
+  PhotoScopeDetection,
+  PlanImportPayload,
+} from '@/utils/estimateAiDraft';
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import { syncClerkTokenToAsyncStorage } from '@/utils/authTokenHelper';
 import {
@@ -41,6 +45,7 @@ import {
   importedPlanSummaryCollapsedSubtitle,
   stripPlanTakeoffFromNotes,
 } from '@/utils/planTakeoffReviewUi';
+import { getPlanTradeConfiguration } from '@/utils/planImportTradeConfig';
 
 type Props = {
   visible: boolean;
@@ -79,7 +84,9 @@ type Props = {
 function contractorIntentNotes(notes: string): string {
   const marker = '--- Site photos ---';
   const text = String(notes || '');
-  return (text.includes(marker) ? text.slice(0, text.indexOf(marker)) : text).trim();
+  return (
+    text.includes(marker) ? text.slice(0, text.indexOf(marker)) : text
+  ).trim();
 }
 
 export default function AIEstimateBuilderModal({
@@ -111,8 +118,12 @@ export default function AIEstimateBuilderModal({
   const [notes, setNotes] = useState('');
   /** View mode lets the page scroll without focusing the notes field (photo-detect blocks). */
   const [notesEditing, setNotesEditing] = useState(false);
-  const [photoDetections, setPhotoDetections] = useState<PhotoScopeDetection[]>([]);
-  const [photoExistingFeatures, setPhotoExistingFeatures] = useState<PhotoExistingFeature[]>([]);
+  const [photoDetections, setPhotoDetections] = useState<PhotoScopeDetection[]>(
+    []
+  );
+  const [photoExistingFeatures, setPhotoExistingFeatures] = useState<
+    PhotoExistingFeature[]
+  >([]);
   const [sitePhotos, setSitePhotos] = useState<SitePhotoAttachment[]>([]);
   const [photoState, setPhotoState] = useState<SitePhotoState>({
     photoCount: 0,
@@ -128,7 +139,7 @@ export default function AIEstimateBuilderModal({
   useEffect(() => {
     if (!visible) return;
     void getToken()
-      .then((token) => {
+      .then(token => {
         if (token) return syncClerkTokenToAsyncStorage(token);
         return undefined;
       })
@@ -158,7 +169,13 @@ export default function AIEstimateBuilderModal({
       setLocalGenerating(false);
     }
     wasVisibleRef.current = visible;
-  }, [visible, initialNotes, initialPlanImport, initialPhotoDetections, initialSitePhotos]);
+  }, [
+    visible,
+    initialNotes,
+    initialPlanImport,
+    initialPhotoDetections,
+    initialSitePhotos,
+  ]);
 
   useEffect(() => {
     if (!generating) {
@@ -175,10 +192,16 @@ export default function AIEstimateBuilderModal({
   useEffect(() => {
     if (!visible || Platform.OS === 'web') return undefined;
 
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
-    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    const showEvent =
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent =
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, () =>
+      setKeyboardVisible(true)
+    );
+    const hideSub = Keyboard.addListener(hideEvent, () =>
+      setKeyboardVisible(false)
+    );
 
     return () => {
       showSub.remove();
@@ -200,7 +223,7 @@ export default function AIEstimateBuilderModal({
 
   const handleTranscript = (text: string) => {
     setNotesEditing(true);
-    setNotes((prev) => {
+    setNotes(prev => {
       const existing = prev.trim();
       return existing ? `${existing}\n${text}` : text;
     });
@@ -263,6 +286,10 @@ export default function AIEstimateBuilderModal({
       buildingAreas: result.buildingAreas,
       planFacts: result.planFacts,
       fieldConfidence: result.fieldConfidence,
+      estimatingMode: result.estimatingMode,
+      selectedTrade: result.selectedTrade,
+      tradeProvenance: result.tradeProvenance,
+      missingInfo: result.missingInfo,
     };
     setPlanImport(nextPlanImport);
     onPlanImportChange?.(nextPlanImport);
@@ -277,8 +304,12 @@ export default function AIEstimateBuilderModal({
             : 'Your plan is loaded. Tap Generate Estimate Draft at the bottom to build your scope draft.'
           : [
               meas ? `${meas} measurement${meas === 1 ? '' : 's'} ready` : null,
-              scope ? `${scope} scope item${scope === 1 ? '' : 's'} ready` : null,
-              hasExistingDraft ? 'Continue or Regenerate below.' : 'Review Job notes, then Generate.',
+              scope
+                ? `${scope} scope item${scope === 1 ? '' : 's'} ready`
+                : null,
+              hasExistingDraft
+                ? 'Continue or Regenerate below.'
+                : 'Review Job notes, then Generate.',
             ]
               .filter(Boolean)
               .join('. ')
@@ -291,6 +322,10 @@ export default function AIEstimateBuilderModal({
     (Object.keys(planImport?.measurements || {}).length > 0 ||
       (planImport?.rooms?.length || 0) > 0 ||
       (planImport?.scopeDetections?.length || 0) > 0);
+  const selectedPlanTrade =
+    planImport?.estimatingMode === 'selected_trade'
+      ? getPlanTradeConfiguration(planImport.selectedTrade)
+      : null;
 
   const importedPlanSummary = useMemo(() => {
     if (!semanticsOn || !planImport) return '';
@@ -299,7 +334,7 @@ export default function AIEstimateBuilderModal({
       measurements: planImport.measurements || null,
       rooms: planImport.rooms || null,
       scopeLabels: (planImport.scopeDetections || [])
-        .map((d) => d.label || d.itemId)
+        .map(d => d.label || d.itemId)
         .filter(Boolean),
     });
   }, [semanticsOn, planImport]);
@@ -315,6 +350,13 @@ export default function AIEstimateBuilderModal({
 
   const planReadySubtitle = useMemo(() => {
     if (!hasPlanImport || !planImport) return null;
+    if (selectedPlanTrade) {
+      const quantityCount = Object.keys(planImport.measurements || {}).length;
+      const reviewCount = planImport.missingInfo?.length || 0;
+      return `${selectedPlanTrade.label} takeoff ready · ${quantityCount} plan ${
+        quantityCount === 1 ? 'quantity' : 'quantities'
+      } · ${reviewCount} item${reviewCount === 1 ? '' : 's'} to review`;
+    }
     if (importedPlanCollapsedSubtitle) return importedPlanCollapsedSubtitle;
     if (semanticsOn) return null;
     const bits = [
@@ -327,7 +369,13 @@ export default function AIEstimateBuilderModal({
         : null,
     ].filter(Boolean);
     return bits.length ? bits.join(' · ') : 'Plan reviewed';
-  }, [hasPlanImport, planImport, importedPlanCollapsedSubtitle, semanticsOn]);
+  }, [
+    hasPlanImport,
+    planImport,
+    importedPlanCollapsedSubtitle,
+    semanticsOn,
+    selectedPlanTrade,
+  ]);
 
   const runGenerate = async () => {
     const trimmed = notes.trim();
@@ -344,7 +392,13 @@ export default function AIEstimateBuilderModal({
         contractorIntentNotes(trimmed) ||
         (semanticsOn && importedPlanSummary ? importedPlanSummary : trimmed);
       await Promise.resolve(
-        onGenerate(notesForGenerate, photoDetections, planImport, sitePhotos, photoExistingFeatures)
+        onGenerate(
+          notesForGenerate,
+          photoDetections,
+          planImport,
+          sitePhotos,
+          photoExistingFeatures
+        )
       );
     } catch {
       setLocalGenerating(false);
@@ -394,7 +448,11 @@ export default function AIEstimateBuilderModal({
         'Your Yes/No choices, measurements you confirmed, and applied prices will reset. Plan and notes stay — regenerate rebuilds scope from them.',
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Regenerate', style: 'destructive', onPress: proceedGenerate },
+          {
+            text: 'Regenerate',
+            style: 'destructive',
+            onPress: proceedGenerate,
+          },
         ]
       );
       return;
@@ -411,7 +469,8 @@ export default function AIEstimateBuilderModal({
 
   if (!visible) return null;
 
-  const canGenerate = (Boolean(notes.trim()) || (semanticsOn && hasPlanImport)) && !busy;
+  const canGenerate =
+    (Boolean(notes.trim()) || (semanticsOn && hasPlanImport)) && !busy;
 
   const dismissNotesEditing = () => {
     notesInputRef.current?.blur();
@@ -426,7 +485,14 @@ export default function AIEstimateBuilderModal({
 
   const notesField = (
     <>
-      <Text style={{ color: Colors.sub, fontSize: 13, lineHeight: 18, marginBottom: 14 }}>
+      <Text
+        style={{
+          color: Colors.sub,
+          fontSize: 13,
+          lineHeight: 18,
+          marginBottom: 14,
+        }}
+      >
         {hasExistingDraft
           ? 'Draft saved — continue to Confirm scope, or regenerate to rebuild from notes and plan.'
           : 'Type, paste, dictate, add site photos, or import plans — AI drafts scope for review.'}
@@ -451,7 +517,7 @@ export default function AIEstimateBuilderModal({
         initialHasAnalyzed={photoState.hasAnalyzed}
         onNotesMerged={handlePhotoNotesMerged}
         onPhotoStateChange={setPhotoState}
-        onPhotosChange={(next) => {
+        onPhotosChange={next => {
           setSitePhotos(next);
           onSitePhotosChange?.(next);
         }}
@@ -460,7 +526,7 @@ export default function AIEstimateBuilderModal({
       {semanticsOn && importedPlanSummary ? (
         <View style={{ marginBottom: 16 }}>
           <TouchableOpacity
-            onPress={() => setPlanSummaryExpanded((v) => !v)}
+            onPress={() => setPlanSummaryExpanded(v => !v)}
             style={{
               flexDirection: 'row',
               alignItems: 'center',
@@ -470,11 +536,16 @@ export default function AIEstimateBuilderModal({
             activeOpacity={0.7}
           >
             <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
-              <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
+              <Text
+                style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}
+              >
                 Imported plan summary
               </Text>
               {!planSummaryExpanded && importedPlanCollapsedSubtitle ? (
-                <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 3 }} numberOfLines={1}>
+                <Text
+                  style={{ color: Colors.sub, fontSize: 12, marginTop: 3 }}
+                  numberOfLines={1}
+                >
                   {importedPlanCollapsedSubtitle}
                 </Text>
               ) : null}
@@ -495,11 +566,21 @@ export default function AIEstimateBuilderModal({
                 },
               ]}
             >
-              <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 17, marginBottom: 8 }}>
-                Read-only. Structured plan measurements stay authoritative — editing Job notes
-                below does not change imported numbers unless you re-run plan import.
+              <Text
+                style={{
+                  color: Colors.sub,
+                  fontSize: 12,
+                  lineHeight: 17,
+                  marginBottom: 8,
+                }}
+              >
+                Read-only. Structured plan measurements stay authoritative —
+                editing Job notes below does not change imported numbers unless
+                you re-run plan import.
               </Text>
-              <Text style={{ color: Colors.text, fontSize: 14, lineHeight: 20 }}>
+              <Text
+                style={{ color: Colors.text, fontSize: 14, lineHeight: 20 }}
+              >
                 {importedPlanSummary}
               </Text>
             </View>
@@ -515,7 +596,9 @@ export default function AIEstimateBuilderModal({
           marginBottom: 8,
         }}
       >
-        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>Job notes</Text>
+        <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700' }}>
+          Job notes
+        </Text>
         <EstimateVoiceDictationButton
           Colors={Colors}
           darkMode={darkMode}
@@ -531,15 +614,15 @@ export default function AIEstimateBuilderModal({
           editable={!busy}
           multiline
           scrollEnabled={false}
-          textAlignVertical="top"
+          textAlignVertical='top'
           blurOnSubmit
-          returnKeyType="done"
-          submitBehavior="blurAndSubmit"
+          returnKeyType='done'
+          submitBehavior='blurAndSubmit'
           onSubmitEditing={dismissNotesEditing}
           onBlur={() => {
             if (notes.trim()) setNotesEditing(false);
           }}
-          placeholder="Example: Josh whole-home remodel — master bath $14,750 (materials $6,900 / labor $7,850), kitchen $23,400 lump sum, guest bath 420 sqft tile $4/sqft + labor $5.75/sqft..."
+          placeholder='Example: Josh whole-home remodel — master bath $14,750 (materials $6,900 / labor $7,850), kitchen $23,400 lump sum, guest bath 420 sqft tile $4/sqft + labor $5.75/sqft...'
           placeholderTextColor={placeholderColor}
           style={[
             styles.notesInput,
@@ -557,12 +640,16 @@ export default function AIEstimateBuilderModal({
           onPress={() => setNotesEditing(true)}
           style={[styles.notesInput, inputShell, styles.notesViewShell]}
         >
-          <Text style={{ color: Colors.text, fontSize: 15, lineHeight: 22 }}>{notes}</Text>
-          <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 10 }}>Tap to edit</Text>
+          <Text style={{ color: Colors.text, fontSize: 15, lineHeight: 22 }}>
+            {notes}
+          </Text>
+          <Text style={{ color: Colors.sub, fontSize: 12, marginTop: 10 }}>
+            Tap to edit
+          </Text>
         </Pressable>
       )}
 
-      <AIEstimateDisclaimer variant="compact" />
+      <AIEstimateDisclaimer variant='compact' />
     </>
   );
 
@@ -581,9 +668,12 @@ export default function AIEstimateBuilderModal({
         <TouchableOpacity
           activeOpacity={0.88}
           onPress={handleContinueDraft}
-          style={[styles.primaryBtn, { backgroundColor: '#22c55e', marginBottom: 10 }]}
+          style={[
+            styles.primaryBtn,
+            { backgroundColor: '#22c55e', marginBottom: 10 },
+          ]}
         >
-          <MaterialIcons name="arrow-forward" size={20} color="#0f172a" />
+          <MaterialIcons name='arrow-forward' size={20} color='#0f172a' />
           <Text style={styles.primaryBtnText}>Continue to Confirm scope</Text>
         </TouchableOpacity>
       ) : null}
@@ -605,7 +695,9 @@ export default function AIEstimateBuilderModal({
       >
         {busy ? (
           <>
-            <ActivityIndicator color={hasExistingDraft ? '#22c55e' : '#0f172a'} />
+            <ActivityIndicator
+              color={hasExistingDraft ? '#22c55e' : '#0f172a'}
+            />
             <Text
               style={[
                 styles.primaryBtnText,
@@ -618,17 +710,25 @@ export default function AIEstimateBuilderModal({
         ) : (
           <>
             <MaterialIcons
-              name="auto-awesome"
+              name='auto-awesome'
               size={20}
-              color={hasExistingDraft && onContinueDraft ? '#22c55e' : '#0f172a'}
+              color={
+                hasExistingDraft && onContinueDraft ? '#22c55e' : '#0f172a'
+              }
             />
             <Text
               style={[
                 styles.primaryBtnText,
-                hasExistingDraft && onContinueDraft ? { color: '#22c55e' } : null,
+                hasExistingDraft && onContinueDraft
+                  ? { color: '#22c55e' }
+                  : null,
               ]}
             >
-              {hasExistingDraft ? 'Regenerate draft' : 'Generate Estimate Draft'}
+              {hasExistingDraft
+                ? 'Regenerate draft'
+                : selectedPlanTrade
+                  ? `Generate ${selectedPlanTrade.label} Estimate Draft`
+                  : 'Generate Estimate Draft'}
             </Text>
           </>
         )}
@@ -644,8 +744,12 @@ export default function AIEstimateBuilderModal({
     >
       <View style={{ flex: 1 }}>
         <AIEstimateFlowHeader
-          title="Build with AI"
-          subtitle={hasExistingDraft ? 'Draft saved — continue or regenerate' : 'Notes, photos, or plans'}
+          title='Build with AI'
+          subtitle={
+            hasExistingDraft
+              ? 'Draft saved — continue or regenerate'
+              : 'Notes, photos, or plans'
+          }
           step={1}
           fromAssistant={fromAssistant}
           omitTopSafeArea={embedded}
@@ -655,8 +759,8 @@ export default function AIEstimateBuilderModal({
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="always"
-          keyboardDismissMode="none"
+          keyboardShouldPersistTaps='always'
+          keyboardDismissMode='none'
           showsVerticalScrollIndicator={false}
           nestedScrollEnabled={false}
         >
@@ -669,14 +773,25 @@ export default function AIEstimateBuilderModal({
 
   if (embedded) {
     return (
-      <View style={[StyleSheet.absoluteFillObject, styles.embeddedShell, { backgroundColor: Colors.bg }]}>
+      <View
+        style={[
+          StyleSheet.absoluteFillObject,
+          styles.embeddedShell,
+          { backgroundColor: Colors.bg },
+        ]}
+      >
         {body}
       </View>
     );
   }
 
   return (
-    <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={handleBack}>
+    <Modal
+      visible
+      animationType='slide'
+      presentationStyle='fullScreen'
+      onRequestClose={handleBack}
+    >
       <StatusBar barStyle={darkMode ? 'light-content' : 'dark-content'} />
       <View style={{ flex: 1, backgroundColor: Colors.bg }}>{body}</View>
     </Modal>

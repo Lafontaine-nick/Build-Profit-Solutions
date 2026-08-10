@@ -282,7 +282,13 @@ export function applySouthernUtahCalibration(
     );
     labor = round2(blendInstalled(FRAMING_LOCAL_LAB_PER_FRAMED_SF, national.labor));
   } else {
-    const blended = blendInstalled(local.installed, national.material + national.labor);
+    // Roofing is a verified takeoff-based line, and the current SHV roofing
+    // barometer is materially below the national new-construction rate. Keep
+    // it modestly national-led so planning does not understate the roof.
+    const blended =
+      key === 'roofing:squares' || key === 'shingles_roofing:squares'
+        ? local.installed * 0.5 + (national.material + national.labor) * 0.5
+        : blendInstalled(local.installed, national.material + national.labor);
     const split = splitByNationalRatio(blended, national);
     material = split.material;
     labor = split.labor;
@@ -296,7 +302,9 @@ export function applySouthernUtahCalibration(
     sourceLabel: 'Suggested · National Average (builder-budget calibrated)',
     rateSource: 'bps_southern_utah_calibrated',
     rateSourceReference:
-      'National unit rates blended 60/40 with SHV Lots 39/41/49/58 detached medians (barometer); state multipliers still apply',
+      key === 'roofing:squares' || key === 'shingles_roofing:squares'
+        ? 'Roofing uses a modest 50/50 blend of national new-construction rate and SHV Lots 39/41/49/58 barometer; state multipliers still apply'
+        : 'National unit rates blended 60/40 with SHV Lots 39/41/49/58 detached medians (barometer); state multipliers still apply',
     geographicBasis: 'national',
   };
 }

@@ -78,10 +78,10 @@ describe('ground-up exterior trades', () => {
     const { fill } = resolveScopeItemSuggestedPricing('stucco', input, 'ground_up', resolved);
     expect(fill?.material).toBeGreaterThan(0);
     expect(fill?.labor).toBeGreaterThan(0);
-    // Local stucco ~$7.76/SF blended with national $9 → near Lot 41 ~$17.5k band for ~2k SF.
-    expect(fill!.total).toBeGreaterThan(14000);
-    expect(fill!.total).toBeLessThan(22000);
-    expect(fill?.rateSourceLabel).toMatch(/National Average/i);
+    // Blended SHV H33 package for Plan 41 — not × notes exterior SF.
+    expect(fill!.total).toBeGreaterThan(18000);
+    expect(fill!.total).toBeLessThan(24000);
+    expect(fill?.rateSourceLabel).toMatch(/Blended national/i);
   });
 
   it('prices windows from living SF when window count is missing', () => {

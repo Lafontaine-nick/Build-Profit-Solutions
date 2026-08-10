@@ -191,6 +191,11 @@ export type PlanRoomMeasurement = {
 };
 
 export type ScopeMeasurements = {
+  /** Plan-import routing/provenance; does not imply detailed trade quantities. */
+  planImportMode?: import('@/utils/planImportTradeConfig').PlanEstimatingMode | null;
+  planImportTradeKey?: import('@/utils/planImportTradeConfig').PlanTradeKey | null;
+  planImportProvenance?: PlanImportPayload['tradeProvenance'];
+  planImportMissingInfo?: string[];
   paintScope?: Array<'walls' | 'ceilings' | 'trim' | 'doors' | 'cabinets' | 'exterior'> | null;
   paintAreaBasis?: 'walls' | 'ceilings' | 'combined' | 'floor_area' | 'unknown' | null;
   paintAreaNeedsConfirmation?: boolean | null;
@@ -288,12 +293,30 @@ export type ScopeMeasurements = {
   landscapeClearingLevel?: 'light_clearing' | 'medium_vegetation' | 'dense_vegetation' | 'unsure' | null;
   concreteScope?: string[] | null;
   concreteDemoSqft?: number | null;
+  concreteDemoThicknessBand?: 'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus' | null;
+  concreteDemoThicknessBands?: Array<'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus'> | null;
+  concreteDemoAreaByThickness?: Partial<Record<'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus', number | null>> | null;
+  concreteDemoReinforced?: boolean | null;
+  concreteDemoLimitedAccess?: boolean | null;
+  concreteDemoCy?: number | null;
   tradeScopeSelections?: Partial<Record<'concrete' | 'deck_patio' | 'hvac' | 'roofing', string[] | null>> | null;
   roofSquares?: number | null;
   drywallSqft?: number | null;
   concreteSqft?: number | null;
+  concreteReinforcementSqft?: number | null;
+  concreteSealerSqft?: number | null;
+  concreteSubgradePrepSqft?: number | null;
+  concreteAreaByType?: Partial<Record<'driveways' | 'sidewalks' | 'patios' | 'rv_pads' | 'walkways', number | null>> | null;
+  concreteThicknessByType?: Partial<Record<'driveways' | 'sidewalks' | 'patios' | 'rv_pads' | 'walkways', number | null>> | null;
+  concreteThicknessInches?: number | null;
+  concreteDecorativeFinish?: 'integral_color' | 'exposed_aggregate' | 'basic_stamped' | 'premium_stamped' | null;
+  complexFormingLf?: number | null;
+  additionalHaulOffLoadCount?: number | null;
   concreteCy?: number | null;
   excavationCy?: number | null;
+  excavationAreaSqft?: number | null;
+  excavationDepthInches?: number | null;
+  excavationQuantityMode?: 'direct_cy' | 'area_depth' | null;
   deckSqft?: number | null;
   /** Detached/attached garage area from plan schedule (not living SF). */
   garageSqft?: number | null;
@@ -1094,6 +1117,10 @@ export type PlanToMeasurementsResult = {
   scope: PlanScopeResult | null;
   /** Declared vs detected living/garage reconciliation (measurement-semantics). */
   areaReconciliation?: import('@/utils/measurementSemantics').AreaReconciliation | null;
+  estimatingMode?: import('@/utils/planImportTradeConfig').PlanEstimatingMode;
+  selectedTrade?: import('@/utils/planImportTradeConfig').PlanTradeKey | null;
+  tradeProvenance?: PlanImportPayload['tradeProvenance'];
+  missingInfo?: string[];
 };
 
 /** Analyze floor plan / blueprint pages (images or PDF) → Quick Measurement fields + draft scope. */
@@ -1103,6 +1130,8 @@ export async function fetchPlanToMeasurements(params: {
   projectTypeHint?: string | null;
   templateKeyHint?: string | null;
   includeScope?: boolean;
+  estimatingMode?: import('@/utils/planImportTradeConfig').PlanEstimatingMode;
+  selectedTradeKey?: import('@/utils/planImportTradeConfig').PlanTradeKey | null;
 }): Promise<PlanToMeasurementsResult> {
   const payload = await postAiAssistantJson<
     Partial<PlanToMeasurementsResult> & { error?: string; message?: string }
@@ -1115,6 +1144,8 @@ export async function fetchPlanToMeasurements(params: {
       templateKeyHint: params.templateKeyHint || null,
       mergeIntoNotes: true,
       includeScope: params.includeScope !== false,
+      estimatingMode: params.estimatingMode || 'whole_project',
+      selectedTradeKey: params.selectedTradeKey || null,
     },
     180000
   );
@@ -1165,6 +1196,10 @@ export async function fetchPlanToMeasurements(params: {
       payload.areaReconciliation && typeof payload.areaReconciliation === 'object'
         ? (payload.areaReconciliation as PlanToMeasurementsResult['areaReconciliation'])
         : null,
+    estimatingMode: payload.estimatingMode || 'whole_project',
+    selectedTrade: (payload.selectedTrade as PlanToMeasurementsResult['selectedTrade']) || null,
+    tradeProvenance: payload.tradeProvenance || null,
+    missingInfo: Array.isArray(payload.missingInfo) ? payload.missingInfo.map(String) : [],
   };
 }
 
@@ -1309,6 +1344,15 @@ export function applyScopeDetectionsToChecklistItems(
 export type PlanImportPayload = {
   measurements?: Record<string, number | string>;
   scopeDetections?: PhotoScopeDetection[];
+  estimatingMode?: import('@/utils/planImportTradeConfig').PlanEstimatingMode;
+  selectedTrade?: import('@/utils/planImportTradeConfig').PlanTradeKey | null;
+  tradeProvenance?: {
+    source: 'plan_import';
+    mode: import('@/utils/planImportTradeConfig').PlanEstimatingMode;
+    selectedTrade: import('@/utils/planImportTradeConfig').PlanTradeKey | null;
+    routerStatus?: 'reference' | 'stub' | null;
+  } | null;
+  missingInfo?: string[];
   rooms?: PlanRoomMeasurement[];
   /** Read-only plan takeoff summary text (kept separate from editable Job notes). */
   notesBlock?: string | null;
@@ -1781,6 +1825,10 @@ export function planImportPayloadFromDraft(
       key === 'quickMeasurementFieldConfidence' ||
       key === 'areaReconciliation' ||
       key === 'wetAreaFinish' ||
+      key === 'planImportMode' ||
+      key === 'planImportTradeKey' ||
+      key === 'planImportProvenance' ||
+      key === 'planImportMissingInfo' ||
       typeof value === 'object'
     ) {
       continue;
@@ -1802,6 +1850,10 @@ export function planImportPayloadFromDraft(
     buildingAreas,
     areaReconciliation: sm.areaReconciliation ?? null,
     fieldConfidence: sm.quickMeasurementFieldConfidence,
+    estimatingMode: sm.planImportMode,
+    selectedTrade: sm.planImportTradeKey,
+    tradeProvenance: sm.planImportProvenance,
+    missingInfo: sm.planImportMissingInfo,
   };
 }
 
@@ -1817,6 +1869,16 @@ export function applyPlanImportToDraft(
   let next = draft;
 
   let scopeMeasurements = planMeasurementsToScopeMeasurements(payload.measurements);
+  const planImportMode = payload.estimatingMode || 'whole_project';
+  const planImportTradeKey = payload.selectedTrade || null;
+  scopeMeasurements.planImportMode = planImportMode;
+  scopeMeasurements.planImportTradeKey = planImportTradeKey;
+  scopeMeasurements.planImportProvenance = payload.tradeProvenance || {
+    source: 'plan_import',
+    mode: planImportMode,
+    selectedTrade: planImportTradeKey,
+  };
+  scopeMeasurements.planImportMissingInfo = payload.missingInfo || [];
   const importedPlanFacts: PlanFacts | undefined =
     payload.planFacts || payload.buildingAreas
       ? {

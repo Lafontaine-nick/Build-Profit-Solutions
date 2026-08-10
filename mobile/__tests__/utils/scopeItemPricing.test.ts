@@ -962,6 +962,22 @@ describe('resolveScopeItemSuggestedPricing', () => {
     });
   });
 
+  it('auto-plans ground-up framing from covered framed SF without an on-card qty box', () => {
+    const input = inputWith({
+      floorAreaSqft: '3660',
+      garageSqft: '781',
+    });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('framing', measurements, { templateKey: 'ground_up' });
+
+    expect(resolved).toMatchObject({
+      pricingReady: true,
+      quantity: 4441,
+      unit: 'sqft',
+      quantitySource: 'inferred',
+    });
+  });
+
   it('marks allowance split items priced when lump sum subkey is entered', () => {
     const input = inputWith({
       itemQuantities: {

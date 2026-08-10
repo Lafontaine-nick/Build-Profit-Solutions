@@ -14,6 +14,7 @@ import {
 } from '@/utils/scopeItemQuantities';
 import { syncSelectedScopePricing, getScopePackages, type EstimateAiDraft } from '@/utils/estimateAiDraft';
 import { emptyQuickMeasurementInput } from '@/utils/scopeQuickMeasurements';
+import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
 
 describe('resolveFormulaQuantityApplyTarget', () => {
   it('applies slab sqft for flatwork pricing instead of converted CY volume', () => {
@@ -29,6 +30,17 @@ describe('resolveFormulaQuantityApplyTarget', () => {
     expect(applyTarget.unit).toBe('sqft');
     expect(applyTarget.quantity).toBe(300);
     expect(applyTarget.buttonLabel).toMatch(/300 sqft slab area for pricing/i);
+  });
+
+  it('uses the selected slab thickness for the concrete volume cross-check', () => {
+    const formula = executeFormula('flatwork_cy_from_area_thickness', {
+      areaSqft: 300,
+      thicknessInches: 5,
+    });
+
+    expect(formula?.roundedValue).toBe(4.6);
+    expect(formula?.formulaExplanation).toMatch(/5 in thick/);
+    expect(formula?.assumptionsUsed).toHaveLength(0);
   });
 
   it('prices concrete at national-average sqft rates after applying slab sqft', () => {
@@ -62,6 +74,298 @@ describe('resolveFormulaQuantityApplyTarget', () => {
     expect(pricing.fill?.material).toBe(1200);
     expect(pricing.fill?.labor).toBe(1800);
     expect(pricing.fill?.basis).toEqual({ quantity: 300, unit: 'sqft' });
+  });
+
+  it('scales the concrete material leg by selected slab thickness', () => {
+    const draft = {
+      scopeChecklist: { templateKey: 'concrete' },
+      originalNotes: '100 sqft driveway.',
+      scopeMeasurements: {
+        concreteSqft: 100,
+        concreteThicknessInches: 5,
+        itemQuantities: {},
+      },
+    } as unknown as EstimateAiDraft;
+
+    const input = initialScopeMeasurementInputExtended(draft);
+    const resolved = resolveChecklistItemQuantity('pour_flatwork', input, {
+      templateKey: 'concrete',
+      notes: draft.originalNotes,
+    });
+    const pricing = resolveScopeItemSuggestedPricing('pour_flatwork', input, 'concrete', resolved);
+
+    expect(pricing.fill).toMatchObject({
+      material: 795.45,
+      labor: 954.55,
+      total: 1750,
+    });
+    expect(pricing.fill?.rateSourceLabel).toMatch(/5" slab basis/i);
+  });
+
+  it('applies one small-job minimum to standard flatwork only', () => {
+    const draft = {
+      scopeChecklist: { templateKey: 'concrete' },
+      scopeMeasurements: { concreteSqft: 100, concreteThicknessInches: 4, itemQuantities: {} },
+    } as unknown as EstimateAiDraft;
+    const input = initialScopeMeasurementInputExtended(draft);
+    const resolved = resolveChecklistItemQuantity('pour_flatwork', input, { templateKey: 'concrete' });
+    const pricing = resolveScopeItemSuggestedPricing('pour_flatwork', input, 'concrete', resolved);
+
+    expect(pricing.fill?.total).toBe(1750);
+    expect(pricing.fill?.helper).toMatch(/minimum charge/i);
+  });
+
+  it('prices sealer and selected decorative finish as additive upgrades', () => {
+    const draft = {
+      scopeChecklist: { templateKey: 'concrete' },
+      scopeMeasurements: {
+        concreteSqft: 100,
+        concreteSealerSqft: 100,
+        concreteDecorativeFinish: 'basic_stamped',
+        itemQuantities: {},
+      },
+    } as unknown as EstimateAiDraft;
+    const input = initialScopeMeasurementInputExtended(draft);
+    const sealer = resolveScopeItemSuggestedPricing(
+      'concrete_sealer',
+      input,
+      'concrete',
+      resolveChecklistItemQuantity('concrete_sealer', input, { templateKey: 'concrete' })
+    );
+    const decorative = resolveScopeItemSuggestedPricing(
+      'decorative_finish',
+      input,
+      'concrete',
+      resolveChecklistItemQuantity('decorative_finish', input, { templateKey: 'concrete' })
+    );
+
+    expect(sealer.fill?.total).toBe(150);
+    expect(sealer.fill?.material).toBe(60);
+    expect(sealer.fill?.labor).toBe(90);
+    expect(decorative.fill?.total).toBe(500);
+  });
+
+  it('separates basic subgrade prep from CY excavation', () => {
+    const draft = {
+      scopeChecklist: { templateKey: 'concrete' },
+      scopeMeasurements: { concreteSubgradePrepSqft: 500, excavationCy: 20, itemQuantities: {} },
+    } as unknown as EstimateAiDraft;
+    const input = initialScopeMeasurementInputExtended(draft);
+    const prep = resolveScopeItemSuggestedPricing(
+      'site_prep',
+      input,
+      'concrete',
+      resolveChecklistItemQuantity('site_prep', input, { templateKey: 'concrete' })
+    );
+    const excavation = resolveScopeItemSuggestedPricing(
+      'excavation',
+      input,
+      'concrete',
+      resolveChecklistItemQuantity('excavation', input, { templateKey: 'concrete' })
+    );
+
+    expect(prep.fill?.total).toBe(1000);
+    expect(excavation.fill?.total).toBe(1900);
+  });
+
+  it('uses excavation quantity bands and applies the small-volume minimum', () => {
+    const inputFor = (excavationCy: number) =>
+      initialScopeMeasurementInputExtended({
+        scopeChecklist: { templateKey: 'concrete' },
+        scopeMeasurements: { excavationCy, itemQuantities: {} },
+      } as unknown as EstimateAiDraft);
+    const smallInput = inputFor(1.85);
+    const largeInput = inputFor(50);
+    const small = resolveScopeItemSuggestedPricing(
+      'excavation',
+      smallInput,
+      'concrete',
+      resolveChecklistItemQuantity('excavation', smallInput, { templateKey: 'concrete' })
+    );
+    const large = resolveScopeItemSuggestedPricing(
+      'excavation',
+      largeInput,
+      'concrete',
+      resolveChecklistItemQuantity('excavation', largeInput, { templateKey: 'concrete' })
+    );
+
+    expect(small.fill?.total).toBe(350);
+    expect(large.fill?.total).toBe(4250);
+    expect(small.fill?.helper).toMatch(/minimum applied/i);
+  });
+
+  it('prices footing concrete by CY without flatwork minimums or sqft rates', () => {
+    const draft = {
+      scopeChecklist: { templateKey: 'concrete' },
+      scopeMeasurements: { concreteCy: 50, itemQuantities: {} },
+    } as unknown as EstimateAiDraft;
+    const input = initialScopeMeasurementInputExtended(draft);
+    const footing = resolveScopeItemSuggestedPricing(
+      'pour_foundation',
+      input,
+      'concrete',
+      resolveChecklistItemQuantity('pour_foundation', input, { templateKey: 'concrete' })
+    );
+
+    expect(footing.fill?.total).toBe(17500);
+    expect(footing.fill?.helper).not.toMatch(/minimum charge/i);
+  });
+
+  it('prices selected flatwork types at their own thickness and applies one combined minimum', () => {
+    const draft = {
+      scopeChecklist: { templateKey: 'concrete' },
+      scopeMeasurements: {
+        concreteSqft: 200,
+        concreteAreaByType: { driveways: 100, sidewalks: 50, walkways: 50 },
+        concreteThicknessByType: { driveways: 6, sidewalks: 4, walkways: 4 },
+        itemQuantities: {},
+      },
+    } as unknown as EstimateAiDraft;
+    const input = initialScopeMeasurementInputExtended(draft);
+    const flatwork = resolveScopeItemSuggestedPricing(
+      'pour_flatwork',
+      input,
+      'concrete',
+      resolveChecklistItemQuantity('pour_flatwork', input, { templateKey: 'concrete' })
+    );
+
+    expect(flatwork.fill?.total).toBe(2200);
+  });
+
+  it('prices concrete demo by thickness band and optional removal conditions', () => {
+    const draft = {
+      scopeChecklist: { templateKey: 'concrete' },
+      scopeMeasurements: {
+        concreteDemoSqft: 500,
+        concreteDemoThicknessBand: 'standard_4',
+        concreteDemoReinforced: true,
+        concreteDemoLimitedAccess: true,
+        itemQuantities: {},
+      },
+    } as unknown as EstimateAiDraft;
+    const input = initialScopeMeasurementInputExtended(draft);
+    const demo = resolveScopeItemSuggestedPricing(
+      'demo_removal',
+      input,
+      'concrete',
+      resolveChecklistItemQuantity('demo_removal', input, { templateKey: 'concrete' })
+    );
+
+    expect(demo.fill).toMatchObject({
+      material: 2125,
+      labor: 1250,
+      total: 3375,
+    });
+  });
+
+  it('uses the thin and heavy concrete demo planning bands', () => {
+    const draft = {
+      scopeChecklist: { templateKey: 'concrete' },
+      scopeMeasurements: { concreteDemoSqft: 100, concreteDemoThicknessBand: 'thin_2_3', itemQuantities: {} },
+    } as unknown as EstimateAiDraft;
+    const input = initialScopeMeasurementInputExtended(draft);
+    const thin = resolveScopeItemSuggestedPricing(
+      'demo_removal',
+      input,
+      'concrete',
+      resolveChecklistItemQuantity('demo_removal', input, { templateKey: 'concrete' })
+    );
+    const heavyInput = initialScopeMeasurementInputExtended({
+      ...draft,
+      scopeMeasurements: { concreteDemoSqft: 100, concreteDemoThicknessBand: 'heavy_5_6', itemQuantities: {} },
+    } as unknown as EstimateAiDraft);
+    const heavy = resolveScopeItemSuggestedPricing(
+      'demo_removal',
+      heavyInput,
+      'concrete',
+      resolveChecklistItemQuantity('demo_removal', heavyInput, { templateKey: 'concrete' })
+    );
+
+    expect(thin.fill?.total).toBe(300);
+    expect(heavy.fill?.total).toBe(550);
+  });
+
+  it('requires CY review pricing for structural concrete demo', () => {
+    const draft = {
+      scopeChecklist: { templateKey: 'concrete' },
+      scopeMeasurements: {
+        concreteDemoThicknessBand: 'structural_7_plus',
+        concreteDemoCy: 10,
+        itemQuantities: {},
+      },
+    } as unknown as EstimateAiDraft;
+    const input = initialScopeMeasurementInputExtended(draft);
+    const demo = resolveScopeItemSuggestedPricing(
+      'demo_removal',
+      input,
+      'concrete',
+      resolveChecklistItemQuantity('demo_removal', input, { templateKey: 'concrete' })
+    );
+
+    expect(demo.fill?.total).toBe(1750);
+    expect(demo.fill?.isComparison).toBe(true);
+  });
+
+  it('prices multiple concrete demo thickness bands together without separate minimums', () => {
+    const draft = {
+      scopeChecklist: { templateKey: 'concrete' },
+      scopeMeasurements: {
+        concreteDemoSqft: 150,
+        concreteDemoThicknessBands: ['standard_4', 'heavy_5_6'],
+        concreteDemoAreaByThickness: { standard_4: 100, heavy_5_6: 50 },
+        itemQuantities: {},
+      },
+    } as unknown as EstimateAiDraft;
+    const input = initialScopeMeasurementInputExtended(draft);
+    const demo = resolveScopeItemSuggestedPricing(
+      'demo_removal',
+      input,
+      'concrete',
+      resolveChecklistItemQuantity('demo_removal', input, { templateKey: 'concrete' })
+    );
+
+    expect(demo.fill?.total).toBe(675);
+    expect(demo.fill?.basis).toEqual({ quantity: 150, unit: 'sqft' });
+  });
+
+  it('derives dirt excavation CY without creating concrete demo pricing', () => {
+    const draft = {
+      scopeChecklist: { templateKey: 'concrete' },
+      scopeMeasurements: {
+        excavationAreaSqft: 500,
+        excavationDepthInches: 6,
+        itemQuantities: {},
+      },
+    } as unknown as EstimateAiDraft;
+    const input = initialScopeMeasurementInputExtended(draft);
+    const excavation = resolveChecklistItemQuantity('excavation', input, { templateKey: 'concrete' });
+    const pricing = resolveScopeItemSuggestedPricing('excavation', input, 'concrete', excavation);
+    const demo = resolveChecklistItemQuantity('demo_removal', input, { templateKey: 'concrete' });
+
+    expect(excavation.quantity).toBe(9.26);
+    expect(pricing.fill?.total).toBe(787.1);
+    expect(demo.quantity).toBeNull();
+  });
+
+  it('parses dirt depth separately from concrete demolition thickness', () => {
+    const parsed = parseScopeMeasurementsFromNotes('Excavate 6 inches of dirt over a 500 sqft patio area.');
+    expect(parsed.excavationAreaSqft).toBe(500);
+    expect(parsed.excavationDepthInches).toBe(6);
+    expect(parsed.excavationCy).toBe(9.26);
+    expect(parsed.concreteDemoSqft).toBeUndefined();
+  });
+
+  it('does not price legacy standard forming or finish add-ons for concrete', () => {
+    const draft = {
+      scopeChecklist: { templateKey: 'concrete' },
+      scopeMeasurements: { concreteSqft: 100, itemQuantities: {} },
+    } as unknown as EstimateAiDraft;
+    const input = initialScopeMeasurementInputExtended(draft);
+
+    for (const itemId of ['forms', 'finish_seal', 'cleanup']) {
+      const resolved = resolveChecklistItemQuantity(itemId, input, { templateKey: 'concrete' });
+      expect(resolveScopeItemSuggestedPricing(itemId, input, 'concrete', resolved).fill).toBeNull();
+    }
   });
 
   it('does not auto-preview drywall formula quantity in suggested pricing basis', () => {

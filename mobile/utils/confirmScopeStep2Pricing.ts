@@ -20,6 +20,7 @@ import type {
   ScopePricingContext,
 } from '@/utils/scopeItemQuantities';
 import {
+  getChecklistItemQuantityRuleOrDefault,
   readStoredSqftPricingBasis,
   shouldSuppressSuggestedPricingAfterApply,
 } from '@/utils/scopeItemQuantities';
@@ -97,6 +98,10 @@ const GLOBAL_STEP2_PRICING_TIER: Record<string, Step2PricingTierConfig> = {
 };
 
 const GROUND_UP_STEP2_PRICING_TIER: Record<string, Step2PricingTierConfig> = {
+  framing: {
+    tier: 'auto_planning',
+    takeoffLabel: 'covered framed SF (living + garage)',
+  },
   mep_rough: { tier: 'comparison_only', takeoffLabel: 'child MEP trade lines' },
   exterior: { tier: 'comparison_only', takeoffLabel: 'child exterior trade lines' },
   interior_finishes: {
@@ -239,7 +244,7 @@ export function step2TierExpectsSuggestedFill(
 export function step2TierNeedsInlineTakeoffEntry(
   itemId: string,
   templateKey?: string | null,
-  resolved?: { pricingReady?: boolean } | null,
+  resolved?: { pricingReady?: boolean; unit?: string | null } | null,
   pricingApplied?: boolean
 ): boolean {
   const template = String(templateKey || '').toLowerCase();
@@ -251,6 +256,10 @@ export function step2TierNeedsInlineTakeoffEntry(
     // SF is entered in Demo / tear-out Quick Measurements — no duplicate on-card takeoff box.
     return false;
   }
+  if (itemId === 'framing' && template === 'ground_up') {
+    // Covered framed SF (living + garage) is a planning assumption on the Suggest card.
+    return false;
+  }
   if (
     (itemId === 'shower_pan' || itemId === 'shower_floor_tile') &&
     template === 'bathroom'
@@ -259,6 +268,12 @@ export function step2TierNeedsInlineTakeoffEntry(
     return false;
   }
   if (resolved?.pricingReady) return false;
+  const rule = getChecklistItemQuantityRuleOrDefault(itemId, templateKey);
+  // Flat allowance scopes (permits, plans, etc.) price via Suggest + Edit — not an on-card qty box.
+  if (rule.lumpSumOnly) return false;
+  const inlineUnit = String(resolved?.unit || rule.defaultUnit || '').toLowerCase();
+  // Installed packages priced as allowances (landscaping, fixture packages, etc.) — same as permits/plans.
+  if (inlineUnit === 'allowance' || inlineUnit === 'lump_sum') return false;
   const config = resolveStep2PricingTier(itemId, templateKey).tier;
   if (config === 'takeoff_required') return true;
   return false;

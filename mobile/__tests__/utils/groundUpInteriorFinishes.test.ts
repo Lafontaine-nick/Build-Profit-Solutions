@@ -137,17 +137,15 @@ describe('ground-up interior finish trades', () => {
     expect(counters.fill?.basis?.quantity).toBe(80);
 
     expect(flooring.fill?.total).toBeGreaterThan(1000);
-    expect(flooring.fill?.basis?.unit).toBe('sqft');
+    expect(flooring.fill?.installedBudgetBenchmark).toBe(true);
+    expect(flooring.fill?.rateSourceLabel).toMatch(/Blended national/i);
+    // H51 mixed-finish lump — not living SF × tile $/SF.
     expect(flooring.fill?.basis?.quantity).toBe(1879);
+    expect(flooring.fill!.total).toBeLessThan(1879 * 8.57);
 
-    // Thermal envelope (walls + attic), not living SF or drywall ×3.5.
-    expect(insulation.fill?.basis?.unit).toBe('sqft');
-    expect(insulation.fill?.basis?.quantity).not.toBe(1879);
-    expect(insulation.fill?.basis?.quantity).not.toBe(Math.round(1879 * 3.5));
-    expect(insulation.fill!.basis!.quantity).toBeGreaterThan(2500);
-    expect(insulation.fill!.basis!.quantity).toBeLessThan(5000);
-    expect(insulation.fill!.material).toBeGreaterThan(0);
-    expect(insulation.fill!.labor).toBeGreaterThan(0);
+    // Thermal envelope lump when takeoff missing — not living SF or drywall ×3.5.
+    expect(insulation.fill?.installedBudgetBenchmark).toBe(true);
+    expect(insulation.fill?.basis).toBeNull();
     expect(insulation.fill!.total).toBeGreaterThan(2000);
     expect(insulation.comparison?.benchmarkAction).not.toBe('included_in_stage');
   });

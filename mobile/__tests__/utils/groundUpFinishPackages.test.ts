@@ -80,8 +80,8 @@ describe('groundUpFinishPackages', () => {
     expect(electrical).toBeGreaterThan(3400);
 
     const fill = resolvePlumbingTrimLumpSuggestedFill({ livingSf: 3098, state: 'UT' });
-    expect(fill.total).toBe(plumbing);
-    expect(fill.total).toBeLessThan(8000);
+    expect(fill.total).toBe(blendBarometerLump(2500, plumbing));
+    expect(fill.total).toBeLessThan(5000);
   });
 
   it('floors thin SHV fixture barometer legs to the size-adjusted NAHB package', () => {
@@ -90,23 +90,25 @@ describe('groundUpFinishPackages', () => {
     expect(electricalTrimBarometerLocal(4000, 3400)).toBe(4000);
   });
 
-  it('floors thin Plan 41 fixture lines to size-adjusted NAHB before blend (UT = no state scale)', () => {
+  it('blends Plan 41 fixture lines with size-adjusted NAHB (UT = no state scale)', () => {
     expect(PLUMBING_TRIM_INSTALLED_BY_PROJECT.lot41).toBe(2000);
     expect(ELECTRICAL_TRIM_INSTALLED_BY_PROJECT.lot41).toBe(2300);
     expect(LANDSCAPING_INSTALLED_BY_PROJECT.lot41).toBe(9800);
 
     const plumbing = resolvePlumbingTrimLumpSuggestedFill({ livingSf: 1879, state: 'UT' });
-    expect(plumbing.total).toBe(5600);
-    expect(plumbing.material).toBeCloseTo(5600 * 0.65, 0);
-    expect(plumbing.labor).toBeCloseTo(5600 * 0.35, 0);
-    expect(plumbing.rateSourceLabel).toBe('Blended national + barometer · Plan 41 (national floor)');
-    expect(plumbing.helper).toMatch(/size-adjusted NAHB plumbing fixtures/i);
+    expect(plumbing.total).toBe(blendBarometerLump(2000, 5600));
+    expect(plumbing.total).toBe(3440);
+    expect(plumbing.material).toBeCloseTo(3440 * 0.65, 0);
+    expect(plumbing.labor).toBeCloseTo(3440 * 0.35, 0);
+    expect(plumbing.rateSourceLabel).toBe('Blended national + barometer · Plan 41');
+    expect(plumbing.helper).toMatch(/Not plumbing rough-in/i);
 
     const electrical = resolveElectricalTrimLumpSuggestedFill({ livingSf: 1879 });
-    expect(electrical.total).toBe(3400);
-    expect(electrical.material).toBeCloseTo(3400 * 0.58, 0);
-    expect(electrical.labor).toBeCloseTo(3400 * 0.42, 0);
-    expect(electrical.rateSourceLabel).toMatch(/Plan 41 \(national floor\)/);
+    expect(electrical.total).toBe(blendBarometerLump(2300, 3400));
+    expect(electrical.total).toBe(2740);
+    expect(electrical.material).toBeCloseTo(2740 * 0.58, 0);
+    expect(electrical.labor).toBeCloseTo(2740 * 0.42, 0);
+    expect(electrical.rateSourceLabel).toMatch(/Plan 41/);
 
     const landscaping = resolveLandscapingLumpSuggestedFill({ livingSf: 1879 });
     expect(landscaping.total).toBe(blendBarometerLump(9800, LANDSCAPING_NATIONAL_AVERAGE_TOTAL));
@@ -160,8 +162,8 @@ describe('groundUpFinishPackages', () => {
     const input = inputWith({});
     const landscapingTotal = blendBarometerLump(9800, LANDSCAPING_NATIONAL_AVERAGE_TOTAL);
     for (const [id, total, sourcePattern, lumpOnly] of [
-      ['plumbing_trim', 5600, /Blended national.*Plan 41 \(national floor\)/, false],
-      ['electrical_trim', 3400, /Blended national.*Plan 41 \(national floor\)/, false],
+      ['plumbing_trim', 3440, /Blended national.*Plan 41/, false],
+      ['electrical_trim', 2740, /Blended national.*Plan 41/, false],
       ['landscaping', landscapingTotal, /Blended national.*Plan 41/, false],
     ] as const) {
       const resolved = resolveChecklistItemQuantity(id, input, { templateKey: 'ground_up' });

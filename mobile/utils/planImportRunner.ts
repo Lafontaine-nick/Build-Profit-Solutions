@@ -11,6 +11,7 @@ import {
   type PhotoScopeImage,
   type PlanToMeasurementsResult,
 } from '@/utils/estimateAiDraft';
+import type { PlanEstimatingMode, PlanTradeKey } from '@/utils/planImportTradeConfig';
 
 export const MAX_PLAN_IMAGES = 8;
 export const MAX_PLAN_PDF_BYTES = 20 * 1024 * 1024;
@@ -21,6 +22,8 @@ export type PlanTakeoffContext = {
   existingNotes?: string;
   templateKeyHint?: string | null;
   projectTypeHint?: string | null;
+  estimatingMode?: PlanEstimatingMode;
+  selectedTradeKey?: PlanTradeKey | null;
 };
 
 function mimeFromAsset(asset: ImagePicker.ImagePickerAsset): string {
@@ -55,6 +58,8 @@ export async function runPlanTakeoff(
     existingNotes: ctx.existingNotes || '',
     templateKeyHint: ctx.templateKeyHint || null,
     projectTypeHint: ctx.projectTypeHint || null,
+    estimatingMode: ctx.estimatingMode || 'whole_project',
+    selectedTradeKey: ctx.selectedTradeKey || null,
   });
 
   const hasScope = (takeoff.scope?.detections?.length ?? 0) > 0;

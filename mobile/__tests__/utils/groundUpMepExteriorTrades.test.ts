@@ -105,11 +105,13 @@ describe('ground-up MEP / exterior count gates', () => {
       'ground_up',
       resolveChecklistItemQuantity('hvac', measurements, { templateKey: 'ground_up' })
     );
-    expect(plumbing.fill?.basis).toEqual({ quantity: 1879, unit: 'sqft' });
-    expect(electrical.fill?.basis).toEqual({ quantity: 1879, unit: 'sqft' });
+    expect(plumbing.fill?.basis).toBeNull();
+    expect(electrical.fill?.basis).toBeNull();
     expect(hvac.fill?.basis).toEqual({ quantity: 1, unit: 'each' });
-    expect(plumbing.fill!.total).toBeGreaterThan(12000);
-    expect(electrical.fill!.total).toBeGreaterThan(12000);
+    expect(plumbing.fill!.total).toBeGreaterThan(16000);
+    expect(plumbing.fill!.total).toBeLessThan(22000);
+    expect(electrical.fill!.total).toBeGreaterThan(16000);
+    expect(electrical.fill!.total).toBeLessThan(22000);
     expect(hvac.fill!.total).toBeGreaterThan(10000);
   });
 

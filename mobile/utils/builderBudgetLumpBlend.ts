@@ -30,6 +30,27 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** Living SF that size-adjusted national package anchors represent (Plan 41 class). */
+export const BAROMETER_NATIONAL_REFERENCE_LIVING_SF = 1879;
+
+/**
+ * Scale a national planning package with living SF. Below ref: linear down.
+ * Above ref: dampen — installed packages do not grow 1:1 with living SF.
+ */
+export function scaleNationalPackageByLivingSf(
+  baseNational: number,
+  livingSf?: number | null,
+  referenceLivingSf: number = BAROMETER_NATIONAL_REFERENCE_LIVING_SF
+): number {
+  const sf =
+    livingSf != null && Number.isFinite(Number(livingSf)) && Number(livingSf) > 0
+      ? Number(livingSf)
+      : referenceLivingSf;
+  const ratio = sf / referenceLivingSf;
+  const scale = ratio <= 1 ? ratio : 1 + 0.35 * (ratio - 1);
+  return Math.round(baseNational * scale);
+}
+
 /** 60% local barometer package + 40% national package anchor. */
 export function blendBarometerLump(localInstalled: number, nationalPackage: number): number {
   return round2(
@@ -112,5 +133,48 @@ export function scaleSplitLumpForState(
     total: scaled.total,
     multiplier: scaled.multiplier,
     stateCode: scaled.stateCode,
+  };
+}
+
+export type InstalledBudgetLivingSfReference = {
+  benchmarkLivingSf: number;
+  impliedUnitRateLabel: string;
+};
+
+const BAROMETER_PROJECT_LABELS: Record<string, string> = {
+  silverLeaf: 'Silver Leaf',
+  lot39: 'Plan 39',
+  lot41: 'Plan 41',
+  lot49: 'Plan 49',
+  lot58: 'Plan 58',
+};
+
+/** Human label for SHV barometer project id (or detached mid). */
+export function barometerLabelForProjectId(projectId: string | null | undefined): string {
+  if (!projectId) return 'detached mid';
+  return BAROMETER_PROJECT_LABELS[projectId] ?? 'detached mid';
+}
+
+/**
+ * Display-only $/living SF for installed house packages. Does not change the lump total.
+ */
+export function installedBudgetLivingSfReference(params: {
+  total: number;
+  livingSf?: number | null;
+  barometerLabel?: string | null;
+}): InstalledBudgetLivingSfReference | null {
+  const living = Number(params.livingSf);
+  const total = Number(params.total);
+  if (!(Number.isFinite(living) && living > 0)) return null;
+  if (!(Number.isFinite(total) && total > 0)) return null;
+  const rate = total / living;
+  const decimals = rate >= 100 ? 0 : 2;
+  const label = String(params.barometerLabel || 'barometer').trim() || 'barometer';
+  return {
+    benchmarkLivingSf: living,
+    impliedUnitRateLabel: `Implied from blended ${label} · ~$${rate.toLocaleString(undefined, {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    })}/living SF`,
   };
 }

@@ -1,4 +1,9 @@
-import type { EstimateAiDraft, ScopeChecklistItem, ScopeChecklistOption, ScopeMeasurements } from '@/utils/estimateAiDraft';
+import type {
+  EstimateAiDraft,
+  ScopeChecklistItem,
+  ScopeChecklistOption,
+  ScopeMeasurements,
+} from '@/utils/estimateAiDraft';
 import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
 import {
   checklistItemInScope,
@@ -14,7 +19,11 @@ import {
   inferChoicesFromNotes,
   inferItemStateFromNotes,
 } from '@/utils/scopeItemNoteHints';
-import { scopeItemHasNoteSignal, scopeItemNoteBadge, BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS } from '@/utils/scopeItemVisualTier';
+import {
+  scopeItemHasNoteSignal,
+  scopeItemNoteBadge,
+  BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS,
+} from '@/utils/scopeItemVisualTier';
 import { hasAcceptedScopePricing } from '@/utils/acceptedPricingSummaryUi';
 import { hasPaintRepairScopeSelection } from '@/utils/bathroomDrywallPaintScope';
 import { resolveBathroomVanityCountertopMaterialType } from '@/utils/bathroomVanityCountertopPricing';
@@ -68,28 +77,37 @@ const WALL_CHOICE_OPTIONS: ScopeChecklistOption[] = [
 ];
 
 const WALL_LAYOUT_WORK_IDS = new Set(['remove', 'add']);
-const WALL_LAYOUT_EXCLUSIVE_IDS = new Set(['no_changes', 'not_in_scope', 'unsure']);
+const WALL_LAYOUT_EXCLUSIVE_IDS = new Set([
+  'no_changes',
+  'not_in_scope',
+  'unsure',
+]);
 
-export function choiceIdsToScopeState(choiceIds: string[] | undefined): 'included' | 'excluded' | 'unsure' {
+export function choiceIdsToScopeState(
+  choiceIds: string[] | undefined
+): 'included' | 'excluded' | 'unsure' {
   const ids = choiceIds ?? [];
   if (!ids.length) return 'unsure';
   if (ids.includes('not_in_scope')) return 'excluded';
   if (ids.includes('unsure') && ids.length === 1) return 'unsure';
-  if (ids.some((id) => WALL_LAYOUT_WORK_IDS.has(id))) return 'included';
+  if (ids.some(id => WALL_LAYOUT_WORK_IDS.has(id))) return 'included';
   if (ids.includes('no_changes')) return 'included';
   return 'unsure';
 }
 
 /** Toggle wall layout chips — remove/add can combine; other options are exclusive. */
-export function toggleWallLayoutChoiceIds(current: string[] | undefined, optionId: string): string[] {
+export function toggleWallLayoutChoiceIds(
+  current: string[] | undefined,
+  optionId: string
+): string[] {
   if (WALL_LAYOUT_EXCLUSIVE_IDS.has(optionId)) {
     const ids = current ?? [];
     if (ids.length === 1 && ids[0] === optionId) return [];
     return [optionId];
   }
-  let next = (current ?? []).filter((id) => WALL_LAYOUT_WORK_IDS.has(id));
+  let next = (current ?? []).filter(id => WALL_LAYOUT_WORK_IDS.has(id));
   if (next.includes(optionId)) {
-    next = next.filter((id) => id !== optionId);
+    next = next.filter(id => id !== optionId);
   } else {
     next = [...next, optionId];
   }
@@ -155,7 +173,8 @@ const CHOICE_ITEM_CONFIG: Record<
   },
   walls_moving: {
     label: 'Wall layout changes',
-    helperText: 'Select all that apply — you can remove and add walls on the same job.',
+    helperText:
+      'Select all that apply — you can remove and add walls on the same job.',
     options: WALL_CHOICE_OPTIONS,
   },
   shower_pan: {
@@ -184,7 +203,8 @@ const CHOICE_ITEM_CONFIG: Record<
   },
   demo_clearing: {
     label: 'Clearing level',
-    helperText: 'Select the clearing intensity. Dirt excavation is priced separately by CY.',
+    helperText:
+      'Select the clearing intensity. Dirt excavation is priced separately by CY.',
     options: [
       { id: 'light_clearing', label: 'Light clearing' },
       { id: 'medium_vegetation', label: 'Medium vegetation clearing' },
@@ -203,7 +223,11 @@ function labelLooksLikeChoiceQuestion(label: string): boolean {
 }
 
 function isMultiChoiceItem(item: ScopeChecklistItem): boolean {
-  return item.inputType === 'multi_choice' || item.id === 'walls_moving' || item.id === 'transitions';
+  return (
+    item.inputType === 'multi_choice' ||
+    item.id === 'walls_moving' ||
+    item.id === 'transitions'
+  );
 }
 
 function isChoiceItem(item: ScopeChecklistItem): boolean {
@@ -213,15 +237,20 @@ function isChoiceItem(item: ScopeChecklistItem): boolean {
   return labelLooksLikeChoiceQuestion(item.label);
 }
 
-function normalizeMultiChoiceItem(item: ScopeChecklistItem): ScopeChecklistItem {
+function normalizeMultiChoiceItem(
+  item: ScopeChecklistItem
+): ScopeChecklistItem {
   const config = CHOICE_ITEM_CONFIG[item.id];
-  const options = item.options?.length ? item.options : config?.options || WALL_CHOICE_OPTIONS;
+  const options = item.options?.length
+    ? item.options
+    : config?.options || WALL_CHOICE_OPTIONS;
   let choiceIds = item.choiceIds?.length
     ? [...item.choiceIds]
     : item.choiceId
       ? [item.choiceId]
       : [];
-  if (!choiceIds.length && item.state === 'excluded') choiceIds = ['not_in_scope'];
+  if (!choiceIds.length && item.state === 'excluded')
+    choiceIds = ['not_in_scope'];
   return {
     ...item,
     inputType: 'multi_choice',
@@ -234,7 +263,9 @@ function normalizeMultiChoiceItem(item: ScopeChecklistItem): ScopeChecklistItem 
   };
 }
 
-function defaultOptionsForItem(item: ScopeChecklistItem): ScopeChecklistOption[] {
+function defaultOptionsForItem(
+  item: ScopeChecklistItem
+): ScopeChecklistOption[] {
   // Canonical config wins over stale persisted options (e.g. toilet reset chip added later).
   if (CHOICE_ITEM_CONFIG[item.id]) return CHOICE_ITEM_CONFIG[item.id].options;
   if (item.options?.length) return item.options;
@@ -244,7 +275,10 @@ function defaultOptionsForItem(item: ScopeChecklistItem): ScopeChecklistOption[]
 }
 
 /** Canonical labels for yes/no rows that were renamed after drafts were saved. */
-const YES_NO_LABEL_OVERRIDES: Record<string, { label: string; helperText?: string }> = {
+const YES_NO_LABEL_OVERRIDES: Record<
+  string,
+  { label: string; helperText?: string }
+> = {
   glass_door: {
     label: 'Shower doors',
     helperText:
@@ -258,7 +292,9 @@ const YES_NO_LABEL_OVERRIDES: Record<string, { label: string; helperText?: strin
 };
 
 /** Normalize server or cached checklist rows so choice questions never show Yes/No. */
-export function normalizeScopeChecklistItem(item: ScopeChecklistItem): ScopeChecklistItem {
+export function normalizeScopeChecklistItem(
+  item: ScopeChecklistItem
+): ScopeChecklistItem {
   if (isMultiChoiceItem(item)) {
     return normalizeMultiChoiceItem(item);
   }
@@ -291,7 +327,12 @@ export function normalizeScopeChecklistItem(item: ScopeChecklistItem): ScopeChec
   return {
     ...item,
     inputType: 'choice',
-    label: config?.label || item.label.replace(/\s*—\s*.*$/u, '').replace(/\s*included\?\s*$/i, '').trim(),
+    label:
+      config?.label ||
+      item.label
+        .replace(/\s*—\s*.*$/u, '')
+        .replace(/\s*included\?\s*$/i, '')
+        .trim(),
     helperText:
       config?.helperText ||
       item.helperText ||
@@ -307,15 +348,19 @@ export function normalizeScopeChecklistItem(item: ScopeChecklistItem): ScopeChec
   };
 }
 
-function choiceIdToState(choiceId: string | null | undefined): 'included' | 'excluded' | 'unsure' {
+function choiceIdToState(
+  choiceId: string | null | undefined
+): 'included' | 'excluded' | 'unsure' {
   if (!choiceId || choiceId === 'unsure') return 'unsure';
   if (choiceId === 'not_in_scope') return 'excluded';
   return 'included';
 }
 
 /** Map legacy combined bench/curb row to shower bench only (curb → mud pan build). */
-function migrateShowerBenchCurbScopeItem(items: ScopeChecklistItem[]): ScopeChecklistItem[] {
-  return items.map((item) => {
+function migrateShowerBenchCurbScopeItem(
+  items: ScopeChecklistItem[]
+): ScopeChecklistItem[] {
+  return items.map(item => {
     if (item.id !== 'shower_bench_curb') return item;
     return {
       ...item,
@@ -328,14 +373,16 @@ function migrateShowerBenchCurbScopeItem(items: ScopeChecklistItem[]): ScopeChec
 }
 
 /** Map legacy tub_shower + shower_pan rows to wet_area_install when reopening saved drafts. */
-function migrateLegacyBathroomScopeItems(items: ScopeChecklistItem[]): ScopeChecklistItem[] {
-  const hasNewIds = items.some((i) =>
+function migrateLegacyBathroomScopeItems(
+  items: ScopeChecklistItem[]
+): ScopeChecklistItem[] {
+  const hasNewIds = items.some(i =>
     ['tub_demo', 'shower_floor_demo', 'wet_area_install'].includes(i.id)
   );
   if (hasNewIds) return items;
 
-  const tubShower = items.find((i) => i.id === 'tub_shower');
-  const showerPan = items.find((i) => i.id === 'shower_pan');
+  const tubShower = items.find(i => i.id === 'tub_shower');
+  const showerPan = items.find(i => i.id === 'shower_pan');
   if (!tubShower && !showerPan) return items;
 
   let wetChoiceId: string | null = null;
@@ -345,7 +392,10 @@ function migrateLegacyBathroomScopeItems(items: ScopeChecklistItem[]): ScopeChec
     wetChoiceId = 'staying';
   } else if (tubShower?.choiceId === 'not_in_scope') {
     wetChoiceId = 'not_in_scope';
-  } else if (tubShower?.choiceId === 'unsure' || showerPan?.choiceId === 'unsure') {
+  } else if (
+    tubShower?.choiceId === 'unsure' ||
+    showerPan?.choiceId === 'unsure'
+  ) {
     wetChoiceId = 'unsure';
   }
 
@@ -360,7 +410,10 @@ function migrateLegacyBathroomScopeItems(items: ScopeChecklistItem[]): ScopeChec
     category: 'shower',
   };
 
-  return [...items.filter((i) => i.id !== 'tub_shower' && i.id !== 'shower_pan'), wetAreaInstall];
+  return [
+    ...items.filter(i => i.id !== 'tub_shower' && i.id !== 'shower_pan'),
+    wetAreaInstall,
+  ];
 }
 
 /** Split legacy kitchen sink+faucet+disposal row into separate garbage_disposal choice line. */
@@ -369,9 +422,9 @@ function migrateKitchenSinkDisposalSplit(
   templateKey?: string | null
 ): ScopeChecklistItem[] {
   if (templateKey !== 'kitchen') return items;
-  if (items.some((i) => i.id === 'garbage_disposal')) return items;
+  if (items.some(i => i.id === 'garbage_disposal')) return items;
 
-  const sinkIdx = items.findIndex((i) => i.id === 'sink_faucet');
+  const sinkIdx = items.findIndex(i => i.id === 'sink_faucet');
   const sink = sinkIdx >= 0 ? items[sinkIdx] : null;
   const insertAt = sinkIdx >= 0 ? sinkIdx + 1 : items.length;
 
@@ -414,9 +467,9 @@ export function applyKitchenScopeInferences(
 ): ScopeChecklistItem[] {
   if (templateKey !== 'kitchen') return items;
 
-  const next = items.map((item) => ({ ...item }));
-  const removalIdx = next.findIndex((i) => i.id === 'appliance_removal');
-  const reinstallIdx = next.findIndex((i) => i.id === 'appliances');
+  const next = items.map(item => ({ ...item }));
+  const removalIdx = next.findIndex(i => i.id === 'appliance_removal');
+  const reinstallIdx = next.findIndex(i => i.id === 'appliances');
   const notesSayAlreadyRemoved =
     inferItemStateFromNotes('appliance_removal', ctx?.notes) === 'excluded';
   if (
@@ -429,8 +482,8 @@ export function applyKitchenScopeInferences(
     next[removalIdx] = { ...next[removalIdx], state: 'included' };
   }
 
-  const cabinetsIdx = next.findIndex((i) => i.id === 'cabinets');
-  const countertopsIdx = next.findIndex((i) => i.id === 'countertops');
+  const cabinetsIdx = next.findIndex(i => i.id === 'cabinets');
+  const countertopsIdx = next.findIndex(i => i.id === 'countertops');
   if (cabinetsIdx >= 0 && countertopsIdx >= 0) {
     const cabinetsIncluded = next[cabinetsIdx].state === 'included';
     const cabinetEntry = ctx?.measurements?.itemQuantities?.cabinets;
@@ -464,7 +517,10 @@ export function applyKitchenScopeInferences(
 }
 
 /** Soft costs that default to Yes on ground-up when notes do not exclude them. */
-const GROUND_UP_SOFT_COST_DEFAULT_INCLUDED = new Set(['plans_engineering', 'permits']);
+const GROUND_UP_SOFT_COST_DEFAULT_INCLUDED = new Set([
+  'plans_engineering',
+  'permits',
+]);
 
 export function applyGroundUpSoftCostDefaults(
   items: ScopeChecklistItem[],
@@ -472,10 +528,18 @@ export function applyGroundUpSoftCostDefaults(
   notes?: string | null
 ): ScopeChecklistItem[] {
   if (String(templateKey || '').toLowerCase() !== 'ground_up') return items;
-  return items.map((item) => {
-    if (!GROUND_UP_SOFT_COST_DEFAULT_INCLUDED.has(item.id) || item.state !== 'unsure') return item;
+  return items.map(item => {
+    if (
+      !GROUND_UP_SOFT_COST_DEFAULT_INCLUDED.has(item.id) ||
+      item.state !== 'unsure'
+    )
+      return item;
     // Respect explicit "no permits / owner pulls permits" style exclusions.
-    if (/\b(no\s+permits|permits\s+not\s+included|owner\s+pulls?\s+permits)\b/i.test(String(notes || ''))) {
+    if (
+      /\b(no\s+permits|permits\s+not\s+included|owner\s+pulls?\s+permits)\b/i.test(
+        String(notes || '')
+      )
+    ) {
       if (item.id === 'permits') return item;
     }
     return { ...item, state: 'included' as const };
@@ -491,7 +555,7 @@ export function applyScopeInferencesFromNotes(
 ): ScopeChecklistItem[] {
   const inferred = !String(notes || '').trim()
     ? items
-    : items.map((item) => {
+    : items.map(item => {
         if (item.inputType === 'multi_choice') {
           const choiceIds = inferChoicesFromNotes(item.id, notes);
           if (choiceIds.length) {
@@ -521,8 +585,15 @@ export function applyScopeInferencesFromNotes(
         return item;
       });
 
-  const withSoftCosts = applyGroundUpSoftCostDefaults(inferred, templateKey, notes);
-  return applyKitchenScopeInferences(withSoftCosts, templateKey, { notes, measurements });
+  const withSoftCosts = applyGroundUpSoftCostDefaults(
+    inferred,
+    templateKey,
+    notes
+  );
+  return applyKitchenScopeInferences(withSoftCosts, templateKey, {
+    notes,
+    measurements,
+  });
 }
 
 export function normalizeScopeChecklistItems(
@@ -551,16 +622,16 @@ function migrateGroundUpTakeoffScopeItems(
   let next = [...items];
 
   // O&P belongs on estimate markup (Step 5), not Confirm Scope.
-  next = next.filter((i) => i.id !== 'overhead_profit');
+  next = next.filter(i => i.id !== 'overhead_profit');
 
   // Split legacy Windows & doors into windows / exterior / sliding / garage.
-  const windowsDoorsIdx = next.findIndex((i) => i.id === 'windows_doors');
+  const windowsDoorsIdx = next.findIndex(i => i.id === 'windows_doors');
   if (windowsDoorsIdx >= 0) {
     const combined = next[windowsDoorsIdx];
-    const hasWindows = next.some((i) => i.id === 'windows');
-    const hasExtDoors = next.some((i) => i.id === 'exterior_doors');
-    const hasSliding = next.some((i) => i.id === 'sliding_doors');
-    const hasGarage = next.some((i) => i.id === 'garage_doors');
+    const hasWindows = next.some(i => i.id === 'windows');
+    const hasExtDoors = next.some(i => i.id === 'exterior_doors');
+    const hasSliding = next.some(i => i.id === 'sliding_doors');
+    const hasGarage = next.some(i => i.id === 'garage_doors');
     next.splice(windowsDoorsIdx, 1);
     let insertAt = windowsDoorsIdx;
     const inject = (
@@ -579,7 +650,12 @@ function migrateGroundUpTakeoffScopeItems(
       });
       insertAt += 1;
     };
-    inject('windows', 'Windows', 'Window count for material and labor.', hasWindows);
+    inject(
+      'windows',
+      'Windows',
+      'Window count for material and labor.',
+      hasWindows
+    );
     inject(
       'exterior_doors',
       'Exterior doors',
@@ -600,11 +676,11 @@ function migrateGroundUpTakeoffScopeItems(
     );
   }
 
-  const combinedIdx = next.findIndex((i) => i.id === 'cabinets_counters');
+  const combinedIdx = next.findIndex(i => i.id === 'cabinets_counters');
   if (combinedIdx >= 0) {
     const combined = next[combinedIdx];
-    const hasCabinets = next.some((i) => i.id === 'cabinets');
-    const hasCounters = next.some((i) => i.id === 'countertops');
+    const hasCabinets = next.some(i => i.id === 'cabinets');
+    const hasCounters = next.some(i => i.id === 'countertops');
     next.splice(combinedIdx, 1);
     if (!hasCabinets) {
       next.splice(combinedIdx, 0, {
@@ -615,7 +691,7 @@ function migrateGroundUpTakeoffScopeItems(
       });
     }
     if (!hasCounters) {
-      const insertAt = next.findIndex((i) => i.id === 'cabinets') + 1;
+      const insertAt = next.findIndex(i => i.id === 'cabinets') + 1;
       next.splice(insertAt > 0 ? insertAt : combinedIdx, 0, {
         ...combined,
         id: 'countertops',
@@ -626,12 +702,14 @@ function migrateGroundUpTakeoffScopeItems(
   }
 
   // Split legacy combined Paint & trim into interior paint / exterior paint / finish carpentry.
-  const paintTrimIdx = next.findIndex((i) => i.id === 'paint_trim');
+  const paintTrimIdx = next.findIndex(i => i.id === 'paint_trim');
   if (paintTrimIdx >= 0) {
     const combined = next[paintTrimIdx];
-    const hasInteriorPaint = next.some((i) => i.id === 'interior_paint' || i.id === 'paint');
-    const hasExteriorPaint = next.some((i) => i.id === 'exterior_paint');
-    const hasInteriorTrim = next.some((i) => i.id === 'interior_trim');
+    const hasInteriorPaint = next.some(
+      i => i.id === 'interior_paint' || i.id === 'paint'
+    );
+    const hasExteriorPaint = next.some(i => i.id === 'exterior_paint');
+    const hasInteriorTrim = next.some(i => i.id === 'interior_trim');
     next.splice(paintTrimIdx, 1);
     let insertAt = paintTrimIdx;
     if (!hasInteriorPaint) {
@@ -639,7 +717,8 @@ function migrateGroundUpTakeoffScopeItems(
         ...combined,
         id: 'interior_paint',
         label: 'Interior paint',
-        helperText: 'Wall/ceiling paint — installed budget from local comparables when available.',
+        helperText:
+          'Wall/ceiling paint — installed budget from local comparables when available.',
       });
       insertAt += 1;
     }
@@ -658,7 +737,8 @@ function migrateGroundUpTakeoffScopeItems(
         ...combined,
         id: 'interior_trim',
         label: 'Finish carpentry / interior trim',
-        helperText: 'Finish trim, interior doors & shelving package until detailed takeoff.',
+        helperText:
+          'Finish trim, interior doors & shelving package until detailed takeoff.',
       });
     }
   }
@@ -670,7 +750,7 @@ function migrateGroundUpTakeoffScopeItems(
     category: string,
     afterId?: string
   ) => {
-    if (next.some((i) => i.id === id)) return;
+    if (next.some(i => i.id === id)) return;
     const item: ScopeChecklistItem = {
       id,
       label,
@@ -679,12 +759,18 @@ function migrateGroundUpTakeoffScopeItems(
       state: 'unsure',
       category,
     };
-    const afterIdx = afterId ? next.findIndex((i) => i.id === afterId) : -1;
+    const afterIdx = afterId ? next.findIndex(i => i.id === afterId) : -1;
     if (afterIdx >= 0) next.splice(afterIdx + 1, 0, item);
     else next.push(item);
   };
 
-  ensure('excavation', 'Excavation', 'Excavation CY for material and labor.', 'sitework', 'sitework');
+  ensure(
+    'excavation',
+    'Excavation',
+    'Excavation CY for material and labor.',
+    'sitework',
+    'sitework'
+  );
   ensure(
     'landscaping',
     'Landscaping / site walls & gates',
@@ -699,7 +785,13 @@ function migrateGroundUpTakeoffScopeItems(
     'structural',
     'foundation'
   );
-  ensure('windows', 'Windows', 'Window count for material and labor.', 'exterior', 'exterior');
+  ensure(
+    'windows',
+    'Windows',
+    'Window count for material and labor.',
+    'exterior',
+    'exterior'
+  );
   ensure(
     'exterior_doors',
     'Exterior doors',
@@ -742,7 +834,13 @@ function migrateGroundUpTakeoffScopeItems(
     'mep',
     'plumbing_rough'
   );
-  ensure('hvac', 'HVAC', 'System count (or tons) for material and labor.', 'mep', 'electrical_rough');
+  ensure(
+    'hvac',
+    'HVAC',
+    'System count (or tons) for material and labor.',
+    'mep',
+    'electrical_rough'
+  );
   ensure(
     'plumbing_trim',
     'Plumbing fixtures & trim',
@@ -757,9 +855,27 @@ function migrateGroundUpTakeoffScopeItems(
     'mep',
     'plumbing_trim'
   );
-  ensure('cabinets', 'Cabinets / vanity', 'Cabinet and vanity LF — kitchen, baths, laundry.', 'finishes', 'drywall');
-  ensure('countertops', 'Counters', 'Countertop sqft — kitchen, baths, and elsewhere.', 'finishes', 'cabinets');
-  ensure('floor_tile', 'Bath floor tile', 'Bathroom floor tile labor and materials.', 'finishes', 'tile_flooring');
+  ensure(
+    'cabinets',
+    'Cabinets / vanity',
+    'Cabinet and vanity LF — kitchen, baths, laundry.',
+    'finishes',
+    'drywall'
+  );
+  ensure(
+    'countertops',
+    'Counters',
+    'Countertop sqft — kitchen, baths, and elsewhere.',
+    'finishes',
+    'cabinets'
+  );
+  ensure(
+    'floor_tile',
+    'Bath floor tile',
+    'Bathroom floor tile labor and materials.',
+    'finishes',
+    'tile_flooring'
+  );
   ensure(
     'shower_tile',
     'Shower wall tile',
@@ -810,8 +926,20 @@ function migrateGroundUpTakeoffScopeItems(
       'demo',
       'floor_demo'
     );
-    ensure('flooring_lvp', 'LVP installation', 'Luxury vinyl plank material and standard installation.', 'flooring', 'flooring');
-    ensure('flooring_laminate', 'Laminate installation', 'Laminate flooring material and standard installation.', 'flooring', 'flooring_lvp');
+    ensure(
+      'flooring_lvp',
+      'LVP installation',
+      'Luxury vinyl plank material and standard installation.',
+      'flooring',
+      'flooring'
+    );
+    ensure(
+      'flooring_laminate',
+      'Laminate installation',
+      'Laminate flooring material and standard installation.',
+      'flooring',
+      'flooring_lvp'
+    );
     ensure(
       'flooring_engineered_hardwood',
       'Engineered hardwood installation',
@@ -840,8 +968,20 @@ function migrateGroundUpTakeoffScopeItems(
       'flooring',
       'tile_flooring'
     );
-    ensure('underlayment', 'Underlayment', 'Underlayment material and installation beneath the selected flooring.', 'flooring', 'floor_prep');
-    ensure('moisture_barrier', 'Vapor / moisture barrier', 'Standard polyethylene vapor barrier beneath flooring where required.', 'flooring', 'underlayment');
+    ensure(
+      'underlayment',
+      'Underlayment',
+      'Underlayment material and installation beneath the selected flooring.',
+      'flooring',
+      'floor_prep'
+    );
+    ensure(
+      'moisture_barrier',
+      'Vapor / moisture barrier',
+      'Standard polyethylene vapor barrier beneath flooring where required.',
+      'flooring',
+      'underlayment'
+    );
     ensure(
       'transitions',
       'Transitions & reducers',
@@ -849,11 +989,20 @@ function migrateGroundUpTakeoffScopeItems(
       'trim',
       'trim'
     );
-    ensure('quarter_round', 'Quarter round', 'Quarter-round material and installation.', 'trim', 'transitions');
+    ensure(
+      'quarter_round',
+      'Quarter round',
+      'Quarter-round material and installation.',
+      'trim',
+      'transitions'
+    );
   }
 
-  next = next.map((i) => {
-    if (String(templateKey || '').toLowerCase() === 'flooring' && i.id === 'floor_demo') {
+  next = next.map(i => {
+    if (
+      String(templateKey || '').toLowerCase() === 'flooring' &&
+      i.id === 'floor_demo'
+    ) {
       return {
         ...i,
         label: 'Demo Existing Flooring',
@@ -861,10 +1010,21 @@ function migrateGroundUpTakeoffScopeItems(
           'Removes existing flooring and bulk setting material, then cleans the exposed substrate. Includes protection, haul-off, and disposal. Extra residual grinding, patching, skim coating, and leveling are separate under floor prep.',
       };
     }
-    if (String(templateKey || '').toLowerCase() === 'flooring' && i.id === 'flooring') {
-      return { ...i, label: 'New Flooring', helperText: 'Fallback flooring install card when no specific product has been selected.' };
+    if (
+      String(templateKey || '').toLowerCase() === 'flooring' &&
+      i.id === 'flooring'
+    ) {
+      return {
+        ...i,
+        label: 'New Flooring',
+        helperText:
+          'Fallback flooring install card when no specific product has been selected.',
+      };
     }
-    if (String(templateKey || '').toLowerCase() === 'flooring' && i.id === 'floor_prep') {
+    if (
+      String(templateKey || '').toLowerCase() === 'flooring' &&
+      i.id === 'floor_prep'
+    ) {
       return {
         ...i,
         label: 'Subfloor / floor prep',
@@ -872,21 +1032,32 @@ function migrateGroundUpTakeoffScopeItems(
           'Extra substrate work after demo and cleaning — residual adhesive/thinset grinding, patching, skim coating, or leveling required for the new floor. Ordinary demo cleanup is not included here.',
       };
     }
-    if (String(templateKey || '').toLowerCase() === 'flooring' && i.id === 'underlayment') {
+    if (
+      String(templateKey || '').toLowerCase() === 'flooring' &&
+      i.id === 'underlayment'
+    ) {
       return {
         ...i,
         label: 'Underlayment',
-        helperText: 'Underlayment material and standard installation beneath the selected flooring.',
+        helperText:
+          'Underlayment material and standard installation beneath the selected flooring.',
       };
     }
-    if (String(templateKey || '').toLowerCase() === 'flooring' && i.id === 'moisture_barrier') {
+    if (
+      String(templateKey || '').toLowerCase() === 'flooring' &&
+      i.id === 'moisture_barrier'
+    ) {
       return {
         ...i,
         label: 'Vapor / moisture barrier',
-        helperText: 'Standard polyethylene vapor barrier beneath flooring where required.',
+        helperText:
+          'Standard polyethylene vapor barrier beneath flooring where required.',
       };
     }
-    if (String(templateKey || '').toLowerCase() === 'flooring' && i.id === 'trim') {
+    if (
+      String(templateKey || '').toLowerCase() === 'flooring' &&
+      i.id === 'trim'
+    ) {
       return {
         ...i,
         label: 'Trim & baseboard install',
@@ -894,7 +1065,10 @@ function migrateGroundUpTakeoffScopeItems(
           'Paint-grade baseboard material, installation, caulking, light prep, and standard finish painting.',
       };
     }
-    if (String(templateKey || '').toLowerCase() === 'flooring' && i.id === 'cleanup') {
+    if (
+      String(templateKey || '').toLowerCase() === 'flooring' &&
+      i.id === 'cleanup'
+    ) {
       return {
         ...i,
         label: 'Cleanup & Disposal',
@@ -950,8 +1124,10 @@ function migrateGroundUpTakeoffScopeItems(
 }
 
 /** Guarantee exterior flatwork card exists for ground-up UI (after Foundation). */
-export function ensureGroundUpFlatworkScopeCard(items: ScopeChecklistItem[]): ScopeChecklistItem[] {
-  if (items.some((i) => i.id === 'pour_flatwork')) return items;
+export function ensureGroundUpFlatworkScopeCard(
+  items: ScopeChecklistItem[]
+): ScopeChecklistItem[] {
+  if (items.some(i => i.id === 'pour_flatwork')) return items;
   const next = [...items];
   const item: ScopeChecklistItem = {
     id: 'pour_flatwork',
@@ -962,14 +1138,16 @@ export function ensureGroundUpFlatworkScopeCard(items: ScopeChecklistItem[]): Sc
     state: 'unsure',
     category: 'structural',
   };
-  const afterIdx = next.findIndex((i) => i.id === 'foundation');
+  const afterIdx = next.findIndex(i => i.id === 'foundation');
   if (afterIdx >= 0) next.splice(afterIdx + 1, 0, item);
   else next.push(item);
   return next;
 }
 
 /** Guarantee windows / exterior / sliding / garage door cards exist for ground-up UI. */
-export function ensureGroundUpOpeningScopeCards(items: ScopeChecklistItem[]): ScopeChecklistItem[] {
+export function ensureGroundUpOpeningScopeCards(
+  items: ScopeChecklistItem[]
+): ScopeChecklistItem[] {
   let next = [...items];
   const ensure = (
     id: string,
@@ -977,7 +1155,7 @@ export function ensureGroundUpOpeningScopeCards(items: ScopeChecklistItem[]): Sc
     helperText: string,
     afterId?: string
   ) => {
-    if (next.some((i) => i.id === id)) return;
+    if (next.some(i => i.id === id)) return;
     const item: ScopeChecklistItem = {
       id,
       label,
@@ -986,11 +1164,16 @@ export function ensureGroundUpOpeningScopeCards(items: ScopeChecklistItem[]): Sc
       state: 'unsure',
       category: 'exterior',
     };
-    const afterIdx = afterId ? next.findIndex((i) => i.id === afterId) : -1;
+    const afterIdx = afterId ? next.findIndex(i => i.id === afterId) : -1;
     if (afterIdx >= 0) next.splice(afterIdx + 1, 0, item);
     else next.push(item);
   };
-  ensure('windows', 'Windows', 'Window count for material and labor.', 'exterior');
+  ensure(
+    'windows',
+    'Windows',
+    'Window count for material and labor.',
+    'exterior'
+  );
   ensure(
     'exterior_doors',
     'Exterior doors',
@@ -1050,36 +1233,43 @@ export function applyGroundUpStageHostDemotions(
     'glass_door',
     'insulation',
   ];
-  const exteriorChildrenIncluded = exteriorChildIds.some((id) =>
-    items.some((i) => i.id === id && i.state === 'included')
+  const exteriorChildrenIncluded = exteriorChildIds.some(id =>
+    items.some(i => i.id === id && i.state === 'included')
   );
-  const exteriorWasIncluded = items.some((i) => i.id === 'exterior' && i.state === 'included');
-  const mepWasIncluded = items.some((i) => i.id === 'mep_rough' && i.state === 'included');
-  const mepChildrenIncluded = mepChildIds.some((id) =>
-    items.some((i) => i.id === id && i.state === 'included')
+  const exteriorWasIncluded = items.some(
+    i => i.id === 'exterior' && i.state === 'included'
   );
-  const siteWasIncluded = items.some((i) => i.id === 'sitework' && i.state === 'included');
-  const siteChildrenIncluded = siteChildIds.some((id) =>
-    items.some((i) => i.id === id && i.state === 'included')
+  const mepWasIncluded = items.some(
+    i => i.id === 'mep_rough' && i.state === 'included'
+  );
+  const mepChildrenIncluded = mepChildIds.some(id =>
+    items.some(i => i.id === id && i.state === 'included')
+  );
+  const siteWasIncluded = items.some(
+    i => i.id === 'sitework' && i.state === 'included'
+  );
+  const siteChildrenIncluded = siteChildIds.some(id =>
+    items.some(i => i.id === id && i.state === 'included')
   );
   const demoteSiteHost = siteWasIncluded || siteChildrenIncluded;
   const interiorWasIncluded = items.some(
-    (i) => i.id === 'interior_finishes' && i.state === 'included'
+    i => i.id === 'interior_finishes' && i.state === 'included'
   );
-  const finishChildrenIncluded = finishChildIds.some((id) =>
-    items.some((i) => i.id === id && i.state === 'included')
+  const finishChildrenIncluded = finishChildIds.some(id =>
+    items.some(i => i.id === id && i.state === 'included')
   );
   const demoteMepHost = mepWasIncluded || mepChildrenIncluded;
   const demoteInteriorHost = interiorWasIncluded || finishChildrenIncluded;
   const promoteFinishChildren =
     interiorWasIncluded ||
     items.some(
-      (i) =>
-        ['drywall', 'paint_trim', 'interior_paint', 'tile_flooring'].includes(i.id) &&
-        i.state === 'included'
+      i =>
+        ['drywall', 'paint_trim', 'interior_paint', 'tile_flooring'].includes(
+          i.id
+        ) && i.state === 'included'
     );
 
-  return items.map((i) => {
+  return items.map(i => {
     if (i.id === 'sitework') {
       return {
         ...i,
@@ -1121,7 +1311,8 @@ export function applyGroundUpStageHostDemotions(
     if (finishChildIds.includes(i.id)) {
       return {
         ...i,
-        state: promoteFinishChildren && i.state === 'unsure' ? 'included' : i.state,
+        state:
+          promoteFinishChildren && i.state === 'unsure' ? 'included' : i.state,
       };
     }
     if (i.id === 'exterior') {
@@ -1129,7 +1320,10 @@ export function applyGroundUpStageHostDemotions(
         ...i,
         helperText:
           'Planning comparison only — price roofing, windows/doors, and stucco separately.',
-        state: exteriorChildrenIncluded || exteriorWasIncluded ? 'excluded' : i.state,
+        state:
+          exteriorChildrenIncluded || exteriorWasIncluded
+            ? 'excluded'
+            : i.state,
       };
     }
     if (exteriorChildIds.includes(i.id)) {
@@ -1148,14 +1342,18 @@ export function applyGroundUpStageHostDemotions(
               ? i.helperText ||
                 'Opening count for material and labor — planning from living SF when count is missing.'
               : i.helperText,
-        state: exteriorWasIncluded && i.state === 'unsure' ? 'included' : i.state,
+        state:
+          exteriorWasIncluded && i.state === 'unsure' ? 'included' : i.state,
       };
     }
     return i;
   });
 }
 
-const NOTE_BACKED_SCOPE_COPY: Record<string, { label: string; helperText: string; category?: string }> = {
+const NOTE_BACKED_SCOPE_COPY: Record<
+  string,
+  { label: string; helperText: string; category?: string }
+> = {
   shower_tile: {
     label: 'Shower Tile',
     helperText: 'Shower wall tile labor and materials.',
@@ -1193,7 +1391,7 @@ function injectNoteBackedPricedItems(
   templateKey?: string | null
 ): ScopeChecklistItem[] {
   const itemQuantities = measurements?.itemQuantities || {};
-  const existingIds = new Set(items.map((item) => item.id));
+  const existingIds = new Set(items.map(item => item.id));
   const addedIds = new Set<string>();
   const additions: ScopeChecklistItem[] = [];
 
@@ -1204,7 +1402,7 @@ function injectNoteBackedPricedItems(
       itemId === 'floor_demo' &&
       String(templateKey || '').toLowerCase() === 'bathroom' &&
       items.some(
-        (i) =>
+        i =>
           ['demo', 'tub_demo', 'shower_floor_demo'].includes(i.id) &&
           (i.state === 'included' || i.noteBacked)
       )
@@ -1214,7 +1412,7 @@ function injectNoteBackedPricedItems(
     if (!getChecklistItemQuantityRule(itemId)) continue;
 
     const copy = NOTE_BACKED_SCOPE_COPY[itemId] || {
-      label: itemId.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase()),
+      label: itemId.replace(/_/g, ' ').replace(/\b\w/g, m => m.toUpperCase()),
       helperText: 'Scope item found in notes.',
       category: 'from_notes',
     };
@@ -1233,11 +1431,18 @@ function injectNoteBackedPricedItems(
   return additions.length ? [...items, ...additions] : items;
 }
 
-const BATH_WET_AREA_DEMO_IDS = ['demo', 'tub_demo', 'shower_floor_demo'] as const;
+const BATH_WET_AREA_DEMO_IDS = [
+  'demo',
+  'tub_demo',
+  'shower_floor_demo',
+] as const;
 
 function bathroomHasWetAreaDemoInScope(items: ScopeChecklistItem[]): boolean {
   return items.some(
-    (i) => BATH_WET_AREA_DEMO_IDS.includes(i.id as (typeof BATH_WET_AREA_DEMO_IDS)[number]) && checklistItemInScope(i)
+    i =>
+      BATH_WET_AREA_DEMO_IDS.includes(
+        i.id as (typeof BATH_WET_AREA_DEMO_IDS)[number]
+      ) && checklistItemInScope(i)
   );
 }
 
@@ -1258,27 +1463,36 @@ export function suppressBathroomFalsePositiveFloorDemoScope(
   if (floorDemoNotesHint(n)) return items;
   if (
     stepperCountActive(
-      (measurements as { demoBathFloorTileCount?: number | null } | null | undefined)
-        ?.demoBathFloorTileCount
+      (
+        measurements as
+          | { demoBathFloorTileCount?: number | null }
+          | null
+          | undefined
+      )?.demoBathFloorTileCount
     )
   ) {
     return items;
   }
 
   const wetAreaDemoInScope = bathroomHasWetAreaDemoInScope(items);
-  const notesSuggestWetArea = /\b(shower|tub|bathtub|prefab|mud\s+pan|wet\s+area|tile\s+surround)\b/.test(
-    n
-  );
+  const notesSuggestWetArea =
+    /\b(shower|tub|bathtub|prefab|mud\s+pan|wet\s+area|tile\s+surround)\b/.test(
+      n
+    );
   // Floor-only bathroom jobs (no wet-area signal) keep whatever the checklist already has.
   if (!wetAreaDemoInScope && !notesSuggestWetArea) return items;
 
   const hasBathFloorSf = positiveSqft(measurements?.bathroomFloorSqft);
 
-  return items.map((item) => {
+  return items.map(item => {
     if (item.id === 'floor_demo' && item.state === 'included') {
       return { ...item, state: 'unsure' as const, noteBacked: false };
     }
-    if (item.id === 'floor_tile' && item.state === 'included' && !hasBathFloorSf) {
+    if (
+      item.id === 'floor_tile' &&
+      item.state === 'included' &&
+      !hasBathFloorSf
+    ) {
       return { ...item, state: 'unsure' as const, noteBacked: false };
     }
     if (
@@ -1298,12 +1512,15 @@ export function stripBathroomFalsePositiveFloorDemoQuantities<
   T extends Record<string, unknown> | undefined,
 >(itemQuantities: T, templateKey?: string | null, notes?: string | null): T {
   if (!itemQuantities?.floor_demo) return itemQuantities;
-  if (String(templateKey || '').toLowerCase() !== 'bathroom') return itemQuantities;
-  if (floorDemoNotesHint(String(notes || '').toLowerCase())) return itemQuantities;
+  if (String(templateKey || '').toLowerCase() !== 'bathroom')
+    return itemQuantities;
+  if (floorDemoNotesHint(String(notes || '').toLowerCase()))
+    return itemQuantities;
 
   const next = { ...itemQuantities } as Record<string, unknown>;
   for (const key of Object.keys(next)) {
-    if (key === 'floor_demo' || key.startsWith('floor_demo__')) delete next[key];
+    if (key === 'floor_demo' || key.startsWith('floor_demo__'))
+      delete next[key];
   }
   return next as T;
 }
@@ -1314,7 +1531,9 @@ export { BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS } from '@/utils/scopeItemVisualTier';
 /** Bathroom rows driven by Vanity & countertop QM — absent from older AI checklists. */
 export const BATHROOM_QM_FIXTURE_SCOPE_IDS = ['countertops'] as const;
 
-function createDefaultBathroomChecklistItem(id: string): ScopeChecklistItem | null {
+function createDefaultBathroomChecklistItem(
+  id: string
+): ScopeChecklistItem | null {
   if (id === 'toilet') {
     const config = CHOICE_ITEM_CONFIG.toilet;
     return {
@@ -1349,9 +1568,12 @@ export function ensureBathroomChecklistItems(
   templateKey?: string | null
 ): ScopeChecklistItem[] {
   if (String(templateKey || '').toLowerCase() !== 'bathroom') return items;
-  const existing = new Set(items.map((item) => item.id));
+  const existing = new Set(items.map(item => item.id));
   const additions: ScopeChecklistItem[] = [];
-  const requiredIds = [...BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS, ...BATHROOM_QM_FIXTURE_SCOPE_IDS];
+  const requiredIds = [
+    ...BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS,
+    ...BATHROOM_QM_FIXTURE_SCOPE_IDS,
+  ];
   for (const id of requiredIds) {
     if (existing.has(id)) continue;
     const row = createDefaultBathroomChecklistItem(id);
@@ -1359,9 +1581,15 @@ export function ensureBathroomChecklistItems(
   }
   if (!additions.length) return items;
 
-  const fixturesIdx = items.findIndex((item) => item.id === 'lighting' || item.category === 'fixtures');
+  const fixturesIdx = items.findIndex(
+    item => item.id === 'lighting' || item.category === 'fixtures'
+  );
   if (fixturesIdx >= 0) {
-    return [...items.slice(0, fixturesIdx), ...additions, ...items.slice(fixturesIdx)];
+    return [
+      ...items.slice(0, fixturesIdx),
+      ...additions,
+      ...items.slice(fixturesIdx),
+    ];
   }
   return [...items, ...additions];
 }
@@ -1372,7 +1600,7 @@ export function ensureBathroomPaintRepairItem(
   templateKey?: string | null
 ): ScopeChecklistItem[] {
   if (String(templateKey || '').toLowerCase() !== 'bathroom') return items;
-  if (items.some((row) => row.id === 'paint_repair')) return items;
+  if (items.some(row => row.id === 'paint_repair')) return items;
   const paintRepair: ScopeChecklistItem = {
     id: 'paint_repair',
     inputType: 'yes_no',
@@ -1381,11 +1609,17 @@ export function ensureBathroomPaintRepairItem(
     category: 'trades',
     state: 'unsure',
   };
-  const tradesIdx = items.findIndex((row) =>
-    ['floor_prep', 'plumbing_rough', 'electrical_rough', 'trim'].includes(row.id)
+  const tradesIdx = items.findIndex(row =>
+    ['floor_prep', 'plumbing_rough', 'electrical_rough', 'trim'].includes(
+      row.id
+    )
   );
   if (tradesIdx >= 0) {
-    return [...items.slice(0, tradesIdx + 1), paintRepair, ...items.slice(tradesIdx + 1)];
+    return [
+      ...items.slice(0, tradesIdx + 1),
+      paintRepair,
+      ...items.slice(tradesIdx + 1),
+    ];
   }
   return [...items, paintRepair];
 }
@@ -1397,18 +1631,24 @@ export function suppressBathroomDrywallChecklistItems(
 ): ScopeChecklistItem[] {
   if (String(templateKey || '').toLowerCase() !== 'bathroom') return items;
   const legacyDrywall = items.find(
-    (row) =>
+    row =>
       (row.id === 'drywall' || row.id === 'patch_repair') &&
       (row.state === 'included' || row.state === 'unsure')
   );
   let next = items;
   if (legacyDrywall) {
-    next = next.map((row) => {
+    next = next.map(row => {
       if (row.id !== 'paint_repair' || row.state !== 'excluded') return row;
-      return { ...row, state: legacyDrywall.state === 'included' ? ('included' as const) : ('unsure' as const) };
+      return {
+        ...row,
+        state:
+          legacyDrywall.state === 'included'
+            ? ('included' as const)
+            : ('unsure' as const),
+      };
     });
   }
-  return next.filter((row) => row.id !== 'drywall' && row.id !== 'patch_repair');
+  return next.filter(row => row.id !== 'drywall' && row.id !== 'patch_repair');
 }
 
 /** Hide interior paint rows — full-room and repair-area paint live on paint_repair. */
@@ -1418,18 +1658,24 @@ export function suppressBathroomInteriorPaintChecklistItems(
 ): ScopeChecklistItem[] {
   if (String(templateKey || '').toLowerCase() !== 'bathroom') return items;
   const legacyPaint = items.find(
-    (row) =>
+    row =>
       (row.id === 'interior_paint' || row.id === 'paint') &&
       (row.state === 'included' || row.state === 'unsure')
   );
   let next = items;
   if (legacyPaint) {
-    next = next.map((row) => {
+    next = next.map(row => {
       if (row.id !== 'paint_repair' || row.state !== 'excluded') return row;
-      return { ...row, state: legacyPaint.state === 'included' ? ('included' as const) : ('unsure' as const) };
+      return {
+        ...row,
+        state:
+          legacyPaint.state === 'included'
+            ? ('included' as const)
+            : ('unsure' as const),
+      };
     });
   }
-  return next.filter((row) => row.id !== 'interior_paint' && row.id !== 'paint');
+  return next.filter(row => row.id !== 'interior_paint' && row.id !== 'paint');
 }
 
 function shouldSuppressGenericDemo(
@@ -1452,14 +1698,38 @@ export function hydrateScopeChecklistFromNotes(
   notes?: string | null,
   measurements?: NormalizedScopeMeasurements
 ): ScopeChecklistItem[] {
-  const scopedItems = items.filter((item) => !shouldSuppressGenericDemo(item, templateKey, measurements));
-  const withNoteBacked = injectNoteBackedPricedItems(scopedItems, measurements, templateKey);
-  const withBathroomDefaults = ensureBathroomChecklistItems(withNoteBacked, templateKey);
-  const withPaintRepair = ensureBathroomPaintRepairItem(withBathroomDefaults, templateKey);
-  const withoutLegacyDrywall = suppressBathroomDrywallChecklistItems(withPaintRepair, templateKey);
-  const normalized = normalizeScopeChecklistItems(withoutLegacyDrywall, templateKey, { notes, measurements });
+  const scopedItems = items.filter(
+    item => !shouldSuppressGenericDemo(item, templateKey, measurements)
+  );
+  const withNoteBacked = injectNoteBackedPricedItems(
+    scopedItems,
+    measurements,
+    templateKey
+  );
+  const withBathroomDefaults = ensureBathroomChecklistItems(
+    withNoteBacked,
+    templateKey
+  );
+  const withPaintRepair = ensureBathroomPaintRepairItem(
+    withBathroomDefaults,
+    templateKey
+  );
+  const withoutLegacyDrywall = suppressBathroomDrywallChecklistItems(
+    withPaintRepair,
+    templateKey
+  );
+  const normalized = normalizeScopeChecklistItems(
+    withoutLegacyDrywall,
+    templateKey,
+    { notes, measurements }
+  );
   // Notes may flip drywall/paint/tile to Yes after structural migrate — re-promote children.
-  const inferred = applyScopeInferencesFromNotes(normalized, notes, templateKey, measurements);
+  const inferred = applyScopeInferencesFromNotes(
+    normalized,
+    notes,
+    templateKey,
+    measurements
+  );
   return suppressBathroomInteriorPaintChecklistItems(
     suppressBathroomFalsePositiveFloorDemoScope(
       applyGroundUpStageHostDemotions(inferred, templateKey),
@@ -1472,11 +1742,15 @@ export function hydrateScopeChecklistFromNotes(
 }
 
 /** Strip UI-only derived lines before saving scope back to the draft. */
-export function scopeChecklistItemsForPersist(items: ScopeChecklistItem[]): ScopeChecklistItem[] {
-  const base = items.filter((i) => !i.derivedFrom && !WET_AREA_DERIVED_ITEM_IDS.has(i.id));
-  if (base.some((i) => i.id === 'paint_repair')) {
+export function scopeChecklistItemsForPersist(
+  items: ScopeChecklistItem[]
+): ScopeChecklistItem[] {
+  const base = items.filter(
+    i => !i.derivedFrom && !WET_AREA_DERIVED_ITEM_IDS.has(i.id)
+  );
+  if (base.some(i => i.id === 'paint_repair')) {
     return base.filter(
-      (i) =>
+      i =>
         i.id !== 'drywall' &&
         i.id !== 'patch_repair' &&
         i.id !== 'interior_paint' &&
@@ -1487,14 +1761,16 @@ export function scopeChecklistItemsForPersist(items: ScopeChecklistItem[]): Scop
 }
 
 /** Restore Confirm Scope form from saved assumptions or the original checklist. */
-export function scopeChecklistItemsForEditing(draft: EstimateAiDraft | null): ScopeChecklistItem[] {
+export function scopeChecklistItemsForEditing(
+  draft: EstimateAiDraft | null
+): ScopeChecklistItem[] {
   const confirmed = draft?.confirmedAssumptions;
   if (confirmed?.length) {
-    return confirmed.map((item) => ({ ...item }));
+    return confirmed.map(item => ({ ...item }));
   }
   const checklistItems = draft?.scopeChecklist?.items;
   if (checklistItems?.length) {
-    return checklistItems.map((item) => ({ ...item }));
+    return checklistItems.map(item => ({ ...item }));
   }
   return [];
 }
@@ -1505,8 +1781,8 @@ export function restoreConfirmedChecklistItemStates(
   confirmed: ScopeChecklistItem[]
 ): ScopeChecklistItem[] {
   if (!confirmed.length) return hydrated;
-  const byId = new Map(confirmed.map((item) => [item.id, item]));
-  return hydrated.map((item) => {
+  const byId = new Map(confirmed.map(item => [item.id, item]));
+  return hydrated.map(item => {
     const saved = byId.get(item.id);
     if (!saved) return item;
     return {
@@ -1528,12 +1804,18 @@ export function mergeScopeProgressIntoDraft(
   const persistedItems = scopeChecklistItemsForPersist(items);
   if (!persistedItems.length && !measurements) return draft;
 
-  const scopeNotes = String(options?.scopeNotes || resolveDraftScopeNotes(draft) || '').trim();
+  const scopeNotes = String(
+    options?.scopeNotes || resolveDraftScopeNotes(draft) || ''
+  ).trim();
 
   const next: EstimateAiDraft = {
     ...draft,
-    confirmedAssumptions: persistedItems.length ? persistedItems : draft.confirmedAssumptions,
-    ...(scopeNotes && !String(draft.originalNotes || '').trim() ? { originalNotes: scopeNotes } : {}),
+    confirmedAssumptions: persistedItems.length
+      ? persistedItems
+      : draft.confirmedAssumptions,
+    ...(scopeNotes && !String(draft.originalNotes || '').trim()
+      ? { originalNotes: scopeNotes }
+      : {}),
   };
 
   if (measurements) {
@@ -1551,7 +1833,7 @@ export function mergeScopeProgressIntoDraft(
   if (draft.scopeChecklist && persistedItems.length) {
     next.scopeChecklist = {
       ...draft.scopeChecklist,
-      items: persistedItems.map((item) => ({ ...item })),
+      items: persistedItems.map(item => ({ ...item })),
     };
   }
 
@@ -1594,22 +1876,31 @@ export const WET_AREA_DERIVED_ITEM_IDS = new Set([
 ]);
 
 /** Demo sub-lines controlled from QM steppers (no separate Confirm Scope card). */
-export const WET_AREA_DEMO_EMBEDDED_IDS = new Set(['tub_demo', 'shower_floor_demo']);
+export const WET_AREA_DEMO_EMBEDDED_IDS = new Set([
+  'tub_demo',
+  'shower_floor_demo',
+]);
 
 /** Inject the matching labor + materials card directly under wet area install. */
-export function expandWetAreaDerivedScopeItems(items: ScopeChecklistItem[]): ScopeChecklistItem[] {
-  const wet = items.find((i) => i.id === 'wet_area_install');
+export function expandWetAreaDerivedScopeItems(
+  items: ScopeChecklistItem[]
+): ScopeChecklistItem[] {
+  const wet = items.find(i => i.id === 'wet_area_install');
   // A notes-only draft can contain a direct shower_pan row without the newer
   // wet_area_install parent. Preserve that card so applied mud-pan pricing
   // never becomes an orphaned line with no Confirm Scope card.
   if (!wet || !checklistItemInScope(wet)) {
-    return items.filter((i) => !WET_AREA_DERIVED_ITEM_IDS.has(i.id) || i.id === 'shower_pan');
+    return items.filter(
+      i => !WET_AREA_DERIVED_ITEM_IDS.has(i.id) || i.id === 'shower_pan'
+    );
   }
-  const withoutDerived = items.filter((i) => !WET_AREA_DERIVED_ITEM_IDS.has(i.id));
+  const withoutDerived = items.filter(
+    i => !WET_AREA_DERIVED_ITEM_IDS.has(i.id)
+  );
   const spec = wet.choiceId ? WET_AREA_INSTALL_DERIVED[wet.choiceId] : null;
   if (!spec) return withoutDerived;
 
-  const existingPan = withoutDerived.find((i) => i.id === spec.id);
+  const existingPan = withoutDerived.find(i => i.id === spec.id);
   const derived: ScopeChecklistItem = {
     id: spec.id,
     label: spec.label,
@@ -1617,10 +1908,12 @@ export function expandWetAreaDerivedScopeItems(items: ScopeChecklistItem[]): Sco
     inputType: 'yes_no',
     state: existingPan?.state === 'excluded' ? 'excluded' : 'included',
     category: 'shower',
-    ...(spec.id !== 'shower_pan' ? { derivedFrom: 'wet_area_install' as const } : {}),
+    ...(spec.id !== 'shower_pan'
+      ? { derivedFrom: 'wet_area_install' as const }
+      : {}),
   };
 
-  const idx = withoutDerived.findIndex((i) => i.id === 'wet_area_install');
+  const idx = withoutDerived.findIndex(i => i.id === 'wet_area_install');
   if (idx < 0) return [...withoutDerived, derived];
   const result = [...withoutDerived];
   result.splice(idx + 1, 0, derived);
@@ -1637,9 +1930,7 @@ function positiveSqft(value: string | number | null | undefined): boolean {
   return Number.isFinite(n) && n > 0;
 }
 
-/** Auto-include shower wall/floor tile scope from Wet area install steppers.
- * Steppers are source of truth — SF alone does not keep scope Yes when steppers are off.
- */
+/** Auto-include shower wall/floor tile scope from confirmed QM measurements or steppers. */
 export function syncWetAreaTileScopeItems(
   items: ScopeChecklistItem[],
   params: {
@@ -1648,12 +1939,14 @@ export function syncWetAreaTileScopeItems(
     showerWallTileSqft?: string | number | null;
     showerFloorTileSqft?: string | number | null;
     keepingExisting?: boolean;
+    /** Bathroom photo job splits wall vs pan steppers; whole-home QM uses combined counts. */
+    splitTileWetArea?: boolean;
   }
 ): ScopeChecklistItem[] {
   let scopedItems = items;
   if (params.keepingExisting) {
     let changed = false;
-    scopedItems = items.map((row) => {
+    scopedItems = items.map(row => {
       if (row.id === 'shower_floor_tile' && row.state !== 'excluded') {
         changed = true;
         return { ...row, state: 'excluded' as const };
@@ -1663,11 +1956,18 @@ export function syncWetAreaTileScopeItems(
     if (!changed) scopedItems = items;
   }
 
-  const wallActive = stepperCountActive(params.bathCount);
-  const floorActive = params.keepingExisting ? false : stepperCountActive(params.tilePanBathCount);
+  const splitTileWetArea = params.splitTileWetArea !== false;
+  const wallActive =
+    stepperCountActive(params.bathCount) ||
+    positiveSqft(params.showerWallTileSqft);
+  const floorActive = params.keepingExisting
+    ? false
+    : stepperCountActive(params.tilePanBathCount) ||
+      positiveSqft(params.showerFloorTileSqft) ||
+      (!splitTileWetArea && stepperCountActive(params.bathCount));
 
   let changed = false;
-  const next = scopedItems.map((row) => {
+  const next = scopedItems.map(row => {
     if (row.id === 'shower_tile') {
       if (wallActive) {
         if (row.state !== 'included') {
@@ -1690,11 +1990,16 @@ export function syncWetAreaTileScopeItems(
         }
         return row;
       }
-      if (row.state === 'included' || (params.keepingExisting && row.state !== 'excluded')) {
+      if (
+        row.state === 'included' ||
+        (params.keepingExisting && row.state !== 'excluded')
+      ) {
         changed = true;
         return {
           ...row,
-          state: (params.keepingExisting ? 'excluded' : 'unsure') as 'excluded' | 'unsure',
+          state: (params.keepingExisting ? 'excluded' : 'unsure') as
+            | 'excluded'
+            | 'unsure',
           noteBacked: false,
         };
       }
@@ -1708,14 +2013,16 @@ export function syncWetAreaTileScopeItems(
 const SHOWER_TILE_SCOPE_IDS = new Set(['shower_tile', 'shower_floor_tile']);
 
 /** Tile shower work requires waterproofing — auto-select when wall/floor tile is in scope. */
-export function syncWaterproofingFromTileScopeItems(items: ScopeChecklistItem[]): ScopeChecklistItem[] {
+export function syncWaterproofingFromTileScopeItems(
+  items: ScopeChecklistItem[]
+): ScopeChecklistItem[] {
   const showerTileIncluded = items.some(
-    (row) => SHOWER_TILE_SCOPE_IDS.has(row.id) && row.state === 'included'
+    row => SHOWER_TILE_SCOPE_IDS.has(row.id) && row.state === 'included'
   );
   if (!showerTileIncluded) return items;
 
   let changed = false;
-  const next = items.map((row) => {
+  const next = items.map(row => {
     if (row.id === 'waterproofing' && row.state === 'unsure') {
       changed = true;
       return { ...row, state: 'included' as const };
@@ -1735,20 +2042,25 @@ export function syncWetAreaScopeFromSteppers(
     showerFloorTileSqft?: string | number | null;
   }
 ): ScopeChecklistItem[] {
-  const withoutDerived = items.filter((i) => !WET_AREA_DERIVED_ITEM_IDS.has(i.id));
+  const withoutDerived = items.filter(
+    i => !WET_AREA_DERIVED_ITEM_IDS.has(i.id)
+  );
 
   const derivedKeys: string[] = [];
   if (stepperCountActive(params.counts.tubBathCount)) derivedKeys.push('tub');
-  if (stepperCountActive(params.counts.prefabBathCount)) derivedKeys.push('prefab');
-  if (stepperCountActive(params.counts.prefabEnclosureBathCount)) derivedKeys.push('prefab_enclosure');
-  if (stepperCountActive(params.counts.tilePanBathCount)) derivedKeys.push('tile_pan');
+  if (stepperCountActive(params.counts.prefabBathCount))
+    derivedKeys.push('prefab');
+  if (stepperCountActive(params.counts.prefabEnclosureBathCount))
+    derivedKeys.push('prefab_enclosure');
+  if (stepperCountActive(params.counts.tilePanBathCount))
+    derivedKeys.push('tile_pan');
 
   const choiceId = primaryWetAreaInstallChoiceFromSteppers({
     counts: params.counts,
     keepingExisting: params.keepingExisting,
   });
 
-  let next = withoutDerived.map((row) => {
+  let next = withoutDerived.map(row => {
     if (row.id !== 'wet_area_install') return row;
     if (params.keepingExisting) {
       return { ...row, choiceId: 'staying', state: 'included' as const };
@@ -1763,9 +2075,9 @@ export function syncWetAreaScopeFromSteppers(
     return { ...row, choiceId: 'not_in_scope', state: 'excluded' as const };
   });
 
-  const derivedItems: ScopeChecklistItem[] = derivedKeys.map((key) => {
+  const derivedItems: ScopeChecklistItem[] = derivedKeys.map(key => {
     const spec = WET_AREA_INSTALL_DERIVED[key];
-    const existing = withoutDerived.find((row) => row.id === spec.id);
+    const existing = withoutDerived.find(row => row.id === spec.id);
     return {
       id: spec.id,
       label: spec.label,
@@ -1773,29 +2085,36 @@ export function syncWetAreaScopeFromSteppers(
       inputType: 'yes_no',
       state: existing?.state === 'excluded' ? 'excluded' : 'included',
       category: 'shower',
-      ...(spec.id !== 'shower_pan' ? { derivedFrom: 'wet_area_install' as const } : {}),
+      ...(spec.id !== 'shower_pan'
+        ? { derivedFrom: 'wet_area_install' as const }
+        : {}),
     };
   });
 
-  const wetIdx = next.findIndex((i) => i.id === 'wet_area_install');
+  const wetIdx = next.findIndex(i => i.id === 'wet_area_install');
   if (wetIdx >= 0 && derivedItems.length) {
-    next = [...next.slice(0, wetIdx + 1), ...derivedItems, ...next.slice(wetIdx + 1)];
+    next = [
+      ...next.slice(0, wetIdx + 1),
+      ...derivedItems,
+      ...next.slice(wetIdx + 1),
+    ];
   } else if (derivedItems.length) {
     next = [...next, ...derivedItems];
   }
   return syncWetAreaTileScopeItems(next, {
     bathCount: params.counts.bathCount,
-    tilePanBathCount: params.keepingExisting ? null : params.counts.tilePanBathCount,
+    tilePanBathCount: params.keepingExisting
+      ? null
+      : params.counts.tilePanBathCount,
     showerWallTileSqft: params.showerWallTileSqft,
-    showerFloorTileSqft: params.keepingExisting ? null : params.showerFloorTileSqft,
+    showerFloorTileSqft: params.keepingExisting
+      ? null
+      : params.showerFloorTileSqft,
     keepingExisting: params.keepingExisting,
   });
 }
 
-/**
- * Bath floor install card follows Wet area "Bath floor" stepper.
- * Stepper on → Yes. Off → Not sure (SF alone does not select it).
- */
+/** Bath floor install card follows the confirmed bath-floor measurement or stepper. */
 export function syncBathroomFloorTileScopeItems(
   items: ScopeChecklistItem[],
   params: {
@@ -1803,9 +2122,11 @@ export function syncBathroomFloorTileScopeItems(
     bathFloorTileCount?: number | null;
   }
 ): ScopeChecklistItem[] {
-  const active = stepperCountActive(params.bathFloorTileCount);
+  const active =
+    stepperCountActive(params.bathFloorTileCount) ||
+    positiveSqft(params.bathroomFloorSqft);
   let changed = false;
-  const next = items.map((row) => {
+  const next = items.map(row => {
     if (row.id !== 'floor_tile') return row;
     if (active) {
       if (row.state !== 'included') {
@@ -1841,11 +2162,19 @@ export function syncInteriorPaintScopeItems(
     wallPaintSqft?: string | number | null;
     ceilingPaintSqft?: string | number | null;
     paintAreaSqft?: string | number | null;
-    paintAreaBasis?: 'walls' | 'ceilings' | 'combined' | 'floor_area' | 'unknown' | null;
+    paintAreaBasis?:
+      | 'walls'
+      | 'ceilings'
+      | 'combined'
+      | 'floor_area'
+      | 'unknown'
+      | null;
     paintAreaNeedsConfirmation?: boolean | null;
     paintPricingMethod?: 'combined' | 'separate' | null;
     combinedPaintableAreaSqft?: string | number | null;
-    paintScope?: Array<'walls' | 'ceilings' | 'trim' | 'doors' | 'cabinets' | 'exterior'> | null;
+    paintScope?: Array<
+      'walls' | 'ceilings' | 'trim' | 'doors' | 'cabinets' | 'exterior'
+    > | null;
     baseboardLf?: string | number | null;
     interiorDoorCount?: string | number | null;
     cabinetPaintSqft?: string | number | null;
@@ -1854,18 +2183,26 @@ export function syncInteriorPaintScopeItems(
 ): ScopeChecklistItem[] {
   const measuredScopeIds = new Set<string>();
   const explicitScope = params.paintScope;
-  const bothWallsCeilings = Boolean(explicitScope?.includes('walls') && explicitScope.includes('ceilings'));
+  const bothWallsCeilings = Boolean(
+    explicitScope?.includes('walls') && explicitScope.includes('ceilings')
+  );
   if (explicitScope) {
     if (explicitScope.includes('walls')) measuredScopeIds.add('interior_paint');
-    if (explicitScope.includes('ceilings')) measuredScopeIds.add('ceiling_paint');
+    if (explicitScope.includes('ceilings'))
+      measuredScopeIds.add('ceiling_paint');
     if (explicitScope.includes('trim')) measuredScopeIds.add('trim_paint');
     if (explicitScope.includes('doors')) measuredScopeIds.add('door_paint');
-    if (explicitScope.includes('cabinets')) measuredScopeIds.add('cabinet_paint');
+    if (explicitScope.includes('cabinets'))
+      measuredScopeIds.add('cabinet_paint');
     if (explicitScope.includes('exterior')) {
       measuredScopeIds.add('exterior_paint');
       measuredScopeIds.add('exterior_prep');
     }
-    if (explicitScope.some((surface) => surface === 'walls' || surface === 'ceilings')) {
+    if (
+      explicitScope.some(
+        surface => surface === 'walls' || surface === 'ceilings'
+      )
+    ) {
       measuredScopeIds.add('prep');
     }
   }
@@ -1875,7 +2212,8 @@ export function syncInteriorPaintScopeItems(
       measuredScopeIds.add('interior_paint');
       measuredScopeIds.add('prep');
     }
-    if (positiveSqft(params.ceilingPaintSqft)) measuredScopeIds.add('ceiling_paint');
+    if (positiveSqft(params.ceilingPaintSqft))
+      measuredScopeIds.add('ceiling_paint');
     if (
       params.paintPricingMethod !== 'separate' &&
       params.paintAreaBasis === 'combined' &&
@@ -1883,15 +2221,23 @@ export function syncInteriorPaintScopeItems(
     ) {
       measuredScopeIds.add('interior_paint');
     }
-    if (params.paintAreaBasis === 'walls' && positiveSqft(params.paintAreaSqft)) {
+    if (
+      params.paintAreaBasis === 'walls' &&
+      positiveSqft(params.paintAreaSqft)
+    ) {
       measuredScopeIds.add('interior_paint');
     }
-    if (params.paintPricingMethod === 'combined' && positiveSqft(params.combinedPaintableAreaSqft)) {
+    if (
+      params.paintPricingMethod === 'combined' &&
+      positiveSqft(params.combinedPaintableAreaSqft)
+    ) {
       measuredScopeIds.add('interior_paint');
     }
     if (positiveSqft(params.baseboardLf)) measuredScopeIds.add('trim_paint');
-    if (positiveSqft(params.interiorDoorCount)) measuredScopeIds.add('door_paint');
-    if (positiveSqft(params.cabinetPaintSqft)) measuredScopeIds.add('cabinet_paint');
+    if (positiveSqft(params.interiorDoorCount))
+      measuredScopeIds.add('door_paint');
+    if (positiveSqft(params.cabinetPaintSqft))
+      measuredScopeIds.add('cabinet_paint');
     if (positiveSqft(params.exteriorPaintSqft)) {
       measuredScopeIds.add('exterior_paint');
       measuredScopeIds.add('exterior_prep');
@@ -1922,18 +2268,25 @@ export function syncInteriorPaintScopeItems(
         noteBacked: true,
       },
     ];
-    const missingExteriorRows = exteriorRows.filter((row) => !items.some((item) => item.id === row.id));
-    if (missingExteriorRows.length) workingItems = [...items, ...missingExteriorRows];
+    const missingExteriorRows = exteriorRows.filter(
+      row => !items.some(item => item.id === row.id)
+    );
+    if (missingExteriorRows.length)
+      workingItems = [...items, ...missingExteriorRows];
   }
-  const bathroomPaintRepair = workingItems.some((row) => row.id === 'paint_repair');
-  const targetIds = bathroomPaintRepair ? new Set(['paint_repair']) : measuredScopeIds;
+  const bathroomPaintRepair = workingItems.some(
+    row => row.id === 'paint_repair'
+  );
+  const targetIds = bathroomPaintRepair
+    ? new Set(['paint_repair'])
+    : measuredScopeIds;
   // Bathroom uses one physical paint card. QM paint SF must not also keep legacy
   // interior_paint/paint/prep selected — that double-counts ready pricing.
   const legacyPaintIds = bathroomPaintRepair
     ? new Set(['interior_paint', 'paint', 'paint_trim', 'prep'])
     : null;
   let changed = false;
-  const next = workingItems.map((row) => {
+  const next = workingItems.map(row => {
     if (
       bothWallsCeilings &&
       params.paintPricingMethod === 'combined' &&
@@ -1984,7 +2337,11 @@ export function syncInteriorPaintScopeItems(
         state: 'included' as const,
       };
     }
-    if (row.id === 'interior_paint' && row.state === 'included' && params.paintAreaBasis === 'combined') {
+    if (
+      row.id === 'interior_paint' &&
+      row.state === 'included' &&
+      params.paintAreaBasis === 'combined'
+    ) {
       if (row.label !== 'Walls & Ceilings') {
         changed = true;
         return { ...row, label: 'Walls & Ceilings' };
@@ -2019,12 +2376,15 @@ export function syncWetAreaDemoScopeItems(
     stepperCountActive(params.demo.demoPrefabPanCount) ||
     stepperCountActive(params.demo.demoPrefabEnclosureCount);
   const genericDemo =
-    stepperCountActive(params.demo.demoTileWallCount) || wetAreaGenericDemoActive(params.demo);
+    stepperCountActive(params.demo.demoTileWallCount) ||
+    wetAreaGenericDemoActive(params.demo);
 
   let changed = false;
-  const next = items.map((row) => {
+  const next = items.map(row => {
     if (row.id === 'floor_demo') {
-      const bathFloorDemoOn = stepperCountActive(params.demo.demoBathFloorTileCount);
+      const bathFloorDemoOn = stepperCountActive(
+        params.demo.demoBathFloorTileCount
+      );
       if (bathFloorDemoOn) {
         if (row.state !== 'included') {
           changed = true;
@@ -2068,7 +2428,10 @@ export function syncWetAreaDemoScopeItems(
         }
         return row;
       }
-      if (stepperCountActive(params.installShowerDoorCount) && row.state !== 'included') {
+      if (
+        stepperCountActive(params.installShowerDoorCount) &&
+        row.state !== 'included'
+      ) {
         changed = true;
         return { ...row, state: 'included' as const };
       }
@@ -2085,13 +2448,15 @@ export const KITCHEN_CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   floor_demo: 'Remove existing kitchen flooring.',
   appliances: 'Reconnect and install appliances after cabinets.',
   sink_faucet: 'Sink and faucet supply and install at existing rough-in.',
-  garbage_disposal: 'Reuse/install existing disposal or replace/install new — priced separately from sink & faucet.',
+  garbage_disposal:
+    'Reuse/install existing disposal or replace/install new — priced separately from sink & faucet.',
 };
 
 /** Bathroom-specific helper copy (shower vs bath floor demo are separate scope lines). */
 export const BATHROOM_CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   demo: 'Remove shower wall tile, shower base or pan (tile or prefab), and tub when present — bath floor demo is a separate line.',
-  floor_demo: 'Remove bathroom floor tile, LVP, or vinyl — often includes thinset grind (separate from shower).',
+  floor_demo:
+    'Remove bathroom floor tile, LVP, or vinyl — often includes thinset grind (separate from shower).',
   plumbing_trim:
     'Trim-out hookups only — lav faucet and shower/tub valve connections. Toilet and vanity installs are separate lines when selected above.',
   plumbing_rough:
@@ -2122,19 +2487,25 @@ export const KITCHEN_CHECKLIST_LABEL_OVERRIDES: Record<string, string> = {
 /** Shorter contractor-friendly helper copy (overrides server text in Confirm Scope UI). */
 export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   demo: 'Remove fixtures, tile, and finishes.',
-  backsplash_demo: 'Remove existing backsplash tile and adhesive; wall repair is separate.',
+  backsplash_demo:
+    'Remove existing backsplash tile and adhesive; wall repair is separate.',
   floor_demo:
     'Remove existing floor tile, LVP, vinyl, or flooring. Standard rates include ordinary scraping during removal; extensive adhesive, mastic, thinset grinding, stairs, hazardous materials, and subfloor repair are separate.',
   adhesive_mastic_removal:
     'Optional additional scraping or grinding beyond ordinary removal. Standard flooring demo rates exclude extensive adhesive, mastic, or thinset removal.',
   tub_demo: 'Demo and haul off the existing bathtub.',
-  shower_floor_demo: 'Demo existing shower base, prefab pan, or shower floor tile.',
-  vanity_demo: 'Demo and haul off the existing vanity cabinet — not the top alone.',
-  countertop_demo: 'Demo and haul off the existing vanity top or bathroom counter.',
-  wet_area_install: 'Tub install, prefab pan/base, or custom mud pan — labor + materials.',
+  shower_floor_demo:
+    'Demo existing shower base, prefab pan, or shower floor tile.',
+  vanity_demo:
+    'Demo and haul off the existing vanity cabinet — not the top alone.',
+  countertop_demo:
+    'Demo and haul off the existing vanity top or bathroom counter.',
+  wet_area_install:
+    'Tub install, prefab pan/base, or custom mud pan — labor + materials.',
   tub_install: 'Labor + materials for tub supply and install.',
   prefab_shower_pan: 'Labor + materials for prefab pan or acrylic base.',
-  prefab_shower_enclosure: 'Labor + materials for prefab surround / one-piece enclosure.',
+  prefab_shower_enclosure:
+    'Labor + materials for prefab surround / one-piece enclosure.',
   shower_pan:
     'Liner, mud bed, drain, and entry curb — substrate only. Floor tile is a separate Shower floor tile line.',
   shower_tile: 'Shower wall tile labor and materials.',
@@ -2142,14 +2513,18 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
     'Floor tile setting on the mud pan — tile/thinset/grout only (pan build is separate).',
   waterproofing:
     'Backer board (Hardie, foam, DensShield), RedGard-class membrane, vapor barrier, tape, screws, and wall-cavity insulation — before tile.',
-  shower_bench: 'Build, waterproof, and tile a shower bench — not the shower entry curb.',
+  shower_bench:
+    'Build, waterproof, and tile a shower bench — not the shower entry curb.',
   shower_niche: 'Frame, waterproof, and tile niche.',
-  shower_bench_curb: 'Build, waterproof, and tile a shower bench — not the shower entry curb.',
+  shower_bench_curb:
+    'Build, waterproof, and tile a shower bench — not the shower entry curb.',
   floor_tile: 'Bathroom floor tile labor and materials.',
   floor_prep:
     'Surface preparation after flooring removal. Enter only the area requiring preparation; structural repairs, moisture mitigation, and subfloor replacement are separate.',
-  plumbing_rough: 'New/relocated lines priced per rough-in point, not fixture hookup only.',
-  electrical_rough: 'New circuits, boxes, or devices — priced per circuit/device when counted.',
+  plumbing_rough:
+    'New/relocated lines priced per rough-in point, not fixture hookup only.',
+  electrical_rough:
+    'New circuits, boxes, or devices — priced per circuit/device when counted.',
   lighting: 'Fixture + install, not fixture cost only.',
   exhaust_fan: 'Replace or install bath fan and ducting if needed.',
   mirror_accessories:
@@ -2158,13 +2533,18 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   trim: 'Trim/baseboard labor and materials.',
   glass_door:
     'Glass shower door / enclosure — material and install. Towel bars/accessories separate.',
-  drywall: 'Wall/ceiling surface sqft (not floor area). Patch or replace after layout changes.',
+  drywall:
+    'Wall/ceiling surface sqft (not floor area). Patch or replace after layout changes.',
   cabinets: 'Cabinet and vanity LF — kitchen, baths, laundry.',
   countertops: 'Countertop sqft — kitchen, baths, and elsewhere.',
-  mep_rough: 'Planning comparison only — price plumbing / electrical / HVAC trades separately.',
-  exterior: 'Planning comparison only — price roofing, windows/doors, and stucco separately.',
-  interior_finishes: 'Planning comparison only — price drywall, paint, cabinets, counters, and tile separately.',
-  sitework: 'Planning comparison only — price excavation and other site trades separately.',
+  mep_rough:
+    'Planning comparison only — price plumbing / electrical / HVAC trades separately.',
+  exterior:
+    'Planning comparison only — price roofing, windows/doors, and stucco separately.',
+  interior_finishes:
+    'Planning comparison only — price drywall, paint, cabinets, counters, and tile separately.',
+  sitework:
+    'Planning comparison only — price excavation and other site trades separately.',
   plumbing_rough: 'Rough-in points (supply/drain) for material and labor.',
   electrical_rough: 'Circuits / boxes / devices for material and labor.',
   hvac: 'System count (or tons) for material and labor — not living SF.',
@@ -2182,16 +2562,20 @@ export const CHECKLIST_HELPER_OVERRIDES: Record<string, string> = {
   foundation: 'Foundation / slab concrete CY for material and labor.',
   pour_flatwork:
     'Driveway, walkways, porch, and exterior patio slabs — not the house or garage slab.',
-  plumbing_trim: 'Plumbing fixtures and trim-out package. Not plumbing rough-in.',
-  electrical_trim: 'Light fixtures and finish electrical — material and install. Not electrical rough-in.',
+  plumbing_trim:
+    'Plumbing fixtures and trim-out package. Not plumbing rough-in.',
+  electrical_trim:
+    'Light fixtures and finish electrical — material and install. Not electrical rough-in.',
   roofing: 'Roof squares for material and labor.',
   paint_trim: 'Wall/ceiling paint surface sqft for material and labor.',
-  interior_paint: 'Paintable wall/ceiling SF (physical). Local budgets are installed lump sums.',
+  interior_paint:
+    'Paintable wall/ceiling SF (physical). Local budgets are installed lump sums.',
   exterior_paint:
     'Exterior paint application for siding, stucco, soffit, and fascia. Prep, masking, heavy repairs, access work, and specialty coatings are separate.',
   interior_trim:
     'Finish trim, interior doors, door hardware & shelving package until detailed takeoff.',
-  plumbing_trim: 'Set fixtures and finish connections — excludes toilet/vanity when those are separate scope lines.',
+  plumbing_trim:
+    'Set fixtures and finish connections — excludes toilet/vanity when those are separate scope lines.',
   electrical_trim: 'Devices, plates, and bulbs.',
   permits: 'Confirm permit and impact fees for the project jurisdiction.',
   cleanup:
@@ -2202,10 +2586,16 @@ export function checklistDisplayHelper(
   item: ScopeChecklistItem,
   templateKey?: string | null
 ): string | undefined {
-  if (templateKey === 'kitchen' && KITCHEN_CHECKLIST_HELPER_OVERRIDES[item.id]) {
+  if (
+    templateKey === 'kitchen' &&
+    KITCHEN_CHECKLIST_HELPER_OVERRIDES[item.id]
+  ) {
     return KITCHEN_CHECKLIST_HELPER_OVERRIDES[item.id];
   }
-  if (templateKey === 'bathroom' && BATHROOM_CHECKLIST_HELPER_OVERRIDES[item.id]) {
+  if (
+    templateKey === 'bathroom' &&
+    BATHROOM_CHECKLIST_HELPER_OVERRIDES[item.id]
+  ) {
     return BATHROOM_CHECKLIST_HELPER_OVERRIDES[item.id];
   }
   return CHECKLIST_HELPER_OVERRIDES[item.id] || item.helperText;
@@ -2215,7 +2605,10 @@ export function checklistDisplayLabel(
   item: ScopeChecklistItem,
   templateKey?: string | null
 ): string {
-  if (templateKey === 'bathroom' && BATHROOM_CHECKLIST_LABEL_OVERRIDES[item.id]) {
+  if (
+    templateKey === 'bathroom' &&
+    BATHROOM_CHECKLIST_LABEL_OVERRIDES[item.id]
+  ) {
     return BATHROOM_CHECKLIST_LABEL_OVERRIDES[item.id];
   }
   if (templateKey === 'kitchen' && KITCHEN_CHECKLIST_LABEL_OVERRIDES[item.id]) {
@@ -2224,7 +2617,10 @@ export function checklistDisplayLabel(
   return item.label;
 }
 
-export const QUANTITY_NEEDED_LABELS_BY_TEMPLATE: Record<string, Record<string, string>> = {
+export const QUANTITY_NEEDED_LABELS_BY_TEMPLATE: Record<
+  string,
+  Record<string, string>
+> = {
   kitchen: {
     demo: 'cabinet demo lump sum or LF',
     appliance_removal: 'appliance count',
@@ -2235,7 +2631,8 @@ export const QUANTITY_NEEDED_LABELS_BY_TEMPLATE: Record<string, Record<string, s
   bathroom: {
     demo: 'tear-out sqft (floor + shower)',
     floor_demo: 'bathroom floor sqft',
-    plumbing_rough: 'fixture type, work type, plumbing exposure & floor construction',
+    plumbing_rough:
+      'fixture type, work type, plumbing exposure & floor construction',
   },
 };
 
@@ -2244,7 +2641,8 @@ export function quantityNeededLabel(
   templateKey: string | null | undefined,
   fallbackUnit: string
 ): string {
-  const byTemplate = templateKey && QUANTITY_NEEDED_LABELS_BY_TEMPLATE[templateKey]?.[itemId];
+  const byTemplate =
+    templateKey && QUANTITY_NEEDED_LABELS_BY_TEMPLATE[templateKey]?.[itemId];
   if (byTemplate) return byTemplate;
   return formatUnitLabel(fallbackUnit);
 }
@@ -2256,7 +2654,17 @@ export type ScopeChecklistGroup = {
 
 export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
   bathroom: [
-    { title: 'Demo', itemIds: ['demo', 'floor_demo', 'tub_demo', 'shower_floor_demo', 'vanity_demo', 'countertop_demo'] },
+    {
+      title: 'Demo',
+      itemIds: [
+        'demo',
+        'floor_demo',
+        'tub_demo',
+        'shower_floor_demo',
+        'vanity_demo',
+        'countertop_demo',
+      ],
+    },
     {
       title: 'Wet area finish',
       itemIds: [
@@ -2276,11 +2684,24 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     { title: 'Bathroom Floor', itemIds: ['floor_tile'] },
     {
       title: 'Fixtures',
-      itemIds: ['toilet', 'vanity', 'countertops', 'lighting', 'exhaust_fan', 'mirror_accessories'],
+      itemIds: [
+        'toilet',
+        'vanity',
+        'countertops',
+        'lighting',
+        'exhaust_fan',
+        'mirror_accessories',
+      ],
     },
     {
       title: 'Trades',
-      itemIds: ['plumbing_rough', 'electrical_rough', 'floor_prep', 'paint_repair', 'trim'],
+      itemIds: [
+        'plumbing_rough',
+        'electrical_rough',
+        'floor_prep',
+        'paint_repair',
+        'trim',
+      ],
     },
     {
       title: 'Trim-out & Closeout',
@@ -2288,11 +2709,21 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     },
   ],
   kitchen: [
-    { title: 'Demo', itemIds: ['demo', 'backsplash_demo', 'floor_demo', 'wall_demo'] },
+    {
+      title: 'Demo',
+      itemIds: ['demo', 'backsplash_demo', 'floor_demo', 'wall_demo'],
+    },
     { title: 'Appliances', itemIds: ['appliance_removal', 'appliances'] },
     {
       title: 'Cabinets & Counters',
-      itemIds: ['cabinets', 'countertops', 'sink_faucet', 'garbage_disposal', 'cabinet_hardware', 'island'],
+      itemIds: [
+        'cabinets',
+        'countertops',
+        'sink_faucet',
+        'garbage_disposal',
+        'cabinet_hardware',
+        'island',
+      ],
     },
     {
       title: 'Tile & Flooring',
@@ -2300,12 +2731,23 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     },
     {
       title: 'Trades',
-      itemIds: ['plumbing', 'electrical', 'lighting', 'drywall', 'paint', 'trim', 'walls_moving'],
+      itemIds: [
+        'plumbing',
+        'electrical',
+        'lighting',
+        'drywall',
+        'paint',
+        'trim',
+        'walls_moving',
+      ],
     },
     { title: 'Closeout', itemIds: ['permits', 'cleanup'] },
   ],
   landscaping: [
-    { title: 'Sitework', itemIds: ['demo_clearing', 'grading', 'soil_prep', 'drainage'] },
+    {
+      title: 'Sitework',
+      itemIds: ['demo_clearing', 'grading', 'soil_prep', 'drainage'],
+    },
     {
       title: 'Landscape',
       itemIds: [
@@ -2324,10 +2766,24 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     { title: 'Closeout', itemIds: ['mobilization', 'cleanup'] },
   ],
   plumbing_service: [
-    { title: 'Service', itemIds: ['service_call', 'fixture_repair', 'fixture_replace', 'drain_cleaning'] },
+    {
+      title: 'Service',
+      itemIds: [
+        'service_call',
+        'fixture_repair',
+        'fixture_replace',
+        'drain_cleaning',
+      ],
+    },
     {
       title: 'Lines & Rough',
-      itemIds: ['water_line', 'sewer_line', 'plumbing_rough', 'plumbing_trim', 'parts_materials'],
+      itemIds: [
+        'water_line',
+        'sewer_line',
+        'plumbing_rough',
+        'plumbing_trim',
+        'parts_materials',
+      ],
     },
     { title: 'Closeout', itemIds: ['emergency_fee', 'cleanup'] },
   ],
@@ -2348,7 +2804,10 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     { title: 'Closeout', itemIds: ['cleanup'] },
   ],
   addition: [
-    { title: 'Preconstruction', itemIds: ['plans_engineering', 'permits', 'utility_coordination'] },
+    {
+      title: 'Preconstruction',
+      itemIds: ['plans_engineering', 'permits', 'utility_coordination'],
+    },
     {
       title: 'Sitework',
       itemIds: ['sitework', 'excavation', 'grading', 'utility_trenching'],
@@ -2358,7 +2817,10 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
       title: 'Shell',
       itemIds: ['framing', 'roof_tie_in', 'windows_doors', 'exterior_finishes'],
     },
-    { title: 'MEP Rough-ins', itemIds: ['plumbing_rough', 'electrical_rough', 'hvac'] },
+    {
+      title: 'MEP Rough-ins',
+      itemIds: ['plumbing_rough', 'electrical_rough', 'hvac'],
+    },
     {
       title: 'Interior',
       itemIds: [
@@ -2444,41 +2906,88 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     { title: 'Closeout', itemIds: ['permits'] },
   ],
   roofing: [
-    { title: 'Roof', itemIds: ['tear_off', 'decking_repair', 'underlayment', 'shingles_roofing', 'flashing', 'vents_penetrations'] },
+    {
+      title: 'Roof',
+      itemIds: [
+        'tear_off',
+        'decking_repair',
+        'underlayment',
+        'shingles_roofing',
+        'flashing',
+        'vents_penetrations',
+      ],
+    },
     { title: 'Exterior', itemIds: ['gutters_downspouts'] },
     { title: 'Closeout', itemIds: ['permits', 'cleanup'] },
   ],
   hvac: [
     { title: 'Service', itemIds: ['service_call'] },
-    { title: 'Equipment', itemIds: ['equipment_replace', 'refrigerant', 'thermostat'] },
+    {
+      title: 'Equipment',
+      itemIds: ['equipment_replace', 'refrigerant', 'thermostat'],
+    },
     { title: 'Distribution', itemIds: ['ductwork', 'ventilation'] },
     { title: 'Closeout', itemIds: ['permits', 'cleanup'] },
   ],
   deck_patio: [
     { title: 'Demo', itemIds: ['demo_removal'] },
     { title: 'Structure', itemIds: ['footings_piers', 'framing_structure'] },
-    { title: 'Surface', itemIds: ['decking', 'railing', 'stairs', 'staining_sealing'] },
+    {
+      title: 'Surface',
+      itemIds: ['decking', 'railing', 'stairs', 'staining_sealing'],
+    },
     { title: 'Hardscape', itemIds: ['concrete_patio'] },
     { title: 'Closeout', itemIds: ['permits', 'cleanup'] },
   ],
   concrete: [
-    { title: 'Prep', itemIds: ['demo_removal', 'site_prep', 'forms', 'reinforcement'] },
+    {
+      title: 'Additional work',
+      itemIds: [
+        'demo_removal',
+        'site_prep',
+        'excavation',
+        'reinforcement',
+        'complex_forming',
+      ],
+    },
     { title: 'Pour', itemIds: ['pour_flatwork', 'pour_foundation'] },
-    { title: 'Finish', itemIds: ['finish_seal', 'cleanup'] },
+    {
+      title: 'Upgrades / disposal',
+      itemIds: ['concrete_sealer', 'decorative_finish', 'additional_haul_off'],
+    },
   ],
   excavation: [
     { title: 'Sitework', itemIds: ['mobilization', 'clearing'] },
-    { title: 'Earthwork', itemIds: ['excavation', 'trenching', 'grading', 'backfill'] },
+    {
+      title: 'Earthwork',
+      itemIds: ['excavation', 'trenching', 'grading', 'backfill'],
+    },
     { title: 'Closeout', itemIds: ['haul_off', 'cleanup'] },
   ],
   drywall: [
-    { title: 'Drywall', itemIds: ['demo_removal', 'hang', 'finish_tape', 'texture', 'patch_repair'] },
+    {
+      title: 'Drywall',
+      itemIds: [
+        'demo_removal',
+        'hang',
+        'finish_tape',
+        'texture',
+        'patch_repair',
+      ],
+    },
     { title: 'Closeout', itemIds: ['cleanup'] },
   ],
   painting: [
     {
       title: 'Interior painting',
-      itemIds: ['prep', 'interior_paint', 'ceiling_paint', 'trim_paint', 'door_paint', 'cabinet_paint'],
+      itemIds: [
+        'prep',
+        'interior_paint',
+        'ceiling_paint',
+        'trim_paint',
+        'door_paint',
+        'cabinet_paint',
+      ],
     },
     { title: 'Closeout', itemIds: ['cleanup'] },
   ],
@@ -2496,19 +3005,20 @@ export function groupScopeChecklistItems(
     return [{ title: '', items }];
   }
 
-  const byId = new Map(items.map((i) => [i.id, i]));
+  const byId = new Map(items.map(i => [i.id, i]));
   const used = new Set<string>();
   const result: Array<{ title: string; items: ScopeChecklistItem[] }> = [];
 
   for (const group of groups) {
     const groupItems = group.itemIds
-      .map((id) => byId.get(id))
+      .map(id => byId.get(id))
       .filter((i): i is ScopeChecklistItem => Boolean(i));
-    groupItems.forEach((i) => used.add(i.id));
-    if (groupItems.length) result.push({ title: group.title, items: groupItems });
+    groupItems.forEach(i => used.add(i.id));
+    if (groupItems.length)
+      result.push({ title: group.title, items: groupItems });
   }
 
-  const remainder = items.filter((i) => !used.has(i.id));
+  const remainder = items.filter(i => !used.has(i.id));
   if (remainder.length) result.push({ title: 'Other', items: remainder });
 
   return result;
@@ -2517,7 +3027,12 @@ export function groupScopeChecklistItems(
 export function scopeChecklistSummaryCounts(
   items: ScopeChecklistItem[],
   needsMeasurement: number
-): { included: number; unsure: number; excluded: number; needsMeasurement: number } {
+): {
+  included: number;
+  unsure: number;
+  excluded: number;
+  needsMeasurement: number;
+} {
   let included = 0;
   let unsure = 0;
   let excluded = 0;
@@ -2525,7 +3040,8 @@ export function scopeChecklistSummaryCounts(
     if (item.inputType === 'multi_choice') {
       const ids = item.choiceIds ?? [];
       if (ids.includes('not_in_scope')) excluded += 1;
-      else if (!ids.length || (ids.length === 1 && ids.includes('unsure'))) unsure += 1;
+      else if (!ids.length || (ids.length === 1 && ids.includes('unsure')))
+        unsure += 1;
       else included += 1;
     } else if (item.inputType === 'choice') {
       if (item.choiceId === 'not_in_scope') excluded += 1;
@@ -2591,7 +3107,10 @@ export type ScopeItemNeedingConfirmation = {
 export type ScopePricingQuestionsOptions = {
   templateKey?: string | null;
   notes?: string | null;
-  pricingAcceptance?: Record<string, import('@/utils/estimateAiDraft').ScopePricingAcceptanceMetadata>;
+  pricingAcceptance?: Record<
+    string,
+    import('@/utils/estimateAiDraft').ScopePricingAcceptanceMetadata
+  >;
   bathroomPaintRepairScope?: string | null;
   bathroomPaintRepairEntireRoom?: boolean | null;
   bathroomToiletRelocateFloorType?: string | null;
@@ -2609,7 +3128,13 @@ export function scopeItemNeedsPricingQuestions(
   const visualCtx = { measurements, templateKey, notes };
 
   if (WET_AREA_DEMO_EMBEDDED_IDS.has(item.id)) return null;
-  if (hasAcceptedScopePricing(item.id, measurements.itemQuantities, options?.pricingAcceptance)) {
+  if (
+    hasAcceptedScopePricing(
+      item.id,
+      measurements.itemQuantities,
+      options?.pricingAcceptance
+    )
+  ) {
     return null;
   }
 
@@ -2627,10 +3152,16 @@ export function scopeItemNeedsPricingQuestions(
       }
       return null;
     }
-    if (tierConfig.tier !== 'prompt_first' && !BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS.has(item.id)) {
+    if (
+      tierConfig.tier !== 'prompt_first' &&
+      !BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS.has(item.id)
+    ) {
       return null;
     }
-    if (BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS.has(item.id) || scopeItemHasNoteSignal(item, visualCtx)) {
+    if (
+      BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS.has(item.id) ||
+      scopeItemHasNoteSignal(item, visualCtx)
+    ) {
       return { itemId: item.id, label, reason: 'Pick scope option' };
     }
     return null;
@@ -2686,8 +3217,10 @@ export function listScopeItemsNeedingConfirmation(
   return results;
 }
 
-export function markAllUnsureAsExcluded(items: ScopeChecklistItem[]): ScopeChecklistItem[] {
-  return items.map((item) => {
+export function markAllUnsureAsExcluded(
+  items: ScopeChecklistItem[]
+): ScopeChecklistItem[] {
+  return items.map(item => {
     if (item.inputType === 'multi_choice') {
       const ids = item.choiceIds ?? [];
       if (!ids.length || ids.includes('unsure')) {

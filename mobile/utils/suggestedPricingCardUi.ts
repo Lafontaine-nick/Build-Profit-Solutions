@@ -266,11 +266,11 @@ export function formatSuggestedBlendedRateMoney(rate: number | null | undefined)
   return `$${value.toFixed(2)}`;
 }
 
-/** Exact apply amount — matches stored totals after Apply (no planning rounding). */
+/** Exact apply amount — matches stored totals after Apply, including cents. */
 export function formatSuggestedDisplayMoney(total: number | null | undefined): string {
   const value = Number(total);
   if (!Number.isFinite(value)) return '—';
-  return `$${Math.round(value).toLocaleString()}`;
+  return formatDraftMoney(value);
 }
 
 export function formatSuggestedComponentMoney(amount: number | null | undefined): string {
@@ -508,18 +508,25 @@ export function formatInstalledBudgetQuantityLine(block: SuggestedPricingBlock):
 
 export function formatSuggestedUnitRateLine(block: SuggestedPricingBlock): string | null {
   if (block.installedBudgetBenchmark) {
-    // Implied $/paintable SF is display-only — price is the installed house budget.
+    // Implied $/living SF is display-only — price is the installed house budget.
     if (block.impliedUnitRateLabel) {
       return `Reference only · ${block.impliedUnitRateLabel.replace(/^Implied from\s+/i, '')}`;
     }
-    const qty = block.basis?.quantity;
-    if (qty && qty > 0) {
-      const rate = block.total / qty;
+    const living = Number(block.benchmarkLivingSf);
+    if (living > 0 && block.total > 0) {
+      const rate = block.total / living;
       if (rate > 0 && Number.isFinite(rate)) {
-        return `Reference only · ~$${rate.toFixed(2)}/paintable SF (does not set price)`;
+        const decimals = rate >= 100 ? 0 : 2;
+        return `Reference only · ~$${rate.toLocaleString(undefined, {
+          minimumFractionDigits: decimals,
+          maximumFractionDigits: decimals,
+        })}/living SF (does not set price)`;
       }
     }
     return null;
+  }
+  if (block.impliedUnitRateLabel && block.benchmarkLivingSf) {
+    return `Reference only · ${block.impliedUnitRateLabel.replace(/^Implied from\s+/i, '')}`;
   }
   if (block.impliedUnitRateLabel) return block.impliedUnitRateLabel;
   const qty = block.basis?.quantity;

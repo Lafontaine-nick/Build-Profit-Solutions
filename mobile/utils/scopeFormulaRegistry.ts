@@ -435,7 +435,16 @@ const FORMULAS: FormulaDefinition[] = [
     outputMeasurementType: 'concrete_volume',
     outputUnit: 'cy',
     requiredInputs: [input('areaSqft', 'slab/flatwork area', 'sqft', ['concreteSqft'])],
-    optionalInputs: [assumptionInput('thicknessInches', 'slab thickness', 'in', 'slab_thickness_inches_4', false)],
+    optionalInputs: [
+      {
+        key: 'thicknessInches',
+        label: 'slab thickness',
+        unit: 'in',
+        measurementFields: ['concreteThicknessInches'],
+        assumptionKey: 'slab_thickness_inches_4',
+        required: false,
+      },
+    ],
     defaultAssumptionKeys: ['slab_thickness_inches_4'],
     calculate: ({ areaSqft, thicknessInches }) => {
       const exactValue = areaSqft * (thicknessInches / 12) / 27;
@@ -453,7 +462,7 @@ const FORMULAS: FormulaDefinition[] = [
     rounding: 'cy',
     explanation: ({ roundedValue, inputs, assumptions }) => {
       const sqft = inputs[0]?.value.toLocaleString() ?? '';
-      const thickness = assumptions[0]?.value ?? '';
+      const thickness = inputs.find((input) => input.key === 'thicknessInches')?.value ?? assumptions[0]?.value ?? '';
       return `Slab area ${sqft} sqft at ${thickness} in thick ≈ ${roundedValue.toLocaleString()} CY volume cross-check. Pricing uses the slab sqft at national-average $/sqft rates.`;
     },
   },

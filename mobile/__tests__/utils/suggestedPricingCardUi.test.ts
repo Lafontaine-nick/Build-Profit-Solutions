@@ -8,6 +8,7 @@ import {
   formatSuggestedComponentMoney,
   formatSuggestedDisplayMoney,
   formatSuggestedSplitLine,
+  formatSuggestedUnitRateLine,
   isLivingAreaFallbackPricing,
   normalizeQuantitySource,
   quantityProvenanceLabel,
@@ -282,6 +283,33 @@ describe('suggestedPricingCardUi', () => {
     expect(display.presentation).toBe('compact');
     expect(display.actionLabel).toBe('Apply');
     expect(display.compactLine).toBe('$3,000');
+  });
+
+  it('shows reference $/living SF on installed package trades', () => {
+    const refLine = formatSuggestedUnitRateLine(
+      block({
+        installedBudgetBenchmark: true,
+        lumpSumOnly: true,
+        total: 24300,
+        labor: 24300,
+        material: 0,
+        benchmarkLivingSf: 3660,
+        impliedUnitRateLabel: 'Implied from blended Plan 58 · ~$6.64/living SF',
+        basis: null,
+      })
+    );
+    expect(refLine).toBe('Reference only · blended Plan 58 · ~$6.64/living SF');
+    expect(
+      formatSuggestedUnitRateLine(
+        block({
+          installedBudgetBenchmark: true,
+          total: 24300,
+          benchmarkLivingSf: 3660,
+          impliedUnitRateLabel: null,
+          basis: { quantity: 7413, unit: 'sqft' },
+        })
+      )
+    ).toMatch(/living SF \(does not set price\)/);
   });
 
   it('uses blended SF pricing chrome for flooring install cards', () => {

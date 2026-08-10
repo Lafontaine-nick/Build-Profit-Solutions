@@ -48,10 +48,12 @@ describe('builderBudgetBarometer', () => {
     const national = getNationalAverageBudgetSplit('roofing', 'squares')!;
     const calibrated = applySouthernUtahCalibration('roofing', 'squares', national)!;
     const nationalTotal = national.material + national.labor;
-    // National shingles mid ~$575/sq; local barometer lower — blend lands ~$450–$550/sq.
+    // National shingles mid ~$575/sq; roofing uses a modest 50/50 blend with
+    // the lower local barometer, landing around ~$485/sq.
     expect(nationalTotal).toBeCloseTo(575, 0);
     expect(calibrated.material + calibrated.labor).toBeLessThan(nationalTotal);
-    expect(calibrated.material + calibrated.labor).toBeGreaterThan(450);
+    expect(calibrated.material + calibrated.labor).toBeCloseTo(485, 0);
+    expect(calibrated.rateSourceReference).toMatch(/50\/50 blend/i);
   });
 
   it('keeps framing mat/lab from local bid lines blended with national (framed SF)', () => {

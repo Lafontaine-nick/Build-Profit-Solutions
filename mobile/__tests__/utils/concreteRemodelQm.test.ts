@@ -20,14 +20,14 @@ describe('concrete QM remodel', () => {
   it('keeps scope cards visible in Confirm Scope', () => {
     expect(CONCRETE_QM_EMBEDDED_IDS.size).toBe(0);
     expect(CONCRETE_QM_SYNC_SCOPE_IDS.has('pour_flatwork')).toBe(true);
-    expect(CONCRETE_QM_SYNC_SCOPE_IDS.has('forms')).toBe(true);
+    expect(CONCRETE_QM_SYNC_SCOPE_IDS.has('complex_forming')).toBe(true);
   });
 
   it('syncs flatwork and foundation selections into included checklist items', () => {
     const next = syncConcreteQmScopeItems(
-      [item('pour_flatwork'), item('pour_foundation'), item('forms')],
+      [item('pour_flatwork'), item('pour_foundation'), item('reinforcement')],
       {
-        concreteScope: ['patios', 'forms', 'pour_foundation'],
+        concreteScope: ['patios', 'reinforcement', 'pour_foundation'],
         concreteSqft: '400',
         concreteCy: '8',
       }
@@ -36,7 +36,7 @@ describe('concrete QM remodel', () => {
       state: 'included',
       noteBacked: true,
     });
-    expect(next.find((row) => row.id === 'forms')).toMatchObject({
+    expect(next.find((row) => row.id === 'reinforcement')).toMatchObject({
       state: 'included',
       noteBacked: true,
     });

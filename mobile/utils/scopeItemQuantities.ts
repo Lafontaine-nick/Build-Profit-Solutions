@@ -20,11 +20,16 @@ import {
   getBuilderBudgetSoftCostAllowance,
 } from '@/utils/southernUtahCalibratedRates';
 import {
+  barometerLabelForProjectId,
+  installedBudgetLivingSfReference,
+} from '@/utils/builderBudgetLumpBlend';
+import {
   exteriorPaintLocalCalibrationMessage,
   exteriorPaintLocalSampleCount,
   matchSouthernUtahProjectByLivingSf,
   resolveFinishCarpentryComparable,
   resolveInteriorPaintComparable,
+  type SouthernUtahProjectId,
 } from '@/utils/southernUtahPaintTrimComparables';
 import {
   EXTERIOR_OPENING_NATIONAL_RATES,
@@ -50,6 +55,16 @@ import {
 } from '@/utils/bathroomDrywallPaintScope';
 import { resolveStep2ComponentSuggestedPricing } from '@/utils/confirmScopeStep2Pricing';
 import { resolveExteriorFlatworkLumpSuggestedFill } from '@/utils/exteriorFlatworkPricing';
+import {
+  capTakeoffTotalAtBarometerLump,
+  flooringUsesBarometerLumpPackage,
+  resolveElectricalRoughLumpSuggestedFill,
+  resolveExteriorPaintLumpSuggestedFill,
+  resolveFlooringLumpSuggestedFill,
+  resolveInsulationLumpSuggestedFill,
+  resolvePlumbingRoughLumpSuggestedFill,
+  resolveStuccoSuggestedTotal,
+} from '@/utils/groundUpBarometerLumpPackages';
 import { resolveGroundUpFinishPackageLump } from '@/utils/groundUpFinishPackages';
 import {
   isUndercountedDrywallSurface,
@@ -360,9 +375,23 @@ export type NormalizedScopeMeasurements = {
   roofSquares: number | null;
   drywallSqft: number | null;
   concreteSqft: number | null;
+  concreteReinforcementSqft: number | null;
+  concreteSealerSqft: number | null;
+  concreteSubgradePrepSqft: number | null;
+  concreteThicknessInches: number | null;
+  complexFormingLf: number | null;
+  additionalHaulOffLoadCount: number | null;
   concreteDemoSqft: number | null;
+  concreteDemoThicknessBand: 'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus' | null;
+  concreteDemoThicknessBands: Array<'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus'> | null;
+  concreteDemoAreaByThickness: Partial<Record<'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus', number | null>> | null;
+  concreteDemoReinforced: boolean | null;
+  concreteDemoLimitedAccess: boolean | null;
+  concreteDemoCy: number | null;
   concreteCy: number | null;
   excavationCy: number | null;
+  excavationAreaSqft: number | null;
+  excavationDepthInches: number | null;
   deckSqft: number | null;
   garageSqft: number | null;
   exteriorPaintSqft: number | null;
@@ -969,12 +998,14 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     sourceLabel: 'Suggested budget split · National Average · per plumbing connection',
   },
   railing: { unit: 'lf', material: 15, labor: 25, sourceLabel: 'Suggested budget split · National Average' },
-  pour_flatwork: { unit: 'sqft', material: 4, labor: 6, sourceLabel: 'National planning rate · Pour flatwork' },
+  pour_flatwork: { unit: 'sqft', material: 4, labor: 6, sourceLabel: 'National average · Standard flatwork · 4 in base' },
   concrete: { unit: 'sqft', material: 4, labor: 6, sourceLabel: 'National planning rate · Concrete flatwork' },
-  forms: { unit: 'sqft', material: 0.75, labor: 1.25, sourceLabel: 'National planning rate · Forms / layout' },
+  complex_forming: { unit: 'lf', material: 4, labor: 2, sourceLabel: 'National average · Complex forming · additional LF' },
   reinforcement: { unit: 'sqft', material: 1, labor: 0.75, sourceLabel: 'National planning rate · Rebar / mesh' },
-  finish_seal: { unit: 'sqft', material: 0.5, labor: 1.5, sourceLabel: 'National planning rate · Finish / seal / cure' },
-  concrete_demo: { unit: 'sqft', material: 1, labor: 2.5, materialBucketLabel: 'Equipment & disposal', sourceLabel: 'National planning rate · Concrete demo / removal' },
+  concrete_sealer: { unit: 'sqft', material: 0.6, labor: 0.9, sourceLabel: 'National average · Concrete sealer · optional upgrade' },
+  decorative_finish: { unit: 'sqft', material: 1.5, labor: 0, sourceLabel: 'National average · Integral color · optional upgrade' },
+  additional_haul_off: { unit: 'load', material: 300, labor: 100, sourceLabel: 'National average · Additional haul-off / disposal · per load' },
+  concrete_demo: { unit: 'sqft', material: 1.5, labor: 2.5, materialBucketLabel: 'Equipment & disposal', sourceLabel: 'National average · Concrete demo / removal · normal disposal included' },
   drywall: {
     unit: 'sqft',
     // New-construction hang/finish band (~$2.10/SF). Prior $4.50/SF made living×3.5
@@ -1085,17 +1116,23 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     labor: 1.75,
     sourceLabel: 'Suggested budget split · National Average · insulation',
   },
+  site_prep: {
+    unit: 'sqft',
+    material: 0.75,
+    labor: 1.25,
+    sourceLabel: 'National planning rate · Basic subgrade prep / grading · $2.00/sqft',
+  },
   excavation: {
     unit: 'cy',
-    material: 5,
-    labor: 45,
-    sourceLabel: 'Suggested budget split · National Average · excavation',
+    material: 34,
+    labor: 51,
+    sourceLabel: 'National planning rate · Excavation / soil movement · volume-based tiered planning rates',
   },
   pour_foundation: {
     unit: 'cy',
     material: 165,
     labor: 185,
-    sourceLabel: 'National planning rate · Footings / foundation',
+    sourceLabel: 'National planning rate · Footing / foundation concrete pour · $350/CY',
   },
 };
 
@@ -1161,20 +1198,26 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS_BY_UNIT: Record<
   pour_foundation: {
     cy: NATIONAL_AVERAGE_BUDGET_SPLITS.pour_foundation,
   },
-  forms: {
-    sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.forms,
+  complex_forming: {
+    lf: NATIONAL_AVERAGE_BUDGET_SPLITS.complex_forming,
   },
   reinforcement: {
     sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.reinforcement,
   },
-  finish_seal: {
-    sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.finish_seal,
+  concrete_sealer: {
+    sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.concrete_sealer,
+  },
+  decorative_finish: {
+    sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.decorative_finish,
+  },
+  additional_haul_off: {
+    load: NATIONAL_AVERAGE_BUDGET_SPLITS.additional_haul_off,
   },
   site_prep: {
-    cy: NATIONAL_AVERAGE_BUDGET_SPLITS.excavation,
+    sqft: NATIONAL_AVERAGE_BUDGET_SPLITS.site_prep,
   },
   excavation: {
-    cy: { unit: 'cy', material: 5, labor: 45, sourceLabel: 'Suggested budget split · National Average' },
+    cy: NATIONAL_AVERAGE_BUDGET_SPLITS.excavation,
     sqft: { unit: 'sqft', material: 0.5, labor: 2.5, sourceLabel: 'Suggested budget split · National Average' },
     lf: { unit: 'lf', material: 1, labor: 8, sourceLabel: 'Suggested budget split · National Average' },
   },
@@ -1353,27 +1396,33 @@ const BPS_STANDARD_SCOPE_PROFILES: Record<
   concrete: {
     category: 'concrete',
     rootCause:
-      'Build Profit national-average concrete is modeled as base material and placement only; access, reinforcement, sawcutting, and disposal are separate scopes.',
+      'Build Profit national-average standard flatwork includes concrete, delivery, placement, basic forming, finishing, curing, and normal cleanup; reinforcement and unusual work are separate scopes.',
     assumptions: [
+      assumption('concrete_material', 'included', 'Ready-mix concrete', 'Standard ready-mix material and delivery allowance are included.'),
       assumption('concrete_placement', 'included', 'Concrete placement', 'Base concrete placement for the measured quantity is included.'),
-      assumption('finishing', 'included', 'Basic finishing', 'Basic placement finishing is included; decorative or specialty finish scope is not implied.'),
+      assumption('basic_forming', 'included', 'Basic perimeter forming', 'Straight perimeter forming, screeding, and floating are included.'),
+      assumption('finishing', 'included', 'Basic finishing and curing', 'Standard broom/basic finish and normal curing are included.'),
+      assumption('cleanup', 'included', 'Normal cleanup', 'Normal jobsite cleanup is included.'),
       assumption('pumping', 'excluded', 'Concrete pumping', 'Pump truck or special placement equipment is not included.'),
       assumption('reinforcement', 'excluded', 'Reinforcement', 'Rebar, mesh, chairs, and related reinforcement are not included unless priced separately.'),
       assumption('sawcutting', 'excluded', 'Sawcutting', 'Sawcut control joints are not included in this base concrete suggestion.'),
-      assumption('disposal', 'excluded', 'Disposal / haul-off', 'Demo debris, excess concrete, or haul-off is not included.'),
+      assumption('complex_forming', 'excluded', 'Complex forming', 'Curves, steps, isolated pours, thickened edges, and unusual formwork are not included.'),
     ],
   },
   pour_flatwork: {
     category: 'concrete',
     rootCause:
-      'Build Profit national-average flatwork is modeled as base material and placement only; access, reinforcement, sawcutting, and disposal are separate scopes.',
+      'Build Profit national-average standard flatwork includes concrete, delivery, placement, basic forming, finishing, curing, and normal cleanup; reinforcement and unusual work are separate scopes.',
     assumptions: [
+      assumption('concrete_material', 'included', 'Ready-mix concrete', 'Standard ready-mix material and delivery allowance are included.'),
       assumption('concrete_placement', 'included', 'Flatwork placement', 'Base flatwork placement for the measured quantity is included.'),
-      assumption('finishing', 'included', 'Basic finishing', 'Basic broom or trowel finish is included; decorative finishing is not implied.'),
+      assumption('basic_forming', 'included', 'Basic perimeter forming', 'Straight perimeter forming, screeding, and floating are included.'),
+      assumption('finishing', 'included', 'Basic finishing and curing', 'Standard broom/basic finish and normal curing are included.'),
+      assumption('cleanup', 'included', 'Normal cleanup', 'Normal jobsite cleanup is included.'),
       assumption('pumping', 'excluded', 'Concrete pumping', 'Pump truck or special placement equipment is not included.'),
       assumption('reinforcement', 'excluded', 'Reinforcement', 'Rebar, mesh, chairs, and related reinforcement are not included unless priced separately.'),
       assumption('sawcutting', 'excluded', 'Sawcutting', 'Sawcut control joints are not included in this base flatwork suggestion.'),
-      assumption('disposal', 'excluded', 'Disposal / haul-off', 'Demo debris, excess concrete, or haul-off is not included.'),
+      assumption('complex_forming', 'excluded', 'Complex forming', 'Curves, steps, isolated pours, thickened edges, and unusual formwork are not included.'),
     ],
   },
   flooring: {
@@ -3242,7 +3291,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
   demo_removal: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
-    measurementKeys: ['concreteDemoSqft', 'concreteSqft', 'floorAreaSqft', 'deckSqft', 'drywallSqft'],
+    measurementKey: 'concreteDemoSqft',
     requiresUserQuantity: true,
     quantityHelper: 'Enter concrete demo removal area in sqft.',
     missingMessage: 'Enter demo removal area.',
@@ -3255,6 +3304,14 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     quantityHelper: 'Enter flatwork pour area in sqft.',
     missingMessage: 'Enter flatwork pour area.',
   },
+  complex_forming: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'complexFormingLf',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter additional complex formwork LF.',
+    missingMessage: 'Enter complex forming LF.',
+  },
   forms: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
@@ -3266,9 +3323,25 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
   reinforcement: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
-    measurementKey: 'concreteSqft',
+    measurementKey: 'concreteReinforcementSqft',
     requiresUserQuantity: true,
     quantityHelper: 'Uses flatwork pour area from Quick Measurements.',
+    missingMessage: 'Enter flatwork pour area.',
+  },
+  concrete_sealer: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'concreteSealerSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Uses flatwork pour area for optional sealer.',
+    missingMessage: 'Enter flatwork pour area.',
+  },
+  decorative_finish: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'concreteSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Uses flatwork pour area for optional decorative finish.',
     missingMessage: 'Enter flatwork pour area.',
   },
   finish_seal: {
@@ -3288,12 +3361,20 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     missingMessage: 'Enter foundation CY.',
   },
   site_prep: {
-    defaultUnit: 'cy',
-    allowedUnits: ['cy', 'sqft', 'allowance', 'lump_sum'],
-    measurementKey: 'excavationCy',
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'concreteSubgradePrepSqft',
     requiresUserQuantity: true,
-    quantityHelper: 'Enter site prep or excavation CY.',
-    missingMessage: 'Enter excavation CY.',
+    quantityHelper: 'Enter affected flatwork area for basic subgrade prep / grading.',
+    missingMessage: 'Enter basic subgrade prep area.',
+  },
+  additional_haul_off: {
+    defaultUnit: 'load',
+    allowedUnits: ['load', 'allowance', 'lump_sum'],
+    measurementKey: 'additionalHaulOffLoadCount',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter additional disposal loads.',
+    missingMessage: 'Enter additional haul-off loads.',
   },
   hang: {
     defaultUnit: 'sqft',
@@ -3381,7 +3462,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<string, ScopeItemQuantityRule
     allowedUnits: ['cy', 'sqft', 'lf', 'allowance', 'lump_sum'],
     measurementKey: 'excavationCy',
     requiresUserQuantity: true,
-    quantityHelper: 'Enter excavation CY for material and labor rates.',
+    quantityHelper: 'Enter excavation CY directly, or calculate CY from excavation area and depth. Pricing includes labor and equipment; export, haul-off, dump fees, and imported fill are separate.',
     missingMessage: 'Enter excavation quantity.',
   },
 };
@@ -3453,9 +3534,23 @@ export function normalizeScopeMeasurements(measurements?: ScopeMeasurements | nu
     roofSquares: num(measurements?.roofSquares),
     drywallSqft: num(measurements?.drywallSqft),
     concreteSqft: num(measurements?.concreteSqft),
+    concreteReinforcementSqft: num(measurements?.concreteReinforcementSqft),
+    concreteSealerSqft: num(measurements?.concreteSealerSqft),
+    concreteSubgradePrepSqft: num(measurements?.concreteSubgradePrepSqft),
+    concreteThicknessInches: num(measurements?.concreteThicknessInches),
+    complexFormingLf: num(measurements?.complexFormingLf),
+    additionalHaulOffLoadCount: num(measurements?.additionalHaulOffLoadCount),
     concreteDemoSqft: num(measurements?.concreteDemoSqft),
+    concreteDemoThicknessBand: measurements?.concreteDemoThicknessBand ?? null,
+    concreteDemoThicknessBands: measurements?.concreteDemoThicknessBands ?? null,
+    concreteDemoAreaByThickness: measurements?.concreteDemoAreaByThickness ?? null,
+    concreteDemoReinforced: measurements?.concreteDemoReinforced ?? null,
+    concreteDemoLimitedAccess: measurements?.concreteDemoLimitedAccess ?? null,
+    concreteDemoCy: num(measurements?.concreteDemoCy),
     concreteCy: num(measurements?.concreteCy),
     excavationCy: num(measurements?.excavationCy),
+    excavationAreaSqft: num(measurements?.excavationAreaSqft),
+    excavationDepthInches: num(measurements?.excavationDepthInches),
     deckSqft: num(measurements?.deckSqft),
     garageSqft: num(measurements?.garageSqft),
     exteriorPaintSqft: num(measurements?.exteriorPaintSqft),
@@ -3629,20 +3724,20 @@ function resolvedQuantityFromNotes(
         ? { quantity: measurements.floorAreaSqft, unit: 'sqft' }
         : rule.measurementKey && measurements[rule.measurementKey]
           ? {
-              quantity: measurements[rule.measurementKey],
+              quantity: Number(measurements[rule.measurementKey]),
               unit: measurementUnitForKey(rule.measurementKey, rule.defaultUnit),
             }
           : (rule.measurementKeys || [])
               .map((key) =>
                 measurements[key]
-                  ? { quantity: measurements[key], unit: measurementUnitForKey(key, rule.defaultUnit) }
+                  ? { quantity: Number(measurements[key]), unit: measurementUnitForKey(key, rule.defaultUnit) }
                   : null
               )
-              .find((entry) => entry?.quantity != null && entry.quantity > 0) ?? null;
+              .find((entry) => entry?.quantity != null && Number(entry.quantity) > 0) ?? null;
     let countEntry =
-      countMeasurement?.quantity && countMeasurement.quantity > 0
+      countMeasurement && Number(countMeasurement.quantity) > 0
         ? {
-            quantity: countMeasurement.quantity,
+            quantity: Number(countMeasurement.quantity),
             unit: countMeasurement.unit,
             quantitySource: 'inferred' as const,
           }
@@ -4507,7 +4602,7 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
   utility_trenching: { unit: 'lf' },
   grading: { unit: 'sqft', measurementKeys: ['gradingSqft', 'landscapeSqft', 'floorAreaSqft'] },
   sitework: { unit: 'sqft', measurementKeys: ['landscapeSqft', 'floorAreaSqft'] },
-  site_prep: { unit: 'cy', measurementKeys: ['excavationCy', 'concreteSqft', 'landscapeSqft', 'floorAreaSqft'] },
+  site_prep: { unit: 'sqft', measurementKeys: ['concreteSubgradePrepSqft', 'concreteSqft', 'landscapeSqft', 'floorAreaSqft'] },
   soil_prep: { unit: 'sqft', measurementKeys: ['soilPrepSqft', 'landscapeSqft'] },
   clearing: { unit: 'sqft', measurementKeys: ['landscapeSqft', 'floorAreaSqft'] },
   demo_clearing: { unit: 'sqft', measurementKeys: ['demoClearingSqft', 'landscapeSqft'] },
@@ -5399,8 +5494,24 @@ function measurementsForRatePricing(
     landscapeTons: measurements.landscapeTons ?? undefined,
     roofSquares: measurements.roofSquares ?? undefined,
     concreteSqft: measurements.concreteSqft ?? undefined,
+    concreteReinforcementSqft: measurements.concreteReinforcementSqft ?? undefined,
+    concreteSealerSqft: measurements.concreteSealerSqft ?? undefined,
+    concreteSubgradePrepSqft: measurements.concreteSubgradePrepSqft ?? undefined,
+    concreteDemoSqft: measurements.concreteDemoSqft ?? undefined,
+    concreteDemoThicknessBand: measurements.concreteDemoThicknessBand ?? undefined,
+    concreteDemoThicknessBands: measurements.concreteDemoThicknessBands ?? undefined,
+    concreteDemoAreaByThickness: measurements.concreteDemoAreaByThickness ?? undefined,
+    concreteDemoReinforced: measurements.concreteDemoReinforced ?? undefined,
+    concreteDemoLimitedAccess: measurements.concreteDemoLimitedAccess ?? undefined,
+    concreteDemoCy: measurements.concreteDemoCy ?? undefined,
+    concreteThicknessInches: measurements.concreteThicknessInches ?? undefined,
+    complexFormingLf: measurements.complexFormingLf ?? undefined,
+    additionalHaulOffLoadCount: measurements.additionalHaulOffLoadCount ?? undefined,
     concreteCy: measurements.concreteCy ?? undefined,
     excavationCy: measurements.excavationCy ?? undefined,
+    excavationAreaSqft: measurements.excavationAreaSqft ?? undefined,
+    excavationDepthInches: measurements.excavationDepthInches ?? undefined,
+    excavationQuantityMode: measurements.excavationQuantityMode ?? undefined,
     deckSqft: measurements.deckSqft ?? undefined,
     railingLf: measurements.railingLf ?? undefined,
     baseboardLf: measurements.baseboardLf ?? undefined,
@@ -5456,6 +5567,12 @@ function measurementsPayloadForRatePricing(
     landscapeTons: parseScopeMeasurementInput(input.landscapeTons) ?? undefined,
     roofSquares: parseScopeMeasurementInput(input.roofSquares) ?? undefined,
     concreteSqft: parseScopeMeasurementInput(input.concreteSqft) ?? undefined,
+    concreteReinforcementSqft: parseScopeMeasurementInput(input.concreteReinforcementSqft) ?? undefined,
+    concreteSealerSqft: parseScopeMeasurementInput(input.concreteSealerSqft) ?? undefined,
+    concreteSubgradePrepSqft: parseScopeMeasurementInput(input.concreteSubgradePrepSqft) ?? undefined,
+    concreteThicknessInches: parseScopeMeasurementInput(input.concreteThicknessInches) ?? undefined,
+    complexFormingLf: parseScopeMeasurementInput(input.complexFormingLf) ?? undefined,
+    additionalHaulOffLoadCount: parseScopeMeasurementInput(input.additionalHaulOffLoadCount) ?? undefined,
     concreteCy: parseScopeMeasurementInput(input.concreteCy) ?? undefined,
     excavationCy: parseScopeMeasurementInput(input.excavationCy) ?? undefined,
     deckSqft: parseScopeMeasurementInput(input.deckSqft) ?? undefined,
@@ -6398,6 +6515,33 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+function volumeSensitiveExcavationPricing(quantityCy: number) {
+  const cy = Math.max(0, quantityCy);
+  const tier =
+    cy <= 2
+      ? { rate: 175, minimum: 350, label: '1–2 CY' }
+      : cy <= 5
+        ? { rate: 140, minimum: 0, label: '2–5 CY' }
+        : cy <= 10
+          ? { rate: 115, minimum: 0, label: '5–10 CY' }
+          : cy <= 25
+            ? { rate: 95, minimum: 0, label: '10–25 CY' }
+            : cy <= 50
+              ? { rate: 85, minimum: 0, label: '25–50 CY' }
+              : { rate: 75, minimum: 0, label: '50+ CY' };
+  const calculatedTotal = round2(cy * tier.rate);
+  const total = Math.max(calculatedTotal, tier.minimum);
+  return {
+    total,
+    equipment: round2(total * 0.4),
+    labor: round2(total * 0.6),
+    effectiveRate: cy > 0 ? round2(total / cy) : 0,
+    tierLabel: tier.label,
+    tierRate: tier.rate,
+    minimumApplied: total > calculatedTotal,
+  };
+}
+
 function pricingRateDefined(rate: number | null | undefined): rate is number {
   return rate != null && Number.isFinite(rate);
 }
@@ -6740,7 +6884,10 @@ function regionalAdjustedNationalAverage(
 
   // Nationwide baseline: national rates nudged by the builder-budget barometer,
   // then scaled by state multiplier (CA, NY, etc.).
-  const withBarometer = applyBuilderBudgetBarometer(itemId, unit || base.unit, base) || base;
+  const withBarometer =
+    itemId === 'site_prep' || itemId === 'excavation' || itemId === 'pour_foundation'
+      ? base
+      : applyBuilderBudgetBarometer(itemId, unit || base.unit, base) || base;
 
   if (regional.multiplier === 1) {
     return { average: withBarometer, regional };
@@ -7283,6 +7430,12 @@ function resolveSouthernUtahPaintTrimSuggestedFill(params: {
     const hasExactProject = Boolean(livingSf && matchSouthernUtahProjectByLivingSf(livingSf));
     if (!isGroundUp && !hasExactProject) return null;
     const comparable = resolveFinishCarpentryComparable({ livingSf, state });
+    const trimLivingSfRef = installedBudgetLivingSfReference({
+      total: comparable.total,
+      livingSf:
+        (livingSf && matchSouthernUtahProjectByLivingSf(livingSf)?.livingSf) || livingSf,
+      barometerLabel: comparable.projectLabel,
+    });
     return {
       material: round2(comparable.material),
       labor: round2(comparable.labor),
@@ -7297,6 +7450,8 @@ function resolveSouthernUtahPaintTrimSuggestedFill(params: {
       splitSource: comparable.splitSource,
       splitConfidence: comparable.splitConfidence,
       basis: null,
+      impliedUnitRateLabel: trimLivingSfRef?.impliedUnitRateLabel ?? null,
+      benchmarkLivingSf: trimLivingSfRef?.benchmarkLivingSf ?? null,
       costBuckets: [
         {
           key: 'material',
@@ -7676,6 +7831,84 @@ function buildSplitTotalOnlySuggestedFill(
   };
 }
 
+function buildGroundUpBarometerLumpPricing(
+  itemId: string,
+  lump: {
+    material: number;
+    labor: number;
+    total: number;
+    rateSourceLabel: string;
+    helper: string;
+    comparisonRange: { low: number; high: number };
+    projectId: SouthernUtahProjectId | null;
+  },
+  opts?: {
+    basis?: { quantity: number; unit: string } | null;
+    allowanceLabel?: string;
+    livingSf?: number | null;
+  }
+): ScopeItemSuggestedPricing {
+  const hasSplit = lump.material > 0 && lump.labor > 0;
+  const livingSfRef = installedBudgetLivingSfReference({
+    total: lump.total,
+    livingSf: opts?.livingSf,
+    barometerLabel: barometerLabelForProjectId(lump.projectId),
+  });
+  return {
+    fill: {
+      material: lump.material,
+      labor: lump.labor,
+      total: lump.total,
+      materialSource: hasSplit ? 'national_average' : 'local_benchmark',
+      laborSource: hasSplit ? 'national_average' : 'local_benchmark',
+      rateSourceLabel: lump.rateSourceLabel,
+      helper: lump.helper,
+      mode: 'suggested_price',
+      lumpSumOnly: !hasSplit,
+      installedBudgetBenchmark: true,
+      splitSource: hasSplit ? 'estimated' : 'none',
+      splitConfidence: hasSplit ? 'medium' : 'none',
+      comparisonRange: lump.comparisonRange,
+      basis: opts?.basis ?? null,
+      impliedUnitRateLabel: livingSfRef?.impliedUnitRateLabel ?? null,
+      benchmarkLivingSf: livingSfRef?.benchmarkLivingSf ?? null,
+      costBuckets: hasSplit
+        ? [
+            {
+              key: 'material',
+              label: 'Material',
+              amount: lump.material,
+              rate: null,
+              source: 'national_average',
+            },
+            {
+              key: 'labor',
+              label: 'Labor',
+              amount: lump.labor,
+              rate: null,
+              source: 'national_average',
+            },
+          ]
+        : [
+            {
+              key: 'allowance',
+              label: opts?.allowanceLabel || 'Installed planning budget',
+              amount: lump.total,
+              rate: null,
+              source: 'local_benchmark',
+            },
+          ],
+      pricingRecordId: `su_${itemId}:${lump.projectId || 'median'}:${hasSplit ? 'split' : 'installed'}`,
+      productionStatus: 'review_required',
+      benchmarkLevel: 'component',
+      benchmarkScopeKey: itemId,
+      benchmarkAction: 'price_ready',
+      storedTotalExact: lump.total,
+    },
+    comparison: null,
+  };
+}
+
 /**
  * Canonical pricing resolver for the Confirm Scope UI. Resolves material and
  * labor independently with the priority notes -> template/bid -> national
@@ -7696,6 +7929,14 @@ export function resolveScopeItemSuggestedPricing(
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule) return empty;
+  if (
+    String(templateKey || '').toLowerCase() === 'concrete' &&
+    ['forms', 'finish_seal', 'cleanup'].includes(itemId)
+  ) {
+    // Legacy concrete checklist IDs are retained for migration, but their
+    // standard work is included in the base flatwork rate.
+    return empty;
+  }
 
   if (
     itemId === 'trim_paint' &&
@@ -8054,14 +8295,116 @@ export function resolveScopeItemSuggestedPricing(
   }
 
   if (
+    itemId === 'excavation' &&
+    String(templateKey || '').toLowerCase() === 'concrete' &&
+    resolved.unit === 'cy' &&
+    Number(resolved.quantity) > 0
+  ) {
+    const quantity = Number(resolved.quantity);
+    const pricing = volumeSensitiveExcavationPricing(quantity);
+    return {
+      fill: {
+        material: pricing.equipment,
+        labor: pricing.labor,
+        total: pricing.total,
+        materialSource: 'national_average',
+        laborSource: 'national_average',
+        costBuckets: [
+          {
+            key: 'equipment',
+            label: 'Equipment',
+            amount: pricing.equipment,
+            rate: round2(pricing.equipment / quantity),
+            source: 'national_average',
+          },
+          {
+            key: 'labor',
+            label: 'Labor',
+            amount: pricing.labor,
+            rate: round2(pricing.labor / quantity),
+            source: 'national_average',
+          },
+        ],
+        rateSourceLabel: `National planning rate · Excavation / soil movement · ${pricing.tierLabel} · $${pricing.tierRate.toFixed(2)}/CY`,
+        helper: `${quantity.toLocaleString()} CY · labor + equipment · export, haul-off, dump fees, and imported fill are separate${pricing.minimumApplied ? ' · $350 minimum applied' : ''}`,
+        mode: 'suggested_price',
+        lumpSumOnly: false,
+        basis: { quantity, unit: 'cy' },
+        benchmarkAction: 'price_ready',
+        pricingRecordId: `bps_national:excavation:volume-sensitive:${quantity}cy`,
+        productionStatus: 'review_required',
+      },
+      comparison: null,
+    };
+  }
+
+  if (
     itemId === 'demo_removal' &&
     String(templateKey || '').toLowerCase() === 'concrete' &&
     Number(resolved.quantity) > 0
   ) {
-    const split = NATIONAL_AVERAGE_BUDGET_SPLITS.concrete_demo;
-    const quantity = Number(resolved.quantity);
-    const material = round2(quantity * split.material);
-    const labor = round2(quantity * split.labor);
+    const selectedThicknessBands = measurementsInput.concreteDemoThicknessBands?.length
+      ? measurementsInput.concreteDemoThicknessBands
+      : measurementsInput.concreteDemoThicknessBand
+        ? [measurementsInput.concreteDemoThicknessBand]
+        : [];
+    const demoRates: Record<typeof selectedThicknessBands[number], { material: number; labor: number; label: string }> = {
+      thin_2_3: { material: 1.1, labor: 1.9, label: '2–3" concrete' },
+      standard_4: { material: 1.5, labor: 2.5, label: '4" concrete' },
+      heavy_5_6: { material: 2.25, labor: 3.25, label: '5–6" concrete' },
+      structural_7_plus: { material: 87.5, labor: 87.5, label: '7+" structural concrete' },
+    };
+    if (!selectedThicknessBands.length) return empty;
+    if (selectedThicknessBands.includes('structural_7_plus')) {
+      if (resolved.unit !== 'cy' || Number(resolved.quantity) <= 0) return empty;
+      const quantity = Number(resolved.quantity);
+      const material = round2(quantity * 87.5);
+      const labor = round2(quantity * 87.5);
+      return {
+        fill: {
+          material,
+          labor,
+          total: round2(material + labor),
+          materialSource: 'national_average',
+          laborSource: 'national_average',
+          rateSourceLabel: 'National planning allowance · Heavy / structural concrete demolition · $175/CY',
+          helper: `${quantity.toLocaleString()} CY · heavy structural concrete — verify pricing`,
+          mode: 'suggested_price',
+          lumpSumOnly: false,
+          basis: { quantity, unit: 'cy' },
+          benchmarkAction: 'comparison_only',
+          pricingRecordId: 'bps_national:concrete_demo:structural:cy',
+          isComparison: true,
+          productionStatus: 'review_required',
+        },
+        comparison: null,
+      };
+    }
+    const areaByThickness = measurementsInput.concreteDemoAreaByThickness || {};
+    const segments = selectedThicknessBands.map((band) => ({
+      band,
+      quantity: Number(areaByThickness[band]) > 0
+        ? Number(areaByThickness[band])
+        : selectedThicknessBands.length === 1
+          ? Number(resolved.quantity)
+          : 0,
+    }));
+    if (segments.some((segment) => segment.quantity <= 0)) return empty;
+    const reinforcedSurcharge = measurementsInput.concreteDemoReinforced ? 1.25 : 0;
+    const accessSurcharge = measurementsInput.concreteDemoLimitedAccess ? 1.5 : 0;
+    const material = round2(
+      segments.reduce((sum, segment) => sum + segment.quantity * (demoRates[segment.band].material + reinforcedSurcharge + accessSurcharge), 0)
+    );
+    const labor = round2(
+      segments.reduce((sum, segment) => sum + segment.quantity * demoRates[segment.band].labor, 0)
+    );
+    const totalQuantity = round2(segments.reduce((sum, segment) => sum + segment.quantity, 0));
+    const averageMaterialRate = totalQuantity > 0 ? round2(material / totalQuantity) : 0;
+    const averageLaborRate = totalQuantity > 0 ? round2(labor / totalQuantity) : 0;
+    const conditionLabels = [
+      measurementsInput.concreteDemoReinforced ? 'reinforced +$1.25/sqft' : null,
+      measurementsInput.concreteDemoLimitedAccess ? 'limited access +$1.50/sqft' : null,
+    ].filter(Boolean);
     return {
       fill: {
         material,
@@ -8072,26 +8415,26 @@ export function resolveScopeItemSuggestedPricing(
         costBuckets: [
           {
             key: 'equipment',
-            label: split.materialBucketLabel || 'Equipment & disposal',
+            label: 'Equipment & disposal',
             amount: material,
-            rate: split.material,
+            rate: averageMaterialRate,
             source: 'national_average',
           },
           {
             key: 'labor',
             label: 'Labor',
             amount: labor,
-            rate: split.labor,
+            rate: averageLaborRate,
             source: 'national_average',
           },
         ],
-        rateSourceLabel: split.sourceLabel,
-        helper: `${quantity.toLocaleString()} sqft · normal haul-off included`,
+          rateSourceLabel: `National average · Concrete demolition · ${segments.map((segment) => demoRates[segment.band].label).join(' + ')} · normal haul-off included`,
+          helper: `${totalQuantity.toLocaleString()} sqft · normal haul-off included${conditionLabels.length ? ` · ${conditionLabels.join(' · ')}` : ''}`,
         mode: 'suggested_price',
         lumpSumOnly: false,
-        basis: { quantity, unit: 'sqft' },
+        basis: { quantity: totalQuantity, unit: 'sqft' },
         benchmarkAction: 'price_ready',
-        pricingRecordId: 'bps_national:concrete_demo:sqft',
+          pricingRecordId: `bps_national:concrete_demo:${selectedThicknessBands.join('+')}:sqft`,
       },
       comparison: null,
     };
@@ -8666,62 +9009,13 @@ export function resolveScopeItemSuggestedPricing(
       state: pricingContext?.state,
     });
     if (lump) {
-      const hasSplit = lump.material > 0 && lump.labor > 0;
-      const allowanceLabel =
-        itemId === 'plumbing_trim'
-          ? 'Installed plumbing fixtures budget'
-          : 'Installed electrical fixtures budget';
-      return {
-        fill: {
-          material: lump.material,
-          labor: lump.labor,
-          total: lump.total,
-          materialSource: hasSplit ? 'national_average' : 'local_benchmark',
-          laborSource: hasSplit ? 'national_average' : 'local_benchmark',
-          rateSourceLabel: lump.rateSourceLabel,
-          helper: lump.helper,
-          mode: 'suggested_price',
-          lumpSumOnly: !hasSplit,
-          installedBudgetBenchmark: true,
-          splitSource: hasSplit ? 'estimated' : 'none',
-          splitConfidence: hasSplit ? 'medium' : 'none',
-          comparisonRange: lump.comparisonRange,
-          basis: null,
-          costBuckets: hasSplit
-            ? [
-                {
-                  key: 'material',
-                  label: itemId === 'plumbing_trim' ? 'Fixtures & trim' : 'Fixtures & devices',
-                  amount: lump.material,
-                  rate: null,
-                  source: 'national_average',
-                },
-                {
-                  key: 'labor',
-                  label: 'Install labor',
-                  amount: lump.labor,
-                  rate: null,
-                  source: 'national_average',
-                },
-              ]
-            : [
-                {
-                  key: 'allowance',
-                  label: allowanceLabel,
-                  amount: lump.total,
-                  rate: null,
-                  source: 'local_benchmark',
-                },
-              ],
-          pricingRecordId: `su_${itemId}:${lump.projectId || 'median'}:${hasSplit ? 'split' : 'installed'}`,
-          productionStatus: 'review_required',
-          benchmarkLevel: 'component',
-          benchmarkScopeKey: itemId,
-          benchmarkAction: 'price_ready',
-          storedTotalExact: lump.total,
-        },
-        comparison: null,
-      };
+      return buildGroundUpBarometerLumpPricing(itemId, lump, {
+        livingSf,
+        allowanceLabel:
+          itemId === 'plumbing_trim'
+            ? 'Installed plumbing fixtures budget'
+            : 'Installed electrical fixtures budget',
+      });
     }
   }
 
@@ -8870,6 +9164,111 @@ export function resolveScopeItemSuggestedPricing(
     }
   }
 
+  // Ground-up barometer lumps — SHV Lots 39/41/49/58 + national (not × inflated notes SF).
+  if (String(templateKey || '').toLowerCase() === 'ground_up') {
+    const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+
+    if (itemId === 'stucco') {
+      const wallSf = parseScopeMeasurementInput(measurementsInput.exteriorPaintSqft);
+      const lump = resolveStuccoSuggestedTotal({
+        livingSf,
+        wallSf,
+        quantitySource: resolved.quantitySource,
+        state: pricingContext?.state,
+      });
+      return buildGroundUpBarometerLumpPricing('stucco', lump, {
+        livingSf,
+        basis:
+          wallSf && resolved.quantitySource === 'user_entered'
+            ? { quantity: wallSf, unit: 'sqft' }
+            : null,
+        allowanceLabel: 'Installed stucco budget',
+      });
+    }
+
+    if (itemId === 'plumbing_rough' || itemId === 'electrical_rough') {
+      const countEntry = measurementsInput.itemQuantities?.[itemId];
+      const eachQty = parseScopeMeasurementInput(String(countEntry?.quantity ?? ''));
+      const eachUnit = normalizeBasisUnit(countEntry?.unit);
+      const hasEachCount = eachQty != null && eachQty > 0 && eachUnit === 'each';
+      if (!hasEachCount) {
+        const lump =
+          itemId === 'plumbing_rough'
+            ? resolvePlumbingRoughLumpSuggestedFill({ livingSf, state: pricingContext?.state })
+            : resolveElectricalRoughLumpSuggestedFill({ livingSf, state: pricingContext?.state });
+        return buildGroundUpBarometerLumpPricing(itemId, lump, {
+          livingSf,
+          allowanceLabel:
+            itemId === 'plumbing_rough'
+              ? 'Installed plumbing rough-in budget'
+              : 'Installed electrical rough-in budget',
+        });
+      }
+    }
+
+    if (itemId === 'insulation') {
+      const userEnvelope =
+        resolved.quantitySource === 'user_entered' &&
+        resolved.quantity != null &&
+        Number(resolved.quantity) > 0;
+      if (!userEnvelope) {
+        const lump = resolveInsulationLumpSuggestedFill({
+          livingSf,
+          state: pricingContext?.state,
+        });
+        return buildGroundUpBarometerLumpPricing('insulation', lump, {
+          livingSf,
+          allowanceLabel: 'Installed insulation budget',
+        });
+      }
+    }
+
+    if (itemId === 'exterior_paint') {
+      const paintSf = parseScopeMeasurementInput(measurementsInput.exteriorPaintSqft);
+      const userPaint =
+        resolved.quantitySource === 'user_entered' && paintSf != null && paintSf > 0;
+      if (!userPaint) {
+        const lump = resolveExteriorPaintLumpSuggestedFill({
+          livingSf,
+          state: pricingContext?.state,
+        });
+        return buildGroundUpBarometerLumpPricing('exterior_paint', lump, {
+          livingSf,
+          allowanceLabel: 'Installed exterior paint budget',
+        });
+      }
+    }
+
+    if (itemId === 'tile_flooring' || itemId === 'flooring') {
+      const floorQty =
+        resolved.quantity != null && Number(resolved.quantity) > 0
+          ? Number(resolved.quantity)
+          : parseScopeMeasurementInput(measurementsInput.flooringSqft) ||
+            parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+      if (
+        flooringUsesBarometerLumpPackage({
+          itemId,
+          livingSf,
+          floorQuantity: floorQty,
+          flooringSqft: parseScopeMeasurementInput(measurementsInput.flooringSqft),
+          flooringTileSqft: parseScopeMeasurementInput(measurementsInput.flooringTileSqft),
+          quantitySource: resolved.quantitySource,
+        })
+      ) {
+        const lump = resolveFlooringLumpSuggestedFill({
+          livingSf,
+          state: pricingContext?.state,
+        });
+        return buildGroundUpBarometerLumpPricing(itemId, lump, {
+          livingSf,
+          basis:
+            floorQty && floorQty > 0 ? { quantity: floorQty, unit: 'sqft' } : null,
+          allowanceLabel: 'Installed flooring budget',
+        });
+      }
+    }
+  }
+
   // Exterior flatwork: blended H17 barometer + NAHB driveway when SF takeoff is missing.
   if (
     (!count || count <= 0) &&
@@ -8881,40 +9280,10 @@ export function resolveScopeItemSuggestedPricing(
       livingSf,
       state: pricingContext?.state,
     });
-    return {
-      fill: {
-        material: lump.material,
-        labor: lump.labor,
-        total: lump.total,
-        materialSource: 'local_benchmark',
-        laborSource: 'local_benchmark',
-        rateSourceLabel: lump.rateSourceLabel,
-        helper: lump.helper,
-        mode: 'suggested_price',
-        lumpSumOnly: true,
-        installedBudgetBenchmark: true,
-        splitSource: 'none',
-        splitConfidence: 'none',
-        comparisonRange: lump.comparisonRange,
-        basis: null,
-        costBuckets: [
-          {
-            key: 'allowance',
-            label: 'Installed flatwork budget',
-            amount: lump.total,
-            rate: null,
-            source: 'local_benchmark',
-          },
-        ],
-        pricingRecordId: `su_flatwork:${lump.projectId || 'median'}:installed`,
-        productionStatus: 'review_required',
-        benchmarkLevel: 'component',
-        benchmarkScopeKey: 'pour_flatwork',
-        benchmarkAction: 'price_ready',
-        storedTotalExact: lump.total,
-      },
-      comparison: null,
-    };
+    return buildGroundUpBarometerLumpPricing('pour_flatwork', lump, {
+      livingSf,
+      allowanceLabel: 'Installed flatwork budget',
+    });
   }
 
   // Exterior swing / sliding doors: blended H36 / H35 packages when door count is missing.
@@ -8928,43 +9297,13 @@ export function resolveScopeItemSuggestedPricing(
       itemId === 'exterior_doors'
         ? resolveExteriorDoorsLumpSuggestedFill({ livingSf, state: pricingContext?.state })
         : resolveSlidingDoorsLumpSuggestedFill({ livingSf, state: pricingContext?.state });
-    return {
-      fill: {
-        material: lump.material,
-        labor: lump.labor,
-        total: lump.total,
-        materialSource: 'local_benchmark',
-        laborSource: 'local_benchmark',
-        rateSourceLabel: lump.rateSourceLabel,
-        helper: lump.helper,
-        mode: 'suggested_price',
-        lumpSumOnly: true,
-        installedBudgetBenchmark: true,
-        splitSource: 'none',
-        splitConfidence: 'none',
-        comparisonRange: lump.comparisonRange,
-        basis: null,
-        costBuckets: [
-          {
-            key: 'allowance',
-            label:
-              itemId === 'exterior_doors'
-                ? 'Installed exterior door budget'
-                : 'Installed sliding door budget',
-            amount: lump.total,
-            rate: null,
-            source: 'local_benchmark',
-          },
-        ],
-        pricingRecordId: `su_${itemId}:${lump.projectId || 'median'}:installed`,
-        productionStatus: 'review_required',
-        benchmarkLevel: 'component',
-        benchmarkScopeKey: itemId,
-        benchmarkAction: 'price_ready',
-        storedTotalExact: lump.total,
-      },
-      comparison: null,
-    };
+    return buildGroundUpBarometerLumpPricing(itemId, lump, {
+      livingSf,
+      allowanceLabel:
+        itemId === 'exterior_doors'
+          ? 'Installed exterior door budget'
+          : 'Installed sliding door budget',
+    });
   }
 
   // Garage doors: type-based package (single / double / RV), scaled by state.
@@ -8996,22 +9335,6 @@ export function resolveScopeItemSuggestedPricing(
         },
         comparison: null,
       };
-    }
-  }
-  // Plumbing / electrical rough: plan from living SF when point/device counts are missing.
-  if (
-    (!count || count <= 0) &&
-    (itemId === 'plumbing_rough' || itemId === 'electrical_rough') &&
-    String(templateKey || '').toLowerCase() === 'ground_up'
-  ) {
-    const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
-    if (livingSf && livingSf > 0) {
-      const reframed = regionalAdjustedNationalAverage(itemId, 'sqft', pricingContext);
-      if (reframed.average?.material != null && reframed.average?.labor != null) {
-        count = livingSf;
-        unit = 'sqft';
-        average = reframed.average;
-      }
     }
   }
   // Excavation: plan shallow pad + footing trench CY from living SF when CY takeoff is missing.
@@ -9046,27 +9369,6 @@ export function resolveScopeItemSuggestedPricing(
       count = 1;
       unit = 'each';
       average = reframed.average;
-    }
-  }
-  // Stucco: exterior wall SF from Quick Measurements, else planning ~1.05 × living SF.
-  if (
-    (!count || count <= 0) &&
-    itemId === 'stucco' &&
-    String(templateKey || '').toLowerCase() === 'ground_up'
-  ) {
-    const wallSf =
-      parseScopeMeasurementInput(measurementsInput.exteriorPaintSqft) ||
-      (() => {
-        const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
-        return livingSf && livingSf > 0 ? Math.round(livingSf * 1.05) : null;
-      })();
-    if (wallSf && wallSf > 0) {
-      const reframed = regionalAdjustedNationalAverage(itemId, 'sqft', pricingContext);
-      if (reframed.average?.material != null && reframed.average?.labor != null) {
-        count = wallSf;
-        unit = 'sqft';
-        average = reframed.average;
-      }
     }
   }
   // Cabinets: plan LF ≈ living SF / 25 until run takeoff exists (same basis as barometer).
@@ -9533,23 +9835,45 @@ export function resolveScopeItemSuggestedPricing(
     };
   }
   const template = resolveTemplateRateForItem(itemId, unit, pricingContext, count);
+  const decorativeFinishRates = {
+    integral_color: { material: 1.5, labor: 0, label: 'Integral color' },
+    exposed_aggregate: { material: 4, labor: 0, label: 'Exposed aggregate' },
+    basic_stamped: { material: 5, labor: 0, label: 'Basic stamped concrete' },
+    premium_stamped: { material: 8, labor: 0, label: 'Premium / multi-color stamped concrete' },
+  } as const;
+  const decorativeFinish =
+    itemId === 'decorative_finish' && unit === 'sqft'
+      ? decorativeFinishRates[measurementsInput.concreteDecorativeFinish || 'integral_color']
+      : null;
   const dynamicFloorPrep =
     itemId === 'floor_prep' &&
     (String(templateKey || '').toLowerCase() === 'flooring' ||
       Array.isArray(measurementsInput.flooringExistingTypes) ||
       Array.isArray(measurementsInput.flooringProductScope)) &&
     unit === 'sqft';
-  const materialRate = dynamicFloorPrep || dynamicFlooringInstall
-    ? average?.material ?? null
-    : template?.materialRate ?? average?.material ?? null;
-  const laborRate = dynamicFloorPrep || dynamicFlooringInstall
-    ? average?.labor ?? null
-    : template?.laborRate ?? average?.labor ?? null;
+  const materialRate = decorativeFinish
+    ? template?.materialRate ?? decorativeFinish.material
+    : dynamicFloorPrep || dynamicFlooringInstall
+      ? average?.material ?? null
+      : template?.materialRate ?? average?.material ?? null;
+  const laborRate = decorativeFinish
+    ? template?.laborRate ?? decorativeFinish.labor
+    : dynamicFloorPrep || dynamicFlooringInstall
+      ? average?.labor ?? null
+      : template?.laborRate ?? average?.labor ?? null;
   const materialRateSource: PricingLegSource =
     dynamicFloorPrep || dynamicFlooringInstall ? 'national_average' : template?.materialRate ? 'template' : 'national_average';
   const laborRateSource: PricingLegSource =
     dynamicFloorPrep || dynamicFlooringInstall ? 'national_average' : template?.laborRate ? 'template' : 'national_average';
   const templateName = template?.source ?? null;
+  if (decorativeFinish && average) {
+    average = {
+      ...average,
+      material: materialRate ?? decorativeFinish.material,
+      labor: laborRate ?? decorativeFinish.labor,
+      sourceLabel: `National average · ${decorativeFinish.label} · optional upgrade`,
+    };
+  }
 
   if (!hasAnyPricingRate(materialRate, laborRate)) return empty;
 
@@ -9795,8 +10119,116 @@ export function resolveScopeItemSuggestedPricing(
     }
   }
   if (!hasAnyPricingRate(materialRate, laborRate)) return empty;
-  const material = round2(count * (materialRate ?? 0));
-  const labor = round2(count * (laborRate ?? 0));
+  const isStandardConcreteFlatwork =
+    itemId === 'pour_flatwork' ||
+    (itemId === 'concrete' && String(templateKey || '').toLowerCase() === 'concrete');
+  const concreteThicknessInches = parseScopeMeasurementInput(measurementsInput.concreteThicknessInches);
+  const concreteAreaByType = measurementsInput.concreteAreaByType || {};
+  const concreteThicknessByType = measurementsInput.concreteThicknessByType || {};
+  const segmentedFlatworkPricing =
+    itemId === 'pour_flatwork' && unit === 'sqft' && Object.keys(concreteAreaByType).length
+      ? Object.entries(concreteAreaByType).reduce(
+          (totals, [type, rawArea]) => {
+            const area = parseScopeMeasurementInput(rawArea);
+            if (area == null || area <= 0) return totals;
+            const defaultThickness = type === 'rv_pads' ? 5 : 4;
+            const thickness = parseScopeMeasurementInput(concreteThicknessByType[type]) || defaultThickness;
+            totals.material += area * ((materialRate ?? 0) * (thickness / 4));
+            totals.labor += area * (laborRate ?? 0);
+            return totals;
+          },
+          { material: 0, labor: 0 }
+        )
+      : null;
+  const concreteThicknessMultiplier =
+    isStandardConcreteFlatwork &&
+    !segmentedFlatworkPricing &&
+    unit === 'sqft' &&
+    concreteThicknessInches != null &&
+    concreteThicknessInches > 0
+      ? concreteThicknessInches / 4
+      : 1;
+  const effectiveMaterialRate =
+    materialRate != null ? round2(materialRate * concreteThicknessMultiplier) : materialRate;
+  const effectiveAverage =
+    concreteThicknessMultiplier !== 1 && average
+      ? {
+          ...average,
+          material: effectiveMaterialRate ?? average.material,
+          sourceLabel: `${average.sourceLabel || 'National average'} · ${concreteThicknessInches}" slab basis`,
+        }
+      : average;
+  let calculatedMaterial = segmentedFlatworkPricing
+    ? round2(segmentedFlatworkPricing.material)
+    : round2(count * (effectiveMaterialRate ?? 0));
+  let calculatedLabor = segmentedFlatworkPricing
+    ? round2(segmentedFlatworkPricing.labor)
+    : round2(count * (laborRate ?? 0));
+  let calculatedFlatworkTotal = round2(calculatedMaterial + calculatedLabor);
+  if (
+    isStandardConcreteFlatwork &&
+    String(templateKey || '').toLowerCase() === 'ground_up' &&
+    unit === 'sqft' &&
+    calculatedFlatworkTotal > 0
+  ) {
+    const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+    const flatworkLump = resolveExteriorFlatworkLumpSuggestedFill({
+      livingSf,
+      state: pricingContext?.state,
+    });
+    if (flatworkLump.total > calculatedFlatworkTotal) {
+      const scale = flatworkLump.total / calculatedFlatworkTotal;
+      calculatedMaterial = round2(calculatedMaterial * scale);
+      calculatedLabor = round2(calculatedLabor * scale);
+      calculatedFlatworkTotal = round2(calculatedMaterial + calculatedLabor);
+    }
+  }
+  const flatworkMinimumApplied =
+    isStandardConcreteFlatwork &&
+    unit === 'sqft' &&
+    calculatedFlatworkTotal > 0 &&
+    calculatedFlatworkTotal < 1750;
+  const flatworkMinimumScale = flatworkMinimumApplied ? 1750 / calculatedFlatworkTotal : 1;
+  let material = round2(calculatedMaterial * flatworkMinimumScale);
+  let labor = round2(calculatedLabor * flatworkMinimumScale);
+  if (
+    String(templateKey || '').toLowerCase() === 'ground_up' &&
+    (itemId === 'insulation' || itemId === 'exterior_paint') &&
+    count > 0
+  ) {
+    const livingSf = parseScopeMeasurementInput(measurementsInput.floorAreaSqft);
+    const takeoffTotal = round2(material + labor);
+    const lump =
+      itemId === 'insulation'
+        ? resolveInsulationLumpSuggestedFill({ livingSf, state: pricingContext?.state })
+        : resolveExteriorPaintLumpSuggestedFill({ livingSf, state: pricingContext?.state });
+    const planningQty =
+      itemId === 'insulation'
+        ? resolveInsulationEnvelopePlanningQuantity(
+            insulationEnvelopeInputsFromPlanFacts(
+              (measurementsInput as ScopeMeasurementsInputExtended).planFacts,
+              livingSf
+            )
+          )?.totalInsulationEnvelopeSqft || livingSf
+        : livingSf != null && livingSf > 0
+          ? Math.round(livingSf * 1.05)
+          : count;
+    const capped = capTakeoffTotalAtBarometerLump(
+      takeoffTotal,
+      lump.total,
+      count,
+      Number(planningQty) || count
+    );
+    if (capped < takeoffTotal && takeoffTotal > 0) {
+      const scale = capped / takeoffTotal;
+      material = round2(material * scale);
+      labor = round2(labor * scale);
+    }
+  }
+  const effectiveMaterialRateForBuckets =
+    effectiveMaterialRate != null ? round2(effectiveMaterialRate * flatworkMinimumScale) : effectiveMaterialRate;
+  const effectiveLaborRate =
+    laborRate != null ? round2(laborRate * flatworkMinimumScale) : laborRate;
   if (material + labor <= 0) return empty;
   const takeoffFill: SuggestedPricingBlock = {
     material,
@@ -9809,11 +10241,13 @@ export function resolveScopeItemSuggestedPricing(
       laborRateSource,
       templateName,
       regional,
-      average
+      effectiveAverage
     ),
     templateName,
     helper: floorPrepReviewBeforeBid
       ? 'Possible duplicate scope · review whether final substrate preparation is included in demolition before bidding.'
+      : flatworkMinimumApplied
+        ? 'Concrete flatwork minimum charge · calculated sqft price was below the $1,750 small-job minimum.'
       : itemId === 'exterior_paint'
         ? exteriorPaintLocalCalibrationMessage()
         : `${basisHelper} · suggested pricing`,
@@ -9823,7 +10257,7 @@ export function resolveScopeItemSuggestedPricing(
       materialRateSource === 'national_average' || laborRateSource === 'national_average'
         ? buildNationalAverageBenchmarkScopeProfile({
             itemId,
-            average,
+            average: effectiveAverage,
             quantity: count,
             total: round2(material + labor),
             regional,
@@ -9831,13 +10265,13 @@ export function resolveScopeItemSuggestedPricing(
         : undefined,
     costBuckets: buildSuggestedPricingCostBuckets({
       itemId,
-      average,
+      average: effectiveAverage,
       material,
       labor,
       materialSource: materialRateSource,
       laborSource: laborRateSource,
-      materialRate,
-      laborRate,
+      materialRate: effectiveMaterialRateForBuckets,
+      laborRate: effectiveLaborRate,
     }),
     pricingRecordId: `bps_national:${itemId}:${unit}`,
     productionStatus: average?.productionStatus || 'review_required',
@@ -9858,7 +10292,7 @@ export function resolveScopeItemSuggestedPricing(
     isComparison: floorPrepReviewBeforeBid || undefined,
   };
   // Comparison = pure national on the same qty/unit as fill (not living-SF stage lump).
-  const nationalComparison = hasPhysicalTakeoffRates
+  const nationalComparison = hasPhysicalTakeoffRates && concreteThicknessMultiplier === 1
     ? buildPureNationalAverageComparisonBlock({
         itemId,
         basis: takeoffFill.basis,
@@ -10271,6 +10705,65 @@ function applyAutoDrywallSurfaceQuantity(
   };
 }
 
+/**
+ * Ground-up framing: covered framed SF (living + garage) is a planning assumption —
+ * same class as Suggest pricing. Do not leave pricingReady false (which shows an empty
+ * on-card Area box) when plan measurements already supply living SF.
+ */
+function applyAutoFramingCoveredSfQuantity(
+  itemId: string,
+  measurements: NormalizedScopeMeasurements,
+  resolved: ResolvedItemQuantity,
+  ctx: { templateKey?: string | null } = {}
+): ResolvedItemQuantity {
+  if (itemId !== 'framing') return resolved;
+  if (String(ctx.templateKey || '').toLowerCase() !== 'ground_up') return resolved;
+
+  const stored = measurements.itemQuantities[itemId];
+  const storedBasis = parseStoredItemQuantity(
+    measurements,
+    allowanceSplitSubKey(itemId, 'sqft_basis')
+  );
+  if (
+    stored?.quantitySource === 'user_entered' ||
+    stored?.quantitySource === 'manual_override' ||
+    storedBasis?.quantitySource === 'user_entered'
+  ) {
+    return resolved;
+  }
+
+  const living = Number(measurements.floorAreaSqft);
+  if (!Number.isFinite(living) || living <= 0) return resolved;
+
+  const garage = Number(measurements.garageSqft);
+  const framedSf = living + (Number.isFinite(garage) && garage > 0 ? garage : 0);
+  if (!(framedSf > 0)) return resolved;
+
+  if (
+    resolved.pricingReady &&
+    resolved.quantity != null &&
+    Math.abs(Number(resolved.quantity) - framedSf) < 0.51
+  ) {
+    return resolved;
+  }
+
+  const rule = getChecklistItemQuantityRule(itemId, ctx.templateKey);
+  const quantitySource =
+    stored?.quantitySource === 'calculated_confirmed' ? 'calculated_confirmed' : 'inferred';
+
+  return {
+    ...resolved,
+    quantity: framedSf,
+    unit: 'sqft',
+    quantitySource,
+    sourceLabel: sourceLabel(quantitySource),
+    pricingReady: true,
+    quantityHelper: rule?.quantityHelper ?? resolved.quantityHelper,
+    showInput: true,
+    dualCount: { quantity: framedSf, unit: 'sqft' },
+  };
+}
+
 function resolveChecklistItemQuantityCore(
   itemId: string,
   measurements: NormalizedScopeMeasurements,
@@ -10366,6 +10859,48 @@ function resolveChecklistItemQuantityCore(
   // Concrete QM values are the contractor's current takeoff and must win
   // over notes-derived allowances.
   if (String(ctx.templateKey || '').toLowerCase() === 'concrete') {
+    if (
+      itemId === 'demo_removal' &&
+      measurements.concreteDemoThicknessBand === 'structural_7_plus' &&
+      measurements.concreteDemoCy != null &&
+      measurements.concreteDemoCy > 0
+    ) {
+      return applyPricingReadyFlags(
+        {
+          quantity: measurements.concreteDemoCy,
+          unit: 'cy',
+          quantitySource: 'user_entered',
+          sourceLabel: 'User-entered heavy structural demolition CY',
+          pricingReady: true,
+          quantityHelper: rule.quantityHelper,
+          showInput: true,
+        },
+        itemId,
+        ctx
+      );
+    }
+    if (
+      itemId === 'excavation' &&
+      measurements.excavationAreaSqft != null &&
+      measurements.excavationDepthInches != null &&
+      measurements.excavationAreaSqft > 0 &&
+      measurements.excavationDepthInches > 0
+    ) {
+      const derivedCy = round2(measurements.excavationAreaSqft * (measurements.excavationDepthInches / 12) / 27);
+      return applyPricingReadyFlags(
+        {
+          quantity: derivedCy,
+          unit: 'cy',
+          quantitySource: 'calculated_confirmed',
+          sourceLabel: 'Calculated from area × excavation depth',
+          pricingReady: true,
+          quantityHelper: rule.quantityHelper,
+          showInput: true,
+        },
+        itemId,
+        ctx
+      );
+    }
     const concreteMeasurementKeys = rule.measurementKey
       ? [rule.measurementKey]
       : rule.measurementKeys || [];
@@ -10609,10 +11144,15 @@ export function resolveChecklistItemQuantity(
   return applyAutoDrywallSurfaceQuantity(
     itemId,
     measurements,
-    applyAutoFlatworkSqftPricingQuantity(
+    applyAutoFramingCoveredSfQuantity(
       itemId,
       measurements,
-      resolveChecklistItemQuantityCore(itemId, measurements, ctx)
+      applyAutoFlatworkSqftPricingQuantity(
+        itemId,
+        measurements,
+        resolveChecklistItemQuantityCore(itemId, measurements, ctx)
+      ),
+      ctx
     ),
     ctx
   );
@@ -11289,9 +11829,26 @@ export function scopeMeasurementsToPayload(
     roofSquares: parseScopeMeasurementInput(sanitized.roofSquares),
     drywallSqft: parseScopeMeasurementInput(sanitized.drywallSqft),
     concreteSqft: parseScopeMeasurementInput(sanitized.concreteSqft),
+    concreteReinforcementSqft: parseScopeMeasurementInput(sanitized.concreteReinforcementSqft),
+    concreteSealerSqft: parseScopeMeasurementInput(sanitized.concreteSealerSqft),
+    concreteSubgradePrepSqft: parseScopeMeasurementInput(sanitized.concreteSubgradePrepSqft),
+    concreteAreaByType: sanitized.concreteAreaByType ?? null,
+    concreteThicknessByType: sanitized.concreteThicknessByType ?? null,
+    concreteThicknessInches: parseScopeMeasurementInput(sanitized.concreteThicknessInches),
+    concreteDecorativeFinish: sanitized.concreteDecorativeFinish,
+    complexFormingLf: parseScopeMeasurementInput(sanitized.complexFormingLf),
+    additionalHaulOffLoadCount: parseScopeMeasurementInput(sanitized.additionalHaulOffLoadCount),
     concreteDemoSqft: parseScopeMeasurementInput(sanitized.concreteDemoSqft),
+    concreteDemoThicknessBand: sanitized.concreteDemoThicknessBand ?? null,
+    concreteDemoThicknessBands: sanitized.concreteDemoThicknessBands ?? null,
+    concreteDemoAreaByThickness: sanitized.concreteDemoAreaByThickness ?? null,
+    concreteDemoReinforced: sanitized.concreteDemoReinforced ?? null,
+    concreteDemoLimitedAccess: sanitized.concreteDemoLimitedAccess ?? null,
+    concreteDemoCy: parseScopeMeasurementInput(sanitized.concreteDemoCy),
     concreteCy: parseScopeMeasurementInput(sanitized.concreteCy),
     excavationCy: parseScopeMeasurementInput(sanitized.excavationCy),
+    excavationAreaSqft: parseScopeMeasurementInput(sanitized.excavationAreaSqft),
+    excavationDepthInches: parseScopeMeasurementInput(sanitized.excavationDepthInches),
     concreteScope: Array.isArray(sanitized.concreteScope) ? sanitized.concreteScope : null,
     deckSqft: parseScopeMeasurementInput(sanitized.deckSqft),
     garageSqft: parseScopeMeasurementInput(sanitized.garageSqft),
@@ -11818,9 +12375,27 @@ export function scopeMeasurementsInputFromPayload(
     roofSquares: measurementFieldString(payload.roofSquares),
     drywallSqft: measurementFieldString(payload.drywallSqft),
     concreteSqft: measurementFieldString(payload.concreteSqft),
+    concreteReinforcementSqft: measurementFieldString(payload.concreteReinforcementSqft),
+    concreteSealerSqft: measurementFieldString(payload.concreteSealerSqft),
+    concreteSubgradePrepSqft: measurementFieldString(payload.concreteSubgradePrepSqft),
+    concreteAreaByType: payload.concreteAreaByType ?? null,
+    concreteThicknessByType: payload.concreteThicknessByType ?? null,
+    concreteThicknessInches: measurementFieldString(payload.concreteThicknessInches),
+    concreteDecorativeFinish: payload.concreteDecorativeFinish ?? null,
+    complexFormingLf: measurementFieldString(payload.complexFormingLf),
+    additionalHaulOffLoadCount: measurementFieldString(payload.additionalHaulOffLoadCount),
     concreteDemoSqft: measurementFieldString(payload.concreteDemoSqft),
+    concreteDemoThicknessBand: payload.concreteDemoThicknessBand ?? null,
+    concreteDemoThicknessBands: payload.concreteDemoThicknessBands ?? null,
+    concreteDemoAreaByThickness: payload.concreteDemoAreaByThickness ?? null,
+    concreteDemoReinforced: payload.concreteDemoReinforced ?? null,
+    concreteDemoLimitedAccess: payload.concreteDemoLimitedAccess ?? null,
+    concreteDemoCy: measurementFieldString(payload.concreteDemoCy),
     concreteCy: measurementFieldString(payload.concreteCy),
     excavationCy: measurementFieldString(payload.excavationCy),
+    excavationAreaSqft: measurementFieldString(payload.excavationAreaSqft),
+    excavationDepthInches: measurementFieldString(payload.excavationDepthInches),
+    excavationQuantityMode: payload.excavationQuantityMode ?? null,
     concreteScope: Array.isArray(payload.concreteScope) ? payload.concreteScope : null,
     deckSqft: measurementFieldString(payload.deckSqft),
     garageSqft: measurementFieldString(payload.garageSqft),
@@ -12314,6 +12889,21 @@ export type ScopeMeasurementsInputExtended = ReturnType<typeof emptyQuickMeasure
   landscapeScope?: string[] | null;
   landscapeClearingLevel?: 'light_clearing' | 'medium_vegetation' | 'dense_vegetation' | 'unsure' | null;
   concreteScope?: string[] | null;
+  excavationQuantityMode?: 'direct_cy' | 'area_depth' | null;
+  concreteAreaByType?: Partial<Record<'driveways' | 'sidewalks' | 'patios' | 'rv_pads' | 'walkways', string | number | null>> | null;
+  concreteThicknessByType?: Partial<Record<'driveways' | 'sidewalks' | 'patios' | 'rv_pads' | 'walkways', string | number | null>> | null;
+  concreteReinforcementSqft?: string | number | null;
+  concreteSealerSqft?: string | number | null;
+  concreteDemoThicknessBand?: 'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus' | null;
+  concreteDemoReinforced?: boolean | null;
+  concreteDemoLimitedAccess?: boolean | null;
+  concreteDemoThicknessBands?: Array<'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus'> | null;
+  concreteDemoAreaByThickness?: Partial<Record<'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus', string | number | null>> | null;
+  concreteSubgradePrepSqft?: string | number | null;
+  concreteThicknessInches?: string | number | null;
+  concreteDecorativeFinish?: ScopeMeasurements['concreteDecorativeFinish'];
+  complexFormingLf?: string | number | null;
+  additionalHaulOffLoadCount?: string | number | null;
   tradeScopeSelections?: ScopeMeasurements['tradeScopeSelections'];
   planRooms?: import('@/utils/estimateAiDraft').ScopeMeasurements['planRooms'];
   flooringExistingTypes?: import('@/utils/estimateAiDraft').ScopeMeasurements['flooringExistingTypes'];
@@ -12719,6 +13309,29 @@ export function initialScopeMeasurementInputExtended(
     roofSquares: pick('roofSquares'),
     drywallSqft: pick('drywallSqft'),
     concreteSqft: pick('concreteSqft'),
+    concreteReinforcementSqft: pick('concreteReinforcementSqft'),
+    concreteSealerSqft: pick('concreteSealerSqft'),
+    concreteSubgradePrepSqft: pick('concreteSubgradePrepSqft'),
+    concreteDemoSqft: pick('concreteDemoSqft'),
+    concreteDemoThicknessBand: saved?.concreteDemoThicknessBand ?? suggested?.concreteDemoThicknessBand ?? null,
+    concreteDemoThicknessBands: saved?.concreteDemoThicknessBands ?? suggested?.concreteDemoThicknessBands ?? null,
+    concreteDemoAreaByThickness: saved?.concreteDemoAreaByThickness ?? suggested?.concreteDemoAreaByThickness ?? null,
+    concreteDemoReinforced: saved?.concreteDemoReinforced ?? suggested?.concreteDemoReinforced ?? null,
+    concreteDemoLimitedAccess: saved?.concreteDemoLimitedAccess ?? suggested?.concreteDemoLimitedAccess ?? null,
+    concreteDemoCy: pick('concreteDemoCy'),
+    excavationAreaSqft: pick('excavationAreaSqft'),
+    excavationDepthInches: pick('excavationDepthInches'),
+    excavationQuantityMode: saved?.excavationQuantityMode ?? suggested?.excavationQuantityMode ?? null,
+    concreteAreaByType: saved?.concreteAreaByType ?? suggested?.concreteAreaByType ?? null,
+    concreteThicknessByType: saved?.concreteThicknessByType ?? suggested?.concreteThicknessByType ?? null,
+    concreteThicknessInches: pick('concreteThicknessInches'),
+    concreteDecorativeFinish:
+      parsedFromNotes.concreteDecorativeFinish ??
+      suggested?.concreteDecorativeFinish ??
+      saved?.concreteDecorativeFinish ??
+      null,
+    complexFormingLf: pick('complexFormingLf'),
+    additionalHaulOffLoadCount: pick('additionalHaulOffLoadCount'),
     concreteCy: pick('concreteCy'),
     excavationCy: pick('excavationCy'),
     deckSqft: pick('deckSqft'),

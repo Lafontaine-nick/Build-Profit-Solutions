@@ -800,6 +800,26 @@ describe('acceptedPricingSummaryUi', () => {
     );
   });
 
+  it('clears legacy primary allowance pricing so the original card returns', () => {
+    const cleared = clearAcceptedScopeItemPricing({
+      itemId: 'plans_engineering',
+      itemQuantities: {
+        plans_engineering: {
+          quantity: '3500',
+          unit: 'allowance',
+          quantitySource: 'user_entered' as const,
+        },
+      },
+      pricingAcceptance: {
+        plans_engineering: buildAcceptanceFromSuggestedBlock(
+          suggestedBlock({ total: 3500, lumpSumOnly: true })
+        ),
+      },
+    });
+    expect(cleared.itemQuantities.plans_engineering).toBeUndefined();
+    expect(cleared.pricingAcceptance.plans_engineering).toBeUndefined();
+  });
+
   it('finalizeScopePricingAfterEditorClose drops sink_faucet phantom count after empty mat/lab Done', () => {
     const finalized = finalizeScopePricingAfterEditorClose({
       itemId: 'sink_faucet',

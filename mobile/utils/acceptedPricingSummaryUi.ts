@@ -321,11 +321,19 @@ export function clearAcceptedScopeItemPricing(params: {
   ]) {
     delete itemQuantities[key];
   }
-  const liveMoney = liveScopeMoneyFromQuantities(itemId, itemQuantities);
-  if (!(liveMoney != null && liveMoney > 0)) {
-    const rule = getChecklistItemQuantityRuleOrDefault(itemId);
-    if (shouldClearPrimaryItemQuantityOnPricingReset(itemId, itemQuantities[itemId], rule)) {
-      delete itemQuantities[itemId];
+  const primaryEntry = itemQuantities[itemId];
+  const primaryUnit = String(primaryEntry?.unit || '').toLowerCase();
+  if (primaryUnit === 'allowance' || primaryUnit === 'lump_sum') {
+    // Legacy flat pricing can live on the primary item key. Always remove it
+    // during Change pricing; otherwise the accepted amount survives the reset.
+    delete itemQuantities[itemId];
+  } else {
+    const liveMoney = liveScopeMoneyFromQuantities(itemId, itemQuantities);
+    if (!(liveMoney != null && liveMoney > 0)) {
+      const rule = getChecklistItemQuantityRuleOrDefault(itemId);
+      if (shouldClearPrimaryItemQuantityOnPricingReset(itemId, primaryEntry, rule)) {
+        delete itemQuantities[itemId];
+      }
     }
   }
   return { itemQuantities, pricingAcceptance };

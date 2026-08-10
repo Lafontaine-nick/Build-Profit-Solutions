@@ -32,10 +32,14 @@ export function readyStateSummary(input: {
     );
   }
   if (input.spaceCount) {
-    bits.push(`${input.spaceCount} detected space${input.spaceCount === 1 ? '' : 's'}`);
+    bits.push(
+      `${input.spaceCount} detected space${input.spaceCount === 1 ? '' : 's'}`
+    );
   }
   if (input.scopeCount) {
-    bits.push(`${input.scopeCount} scope item${input.scopeCount === 1 ? '' : 's'}`);
+    bits.push(
+      `${input.scopeCount} scope item${input.scopeCount === 1 ? '' : 's'}`
+    );
   }
   return bits.length ? `Ready · ${bits.join(' · ')}` : 'Ready · Plan reviewed';
 }
@@ -63,14 +67,20 @@ export function measurementDisplayLabel(
   if (key === 'garageSqft') return { label: 'Garage' };
   if (key === 'deckSqft') return { label: 'Deck / patio' };
   if (key === 'kitchenFloorSqft') return { label: 'Kitchen floor' };
+  if (key === 'bathroomFloorSqft') return { label: 'Bathroom floor area' };
   return { label: key };
 }
 
-function pageFromAssumptions(assumptions: string[] | null | undefined, patterns: RegExp[]): number | null {
+function pageFromAssumptions(
+  assumptions: string[] | null | undefined,
+  patterns: RegExp[]
+): number | null {
   for (const line of assumptions || []) {
     const text = String(line || '');
-    if (!patterns.some((p) => p.test(text))) continue;
-    const match = text.match(/pages?\s*(\d+)(?:\s*[–-]\s*(\d+))?/i) || text.match(/sheet\s*(\d+)/i);
+    if (!patterns.some(p => p.test(text))) continue;
+    const match =
+      text.match(/pages?\s*(\d+)(?:\s*[–-]\s*(\d+))?/i) ||
+      text.match(/sheet\s*(\d+)/i);
     if (match) return Number(match[1]);
   }
   return null;
@@ -82,7 +92,7 @@ function pageEndFromAssumptions(
 ): number | null {
   for (const line of assumptions || []) {
     const text = String(line || '');
-    if (!patterns.some((p) => p.test(text))) continue;
+    if (!patterns.some(p => p.test(text))) continue;
     const match = text.match(/pages?\s*(\d+)\s*[–-]\s*(\d+)/i);
     if (match) return Number(match[2]);
   }
@@ -108,7 +118,11 @@ export function measurementSourceLabel(input: {
 
   const page = input.sourcePage ?? null;
 
-  if (input.key === 'floorAreaSqft' || input.key === 'garageSqft' || input.key === 'deckSqft') {
+  if (
+    input.key === 'floorAreaSqft' ||
+    input.key === 'garageSqft' ||
+    input.key === 'deckSqft'
+  ) {
     const resolvedPage =
       page ??
       pageFromAssumptions(input.assumptions, [
@@ -124,13 +138,19 @@ export function measurementSourceLabel(input: {
 
   if (input.key === 'kitchenFloorSqft' || input.key === 'bathroomFloorSqft') {
     const resolvedPage =
-      page ?? pageFromAssumptions(input.assumptions, [/kitchen|bath|room|dimension|floor\s*plan/i]);
+      page ??
+      pageFromAssumptions(input.assumptions, [
+        /kitchen|bath|room|dimension|floor\s*plan/i,
+      ]);
     return resolvedPage != null
       ? `Derived from room dimensions — page ${resolvedPage}`
       : 'Derived from room dimensions';
   }
 
-  return formatPlanSourceLabel({ kind: 'plan_generic', page: page ?? undefined });
+  return formatPlanSourceLabel({
+    kind: 'plan_generic',
+    page: page ?? undefined,
+  });
 }
 
 export function roomSourceLabel(input: {
@@ -146,7 +166,9 @@ export function roomSourceLabel(input: {
   if (input.lengthFt != null && input.widthFt != null) {
     const page =
       input.sourcePage ??
-      pageFromAssumptions(input.assumptions, [/room|dimension|floor\s*plan|pdf text/i]);
+      pageFromAssumptions(input.assumptions, [
+        /room|dimension|floor\s*plan|pdf text/i,
+      ]);
     return page != null
       ? `Derived from room dimensions — page ${page}`
       : 'Derived from room dimensions';
@@ -160,7 +182,9 @@ function pageFromText(text: string | null | undefined): number | null {
 }
 
 function isGenericGroundUpEvidence(evidence: string): boolean {
-  return /standard\s+for\s+ground-?up|standard\s+ground-?up\s+scope/i.test(evidence || '');
+  return /standard\s+for\s+ground-?up|standard\s+ground-?up\s+scope/i.test(
+    evidence || ''
+  );
 }
 
 export function scopeTakeoffStatusLines(input: {
@@ -179,7 +203,8 @@ export function scopeTakeoffStatusLines(input: {
   const evidence = String(input.evidence || '').trim();
   const lines: string[] = [];
   const status = missingStatusForScope(id);
-  const isTileFlooring = id === 'tile_flooring' || id === 'flooring' || id === 'tile';
+  const isTileFlooring =
+    id === 'tile_flooring' || id === 'flooring' || id === 'tile';
 
   if (id === 'mep_rough') {
     const page =
@@ -190,13 +215,20 @@ export function scopeTakeoffStatusLines(input: {
         ? `Electrical detected on page ${page}; plumbing and HVAC require trade review`
         : 'Electrical detected; plumbing and HVAC require trade review'
     );
-  } else if (isTileFlooring && (input.hasPlanFloorAreas || !isGenericGroundUpEvidence(evidence))) {
+  } else if (
+    isTileFlooring &&
+    (input.hasPlanFloorAreas || !isGenericGroundUpEvidence(evidence))
+  ) {
     const page =
       pageFromText(evidence) ??
-      pageFromAssumptions(input.assumptions, [/floor\s*plan|room|dimension|tile|flooring/i]);
+      pageFromAssumptions(input.assumptions, [
+        /floor\s*plan|room|dimension|tile|flooring/i,
+      ]);
     if (page != null || input.hasPlanFloorAreas) {
       lines.push(
-        page != null ? `Floor areas detected from page ${page}` : 'Floor areas detected from plan'
+        page != null
+          ? `Floor areas detected from page ${page}`
+          : 'Floor areas detected from plan'
       );
     } else if (evidence && !isGenericGroundUpEvidence(evidence)) {
       lines.push(evidence);
@@ -227,11 +259,13 @@ export function scopeTakeoffStatusLines(input: {
   let statusLine: string | null = null;
   if (id === 'sitework' || id === 'excavation') {
     statusLine = evidence || lines.length ? 'Needs site takeoff' : null;
-    if (!evidence && lines[0]?.includes('needs site takeoff')) statusLine = null;
+    if (!evidence && lines[0]?.includes('needs site takeoff'))
+      statusLine = null;
   } else if (id === 'foundation') {
     statusLine = 'Needs structural takeoff';
   } else if (id === 'framing') {
-    statusLine = 'Benchmark pricing available — detailed takeoff still required';
+    statusLine =
+      'Benchmark pricing available — detailed takeoff still required';
   } else if (id === 'roofing') {
     statusLine = input.hasRoofQuantity ? null : 'Needs roof geometry takeoff';
   } else if (id === 'mep_rough') {
@@ -244,16 +278,27 @@ export function scopeTakeoffStatusLines(input: {
     statusLine = 'Needs envelope surface takeoff';
   } else if (id === 'drywall') {
     statusLine = 'Needs wall and ceiling takeoff';
-  } else if (id === 'cabinets_counters' || id === 'cabinets' || id === 'countertops') {
+  } else if (
+    id === 'cabinets_counters' ||
+    id === 'cabinets' ||
+    id === 'countertops'
+  ) {
     statusLine = 'Needs cabinet LF/count and countertop SF';
   } else if (id === 'appliances') {
     statusLine = 'Needs appliance count';
-  } else if (status === 'needs_takeoff' || status === 'needs_structural_takeoff' || status === 'needs_count') {
+  } else if (
+    status === 'needs_takeoff' ||
+    status === 'needs_structural_takeoff' ||
+    status === 'needs_count'
+  ) {
     statusLine = measurementStatusLabel(status);
   }
 
   const joinedLower = lines.join(' ').toLowerCase();
-  if (statusLine && !joinedLower.includes(statusLine.toLowerCase().slice(0, 18))) {
+  if (
+    statusLine &&
+    !joinedLower.includes(statusLine.toLowerCase().slice(0, 18))
+  ) {
     lines.push(statusLine);
   }
   return lines.filter(Boolean);
@@ -277,13 +322,18 @@ export function resolvePlanAreaReconciliation(input: {
  * Display-only living status. Net detected rooms ≠ gross declared living SF is
  * incomplete room coverage — not a "material variance" between authoritative totals.
  */
-export function livingReconciliationStatusLabel(recon: AreaReconciliation): string {
+export function livingReconciliationStatusLabel(
+  recon: AreaReconciliation
+): string {
   const unassigned = recon.unassignedLivingSf;
   if (unassigned != null && unassigned > 0.05) {
     return `Room detection incomplete — ${formatSf(unassigned)} SF not assigned`;
   }
   if (recon.status === 'reconciled') return 'Reconciled';
-  if (recon.livingVariancePercent != null && Math.abs(recon.livingVariancePercent) <= 3) {
+  if (
+    recon.livingVariancePercent != null &&
+    Math.abs(recon.livingVariancePercent) <= 3
+  ) {
     return 'Reconciled';
   }
   return 'Partial room coverage — review missing spaces';
@@ -292,7 +342,9 @@ export function livingReconciliationStatusLabel(recon: AreaReconciliation): stri
 /**
  * Display-only garage status. Thresholds unchanged (≤3 reconciled, ≤10 review band).
  */
-export function garageReconciliationStatusLabel(recon: AreaReconciliation): string {
+export function garageReconciliationStatusLabel(
+  recon: AreaReconciliation
+): string {
   const pct = recon.garageVariancePercent;
   if (pct == null) return 'Needs review';
   const abs = Math.abs(pct);
@@ -323,7 +375,9 @@ export function applyPlanTakeoffButtonLabel(input: {
 }): string {
   const { includedMeasurementCount, checkedScopeCount } = input;
   const semantics =
-    input.semanticsEnabled != null ? input.semanticsEnabled : measurementSemanticsV1Enabled();
+    input.semanticsEnabled != null
+      ? input.semanticsEnabled
+      : measurementSemanticsV1Enabled();
   if (includedMeasurementCount > 0 && checkedScopeCount > 0) {
     return semantics ? 'Apply plan takeoff' : 'Apply to bid';
   }
@@ -363,13 +417,29 @@ export function buildPlanReadyJobNotesPrompt(input: {
 }
 
 /** True when Step 1 plan takeoff looks like a whole-home / new-build set. */
-export function planImportLooksLikeGroundUp(planImport: {
-  measurements?: Record<string, string | number | null | undefined> | null;
-  rooms?: Array<{ name?: string; areaSqft?: number | null }> | null;
-  buildingAreas?: { mainFloorLivingSqft?: number | null; garageSqft?: number | null } | null;
-  planFacts?: { buildingAreas?: { mainFloorLivingSqft?: number | null; garageSqft?: number | null } } | null;
-  scopeDetections?: Array<{ itemId?: string }> | null;
-} | null | undefined): boolean {
+export function planImportLooksLikeGroundUp(
+  planImport:
+    | {
+        measurements?: Record<
+          string,
+          string | number | null | undefined
+        > | null;
+        rooms?: Array<{ name?: string; areaSqft?: number | null }> | null;
+        buildingAreas?: {
+          mainFloorLivingSqft?: number | null;
+          garageSqft?: number | null;
+        } | null;
+        planFacts?: {
+          buildingAreas?: {
+            mainFloorLivingSqft?: number | null;
+            garageSqft?: number | null;
+          };
+        } | null;
+        scopeDetections?: Array<{ itemId?: string }> | null;
+      }
+    | null
+    | undefined
+): boolean {
   if (!planImport) return false;
   const rooms = planImport.rooms?.length || 0;
   const living =
@@ -382,7 +452,7 @@ export function planImportLooksLikeGroundUp(planImport: {
     Number(planImport.buildingAreas?.garageSqft) ||
     Number(planImport.planFacts?.buildingAreas?.garageSqft) ||
     0;
-  const structuralHits = (planImport.scopeDetections || []).filter((d) =>
+  const structuralHits = (planImport.scopeDetections || []).filter(d =>
     /^(foundation|framing|roofing|sitework|excavation|exterior|mep_rough|pour_flatwork|utility_taps)$/i.test(
       String(d.itemId || '')
     )
@@ -399,16 +469,28 @@ export function planImportLooksLikeGroundUp(planImport: {
  * Ensure Generate uses ground-up classification when a whole-home plan is attached.
  * Does not replace user-authored remodel language.
  */
-export function ensureGroundUpPlanNotes(notes: string, planImportLooksGroundUp: boolean): string {
+export function ensureGroundUpPlanNotes(
+  notes: string,
+  planImportLooksGroundUp: boolean
+): string {
   const text = String(notes || '').trim();
   if (!planImportLooksGroundUp) return text;
-  if (/\b(ground[\s-]?up|new\s+construction|new\s+build|new\s+home|custom\s+home)\b/i.test(text)) {
+  if (
+    /\b(ground[\s-]?up|new\s+construction|new\s+build|new\s+home|custom\s+home)\b/i.test(
+      text
+    )
+  ) {
     return text;
   }
-  if (/\b(remodel|renovation|renovate|selective\s+demo|tear[\s-]?out)\b/i.test(text)) {
+  if (
+    /\b(remodel|renovation|renovate|selective\s+demo|tear[\s-]?out)\b/i.test(
+      text
+    )
+  ) {
     return text;
   }
-  const prefix = 'Ground-up new construction from imported architectural plans.';
+  const prefix =
+    'Ground-up new construction from imported architectural plans.';
   return text ? `${prefix}\n${text}` : prefix;
 }
 
@@ -423,10 +505,14 @@ export function importedPlanSummaryCollapsedSubtitle(input: {
     bits.push(`${formatSfWithCommas(living)} SF`);
   }
   if (input.spaceCount) {
-    bits.push(`${input.spaceCount} detected space${input.spaceCount === 1 ? '' : 's'}`);
+    bits.push(
+      `${input.spaceCount} detected space${input.spaceCount === 1 ? '' : 's'}`
+    );
   }
   if (input.scopeCount) {
-    bits.push(`${input.scopeCount} scope item${input.scopeCount === 1 ? '' : 's'}`);
+    bits.push(
+      `${input.scopeCount} scope item${input.scopeCount === 1 ? '' : 's'}`
+    );
   }
   return bits.join(' · ');
 }
@@ -456,15 +542,20 @@ export function buildImportedPlanSummaryText(input: {
   if (Number.isFinite(living) && living > 0) {
     lines.push(
       `Total living area is ${living} sqft` +
-        (Number.isFinite(garage) && garage > 0 ? ` with a garage area of ${garage} sqft` : '') +
-        (Number.isFinite(deck) && deck > 0 ? ` and a covered patio of ${deck} sqft` : '') +
+        (Number.isFinite(garage) && garage > 0
+          ? ` with a garage area of ${garage} sqft`
+          : '') +
+        (Number.isFinite(deck) && deck > 0
+          ? ` and a covered patio of ${deck} sqft`
+          : '') +
         '.'
     );
   }
   if (input.rooms?.length) {
     lines.push('Room measurements:');
     for (const room of input.rooms) {
-      if (room.areaSqft != null) lines.push(`- ${room.name}: ${room.areaSqft} sqft`);
+      if (room.areaSqft != null)
+        lines.push(`- ${room.name}: ${room.areaSqft} sqft`);
     }
   }
   if (input.scopeLabels?.length) {

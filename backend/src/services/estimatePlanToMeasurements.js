@@ -824,10 +824,16 @@ async function analyzePlanForMeasurements({
   templateKeyHint = null,
   projectTypeHint = null,
   includeScope = false,
+  estimatingMode = 'whole_project',
+  selectedTrade = null,
   openai,
   aiModels,
   aiRuntime,
 }) {
+  const planSelection =
+    selectedTrade && selectedTrade.key
+      ? { mode: 'selected_trade', trade: selectedTrade }
+      : { mode: 'whole_project', trade: null };
   if (!openai) {
     const err = new Error('OpenAI client not configured');
     err.status = 503;
@@ -886,6 +892,13 @@ async function analyzePlanForMeasurements({
   const hintBits = [];
   if (templateKeyHint) hintBits.push(`template: ${templateKeyHint}`);
   if (projectTypeHint) hintBits.push(`project type: ${projectTypeHint}`);
+  if (planSelection.trade) {
+    hintBits.push(
+      `ESTIMATING MODE: selected trade — ${planSelection.trade.label}. ${
+        planSelection.trade.scopeHint || `Route review toward ${planSelection.trade.label.toLowerCase()} only.`
+      } Do not invent detailed counts; preserve missing information for contractor confirmation.`
+    );
+  }
   if (existingNotes?.trim()) {
     hintBits.push(`job notes (context only):\n${String(existingNotes).trim().slice(0, 1200)}`);
   }
@@ -934,6 +947,8 @@ async function analyzePlanForMeasurements({
             existingNotes,
             templateKeyHint,
             projectTypeHint,
+            estimatingMode: planSelection.mode,
+            selectedTrade: planSelection.trade,
             openai,
             aiModels,
             aiRuntime,
@@ -1108,6 +1123,15 @@ async function analyzePlanForMeasurements({
     assumptions,
     notesBlock,
     scope,
+    estimatingMode: planSelection.mode,
+    selectedTrade: planSelection.trade?.key || null,
+    tradeProvenance: {
+      source: 'plan_import',
+      mode: planSelection.mode,
+      selectedTrade: planSelection.trade?.key || null,
+      routerStatus: planSelection.trade?.status || null,
+    },
+    missingInfo: planSelection.trade?.missingInfo || [],
   };
 }
 

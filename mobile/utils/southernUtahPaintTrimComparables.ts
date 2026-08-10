@@ -13,6 +13,7 @@
 
 import {
   blendBarometerLump,
+  installedBudgetLivingSfReference,
   resolveBlendedLump,
   scaleSplitLumpForState,
 } from '@/utils/builderBudgetLumpBlend';
@@ -182,19 +183,24 @@ export function resolveInteriorPaintComparable(params: {
   });
   const implied =
     hasPaintable && project?.id === 'lot41' ? round2(blended.total / paintable) : null;
+  const livingSfRef = installedBudgetLivingSfReference({
+    total: blended.total,
+    livingSf: project?.livingSf ?? params.livingSf,
+    barometerLabel,
+  });
 
   return {
     total: blended.total,
     projectId: project?.id ?? null,
     projectLabel: project?.label ?? 'Local five-project median',
     matchKind: project ? 'exact_project' : 'detached_median',
-    livingSfBenchmark: project?.livingSf ?? (Number(params.livingSf) > 0 ? Number(params.livingSf) : null),
+    livingSfBenchmark: project?.livingSf ?? livingSfRef?.benchmarkLivingSf ?? null,
     paintableSf: hasPaintable ? paintable : null,
     impliedPerPaintableSf: implied,
     impliedRateLabel:
       implied != null
         ? `Implied from blended ${barometerLabel} · ~$${implied.toFixed(2)}/paintable SF`
-        : null,
+        : livingSfRef?.impliedUnitRateLabel ?? null,
     range: { ...INTERIOR_PAINT_ALL_PROJECT_RANGE },
     sampleCount: 5,
     sourceSplitTreatment: 'installed_lump_sum',

@@ -7,7 +7,12 @@ import {
   step2TierExpectsSuggestedFill,
   step2TierNeedsInlineTakeoffEntry,
 } from '@/utils/confirmScopeStep2Pricing';
-import { initialScopeMeasurementInputExtended, resolveScopeItemSuggestedPricing } from '@/utils/scopeItemQuantities';
+import {
+  CHECKLIST_ITEM_QUANTITY_RULES,
+  getChecklistItemQuantityRuleOrDefault,
+  initialScopeMeasurementInputExtended,
+  resolveScopeItemSuggestedPricing,
+} from '@/utils/scopeItemQuantities';
 
 describe('confirmScopeStep2Pricing tiers', () => {
   it('classifies bathroom plumbing rough-in as prompt_first', () => {
@@ -21,6 +26,117 @@ describe('confirmScopeStep2Pricing tiers', () => {
   it('classifies bathroom electrical rough-in as takeoff_required', () => {
     expect(resolveStep2PricingTier('electrical_rough', 'bathroom').tier).toBe('takeoff_required');
     expect(step2TierExpectsSuggestedFill('electrical_rough', 'bathroom')).toBe(false);
+  });
+
+  it('does not show inline takeoff on flat allowance scopes — Suggest card owns pricing', () => {
+    expect(step2TierNeedsInlineTakeoffEntry('permits', 'ground_up', { pricingReady: false })).toBe(
+      false
+    );
+    expect(
+      step2TierNeedsInlineTakeoffEntry('plans_engineering', 'ground_up', { pricingReady: false })
+    ).toBe(false);
+  });
+
+  it('classifies ground-up framing as auto_planning without on-card SF box', () => {
+    expect(resolveStep2PricingTier('framing', 'ground_up').tier).toBe('auto_planning');
+    expect(
+      step2TierNeedsInlineTakeoffEntry('framing', 'ground_up', {
+        pricingReady: false,
+        unit: 'sqft',
+      })
+    ).toBe(false);
+    expect(
+      step2TierNeedsInlineTakeoffEntry('framing', 'ground_up', {
+        pricingReady: true,
+        unit: 'sqft',
+      })
+    ).toBe(false);
+  });
+
+  it('does not show inline allowance box on package scopes — Suggest card owns pricing', () => {
+    const packageScopes = [
+      'landscaping',
+      'plumbing_trim',
+      'electrical_trim',
+      'interior_trim',
+      'cleanup',
+      'haul_off',
+      'mirror_accessories',
+      'service_call',
+      'hvac_startup',
+    ];
+    for (const itemId of packageScopes) {
+      expect(
+        step2TierNeedsInlineTakeoffEntry(itemId, 'ground_up', {
+          pricingReady: false,
+          unit: 'allowance',
+        })
+      ).toBe(false);
+    }
+  });
+
+  it('never shows allowance/lump-sum inline box for any allowance-default scope rule', () => {
+    const templates = ['ground_up', 'bathroom', 'kitchen', 'addition', undefined] as const;
+    for (const [itemId, rule] of Object.entries(CHECKLIST_ITEM_QUANTITY_RULES)) {
+      const defaultUnit = String(rule.defaultUnit || '').toLowerCase();
+      if (defaultUnit !== 'allowance' && defaultUnit !== 'lump_sum') continue;
+      for (const templateKey of templates) {
+        expect(
+          step2TierNeedsInlineTakeoffEntry(itemId, templateKey, {
+            pricingReady: false,
+            unit: defaultUnit,
+          })
+        ).toBe(false);
+      }
+    }
+  });
+
+  it('still shows physical takeoff fields when the unit is not allowance', () => {
+    expect(
+      step2TierNeedsInlineTakeoffEntry('insulation', 'ground_up', {
+        pricingReady: false,
+        unit: 'sqft',
+      })
+    ).toBe(true);
+    expect(
+      step2TierNeedsInlineTakeoffEntry('windows', 'ground_up', {
+        pricingReady: false,
+        unit: 'each',
+      })
+    ).toBe(true);
+    expect(
+      step2TierNeedsInlineTakeoffEntry('landscaping', 'ground_up', {
+        pricingReady: false,
+        unit: 'sqft',
+      })
+    ).toBe(true);
+    expect(
+      step2TierNeedsInlineTakeoffEntry('plumbing_rough', 'ground_up', {
+        pricingReady: false,
+        unit: 'each',
+      })
+    ).toBe(true);
+  });
+
+  it('ground-up template rules with allowance default never get an on-card allowance box', () => {
+    const groundUpAllowanceScopes = [
+      'landscaping',
+      'plumbing_trim',
+      'electrical_trim',
+      'interior_trim',
+      'cleanup',
+    ];
+    for (const itemId of groundUpAllowanceScopes) {
+      const rule = getChecklistItemQuantityRuleOrDefault(itemId, 'ground_up');
+      const unit = String(rule.defaultUnit || '').toLowerCase();
+      expect(['allowance', 'lump_sum']).toContain(unit);
+      expect(
+        step2TierNeedsInlineTakeoffEntry(itemId, 'ground_up', {
+          pricingReady: false,
+          unit,
+        })
+      ).toBe(false);
+    }
   });
 
   it('classifies bathroom shower demo as takeoff_required without on-card SF (QM owns it)', () => {

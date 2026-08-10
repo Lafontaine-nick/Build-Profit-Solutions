@@ -3,11 +3,21 @@
  * Measurements + scope detections are returned to the parent for Generate handoff.
  */
 import React, { useCallback, useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, Platform, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  ActivityIndicator,
+  Platform,
+  Alert,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import PlanTakeoffReviewModal from '@/components/estimate/PlanTakeoffReviewModal';
-import type { PhotoScopeDetection, PlanToMeasurementsResult } from '@/utils/estimateAiDraft';
+import type {
+  PhotoScopeDetection,
+  PlanToMeasurementsResult,
+} from '@/utils/estimateAiDraft';
 import {
   imagesFromPickerAssets,
   pickPlanFromLibrary,
@@ -15,8 +25,14 @@ import {
   promptPlanImportSource,
   runPlanTakeoff,
   takePlanPhoto,
+  type PlanImportPage,
 } from '@/utils/planImportRunner';
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
+import {
+  PLAN_TRADE_CONFIGURATIONS,
+  type PlanEstimatingMode,
+  type PlanTradeKey,
+} from '@/utils/planImportTradeConfig';
 
 type Colors = {
   text: string;
@@ -35,10 +51,21 @@ export type PlanImportApplyResult = {
     lengthFt?: number | null;
     widthFt?: number | null;
   }>;
-  areaReconciliation?: import('@/utils/measurementSemantics').AreaReconciliation | null;
+  areaReconciliation?:
+    | import('@/utils/measurementSemantics').AreaReconciliation
+    | null;
   buildingAreas?: import('@/utils/planMeasurementFacts').PlanBuildingAreas;
   planFacts?: import('@/utils/planMeasurementFacts').PlanFacts;
   fieldConfidence?: Record<string, number>;
+  estimatingMode: PlanEstimatingMode;
+  selectedTrade: PlanTradeKey | null;
+  tradeProvenance: {
+    source: 'plan_import';
+    mode: PlanEstimatingMode;
+    selectedTrade: PlanTradeKey | null;
+    routerStatus: 'reference' | 'stub' | null;
+  };
+  missingInfo: string[];
 };
 
 type Props = {
@@ -65,12 +92,26 @@ export default function EstimatePlanImportStrip({
   onApplied,
 }: Props) {
   const [importing, setImporting] = useState(false);
-  const [planReview, setPlanReview] = useState<PlanToMeasurementsResult | null>(null);
+  const [planReview, setPlanReview] = useState<PlanToMeasurementsResult | null>(
+    null
+  );
+  const [pendingPages, setPendingPages] = useState<PlanImportPage[]>([]);
+  const [showImportChooser, setShowImportChooser] = useState(false);
+  const [estimatingMode, setEstimatingMode] =
+    useState<PlanEstimatingMode>('whole_project');
+  const [selectedTrade, setSelectedTrade] = useState<PlanTradeKey | null>(null);
   const planReady = Boolean(planReadySubtitle?.trim());
+  const showPlanRouting =
+    showImportChooser ||
+    planReady ||
+    planReview != null ||
+    pendingPages.length > 0;
   const semanticsOn = measurementSemanticsV1Enabled();
 
   const executeTakeoff = useCallback(
-    async (pages: Array<{ base64: string; mimeType: string; name?: string }>) => {
+    async (
+      pages: Array<{ base64: string; mimeType: string; name?: string }>
+    ) => {
       if (!pages.length || disabled) return;
       setImporting(true);
       try {
@@ -78,19 +119,33 @@ export default function EstimatePlanImportStrip({
           existingNotes,
           templateKeyHint,
           projectTypeHint,
+          estimatingMode,
+          selectedTradeKey: selectedTrade,
         });
         if (!takeoff) return;
         setPlanReview(takeoff);
         if (Platform.OS === 'ios') {
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          void Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Success
+          );
         }
       } catch (e) {
-        Alert.alert('Plan import failed', e instanceof Error ? e.message : 'Try again with a clearer image.');
+        Alert.alert(
+          'Plan import failed',
+          e instanceof Error ? e.message : 'Try again with a clearer image.'
+        );
       } finally {
         setImporting(false);
       }
     },
-    [disabled, existingNotes, templateKeyHint, projectTypeHint]
+    [
+      disabled,
+      existingNotes,
+      templateKeyHint,
+      projectTypeHint,
+      estimatingMode,
+      selectedTrade,
+    ]
   );
 
   const onCamera = useCallback(async () => {
@@ -99,9 +154,12 @@ export default function EstimatePlanImportStrip({
       const assets = await takePlanPhoto();
       if (!assets?.length) return;
       const images = await imagesFromPickerAssets(assets);
-      await executeTakeoff(images);
+      setPendingPages(images);
     } catch (e) {
-      Alert.alert('Camera failed', e instanceof Error ? e.message : 'Could not take a photo.');
+      Alert.alert(
+        'Camera failed',
+        e instanceof Error ? e.message : 'Could not take a photo.'
+      );
     }
   }, [importing, disabled, executeTakeoff]);
 
@@ -111,9 +169,12 @@ export default function EstimatePlanImportStrip({
       const assets = await pickPlanFromLibrary();
       if (!assets?.length) return;
       const images = await imagesFromPickerAssets(assets);
-      await executeTakeoff(images);
+      setPendingPages(images);
     } catch (e) {
-      Alert.alert('Library failed', e instanceof Error ? e.message : 'Could not open photos.');
+      Alert.alert(
+        'Library failed',
+        e instanceof Error ? e.message : 'Could not open photos.'
+      );
     }
   }, [importing, disabled, executeTakeoff]);
 
@@ -122,20 +183,49 @@ export default function EstimatePlanImportStrip({
     try {
       const pages = await pickPlanPdf();
       if (!pages?.length) return;
-      await executeTakeoff(pages);
+      setPendingPages(pages);
     } catch (e) {
-      Alert.alert('PDF import failed', e instanceof Error ? e.message : 'Could not read the PDF.');
+      Alert.alert(
+        'PDF import failed',
+        e instanceof Error ? e.message : 'Could not read the PDF.'
+      );
     }
   }, [importing, disabled, executeTakeoff]);
 
   const openPicker = useCallback(() => {
     if (importing || disabled) return;
+    if (!showImportChooser) {
+      setShowImportChooser(true);
+      return;
+    }
+    if (estimatingMode === 'selected_trade' && !selectedTrade) {
+      Alert.alert(
+        'Select a trade',
+        'Choose the trade you are bidding before importing the plan.'
+      );
+      return;
+    }
     promptPlanImportSource({
       onCamera: () => void onCamera(),
       onLibrary: () => void onLibrary(),
       onPdf: () => void onPdf(),
     });
-  }, [importing, disabled, onCamera, onLibrary, onPdf]);
+  }, [
+    importing,
+    disabled,
+    showImportChooser,
+    estimatingMode,
+    selectedTrade,
+    onCamera,
+    onLibrary,
+    onPdf,
+  ]);
+
+  const analyzePendingPlan = useCallback(async () => {
+    if (!pendingPages.length) return;
+    setPendingPages([]);
+    await executeTakeoff(pendingPages);
+  }, [pendingPages, executeTakeoff]);
 
   const handleApply = useCallback(
     (
@@ -166,13 +256,40 @@ export default function EstimatePlanImportStrip({
         buildingAreas: takeoff.buildingAreas,
         planFacts: takeoff.planFacts,
         fieldConfidence: takeoff.fieldConfidence,
+        estimatingMode,
+        selectedTrade,
+        tradeProvenance: {
+          source: 'plan_import',
+          mode: estimatingMode,
+          selectedTrade,
+          routerStatus:
+            selectedTrade === 'electrical'
+              ? 'reference'
+              : selectedTrade
+                ? 'stub'
+                : null,
+        },
+        missingInfo:
+          selectedTrade === 'electrical'
+            ? PLAN_TRADE_CONFIGURATIONS.find(
+                trade => trade.key === selectedTrade
+              )?.missingInfo || []
+            : selectedTrade
+              ? [
+                  'Trade-specific plan/schedule details',
+                  'Scope inclusions and exclusions',
+                  'Quantities requiring contractor confirmation',
+                ]
+              : [],
       });
 
       if (Platform.OS === 'ios') {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        void Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success
+        );
       }
     },
-    [planReview, onApplied, existingNotes]
+    [planReview, onApplied, existingNotes, estimatingMode, selectedTrade]
   );
 
   const cardShell = {
@@ -195,12 +312,198 @@ export default function EstimatePlanImportStrip({
 
   return (
     <View style={{ marginBottom: 16 }}>
-      <Text style={{ color: Colors.text, fontSize: 14, fontWeight: '700', marginBottom: 4 }}>
+      <Text
+        style={{
+          color: Colors.text,
+          fontSize: 14,
+          fontWeight: '700',
+          marginBottom: 4,
+        }}
+      >
         Plans
       </Text>
-      <Text style={{ color: Colors.sub, fontSize: 12, lineHeight: 16, marginBottom: 10 }}>
-        Import a floor-plan PDF or photos — AI fills measurements and drafts scope for you to review.
+      <Text
+        style={{
+          color: Colors.sub,
+          fontSize: 12,
+          lineHeight: 16,
+          marginBottom: 10,
+        }}
+      >
+        Import a floor-plan PDF or photos — AI fills measurements and drafts
+        scope for you to review.
       </Text>
+      {showPlanRouting ? (
+        <>
+          <Text
+            style={{
+              color: Colors.text,
+              fontSize: 13,
+              fontWeight: '700',
+              marginBottom: 6,
+            }}
+          >
+            What are you estimating?
+          </Text>
+          <View style={{ gap: 8, marginBottom: 10 }}>
+            <TouchableOpacity
+              onPress={() => {
+                setEstimatingMode('whole_project');
+                setSelectedTrade(null);
+              }}
+              style={{
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor:
+                  estimatingMode === 'whole_project' ? '#22c55e' : Colors.line,
+                backgroundColor:
+                  estimatingMode === 'whole_project'
+                    ? 'rgba(34,197,94,0.12)'
+                    : 'transparent',
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+              }}
+            >
+              <Text
+                style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}
+              >
+                Whole Project / General Contractor
+              </Text>
+              <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2 }}>
+                Estimate multiple trades from the full plan set.
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setEstimatingMode('selected_trade')}
+              style={{
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor:
+                  estimatingMode === 'selected_trade' ? '#22c55e' : Colors.line,
+                backgroundColor:
+                  estimatingMode === 'selected_trade'
+                    ? 'rgba(34,197,94,0.12)'
+                    : 'transparent',
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+              }}
+            >
+              <Text
+                style={{ color: Colors.text, fontSize: 12, fontWeight: '700' }}
+              >
+                Single Trade / Subcontractor
+              </Text>
+              <Text style={{ color: Colors.sub, fontSize: 11, marginTop: 2 }}>
+                Build an estimate for one trade only.
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {estimatingMode === 'selected_trade' ? (
+            <>
+              <Text
+                style={{
+                  color: Colors.text,
+                  fontSize: 13,
+                  fontWeight: '700',
+                  marginBottom: 6,
+                }}
+              >
+                Select your trade
+              </Text>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  flexWrap: 'wrap',
+                  gap: 6,
+                  marginBottom: 10,
+                }}
+              >
+                {PLAN_TRADE_CONFIGURATIONS.map(trade => (
+                  <TouchableOpacity
+                    key={trade.key}
+                    onPress={() => setSelectedTrade(trade.key)}
+                    style={{
+                      borderRadius: 16,
+                      borderWidth: 1,
+                      borderColor:
+                        selectedTrade === trade.key ? '#22c55e' : Colors.line,
+                      backgroundColor:
+                        selectedTrade === trade.key
+                          ? 'rgba(34,197,94,0.12)'
+                          : 'transparent',
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: Colors.text,
+                        fontSize: 11,
+                        fontWeight: '700',
+                      }}
+                    >
+                      {trade.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
+          ) : null}
+          {estimatingMode === 'selected_trade' && !selectedTrade ? (
+            <Text style={{ color: '#fbbf24', fontSize: 11, marginBottom: 10 }}>
+              Select a trade before importing the plan.
+            </Text>
+          ) : null}
+          {selectedTrade ? (
+            <Text
+              style={{
+                color: Colors.sub,
+                fontSize: 11,
+                lineHeight: 15,
+                marginBottom: 10,
+              }}
+            >
+              {selectedTrade === 'electrical'
+                ? 'Electrical plan selected — we will focus on electrical sheets and quantities that can be verified.'
+                : `${PLAN_TRADE_CONFIGURATIONS.find(trade => trade.key === selectedTrade)?.label || 'Trade'} plan selected — we will focus on relevant sheets and quantities.`}
+            </Text>
+          ) : null}
+        </>
+      ) : null}
+      {pendingPages.length ? (
+        <TouchableOpacity
+          onPress={() => void analyzePendingPlan()}
+          disabled={
+            importing || (estimatingMode === 'selected_trade' && !selectedTrade)
+          }
+          activeOpacity={0.8}
+          style={{
+            borderRadius: 12,
+            paddingVertical: 11,
+            paddingHorizontal: 12,
+            marginBottom: 10,
+            backgroundColor: '#22c55e',
+            opacity:
+              importing ||
+              (estimatingMode === 'selected_trade' && !selectedTrade)
+                ? 0.5
+                : 1,
+          }}
+        >
+          <Text
+            style={{
+              color: '#052e16',
+              fontSize: 13,
+              fontWeight: '800',
+              textAlign: 'center',
+            }}
+          >
+            {estimatingMode === 'selected_trade' && selectedTrade
+              ? `Analyze ${PLAN_TRADE_CONFIGURATIONS.find(trade => trade.key === selectedTrade)?.label || 'selected trade'} Plan`
+              : 'Analyze whole project'}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
       <TouchableOpacity
         onPress={openPicker}
         disabled={importing || disabled}
@@ -217,7 +520,11 @@ export default function EstimatePlanImportStrip({
         ]}
       >
         {importing ? (
-          <ActivityIndicator size="small" color="#22c55e" style={{ marginTop: 2 }} />
+          <ActivityIndicator
+            size='small'
+            color='#22c55e'
+            style={{ marginTop: 2 }}
+          />
         ) : (
           <Ionicons
             name={planReady ? 'checkmark-circle' : 'map-outline'}
@@ -227,11 +534,28 @@ export default function EstimatePlanImportStrip({
           />
         )}
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={{ color: Colors.text, fontSize: planReady ? 15 : 13, fontWeight: planReady ? '800' : '700' }}>
-            {importing ? 'Reading plan…' : planReady ? 'Plan ready to generate' : 'Import from plan'}
+          <Text
+            style={{
+              color: Colors.text,
+              fontSize: planReady ? 15 : 13,
+              fontWeight: planReady ? '800' : '700',
+            }}
+          >
+            {importing
+              ? 'Reading plan…'
+              : planReady
+                ? 'Plan ready to generate'
+                : 'Import from plan'}
           </Text>
           {planReady && planReadySubtitle ? (
-            <Text style={{ color: '#38d39f', fontSize: 13, fontWeight: '700', marginTop: 4 }}>
+            <Text
+              style={{
+                color: '#38d39f',
+                fontSize: 13,
+                fontWeight: '700',
+                marginTop: 4,
+              }}
+            >
               {planReadySubtitle}
             </Text>
           ) : null}
