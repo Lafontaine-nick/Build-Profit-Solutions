@@ -5747,7 +5747,11 @@ export default function EstimateGeneratorScreen() {
         if (cancelled || !raw) return;
         const saved = JSON.parse(raw);
         if (!saved?.draft?.scopeChecklist) return;
-        setAiDraft(saved.draft);
+        let restoredDraft = saved.draft;
+        if (saved.planImport?.estimatingMode === 'selected_trade') {
+          restoredDraft = applyPlanImportToDraft(restoredDraft, saved.planImport);
+        }
+        setAiDraft(restoredDraft);
         setAiDraftNotes(saved.notes || saved.draft.originalNotes || '');
         setAiDraftFromAssistant(Boolean(saved.fromAssistant));
         const fromDraft = planImportPayloadFromDraft(saved.draft);
@@ -5980,10 +5984,14 @@ export default function EstimateGeneratorScreen() {
       // Whole-home plan takeoffs must classify as ground_up — otherwise Confirm Scope
       // gets remodel cards (Demo / Framing or layout changes) instead of excavation,
       // flatwork, framing, MEP, exterior paint, etc.
-      const notesForDraft = ensureGroundUpPlanNotes(
-        notes,
-        planImportLooksLikeGroundUp(effectivePlanImport)
-      );
+      const isSingleTradePlanImport =
+        effectivePlanImport?.estimatingMode === 'selected_trade';
+      const notesForDraft = isSingleTradePlanImport
+        ? notes
+        : ensureGroundUpPlanNotes(
+            notes,
+            planImportLooksLikeGroundUp(effectivePlanImport)
+          );
       let draft = await fetchEstimateDraftFromNotes(notesForDraft, templates);
       // Photo detections apply directly to the Step 2 checklist (structured vision
       // output, not notes-regex re-parsing) — only fills items still "unsure".
@@ -6008,6 +6016,7 @@ export default function EstimateGeneratorScreen() {
         }
         // Safety net: if classification still landed on remodel, regenerate as ground_up.
         if (
+          !isSingleTradePlanImport &&
           planImportLooksLikeGroundUp(effectivePlanImport) &&
           String(draft.scopeChecklist?.templateKey || '').toLowerCase() === 'room_remodel'
         ) {
@@ -24974,6 +24983,7 @@ export default function EstimateGeneratorScreen() {
         notesFallback={aiDraftNotes}
         applying={aiScopeAssumptionsApplying}
         fromAssistant={aiDraftFromAssistant}
+        planImport={aiBuilderInitialPlanImport}
         onBack={() => {
           if (!aiScopeAssumptionsApplying) {
             setShowAiScopeAssumptionsModal(false);

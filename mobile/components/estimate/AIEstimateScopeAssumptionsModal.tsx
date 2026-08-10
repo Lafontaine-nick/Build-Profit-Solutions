@@ -216,6 +216,12 @@ import {
   type QuickMeasurementFieldDef,
   type QuickMeasurementFieldKey,
 } from '@/utils/scopeQuickMeasurements';
+import {
+  filterChecklistItemsForTrade,
+  resolveSingleTradePlanContext,
+  stripScopeInputForSingleTrade,
+  tradeQuickMeasurementFieldKeys,
+} from '@/utils/planImportTradeConfig';
 import { parseScopeMeasurementsFromNotes } from '@/utils/scopeMeasurementParser';
 import {
   groupQuickMeasurementFields,
@@ -428,6 +434,8 @@ type Props = {
   pricingContext?: ScopePricingContext | null;
   /** Step 1 site photos — when present, existing wet area is AI-seeded and the QM panel stays hidden. */
   hasSitePhotos?: boolean;
+  /** Step 1 plan import payload — used to detect single-trade mode when draft metadata is missing. */
+  planImport?: import('@/utils/estimateAiDraft').PlanImportPayload | null;
 };
 
 const QUANTITY_NEEDED_LABELS: Record<string, string> = {
@@ -9541,6 +9549,8 @@ function CollapsibleQuickMeasurements({
   wetAreaInstallChoiceId,
   showExistingWetAreaPanel = true,
   hasSitePhotos = false,
+  singleTradeImport = false,
+  tradeKey = null,
   Colors,
   darkMode,
   applying,
@@ -9615,6 +9625,9 @@ function CollapsibleQuickMeasurements({
   showExistingWetAreaPanel?: boolean;
   /** Site photos attached — existing condition is AI-seeded for demo inference. */
   hasSitePhotos?: boolean;
+  /** Single-trade plan import — show only trade-relevant quick measurements. */
+  singleTradeImport?: boolean;
+  tradeKey?: import('@/utils/planImportTradeConfig').PlanTradeKey | null;
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
@@ -9722,9 +9735,13 @@ function CollapsibleQuickMeasurements({
     measurements.planFacts,
   ]);
   const wholeHomeLayout =
+    !singleTradeImport &&
     isWholeHomeQuickMeasurementTemplate(effectiveTemplateKey);
 
   const noteQuickMeasurements = useMemo(() => {
+    if (singleTradeImport) {
+      return { values: {}, keys: [] as QuickMeasurementFieldKey[] };
+    }
     const parsed = parseScopeMeasurementsFromNotes(notes || '', {
       templateKey: effectiveTemplateKey,
       projectType: projectType ?? undefined,
@@ -9791,6 +9808,14 @@ function CollapsibleQuickMeasurements({
       measurements,
       noteQuickMeasurements.keys
     );
+    if (singleTradeImport) {
+      const allowed = new Set<QuickMeasurementFieldKey>(
+        tradeQuickMeasurementFieldKeys(tradeKey) as QuickMeasurementFieldKey[]
+      );
+      return baseRows
+        .map(row => row.filter(field => allowed.has(field.key)))
+        .filter(row => row.length > 0);
+    }
     if (String(effectiveTemplateKey || '').toLowerCase() === 'flooring') {
       const selected = new Set(includedScopeKeys);
       const selectedProductScope = new Set(
@@ -9875,6 +9900,8 @@ function CollapsibleQuickMeasurements({
     measurements,
     noteQuickMeasurements.keys,
     includedScopeKeys,
+    singleTradeImport,
+    tradeKey,
   ]);
   const fillCounts = useMemo(
     () =>
@@ -9978,6 +10005,7 @@ function CollapsibleQuickMeasurements({
     !wholeHomeLayout &&
     String(effectiveTemplateKey || '').toLowerCase() === 'bathroom';
   const showWetAreaFinishSteppers = useMemo(() => {
+    if (singleTradeImport) return false;
     if (
       shouldShowPlanWetAreaFinishSteppers({
         templateKey: effectiveTemplateKey,
@@ -12928,6 +12956,7 @@ export default function AIEstimateScopeAssumptionsModal({
   onPersistProgress,
   pricingContext = null,
   hasSitePhotos = false,
+  planImport = null,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { theme, darkMode } = useTheme();
@@ -13091,12 +13120,39 @@ export default function AIEstimateScopeAssumptionsModal({
     ]
   );
 
+  const planImportContext = useMemo(
+    () =>
+      resolveSingleTradePlanContext({
+        measurements,
+        draftScopeMeasurements: draft?.scopeMeasurements,
+        planImport,
+      }),
+    [
+      measurements.planImportMode,
+      measurements.planImportTradeKey,
+      draft?.scopeMeasurements?.planImportMode,
+      draft?.scopeMeasurements?.planImportTradeKey,
+      planImport?.estimatingMode,
+      planImport?.selectedTrade,
+    ]
+  );
+
+  const singleTradePlanImport = planImportContext.isSingleTrade;
+  const singleTradeKey = planImportContext.tradeKey;
+
   const displayItems = useMemo(() => {
     const expanded = buildConfirmScopeDisplayItems(
       items,
       measurements as Record<string, unknown>,
       checklist?.templateKey
     );
+    if (singleTradePlanImport && singleTradeKey) {
+      return filterChecklistItemsForTrade(
+        expanded,
+        'selected_trade',
+        singleTradeKey
+      );
+    }
     if (String(checklist?.templateKey || '').toLowerCase() !== 'flooring')
       return expanded;
     const description = flooringDemoDescription(
@@ -13146,6 +13202,8 @@ export default function AIEstimateScopeAssumptionsModal({
     checklist?.templateKey,
     draft?.projectType,
     scopeNotes,
+    singleTradePlanImport,
+    singleTradeKey,
     measurements.flooringExistingTypes,
     measurements.itemQuantities,
     measurements.flooringProductScope,
@@ -13481,6 +13539,26 @@ export default function AIEstimateScopeAssumptionsModal({
         ),
         draft?.scopeMeasurements
       );
+      const hydrateTradeContext = resolveSingleTradePlanContext({
+        measurements: nextMeasurements,
+        draftScopeMeasurements: draft?.scopeMeasurements,
+        planImport,
+      });
+      if (hydrateTradeContext.isSingleTrade && hydrateTradeContext.tradeKey) {
+        const stripped = stripScopeInputForSingleTrade(
+          nextMeasurements,
+          hydrateTradeContext.tradeKey
+        );
+        nextMeasurements = {
+          ...stripped,
+          planImportMode: 'selected_trade',
+          planImportTradeKey: hydrateTradeContext.tradeKey,
+          planImportMissingInfo:
+            draft?.scopeMeasurements?.planImportMissingInfo ??
+            planImport?.missingInfo ??
+            [],
+        };
+      }
       if (
         String(checklist.templateKey || '').toLowerCase() === 'painting' &&
         Number(nextMeasurements.exteriorPaintSqft || 0) > 0
@@ -13583,6 +13661,13 @@ export default function AIEstimateScopeAssumptionsModal({
           ...readWetAreaDemoCounts(nextMeasurements),
         } as typeof norm
       );
+      if (hydrateTradeContext.isSingleTrade && hydrateTradeContext.tradeKey) {
+        normalized = filterChecklistItemsForTrade(
+          normalized,
+          'selected_trade',
+          hydrateTradeContext.tradeKey
+        );
+      }
       setItems(normalized);
       setMeasurementsSynced(nextMeasurements);
       const displayForHydrate = expandWetAreaDerivedScopeItems(normalized);
@@ -16730,8 +16815,16 @@ export default function AIEstimateScopeAssumptionsModal({
     }
     // Persist display-only cards (flatwork / openings) that were Yes'd in UI.
     const baseItems = displayItems.length ? displayItems : items;
+    const tradeFilteredItems =
+      singleTradePlanImport && singleTradeKey
+        ? filterChecklistItemsForTrade(
+            baseItems,
+            'selected_trade',
+            singleTradeKey
+          )
+        : baseItems;
     const confirmItems = finalizeWetAreaInstallScopeFromMeasurements(
-      scopeChecklistItemsForPersist(baseItems),
+      scopeChecklistItemsForPersist(tradeFilteredItems),
       payload
     );
     onConfirm(confirmItems, payload);
@@ -16982,6 +17075,8 @@ export default function AIEstimateScopeAssumptionsModal({
             }
             showExistingWetAreaPanel={!hasSitePhotos}
             hasSitePhotos={hasSitePhotos}
+            singleTradeImport={singleTradePlanImport}
+            tradeKey={singleTradeKey}
             Colors={Colors}
             darkMode={darkMode}
             applying={applying}

@@ -25,11 +25,13 @@ import {
   promptPlanImportSource,
   runPlanTakeoff,
   takePlanPhoto,
-  type PlanImportPage,
 } from '@/utils/planImportRunner';
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import {
   PLAN_TRADE_CONFIGURATIONS,
+  filterPlanMeasurementsForTrade,
+  filterPlanScopesForTrade,
+  normalizePlanImportSelection,
   type PlanEstimatingMode,
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
@@ -95,17 +97,12 @@ export default function EstimatePlanImportStrip({
   const [planReview, setPlanReview] = useState<PlanToMeasurementsResult | null>(
     null
   );
-  const [pendingPages, setPendingPages] = useState<PlanImportPage[]>([]);
   const [showImportChooser, setShowImportChooser] = useState(false);
   const [estimatingMode, setEstimatingMode] =
     useState<PlanEstimatingMode>('whole_project');
   const [selectedTrade, setSelectedTrade] = useState<PlanTradeKey | null>(null);
   const planReady = Boolean(planReadySubtitle?.trim());
-  const showPlanRouting =
-    showImportChooser ||
-    planReady ||
-    planReview != null ||
-    pendingPages.length > 0;
+  const showPlanRouting = showImportChooser || planReady || planReview != null;
   const semanticsOn = measurementSemanticsV1Enabled();
 
   const executeTakeoff = useCallback(
@@ -123,7 +120,36 @@ export default function EstimatePlanImportStrip({
           selectedTradeKey: selectedTrade,
         });
         if (!takeoff) return;
-        setPlanReview(takeoff);
+        const selection = normalizePlanImportSelection(
+          estimatingMode,
+          selectedTrade
+        );
+        const stamped: PlanToMeasurementsResult = {
+          ...takeoff,
+          estimatingMode: selection.mode,
+          selectedTrade: selection.trade?.key || null,
+        };
+        if (selection.mode === 'selected_trade' && selection.trade) {
+          stamped.measurements = filterPlanMeasurementsForTrade(
+            takeoff.measurements || {},
+            selection.mode,
+            selection.trade.key
+          );
+          stamped.rooms = [];
+          stamped.areaReconciliation = null;
+          if (takeoff.scope?.detections) {
+            stamped.scope = {
+              ...takeoff.scope,
+              detections: filterPlanScopesForTrade(
+                takeoff.scope.detections,
+                selection.mode,
+                selection.trade.key
+              ),
+            };
+          }
+        }
+        setPlanReview(stamped);
+        setShowImportChooser(false);
         if (Platform.OS === 'ios') {
           void Haptics.notificationAsync(
             Haptics.NotificationFeedbackType.Success
@@ -154,7 +180,7 @@ export default function EstimatePlanImportStrip({
       const assets = await takePlanPhoto();
       if (!assets?.length) return;
       const images = await imagesFromPickerAssets(assets);
-      setPendingPages(images);
+      await executeTakeoff(images);
     } catch (e) {
       Alert.alert(
         'Camera failed',
@@ -169,7 +195,7 @@ export default function EstimatePlanImportStrip({
       const assets = await pickPlanFromLibrary();
       if (!assets?.length) return;
       const images = await imagesFromPickerAssets(assets);
-      setPendingPages(images);
+      await executeTakeoff(images);
     } catch (e) {
       Alert.alert(
         'Library failed',
@@ -183,7 +209,7 @@ export default function EstimatePlanImportStrip({
     try {
       const pages = await pickPlanPdf();
       if (!pages?.length) return;
-      setPendingPages(pages);
+      await executeTakeoff(pages);
     } catch (e) {
       Alert.alert(
         'PDF import failed',
@@ -221,12 +247,6 @@ export default function EstimatePlanImportStrip({
     onPdf,
   ]);
 
-  const analyzePendingPlan = useCallback(async () => {
-    if (!pendingPages.length) return;
-    setPendingPages([]);
-    await executeTakeoff(pendingPages);
-  }, [pendingPages, executeTakeoff]);
-
   const handleApply = useCallback(
     (
       values: Record<string, string>,
@@ -242,45 +262,66 @@ export default function EstimatePlanImportStrip({
       setPlanReview(null);
       if (!takeoff) return;
 
-      const measCount = Object.keys(values).length;
-      const roomCount = rooms.length;
-      const scopeCount = scopeDetections.length;
+      const selection = normalizePlanImportSelection(
+        estimatingMode,
+        selectedTrade
+      );
+      const tradeMeasurements =
+        selection.mode === 'selected_trade' && selection.trade
+          ? Object.fromEntries(
+              Object.entries(
+                filterPlanMeasurementsForTrade(
+                  Object.fromEntries(
+                    Object.entries(values)
+                      .map(([key, value]) => [key, Number(value)])
+                      .filter(([, n]) => Number.isFinite(n) && n > 0)
+                  ),
+                  selection.mode,
+                  selection.trade.key
+                )
+              ).map(([key, n]) => [key, String(n)])
+            )
+          : values;
+      const tradeRooms =
+        selection.mode === 'selected_trade' ? [] : rooms;
+      const tradeScopeDetections =
+        selection.mode === 'selected_trade' && selection.trade
+          ? filterPlanScopesForTrade(
+              scopeDetections,
+              selection.mode,
+              selection.trade.key
+            )
+          : scopeDetections;
 
       onApplied({
-        measurements: values,
-        scopeDetections,
+        measurements: tradeMeasurements,
+        scopeDetections: tradeScopeDetections,
         mergedNotes: takeoff.mergedNotes || existingNotes,
         notesBlock: takeoff.notesBlock || '',
-        rooms,
-        areaReconciliation: takeoff.areaReconciliation ?? null,
-        buildingAreas: takeoff.buildingAreas,
-        planFacts: takeoff.planFacts,
+        rooms: tradeRooms,
+        areaReconciliation:
+          selection.mode === 'selected_trade'
+            ? null
+            : takeoff.areaReconciliation ?? null,
+        buildingAreas:
+          selection.mode === 'selected_trade' ? undefined : takeoff.buildingAreas,
+        planFacts:
+          selection.mode === 'selected_trade' ? undefined : takeoff.planFacts,
         fieldConfidence: takeoff.fieldConfidence,
-        estimatingMode,
-        selectedTrade,
+        estimatingMode: selection.mode,
+        selectedTrade: selection.trade?.key || null,
         tradeProvenance: {
           source: 'plan_import',
-          mode: estimatingMode,
-          selectedTrade,
+          mode: selection.mode,
+          selectedTrade: selection.trade?.key || null,
           routerStatus:
-            selectedTrade === 'electrical'
+            selection.trade?.key === 'electrical'
               ? 'reference'
-              : selectedTrade
+              : selection.trade?.key
                 ? 'stub'
                 : null,
         },
-        missingInfo:
-          selectedTrade === 'electrical'
-            ? PLAN_TRADE_CONFIGURATIONS.find(
-                trade => trade.key === selectedTrade
-              )?.missingInfo || []
-            : selectedTrade
-              ? [
-                  'Trade-specific plan/schedule details',
-                  'Scope inclusions and exclusions',
-                  'Quantities requiring contractor confirmation',
-                ]
-              : [],
+        missingInfo: selection.trade?.missingInfo || [],
       });
 
       if (Platform.OS === 'ios') {
@@ -470,40 +511,6 @@ export default function EstimatePlanImportStrip({
           ) : null}
         </>
       ) : null}
-      {pendingPages.length ? (
-        <TouchableOpacity
-          onPress={() => void analyzePendingPlan()}
-          disabled={
-            importing || (estimatingMode === 'selected_trade' && !selectedTrade)
-          }
-          activeOpacity={0.8}
-          style={{
-            borderRadius: 12,
-            paddingVertical: 11,
-            paddingHorizontal: 12,
-            marginBottom: 10,
-            backgroundColor: '#22c55e',
-            opacity:
-              importing ||
-              (estimatingMode === 'selected_trade' && !selectedTrade)
-                ? 0.5
-                : 1,
-          }}
-        >
-          <Text
-            style={{
-              color: '#052e16',
-              fontSize: 13,
-              fontWeight: '800',
-              textAlign: 'center',
-            }}
-          >
-            {estimatingMode === 'selected_trade' && selectedTrade
-              ? `Analyze ${PLAN_TRADE_CONFIGURATIONS.find(trade => trade.key === selectedTrade)?.label || 'selected trade'} Plan`
-              : 'Analyze whole project'}
-          </Text>
-        </TouchableOpacity>
-      ) : null}
       <TouchableOpacity
         onPress={openPicker}
         disabled={importing || disabled}
@@ -580,6 +587,8 @@ export default function EstimatePlanImportStrip({
       <PlanTakeoffReviewModal
         visible={planReview != null}
         takeoff={planReview}
+        estimatingMode={estimatingMode}
+        selectedTrade={selectedTrade}
         currentValues={{}}
         onApply={handleApply}
         onCancel={() => setPlanReview(null)}

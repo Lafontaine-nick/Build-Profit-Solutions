@@ -14,6 +14,10 @@ const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
 const PDF_MIME = 'application/pdf';
+const {
+  filterPlanMeasurementsForTrade,
+  filterPlanScopesForTrade,
+} = require('./planImportTradeConfig');
 
 /** Fields the model read but wasn't sure about are withheld below this. */
 const MIN_FIELD_CONFIDENCE = 0.6;
@@ -830,10 +834,11 @@ async function analyzePlanForMeasurements({
   aiModels,
   aiRuntime,
 }) {
-  const planSelection =
-    selectedTrade && selectedTrade.key
-      ? { mode: 'selected_trade', trade: selectedTrade }
-      : { mode: 'whole_project', trade: null };
+  const { resolvePlanImportSelection } = require('./planImportTradeConfig');
+  const planSelection = resolvePlanImportSelection(
+    estimatingMode,
+    selectedTrade?.key || selectedTrade
+  );
   if (!openai) {
     const err = new Error('OpenAI client not configured');
     err.status = 503;
@@ -1106,23 +1111,36 @@ async function analyzePlanForMeasurements({
     areaReconciliation = null;
   }
   areaReconciliation = reconcileLabeledLivingAreas(buildingAreas, areaReconciliation);
+  const tradeMeasurements = filterPlanMeasurementsForTrade(
+    measurements,
+    planSelection.mode,
+    planSelection.trade
+  );
+  const tradeScope = filterPlanScopesForTrade(
+    scope,
+    planSelection.mode,
+    planSelection.trade
+  );
+  const tradeRooms = planSelection.mode === 'selected_trade' ? [] : rooms;
+  const tradeAreaReconciliation =
+    planSelection.mode === 'selected_trade' ? null : areaReconciliation;
 
   return {
     success: true,
     reason: null,
     imageQuality: imageQuality || (pdfRooms.length ? 'good' : 'partial'),
-    rooms,
-    measurements,
+    rooms: tradeRooms,
+    measurements: tradeMeasurements,
     fieldConfidence,
     lowConfidence,
     unreadableFields,
     buildingAreas,
     planFacts,
-    areaReconciliation,
-    itemQuantities: buildItemQuantities(measurements),
+    areaReconciliation: tradeAreaReconciliation,
+    itemQuantities: buildItemQuantities(tradeMeasurements),
     assumptions,
     notesBlock,
-    scope,
+    scope: tradeScope,
     estimatingMode: planSelection.mode,
     selectedTrade: planSelection.trade?.key || null,
     tradeProvenance: {

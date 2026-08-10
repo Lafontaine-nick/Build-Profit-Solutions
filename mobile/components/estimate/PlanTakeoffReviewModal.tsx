@@ -44,7 +44,14 @@ import {
   resolvePlanMeasurementProvenance,
   type PlanMeasurementProvenance,
 } from '@/utils/planMeasurementProvenance';
-import { getPlanTradeConfiguration } from '@/utils/planImportTradeConfig';
+import {
+  filterPlanMeasurementsForTrade,
+  filterPlanScopesForTrade,
+  getPlanTradeConfiguration,
+  normalizePlanImportSelection,
+  type PlanEstimatingMode,
+  type PlanTradeKey,
+} from '@/utils/planImportTradeConfig';
 
 export type PlanReviewRow = {
   key: string;
@@ -75,6 +82,9 @@ export type PlanReviewRoomRow = {
 type Props = {
   visible: boolean;
   takeoff: PlanToMeasurementsResult | null;
+  /** Fallback when the API omits trade routing on the takeoff payload. */
+  estimatingMode?: PlanEstimatingMode;
+  selectedTrade?: PlanTradeKey | null;
   /** Current Quick measurement values, to flag conflicts. */
   currentValues: Record<string, unknown>;
   onApply: (
@@ -111,6 +121,8 @@ function positiveString(v: unknown): string | null {
 export default function PlanTakeoffReviewModal({
   visible,
   takeoff,
+  estimatingMode: estimatingModeOverride,
+  selectedTrade: selectedTradeOverride,
   currentValues,
   onApply,
   onCancel,
@@ -122,32 +134,58 @@ export default function PlanTakeoffReviewModal({
   const footerBottomPad = Math.max(insets.bottom, 16);
   const semanticsOn = measurementSemanticsV1Enabled();
 
+  const importSelection = useMemo(
+    () =>
+      normalizePlanImportSelection(
+        takeoff?.estimatingMode || estimatingModeOverride,
+        takeoff?.selectedTrade || selectedTradeOverride
+      ),
+    [takeoff, estimatingModeOverride, selectedTradeOverride]
+  );
+  const effectiveMode = importSelection.mode;
+  const effectiveTradeKey = importSelection.trade?.key || null;
+  const tradeReview = effectiveMode === 'selected_trade';
+
   const [rows, setRows] = useState<PlanReviewRow[]>([]);
   const [roomRows, setRoomRows] = useState<PlanReviewRoomRow[]>([]);
   const [scopeChecked, setScopeChecked] = useState<Record<string, boolean>>({});
 
+  const visibleMeasurements = useMemo(
+    () =>
+      filterPlanMeasurementsForTrade(
+        takeoff?.measurements || {},
+        effectiveMode,
+        effectiveTradeKey
+      ),
+    [takeoff, effectiveMode, effectiveTradeKey]
+  );
+
   const scopeDetections = useMemo(() => {
     const detections = takeoff?.scope?.detections || [];
-    return detections.filter(
+    return filterPlanScopesForTrade(
+      detections,
+      effectiveMode,
+      effectiveTradeKey
+    ).filter(
       d =>
         (d.confidence ?? 0) >= SCOPE_MIN_CONFIDENCE &&
         (d.state === 'included' || d.state === 'excluded')
     );
-  }, [takeoff]);
+  }, [takeoff, effectiveMode, effectiveTradeKey]);
 
   const areaReconciliation = useMemo(() => {
-    if (!takeoff || !semanticsOn) return null;
+    if (!takeoff || !semanticsOn || tradeReview) return null;
     return resolvePlanAreaReconciliation({
       areaReconciliation: takeoff.areaReconciliation,
       measurements: takeoff.measurements,
       rooms: takeoff.rooms,
     });
-  }, [takeoff, semanticsOn]);
+  }, [takeoff, semanticsOn, tradeReview]);
 
   useEffect(() => {
     if (!visible || !takeoff) return;
-    const livingSf = Number(takeoff.measurements?.floorAreaSqft);
-    const nextRows: PlanReviewRow[] = Object.entries(takeoff.measurements || {})
+    const livingSf = Number(visibleMeasurements?.floorAreaSqft);
+    const nextRows: PlanReviewRow[] = Object.entries(visibleMeasurements)
       .map(([key, value]) => {
         const meta = quickMeasurementFieldMeta(key);
         const conflictValue = positiveString(currentValues?.[key]);
@@ -200,7 +238,9 @@ export default function PlanTakeoffReviewModal({
       });
     setRows(nextRows);
 
-    const nextRooms: PlanReviewRoomRow[] = (takeoff.rooms || [])
+    const nextRooms: PlanReviewRoomRow[] = (
+      tradeReview ? [] : takeoff.rooms || []
+    )
       .map((room, idx) => {
         const name = String(room?.name || '').trim();
         if (!name) return null;
@@ -266,7 +306,7 @@ export default function PlanTakeoffReviewModal({
     );
     // Rebuild only when a new takeoff arrives, not on parent re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, takeoff]);
+  }, [visible, takeoff, visibleMeasurements, tradeReview]);
 
   if (!visible || !takeoff) return null;
 
@@ -287,8 +327,10 @@ export default function PlanTakeoffReviewModal({
   const canApply =
     includedCount > 0 || includedRoomCount > 0 || checkedScopeCount > 0;
   const tradeLabel =
-    takeoff.estimatingMode === 'selected_trade'
-      ? getPlanTradeConfiguration(takeoff.selectedTrade)?.label || 'Trade'
+    tradeReview
+      ? importSelection.trade?.label ||
+        getPlanTradeConfiguration(effectiveTradeKey)?.label ||
+        'Trade'
       : null;
   const livingSpaceCount = roomRows.filter(
     r => r.spaceKind === 'living'
@@ -510,8 +552,14 @@ export default function PlanTakeoffReviewModal({
                   Measurements
                 </Text>
                 <Text style={[styles.emptyText, { color: Colors.sub }]}>
-                  {takeoff.reason ||
-                    'No square footage could be read from these pages.'}
+                  {tradeLabel
+                    ? `No ${tradeLabel} quantities were verified from the selected plan pages yet. ${
+                        takeoff.missingInfo?.length
+                          ? `Confirm: ${takeoff.missingInfo.join(', ')}.`
+                          : 'Review the relevant trade sheets and confirm the missing quantities.'
+                      }`
+                    : takeoff.reason ||
+                      'No square footage could be read from these pages.'}
                 </Text>
               </View>
             )}

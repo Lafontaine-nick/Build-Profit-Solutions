@@ -3,7 +3,10 @@
  * Backend source of truth: backend/src/services/scopeItemQuantityCatalog.js
  */
 
-import type { EstimateAiDraft, ScopeMeasurements, ScopePricingAcceptanceMetadata } from '@/utils/estimateAiDraft';
+import {
+  stripScopeInputForSingleTrade,
+  type PlanTradeKey,
+} from '@/utils/planImportTradeConfig';
 import {
   SCOPE_PARSED_FROM_NOTES_LABEL,
   SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL,
@@ -13006,6 +13009,9 @@ export type ScopeMeasurementsInputExtended = ReturnType<typeof emptyQuickMeasure
     Record<string, import('@/utils/planMeasurementFacts').MeasurementSuggestion>
   >;
   quickMeasurementFieldConfidence?: Record<string, number>;
+  planImportMode?: import('@/utils/planImportTradeConfig').PlanEstimatingMode | null;
+  planImportTradeKey?: import('@/utils/planImportTradeConfig').PlanTradeKey | null;
+  planImportMissingInfo?: string[];
 };
 
 export function initialScopeMeasurementInputExtended(
@@ -13633,6 +13639,9 @@ export function initialScopeMeasurementInputExtended(
     quickMeasurementSuggestionMetadata: saved?.quickMeasurementSuggestionMetadata,
     quickMeasurementFieldConfidence: saved?.quickMeasurementFieldConfidence,
     areaReconciliation: saved?.areaReconciliation,
+    planImportMode: saved?.planImportMode ?? null,
+    planImportTradeKey: saved?.planImportTradeKey ?? null,
+    planImportMissingInfo: saved?.planImportMissingInfo ?? [],
   };
 
   // Living SF must not masquerade as paint when notes never priced paint.
@@ -13654,9 +13663,19 @@ export function initialScopeMeasurementInputExtended(
     scopeNotes,
     draft?.scopeChecklist?.templateKey
   );
-  result = syncMeasurementsWithSouthernUtahPlanFacts(result, {
-    templateKey: draft?.scopeChecklist?.templateKey,
-  });
+  if (saved?.planImportMode === 'selected_trade' && saved?.planImportTradeKey) {
+    result.planImportMode = 'selected_trade';
+    result.planImportTradeKey = saved.planImportTradeKey as PlanTradeKey;
+    result.planImportMissingInfo = saved.planImportMissingInfo ?? [];
+    result = stripScopeInputForSingleTrade(
+      result,
+      saved.planImportTradeKey as PlanTradeKey
+    );
+  } else {
+    result = syncMeasurementsWithSouthernUtahPlanFacts(result, {
+      templateKey: draft?.scopeChecklist?.templateKey,
+    });
+  }
 
   if (result.itemQuantities.cabinets) {
     const combinedFlag =

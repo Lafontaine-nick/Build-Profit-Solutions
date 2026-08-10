@@ -396,19 +396,32 @@ export function buildPlanReadyJobNotesPrompt(input: {
   measurementCount?: number;
   spaceCount?: number;
   scopeCount?: number;
+  tradeLabel?: string | null;
 }): string {
-  const stats = importedPlanSummaryCollapsedSubtitle({
-    livingSf: input.livingSf,
-    spaceCount: input.spaceCount,
-    scopeCount: input.scopeCount,
-  });
+  const stats = input.tradeLabel
+    ? importedTradePlanSummaryCollapsedSubtitle({
+        measurementCount: input.measurementCount,
+        scopeCount: input.scopeCount,
+      })
+    : importedPlanSummaryCollapsedSubtitle({
+        livingSf: input.livingSf,
+        spaceCount: input.spaceCount,
+        scopeCount: input.scopeCount,
+      });
   const meas = Number(input.measurementCount) || 0;
   const measBit =
-    meas > 0 ? `${meas} project measurement${meas === 1 ? '' : 's'}` : null;
+    meas > 0
+      ? `${meas} ${input.tradeLabel ? 'plan quantity' : 'project measurement'}${meas === 1 ? '' : 's'}`
+      : null;
   const detail = stats || measBit;
   const detailSentence = detail ? ` ${detail}.` : '';
-  // "Ground-up new construction" must stay in this string — draft classification
-  // uses it to pick the ground_up checklist (excavation, flatwork, framing, MEP…).
+  if (input.tradeLabel) {
+    return (
+      `${input.tradeLabel} plan imported and ready to generate.${detailSentence} ` +
+      `Tap "Generate ${input.tradeLabel} Estimate Draft" below to build the trade scope. ` +
+      'Add any extra job details here (allowances, finishes, client notes).'
+    );
+  }
   return (
     `Ground-up new construction plan imported and ready to generate.${detailSentence} ` +
     'Tap "Generate Estimate Draft" below to build your scope draft. ' +
@@ -436,11 +449,13 @@ export function planImportLooksLikeGroundUp(
           };
         } | null;
         scopeDetections?: Array<{ itemId?: string }> | null;
+        estimatingMode?: 'whole_project' | 'selected_trade' | null;
       }
     | null
     | undefined
 ): boolean {
   if (!planImport) return false;
+  if (planImport.estimatingMode === 'selected_trade') return false;
   const rooms = planImport.rooms?.length || 0;
   const living =
     Number(planImport.measurements?.floorAreaSqft) ||
@@ -517,12 +532,34 @@ export function importedPlanSummaryCollapsedSubtitle(input: {
   return bits.join(' · ');
 }
 
+/** Trade-only plan summary — no living SF or room counts. */
+export function importedTradePlanSummaryCollapsedSubtitle(input: {
+  measurementCount?: number;
+  scopeCount?: number;
+}): string {
+  const bits: string[] = [];
+  const meas = Number(input.measurementCount) || 0;
+  if (meas > 0) {
+    bits.push(`${meas} plan quantit${meas === 1 ? 'y' : 'ies'}`);
+  }
+  if (input.scopeCount) {
+    bits.push(
+      `${input.scopeCount} scope item${input.scopeCount === 1 ? '' : 's'}`
+    );
+  }
+  return bits.join(' · ');
+}
+
 /** Strip generated plan-takeoff blobs so Job notes stay user-editable. */
 export function stripPlanTakeoffFromNotes(notes: string): string {
   const text = String(notes || '');
   if (!text.trim()) return '';
   const stripped = text
     .replace(/\n*---\s*Plan takeoff\s*---[\s\S]*?(?=\n---\s|\s*$)/gi, '')
+    .replace(
+      /(?:^|\n)(?:Ground-up new construction|[^.\n]+) plan imported and ready to generate\.[\s\S]*?Add any extra job details here \(allowances, finishes, client notes\)\.?/gi,
+      ''
+    )
     .replace(/\n{3,}/g, '\n\n')
     .trim();
   return stripped;

@@ -262,15 +262,22 @@ export default function AIEstimateBuilderModal({
       // Keep Job notes user-editable; structured plan data stays authoritative.
       const userNotes = stripPlanTakeoffFromNotes(result.mergedNotes || '');
       const measCount = Object.keys(result.measurements || {}).length;
-      const livingSf = Number(result.measurements?.floorAreaSqft) || null;
+      const tradeLabel =
+        result.estimatingMode === 'selected_trade'
+          ? getPlanTradeConfiguration(result.selectedTrade)?.label || null
+          : null;
       setNotes(
         userNotes.trim()
           ? userNotes
           : buildPlanReadyJobNotesPrompt({
-              livingSf,
+              livingSf:
+                tradeLabel
+                  ? undefined
+                  : Number(result.measurements?.floorAreaSqft) || null,
               measurementCount: measCount,
-              spaceCount: result.rooms?.length || 0,
+              spaceCount: tradeLabel ? 0 : result.rooms?.length || 0,
               scopeCount: result.scopeDetections?.length || 0,
+              tradeLabel,
             })
       );
       setPlanSummaryExpanded(false);
@@ -321,7 +328,8 @@ export default function AIEstimateBuilderModal({
     Boolean(planImport) &&
     (Object.keys(planImport?.measurements || {}).length > 0 ||
       (planImport?.rooms?.length || 0) > 0 ||
-      (planImport?.scopeDetections?.length || 0) > 0);
+      (planImport?.scopeDetections?.length || 0) > 0 ||
+      planImport?.estimatingMode === 'selected_trade');
   const selectedPlanTrade =
     planImport?.estimatingMode === 'selected_trade'
       ? getPlanTradeConfiguration(planImport.selectedTrade)
@@ -329,6 +337,16 @@ export default function AIEstimateBuilderModal({
 
   const importedPlanSummary = useMemo(() => {
     if (!semanticsOn || !planImport) return '';
+    if (selectedPlanTrade) {
+      const quantityCount = Object.keys(planImport.measurements || {}).length;
+      const scopeCount = planImport.scopeDetections?.length || 0;
+      const reviewCount = planImport.missingInfo?.length || 0;
+      return `${selectedPlanTrade.label} takeoff: ${quantityCount} plan ${
+        quantityCount === 1 ? 'quantity' : 'quantities'
+      }, ${scopeCount} relevant scope ${
+        scopeCount === 1 ? 'item' : 'items'
+      }, ${reviewCount} item${reviewCount === 1 ? '' : 's'} to review.`;
+    }
     return buildImportedPlanSummaryText({
       notesBlock: planImport.notesBlock,
       measurements: planImport.measurements || null,
@@ -337,16 +355,23 @@ export default function AIEstimateBuilderModal({
         .map(d => d.label || d.itemId)
         .filter(Boolean),
     });
-  }, [semanticsOn, planImport]);
+  }, [semanticsOn, planImport, selectedPlanTrade]);
 
   const importedPlanCollapsedSubtitle = useMemo(() => {
     if (!semanticsOn || !planImport) return '';
+    if (selectedPlanTrade) {
+      const quantityCount = Object.keys(planImport.measurements || {}).length;
+      const scopeCount = planImport.scopeDetections?.length || 0;
+      return `${selectedPlanTrade.label} takeoff · ${quantityCount} plan ${
+        quantityCount === 1 ? 'quantity' : 'quantities'
+      } · ${scopeCount} relevant scope ${scopeCount === 1 ? 'item' : 'items'}`;
+    }
     return importedPlanSummaryCollapsedSubtitle({
       livingSf: Number(planImport.measurements?.floorAreaSqft) || null,
       spaceCount: planImport.rooms?.length || 0,
       scopeCount: planImport.scopeDetections?.length || 0,
     });
-  }, [semanticsOn, planImport]);
+  }, [semanticsOn, planImport, selectedPlanTrade]);
 
   const planReadySubtitle = useMemo(() => {
     if (!hasPlanImport || !planImport) return null;

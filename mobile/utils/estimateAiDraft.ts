@@ -36,6 +36,13 @@ import {
 } from '@/utils/scopePackagesForReview';
 import { sumBathFloorSqft } from '@/utils/planBathRooms';
 import { applyExistingFeaturesToMeasurements } from '@/utils/wetAreaExistingDemo';
+import {
+  filterChecklistItemsForTrade,
+  filterPlanMeasurementsForTrade,
+  filterPlanScopesForTrade,
+  tradeQuickMeasurementFieldKeys,
+  type PlanTradeKey,
+} from '@/utils/planImportTradeConfig';
 import type {
   MeasurementSuggestion,
   PlanBuildingAreas,
@@ -81,9 +88,16 @@ export type EstimateRoughEstimateRange = {
   disclaimer: string;
 };
 
-export type EstimateBuilderMode = 'organize_only' | 'organize_calculate' | 'suggest_breakdown';
+export type EstimateBuilderMode =
+  | 'organize_only'
+  | 'organize_calculate'
+  | 'suggest_breakdown';
 
-export type EstimateTier = 'simple_unit' | 'room_remodel' | 'addition' | 'ground_up';
+export type EstimateTier =
+  | 'simple_unit'
+  | 'room_remodel'
+  | 'addition'
+  | 'ground_up';
 
 export type ScopeAssumptionState = 'included' | 'excluded' | 'unsure';
 
@@ -149,7 +163,9 @@ export type ScopeItemQuantity = {
    * Present only when BUILD_AI_MEASUREMENT_SEMANTICS_V1 is enabled for new writes.
    * Legacy records without this field continue to load unchanged.
    */
-  measurementState?: import('@/utils/measurementSemantics').ScopeMeasurementState | null;
+  measurementState?:
+    | import('@/utils/measurementSemantics').ScopeMeasurementState
+    | null;
 };
 
 /** Persisted accepted-pricing metadata for Confirm Scope cards. */
@@ -192,12 +208,24 @@ export type PlanRoomMeasurement = {
 
 export type ScopeMeasurements = {
   /** Plan-import routing/provenance; does not imply detailed trade quantities. */
-  planImportMode?: import('@/utils/planImportTradeConfig').PlanEstimatingMode | null;
-  planImportTradeKey?: import('@/utils/planImportTradeConfig').PlanTradeKey | null;
+  planImportMode?:
+    | import('@/utils/planImportTradeConfig').PlanEstimatingMode
+    | null;
+  planImportTradeKey?:
+    | import('@/utils/planImportTradeConfig').PlanTradeKey
+    | null;
   planImportProvenance?: PlanImportPayload['tradeProvenance'];
   planImportMissingInfo?: string[];
-  paintScope?: Array<'walls' | 'ceilings' | 'trim' | 'doors' | 'cabinets' | 'exterior'> | null;
-  paintAreaBasis?: 'walls' | 'ceilings' | 'combined' | 'floor_area' | 'unknown' | null;
+  paintScope?: Array<
+    'walls' | 'ceilings' | 'trim' | 'doors' | 'cabinets' | 'exterior'
+  > | null;
+  paintAreaBasis?:
+    | 'walls'
+    | 'ceilings'
+    | 'combined'
+    | 'floor_area'
+    | 'unknown'
+    | null;
   paintAreaNeedsConfirmation?: boolean | null;
   paintAreaSqft?: number | null;
   paintPricingMethod?: 'combined' | 'separate' | null;
@@ -206,7 +234,12 @@ export type ScopeMeasurements = {
   paintApplicationMethod?: 'brush_roll' | 'spray' | 'mixed' | null;
   paintOccupancyConfirmed?: boolean | null;
   paintApplicationMethodConfirmed?: boolean | null;
-  cabinetMeasurementMethod?: 'linear_feet' | 'doors_drawers' | 'lump_sum' | 'surface_area' | null;
+  cabinetMeasurementMethod?:
+    | 'linear_feet'
+    | 'doors_drawers'
+    | 'lump_sum'
+    | 'surface_area'
+    | null;
   cabinetUpperLf?: number | null;
   cabinetLowerLf?: number | null;
   cabinetTallLf?: number | null;
@@ -219,7 +252,14 @@ export type ScopeMeasurements = {
   /** Finished floor install area — separate from building/ADU sqft on addition jobs */
   flooringSqft?: number | null;
   flooringProductScope?: Array<
-    'lvp' | 'laminate' | 'engineered_hardwood' | 'solid_hardwood' | 'tile' | 'carpet' | 'sheet_vinyl_vct' | 'unknown'
+    | 'lvp'
+    | 'laminate'
+    | 'engineered_hardwood'
+    | 'solid_hardwood'
+    | 'tile'
+    | 'carpet'
+    | 'sheet_vinyl_vct'
+    | 'unknown'
   > | null;
   flooringLvpSqft?: number | null;
   flooringLaminateSqft?: number | null;
@@ -230,7 +270,11 @@ export type ScopeMeasurements = {
   flooringSheetVinylSqft?: number | null;
   floorDemoSqft?: number | null;
   floorPrepSqft?: number | null;
-  flooringExistingLvpInstallMethod?: 'floating' | 'glue_down' | 'unknown' | null;
+  flooringExistingLvpInstallMethod?:
+    | 'floating'
+    | 'glue_down'
+    | 'unknown'
+    | null;
   flooringExistingSheetVinylType?: 'sheet_vinyl' | 'vct' | 'unknown' | null;
   flooringNewLvpInstallMethod?: 'floating' | 'glue_down' | 'unknown' | null;
   flooringNewSheetVinylType?: 'sheet_vinyl' | 'vct' | 'unknown' | null;
@@ -290,26 +334,60 @@ export type ScopeMeasurements = {
   boulderCount?: number | null;
   landscapeLightCount?: number | null;
   landscapeScope?: string[] | null;
-  landscapeClearingLevel?: 'light_clearing' | 'medium_vegetation' | 'dense_vegetation' | 'unsure' | null;
+  landscapeClearingLevel?:
+    | 'light_clearing'
+    | 'medium_vegetation'
+    | 'dense_vegetation'
+    | 'unsure'
+    | null;
   concreteScope?: string[] | null;
   concreteDemoSqft?: number | null;
-  concreteDemoThicknessBand?: 'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus' | null;
-  concreteDemoThicknessBands?: Array<'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus'> | null;
-  concreteDemoAreaByThickness?: Partial<Record<'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus', number | null>> | null;
+  concreteDemoThicknessBand?:
+    | 'thin_2_3'
+    | 'standard_4'
+    | 'heavy_5_6'
+    | 'structural_7_plus'
+    | null;
+  concreteDemoThicknessBands?: Array<
+    'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus'
+  > | null;
+  concreteDemoAreaByThickness?: Partial<
+    Record<
+      'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus',
+      number | null
+    >
+  > | null;
   concreteDemoReinforced?: boolean | null;
   concreteDemoLimitedAccess?: boolean | null;
   concreteDemoCy?: number | null;
-  tradeScopeSelections?: Partial<Record<'concrete' | 'deck_patio' | 'hvac' | 'roofing', string[] | null>> | null;
+  tradeScopeSelections?: Partial<
+    Record<'concrete' | 'deck_patio' | 'hvac' | 'roofing', string[] | null>
+  > | null;
   roofSquares?: number | null;
   drywallSqft?: number | null;
   concreteSqft?: number | null;
   concreteReinforcementSqft?: number | null;
   concreteSealerSqft?: number | null;
   concreteSubgradePrepSqft?: number | null;
-  concreteAreaByType?: Partial<Record<'driveways' | 'sidewalks' | 'patios' | 'rv_pads' | 'walkways', number | null>> | null;
-  concreteThicknessByType?: Partial<Record<'driveways' | 'sidewalks' | 'patios' | 'rv_pads' | 'walkways', number | null>> | null;
+  concreteAreaByType?: Partial<
+    Record<
+      'driveways' | 'sidewalks' | 'patios' | 'rv_pads' | 'walkways',
+      number | null
+    >
+  > | null;
+  concreteThicknessByType?: Partial<
+    Record<
+      'driveways' | 'sidewalks' | 'patios' | 'rv_pads' | 'walkways',
+      number | null
+    >
+  > | null;
   concreteThicknessInches?: number | null;
-  concreteDecorativeFinish?: 'integral_color' | 'exposed_aggregate' | 'basic_stamped' | 'premium_stamped' | null;
+  concreteDecorativeFinish?:
+    | 'integral_color'
+    | 'exposed_aggregate'
+    | 'basic_stamped'
+    | 'premium_stamped'
+    | null;
   complexFormingLf?: number | null;
   additionalHaulOffLoadCount?: number | null;
   concreteCy?: number | null;
@@ -362,7 +440,10 @@ export type ScopeMeasurements = {
   /** Bathroom toilet relocate — floor construction type for conditional pricing. */
   bathroomToiletRelocateFloorType?: string | null;
   /** Whether toilet relocate floor type was user-selected or AI-inferred. */
-  bathroomToiletRelocateFloorTypeSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomToiletRelocateFloorTypeSource?:
+    | 'user_selected'
+    | 'ai_inferred'
+    | null;
   /** Bathroom shower/tub rough-in — wall & floor access for valve, head, and drain lines. */
   bathroomShowerRoughAccessType?: string | null;
   /** Whether shower rough-in access was user-selected or AI-inferred. */
@@ -376,17 +457,27 @@ export type ScopeMeasurements = {
   bathroomShowerRoughFixtureTypeSource?: 'user_selected' | 'ai_inferred' | null;
   /** Remodel demolition exposes plumbing vs separate access required. */
   bathroomShowerRoughPlumbingExposed?: string | null;
-  bathroomShowerRoughPlumbingExposedSource?: 'user_selected' | 'demo_detected' | 'ai_inferred' | null;
+  bathroomShowerRoughPlumbingExposedSource?:
+    | 'user_selected'
+    | 'demo_detected'
+    | 'ai_inferred'
+    | null;
   /** @deprecated Migrated to bathroomShowerRoughPlumbingExposed. */
   bathroomShowerRoughWallAccess?: string | null;
   /** @deprecated Migrated to bathroomShowerRoughPlumbingExposedSource. */
   bathroomShowerRoughWallAccessSource?: 'user_selected' | 'ai_inferred' | null;
   /** Wood-framed floor vs concrete slab. */
   bathroomShowerRoughFloorConstruction?: string | null;
-  bathroomShowerRoughFloorConstructionSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomShowerRoughFloorConstructionSource?:
+    | 'user_selected'
+    | 'ai_inferred'
+    | null;
   /** Same-location slab — is cutting or below-slab drain work required? */
   bathroomShowerRoughSlabWorkRequired?: string | null;
-  bathroomShowerRoughSlabWorkRequiredSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomShowerRoughSlabWorkRequiredSource?:
+    | 'user_selected'
+    | 'ai_inferred'
+    | null;
   /** Localized prime/paint scope after bath drywall repair. */
   bathroomPaintRepairScope?: string | null;
   bathroomPaintRepairScopeSource?: 'user_selected' | 'ai_inferred' | null;
@@ -395,13 +486,22 @@ export type ScopeMeasurements = {
   bathroomPaintRepairEntireRoomSource?: 'user_selected' | 'ai_inferred' | null;
   /** Wall/ceiling paintable SF for entire-room add-on on paint_repair. */
   bathroomPaintRepairEntireRoomSqft?: string | number | null;
-  bathroomPaintRepairEntireRoomSqftSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomPaintRepairEntireRoomSqftSource?:
+    | 'user_selected'
+    | 'ai_inferred'
+    | null;
   /** One-line combined drywall + texture + prime + paint assembly. */
   bathroomDrywallPaintUseCombinedAssembly?: boolean | null;
-  bathroomDrywallPaintUseCombinedAssemblySource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomDrywallPaintUseCombinedAssemblySource?:
+    | 'user_selected'
+    | 'ai_inferred'
+    | null;
   /** Interior paint mobilization — bundled vs standalone minimum. */
   bathroomInteriorPaintMobilization?: string | null;
-  bathroomInteriorPaintMobilizationSource?: 'user_selected' | 'ai_inferred' | null;
+  bathroomInteriorPaintMobilizationSource?:
+    | 'user_selected'
+    | 'ai_inferred'
+    | null;
   bathroomInteriorPaintSurface?: string | null;
   bathroomInteriorPaintSurfaceSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomInteriorPaintCondition?: string | null;
@@ -442,7 +542,14 @@ export type ScopeMeasurements = {
   /** Flooring QM — existing / install / demo scope panels. */
   flooringExistingCount?: number | null;
   flooringExistingTypes?: Array<
-    'carpet' | 'tile' | 'solid_hardwood' | 'engineered_hardwood' | 'laminate' | 'lvp' | 'sheet_vinyl_vct' | 'unknown'
+    | 'carpet'
+    | 'tile'
+    | 'solid_hardwood'
+    | 'engineered_hardwood'
+    | 'laminate'
+    | 'lvp'
+    | 'sheet_vinyl_vct'
+    | 'unknown'
   > | null;
   flooringInstallScopeCount?: number | null;
   flooringDemoScopeCount?: number | null;
@@ -453,11 +560,15 @@ export type ScopeMeasurements = {
   /** Structured, sheet-aware facts retained after plan review for planning formulas. */
   planFacts?: PlanFacts;
   /** Original metadata for accepted planning suggestions, retained after edits. */
-  quickMeasurementSuggestionMetadata?: Partial<Record<string, MeasurementSuggestion>>;
+  quickMeasurementSuggestionMetadata?: Partial<
+    Record<string, MeasurementSuggestion>
+  >;
   /** Per-field numeric confidence from the original takeoff. */
   quickMeasurementFieldConfidence?: Record<string, number>;
   /** Declared vs detected living/garage reconciliation (measurement-semantics). */
-  areaReconciliation?: import('@/utils/measurementSemantics').AreaReconciliation | null;
+  areaReconciliation?:
+    | import('@/utils/measurementSemantics').AreaReconciliation
+    | null;
   /**
    * Per-Quick-Measurement-field provenance: which fields were populated
    * directly from plan takeoff vs accepted from a planning estimate.
@@ -476,7 +587,10 @@ export type ScopeMeasurements = {
   /** Accepted pricing metadata keyed by checklist item id */
   pricingAcceptance?: Record<string, ScopePricingAcceptanceMetadata>;
   /** Item-specific scope gap resolutions keyed by `${scopeItemId}::${componentKey}` */
-  scopeGapResolutions?: Record<string, import('@/utils/scopeReviewUi').ScopeGapResolutionRecord>;
+  scopeGapResolutions?: Record<
+    string,
+    import('@/utils/scopeReviewUi').ScopeGapResolutionRecord
+  >;
   /** Explicit pricing override confirmations (measurement-semantics). */
   pricingOverrideLog?: import('@/utils/measurementSemantics').PricingOverrideLog[];
   /** @deprecated use bathroomFloorSqft */
@@ -632,7 +746,12 @@ export type EstimateAiDraft = {
     empty: boolean;
     source: string;
     sourceLabel: string;
-    lines: Array<{ packageName: string; formula: string; total: number; sourceLabel: string }>;
+    lines: Array<{
+      packageName: string;
+      formula: string;
+      total: number;
+      sourceLabel: string;
+    }>;
     totalSuggested: number;
   } | null;
   pricingProposalApproved?: boolean;
@@ -795,7 +914,10 @@ export function formatDraftMoney(amount: number | null | undefined): string {
   })}`;
 }
 
-export const BUILDER_MODE_LABELS: Record<EstimateBuilderMode, { title: string; subtitle: string }> = {
+export const BUILDER_MODE_LABELS: Record<
+  EstimateBuilderMode,
+  { title: string; subtitle: string }
+> = {
   organize_only: {
     title: 'Organize Only',
     subtitle: 'Keep your numbers; sort scope only',
@@ -821,7 +943,10 @@ function stripRatePricingSubkeys(
   return Object.keys(out).length ? out : undefined;
 }
 
-export function repairDraftRatePricingFromNotes(draft: EstimateAiDraft, notes: string): EstimateAiDraft {
+export function repairDraftRatePricingFromNotes(
+  draft: EstimateAiDraft,
+  notes: string
+): EstimateAiDraft {
   const text = String(notes || draft.originalNotes || '').trim();
   if (!text) return draft;
 
@@ -836,7 +961,9 @@ export function repairDraftRatePricingFromNotes(draft: EstimateAiDraft, notes: s
   const mergedItemQuantities = stripBathroomFalsePositiveFloorDemoQuantities(
     {
       ...stripRatePricingSubkeys(draft.scopeMeasurements?.itemQuantities),
-      ...stripRatePricingSubkeys(draft.scopeChecklist?.suggestedMeasurements?.itemQuantities),
+      ...stripRatePricingSubkeys(
+        draft.scopeChecklist?.suggestedMeasurements?.itemQuantities
+      ),
       ...(parsed.itemQuantities || {}),
     },
     draft.scopeChecklist?.templateKey,
@@ -845,7 +972,11 @@ export function repairDraftRatePricingFromNotes(draft: EstimateAiDraft, notes: s
   if (parsed.itemQuantities?.floor_demo && !parsed.itemQuantities?.demo) {
     delete mergedItemQuantities.demo;
   }
-  clearStalePricingWhenNotesUnpriced(mergedItemQuantities, text, parsed.itemQuantities);
+  clearStalePricingWhenNotesUnpriced(
+    mergedItemQuantities,
+    text,
+    parsed.itemQuantities
+  );
 
   const mergedScopeMeasurements: ScopeMeasurements = {
     ...(draft.scopeMeasurements || {}),
@@ -854,7 +985,8 @@ export function repairDraftRatePricingFromNotes(draft: EstimateAiDraft, notes: s
   };
 
   if (__DEV__) {
-    const serverIq = draft.scopeChecklist?.suggestedMeasurements?.itemQuantities || {};
+    const serverIq =
+      draft.scopeChecklist?.suggestedMeasurements?.itemQuantities || {};
     console.log('🧮 AI draft backsplash repair', {
       server: {
         material: serverIq.backsplash__material?.quantity,
@@ -895,13 +1027,16 @@ export async function fetchEstimateDraftFromNotes(
   notes: string,
   savedTemplates: unknown[] = []
 ): Promise<EstimateAiDraft> {
-  const payload = await postAiAssistantJson<{ draft?: EstimateAiDraft; error?: string; message?: string }>(
-    '/estimate-draft-from-notes',
-    { notes, savedTemplates }
-  );
+  const payload = await postAiAssistantJson<{
+    draft?: EstimateAiDraft;
+    error?: string;
+    message?: string;
+  }>('/estimate-draft-from-notes', { notes, savedTemplates });
 
   if (!payload?.draft) {
-    throw new Error(payload?.message || payload?.error || 'Failed to generate estimate draft');
+    throw new Error(
+      payload?.message || payload?.error || 'Failed to generate estimate draft'
+    );
   }
 
   return repairDraftRatePricingFromNotes(payload.draft, notes);
@@ -911,14 +1046,16 @@ export async function fetchSuggestedDraftSplits(
   draft: EstimateAiDraft,
   applySuggestedSplits = false
 ): Promise<EstimateAiDraft> {
-  const payload = await postAiAssistantJson<{ draft?: EstimateAiDraft; error?: string; message?: string }>(
-    '/estimate-draft-suggest-splits',
-    { draft, applySuggestedSplits },
-    90000
-  );
+  const payload = await postAiAssistantJson<{
+    draft?: EstimateAiDraft;
+    error?: string;
+    message?: string;
+  }>('/estimate-draft-suggest-splits', { draft, applySuggestedSplits }, 90000);
 
   if (!payload?.draft) {
-    throw new Error(payload?.message || payload?.error || 'Failed to suggest splits');
+    throw new Error(
+      payload?.message || payload?.error || 'Failed to suggest splits'
+    );
   }
 
   return syncSelectedScopePricing(payload.draft);
@@ -926,7 +1063,10 @@ export async function fetchSuggestedDraftSplits(
 
 export async function fetchRoughEstimateRange(
   draft: EstimateAiDraft
-): Promise<{ draft: EstimateAiDraft; roughEstimate: EstimateRoughEstimateRange }> {
+): Promise<{
+  draft: EstimateAiDraft;
+  roughEstimate: EstimateRoughEstimateRange;
+}> {
   const payload = await postAiAssistantJson<{
     draft?: EstimateAiDraft;
     roughEstimate?: EstimateRoughEstimateRange;
@@ -935,7 +1075,11 @@ export async function fetchRoughEstimateRange(
   }>('/estimate-draft-rough-range', { draft }, 60000);
 
   if (!payload?.roughEstimate) {
-    throw new Error(payload?.message || payload?.error || 'Failed to generate rough budget range');
+    throw new Error(
+      payload?.message ||
+        payload?.error ||
+        'Failed to generate rough budget range'
+    );
   }
 
   return {
@@ -944,15 +1088,19 @@ export async function fetchRoughEstimateRange(
   };
 }
 
-export async function fetchClarifyDraftQuestions(draft: EstimateAiDraft): Promise<ClarifyDraftResult> {
-  const payload = await postAiAssistantJson<ClarifyDraftResult & { error?: string; message?: string }>(
-    '/estimate-draft-clarify',
-    { draft },
-    60000
-  );
+export async function fetchClarifyDraftQuestions(
+  draft: EstimateAiDraft
+): Promise<ClarifyDraftResult> {
+  const payload = await postAiAssistantJson<
+    ClarifyDraftResult & { error?: string; message?: string }
+  >('/estimate-draft-clarify', { draft }, 60000);
 
   if (!payload?.questions) {
-    throw new Error(payload?.message || payload?.error || 'Failed to load clarification questions');
+    throw new Error(
+      payload?.message ||
+        payload?.error ||
+        'Failed to load clarification questions'
+    );
   }
 
   return payload;
@@ -967,7 +1115,9 @@ export async function applyClarifyAnswersToDraft(
   >('/estimate-draft-clarify-apply', { draft, answers }, 90000);
 
   if (!payload?.draft) {
-    throw new Error(payload?.message || payload?.error || 'Failed to apply answers');
+    throw new Error(
+      payload?.message || payload?.error || 'Failed to apply answers'
+    );
   }
 
   return {
@@ -986,7 +1136,9 @@ export async function refineDraftWithCommand(
   >('/estimate-draft-refine', { draft, command }, 90000);
 
   if (!payload?.draft) {
-    throw new Error(payload?.message || payload?.error || 'Failed to apply revision');
+    throw new Error(
+      payload?.message || payload?.error || 'Failed to apply revision'
+    );
   }
 
   return {
@@ -1053,7 +1205,9 @@ export async function fetchPhotoToScope(params: {
   );
 
   if (payload?.error && payload.success !== true && payload.success !== false) {
-    throw new Error(payload.message || payload.error || 'Photo analysis failed');
+    throw new Error(
+      payload.message || payload.error || 'Photo analysis failed'
+    );
   }
 
   return {
@@ -1062,7 +1216,9 @@ export async function fetchPhotoToScope(params: {
     scopeText: payload.scopeText || '',
     notesBlock: payload.notesBlock || '',
     mergedNotes: payload.mergedNotes || params.existingNotes || '',
-    detections: Array.isArray(payload.detections) ? (payload.detections as PhotoScopeDetection[]) : [],
+    detections: Array.isArray(payload.detections)
+      ? (payload.detections as PhotoScopeDetection[])
+      : [],
     existingFeatures: Array.isArray(payload.existingFeatures)
       ? (payload.existingFeatures as PhotoExistingFeature[])
       : [],
@@ -1109,14 +1265,19 @@ export type PlanToMeasurementsResult = {
   lowConfidence: PlanLowConfidenceField[];
   /** Fields the AI saw on the plan but could not read (blurry/cut off). */
   unreadableFields: PlanUnreadableField[];
-  itemQuantities: Record<string, { quantity: number; unit: string; quantitySource?: string }>;
+  itemQuantities: Record<
+    string,
+    { quantity: number; unit: string; quantitySource?: string }
+  >;
   assumptions: string[];
   notesBlock: string;
   mergedNotes: string;
   /** Draft scope detections read from the plan sheets (confirm before applying). */
   scope: PlanScopeResult | null;
   /** Declared vs detected living/garage reconciliation (measurement-semantics). */
-  areaReconciliation?: import('@/utils/measurementSemantics').AreaReconciliation | null;
+  areaReconciliation?:
+    | import('@/utils/measurementSemantics').AreaReconciliation
+    | null;
   estimatingMode?: import('@/utils/planImportTradeConfig').PlanEstimatingMode;
   selectedTrade?: import('@/utils/planImportTradeConfig').PlanTradeKey | null;
   tradeProvenance?: PlanImportPayload['tradeProvenance'];
@@ -1131,7 +1292,9 @@ export async function fetchPlanToMeasurements(params: {
   templateKeyHint?: string | null;
   includeScope?: boolean;
   estimatingMode?: import('@/utils/planImportTradeConfig').PlanEstimatingMode;
-  selectedTradeKey?: import('@/utils/planImportTradeConfig').PlanTradeKey | null;
+  selectedTradeKey?:
+    | import('@/utils/planImportTradeConfig').PlanTradeKey
+    | null;
 }): Promise<PlanToMeasurementsResult> {
   const payload = await postAiAssistantJson<
     Partial<PlanToMeasurementsResult> & { error?: string; message?: string }
@@ -1185,21 +1348,30 @@ export async function fetchPlanToMeasurements(params: {
       payload.itemQuantities && typeof payload.itemQuantities === 'object'
         ? (payload.itemQuantities as PlanToMeasurementsResult['itemQuantities'])
         : {},
-    assumptions: Array.isArray(payload.assumptions) ? payload.assumptions.map(String) : [],
+    assumptions: Array.isArray(payload.assumptions)
+      ? payload.assumptions.map(String)
+      : [],
     notesBlock: payload.notesBlock || '',
     mergedNotes: payload.mergedNotes || params.existingNotes || '',
     scope:
-      payload.scope && typeof payload.scope === 'object' && Array.isArray((payload.scope as PlanScopeResult).detections)
+      payload.scope &&
+      typeof payload.scope === 'object' &&
+      Array.isArray((payload.scope as PlanScopeResult).detections)
         ? (payload.scope as PlanScopeResult)
         : null,
     areaReconciliation:
-      payload.areaReconciliation && typeof payload.areaReconciliation === 'object'
+      payload.areaReconciliation &&
+      typeof payload.areaReconciliation === 'object'
         ? (payload.areaReconciliation as PlanToMeasurementsResult['areaReconciliation'])
         : null,
     estimatingMode: payload.estimatingMode || 'whole_project',
-    selectedTrade: (payload.selectedTrade as PlanToMeasurementsResult['selectedTrade']) || null,
+    selectedTrade:
+      (payload.selectedTrade as PlanToMeasurementsResult['selectedTrade']) ||
+      null,
     tradeProvenance: payload.tradeProvenance || null,
-    missingInfo: Array.isArray(payload.missingInfo) ? payload.missingInfo.map(String) : [],
+    missingInfo: Array.isArray(payload.missingInfo)
+      ? payload.missingInfo.map(String)
+      : [],
   };
 }
 
@@ -1234,7 +1406,13 @@ const PLAN_SCOPE_ID_ALIASES: Record<string, string[]> = {
   cabinets: ['cabinets_counters', 'cabinets'],
   countertops: ['cabinets_counters', 'countertops'],
   cabinets_counters: ['cabinets_counters', 'cabinets', 'countertops'],
-  windows_doors: ['windows', 'exterior_doors', 'sliding_doors', 'garage_doors', 'exterior'],
+  windows_doors: [
+    'windows',
+    'exterior_doors',
+    'sliding_doors',
+    'garage_doors',
+    'exterior',
+  ],
   windows: ['windows', 'exterior'],
   exterior_doors: ['exterior_doors', 'exterior'],
   sliding_doors: ['sliding_doors', 'exterior'],
@@ -1249,7 +1427,10 @@ const PLAN_SCOPE_ID_ALIASES: Record<string, string[]> = {
   electrical_trim: ['electrical_trim'],
 };
 
-function remapDetectionItemId(itemId: string, allowedIds: Set<string>): string | null {
+function remapDetectionItemId(
+  itemId: string,
+  allowedIds: Set<string>
+): string | null {
   if (allowedIds.has(itemId)) return itemId;
   for (const alt of PLAN_SCOPE_ID_ALIASES[itemId] || []) {
     if (allowedIds.has(alt)) return alt;
@@ -1281,7 +1462,8 @@ export function applyPhotoDetectionsToDraft(
   const items = draft?.scopeChecklist?.items;
   if (!items?.length || !detections?.length) return draft;
 
-  const { items: nextItems, appliedCount } = applyScopeDetectionsToChecklistItems(items, detections);
+  const { items: nextItems, appliedCount } =
+    applyScopeDetectionsToChecklistItems(items, detections);
   if (!appliedCount) return draft;
 
   return {
@@ -1299,15 +1481,20 @@ export function applyPhotoDetectionsToDraft(
 export function applyScopeDetectionsToChecklistItems(
   items: ScopeChecklistItem[],
   detections: PhotoScopeDetection[] | null | undefined
-): { items: ScopeChecklistItem[]; appliedCount: number; appliedLabels: string[] } {
+): {
+  items: ScopeChecklistItem[];
+  appliedCount: number;
+  appliedLabels: string[];
+} {
   if (!items?.length || !detections?.length) {
     return { items, appliedCount: 0, appliedLabels: [] };
   }
 
-  const allowedIds = new Set(items.map((i) => i.id));
+  const allowedIds = new Set(items.map(i => i.id));
   const byId = new Map<string, PhotoScopeDetection>();
   for (const d of detections) {
-    if (!d?.itemId || (d.confidence ?? 0) < PHOTO_DETECTION_MIN_CONFIDENCE) continue;
+    if (!d?.itemId || (d.confidence ?? 0) < PHOTO_DETECTION_MIN_CONFIDENCE)
+      continue;
     if (d.state !== 'included' && d.state !== 'excluded') continue;
     const mappedId = remapDetectionItemId(d.itemId, allowedIds);
     if (!mappedId || byId.has(mappedId)) continue;
@@ -1316,19 +1503,25 @@ export function applyScopeDetectionsToChecklistItems(
   if (!byId.size) return { items, appliedCount: 0, appliedLabels: [] };
 
   const appliedLabels: string[] = [];
-  const nextItems = items.map((item) => {
+  const nextItems = items.map(item => {
     const detection = byId.get(item.id);
     if (!detection) return item;
 
     if (item.inputType === 'choice') {
       if (item.choiceId && item.choiceId !== 'unsure') return item;
       const validChoice =
-        detection.choiceId && (item.options || []).some((o) => o.id === detection.choiceId)
+        detection.choiceId &&
+        (item.options || []).some(o => o.id === detection.choiceId)
           ? detection.choiceId
           : null;
       if (!validChoice) return item;
       appliedLabels.push(item.label);
-      return { ...item, choiceId: validChoice, state: 'included' as const, noteBacked: true };
+      return {
+        ...item,
+        choiceId: validChoice,
+        state: 'included' as const,
+        noteBacked: true,
+      };
     }
 
     if (item.inputType === 'multi_choice') return item;
@@ -1338,7 +1531,11 @@ export function applyScopeDetectionsToChecklistItems(
     return { ...item, state: detection.state, noteBacked: true };
   });
 
-  return { items: nextItems, appliedCount: appliedLabels.length, appliedLabels };
+  return {
+    items: nextItems,
+    appliedCount: appliedLabels.length,
+    appliedLabels,
+  };
 }
 
 export type PlanImportPayload = {
@@ -1356,7 +1553,9 @@ export type PlanImportPayload = {
   rooms?: PlanRoomMeasurement[];
   /** Read-only plan takeoff summary text (kept separate from editable Job notes). */
   notesBlock?: string | null;
-  areaReconciliation?: import('@/utils/measurementSemantics').AreaReconciliation | null;
+  areaReconciliation?:
+    | import('@/utils/measurementSemantics').AreaReconciliation
+    | null;
   buildingAreas?: PlanBuildingAreas;
   planFacts?: PlanFacts;
   fieldConfidence?: Record<string, number>;
@@ -1364,32 +1563,41 @@ export type PlanImportPayload = {
 
 /** Normalize vision room list for Quick measurements + field mapping. */
 export function normalizePlanRooms(
-  rooms: Array<{
-    name?: string;
-    areaSqft?: number | null;
-    lengthFt?: number | null;
-    widthFt?: number | null;
-    sourcePage?: number | null;
-    sourceSheet?: string | null;
-    sourceLabel?: string | null;
-    sourceType?: PlanRoomMeasurement['sourceType'];
-    confidence?: number | null;
-  }> | null | undefined
+  rooms:
+    | Array<{
+        name?: string;
+        areaSqft?: number | null;
+        lengthFt?: number | null;
+        widthFt?: number | null;
+        sourcePage?: number | null;
+        sourceSheet?: string | null;
+        sourceLabel?: string | null;
+        sourceType?: PlanRoomMeasurement['sourceType'];
+        confidence?: number | null;
+      }>
+    | null
+    | undefined
 ): PlanRoomMeasurement[] {
   const out: PlanRoomMeasurement[] = [];
   for (const room of rooms || []) {
     const name = String(room?.name || '').trim();
     if (!name) continue;
     let areaSqft =
-      room?.areaSqft != null && Number.isFinite(Number(room.areaSqft)) && Number(room.areaSqft) > 0
+      room?.areaSqft != null &&
+      Number.isFinite(Number(room.areaSqft)) &&
+      Number(room.areaSqft) > 0
         ? Math.round(Number(room.areaSqft) * 10) / 10
         : null;
     const lengthFt =
-      room?.lengthFt != null && Number.isFinite(Number(room.lengthFt)) && Number(room.lengthFt) > 0
+      room?.lengthFt != null &&
+      Number.isFinite(Number(room.lengthFt)) &&
+      Number(room.lengthFt) > 0
         ? Number(room.lengthFt)
         : null;
     const widthFt =
-      room?.widthFt != null && Number.isFinite(Number(room.widthFt)) && Number(room.widthFt) > 0
+      room?.widthFt != null &&
+      Number.isFinite(Number(room.widthFt)) &&
+      Number(room.widthFt) > 0
         ? Number(room.widthFt)
         : null;
     if (areaSqft == null && lengthFt != null && widthFt != null) {
@@ -1496,7 +1704,10 @@ export function planMeasurementsToScopeMeasurements(
     }
   }
   if (detectedKeys.length) {
-    out.quickMeasurementSources = tagPlanDetectedQuickMeasurementKeys(undefined, detectedKeys);
+    out.quickMeasurementSources = tagPlanDetectedQuickMeasurementKeys(
+      undefined,
+      detectedKeys
+    );
   }
   return out;
 }
@@ -1518,8 +1729,8 @@ export function seedPlanFloorAreaItemQuantities(
 
   const includedIds = new Set(
     (draft.scopeChecklist?.items || [])
-      .filter((i) => i.state === 'included')
-      .map((i) => i.id)
+      .filter(i => i.state === 'included')
+      .map(i => i.id)
   );
   if (!includedIds.size) return scopeMeasurements;
 
@@ -1553,13 +1764,15 @@ export function seedPlanFloorAreaItemQuantities(
         patioDeckSf: scopeMeasurements.deckSqft,
         rooms: scopeMeasurements.planRooms,
       })
-    : scopeMeasurements.areaReconciliation ?? null;
+    : (scopeMeasurements.areaReconciliation ?? null);
 
   const nextIq = { ...(scopeMeasurements.itemQuantities || {}) };
   for (const id of FLOOR_AREA_ITEMS) {
     if (!includedIds.has(id)) continue;
     const existing = nextIq[id];
-    const hasExistingPrimary = Boolean(existing?.quantity && Number(existing.quantity) > 0);
+    const hasExistingPrimary = Boolean(
+      existing?.quantity && Number(existing.quantity) > 0
+    );
 
     if (semanticsOn && NO_LIVING_SF_PRIMARY_SEED_KEYS.has(id)) {
       let primaryQuantity: number | null = null;
@@ -1567,34 +1780,61 @@ export function seedPlanFloorAreaItemQuantities(
       if (id === 'drywall' && Number(scopeMeasurements.drywallSqft) > 0) {
         primaryQuantity = Number(scopeMeasurements.drywallSqft);
         primaryUnit = 'surface_sqft';
-      } else if (id === 'roofing' && Number(scopeMeasurements.roofSquares) > 0) {
+      } else if (
+        id === 'roofing' &&
+        Number(scopeMeasurements.roofSquares) > 0
+      ) {
         primaryQuantity = Number(scopeMeasurements.roofSquares);
         primaryUnit = 'roof_square';
-      } else if (id === 'stucco' && Number(scopeMeasurements.exteriorPaintSqft) > 0) {
+      } else if (
+        id === 'stucco' &&
+        Number(scopeMeasurements.exteriorPaintSqft) > 0
+      ) {
         primaryQuantity = Number(scopeMeasurements.exteriorPaintSqft);
         primaryUnit = 'surface_sqft';
-      } else if (id === 'foundation' && Number(scopeMeasurements.concreteCy) > 0) {
+      } else if (
+        id === 'foundation' &&
+        Number(scopeMeasurements.concreteCy) > 0
+      ) {
         primaryQuantity = Number(scopeMeasurements.concreteCy);
         primaryUnit = 'cy';
-      } else if (id === 'pour_flatwork' && Number(scopeMeasurements.concreteSqft) > 0) {
+      } else if (
+        id === 'pour_flatwork' &&
+        Number(scopeMeasurements.concreteSqft) > 0
+      ) {
         primaryQuantity = Number(scopeMeasurements.concreteSqft);
         primaryUnit = 'sqft';
-      } else if (id === 'excavation' && Number(scopeMeasurements.excavationCy) > 0) {
+      } else if (
+        id === 'excavation' &&
+        Number(scopeMeasurements.excavationCy) > 0
+      ) {
         primaryQuantity = Number(scopeMeasurements.excavationCy);
         primaryUnit = 'cy';
       } else if (id === 'cabinets' && Number(scopeMeasurements.cabinetLf) > 0) {
         primaryQuantity = Number(scopeMeasurements.cabinetLf);
         primaryUnit = 'lf';
-      } else if (id === 'countertops' && Number(scopeMeasurements.countertopSqft) > 0) {
+      } else if (
+        id === 'countertops' &&
+        Number(scopeMeasurements.countertopSqft) > 0
+      ) {
         primaryQuantity = Number(scopeMeasurements.countertopSqft);
         primaryUnit = 'sqft';
-      } else if (id === 'shower_tile' && Number(scopeMeasurements.showerWallTileSqft) > 0) {
+      } else if (
+        id === 'shower_tile' &&
+        Number(scopeMeasurements.showerWallTileSqft) > 0
+      ) {
         primaryQuantity = Number(scopeMeasurements.showerWallTileSqft);
         primaryUnit = 'sqft';
-      } else if (id === 'shower_floor_tile' && Number(scopeMeasurements.showerFloorTileSqft) > 0) {
+      } else if (
+        id === 'shower_floor_tile' &&
+        Number(scopeMeasurements.showerFloorTileSqft) > 0
+      ) {
         primaryQuantity = Number(scopeMeasurements.showerFloorTileSqft);
         primaryUnit = 'sqft';
-      } else if (id === 'floor_tile' && Number(scopeMeasurements.bathroomFloorSqft) > 0) {
+      } else if (
+        id === 'floor_tile' &&
+        Number(scopeMeasurements.bathroomFloorSqft) > 0
+      ) {
         primaryQuantity = Number(scopeMeasurements.bathroomFloorSqft);
         primaryUnit = 'floor_sqft';
       } else if (
@@ -1606,7 +1846,9 @@ export function seedPlanFloorAreaItemQuantities(
       } else if (hasExistingPrimary && String(existing.unit || '') !== 'sqft') {
         // Preserve non-living physical quantities already present.
         primaryQuantity = Number(existing.quantity);
-        primaryUnit = String(existing.unit || preferredPrimaryUnit(id)) as MeasurementUnit;
+        primaryUnit = String(
+          existing.unit || preferredPrimaryUnit(id)
+        ) as MeasurementUnit;
       } else if (
         hasExistingPrimary &&
         existing?.quantitySource === 'user_entered'
@@ -1661,28 +1903,49 @@ export function seedPlanFloorAreaItemQuantities(
     let qty = living;
     let unit = 'sqft';
     if (id === 'tile_flooring' || id === 'flooring') {
-      qty = Number(scopeMeasurements.flooringSqft) > 0 ? Number(scopeMeasurements.flooringSqft) : living;
+      qty =
+        Number(scopeMeasurements.flooringSqft) > 0
+          ? Number(scopeMeasurements.flooringSqft)
+          : living;
     } else if (id === 'drywall' && Number(scopeMeasurements.drywallSqft) > 0) {
       qty = Number(scopeMeasurements.drywallSqft);
     } else if (id === 'roofing' && Number(scopeMeasurements.roofSquares) > 0) {
       qty = Number(scopeMeasurements.roofSquares);
       unit = 'squares';
-    } else if (id === 'foundation' && Number(scopeMeasurements.concreteCy) > 0) {
+    } else if (
+      id === 'foundation' &&
+      Number(scopeMeasurements.concreteCy) > 0
+    ) {
       qty = Number(scopeMeasurements.concreteCy);
       unit = 'cy';
-    } else if (id === 'excavation' && Number(scopeMeasurements.excavationCy) > 0) {
+    } else if (
+      id === 'excavation' &&
+      Number(scopeMeasurements.excavationCy) > 0
+    ) {
       qty = Number(scopeMeasurements.excavationCy);
       unit = 'cy';
     } else if (id === 'cabinets' && Number(scopeMeasurements.cabinetLf) > 0) {
       qty = Number(scopeMeasurements.cabinetLf);
       unit = 'lf';
-    } else if (id === 'countertops' && Number(scopeMeasurements.countertopSqft) > 0) {
+    } else if (
+      id === 'countertops' &&
+      Number(scopeMeasurements.countertopSqft) > 0
+    ) {
       qty = Number(scopeMeasurements.countertopSqft);
-    } else if (id === 'shower_tile' && Number(scopeMeasurements.showerWallTileSqft) > 0) {
+    } else if (
+      id === 'shower_tile' &&
+      Number(scopeMeasurements.showerWallTileSqft) > 0
+    ) {
       qty = Number(scopeMeasurements.showerWallTileSqft);
-    } else if (id === 'shower_floor_tile' && Number(scopeMeasurements.showerFloorTileSqft) > 0) {
+    } else if (
+      id === 'shower_floor_tile' &&
+      Number(scopeMeasurements.showerFloorTileSqft) > 0
+    ) {
       qty = Number(scopeMeasurements.showerFloorTileSqft);
-    } else if (id === 'floor_tile' && Number(scopeMeasurements.bathroomFloorSqft) > 0) {
+    } else if (
+      id === 'floor_tile' &&
+      Number(scopeMeasurements.bathroomFloorSqft) > 0
+    ) {
       qty = Number(scopeMeasurements.bathroomFloorSqft);
     } else if (
       id === 'excavation' ||
@@ -1712,13 +1975,16 @@ export function seedPlanFloorAreaItemQuantities(
 }
 
 /** Whether Step 3 should prefetch clarifying questions without waiting for a tap. */
-export function shouldAutoClarifyDraft(draft: EstimateAiDraft | null | undefined): boolean {
+export function shouldAutoClarifyDraft(
+  draft: EstimateAiDraft | null | undefined
+): boolean {
   if (!draft) return false;
   if (draft.noPricingDetected) return true;
   if (draft.estimateConfidence?.level === 'low') return true;
   const packages = draft.scopePackages || draft.rooms || [];
-  const unpriced = packages.some((p) => {
-    const price = Number(p.price ?? p.knownSubtotal ?? p.calculatedSubtotal ?? 0) || 0;
+  const unpriced = packages.some(p => {
+    const price =
+      Number(p.price ?? p.knownSubtotal ?? p.calculatedSubtotal ?? 0) || 0;
     return price <= 0;
   });
   if (unpriced) return true;
@@ -1726,11 +1992,15 @@ export function shouldAutoClarifyDraft(draft: EstimateAiDraft | null | undefined
   return false;
 }
 
-export function isComplexEstimateTier(draft: EstimateAiDraft | null | undefined): boolean {
+export function isComplexEstimateTier(
+  draft: EstimateAiDraft | null | undefined
+): boolean {
   return Boolean(draft?.estimateTier && draft.estimateTier !== 'simple_unit');
 }
 
-export function aiFlowStepTotal(draft: EstimateAiDraft | null | undefined): 2 | 3 {
+export function aiFlowStepTotal(
+  draft: EstimateAiDraft | null | undefined
+): 2 | 3 {
   return isComplexEstimateTier(draft) ? 3 : 2;
 }
 
@@ -1799,17 +2069,24 @@ export function planImportPayloadFromDraft(
   const sm = draft?.scopeMeasurements;
   if (!sm) return null;
   const sourceMap = sm.quickMeasurementSources || {};
-  const hasPlanMeasurementSource = Object.values(sourceMap).some((source) =>
-    source === 'detected_from_plan' ||
-    source === 'measured_from_geometry' ||
-    source === 'calculated_from_components' ||
-    source === 'estimated_from_formula' ||
-    source === 'fallback_multiplier'
+  const hasPlanMeasurementSource = Object.values(sourceMap).some(
+    source =>
+      source === 'detected_from_plan' ||
+      source === 'measured_from_geometry' ||
+      source === 'calculated_from_components' ||
+      source === 'estimated_from_formula' ||
+      source === 'fallback_multiplier'
   );
   const hasPlanFacts =
-    Boolean(sm.planFacts?.fieldEvidence && Object.keys(sm.planFacts.fieldEvidence).length) ||
+    Boolean(
+      sm.planFacts?.fieldEvidence &&
+        Object.keys(sm.planFacts.fieldEvidence).length
+    ) ||
     Boolean(sm.planFacts?.geometry && sm.planFacts.geometry.length) ||
-    Boolean(sm.planFacts?.buildingAreas && Object.keys(sm.planFacts.buildingAreas).length);
+    Boolean(
+      sm.planFacts?.buildingAreas &&
+        Object.keys(sm.planFacts.buildingAreas).length
+    );
   // Notes-derived measurements and parsed rooms are not a plan import. Only
   // restore the Step 1 plan card when the draft contains takeoff provenance.
   if (!hasPlanMeasurementSource && !hasPlanFacts) return null;
@@ -1861,6 +2138,61 @@ export function planImportPayloadFromDraft(
  * Apply Step 1 plan import onto a freshly generated draft: seed Quick
  * measurements and fill unsure checklist items from plan scope detections.
  */
+function normalizeTradePlanMeasurements(
+  measurements: Record<string, number | string>,
+  tradeKey: PlanTradeKey | null
+): Record<string, number | string> {
+  if (tradeKey !== 'stucco') return measurements;
+  const out = { ...measurements };
+  const wall =
+    Number(out.stuccoSqft) ||
+    Number(out.exteriorWallSqft) ||
+    Number(out.exteriorFinishSqft) ||
+    Number(out.exteriorFinishesSqft);
+  if (wall > 0 && !(Number(out.exteriorPaintSqft) > 0)) {
+    out.exteriorPaintSqft = wall;
+  }
+  return out;
+}
+
+const WHOLE_PROJECT_QUICK_MEASUREMENT_KEYS = [
+  'floorAreaSqft',
+  'flooringSqft',
+  'garageSqft',
+  'deckSqft',
+  'kitchenFloorSqft',
+  'bathroomFloorSqft',
+  'concreteSqft',
+  'concreteDemoSqft',
+  'concreteCy',
+  'excavationCy',
+  'roofSquares',
+  'wallPaintSqft',
+  'ceilingPaintSqft',
+  'baseboardLf',
+  'interiorDoorCount',
+  'cabinetRunLf',
+] as const;
+
+function stripWholeProjectScopeMeasurements(
+  scopeMeasurements: ScopeMeasurements | null | undefined
+): ScopeMeasurements {
+  const next: ScopeMeasurements = { ...(scopeMeasurements || {}) };
+  for (const key of WHOLE_PROJECT_QUICK_MEASUREMENT_KEYS) {
+    delete (next as Record<string, unknown>)[key];
+  }
+  delete next.planRooms;
+  delete next.planFacts;
+  delete next.areaReconciliation;
+  if (next.itemQuantities) {
+    const allowed = new Set(['stucco', 'electrical_rough']);
+    next.itemQuantities = Object.fromEntries(
+      Object.entries(next.itemQuantities).filter(([id]) => allowed.has(id))
+    );
+  }
+  return next;
+}
+
 export function applyPlanImportToDraft(
   draft: EstimateAiDraft,
   payload: PlanImportPayload | null | undefined
@@ -1868,9 +2200,20 @@ export function applyPlanImportToDraft(
   if (!draft || !payload) return draft;
   let next = draft;
 
-  let scopeMeasurements = planMeasurementsToScopeMeasurements(payload.measurements);
   const planImportMode = payload.estimatingMode || 'whole_project';
   const planImportTradeKey = payload.selectedTrade || null;
+  const rawMeasurements = normalizeTradePlanMeasurements(
+    (payload.measurements || {}) as Record<string, number | string>,
+    planImportTradeKey
+  );
+  const filteredPlanMeasurements = filterPlanMeasurementsForTrade(
+    rawMeasurements as Record<string, number>,
+    planImportMode,
+    planImportTradeKey
+  );
+  let scopeMeasurements = planMeasurementsToScopeMeasurements(
+    filteredPlanMeasurements
+  );
   scopeMeasurements.planImportMode = planImportMode;
   scopeMeasurements.planImportTradeKey = planImportTradeKey;
   scopeMeasurements.planImportProvenance = payload.tradeProvenance || {
@@ -1879,32 +2222,63 @@ export function applyPlanImportToDraft(
     selectedTrade: planImportTradeKey,
   };
   scopeMeasurements.planImportMissingInfo = payload.missingInfo || [];
+  const tradeChecklistItems = filterChecklistItemsForTrade(
+    next.scopeChecklist?.items || [],
+    planImportMode,
+    planImportTradeKey
+  );
+  if (planImportMode === 'selected_trade' && planImportTradeKey) {
+    next = {
+      ...next,
+      scopeChecklist: {
+        ...next.scopeChecklist!,
+        items: tradeChecklistItems,
+      },
+    };
+  }
   const importedPlanFacts: PlanFacts | undefined =
-    payload.planFacts || payload.buildingAreas
-      ? {
-          ...(payload.planFacts || {}),
-          buildingAreas: {
-            ...(payload.buildingAreas || {}),
-            ...(payload.planFacts?.buildingAreas || {}),
-          },
-        }
-      : undefined;
+    planImportMode === 'selected_trade'
+      ? undefined
+      : payload.planFacts || payload.buildingAreas
+        ? {
+            ...(payload.planFacts || {}),
+            buildingAreas: {
+              ...(payload.buildingAreas || {}),
+              ...(payload.planFacts?.buildingAreas || {}),
+            },
+          }
+        : undefined;
   if (importedPlanFacts) scopeMeasurements.planFacts = importedPlanFacts;
   if (payload.fieldConfidence && Object.keys(payload.fieldConfidence).length) {
-    scopeMeasurements.quickMeasurementFieldConfidence = { ...payload.fieldConfidence };
+    scopeMeasurements.quickMeasurementFieldConfidence = {
+      ...payload.fieldConfidence,
+    };
   }
-  if (payload.areaReconciliation) {
+  if (planImportMode !== 'selected_trade' && payload.areaReconciliation) {
     scopeMeasurements.areaReconciliation = payload.areaReconciliation;
   }
-  const rooms = normalizePlanRooms(payload.rooms);
+  const rooms =
+    planImportMode === 'selected_trade'
+      ? []
+      : normalizePlanRooms(payload.rooms);
   if (rooms.length) {
-    scopeMeasurements = applyPlanRoomsToScopeMeasurements(scopeMeasurements, rooms);
+    scopeMeasurements = applyPlanRoomsToScopeMeasurements(
+      scopeMeasurements,
+      rooms
+    );
   }
 
-  const detections = payload.scopeDetections;
+  const detections = filterPlanScopesForTrade(
+    payload.scopeDetections || [],
+    planImportMode,
+    planImportTradeKey
+  );
   const items = next.scopeChecklist?.items;
   if (detections?.length && items?.length) {
-    const { items: nextItems } = applyScopeDetectionsToChecklistItems(items, detections);
+    const { items: nextItems } = applyScopeDetectionsToChecklistItems(
+      items,
+      detections
+    );
     next = {
       ...next,
       scopeChecklist: { ...next.scopeChecklist!, items: nextItems },
@@ -1912,10 +2286,34 @@ export function applyPlanImportToDraft(
   }
 
   if (Object.keys(scopeMeasurements).length || rooms.length) {
-    scopeMeasurements = seedPlanFloorAreaItemQuantities(next, scopeMeasurements);
-    scopeMeasurements = syncMeasurementsWithSouthernUtahPlanFacts(scopeMeasurements, {
-      templateKey: next.scopeChecklist?.templateKey,
-    });
+    if (planImportMode !== 'selected_trade') {
+      scopeMeasurements = seedPlanFloorAreaItemQuantities(
+        next,
+        scopeMeasurements
+      );
+      scopeMeasurements = syncMeasurementsWithSouthernUtahPlanFacts(
+        scopeMeasurements,
+        {
+          templateKey: next.scopeChecklist?.templateKey,
+        }
+      );
+    }
+    if (planImportMode === 'selected_trade') {
+      next = {
+        ...next,
+        scopeMeasurements: stripWholeProjectScopeMeasurements(
+          next.scopeMeasurements
+        ),
+      };
+    }
+    next = overlayScopeMeasurements(next, scopeMeasurements);
+  } else if (planImportMode === 'selected_trade') {
+    next = {
+      ...next,
+      scopeMeasurements: stripWholeProjectScopeMeasurements(
+        next.scopeMeasurements
+      ),
+    };
     next = overlayScopeMeasurements(next, scopeMeasurements);
   }
 
@@ -1928,23 +2326,37 @@ export async function applyScopeAssumptionsToDraft(
   scopeMeasurements?: ScopeMeasurements | null
 ): Promise<EstimateAiDraft> {
   const draftForApply = overlayScopeMeasurements(draft, scopeMeasurements);
-  const payload = await postAiAssistantJson<{ draft?: EstimateAiDraft; error?: string; message?: string }>(
+  const payload = await postAiAssistantJson<{
+    draft?: EstimateAiDraft;
+    error?: string;
+    message?: string;
+  }>(
     '/estimate-draft-apply-scope-assumptions',
-    { draft: draftForApply, confirmedItems, scopeMeasurements: scopeMeasurements ?? undefined },
+    {
+      draft: draftForApply,
+      confirmedItems,
+      scopeMeasurements: scopeMeasurements ?? undefined,
+    },
     60000
   );
 
   if (!payload?.draft) {
-    throw new Error(payload?.message || payload?.error || 'Failed to apply scope assumptions');
+    throw new Error(
+      payload?.message || payload?.error || 'Failed to apply scope assumptions'
+    );
   }
 
   return withReconciledScopePackages(
-    syncSelectedScopePricing(overlayScopeMeasurements(payload.draft, scopeMeasurements)),
+    syncSelectedScopePricing(
+      overlayScopeMeasurements(payload.draft, scopeMeasurements)
+    ),
     confirmedItems
   );
 }
 
-export function draftHasCombinedRoomPrices(draft: EstimateAiDraft | null): boolean {
+export function draftHasCombinedRoomPrices(
+  draft: EstimateAiDraft | null
+): boolean {
   return (draft?.combinedPriceRoomCount || 0) > 0;
 }
 
@@ -1952,19 +2364,23 @@ export function getScopePackageForRoom(
   draft: EstimateAiDraft,
   roomName: string
 ): EstimateDraftScopePackage | undefined {
-  const exact = draft.scopePackages?.find((p) => p.name === roomName);
+  const exact = draft.scopePackages?.find(p => p.name === roomName);
   if (exact) return exact;
   if (!draft.scopePackages?.length) {
-    return getScopePackages(draft).find((p) => p.name === roomName);
+    return getScopePackages(draft).find(p => p.name === roomName);
   }
   const normalizedRoom = roomName.toLowerCase();
-  return draft.scopePackages.find((p) => {
+  return draft.scopePackages.find(p => {
     const normalizedPkg = p.name.toLowerCase();
     if (normalizedPkg === normalizedRoom) return true;
     const roomIsDemo = /\bdemo|removal\b/.test(normalizedRoom);
     const pkgIsDemo = /\bdemo|removal\b/.test(normalizedPkg);
     if (roomIsDemo || pkgIsDemo) return roomIsDemo && pkgIsDemo;
-    if (/\bbaseboard|trim\b/.test(normalizedRoom) && /\bbaseboard|trim\b/.test(normalizedPkg)) return true;
+    if (
+      /\bbaseboard|trim\b/.test(normalizedRoom) &&
+      /\bbaseboard|trim\b/.test(normalizedPkg)
+    )
+      return true;
     if (
       /\blvp|flooring|floor\b/.test(normalizedRoom) &&
       /\blvp|flooring|floor\b/.test(normalizedPkg)
@@ -2011,14 +2427,17 @@ function selectedPricingForRuleKey(
   if (!userSelected) return null;
 
   const physicalBasis =
-    base?.quantity && base.unit && !['allowance', 'lump_sum'].includes(base.unit)
+    base?.quantity &&
+    base.unit &&
+    !['allowance', 'lump_sum'].includes(base.unit)
       ? { quantity: Number(base.quantity), unit: base.unit }
       : null;
 
   if (
     acceptance &&
     Number(acceptance.totalAmount) > 0 &&
-    (acceptance.selectionStatus === 'accepted' || acceptance.selectionStatus === 'manual_adjusted')
+    (acceptance.selectionStatus === 'accepted' ||
+      acceptance.selectionStatus === 'manual_adjusted')
   ) {
     // Match Step 2: wiped Material/Labor with orphan __allowance must not stamp stale acceptance.
     if (hasSplitLegs && splitLegsEmpty) {
@@ -2028,7 +2447,8 @@ function selectedPricingForRuleKey(
     const acceptedMaterial =
       materialPrice > 0
         ? materialPrice
-        : acceptance.materialAmount != null && Number(acceptance.materialAmount) > 0
+        : acceptance.materialAmount != null &&
+            Number(acceptance.materialAmount) > 0
           ? Number(acceptance.materialAmount)
           : null;
     const acceptedLabor =
@@ -2037,7 +2457,8 @@ function selectedPricingForRuleKey(
         : acceptance.laborAmount != null && Number(acceptance.laborAmount) > 0
           ? Number(acceptance.laborAmount)
           : null;
-    const liveTotal = splitTotal > 0 ? splitTotal : Number(acceptance.totalAmount);
+    const liveTotal =
+      splitTotal > 0 ? splitTotal : Number(acceptance.totalAmount);
     // Dollar totals stored as unit "allowance" are not a takeoff qty — omit basis so Step 3
     // does not show "10,118 allowance" under finish carpentry / similar packages.
     const basis =
@@ -2058,7 +2479,9 @@ function selectedPricingForRuleKey(
   }
 
   const allowanceTotal = Number(allowance?.quantity || 0);
-  const baseTotal = ['allowance', 'lump_sum'].includes(base?.unit || '') ? Number(base?.quantity || 0) : 0;
+  const baseTotal = ['allowance', 'lump_sum'].includes(base?.unit || '')
+    ? Number(base?.quantity || 0)
+    : 0;
   // Split legs present but empty → ignore orphan __allowance leftover.
   const total =
     splitTotal > 0
@@ -2107,7 +2530,8 @@ function resolvedScopeQuantityBasis(
       notes: draft.originalNotes,
     }
   );
-  if (resolved.quantity == null || resolved.quantity <= 0 || !resolved.unit) return null;
+  if (resolved.quantity == null || resolved.quantity <= 0 || !resolved.unit)
+    return null;
   return { quantity: Number(resolved.quantity), unit: resolved.unit };
 }
 
@@ -2151,7 +2575,11 @@ function isAutoCalculatedUnconfirmedPackage(
   ruleKey: string | null
 ): boolean {
   if (!(packageMoneyTotal(pkg) > 0)) return false;
-  if (pkg.priceProvidedByUser || pkg.status === 'user_provided' || pkg.priceSource === 'user_provided') {
+  if (
+    pkg.priceProvidedByUser ||
+    pkg.status === 'user_provided' ||
+    pkg.priceSource === 'user_provided'
+  ) {
     return false;
   }
   if (
@@ -2180,7 +2608,7 @@ function isAutoCalculatedUnconfirmedPackage(
   // when AI marked them confirmed+applyEligible (that path inflated Bid Summary).
   if (ruleKey) {
     const onChecklist = confirmScopeDisplayItemsFromDraft(draft).some(
-      (item) => item.id === ruleKey && checklistItemInScope(item)
+      item => item.id === ruleKey && checklistItemInScope(item)
     );
     if (onChecklist) return true;
   }
@@ -2191,7 +2619,9 @@ function isAutoCalculatedUnconfirmedPackage(
 }
 
 /** Drop takeoff/backend prices that never got Applied on Confirm Scope. */
-function stripUnconfirmedAutoPackagePricing<T extends EstimateDraftScopePackage>(
+function stripUnconfirmedAutoPackagePricing<
+  T extends EstimateDraftScopePackage,
+>(
   pkg: T,
   draft: EstimateAiDraft,
   base: T,
@@ -2236,7 +2666,11 @@ function stripUnconfirmedAutoPackagePricing<T extends EstimateDraftScopePackage>
 }
 
 function shouldPreserveUserPackagePrice(
-  pkg: { priceProvidedByUser?: boolean; price?: number | null; checklistItemId?: string | null },
+  pkg: {
+    priceProvidedByUser?: boolean;
+    price?: number | null;
+    checklistItemId?: string | null;
+  },
   selected: SelectedScopePricing
 ): boolean {
   if (!pkg.priceProvidedByUser) return false;
@@ -2245,7 +2679,8 @@ function shouldPreserveUserPackagePrice(
   // Partial manual split — package total is authoritative; Confirm Scope legs are a portion only.
   if (current > selected.total + 0.01) return true;
   // Same checklist row — Ask AI / manual revision wins over stale Confirm Scope sync.
-  if (pkg.checklistItemId && pkg.checklistItemId === selected.ruleKey) return true;
+  if (pkg.checklistItemId && pkg.checklistItemId === selected.ruleKey)
+    return true;
   if (!SOFT_COST_SYNC_KEYS.has(selected.ruleKey)) return false;
   return true;
 }
@@ -2271,10 +2706,10 @@ function applySelectedPricingToScopePackage(
   // dollar "allowance" itemQuantities as 10,118 lump sum under finish carpentry.
   const basis = selected
     ? selected.basis
-    : (ruleKey ? resolvedScopeQuantityBasis(draft, ruleKey) : null) ??
+    : ((ruleKey ? resolvedScopeQuantityBasis(draft, ruleKey) : null) ??
       pkg.budgetSplitBasis ??
       pkg.scopeQuantities?.[0] ??
-      null;
+      null);
   const withIdentity: EstimateDraftScopePackage = {
     ...pkg,
     checklistItemId: ruleKey,
@@ -2308,25 +2743,39 @@ function applySelectedPricingToScopePackage(
     materialPrice: selected.materialPrice,
     laborPrice: selected.laborPrice,
     includesLabor: selected.laborPrice != null ? true : pkg.includesLabor,
-    includesMaterials: selected.materialPrice != null ? true : pkg.includesMaterials,
+    includesMaterials:
+      selected.materialPrice != null ? true : pkg.includesMaterials,
     priceSource: 'user_provided',
     status: 'user_provided',
-    pricingType: selected.materialPrice || selected.laborPrice ? 'split' : 'lump_sum',
-    priceIncludesLaborAndMaterials: Boolean(selected.total && !(selected.materialPrice && selected.laborPrice)),
+    pricingType:
+      selected.materialPrice || selected.laborPrice ? 'split' : 'lump_sum',
+    priceIncludesLaborAndMaterials: Boolean(
+      selected.total && !(selected.materialPrice && selected.laborPrice)
+    ),
     splitIsSuggested: false,
     priceProvidedByUser: true,
     applyEligible: true,
     budgetSplitBasis: basis,
-    scopeQuantities: basis ? [{ quantity: basis.quantity, unit: basis.unit }] : undefined,
+    scopeQuantities: basis
+      ? [{ quantity: basis.quantity, unit: basis.unit }]
+      : undefined,
     missingPriceItems: [],
   };
 }
 
-function applySelectedPricingToRoom(room: EstimateDraftRoom, draft: EstimateAiDraft): EstimateDraftRoom {
+function applySelectedPricingToRoom(
+  room: EstimateDraftRoom,
+  draft: EstimateAiDraft
+): EstimateDraftRoom {
   const checklistItemId =
     (room as { checklistItemId?: string | null }).checklistItemId ||
     lookupRuleKeyForPackage(room.name, room.scope || '');
-  const selected = selectedPricingForScopeName(draft, room.name, room.scope, checklistItemId);
+  const selected = selectedPricingForScopeName(
+    draft,
+    room.name,
+    room.scope,
+    checklistItemId
+  );
   if (!selected) {
     const asPkg = {
       name: room.name,
@@ -2345,11 +2794,18 @@ function applySelectedPricingToRoom(room: EstimateDraftRoom, draft: EstimateAiDr
       pricedFromSqftAllowances: room.pricedFromSqftAllowances,
     } as EstimateDraftScopePackage;
     const basis =
-      (checklistItemId ? resolvedScopeQuantityBasis(draft, checklistItemId) : null) ??
+      (checklistItemId
+        ? resolvedScopeQuantityBasis(draft, checklistItemId)
+        : null) ??
       room.budgetSplitBasis ??
       room.scopeQuantities?.[0] ??
       null;
-    const stripped = stripUnconfirmedAutoPackagePricing(asPkg, draft, asPkg, basis);
+    const stripped = stripUnconfirmedAutoPackagePricing(
+      asPkg,
+      draft,
+      asPkg,
+      basis
+    );
     return {
       ...room,
       price: stripped.price ?? null,
@@ -2384,7 +2840,9 @@ function applySelectedPricingToRoom(room: EstimateDraftRoom, draft: EstimateAiDr
     knownSubtotal: selected.total,
     materialPrice: selected.materialPrice,
     laborPrice: selected.laborPrice,
-    priceIncludesLaborAndMaterials: Boolean(selected.total && !(selected.materialPrice && selected.laborPrice)),
+    priceIncludesLaborAndMaterials: Boolean(
+      selected.total && !(selected.materialPrice && selected.laborPrice)
+    ),
     splitIsSuggested: false,
     priceProvidedByUser: true,
     pricedFromSqftAllowances: false,
@@ -2404,7 +2862,8 @@ function recomputeClientDraftTotals(draft: EstimateAiDraft): EstimateAiDraft {
     const amount = packageMoneyTotal(pkg);
     if (!(amount > 0)) continue;
     lineTotal += amount;
-    materialTotal += Number(pkg.materialPrice) > 0 ? Number(pkg.materialPrice) : 0;
+    materialTotal +=
+      Number(pkg.materialPrice) > 0 ? Number(pkg.materialPrice) : 0;
     laborTotal += Number(pkg.laborPrice) > 0 ? Number(pkg.laborPrice) : 0;
   }
   if (!(lineTotal > 0)) return draft;
@@ -2412,23 +2871,36 @@ function recomputeClientDraftTotals(draft: EstimateAiDraft): EstimateAiDraft {
     ...draft,
     calculatedLineItemTotal: Math.round(lineTotal * 100) / 100,
     calculatedLaborTotal:
-      laborTotal > 0 ? Math.round(laborTotal * 100) / 100 : draft.calculatedLaborTotal,
+      laborTotal > 0
+        ? Math.round(laborTotal * 100) / 100
+        : draft.calculatedLaborTotal,
     calculatedMaterialTotal:
-      materialTotal > 0 ? Math.round(materialTotal * 100) / 100 : draft.calculatedMaterialTotal,
+      materialTotal > 0
+        ? Math.round(materialTotal * 100) / 100
+        : draft.calculatedMaterialTotal,
     calculatedTotal: Math.round(lineTotal * 100) / 100,
   };
 }
 
-export function syncSelectedScopePricing(draft: EstimateAiDraft): EstimateAiDraft {
-  if (!draft?.scopeMeasurements?.itemQuantities && !draft?.scopeMeasurements?.pricingAcceptance) {
+export function syncSelectedScopePricing(
+  draft: EstimateAiDraft
+): EstimateAiDraft {
+  if (
+    !draft?.scopeMeasurements?.itemQuantities &&
+    !draft?.scopeMeasurements?.pricingAcceptance
+  ) {
     return recomputeClientDraftTotals(draft);
   }
   const nextDraft = { ...draft };
   if (draft.scopePackages?.length) {
-    nextDraft.scopePackages = draft.scopePackages.map((pkg) => applySelectedPricingToScopePackage(pkg, draft));
+    nextDraft.scopePackages = draft.scopePackages.map(pkg =>
+      applySelectedPricingToScopePackage(pkg, draft)
+    );
   }
   if (draft.rooms?.length) {
-    nextDraft.rooms = draft.rooms.map((room) => applySelectedPricingToRoom(room, draft));
+    nextDraft.rooms = draft.rooms.map(room =>
+      applySelectedPricingToRoom(room, draft)
+    );
   }
   return recomputeClientDraftTotals(nextDraft);
 }
@@ -2445,23 +2917,31 @@ export function removeScopePackageFromDraft(
     pkg.name === name || pkg.scope === name;
 
   const removed =
-    (draft.scopePackages || []).find(matchPkg) || (draft.rooms || []).find(matchPkg) || null;
+    (draft.scopePackages || []).find(matchPkg) ||
+    (draft.rooms || []).find(matchPkg) ||
+    null;
   const ruleKey =
     (removed as { checklistItemId?: string | null } | null)?.checklistItemId ||
     lookupRuleKeyForPackage(removed?.name || name, removed?.scope || '') ||
     null;
 
-  const nextScopePackages = (draft.scopePackages || []).filter((pkg) => !matchPkg(pkg));
-  const nextRooms = (draft.rooms || []).filter((room) => !matchPkg(room));
+  const nextScopePackages = (draft.scopePackages || []).filter(
+    pkg => !matchPkg(pkg)
+  );
+  const nextRooms = (draft.rooms || []).filter(room => !matchPkg(room));
 
   let nextMeasurements = draft.scopeMeasurements;
   if (ruleKey && draft.scopeMeasurements) {
-    const itemQuantities = { ...(draft.scopeMeasurements.itemQuantities || {}) };
+    const itemQuantities = {
+      ...(draft.scopeMeasurements.itemQuantities || {}),
+    };
     delete itemQuantities[ruleKey];
     delete itemQuantities[`${ruleKey}__material`];
     delete itemQuantities[`${ruleKey}__labor`];
     delete itemQuantities[`${ruleKey}__allowance`];
-    const pricingAcceptance = { ...(draft.scopeMeasurements.pricingAcceptance || {}) };
+    const pricingAcceptance = {
+      ...(draft.scopeMeasurements.pricingAcceptance || {}),
+    };
     delete pricingAcceptance[ruleKey];
     nextMeasurements = {
       ...draft.scopeMeasurements,
@@ -2474,12 +2954,13 @@ export function removeScopePackageFromDraft(
   if (ruleKey && draft.scopeChecklist?.items?.length) {
     nextChecklist = {
       ...draft.scopeChecklist,
-      items: draft.scopeChecklist.items.map((item) =>
+      items: draft.scopeChecklist.items.map(item =>
         item.id === ruleKey
           ? {
               ...item,
               state: 'excluded',
-              choiceId: item.inputType === 'choice' ? 'not_in_scope' : item.choiceId,
+              choiceId:
+                item.inputType === 'choice' ? 'not_in_scope' : item.choiceId,
             }
           : item
       ),
@@ -2488,14 +2969,19 @@ export function removeScopePackageFromDraft(
 
   const nextDraft: EstimateAiDraft = {
     ...draft,
-    scopePackages: draft.scopePackages?.length ? nextScopePackages : draft.scopePackages,
+    scopePackages: draft.scopePackages?.length
+      ? nextScopePackages
+      : draft.scopePackages,
     rooms: nextRooms,
     scopeMeasurements: nextMeasurements,
     scopeChecklist: nextChecklist,
   };
 
   if (nextScopePackages.length > 0) {
-    return recomputeClientDraftTotals({ ...nextDraft, scopePackages: nextScopePackages });
+    return recomputeClientDraftTotals({
+      ...nextDraft,
+      scopePackages: nextScopePackages,
+    });
   }
 
   // Rooms-only drafts: recompute from remaining rooms.
@@ -2540,12 +3026,17 @@ export function resolveRoomForApply(
   draft: EstimateAiDraft
 ): EstimateDraftRoom {
   const applySplits = Boolean(draft.applySuggestedSplits);
-  if (room.splitIsSuggested && room.laborPrice != null && room.materialPrice != null && applySplits) {
+  if (
+    room.splitIsSuggested &&
+    room.laborPrice != null &&
+    room.materialPrice != null &&
+    applySplits
+  ) {
     return { ...room, splitApprovedByUser: true };
   }
 
   const approvedPreview = (draft.suggestedSplits || []).find(
-    (s) => s.parentItemName === room.name && s.approvedByUser && s.previewOnly
+    s => s.parentItemName === room.name && s.approvedByUser && s.previewOnly
   );
   if (approvedPreview && applySplits) {
     return {
@@ -2572,13 +3063,16 @@ export function resolveRoomForApply(
 
 /** Job notes blob for scope parsing — prefers originalNotes, then description / rooms. */
 export function resolveDraftScopeNotes(
-  draft: {
-    originalNotes?: string | null;
-    projectDescription?: string | null;
-    contractScope?: string | null;
-    rooms?: Array<{ name?: string; scope?: string }>;
-    scopeChecklist?: { intro?: string } | null;
-  } | null | undefined
+  draft:
+    | {
+        originalNotes?: string | null;
+        projectDescription?: string | null;
+        contractScope?: string | null;
+        rooms?: Array<{ name?: string; scope?: string }>;
+        scopeChecklist?: { intro?: string } | null;
+      }
+    | null
+    | undefined
 ): string {
   const direct = String(draft?.originalNotes || '').trim();
   if (direct) return direct;
@@ -2613,11 +3107,12 @@ function buildScopeDescription(draft: EstimateAiDraft): string {
   }
 
   const useChecklistScopeOrder =
-    draft.scopeAssumptionsConfirmed || (draft.confirmedAssumptions?.length ?? 0) > 0;
+    draft.scopeAssumptionsConfirmed ||
+    (draft.confirmedAssumptions?.length ?? 0) > 0;
   if (useChecklistScopeOrder) {
     const packages = getScopePackages(draft);
     if (packages.length > 0) {
-      const roomBlocks = packages.map((pkg) => {
+      const roomBlocks = packages.map(pkg => {
         const header = String(pkg.name || '').trim();
         const body = String(pkg.scope || '').trim();
         return body ? `${header}\n${body}` : header;
@@ -2627,7 +3122,7 @@ function buildScopeDescription(draft: EstimateAiDraft): string {
   } else {
     const rooms = draft.rooms || [];
     if (rooms.length > 0) {
-      const roomBlocks = rooms.map((room) => {
+      const roomBlocks = rooms.map(room => {
         const header = room.name.trim();
         const body = room.scope.trim();
         return body ? `${header}\n${body}` : header;
@@ -2638,12 +3133,13 @@ function buildScopeDescription(draft: EstimateAiDraft): string {
 
   const allowances = draft.allowances || [];
   if (allowances.length > 0) {
-    const allowanceLines = allowances.map((allowance) => {
+    const allowanceLines = allowances.map(allowance => {
       const label = allowance.name || allowance.description || 'Allowance';
       const rate = allowance.rate ?? allowance.amount;
       const amount =
         rate != null
-          ? formatDraftMoney(rate) + (allowance.unit ? ` ${allowance.unit}` : '')
+          ? formatDraftMoney(rate) +
+            (allowance.unit ? ` ${allowance.unit}` : '')
           : allowance.unit || '';
       const calc =
         allowance.calculatedAmount != null
@@ -2652,17 +3148,23 @@ function buildScopeDescription(draft: EstimateAiDraft): string {
       const detail = allowance.description?.trim();
       return [label, amount, calc, detail].filter(Boolean).join(' — ');
     });
-    parts.push(['Allowances', ...allowanceLines.map((line) => `• ${line}`)].join('\n'));
+    parts.push(
+      ['Allowances', ...allowanceLines.map(line => `• ${line}`)].join('\n')
+    );
   }
 
   const inclusions = draft.inclusions || [];
   if (inclusions.length > 0) {
-    parts.push(['Inclusions', ...inclusions.map((line) => `• ${line}`)].join('\n'));
+    parts.push(
+      ['Inclusions', ...inclusions.map(line => `• ${line}`)].join('\n')
+    );
   }
 
   const exclusions = draft.exclusions || [];
   if (exclusions.length > 0) {
-    parts.push(['Exclusions', ...exclusions.map((line) => `• ${line}`)].join('\n'));
+    parts.push(
+      ['Exclusions', ...exclusions.map(line => `• ${line}`)].join('\n')
+    );
   }
 
   return parts.filter(Boolean).join('\n\n').trim();
@@ -2670,7 +3172,8 @@ function buildScopeDescription(draft: EstimateAiDraft): string {
 
 function laborPortion(room: EstimateDraftRoom): number {
   if (room.laborPrice != null) return room.laborPrice;
-  if (room.priceIncludesLaborAndMaterials && room.price != null) return room.price;
+  if (room.priceIncludesLaborAndMaterials && room.price != null)
+    return room.price;
   if (room.price != null) return room.price;
   return 0;
 }
@@ -2683,14 +3186,20 @@ function materialPortion(room: EstimateDraftRoom): number {
 function parsedNoteSplitForPackage(
   pkg: EstimateDraftScopePackage | undefined,
   draft: EstimateAiDraft
-): { material: number; labor: number; total: number; splitIsSuggested?: boolean } | null {
+): {
+  material: number;
+  labor: number;
+  total: number;
+  splitIsSuggested?: boolean;
+} | null {
   if (!pkg) return null;
   const breakdown = resolveScopePackageBudgetBreakdown(pkg, draft);
   if (!breakdown) return null;
   if (breakdown.material <= 0 && breakdown.labor <= 0) return null;
 
   const isSuggested =
-    breakdown.materialSource === 'suggested' && breakdown.laborSource === 'suggested';
+    breakdown.materialSource === 'suggested' &&
+    breakdown.laborSource === 'suggested';
   const hasApprovedPkgSplit =
     Number(pkg.materialPrice ?? 0) > 0 && Number(pkg.laborPrice ?? 0) > 0;
   if (isSuggested && !draft.applySuggestedSplits && !hasApprovedPkgSplit) {
@@ -2714,15 +3223,25 @@ function laborDescription(
   const parts = [scope];
   if (pkg?.status === 'partial_pricing') {
     const priced = (pkg.pricingItems || [])
-      .filter((i) => i.amount != null && i.amount > 0)
-      .map((i) => `• ${i.name}: ${formatDraftMoney(i.amount)}${i.status === 'rough_price' ? ' (rough)' : ''}`)
+      .filter(i => i.amount != null && i.amount > 0)
+      .map(
+        i =>
+          `• ${i.name}: ${formatDraftMoney(i.amount)}${i.status === 'rough_price' ? ' (rough)' : ''}`
+      )
       .join('\n');
     if (priced) parts.push(`\nKnown pricing from notes:\n${priced}`);
-    const missing = (pkg.missingPriceItems || []).slice(0, 8).map((m) => `• ${m}`).join('\n');
+    const missing = (pkg.missingPriceItems || [])
+      .slice(0, 8)
+      .map(m => `• ${m}`)
+      .join('\n');
     if (missing) {
-      parts.push(`\nStill needs pricing (not included in line total):\n${missing}`);
+      parts.push(
+        `\nStill needs pricing (not included in line total):\n${missing}`
+      );
     }
-    parts.push('\n(Partial package — add remaining scope on Labor/Materials steps.)');
+    parts.push(
+      '\n(Partial package — add remaining scope on Labor/Materials steps.)'
+    );
   }
   if (parsedSplit) {
     parts.push(
@@ -2733,7 +3252,9 @@ function laborDescription(
   } else if (room.splitIsSuggested && room.splitApprovedByUser) {
     parts.push('\n(AI-suggested labor split — review on Labor step.)');
   } else if (room.priceIncludesLaborAndMaterials && !room.splitIsSuggested) {
-    parts.push('\n(Price from notes includes labor and materials — split on steps if needed.)');
+    parts.push(
+      '\n(Price from notes includes labor and materials — split on steps if needed.)'
+    );
   }
   return parts.join('');
 }
@@ -2749,7 +3270,11 @@ function effectiveLaborTotal(
     return parsedSplit.labor > 0 ? parsedSplit.labor : null;
   }
   if (pkg) {
-    return laborAmountForPackage(pkg, null, Boolean(draft.applySuggestedSplits));
+    return laborAmountForPackage(
+      pkg,
+      null,
+      Boolean(draft.applySuggestedSplits)
+    );
   }
   if (resolved.priceIncludesLaborAndMaterials && !resolved.splitIsSuggested) {
     const total = Number(resolved.price) || 0;
@@ -2763,12 +3288,18 @@ function packageHasAppliedOrUserPricing(
   pkg: EstimateDraftScopePackage,
   draft: EstimateAiDraft
 ): boolean {
-  if (pkg.priceProvidedByUser || pkg.status === 'user_provided' || pkg.priceSource === 'user_provided') {
+  if (
+    pkg.priceProvidedByUser ||
+    pkg.status === 'user_provided' ||
+    pkg.priceSource === 'user_provided'
+  ) {
     return true;
   }
 
   const ruleKey =
-    pkg.checklistItemId || lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') || null;
+    pkg.checklistItemId ||
+    lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
+    null;
   if (!ruleKey) {
     // Off-checklist Ask AI rows (e.g. Disposal Bid) may rely on applyEligible.
     return Boolean(pkg.applyEligible);
@@ -2788,10 +3319,12 @@ function packageIsOnConfirmScopeChecklist(
   draft: EstimateAiDraft
 ): boolean {
   const ruleKey =
-    pkg.checklistItemId || lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') || null;
+    pkg.checklistItemId ||
+    lookupRuleKeyForPackage(pkg.name || '', pkg.scope || '') ||
+    null;
   if (!ruleKey) return false;
   const items = confirmScopeDisplayItemsFromDraft(draft);
-  return items.some((item) => item.id === ruleKey && checklistItemInScope(item));
+  return items.some(item => item.id === ruleKey && checklistItemInScope(item));
 }
 
 function packageIsApplyEligible(
@@ -2810,11 +3343,19 @@ function packageIsApplyEligible(
     return false;
   }
   // Apply Confirmed Only must match Step 3 — skip checklist rows without Applied pricing.
-  if (applyConfirmedOnly && draft && packageIsOnConfirmScopeChecklist(pkg, draft)) {
+  if (
+    applyConfirmedOnly &&
+    draft &&
+    packageIsOnConfirmScopeChecklist(pkg, draft)
+  ) {
     return packageHasAppliedOrUserPricing(pkg, draft);
   }
   if (pkg.applyEligible) return true;
-  if (pkg.priceProvidedByUser || pkg.status === 'user_provided' || pkg.priceSource === 'user_provided') {
+  if (
+    pkg.priceProvidedByUser ||
+    pkg.status === 'user_provided' ||
+    pkg.priceSource === 'user_provided'
+  ) {
     return true;
   }
   const amount = pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0;
@@ -2822,7 +3363,9 @@ function packageIsApplyEligible(
 }
 
 function packageAllowanceAmount(pkg: EstimateDraftScopePackage): number {
-  const amount = Number(pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0);
+  const amount = Number(
+    pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0
+  );
   return Number.isFinite(amount) && amount > 0 ? amount : 0;
 }
 
@@ -2845,7 +3388,7 @@ function resolveDraftPackagesForApply(
 ): EstimateDraftScopePackage[] {
   const rawPackages = [...getScopePackages(draft)];
   const preferredDrywallIndex = rawPackages.findIndex(
-    (pkg) => packageRuleKeyForApply(pkg) === 'drywall'
+    pkg => packageRuleKeyForApply(pkg) === 'drywall'
   );
   const packages = rawPackages.filter((pkg, index, all) => {
     // `patch_repair` and `drywall` are sibling IDs for the same physical
@@ -2856,18 +3399,27 @@ function resolveDraftPackagesForApply(
     if (ruleKey !== 'patch_repair' && ruleKey !== 'drywall') return true;
     // Prefer the canonical checklist ID when both legacy siblings exist.
     if (preferredDrywallIndex >= 0) return index === preferredDrywallIndex;
-    return index === all.findIndex((candidate) => {
-      const candidateKey = packageRuleKeyForApply(candidate);
-      return candidateKey === 'patch_repair' || candidateKey === 'drywall';
-    });
+    return (
+      index ===
+      all.findIndex(candidate => {
+        const candidateKey = packageRuleKeyForApply(candidate);
+        return candidateKey === 'patch_repair' || candidateKey === 'drywall';
+      })
+    );
   });
   if (!draft.rooms?.length) return packages;
 
   const seenNames = new Set(
-    packages.map((p) => String(p.name || '').trim().toLowerCase()).filter(Boolean)
+    packages
+      .map(p =>
+        String(p.name || '')
+          .trim()
+          .toLowerCase()
+      )
+      .filter(Boolean)
   );
   const seenRuleKeys = new Set(
-    packages.map((p) => packageRuleKeyForApply(p)).filter(Boolean) as string[]
+    packages.map(p => packageRuleKeyForApply(p)).filter(Boolean) as string[]
   );
   const confirmedFromScope = Boolean(
     draft.scopeAssumptionsConfirmed || draft.confirmedAssumptions?.length
@@ -2875,7 +3427,9 @@ function resolveDraftPackagesForApply(
   const merged = [...packages];
 
   for (const room of draft.rooms) {
-    const key = String(room.name || '').trim().toLowerCase();
+    const key = String(room.name || '')
+      .trim()
+      .toLowerCase();
     if (!key || seenNames.has(key)) continue;
 
     const ruleKey =
@@ -2891,7 +3445,13 @@ function resolveDraftPackagesForApply(
       );
       if (!userOwned) continue;
       // Checklist coverage comes from reconciled packages only after Confirm Scope.
-      if (ruleKey && packageIsOnConfirmScopeChecklist({ name: room.name, scope: room.scope, checklistItemId: ruleKey }, draft)) {
+      if (
+        ruleKey &&
+        packageIsOnConfirmScopeChecklist(
+          { name: room.name, scope: room.scope, checklistItemId: ruleKey },
+          draft
+        )
+      ) {
         continue;
       }
     }
@@ -2911,7 +3471,12 @@ function resolveDraftPackagesForApply(
             : room.laborPrice != null
               ? true
               : null,
-          includesMaterials: room.materialPrice != null ? true : room.priceIncludesLaborAndMaterials ? true : null,
+          includesMaterials:
+            room.materialPrice != null
+              ? true
+              : room.priceIncludesLaborAndMaterials
+                ? true
+                : null,
           priceSource: room.priceProvidedByUser ? 'user_provided' : 'missing',
           status: (room.packageStatus ||
             (room.price != null
@@ -2942,7 +3507,10 @@ function resolvePackageCostCode(
 ): string | undefined {
   if (pkg?.costCode) return String(pkg.costCode);
   if (pkg?.checklistItemId) return String(pkg.checklistItemId);
-  const ruleKey = lookupRuleKeyForPackage(name || pkg?.name || '', scope || pkg?.scope || '');
+  const ruleKey = lookupRuleKeyForPackage(
+    name || pkg?.name || '',
+    scope || pkg?.scope || ''
+  );
   return ruleKey || undefined;
 }
 
@@ -2988,8 +3556,13 @@ function laborDescriptionForPackage(
         ? '\n(National Average budget split applied — review on Labor step.)'
         : '\n(Material/labor split from notes — review on Labor step.)'
     );
-  } else if (pkg.priceIncludesLaborAndMaterials || (pkg.includesLabor && pkg.includesMaterials)) {
-    parts.push('\n(Price from notes includes labor and materials — split on steps if needed.)');
+  } else if (
+    pkg.priceIncludesLaborAndMaterials ||
+    (pkg.includesLabor && pkg.includesMaterials)
+  ) {
+    parts.push(
+      '\n(Price from notes includes labor and materials — split on steps if needed.)'
+    );
   }
   return parts.join('');
 }
@@ -3004,15 +3577,22 @@ function budgetSplitDisplaySubtitle(
       ? 'National Average material budget split'
       : 'National Average labor remainder';
   }
-  return type === 'material' ? SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL : SCOPE_LABOR_PARSED_FROM_NOTES_LABEL;
+  return type === 'material'
+    ? SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL
+    : SCOPE_LABOR_PARSED_FROM_NOTES_LABEL;
 }
 
 /** True when package material/labor fields are only a suggested national split, not confirmed. */
 function packageSplitIsSuggestedOnly(pkg: EstimateDraftScopePackage): boolean {
   if (pkg.splitIsSuggested) return true;
   // Approved rough proposals store real material/labor — those are confirmed, not suggested.
-  if (pkg.priceSource === 'ai_rough_estimate' && pkg.applyEligible) return false;
-  if (pkg.priceSource === 'manual' || pkg.priceSource === 'user' || pkg.priceSource === 'user_provided') {
+  if (pkg.priceSource === 'ai_rough_estimate' && pkg.applyEligible)
+    return false;
+  if (
+    pkg.priceSource === 'manual' ||
+    pkg.priceSource === 'user' ||
+    pkg.priceSource === 'user_provided'
+  ) {
     return false;
   }
   return false;
@@ -3021,12 +3601,21 @@ function packageSplitIsSuggestedOnly(pkg: EstimateDraftScopePackage): boolean {
 /** Labor amount for a package without double-counting material already on the package. */
 function laborAmountForPackage(
   pkg: EstimateDraftScopePackage,
-  parsedSplit: { labor: number; material?: number; splitIsSuggested?: boolean } | null,
+  parsedSplit: {
+    labor: number;
+    material?: number;
+    splitIsSuggested?: boolean;
+  } | null,
   applySuggestedSplits = false
 ): number {
-  const pkgPrice = Number(pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0);
+  const pkgPrice = Number(
+    pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0
+  );
 
-  if (parsedSplit && (parsedSplit.labor > 0 || (parsedSplit.material || 0) > 0)) {
+  if (
+    parsedSplit &&
+    (parsedSplit.labor > 0 || (parsedSplit.material || 0) > 0)
+  ) {
     if (parsedSplit.splitIsSuggested && !applySuggestedSplits) {
       return pkgPrice > 0 ? pkgPrice : 0;
     }
@@ -3048,7 +3637,7 @@ function laborAmountForPackage(
   const pkgLab = Number(pkg.laborPrice ?? 0);
   const pkgMat = Number(pkg.materialPrice ?? 0);
   const materialFromItems = (pkg.pricingItems || [])
-    .filter((i) => i.pricingType === 'material' && (i.amount || 0) > 0)
+    .filter(i => i.pricingType === 'material' && (i.amount || 0) > 0)
     .reduce((s, i) => s + (Number(i.amount) || 0), 0);
   const separateMaterial = pkgMat > 0 ? pkgMat : materialFromItems;
 
@@ -3072,7 +3661,7 @@ function laborAmountForPackage(
   }
   if (pkgPrice > 0) return pkgPrice;
   const laborFromItems = (pkg.pricingItems || [])
-    .filter((i) => i.pricingType === 'labor' && (i.amount || 0) > 0)
+    .filter(i => i.pricingType === 'labor' && (i.amount || 0) > 0)
     .reduce((s, i) => s + (Number(i.amount) || 0), 0);
   return laborFromItems > 0 ? laborFromItems : 0;
 }
@@ -3108,12 +3697,16 @@ function laborLineItemsFromDraft(
     const total = laborAmountForPackage(pkg, parsedSplit, applySuggestedSplits);
     if (total <= 0) continue;
 
-    const splitMaterial = materialAmountForPackage(pkg, parsedSplit, applySuggestedSplits);
+    const splitMaterial = materialAmountForPackage(
+      pkg,
+      parsedSplit,
+      applySuggestedSplits
+    );
     const materialFromItems =
       splitMaterial > 0
         ? 0
         : (pkg.pricingItems || [])
-            .filter((i) => i.pricingType === 'material' && (i.amount || 0) > 0)
+            .filter(i => i.pricingType === 'material' && (i.amount || 0) > 0)
             .reduce((s, i) => s + (Number(i.amount) || 0), 0);
     const hasSeparateMaterial = splitMaterial > 0 || materialFromItems > 0;
     const isCombinedOnly =
@@ -3138,7 +3731,9 @@ function laborLineItemsFromDraft(
       checklistItemId: costCode,
       priceProvidedByUser: true,
       priceIncludesLaborAndMaterials: isCombinedOnly,
-      splitIsSuggested: Boolean(parsedSplit?.splitIsSuggested || pkg.splitIsSuggested),
+      splitIsSuggested: Boolean(
+        parsedSplit?.splitIsSuggested || pkg.splitIsSuggested
+      ),
       displaySubtitle: budgetSplitDisplaySubtitle(parsedSplit, 'labor'),
       partialPricing: pkg.status === 'partial_pricing',
     });
@@ -3159,8 +3754,13 @@ function materialLineItemsFromDraft(
     if (isSoftCostScopePackage(pkg, draft)) continue;
 
     const parsedSplit = parsedNoteSplitForPackage(pkg, draft);
-    const splitMaterial = materialAmountForPackage(pkg, parsedSplit, applySuggestedSplits);
-    const splitIsSuggested = parsedSplit?.splitIsSuggested ?? Boolean(pkg.splitIsSuggested);
+    const splitMaterial = materialAmountForPackage(
+      pkg,
+      parsedSplit,
+      applySuggestedSplits
+    );
+    const splitIsSuggested =
+      parsedSplit?.splitIsSuggested ?? Boolean(pkg.splitIsSuggested);
     const costCode = resolvePackageCostCode(pkg);
 
     if (splitMaterial > 0) {
@@ -3189,12 +3789,24 @@ function materialLineItemsFromDraft(
 
     if (pkg.pricingItems?.length) {
       for (const item of pkg.pricingItems) {
-        if (item.pricingType !== 'material' || item.amount == null || item.amount <= 0) continue;
-        if (applyConfirmedOnly && item.status === 'ai_suggested' && !item.approvedByUser) continue;
+        if (
+          item.pricingType !== 'material' ||
+          item.amount == null ||
+          item.amount <= 0
+        )
+          continue;
+        if (
+          applyConfirmedOnly &&
+          item.status === 'ai_suggested' &&
+          !item.approvedByUser
+        )
+          continue;
         lines.push({
           id: newLineItemId(),
           name: `${pkg.name} — ${item.name}`,
-          description: item.description || `${SCOPE_PARSED_FROM_NOTES_LABEL} (${item.status || 'confirmed'})`,
+          description:
+            item.description ||
+            `${SCOPE_PARSED_FROM_NOTES_LABEL} (${item.status || 'confirmed'})`,
           quantity: 1,
           qty: 1,
           unit: 'lot',
@@ -3215,7 +3827,9 @@ function materialLineItemsFromDraft(
   return lines;
 }
 
-function cartItemFromMaterialLine(item: Record<string, unknown>): Record<string, unknown> {
+function cartItemFromMaterialLine(
+  item: Record<string, unknown>
+): Record<string, unknown> {
   const qty = Number(item.quantity || item.qty || 1);
   const unitPrice = Number(item.unitPrice || item.cost || 0);
   const total = Number(item.total) || qty * unitPrice;
@@ -3249,15 +3863,26 @@ export function applyDraftToEstimate(
   const draftForApply: EstimateAiDraft = {
     ...draft,
     // Never invent National Average splits on apply unless the user opted in.
-    applySuggestedSplits: options.applySuggestedSplits ?? Boolean(draft.applySuggestedSplits),
+    applySuggestedSplits:
+      options.applySuggestedSplits ?? Boolean(draft.applySuggestedSplits),
   };
 
   const projectType = draftForApply.projectType || 'other';
-  const category = PROJECT_CATEGORY_SLUGS[projectType] || PROJECT_CATEGORY_SLUGS.other;
+  const category =
+    PROJECT_CATEGORY_SLUGS[projectType] || PROJECT_CATEGORY_SLUGS.other;
   const scopeDescription = buildScopeDescription(draftForApply);
-  const laborLineItems = laborLineItemsFromDraft(draftForApply, applyConfirmedOnly);
-  const materialLineItems = materialLineItemsFromDraft(draftForApply, applyConfirmedOnly);
-  const allowanceLineItems = allowanceLineItemsFromDraft(draftForApply, applyConfirmedOnly);
+  const laborLineItems = laborLineItemsFromDraft(
+    draftForApply,
+    applyConfirmedOnly
+  );
+  const materialLineItems = materialLineItemsFromDraft(
+    draftForApply,
+    applyConfirmedOnly
+  );
+  const allowanceLineItems = allowanceLineItemsFromDraft(
+    draftForApply,
+    applyConfirmedOnly
+  );
   const materialsCart = materialLineItems.map(cartItemFromMaterialLine);
   const tradeBudgetRollup = tradeBudgetRollupFromEstimate({
     laborLineItems,
@@ -3343,7 +3968,8 @@ export function tradeBudgetRollupFromEstimate(bid: {
   const byCode = new Map<string, TradeBudgetRollupLine>();
 
   const ensure = (rawCode: unknown, label: string): TradeBudgetRollupLine => {
-    const costCode = String(rawCode || label || 'uncategorized').trim() || 'uncategorized';
+    const costCode =
+      String(rawCode || label || 'uncategorized').trim() || 'uncategorized';
     let row = byCode.get(costCode);
     if (!row) {
       row = { costCode, label, material: 0, labor: 0, allowance: 0, total: 0 };
@@ -3356,7 +3982,10 @@ export function tradeBudgetRollupFromEstimate(bid: {
     const amount = Number(item.total ?? item.cost ?? item.unitPrice ?? 0) || 0;
     if (amount <= 0) continue;
     const label = String(item.section || item.name || 'Materials');
-    const row = ensure(item.costCode || item.sourceItemId || item.checklistItemId, label);
+    const row = ensure(
+      item.costCode || item.sourceItemId || item.checklistItemId,
+      label
+    );
     row.material += amount;
     row.total += amount;
   }
@@ -3365,32 +3994,47 @@ export function tradeBudgetRollupFromEstimate(bid: {
     const amount = Number(item.total ?? item.totalCost ?? item.rate ?? 0) || 0;
     if (amount <= 0) continue;
     const label = String(item.section || item.name || 'Labor');
-    const row = ensure(item.costCode || item.sourceItemId || item.checklistItemId, label);
+    const row = ensure(
+      item.costCode || item.sourceItemId || item.checklistItemId,
+      label
+    );
     row.labor += amount;
     row.total += amount;
   }
 
   for (const item of bid.allowanceLineItems || []) {
-    const amount = Number(item.amount ?? item.total ?? item.totalCost ?? 0) || 0;
+    const amount =
+      Number(item.amount ?? item.total ?? item.totalCost ?? 0) || 0;
     if (amount <= 0) continue;
     const label = String(item.section || item.name || 'Allowance');
-    const row = ensure(item.costCode || item.sourceItemId || item.checklistItemId, label);
+    const row = ensure(
+      item.costCode || item.sourceItemId || item.checklistItemId,
+      label
+    );
     row.allowance += amount;
     row.total += amount;
   }
 
-  return Array.from(byCode.values()).sort((a, b) => a.costCode.localeCompare(b.costCode));
+  return Array.from(byCode.values()).sort((a, b) =>
+    a.costCode.localeCompare(b.costCode)
+  );
 }
 
-export function draftHasApprovedSuggestions(draft: EstimateAiDraft | null): boolean {
+export function draftHasApprovedSuggestions(
+  draft: EstimateAiDraft | null
+): boolean {
   if (!draft) return false;
-  const approvedSplit = (draft.suggestedSplits || []).some((s) => s.approvedByUser);
-  const approvedRoom = (draft.rooms || []).some((r) => r.splitApprovedByUser);
+  const approvedSplit = (draft.suggestedSplits || []).some(
+    s => s.approvedByUser
+  );
+  const approvedRoom = (draft.rooms || []).some(r => r.splitApprovedByUser);
   return approvedSplit || approvedRoom;
 }
 
 /** Step 3 inline edits → Confirm Scope itemQuantities for back-navigation restore. */
-export function syncConfirmScopeMeasurementsFromPackages(draft: EstimateAiDraft): EstimateAiDraft {
+export function syncConfirmScopeMeasurementsFromPackages(
+  draft: EstimateAiDraft
+): EstimateAiDraft {
   if (!draft.scopePackages?.length) return draft;
 
   const itemQuantities = { ...(draft.scopeMeasurements?.itemQuantities || {}) };
@@ -3406,9 +4050,12 @@ export function syncConfirmScopeMeasurementsFromPackages(draft: EstimateAiDraft)
     ) {
       continue;
     }
-    const ruleKey = pkg.checklistItemId || lookupRuleKeyForPackage(pkg.name, pkg.scope || '');
+    const ruleKey =
+      pkg.checklistItemId || lookupRuleKeyForPackage(pkg.name, pkg.scope || '');
     if (!ruleKey) continue;
-    const total = Number(pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0);
+    const total = Number(
+      pkg.price ?? pkg.knownSubtotal ?? pkg.calculatedSubtotal ?? 0
+    );
     if (!(total > 0)) continue;
 
     const mat = Number(pkg.materialPrice ?? 0);
@@ -3444,45 +4091,67 @@ export function syncConfirmScopeMeasurementsFromPackages(draft: EstimateAiDraft)
   };
 }
 
-export function getScopePackagesRaw(draft: EstimateAiDraft): EstimateDraftScopePackage[] {
+export function getScopePackagesRaw(
+  draft: EstimateAiDraft
+): EstimateDraftScopePackage[] {
   if (draft.scopePackages?.length) {
-    return draft.scopePackages.map((pkg) => applySelectedPricingToScopePackage(pkg, draft));
+    return draft.scopePackages.map(pkg =>
+      applySelectedPricingToScopePackage(pkg, draft)
+    );
   }
-  return (draft.rooms || []).map((room) => applySelectedPricingToScopePackage({
-    name: room.name,
-    scope: room.scope,
-    scopeQuantities: room.scopeQuantities,
-    price: room.price,
-    laborPrice: room.laborPrice,
-    materialPrice: room.materialPrice,
-    pricingType: room.price != null ? 'lump_sum' : 'unknown',
-    includesLabor: room.priceIncludesLaborAndMaterials ? true : room.laborPrice != null ? true : null,
-    includesMaterials: room.materialPrice != null ? true : room.priceIncludesLaborAndMaterials ? true : null,
-    priceSource: room.priceProvidedByUser ? 'user_provided' : 'missing',
-    status: (room.packageStatus ||
-      (room.price != null
-        ? room.splitIsSuggested
-          ? 'ai_suggested'
-          : room.pricedFromSqftAllowances
-            ? 'calculated'
+  return (draft.rooms || []).map(room =>
+    applySelectedPricingToScopePackage(
+      {
+        name: room.name,
+        scope: room.scope,
+        scopeQuantities: room.scopeQuantities,
+        price: room.price,
+        laborPrice: room.laborPrice,
+        materialPrice: room.materialPrice,
+        pricingType: room.price != null ? 'lump_sum' : 'unknown',
+        includesLabor: room.priceIncludesLaborAndMaterials
+          ? true
+          : room.laborPrice != null
+            ? true
+            : null,
+        includesMaterials:
+          room.materialPrice != null
+            ? true
             : room.priceIncludesLaborAndMaterials
-              ? 'user_provided'
-              : 'confirmed'
-        : room.knownSubtotal
-          ? 'partial_pricing'
-          : 'missing_price')) as DraftItemStatus,
-    knownSubtotal: room.knownSubtotal ?? null,
-    formula: null,
-    missingInfo: [],
-    missingPriceItems: room.missingPriceItems || [],
-    pricingItems: room.pricingItems || [],
-    priceIncludesLaborAndMaterials: room.priceIncludesLaborAndMaterials,
-    splitIsSuggested: Boolean(room.splitIsSuggested),
-    priceProvidedByUser: Boolean(room.priceProvidedByUser),
-    applyEligible: room.applyEligible ?? (room.price != null || (room.knownSubtotal || 0) > 0),
-  }, draft));
+              ? true
+              : null,
+        priceSource: room.priceProvidedByUser ? 'user_provided' : 'missing',
+        status: (room.packageStatus ||
+          (room.price != null
+            ? room.splitIsSuggested
+              ? 'ai_suggested'
+              : room.pricedFromSqftAllowances
+                ? 'calculated'
+                : room.priceIncludesLaborAndMaterials
+                  ? 'user_provided'
+                  : 'confirmed'
+            : room.knownSubtotal
+              ? 'partial_pricing'
+              : 'missing_price')) as DraftItemStatus,
+        knownSubtotal: room.knownSubtotal ?? null,
+        formula: null,
+        missingInfo: [],
+        missingPriceItems: room.missingPriceItems || [],
+        pricingItems: room.pricingItems || [],
+        priceIncludesLaborAndMaterials: room.priceIncludesLaborAndMaterials,
+        splitIsSuggested: Boolean(room.splitIsSuggested),
+        priceProvidedByUser: Boolean(room.priceProvidedByUser),
+        applyEligible:
+          room.applyEligible ??
+          (room.price != null || (room.knownSubtotal || 0) > 0),
+      },
+      draft
+    )
+  );
 }
 
-export function getScopePackages(draft: EstimateAiDraft): EstimateDraftScopePackage[] {
+export function getScopePackages(
+  draft: EstimateAiDraft
+): EstimateDraftScopePackage[] {
   return getScopePackagesForReview(draft);
 }
