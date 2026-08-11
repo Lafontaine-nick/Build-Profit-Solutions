@@ -67,7 +67,25 @@ const RELATED_SCOPE_KEYS: Partial<Record<QuickMeasurementFieldKey, string[]>> = 
   treeCount: ['trees', 'landscaping'],
   boulderCount: ['landscape_boulders', 'landscaping'],
   landscapeSqft: ['landscaping'],
+  stuccoGrossWallSqft: ['stucco'],
+  stuccoWindowDoorOpeningSqft: ['stucco'],
+  stuccoGarageOpeningSqft: ['stucco'],
+  stuccoOtherFinishDeductionSqft: ['stucco_other_finish'],
+  stuccoNetWallSqft: ['stucco'],
+  stuccoSoffitSqft: ['stucco_soffits'],
+  stuccoParapetSqft: ['stucco_parapets'],
+  stuccoFoamTrimLf: ['stucco_foam_trim'],
+  stuccoControlJointLf: ['stucco_accessories'],
+  stuccoStories: ['stucco_access'],
+  stuccoWallHeightFt: ['stucco_access'],
 };
+
+const STUCCO_CORE_MEASUREMENT_KEYS = new Set<QuickMeasurementFieldKey>([
+  'stuccoGrossWallSqft',
+  'stuccoWindowDoorOpeningSqft',
+  'stuccoGarageOpeningSqft',
+  'stuccoNetWallSqft',
+]);
 
 function relatedLabel(relatedScopeKeys: string[]): string {
   if (!relatedScopeKeys.length) return 'the related scope';
@@ -184,6 +202,17 @@ export function getMeasurementRelevance(params: {
   }
 
   const tradeOnlyTemplate = String(params.templateKey || '').toLowerCase();
+  if (
+    tradeOnlyTemplate === 'stucco' &&
+    STUCCO_CORE_MEASUREMENT_KEYS.has(measurementKey)
+  ) {
+    return {
+      relevant: true,
+      blockingPrice: measurementKey === 'stuccoNetWallSqft',
+      relatedScopeKeys,
+      reason: undefined,
+    };
+  }
   if (
     measurementKey === 'floorAreaSqft' &&
     new Set([

@@ -40,7 +40,6 @@ import {
   filterChecklistItemsForTrade,
   filterPlanMeasurementsForTrade,
   filterPlanScopesForTrade,
-  tradeQuickMeasurementFieldKeys,
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
 import type {
@@ -207,6 +206,19 @@ export type PlanRoomMeasurement = {
 };
 
 export type ScopeMeasurements = {
+  stuccoGrossWallSqft?: number | null;
+  stuccoWindowDoorOpeningSqft?: number | null;
+  stuccoGarageOpeningSqft?: number | null;
+  stuccoOtherFinishDeductionSqft?: number | null;
+  stuccoNetWallSqft?: number | null;
+  stuccoSoffitSqft?: number | null;
+  stuccoParapetSqft?: number | null;
+  stuccoFoamTrimLf?: number | null;
+  stuccoControlJointLf?: number | null;
+  stuccoAccessAffectedSqft?: number | null;
+  stuccoRepairAffectedSqft?: number | null;
+  stuccoStories?: number | null;
+  stuccoWallHeightFt?: number | null;
   /** Plan-import routing/provenance; does not imply detailed trade quantities. */
   planImportMode?:
     | import('@/utils/planImportTradeConfig').PlanEstimatingMode
@@ -1061,9 +1073,7 @@ export async function fetchSuggestedDraftSplits(
   return syncSelectedScopePricing(payload.draft);
 }
 
-export async function fetchRoughEstimateRange(
-  draft: EstimateAiDraft
-): Promise<{
+export async function fetchRoughEstimateRange(draft: EstimateAiDraft): Promise<{
   draft: EstimateAiDraft;
   roughEstimate: EstimateRoughEstimateRange;
 }> {
@@ -1709,6 +1719,35 @@ export function planMeasurementsToScopeMeasurements(
       detectedKeys
     );
   }
+  const gross = Number(out.stuccoGrossWallSqft);
+  const openings = Number(out.stuccoWindowDoorOpeningSqft) || 0;
+  const totalDeductions =
+    openings +
+    (Number(out.stuccoGarageOpeningSqft) || 0) +
+    (Number(out.stuccoOtherFinishDeductionSqft) || 0);
+  if (gross > 0 && totalDeductions >= 0) {
+    const net = Math.max(0, gross - totalDeductions);
+    if (!(Number(out.stuccoNetWallSqft) > 0)) {
+      out.stuccoNetWallSqft = net;
+      detectedKeys.push('stuccoNetWallSqft');
+    }
+    if (!(Number(out.exteriorPaintSqft) > 0) && net > 0) {
+      out.exteriorPaintSqft = net;
+      detectedKeys.push('exteriorPaintSqft');
+    }
+  } else if (
+    Number(out.stuccoNetWallSqft) > 0 &&
+    !(Number(out.exteriorPaintSqft) > 0)
+  ) {
+    out.exteriorPaintSqft = Number(out.stuccoNetWallSqft);
+    detectedKeys.push('exteriorPaintSqft');
+  }
+  if (detectedKeys.length) {
+    out.quickMeasurementSources = tagPlanDetectedQuickMeasurementKeys(
+      out.quickMeasurementSources,
+      detectedKeys
+    );
+  }
   return out;
 }
 
@@ -2144,13 +2183,22 @@ function normalizeTradePlanMeasurements(
 ): Record<string, number | string> {
   if (tradeKey !== 'stucco') return measurements;
   const out = { ...measurements };
-  const wall =
+  const gross = Number(out.stuccoGrossWallSqft);
+  const deductions =
+    (Number(out.stuccoWindowDoorOpeningSqft) || 0) +
+    (Number(out.stuccoGarageOpeningSqft) || 0) +
+    (Number(out.stuccoOtherFinishDeductionSqft) || 0);
+  if (gross > 0 && !(Number(out.stuccoNetWallSqft) > 0)) {
+    out.stuccoNetWallSqft = Math.max(0, gross - deductions);
+  }
+  const netWall =
+    Number(out.stuccoNetWallSqft) ||
     Number(out.stuccoSqft) ||
     Number(out.exteriorWallSqft) ||
     Number(out.exteriorFinishSqft) ||
     Number(out.exteriorFinishesSqft);
-  if (wall > 0 && !(Number(out.exteriorPaintSqft) > 0)) {
-    out.exteriorPaintSqft = wall;
+  if (netWall > 0 && !(Number(out.exteriorPaintSqft) > 0)) {
+    out.exteriorPaintSqft = netWall;
   }
   return out;
 }
@@ -2193,6 +2241,143 @@ function stripWholeProjectScopeMeasurements(
   return next;
 }
 
+export function buildStuccoTradeChecklistItems(
+  existing: ScopeChecklistItem[]
+): ScopeChecklistItem[] {
+  const byId = new Map(existing.map(item => [item.id, item]));
+  const yesNo = (
+    id: string,
+    label: string,
+    helperText: string,
+    category = 'stucco'
+  ): ScopeChecklistItem => ({
+    ...(byId.get(id) || {}),
+    id,
+    label,
+    helperText,
+    category,
+    inputType: 'yes_no',
+    state: byId.get(id)?.state || 'unsure',
+  });
+  const choice = (
+    id: string,
+    label: string,
+    helperText: string,
+    options: { id: string; label: string }[],
+    category = 'stucco'
+  ): ScopeChecklistItem => ({
+    ...(byId.get(id) || {}),
+    id,
+    label,
+    helperText,
+    category,
+    inputType: 'choice',
+    options,
+    choiceId: byId.get(id)?.choiceId || 'unsure',
+    state: byId.get(id)?.state || 'unsure',
+  });
+  const system = byId.get('stucco');
+  const items: ScopeChecklistItem[] = [
+    {
+      ...(system || {}),
+      id: 'stucco',
+      label: 'Stucco system',
+      helperText:
+        'Select the assembly being bid. Quantity is based on net stucco wall area. Complete systems include WRB, metal lath, scratch/brown coats, standard finish, and standard accessories at $0 incremental.',
+      category: 'stucco',
+      inputType: 'choice',
+      options: [
+        { id: 'three_coat', label: '3-coat traditional stucco' },
+        { id: 'one_coat', label: '1-coat stucco' },
+        { id: 'eifs', label: 'EIFS / synthetic stucco' },
+        { id: 'finish_only', label: 'Finish coat only' },
+        { id: 'repair_restucco', label: 'Repair / re-stucco' },
+      ],
+      choiceId: system?.choiceId || 'unsure',
+      state: system?.state || 'unsure',
+    },
+    yesNo(
+      'stucco_wrb',
+      'Weather barrier / building paper',
+      'Confirm whether WRB is included with this stucco bid or supplied by others.'
+    ),
+    yesNo(
+      'stucco_lath',
+      'Metal lath',
+      'Confirm lath type and whether it is included in this subcontractor bid.'
+    ),
+    yesNo(
+      'stucco_base_coat',
+      'Base / scratch & brown coats',
+      'For traditional stucco, includes scratch coat, brown coat, mixing, application, and curing.'
+    ),
+    yesNo(
+      'stucco_finish_coat',
+      'Finish coat',
+      'Confirm finish texture and whether color or specialty coating is included.'
+    ),
+    choice(
+      'stucco_foam_trim',
+      'Foam trim / architectural bands',
+      'Window bands, door bands, columns, cornices, quoins, and custom shapes.',
+      [
+        { id: 'basic_flat', label: 'Basic flat band' },
+        { id: 'medium_profiled', label: 'Medium / profiled trim' },
+        { id: 'complex_custom', label: 'Complex cornice / custom shape' },
+        { id: 'custom_price', label: 'Custom price' },
+      ]
+    ),
+    yesNo(
+      'stucco_accessories',
+      'Stucco accessories',
+      'Corner bead, casing bead, weep screed, control joints, expansion joints, and flashing details.'
+    ),
+    yesNo(
+      'stucco_soffits',
+      'Soffits / stucco ceilings',
+      'Overhead stucco is priced separately from vertical wall application.'
+    ),
+    yesNo(
+      'stucco_parapets',
+      'Parapets / raised walls',
+      'Stucco surface on parapets and raised walls is measured and priced separately from the main exterior wall area.'
+    ),
+    choice(
+      'stucco_access',
+      'Access and scaffolding',
+      'Price only the affected wall area when access exceeds standard ground access.',
+      [
+        { id: 'standard_ground', label: 'Standard ground access' },
+        {
+          id: 'difficult_single_story',
+          label: 'Difficult single-story · +$0.75/SF',
+        },
+        { id: 'two_story', label: 'Two-story · +$2.00/SF' },
+        {
+          id: 'major_scaffolding',
+          label: 'Three-story / major scaffolding · custom',
+        },
+      ]
+    ),
+    choice(
+      'stucco_repairs',
+      'Substrate repairs / surface preparation',
+      'Use affected SF only. Heavy damage requires a custom price.',
+      [
+        { id: 'light_prep', label: 'Light prep / minor patching · $3.00/SF' },
+        { id: 'moderate_repair', label: 'Moderate repair · custom' },
+        { id: 'heavy_damage', label: 'Heavy damage · custom' },
+      ]
+    ),
+    yesNo(
+      'stucco_other_finish',
+      'Other exterior finishes / exclusions',
+      'Confirm stone, brick, siding, panels, or wood accents excluded from stucco area.'
+    ),
+  ];
+  return items;
+}
+
 export function applyPlanImportToDraft(
   draft: EstimateAiDraft,
   payload: PlanImportPayload | null | undefined
@@ -2228,11 +2413,27 @@ export function applyPlanImportToDraft(
     planImportTradeKey
   );
   if (planImportMode === 'selected_trade' && planImportTradeKey) {
+    const selectedTradeItems =
+      planImportTradeKey === 'stucco'
+        ? buildStuccoTradeChecklistItems(tradeChecklistItems)
+        : tradeChecklistItems;
     next = {
       ...next,
       scopeChecklist: {
         ...next.scopeChecklist!,
-        items: tradeChecklistItems,
+        items: selectedTradeItems,
+        templateKey:
+          planImportTradeKey === 'stucco'
+            ? 'stucco'
+            : next.scopeChecklist?.templateKey,
+        title:
+          planImportTradeKey === 'stucco'
+            ? 'Stucco / exterior finish — confirm trade scope'
+            : next.scopeChecklist?.title,
+        intro:
+          planImportTradeKey === 'stucco'
+            ? 'Confirm the stucco system, quantities, accessories, and access included in this bid.'
+            : next.scopeChecklist?.intro,
       },
     };
   }

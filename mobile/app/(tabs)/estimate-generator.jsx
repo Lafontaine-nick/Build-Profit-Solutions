@@ -6036,6 +6036,25 @@ export default function EstimateGeneratorScreen() {
           }
         }
       }
+      // Keep the exact Step 1 takeoff authoritative through the draft handoff.
+      // Confirm Scope must not depend on the notes-generated draft preserving
+      // plan measurements or selected-trade metadata.
+      if (
+        (effectivePlanImport?.estimatingMode === 'selected_trade' ||
+          Boolean(effectivePlanImport?.selectedTrade)) &&
+        effectivePlanImport?.selectedTrade &&
+        Object.keys(effectivePlanImport.measurements || {}).length
+      ) {
+        draft = applyPlanImportToDraft(draft, {
+          ...effectivePlanImport,
+          estimatingMode: 'selected_trade',
+          selectedTrade: effectivePlanImport.selectedTrade,
+        });
+        latestScopeMeasurementsRef.current = mergeScopeMeasurementsPreservingFields(
+          draft.scopeMeasurements,
+          latestScopeMeasurementsRef.current
+        );
+      }
       const draftTitle = `${draft.projectTitle || ''} ${draft.customerName || ''}`.toLowerCase();
       setAiSaveToPricingLibrary(!/\b(test|demo|sample|example)\b/.test(draftTitle));
       setAiDraft(draft);

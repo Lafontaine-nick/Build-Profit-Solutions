@@ -846,10 +846,12 @@ const styles = StyleSheet.create({
   primaryBtn: {
     borderRadius: 12,
     paddingVertical: 14,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+    overflow: 'hidden',
   },
   primaryBtnDisabled: {
     opacity: 0.85,
@@ -858,5 +860,7 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     fontSize: 16,
     fontWeight: '800',
+    flexShrink: 1,
+    textAlign: 'center',
   },
 });

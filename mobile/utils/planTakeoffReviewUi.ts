@@ -68,6 +68,22 @@ export function measurementDisplayLabel(
   if (key === 'deckSqft') return { label: 'Deck / patio' };
   if (key === 'kitchenFloorSqft') return { label: 'Kitchen floor' };
   if (key === 'bathroomFloorSqft') return { label: 'Bathroom floor area' };
+  const stuccoLabels: Record<string, string> = {
+    stuccoGrossWallSqft: 'Exterior wall area — gross',
+    stuccoWindowDoorOpeningSqft: 'Window & door openings',
+    stuccoGarageOpeningSqft: 'Garage door openings',
+    stuccoOtherFinishDeductionSqft: 'Other finish deductions',
+    stuccoNetWallSqft: 'Net stucco wall area',
+    stuccoSoffitSqft: 'Soffits / stucco ceilings',
+    stuccoParapetSqft: 'Parapets / raised walls',
+    stuccoFoamTrimLf: 'Foam trim / architectural bands',
+    stuccoControlJointLf: 'Control / expansion joints',
+    stuccoAccessAffectedSqft: 'Access premium affected area',
+    stuccoRepairAffectedSqft: 'Substrate repair affected area',
+    stuccoStories: 'Stories',
+    stuccoWallHeightFt: 'Wall height',
+  };
+  if (stuccoLabels[key]) return { label: stuccoLabels[key] };
   return { label: key };
 }
 

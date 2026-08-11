@@ -93,6 +93,19 @@ export const PLAN_TRADE_CONFIGURATIONS: PlanTradeConfiguration[] = [
             'exteriorFinishSqft',
             'exteriorFinishesSqft',
             'exteriorPaintSqft',
+            'stuccoGrossWallSqft',
+            'stuccoWindowDoorOpeningSqft',
+            'stuccoGarageOpeningSqft',
+            'stuccoOtherFinishDeductionSqft',
+            'stuccoNetWallSqft',
+            'stuccoSoffitSqft',
+            'stuccoParapetSqft',
+            'stuccoFoamTrimLf',
+            'stuccoControlJointLf',
+            'stuccoAccessAffectedSqft',
+            'stuccoRepairAffectedSqft',
+            'stuccoStories',
+            'stuccoWallHeightFt',
           ]
         : [],
     reviewScopeKeywords:
@@ -147,14 +160,40 @@ export function filterPlanMeasurementsForTrade(
 
 const TRADE_SCOPE_ITEM_IDS: Partial<Record<PlanTradeKey, string[]>> = {
   electrical: ['electrical_rough'],
-  stucco: ['stucco'],
+  stucco: [
+    'stucco',
+    'stucco_wrb',
+    'stucco_lath',
+    'stucco_base_coat',
+    'stucco_finish_coat',
+    'stucco_foam_trim',
+    'stucco_accessories',
+    'stucco_soffits',
+    'stucco_parapets',
+    'stucco_access',
+    'stucco_repairs',
+    'stucco_other_finish',
+  ],
 };
 
 export function tradeQuickMeasurementFieldKeys(
   tradeKey?: PlanTradeKey | null
 ): string[] {
   const byTrade: Partial<Record<PlanTradeKey, string[]>> = {
-    stucco: ['exteriorPaintSqft'],
+    stucco: [
+      'stuccoGrossWallSqft',
+      'stuccoWindowDoorOpeningSqft',
+      'stuccoGarageOpeningSqft',
+      'stuccoOtherFinishDeductionSqft',
+      'stuccoNetWallSqft',
+      'stuccoSoffitSqft',
+      'stuccoParapetSqft',
+      'stuccoFoamTrimLf',
+      'stuccoControlJointLf',
+      'stuccoStories',
+      'stuccoWallHeightFt',
+      'exteriorPaintSqft',
+    ],
     painting: ['exteriorPaintSqft', 'wallPaintSqft'],
   };
   return byTrade[tradeKey || 'other'] || [];
@@ -196,7 +235,20 @@ export function filterChecklistItemsForTrade<T extends { id: string }>(
   if (mode !== 'selected_trade') return items;
   const allowedByTrade: Partial<Record<PlanTradeKey, string[]>> = {
     electrical: ['electrical_rough'],
-    stucco: ['stucco'],
+    stucco: [
+      'stucco',
+      'stucco_wrb',
+      'stucco_lath',
+      'stucco_base_coat',
+      'stucco_finish_coat',
+      'stucco_foam_trim',
+      'stucco_accessories',
+      'stucco_soffits',
+      'stucco_parapets',
+      'stucco_access',
+      'stucco_repairs',
+      'stucco_other_finish',
+    ],
   };
   const allowed = allowedByTrade[tradeKey || 'other'];
   return allowed ? items.filter(item => allowed.includes(item.id)) : items;

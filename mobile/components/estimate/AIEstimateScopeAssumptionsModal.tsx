@@ -41,6 +41,7 @@ import type {
   ScopeMeasurements,
 } from '@/utils/estimateAiDraft';
 import {
+  buildStuccoTradeChecklistItems,
   formatDraftMoney,
   resolveDraftScopeNotes,
   repairDraftRatePricingFromNotes,
@@ -235,6 +236,7 @@ import {
   pinQuickMeasurementFieldInGroup,
   splitWetAreaQuickMeasurementFields,
   WET_AREA_QUICK_MEASUREMENT_KEYS,
+  tagPlanDetectedQuickMeasurementKeys,
   type QuickMeasurementFieldResult,
   type QuickMeasurementGroupId,
   type QuickMeasurementSummary,
@@ -4468,6 +4470,53 @@ function QuantitySection({
   }, [pricingEditorRequest, itemId, onPricingEditorRequestHandled]);
   if (!inScope) return null;
 
+  const completeStuccoSystemSelected =
+    String(templateKey || '').toLowerCase() === 'stucco' &&
+    pricingContext?.checklistItems?.some(
+      row =>
+        row.id === 'stucco' &&
+        row.state === 'included' &&
+        ['three_coat', 'one_coat', 'eifs', 'finish_only'].includes(
+          String(row.choiceId || '')
+        )
+    );
+  const includedInCompleteStuccoSystem =
+    completeStuccoSystemSelected &&
+    [
+      'stucco_wrb',
+      'stucco_lath',
+      'stucco_base_coat',
+      'stucco_finish_coat',
+      'stucco_accessories',
+    ].includes(itemId);
+  if (includedInCompleteStuccoSystem) {
+    return (
+      <View
+        style={[styles.qtySection, { borderTopColor: dividerColor(darkMode) }]}
+      >
+        <Text
+          style={{
+            color: '#22c55e',
+            fontSize: 12,
+            fontWeight: '700',
+          }}
+        >
+          Included with selected Stucco system · $0 incremental
+        </Text>
+        <Text
+          style={{
+            color: captionColor(darkMode, Colors),
+            fontSize: 11,
+            marginTop: 4,
+          }}
+        >
+          Standard component pricing is included in the complete system rate.
+          Change to No only when supplied by others or excluded from this bid.
+        </Text>
+      </View>
+    );
+  }
+
   const norm = buildNormFromInput(
     measurementsInput,
     originalNotes,
@@ -4896,7 +4945,9 @@ function QuantitySection({
                   }
                   itemId={itemId}
                   quantitySource={displayResolved.quantitySource}
-                  hasPrimaryTakeoff={hasPrimaryTakeoffFromResolved(displayResolved)}
+                  hasPrimaryTakeoff={hasPrimaryTakeoffFromResolved(
+                    displayResolved
+                  )}
                   livingSf={
                     Number(
                       String(measurementsInput.floorAreaSqft || '').replace(
@@ -5011,7 +5062,9 @@ function QuantitySection({
                   }
                   itemId={itemId}
                   quantitySource={displayResolved.quantitySource}
-                  hasPrimaryTakeoff={hasPrimaryTakeoffFromResolved(displayResolved)}
+                  hasPrimaryTakeoff={hasPrimaryTakeoffFromResolved(
+                    displayResolved
+                  )}
                   livingSf={
                     Number(
                       String(measurementsInput.floorAreaSqft || '').replace(
@@ -5033,7 +5086,9 @@ function QuantitySection({
                   }
                   itemId={itemId}
                   quantitySource={displayResolved.quantitySource}
-                  hasPrimaryTakeoff={hasPrimaryTakeoffFromResolved(displayResolved)}
+                  hasPrimaryTakeoff={hasPrimaryTakeoffFromResolved(
+                    displayResolved
+                  )}
                   livingSf={
                     Number(
                       String(measurementsInput.floorAreaSqft || '').replace(
@@ -5430,7 +5485,10 @@ function QuantitySection({
     );
   }
 
-  const itemInput = measurementsInput.itemQuantities[itemId];
+  const repairSystemCard =
+    itemId === 'stucco' && choiceId === 'repair_restucco';
+  const quantityEntryItemId = repairSystemCard ? 'stucco_repairs' : itemId;
+  const itemInput = measurementsInput.itemQuantities[quantityEntryItemId];
   const materialKey = allowanceSplitSubKey(itemId, 'material');
   const laborKey = allowanceSplitSubKey(itemId, 'labor');
   const allowanceKey = allowanceSplitSubKey(itemId, 'allowance');
@@ -6123,12 +6181,13 @@ function QuantitySection({
           </Text>
         ) : null}
         {!hideInlineTakeoff &&
-        step2TierNeedsInlineTakeoffEntry(
-          itemId,
-          templateKey,
-          resolved,
-          Boolean(measurementsInput.pricingAcceptance?.[itemId])
-        ) &&
+        (repairSystemCard ||
+          step2TierNeedsInlineTakeoffEntry(
+            itemId,
+            templateKey,
+            resolved,
+            Boolean(measurementsInput.pricingAcceptance?.[itemId])
+          )) &&
         !(
           itemId === 'paint_repair' &&
           String(templateKey || '').toLowerCase() === 'bathroom' &&
@@ -6142,19 +6201,24 @@ function QuantitySection({
               templateKey,
               resolved.unit || rule.defaultUnit
             )}
-            value={itemInput?.quantity ?? ''}
+            value={
+              itemInput?.quantity ??
+              (repairSystemCard
+                ? (measurementsInput.stuccoRepairAffectedSqft ?? '')
+                : '')
+            }
             unit={resolved.unit || rule.defaultUnit}
-            onFocus={() => focusQuantityField(itemId, 'count')}
+            onFocus={() => focusQuantityField(quantityEntryItemId, 'count')}
             onCommit={text => {
               onItemQuantityChange(
-                itemId,
+                quantityEntryItemId,
                 text,
                 'count',
                 resolved.unit || rule.defaultUnit,
                 'user_entered'
               );
             }}
-            onBlur={() => blurQuantityField(itemId, 'count')}
+            onBlur={() => blurQuantityField(quantityEntryItemId, 'count')}
             Colors={Colors}
             darkMode={darkMode}
             applying={applying}
@@ -6704,9 +6768,13 @@ function WetAreaInstallLineCard({
         inScope
         templateKey={templateKey}
         originalNotes={originalNotes}
-        hideInlineTakeoff={['flooring', 'landscaping', 'concrete'].includes(
-          String(templateKey || '').toLowerCase()
-        )}
+        hideInlineTakeoff={
+          isWholeHomeQuickMeasurementTemplate(templateKey) ||
+          (['flooring', 'landscaping', 'concrete', 'stucco'].includes(
+            String(templateKey || '').toLowerCase()
+          ) &&
+            !(item.id === 'stucco' && item.choiceId === 'repair_restucco'))
+        }
         measurementsInput={measurementsInput}
         onItemQuantityChange={onItemQuantityChange}
         onBatchItemQuantityChange={onBatchItemQuantityChange}
@@ -8671,7 +8739,7 @@ function MultiChoiceRow({
         </Text>
       ) : null}
       <View style={styles.choiceWrap}>
-        {(item.options || []).map(opt => {
+        {(item.options || []).map((opt, optionIndex) => {
           const active = choiceIds.includes(opt.id);
           const isUnsure = opt.id === 'unsure';
           const isExcluded = opt.id === 'not_in_scope';
@@ -8710,15 +8778,26 @@ function MultiChoiceRow({
                 hapticTap();
                 onToggle(opt.id);
               }}
-              style={[styles.choiceChipWide, { borderColor, backgroundColor }]}
+              style={[
+                styles.choiceChipWide,
+                item.id === 'stucco' ? styles.stuccoChoiceChip : null,
+                item.id === 'stucco' &&
+                optionIndex === (item.options?.length ?? 0) - 1
+                  ? styles.stuccoChoiceChipLast
+                  : null,
+                { borderColor, backgroundColor },
+              ]}
             >
               <Text
-                style={{
-                  color: textColor,
-                  fontSize: 12,
-                  fontWeight: active ? '800' : '600',
-                  textAlign: 'center',
-                }}
+                style={[
+                  {
+                    color: textColor,
+                    fontSize: 12,
+                    fontWeight: active ? '800' : '600',
+                    textAlign: 'center',
+                  },
+                  item.id === 'stucco' ? styles.stuccoChoiceLabel : null,
+                ]}
               >
                 {opt.label}
               </Text>
@@ -9068,7 +9147,7 @@ function ChoiceRow({
         </Text>
       ) : null}
       <View style={styles.choiceWrap}>
-        {(item.options || []).map(opt => {
+        {(item.options || []).map((opt, optionIndex) => {
           const active = item.choiceId === opt.id;
           const isUnsure = opt.id === 'unsure';
           const isExcluded = opt.id === 'not_in_scope';
@@ -9107,15 +9186,26 @@ function ChoiceRow({
                 hapticTap();
                 onSelect(opt.id);
               }}
-              style={[styles.choiceChipWide, { borderColor, backgroundColor }]}
+              style={[
+                styles.choiceChipWide,
+                item.id === 'stucco' ? styles.stuccoChoiceChip : null,
+                item.id === 'stucco' &&
+                optionIndex === (item.options?.length ?? 0) - 1
+                  ? styles.stuccoChoiceChipLast
+                  : null,
+                { borderColor, backgroundColor },
+              ]}
             >
               <Text
-                style={{
-                  color: textColor,
-                  fontSize: 12,
-                  fontWeight: active ? '800' : '600',
-                  textAlign: 'center',
-                }}
+                style={[
+                  {
+                    color: textColor,
+                    fontSize: 12,
+                    fontWeight: active ? '800' : '600',
+                    textAlign: 'center',
+                  },
+                  item.id === 'stucco' ? styles.stuccoChoiceLabel : null,
+                ]}
               >
                 {opt.label}
               </Text>
@@ -9602,7 +9692,8 @@ function CollapsibleQuickMeasurements({
   }) => void;
   /** Flooring photo/notes jobs — sync product install cards from full QM measurements. */
   onFlooringScopeSync?: (measurements: Record<string, unknown>) => void;
-  /** Preserve the outer Confirm Scope scroll position after a flooring QM card collapses. */
+  /** Stucco trade — sync scope cards when a measurement field is committed. */
+  /** Keep checklist wet_area_install in sync when the QM finish chip changes. */
   onFlooringBottomCollapse?: () => void;
   /** Bathroom photo/notes jobs — sync vanity install + demo from QM steppers. */
   onBathroomFixturesQmChange?: (params: {
@@ -9708,6 +9799,10 @@ function CollapsibleQuickMeasurements({
     homeIndex: number | null;
     variant: 'calm' | 'needs_confirmation' | 'suggestion' | 'more' | null;
   }>({ homeGroup: null, homeIndex: null, variant: null });
+  const stuccoTradeFlow = useMemo(
+    () => String(templateKey || '').toLowerCase() === 'stucco',
+    [templateKey]
+  );
   const effectiveTemplateKey = useMemo(() => {
     const living =
       Number(String(measurements.floorAreaSqft || '').replace(/,/g, '')) ||
@@ -9717,6 +9812,7 @@ function CollapsibleQuickMeasurements({
       Number(String(measurements.garageSqft || '').replace(/,/g, '')) ||
       Number(measurements.planFacts?.buildingAreas?.garageSqft) ||
       null;
+    if (stuccoTradeFlow) return 'stucco';
     return resolveEffectiveQuickMeasurementTemplateKey({
       templateKey,
       projectType,
@@ -9733,13 +9829,15 @@ function CollapsibleQuickMeasurements({
     measurements.garageSqft,
     measurements.planRooms,
     measurements.planFacts,
+    stuccoTradeFlow,
   ]);
   const wholeHomeLayout =
     !singleTradeImport &&
+    !stuccoTradeFlow &&
     isWholeHomeQuickMeasurementTemplate(effectiveTemplateKey);
 
   const noteQuickMeasurements = useMemo(() => {
-    if (singleTradeImport) {
+    if (singleTradeImport || stuccoTradeFlow) {
       return { values: {}, keys: [] as QuickMeasurementFieldKey[] };
     }
     const parsed = parseScopeMeasurementsFromNotes(notes || '', {
@@ -9800,10 +9898,10 @@ function CollapsibleQuickMeasurements({
     put('garageSqft', parsed.garageSqft);
 
     return { values: out, keys: noteKeys };
-  }, [notes, effectiveTemplateKey, projectType]);
+  }, [notes, effectiveTemplateKey, projectType, stuccoTradeFlow]);
   const rows = useMemo(() => {
     const baseRows = quickMeasurementRowsForInput(
-      effectiveTemplateKey,
+      singleTradeImport || stuccoTradeFlow ? 'stucco' : effectiveTemplateKey,
       projectType,
       measurements,
       noteQuickMeasurements.keys
@@ -9933,7 +10031,7 @@ function CollapsibleQuickMeasurements({
       sourceMap: measurements.quickMeasurementSources,
       userOverrides: measurements.quickMeasurementUserOverrides,
       includedScopeKeys,
-      templateKey: effectiveTemplateKey,
+      templateKey: singleTradeImport ? 'stucco' : effectiveTemplateKey,
       wholeHomeLayout,
       keepingExistingWetArea,
       wetAreaInstallChoiceId,
@@ -12972,7 +13070,7 @@ export default function AIEstimateScopeAssumptionsModal({
       ...emptyQuickMeasurementInput(),
       itemQuantities: {},
     });
-  const [quickMeasurementsOpen, setQuickMeasurementsOpen] = useState(false);
+  const [quickMeasurementsOpen, setQuickMeasurementsOpen] = useState(true);
   const [quickMeasurementSummary, setQuickMeasurementSummary] =
     useState<QuickMeasurementSummary>({
       detected: 0,
@@ -13139,6 +13237,20 @@ export default function AIEstimateScopeAssumptionsModal({
 
   const singleTradePlanImport = planImportContext.isSingleTrade;
   const singleTradeKey = planImportContext.tradeKey;
+  const wholeProjectFlow =
+    planImport?.estimatingMode === 'whole_project' ||
+    ['ground_up', 'whole_project'].includes(
+      String(checklist?.templateKey || '').toLowerCase()
+    ) ||
+    ['ground_up', 'whole_project'].includes(
+      String(draft?.projectType || '').toLowerCase()
+    );
+  const stuccoTradeFlow =
+    !wholeProjectFlow &&
+    (items.some(
+      item => item.id === 'stucco' || item.id.startsWith('stucco_')
+    ) ||
+      /\bstucco\b|exterior\s+finish/i.test(scopeNotes));
 
   const displayItems = useMemo(() => {
     const expanded = buildConfirmScopeDisplayItems(
@@ -13152,6 +13264,9 @@ export default function AIEstimateScopeAssumptionsModal({
         'selected_trade',
         singleTradeKey
       );
+    }
+    if (stuccoTradeFlow) {
+      return buildStuccoTradeChecklistItems(expanded);
     }
     if (String(checklist?.templateKey || '').toLowerCase() !== 'flooring')
       return expanded;
@@ -13204,6 +13319,7 @@ export default function AIEstimateScopeAssumptionsModal({
     scopeNotes,
     singleTradePlanImport,
     singleTradeKey,
+    stuccoTradeFlow,
     measurements.flooringExistingTypes,
     measurements.itemQuantities,
     measurements.flooringProductScope,
@@ -13402,10 +13518,32 @@ export default function AIEstimateScopeAssumptionsModal({
       if (next === previous) return;
       // Drop stage-host Applied dollars once trade children are priced so card
       // badges match the Applied pricing summary (no silent double-count).
-      const reconciled = clearSupersededStageHostPricing(
+      let reconciled = clearSupersededStageHostPricing(
         next,
         checklist?.templateKey
       );
+      if (
+        reconciled.planImportMode === 'selected_trade' &&
+        reconciled.planImportTradeKey === 'stucco'
+      ) {
+        const gross = Number(reconciled.stuccoGrossWallSqft || 0);
+        const openings =
+          Number(reconciled.stuccoWindowDoorOpeningSqft || 0) +
+          Number(reconciled.stuccoGarageOpeningSqft || 0) +
+          Number(reconciled.stuccoOtherFinishDeductionSqft || 0);
+        if (gross > 0) {
+          reconciled = {
+            ...reconciled,
+            stuccoNetWallSqft: String(Math.max(0, gross - openings)),
+            exteriorPaintSqft: String(Math.max(0, gross - openings)),
+            quickMeasurementSources: {
+              ...(reconciled.quickMeasurementSources || {}),
+              stuccoNetWallSqft: 'calculated_from_deductions',
+              exteriorPaintSqft: 'calculated_from_deductions',
+            },
+          };
+        }
+      }
       if (reconciled === previous) return;
       if (reconciled !== next) {
         const selected = { ...selectedPricingRef.current };
@@ -13532,13 +13670,70 @@ export default function AIEstimateScopeAssumptionsModal({
         draft && scopeNotes.trim()
           ? repairDraftRatePricingFromNotes(draft, scopeNotes)
           : draft;
-      const nextMeasurements = mergeConfirmScopeSavedMeasurements(
+      let nextMeasurements = mergeConfirmScopeSavedMeasurements(
         prepareScopeMeasurementsInputForUi(
           initialScopeMeasurementInputExtended(draftForScope, scopeNotes),
           { notes: scopeNotes, templateKey: checklist.templateKey }
         ),
         draft?.scopeMeasurements
       );
+      // The plan review modal can be applied before the draft persistence
+      // round-trip completes. Preserve its selected-trade measurements during
+      // Confirm Scope hydration so readable plan values are not lost.
+      // Prefer the live Step 1 payload, but fall back to the selected-trade
+      // metadata/values already persisted on the draft. The draft can arrive
+      // one render ahead of the plan-import prop after Step 1 is applied.
+      const hydratedPlanTrade =
+        planImport?.estimatingMode === 'selected_trade' &&
+        planImport.selectedTrade
+          ? planImport.selectedTrade
+          : draft?.scopeMeasurements?.planImportMode === 'selected_trade'
+            ? (draft.scopeMeasurements.planImportTradeKey as
+                | import('@/utils/planImportTradeConfig').PlanTradeKey
+                | null)
+            : null;
+      if (hydratedPlanTrade) {
+        const allowed = new Set(
+          tradeQuickMeasurementFieldKeys(hydratedPlanTrade)
+        );
+        // Keep the two newly-added affected-area fields in the same restore
+        // path as the rest of the stucco takeoff fields.
+        if (hydratedPlanTrade === 'stucco') {
+          allowed.add('stuccoAccessAffectedSqft');
+          allowed.add('stuccoRepairAffectedSqft');
+        }
+        const persistedTradeMeasurements =
+          draft?.scopeMeasurements && hydratedPlanTrade === 'stucco'
+            ? Object.fromEntries(
+                Object.entries(draft.scopeMeasurements).filter(([key]) =>
+                  allowed.has(key)
+                )
+              )
+            : {};
+        const imported = Object.fromEntries(
+          Object.entries(persistedTradeMeasurements)
+            .filter(
+              ([key, value]) =>
+                allowed.has(key) && value != null && value !== ''
+            )
+            .map(([key, value]) => [key, String(value)])
+        );
+        for (const [key, value] of Object.entries(
+          planImport?.measurements || {}
+        )) {
+          if (allowed.has(key) && value != null && value !== '') {
+            imported[key] = String(value);
+          }
+        }
+        nextMeasurements = {
+          ...nextMeasurements,
+          ...imported,
+          quickMeasurementSources: tagPlanDetectedQuickMeasurementKeys(
+            nextMeasurements.quickMeasurementSources,
+            Object.keys(imported)
+          ),
+        };
+      }
       const hydrateTradeContext = resolveSingleTradePlanContext({
         measurements: nextMeasurements,
         draftScopeMeasurements: draft?.scopeMeasurements,
@@ -13671,19 +13866,10 @@ export default function AIEstimateScopeAssumptionsModal({
       setItems(normalized);
       setMeasurementsSynced(nextMeasurements);
       const displayForHydrate = expandWetAreaDerivedScopeItems(normalized);
-      const hydratePricing = countScopePricingReadiness(
-        displayForHydrate,
-        norm,
-        checklist.templateKey,
-        scopeNotes
-      );
-      // Open when scopes still need quantities so users see where to fill them.
-      setQuickMeasurementsOpen(
-        hydratePricing.needsMeasurement > 0 ||
-          ['landscaping', 'concrete'].includes(
-            String(checklist.templateKey || '').toLowerCase()
-          )
-      );
+      // Quick Measurements are the primary input surface for Confirm Scope.
+      // Keep them open on every hydrated session so the user can immediately
+      // review or correct the takeoff.
+      setQuickMeasurementsOpen(true);
       setCustomItemLabel('');
       setShowCustomItemInput(false);
       const grouped = groupScopeChecklistItems(
@@ -14254,13 +14440,43 @@ export default function AIEstimateScopeAssumptionsModal({
     },
     [qmEmbeddedScopeIds, measurements, items]
   );
+  const hideIncludedStuccoComponentCards = useMemo(() => {
+    if (
+      String(checklist?.templateKey || '').toLowerCase() !== 'stucco' &&
+      !stuccoTradeFlow &&
+      singleTradeKey !== 'stucco'
+    ) {
+      return false;
+    }
+    const system = displayItems.find(item => item.id === 'stucco');
+    // Keep bundled component cards out of the normal Stucco flow. They are
+    // included in every complete-system bid, and should not become standalone
+    // priced lines while the contractor is still choosing the system.
+    return String(system?.choiceId || '') !== 'repair_restucco';
+  }, [checklist?.templateKey, displayItems, singleTradeKey, stuccoTradeFlow]);
+  const includedStuccoComponentIds = useMemo(
+    () =>
+      new Set([
+        'stucco_wrb',
+        'stucco_lath',
+        'stucco_base_coat',
+        'stucco_finish_coat',
+        'stucco_accessories',
+      ]),
+    []
+  );
   const scopeGroupedItems = useMemo(() => {
-    if (!embedQmScopeInQuickMeasurements) return groupedItems;
     return groupedItems
       .map(group => ({
         ...group,
         items: group.items.filter(
-          item => !qmScopeEmbeddedInQuickMeasurements(item.id)
+          item =>
+            !(
+              hideIncludedStuccoComponentCards &&
+              includedStuccoComponentIds.has(item.id)
+            ) &&
+            (!embedQmScopeInQuickMeasurements ||
+              !qmScopeEmbeddedInQuickMeasurements(item.id))
         ),
       }))
       .filter(group => group.items.length > 0);
@@ -14268,6 +14484,8 @@ export default function AIEstimateScopeAssumptionsModal({
     groupedItems,
     embedQmScopeInQuickMeasurements,
     qmScopeEmbeddedInQuickMeasurements,
+    hideIncludedStuccoComponentCards,
+    includedStuccoComponentIds,
   ]);
 
   // QM steppers / shower SF → auto-include shower wall & floor tile scope cards.
@@ -15051,6 +15269,9 @@ export default function AIEstimateScopeAssumptionsModal({
       const nextState = {
         ...prev,
         itemQuantities,
+        ...(baseItemId === 'stucco_repairs' && field === 'count'
+          ? { stuccoRepairAffectedSqft: quantity }
+          : {}),
         pricingAcceptance,
       };
       return source === 'calculated_confirmed'
@@ -16029,7 +16250,6 @@ export default function AIEstimateScopeAssumptionsModal({
   /** After Quick Measurements Done: collapse panel and land on the first scope group. */
   const handleQuickMeasurementsDone = useCallback(() => {
     Keyboard.dismiss();
-
     const firstGroup = scopeGroupedItems[0];
     if (firstGroup?.title) {
       setCollapsedGroups(prev => ({ ...prev, [firstGroup.title]: false }));
@@ -16530,10 +16750,7 @@ export default function AIEstimateScopeAssumptionsModal({
             const isBathroomCountertop =
               item.id === 'countertops' &&
               String(templateKey || '').toLowerCase() === 'bathroom';
-            const nextChoiceId =
-              isBathroomCountertop && item.choiceId === choiceId
-                ? null
-                : choiceId;
+            const nextChoiceId = item.choiceId === choiceId ? null : choiceId;
             setItems(prev => {
               const next = prev.map(row =>
                 row.id === item.id
@@ -16542,7 +16759,7 @@ export default function AIEstimateScopeAssumptionsModal({
                       choiceId: nextChoiceId,
                       state: nextChoiceId
                         ? choiceIdToState(nextChoiceId)
-                        : row.state,
+                        : ('unsure' as const),
                     }
                   : row
               );
@@ -16579,6 +16796,9 @@ export default function AIEstimateScopeAssumptionsModal({
                 ...m,
                 bathroomVanityCountertopMaterialType: nextChoiceId,
               }));
+            }
+            if (!nextChoiceId) {
+              handleClearAcceptedPricing(item.id);
             }
             if (item.id === 'toilet' && nextChoiceId !== 'relocating') {
               setMeasurementsSynced(m => ({
@@ -17075,8 +17295,8 @@ export default function AIEstimateScopeAssumptionsModal({
             }
             showExistingWetAreaPanel={!hasSitePhotos}
             hasSitePhotos={hasSitePhotos}
-            singleTradeImport={singleTradePlanImport}
-            tradeKey={singleTradeKey}
+            singleTradeImport={singleTradePlanImport || stuccoTradeFlow}
+            tradeKey={singleTradePlanImport ? singleTradeKey : 'stucco'}
             Colors={Colors}
             darkMode={darkMode}
             applying={applying}
@@ -17785,6 +18005,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     minWidth: '47%',
     flexGrow: 1,
+  },
+  stuccoChoiceChip: {
+    width: '48%',
+    minWidth: '48%',
+    flexGrow: 0,
+    flexShrink: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stuccoChoiceChipLast: {
+    width: '100%',
+    minWidth: '100%',
+  },
+  stuccoChoiceLabel: {
+    width: '100%',
   },
   qtySection: {
     marginTop: 12,

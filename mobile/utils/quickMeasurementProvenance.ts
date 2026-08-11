@@ -7,8 +7,14 @@
  * that into one of four UI states so the card stops looking like a blanket
  * alert and instead tells the contractor exactly what to trust vs verify.
  */
-import type { QuickMeasurementFieldKey, QuickMeasurementRow } from '@/utils/scopeQuickMeasurements';
-import { hasQuickMeasurementValue, resolveQuickMeasurementDisplayValue } from '@/utils/scopeQuickMeasurements';
+import type {
+  QuickMeasurementFieldKey,
+  QuickMeasurementRow,
+} from '@/utils/scopeQuickMeasurements';
+import {
+  hasQuickMeasurementValue,
+  resolveQuickMeasurementDisplayValue,
+} from '@/utils/scopeQuickMeasurements';
 import { getMeasurementRelevance } from '@/utils/getMeasurementRelevance';
 import {
   getQuickMeasurementEstimate,
@@ -25,9 +31,12 @@ import type {
 export type QuickMeasurementSourceTag =
   | PlanMeasurementSourceType
   | 'plan_detected'
-  | 'user_confirmed_suggestion';
+  | 'user_confirmed_suggestion'
+  | 'calculated_from_deductions';
 
-export type QuickMeasurementSourceMap = Partial<Record<string, QuickMeasurementSourceTag>>;
+export type QuickMeasurementSourceMap = Partial<
+  Record<string, QuickMeasurementSourceTag>
+>;
 export type QuickMeasurementOverrideMap = Partial<Record<string, true>>;
 
 export type QuickMeasurementFieldState =
@@ -37,7 +46,10 @@ export type QuickMeasurementFieldState =
   | 'confirmed'
   | 'not_relevant';
 
-export const QUICK_MEASUREMENT_STATE_LABEL: Record<QuickMeasurementFieldState, string | null> = {
+export const QUICK_MEASUREMENT_STATE_LABEL: Record<
+  QuickMeasurementFieldState,
+  string | null
+> = {
   detected: 'Detected from plan',
   estimate_available: 'Estimate available',
   needs_confirmation: 'Needs confirmation',
@@ -45,14 +57,37 @@ export const QUICK_MEASUREMENT_STATE_LABEL: Record<QuickMeasurementFieldState, s
   not_relevant: null,
 };
 
-export type QuickMeasurementStateBadgeColors = { color: string; bg: string; border: string };
+export type QuickMeasurementStateBadgeColors = {
+  color: string;
+  bg: string;
+  border: string;
+};
 
 /** Badge + border colors per field state. null = no badge (kept clean, matches pre-provenance UX). */
-export const QUICK_MEASUREMENT_STATE_COLORS: Record<QuickMeasurementFieldState, QuickMeasurementStateBadgeColors | null> = {
-  detected: { color: '#60a5fa', bg: 'rgba(96, 165, 250, 0.12)', border: 'rgba(96, 165, 250, 0.32)' },
-  estimate_available: { color: '#34d399', bg: 'rgba(52, 211, 153, 0.14)', border: 'rgba(52, 211, 153, 0.32)' },
-  needs_confirmation: { color: '#d97706', bg: 'rgba(251, 191, 36, 0.14)', border: 'rgba(217, 119, 6, 0.28)' },
-  confirmed: { color: '#22c55e', bg: 'rgba(34, 197, 94, 0.1)', border: 'rgba(34, 197, 94, 0.24)' },
+export const QUICK_MEASUREMENT_STATE_COLORS: Record<
+  QuickMeasurementFieldState,
+  QuickMeasurementStateBadgeColors | null
+> = {
+  detected: {
+    color: '#60a5fa',
+    bg: 'rgba(96, 165, 250, 0.12)',
+    border: 'rgba(96, 165, 250, 0.32)',
+  },
+  estimate_available: {
+    color: '#34d399',
+    bg: 'rgba(52, 211, 153, 0.14)',
+    border: 'rgba(52, 211, 153, 0.32)',
+  },
+  needs_confirmation: {
+    color: '#d97706',
+    bg: 'rgba(251, 191, 36, 0.14)',
+    border: 'rgba(217, 119, 6, 0.28)',
+  },
+  confirmed: {
+    color: '#22c55e',
+    bg: 'rgba(34, 197, 94, 0.1)',
+    border: 'rgba(34, 197, 94, 0.24)',
+  },
   not_relevant: null,
 };
 
@@ -80,6 +115,8 @@ export function quickMeasurementSourceLabel(
       return 'Measured from plan geometry';
     case 'calculated_from_components':
       return 'Footprint-based estimate';
+    case 'calculated_from_deductions':
+      return 'Calculated from confirmed deductions';
     case 'estimated_from_formula':
     case 'fallback_multiplier':
       return 'Planning estimate';
@@ -138,7 +175,9 @@ function resolveFieldState(params: {
  */
 export function resolveQuickMeasurementFields(params: {
   rows: QuickMeasurementRow[];
-  measurements: Partial<Record<QuickMeasurementFieldKey, string | undefined>> & {
+  measurements: Partial<
+    Record<QuickMeasurementFieldKey, string | undefined>
+  > & {
     planFacts?: PlanFacts;
     planRooms?: import('@/utils/estimateAiDraft').PlanRoomMeasurement[];
     wetAreaFinish?: import('@/utils/planBathRooms').WetAreaFinishChoice | null;
@@ -171,15 +210,21 @@ export function resolveQuickMeasurementFields(params: {
     if (seen.has(field.key)) continue;
     seen.add(field.key);
 
-    const displayValue = resolveQuickMeasurementDisplayValue(field.key, params.measurements, noteValues);
+    const displayValue = resolveQuickMeasurementDisplayValue(
+      field.key,
+      params.measurements,
+      noteValues
+    );
     const filled = hasQuickMeasurementValue(displayValue);
     const typed = String(params.measurements[field.key] ?? '').trim() !== '';
-    const fromNotes = !typed && noteKeySet.has(field.key) && Boolean(noteValues[field.key]);
+    const fromNotes =
+      !typed && noteKeySet.has(field.key) && Boolean(noteValues[field.key]);
     const sourceTag = params.sourceMap?.[field.key];
     const isUserOverride = Boolean(params.userOverrides?.[field.key]);
 
     const keepingExisting =
-      params.keepingExistingWetArea || params.wetAreaInstallChoiceId === 'staying';
+      params.keepingExistingWetArea ||
+      params.wetAreaInstallChoiceId === 'staying';
     const relevance = getMeasurementRelevance({
       measurementKey: field.key,
       includedScopeKeys,
@@ -202,9 +247,15 @@ export function resolveQuickMeasurementFields(params: {
       }),
     });
 
-    const estimate = !filled && relevance.relevant
-      ? getQuickMeasurementEstimate(field.key, params.measurements, undefined, params.templateKey)
-      : null;
+    const estimate =
+      !filled && relevance.relevant
+        ? getQuickMeasurementEstimate(
+            field.key,
+            params.measurements,
+            undefined,
+            params.templateKey
+          )
+        : null;
 
     const state = resolveFieldState({
       filled,
@@ -217,7 +268,8 @@ export function resolveQuickMeasurementFields(params: {
     results.push({
       key: field.key,
       state,
-      showConfirmedBadge: filled && !fromNotes && sourceTag === 'user_confirmed_suggestion',
+      showConfirmedBadge:
+        filled && !fromNotes && sourceTag === 'user_confirmed_suggestion',
       filled,
       fromNotes,
       relevant: relevance.relevant,
@@ -225,7 +277,9 @@ export function resolveQuickMeasurementFields(params: {
       estimate,
       sourceLabel: estimate
         ? quickMeasurementEstimateBadgeLabel(estimate)
-        : quickMeasurementSourceLabel(isUserOverride ? 'user_confirmed_suggestion' : sourceTag),
+        : quickMeasurementSourceLabel(
+            isUserOverride ? 'user_confirmed_suggestion' : sourceTag
+          ),
     });
   }
 
@@ -254,14 +308,18 @@ export function summarizeQuickMeasurementFieldStates(
     if (result.state === 'not_relevant') continue;
     summary.relevantTotal += 1;
     if (result.state === 'detected') summary.detected += 1;
-    else if (result.state === 'estimate_available') summary.estimateAvailable += 1;
-    else if (result.state === 'needs_confirmation') summary.needsConfirmation += 1;
+    else if (result.state === 'estimate_available')
+      summary.estimateAvailable += 1;
+    else if (result.state === 'needs_confirmation')
+      summary.needsConfirmation += 1;
     else if (result.state === 'confirmed') summary.confirmed += 1;
   }
   return summary;
 }
 
-export function quickMeasurementSummaryLine(summary: QuickMeasurementSummary): string {
+export function quickMeasurementSummaryLine(
+  summary: QuickMeasurementSummary
+): string {
   return `${summary.detected} from plan · ${summary.estimateAvailable} suggestion${summary.estimateAvailable === 1 ? '' : 's'} · ${summary.needsConfirmation} need confirmation`;
 }
 
@@ -275,7 +333,9 @@ export type QuickMeasurementUiGroups = {
 };
 
 /** Split resolved fields into scan-friendly UI groups (order preserved within each group). */
-export function groupQuickMeasurementFields(results: QuickMeasurementFieldResult[]): QuickMeasurementUiGroups {
+export function groupQuickMeasurementFields(
+  results: QuickMeasurementFieldResult[]
+): QuickMeasurementUiGroups {
   const groups: QuickMeasurementUiGroups = {
     fromPlan: [],
     suggestions: [],
@@ -310,11 +370,8 @@ export function groupQuickMeasurementFields(results: QuickMeasurementFieldResult
 export type QuickMeasurementGroupId = keyof QuickMeasurementUiGroups;
 
 /** Bath / shower takeoff fields that belong under Wet area finish, not general Suggestions. */
-export const WET_AREA_QUICK_MEASUREMENT_KEYS: readonly QuickMeasurementFieldKey[] = [
-  'bathroomFloorSqft',
-  'showerWallTileSqft',
-  'showerFloorTileSqft',
-];
+export const WET_AREA_QUICK_MEASUREMENT_KEYS: readonly QuickMeasurementFieldKey[] =
+  ['bathroomFloorSqft', 'showerWallTileSqft', 'showerFloorTileSqft'];
 
 const WET_AREA_KEY_SET = new Set<string>(WET_AREA_QUICK_MEASUREMENT_KEYS);
 
@@ -326,7 +383,9 @@ function isWetAreaQuickMeasurementKey(key: string): boolean {
  * Pull bath/shower fields out of the main groups so the UI can render them
  * under Wet area finish (next to bath count + finish chips).
  */
-export function splitWetAreaQuickMeasurementFields(groups: QuickMeasurementUiGroups): {
+export function splitWetAreaQuickMeasurementFields(
+  groups: QuickMeasurementUiGroups
+): {
   groups: QuickMeasurementUiGroups;
   wetArea: QuickMeasurementFieldResult[];
 } {
@@ -349,10 +408,10 @@ export function splitWetAreaQuickMeasurementFields(groups: QuickMeasurementUiGro
     more: pull(groups.more),
   };
 
-  const order = new Map(WET_AREA_QUICK_MEASUREMENT_KEYS.map((key, index) => [key, index]));
-  wetArea.sort(
-    (a, b) => (order.get(a.key) ?? 99) - (order.get(b.key) ?? 99)
+  const order = new Map(
+    WET_AREA_QUICK_MEASUREMENT_KEYS.map((key, index) => [key, index])
   );
+  wetArea.sort((a, b) => (order.get(a.key) ?? 99) - (order.get(b.key) ?? 99));
 
   return { groups: next, wetArea };
 }
@@ -370,11 +429,11 @@ export function pinQuickMeasurementFieldInGroup(
   if (!key || !homeGroup) return groups;
 
   const homeList = groups[homeGroup];
-  const currentHomeIndex = homeList.findIndex((result) => result.key === key);
+  const currentHomeIndex = homeList.findIndex(result => result.key === key);
   const onlyInHome =
     currentHomeIndex >= 0 &&
     (Object.keys(groups) as QuickMeasurementGroupId[]).every(
-      (id) => id === homeGroup || !groups[id].some((result) => result.key === key)
+      id => id === homeGroup || !groups[id].some(result => result.key === key)
     );
   if (
     onlyInHome &&
@@ -382,7 +441,8 @@ export function pinQuickMeasurementFieldInGroup(
       !Number.isFinite(homeIndex) ||
       currentHomeIndex === homeIndex ||
       // Already at end and caller asked for "append" past current length.
-      (homeIndex > homeList.length - 1 && currentHomeIndex === homeList.length - 1))
+      (homeIndex > homeList.length - 1 &&
+        currentHomeIndex === homeList.length - 1))
   ) {
     return groups;
   }
@@ -395,7 +455,7 @@ export function pinQuickMeasurementFieldInGroup(
     confirmed: [],
     more: [],
   };
-  (Object.keys(next) as QuickMeasurementGroupId[]).forEach((id) => {
+  (Object.keys(next) as QuickMeasurementGroupId[]).forEach(id => {
     for (const result of groups[id]) {
       if (result.key === key) {
         found = result;
@@ -408,7 +468,10 @@ export function pinQuickMeasurementFieldInGroup(
 
   const list = [...next[homeGroup]];
   const idx =
-    homeIndex != null && Number.isFinite(homeIndex) && homeIndex >= 0 && homeIndex <= list.length
+    homeIndex != null &&
+    Number.isFinite(homeIndex) &&
+    homeIndex >= 0 &&
+    homeIndex <= list.length
       ? homeIndex
       : list.length;
   list.splice(idx, 0, found);
@@ -432,15 +495,16 @@ export function tagPlanDetectedQuickMeasurementKeys(
 type SuggestionAcceptState = {
   quickMeasurementSources?: QuickMeasurementSourceMap;
   quickMeasurementUserOverrides?: QuickMeasurementOverrideMap;
-  quickMeasurementSuggestionMetadata?: Partial<Record<string, MeasurementSuggestion>>;
+  quickMeasurementSuggestionMetadata?: Partial<
+    Record<string, MeasurementSuggestion>
+  >;
   [key: string]: unknown;
 };
 
 /** Pure acceptance helper shared by individual and reviewed bulk actions. */
-export function acceptQuickMeasurementSuggestion<T extends SuggestionAcceptState>(
-  input: T,
-  suggestion: QuickMeasurementEstimate
-): T {
+export function acceptQuickMeasurementSuggestion<
+  T extends SuggestionAcceptState,
+>(input: T, suggestion: QuickMeasurementEstimate): T {
   return {
     ...input,
     [suggestion.key]: String(suggestion.value),
@@ -475,7 +539,9 @@ export function quickMeasurementSuggestionRequiresReview(
   );
 }
 
-export function acceptReviewedQuickMeasurementSuggestions<T extends SuggestionAcceptState>(
+export function acceptReviewedQuickMeasurementSuggestions<
+  T extends SuggestionAcceptState,
+>(
   input: T,
   suggestions: QuickMeasurementEstimate[],
   reviewConfirmed: boolean

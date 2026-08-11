@@ -62,9 +62,27 @@ export type QuickMeasurementFieldKey =
   | 'concreteCy'
   | 'excavationCy'
   | 'deckSqft'
-  | 'garageSqft';
+  | 'garageSqft'
+  | 'stuccoGrossWallSqft'
+  | 'stuccoWindowDoorOpeningSqft'
+  | 'stuccoGarageOpeningSqft'
+  | 'stuccoOtherFinishDeductionSqft'
+  | 'stuccoNetWallSqft'
+  | 'stuccoSoffitSqft'
+  | 'stuccoParapetSqft'
+  | 'stuccoFoamTrimLf'
+  | 'stuccoControlJointLf'
+  | 'stuccoAccessAffectedSqft'
+  | 'stuccoRepairAffectedSqft'
+  | 'stuccoStories'
+  | 'stuccoWallHeightFt';
 
-export type QuickMeasurementGroupId = 'site' | 'structure' | 'interior' | 'exterior' | 'other';
+export type QuickMeasurementGroupId =
+  | 'site'
+  | 'structure'
+  | 'interior'
+  | 'exterior'
+  | 'other';
 
 export type QuickMeasurementFieldDef = {
   key: QuickMeasurementFieldKey;
@@ -95,9 +113,16 @@ const GROUP_TITLES: Record<QuickMeasurementGroupId, string> = {
   other: 'Other',
 };
 
-const GROUP_ORDER: QuickMeasurementGroupId[] = ['site', 'structure', 'interior', 'exterior', 'other'];
+const GROUP_ORDER: QuickMeasurementGroupId[] = [
+  'site',
+  'structure',
+  'interior',
+  'exterior',
+  'other',
+];
 
-const row = (...fields: QuickMeasurementFieldDef[]): QuickMeasurementRow => fields;
+const row = (...fields: QuickMeasurementFieldDef[]): QuickMeasurementRow =>
+  fields;
 
 const F = (
   key: QuickMeasurementFieldKey,
@@ -107,26 +132,99 @@ const F = (
   group: QuickMeasurementGroupId,
   primary?: boolean,
   helperText?: string
-): QuickMeasurementFieldDef => ({ key, label, placeholder, unit, group, primary, helperText });
+): QuickMeasurementFieldDef => ({
+  key,
+  label,
+  placeholder,
+  unit,
+  group,
+  primary,
+  helperText,
+});
 
 const EXTERIOR_FLATWORK_LABEL = 'Exterior concrete flatwork';
-const EXTERIOR_FLATWORK_HELPER = 'Driveway, walkways, porch, and exterior patio slabs — not the house or garage slab.';
+const EXTERIOR_FLATWORK_HELPER =
+  'Driveway, walkways, porch, and exterior patio slabs — not the house or garage slab.';
 
-const QUICK_MEASUREMENT_FIELD_DEFS: Record<QuickMeasurementFieldKey, QuickMeasurementFieldDef> = {
-  bathroomFloorSqft: F('bathroomFloorSqft', 'Bath floor', '90', 'sqft', 'interior'),
-  kitchenFloorSqft: F('kitchenFloorSqft', 'Kitchen floor', '180', 'sqft', 'interior'),
-  floorAreaSqft: F('floorAreaSqft', 'Floor area', '1200', 'sqft', 'structure', true),
+const QUICK_MEASUREMENT_FIELD_DEFS: Record<
+  QuickMeasurementFieldKey,
+  QuickMeasurementFieldDef
+> = {
+  bathroomFloorSqft: F(
+    'bathroomFloorSqft',
+    'Bath floor',
+    '90',
+    'sqft',
+    'interior'
+  ),
+  kitchenFloorSqft: F(
+    'kitchenFloorSqft',
+    'Kitchen floor',
+    '180',
+    'sqft',
+    'interior'
+  ),
+  floorAreaSqft: F(
+    'floorAreaSqft',
+    'Floor area',
+    '1200',
+    'sqft',
+    'structure',
+    true
+  ),
   backsplashSqft: F('backsplashSqft', 'Backsplash', '40', 'sqft', 'interior'),
   countertopSqft: F('countertopSqft', 'Counters', '55', 'sqft', 'interior'),
   cabinetLf: F('cabinetLf', 'Cabinets / vanity', '24', 'LF', 'interior'),
-  showerWallTileSqft: F('showerWallTileSqft', 'Shower walls', '90', 'sqft', 'interior'),
-  showerFloorTileSqft: F('showerFloorTileSqft', 'Shower floor', '15', 'sqft', 'interior'),
-  wallPaintSqft: F('wallPaintSqft', 'Interior paint', '320', 'sqft', 'interior'),
-  ceilingPaintSqft: F('ceilingPaintSqft', 'Ceilings', '320', 'sqft', 'interior'),
-  paintAreaSqft: F('paintAreaSqft', 'Paint area — confirm basis', '1500', 'sqft', 'interior'),
-  exteriorPaintSqft: F('exteriorPaintSqft', 'Exterior paint', '2200', 'sqft', 'exterior'),
+  showerWallTileSqft: F(
+    'showerWallTileSqft',
+    'Shower walls',
+    '90',
+    'sqft',
+    'interior'
+  ),
+  showerFloorTileSqft: F(
+    'showerFloorTileSqft',
+    'Shower floor',
+    '15',
+    'sqft',
+    'interior'
+  ),
+  wallPaintSqft: F(
+    'wallPaintSqft',
+    'Interior paint',
+    '320',
+    'sqft',
+    'interior'
+  ),
+  ceilingPaintSqft: F(
+    'ceilingPaintSqft',
+    'Ceilings',
+    '320',
+    'sqft',
+    'interior'
+  ),
+  paintAreaSqft: F(
+    'paintAreaSqft',
+    'Paint area — confirm basis',
+    '1500',
+    'sqft',
+    'interior'
+  ),
+  exteriorPaintSqft: F(
+    'exteriorPaintSqft',
+    'Exterior paint',
+    '2200',
+    'sqft',
+    'exterior'
+  ),
   baseboardLf: F('baseboardLf', 'Baseboard', '48', 'LF', 'interior'),
-  interiorDoorCount: F('interiorDoorCount', 'Interior doors', '6', 'each', 'interior'),
+  interiorDoorCount: F(
+    'interiorDoorCount',
+    'Interior doors',
+    '6',
+    'each',
+    'interior'
+  ),
   cabinetPaintSqft: F(
     'cabinetPaintSqft',
     'Paintable Cabinet Surface Area',
@@ -138,7 +236,13 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Record<QuickMeasurementFieldKey, QuickMeasur
   ),
   cabinetUpperLf: F('cabinetUpperLf', 'Upper Cabinets', '15', 'LF', 'interior'),
   cabinetLowerLf: F('cabinetLowerLf', 'Lower Cabinets', '15', 'LF', 'interior'),
-  cabinetTallLf: F('cabinetTallLf', 'Tall / Pantry Cabinets', '0', 'LF', 'interior'),
+  cabinetTallLf: F(
+    'cabinetTallLf',
+    'Tall / Pantry Cabinets',
+    '0',
+    'LF',
+    'interior'
+  ),
   cabinetRunLf: F(
     'cabinetRunLf',
     'Cabinet Run Length',
@@ -150,7 +254,13 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Record<QuickMeasurementFieldKey, QuickMeasur
   ),
   railingLf: F('railingLf', 'Railing', '48', 'LF', 'exterior'),
   landscapeSqft: F('landscapeSqft', 'Coverage', '1200', 'sqft', 'site'),
-  artificialTurfSqft: F('artificialTurfSqft', 'Artificial turf', '900', 'sqft', 'site'),
+  artificialTurfSqft: F(
+    'artificialTurfSqft',
+    'Artificial turf',
+    '900',
+    'sqft',
+    'site'
+  ),
   sodSqft: F('sodSqft', 'Sod / turf', '900', 'sqft', 'site'),
   paverSqft: F('paverSqft', 'Pavers', '180', 'sqft', 'site'),
   rockMulchSqft: F('rockMulchSqft', 'Rock / mulch', '600', 'sqft', 'site'),
@@ -167,12 +277,42 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Record<QuickMeasurementFieldKey, QuickMeasur
     'Usually matches living area unless unfinished space differs.'
   ),
   flooringLvpSqft: F('flooringLvpSqft', 'LVP', '600', 'sqft', 'interior'),
-  flooringLaminateSqft: F('flooringLaminateSqft', 'Laminate', '600', 'sqft', 'interior'),
-  flooringEngineeredHardwoodSqft: F('flooringEngineeredHardwoodSqft', 'Engineered hardwood', '600', 'sqft', 'interior'),
-  flooringSolidHardwoodSqft: F('flooringSolidHardwoodSqft', 'Solid hardwood', '600', 'sqft', 'interior'),
+  flooringLaminateSqft: F(
+    'flooringLaminateSqft',
+    'Laminate',
+    '600',
+    'sqft',
+    'interior'
+  ),
+  flooringEngineeredHardwoodSqft: F(
+    'flooringEngineeredHardwoodSqft',
+    'Engineered hardwood',
+    '600',
+    'sqft',
+    'interior'
+  ),
+  flooringSolidHardwoodSqft: F(
+    'flooringSolidHardwoodSqft',
+    'Solid hardwood',
+    '600',
+    'sqft',
+    'interior'
+  ),
   flooringTileSqft: F('flooringTileSqft', 'Tile', '600', 'sqft', 'interior'),
-  flooringCarpetSqft: F('flooringCarpetSqft', 'Carpet', '600', 'sqft', 'interior'),
-  floorDemoSqft: F('floorDemoSqft', 'Floor demo / removal', '600', 'sqft', 'interior'),
+  flooringCarpetSqft: F(
+    'flooringCarpetSqft',
+    'Carpet',
+    '600',
+    'sqft',
+    'interior'
+  ),
+  floorDemoSqft: F(
+    'floorDemoSqft',
+    'Floor demo / removal',
+    '600',
+    'sqft',
+    'interior'
+  ),
   floorPrepSqft: F(
     'floorPrepSqft',
     'Affected floor-prep area',
@@ -182,14 +322,133 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Record<QuickMeasurementFieldKey, QuickMeasur
     undefined,
     'Enter only the area requiring residual adhesive or thinset removal, grinding, patching, skim coating, or leveling after demolition.'
   ),
-  underlaymentSqft: F('underlaymentSqft', 'Underlayment', '600', 'sqft', 'interior'),
-  moistureBarrierSqft: F('moistureBarrierSqft', 'Vapor / moisture barrier', '600', 'sqft', 'interior'),
+  underlaymentSqft: F(
+    'underlaymentSqft',
+    'Underlayment',
+    '600',
+    'sqft',
+    'interior'
+  ),
+  moistureBarrierSqft: F(
+    'moistureBarrierSqft',
+    'Vapor / moisture barrier',
+    '600',
+    'sqft',
+    'interior'
+  ),
   quarterRoundLf: F('quarterRoundLf', 'Quarter round', '48', 'LF', 'interior'),
-  concreteSqft: F('concreteSqft', EXTERIOR_FLATWORK_LABEL, '400', 'sqft', 'structure', undefined, EXTERIOR_FLATWORK_HELPER),
+  concreteSqft: F(
+    'concreteSqft',
+    EXTERIOR_FLATWORK_LABEL,
+    '400',
+    'sqft',
+    'structure',
+    undefined,
+    EXTERIOR_FLATWORK_HELPER
+  ),
   concreteCy: F('concreteCy', 'Concrete', '12', 'CY', 'structure'),
   excavationCy: F('excavationCy', 'Excavation', '45', 'CY', 'site'),
   deckSqft: F('deckSqft', 'Deck / patio', '320', 'sqft', 'exterior'),
   garageSqft: F('garageSqft', 'Garage', '480', 'sqft', 'structure'),
+  stuccoGrossWallSqft: F(
+    'stuccoGrossWallSqft',
+    'Exterior wall area — gross',
+    'Enter',
+    'sqft',
+    'exterior',
+    true,
+    'Gross exterior wall surface before windows, doors, garage openings, or other finish deductions.'
+  ),
+  stuccoWindowDoorOpeningSqft: F(
+    'stuccoWindowDoorOpeningSqft',
+    'Window & door openings',
+    'Enter',
+    'sqft',
+    'exterior',
+    undefined,
+    'Deduct window and exterior door openings from gross wall area; garage doors are tracked separately.'
+  ),
+  stuccoGarageOpeningSqft: F(
+    'stuccoGarageOpeningSqft',
+    'Garage door openings',
+    'Enter',
+    'sqft',
+    'exterior',
+    undefined,
+    'Deduct garage door openings from gross wall area.'
+  ),
+  stuccoOtherFinishDeductionSqft: F(
+    'stuccoOtherFinishDeductionSqft',
+    'Other finish deductions',
+    'Enter',
+    'sqft',
+    'exterior',
+    undefined,
+    'Stone, brick, siding, panels, or other areas not receiving stucco.'
+  ),
+  stuccoNetWallSqft: F(
+    'stuccoNetWallSqft',
+    'Net stucco wall area',
+    'Calculated',
+    'sqft',
+    'exterior',
+    true,
+    'Calculated: gross wall area minus openings and other finish deductions.'
+  ),
+  stuccoSoffitSqft: F(
+    'stuccoSoffitSqft',
+    'Soffits / stucco ceilings',
+    'Enter',
+    'sqft',
+    'exterior'
+  ),
+  stuccoParapetSqft: F(
+    'stuccoParapetSqft',
+    'Parapets / raised walls',
+    'Enter',
+    'sqft',
+    'exterior'
+  ),
+  stuccoFoamTrimLf: F(
+    'stuccoFoamTrimLf',
+    'Foam trim / architectural bands',
+    'Enter',
+    'LF',
+    'exterior'
+  ),
+  stuccoControlJointLf: F(
+    'stuccoControlJointLf',
+    'Control / expansion joints',
+    'Enter',
+    'LF',
+    'exterior'
+  ),
+  stuccoAccessAffectedSqft: F(
+    'stuccoAccessAffectedSqft',
+    'Access premium affected area',
+    'Enter',
+    'sqft',
+    'exterior',
+    undefined,
+    'Only wall area requiring difficult access, scaffolding, or a lift.'
+  ),
+  stuccoRepairAffectedSqft: F(
+    'stuccoRepairAffectedSqft',
+    'Substrate repair affected area',
+    'Enter',
+    'sqft',
+    'exterior',
+    undefined,
+    'Only area requiring repair or additional surface preparation.'
+  ),
+  stuccoStories: F('stuccoStories', 'Stories', '1', 'story', 'exterior'),
+  stuccoWallHeightFt: F(
+    'stuccoWallHeightFt',
+    'Wall height',
+    'Enter',
+    'ft',
+    'exterior'
+  ),
 };
 
 const NOTE_BACKED_QUICK_FIELD_ORDER: QuickMeasurementFieldKey[] = [
@@ -222,7 +481,10 @@ const NOTE_BACKED_QUICK_FIELD_ORDER: QuickMeasurementFieldKey[] = [
   'landscapeSqft',
 ];
 
-export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]> = {
+export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
+  string,
+  QuickMeasurementRow[]
+> = {
   bathroom: [
     row(
       F('bathroomFloorSqft', 'Bath floor', '90', 'sqft', 'interior'),
@@ -253,21 +515,54 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
       F('kitchenFloorSqft', 'Kitchen floor', 'e.g. 180', 'sqft', 'interior')
     ),
     row(
-      F('floorAreaSqft', 'Total Flooring Area', 'e.g. 1000', 'sqft', 'structure', true),
+      F(
+        'floorAreaSqft',
+        'Total Flooring Area',
+        'e.g. 1000',
+        'sqft',
+        'structure',
+        true
+      ),
       F('baseboardLf', 'Baseboard', 'e.g. 200', 'LF', 'interior')
     ),
     row(
       F('flooringSqft', 'Flooring area', 'e.g. 1000', 'sqft', 'interior', true),
-      F('floorDemoSqft', 'Floor demo / removal', 'e.g. 1000', 'sqft', 'interior')
+      F(
+        'floorDemoSqft',
+        'Floor demo / removal',
+        'e.g. 1000',
+        'sqft',
+        'interior'
+      )
     ),
-    row(F('floorPrepSqft', 'Affected floor-prep area', 'e.g. 250', 'sqft', 'interior')),
+    row(
+      F(
+        'floorPrepSqft',
+        'Affected floor-prep area',
+        'e.g. 250',
+        'sqft',
+        'interior'
+      )
+    ),
     row(
       F('flooringLvpSqft', 'LVP', 'e.g. 1000', 'sqft', 'interior'),
       F('flooringLaminateSqft', 'Laminate', 'e.g. 1000', 'sqft', 'interior')
     ),
     row(
-      F('flooringEngineeredHardwoodSqft', 'Engineered hardwood', 'e.g. 1000', 'sqft', 'interior'),
-      F('flooringSolidHardwoodSqft', 'Solid hardwood', 'e.g. 1000', 'sqft', 'interior')
+      F(
+        'flooringEngineeredHardwoodSqft',
+        'Engineered hardwood',
+        'e.g. 1000',
+        'sqft',
+        'interior'
+      ),
+      F(
+        'flooringSolidHardwoodSqft',
+        'Solid hardwood',
+        'e.g. 1000',
+        'sqft',
+        'interior'
+      )
     ),
     row(
       F('flooringTileSqft', 'Tile', 'e.g. 1000', 'sqft', 'interior'),
@@ -275,11 +570,15 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
     ),
     row(
       F('underlaymentSqft', 'Underlayment', 'e.g. 1000', 'sqft', 'interior'),
-      F('moistureBarrierSqft', 'Vapor / moisture barrier', 'e.g. 1000', 'sqft', 'interior')
+      F(
+        'moistureBarrierSqft',
+        'Vapor / moisture barrier',
+        'e.g. 1000',
+        'sqft',
+        'interior'
+      )
     ),
-    row(
-      F('quarterRoundLf', 'Quarter round', 'e.g. 48', 'LF', 'interior')
-    ),
+    row(F('quarterRoundLf', 'Quarter round', 'e.g. 48', 'LF', 'interior')),
   ],
   landscaping: [
     row(
@@ -299,7 +598,15 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
       F('wallPaintSqft', 'Walls', '1500', 'sqft', 'interior', true),
       F('ceilingPaintSqft', 'Ceilings', '1200', 'sqft', 'interior')
     ),
-    row(F('paintAreaSqft', 'Paint area — confirm basis', '1500', 'sqft', 'interior')),
+    row(
+      F(
+        'paintAreaSqft',
+        'Paint area — confirm basis',
+        '1500',
+        'sqft',
+        'interior'
+      )
+    ),
     row(
       F(
         'baseboardLf',
@@ -321,14 +628,111 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
   ],
   concrete: [
     row(
-      F('concreteSqft', EXTERIOR_FLATWORK_LABEL, '400', 'sqft', 'structure', true, EXTERIOR_FLATWORK_HELPER),
+      F(
+        'concreteSqft',
+        EXTERIOR_FLATWORK_LABEL,
+        '400',
+        'sqft',
+        'structure',
+        true,
+        EXTERIOR_FLATWORK_HELPER
+      ),
       F('concreteCy', 'Concrete', '12', 'CY', 'structure')
+    ),
+  ],
+  stucco: [
+    row(
+      F(
+        'stuccoGrossWallSqft',
+        'Exterior wall area — gross',
+        'Enter',
+        'sqft',
+        'exterior',
+        true
+      )
+    ),
+    row(
+      F(
+        'stuccoWindowDoorOpeningSqft',
+        'Window & door openings',
+        'Enter',
+        'sqft',
+        'exterior'
+      ),
+      F(
+        'stuccoGarageOpeningSqft',
+        'Garage door openings',
+        'Enter',
+        'sqft',
+        'exterior'
+      )
+    ),
+    row(
+      F(
+        'stuccoOtherFinishDeductionSqft',
+        'Other finish deductions',
+        'Enter',
+        'sqft',
+        'exterior'
+      ),
+      F(
+        'stuccoNetWallSqft',
+        'Net stucco wall area',
+        'Calculated',
+        'sqft',
+        'exterior',
+        true
+      )
+    ),
+    row(
+      F(
+        'stuccoSoffitSqft',
+        'Soffits / stucco ceilings',
+        'Enter',
+        'sqft',
+        'exterior'
+      ),
+      F(
+        'stuccoParapetSqft',
+        'Parapets / raised walls',
+        'Enter',
+        'sqft',
+        'exterior'
+      )
+    ),
+    row(
+      F(
+        'stuccoFoamTrimLf',
+        'Foam trim / architectural bands',
+        'Enter',
+        'LF',
+        'exterior'
+      ),
+      F(
+        'stuccoControlJointLf',
+        'Control / expansion joints',
+        'Enter',
+        'LF',
+        'exterior'
+      )
+    ),
+    row(
+      F('stuccoStories', 'Stories', '1', 'story', 'exterior'),
+      F('stuccoWallHeightFt', 'Wall height', 'Enter', 'ft', 'exterior')
     ),
   ],
   deck_patio: [
     row(
       F('deckSqft', 'Deck / patio', '320', 'sqft', 'exterior', true),
-      F('concreteSqft', EXTERIOR_FLATWORK_LABEL, '180', 'sqft', 'structure', undefined, EXTERIOR_FLATWORK_HELPER)
+      F(
+        'concreteSqft',
+        EXTERIOR_FLATWORK_LABEL,
+        '180',
+        'sqft',
+        'structure',
+        undefined,
+        EXTERIOR_FLATWORK_HELPER
+      )
     ),
     row(F('railingLf', 'Railing', '48', 'LF', 'exterior')),
   ],
@@ -362,7 +766,15 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
       F('deckSqft', 'Deck / patio', '400', 'sqft', 'exterior')
     ),
     row(
-      F('concreteSqft', EXTERIOR_FLATWORK_LABEL, '400', 'sqft', 'structure', undefined, EXTERIOR_FLATWORK_HELPER),
+      F(
+        'concreteSqft',
+        EXTERIOR_FLATWORK_LABEL,
+        '400',
+        'sqft',
+        'structure',
+        undefined,
+        EXTERIOR_FLATWORK_HELPER
+      ),
       F('roofSquares', 'Roof', '28', 'sq', 'structure')
     ),
     row(
@@ -398,7 +810,15 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<string, QuickMeasurementRow[]>
       F('deckSqft', 'Deck / patio', '320', 'sqft', 'exterior')
     ),
     row(
-      F('concreteSqft', EXTERIOR_FLATWORK_LABEL, '400', 'sqft', 'structure', undefined, EXTERIOR_FLATWORK_HELPER),
+      F(
+        'concreteSqft',
+        EXTERIOR_FLATWORK_LABEL,
+        '400',
+        'sqft',
+        'structure',
+        undefined,
+        EXTERIOR_FLATWORK_HELPER
+      ),
       F('roofSquares', 'Roof', '22', 'sq', 'structure')
     ),
     row(
@@ -438,7 +858,12 @@ export function resolveQuickMeasurementTemplateKey(
   // kitchen/bath remodel just because notes also mention floor tile.
   if (tk && SCOPE_QUICK_MEASUREMENT_ROWS[tk]) return tk;
   if (pt === 'new_build' || pt === 'ground_up') return 'ground_up';
-  if (pt === 'home_addition' || pt === 'whole_home' || pt === 'whole_home_remodel') return 'addition';
+  if (
+    pt === 'home_addition' ||
+    pt === 'whole_home' ||
+    pt === 'whole_home_remodel'
+  )
+    return 'addition';
   if (pt === 'flooring') return 'flooring';
   if (pt === 'kitchen') return 'kitchen';
   if (pt === 'bathroom') return 'bathroom';
@@ -446,6 +871,7 @@ export function resolveQuickMeasurementTemplateKey(
   if (pt === 'roofing') return 'roofing';
   if (pt === 'drywall') return 'drywall';
   if (pt === 'painting') return 'painting';
+  if (pt === 'stucco' || pt === 'exterior_finish') return 'stucco';
   if (pt === 'concrete') return 'concrete';
   if (pt === 'deck_patio') return 'deck_patio';
   if (pt === 'excavation') return 'excavation';
@@ -463,7 +889,10 @@ export function resolveEffectiveQuickMeasurementTemplateKey(params: {
   livingSf?: number | null;
   garageSf?: number | null;
 }): string {
-  const resolved = resolveQuickMeasurementTemplateKey(params.templateKey, params.projectType);
+  const resolved = resolveQuickMeasurementTemplateKey(
+    params.templateKey,
+    params.projectType
+  );
   if (resolved === 'ground_up' || resolved === 'addition') return resolved;
 
   const rooms = Number(params.planRoomCount) || 0;
@@ -472,7 +901,10 @@ export function resolveEffectiveQuickMeasurementTemplateKey(params: {
   const looksWholeHome =
     rooms >= 4 ||
     (Number.isFinite(living) && living >= 800 && rooms >= 2) ||
-    (Number.isFinite(living) && living >= 800 && Number.isFinite(garage) && garage > 0);
+    (Number.isFinite(living) &&
+      living >= 800 &&
+      Number.isFinite(garage) &&
+      garage > 0);
 
   if (looksWholeHome && (resolved === 'room_remodel' || !params.templateKey)) {
     return 'ground_up';
@@ -480,7 +912,9 @@ export function resolveEffectiveQuickMeasurementTemplateKey(params: {
   return resolved;
 }
 
-export function isWholeHomeQuickMeasurementTemplate(templateKey?: string | null): boolean {
+export function isWholeHomeQuickMeasurementTemplate(
+  templateKey?: string | null
+): boolean {
   const key = String(templateKey || '').toLowerCase();
   return key === 'ground_up' || key === 'addition';
 }
@@ -491,7 +925,8 @@ export function quickMeasurementRowsForTemplate(
 ): QuickMeasurementRow[] {
   const key = resolveQuickMeasurementTemplateKey(templateKey, projectType);
   return applyProjectSpecificQuickMeasurementLabels(
-    SCOPE_QUICK_MEASUREMENT_ROWS[key] || SCOPE_QUICK_MEASUREMENT_ROWS.room_remodel,
+    SCOPE_QUICK_MEASUREMENT_ROWS[key] ||
+      SCOPE_QUICK_MEASUREMENT_ROWS.room_remodel,
     key,
     projectType
   );
@@ -524,8 +959,8 @@ function applyProjectSpecificQuickMeasurementLabels(
   // new_build / ground_up keep "Living area"; ADU/addition variants override.
   if (!floorAreaLabel) return rows;
 
-  return rows.map((measurementRow) =>
-    measurementRow.map((field) =>
+  return rows.map(measurementRow =>
+    measurementRow.map(field =>
       field.key === 'floorAreaSqft'
         ? {
             ...field,
@@ -539,7 +974,11 @@ function applyProjectSpecificQuickMeasurementLabels(
 }
 
 export function hasQuickMeasurementValue(value: unknown): boolean {
-  const n = Number(String(value ?? '').replace(/,/g, '').trim());
+  const n = Number(
+    String(value ?? '')
+      .replace(/,/g, '')
+      .trim()
+  );
   return Number.isFinite(n) && n > 0;
 }
 
@@ -567,16 +1006,24 @@ function chunkRows(fields: QuickMeasurementFieldDef[]): QuickMeasurementRow[] {
 export function quickMeasurementRowsForInput(
   templateKey: string | null | undefined,
   projectType: string | null | undefined,
-  measurements: Partial<Record<QuickMeasurementFieldKey, string | number | null | undefined>>,
+  measurements: Partial<
+    Record<QuickMeasurementFieldKey, string | number | null | undefined>
+  >,
   noteBackedKeys?: Iterable<QuickMeasurementFieldKey>
 ): QuickMeasurementRow[] {
-  const resolvedKey = resolveQuickMeasurementTemplateKey(templateKey, projectType);
+  const resolvedKey = resolveQuickMeasurementTemplateKey(
+    templateKey,
+    projectType
+  );
   const noteKeySet = noteBackedKeys ? new Set(noteBackedKeys) : null;
   const baseRows = quickMeasurementRowsForTemplate(templateKey, projectType);
-  const baseKeys = new Set(baseRows.flatMap((r) => r.map((f) => f.key)));
-  const extraFields = NOTE_BACKED_QUICK_FIELD_ORDER
-    .filter((key) => !baseKeys.has(key) && (!noteKeySet || noteKeySet.has(key)) && hasQuickMeasurementValue(measurements[key]))
-    .map((key) => QUICK_MEASUREMENT_FIELD_DEFS[key]);
+  const baseKeys = new Set(baseRows.flatMap(r => r.map(f => f.key)));
+  const extraFields = NOTE_BACKED_QUICK_FIELD_ORDER.filter(
+    key =>
+      !baseKeys.has(key) &&
+      (!noteKeySet || noteKeySet.has(key)) &&
+      hasQuickMeasurementValue(measurements[key])
+  ).map(key => QUICK_MEASUREMENT_FIELD_DEFS[key]);
 
   // Keep row order stable while typing — dynamic note-only rows caused TextInput focus to jump.
   if (resolvedKey === 'room_remodel') {
@@ -589,28 +1036,33 @@ export function quickMeasurementRowsForInput(
 }
 
 /** Group flat rows into Site / Structure / Interior sections; primary fields lead. */
-export function quickMeasurementSectionsForRows(rows: QuickMeasurementRow[]): QuickMeasurementSection[] {
+export function quickMeasurementSectionsForRows(
+  rows: QuickMeasurementRow[]
+): QuickMeasurementSection[] {
   const fields = rows.flat();
   if (!fields.length) return [];
 
-  const byGroup = new Map<QuickMeasurementGroupId, QuickMeasurementFieldDef[]>();
+  const byGroup = new Map<
+    QuickMeasurementGroupId,
+    QuickMeasurementFieldDef[]
+  >();
   for (const field of fields) {
     const list = byGroup.get(field.group) || [];
     list.push(field);
     byGroup.set(field.group, list);
   }
 
-  const primaryGroup = fields.find((f) => f.primary)?.group;
+  const primaryGroup = fields.find(f => f.primary)?.group;
   const orderedGroups = primaryGroup
-    ? [primaryGroup, ...GROUP_ORDER.filter((id) => id !== primaryGroup)]
+    ? [primaryGroup, ...GROUP_ORDER.filter(id => id !== primaryGroup)]
     : GROUP_ORDER;
 
   const sections: QuickMeasurementSection[] = [];
   for (const groupId of orderedGroups) {
     const groupFields = byGroup.get(groupId);
     if (!groupFields?.length) continue;
-    const primary = groupFields.filter((f) => f.primary);
-    const rest = groupFields.filter((f) => !f.primary);
+    const primary = groupFields.filter(f => f.primary);
+    const rest = groupFields.filter(f => !f.primary);
     const sectionRows: QuickMeasurementRow[] = [];
     for (const field of primary) {
       sectionRows.push([field]);
@@ -633,14 +1085,21 @@ export function countFilledQuickMeasurements(
   const fields = rows.flat();
   let filled = 0;
   for (const field of fields) {
-    const value = resolveQuickMeasurementDisplayValue(field.key, measurements, noteValues);
+    const value = resolveQuickMeasurementDisplayValue(
+      field.key,
+      measurements,
+      noteValues
+    );
     if (hasQuickMeasurementValue(value)) filled += 1;
   }
   return { filled, total: fields.length };
 }
 
 /** Contractor-friendly label + unit for a quick-measurement key (plan takeoff review, alerts). */
-export function quickMeasurementFieldMeta(key: string): { label: string; unit: string } {
+export function quickMeasurementFieldMeta(key: string): {
+  label: string;
+  unit: string;
+} {
   const def = QUICK_MEASUREMENT_FIELD_DEFS[key as QuickMeasurementFieldKey];
   if (def) return { label: def.label, unit: def.unit };
   return { label: key, unit: '' };
@@ -650,24 +1109,35 @@ export function quickMeasurementFieldMeta(key: string): { label: string; unit: s
  * Example numeric placeholders look like calculated values in Confirm Scope.
  * With measurement-semantics on, show Enter / Not measured instead.
  */
-export function quickMeasurementPlaceholder(field: QuickMeasurementFieldDef): string {
+export function quickMeasurementPlaceholder(
+  field: QuickMeasurementFieldDef
+): string {
   if (!measurementSemanticsV1Enabled()) return field.placeholder;
-  if (field.key === 'floorAreaSqft' || field.key === 'garageSqft' || field.key === 'deckSqft') {
+  if (
+    field.key === 'floorAreaSqft' ||
+    field.key === 'garageSqft' ||
+    field.key === 'deckSqft'
+  ) {
     return 'Enter';
   }
   if (field.key === 'flooringSqft') return 'Not measured';
   return 'Enter';
 }
 
-export function quickMeasurementDisplayLabel(field: QuickMeasurementFieldDef): string {
+export function quickMeasurementDisplayLabel(
+  field: QuickMeasurementFieldDef
+): string {
   if (!measurementSemanticsV1Enabled()) return field.label;
   if (field.key === 'flooringSqft') return 'Total Flooring Area';
-  if (field.key === 'floorAreaSqft' && field.label === 'Floor area') return 'Living area';
+  if (field.key === 'floorAreaSqft' && field.label === 'Floor area')
+    return 'Living area';
   return field.label;
 }
 
 /** Short clarifying line under a field label (Living vs Gross interior, flatwork exclusions, etc.). */
-export function quickMeasurementHelperText(field: QuickMeasurementFieldDef): string | undefined {
+export function quickMeasurementHelperText(
+  field: QuickMeasurementFieldDef
+): string | undefined {
   if (field.helperText) return field.helperText;
   if (field.key === 'flooringSqft') {
     return 'Total SF being replaced or receiving new flooring. Use this as the overall flooring-area reference.';
@@ -684,7 +1154,10 @@ export function quickMeasurementHelperText(field: QuickMeasurementFieldDef): str
   return undefined;
 }
 
-export function emptyQuickMeasurementInput(): Record<QuickMeasurementFieldKey, string> {
+export function emptyQuickMeasurementInput(): Record<
+  QuickMeasurementFieldKey,
+  string
+> {
   return {
     bathroomFloorSqft: '',
     kitchenFloorSqft: '',
@@ -743,5 +1216,18 @@ export function emptyQuickMeasurementInput(): Record<QuickMeasurementFieldKey, s
     excavationCy: '',
     deckSqft: '',
     garageSqft: '',
+    stuccoGrossWallSqft: '',
+    stuccoWindowDoorOpeningSqft: '',
+    stuccoGarageOpeningSqft: '',
+    stuccoOtherFinishDeductionSqft: '',
+    stuccoNetWallSqft: '',
+    stuccoSoffitSqft: '',
+    stuccoParapetSqft: '',
+    stuccoFoamTrimLf: '',
+    stuccoControlJointLf: '',
+    stuccoAccessAffectedSqft: '',
+    stuccoRepairAffectedSqft: '',
+    stuccoStories: '',
+    stuccoWallHeightFt: '',
   };
 }

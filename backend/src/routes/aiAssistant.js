@@ -15827,6 +15827,17 @@ router.post('/plan-to-measurements', async (req, res) => {
       aiModels,
       aiRuntime,
     });
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[plan-to-measurements] takeoff summary', {
+        estimatingMode: result.estimatingMode || planSelection.mode,
+        selectedTrade: result.selectedTrade || planSelection.trade?.key || null,
+        measurementKeys: Object.keys(result.measurements || {}),
+        elevationFaces: Array.isArray(result.planFacts?.elevationFaces)
+          ? result.planFacts.elevationFaces.length
+          : 0,
+        missingInfo: result.missingInfo || [],
+      });
+    }
 
     if (!result.success) {
       return res.json({

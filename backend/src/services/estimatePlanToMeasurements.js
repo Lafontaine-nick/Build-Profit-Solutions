@@ -38,6 +38,19 @@ const MEASUREMENT_KEYS = new Set([
   'showerFloorTileSqft',
   'wallPaintSqft',
   'exteriorPaintSqft',
+  'stuccoGrossWallSqft',
+  'stuccoWindowDoorOpeningSqft',
+  'stuccoGarageOpeningSqft',
+  'stuccoOtherFinishDeductionSqft',
+  'stuccoNetWallSqft',
+  'stuccoSoffitSqft',
+  'stuccoParapetSqft',
+  'stuccoFoamTrimLf',
+  'stuccoControlJointLf',
+  'stuccoAccessAffectedSqft',
+  'stuccoRepairAffectedSqft',
+  'stuccoStories',
+  'stuccoWallHeightFt',
   'baseboardLf',
   'railingLf',
   'landscapeSqft',
@@ -66,6 +79,8 @@ const LABELED_ONLY_KEYS = new Set([
   'drywallSqft',
   'baseboardLf',
   'railingLf',
+  'stuccoAccessAffectedSqft',
+  'stuccoRepairAffectedSqft',
 ]);
 
 /** Concrete flatwork only when the sheet labels concrete/slab/driveway — not covered patio. */
@@ -87,6 +102,109 @@ function positive(n) {
   return Number.isFinite(v) && v > 0 ? v : null;
 }
 
+function deriveStuccoElevationMeasurements(measurements = {}, planFacts = {}) {
+  const faces = Array.isArray(planFacts?.elevationFaces)
+    ? planFacts.elevationFaces
+    : [];
+  let gross = 0;
+  let openings = 0;
+  let windowDoorOpenings = 0;
+  let garageOpenings = 0;
+  let hasCategorizedOpeningData = false;
+  let nonStucco = 0;
+  let hasOpeningData = false;
+  let hasNonStuccoData = false;
+  let parapet = 0;
+  for (const face of faces) {
+    const width = positive(face?.widthFt);
+    const height = positive(face?.heightFt);
+    const faceArea = positive(face?.stuccoAreaSqft) || positive(face?.areaSqft) ||
+      (width && height ? width * height : null);
+    if (faceArea) gross += faceArea;
+    const faceOpenings = positive(face?.openingsSqft);
+    if (faceOpenings) {
+      openings += faceOpenings;
+      hasOpeningData = true;
+    }
+    const faceWindowDoorOpenings = positive(face?.windowDoorOpeningsSqft);
+    const faceGarageOpenings = positive(face?.garageOpeningsSqft);
+    if (faceWindowDoorOpenings || faceGarageOpenings) {
+      hasCategorizedOpeningData = true;
+      windowDoorOpenings += faceWindowDoorOpenings || 0;
+      garageOpenings += faceGarageOpenings || 0;
+    }
+    const faceNonStucco = positive(face?.nonStuccoSqft);
+    if (faceNonStucco) {
+      nonStucco += faceNonStucco;
+      hasNonStuccoData = true;
+    }
+    const faceParapet = positive(face?.parapetSqft);
+    if (faceParapet) parapet += faceParapet;
+  }
+  const next = { ...measurements };
+  const derivedKeys = [];
+  if (!(positive(next.stuccoGrossWallSqft) > 0) && gross > 0) {
+    next.stuccoGrossWallSqft = Math.round(gross * 10) / 10;
+    derivedKeys.push('stuccoGrossWallSqft');
+  }
+  if (
+    !(positive(next.stuccoParapetSqft) > 0) &&
+    parapet > 0
+  ) {
+    next.stuccoParapetSqft = Math.round(parapet * 10) / 10;
+    derivedKeys.push('stuccoParapetSqft');
+  }
+  if (
+    ((hasCategorizedOpeningData && windowDoorOpenings > 0) ||
+      (!hasCategorizedOpeningData &&
+        !(positive(next.stuccoWindowDoorOpeningSqft) > 0) &&
+        hasOpeningData &&
+        openings > 0))
+  ) {
+    next.stuccoWindowDoorOpeningSqft = Math.round(
+      (hasCategorizedOpeningData ? windowDoorOpenings : openings) * 10
+    ) / 10;
+    derivedKeys.push('stuccoWindowDoorOpeningSqft');
+  }
+  if (
+    !(positive(next.stuccoGarageOpeningSqft) > 0) &&
+    hasCategorizedOpeningData &&
+    garageOpenings > 0
+  ) {
+    next.stuccoGarageOpeningSqft = Math.round(garageOpenings * 10) / 10;
+    derivedKeys.push('stuccoGarageOpeningSqft');
+  }
+  if (
+    !(positive(next.stuccoOtherFinishDeductionSqft) > 0) &&
+    hasNonStuccoData &&
+    nonStucco > 0
+  ) {
+    next.stuccoOtherFinishDeductionSqft = Math.round(nonStucco * 10) / 10;
+    derivedKeys.push('stuccoOtherFinishDeductionSqft');
+  }
+  const grossValue = positive(next.stuccoGrossWallSqft);
+  const openingValue = positive(next.stuccoWindowDoorOpeningSqft) || 0;
+  const garageValue = positive(next.stuccoGarageOpeningSqft) || 0;
+  const finishValue = positive(next.stuccoOtherFinishDeductionSqft) || 0;
+  if (
+    !(positive(next.stuccoNetWallSqft) > 0) &&
+    grossValue &&
+    (hasOpeningData ||
+      positive(next.stuccoGarageOpeningSqft) ||
+      hasNonStuccoData)
+  ) {
+    next.stuccoNetWallSqft = Math.max(
+      0,
+      Math.round(
+        (grossValue - openingValue - garageValue - finishValue) *
+          10
+      ) / 10
+    );
+    derivedKeys.push('stuccoNetWallSqft');
+  }
+  return { measurements: next, derivedKeys };
+}
+
 function buildSystemPrompt() {
   return `You are a construction estimator reading architectural floor plans / blueprints (often photos of printed sheets).
 
@@ -97,8 +215,10 @@ Extract BOTH:
    - totalLivingSqft = "Total Living Area" or Main Floor Living + Upstairs Living (living only — exclude garage, patio, roof deck unless labeled living).
    - mainFloorLivingSqft, upstairsLivingSqft, garageSqft, coveredPatioSqft, coveredOutdoorSqft, roofDeckSqft when labeled.
 2. EVERY individual room / space with a readable length×width or labeled SF on floor-plan pages — not a sample. Estimators need per-room SF when finishes differ (tile vs carpet, etc.).
-3. Elevations / sections: use for notes (ceiling heights, materials) only — NEVER use elevations to invent floor square footage.
-4. Structured planFacts with evidence for each fact. Include only printed/labeled facts: story count/floor evidence, roof pitch, wall or plate heights, exterior/foundation perimeter LF, non-painted exterior finish percent (stone/brick/stucco/masonry), covered-patio roof status, page/sheet, and supplied geometry. Never infer geometry or fabricate a quantity.
+3. For selected-trade Stucco / Exterior Finish mode, inspect exterior elevations, wall sections, and exterior finish schedules in addition to floor plans. Extract clearly labeled stucco takeoff values: gross exterior wall area, each elevation face width/height, window/door opening area or count × dimensions, garage door opening area or count × dimensions, other finish deduction area, soffit area, parapet/raised wall area, foam trim/bands LF, control/expansion joints LF, story count, and story-specific wall heights. Keep window/door openings separate from garage door openings. For each elevation face, use windowDoorOpeningsSqft and garageOpeningsSqft when those categories can be read; use openingsSqft only when the total cannot be categorized, and do not also populate garage openings from an uncategorized total. When the plan clearly provides the inputs, gross wall area may be derived from labeled elevation face areas, or labeled exterior perimeter × story-specific wall heights; mark it as derived in fieldEvidence. Never use ridge height as wall height. If neither a labeled quantity nor complete labeled inputs exist, omit it and list it in unreadableFields or missingInfo.
+   - Treat parapet / raised-wall stucco surface as a separate quantity from the main vertical exterior wall area. Never include the same parapet SF in both quantities. If the parapet surface cannot be confidently read or derived from labeled dimensions, omit it and list stuccoParapetSqft in unreadableFields or missingInfo.
+4. Elevations / sections: use them for labeled exterior geometry and materials. Read every elevation separately (front, rear, left, right), identify stucco versus stone/brick/siding/wood/metal cladding, and capture visible openings by labeled dimensions. Do not invent geometry from visual proportions.
+5. Structured planFacts with evidence for each fact. Include only printed/labeled facts: story count/floor evidence, roof pitch, wall or plate heights, exterior/foundation perimeter LF, nonPainted exterior finish percent (stone/brick/stucco/masonry), covered-patio roof status, page/sheet, and supplied geometry. Never infer geometry or fabricate a quantity.
 
 Exhaustive rooms (required):
 - Include every labeled room you can read: bedrooms, primary suite, den/office, great room / living / family, dining, kitchen, pantry, laundry, mud, foyer/entry, hallways (when dimensioned), closets / WIC, powder, every bathroom (primary bath, guest bath, Jack & Jill, etc.), garage / RV garage / shop, covered patio / porch / deck, and similarly labeled spaces.
@@ -128,7 +248,7 @@ Rules:
 6. measurements.deckSqft = covered patio + roof deck (+ covered outdoor when no patio) from the schedule. NEVER put covered patio / roof deck into concreteSqft.
 7. measurements.garageSqft = Garage Area from the schedule when labeled (not living SF). Still list Garage / RV Garage as separate rooms[] entries with their L×W when labeled.
 8. measurements.concreteSqft ONLY for labeled concrete slab / driveway / sidewalk / flatwork — omit for covered patio or wood deck. Put concreteSqft in explicitlyLabeled when used.
-9. wallPaintSqft, drywallSqft, exteriorPaintSqft, baseboardLf, railingLf: omit unless the plan explicitly labels that quantity. Set explicitlyLabeled to those keys only when true. Never invent them.
+9. wallPaintSqft, drywallSqft, exteriorPaintSqft, baseboardLf, and railingLf must be explicitly labeled. Stucco quantities may also be calculated only from complete, clearly labeled elevation face, perimeter/height/story, or opening-dimension inputs; mark those values as plan-derived and never estimate from living area.
 10. Multi-page sets: merge all floor-plan pages; ignore duplicate title-block totals; elevations do not add living SF.
 11. success false if none of the images are plans/blueprints, OR if imageQuality is "unreadable".
 12. notesBlock: short contractor-readable summary of Building Areas totals (room-by-room SF will be listed separately by the app).
@@ -156,6 +276,20 @@ Schema:
     "foundationPerimeterLf": 214,
     "nonPaintedExteriorPercent": 25,
     "coveredPatioRoofed": true,
+    "elevationFaces": [
+      {
+        "id": "front",
+        "widthFt": 62,
+        "heightFt": 10.2,
+        "areaSqft": 632.4,
+        "stuccoAreaSqft": 560,
+        "openingsSqft": 72.4,
+        "windowDoorOpeningsSqft": 72.4,
+        "garageOpeningsSqft": 0,
+        "nonStuccoSqft": 0,
+        "evidence": [{ "page": 8, "sheet": "A-7", "label": "FRONT ELEVATION", "sourceText": "readable face dimensions" }]
+      }
+    ],
     "geometry": [],
     "fieldEvidence": {
       "storyCount": {
@@ -543,6 +677,32 @@ function sanitizePlanFacts(raw, buildingAreas = {}) {
   }
   const geometry = sanitizeGeometry(src.geometry);
   if (geometry.length) out.geometry = geometry;
+  const elevationFaces = (Array.isArray(src.elevationFaces) ? src.elevationFaces : [])
+    .map(face => {
+      const entry = { id: String(face?.id || '').trim().slice(0, 40) };
+      for (const key of [
+        'widthFt',
+        'heightFt',
+        'areaSqft',
+        'stuccoAreaSqft',
+        'openingsSqft',
+        'windowDoorOpeningsSqft',
+        'garageOpeningsSqft',
+        'nonStuccoSqft',
+        'parapetSqft',
+      ]) {
+        const value = positive(face?.[key]);
+        if (value != null && value <= 50000) entry[key] = Math.round(value * 10) / 10;
+      }
+      const evidence = sanitizeEvidence(face?.evidence);
+      if (evidence.length) entry.evidence = evidence;
+      return entry.id && (entry.areaSqft || entry.stuccoAreaSqft || entry.widthFt)
+        ? entry
+        : null;
+    })
+    .filter(Boolean)
+    .slice(0, 8);
+  if (elevationFaces.length) out.elevationFaces = elevationFaces;
   const warnings = (Array.isArray(src.warnings) ? src.warnings : [])
     .map((warning) => String(warning || '').trim().slice(0, 200))
     .filter(Boolean)
@@ -925,12 +1085,14 @@ async function analyzePlanForMeasurements({
             type: 'text',
             text: [
               'Extract Building Areas / Area Schedule totals AND every labeled room with length×width or SF from these floor plan / blueprint pages.',
+              'For Stucco / Exterior Finish, inspect every front/rear/left/right elevation and wall section. Read elevation face widths/heights, story-specific plate heights, window and door dimensions, garage door dimensions, cladding callouts, soffits, parapets, foam bands, and control joints.',
+              'Calculate gross exterior wall SF only from readable elevation face dimensions or a readable perimeter plus story-specific heights. Subtract only readable opening and non-stucco finish deductions. Never use living SF, floor SF, ridge height, or visual proportions as wall area.',
               'Include all bedrooms, baths, kitchen, dining, great room/living, laundry, pantry, closets, garage/RV garage, patio/porch — not just a few key rooms.',
               'Pair each room label with the dimension string printed for that room only — never swap Kitchen/Den/Bedroom/Garage/RV dims.',
               'Use floor-plan sheets for room L×W, not foundation overall garage envelopes. Each bath needs its own readable L×W; otherwise omit bathroomFloorSqft.',
               'Photos of printed sheets are OK — read the title-block square footage table carefully.',
               'Only report numbers you can actually read. If a value is blurry or illegible, omit it and list it in unreadableFields — never guess.',
-              'Do not invent paint, drywall, or trim quantities.',
+              'Do not invent paint, drywall, or trim quantities. If a Stucco quantity is unavailable, list the exact missing sheet/measurement in unreadableFields or missingInfo.',
               'Covered patio / roof deck → deckSqft. Garage schedule → garageSqft. Never map patio to concrete flatwork.',
               hintBits.length ? hintBits.join('\n\n') : 'No extra context.',
             ].join('\n\n'),
@@ -964,8 +1126,50 @@ async function analyzePlanForMeasurements({
         }
       })()
     : Promise.resolve(null);
+  // A focused trade pass helps PDF file inputs where the general takeoff reads
+  // the text layer but does not inspect graphical elevation geometry deeply.
+  const tradeVisualPromise =
+    planSelection.mode === 'whole_project' || planSelection.trade
+    ? openai.chat.completions.create({
+        model: aiModels.assistant.vision,
+        response_format: aiRuntime.assistant.vision.responseFormat,
+        temperature: Math.min(aiRuntime.assistant.vision.temperature ?? 0.2, 0.15),
+        max_tokens: Math.max(aiRuntime.assistant.vision.maxTokens || 900, 2500),
+        messages: [
+          {
+            role: 'system',
+            content:
+              buildSystemPrompt() +
+              (planSelection.trade
+                ? '\nThis is a focused trade takeoff pass. Prioritize measurable geometry and scope for the selected trade over general room extraction.'
+                : '\nThis is a focused general-contractor takeoff pass. Prioritize measurable quantities across every major scope category.'),
+          },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: [
+                  planSelection.trade
+                    ? `Focus only on ${planSelection.trade.label}. Inspect every relevant elevation, section, detail, schedule, and takeoff sheet in the plan file.`
+                    : 'Review the complete plan set for all major building scopes: structure, foundation, concrete, framing, roof, windows/doors, exterior finishes, MEP, insulation, drywall, flooring, cabinets, tile, paint, sitework, patios, and landscaping.',
+                  'For Stucco / Exterior Finish, return elevationFaces with readable face width/height or area, stucco area, opening area, and non-stucco deductions. Read graphical dimensions, not only the PDF text layer.',
+                  'For every applicable scope, return clearly labeled trade-specific measurements and scope evidence using the existing JSON schema.',
+                  'Do not use living SF or visual proportions as a substitute. Leave unavailable values out and list the exact missing sheet or dimension.',
+                ].join('\n\n'),
+              },
+              ...compatible.map(toVisionContentPart),
+            ],
+          },
+        ],
+      })
+    : Promise.resolve(null);
 
-  const [completion, scopeResult] = await Promise.all([measurementsPromise, scopePromise]);
+  const [completion, scopeResult, tradeVisualCompletion] = await Promise.all([
+    measurementsPromise,
+    scopePromise,
+    tradeVisualPromise,
+  ]);
 
   const raw = completion.choices?.[0]?.message?.content || '{}';
   let parsed;
@@ -975,6 +1179,40 @@ async function analyzePlanForMeasurements({
     const err = new Error('Vision model returned invalid JSON. Try a clearer plan image.');
     err.status = 502;
     throw err;
+  }
+  if (tradeVisualCompletion) {
+    try {
+      const focused = JSON.parse(
+        tradeVisualCompletion.choices?.[0]?.message?.content || '{}'
+      );
+      parsed = {
+        ...parsed,
+        measurements: {
+          ...(parsed.measurements || {}),
+          ...(focused.measurements || {}),
+        },
+        planFacts: {
+          ...(parsed.planFacts || {}),
+          ...(focused.planFacts || {}),
+          elevationFaces:
+            focused.planFacts?.elevationFaces || parsed.planFacts?.elevationFaces,
+          fieldEvidence: {
+            ...(parsed.planFacts?.fieldEvidence || {}),
+            ...(focused.planFacts?.fieldEvidence || {}),
+          },
+        },
+        fieldConfidence: {
+          ...(parsed.fieldConfidence || {}),
+          ...(focused.fieldConfidence || {}),
+        },
+        unreadableFields: [
+          ...(parsed.unreadableFields || []),
+          ...(focused.unreadableFields || []),
+        ],
+      };
+    } catch (err) {
+      console.warn('Focused trade takeoff pass returned invalid JSON:', err?.message || err);
+    }
   }
 
   const imageQuality = sanitizeImageQuality(parsed?.imageQuality);
@@ -1061,6 +1299,14 @@ async function analyzePlanForMeasurements({
     buildingAreas,
     parsed.explicitlyLabeled
   );
+  const elevationDerived = deriveStuccoElevationMeasurements(
+    rawMeasurements,
+    parsed.planFacts
+  );
+  rawMeasurements = elevationDerived.measurements;
+  for (const key of elevationDerived.derivedKeys) {
+    fieldConfidence[key] = Math.max(Number(fieldConfidence[key] || 0), 0.75);
+  }
   rawMeasurements = reconcileBathroomMeasurement(rawMeasurements, rooms, unreadableFields);
   const { measurements, lowConfidence } = applyConfidenceFloor(rawMeasurements, fieldConfidence);
   const assumptions = [
@@ -1111,8 +1357,82 @@ async function analyzePlanForMeasurements({
     areaReconciliation = null;
   }
   areaReconciliation = reconcileLabeledLivingAreas(buildingAreas, areaReconciliation);
+  const tradeMeasurementInput = { ...measurements };
+  if (planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'stucco') {
+    if (!(positive(tradeMeasurementInput.stuccoStories) > 0) && positive(planFacts?.storyCount)) {
+      tradeMeasurementInput.stuccoStories = positive(planFacts.storyCount);
+    }
+    const planStories =
+      positive(tradeMeasurementInput.stuccoStories) || positive(planFacts?.storyCount);
+    const wallHeightCandidate = positive(planFacts?.wallHeightFt);
+    const plateHeightCandidate = positive(planFacts?.plateHeightFt);
+    const perStoryHeight =
+      planStories > 1 && plateHeightCandidate && wallHeightCandidate && wallHeightCandidate > 15
+        ? plateHeightCandidate
+        : wallHeightCandidate || plateHeightCandidate;
+    // Elevation/section vision can report the cumulative second-floor plate
+    // elevation (for this plan: 20.5 ft) as wall height. Stucco pricing needs
+    // the typical wall height per story (10.2 ft), with stories applied
+    // separately; normalize the AI value when the plan exposes both.
+    if (
+      planStories > 1 &&
+      plateHeightCandidate &&
+      positive(tradeMeasurementInput.stuccoWallHeightFt) > 15
+    ) {
+      tradeMeasurementInput.stuccoWallHeightFt = plateHeightCandidate;
+    }
+    if (!(positive(tradeMeasurementInput.stuccoWallHeightFt) > 0) && perStoryHeight) {
+      tradeMeasurementInput.stuccoWallHeightFt = perStoryHeight;
+    }
+    const perimeterLf =
+      positive(planFacts?.exteriorPerimeterLf) ||
+      positive(planFacts?.foundationPerimeterLf);
+    const perimeterSource = positive(planFacts?.exteriorPerimeterLf)
+      ? 'labeled exterior perimeter'
+      : 'labeled foundation envelope perimeter used as an exterior proxy';
+    const wallHeightFt = positive(tradeMeasurementInput.stuccoWallHeightFt);
+    const stories = positive(tradeMeasurementInput.stuccoStories);
+    if (
+      !(positive(tradeMeasurementInput.stuccoGrossWallSqft) > 0) &&
+      perimeterLf &&
+      wallHeightFt &&
+      stories
+    ) {
+      tradeMeasurementInput.stuccoGrossWallSqft = Math.round(
+        perimeterLf * wallHeightFt * stories
+      );
+      fieldConfidence.stuccoGrossWallSqft = 0.75;
+      assumptions.push(
+        `Gross stucco wall area derived from ${perimeterSource} (${perimeterLf} LF), wall/plate height (${wallHeightFt} FT), and stories (${stories}); verify upper-floor setbacks and openings.`
+      );
+    }
+    const grossWallSqft = positive(tradeMeasurementInput.stuccoGrossWallSqft);
+    const deductions = [
+      positive(tradeMeasurementInput.stuccoWindowDoorOpeningSqft),
+      positive(tradeMeasurementInput.stuccoGarageOpeningSqft),
+      positive(tradeMeasurementInput.stuccoOtherFinishDeductionSqft),
+    ];
+    if (
+      !(positive(tradeMeasurementInput.stuccoNetWallSqft) > 0) &&
+      grossWallSqft &&
+      deductions.every(value => value != null)
+    ) {
+      tradeMeasurementInput.stuccoNetWallSqft = Math.max(
+        0,
+        grossWallSqft - deductions.reduce((sum, value) => sum + value, 0)
+      );
+      fieldConfidence.stuccoNetWallSqft = 0.7;
+    }
+    if (positive(tradeMeasurementInput.stuccoGrossWallSqft)) {
+      notesBlock +=
+        `\n\nStucco takeoff: gross wall area ${tradeMeasurementInput.stuccoGrossWallSqft.toLocaleString()} SF` +
+        (positive(tradeMeasurementInput.stuccoNetWallSqft)
+          ? `; calculated net stucco area ${tradeMeasurementInput.stuccoNetWallSqft.toLocaleString()} SF.`
+          : '; opening deductions still need confirmation.');
+    }
+  }
   const tradeMeasurements = filterPlanMeasurementsForTrade(
-    measurements,
+    tradeMeasurementInput,
     planSelection.mode,
     planSelection.trade
   );
@@ -1124,6 +1444,22 @@ async function analyzePlanForMeasurements({
   const tradeRooms = planSelection.mode === 'selected_trade' ? [] : rooms;
   const tradeAreaReconciliation =
     planSelection.mode === 'selected_trade' ? null : areaReconciliation;
+  const tradeMissingInfo = [...(planSelection.trade?.missingInfo || [])];
+  if (planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'stucco') {
+    if (!(positive(tradeMeasurementInput.stuccoGrossWallSqft) > 0)) {
+      tradeMissingInfo.unshift(
+        'Gross exterior wall area: no readable elevation-face or perimeter dimensions'
+      );
+    }
+    if (
+      !(positive(tradeMeasurementInput.stuccoWindowDoorOpeningSqft) > 0) &&
+      !(positive(tradeMeasurementInput.stuccoGarageOpeningSqft) > 0)
+    ) {
+      tradeMissingInfo.unshift(
+        'Opening deductions: no readable window, door, or garage opening dimensions'
+      );
+    }
+  }
 
   return {
     success: true,
@@ -1149,7 +1485,7 @@ async function analyzePlanForMeasurements({
       selectedTrade: planSelection.trade?.key || null,
       routerStatus: planSelection.trade?.status || null,
     },
-    missingInfo: planSelection.trade?.missingInfo || [],
+    missingInfo: [...new Set(tradeMissingInfo)],
   };
 }
 
