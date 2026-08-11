@@ -666,47 +666,6 @@ function hasPrimaryTakeoffFromResolved(
   );
 }
 
-function reconcileStuccoMeasurementDraft(
-  measurements: ScopeMeasurementsInputExtended
-): ScopeMeasurementsInputExtended {
-  if (
-    String(measurements.planImportMode || '').toLowerCase() !==
-      'selected_trade' ||
-    String(measurements.planImportTradeKey || '').toLowerCase() !== 'stucco'
-  ) {
-    return measurements;
-  }
-
-  const gross =
-    parseScopeMeasurementInput(
-      String(measurements.stuccoGrossWallSqft ?? '')
-    ) || 0;
-  if (gross <= 0) return measurements;
-
-  const deductions =
-    (parseScopeMeasurementInput(
-      String(measurements.stuccoWindowDoorOpeningSqft ?? '')
-    ) || 0) +
-    (parseScopeMeasurementInput(
-      String(measurements.stuccoGarageOpeningSqft ?? '')
-    ) || 0) +
-    (parseScopeMeasurementInput(
-      String(measurements.stuccoOtherFinishDeductionSqft ?? '')
-    ) || 0);
-  const net = String(Math.max(0, gross - deductions));
-
-  return {
-    ...measurements,
-    stuccoNetWallSqft: net,
-    exteriorPaintSqft: net,
-    quickMeasurementSources: {
-      ...(measurements.quickMeasurementSources || {}),
-      stuccoNetWallSqft: 'calculated_from_deductions',
-      exteriorPaintSqft: 'calculated_from_deductions',
-    },
-  };
-}
-
 function hasConfirmedPricingBasis(
   itemId: string,
   measurementsInput: ScopeMeasurementsInputExtended,
@@ -11629,10 +11588,7 @@ function CollapsibleQuickMeasurements({
               sum + Number(String(entry?.quantity || '').replace(/,/g, '')),
             0
           );
-        const nextMeasurements = reconcileStuccoMeasurementDraft({
-          ...prev,
-          [key]: value,
-        });
+        const nextMeasurements = { ...prev, [key]: value };
         if (
           flooringProductMeasurementKeys.includes(key) &&
           existingDemoTotal <= 0
