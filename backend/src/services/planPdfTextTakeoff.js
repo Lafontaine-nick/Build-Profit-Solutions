@@ -223,28 +223,42 @@ function parseFeetToken(ft, inches, sourceText) {
 function parseLabeledHeight(text, kind) {
   const t = normalizeCadCallouts(text);
   if (kind === 'plate') {
+    const hits = [];
+    const remember = (parsed) => {
+      if (!parsed || !(parsed.value > 0) || parsed.value > 40) return;
+      if (hits.some((h) => Math.abs(h.value - parsed.value) < 0.05)) return;
+      hits.push(parsed);
+    };
     const patterns = [
-      /\bplate\s*height\s*[:=-]?\s*(\d{1,2})['’](?:[-\s]*(\d{1,2})["”])?/i,
-      /\btop\s*of\s*plate\s*[:=-]?\s*(\d{1,2})['’](?:[-\s]*(\d{1,2})(?:\s*\d{1,2}\s*\/\s*\d{1,2})?)?["”]?/i,
-      /\b(\d{1,2})['’](?:[-\s]*(\d{1,2})["”])?\s*plate(?:\s*height)?\b/i,
+      /\bplate\s*height\s*[:=-]?\s*["']?\s*(\d{1,2})['’](?:[-\s]*(\d{1,2})["”])?/gi,
+      /\btop\s*of\s*plate\s*[:=-]?\s*["']?\s*(\d{1,2})['’](?:[-\s]*(\d{1,2})(?:\s*\d{1,2}\s*\/\s*\d{1,2})?)?["”]?/gi,
+      /\b(\d{1,2})['’](?:[-\s]*(\d{1,2})["”])?\s*plate(?:\s*height)?\b/gi,
     ];
     for (const re of patterns) {
-      const match = t.match(re);
-      if (!match) continue;
-      const parsed = parseFeetToken(match[1], match[2] || 0, match[0]);
-      if (parsed) return parsed;
-    }
-    // Decimal feet only when not followed by an inches segment ("10.2'" ok, "9'-1\"" not).
-    const decimal = t.match(
-      /\b(?:top\s*of\s*)?plate(?:\s*height)?\s*[:=-]?\s*(\d{1,2}(?:\.\d+)?)\s*['’](?!\s*-?\s*\d)/i
-    );
-    if (decimal) {
-      const value = Number(decimal[1]);
-      if (Number.isFinite(value) && value > 0 && value <= 40) {
-        return { value: Math.round(value * 1000) / 1000, sourceText: decimal[0] };
+      let match;
+      while ((match = re.exec(t))) {
+        remember(parseFeetToken(match[1], match[2] || 0, match[0]));
       }
     }
-    return null;
+    // Decimal feet only when not followed by a feet-inches hyphen ("10.2'" ok, "9'-1" not).
+    // Do not treat CAD junk digits after the mark (e.g. `10.2' 8 5 0`) as inches.
+    const decimalRe =
+      /\b(?:top\s*of\s*)?plate(?:\s*height)?\s*[:=-]?\s*["']?\s*(\d{1,2}(?:\.\d+)?)\s*['’](?!\s*-\s*\d)/gi;
+    let decimal;
+    while ((decimal = decimalRe.exec(t))) {
+      const value = Number(decimal[1]);
+      if (Number.isFinite(value) && value > 0 && value <= 40) {
+        remember({ value: Math.round(value * 1000) / 1000, sourceText: decimal[0] });
+      }
+    }
+    if (!hits.length) return null;
+    // Multi-story sections label both first-floor plate (~10.2') and the
+    // cumulative upper plate (~20.5'). Stucco needs the per-story height.
+    const perStory = hits
+      .filter((h) => h.value >= 7 && h.value <= 14)
+      .sort((a, b) => a.value - b.value);
+    if (perStory.length) return perStory[0];
+    return hits.sort((a, b) => a.value - b.value)[0];
   }
 
   const patterns = [
@@ -259,7 +273,7 @@ function parseLabeledHeight(text, kind) {
     if (parsed) return parsed;
   }
   const decimal = t.match(
-    /\b(?:wall|ceiling)\s*height\s*[:=-]?\s*(\d{1,2}(?:\.\d+)?)\s*['’](?!\s*-?\s*\d)/i
+    /\b(?:wall|ceiling)\s*height\s*[:=-]?\s*(\d{1,2}(?:\.\d+)?)\s*['’](?!\s*-\s*\d)/i
   );
   if (decimal) {
     const value = Number(decimal[1]);
@@ -338,16 +352,30 @@ function parseOverallEnvelopePerimeter(text) {
   const repeated = [...counts.values()]
     .filter((entry) => entry.count >= 2)
     .sort((a, b) => b.value - a.value);
-  if (repeated.length < 2) return null;
-  const unique = [];
-  for (const entry of repeated) {
-    if (unique.some((u) => Math.abs(u.value - entry.value) < 1.5)) continue;
-    unique.push(entry);
-    if (unique.length >= 2) break;
+  const uniqueSorted = [...counts.values()].sort((a, b) => b.value - a.value);
+  let a = null;
+  let b = null;
+  if (repeated.length >= 2) {
+    const unique = [];
+    for (const entry of repeated) {
+      if (unique.some((u) => Math.abs(u.value - entry.value) < 1.5)) continue;
+      unique.push(entry);
+      if (unique.length >= 2) break;
+    }
+    if (unique.length >= 2) {
+      a = unique[0];
+      b = unique[1];
+    }
   }
-  if (unique.length < 2) return null;
-  const [a, b] = unique;
-  if (a.value - b.value < 5) return null;
+  // L-shaped / stepped foundation plans often repeat only the long side.
+  // Pair the repeated overall with the next largest distinct envelope dim.
+  if ((!a || !b) && repeated.length >= 1 && uniqueSorted.length >= 2) {
+    a = repeated[0];
+    b =
+      uniqueSorted.find((entry) => Math.abs(entry.value - a.value) >= 5) || null;
+  }
+  if (!a || !b) return null;
+  if (a.value - b.value < 5 && b.value - a.value < 5) return null;
   const perimeter = Math.round(2 * (a.value + b.value) * 10) / 10;
   if (perimeter < 80 || perimeter > 2000) return null;
   return {
@@ -418,10 +446,11 @@ function parsePageFactsFromText(text, { page = null, sheet = null } = {}) {
     };
   };
 
+  // Cover totals only — bare "Living Area #### SQ FT" on floor sheets is the
+  // per-floor footprint (handled below), not the whole-house total.
   addArea('totalLivingSqft', [
     /Total\s*Living\s*(?:Area)?\s*:?\s*([\d,]+(?:\.\d+)?)\s*(?:Sq\.?\s*Ft|SF|SQFT)\b/i,
     /Main\s*Living\s*Area\s*:\s*([\d,]+(?:\.\d+)?)\s*(?:Sq\.?\s*Ft|SF|SQFT)\b/i,
-    /Living\s*Area\s*:?\s*([\d,]+(?:\.\d+)?)\s*(?:Sq\.?\s*Ft|SF|SQFT)\b/i,
   ]);
   addArea('mainFloorLivingSqft', [
     /Main\s*Floor\s*(?:Living\s*)?(?:Area)?\s*:?\s*([\d,]+(?:\.\d+)?)\s*(?:Sq\.?\s*Ft|SF|SQFT)\b/i,
@@ -462,6 +491,41 @@ function parsePageFactsFromText(text, { page = null, sheet = null } = {}) {
         sourceType: 'detected_from_plan',
         confidence: 'high',
         evidence: [evidenceFor('mainFloorLivingSqft', mainLiving.sourceText, page, sourceSheet)],
+      };
+    }
+  }
+
+  // Floor-plan callouts like "LIVINGAREA 2047SQFT" on MAIN LEVEL / 2ND LEVEL
+  // sheets (SHV Lot 58). CAD text often inserts revision junk or nearby room
+  // dims between the label and the area ("LIVINGAREA N 2047SQFT").
+  const floorLiving = labeledNumber(t, [
+    /\bLiving\s*Area\b[\s\S]{0,48}?([\d,]{3,5}(?:\.\d+)?)\s*(?:Sq\.?\s*Ft|SF|SQFT)\b/i,
+  ]);
+  if (floorLiving) {
+    const isUpper =
+      /\b(?:2nd|second|upper)\s*(?:level|floor)\b/i.test(t) ||
+      /\bupstairs\b/i.test(t);
+    const isMain =
+      /\b(?:main|first|1st)\s*(?:level|floor)\b/i.test(t) && !isUpper;
+    if (isUpper && buildingAreas.upstairsLivingSqft == null) {
+      buildingAreas.upstairsLivingSqft = floorLiving.value;
+      fieldEvidence['buildingAreas.upstairsLivingSqft'] = {
+        value: floorLiving.value,
+        sourceType: 'detected_from_plan',
+        confidence: 'high',
+        evidence: [
+          evidenceFor('upstairsLivingSqft', floorLiving.sourceText, page, sourceSheet),
+        ],
+      };
+    } else if (isMain && buildingAreas.mainFloorLivingSqft == null) {
+      buildingAreas.mainFloorLivingSqft = floorLiving.value;
+      fieldEvidence['buildingAreas.mainFloorLivingSqft'] = {
+        value: floorLiving.value,
+        sourceType: 'detected_from_plan',
+        confidence: 'high',
+        evidence: [
+          evidenceFor('mainFloorLivingSqft', floorLiving.sourceText, page, sourceSheet),
+        ],
       };
     }
   }
@@ -734,8 +798,24 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
         'foundationPerimeterLf',
         'nonPaintedExteriorPercent',
       ]) {
-        if (scalarFacts[key] == null && parsedFacts.planFacts[key] != null) {
-          scalarFacts[key] = parsedFacts.planFacts[key];
+        const nextVal = parsedFacts.planFacts[key];
+        if (nextVal == null) continue;
+        if (scalarFacts[key] == null) {
+          scalarFacts[key] = nextVal;
+          continue;
+        }
+        // Prefer per-story plate (~10.2') over cumulative upper plate (~20.5').
+        if (
+          key === 'plateHeightFt' &&
+          Number(scalarFacts[key]) > 14 &&
+          Number(nextVal) >= 7 &&
+          Number(nextVal) <= 14
+        ) {
+          scalarFacts[key] = nextVal;
+          if (parsedFacts.planFacts.fieldEvidence?.plateHeightFt) {
+            fieldEvidence.plateHeightFt =
+              parsedFacts.planFacts.fieldEvidence.plateHeightFt;
+          }
         }
       }
 
@@ -811,8 +891,13 @@ function formatPdfEvidenceForVision(pdfTakeoff) {
   ];
   const scalars = scalarKeys.filter((key) => facts[key] != null);
   if (scalars.length) {
-    lines.push('PDF text layer — labeled plan facts (prefer these; do not invent):');
+    lines.push(
+      'PDF text layer — labeled plan facts for living SF / stories / plate-or-wall height / perimeter (prefer these for GROSS wall area; do not invent):'
+    );
     for (const key of scalars) lines.push(`- ${key}: ${facts[key]}`);
+    lines.push(
+      'Opening deductions are almost never in the PDF text layer. Still take off every elevation: sum window/door opening SF and garage-door opening SF from labeled dimensions or count×size callouts into measurements.stuccoWindowDoorOpeningSqft / stuccoGarageOpeningSqft (or elevationFaces.*.windowDoorOpeningsSqft / garageOpeningsSqft). Do not leave openings blank when elevations show dimensioned openings.'
+    );
   }
   const rooms = pdfTakeoff.rooms || [];
   if (rooms.length) {

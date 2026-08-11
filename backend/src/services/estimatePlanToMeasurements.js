@@ -102,6 +102,38 @@ function positive(n) {
   return Number.isFinite(v) && v > 0 ? v : null;
 }
 
+/** Keep positive numeric measurement keys from either vision pass. */
+function mergePositiveMeasurementMaps(base = {}, overlay = {}) {
+  const out = { ...(base && typeof base === 'object' ? base : {}) };
+  for (const [key, value] of Object.entries(
+    overlay && typeof overlay === 'object' ? overlay : {}
+  )) {
+    const next = positive(value);
+    if (next == null) continue;
+    out[key] = next;
+  }
+  return out;
+}
+
+function elevationFacesOpeningScore(faces) {
+  if (!Array.isArray(faces) || !faces.length) return 0;
+  let score = faces.length;
+  for (const face of faces) {
+    if (positive(face?.openingsSqft)) score += 2;
+    if (positive(face?.windowDoorOpeningsSqft)) score += 3;
+    if (positive(face?.garageOpeningsSqft)) score += 3;
+  }
+  return score;
+}
+
+function preferElevationFacesWithOpenings(a, b) {
+  const scoreA = elevationFacesOpeningScore(a);
+  const scoreB = elevationFacesOpeningScore(b);
+  if (scoreB > scoreA) return b;
+  if (scoreA > 0) return a;
+  return b || a || undefined;
+}
+
 function deriveStuccoElevationMeasurements(measurements = {}, planFacts = {}) {
   const faces = Array.isArray(planFacts?.elevationFaces)
     ? planFacts.elevationFaces
@@ -121,17 +153,22 @@ function deriveStuccoElevationMeasurements(measurements = {}, planFacts = {}) {
     const faceArea = positive(face?.stuccoAreaSqft) || positive(face?.areaSqft) ||
       (width && height ? width * height : null);
     if (faceArea) gross += faceArea;
-    const faceOpenings = positive(face?.openingsSqft);
-    if (faceOpenings) {
-      openings += faceOpenings;
-      hasOpeningData = true;
-    }
     const faceWindowDoorOpenings = positive(face?.windowDoorOpeningsSqft);
     const faceGarageOpenings = positive(face?.garageOpeningsSqft);
+    const faceOpenings = positive(face?.openingsSqft);
     if (faceWindowDoorOpenings || faceGarageOpenings) {
       hasCategorizedOpeningData = true;
       windowDoorOpenings += faceWindowDoorOpenings || 0;
       garageOpenings += faceGarageOpenings || 0;
+      // If this face also has an uncategorized total and no window/door split,
+      // keep the residual as window/door (garage already counted separately).
+      if (!faceWindowDoorOpenings && faceOpenings) {
+        windowDoorOpenings += faceOpenings;
+        hasOpeningData = true;
+      }
+    } else if (faceOpenings) {
+      openings += faceOpenings;
+      hasOpeningData = true;
     }
     const faceNonStucco = positive(face?.nonStuccoSqft);
     if (faceNonStucco) {
@@ -154,17 +191,15 @@ function deriveStuccoElevationMeasurements(measurements = {}, planFacts = {}) {
     next.stuccoParapetSqft = Math.round(parapet * 10) / 10;
     derivedKeys.push('stuccoParapetSqft');
   }
-  if (
-    ((hasCategorizedOpeningData && windowDoorOpenings > 0) ||
-      (!hasCategorizedOpeningData &&
-        !(positive(next.stuccoWindowDoorOpeningSqft) > 0) &&
-        hasOpeningData &&
-        openings > 0))
-  ) {
-    next.stuccoWindowDoorOpeningSqft = Math.round(
-      (hasCategorizedOpeningData ? windowDoorOpenings : openings) * 10
-    ) / 10;
-    derivedKeys.push('stuccoWindowDoorOpeningSqft');
+  if (!(positive(next.stuccoWindowDoorOpeningSqft) > 0)) {
+    if (hasCategorizedOpeningData && windowDoorOpenings > 0) {
+      next.stuccoWindowDoorOpeningSqft = Math.round(windowDoorOpenings * 10) / 10;
+      derivedKeys.push('stuccoWindowDoorOpeningSqft');
+    } else if (hasOpeningData && openings > 0) {
+      // Uncategorized face openingsSqft — treat as window/door when no garage split.
+      next.stuccoWindowDoorOpeningSqft = Math.round(openings * 10) / 10;
+      derivedKeys.push('stuccoWindowDoorOpeningSqft');
+    }
   }
   if (
     !(positive(next.stuccoGarageOpeningSqft) > 0) &&
@@ -1061,7 +1096,7 @@ async function analyzePlanForMeasurements({
     hintBits.push(
       `ESTIMATING MODE: selected trade — ${planSelection.trade.label}. ${
         planSelection.trade.scopeHint || `Route review toward ${planSelection.trade.label.toLowerCase()} only.`
-      } Do not invent detailed counts; preserve missing information for contractor confirmation.`
+      } Preserve missing information for contractor confirmation. For Stucco / Exterior Finish, always take off window/door and garage openings from elevation drawings even when perimeter/plate facts already support gross wall area.`
     );
   }
   if (existingNotes?.trim()) {
@@ -1086,7 +1121,7 @@ async function analyzePlanForMeasurements({
             text: [
               'Extract Building Areas / Area Schedule totals AND every labeled room with length×width or SF from these floor plan / blueprint pages.',
               'For Stucco / Exterior Finish, inspect every front/rear/left/right elevation and wall section. Read elevation face widths/heights, story-specific plate heights, window and door dimensions, garage door dimensions, cladding callouts, soffits, parapets, foam bands, and control joints.',
-              'Calculate gross exterior wall SF only from readable elevation face dimensions or a readable perimeter plus story-specific heights. Subtract only readable opening and non-stucco finish deductions. Never use living SF, floor SF, ridge height, or visual proportions as wall area.',
+              'Calculate gross exterior wall SF only from readable elevation face dimensions or a readable perimeter plus story-specific heights. PDF perimeter/plate facts (when provided) replace living-SF guesses for GROSS only — you must still return window/door opening SF and garage opening SF from the elevations. Subtract only readable opening and non-stucco finish deductions. Never use living SF, floor SF, ridge height, or visual proportions as wall area.',
               'Include all bedrooms, baths, kitchen, dining, great room/living, laundry, pantry, closets, garage/RV garage, patio/porch — not just a few key rooms.',
               'Pair each room label with the dimension string printed for that room only — never swap Kitchen/Den/Bedroom/Garage/RV dims.',
               'Use floor-plan sheets for room L×W, not foundation overall garage envelopes. Each bath needs its own readable L×W; otherwise omit bathroomFloorSqft.',
@@ -1153,7 +1188,8 @@ async function analyzePlanForMeasurements({
                   planSelection.trade
                     ? `Focus only on ${planSelection.trade.label}. Inspect every relevant elevation, section, detail, schedule, and takeoff sheet in the plan file.`
                     : 'Review the complete plan set for all major building scopes: structure, foundation, concrete, framing, roof, windows/doors, exterior finishes, MEP, insulation, drywall, flooring, cabinets, tile, paint, sitework, patios, and landscaping.',
-                  'For Stucco / Exterior Finish, return elevationFaces with readable face width/height or area, stucco area, opening area, and non-stucco deductions. Read graphical dimensions, not only the PDF text layer.',
+                  'For Stucco / Exterior Finish, return elevationFaces with readable face width/height or area, stucco area, windowDoorOpeningsSqft, garageOpeningsSqft, and non-stucco deductions. Also populate measurements.stuccoWindowDoorOpeningSqft and measurements.stuccoGarageOpeningSqft. Read graphical opening dimensions on every elevation, not only the PDF text layer.',
+                  'PDF text perimeter/plate/story facts (when present) support gross wall area only. Opening deductions still come from elevation drawings.',
                   'For every applicable scope, return clearly labeled trade-specific measurements and scope evidence using the existing JSON schema.',
                   'Do not use living SF or visual proportions as a substitute. Leave unavailable values out and list the exact missing sheet or dimension.',
                 ].join('\n\n'),
@@ -1187,15 +1223,17 @@ async function analyzePlanForMeasurements({
       );
       parsed = {
         ...parsed,
-        measurements: {
-          ...(parsed.measurements || {}),
-          ...(focused.measurements || {}),
-        },
+        measurements: mergePositiveMeasurementMaps(
+          parsed.measurements,
+          focused.measurements
+        ),
         planFacts: {
           ...(parsed.planFacts || {}),
           ...(focused.planFacts || {}),
-          elevationFaces:
-            focused.planFacts?.elevationFaces || parsed.planFacts?.elevationFaces,
+          elevationFaces: preferElevationFacesWithOpenings(
+            parsed.planFacts?.elevationFaces,
+            focused.planFacts?.elevationFaces
+          ),
           fieldEvidence: {
             ...(parsed.planFacts?.fieldEvidence || {}),
             ...(focused.planFacts?.fieldEvidence || {}),
@@ -1364,22 +1402,23 @@ async function analyzePlanForMeasurements({
     }
     const planStories =
       positive(tradeMeasurementInput.stuccoStories) || positive(planFacts?.storyCount);
-    const wallHeightCandidate = positive(planFacts?.wallHeightFt);
-    const plateHeightCandidate = positive(planFacts?.plateHeightFt);
-    const perStoryHeight =
-      planStories > 1 && plateHeightCandidate && wallHeightCandidate && wallHeightCandidate > 15
-        ? plateHeightCandidate
-        : wallHeightCandidate || plateHeightCandidate;
-    // Elevation/section vision can report the cumulative second-floor plate
-    // elevation (for this plan: 20.5 ft) as wall height. Stucco pricing needs
-    // the typical wall height per story (10.2 ft), with stories applied
-    // separately; normalize the AI value when the plan exposes both.
+    let wallHeightCandidate = positive(planFacts?.wallHeightFt);
+    let plateHeightCandidate = positive(planFacts?.plateHeightFt);
+    // Cumulative upper-plate elevations (e.g. Lot 58 TOP OF PLATE 20.5') are not
+    // per-story wall height. Prefer a true per-story plate/wall, else divide.
+    if (planStories > 1 && plateHeightCandidate > 14) {
+      plateHeightCandidate = Math.round((plateHeightCandidate / planStories) * 10) / 10;
+    }
+    if (planStories > 1 && wallHeightCandidate > 14) {
+      wallHeightCandidate = Math.round((wallHeightCandidate / planStories) * 10) / 10;
+    }
+    const perStoryHeight = wallHeightCandidate || plateHeightCandidate;
     if (
       planStories > 1 &&
-      plateHeightCandidate &&
-      positive(tradeMeasurementInput.stuccoWallHeightFt) > 15
+      positive(tradeMeasurementInput.stuccoWallHeightFt) > 14 &&
+      perStoryHeight
     ) {
-      tradeMeasurementInput.stuccoWallHeightFt = plateHeightCandidate;
+      tradeMeasurementInput.stuccoWallHeightFt = perStoryHeight;
     }
     if (!(positive(tradeMeasurementInput.stuccoWallHeightFt) > 0) && perStoryHeight) {
       tradeMeasurementInput.stuccoWallHeightFt = perStoryHeight;
@@ -1392,19 +1431,24 @@ async function analyzePlanForMeasurements({
       : 'labeled foundation envelope perimeter used as an exterior proxy';
     const wallHeightFt = positive(tradeMeasurementInput.stuccoWallHeightFt);
     const stories = positive(tradeMeasurementInput.stuccoStories);
+    const derivedGross =
+      perimeterLf && wallHeightFt && stories
+        ? Math.round(perimeterLf * wallHeightFt * stories)
+        : null;
+    const existingGross = positive(tradeMeasurementInput.stuccoGrossWallSqft);
+    // Perimeter × height × stories is the planning takeoff for SHV-style plans.
+    // Prefer it when vision/planning gross is missing or looks single-story-low.
     if (
-      !(positive(tradeMeasurementInput.stuccoGrossWallSqft) > 0) &&
-      perimeterLf &&
-      wallHeightFt &&
-      stories
+      derivedGross &&
+      (!existingGross || existingGross < derivedGross * 0.7)
     ) {
-      tradeMeasurementInput.stuccoGrossWallSqft = Math.round(
-        perimeterLf * wallHeightFt * stories
-      );
-      fieldConfidence.stuccoGrossWallSqft = 0.75;
+      tradeMeasurementInput.stuccoGrossWallSqft = derivedGross;
+      fieldConfidence.stuccoGrossWallSqft = 0.8;
       assumptions.push(
         `Gross stucco wall area derived from ${perimeterSource} (${perimeterLf} LF), wall/plate height (${wallHeightFt} FT), and stories (${stories}); verify upper-floor setbacks and openings.`
       );
+      // Force net recalculation from the corrected gross.
+      delete tradeMeasurementInput.stuccoNetWallSqft;
     }
     const grossWallSqft = positive(tradeMeasurementInput.stuccoGrossWallSqft);
     const deductions = [
@@ -1412,16 +1456,28 @@ async function analyzePlanForMeasurements({
       positive(tradeMeasurementInput.stuccoGarageOpeningSqft),
       positive(tradeMeasurementInput.stuccoOtherFinishDeductionSqft),
     ];
+    const hasAnyOpeningDeduction =
+      positive(tradeMeasurementInput.stuccoWindowDoorOpeningSqft) != null ||
+      positive(tradeMeasurementInput.stuccoGarageOpeningSqft) != null ||
+      positive(tradeMeasurementInput.stuccoOtherFinishDeductionSqft) != null;
     if (
       !(positive(tradeMeasurementInput.stuccoNetWallSqft) > 0) &&
       grossWallSqft &&
-      deductions.every(value => value != null)
+      hasAnyOpeningDeduction
     ) {
+      // Only publish net once at least one opening/finish deduction was read.
+      // Otherwise net===gross looks "confirmed" while openings are still blank.
+      const knownDeductions = deductions.reduce(
+        (sum, value) => sum + (value || 0),
+        0
+      );
       tradeMeasurementInput.stuccoNetWallSqft = Math.max(
         0,
-        grossWallSqft - deductions.reduce((sum, value) => sum + value, 0)
+        Math.round((grossWallSqft - knownDeductions) * 10) / 10
       );
-      fieldConfidence.stuccoNetWallSqft = 0.7;
+      fieldConfidence.stuccoNetWallSqft = deductions.every(value => value != null)
+        ? 0.7
+        : 0.65;
     }
     if (positive(tradeMeasurementInput.stuccoGrossWallSqft)) {
       notesBlock +=
@@ -1512,6 +1568,9 @@ module.exports = {
   analyzePlanForMeasurements,
   mergePlanNotesIntoJobNotes,
   mergePlanMeasurementsIntoExisting,
+  mergePositiveMeasurementMaps,
+  preferElevationFacesWithOpenings,
+  deriveStuccoElevationMeasurements,
   sanitizeRooms,
   sanitizeMeasurements,
   sanitizeBuildingAreas,

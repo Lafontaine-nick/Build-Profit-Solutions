@@ -199,6 +199,7 @@ import {
   type ScopePricingContext,
   type SuggestedPricingBlock,
 } from '@/utils/scopeItemQuantities';
+import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
 import {
   evaluateFlooringDemoPrepOverlap,
   isCustomFlooringDemoPriceBlock,
@@ -665,16 +666,66 @@ function hasPrimaryTakeoffFromResolved(
   );
 }
 
+function reconcileStuccoMeasurementDraft(
+  measurements: ScopeMeasurementsInputExtended
+): ScopeMeasurementsInputExtended {
+  if (
+    String(measurements.planImportMode || '').toLowerCase() !==
+      'selected_trade' ||
+    String(measurements.planImportTradeKey || '').toLowerCase() !== 'stucco'
+  ) {
+    return measurements;
+  }
+
+  const gross =
+    parseScopeMeasurementInput(
+      String(measurements.stuccoGrossWallSqft ?? '')
+    ) || 0;
+  if (gross <= 0) return measurements;
+
+  const deductions =
+    (parseScopeMeasurementInput(
+      String(measurements.stuccoWindowDoorOpeningSqft ?? '')
+    ) || 0) +
+    (parseScopeMeasurementInput(
+      String(measurements.stuccoGarageOpeningSqft ?? '')
+    ) || 0) +
+    (parseScopeMeasurementInput(
+      String(measurements.stuccoOtherFinishDeductionSqft ?? '')
+    ) || 0);
+  const net = String(Math.max(0, gross - deductions));
+
+  return {
+    ...measurements,
+    stuccoNetWallSqft: net,
+    exteriorPaintSqft: net,
+    quickMeasurementSources: {
+      ...(measurements.quickMeasurementSources || {}),
+      stuccoNetWallSqft: 'calculated_from_deductions',
+      exteriorPaintSqft: 'calculated_from_deductions',
+    },
+  };
+}
+
 function hasConfirmedPricingBasis(
   itemId: string,
-  measurementsInput: ScopeMeasurementsInputExtended
+  measurementsInput: ScopeMeasurementsInputExtended,
+  templateKey?: string | null
 ): boolean {
   const entries = measurementsInput.itemQuantities || {};
   const rawMeasurements = measurementsInput as unknown as Record<
     string,
     unknown
   >;
-  const rule = getChecklistItemQuantityRuleOrDefault(itemId, undefined);
+  const effectiveTemplateKey =
+    String(templateKey || '').toLowerCase() ||
+    (String(rawMeasurements.planImportTradeKey || '').toLowerCase() === 'stucco'
+      ? 'stucco'
+      : null);
+  const rule = getChecklistItemQuantityRuleOrDefault(
+    itemId,
+    effectiveTemplateKey
+  );
   const candidateKeys = [
     itemId,
     `${itemId}__allowance`,
@@ -688,6 +739,15 @@ function hasConfirmedPricingBasis(
     'calculated_confirmed',
     'notes',
   ]);
+  const isImportedStuccoTakeoff =
+    String(rawMeasurements.planImportMode || '').toLowerCase() ===
+      'selected_trade' &&
+    String(rawMeasurements.planImportTradeKey || '').toLowerCase() === 'stucco';
+  if (isImportedStuccoTakeoff) {
+    // Selected-trade plan quantities are the contractor's takeoff basis even
+    // when the UI preserved them as a suggested prefill during hydration.
+    confirmedSources.add('suggested_prefill');
+  }
   const hasConfirmedEntry = candidateKeys.some(key => {
     const entry = entries[key];
     const quantity = Number(entry?.quantity);
@@ -701,10 +761,23 @@ function hasConfirmedPricingBasis(
   const measurementKeys = [
     rule?.measurementKey,
     ...(Array.isArray(rule?.measurementKeys) ? rule.measurementKeys : []),
-  ].filter(Boolean);
+  ].filter(Boolean) as string[];
+  // Stucco complete-system pricing is always based on net wall SF from Quick
+  // Measurements, even when the checklist template key is still ground_up.
+  if (
+    itemId === 'stucco' ||
+    itemId === 'stucco_wrb' ||
+    itemId === 'stucco_lath' ||
+    itemId === 'stucco_base_coat' ||
+    itemId === 'stucco_finish_coat'
+  ) {
+    measurementKeys.push('stuccoNetWallSqft', 'exteriorPaintSqft');
+  }
   return measurementKeys.some(key => {
-    const quantity = Number(rawMeasurements[String(key)]);
-    return Number.isFinite(quantity) && quantity > 0;
+    return (
+      (parseScopeMeasurementInput(String(rawMeasurements[String(key)] ?? '')) ||
+        0) > 0
+    );
   });
 }
 
@@ -11556,7 +11629,10 @@ function CollapsibleQuickMeasurements({
               sum + Number(String(entry?.quantity || '').replace(/,/g, '')),
             0
           );
-        const nextMeasurements = { ...prev, [key]: value };
+        const nextMeasurements = reconcileStuccoMeasurementDraft({
+          ...prev,
+          [key]: value,
+        });
         if (
           flooringProductMeasurementKeys.includes(key) &&
           existingDemoTotal <= 0
@@ -13526,12 +13602,32 @@ export default function AIEstimateScopeAssumptionsModal({
         reconciled.planImportMode === 'selected_trade' &&
         reconciled.planImportTradeKey === 'stucco'
       ) {
-        const gross = Number(reconciled.stuccoGrossWallSqft || 0);
-        const openings =
-          Number(reconciled.stuccoWindowDoorOpeningSqft || 0) +
-          Number(reconciled.stuccoGarageOpeningSqft || 0) +
-          Number(reconciled.stuccoOtherFinishDeductionSqft || 0);
-        if (gross > 0) {
+        const gross =
+          parseScopeMeasurementInput(
+            String(reconciled.stuccoGrossWallSqft ?? '')
+          ) || 0;
+        const hasWindowDoorInput =
+          String(reconciled.stuccoWindowDoorOpeningSqft ?? '').trim() !== '';
+        const hasGarageInput =
+          String(reconciled.stuccoGarageOpeningSqft ?? '').trim() !== '';
+        const hasOtherFinishInput =
+          String(reconciled.stuccoOtherFinishDeductionSqft ?? '').trim() !== '';
+        // Don't publish net===gross while opening fields are still blank — that
+        // looked "confirmed" and hid the missing window/door takeoff.
+        if (
+          gross > 0 &&
+          (hasWindowDoorInput || hasGarageInput || hasOtherFinishInput)
+        ) {
+          const openings =
+            (parseScopeMeasurementInput(
+              String(reconciled.stuccoWindowDoorOpeningSqft ?? '')
+            ) || 0) +
+            (parseScopeMeasurementInput(
+              String(reconciled.stuccoGarageOpeningSqft ?? '')
+            ) || 0) +
+            (parseScopeMeasurementInput(
+              String(reconciled.stuccoOtherFinishDeductionSqft ?? '')
+            ) || 0);
           reconciled = {
             ...reconciled,
             stuccoNetWallSqft: String(Math.max(0, gross - openings)),
@@ -15006,7 +15102,7 @@ export default function AIEstimateScopeAssumptionsModal({
       ) {
         continue;
       }
-      if (!hasConfirmedPricingBasis(row.itemId, measurements)) continue;
+      if (!hasConfirmedPricingBasis(row.itemId, measurements, checklist?.templateKey)) continue;
       if (
         scopeHasCommittedConfirmScopePrice({
           itemId: row.itemId,
@@ -15056,7 +15152,9 @@ export default function AIEstimateScopeAssumptionsModal({
       readyLabels: readyRows.map(row => row.label),
     };
   }, [
+    checklist?.templateKey,
     displayItems,
+    measurements,
     measurements.itemQuantities,
     measurements.pricingAcceptance,
     step2AppliedPricingLines,
@@ -15066,7 +15164,7 @@ export default function AIEstimateScopeAssumptionsModal({
   const applySuggestedPricingBlocks = useCallback(
     (rows: UnconfirmedSuggestedPricing[]) => {
       const confirmedRows = rows.filter(row =>
-        hasConfirmedPricingBasis(row.itemId, measurements)
+        hasConfirmedPricingBasis(row.itemId, measurements, checklist?.templateKey)
       );
       if (!confirmedRows.length) return;
       hapticTap();
@@ -15857,7 +15955,7 @@ export default function AIEstimateScopeAssumptionsModal({
 
   const handleApplySuggestedPricing = useCallback(
     (itemId: string, block: SuggestedPricingBlock) => {
-      if (!hasConfirmedPricingBasis(itemId, measurements)) {
+      if (!hasConfirmedPricingBasis(itemId, measurements, checklist?.templateKey)) {
         Alert.alert(
           'Measurement required',
           'Enter or confirm the actual quantity before applying pricing. Planning assumptions cannot be added to the bid.',
@@ -16060,6 +16158,7 @@ export default function AIEstimateScopeAssumptionsModal({
     },
     [
       applySuggestedPricingNow,
+      checklist?.templateKey,
       measurements.appliedBenchmarkKeys,
       measurements.flooringDemoIncludesSubstratePrep,
       measurements,

@@ -52,6 +52,23 @@ describe('planPdfTextTakeoff', () => {
     });
   });
 
+  test('Lot 58 floor Living Area callouts survive CAD junk between label and SF', () => {
+    const main = parsePageFactsFromText(
+      "PRIMARYSUITE LIVINGAREA N 2047SQFT PANTRY MAIN LEVEL LAYOUT BEDROOM2",
+      { page: 3 }
+    );
+    expect(main.buildingAreas.mainFloorLivingSqft).toBe(2047);
+    expect(main.buildingAreas.totalLivingSqft).toBeUndefined();
+    expect(main.planFacts.storyCount).toBe(1);
+
+    const upper = parsePageFactsFromText(
+      "BEDROOM3 LIVINGAREA 6'-1\"X3'-10\" 1613SQFT 2ND LEVEL LAYOUT BEDROOM6",
+      { page: 4 }
+    );
+    expect(upper.buildingAreas.upstairsLivingSqft).toBe(1613);
+    expect(upper.buildingAreas.mainFloorLivingSqft).toBeUndefined();
+  });
+
   test.each(shvPlanFacts)('extracts labeled facts and evidence for SHV Lot $lot', ({ text, expected }) => {
     const { buildingAreas, planFacts, sourceSheet } = parsePageFactsFromText(text, { page: 2 });
     for (const key of [
@@ -98,6 +115,16 @@ describe('planPdfTextTakeoff', () => {
     expect(parseLabeledHeight("CEILING HEIGHT 9'-1\"", 'wall')?.value).toBeCloseTo(9.083, 3);
     expect(parseLabeledHeight("TOPOFPLATE 10.2'", 'plate')?.value).toBe(10.2);
     expect(parseLabeledHeight('TOP OF PLATE 10.2\'', 'plate')?.value).toBe(10.2);
+    // Lot 58 elevations label cumulative 20.5' and per-story 10.2' with CAD junk after.
+    expect(
+      parseLabeledHeight(
+        'TOP OF PLATE 20.5\' " 8 1 3 -\' 9 TOP OF SUBFLOOR-2NDFLOOR 11.2\' TOP OF PLATE " 10.2\' 8 5 0 -\' 1',
+        'plate'
+      )?.value
+    ).toBe(10.2);
+    expect(
+      parseOverallEnvelopePerimeter("FOUNDATION PLAN 55' 31' 55' 22' 18'")?.value
+    ).toBe(172);
     expect(parseLabeledPerimeter('EXTERIOR PERIMETER 214 LF', 'exterior')?.value).toBe(214);
     expect(parseLabeledPerimeter("FOUNDATION PERIMETER 198'-6\"", 'foundation')?.value).toBeCloseTo(
       198.5,

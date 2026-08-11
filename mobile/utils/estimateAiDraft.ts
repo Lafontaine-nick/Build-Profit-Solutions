@@ -1720,12 +1720,17 @@ export function planMeasurementsToScopeMeasurements(
     );
   }
   const gross = Number(out.stuccoGrossWallSqft);
+  const srcKeys = new Set(Object.keys(measurements || {}));
+  const hasOpeningInputs =
+    srcKeys.has('stuccoWindowDoorOpeningSqft') ||
+    srcKeys.has('stuccoGarageOpeningSqft') ||
+    srcKeys.has('stuccoOtherFinishDeductionSqft');
   const openings = Number(out.stuccoWindowDoorOpeningSqft) || 0;
   const totalDeductions =
     openings +
     (Number(out.stuccoGarageOpeningSqft) || 0) +
     (Number(out.stuccoOtherFinishDeductionSqft) || 0);
-  if (gross > 0 && totalDeductions >= 0) {
+  if (gross > 0 && hasOpeningInputs && totalDeductions >= 0) {
     const net = Math.max(0, gross - totalDeductions);
     if (!(Number(out.stuccoNetWallSqft) > 0)) {
       out.stuccoNetWallSqft = net;
@@ -2188,7 +2193,7 @@ function normalizeTradePlanMeasurements(
     (Number(out.stuccoWindowDoorOpeningSqft) || 0) +
     (Number(out.stuccoGarageOpeningSqft) || 0) +
     (Number(out.stuccoOtherFinishDeductionSqft) || 0);
-  if (gross > 0 && !(Number(out.stuccoNetWallSqft) > 0)) {
+  if (gross > 0) {
     out.stuccoNetWallSqft = Math.max(0, gross - deductions);
   }
   const netWall =
