@@ -12586,13 +12586,13 @@ export function resolveScopeItemSuggestedPricing(
       { material: number; labor: number; label: string }
     > = {
       three_coat: {
-        material: 3.25,
-        labor: 4.75,
+        material: 3.75,
+        labor: 5.25,
         label: '3-coat traditional stucco complete system',
       },
       one_coat: {
-        material: 2.5,
-        labor: 3.5,
+        material: 3,
+        labor: 4,
         label: '1-coat stucco complete system',
       },
       eifs: {
@@ -12676,7 +12676,7 @@ export function resolveScopeItemSuggestedPricing(
         labor: 0.5,
         label: 'difficult single-story access',
       },
-      two_story: { material: 0.75, labor: 1.25, label: 'two-story access' },
+      two_story: { material: 0.5, labor: 1, label: 'two-story access' },
     };
     const selectedRate = accessRates[String(choiceId || '')];
     if (!selectedRate) return empty;
@@ -12691,22 +12691,25 @@ export function resolveScopeItemSuggestedPricing(
   if (isStuccoTemplate && itemId === 'stucco_repairs') {
     const repairRates: Record<
       string,
-      { material: number; labor: number; label: string }
+      { material: number; labor: number; minimum: number; label: string }
     > = {
-      light_prep: {
-        material: 1.25,
-        labor: 6.75,
-        label: 'light cosmetic / crack patching',
+      light_repair: {
+        material: 2,
+        labor: 6,
+        minimum: 400,
+        label: 'light patch / crack repair',
       },
       moderate_repair: {
         material: 3.5,
         labor: 8.5,
-        label: 'moderate patch and blend',
+        minimum: 600,
+        label: 'moderate stucco repair',
       },
-      heavy_damage: {
+      full_depth_repair: {
         material: 6,
         labor: 12,
-        label: 'heavy repair / partial tear-out',
+        minimum: 750,
+        label: 'full-depth / re-stucco repair',
       },
     };
     const selectedRate = repairRates[String(choiceId || '')];
@@ -12732,13 +12735,13 @@ export function resolveScopeItemSuggestedPricing(
       { material: number; labor: number; label: string }
     > = {
       three_coat: {
-        material: 3.25,
-        labor: 4.75,
+        material: 3.75,
+        labor: 5.25,
         label: '3-coat traditional stucco',
       },
       one_coat: {
-        material: 2.5,
-        labor: 3.5,
+        material: 3,
+        labor: 4,
         label: '1-coat stucco',
       },
       eifs: {
@@ -14088,6 +14091,19 @@ export function resolveScopeItemSuggestedPricing(
     ? round2(segmentedFlatworkPricing.labor)
     : round2(count * (laborRate ?? 0));
   let calculatedFlatworkTotal = round2(calculatedMaterial + calculatedLabor);
+  const repairMinimum =
+    isStuccoTemplate && itemId === 'stucco_repairs'
+      ? ({
+          light_repair: 400,
+          moderate_repair: 600,
+          full_depth_repair: 750,
+        } as Record<string, number>)[String(choiceId || '')] || 0
+      : 0;
+  const repairMinimumApplied =
+    repairMinimum > calculatedFlatworkTotal && calculatedFlatworkTotal > 0;
+  const repairMinimumScale = repairMinimumApplied
+    ? repairMinimum / calculatedFlatworkTotal
+    : 1;
   if (
     isStandardConcreteFlatwork &&
     String(templateKey || '').toLowerCase() === 'ground_up' &&
@@ -14118,6 +14134,10 @@ export function resolveScopeItemSuggestedPricing(
     : 1;
   let material = round2(calculatedMaterial * flatworkMinimumScale);
   let labor = round2(calculatedLabor * flatworkMinimumScale);
+  if (repairMinimumApplied) {
+    material = round2(material * repairMinimumScale);
+    labor = round2(labor * repairMinimumScale);
+  }
   if (
     String(templateKey || '').toLowerCase() === 'ground_up' &&
     (itemId === 'insulation' || itemId === 'exterior_paint') &&
@@ -14183,7 +14203,9 @@ export function resolveScopeItemSuggestedPricing(
     templateName,
     helper: floorPrepReviewBeforeBid
       ? 'Possible duplicate scope · review whether final substrate preparation is included in demolition before bidding.'
-      : flatworkMinimumApplied
+      : repairMinimumApplied
+        ? `Stucco repair small-job minimum charge · calculated price was below the $${repairMinimum.toLocaleString()} minimum.`
+        : flatworkMinimumApplied
         ? 'Concrete flatwork minimum charge · calculated sqft price was below the $1,750 small-job minimum.'
         : itemId === 'exterior_paint'
           ? exteriorPaintLocalCalibrationMessage()

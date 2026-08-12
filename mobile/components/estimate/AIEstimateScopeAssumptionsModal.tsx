@@ -8774,7 +8774,7 @@ function MultiChoiceRow({
         </Text>
       ) : null}
       <View style={styles.choiceWrap}>
-        {(item.options || []).map((opt, optionIndex) => {
+        {(item.options || []).map(opt => {
           const active = choiceIds.includes(opt.id);
           const isUnsure = opt.id === 'unsure';
           const isExcluded = opt.id === 'not_in_scope';
@@ -8816,10 +8816,6 @@ function MultiChoiceRow({
               style={[
                 styles.choiceChipWide,
                 item.id === 'stucco' ? styles.stuccoChoiceChip : null,
-                item.id === 'stucco' &&
-                optionIndex === (item.options?.length ?? 0) - 1
-                  ? styles.stuccoChoiceChipLast
-                  : null,
                 { borderColor, backgroundColor },
               ]}
             >
@@ -9182,7 +9178,7 @@ function ChoiceRow({
         </Text>
       ) : null}
       <View style={styles.choiceWrap}>
-        {(item.options || []).map((opt, optionIndex) => {
+        {(item.options || []).map(opt => {
           const active = item.choiceId === opt.id;
           const isUnsure = opt.id === 'unsure';
           const isExcluded = opt.id === 'not_in_scope';
@@ -9224,10 +9220,6 @@ function ChoiceRow({
               style={[
                 styles.choiceChipWide,
                 item.id === 'stucco' ? styles.stuccoChoiceChip : null,
-                item.id === 'stucco' &&
-                optionIndex === (item.options?.length ?? 0) - 1
-                  ? styles.stuccoChoiceChipLast
-                  : null,
                 { borderColor, backgroundColor },
               ]}
             >
@@ -10189,6 +10181,12 @@ function CollapsibleQuickMeasurements({
     let grouped = groupQuickMeasurementFields(fieldResults);
     // Keep optional fields in their More measurements home after typing.
     const keepInMore = new Set(typedMoreMeasurementKeys);
+    // Pin on focus as well as after the first state update. Without this,
+    // entering the first digit can briefly reclassify the field as Confirmed,
+    // remounting the input and dismissing the native keyboard.
+    if (editingFieldKey && editingHomeGroup === 'more') {
+      keepInMore.add(editingFieldKey);
+    }
     if (keepInMore.size) {
       const movedToMore: QuickMeasurementFieldResult[] = [];
       const next = {

@@ -2336,7 +2336,6 @@ export function buildStuccoTradeChecklistItems(
         { id: 'one_coat', label: '1-coat stucco' },
         { id: 'eifs', label: 'EIFS / synthetic stucco' },
         { id: 'finish_only', label: 'Finish coat only' },
-        { id: 'repair_restucco', label: 'Repair / re-stucco' },
       ],
       choiceId: system?.choiceId || 'unsure',
       state: system?.state || 'unsure',
@@ -2397,7 +2396,7 @@ export function buildStuccoTradeChecklistItems(
           id: 'difficult_single_story',
           label: 'Difficult single-story · +$0.75/SF',
         },
-        { id: 'two_story', label: 'Two-story · +$2.00/SF' },
+        { id: 'two_story', label: 'Two-story · +$1.50/SF' },
         {
           id: 'major_scaffolding',
           label: 'Three-story / major scaffolding · custom',
@@ -2406,12 +2405,14 @@ export function buildStuccoTradeChecklistItems(
     ),
     choice(
       'stucco_repairs',
-      'Substrate repairs / surface preparation',
-      'Use affected SF only. Heavy damage requires a custom price.',
+      'Stucco repair / re-stucco',
+      'Separate repair add-on. Enter affected repair SF only; this does not change net stucco wall area.',
       [
-        { id: 'light_prep', label: 'Light prep / minor patching · $3.00/SF' },
-        { id: 'moderate_repair', label: 'Moderate repair · custom' },
-        { id: 'heavy_damage', label: 'Heavy damage · custom' },
+        { id: 'no_repair', label: 'No repair work' },
+        { id: 'light_repair', label: 'Light patch / crack repair · $5.00/SF' },
+        { id: 'moderate_repair', label: 'Moderate stucco repair · $8.50/SF' },
+        { id: 'full_depth_repair', label: 'Full-depth / re-stucco repair · $12.00/SF' },
+        { id: 'severe_damage', label: 'Severe / substrate damage · Custom price' },
       ]
     ),
     yesNo(

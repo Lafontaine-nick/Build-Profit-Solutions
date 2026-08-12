@@ -1,5 +1,6 @@
 import {
   applyPlanImportToDraft,
+  buildStuccoTradeChecklistItems,
   planMeasurementsToScopeMeasurements,
 } from '@/utils/estimateAiDraft';
 import { getMeasurementRelevance } from '@/utils/getMeasurementRelevance';
@@ -319,7 +320,7 @@ describe('Stucco plan import', () => {
       },
       'three_coat'
     );
-    expect(pricing.fill?.total).toBe(24129.6);
+    expect(pricing.fill?.total).toBe(27145.8);
     const oneCoatPricing = resolveScopeItemSuggestedPricing(
       'stucco',
       restored as any,
@@ -332,10 +333,10 @@ describe('Stucco plan import', () => {
       },
       'one_coat'
     );
-    expect(oneCoatPricing.fill?.total).toBe(18097.2);
+    expect(oneCoatPricing.fill?.total).toBe(21113.4);
   });
 
-  it('prices repair/re-stucco from affected area and severity', () => {
+  it('prices separate repair/re-stucco add-ons from affected area and severity', () => {
     const input = scopeMeasurementsInputFromPayload(
       scopeMeasurementsPayloadForPersist({
         stuccoNetWallSqft: '3016.2',
@@ -348,11 +349,6 @@ describe('Stucco plan import', () => {
       normalized,
       { templateKey: 'stucco', choiceId: 'moderate_repair' }
     );
-    const repairSystemQuantity = resolveChecklistItemQuantity(
-      'stucco',
-      normalized,
-      { templateKey: 'stucco', choiceId: 'repair_restucco' }
-    );
     const pricing = resolveScopeItemSuggestedPricing(
       'stucco_repairs',
       input as any,
@@ -363,8 +359,92 @@ describe('Stucco plan import', () => {
     );
 
     expect(resolved.quantity).toBe(100);
-    expect(repairSystemQuantity.quantity).toBe(100);
     expect(pricing.fill?.total).toBe(1200);
+    expect(pricing.fill?.material).toBe(350);
+    expect(pricing.fill?.labor).toBe(850);
+  });
+
+  it('keeps repair as a separate add-on card with an affected-area quantity', () => {
+    const items = buildStuccoTradeChecklistItems([]);
+    const system = items.find(item => item.id === 'stucco');
+    const repair = items.find(item => item.id === 'stucco_repairs');
+
+    expect(system?.options?.map(option => option.id)).toEqual([
+      'three_coat',
+      'one_coat',
+      'eifs',
+      'finish_only',
+    ]);
+    expect(repair?.label).toBe('Stucco repair / re-stucco');
+    expect(repair?.options?.map(option => option.id)).toEqual([
+      'no_repair',
+      'light_repair',
+      'moderate_repair',
+      'full_depth_repair',
+      'severe_damage',
+    ]);
+    const normalized = normalizeScopeMeasurements({
+      stuccoRepairAffectedSqft: 85,
+    } as any);
+    expect(
+      resolveChecklistItemQuantity('stucco_repairs', normalized, {
+        templateKey: 'stucco',
+        choiceId: 'moderate_repair',
+      }).quantity
+    ).toBe(85);
+  });
+
+  it('applies repair minimum charges without changing the repair quantity', () => {
+    const input = scopeMeasurementsInputFromPayload(
+      scopeMeasurementsPayloadForPersist({
+        stuccoRepairAffectedSqft: '50',
+      })
+    );
+    const normalized = normalizeScopeMeasurements(input as any);
+    const resolved = resolveChecklistItemQuantity(
+      'stucco_repairs',
+      normalized,
+      { templateKey: 'stucco', choiceId: 'light_repair' }
+    );
+    const pricing = resolveScopeItemSuggestedPricing(
+      'stucco_repairs',
+      input as any,
+      'stucco',
+      resolved,
+      { checklistItems: [] },
+      'light_repair'
+    );
+
+    expect(resolved.quantity).toBe(50);
+    expect(pricing.fill?.total).toBe(400);
+    expect(pricing.fill?.material).toBe(100);
+    expect(pricing.fill?.labor).toBe(300);
+    expect(pricing.fill?.basis).toEqual({ quantity: 50, unit: 'sqft' });
+  });
+
+  it('prices two-story access at the affected wall area only', () => {
+    const input = scopeMeasurementsInputFromPayload(
+      scopeMeasurementsPayloadForPersist({
+        stuccoAccessAffectedSqft: '100',
+      })
+    );
+    const normalized = normalizeScopeMeasurements(input as any);
+    const resolved = resolveChecklistItemQuantity(
+      'stucco_access',
+      normalized,
+      { templateKey: 'stucco', choiceId: 'two_story' }
+    );
+    const pricing = resolveScopeItemSuggestedPricing(
+      'stucco_access',
+      input as any,
+      'stucco',
+      resolved,
+      { checklistItems: [] },
+      'two_story'
+    );
+
+    expect(resolved.quantity).toBe(100);
+    expect(pricing.fill?.total).toBe(150);
   });
 
   it('prices parapets separately at the selected full-system rate', () => {
@@ -394,9 +474,9 @@ describe('Stucco plan import', () => {
       undefined
     );
 
-    expect(additional.fill?.total).toBe(1600);
-    expect(additional.fill?.material).toBe(650);
-    expect(additional.fill?.labor).toBe(950);
+    expect(additional.fill?.total).toBe(1800);
+    expect(additional.fill?.material).toBe(750);
+    expect(additional.fill?.labor).toBe(1050);
 
     const excluded = resolveScopeItemSuggestedPricing(
       'stucco_parapets',
