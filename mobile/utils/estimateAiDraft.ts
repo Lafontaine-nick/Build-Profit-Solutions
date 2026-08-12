@@ -577,6 +577,10 @@ export type ScopeMeasurements = {
   >;
   /** Per-field numeric confidence from the original takeoff. */
   quickMeasurementFieldConfidence?: Record<string, number>;
+  /** Competing plan-pass candidates retained for contractor confirmation. */
+  measurementProvenance?: Record<string, unknown>;
+  /** Material conflicts retained through plan import and scope hydration. */
+  measurementConflicts?: PlanMeasurementConflict[];
   /** Declared vs detected living/garage reconciliation (measurement-semantics). */
   areaReconciliation?:
     | import('@/utils/measurementSemantics').AreaReconciliation
@@ -1253,6 +1257,20 @@ export type PlanScopeResult = {
   detections: PhotoScopeDetection[];
 };
 
+export type PlanMeasurementConflict = {
+  field: string;
+  selectedValue: number;
+  selectedSource: string;
+  threshold: number;
+  requiresConfirmation: boolean;
+  candidates: Array<{
+    value: number;
+    source: string;
+    confidence: number;
+    directEvidence: boolean;
+  }>;
+};
+
 export type PlanToMeasurementsResult = {
   success: boolean;
   reason?: string | null;
@@ -1271,6 +1289,10 @@ export type PlanToMeasurementsResult = {
   planFacts?: PlanFacts;
   /** Per-field 0-1 confidence that the value was read (not guessed). */
   fieldConfidence: Record<string, number>;
+  /** Selected candidate and retained alternatives from competing plan passes. */
+  measurementProvenance?: Record<string, unknown>;
+  /** Material conflicts that require contractor confirmation. */
+  measurementConflicts?: PlanMeasurementConflict[];
   /** Fields the AI read but withheld because confidence was too low. */
   lowConfidence: PlanLowConfidenceField[];
   /** Fields the AI saw on the plan but could not read (blurry/cut off). */
@@ -1348,6 +1370,14 @@ export async function fetchPlanToMeasurements(params: {
       payload.fieldConfidence && typeof payload.fieldConfidence === 'object'
         ? (payload.fieldConfidence as Record<string, number>)
         : {},
+    measurementProvenance:
+      payload.measurementProvenance &&
+      typeof payload.measurementProvenance === 'object'
+        ? (payload.measurementProvenance as Record<string, unknown>)
+        : {},
+    measurementConflicts: Array.isArray(payload.measurementConflicts)
+      ? (payload.measurementConflicts as PlanMeasurementConflict[])
+      : [],
     lowConfidence: Array.isArray(payload.lowConfidence)
       ? (payload.lowConfidence as PlanLowConfidenceField[])
       : [],
@@ -1569,6 +1599,8 @@ export type PlanImportPayload = {
   buildingAreas?: PlanBuildingAreas;
   planFacts?: PlanFacts;
   fieldConfidence?: Record<string, number>;
+  measurementProvenance?: Record<string, unknown>;
+  measurementConflicts?: PlanMeasurementConflict[];
 };
 
 /** Normalize vision room list for Quick measurements + field mapping. */
@@ -2095,6 +2127,12 @@ function overlayScopeMeasurements(
         ...(draft.scopeMeasurements?.quickMeasurementFieldConfidence || {}),
         ...(scopeMeasurements.quickMeasurementFieldConfidence || {}),
       },
+      measurementProvenance:
+        scopeMeasurements.measurementProvenance ||
+        draft.scopeMeasurements?.measurementProvenance,
+      measurementConflicts:
+        scopeMeasurements.measurementConflicts ||
+        draft.scopeMeasurements?.measurementConflicts,
       pricingAcceptance: {
         ...(draft.scopeMeasurements?.pricingAcceptance || {}),
         ...(scopeMeasurements.pricingAcceptance || {}),
@@ -2171,6 +2209,8 @@ export function planImportPayloadFromDraft(
     buildingAreas,
     areaReconciliation: sm.areaReconciliation ?? null,
     fieldConfidence: sm.quickMeasurementFieldConfidence,
+    measurementProvenance: sm.measurementProvenance,
+    measurementConflicts: sm.measurementConflicts,
     estimatingMode: sm.planImportMode,
     selectedTrade: sm.planImportTradeKey,
     tradeProvenance: sm.planImportProvenance,
@@ -2459,6 +2499,12 @@ export function applyPlanImportToDraft(
     scopeMeasurements.quickMeasurementFieldConfidence = {
       ...payload.fieldConfidence,
     };
+  }
+  if (payload.measurementProvenance) {
+    scopeMeasurements.measurementProvenance = payload.measurementProvenance;
+  }
+  if (payload.measurementConflicts?.length) {
+    scopeMeasurements.measurementConflicts = payload.measurementConflicts;
   }
   if (planImportMode !== 'selected_trade' && payload.areaReconciliation) {
     scopeMeasurements.areaReconciliation = payload.areaReconciliation;

@@ -293,6 +293,8 @@ export default function AIEstimateBuilderModal({
       buildingAreas: result.buildingAreas,
       planFacts: result.planFacts,
       fieldConfidence: result.fieldConfidence,
+      measurementProvenance: result.measurementProvenance,
+      measurementConflicts: result.measurementConflicts,
       estimatingMode: result.estimatingMode,
       selectedTrade: result.selectedTrade,
       tradeProvenance: result.tradeProvenance,

@@ -10,6 +10,13 @@ import {
   scopeMeasurementsInputFromPayload,
   scopeMeasurementsPayloadForPersist,
 } from '@/utils/scopeItemQuantities';
+import {
+  emptyQuickMeasurementInput,
+  quickMeasurementFieldMeta,
+  quickMeasurementRowsForInput,
+} from '@/utils/scopeQuickMeasurements';
+import { resolveQuickMeasurementFields } from '@/utils/quickMeasurementProvenance';
+import { hydrateScopeChecklistFromNotes } from '@/utils/estimateScopeChecklistUi';
 
 describe('Stucco plan import', () => {
   it('calculates net stucco wall area and preserves the pricing alias', () => {
@@ -22,6 +29,75 @@ describe('Stucco plan import', () => {
 
     expect(measurements.stuccoNetWallSqft).toBe(3510);
     expect(measurements.exteriorPaintSqft).toBe(3510);
+  });
+
+  it('keeps separate stucco add-on quantities out of base net wall area', () => {
+    const measurements = planMeasurementsToScopeMeasurements({
+      stuccoGrossWallSqft: 3450,
+      stuccoWindowDoorOpeningSqft: 289.6,
+      stuccoGarageOpeningSqft: 225,
+      stuccoOtherFinishDeductionSqft: 150,
+      stuccoSoffitSqft: 200,
+      stuccoParapetSqft: 200,
+      stuccoFoamTrimLf: 150,
+      stuccoControlJointLf: 100,
+    });
+
+    expect(measurements.stuccoNetWallSqft).toBe(2785.4);
+    expect(measurements.exteriorPaintSqft).toBe(2785.4);
+  });
+
+  it('uses explicit stucco wall-height terminology and units', () => {
+    expect(quickMeasurementFieldMeta('stuccoWallHeightFt')).toEqual({
+      label: 'Typical wall height / story',
+      unit: 'ft',
+    });
+    expect(quickMeasurementFieldMeta('stuccoStories')).toEqual({
+      label: 'Stories',
+      unit: 'story',
+    });
+    expect(quickMeasurementFieldMeta('stuccoFoamTrimLf').unit).toBe('LF');
+    expect(quickMeasurementFieldMeta('stuccoControlJointLf').unit).toBe('LF');
+  });
+
+  it('auto-includes measured add-ons without guessing unrelated scope choices', () => {
+    const items = [
+      { id: 'stucco_soffits', label: 'Soffits', state: 'unsure' },
+      { id: 'stucco_parapets', label: 'Parapets', state: 'unsure' },
+      {
+        id: 'stucco_foam_trim',
+        label: 'Foam trim',
+        inputType: 'choice',
+        choiceId: 'unsure',
+        state: 'unsure',
+      },
+      { id: 'stucco_access', label: 'Access', state: 'unsure' },
+      { id: 'stucco_repairs', label: 'Repairs', state: 'unsure' },
+      {
+        id: 'stucco',
+        label: 'Stucco system',
+        inputType: 'choice',
+        choiceId: 'unsure',
+        state: 'unsure',
+      },
+    ] as any;
+
+    const hydrated = hydrateScopeChecklistFromNotes(items, 'ground_up', '', {
+      stuccoSoffitSqft: 200,
+      stuccoParapetSqft: 200,
+      stuccoFoamTrimLf: 150,
+      stuccoAccessAffectedSqft: 0,
+      stuccoRepairAffectedSqft: 0,
+    } as any);
+    const byId = Object.fromEntries(hydrated.map(item => [item.id, item]));
+
+    expect(byId.stucco_soffits.state).toBe('included');
+    expect(byId.stucco_parapets.state).toBe('included');
+    expect(byId.stucco_foam_trim.state).toBe('included');
+    expect(byId.stucco_foam_trim.choiceId).toBe('unsure');
+    expect(byId.stucco_access.state).toBe('unsure');
+    expect(byId.stucco_repairs.state).toBe('unsure');
+    expect(byId.stucco.state).toBe('unsure');
   });
 
   it('creates the Stucco package inside the existing Confirm Scope checklist', () => {
@@ -63,6 +139,104 @@ describe('Stucco plan import', () => {
       expect.arrayContaining([expect.objectContaining({ id: 'framing' })])
     );
     expect(next.scopeChecklist.templateKey).toBe('stucco');
+  });
+
+  it('carries plan conflict metadata into Confirm Scope state', () => {
+    const draft = {
+      scopeChecklist: {
+        estimateTier: 'standard',
+        templateKey: 'ground_up',
+        title: 'Ground-up',
+        intro: '',
+        items: [{ id: 'stucco', label: 'Stucco', state: 'unsure' }],
+      },
+    } as any;
+    const conflict = {
+      field: 'stuccoGrossWallSqft',
+      selectedValue: 3600,
+      selectedSource: 'focused_trade_takeoff',
+      threshold: 180,
+      requiresConfirmation: true,
+      candidates: [
+        {
+          value: 3600,
+          source: 'focused_trade_takeoff',
+          confidence: 0.9,
+          directEvidence: true,
+        },
+        {
+          value: 3300,
+          source: 'general_plan_takeoff',
+          confidence: 0.8,
+          directEvidence: false,
+        },
+      ],
+    };
+    const next = applyPlanImportToDraft(draft, {
+      measurements: { stuccoGrossWallSqft: 3600 },
+      measurementProvenance: {
+        stuccoGrossWallSqft: {
+          value: 3600,
+          source: 'focused_trade_takeoff',
+          alternatives: [{ value: 3300, source: 'general_plan_takeoff' }],
+        },
+      },
+      measurementConflicts: [conflict],
+      scopeDetections: [],
+    });
+
+    expect(next.scopeMeasurements?.measurementConflicts).toEqual([conflict]);
+    expect(
+      next.scopeMeasurements?.measurementProvenance?.stuccoGrossWallSqft
+    ).toMatchObject({ value: 3600 });
+  });
+
+  it('renders a material plan conflict as needs confirmation', () => {
+    const input = {
+      ...emptyQuickMeasurementInput(),
+      stuccoGrossWallSqft: '3600',
+      quickMeasurementSources: {
+        stuccoGrossWallSqft: 'detected_from_plan',
+      },
+      measurementConflicts: [
+        {
+          field: 'stuccoGrossWallSqft',
+          selectedValue: 3600,
+          selectedSource: 'focused_trade_takeoff',
+          threshold: 180,
+          requiresConfirmation: true,
+          candidates: [
+            {
+              value: 3600,
+              source: 'focused_trade_takeoff',
+              confidence: 0.9,
+              directEvidence: false,
+            },
+            {
+              value: 3300,
+              source: 'general_plan_takeoff',
+              confidence: 0.8,
+              directEvidence: false,
+            },
+          ],
+        },
+      ],
+    } as any;
+    const rows = quickMeasurementRowsForInput('stucco', 'stucco', input, []);
+    const results = resolveQuickMeasurementFields({
+      rows,
+      measurements: input,
+      sourceMap: input.quickMeasurementSources,
+      includedScopeKeys: ['stucco'],
+      templateKey: 'stucco',
+      measurementConflicts: input.measurementConflicts,
+    });
+    const gross = results.find(result => result.key === 'stuccoGrossWallSqft');
+
+    expect(gross?.state).toBe('needs_confirmation');
+    expect(gross?.sourceLabel).toBe(
+      'Conflicting plan takeoffs — confirm measurement'
+    );
   });
 
   it('treats optional architectural details as neutral until their scope is included', () => {

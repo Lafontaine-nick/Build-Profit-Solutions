@@ -81,7 +81,7 @@ export function measurementDisplayLabel(
     stuccoAccessAffectedSqft: 'Access premium affected area',
     stuccoRepairAffectedSqft: 'Substrate repair affected area',
     stuccoStories: 'Stories',
-    stuccoWallHeightFt: 'Wall height',
+    stuccoWallHeightFt: 'Typical wall height / story',
   };
   if (stuccoLabels[key]) return { label: stuccoLabels[key] };
   return { label: key };

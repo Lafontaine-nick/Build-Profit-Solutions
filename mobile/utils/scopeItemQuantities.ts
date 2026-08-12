@@ -458,6 +458,8 @@ export type NormalizedScopeMeasurements = {
   garageDoorSingleCount: number | null;
   garageDoorDoubleCount: number | null;
   garageDoorRvCount: number | null;
+  measurementProvenance?: Record<string, unknown>;
+  measurementConflicts?: import('@/utils/estimateAiDraft').PlanMeasurementConflict[];
   itemQuantities: Record<string, ScopeItemQuantityValue>;
 };
 
@@ -5900,6 +5902,8 @@ export function normalizeScopeMeasurements(
       Number(measurements.garageDoorRvCount) > 0
         ? Math.round(Number(measurements.garageDoorRvCount))
         : null,
+    measurementProvenance: measurements?.measurementProvenance,
+    measurementConflicts: measurements?.measurementConflicts,
     itemQuantities,
   };
 }
@@ -16737,6 +16741,8 @@ export function scopeMeasurementsToPayload(
       Object.keys(input.quickMeasurementFieldConfidence).length
         ? input.quickMeasurementFieldConfidence
         : undefined,
+    measurementProvenance: input.measurementProvenance,
+    measurementConflicts: input.measurementConflicts,
     planImportMode: input.planImportMode ?? null,
     planImportTradeKey: input.planImportTradeKey ?? null,
     planImportMissingInfo: Array.isArray(input.planImportMissingInfo)
@@ -17348,6 +17354,8 @@ export function scopeMeasurementsInputFromPayload(
     quickMeasurementSuggestionMetadata:
       payload.quickMeasurementSuggestionMetadata,
     quickMeasurementFieldConfidence: payload.quickMeasurementFieldConfidence,
+    measurementProvenance: payload.measurementProvenance,
+    measurementConflicts: payload.measurementConflicts,
     planImportMode: payload.planImportMode ?? null,
     planImportTradeKey: payload.planImportTradeKey ?? null,
     planImportMissingInfo: payload.planImportMissingInfo ?? [],
@@ -17505,6 +17513,8 @@ export type ScopeMeasurementsInputExtended = ReturnType<
     import('@/utils/scopeReviewUi').ScopeGapResolutionRecord
   >;
   planRooms?: import('@/utils/estimateAiDraft').PlanRoomMeasurement[];
+  measurementProvenance?: Record<string, unknown>;
+  measurementConflicts?: import('@/utils/estimateAiDraft').PlanMeasurementConflict[];
   wetAreaFinish?: import('@/utils/planBathRooms').WetAreaFinishChoice | null;
   bathCount?: number | null;
   tilePanBathCount?: number | null;
@@ -18434,6 +18444,8 @@ export function initialScopeMeasurementInputExtended(
     quickMeasurementSuggestionMetadata:
       saved?.quickMeasurementSuggestionMetadata,
     quickMeasurementFieldConfidence: saved?.quickMeasurementFieldConfidence,
+    measurementProvenance: saved?.measurementProvenance,
+    measurementConflicts: saved?.measurementConflicts,
     areaReconciliation: saved?.areaReconciliation,
     planImportMode: saved?.planImportMode ?? null,
     planImportTradeKey: saved?.planImportTradeKey ?? null,

@@ -590,9 +590,62 @@ export function applyScopeInferencesFromNotes(
     templateKey,
     notes
   );
-  return applyKitchenScopeInferences(withSoftCosts, templateKey, {
-    notes,
-    measurements,
+  const withKitchenInferences = applyKitchenScopeInferences(
+    withSoftCosts,
+    templateKey,
+    {
+      notes,
+      measurements,
+    }
+  );
+  return applyMeasuredStuccoScopeInferences(
+    withKitchenInferences,
+    measurements
+  );
+}
+
+export function applyMeasuredStuccoScopeInferences(
+  items: ScopeChecklistItem[],
+  measurements?: NormalizedScopeMeasurements
+): ScopeChecklistItem[] {
+  const measured = {
+    stuccoSoffitSqft: Number(measurements?.stuccoSoffitSqft) || 0,
+    stuccoParapetSqft: Number(measurements?.stuccoParapetSqft) || 0,
+    stuccoFoamTrimLf: Number(measurements?.stuccoFoamTrimLf) || 0,
+    stuccoOtherFinishDeductionSqft:
+      Number(measurements?.stuccoOtherFinishDeductionSqft) || 0,
+  };
+  if (
+    measured.stuccoSoffitSqft <= 0 &&
+    measured.stuccoParapetSqft <= 0 &&
+    measured.stuccoFoamTrimLf <= 0 &&
+    measured.stuccoOtherFinishDeductionSqft <= 0
+  ) {
+    return items;
+  }
+
+  return items.map(item => {
+    if (
+      (item.id === 'stucco_soffits' && measured.stuccoSoffitSqft > 0) ||
+      (item.id === 'stucco_parapets' && measured.stuccoParapetSqft > 0) ||
+      (item.id === 'stucco_other_finish' &&
+        measured.stuccoOtherFinishDeductionSqft > 0)
+    ) {
+      return item.state === 'unsure'
+        ? { ...item, state: 'included' as const }
+        : item;
+    }
+    if (
+      item.id === 'stucco_foam_trim' &&
+      measured.stuccoFoamTrimLf > 0 &&
+      item.state === 'unsure' &&
+      (!item.choiceId || item.choiceId === 'unsure')
+    ) {
+      // The LF proves trim exists, but not which profile was specified.
+      // Include the scope while leaving the profile choice for the contractor.
+      return { ...item, state: 'included' as const };
+    }
+    return item;
   });
 }
 

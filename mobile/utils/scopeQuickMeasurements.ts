@@ -444,7 +444,7 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Record<
   stuccoStories: F('stuccoStories', 'Stories', '1', 'story', 'exterior'),
   stuccoWallHeightFt: F(
     'stuccoWallHeightFt',
-    'Wall height',
+    'Typical wall height / story',
     'Enter',
     'ft',
     'exterior'
@@ -718,7 +718,13 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
     ),
     row(
       F('stuccoStories', 'Stories', '1', 'story', 'exterior'),
-      F('stuccoWallHeightFt', 'Wall height', 'Enter', 'ft', 'exterior')
+      F(
+        'stuccoWallHeightFt',
+        'Typical wall height / story',
+        'Enter',
+        'ft',
+        'exterior'
+      )
     ),
   ],
   deck_patio: [

@@ -56,6 +56,7 @@ import {
   mergeScopeProgressIntoDraft,
   applyKitchenScopeInferences,
   hydrateScopeChecklistFromNotes,
+  applyMeasuredStuccoScopeInferences,
   suppressBathroomFalsePositiveFloorDemoScope,
   stripBathroomFalsePositiveFloorDemoQuantities,
   QUANTITY_NEEDED_LABELS_BY_TEMPLATE,
@@ -600,6 +601,8 @@ function ScopeItemTitleRow({
       ? 'Prefilled'
       : noteBadge === 'from_photo'
         ? SCOPE_DETECTED_FROM_PHOTOS_LABEL
+        : noteBadge === 'from_plan'
+          ? 'Detected from plan'
         : noteBadge === 'mentioned'
           ? SCOPE_MENTIONED_IN_NOTES_LABEL
           : noteBadge === 'review'
@@ -9385,6 +9388,14 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
   }, [value, floorPrepEditing]);
   const inputValue =
     isFloorPrepField && floorPrepEditing ? floorPrepDraft : value;
+  const unitLabel =
+    field.key === 'stuccoStories'
+      ? Number(String(inputValue).replace(/,/g, '')) === 1
+        ? 'story'
+        : inputValue
+          ? 'stories'
+          : field.unit
+      : field.unit;
   const handleInputFocus = () => {
     if (isFloorPrepField) {
       setFloorPrepDraft(value);
@@ -9547,7 +9558,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
             style={[styles.measurementInput, { color: Colors.text }]}
           />
           <Text style={[styles.measurementUnit, { color: Colors.sub }]}>
-            {field.unit}
+            {unitLabel}
           </Text>
         </View>
       </View>
@@ -9635,7 +9646,7 @@ const QuickMeasurementField = React.memo(function QuickMeasurementField({
           style={[styles.measurementInput, { color: Colors.text }]}
         />
         <Text style={[styles.measurementUnit, { color: Colors.sub }]}>
-          {field.unit}
+          {unitLabel}
         </Text>
       </View>
     </View>
@@ -9766,6 +9777,11 @@ function CollapsibleQuickMeasurements({
   const [editingVariant, setEditingVariant] = useState<
     'calm' | 'needs_confirmation' | 'suggestion' | 'more' | null
   >(null);
+  const [typedMoreMeasurementKeys, setTypedMoreMeasurementKeys] = useState<
+    QuickMeasurementFieldKey[]
+  >([]);
+  const [typedMoreMeasurementPositions, setTypedMoreMeasurementPositions] =
+    useState<Partial<Record<QuickMeasurementFieldKey, number>>>({});
   const paintInputRef = useRef({ wall: '', ceiling: '' });
   useEffect(() => {
     const wall = String(measurements.wallPaintSqft || '');
@@ -10062,6 +10078,7 @@ function CollapsibleQuickMeasurements({
       noteBackedKeys: noteQuickMeasurements.keys,
       sourceMap: measurements.quickMeasurementSources,
       userOverrides: measurements.quickMeasurementUserOverrides,
+      measurementConflicts: measurements.measurementConflicts,
       includedScopeKeys,
       templateKey: singleTradeImport ? 'stucco' : effectiveTemplateKey,
       wholeHomeLayout,
@@ -10169,7 +10186,38 @@ function CollapsibleQuickMeasurements({
     includedScopeKeys,
   ]);
   const groups = useMemo(() => {
-    const grouped = groupQuickMeasurementFields(fieldResults);
+    let grouped = groupQuickMeasurementFields(fieldResults);
+    // Keep optional fields in their More measurements home after typing.
+    const keepInMore = new Set(typedMoreMeasurementKeys);
+    if (keepInMore.size) {
+      const movedToMore: QuickMeasurementFieldResult[] = [];
+      const next = {
+        fromPlan: [...grouped.fromPlan],
+        suggestions: [...grouped.suggestions],
+        needsConfirmation: [...grouped.needsConfirmation],
+        confirmed: [...grouped.confirmed],
+        more: [...grouped.more],
+      };
+      (['fromPlan', 'suggestions', 'needsConfirmation', 'confirmed'] as const).forEach(
+        groupId => {
+          next[groupId] = next[groupId].filter(result => {
+            if (!keepInMore.has(result.key)) return true;
+            movedToMore.push(result);
+            return false;
+          });
+        }
+      );
+      next.more.push(...movedToMore);
+      next.more.sort((a, b) => {
+        const aPosition = typedMoreMeasurementPositions[a.key];
+        const bPosition = typedMoreMeasurementPositions[b.key];
+        if (aPosition == null && bPosition == null) return 0;
+        if (aPosition == null) return 1;
+        if (bPosition == null) return -1;
+        return aPosition - bPosition;
+      });
+      grouped = next;
+    }
     // Pin only after typing has moved a field out of its home section. Applying pin on
     // focus alone reorders Needs confirmation (pre-split indexes ≠ post-split indexes)
     // and makes the yellow inputs jump / remount when tapped.
@@ -10196,12 +10244,19 @@ function CollapsibleQuickMeasurements({
     editingHomeGroup,
     editingHomeIndex,
     showWetAreaFinishSteppers,
+    typedMoreMeasurementKeys,
+    typedMoreMeasurementPositions,
   ]);
   const displayGroups = groups.groups;
   const wetAreaFields = groups.wetArea;
   const summary = useMemo(
     () => summarizeQuickMeasurementFieldStates(fieldResults),
     [fieldResults]
+  );
+  const measurementConflicts = (
+    measurements.measurementConflicts || []
+  ).filter(
+    conflict => !measurements.quickMeasurementUserOverrides?.[conflict.field]
   );
 
   const effectiveWetAreaFinish = useMemo(
@@ -11545,6 +11600,16 @@ function CollapsibleQuickMeasurements({
         setEditingHomeGroup(home.homeGroup);
         setEditingHomeIndex(home.homeIndex);
         setEditingVariant(home.variant);
+        if (home.homeGroup === 'more') {
+          setTypedMoreMeasurementKeys(prev =>
+            prev.includes(key) ? prev : [...prev, key]
+          );
+          setTypedMoreMeasurementPositions(prev =>
+            prev[key] === home.homeIndex
+              ? prev
+              : { ...prev, [key]: home.homeIndex }
+          );
+        }
       }
       setMeasurements(prev => {
         const nextItemQuantities = { ...(prev.itemQuantities || {}) };
@@ -12176,6 +12241,50 @@ function CollapsibleQuickMeasurements({
       </TouchableOpacity>
       {expanded ? (
         <View style={styles.quickMeasurementsBody}>
+          {measurementConflicts.length ? (
+            <View
+              style={{
+                borderWidth: 1,
+                borderColor: '#fbbf24',
+                borderRadius: 12,
+                padding: 12,
+                marginBottom: 12,
+                backgroundColor: darkMode
+                  ? 'rgba(120, 80, 0, 0.14)'
+                  : 'rgba(251, 191, 36, 0.08)',
+              }}
+            >
+              <Text
+                style={{
+                  color: darkMode ? '#fef3c7' : '#78350f',
+                  fontWeight: '800',
+                }}
+              >
+                Conflicting plan takeoffs — confirm measurement
+              </Text>
+              {measurementConflicts.map(conflict => (
+                <Text
+                  key={`qm-conflict-${conflict.field}`}
+                  style={{
+                    color: captionColor(darkMode, Colors),
+                    marginTop: 4,
+                  }}
+                >
+                  {quickMeasurementFieldMeta(conflict.field as QuickMeasurementFieldKey).label}:
+                  {' '}
+                  {conflict.candidates
+                    .map(
+                      candidate =>
+                        `${candidate.value.toLocaleString()} ${
+                          /Lf$/i.test(conflict.field) ? 'LF' : 'sqft'
+                        }`
+                    )
+                    .join(' vs ')}
+                  {' '}— confirm the measurement.
+                </Text>
+              ))}
+            </View>
+          ) : null}
           {ambiguousPaintArea ? (
             <View
               style={{
@@ -12863,8 +12972,13 @@ function CollapsibleQuickMeasurements({
                     />
                   </TouchableOpacity>
                   {moreExpanded
-                    ? displayGroups.more.map(result =>
-                        renderDisplayedResultField(result, 'more')
+                    ? displayGroups.more.map((result, index) =>
+                        renderDisplayedResultField(
+                          result,
+                          'more',
+                          'more',
+                          index
+                        )
                       )
                     : null}
                 </View>
@@ -13884,6 +13998,7 @@ export default function AIEstimateScopeAssumptionsModal({
           sourceItems
         );
       }
+      normalized = applyMeasuredStuccoScopeInferences(normalized, norm);
       normalized = suppressBathroomFalsePositiveFloorDemoScope(
         normalized,
         checklist.templateKey,
@@ -14056,6 +14171,36 @@ export default function AIEstimateScopeAssumptionsModal({
     () => buildNormFromInput(measurements, scopeNotes, checklist?.templateKey),
     [measurements, scopeNotes, checklist?.templateKey]
   );
+
+  // Keep plan-backed Stucco cards synchronized with Quick Measurements after
+  // every hydration/sync pass. This only promotes Not sure; explicit Yes/No
+  // or choice selections remain authoritative.
+  useEffect(() => {
+    const template = String(
+      checklist?.templateKey || draft?.projectType || ''
+    ).toLowerCase();
+    if (template !== 'stucco' && !stuccoTradeFlow) return;
+    setItems(prev => {
+      const next = applyMeasuredStuccoScopeInferences(prev, normMeasurements);
+      const changed =
+        next.length !== prev.length ||
+        next.some(
+          (item, index) =>
+            item.state !== prev[index]?.state ||
+            item.choiceId !== prev[index]?.choiceId
+        );
+      return changed ? next : prev;
+    });
+  }, [
+    checklist?.templateKey,
+    draft?.projectType,
+    stuccoTradeFlow,
+    normMeasurements,
+    measurements.stuccoSoffitSqft,
+    measurements.stuccoParapetSqft,
+    measurements.stuccoFoamTrimLf,
+    measurements.stuccoOtherFinishDeductionSqft,
+  ]);
 
   const pricingCounts = useMemo(
     () =>

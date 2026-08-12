@@ -18,6 +18,7 @@ const {
   filterPlanMeasurementsForTrade,
   filterPlanScopesForTrade,
 } = require('./planImportTradeConfig');
+const { mergeMeasurementCandidates } = require('./measurementMerge');
 
 /** Fields the model read but wasn't sure about are withheld below this. */
 const MIN_FIELD_CONFIDENCE = 0.6;
@@ -113,6 +114,32 @@ function mergePositiveMeasurementMaps(base = {}, overlay = {}) {
     out[key] = next;
   }
   return out;
+}
+
+function stuccoEvidenceByField(planFacts = {}) {
+  const hasElevationFaces =
+    Array.isArray(planFacts?.elevationFaces) &&
+    planFacts.elevationFaces.length > 0;
+  const hasPerimeter =
+    positive(planFacts?.exteriorPerimeterLf) ||
+    positive(planFacts?.foundationPerimeterLf);
+  const evidence = {};
+  if (hasElevationFaces) {
+    for (const field of [
+      'stuccoGrossWallSqft',
+      'stuccoWindowDoorOpeningSqft',
+      'stuccoGarageOpeningSqft',
+      'stuccoOtherFinishDeductionSqft',
+      'stuccoSoffitSqft',
+      'stuccoParapetSqft',
+      'stuccoFoamTrimLf',
+      'stuccoControlJointLf',
+    ]) {
+      evidence[field] = true;
+    }
+  }
+  if (hasPerimeter) evidence.stuccoGrossWallSqft = true;
+  return evidence;
 }
 
 function elevationFacesOpeningScore(faces) {
@@ -1216,17 +1243,58 @@ async function analyzePlanForMeasurements({
     err.status = 502;
     throw err;
   }
+  let measurementProvenance = {};
+  let measurementConflicts = [];
   if (tradeVisualCompletion) {
     try {
       const focused = JSON.parse(
         tradeVisualCompletion.choices?.[0]?.message?.content || '{}'
       );
+      const mergedMeasurements = mergeMeasurementCandidates({
+        baseMeasurements: parsed.measurements,
+        overlayMeasurements: focused.measurements,
+        baseConfidence: parsed.fieldConfidence,
+        overlayConfidence: focused.fieldConfidence,
+        baseEvidence: stuccoEvidenceByField(parsed.planFacts),
+        overlayEvidence: stuccoEvidenceByField(focused.planFacts),
+      });
+      const mergedFieldConfidence = {
+        ...(parsed.fieldConfidence || {}),
+        ...(focused.fieldConfidence || {}),
+      };
+      for (const [field, selected] of Object.entries(
+        mergedMeasurements.provenance
+      )) {
+        mergedFieldConfidence[field] = Number(selected.confidence) || 0;
+        if (process.env.NODE_ENV !== 'production') {
+          console.debug('[plan measurement merge]', {
+            field,
+            candidates: [
+              selected,
+              ...(Array.isArray(selected.alternatives)
+                ? selected.alternatives
+                : []),
+            ].map(candidate => ({
+              value: candidate.value,
+              source: candidate.source,
+              confidence: candidate.confidence,
+              directEvidence: candidate.directEvidence,
+            })),
+            selected: {
+              value: selected.value,
+              source: selected.source,
+            },
+            conflict: mergedMeasurements.conflicts.some(
+              conflict => conflict.field === field
+            ),
+          });
+        }
+      }
+      measurementProvenance = mergedMeasurements.provenance;
+      measurementConflicts = mergedMeasurements.conflicts;
       parsed = {
         ...parsed,
-        measurements: mergePositiveMeasurementMaps(
-          parsed.measurements,
-          focused.measurements
-        ),
+        measurements: mergedMeasurements.measurements,
         planFacts: {
           ...(parsed.planFacts || {}),
           ...(focused.planFacts || {}),
@@ -1240,9 +1308,10 @@ async function analyzePlanForMeasurements({
           },
         },
         fieldConfidence: {
-          ...(parsed.fieldConfidence || {}),
-          ...(focused.fieldConfidence || {}),
+          ...mergedFieldConfidence,
         },
+        measurementProvenance,
+        measurementConflicts,
         unreadableFields: [
           ...(parsed.unreadableFields || []),
           ...(focused.unreadableFields || []),
@@ -1524,6 +1593,8 @@ async function analyzePlanForMeasurements({
     rooms: tradeRooms,
     measurements: tradeMeasurements,
     fieldConfidence,
+    measurementProvenance,
+    measurementConflicts,
     lowConfidence,
     unreadableFields,
     buildingAreas,

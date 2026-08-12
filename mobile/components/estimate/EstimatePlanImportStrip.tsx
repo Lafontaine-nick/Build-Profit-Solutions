@@ -59,6 +59,8 @@ export type PlanImportApplyResult = {
   buildingAreas?: import('@/utils/planMeasurementFacts').PlanBuildingAreas;
   planFacts?: import('@/utils/planMeasurementFacts').PlanFacts;
   fieldConfidence?: Record<string, number>;
+  measurementProvenance?: Record<string, unknown>;
+  measurementConflicts?: import('@/utils/estimateAiDraft').PlanMeasurementConflict[];
   estimatingMode: PlanEstimatingMode;
   selectedTrade: PlanTradeKey | null;
   tradeProvenance: {
@@ -308,6 +310,17 @@ export default function EstimatePlanImportStrip({
         planFacts:
           selection.mode === 'selected_trade' ? undefined : takeoff.planFacts,
         fieldConfidence: takeoff.fieldConfidence,
+        measurementProvenance: takeoff.measurementProvenance
+          ? Object.fromEntries(
+              Object.entries(takeoff.measurementProvenance).filter(([key]) =>
+                Object.prototype.hasOwnProperty.call(tradeMeasurements, key)
+              )
+            )
+          : undefined,
+        measurementConflicts: (takeoff.measurementConflicts || []).filter(
+          conflict =>
+            Object.prototype.hasOwnProperty.call(tradeMeasurements, conflict.field)
+        ),
         estimatingMode: selection.mode,
         selectedTrade: selection.trade?.key || null,
         tradeProvenance: {

@@ -95,7 +95,11 @@ type Props = {
       areaSqft: number | null;
       lengthFt: number | null;
       widthFt: number | null;
-    }>
+    }>,
+    metadata?: Pick<
+      PlanToMeasurementsResult,
+      'measurementProvenance' | 'measurementConflicts'
+    >
   ) => void;
   onCancel: () => void;
 };
@@ -312,6 +316,17 @@ export default function PlanTakeoffReviewModal({
 
   const unreadable = takeoff.unreadableFields || [];
   const lowConfidence = takeoff.lowConfidence || [];
+  const measurementConflicts = (takeoff.measurementConflicts || []).filter(
+    conflict =>
+      Object.prototype.hasOwnProperty.call(
+        visibleMeasurements,
+        conflict.field
+      ) ||
+      Object.prototype.hasOwnProperty.call(
+        takeoff.measurements || {},
+        conflict.field
+      )
+  );
   const hasMeasurements = rows.length > 0;
   const hasRooms = roomRows.length > 0;
   const hasReadingIssues = lowConfidence.length > 0 || unreadable.length > 0;
@@ -386,7 +401,11 @@ export default function PlanTakeoffReviewModal({
     onApply(
       values,
       scopeDetections.filter(d => scopeChecked[d.itemId]),
-      rooms
+      rooms,
+      {
+        measurementProvenance: takeoff.measurementProvenance,
+        measurementConflicts: takeoff.measurementConflicts,
+      }
     );
   };
 
@@ -563,6 +582,25 @@ export default function PlanTakeoffReviewModal({
                 </Text>
               </View>
             )}
+
+            {measurementConflicts.length ? (
+              <View style={styles.callout}>
+                <Text style={styles.calloutTitle}>
+                  Conflicting plan takeoffs — confirm measurement
+                </Text>
+                {measurementConflicts.map(conflict => (
+                  <Text
+                    key={`conflict-${conflict.field}`}
+                    style={[styles.calloutLine, { color: Colors.sub }]}
+                  >
+                    {quickMeasurementFieldMeta(conflict.field).label}:{' '}
+                    {conflict.selectedValue.toLocaleString()} selected from{' '}
+                    {conflict.selectedSource.replace(/_/g, ' ')}; alternate
+                    values were also read from the plan.
+                  </Text>
+                ))}
+              </View>
+            ) : null}
 
             {semanticsOn && areaReconciliation ? (
               <View

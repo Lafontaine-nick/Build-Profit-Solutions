@@ -12,7 +12,12 @@ import {
 
 export type ScopeItemVisualTier = 'primary' | 'secondary' | 'muted';
 
-export type ScopeItemNoteBadge = 'prefilled' | 'mentioned' | 'from_photo' | 'review';
+export type ScopeItemNoteBadge =
+  | 'prefilled'
+  | 'mentioned'
+  | 'from_photo'
+  | 'from_plan'
+  | 'review';
 
 function notesIncludeSitePhotos(notes: string | null | undefined): boolean {
   const n = String(notes || '');
@@ -70,6 +75,36 @@ function itemPricingFromNotes(item: ScopeChecklistItem, ctx: ScopeItemVisualCont
   return resolved.pricingReady && resolved.quantitySource === 'notes';
 }
 
+const PLAN_MEASUREMENT_KEYS_BY_SCOPE: Record<string, string[]> = {
+  stucco: ['stuccoNetWallSqft'],
+  stucco_soffits: ['stuccoSoffitSqft'],
+  stucco_parapets: ['stuccoParapetSqft'],
+  stucco_foam_trim: ['stuccoFoamTrimLf'],
+  stucco_other_finish: ['stuccoOtherFinishDeductionSqft'],
+};
+
+function itemMeasuredFromPlan(
+  item: ScopeChecklistItem,
+  ctx: ScopeItemVisualContext
+): boolean {
+  const sourceMap = ctx.measurements.quickMeasurementSources || {};
+  const planTags = new Set([
+    'plan_detected',
+    'plan_vision',
+    'plan_explicit',
+    'detected_from_plan',
+  ]);
+  return (PLAN_MEASUREMENT_KEYS_BY_SCOPE[item.id] || []).some(key => {
+    const value = Number(
+      String((ctx.measurements as Record<string, unknown>)[key] ?? '').replace(
+        /,/g,
+        ''
+      )
+    );
+    return value > 0 && planTags.has(String(sourceMap[key] || ''));
+  });
+}
+
 function itemMentionedInNotes(item: ScopeChecklistItem, ctx: ScopeItemVisualContext): boolean {
   const notes = ctx.notes;
   if (item.noteBacked) return true;
@@ -97,6 +132,9 @@ export function scopeItemNoteBadge(
   ctx: ScopeItemVisualContext
 ): ScopeItemNoteBadge | null {
   const notes = ctx.notes;
+  if (checklistItemInScope(item) && itemMeasuredFromPlan(item, ctx)) {
+    return 'from_plan';
+  }
   if (!String(notes || '').trim() && !item.noteBacked) return null;
 
   if (itemPricingFromNotes(item, ctx) && checklistItemInScope(item)) return 'prefilled';

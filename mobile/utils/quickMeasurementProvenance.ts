@@ -152,9 +152,11 @@ function resolveFieldState(params: {
   sourceTag?: QuickMeasurementSourceTag;
   relevant: boolean;
   hasEstimate: boolean;
+  hasConflict?: boolean;
 }): QuickMeasurementFieldState {
   if (!params.relevant) return 'not_relevant';
   if (params.filled) {
+    if (params.hasConflict) return 'needs_confirmation';
     if (params.fromNotes) return 'confirmed';
     if (
       params.sourceTag === 'plan_detected' ||
@@ -191,6 +193,7 @@ export function resolveQuickMeasurementFields(params: {
   noteBackedKeys?: Iterable<QuickMeasurementFieldKey>;
   sourceMap?: QuickMeasurementSourceMap;
   userOverrides?: QuickMeasurementOverrideMap;
+  measurementConflicts?: Array<{ field: string }>;
   includedScopeKeys: Iterable<string>;
   /** When ground_up / addition, show the full Quick measurements field list. */
   templateKey?: string | null;
@@ -201,6 +204,9 @@ export function resolveQuickMeasurementFields(params: {
   const noteValues = params.noteValues || {};
   const noteBackedKeys = params.noteBackedKeys || [];
   const noteKeySet = new Set(noteBackedKeys);
+  const conflictFields = new Set(
+    (params.measurementConflicts || []).map(conflict => conflict.field)
+  );
   const includedScopeKeys = Array.from(params.includedScopeKeys);
   const fields = params.rows.flat();
   const seen = new Set<QuickMeasurementFieldKey>();
@@ -263,6 +269,7 @@ export function resolveQuickMeasurementFields(params: {
       sourceTag: isUserOverride ? 'user_confirmed_suggestion' : sourceTag,
       relevant: relevance.relevant,
       hasEstimate: Boolean(estimate),
+      hasConflict: conflictFields.has(field.key) && !isUserOverride,
     });
 
     results.push({
@@ -275,11 +282,14 @@ export function resolveQuickMeasurementFields(params: {
       relevant: relevance.relevant,
       blockingPrice: relevance.blockingPrice && !filled,
       estimate,
-      sourceLabel: estimate
-        ? quickMeasurementEstimateBadgeLabel(estimate)
-        : quickMeasurementSourceLabel(
-            isUserOverride ? 'user_confirmed_suggestion' : sourceTag
-          ),
+      sourceLabel:
+        conflictFields.has(field.key) && !isUserOverride
+          ? 'Conflicting plan takeoffs — confirm measurement'
+          : estimate
+            ? quickMeasurementEstimateBadgeLabel(estimate)
+            : quickMeasurementSourceLabel(
+                isUserOverride ? 'user_confirmed_suggestion' : sourceTag
+              ),
     });
   }
 
