@@ -12,6 +12,55 @@ const SMITH_NOTES =
   'Floor job at Smith residence. Demo existing tile in main bath 850 sqft lump sum $2,550. Demo kitchen vinyl 180 sqft allowance $900. Install LVP in both areas 1030 total sqft not priced yet. Baseboards throughout 220 LF lump sum $1,540. Final clean and haul off $650 lump sum.';
 
 describe('mobile scope measurement parser', () => {
+  it('parses explicit Roofing add-on quantities without deriving them from squares', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Roof replacement is 30 squares. Decking replacement 100 sqft. Drip edge 180 LF, ridge cap 60 LF, valley flashing 40 LF, step flashing 20 LF, wall flashing 15 LF, ridge vent 40 LF. 3 roof vents, 1 turbine vent, 4 pipe boots, 1 chimney flashing, 1 skylight, and 2 roof penetrations. Roof repairs affect 50 sqft.',
+      { templateKey: 'roofing', projectType: 'roofing' }
+    );
+
+    expect(parsed).toMatchObject({
+      roofSquares: 30,
+      roofDeckingReplacementSqft: 100,
+      roofDripEdgeLf: 180,
+      roofRidgeCapLf: 60,
+      roofValleyFlashingLf: 40,
+      roofStepFlashingLf: 20,
+      roofWallFlashingLf: 15,
+      roofRidgeVentLf: 40,
+      roofVentCount: 3,
+      roofTurbineVentCount: 1,
+      roofPipeBootCount: 4,
+      roofChimneyFlashingCount: 1,
+      roofSkylightCount: 1,
+      roofPenetrationCount: 2,
+      roofRepairAffectedSqft: 50,
+    });
+  });
+
+  it('parses gutters LF and downspouts EA independently from notes', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Install 150 LF gutters and 4 downspouts on the rear elevation.',
+      { templateKey: 'roofing', projectType: 'roofing' }
+    );
+    expect(parsed).toMatchObject({
+      roofGutterLf: 150,
+      roofDownspoutCount: 4,
+    });
+    expect(parsed).not.toHaveProperty('roofAreaSqft');
+  });
+
+  it('persists gutters and downspouts quantities independently', () => {
+    const payload = scopeMeasurementsPayloadForPersist({
+      roofGutterLf: '150',
+      roofDownspoutCount: '4',
+    } as any);
+    expect(payload.roofGutterLf).toBe(150);
+    expect(payload.roofDownspoutCount).toBe(4);
+    const normalized = normalizeScopeMeasurements(payload as any);
+    expect(normalized.roofGutterLf).toBe(150);
+    expect(normalized.roofDownspoutCount).toBe(4);
+  });
+
   it('parses plan takeoff living area language into floorAreaSqft', () => {
     const parsed = parseScopeMeasurementsFromNotes(
       '--- Plan takeoff ---\nMain Living Area is 1879 Sq Ft with a garage of 994 Sq Ft and a covered patio of 247 Sq Ft.',

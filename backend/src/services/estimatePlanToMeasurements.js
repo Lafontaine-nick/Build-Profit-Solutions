@@ -59,10 +59,51 @@ const MEASUREMENT_KEYS = new Set([
   'paverSqft',
   'rockMulchSqft',
   'landscapeTons',
+  'roofAreaSqft',
   'roofSquares',
+  'roofPitch',
+  'storyCount',
+  'roofDeckingReplacementSqft',
+  'roofDripEdgeLf',
+  'roofRidgeCapLf',
+  'roofRidgeVentLf',
+  'roofValleyFlashingLf',
+  'roofStepFlashingLf',
+  'roofWallFlashingLf',
+  'roofChimneyFlashingCount',
+  'roofPipeBootCount',
+  'roofVentCount',
+  'roofTurbineVentCount',
+  'roofSkylightCount',
+  'roofPenetrationCount',
+  'roofRepairAffectedSqft',
+  'roofGutterLf',
+  'roofDownspoutCount',
   'drywallSqft',
   'flooringSqft',
+  'flooringLvpSqft',
+  'flooringLaminateSqft',
+  'flooringEngineeredHardwoodSqft',
+  'flooringSolidHardwoodSqft',
+  'flooringTileSqft',
+  'flooringCarpetSqft',
+  'flooringSheetVinylSqft',
+  'floorDemoSqft',
+  'floorDemoCarpetSqft',
+  'floorDemoTileSqft',
+  'floorDemoLvpSqft',
+  'floorPrepSqft',
+  'underlaymentSqft',
+  'moistureBarrierSqft',
+  'baseboardLf',
+  'transitionCount',
+  'quarterRoundLf',
   'concreteSqft',
+  'concreteDrivewaySqft',
+  'concreteSidewalkSqft',
+  'concretePatioSqft',
+  'concreteWalkwaySqft',
+  'concreteRvPadSqft',
   'concreteCy',
   'excavationCy',
   'deckSqft',
@@ -85,7 +126,15 @@ const LABELED_ONLY_KEYS = new Set([
 ]);
 
 /** Concrete flatwork only when the sheet labels concrete/slab/driveway — not covered patio. */
-const CONCRETE_EXPLICIT_KEYS = new Set(['concreteSqft', 'concreteCy']);
+const CONCRETE_EXPLICIT_KEYS = new Set([
+  'concreteSqft',
+  'concreteCy',
+  'concreteDrivewaySqft',
+  'concreteSidewalkSqft',
+  'concretePatioSqft',
+  'concreteWalkwaySqft',
+  'concreteRvPadSqft',
+]);
 
 function normalizeMime(mimeType) {
   const m = String(mimeType || 'image/jpeg').toLowerCase();
@@ -309,7 +358,12 @@ Rules:
 5. measurements.flooringSqft = same as floorAreaSqft when living SF is known.
 6. measurements.deckSqft = covered patio + roof deck (+ covered outdoor when no patio) from the schedule. NEVER put covered patio / roof deck into concreteSqft.
 7. measurements.garageSqft = Garage Area from the schedule when labeled (not living SF). Still list Garage / RV Garage as separate rooms[] entries with their L×W when labeled.
-8. measurements.concreteSqft ONLY for labeled concrete slab / driveway / sidewalk / flatwork — omit for covered patio or wood deck. Put concreteSqft in explicitlyLabeled when used.
+8. measurements.concreteSqft ONLY for labeled concrete slab / driveway / sidewalk / flatwork when a single total is shown — omit for covered patio or wood deck. Put concreteSqft in explicitlyLabeled when used.
+8b. When the plan labels separate flatwork areas, prefer measurements.concreteDrivewaySqft, concretePatioSqft, concreteWalkwaySqft, concreteSidewalkSqft, and concreteRvPadSqft instead of rolling them into concreteSqft. Only use concreteSqft when the sheet gives one combined flatwork total.
+8c. measurements.concreteCy ONLY for labeled footing / foundation / structural concrete CY when explicitly dimensioned or scheduled — never estimate CY from flatwork SF.
+8d. When the finish schedule or floor plan labels separate new flooring areas by product, prefer measurements.flooringLvpSqft, flooringTileSqft, flooringCarpetSqft, flooringLaminateSqft, flooringEngineeredHardwoodSqft, flooringSolidHardwoodSqft, and flooringSheetVinylSqft instead of rolling them into flooringSqft. Only use flooringSqft when the sheet gives one combined floor total without product breakdown.
+8e. measurements.floorDemoSqft ONLY when demolition/removal of existing flooring is explicitly labeled — never infer demo from new flooring alone. Per-type demo keys (floorDemoCarpetSqft, floorDemoTileSqft, etc.) only when explicitly labeled.
+8f. Do NOT infer floor-prep severity, existing floor type, underlayment, moisture barrier, baseboards, transitions, or quarter round unless explicitly labeled on the plan.
 9. wallPaintSqft, drywallSqft, exteriorPaintSqft, baseboardLf, and railingLf must be explicitly labeled. Stucco quantities may also be calculated only from complete, clearly labeled elevation face, perimeter/height/story, or opening-dimension inputs; mark those values as plan-derived and never estimate from living area.
 10. Multi-page sets: merge all floor-plan pages; ignore duplicate title-block totals; elevations do not add living SF.
 11. success false if none of the images are plans/blueprints, OR if imageQuality is "unreadable".
@@ -831,6 +885,13 @@ function sanitizeMeasurements(raw, rooms, buildingAreas = {}, explicitlyLabeled 
   );
 
   for (const key of MEASUREMENT_KEYS) {
+    if (key === 'roofPitch') {
+      const pitch = String(src[key] || '').trim().slice(0, 20);
+      if (/^\d+(?:\s*:\s*|\s*\/\s*)\d+$/.test(pitch) || /^low[- ]slope$/i.test(pitch)) {
+        out[key] = pitch.replace(/\s+/g, '');
+      }
+      continue;
+    }
     const v = positive(src[key]);
     if (v == null) continue;
     if (LABELED_ONLY_KEYS.has(key) && !labeled.has(key)) continue;
@@ -926,7 +987,7 @@ function buildItemQuantities(measurements) {
     cabinetLf: { key: 'cabinets', unit: 'lf' },
     countertopSqft: { key: 'countertops', unit: 'sqft' },
     backsplashSqft: { key: 'backsplash', unit: 'sqft' },
-    roofSquares: { key: 'tear_off', unit: 'squares' },
+    roofSquares: { key: 'shingles_roofing', unit: 'squares' },
     deckSqft: { key: 'deck', unit: 'sqft' },
     concreteSqft: { key: 'concrete', unit: 'sqft' },
   };
@@ -1465,6 +1526,24 @@ async function analyzePlanForMeasurements({
   }
   areaReconciliation = reconcileLabeledLivingAreas(buildingAreas, areaReconciliation);
   const tradeMeasurementInput = { ...measurements };
+  if (planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'roofing') {
+    if (!tradeMeasurementInput.roofPitch && planFacts?.roofPitch) {
+      tradeMeasurementInput.roofPitch = String(planFacts.roofPitch);
+      measurementProvenance.roofPitch = {
+        value: tradeMeasurementInput.roofPitch,
+        source: 'plan_facts',
+        normalizedSource: 'FROM_PLAN',
+      };
+    }
+    if (!(positive(tradeMeasurementInput.storyCount) > 0) && positive(planFacts?.storyCount)) {
+      tradeMeasurementInput.storyCount = positive(planFacts.storyCount);
+      measurementProvenance.storyCount = {
+        value: tradeMeasurementInput.storyCount,
+        source: 'plan_facts',
+        normalizedSource: 'FROM_PLAN',
+      };
+    }
+  }
   if (planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'stucco') {
     if (!(positive(tradeMeasurementInput.stuccoStories) > 0) && positive(planFacts?.storyCount)) {
       tradeMeasurementInput.stuccoStories = positive(planFacts.storyCount);

@@ -1097,6 +1097,28 @@ function migrateGroundUpTakeoffScopeItems(
       };
     }
     if (
+      String(templateKey || '').toLowerCase() === 'roofing' &&
+      i.id === 'underlayment'
+    ) {
+      return {
+        ...i,
+        label: 'Premium / synthetic underlayment upgrade',
+        helperText:
+          'Incremental upgrade above the standard underlayment included in supported base Roofing systems.',
+      };
+    }
+    if (
+      String(templateKey || '').toLowerCase() === 'roofing' &&
+      i.id === 'ice_water_shield'
+    ) {
+      return {
+        ...i,
+        label: 'Ice & water shield',
+        helperText:
+          'Localized self-adhered waterproofing membrane for explicitly measured roofing protection areas.',
+      };
+    }
+    if (
       String(templateKey || '').toLowerCase() === 'flooring' &&
       i.id === 'moisture_barrier'
     ) {
@@ -2959,19 +2981,67 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     { title: 'Closeout', itemIds: ['permits'] },
   ],
   roofing: [
+    { title: 'Roofing System', itemIds: ['roofing_system', 'shingles_roofing'] },
     {
-      title: 'Roof',
+      title: 'Existing Roof / Tear-Off',
       itemIds: [
         'tear_off',
-        'decking_repair',
-        'underlayment',
-        'shingles_roofing',
-        'flashing',
-        'vents_penetrations',
       ],
     },
-    { title: 'Exterior', itemIds: ['gutters_downspouts'] },
-    { title: 'Closeout', itemIds: ['permits', 'cleanup'] },
+    {
+      title: 'Underlayment & Waterproofing',
+      itemIds: ['underlayment', 'ice_water_shield'],
+    },
+    {
+      title: 'Decking / Substrate',
+      itemIds: ['decking_repair'],
+    },
+    {
+      title: 'Flashing & Edge Accessories',
+      itemIds: [
+        'drip_edge',
+        'ridge_cap',
+        'valley_flashing',
+        'step_flashing',
+        'wall_flashing',
+      ],
+    },
+    {
+      title: 'Roof Ventilation',
+      itemIds: ['ridge_vent', 'roof_vents', 'turbine_vents'],
+    },
+    {
+      title: 'Penetrations & Special Flashing',
+      itemIds: [
+        'pipe_boots',
+        'chimney_flashing',
+        'skylight_flashing',
+        'roof_penetrations',
+      ],
+    },
+    {
+      title: 'Pitch / Complexity / Access',
+      itemIds: ['roof_pitch_complexity_access'],
+    },
+    {
+      title: 'Roofing Repairs',
+      itemIds: ['roof_repairs'],
+    },
+    {
+      title: 'Exclusions / Confirmations',
+      itemIds: ['roof_exclusions'],
+    },
+    {
+      title: 'Other / Drainage',
+      itemIds: ['gutters', 'downspouts'],
+    },
+    {
+      title: 'Closeout',
+      itemIds: [
+        'permits',
+        'cleanup',
+      ],
+    },
   ],
   hvac: [
     { title: 'Service', itemIds: ['service_call'] },

@@ -84,7 +84,297 @@ export function measurementDisplayLabel(
     stuccoWallHeightFt: 'Typical wall height / story',
   };
   if (stuccoLabels[key]) return { label: stuccoLabels[key] };
+  const concreteLabels: Record<string, string> = {
+    concreteDrivewaySqft: 'Driveway area',
+    concreteSidewalkSqft: 'Sidewalk area',
+    concretePatioSqft: 'Patio area',
+    concreteWalkwaySqft: 'Walkway area',
+    concreteRvPadSqft: 'RV pad area',
+    concreteSqft: 'Total flatwork area',
+    concreteCy: 'Footing / foundation concrete',
+    excavationCy: 'Excavation',
+    concreteDemoSqft: 'Concrete demo / removal',
+    concreteReinforcementSqft: 'Rebar / mesh area',
+    concreteSubgradePrepSqft: 'Subgrade prep / grading',
+    complexFormingLf: 'Complex forming',
+    concreteDrivewayThicknessInches: 'Driveway thickness',
+    concreteSidewalkThicknessInches: 'Sidewalk thickness',
+    concretePatioThicknessInches: 'Patio thickness',
+    concreteWalkwayThicknessInches: 'Walkway thickness',
+    concreteRvPadThicknessInches: 'RV pad thickness',
+    concreteThicknessInches: 'Flatwork thickness',
+  };
+  if (concreteLabels[key]) return { label: concreteLabels[key] };
+  const flooringLabels: Record<string, string> = {
+    flooringSqft: 'Total flooring area',
+    floorAreaSqft: 'Total floor area',
+    flooringLvpSqft: 'LVP install area',
+    flooringLaminateSqft: 'Laminate install area',
+    flooringEngineeredHardwoodSqft: 'Engineered hardwood install area',
+    flooringSolidHardwoodSqft: 'Solid hardwood install area',
+    flooringTileSqft: 'Tile install area',
+    flooringCarpetSqft: 'Carpet install area',
+    flooringSheetVinylSqft: 'Sheet vinyl / VCT install area',
+    floorDemoSqft: 'Floor demo / removal',
+    floorPrepSqft: 'Affected floor-prep area',
+    underlaymentSqft: 'Underlayment',
+    moistureBarrierSqft: 'Moisture barrier',
+    baseboardLf: 'Baseboards / trim',
+    transitionLf: 'Transitions',
+    transitionCount: 'Transitions / reducers',
+    quarterRoundLf: 'Quarter round',
+  };
+  if (flooringLabels[key]) return { label: flooringLabels[key] };
   return { label: key };
+}
+
+export type ConcretePlanReviewLine = {
+  label: string;
+  value: string;
+  note?: string | null;
+};
+
+function positiveMeasurement(
+  value: number | string | null | undefined
+): number | null {
+  const n = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+const CONCRETE_PLAN_REVIEW_FLATWORK_ROWS = [
+  { label: 'Driveway', key: 'concreteDrivewaySqft', unit: 'sqft' },
+  { label: 'Patio', key: 'concretePatioSqft', unit: 'sqft' },
+  { label: 'Walkway', key: 'concreteWalkwaySqft', unit: 'sqft' },
+  { label: 'Sidewalk', key: 'concreteSidewalkSqft', unit: 'sqft' },
+  { label: 'RV pad', key: 'concreteRvPadSqft', unit: 'sqft' },
+] as const;
+
+const CONCRETE_PLAN_REVIEW_THICKNESS_ROWS = [
+  { label: 'Driveway', key: 'concreteDrivewayThicknessInches' },
+  { label: 'Patio', key: 'concretePatioThicknessInches' },
+  { label: 'Walkway', key: 'concreteWalkwayThicknessInches' },
+  { label: 'Sidewalk', key: 'concreteSidewalkThicknessInches' },
+  { label: 'RV pad', key: 'concreteRvPadThicknessInches' },
+] as const;
+
+export function concreteThicknessReviewSummary(
+  measurements: Record<string, number | string | null | undefined>
+): string {
+  const explicit = CONCRETE_PLAN_REVIEW_THICKNESS_ROWS.map(row => {
+    const inches = positiveMeasurement(measurements[row.key]);
+    return inches != null ? `${row.label} ${inches}"` : null;
+  }).filter(Boolean);
+  if (explicit.length) return explicit.join(' · ');
+  const shared = positiveMeasurement(measurements.concreteThicknessInches);
+  if (shared != null) return `${shared}" flatwork basis`;
+  return 'Needs confirmation';
+}
+
+/** Grouped Concrete summary for Plan Review before Confirm Scope. */
+export function buildConcretePlanReviewSummary(
+  measurements: Record<string, number | string | null | undefined>
+): ConcretePlanReviewLine[] {
+  const lines: ConcretePlanReviewLine[] = [];
+  const perTypeValues = CONCRETE_PLAN_REVIEW_FLATWORK_ROWS.map(row => ({
+    ...row,
+    value: positiveMeasurement(measurements[row.key]),
+  }));
+  const hasPerType = perTypeValues.some(row => row.value != null);
+  const aggregateFlatwork = positiveMeasurement(measurements.concreteSqft);
+
+  if (hasPerType) {
+    for (const row of perTypeValues) {
+      lines.push({
+        label: row.label,
+        value:
+          row.value != null
+            ? `${formatSfWithCommas(row.value)} ${row.unit}`
+            : '—',
+      });
+    }
+  } else if (aggregateFlatwork != null) {
+    lines.push({
+      label: 'Flatwork total',
+      value: `${formatSfWithCommas(aggregateFlatwork)} sqft`,
+      note: 'Assign driveway / patio / walkway type in Confirm Scope',
+    });
+  } else {
+    for (const row of perTypeValues) {
+      lines.push({ label: row.label, value: '—' });
+    }
+  }
+
+  const footing = positiveMeasurement(measurements.concreteCy);
+  lines.push({
+    label: 'Footing / foundation',
+    value: footing != null ? `${formatSf(footing)} CY` : '—',
+  });
+
+  const excavation = positiveMeasurement(measurements.excavationCy);
+  if (excavation != null) {
+    lines.push({
+      label: 'Excavation',
+      value: `${formatSf(excavation)} CY`,
+    });
+  }
+
+  const demo = positiveMeasurement(measurements.concreteDemoSqft);
+  if (demo != null) {
+    lines.push({
+      label: 'Demo / removal',
+      value: `${formatSfWithCommas(demo)} sqft`,
+    });
+  }
+
+  const reinforcement = positiveMeasurement(measurements.concreteReinforcementSqft);
+  if (reinforcement != null) {
+    lines.push({
+      label: 'Rebar / mesh',
+      value: `${formatSfWithCommas(reinforcement)} sqft`,
+    });
+  }
+
+  lines.push({
+    label: 'Thickness',
+    value: concreteThicknessReviewSummary(measurements),
+    note:
+      concreteThicknessReviewSummary(measurements) === 'Needs confirmation'
+        ? 'Confirm 4" / 5" / 6" per slab type in Confirm Scope'
+        : null,
+  });
+
+  return lines;
+}
+
+export type FlooringPlanReviewLine = {
+  label: string;
+  value: string;
+  note?: string | null;
+};
+
+const FLOORING_PLAN_REVIEW_INSTALL_ROWS = [
+  { label: 'LVP', key: 'flooringLvpSqft', product: 'lvp' },
+  { label: 'Laminate', key: 'flooringLaminateSqft', product: 'laminate' },
+  {
+    label: 'Engineered hardwood',
+    key: 'flooringEngineeredHardwoodSqft',
+    product: 'engineered_hardwood',
+  },
+  {
+    label: 'Solid hardwood',
+    key: 'flooringSolidHardwoodSqft',
+    product: 'solid_hardwood',
+  },
+  { label: 'Tile', key: 'flooringTileSqft', product: 'tile' },
+  { label: 'Carpet', key: 'flooringCarpetSqft', product: 'carpet' },
+  {
+    label: 'Sheet vinyl / VCT',
+    key: 'flooringSheetVinylSqft',
+    product: 'sheet_vinyl_vct',
+  },
+] as const;
+
+function formatExistingFloorSummary(
+  measurements: Record<string, number | string | null | undefined>
+): string {
+  const types = Array.isArray(measurements.flooringExistingTypes)
+    ? measurements.flooringExistingTypes.map(String).filter(Boolean)
+    : [];
+  if (!types.length) return 'Needs confirmation';
+  return types
+    .map(type => {
+      if (type === 'sheet_vinyl_vct') return 'Sheet vinyl / VCT';
+      if (type === 'lvp') return 'LVP';
+      if (type === 'unknown') return 'Unknown';
+      return type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    })
+    .join(', ');
+}
+
+/** Grouped Flooring summary for Plan Review before Confirm Scope. */
+export function buildFlooringPlanReviewSummary(
+  measurements: Record<string, number | string | null | undefined>
+): FlooringPlanReviewLine[] {
+  const lines: FlooringPlanReviewLine[] = [];
+  const perTypeValues = FLOORING_PLAN_REVIEW_INSTALL_ROWS.map(row => ({
+    ...row,
+    value: positiveMeasurement(measurements[row.key]),
+  }));
+  const hasPerType = perTypeValues.some(row => row.value != null);
+  const aggregate =
+    positiveMeasurement(measurements.flooringSqft) ??
+    positiveMeasurement(measurements.floorAreaSqft);
+  const installTotal =
+    perTypeValues.reduce((sum, row) => sum + (row.value || 0), 0) ||
+    aggregate ||
+    null;
+
+  if (installTotal != null) {
+    lines.push({
+      label: 'Total floor area',
+      value: `${formatSfWithCommas(installTotal)} sqft`,
+    });
+  }
+
+  if (hasPerType) {
+    for (const row of perTypeValues) {
+      if (row.value == null) continue;
+      lines.push({
+        label: row.label,
+        value: `${formatSfWithCommas(row.value)} sqft`,
+      });
+    }
+  } else if (aggregate != null) {
+    lines.push({
+      label: 'Flooring type',
+      value: 'Needs confirmation',
+      note: 'Assign flooring type in Confirm Scope',
+    });
+  }
+
+  const demo = positiveMeasurement(measurements.floorDemoSqft);
+  lines.push({
+    label: 'Existing floor',
+    value: formatExistingFloorSummary(measurements),
+  });
+  lines.push({
+    label: 'Demo / removal',
+    value: demo != null ? `${formatSfWithCommas(demo)} sqft` : 'Needs confirmation',
+  });
+  lines.push({
+    label: 'Subfloor prep',
+    value:
+      positiveMeasurement(measurements.floorPrepSqft) != null
+        ? `${formatSfWithCommas(positiveMeasurement(measurements.floorPrepSqft)!)} sqft`
+        : 'Needs confirmation',
+  });
+
+  const baseboards = positiveMeasurement(measurements.baseboardLf);
+  lines.push({
+    label: 'Baseboards',
+    value: baseboards != null ? `${formatSfWithCommas(baseboards)} LF` : '—',
+  });
+
+  const transitions =
+    positiveMeasurement(measurements.transitionCount) ??
+    positiveMeasurement(measurements.transitionLf);
+  lines.push({
+    label: 'Transitions',
+    value:
+      transitions != null
+        ? `${formatSfWithCommas(transitions)} ${
+            positiveMeasurement(measurements.transitionCount) != null ? 'each' : 'LF'
+          }`
+        : '—',
+  });
+
+  const quarterRound = positiveMeasurement(measurements.quarterRoundLf);
+  lines.push({
+    label: 'Quarter round',
+    value: quarterRound != null ? `${formatSfWithCommas(quarterRound)} LF` : '—',
+  });
+
+  return lines;
 }
 
 function pageFromAssumptions(

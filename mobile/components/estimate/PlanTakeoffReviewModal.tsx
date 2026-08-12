@@ -28,6 +28,8 @@ import type {
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import {
   applyPlanTakeoffButtonLabel,
+  buildConcretePlanReviewSummary,
+  buildFlooringPlanReviewSummary,
   classifyPlanSpaceName,
   formatSf,
   garageReconciliationStatusLabel,
@@ -113,13 +115,63 @@ const MEASUREMENT_SORT_ORDER: Record<string, number> = {
   garageSqft: 2,
   deckSqft: 3,
   concreteSqft: 4,
-  kitchenFloorSqft: 10,
-  bathroomFloorSqft: 11,
+  concreteDrivewaySqft: 5,
+  concretePatioSqft: 6,
+  concreteWalkwaySqft: 7,
+  concreteSidewalkSqft: 8,
+  concreteRvPadSqft: 9,
+  concreteCy: 10,
+  excavationCy: 11,
+  concreteDemoSqft: 12,
+  concreteReinforcementSqft: 13,
+  concreteSubgradePrepSqft: 14,
+  complexFormingLf: 15,
+  flooringLvpSqft: 30,
+  flooringLaminateSqft: 31,
+  flooringEngineeredHardwoodSqft: 32,
+  flooringSolidHardwoodSqft: 33,
+  flooringTileSqft: 34,
+  flooringCarpetSqft: 35,
+  flooringSheetVinylSqft: 36,
+  floorDemoSqft: 37,
+  floorPrepSqft: 38,
+  underlaymentSqft: 39,
+  moistureBarrierSqft: 40,
+  baseboardLf: 41,
+  transitionCount: 42,
+  transitionLf: 43,
+  quarterRoundLf: 44,
+  kitchenFloorSqft: 50,
+  bathroomFloorSqft: 51,
 };
+
+const CONCRETE_REVIEW_THICKNESS_KEYS = new Set([
+  'concreteDrivewayThicknessInches',
+  'concreteSidewalkThicknessInches',
+  'concretePatioThicknessInches',
+  'concreteWalkwayThicknessInches',
+  'concreteRvPadThicknessInches',
+  'concreteThicknessInches',
+]);
+
+const FLOORING_REVIEW_ADAPTER_KEYS = new Set([
+  'floorDemoCarpetSqft',
+  'floorDemoTileSqft',
+  'floorDemoLvpSqft',
+  'floorDemoLaminateSqft',
+  'floorDemoEngineeredHardwoodSqft',
+  'floorDemoSolidHardwoodSqft',
+  'floorDemoSheetVinylSqft',
+]);
 
 function positiveString(v: unknown): string | null {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? String(n) : null;
+}
+
+function positiveMeasurement(v: unknown): number | null {
+  const n = Number(String(v ?? '').replace(/,/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 export default function PlanTakeoffReviewModal({
@@ -239,7 +291,23 @@ export default function PlanTakeoffReviewModal({
         const orderB = MEASUREMENT_SORT_ORDER[b.key] ?? 50;
         if (orderA !== orderB) return orderA - orderB;
         return (a.conflictValue ? 1 : 0) - (b.conflictValue ? 1 : 0);
-      });
+      })
+      .filter(
+        row =>
+          !(
+            effectiveTradeKey === 'concrete' &&
+            CONCRETE_REVIEW_THICKNESS_KEYS.has(row.key)
+          ) &&
+          !(
+            effectiveTradeKey === 'flooring' &&
+            FLOORING_REVIEW_ADAPTER_KEYS.has(row.key)
+          ) &&
+          !(
+            effectiveTradeKey === 'flooring' &&
+            row.key === 'floorAreaSqft' &&
+            positiveMeasurement(visibleMeasurements.flooringSqft) != null
+          )
+      );
     setRows(nextRows);
 
     const nextRooms: PlanReviewRoomRow[] = (
@@ -311,6 +379,38 @@ export default function PlanTakeoffReviewModal({
     // Rebuild only when a new takeoff arrives, not on parent re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, takeoff, visibleMeasurements, tradeReview]);
+
+  const concreteReviewMeasurements = useMemo(() => {
+    const merged: Record<string, string | number> = {
+      ...(visibleMeasurements || {}),
+    };
+    for (const row of rows) {
+      const n = Number(row.value);
+      if (Number.isFinite(n) && n > 0) merged[row.key] = row.value;
+    }
+    return merged;
+  }, [visibleMeasurements, rows]);
+
+  const concretePlanSummary = useMemo(() => {
+    if (effectiveTradeKey !== 'concrete') return null;
+    return buildConcretePlanReviewSummary(concreteReviewMeasurements);
+  }, [effectiveTradeKey, concreteReviewMeasurements]);
+
+  const flooringReviewMeasurements = useMemo(() => {
+    const merged: Record<string, string | number> = {
+      ...(visibleMeasurements || {}),
+    };
+    for (const row of rows) {
+      const n = Number(row.value);
+      if (Number.isFinite(n) && n > 0) merged[row.key] = row.value;
+    }
+    return merged;
+  }, [visibleMeasurements, rows]);
+
+  const flooringPlanSummary = useMemo(() => {
+    if (effectiveTradeKey !== 'flooring') return null;
+    return buildFlooringPlanReviewSummary(flooringReviewMeasurements);
+  }, [effectiveTradeKey, flooringReviewMeasurements]);
 
   if (!visible || !takeoff) return null;
 
@@ -446,10 +546,110 @@ export default function PlanTakeoffReviewModal({
             }
             showsVerticalScrollIndicator={false}
           >
+            {concretePlanSummary ? (
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: Colors.sub }]}>
+                  Concrete
+                </Text>
+                <View
+                  style={[
+                    styles.concreteSummaryCard,
+                    {
+                      borderColor: lineColor,
+                      backgroundColor: darkMode
+                        ? 'rgba(148,163,184,0.08)'
+                        : 'rgba(148,163,184,0.06)',
+                    },
+                  ]}
+                >
+                  {concretePlanSummary.map(line => (
+                    <View key={line.label} style={styles.concreteSummaryRow}>
+                      <Text
+                        style={[styles.concreteSummaryLabel, { color: Colors.sub }]}
+                      >
+                        {line.label}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.concreteSummaryValue,
+                          {
+                            color:
+                              line.value === '—' || line.value === 'Needs confirmation'
+                                ? Colors.sub
+                                : Colors.text,
+                          },
+                        ]}
+                      >
+                        {line.value}
+                      </Text>
+                      {line.note ? (
+                        <Text
+                          style={[styles.evidenceText, { color: Colors.sub }]}
+                          numberOfLines={2}
+                        >
+                          {line.note}
+                        </Text>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+            {flooringPlanSummary ? (
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: Colors.sub }]}>
+                  Flooring
+                </Text>
+                <View
+                  style={[
+                    styles.concreteSummaryCard,
+                    {
+                      borderColor: lineColor,
+                      backgroundColor: darkMode
+                        ? 'rgba(148,163,184,0.08)'
+                        : 'rgba(148,163,184,0.06)',
+                    },
+                  ]}
+                >
+                  {flooringPlanSummary.map(line => (
+                    <View key={line.label} style={styles.concreteSummaryRow}>
+                      <Text
+                        style={[styles.concreteSummaryLabel, { color: Colors.sub }]}
+                      >
+                        {line.label}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.concreteSummaryValue,
+                          {
+                            color:
+                              line.value === '—' || line.value === 'Needs confirmation'
+                                ? Colors.sub
+                                : Colors.text,
+                          },
+                        ]}
+                      >
+                        {line.value}
+                      </Text>
+                      {line.note ? (
+                        <Text
+                          style={[styles.evidenceText, { color: Colors.sub }]}
+                          numberOfLines={2}
+                        >
+                          {line.note}
+                        </Text>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : null}
             {hasMeasurements ? (
               <View style={styles.section}>
                 <Text style={[styles.sectionTitle, { color: Colors.sub }]}>
-                  Measurements
+                  {concretePlanSummary || flooringPlanSummary
+                    ? 'Edit quantities'
+                    : 'Measurements'}
                 </Text>
                 {rows.map(row => {
                   return (
@@ -1025,6 +1225,16 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   calloutLine: { fontSize: 12.5, lineHeight: 18, marginBottom: 3 },
+  concreteSummaryCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 10,
+  },
+  concreteSummaryRow: { gap: 2 },
+  concreteSummaryLabel: { fontSize: 12, fontWeight: '700' },
+  concreteSummaryValue: { fontSize: 15, fontWeight: '800' },
   footer: {
     paddingHorizontal: 16,
     paddingTop: 12,

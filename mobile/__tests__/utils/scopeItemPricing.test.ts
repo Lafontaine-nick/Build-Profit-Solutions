@@ -28,25 +28,428 @@ function inputWith(
 
 // National-average flooring rate: material $4/sqft, labor $5/sqft.
 describe('resolveScopeItemSuggestedPricing', () => {
+  it('uses the approved Roofing architectural-shingle baseline and layered tear-off rates', () => {
+    const input = inputWith({ roofSquares: '30' });
+    const base = resolveScopeItemSuggestedPricing(
+      'shingles_roofing',
+      input,
+      'roofing',
+      { quantity: 30, unit: 'squares', quantitySource: 'user_entered' },
+      {
+        checklistItems: [
+          {
+            id: 'roofing_system',
+            state: 'included',
+            choiceId: 'architectural_shingles',
+          },
+        ],
+      }
+    );
+    expect(base.fill).toMatchObject({
+      material: 7500,
+      labor: 9750,
+      total: 17250,
+    });
+
+    const oneLayer = resolveScopeItemSuggestedPricing(
+      'tear_off',
+      input,
+      'roofing',
+      { quantity: 30, unit: 'squares', quantitySource: 'user_entered' },
+      undefined,
+      'one_layer'
+    );
+    const twoLayer = resolveScopeItemSuggestedPricing(
+      'tear_off',
+      input,
+      'roofing',
+      { quantity: 30, unit: 'squares', quantitySource: 'user_entered' },
+      undefined,
+      'two_layers'
+    );
+    expect(oneLayer.fill?.total).toBe(5250);
+    expect(twoLayer.fill?.total).toBe(7500);
+
+    const specializedTearOffRates = [
+      ['three_plus_custom', 9750],
+      ['tile_removal', 12000],
+      ['metal_removal', 8250],
+      ['membrane_removal', 9000],
+    ] as const;
+    for (const [choiceId, total] of specializedTearOffRates) {
+      const specialized = resolveScopeItemSuggestedPricing(
+        'tear_off',
+        input,
+        'roofing',
+        { quantity: 30, unit: 'squares', quantitySource: 'user_entered' },
+        undefined,
+        choiceId
+      );
+      expect(specialized.fill).toMatchObject({
+        total,
+        basis: { quantity: 30, unit: 'squares' },
+      });
+    }
+  });
+
+  it('wires the selected Roofing system card to roofSquares', () => {
+    const input = inputWith({ roofSquares: '30' });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const pricingContext: ScopePricingContext = {
+      checklistItems: [
+        {
+          id: 'roofing_system',
+          state: 'included',
+          choiceId: 'architectural_shingles',
+        },
+      ],
+    };
+    const resolved = resolveChecklistItemQuantity('roofing_system', measurements, {
+      templateKey: 'roofing',
+      choiceId: 'architectural_shingles',
+    });
+    const suggested = resolveScopeItemSuggestedPricing(
+      'roofing_system',
+      input,
+      'roofing',
+      resolved,
+      pricingContext,
+      'architectural_shingles'
+    );
+
+    expect(resolved).toMatchObject({
+      quantity: 30,
+      unit: 'squares',
+      pricingReady: true,
+    });
+    expect(suggested.fill).toMatchObject({
+      material: 7500,
+      labor: 9750,
+      total: 17250,
+      basis: { quantity: 30, unit: 'squares' },
+    });
+  });
+
+  it('hides the Roofing system card when its Quick Measurement scope is deselected', () => {
+    const input = inputWith({
+      roofSquares: '30',
+      tradeScopeSelections: { roofing: null },
+    });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const pricingContext: ScopePricingContext = {
+      checklistItems: [
+        {
+          id: 'roofing_system',
+          state: 'included',
+          choiceId: 'architectural_shingles',
+        },
+      ],
+    };
+    const resolved = resolveChecklistItemQuantity('roofing_system', measurements, {
+      templateKey: 'roofing',
+      choiceId: 'architectural_shingles',
+    });
+    const hidden = resolveScopeItemSuggestedPricing(
+      'roofing_system',
+      input,
+      'roofing',
+      resolved,
+      pricingContext,
+      'architectural_shingles'
+    );
+    const restored = resolveScopeItemSuggestedPricing(
+      'roofing_system',
+      inputWith({
+        roofSquares: '30',
+        tradeScopeSelections: { roofing: ['shingles'] },
+      }),
+      'roofing',
+      resolved,
+      pricingContext,
+      'architectural_shingles'
+    );
+
+    expect(hidden.fill).toBeNull();
+    expect(restored.fill?.total).toBe(17250);
+  });
+
+  it('keeps alternate Roofing systems on the same roofSquares card path', () => {
+    const input = inputWith({ roofSquares: '30' });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const rates = [
+      ['three_tab_shingles', 15000],
+      ['standing_seam_metal', 39000],
+      ['tpo', 25500],
+    ] as const;
+
+    for (const [choiceId, total] of rates) {
+      const pricingContext: ScopePricingContext = {
+        checklistItems: [
+          { id: 'roofing_system', state: 'included', choiceId },
+        ],
+      };
+      const resolved = resolveChecklistItemQuantity('roofing_system', measurements, {
+        templateKey: 'roofing',
+        choiceId,
+      });
+      const suggested = resolveScopeItemSuggestedPricing(
+        'roofing_system',
+        input,
+        'roofing',
+        resolved,
+        pricingContext,
+        choiceId
+      );
+
+      expect(suggested.fill?.total).toBe(total);
+    }
+  });
+
+  it('treats roofing_system roofSquares as an approved squares basis', () => {
+    const input = inputWith({ roofSquares: '30' });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('roofing_system', measurements, {
+      templateKey: 'roofing',
+      choiceId: 'three_tab_shingles',
+    });
+
+    expect(resolved).toMatchObject({
+      quantity: 30,
+      unit: 'squares',
+      quantitySource: 'inferred',
+      pricingReady: true,
+    });
+
+    const rule = getChecklistItemQuantityRuleOrDefault('roofing_system', 'roofing');
+    expect(rule.allowedUnits).toEqual(
+      expect.arrayContaining(['squares', 'sqft', 'lump_sum', 'allowance'])
+    );
+    expect(rule.measurementKey).toBe('roofSquares');
+  });
+
+  it('prices approved Roofing decking, accessories, and repair minimums from dedicated keys', () => {
+    const input = inputWith({
+      roofDeckingReplacementSqft: '100',
+      roofDripEdgeLf: '10',
+      roofVentCount: '1',
+      roofRepairAffectedSqft: '10',
+    });
+    const decking = resolveScopeItemSuggestedPricing(
+      'decking_repair',
+      input,
+      'roofing',
+      { quantity: 100, unit: 'sqft', quantitySource: 'user_entered' }
+    );
+    const dripEdge = resolveScopeItemSuggestedPricing(
+      'drip_edge',
+      input,
+      'roofing',
+      { quantity: 100, unit: 'lf', quantitySource: 'user_entered' }
+    );
+    const vent = resolveScopeItemSuggestedPricing(
+      'roof_vents',
+      input,
+      'roofing',
+      { quantity: 2, unit: 'each', quantitySource: 'user_entered' }
+    );
+    const repair = resolveScopeItemSuggestedPricing(
+      'roof_repairs',
+      input,
+      'roofing',
+      { quantity: 10, unit: 'sqft', quantitySource: 'user_entered' },
+      undefined,
+      'light_repair'
+    );
+    expect(decking.fill?.total).toBe(500);
+    expect(dripEdge.fill?.total).toBe(400);
+    expect(vent.fill?.total).toBe(450);
+    expect(repair.fill?.total).toBe(400);
+  });
+
+  it('uses the approved Roofing refinements and keeps canonical rates visible under minimums', () => {
+    const price = (
+      itemId: string,
+      quantity: number,
+      unit: string,
+      choiceId?: string
+    ) =>
+      resolveScopeItemSuggestedPricing(
+        itemId,
+        inputWith({}),
+        'roofing',
+        { quantity, unit, quantitySource: 'user_entered' },
+        undefined,
+        choiceId
+      ).fill;
+
+    expect(price('decking_repair', 50, 'sqft')).toMatchObject({
+      total: 300,
+      basis: { quantity: 50, unit: 'sqft' },
+    });
+    expect(price('decking_repair', 100, 'sqft')).toMatchObject({
+      total: 500,
+    });
+    expect(price('turbine_vents', 3, 'each')).toMatchObject({
+      total: 900,
+      basis: { quantity: 3, unit: 'each' },
+    });
+
+    const dripEdge = price('drip_edge', 50, 'lf');
+    expect(dripEdge).toMatchObject({
+      total: 250,
+      helper: '$250 minimum applied',
+    });
+    expect(dripEdge?.costBuckets?.map(bucket => bucket.rate)).toEqual([
+      1.5,
+      2.5,
+    ]);
+
+    expect(price('ridge_cap', 50, 'lf')?.total).toBe(350);
+    expect(price('valley_flashing', 50, 'lf')?.total).toBe(500);
+    expect(price('step_flashing', 50, 'lf')?.total).toBe(600);
+    expect(price('wall_flashing', 50, 'lf')?.total).toBe(500);
+    expect(price('roof_vents', 3, 'each')?.total).toBe(675);
+    expect(price('pipe_boots', 2, 'each')?.total).toBe(350);
+    expect(price('chimney_flashing', 3, 'each')?.total).toBe(1950);
+    expect(price('skylight_flashing', 3, 'each')?.total).toBe(1500);
+    expect(price('roof_repairs', 50, 'sqft', 'light_repair')?.total).toBe(400);
+    expect(price('roof_repairs', 50, 'sqft', 'moderate_repair')?.total).toBe(600);
+
+    expect(price('gutters', 150, 'lf')).toMatchObject({
+      total: 1500,
+      material: 600,
+      labor: 900,
+    });
+    expect(price('gutters', 25, 'lf')).toMatchObject({
+      total: 400,
+      helper: '$400 minimum applied',
+    });
+    expect(price('downspouts', 4, 'each')).toMatchObject({
+      total: 500,
+      material: 200,
+      labor: 300,
+    });
+    expect(price('downspouts', 1, 'each')).toMatchObject({
+      total: 250,
+      helper: '$250 minimum applied',
+    });
+    expect(price('roof_repairs', 50, 'sqft', 'full_depth_repair')?.total).toBe(900);
+  });
+
+  it('prices Roofing underlayment from roofAreaSqft, not flooring underlaymentSqft', () => {
+    const input = inputWith({
+      roofAreaSqft: '50',
+      underlaymentSqft: '800',
+      tradeScopeSelections: { roofing: ['underlayment'] },
+    });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('underlayment', measurements, {
+      templateKey: 'roofing',
+    });
+    const suggested = resolveScopeItemSuggestedPricing(
+      'underlayment',
+      input,
+      'roofing',
+      resolved
+    );
+
+    expect(resolved).toMatchObject({
+      quantity: 50,
+      unit: 'sqft',
+      pricingReady: true,
+    });
+    expect(suggested.fill).toMatchObject({
+      material: 37.5,
+      labor: 25,
+      total: 62.5,
+      basis: { quantity: 50, unit: 'sqft' },
+    });
+  });
+
+  it('prices Ice & Water Shield from its dedicated roofing quantity', () => {
+    const input = inputWith({
+      roofAreaSqft: '3000',
+      roofIceWaterShieldSqft: '25',
+      tradeScopeSelections: { roofing: ['ice_water_shield'] },
+    });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('ice_water_shield', measurements, {
+      templateKey: 'roofing',
+    });
+    const suggested = resolveScopeItemSuggestedPricing(
+      'ice_water_shield',
+      input,
+      'roofing',
+      resolved
+    );
+
+    expect(resolved.quantity).toBe(25);
+    expect(suggested.fill).toMatchObject({
+      material: 30,
+      labor: 20,
+      total: 50,
+    });
+  });
+
+  it('prices Ridge vent by each', () => {
+    const input = inputWith({ roofRidgeVentLf: '40' });
+    const measurements = buildNormalizedScopeMeasurementsFromInput(input);
+    const resolved = resolveChecklistItemQuantity('ridge_vent', measurements, {
+      templateKey: 'roofing',
+    });
+    const suggested = resolveScopeItemSuggestedPricing(
+      'ridge_vent',
+      input,
+      'roofing',
+      resolved
+    );
+
+    expect(resolved).toMatchObject({
+      quantity: 40,
+      unit: 'each',
+      pricingReady: true,
+    });
+    expect(suggested.fill).toMatchObject({
+      material: 160,
+      labor: 320,
+      total: 480,
+      basis: { quantity: 40, unit: 'each' },
+    });
+  });
+
   it('prices cabinet hardware at $12 material + $15 labor per piece', () => {
     const input = inputWith({
       itemQuantities: {
         floor_prep: { quantity: 1700, unit: 'sqft', quantitySource: 'notes' },
       },
     });
-    const one = resolveScopeItemSuggestedPricing('cabinet_hardware', input, 'kitchen', {
-      quantity: 1,
-      unit: 'each',
-      quantitySource: 'inferred',
-    });
-    const twentyFour = resolveScopeItemSuggestedPricing('cabinet_hardware', input, 'kitchen', {
-      quantity: 24,
-      unit: 'each',
-      quantitySource: 'inferred',
-    });
+    const one = resolveScopeItemSuggestedPricing(
+      'cabinet_hardware',
+      input,
+      'kitchen',
+      {
+        quantity: 1,
+        unit: 'each',
+        quantitySource: 'inferred',
+      }
+    );
+    const twentyFour = resolveScopeItemSuggestedPricing(
+      'cabinet_hardware',
+      input,
+      'kitchen',
+      {
+        quantity: 24,
+        unit: 'each',
+        quantitySource: 'inferred',
+      }
+    );
 
     expect(one.fill).toMatchObject({ material: 12, labor: 15, total: 27 });
-    expect(twentyFour.fill).toMatchObject({ material: 288, labor: 360, total: 648 });
+    expect(twentyFour.fill).toMatchObject({
+      material: 288,
+      labor: 360,
+      total: 648,
+    });
   });
 
   it('audits the current excavation national-average suggestion with a defined base-scope profile', () => {
@@ -56,7 +459,12 @@ describe('resolveScopeItemSuggestedPricing', () => {
       unit: 'cy',
       quantitySource: 'inferred' as const,
     };
-    const { fill } = resolveScopeItemSuggestedPricing('excavation', input, 'addition', resolved);
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'excavation',
+      input,
+      'addition',
+      resolved
+    );
     expect(fill).toMatchObject({
       material: 250,
       labor: 2250,
@@ -88,7 +496,9 @@ describe('resolveScopeItemSuggestedPricing', () => {
         expect.objectContaining({ scopeKey: 'shoring', status: 'excluded' }),
       ])
     );
-    expect(fill?.benchmarkScopeProfile?.audit?.rootCause).toMatch(/base excavation only/i);
+    expect(fill?.benchmarkScopeProfile?.audit?.rootCause).toMatch(
+      /base excavation only/i
+    );
   });
 
   it('splits a lump-sum total into material + labor using the national ratio', () => {
@@ -99,9 +509,19 @@ describe('resolveScopeItemSuggestedPricing', () => {
       quantitySource: 'notes' as const,
       dualAllowance: { quantity: 5000, unit: 'allowance' },
     };
-    const { fill, comparison } = resolveScopeItemSuggestedPricing('flooring', input, 'flooring', resolved);
+    const { fill, comparison } = resolveScopeItemSuggestedPricing(
+      'flooring',
+      input,
+      'flooring',
+      resolved
+    );
     expect(comparison).toBeNull();
-    expect(fill).toMatchObject({ mode: 'note_total_split', material: 4000, labor: 1000, total: 5000 });
+    expect(fill).toMatchObject({
+      mode: 'note_total_split',
+      material: 4000,
+      labor: 1000,
+      total: 5000,
+    });
     expect(fill?.materialSource).toBe('national_average');
   });
 
@@ -133,7 +553,11 @@ describe('resolveScopeItemSuggestedPricing', () => {
     expect(lvp.fill?.total).toBe(4200);
     expect(tile.fill?.total).toBeGreaterThan(0);
     expect(tile.fill?.total).not.toBe(lvp.fill?.total);
-    expect(transitions.fill).toMatchObject({ material: 960, labor: 1440, total: 2400 });
+    expect(transitions.fill).toMatchObject({
+      material: 960,
+      labor: 1440,
+      total: 2400,
+    });
     expect(transitions.fill?.basis?.unit).toBe('each');
   });
 
@@ -143,34 +567,77 @@ describe('resolveScopeItemSuggestedPricing', () => {
       moistureBarrierSqft: '800',
       quarterRoundLf: '50',
     });
-    const underlayment = resolveScopeItemSuggestedPricing('underlayment', input, 'flooring', {
-      quantity: 800,
-      unit: 'sqft',
-      quantitySource: 'user_entered',
-    });
-    const vaporBarrier = resolveScopeItemSuggestedPricing('moisture_barrier', input, 'flooring', {
-      quantity: 800,
-      unit: 'sqft',
-      quantitySource: 'user_entered',
-    });
-    const quarterRound = resolveScopeItemSuggestedPricing('quarter_round', input, 'flooring', {
-      quantity: 50,
-      unit: 'lf',
-      quantitySource: 'user_entered',
-    });
+    const underlayment = resolveScopeItemSuggestedPricing(
+      'underlayment',
+      input,
+      'flooring',
+      {
+        quantity: 800,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      }
+    );
+    const vaporBarrier = resolveScopeItemSuggestedPricing(
+      'moisture_barrier',
+      input,
+      'flooring',
+      {
+        quantity: 800,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      }
+    );
+    const quarterRound = resolveScopeItemSuggestedPricing(
+      'quarter_round',
+      input,
+      'flooring',
+      {
+        quantity: 50,
+        unit: 'lf',
+        quantitySource: 'user_entered',
+      }
+    );
 
-    expect(underlayment.fill).toMatchObject({ material: 600, labor: 600, total: 1200 });
-    expect(vaporBarrier.fill).toMatchObject({ material: 520, labor: 480, total: 1000 });
-    expect(quarterRound.fill).toMatchObject({ material: 75, labor: 125, total: 200 });
+    expect(underlayment.fill).toMatchObject({
+      material: 600,
+      labor: 600,
+      total: 1200,
+    });
+    expect(vaporBarrier.fill).toMatchObject({
+      material: 520,
+      labor: 480,
+      total: 1000,
+    });
+    expect(quarterRound.fill).toMatchObject({
+      material: 75,
+      labor: 125,
+      total: 200,
+    });
   });
 
   it('prices each transition type from its selected quantity', () => {
     const input = inputWith({
       itemQuantities: {
-        'transitions__standard_transition': { quantity: 2, unit: 'each', quantitySource: 'user_entered' },
-        'transitions__reducer': { quantity: 3, unit: 'each', quantitySource: 'user_entered' },
-        'transitions__threshold': { quantity: 2, unit: 'each', quantitySource: 'user_entered' },
-        'transitions__custom_transition': { quantity: 1, unit: 'each', quantitySource: 'user_entered' },
+        transitions__standard_transition: {
+          quantity: 2,
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+        transitions__reducer: {
+          quantity: 3,
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+        transitions__threshold: {
+          quantity: 2,
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+        transitions__custom_transition: {
+          quantity: 1,
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
       },
     });
     const transitions = resolveScopeItemSuggestedPricing(
@@ -182,7 +649,11 @@ describe('resolveScopeItemSuggestedPricing', () => {
       'standard_transition,reducer,threshold,custom_transition'
     );
 
-    expect(transitions.fill).toMatchObject({ material: 240, labor: 305, total: 545 });
+    expect(transitions.fill).toMatchObject({
+      material: 240,
+      labor: 305,
+      total: 545,
+    });
   });
 
   it('shows saved flooring rates as a comparison instead of splitting a note total into saved material plus remainder', () => {
@@ -197,8 +668,12 @@ describe('resolveScopeItemSuggestedPricing', () => {
       templates: [
         {
           name: 'LVP Floors',
-          materialLineItems: [{ name: 'LVP plank flooring', unit: 'sqft', unitPrice: 3 }],
-          laborLineItems: [{ name: 'LVP install labor', unit: 'sqft', unitPrice: 4 }],
+          materialLineItems: [
+            { name: 'LVP plank flooring', unit: 'sqft', unitPrice: 3 },
+          ],
+          laborLineItems: [
+            { name: 'LVP install labor', unit: 'sqft', unitPrice: 4 },
+          ],
         },
       ],
     };
@@ -230,9 +705,18 @@ describe('resolveScopeItemSuggestedPricing', () => {
       quantitySource: 'notes' as const,
       dualMaterial: { quantity: 4000, unit: 'allowance' },
     };
-    const { fill, comparison } = resolveScopeItemSuggestedPricing('flooring', input, 'flooring', resolved);
+    const { fill, comparison } = resolveScopeItemSuggestedPricing(
+      'flooring',
+      input,
+      'flooring',
+      resolved
+    );
     expect(comparison).toBeNull();
-    expect(fill).toMatchObject({ mode: 'fill_missing', material: 4000, labor: 5000 });
+    expect(fill).toMatchObject({
+      mode: 'fill_missing',
+      material: 4000,
+      labor: 5000,
+    });
     expect(fill?.materialSource).toBe('notes');
     expect(fill?.laborSource).toBe('national_average');
   });
@@ -245,9 +729,18 @@ describe('resolveScopeItemSuggestedPricing', () => {
       quantitySource: 'notes' as const,
       dualLabor: { quantity: 3000, unit: 'allowance' },
     };
-    const { fill, comparison } = resolveScopeItemSuggestedPricing('flooring', input, 'flooring', resolved);
+    const { fill, comparison } = resolveScopeItemSuggestedPricing(
+      'flooring',
+      input,
+      'flooring',
+      resolved
+    );
     expect(comparison).toBeNull();
-    expect(fill).toMatchObject({ mode: 'fill_missing', material: 4000, labor: 3000 });
+    expect(fill).toMatchObject({
+      mode: 'fill_missing',
+      material: 4000,
+      labor: 3000,
+    });
     expect(fill?.materialSource).toBe('national_average');
     expect(fill?.laborSource).toBe('notes');
   });
@@ -259,7 +752,12 @@ describe('resolveScopeItemSuggestedPricing', () => {
       unit: 'allowance',
       quantitySource: 'notes' as const,
     };
-    const { fill, comparison } = resolveScopeItemSuggestedPricing('floor_demo', input, 'flooring', resolved);
+    const { fill, comparison } = resolveScopeItemSuggestedPricing(
+      'floor_demo',
+      input,
+      'flooring',
+      resolved
+    );
     expect(comparison).toBeNull();
     expect(fill).toMatchObject({
       mode: 'note_total_split',
@@ -275,15 +773,20 @@ describe('resolveScopeItemSuggestedPricing', () => {
       floorDemoSqft: '100',
       flooringExistingTypes: ['carpet', 'tile'],
       itemQuantities: {
-        'floor_demo__carpet': { quantity: '60', unit: 'sqft' },
-        'floor_demo__tile': { quantity: '40', unit: 'sqft' },
+        floor_demo__carpet: { quantity: '60', unit: 'sqft' },
+        floor_demo__tile: { quantity: '40', unit: 'sqft' },
       },
     });
-    const { fill } = resolveScopeItemSuggestedPricing('floor_demo', input, 'flooring', {
-      quantity: 100,
-      unit: 'sqft',
-      quantitySource: 'user_entered',
-    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'floor_demo',
+      input,
+      'flooring',
+      {
+        quantity: 100,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      }
+    );
     expect(fill).toMatchObject({
       material: 57,
       labor: 228,
@@ -300,92 +803,154 @@ describe('resolveScopeItemSuggestedPricing', () => {
     ['lvp', 'glue_down', 3.25, 3900],
     ['sheet_vinyl_vct', 'sheet_vinyl', 2.25, 2700],
     ['sheet_vinyl_vct', 'vct', 3.25, 3900],
-  ])('prices %s demo subtype %s at the requested rate', (type, subtype, rate, total) => {
-    const input = inputWith({
-      floorDemoSqft: '1200',
-      flooringExistingTypes: [type as 'lvp'],
-      itemQuantities: {
-        [`floor_demo__${type}`]: { quantity: '1200', unit: 'sqft' },
-      },
-      flooringExistingLvpInstallMethod: type === 'lvp' ? subtype as 'floating' | 'glue_down' : null,
-      flooringExistingSheetVinylType: type === 'sheet_vinyl_vct' ? subtype as 'sheet_vinyl' | 'vct' : null,
-    });
-    const { fill } = resolveScopeItemSuggestedPricing('floor_demo', input, 'flooring', {
-      quantity: 1200,
-      unit: 'sqft',
-      quantitySource: 'user_entered',
-    });
-    const materialRate = type === 'lvp'
-      ? subtype === 'glue_down' ? 0.55 : 0.4
-      : subtype === 'vct' ? 0.6 : 0.45;
-    expect(fill).toMatchObject({ total, material: 1200 * materialRate, labor: total - 1200 * materialRate });
-    expect(fill?.pricingDetail).toContain(`1,200 SF`);
-    expect(fill?.pricingDetail).toContain(`$${rate.toFixed(2)}/SF`);
-  });
+  ])(
+    'prices %s demo subtype %s at the requested rate',
+    (type, subtype, rate, total) => {
+      const input = inputWith({
+        floorDemoSqft: '1200',
+        flooringExistingTypes: [type as 'lvp'],
+        itemQuantities: {
+          [`floor_demo__${type}`]: { quantity: '1200', unit: 'sqft' },
+        },
+        flooringExistingLvpInstallMethod:
+          type === 'lvp' ? (subtype as 'floating' | 'glue_down') : null,
+        flooringExistingSheetVinylType:
+          type === 'sheet_vinyl_vct'
+            ? (subtype as 'sheet_vinyl' | 'vct')
+            : null,
+      });
+      const { fill } = resolveScopeItemSuggestedPricing(
+        'floor_demo',
+        input,
+        'flooring',
+        {
+          quantity: 1200,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        }
+      );
+      const materialRate =
+        type === 'lvp'
+          ? subtype === 'glue_down'
+            ? 0.55
+            : 0.4
+          : subtype === 'vct'
+            ? 0.6
+            : 0.45;
+      expect(fill).toMatchObject({
+        total,
+        material: 1200 * materialRate,
+        labor: total - 1200 * materialRate,
+      });
+      expect(fill?.pricingDetail).toContain(`1,200 SF`);
+      expect(fill?.pricingDetail).toContain(`$${rate.toFixed(2)}/SF`);
+    }
+  );
 
   it.each([
     ['floating', 7, 8400],
     ['glue_down', 9, 10800],
-  ])('updates new LVP installation pricing for %s scope', (method, rate, total) => {
-    const input = inputWith({
-      flooringProductScope: ['lvp'],
-      flooringLvpSqft: '1200',
-      flooringNewLvpInstallMethod: method as 'floating' | 'glue_down',
-    });
-    const { fill } = resolveScopeItemSuggestedPricing('flooring_lvp', input, 'flooring', {
-      quantity: 1200,
-      unit: 'sqft',
-      quantitySource: 'user_entered',
-    });
-    expect(fill).toMatchObject({ total, material: method === 'glue_down' ? 5100 : 4200 });
-    expect(Number(fill?.total || 0) / 1200).toBe(rate);
-  });
+  ])(
+    'updates new LVP installation pricing for %s scope',
+    (method, rate, total) => {
+      const input = inputWith({
+        flooringProductScope: ['lvp'],
+        flooringLvpSqft: '1200',
+        flooringNewLvpInstallMethod: method as 'floating' | 'glue_down',
+      });
+      const { fill } = resolveScopeItemSuggestedPricing(
+        'flooring_lvp',
+        input,
+        'flooring',
+        {
+          quantity: 1200,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        }
+      );
+      expect(fill).toMatchObject({
+        total,
+        material: method === 'glue_down' ? 5100 : 4200,
+      });
+      expect(Number(fill?.total || 0) / 1200).toBe(rate);
+    }
+  );
 
   it.each([
     ['sheet_vinyl', 5, 3000, 1500, 1500],
     ['vct', 7, 4200, 1800, 2400],
-  ])('uses the catalog install split for new %s', (type, rate, total, material, labor) => {
-    const input = inputWith({
-      flooringProductScope: ['sheet_vinyl_vct'],
-      flooringSheetVinylSqft: '600',
-      flooringNewSheetVinylType: type as 'sheet_vinyl' | 'vct',
-    });
-    const { fill } = resolveScopeItemSuggestedPricing('flooring_sheet_vinyl', input, 'flooring', {
-      quantity: 600,
-      unit: 'sqft',
-      quantitySource: 'user_entered',
-    });
-    expect(fill).toMatchObject({ total, material, labor });
-    expect(Number(fill?.total || 0) / 600).toBe(rate);
-  });
+  ])(
+    'uses the catalog install split for new %s',
+    (type, rate, total, material, labor) => {
+      const input = inputWith({
+        flooringProductScope: ['sheet_vinyl_vct'],
+        flooringSheetVinylSqft: '600',
+        flooringNewSheetVinylType: type as 'sheet_vinyl' | 'vct',
+      });
+      const { fill } = resolveScopeItemSuggestedPricing(
+        'flooring_sheet_vinyl',
+        input,
+        'flooring',
+        {
+          quantity: 600,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        }
+      );
+      expect(fill).toMatchObject({ total, material, labor });
+      expect(Number(fill?.total || 0) / 600).toBe(rate);
+    }
+  );
 
   it('uses the catalog carpet and pad install split', () => {
     const input = inputWith({
       flooringProductScope: ['carpet'],
       flooringCarpetSqft: '600',
     });
-    const { fill } = resolveScopeItemSuggestedPricing('flooring_carpet', input, 'flooring', {
-      quantity: 600,
-      unit: 'sqft',
-      quantitySource: 'user_entered',
-    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'flooring_carpet',
+      input,
+      'flooring',
+      {
+        quantity: 600,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      }
+    );
     expect(fill).toMatchObject({ total: 3000, material: 2100, labor: 900 });
   });
 
   it('prices flooring trim as an all-in LF install with prep and paint', () => {
     const input = inputWith({ baseboardLf: '200' });
-    const { fill } = resolveScopeItemSuggestedPricing('trim', input, 'flooring', {
-      quantity: 200,
-      unit: 'lf',
-      quantitySource: 'user_entered',
-    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'trim',
+      input,
+      'flooring',
+      {
+        quantity: 200,
+        unit: 'lf',
+        quantitySource: 'user_entered',
+      }
+    );
     expect(fill).toMatchObject({ total: 1700, material: 400, labor: 1300 });
     expect(fill?.costBuckets).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ label: 'Baseboard / trim material', amount: 400 }),
-        expect.objectContaining({ label: 'Cut, fit & installation labor', amount: 700 }),
-        expect.objectContaining({ label: 'Fill nail holes, caulk & light prep', amount: 200 }),
-        expect.objectContaining({ label: 'Standard finish painting', amount: 400 }),
+        expect.objectContaining({
+          label: 'Baseboard / trim material',
+          amount: 400,
+        }),
+        expect.objectContaining({
+          label: 'Cut, fit & installation labor',
+          amount: 700,
+        }),
+        expect.objectContaining({
+          label: 'Fill nail holes, caulk & light prep',
+          amount: 200,
+        }),
+        expect.objectContaining({
+          label: 'Standard finish painting',
+          amount: 400,
+        }),
       ])
     );
   });
@@ -399,9 +964,20 @@ describe('resolveScopeItemSuggestedPricing', () => {
       flooringCarpetSqft: '500',
       flooringTileSqft: '1200',
     });
-    const resolved = resolveChecklistItemQuantity('tile_flooring', input, { templateKey: 'flooring' });
-    expect(resolved).toMatchObject({ quantity: 1200, unit: 'sqft', pricingReady: true });
-    const { fill } = resolveScopeItemSuggestedPricing('tile_flooring', input, 'flooring', resolved);
+    const resolved = resolveChecklistItemQuantity('tile_flooring', input, {
+      templateKey: 'flooring',
+    });
+    expect(resolved).toMatchObject({
+      quantity: 1200,
+      unit: 'sqft',
+      pricingReady: true,
+    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'tile_flooring',
+      input,
+      'flooring',
+      resolved
+    );
     expect(fill?.total).toBeGreaterThan(0);
   });
 
@@ -411,15 +987,20 @@ describe('resolveScopeItemSuggestedPricing', () => {
       flooringExistingTypes: ['carpet', 'lvp'],
       flooringExistingLvpInstallMethod: 'floating',
       itemQuantities: {
-        'floor_demo__carpet': { quantity: '500', unit: 'sqft' },
-        'floor_demo__lvp': { quantity: '1200', unit: 'sqft' },
+        floor_demo__carpet: { quantity: '500', unit: 'sqft' },
+        floor_demo__lvp: { quantity: '1200', unit: 'sqft' },
       },
     });
-    const { fill } = resolveScopeItemSuggestedPricing('floor_demo', input, 'flooring', {
-      quantity: 1700,
-      unit: 'sqft',
-      quantitySource: 'user_entered',
-    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'floor_demo',
+      input,
+      'flooring',
+      {
+        quantity: 1700,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      }
+    );
     expect(fill).toMatchObject({ total: 3275, material: 655, labor: 2620 });
   });
 
@@ -433,33 +1014,65 @@ describe('resolveScopeItemSuggestedPricing', () => {
     ['lvp', { flooringExistingLvpInstallMethod: 'floating' }, 2, 40, 160],
     ['lvp', { flooringExistingLvpInstallMethod: 'glue_down' }, 3.25, 55, 270],
     ['lvp', { flooringExistingLvpInstallMethod: 'unknown' }, 2.5, 45, 205],
-    ['sheet_vinyl_vct', { flooringExistingSheetVinylType: 'sheet_vinyl' }, 2.25, 45, 180],
-    ['sheet_vinyl_vct', { flooringExistingSheetVinylType: 'vct' }, 3.25, 60, 265],
-    ['sheet_vinyl_vct', { flooringExistingSheetVinylType: 'unknown' }, 2.75, 50, 225],
+    [
+      'sheet_vinyl_vct',
+      { flooringExistingSheetVinylType: 'sheet_vinyl' },
+      2.25,
+      45,
+      180,
+    ],
+    [
+      'sheet_vinyl_vct',
+      { flooringExistingSheetVinylType: 'vct' },
+      3.25,
+      60,
+      265,
+    ],
+    [
+      'sheet_vinyl_vct',
+      { flooringExistingSheetVinylType: 'unknown' },
+      2.75,
+      50,
+      225,
+    ],
     ['unknown', {}, 3, 60, 240],
-  ])('keeps %s all-in rate equal to its two components', (type, overrides, expectedRate, expectedMaterialRate, expectedLaborRate) => {
-    const notes = 'notes' in overrides ? String((overrides as { notes?: string }).notes || '') : null;
-    const input = inputWith({
-      floorDemoSqft: '100',
-      flooringExistingTypes: [type as 'carpet'],
-      itemQuantities: { [`floor_demo__${type}`]: { quantity: '100', unit: 'sqft' } },
-      ...(overrides as Partial<ScopeMeasurementsInputExtended>),
-    });
-    const { fill } = resolveScopeItemSuggestedPricing(
-      'floor_demo',
-      input,
-      'flooring',
-      { quantity: 100, unit: 'sqft', quantitySource: 'user_entered' },
-      null,
-      null,
-      notes
-    );
-    expect(fill).not.toBeNull();
-    expect(fill!.total).toBeCloseTo(100 * expectedRate, 2);
-    expect(fill!.material).toBeCloseTo(100 * expectedMaterialRate, 2);
-    expect(fill!.labor).toBeCloseTo(100 * expectedLaborRate, 2);
-    expect(fill!.material + fill!.labor).toBeCloseTo(fill!.total, 2);
-  });
+  ])(
+    'keeps %s all-in rate equal to its two components',
+    (
+      type,
+      overrides,
+      expectedRate,
+      expectedMaterialRate,
+      expectedLaborRate
+    ) => {
+      const notes =
+        'notes' in overrides
+          ? String((overrides as { notes?: string }).notes || '')
+          : null;
+      const input = inputWith({
+        floorDemoSqft: '100',
+        flooringExistingTypes: [type as 'carpet'],
+        itemQuantities: {
+          [`floor_demo__${type}`]: { quantity: '100', unit: 'sqft' },
+        },
+        ...(overrides as Partial<ScopeMeasurementsInputExtended>),
+      });
+      const { fill } = resolveScopeItemSuggestedPricing(
+        'floor_demo',
+        input,
+        'flooring',
+        { quantity: 100, unit: 'sqft', quantitySource: 'user_entered' },
+        null,
+        null,
+        notes
+      );
+      expect(fill).not.toBeNull();
+      expect(fill!.total).toBeCloseTo(100 * expectedRate, 2);
+      expect(fill!.material).toBeCloseTo(100 * expectedMaterialRate, 2);
+      expect(fill!.labor).toBeCloseTo(100 * expectedLaborRate, 2);
+      expect(fill!.material + fill!.labor).toBeCloseTo(fill!.total, 2);
+    }
+  );
 
   it('prices LVP demo with a reviewable mid-rate when install method is not selected yet', () => {
     const input = inputWith({
@@ -467,11 +1080,16 @@ describe('resolveScopeItemSuggestedPricing', () => {
       flooringExistingTypes: ['lvp'],
       itemQuantities: { floor_demo__lvp: { quantity: 1200, unit: 'sqft' } },
     });
-    const { fill } = resolveScopeItemSuggestedPricing('floor_demo', input, 'flooring', {
-      quantity: 1200,
-      unit: 'sqft',
-      quantitySource: 'user_entered',
-    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'floor_demo',
+      input,
+      'flooring',
+      {
+        quantity: 1200,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      }
+    );
     expect(fill?.total).toBe(1200 * 2.5);
     expect(fill?.rateSourceLabel).toMatch(/Review before bid/i);
   });
@@ -484,32 +1102,44 @@ describe('resolveScopeItemSuggestedPricing', () => {
     ['sheet_vinyl_vct', 'lvp', 'sheet_vct', 1.5, 1.5],
     ['lvp', 'lvp', 'glue_down', 3, 3],
     ['lvp', 'lvp', 'floating', 0.75, 0.75],
-  ])('prices %s to %s floor prep at the correct level', (existing, product, vinylMethod, expectedRate, expectedTotalRate) => {
-    const severity =
-      expectedRate === 0.75
-        ? 'light'
-        : expectedRate === 1.5
-          ? 'medium'
-          : expectedRate === 3
-            ? 'heavy'
-            : 'medium';
-    const input = inputWith({
-      flooringExistingTypes: [existing as 'carpet'],
-      flooringProductScope: [product as 'lvp'],
-      flooringExistingLvpInstallMethod: existing === 'lvp' ? vinylMethod as 'floating' : null,
-      flooringExistingSheetVinylType: existing === 'sheet_vinyl_vct' ? vinylMethod as 'sheet_vinyl' : null,
-      floorPrepByProduct: {
-        [product]: { sqft: 400, severity },
-      },
-    });
-    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
-      quantity: 400,
-      unit: 'sqft',
-      quantitySource: 'user_entered',
-    });
-    expect(fill?.total).toBe(400 * expectedTotalRate);
-    expect(fill?.total / 400).toBe(expectedRate);
-  });
+  ])(
+    'prices %s to %s floor prep at the correct level',
+    (existing, product, vinylMethod, expectedRate, expectedTotalRate) => {
+      const severity =
+        expectedRate === 0.75
+          ? 'light'
+          : expectedRate === 1.5
+            ? 'medium'
+            : expectedRate === 3
+              ? 'heavy'
+              : 'medium';
+      const input = inputWith({
+        flooringExistingTypes: [existing as 'carpet'],
+        flooringProductScope: [product as 'lvp'],
+        flooringExistingLvpInstallMethod:
+          existing === 'lvp' ? (vinylMethod as 'floating') : null,
+        flooringExistingSheetVinylType:
+          existing === 'sheet_vinyl_vct'
+            ? (vinylMethod as 'sheet_vinyl')
+            : null,
+        floorPrepByProduct: {
+          [product]: { sqft: 400, severity },
+        },
+      });
+      const { fill } = resolveScopeItemSuggestedPricing(
+        'floor_prep',
+        input,
+        'flooring',
+        {
+          quantity: 400,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        }
+      );
+      expect(fill?.total).toBe(400 * expectedTotalRate);
+      expect(fill?.total / 400).toBe(expectedRate);
+    }
+  );
 
   it('applies the level minimum once for a small prep transition', () => {
     const input = inputWith({
@@ -519,11 +1149,16 @@ describe('resolveScopeItemSuggestedPricing', () => {
         lvp: { sqft: 100, severity: 'light' },
       },
     });
-    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
-      quantity: 100,
-      unit: 'sqft',
-      quantitySource: 'user_entered',
-    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'floor_prep',
+      input,
+      'flooring',
+      {
+        quantity: 100,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      }
+    );
     expect(fill).toMatchObject({ material: 50, labor: 200, total: 250 });
   });
 
@@ -532,13 +1167,20 @@ describe('resolveScopeItemSuggestedPricing', () => {
       floorPrepSqft: '1700',
       flooringExistingTypes: ['carpet', 'tile'],
       flooringProductScope: ['carpet', 'tile'],
-      floorPrepTransitions: [{ existingType: 'carpet', newProduct: 'carpet', sqft: 500 }],
+      floorPrepTransitions: [
+        { existingType: 'carpet', newProduct: 'carpet', sqft: 500 },
+      ],
     });
-    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
-      quantity: 1700,
-      unit: 'sqft',
-      quantitySource: 'notes',
-    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'floor_prep',
+      input,
+      'flooring',
+      {
+        quantity: 1700,
+        unit: 'sqft',
+        quantitySource: 'notes',
+      }
+    );
     expect(fill?.total).toBe(500 * 0.75);
   });
 
@@ -553,15 +1195,28 @@ describe('resolveScopeItemSuggestedPricing', () => {
         tile: { sqft: 500, severity: 'heavy' },
       },
       itemQuantities: {
-        floor_demo__carpet: { quantity: 1200, unit: 'sqft', quantitySource: 'user_entered' },
-        floor_demo__tile: { quantity: 500, unit: 'sqft', quantitySource: 'user_entered' },
+        floor_demo__carpet: {
+          quantity: 1200,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
+        floor_demo__tile: {
+          quantity: 500,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
       },
     });
-    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
-      quantity: 1700,
-      unit: 'sqft',
-      quantitySource: 'user_entered',
-    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'floor_prep',
+      input,
+      'flooring',
+      {
+        quantity: 1700,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      }
+    );
     // tile→tile type-match + carpet→lvp remainder, weighted by install SF
     expect(fill?.total).toBe(500 * 3 + 1200 * 0.75);
   });
@@ -577,19 +1232,32 @@ describe('resolveScopeItemSuggestedPricing', () => {
         tile: { sqft: 1200, severity: 'heavy' },
       },
       itemQuantities: {
-        floor_demo__carpet: { quantity: 500, unit: 'sqft', quantitySource: 'user_entered' },
-        floor_demo__tile: { quantity: 1200, unit: 'sqft', quantitySource: 'user_entered' },
+        floor_demo__carpet: {
+          quantity: 500,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
+        floor_demo__tile: {
+          quantity: 1200,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
       },
       floorPrepTransitions: [
         { existingType: 'carpet', newProduct: 'carpet', sqft: 500 },
         { existingType: 'tile', newProduct: 'tile', sqft: 1200 },
       ],
     });
-    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
-      quantity: 1700,
-      unit: 'sqft',
-      quantitySource: 'user_entered',
-    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'floor_prep',
+      input,
+      'flooring',
+      {
+        quantity: 1700,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      }
+    );
     expect(fill?.total).toBe(500 * 0.75 + 1200 * 3);
   });
 
@@ -598,15 +1266,28 @@ describe('resolveScopeItemSuggestedPricing', () => {
       flooringExistingTypes: ['carpet', 'tile'],
       flooringProductScope: ['carpet', 'tile'],
       itemQuantities: {
-        floor_demo__carpet: { quantity: 500, unit: 'sqft', quantitySource: 'user_entered' },
-        floor_demo__tile: { quantity: 1200, unit: 'sqft', quantitySource: 'user_entered' },
+        floor_demo__carpet: {
+          quantity: 500,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
+        floor_demo__tile: {
+          quantity: 1200,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
       },
     });
-    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
-      quantity: 1700,
-      unit: 'sqft',
-      quantitySource: 'missing',
-    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'floor_prep',
+      input,
+      'flooring',
+      {
+        quantity: 1700,
+        unit: 'sqft',
+        quantitySource: 'missing',
+      }
+    );
     expect(fill).toBeNull();
   });
 
@@ -617,15 +1298,28 @@ describe('resolveScopeItemSuggestedPricing', () => {
       flooringCarpetSqft: '500',
       flooringTileSqft: '1200',
       itemQuantities: {
-        floor_demo__carpet: { quantity: 500, unit: 'sqft', quantitySource: 'user_entered' },
-        floor_demo__tile: { quantity: 1200, unit: 'sqft', quantitySource: 'user_entered' },
+        floor_demo__carpet: {
+          quantity: 500,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
+        floor_demo__tile: {
+          quantity: 1200,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
       },
     });
-    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
-      quantity: 1700,
-      unit: 'sqft',
-      quantitySource: 'notes',
-    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'floor_prep',
+      input,
+      'flooring',
+      {
+        quantity: 1700,
+        unit: 'sqft',
+        quantitySource: 'notes',
+      }
+    );
     expect(fill).toBeNull();
   });
 
@@ -635,11 +1329,16 @@ describe('resolveScopeItemSuggestedPricing', () => {
       flooringExistingTypes: ['carpet'],
       flooringProductScope: ['carpet'],
     });
-    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
-      quantity: 0,
-      unit: 'sqft',
-      quantitySource: 'missing',
-    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'floor_prep',
+      input,
+      'flooring',
+      {
+        quantity: 0,
+        unit: 'sqft',
+        quantitySource: 'missing',
+      }
+    );
     expect(fill?.total).toBe(0);
     expect(fill?.pricingDetail).toMatch(/Included in demo/i);
   });
@@ -656,15 +1355,28 @@ describe('resolveScopeItemSuggestedPricing', () => {
         tile: { sqft: 1200, severity: 'heavy' },
       },
       itemQuantities: {
-        floor_demo__carpet: { quantity: 500, unit: 'sqft', quantitySource: 'user_entered' },
-        floor_demo__tile: { quantity: 1200, unit: 'sqft', quantitySource: 'user_entered' },
+        floor_demo__carpet: {
+          quantity: 500,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
+        floor_demo__tile: {
+          quantity: 1200,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
       },
     });
-    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
-      quantity: 1700,
-      unit: 'sqft',
-      quantitySource: 'user_entered',
-    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'floor_prep',
+      input,
+      'flooring',
+      {
+        quantity: 1700,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      }
+    );
     expect(fill?.total).toBe(3975);
     expect(fill?.benchmarkAction).toBe('comparison_only');
     expect(fill?.pricingDetail).toMatch(/Review before bid/i);
@@ -676,11 +1388,16 @@ describe('resolveScopeItemSuggestedPricing', () => {
         floor_prep: { quantity: 1700, unit: 'sqft', quantitySource: 'notes' },
       },
     });
-    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
-      quantity: 1700,
-      unit: 'sqft',
-      quantitySource: 'notes',
-    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'floor_prep',
+      input,
+      'flooring',
+      {
+        quantity: 1700,
+        unit: 'sqft',
+        quantitySource: 'notes',
+      }
+    );
     expect(fill).toBeNull();
   });
 
@@ -690,11 +1407,16 @@ describe('resolveScopeItemSuggestedPricing', () => {
       flooringExistingTypes: ['carpet'],
       flooringProductScope: ['lvp'],
     });
-    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
-      quantity: 400,
-      unit: 'sqft',
-      quantitySource: 'inferred',
-    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'floor_prep',
+      input,
+      'flooring',
+      {
+        quantity: 400,
+        unit: 'sqft',
+        quantitySource: 'inferred',
+      }
+    );
     expect(fill?.total).toBe(400 * 0.75);
   });
 
@@ -709,11 +1431,16 @@ describe('resolveScopeItemSuggestedPricing', () => {
         { existingType: 'sheet_vinyl_vct', newProduct: 'lvp', sqft: 1200 },
       ],
     });
-    const { fill } = resolveScopeItemSuggestedPricing('floor_prep', input, 'flooring', {
-      quantity: 1700,
-      unit: 'sqft',
-      quantitySource: 'user_entered',
-    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'floor_prep',
+      input,
+      'flooring',
+      {
+        quantity: 1700,
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      }
+    );
     expect(fill).toMatchObject({ material: 765, labor: 1785, total: 2550 });
   });
 
@@ -726,7 +1453,12 @@ describe('resolveScopeItemSuggestedPricing', () => {
       dualMaterial: { quantity: 4500, unit: 'allowance' },
       dualLabor: { quantity: 3250, unit: 'allowance' },
     };
-    const { fill, comparison } = resolveScopeItemSuggestedPricing('flooring', input, 'flooring', resolved);
+    const { fill, comparison } = resolveScopeItemSuggestedPricing(
+      'flooring',
+      input,
+      'flooring',
+      resolved
+    );
     expect(fill).toBeNull();
     expect(comparison).toMatchObject({
       material: 3400,
@@ -738,18 +1470,36 @@ describe('resolveScopeItemSuggestedPricing', () => {
 
   it('prefers a saved template rate over the national average for quantity-only items', () => {
     const input = inputWith({ floorAreaSqft: '1000' });
-    const resolved = { quantity: 1000, unit: 'sqft', quantitySource: 'inferred' as const };
+    const resolved = {
+      quantity: 1000,
+      unit: 'sqft',
+      quantitySource: 'inferred' as const,
+    };
     const pricingContext: ScopePricingContext = {
       templates: [
         {
           name: 'LVP Floors',
-          materialLineItems: [{ name: 'LVP plank flooring', unit: 'sqft', unitPrice: 6 }],
-          laborLineItems: [{ name: 'LVP install labor', unit: 'sqft', unitPrice: 4 }],
+          materialLineItems: [
+            { name: 'LVP plank flooring', unit: 'sqft', unitPrice: 6 },
+          ],
+          laborLineItems: [
+            { name: 'LVP install labor', unit: 'sqft', unitPrice: 4 },
+          ],
         },
       ],
     };
-    const { fill } = resolveScopeItemSuggestedPricing('flooring', input, 'flooring', resolved, pricingContext);
-    expect(fill).toMatchObject({ material: 6000, labor: 4000, mode: 'suggested_price' });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'flooring',
+      input,
+      'flooring',
+      resolved,
+      pricingContext
+    );
+    expect(fill).toMatchObject({
+      material: 6000,
+      labor: 4000,
+      mode: 'suggested_price',
+    });
     expect(fill?.materialSource).toBe('template');
     expect(fill?.laborSource).toBe('template');
     expect(fill?.rateSourceLabel).toContain('Saved pricing');
@@ -757,7 +1507,11 @@ describe('resolveScopeItemSuggestedPricing', () => {
 
   it('includes national average comparison when saved library pricing is the fill', () => {
     const input = inputWith({ showerWallTileSqft: '80' });
-    const resolved = { quantity: 80, unit: 'sqft', quantitySource: 'notes' as const };
+    const resolved = {
+      quantity: 80,
+      unit: 'sqft',
+      quantitySource: 'notes' as const,
+    };
     const pricingContext: ScopePricingContext = {
       libraryRates: [
         {
@@ -790,11 +1544,18 @@ describe('resolveScopeItemSuggestedPricing', () => {
   it('uses CY national average rates when concrete is measured in cubic yards', () => {
     const input = inputWith({ concreteCy: '18' });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('concrete', measurements, { templateKey: 'addition' });
+    const resolved = resolveChecklistItemQuantity('concrete', measurements, {
+      templateKey: 'addition',
+    });
 
     expect(resolved.unit).toBe('cy');
 
-    const { fill } = resolveScopeItemSuggestedPricing('concrete', input, 'addition', resolved);
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'concrete',
+      input,
+      'addition',
+      resolved
+    );
     expect(fill).toMatchObject({
       mode: 'suggested_price',
       material: 2970,
@@ -807,7 +1568,9 @@ describe('resolveScopeItemSuggestedPricing', () => {
   it('defaults addition concrete pricing basis to CY before a measurement is entered', () => {
     const input = inputWith({});
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('concrete', measurements, { templateKey: 'addition' });
+    const resolved = resolveChecklistItemQuantity('concrete', measurements, {
+      templateKey: 'addition',
+    });
 
     expect(resolved.unit).toBe('cy');
     expect(resolved.pricingReady).toBe(false);
@@ -816,10 +1579,16 @@ describe('resolveScopeItemSuggestedPricing', () => {
   it('migrates stale addition concrete card entries from sqft to CY', () => {
     const input = inputWith({});
     input.itemQuantities = {
-      concrete: { quantity: '250', unit: 'sqft', quantitySource: 'user_entered' },
+      concrete: {
+        quantity: '250',
+        unit: 'sqft',
+        quantitySource: 'user_entered',
+      },
     };
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('concrete', measurements, { templateKey: 'addition' });
+    const resolved = resolveChecklistItemQuantity('concrete', measurements, {
+      templateKey: 'addition',
+    });
 
     expect(resolved.quantity).toBe(250);
     expect(resolved.unit).toBe('cy');
@@ -828,12 +1597,25 @@ describe('resolveScopeItemSuggestedPricing', () => {
   it('suggests rough plumbing pricing from rough-in points', () => {
     const input = inputWith({});
     input.itemQuantities = {
-      plumbing_rough: { quantity: '3', unit: 'each', quantitySource: 'user_entered' },
+      plumbing_rough: {
+        quantity: '3',
+        unit: 'each',
+        quantitySource: 'user_entered',
+      },
     };
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('plumbing_rough', measurements, { templateKey: 'addition' });
+    const resolved = resolveChecklistItemQuantity(
+      'plumbing_rough',
+      measurements,
+      { templateKey: 'addition' }
+    );
 
-    const { fill } = resolveScopeItemSuggestedPricing('plumbing_rough', input, 'addition', resolved);
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'plumbing_rough',
+      input,
+      'addition',
+      resolved
+    );
     expect(fill).toMatchObject({
       mode: 'suggested_price',
       material: 450,
@@ -846,12 +1628,25 @@ describe('resolveScopeItemSuggestedPricing', () => {
   it('suggests electrical rough-in pricing from device counts', () => {
     const input = inputWith({});
     input.itemQuantities = {
-      electrical_rough: { quantity: '4', unit: 'each', quantitySource: 'user_entered' },
+      electrical_rough: {
+        quantity: '4',
+        unit: 'each',
+        quantitySource: 'user_entered',
+      },
     };
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('electrical_rough', measurements, { templateKey: 'addition' });
+    const resolved = resolveChecklistItemQuantity(
+      'electrical_rough',
+      measurements,
+      { templateKey: 'addition' }
+    );
 
-    const { fill } = resolveScopeItemSuggestedPricing('electrical_rough', input, 'addition', resolved);
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'electrical_rough',
+      input,
+      'addition',
+      resolved
+    );
     expect(fill).toMatchObject({
       mode: 'suggested_price',
       material: 200,
@@ -864,10 +1659,16 @@ describe('resolveScopeItemSuggestedPricing', () => {
   it('treats stale permit placeholder $1 as missing pricing', () => {
     const input = inputWith({});
     input.itemQuantities = {
-      permits: { quantity: '1', unit: 'allowance', quantitySource: 'user_entered' },
+      permits: {
+        quantity: '1',
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+      },
     };
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('permits', measurements, { templateKey: 'addition' });
+    const resolved = resolveChecklistItemQuantity('permits', measurements, {
+      templateKey: 'addition',
+    });
 
     expect(resolved.pricingReady).toBe(false);
     expect(resolved.quantity).toBeNull();
@@ -877,9 +1678,16 @@ describe('resolveScopeItemSuggestedPricing', () => {
   it('suggests flat permit allowance pricing for ADU scope', () => {
     const input = inputWith({});
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('permits', measurements, { templateKey: 'addition' });
+    const resolved = resolveChecklistItemQuantity('permits', measurements, {
+      templateKey: 'addition',
+    });
 
-    const { fill } = resolveScopeItemSuggestedPricing('permits', input, 'addition', resolved);
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'permits',
+      input,
+      'addition',
+      resolved
+    );
     expect(fill).toMatchObject({
       mode: 'suggested_price',
       lumpSumOnly: true,
@@ -892,9 +1700,16 @@ describe('resolveScopeItemSuggestedPricing', () => {
   it('suggests cleanup as material + labor split (dumpster material + clean/haul labor)', () => {
     const input = inputWith({});
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('cleanup', measurements, { templateKey: 'addition' });
+    const resolved = resolveChecklistItemQuantity('cleanup', measurements, {
+      templateKey: 'addition',
+    });
 
-    const { fill } = resolveScopeItemSuggestedPricing('cleanup', input, 'addition', resolved);
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'cleanup',
+      input,
+      'addition',
+      resolved
+    );
     expect(fill).toMatchObject({
       mode: 'suggested_price',
       lumpSumOnly: false,
@@ -914,9 +1729,16 @@ describe('resolveScopeItemSuggestedPricing', () => {
       },
     };
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('cleanup', measurements, { templateKey: 'addition' });
+    const resolved = resolveChecklistItemQuantity('cleanup', measurements, {
+      templateKey: 'addition',
+    });
 
-    const { fill, comparison } = resolveScopeItemSuggestedPricing('cleanup', input, 'addition', resolved);
+    const { fill, comparison } = resolveScopeItemSuggestedPricing(
+      'cleanup',
+      input,
+      'addition',
+      resolved
+    );
     // Manual entry is active — suggestion stays as comparison-only (not "price ready").
     expect(fill).toBeNull();
     expect(comparison).toMatchObject({
@@ -939,8 +1761,15 @@ describe('resolveScopeItemSuggestedPricing', () => {
       },
     });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('permits', measurements, { templateKey: 'ground_up' });
-    const { fill, comparison } = resolveScopeItemSuggestedPricing('permits', input, 'ground_up', resolved);
+    const resolved = resolveChecklistItemQuantity('permits', measurements, {
+      templateKey: 'ground_up',
+    });
+    const { fill, comparison } = resolveScopeItemSuggestedPricing(
+      'permits',
+      input,
+      'ground_up',
+      resolved
+    );
     // Manual entry is active — soft-cost national stays comparison-only.
     expect(fill).toBeNull();
     expect(comparison).toMatchObject({
@@ -953,7 +1782,9 @@ describe('resolveScopeItemSuggestedPricing', () => {
   it('shows pricing entry for addition items without explicit quantity rules', () => {
     const input = inputWith({});
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('framing', measurements, { templateKey: 'addition' });
+    const resolved = resolveChecklistItemQuantity('framing', measurements, {
+      templateKey: 'addition',
+    });
 
     expect(resolved).toMatchObject({
       pricingReady: false,
@@ -968,7 +1799,9 @@ describe('resolveScopeItemSuggestedPricing', () => {
       garageSqft: '781',
     });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('framing', measurements, { templateKey: 'ground_up' });
+    const resolved = resolveChecklistItemQuantity('framing', measurements, {
+      templateKey: 'ground_up',
+    });
 
     expect(resolved).toMatchObject({
       pricingReady: true,
@@ -989,7 +1822,9 @@ describe('resolveScopeItemSuggestedPricing', () => {
       },
     });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('permits', measurements, { templateKey: 'addition' });
+    const resolved = resolveChecklistItemQuantity('permits', measurements, {
+      templateKey: 'addition',
+    });
 
     expect(resolved).toMatchObject({
       pricingReady: true,
@@ -1009,9 +1844,13 @@ describe('resolveScopeItemSuggestedPricing', () => {
       },
     });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('plans_engineering', measurements, {
-      templateKey: 'addition',
-    });
+    const resolved = resolveChecklistItemQuantity(
+      'plans_engineering',
+      measurements,
+      {
+        templateKey: 'addition',
+      }
+    );
 
     expect(resolved).toMatchObject({
       pricingReady: true,
@@ -1023,16 +1862,29 @@ describe('resolveScopeItemSuggestedPricing', () => {
   it('treats plans/engineering as a flat allowance line without sqft pricing basis', () => {
     const input = inputWith({ floorAreaSqft: '500' });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('plans_engineering', measurements, {
-      templateKey: 'addition',
-    });
+    const resolved = resolveChecklistItemQuantity(
+      'plans_engineering',
+      measurements,
+      {
+        templateKey: 'addition',
+      }
+    );
 
     expect(resolved).toMatchObject({
       pricingReady: false,
       unit: 'allowance',
     });
-    expect(resolveAllowanceEditorPricingBasis('plans_engineering', input, 'addition')).toBeNull();
-    expect(resolveScopeItemSuggestedPricing('plans_engineering', input, 'addition', resolved)).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('plans_engineering', input, 'addition')
+    ).toBeNull();
+    expect(
+      resolveScopeItemSuggestedPricing(
+        'plans_engineering',
+        input,
+        'addition',
+        resolved
+      )
+    ).toEqual({
       fill: null,
       comparison: null,
     });
@@ -1058,20 +1910,37 @@ describe('resolveScopeItemSuggestedPricing', () => {
       const rule = getChecklistItemQuantityRuleOrDefault(itemId, 'addition');
       expect(rule.lumpSumOnly).toBe(true);
       expect(rule.allowanceOrSplit).toBeFalsy();
-      expect(resolveAllowanceEditorPricingBasis(itemId, input, 'addition')).toBeNull();
-      const resolved = resolveChecklistItemQuantity(itemId, measurements, { templateKey: 'addition' });
+      expect(
+        resolveAllowanceEditorPricingBasis(itemId, input, 'addition')
+      ).toBeNull();
+      const resolved = resolveChecklistItemQuantity(itemId, measurements, {
+        templateKey: 'addition',
+      });
       expect(resolved.pricingReady).toBe(false);
     }
 
-    for (const itemId of ['plumbing_trim', 'electrical_trim', 'haul_off'] as const) {
+    for (const itemId of [
+      'plumbing_trim',
+      'electrical_trim',
+      'haul_off',
+    ] as const) {
       const rule = getChecklistItemQuantityRuleOrDefault(itemId, 'addition');
       expect(rule.lumpSumOnly).toBe(false);
     }
 
     // Same soft costs should stay allowance-only outside addition templates.
-    expect(getChecklistItemQuantityRuleOrDefault('mobilization', 'excavation').lumpSumOnly).toBe(true);
-    expect(getChecklistItemQuantityRuleOrDefault('overhead_profit', 'ground_up').lumpSumOnly).toBe(true);
-    expect(getChecklistItemQuantityRuleOrDefault('emergency_fee', 'plumbing_service').lumpSumOnly).toBe(true);
+    expect(
+      getChecklistItemQuantityRuleOrDefault('mobilization', 'excavation')
+        .lumpSumOnly
+    ).toBe(true);
+    expect(
+      getChecklistItemQuantityRuleOrDefault('overhead_profit', 'ground_up')
+        .lumpSumOnly
+    ).toBe(true);
+    expect(
+      getChecklistItemQuantityRuleOrDefault('emergency_fee', 'plumbing_service')
+        .lumpSumOnly
+    ).toBe(true);
   });
 
   it('keeps trade scopes on material/labor — allowance toggle only for soft costs', () => {
@@ -1101,12 +1970,28 @@ describe('resolveScopeItemSuggestedPricing', () => {
       expect(rule.lumpSumOnly).toBeFalsy();
     }
 
-    expect(getChecklistItemQuantityRuleOrDefault('hvac', 'addition').defaultUnit).toBe('sqft');
-    expect(getChecklistItemQuantityRuleOrDefault('service_call', 'plumbing_service').allowanceOrSplit).toBeFalsy();
-    expect(getChecklistItemQuantityRuleOrDefault('utility_taps', 'ground_up').allowanceOrSplit).toBeFalsy();
-    expect(getChecklistItemQuantityRuleOrDefault('permits', 'addition').lumpSumOnly).toBe(true);
-    expect(getChecklistItemQuantityRuleOrDefault('appliances', 'addition').lumpSumOnly).toBe(true);
-    expect(getChecklistItemQuantityRuleOrDefault('contingency', 'addition').lumpSumOnly).toBe(true);
+    expect(
+      getChecklistItemQuantityRuleOrDefault('hvac', 'addition').defaultUnit
+    ).toBe('sqft');
+    expect(
+      getChecklistItemQuantityRuleOrDefault('service_call', 'plumbing_service')
+        .allowanceOrSplit
+    ).toBeFalsy();
+    expect(
+      getChecklistItemQuantityRuleOrDefault('utility_taps', 'ground_up')
+        .allowanceOrSplit
+    ).toBeFalsy();
+    expect(
+      getChecklistItemQuantityRuleOrDefault('permits', 'addition').lumpSumOnly
+    ).toBe(true);
+    expect(
+      getChecklistItemQuantityRuleOrDefault('appliances', 'addition')
+        .lumpSumOnly
+    ).toBe(true);
+    expect(
+      getChecklistItemQuantityRuleOrDefault('contingency', 'addition')
+        .lumpSumOnly
+    ).toBe(true);
     expect(DEFAULT_SCOPE_ALLOWANCE_QUANTITY_RULE.allowanceOrSplit).toBeFalsy();
   });
 
@@ -1116,37 +2001,63 @@ describe('resolveScopeItemSuggestedPricing', () => {
       excavationCy: '50',
     });
 
-    expect(resolveAllowanceEditorPricingBasis('permits', input, 'addition')).toBeNull();
-    expect(resolveAllowanceEditorPricingBasis('grading', input, 'addition')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('permits', input, 'addition')
+    ).toBeNull();
+    expect(
+      resolveAllowanceEditorPricingBasis('grading', input, 'addition')
+    ).toEqual({
       quantity: 500,
       unit: 'sqft',
     });
-    expect(resolveAllowanceEditorPricingBasis('excavation', input, 'addition')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('excavation', input, 'addition')
+    ).toEqual({
       quantity: 50,
       unit: 'cy',
     });
-    expect(resolveAllowanceEditorPricingBasis('utility_trenching', input, 'addition')).toBeNull();
+    expect(
+      resolveAllowanceEditorPricingBasis('utility_trenching', input, 'addition')
+    ).toBeNull();
   });
 
   it('uses the scope card takeoff as the Edit basis across count and area cards', () => {
     const input = inputWith({
       flooringSqft: '240',
       itemQuantities: {
-        cabinet_hardware: { quantity: '3', unit: 'each', quantitySource: 'user_entered' },
-        electrical: { quantity: '4', unit: 'each', quantitySource: 'user_entered' },
-        flooring: { quantity: '240', unit: 'sqft', quantitySource: 'user_entered' },
+        cabinet_hardware: {
+          quantity: '3',
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+        electrical: {
+          quantity: '4',
+          unit: 'each',
+          quantitySource: 'user_entered',
+        },
+        flooring: {
+          quantity: '240',
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
       },
     });
 
-    expect(resolveAllowanceEditorPricingBasis('cabinet_hardware', input, 'kitchen')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('cabinet_hardware', input, 'kitchen')
+    ).toEqual({
       quantity: 3,
       unit: 'each',
     });
-    expect(resolveAllowanceEditorPricingBasis('electrical', input, 'kitchen')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('electrical', input, 'kitchen')
+    ).toEqual({
       quantity: 4,
       unit: 'each',
     });
-    expect(resolveAllowanceEditorPricingBasis('flooring', input, 'kitchen')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('flooring', input, 'kitchen')
+    ).toEqual({
       quantity: 240,
       unit: 'sqft',
     });
@@ -1158,15 +2069,23 @@ describe('resolveScopeItemSuggestedPricing', () => {
       concreteCy: '68',
       itemQuantities: {
         // Stale Edit session that wrongly stored living SF as the pricing basis.
-        foundation__sqft_basis: { quantity: '3098', unit: 'sqft', quantitySource: 'user_entered' },
+        foundation__sqft_basis: {
+          quantity: '3098',
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
       },
     });
 
-    expect(resolveAllowanceEditorPricingBasis('foundation', input, 'ground_up')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('foundation', input, 'ground_up')
+    ).toEqual({
       quantity: 68,
       unit: 'cy',
     });
-    expect(resolveAllowanceEditorDefaultBasisUnit('foundation', 'ground_up')).toBe('cy');
+    expect(
+      resolveAllowanceEditorDefaultBasisUnit('foundation', 'ground_up')
+    ).toBe('cy');
   });
 
   it('uses covered framed SF (living + garage) for ground-up framing Edit basis', () => {
@@ -1175,11 +2094,17 @@ describe('resolveScopeItemSuggestedPricing', () => {
       garageSqft: '972',
       itemQuantities: {
         // Stale Edit session that stored living-only SF.
-        framing__sqft_basis: { quantity: '3098', unit: 'sqft', quantitySource: 'user_entered' },
+        framing__sqft_basis: {
+          quantity: '3098',
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
       },
     });
 
-    expect(resolveAllowanceEditorPricingBasis('framing', input, 'ground_up')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('framing', input, 'ground_up')
+    ).toEqual({
       quantity: 4070,
       unit: 'sqft',
     });
@@ -1205,31 +2130,59 @@ describe('resolveScopeItemSuggestedPricing', () => {
       drywallSqft: '4056',
       // Stale living-SF Edit seeds that must not stick.
       itemQuantities: {
-        drywall__sqft_basis: { quantity: '3098', unit: 'sqft', quantitySource: 'user_entered' },
-        insulation__sqft_basis: { quantity: '3098', unit: 'sqft', quantitySource: 'user_entered' },
-        interior_paint__sqft_basis: { quantity: '3098', unit: 'sqft', quantitySource: 'user_entered' },
+        drywall__sqft_basis: {
+          quantity: '3098',
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
+        insulation__sqft_basis: {
+          quantity: '3098',
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
+        interior_paint__sqft_basis: {
+          quantity: '3098',
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
       },
     });
 
-    expect(resolveAllowanceEditorPricingBasis('drywall', input, 'ground_up')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('drywall', input, 'ground_up')
+    ).toEqual({
       quantity: Math.round(3098 * 3.5),
       unit: 'sqft',
     });
-    expect(resolveAllowanceEditorPricingBasis('insulation', input, 'ground_up')?.unit).toBe('sqft');
-    expect(resolveAllowanceEditorPricingBasis('insulation', input, 'ground_up')!.quantity).toBeGreaterThan(
-      3098
-    );
-    expect(resolveAllowanceEditorPricingBasis('insulation', input, 'ground_up')!.quantity).not.toBe(3098);
-    expect(resolveAllowanceEditorPricingBasis('interior_paint', input, 'ground_up')).toBeNull();
-    expect(resolveAllowanceEditorPricingBasis('hvac', input, 'ground_up')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('insulation', input, 'ground_up')?.unit
+    ).toBe('sqft');
+    expect(
+      resolveAllowanceEditorPricingBasis('insulation', input, 'ground_up')!
+        .quantity
+    ).toBeGreaterThan(3098);
+    expect(
+      resolveAllowanceEditorPricingBasis('insulation', input, 'ground_up')!
+        .quantity
+    ).not.toBe(3098);
+    expect(
+      resolveAllowanceEditorPricingBasis('interior_paint', input, 'ground_up')
+    ).toBeNull();
+    expect(
+      resolveAllowanceEditorPricingBasis('hvac', input, 'ground_up')
+    ).toEqual({
       quantity: 1,
       unit: 'each',
     });
-    expect(resolveAllowanceEditorPricingBasis('cabinets', input, 'ground_up')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('cabinets', input, 'ground_up')
+    ).toEqual({
       quantity: Math.round(3098 / 25),
       unit: 'lf',
     });
-    expect(resolveAllowanceEditorPricingBasis('countertops', input, 'ground_up')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('countertops', input, 'ground_up')
+    ).toEqual({
       quantity: 80,
       unit: 'sqft',
     });
@@ -1241,11 +2194,15 @@ describe('resolveScopeItemSuggestedPricing', () => {
       wallPaintSqft: '10843',
       exteriorPaintSqft: '4200',
     });
-    expect(resolveAllowanceEditorPricingBasis('interior_paint', input, 'ground_up')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('interior_paint', input, 'ground_up')
+    ).toEqual({
       quantity: 10843,
       unit: 'sqft',
     });
-    expect(resolveAllowanceEditorPricingBasis('exterior_paint', input, 'ground_up')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('exterior_paint', input, 'ground_up')
+    ).toEqual({
       quantity: 4200,
       unit: 'sqft',
     });
@@ -1299,36 +2256,52 @@ describe('resolveScopeItemSuggestedPricing', () => {
       },
     });
 
-    expect(resolveAllowanceEditorPricingBasis('foundation', input, 'ground_up')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('foundation', input, 'ground_up')
+    ).toEqual({
       quantity: 68,
       unit: 'cy',
     });
-    expect(resolveAllowanceEditorPricingBasis('excavation', input, 'ground_up')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('excavation', input, 'ground_up')
+    ).toEqual({
       quantity: 120,
       unit: 'cy',
     });
-    expect(resolveAllowanceEditorPricingBasis('roofing', input, 'ground_up')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('roofing', input, 'ground_up')
+    ).toEqual({
       quantity: 46.2,
       unit: 'squares',
     });
     // HVAC Suggest defaults to 1 system — Edit must match (not living SF, not empty).
-    expect(resolveAllowanceEditorPricingBasis('hvac', input, 'ground_up')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('hvac', input, 'ground_up')
+    ).toEqual({
       quantity: 1,
       unit: 'each',
     });
-    expect(resolveAllowanceEditorPricingBasis('cabinets', input, 'ground_up')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('cabinets', input, 'ground_up')
+    ).toEqual({
       quantity: 90,
       unit: 'lf',
     });
-    expect(resolveAllowanceEditorPricingBasis('drywall', input, 'ground_up')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('drywall', input, 'ground_up')
+    ).toEqual({
       quantity: 10843,
       unit: 'sqft',
     });
-    expect(resolveAllowanceEditorPricingBasis('foundation', input, 'addition')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('foundation', input, 'addition')
+    ).toEqual({
       quantity: 68,
       unit: 'cy',
     });
-    expect(resolveAllowanceEditorPricingBasis('roof_tie_in', input, 'addition')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('roof_tie_in', input, 'addition')
+    ).toEqual({
       quantity: 46.2,
       unit: 'squares',
     });
@@ -1346,45 +2319,72 @@ describe('resolveScopeItemSuggestedPricing', () => {
       cabinetLf: '24',
     });
 
-    expect(resolveAllowanceEditorPricingBasis('flooring', input, 'kitchen')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('flooring', input, 'kitchen')
+    ).toEqual({
       quantity: 220,
       unit: 'sqft',
     });
-    expect(resolveAllowanceEditorPricingBasis('cabinets', input, 'kitchen')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('cabinets', input, 'kitchen')
+    ).toEqual({
       quantity: 24,
       unit: 'lf',
     });
-    expect(resolveAllowanceEditorPricingBasis('shingles_roofing', input, 'roofing')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('shingles_roofing', input, 'roofing')
+    ).toEqual({
       quantity: 18,
       unit: 'squares',
     });
-    expect(resolveAllowanceEditorPricingBasis('decking', input, 'deck_patio')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('decking', input, 'deck_patio')
+    ).toEqual({
       quantity: 320,
       unit: 'sqft',
     });
-    expect(resolveAllowanceEditorPricingBasis('railing', input, 'deck_patio')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('railing', input, 'deck_patio')
+    ).toEqual({
       quantity: 42,
       unit: 'lf',
     });
-    expect(resolveAllowanceEditorPricingBasis('sod_turf', input, 'landscaping')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('sod_turf', input, 'landscaping')
+    ).toEqual({
       quantity: 1200,
       unit: 'sqft',
     });
-    expect(resolveAllowanceEditorPricingBasis('backfill', input, 'excavation')).toEqual({
+    expect(
+      resolveAllowanceEditorPricingBasis('backfill', input, 'excavation')
+    ).toEqual({
       quantity: 75,
       unit: 'cy',
     });
-    expect(resolveAllowanceEditorPricingBasis('water_line', input, 'plumbing_service')).toBeNull();
+    expect(
+      resolveAllowanceEditorPricingBasis(
+        'water_line',
+        input,
+        'plumbing_service'
+      )
+    ).toBeNull();
   });
 
   it('uses sqft national average rates when concrete is measured in square feet', () => {
     const input = inputWith({ concreteSqft: '500' });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('concrete', measurements, { templateKey: 'addition' });
+    const resolved = resolveChecklistItemQuantity('concrete', measurements, {
+      templateKey: 'addition',
+    });
 
     expect(resolved.unit).toBe('sqft');
 
-    const { fill } = resolveScopeItemSuggestedPricing('concrete', input, 'addition', resolved);
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'concrete',
+      input,
+      'addition',
+      resolved
+    );
     expect(fill).toMatchObject({
       mode: 'suggested_price',
       material: 2000,
@@ -1401,8 +2401,12 @@ describe('resolveTemplateRateForItem', () => {
       templates: [
         {
           name: 'LVP Floors',
-          materialLineItems: [{ name: 'Vinyl plank flooring', unit: 'sqft', unitPrice: 5.5 }],
-          laborLineItems: [{ name: 'Flooring install labor', unit: 'sqft', unitPrice: 3.25 }],
+          materialLineItems: [
+            { name: 'Vinyl plank flooring', unit: 'sqft', unitPrice: 5.5 },
+          ],
+          laborLineItems: [
+            { name: 'Flooring install labor', unit: 'sqft', unitPrice: 3.25 },
+          ],
         },
       ],
     };
@@ -1418,8 +2422,18 @@ describe('resolveTemplateRateForItem', () => {
       templates: [
         {
           name: 'Nick',
-          materialLineItems: [{ name: 'LVP flooring', unit: 'sqft', unitPrice: 3 }],
-          laborLineItems: [{ name: 'LVP install', mode: 'sqft', hours: 1200, rate: 4, total: 4800 }],
+          materialLineItems: [
+            { name: 'LVP flooring', unit: 'sqft', unitPrice: 3 },
+          ],
+          laborLineItems: [
+            {
+              name: 'LVP install',
+              mode: 'sqft',
+              hours: 1200,
+              rate: 4,
+              total: 4800,
+            },
+          ],
         },
       ],
     };
@@ -1435,8 +2449,12 @@ describe('resolveTemplateRateForItem', () => {
       templates: [
         {
           name: 'Bath Tile',
-          materialLineItems: [{ name: 'Wall tile', unit: 'sqft', unitPrice: 8 }],
-          laborLineItems: [{ name: 'Wall tile setting', unit: 'sqft', unitPrice: 14 }],
+          materialLineItems: [
+            { name: 'Wall tile', unit: 'sqft', unitPrice: 8 },
+          ],
+          laborLineItems: [
+            { name: 'Wall tile setting', unit: 'sqft', unitPrice: 14 },
+          ],
         },
       ],
     };
@@ -1447,7 +2465,9 @@ describe('resolveTemplateRateForItem', () => {
     const ctx: ScopePricingContext = {
       bid: {
         name: 'This bid',
-        materialLineItems: [{ name: 'LVP flooring', unit: 'ea', unitPrice: 200 }],
+        materialLineItems: [
+          { name: 'LVP flooring', unit: 'ea', unitPrice: 200 },
+        ],
         laborLineItems: [],
       },
     };
@@ -1460,9 +2480,18 @@ describe('resolveTemplateRateForItem', () => {
     const input = inputWith({ floorAreaSqft: '850' });
     input.itemQuantities = {
       ...input.itemQuantities,
-      flooring__allowance: { quantity: '3825', unit: 'allowance', quantitySource: 'user_entered' },
+      flooring__allowance: {
+        quantity: '3825',
+        unit: 'allowance',
+        quantitySource: 'user_entered',
+      },
     };
-    const fromNotes = resolveDualRatePricingDisplayFromNotes('flooring', input, notes, 'flooring');
+    const fromNotes = resolveDualRatePricingDisplayFromNotes(
+      'flooring',
+      input,
+      notes,
+      'flooring'
+    );
     expect(fromNotes).toMatchObject({
       dualMaterial: { quantity: 3825 },
       dualLabor: { quantity: 2762.5 },
@@ -1479,7 +2508,12 @@ describe('resolveTemplateRateForItem', () => {
       unit: 'sqft' as const,
       quantitySource: 'inferred' as const,
     };
-    const { fill } = resolveScopeItemSuggestedPricing('insulation', input, 'ground_up', resolved);
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'insulation',
+      input,
+      'ground_up',
+      resolved
+    );
     expect(fill?.basis?.unit).toBe('sqft');
     expect(fill?.basis?.quantity).not.toBe(drywallProxy);
     expect(fill?.basis?.quantity).not.toBe(livingSf);
@@ -1498,14 +2532,22 @@ describe('resolveTemplateRateForItem', () => {
       unit: 'sqft' as const,
       quantitySource: 'notes' as const,
     };
-    const { fill } = resolveScopeItemSuggestedPricing('drywall', input, 'ground_up', resolved);
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'drywall',
+      input,
+      'ground_up',
+      resolved
+    );
     expect(fill?.basis).toEqual({ quantity: 5469, unit: 'sqft' });
   });
 });
 
 describe('allowance split apply pricing', () => {
   it('stores dollar total on primary id when basis is 1 allowance', () => {
-    const rule = getChecklistItemQuantityRuleOrDefault('mirror_accessories', 'bathroom');
+    const rule = getChecklistItemQuantityRuleOrDefault(
+      'mirror_accessories',
+      'bathroom'
+    );
     const primary = primaryQuantityForAppliedSuggestedBlock(
       {
         total: 375,
@@ -1521,16 +2563,36 @@ describe('allowance split apply pricing', () => {
   it('resolves applied bath accessories from split subkeys, not stale count', () => {
     const input = inputWith({
       itemQuantities: {
-        mirror_accessories: { quantity: '1', unit: 'allowance', quantitySource: 'user_entered' },
-        mirror_accessories__allowance: { quantity: '375', unit: 'allowance', quantitySource: 'user_entered' },
-        mirror_accessories__material: { quantity: '200', unit: 'allowance', quantitySource: 'user_entered' },
-        mirror_accessories__labor: { quantity: '175', unit: 'allowance', quantitySource: 'user_entered' },
+        mirror_accessories: {
+          quantity: '1',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        mirror_accessories__allowance: {
+          quantity: '375',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        mirror_accessories__material: {
+          quantity: '200',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        mirror_accessories__labor: {
+          quantity: '175',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
       },
     });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('mirror_accessories', measurements, {
-      templateKey: 'bathroom',
-    });
+    const resolved = resolveChecklistItemQuantity(
+      'mirror_accessories',
+      measurements,
+      {
+        templateKey: 'bathroom',
+      }
+    );
     expect(resolved.quantity).toBe(375);
     expect(resolved.dualMaterial?.quantity).toBe(200);
     expect(resolved.dualLabor?.quantity).toBe(175);
@@ -1539,10 +2601,26 @@ describe('allowance split apply pricing', () => {
   it('shows national benchmark for user-entered bath accessories split (does not multiply 375 × $375)', () => {
     const input = inputWith({
       itemQuantities: {
-        mirror_accessories: { quantity: '375', unit: 'allowance', quantitySource: 'user_entered' },
-        mirror_accessories__allowance: { quantity: '375', unit: 'allowance', quantitySource: 'user_entered' },
-        mirror_accessories__material: { quantity: '200', unit: 'allowance', quantitySource: 'user_entered' },
-        mirror_accessories__labor: { quantity: '175', unit: 'allowance', quantitySource: 'user_entered' },
+        mirror_accessories: {
+          quantity: '375',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        mirror_accessories__allowance: {
+          quantity: '375',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        mirror_accessories__material: {
+          quantity: '200',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        mirror_accessories__labor: {
+          quantity: '175',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
       },
       pricingAcceptance: {
         mirror_accessories: {
@@ -1552,9 +2630,13 @@ describe('allowance split apply pricing', () => {
       },
     });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('mirror_accessories', measurements, {
-      templateKey: 'bathroom',
-    });
+    const resolved = resolveChecklistItemQuantity(
+      'mirror_accessories',
+      measurements,
+      {
+        templateKey: 'bathroom',
+      }
+    );
     const { fill, comparison } = resolveScopeItemSuggestedPricing(
       'mirror_accessories',
       input,
@@ -1571,8 +2653,16 @@ describe('allowance split apply pricing', () => {
   it('shows national benchmark for user-entered flat bath accessories allowance', () => {
     const input = inputWith({
       itemQuantities: {
-        mirror_accessories: { quantity: '500', unit: 'allowance', quantitySource: 'user_entered' },
-        mirror_accessories__allowance: { quantity: '500', unit: 'allowance', quantitySource: 'user_entered' },
+        mirror_accessories: {
+          quantity: '500',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        mirror_accessories__allowance: {
+          quantity: '500',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
       },
       pricingAcceptance: {
         mirror_accessories: {
@@ -1582,9 +2672,13 @@ describe('allowance split apply pricing', () => {
       },
     });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('mirror_accessories', measurements, {
-      templateKey: 'bathroom',
-    });
+    const resolved = resolveChecklistItemQuantity(
+      'mirror_accessories',
+      measurements,
+      {
+        templateKey: 'bathroom',
+      }
+    );
     const { fill, comparison } = resolveScopeItemSuggestedPricing(
       'mirror_accessories',
       input,
@@ -1601,7 +2695,11 @@ describe('allowance split apply pricing', () => {
     const input = inputWith({
       showerWallTileSqft: '80',
       itemQuantities: {
-        waterproofing__allowance: { quantity: '1600', unit: 'allowance', quantitySource: 'user_entered' },
+        waterproofing__allowance: {
+          quantity: '1600',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
       },
       pricingAcceptance: {
         waterproofing: {
@@ -1611,9 +2709,13 @@ describe('allowance split apply pricing', () => {
       },
     });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('waterproofing', measurements, {
-      templateKey: 'bathroom',
-    });
+    const resolved = resolveChecklistItemQuantity(
+      'waterproofing',
+      measurements,
+      {
+        templateKey: 'bathroom',
+      }
+    );
     const { fill, comparison } = resolveScopeItemSuggestedPricing(
       'waterproofing',
       input,
@@ -1631,8 +2733,16 @@ describe('allowance split apply pricing', () => {
     const input = inputWith({
       showerWallTileSqft: '80',
       itemQuantities: {
-        waterproofing__sqft_basis: { quantity: '1', unit: 'sqft', quantitySource: 'user_entered' },
-        waterproofing__allowance: { quantity: '1100', unit: 'allowance', quantitySource: 'user_entered' },
+        waterproofing__sqft_basis: {
+          quantity: '1',
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
+        waterproofing__allowance: {
+          quantity: '1100',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
       },
       pricingAcceptance: {
         waterproofing: {
@@ -1642,9 +2752,13 @@ describe('allowance split apply pricing', () => {
       },
     });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('waterproofing', measurements, {
-      templateKey: 'bathroom',
-    });
+    const resolved = resolveChecklistItemQuantity(
+      'waterproofing',
+      measurements,
+      {
+        templateKey: 'bathroom',
+      }
+    );
     const { fill, comparison } = resolveScopeItemSuggestedPricing(
       'waterproofing',
       input,
@@ -1660,8 +2774,16 @@ describe('allowance split apply pricing', () => {
   it('shows national benchmark for user-entered shower niche flat allowance', () => {
     const input = inputWith({
       itemQuantities: {
-        shower_niche: { quantity: '875', unit: 'allowance', quantitySource: 'user_entered' },
-        shower_niche__allowance: { quantity: '875', unit: 'allowance', quantitySource: 'user_entered' },
+        shower_niche: {
+          quantity: '875',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
+        shower_niche__allowance: {
+          quantity: '875',
+          unit: 'allowance',
+          quantitySource: 'user_entered',
+        },
       },
       pricingAcceptance: {
         shower_niche: {
@@ -1671,9 +2793,13 @@ describe('allowance split apply pricing', () => {
       },
     });
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('shower_niche', measurements, {
-      templateKey: 'bathroom',
-    });
+    const resolved = resolveChecklistItemQuantity(
+      'shower_niche',
+      measurements,
+      {
+        templateKey: 'bathroom',
+      }
+    );
     const { fill, comparison } = resolveScopeItemSuggestedPricing(
       'shower_niche',
       input,
@@ -1689,9 +2815,13 @@ describe('allowance split apply pricing', () => {
   it('suggests ~$375 for bath accessories before apply (1 allowance × national average)', () => {
     const input = inputWith({});
     const measurements = buildNormalizedScopeMeasurementsFromInput(input);
-    const resolved = resolveChecklistItemQuantity('mirror_accessories', measurements, {
-      templateKey: 'bathroom',
-    });
+    const resolved = resolveChecklistItemQuantity(
+      'mirror_accessories',
+      measurements,
+      {
+        templateKey: 'bathroom',
+      }
+    );
     const { fill } = resolveScopeItemSuggestedPricing(
       'mirror_accessories',
       input,
@@ -1708,8 +2838,15 @@ describe('allowance split apply pricing', () => {
       landscapeScope: ['trees'],
       treeCount: '5',
     });
-    const resolved = resolveChecklistItemQuantity('trees', input, { templateKey: 'landscaping' });
-    const { fill } = resolveScopeItemSuggestedPricing('trees', input, 'landscaping', resolved);
+    const resolved = resolveChecklistItemQuantity('trees', input, {
+      templateKey: 'landscaping',
+    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'trees',
+      input,
+      'landscaping',
+      resolved
+    );
     expect(fill).toMatchObject({
       material: 1250,
       labor: 1000,
@@ -1723,8 +2860,15 @@ describe('allowance split apply pricing', () => {
       landscapeScope: ['plants'],
       plantCount: '5',
     });
-    const resolved = resolveChecklistItemQuantity('plants', input, { templateKey: 'landscaping' });
-    const { fill } = resolveScopeItemSuggestedPricing('plants', input, 'landscaping', resolved);
+    const resolved = resolveChecklistItemQuantity('plants', input, {
+      templateKey: 'landscaping',
+    });
+    const { fill } = resolveScopeItemSuggestedPricing(
+      'plants',
+      input,
+      'landscaping',
+      resolved
+    );
     expect(fill).toMatchObject({
       material: 175,
       labor: 150,
@@ -1739,7 +2883,9 @@ describe('allowance split apply pricing', () => {
       'demo_clearing',
       demoInput,
       'landscaping',
-      resolveChecklistItemQuantity('demo_clearing', demoInput, { templateKey: 'landscaping' })
+      resolveChecklistItemQuantity('demo_clearing', demoInput, {
+        templateKey: 'landscaping',
+      })
     );
     expect(demo.fill?.total).toBe(250);
 
@@ -1748,16 +2894,23 @@ describe('allowance split apply pricing', () => {
       'soil_prep',
       soilInput,
       'landscaping',
-      resolveChecklistItemQuantity('soil_prep', soilInput, { templateKey: 'landscaping' })
+      resolveChecklistItemQuantity('soil_prep', soilInput, {
+        templateKey: 'landscaping',
+      })
     );
     expect(soil.fill?.total).toBe(300);
 
-    const rockInput = inputWith({ landscapeScope: ['rock'], rockMulchSqft: '50' });
+    const rockInput = inputWith({
+      landscapeScope: ['rock'],
+      rockMulchSqft: '50',
+    });
     const rock = resolveScopeItemSuggestedPricing(
       'rock',
       rockInput,
       'landscaping',
-      resolveChecklistItemQuantity('rock', rockInput, { templateKey: 'landscaping' })
+      resolveChecklistItemQuantity('rock', rockInput, {
+        templateKey: 'landscaping',
+      })
     );
     expect(rock.fill?.total).toBe(250);
   });
@@ -1768,7 +2921,9 @@ describe('allowance split apply pricing', () => {
       'artificial_turf',
       turfInput,
       'landscaping',
-      resolveChecklistItemQuantity('artificial_turf', turfInput, { templateKey: 'landscaping' })
+      resolveChecklistItemQuantity('artificial_turf', turfInput, {
+        templateKey: 'landscaping',
+      })
     );
     expect(turf.fill).toMatchObject({ material: 850, labor: 750, total: 1600 });
 
@@ -1777,7 +2932,9 @@ describe('allowance split apply pricing', () => {
       'sod_turf',
       sodInput,
       'landscaping',
-      resolveChecklistItemQuantity('sod_turf', sodInput, { templateKey: 'landscaping' })
+      resolveChecklistItemQuantity('sod_turf', sodInput, {
+        templateKey: 'landscaping',
+      })
     );
     expect(sod.fill).toMatchObject({ material: 85, labor: 90, total: 175 });
 
@@ -1786,7 +2943,9 @@ describe('allowance split apply pricing', () => {
       'rock',
       rockInput,
       'landscaping',
-      resolveChecklistItemQuantity('rock', rockInput, { templateKey: 'landscaping' }),
+      resolveChecklistItemQuantity('rock', rockInput, {
+        templateKey: 'landscaping',
+      }),
       null,
       'rock_2in'
     );
@@ -1797,7 +2956,9 @@ describe('allowance split apply pricing', () => {
       'irrigation',
       dripInput,
       'landscaping',
-      resolveChecklistItemQuantity('irrigation', dripInput, { templateKey: 'landscaping' }),
+      resolveChecklistItemQuantity('irrigation', dripInput, {
+        templateKey: 'landscaping',
+      }),
       null,
       'drip'
     );
@@ -1816,21 +2977,35 @@ describe('allowance split apply pricing', () => {
       notes,
       templateKey: 'landscaping',
     });
-    const resolved = resolveChecklistItemQuantity('demo_clearing', measurements, {
-      templateKey: 'landscaping',
-      notes,
-    });
+    const resolved = resolveChecklistItemQuantity(
+      'demo_clearing',
+      measurements,
+      {
+        templateKey: 'landscaping',
+        notes,
+      }
+    );
     expect(measurements.demoClearingSqft).toBe(200);
     expect(resolved.quantity).toBe(200);
     expect(resolved.quantitySource).toBe('user_entered');
   });
 
   it('uses concrete planning rates for flatwork, forms, foundation, and demo', () => {
-    const flatworkInput = inputWith({ concreteScope: ['patios'], concreteSqft: '200' });
-    const flatworkNorm = buildNormalizedScopeMeasurementsFromInput(flatworkInput, { templateKey: 'concrete' });
-    const flatworkResolved = resolveChecklistItemQuantity('pour_flatwork', flatworkNorm, {
-      templateKey: 'concrete',
+    const flatworkInput = inputWith({
+      concreteScope: ['patios'],
+      concreteSqft: '200',
     });
+    const flatworkNorm = buildNormalizedScopeMeasurementsFromInput(
+      flatworkInput,
+      { templateKey: 'concrete' }
+    );
+    const flatworkResolved = resolveChecklistItemQuantity(
+      'pour_flatwork',
+      flatworkNorm,
+      {
+        templateKey: 'concrete',
+      }
+    );
     const flatwork = resolveScopeItemSuggestedPricing(
       'pour_flatwork',
       flatworkInput,
@@ -1838,38 +3013,64 @@ describe('allowance split apply pricing', () => {
       flatworkResolved,
       null
     );
-    expect(flatwork.fill).toMatchObject({ material: 800, labor: 1200, total: 2000 });
+    expect(flatwork.fill).toMatchObject({
+      material: 800,
+      labor: 1200,
+      total: 2000,
+    });
 
-    const formsInput = inputWith({ concreteScope: ['forms'], concreteSqft: '200' });
-    const formsNorm = buildNormalizedScopeMeasurementsFromInput(formsInput, { templateKey: 'concrete' });
+    const formsInput = inputWith({
+      concreteScope: ['forms'],
+      concreteSqft: '200',
+    });
+    const formsNorm = buildNormalizedScopeMeasurementsFromInput(formsInput, {
+      templateKey: 'concrete',
+    });
     const forms = resolveScopeItemSuggestedPricing(
       'forms',
       formsInput,
       'concrete',
-      resolveChecklistItemQuantity('forms', formsNorm, { templateKey: 'concrete' }),
+      resolveChecklistItemQuantity('forms', formsNorm, {
+        templateKey: 'concrete',
+      }),
       null
     );
     expect(forms.fill).toMatchObject({ material: 150, labor: 250, total: 400 });
 
-    const foundationInput = inputWith({ concreteScope: ['pour_foundation'], concreteCy: '10' });
-    const foundationNorm = buildNormalizedScopeMeasurementsFromInput(foundationInput, { templateKey: 'concrete' });
+    const foundationInput = inputWith({
+      concreteScope: ['pour_foundation'],
+      concreteCy: '10',
+    });
+    const foundationNorm = buildNormalizedScopeMeasurementsFromInput(
+      foundationInput,
+      { templateKey: 'concrete' }
+    );
     const foundation = resolveScopeItemSuggestedPricing(
       'pour_foundation',
       foundationInput,
       'concrete',
-      resolveChecklistItemQuantity('pour_foundation', foundationNorm, { templateKey: 'concrete' }),
+      resolveChecklistItemQuantity('pour_foundation', foundationNorm, {
+        templateKey: 'concrete',
+      }),
       null
     );
     expect(foundation.fill?.basis).toEqual({ quantity: 10, unit: 'cy' });
     expect(foundation.fill?.total).toBeGreaterThan(3000);
 
-    const demoInput = inputWith({ concreteScope: ['demo_removal'], concreteDemoSqft: '100' });
-    const demoNorm = buildNormalizedScopeMeasurementsFromInput(demoInput, { templateKey: 'concrete' });
+    const demoInput = inputWith({
+      concreteScope: ['demo_removal'],
+      concreteDemoSqft: '100',
+    });
+    const demoNorm = buildNormalizedScopeMeasurementsFromInput(demoInput, {
+      templateKey: 'concrete',
+    });
     const demo = resolveScopeItemSuggestedPricing(
       'demo_removal',
       demoInput,
       'concrete',
-      resolveChecklistItemQuantity('demo_removal', demoNorm, { templateKey: 'concrete' }),
+      resolveChecklistItemQuantity('demo_removal', demoNorm, {
+        templateKey: 'concrete',
+      }),
       null
     );
     expect(demo.fill).toMatchObject({ material: 100, labor: 250, total: 350 });

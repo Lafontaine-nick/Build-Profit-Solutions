@@ -9,6 +9,7 @@ import {
 } from '@/utils/scopePackagesForReview';
 import { SCOPE_CHECKLIST_GROUPS } from '@/utils/estimateScopeChecklistUi';
 import type { ScopeChecklistItem } from '@/utils/estimateScopeChecklistUi';
+import { checklistItemInScope } from '@/utils/scopeItemQuantities';
 import {
   lookupRuleKeyForPackage,
   ruleKeysToTryForPackage,
@@ -117,7 +118,17 @@ describe('scopePackagesForReview', () => {
 
     const step2Ids = step2Rows.map((row) => row.id).filter((id) => id !== 'wet_area_install');
     const step3Ids = step3Rows.map((row) => row.id);
-    expect(step3Ids).toEqual(step2Ids);
+    const expectedStep3Ids = flattenChecklistDisplayOrder(displayItems, 'bathroom')
+      .filter((row) => row.id !== 'wet_area_install')
+      .filter((row) => checklistItemInScope(row))
+      .filter((row) => {
+        if (row.derivedFrom !== 'wet_area_install') return true;
+        const parent = displayItems.find((candidate) => candidate.id === 'wet_area_install');
+        return Boolean(parent && checklistItemInScope(parent));
+      })
+      .map((row) => row.id);
+    expect(step3Ids).toEqual(expectedStep3Ids);
+    expect(step3Ids.length).toBeGreaterThanOrEqual(step2Ids.length);
 
     const draft = {
       scopeAssumptionsConfirmed: true,
@@ -160,16 +171,13 @@ describe('scopePackagesForReview', () => {
     expect(step3Ids).not.toContain('cleanup');
     expect(step3Ids).not.toContain('wet_area_install');
 
-    const allIncludedIds = flattenConfirmScopeVisibleRows(displayItems, {
-      templateKey: 'bathroom',
-      measurements,
-      forStep3Review: false,
-    })
-      .map((row) => row.id)
-      .filter((id) => id !== 'wet_area_install');
+    const includedOrder = flattenChecklistDisplayOrder(displayItems, 'bathroom')
+      .filter((row) => row.id !== 'wet_area_install')
+      .filter((row) => checklistItemInScope(row))
+      .map((row) => row.id);
     let matched = 0;
-    for (let i = 0; i < allIncludedIds.length && matched < step3Ids.length; i++) {
-      if (step3Ids[matched] === allIncludedIds[i]) matched++;
+    for (let i = 0; i < includedOrder.length && matched < step3Ids.length; i++) {
+      if (step3Ids[matched] === includedOrder[i]) matched++;
     }
     expect(matched).toBe(step3Ids.length);
   });
@@ -458,5 +466,137 @@ describe('scopePackagesForReview', () => {
     expect(keys).toContain('countertops');
     expect(keys).toContain('vanity_demo');
     expect(keys).toContain('countertop_demo');
+  });
+
+  it('Step 3 lists QM-embedded roofing scopes that Step 2 Applied pricing includes', () => {
+    const checklistItems: ScopeChecklistItem[] = [
+      {
+        id: 'roofing_system',
+        label: 'Roofing system',
+        state: 'included',
+        inputType: 'choice',
+        choiceId: 'three_tab_shingles',
+      },
+      { id: 'tear_off', label: 'Existing roof / tear-off', state: 'included', inputType: 'yes_no' },
+      { id: 'underlayment', label: 'Premium / synthetic underlayment upgrade', state: 'included', inputType: 'yes_no' },
+      { id: 'roof_vents', label: 'Standard roof vents', state: 'included', inputType: 'yes_no' },
+      { id: 'pipe_boots', label: 'Pipe boots', state: 'included', inputType: 'yes_no' },
+      { id: 'chimney_flashing', label: 'Chimney flashing', state: 'included', inputType: 'yes_no' },
+      { id: 'roof_repairs', label: 'Roof repairs', state: 'included', inputType: 'yes_no' },
+      { id: 'gutters', label: 'Gutters', state: 'included', inputType: 'yes_no' },
+      { id: 'downspouts', label: 'Downspouts', state: 'included', inputType: 'yes_no' },
+      { id: 'cleanup', label: 'Cleanup, haul-off & disposal', state: 'included', inputType: 'yes_no' },
+    ];
+    const measurements = {
+      roofSquares: '30',
+      tradeScopeSelections: {
+        roofing: [
+          'tear_off',
+          'underlayment',
+          'roof_vents',
+          'pipe_boots',
+          'chimney_flashing',
+          'roof_repairs',
+          'gutters',
+          'downspouts',
+          'cleanup',
+        ],
+      },
+      itemQuantities: {
+        roofing_system__material: { quantity: '6600', quantitySource: 'user_entered' },
+        roofing_system__labor: { quantity: '8400', quantitySource: 'user_entered' },
+        tear_off__material: { quantity: '2250', quantitySource: 'user_entered' },
+        tear_off__labor: { quantity: '3000', quantitySource: 'user_entered' },
+        cleanup__material: { quantity: '450', quantitySource: 'user_entered' },
+        cleanup__labor: { quantity: '550', quantitySource: 'user_entered' },
+      },
+      pricingAcceptance: {
+        roofing_system: { totalAmount: 15000 },
+        tear_off: { totalAmount: 5250 },
+        cleanup: { totalAmount: 1000 },
+      },
+    };
+    const displayItems = buildConfirmScopeDisplayItems(
+      checklistItems,
+      measurements,
+      'roofing'
+    );
+    const step3Rows = flattenConfirmScopeVisibleRows(displayItems, {
+      templateKey: 'roofing',
+      measurements,
+      forStep3Review: true,
+    });
+
+    expect(step3Rows.map((row) => row.id)).toEqual(
+      expect.arrayContaining([
+        'roofing_system',
+        'tear_off',
+        'underlayment',
+        'roof_vents',
+        'pipe_boots',
+        'chimney_flashing',
+        'roof_repairs',
+        'gutters',
+        'downspouts',
+        'cleanup',
+      ])
+    );
+
+    const draft = {
+      scopeAssumptionsConfirmed: true,
+      scopeChecklist: { templateKey: 'roofing' },
+      confirmedAssumptions: checklistItems,
+      scopeMeasurements: measurements,
+      scopePackages: [],
+      rooms: [],
+    } as unknown as EstimateAiDraft;
+
+    expect(getScopePackagesForReview(draft).map((pkg) => pkg.checklistItemId)).toEqual(
+      step3Rows.map((row) => row.id)
+    );
+    expect(step3Rows.map((row) => row.id)).not.toContain('shingles_roofing');
+  });
+
+  it('hides shingles_roofing on Step 3 when roofing_system choice owns install pricing', () => {
+    const checklistItems: ScopeChecklistItem[] = [
+      {
+        id: 'roofing_system',
+        label: 'Roofing system',
+        state: 'included',
+        inputType: 'choice',
+        choiceId: 'architectural_shingles',
+      },
+      {
+        id: 'shingles_roofing',
+        label: 'Shingles / roofing install',
+        state: 'included',
+        inputType: 'yes_no',
+      },
+      { id: 'tear_off', label: 'Existing roof / tear-off', state: 'included', inputType: 'yes_no' },
+    ];
+    const measurements = {
+      roofSquares: '45',
+      tradeScopeSelections: { roofing: ['shingles', 'tear_off'] },
+      itemQuantities: {
+        roofing_system__material: { quantity: '30000', quantitySource: 'user_entered' },
+        roofing_system__labor: { quantity: '37500', quantitySource: 'user_entered' },
+      },
+      pricingAcceptance: { roofing_system: { totalAmount: 67500 } },
+    };
+    const displayItems = buildConfirmScopeDisplayItems(
+      checklistItems,
+      measurements,
+      'roofing'
+    );
+    const step3Rows = flattenConfirmScopeVisibleRows(displayItems, {
+      templateKey: 'roofing',
+      measurements,
+      forStep3Review: true,
+    });
+
+    expect(step3Rows.map((row) => row.id)).toEqual(
+      expect.arrayContaining(['roofing_system', 'tear_off'])
+    );
+    expect(step3Rows.map((row) => row.id)).not.toContain('shingles_roofing');
   });
 });

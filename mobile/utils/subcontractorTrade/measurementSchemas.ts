@@ -1,0 +1,262 @@
+import type { SubcontractorTradeKey, TradeMeasurementDefinition } from './types';
+
+const M = (
+  key: string,
+  label: string,
+  unit: string,
+  tier: TradeMeasurementDefinition['tier'],
+  opts: Partial<TradeMeasurementDefinition> = {}
+): TradeMeasurementDefinition => ({
+  key,
+  label,
+  unit,
+  tier,
+  ...opts,
+});
+
+/** Declarative measurement contracts — metadata only in Phase 0. */
+export const TRADE_MEASUREMENT_SCHEMAS: Partial<
+  Record<SubcontractorTradeKey, TradeMeasurementDefinition[]>
+> = {
+  stucco: [
+    M('stuccoGrossWallSqft', 'Gross exterior wall area', 'sqft', 'primary', {
+      quickMeasurementKey: 'stuccoGrossWallSqft',
+    }),
+    M(
+      'stuccoWindowDoorOpeningSqft',
+      'Window & door openings',
+      'sqft',
+      'primary',
+      { quickMeasurementKey: 'stuccoWindowDoorOpeningSqft' }
+    ),
+    M('stuccoGarageOpeningSqft', 'Garage door openings', 'sqft', 'primary', {
+      quickMeasurementKey: 'stuccoGarageOpeningSqft',
+    }),
+    M(
+      'stuccoOtherFinishDeductionSqft',
+      'Other finish deductions',
+      'sqft',
+      'primary',
+      { quickMeasurementKey: 'stuccoOtherFinishDeductionSqft' }
+    ),
+    M('stuccoNetWallSqft', 'Net stucco wall area', 'sqft', 'calculated', {
+      quickMeasurementKey: 'stuccoNetWallSqft',
+      calculatedFrom: [
+        'stuccoGrossWallSqft',
+        'stuccoWindowDoorOpeningSqft',
+        'stuccoGarageOpeningSqft',
+        'stuccoOtherFinishDeductionSqft',
+      ],
+    }),
+    M('stuccoSoffitSqft', 'Soffits / stucco ceilings', 'sqft', 'more', {
+      quickMeasurementKey: 'stuccoSoffitSqft',
+    }),
+    M('stuccoParapetSqft', 'Parapets / raised walls', 'sqft', 'more', {
+      quickMeasurementKey: 'stuccoParapetSqft',
+    }),
+    M('stuccoFoamTrimLf', 'Foam trim / architectural bands', 'LF', 'more', {
+      quickMeasurementKey: 'stuccoFoamTrimLf',
+    }),
+    M('stuccoControlJointLf', 'Control / expansion joints', 'LF', 'more', {
+      quickMeasurementKey: 'stuccoControlJointLf',
+    }),
+    M('stuccoStories', 'Stories', 'story', 'more', {
+      quickMeasurementKey: 'stuccoStories',
+    }),
+    M('stuccoWallHeightFt', 'Typical wall height / story', 'ft', 'more', {
+      quickMeasurementKey: 'stuccoWallHeightFt',
+    }),
+    M('stuccoRepairAffectedSqft', 'Repair affected area', 'sqft', 'more', {
+      quickMeasurementKey: 'stuccoRepairAffectedSqft',
+    }),
+    M('stuccoAccessAffectedSqft', 'Access affected area', 'sqft', 'more', {
+      quickMeasurementKey: 'stuccoAccessAffectedSqft',
+    }),
+  ],
+  roofing: [
+    M('roofAreaSqft', 'Roof surface area', 'sqft', 'primary', {
+      quickMeasurementKey: 'roofAreaSqft',
+    }),
+    M('roofIceWaterShieldSqft', 'Ice & water shield area', 'sqft', 'more', {
+      quickMeasurementKey: 'roofIceWaterShieldSqft',
+    }),
+    M('roofSquares', 'Roof squares', 'squares', 'primary', {
+      quickMeasurementKey: 'roofSquares',
+    }),
+    M('roofPitch', 'Roof pitch / slope', 'ratio', 'primary', {
+      quickMeasurementKey: 'roofPitch',
+    }),
+    M('storyCount', 'Stories', 'story', 'primary', {
+      quickMeasurementKey: 'storyCount',
+    }),
+    M('roofDeckingReplacementSqft', 'Decking replacement', 'sqft', 'more', {
+      quickMeasurementKey: 'roofDeckingReplacementSqft',
+    }),
+    M('roofDripEdgeLf', 'Drip edge', 'LF', 'more', {
+      quickMeasurementKey: 'roofDripEdgeLf',
+    }),
+    M('roofRidgeCapLf', 'Ridge cap', 'LF', 'more', {
+      quickMeasurementKey: 'roofRidgeCapLf',
+    }),
+    M('roofValleyFlashingLf', 'Valley flashing', 'LF', 'more', {
+      quickMeasurementKey: 'roofValleyFlashingLf',
+    }),
+    M('roofStepFlashingLf', 'Step flashing', 'LF', 'more', {
+      quickMeasurementKey: 'roofStepFlashingLf',
+    }),
+    M('roofWallFlashingLf', 'Wall flashing', 'LF', 'more', {
+      quickMeasurementKey: 'roofWallFlashingLf',
+    }),
+    M('roofRidgeVentLf', 'Ridge vent', 'EA', 'more', {
+      quickMeasurementKey: 'roofRidgeVentLf',
+    }),
+    M('roofVentCount', 'Roof vents', 'EA', 'more', {
+      quickMeasurementKey: 'roofVentCount',
+    }),
+    M('roofTurbineVentCount', 'Turbine vents', 'EA', 'more', {
+      quickMeasurementKey: 'roofTurbineVentCount',
+    }),
+    M('roofPipeBootCount', 'Pipe boots', 'EA', 'more', {
+      quickMeasurementKey: 'roofPipeBootCount',
+    }),
+    M('roofChimneyFlashingCount', 'Chimney flashing', 'EA', 'more', {
+      quickMeasurementKey: 'roofChimneyFlashingCount',
+    }),
+    M('roofSkylightCount', 'Skylight flashing', 'EA', 'more', {
+      quickMeasurementKey: 'roofSkylightCount',
+    }),
+    M('roofPenetrationCount', 'Other penetrations', 'EA', 'more', {
+      quickMeasurementKey: 'roofPenetrationCount',
+    }),
+    M('roofRepairAffectedSqft', 'Repair affected area', 'sqft', 'more', {
+      quickMeasurementKey: 'roofRepairAffectedSqft',
+    }),
+    M('roofGutterLf', 'Gutters', 'LF', 'more', {
+      quickMeasurementKey: 'roofGutterLf',
+    }),
+    M('roofDownspoutCount', 'Downspouts', 'EA', 'more', {
+      quickMeasurementKey: 'roofDownspoutCount',
+    }),
+  ],
+  electrical: [],
+  plumbing: [],
+  hvac: [],
+  concrete: [
+    M('concreteDrivewaySqft', 'Driveway area', 'sqft', 'primary', {
+      quickMeasurementKey: 'concreteDrivewaySqft',
+    }),
+    M('concreteSidewalkSqft', 'Sidewalk area', 'sqft', 'primary', {
+      quickMeasurementKey: 'concreteSidewalkSqft',
+    }),
+    M('concretePatioSqft', 'Patio area', 'sqft', 'primary', {
+      quickMeasurementKey: 'concretePatioSqft',
+    }),
+    M('concreteWalkwaySqft', 'Walkway area', 'sqft', 'primary', {
+      quickMeasurementKey: 'concreteWalkwaySqft',
+    }),
+    M('concreteRvPadSqft', 'RV pad area', 'sqft', 'more', {
+      quickMeasurementKey: 'concreteRvPadSqft',
+    }),
+    M('concreteSqft', 'Total flatwork area', 'sqft', 'calculated', {
+      quickMeasurementKey: 'concreteSqft',
+      calculatedFrom: [
+        'concreteDrivewaySqft',
+        'concreteSidewalkSqft',
+        'concretePatioSqft',
+        'concreteWalkwaySqft',
+        'concreteRvPadSqft',
+      ],
+    }),
+    M('concreteCy', 'Footing / foundation concrete', 'CY', 'primary', {
+      quickMeasurementKey: 'concreteCy',
+    }),
+    M('excavationCy', 'Excavation', 'CY', 'more', {
+      quickMeasurementKey: 'excavationCy',
+    }),
+    M('concreteDemoSqft', 'Concrete demo / removal', 'sqft', 'more', {
+      quickMeasurementKey: 'concreteDemoSqft',
+    }),
+    M('concreteReinforcementSqft', 'Rebar / mesh area', 'sqft', 'more', {
+      quickMeasurementKey: 'concreteReinforcementSqft',
+    }),
+    M('concreteSubgradePrepSqft', 'Subgrade prep / grading', 'sqft', 'more', {
+      quickMeasurementKey: 'concreteSubgradePrepSqft',
+    }),
+    M('complexFormingLf', 'Complex forming', 'LF', 'more', {
+      quickMeasurementKey: 'complexFormingLf',
+    }),
+  ],
+  framing: [],
+  drywall: [
+    M('drywallSqft', 'Total drywall area', 'sqft', 'primary', {
+      quickMeasurementKey: 'drywallSqft',
+    }),
+  ],
+  insulation: [],
+  flooring: [
+    M('flooringSqft', 'Total flooring area', 'sqft', 'primary', {
+      quickMeasurementKey: 'flooringSqft',
+    }),
+    M('flooringLvpSqft', 'LVP install area', 'sqft', 'primary', {
+      quickMeasurementKey: 'flooringLvpSqft',
+    }),
+    M('flooringLaminateSqft', 'Laminate install area', 'sqft', 'primary', {
+      quickMeasurementKey: 'flooringLaminateSqft',
+    }),
+    M(
+      'flooringEngineeredHardwoodSqft',
+      'Engineered hardwood install area',
+      'sqft',
+      'more',
+      { quickMeasurementKey: 'flooringEngineeredHardwoodSqft' }
+    ),
+    M(
+      'flooringSolidHardwoodSqft',
+      'Solid hardwood install area',
+      'sqft',
+      'more',
+      { quickMeasurementKey: 'flooringSolidHardwoodSqft' }
+    ),
+    M('flooringTileSqft', 'Tile install area', 'sqft', 'primary', {
+      quickMeasurementKey: 'flooringTileSqft',
+    }),
+    M('flooringCarpetSqft', 'Carpet install area', 'sqft', 'primary', {
+      quickMeasurementKey: 'flooringCarpetSqft',
+    }),
+    M(
+      'flooringSheetVinylSqft',
+      'Sheet vinyl / VCT install area',
+      'sqft',
+      'more',
+      { quickMeasurementKey: 'flooringSheetVinylSqft' }
+    ),
+    M('floorDemoSqft', 'Floor demo / removal', 'sqft', 'more', {
+      quickMeasurementKey: 'floorDemoSqft',
+    }),
+    M('floorPrepSqft', 'Affected floor-prep area', 'sqft', 'more', {
+      quickMeasurementKey: 'floorPrepSqft',
+    }),
+    M('underlaymentSqft', 'Underlayment', 'sqft', 'more', {
+      quickMeasurementKey: 'underlaymentSqft',
+    }),
+    M('moistureBarrierSqft', 'Moisture barrier', 'sqft', 'more', {
+      quickMeasurementKey: 'moistureBarrierSqft',
+    }),
+    M('baseboardLf', 'Baseboard / trim', 'LF', 'more', {
+      quickMeasurementKey: 'baseboardLf',
+    }),
+    M('transitionCount', 'Transitions / reducers', 'each', 'more', {
+      quickMeasurementKey: 'transitionCount',
+    }),
+    M('quarterRoundLf', 'Quarter round', 'LF', 'more', {
+      quickMeasurementKey: 'quarterRoundLf',
+    }),
+  ],
+  windows_doors: [],
+};
+
+export function getTradeMeasurementSchema(
+  tradeKey: SubcontractorTradeKey
+): TradeMeasurementDefinition[] {
+  return TRADE_MEASUREMENT_SCHEMAS[tradeKey] || [];
+}

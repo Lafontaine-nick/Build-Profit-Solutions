@@ -77,7 +77,10 @@ import {
   insulationEnvelopeInputsFromPlanFacts,
   resolveInsulationEnvelopePlanningQuantity,
 } from '@/utils/insulationEnvelopeQuantity';
-import { resolveDraftScopeNotes } from '@/utils/estimateAiDraft';
+import {
+  resolveDraftScopeNotes,
+  type ScopeMeasurements,
+} from '@/utils/estimateAiDraft';
 import {
   buildFloorPrepPricingContext,
   demoCatalogAssumptionNote,
@@ -390,7 +393,27 @@ export type NormalizedScopeMeasurements = {
   concreteEdgingLf: number | null;
   boulderCount: number | null;
   landscapeLightCount: number | null;
+  roofAreaSqft: number | null;
+  roofIceWaterShieldSqft: number | null;
   roofSquares: number | null;
+  roofPitch: string | null;
+  storyCount: number | null;
+  roofDeckingReplacementSqft: number | null;
+  roofDripEdgeLf: number | null;
+  roofRidgeCapLf: number | null;
+  roofRidgeVentLf: number | null;
+  roofValleyFlashingLf: number | null;
+  roofStepFlashingLf: number | null;
+  roofWallFlashingLf: number | null;
+  roofChimneyFlashingCount: number | null;
+  roofPipeBootCount: number | null;
+  roofVentCount: number | null;
+  roofTurbineVentCount: number | null;
+  roofSkylightCount: number | null;
+  roofPenetrationCount: number | null;
+  roofRepairAffectedSqft: number | null;
+  roofGutterLf: number | null;
+  roofDownspoutCount: number | null;
   drywallSqft: number | null;
   concreteSqft: number | null;
   concreteReinforcementSqft: number | null;
@@ -401,11 +424,7 @@ export type NormalizedScopeMeasurements = {
   additionalHaulOffLoadCount: number | null;
   concreteDemoSqft: number | null;
   concreteDemoThicknessBand:
-    | 'thin_2_3'
-    | 'standard_4'
-    | 'heavy_5_6'
-    | 'structural_7_plus'
-    | null;
+    'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus' | null;
   concreteDemoThicknessBands: Array<
     'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus'
   > | null;
@@ -486,8 +505,7 @@ export type ScopeItemQuantityValue = {
   includesCountertops?: boolean;
   /** Optional durable primary/pricing/benchmark roles (measurement-semantics). */
   measurementState?:
-    | import('@/utils/measurementSemantics').ScopeMeasurementState
-    | null;
+    import('@/utils/measurementSemantics').ScopeMeasurementState | null;
 };
 
 export type ResolvedItemQuantity = {
@@ -541,10 +559,7 @@ export type NationalAverageBudgetSplit = {
   rateSourceReference?: string;
   scopeProfileSource?: ScopeProfileSource;
   productionStatus?:
-    | 'production_ready'
-    | 'review_required'
-    | 'fallback_only'
-    | 'disabled';
+    'production_ready' | 'review_required' | 'fallback_only' | 'disabled';
   geographicBasis?: 'national' | 'state' | 'southern_utah';
   regionalMultiplier?: number;
   regionalStateCode?: string | null;
@@ -576,10 +591,7 @@ export type BenchmarkPricingCoverageStatus =
   | 'needs_review';
 
 export type BenchmarkPricingProductionStatus =
-  | 'production_ready'
-  | 'review_required'
-  | 'fallback_only'
-  | 'disabled';
+  'production_ready' | 'review_required' | 'fallback_only' | 'disabled';
 
 const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
   string,
@@ -1277,6 +1289,97 @@ const NATIONAL_AVERAGE_BUDGET_SPLITS: Record<
     labor: 325,
     sourceLabel:
       'Suggested budget split · National Average · new-construction roofing',
+  },
+  decking_repair: {
+    unit: 'sqft',
+    material: 2,
+    labor: 3,
+    sourceLabel:
+      'BPS national planning rate · standard roof decking replacement',
+  },
+  drip_edge: {
+    unit: 'lf',
+    material: 1.5,
+    labor: 2.5,
+    sourceLabel: 'BPS national planning rate · drip-edge replacement/add-on',
+  },
+  ridge_cap: {
+    unit: 'lf',
+    material: 2.5,
+    labor: 4.5,
+    sourceLabel: 'BPS national planning rate · ridge-cap replacement/add-on',
+  },
+  valley_flashing: {
+    unit: 'lf',
+    material: 3.5,
+    labor: 6.5,
+    sourceLabel: 'BPS national planning rate · valley flashing',
+  },
+  step_flashing: {
+    unit: 'lf',
+    material: 4,
+    labor: 8,
+    sourceLabel: 'BPS national planning rate · step flashing',
+  },
+  wall_flashing: {
+    unit: 'lf',
+    material: 3.5,
+    labor: 6.5,
+    sourceLabel: 'BPS national planning rate · wall flashing',
+  },
+  ridge_vent: {
+    unit: 'each',
+    material: 4,
+    labor: 8,
+    sourceLabel: 'BPS national planning rate · ridge vent',
+  },
+  roof_vents: {
+    unit: 'each',
+    material: 75,
+    labor: 150,
+    sourceLabel: 'BPS national planning rate · standard roof vent',
+  },
+  turbine_vents: {
+    unit: 'each',
+    material: 100,
+    labor: 200,
+    sourceLabel: 'BPS national planning rate · turbine vent',
+  },
+  pipe_boots: {
+    unit: 'each',
+    material: 50,
+    labor: 125,
+    sourceLabel: 'BPS national planning rate · pipe boot',
+  },
+  chimney_flashing: {
+    unit: 'each',
+    material: 250,
+    labor: 400,
+    sourceLabel: 'BPS national planning rate · chimney flashing',
+  },
+  skylight_flashing: {
+    unit: 'each',
+    material: 200,
+    labor: 300,
+    sourceLabel: 'BPS national planning rate · skylight flashing',
+  },
+  roof_penetrations: {
+    unit: 'each',
+    material: 75,
+    labor: 125,
+    sourceLabel: 'BPS national planning rate · other roof penetration',
+  },
+  gutters: {
+    unit: 'lf',
+    material: 4,
+    labor: 6,
+    sourceLabel: 'BPS national planning rate · standard seamless aluminum gutters',
+  },
+  downspouts: {
+    unit: 'each',
+    material: 50,
+    labor: 75,
+    sourceLabel: 'BPS national planning rate · standard aluminum downspouts',
   },
   stucco: {
     unit: 'sqft',
@@ -5380,6 +5483,14 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     quantityHelper: 'Enter underlayment sqft.',
     missingMessage: 'Enter underlayment sqft.',
   },
+  ice_water_shield: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'roofIceWaterShieldSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter dedicated ice & water shield area sqft.',
+    missingMessage: 'Enter ice & water shield area sqft.',
+  },
   moisture_barrier: {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
@@ -5531,6 +5642,178 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     requiresUserQuantity: true,
     quantityHelper: 'Enter roof squares.',
     missingMessage: 'Enter roof squares.',
+  },
+  roofing_system: {
+    defaultUnit: 'squares',
+    allowedUnits: ['squares', 'sqft', 'lump_sum', 'allowance'],
+    measurementKey: 'roofSquares',
+    requiresUserQuantity: false,
+    quantityHelper:
+      'Select one primary roofing system; unsupported systems remain PRICING_GAP.',
+    missingMessage: 'Select one roofing system.',
+  },
+  roof_pitch_complexity_access: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: false,
+    quantityHelper:
+      'Confirm conditions only; no premium is applied in this phase.',
+    missingMessage: 'Confirm pitch, complexity, and access conditions.',
+  },
+  roof_exclusions: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    requiresUserQuantity: false,
+    quantityHelper:
+      'Confirm structural, hazardous, solar, crane, permit, and specialty exclusions.',
+    missingMessage: 'Confirm Roofing exclusions and special conditions.',
+  },
+  decking_repair: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'roofDeckingReplacementSqft',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter only the roof decking replacement area in sqft.',
+    missingMessage: 'Enter roof decking replacement sqft.',
+  },
+  roof_repairs: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'roofRepairAffectedSqft',
+    requiresUserQuantity: true,
+    quantityHelper:
+      'Enter affected repair area only, separate from total roof area.',
+    missingMessage: 'Enter affected roof repair sqft or custom pricing.',
+  },
+  flashing: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    measurementKeys: [],
+    requiresUserQuantity: false,
+    quantityHelper:
+      'Legacy flashing row migrated to dedicated LF accessory items.',
+    missingMessage: 'Select a dedicated flashing accessory.',
+  },
+  vents_penetrations: {
+    defaultUnit: 'allowance',
+    allowedUnits: ['allowance', 'lump_sum'],
+    measurementKeys: [],
+    requiresUserQuantity: false,
+    quantityHelper:
+      'Legacy mixed-unit row migrated to dedicated ventilation and penetration items.',
+    missingMessage: 'Select a dedicated ventilation or penetration item.',
+  },
+  drip_edge: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'roofDripEdgeLf',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter drip-edge LF only.',
+    missingMessage: 'Enter drip-edge LF or custom pricing.',
+  },
+  ridge_cap: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'roofRidgeCapLf',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter ridge-cap LF only.',
+    missingMessage: 'Enter ridge-cap LF or custom pricing.',
+  },
+  valley_flashing: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'roofValleyFlashingLf',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter valley flashing LF only.',
+    missingMessage: 'Enter valley flashing LF or custom pricing.',
+  },
+  step_flashing: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'roofStepFlashingLf',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter step flashing LF only.',
+    missingMessage: 'Enter step flashing LF or custom pricing.',
+  },
+  wall_flashing: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'roofWallFlashingLf',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter wall flashing LF only.',
+    missingMessage: 'Enter wall flashing LF or custom pricing.',
+  },
+  ridge_vent: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'roofRidgeVentLf',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter ridge vent count only.',
+    missingMessage: 'Enter ridge vent EA or custom pricing.',
+  },
+  roof_vents: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'roofVentCount',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter standard roof vent count only.',
+    missingMessage: 'Enter standard roof vent EA or custom pricing.',
+  },
+  turbine_vents: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'roofTurbineVentCount',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter turbine vent count only.',
+    missingMessage: 'Enter turbine vent EA or custom pricing.',
+  },
+  pipe_boots: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'roofPipeBootCount',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter pipe boot count only.',
+    missingMessage: 'Enter pipe boot EA or custom pricing.',
+  },
+  chimney_flashing: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'roofChimneyFlashingCount',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter chimney flashing count only.',
+    missingMessage: 'Enter chimney flashing EA or custom pricing.',
+  },
+  skylight_flashing: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'roofSkylightCount',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter skylight flashing count only.',
+    missingMessage: 'Enter skylight flashing EA or custom pricing.',
+  },
+  roof_penetrations: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'roofPenetrationCount',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter other roof penetration count only.',
+    missingMessage: 'Enter other penetration EA or custom pricing.',
+  },
+  gutters: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'roofGutterLf',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter gutter run LF only.',
+    missingMessage: 'Enter gutter LF or custom pricing.',
+  },
+  downspouts: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'roofDownspoutCount',
+    requiresUserQuantity: true,
+    quantityHelper: 'Enter downspout count only.',
+    missingMessage: 'Enter downspout EA or custom pricing.',
   },
   shingles_roofing: {
     defaultUnit: 'squares',
@@ -5815,7 +6098,27 @@ export function normalizeScopeMeasurements(
     concreteEdgingLf: num(measurements?.concreteEdgingLf),
     boulderCount: num(measurements?.boulderCount),
     landscapeLightCount: num(measurements?.landscapeLightCount),
+    roofAreaSqft: num(measurements?.roofAreaSqft),
+    roofIceWaterShieldSqft: num(measurements?.roofIceWaterShieldSqft),
     roofSquares: num(measurements?.roofSquares),
+    roofPitch: measurements?.roofPitch ?? null,
+    storyCount: num(measurements?.storyCount),
+    roofDeckingReplacementSqft: num(measurements?.roofDeckingReplacementSqft),
+    roofDripEdgeLf: num(measurements?.roofDripEdgeLf),
+    roofRidgeCapLf: num(measurements?.roofRidgeCapLf),
+    roofRidgeVentLf: num(measurements?.roofRidgeVentLf),
+    roofValleyFlashingLf: num(measurements?.roofValleyFlashingLf),
+    roofStepFlashingLf: num(measurements?.roofStepFlashingLf),
+    roofWallFlashingLf: num(measurements?.roofWallFlashingLf),
+    roofChimneyFlashingCount: num(measurements?.roofChimneyFlashingCount),
+    roofPipeBootCount: num(measurements?.roofPipeBootCount),
+    roofVentCount: num(measurements?.roofVentCount),
+    roofTurbineVentCount: num(measurements?.roofTurbineVentCount),
+    roofSkylightCount: num(measurements?.roofSkylightCount),
+    roofPenetrationCount: num(measurements?.roofPenetrationCount),
+    roofRepairAffectedSqft: num(measurements?.roofRepairAffectedSqft),
+    roofGutterLf: num(measurements?.roofGutterLf),
+    roofDownspoutCount: num(measurements?.roofDownspoutCount),
     drywallSqft: num(measurements?.drywallSqft),
     concreteSqft: num(measurements?.concreteSqft),
     concreteReinforcementSqft: num(measurements?.concreteReinforcementSqft),
@@ -7221,10 +7524,41 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
     staining_sealing: { unit: 'sqft', measurementKeys: ['deckSqft'] },
     tear_off: { unit: 'squares', measurementKeys: ['roofSquares'] },
     shingles_roofing: { unit: 'squares', measurementKeys: ['roofSquares'] },
-    decking_repair: { unit: 'sqft', measurementKeys: ['roofSquares'] },
-    flashing: { unit: 'lf' },
-    vents_penetrations: { unit: 'each' },
-    gutters_downspouts: { unit: 'lf' },
+    decking_repair: {
+      unit: 'sqft',
+      measurementKeys: ['roofDeckingReplacementSqft'],
+    },
+    flashing: {
+      unit: 'allowance',
+      measurementKeys: [],
+    },
+    vents_penetrations: {
+      unit: 'allowance',
+      measurementKeys: [],
+    },
+    drip_edge: { unit: 'lf', measurementKeys: ['roofDripEdgeLf'] },
+    ridge_cap: { unit: 'lf', measurementKeys: ['roofRidgeCapLf'] },
+    valley_flashing: { unit: 'lf', measurementKeys: ['roofValleyFlashingLf'] },
+    step_flashing: { unit: 'lf', measurementKeys: ['roofStepFlashingLf'] },
+    wall_flashing: { unit: 'lf', measurementKeys: ['roofWallFlashingLf'] },
+    ridge_vent: { unit: 'each', measurementKeys: ['roofRidgeVentLf'] },
+    roof_vents: { unit: 'each', measurementKeys: ['roofVentCount'] },
+    turbine_vents: { unit: 'each', measurementKeys: ['roofTurbineVentCount'] },
+    pipe_boots: { unit: 'each', measurementKeys: ['roofPipeBootCount'] },
+    chimney_flashing: {
+      unit: 'each',
+      measurementKeys: ['roofChimneyFlashingCount'],
+    },
+    skylight_flashing: {
+      unit: 'each',
+      measurementKeys: ['roofSkylightCount'],
+    },
+    roof_penetrations: {
+      unit: 'each',
+      measurementKeys: ['roofPenetrationCount'],
+    },
+    gutters: { unit: 'lf', measurementKeys: ['roofGutterLf'] },
+    downspouts: { unit: 'each', measurementKeys: ['roofDownspoutCount'] },
     service_call: { unit: 'each' },
     fixture_repair: { unit: 'each' },
     fixture_replace: { unit: 'each' },
@@ -7691,8 +8025,7 @@ export function resolveAllowanceEditorPricingBasis(
     garageSf,
     preferredUnit,
     preferredMeasurementKeys: preferred?.measurementKeys as
-      | string[]
-      | undefined,
+      string[] | undefined,
     sumMeasurementKeys: preferred?.sumMeasurementKeys,
     defaultUnit: rule.defaultUnit,
   });
@@ -7806,41 +8139,37 @@ export function resolveAllowanceEditorPricingBasis(
     measurementsInput
   );
   if (fromPricingBasis) {
-    if (
-      !(
-        fromPricingBasis.unit === 'sqft' &&
-        livingSf != null &&
-        Math.abs(fromPricingBasis.quantity - livingSf) < 0.51 &&
-        (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit)) ||
-          id === 'insulation' ||
-          id === 'interior_paint' ||
-          id === 'paint' ||
-          id === 'paint_trim' ||
-          id === 'drywall' ||
-          id === 'hang' ||
-          id === 'finish_tape')
-      )
-    ) {
+    if (!(
+      fromPricingBasis.unit === 'sqft' &&
+      livingSf != null &&
+      Math.abs(fromPricingBasis.quantity - livingSf) < 0.51 &&
+      (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit)) ||
+        id === 'insulation' ||
+        id === 'interior_paint' ||
+        id === 'paint' ||
+        id === 'paint_trim' ||
+        id === 'drywall' ||
+        id === 'hang' ||
+        id === 'finish_tape')
+    )) {
       return fromPricingBasis;
     }
   }
   const fromRule = firstMeasurementForRule(rule, measurementsInput);
   if (fromRule) {
-    if (
-      !(
-        fromRule.unit === 'sqft' &&
-        livingSf != null &&
-        Math.abs(fromRule.quantity - livingSf) < 0.51 &&
-        (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit)) ||
-          id === 'insulation' ||
-          id === 'interior_paint' ||
-          id === 'paint' ||
-          id === 'paint_trim' ||
-          id === 'drywall' ||
-          id === 'hang' ||
-          id === 'finish_tape')
-      )
-    ) {
+    if (!(
+      fromRule.unit === 'sqft' &&
+      livingSf != null &&
+      Math.abs(fromRule.quantity - livingSf) < 0.51 &&
+      (NON_LIVING_SF_BASIS_UNITS.has(normalizeBasisUnit(preferredUnit)) ||
+        id === 'insulation' ||
+        id === 'interior_paint' ||
+        id === 'paint' ||
+        id === 'paint_trim' ||
+        id === 'drywall' ||
+        id === 'hang' ||
+        id === 'finish_tape')
+    )) {
       return fromRule;
     }
   }
@@ -8057,10 +8386,7 @@ export function syncDualAllowanceSqftFields(
   const sync = (
     itemId: string,
     field:
-      | 'backsplashSqft'
-      | 'wallPaintSqft'
-      | 'showerWallTileSqft'
-      | 'flooringSqft'
+      'backsplashSqft' | 'wallPaintSqft' | 'showerWallTileSqft' | 'flooringSqft'
   ) => {
     if (parseScopeMeasurementInput(String(next[field] ?? ''))) return;
     const q = sqftFromItemQuantities(input, itemId);
@@ -8944,6 +9270,7 @@ function measurementUnitForKey(
   key: keyof Omit<NormalizedScopeMeasurements, 'itemQuantities'>,
   fallbackUnit: string
 ): string {
+  if (key === 'roofRidgeVentLf') return 'each';
   if (/Sqft$/.test(key)) return 'sqft';
   if (/Lf$/.test(key)) return 'lf';
   if (/Cy$/.test(key)) return 'cy';
@@ -9159,10 +9486,7 @@ export function resolveSuggestedBudgetSplitDisplay(
 // fill, labor-only fill, and a comparison split when notes priced both legs.
 
 export type PricingLegSource =
-  | 'notes'
-  | 'template'
-  | 'local_benchmark'
-  | 'national_average';
+  'notes' | 'template' | 'local_benchmark' | 'national_average';
 
 export type ScopePricingLineItem = {
   name?: string | null;
@@ -9363,9 +9687,7 @@ export function resolveTemplateRateForItem(
 }
 
 export type SuggestedPricingMode =
-  | 'note_total_split'
-  | 'fill_missing'
-  | 'suggested_price';
+  'note_total_split' | 'fill_missing' | 'suggested_price';
 
 /** Suggested pricing block enriched with per-leg sources for the Confirm Scope UI. */
 export type SuggestedPricingBlock = {
@@ -9830,7 +10152,13 @@ function regionalAdjustedNationalAverage(
   const withBarometer =
     itemId === 'site_prep' ||
     itemId === 'excavation' ||
-    itemId === 'pour_foundation'
+    itemId === 'pour_foundation' ||
+    itemId === 'roofing' ||
+    itemId === 'roof_tie_in' ||
+    itemId === 'shingles_roofing' ||
+    itemId === 'tear_off' ||
+    itemId === 'decking_repair' ||
+    itemId === 'roof_repairs'
       ? base
       : applyBuilderBudgetBarometer(itemId, unit || base.unit, base) || base;
 
@@ -11060,6 +11388,53 @@ export function resolveScopeItemSuggestedPricing(
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule) return empty;
+  const isRoofingTemplate =
+    String(templateKey || '').toLowerCase() === 'roofing';
+  if (
+    isRoofingTemplate &&
+    (itemId === 'underlayment' || itemId === 'ice_water_shield')
+  ) {
+    const selections = measurementsInput.tradeScopeSelections?.roofing;
+    if (!Array.isArray(selections) || !selections.includes(itemId)) {
+      return { fill: null, comparison: null };
+    }
+  }
+  const selectedRoofingSystem = pricingContext?.checklistItems?.find(
+    row => row.id === 'roofing_system'
+  );
+  if (
+    isRoofingTemplate &&
+    itemId === 'roofing_system' &&
+    selectedRoofingSystem?.choiceId &&
+    !['not_in_scope', 'unsure'].includes(selectedRoofingSystem.choiceId)
+  ) {
+    const roofingSelections =
+      measurementsInput.tradeScopeSelections?.roofing;
+    const hasExplicitRoofingSelectionState =
+      measurementsInput.tradeScopeSelections &&
+      Object.prototype.hasOwnProperty.call(
+        measurementsInput.tradeScopeSelections,
+        'roofing'
+      );
+    const baseSystemSelected =
+      Array.isArray(roofingSelections) &&
+      roofingSelections.some(
+        selection =>
+          selection === 'shingles' || selection === 'shingles_roofing'
+      );
+    if (hasExplicitRoofingSelectionState && !baseSystemSelected) {
+      return empty;
+    }
+    return resolveScopeItemSuggestedPricing(
+      'shingles_roofing',
+      measurementsInput,
+      templateKey,
+      resolved,
+      pricingContext,
+      selectedRoofingSystem.choiceId,
+      originalNotes
+    );
+  }
   const isStuccoTemplate = String(templateKey || '').toLowerCase() === 'stucco';
   const stuccoAssemblyComponents = new Set([
     'stucco_wrb',
@@ -12766,6 +13141,183 @@ export function resolveScopeItemSuggestedPricing(
     };
   }
 
+  if (
+    itemId === 'underlayment' &&
+    String(templateKey || '').toLowerCase() === 'roofing'
+  ) {
+    average = {
+      ...(average || {}),
+      material: 0.75,
+      labor: 0.5,
+      unit: 'sqft',
+      sourceLabel:
+        'BPS national planning rate · premium / synthetic roofing underlayment upgrade',
+    };
+  }
+
+  if (
+    itemId === 'ice_water_shield' &&
+    String(templateKey || '').toLowerCase() === 'roofing'
+  ) {
+    average = {
+      ...(average || {}),
+      material: 1.2,
+      labor: 0.8,
+      unit: 'sqft',
+      sourceLabel:
+        'BPS national planning rate · localized ice & water shield',
+    };
+  }
+
+  if (itemId === 'tear_off') {
+    const tearOffRates: Record<
+      string,
+      { material: number; labor: number; label: string }
+    > = {
+      one_layer: {
+        material: 35,
+        labor: 140,
+        label:
+          'one-layer asphalt removal, loading, ordinary haul-off, and cleanup',
+      },
+      two_layers: {
+        material: 50,
+        labor: 200,
+        label:
+          'two-layer asphalt removal, loading, ordinary haul-off, and cleanup',
+      },
+      three_plus_custom: {
+        material: 65,
+        labor: 260,
+        label:
+          'three-plus-layer asphalt removal, loading, ordinary haul-off, and cleanup · review before bid',
+      },
+      tile_removal: {
+        material: 100,
+        labor: 300,
+        label: 'tile roof removal, loading, ordinary haul-off, and cleanup · review before bid',
+      },
+      metal_removal: {
+        material: 55,
+        labor: 220,
+        label: 'metal roof removal, loading, ordinary haul-off, and cleanup · review before bid',
+      },
+      membrane_removal: {
+        material: 60,
+        labor: 240,
+        label:
+          'membrane roof removal, loading, ordinary haul-off, and cleanup · review before bid',
+      },
+    };
+    if (!choiceId || choiceId === 'new_construction') return empty;
+    const selectedRate = tearOffRates[String(choiceId)];
+    if (!selectedRate) return empty;
+    average = {
+      ...(average || {}),
+      material: selectedRate.material,
+      labor: selectedRate.labor,
+      unit: 'squares',
+      sourceLabel: `BPS national planning rate · ${selectedRate.label}`,
+    };
+  }
+
+  if (itemId === 'roof_repairs') {
+    const repairRates: Record<
+      string,
+      { material: number; labor: number; minimum: number; label: string }
+    > = {
+      light_repair: {
+        material: 2.4,
+        labor: 5.6,
+        minimum: 400,
+        label: 'light patch / shingle repair',
+      },
+      moderate_repair: {
+        material: 3.6,
+        labor: 8.4,
+        minimum: 600,
+        label: 'moderate localized repair',
+      },
+      full_depth_repair: {
+        material: 5.4,
+        labor: 12.6,
+        minimum: 750,
+        label: 'full-depth roofing repair',
+      },
+    };
+    const selectedRate = repairRates[String(choiceId || '')];
+    if (!selectedRate) return empty;
+    average = {
+      ...(average || {}),
+      material: selectedRate.material,
+      labor: selectedRate.labor,
+      unit: 'sqft',
+      sourceLabel: `BPS national planning rate · ${selectedRate.label}`,
+    };
+  }
+
+  if (itemId === 'shingles_roofing') {
+    const roofingSystem = pricingContext?.checklistItems?.find(
+      row => row.id === 'roofing_system'
+    )?.choiceId;
+    const systemRates: Record<
+      string,
+      { material: number; labor: number; label: string }
+    > = {
+      architectural_shingles: {
+        material: 250,
+        labor: 325,
+        label: 'architectural asphalt shingles',
+      },
+      three_tab_shingles: {
+        material: 220,
+        labor: 280,
+        label: '3-tab asphalt shingles',
+      },
+      exposed_fastener_metal: {
+        material: 400,
+        labor: 500,
+        label: 'exposed-fastener metal roofing',
+      },
+      standing_seam_metal: {
+        material: 575,
+        labor: 725,
+        label: 'standing-seam metal roofing',
+      },
+      concrete_clay_tile: {
+        material: 650,
+        labor: 850,
+        label: 'concrete / clay tile roofing',
+      },
+      tpo: {
+        material: 375,
+        labor: 475,
+        label: 'TPO roofing',
+      },
+      epdm: {
+        material: 400,
+        labor: 500,
+        label: 'EPDM roofing',
+      },
+      modified_bitumen: {
+        material: 275,
+        labor: 375,
+        label: 'modified bitumen roofing',
+      },
+    };
+    if (roofingSystem && roofingSystem !== 'architectural_shingles') {
+      const selectedRate = systemRates[String(roofingSystem)];
+      if (!selectedRate) return empty;
+      average = {
+        ...(average || {}),
+        material: selectedRate.material,
+        labor: selectedRate.labor,
+        unit: 'squares',
+        sourceLabel: `BPS national planning rate · ${selectedRate.label} · review before bid`,
+      };
+    }
+  }
+
   let unit = average?.unit || preferredUnit;
 
   // Quantity in the rate unit (e.g. 850 sqft, 220 lf) — not applied dollar totals.
@@ -13684,8 +14236,8 @@ export function resolveScopeItemSuggestedPricing(
   );
   const dynamicFlooringInstall = Boolean(
     flooringInstallAverage &&
-      unit === 'sqft' &&
-      String(templateKey || '').toLowerCase() === 'flooring'
+    unit === 'sqft' &&
+    String(templateKey || '').toLowerCase() === 'flooring'
   );
   if (dynamicFlooringInstall && flooringInstallAverage) {
     average = {
@@ -14017,8 +14569,8 @@ export function resolveScopeItemSuggestedPricing(
   ].includes(String(unit || '').toLowerCase());
   const hasPhysicalTakeoffRates = Boolean(
     isPhysicalTakeoffUnit &&
-      count > 0 &&
-      hasAnyPricingRate(materialRate, laborRate)
+    count > 0 &&
+    hasAnyPricingRate(materialRate, laborRate)
   );
   if (!template && !hasPhysicalTakeoffRates) {
     const benchmarkFill = benchmarkSuggestedPricingBlock(
@@ -14093,16 +14645,51 @@ export function resolveScopeItemSuggestedPricing(
   let calculatedFlatworkTotal = round2(calculatedMaterial + calculatedLabor);
   const repairMinimum =
     isStuccoTemplate && itemId === 'stucco_repairs'
-      ? ({
-          light_repair: 400,
-          moderate_repair: 600,
-          full_depth_repair: 750,
-        } as Record<string, number>)[String(choiceId || '')] || 0
-      : 0;
+      ? (
+          {
+            light_repair: 400,
+            moderate_repair: 600,
+            full_depth_repair: 750,
+          } as Record<string, number>
+        )[String(choiceId || '')] || 0
+      : itemId === 'roof_repairs'
+        ? (
+            {
+              light_repair: 400,
+              moderate_repair: 600,
+              full_depth_repair: 750,
+            } as Record<string, number>
+          )[String(choiceId || '')] || 0
+        : 0;
+  const smallJobMinimum = Math.max(
+    repairMinimum,
+    itemId === 'decking_repair'
+      ? 300
+      : itemId === 'gutters'
+        ? 400
+        : itemId === 'downspouts'
+          ? 250
+          : [
+            'drip_edge',
+            'ridge_cap',
+            'valley_flashing',
+            'step_flashing',
+            'wall_flashing',
+            'ridge_vent',
+            'roof_vents',
+            'turbine_vents',
+            'pipe_boots',
+            'chimney_flashing',
+            'skylight_flashing',
+            'roof_penetrations',
+          ].includes(itemId)
+            ? 250
+            : 0
+  );
   const repairMinimumApplied =
-    repairMinimum > calculatedFlatworkTotal && calculatedFlatworkTotal > 0;
+    smallJobMinimum > calculatedFlatworkTotal && calculatedFlatworkTotal > 0;
   const repairMinimumScale = repairMinimumApplied
-    ? repairMinimum / calculatedFlatworkTotal
+    ? smallJobMinimum / calculatedFlatworkTotal
     : 1;
   if (
     isStandardConcreteFlatwork &&
@@ -14182,10 +14769,24 @@ export function resolveScopeItemSuggestedPricing(
   }
   const effectiveMaterialRateForBuckets =
     effectiveMaterialRate != null
-      ? round2(effectiveMaterialRate * flatworkMinimumScale)
+      ? round2(
+          effectiveMaterialRate *
+            (repairMinimumApplied &&
+            String(templateKey || '').toLowerCase() === 'roofing'
+              ? 1
+              : flatworkMinimumScale)
+        )
       : effectiveMaterialRate;
   const effectiveLaborRate =
-    laborRate != null ? round2(laborRate * flatworkMinimumScale) : laborRate;
+    laborRate != null
+      ? round2(
+          laborRate *
+            (repairMinimumApplied &&
+            String(templateKey || '').toLowerCase() === 'roofing'
+              ? 1
+              : flatworkMinimumScale)
+        )
+      : laborRate;
   if (material + labor <= 0) return empty;
   const takeoffFill: SuggestedPricingBlock = {
     material,
@@ -14204,12 +14805,14 @@ export function resolveScopeItemSuggestedPricing(
     helper: floorPrepReviewBeforeBid
       ? 'Possible duplicate scope · review whether final substrate preparation is included in demolition before bidding.'
       : repairMinimumApplied
-        ? `Stucco repair small-job minimum charge · calculated price was below the $${repairMinimum.toLocaleString()} minimum.`
+        ? String(templateKey || '').toLowerCase() === 'roofing'
+          ? `$${smallJobMinimum.toLocaleString()} minimum applied`
+          : `${itemId === 'decking_repair' ? 'Roof decking' : itemId === 'roof_repairs' ? 'Roofing repair' : itemId.startsWith('roof_') || ['drip_edge', 'ridge_cap', 'valley_flashing', 'step_flashing', 'wall_flashing', 'ridge_vent', 'roof_vents', 'turbine_vents', 'pipe_boots', 'chimney_flashing', 'skylight_flashing'].includes(itemId) ? 'Roofing accessory' : 'Stucco'} small-job minimum charge · calculated price was below the $${smallJobMinimum.toLocaleString()} minimum.`
         : flatworkMinimumApplied
-        ? 'Concrete flatwork minimum charge · calculated sqft price was below the $1,750 small-job minimum.'
-        : itemId === 'exterior_paint'
-          ? exteriorPaintLocalCalibrationMessage()
-          : `${basisHelper} · suggested pricing`,
+          ? 'Concrete flatwork minimum charge · calculated sqft price was below the $1,750 small-job minimum.'
+          : itemId === 'exterior_paint'
+            ? exteriorPaintLocalCalibrationMessage()
+            : `${basisHelper} · suggested pricing`,
     mode: 'suggested_price',
     basis,
     benchmarkScopeProfile:
@@ -14251,6 +14854,11 @@ export function resolveScopeItemSuggestedPricing(
         ? flooringDemoPricingDetail
         : itemId === 'floor_prep'
           ? floorPrepPricingDetail
+          : itemId === 'ice_water_shield'
+            ? 'Included: self-adhered waterproofing membrane; layout and installation; standard laps/seams; normal fastening/adhesion; typical localized roofing application.\n\nExcluded / separate where applicable: decking replacement; structural repair; extensive water-damage remediation; full-roof membrane systems; unusual access or specialty conditions.'
+            : itemId === 'underlayment' &&
+                String(templateKey || '').toLowerCase() === 'roofing'
+              ? 'Incremental upgrade only. Standard roofing underlayment remains included in supported base Roofing systems.'
           : null,
     isComparison: floorPrepReviewBeforeBid || undefined,
   };
@@ -14788,6 +15396,57 @@ function resolveChecklistItemQuantityCore(
     };
   }
   const rule = explicitRule ?? DEFAULT_SCOPE_ALLOWANCE_QUANTITY_RULE;
+
+  if (
+    itemId === 'roofing_system' &&
+    String(ctx.templateKey || '').toLowerCase() === 'roofing' &&
+    choiceId &&
+    !['not_in_scope', 'unsure'].includes(choiceId) &&
+    Number(measurements.roofSquares) > 0
+  ) {
+    return {
+      quantity: Number(measurements.roofSquares),
+      unit: 'squares',
+      quantitySource: 'inferred',
+      sourceLabel: 'Roof squares · Quick Measurements',
+      pricingReady: true,
+      quantityHelper: 'Roof squares feed the selected primary roofing system.',
+      showInput: false,
+    };
+  }
+
+  if (
+    itemId === 'underlayment' &&
+    String(ctx.templateKey || '').toLowerCase() === 'roofing' &&
+    Number(measurements.roofAreaSqft) > 0
+  ) {
+    return {
+      quantity: Number(measurements.roofAreaSqft),
+      unit: 'sqft',
+      quantitySource: 'inferred',
+      sourceLabel: 'Roofing underlayment area · Quick Measurements',
+      pricingReady: true,
+      quantityHelper: 'Roofing underlayment uses the entered roof area.',
+      showInput: false,
+    };
+  }
+
+  if (
+    itemId === 'ice_water_shield' &&
+    String(ctx.templateKey || '').toLowerCase() === 'roofing' &&
+    Number(measurements.roofIceWaterShieldSqft) > 0
+  ) {
+    return {
+      quantity: Number(measurements.roofIceWaterShieldSqft),
+      unit: 'sqft',
+      quantitySource: 'inferred',
+      sourceLabel: 'Ice & water shield area · Quick Measurements',
+      pricingReady: true,
+      quantityHelper:
+        'Ice & water shield uses only the dedicated measured protection area.',
+      showInput: false,
+    };
+  }
 
   if (
     itemId === 'concrete' &&
@@ -15810,8 +16469,8 @@ export function checklistItemInScope(item: {
   if (item.inputType === 'choice') {
     return Boolean(
       item.choiceId &&
-        item.choiceId !== 'not_in_scope' &&
-        item.choiceId !== 'unsure'
+      item.choiceId !== 'not_in_scope' &&
+      item.choiceId !== 'unsure'
     );
   }
   return item.state === 'included';
@@ -15984,7 +16643,7 @@ export function countDraftPricingReadiness(
   if (!draft) return { ready: 0, needsMeasurement: 0 };
   const hasScopePackages = Boolean(
     (draft.scopePackages && draft.scopePackages.length > 0) ||
-      (draft.rooms && draft.rooms.length > 0)
+    (draft.rooms && draft.rooms.length > 0)
   );
   // Step 3 review always has scope packages. Prefer that count — checklist
   // "ready" counts measured items even when Confirm Scope already priced them,
@@ -16154,7 +16813,45 @@ export function scopeMeasurementsToPayload(
       : null,
     landscapeClearingLevel: sanitized.landscapeClearingLevel ?? null,
     tradeScopeSelections: sanitized.tradeScopeSelections ?? null,
+    roofAreaSqft: parseScopeMeasurementInput(sanitized.roofAreaSqft),
+    roofIceWaterShieldSqft: parseScopeMeasurementInput(
+      sanitized.roofIceWaterShieldSqft
+    ),
     roofSquares: parseScopeMeasurementInput(sanitized.roofSquares),
+    roofPitch: sanitized.roofPitch ?? null,
+    storyCount: parseScopeMeasurementInput(sanitized.storyCount),
+    roofDeckingReplacementSqft: parseScopeMeasurementInput(
+      sanitized.roofDeckingReplacementSqft
+    ),
+    roofDripEdgeLf: parseScopeMeasurementInput(sanitized.roofDripEdgeLf),
+    roofRidgeCapLf: parseScopeMeasurementInput(sanitized.roofRidgeCapLf),
+    roofRidgeVentLf: parseScopeMeasurementInput(sanitized.roofRidgeVentLf),
+    roofValleyFlashingLf: parseScopeMeasurementInput(
+      sanitized.roofValleyFlashingLf
+    ),
+    roofStepFlashingLf: parseScopeMeasurementInput(
+      sanitized.roofStepFlashingLf
+    ),
+    roofWallFlashingLf: parseScopeMeasurementInput(
+      sanitized.roofWallFlashingLf
+    ),
+    roofChimneyFlashingCount: parseScopeMeasurementInput(
+      sanitized.roofChimneyFlashingCount
+    ),
+    roofPipeBootCount: parseScopeMeasurementInput(sanitized.roofPipeBootCount),
+    roofVentCount: parseScopeMeasurementInput(sanitized.roofVentCount),
+    roofTurbineVentCount: parseScopeMeasurementInput(
+      sanitized.roofTurbineVentCount
+    ),
+    roofSkylightCount: parseScopeMeasurementInput(sanitized.roofSkylightCount),
+    roofPenetrationCount: parseScopeMeasurementInput(
+      sanitized.roofPenetrationCount
+    ),
+    roofRepairAffectedSqft: parseScopeMeasurementInput(
+      sanitized.roofRepairAffectedSqft
+    ),
+    roofGutterLf: parseScopeMeasurementInput(sanitized.roofGutterLf),
+    roofDownspoutCount: parseScopeMeasurementInput(sanitized.roofDownspoutCount),
     drywallSqft: parseScopeMeasurementInput(sanitized.drywallSqft),
     concreteSqft: parseScopeMeasurementInput(sanitized.concreteSqft),
     concreteReinforcementSqft: parseScopeMeasurementInput(
@@ -16828,7 +17525,35 @@ export function scopeMeasurementsInputFromPayload(
       : null,
     landscapeClearingLevel: payload.landscapeClearingLevel ?? null,
     tradeScopeSelections: payload.tradeScopeSelections ?? null,
+    roofAreaSqft: measurementFieldString(payload.roofAreaSqft),
+    roofIceWaterShieldSqft: measurementFieldString(
+      payload.roofIceWaterShieldSqft
+    ),
     roofSquares: measurementFieldString(payload.roofSquares),
+    roofPitch: payload.roofPitch ?? null,
+    storyCount: measurementFieldString(payload.storyCount),
+    roofDeckingReplacementSqft: measurementFieldString(
+      payload.roofDeckingReplacementSqft
+    ),
+    roofDripEdgeLf: measurementFieldString(payload.roofDripEdgeLf),
+    roofRidgeCapLf: measurementFieldString(payload.roofRidgeCapLf),
+    roofRidgeVentLf: measurementFieldString(payload.roofRidgeVentLf),
+    roofValleyFlashingLf: measurementFieldString(payload.roofValleyFlashingLf),
+    roofStepFlashingLf: measurementFieldString(payload.roofStepFlashingLf),
+    roofWallFlashingLf: measurementFieldString(payload.roofWallFlashingLf),
+    roofChimneyFlashingCount: measurementFieldString(
+      payload.roofChimneyFlashingCount
+    ),
+    roofPipeBootCount: measurementFieldString(payload.roofPipeBootCount),
+    roofVentCount: measurementFieldString(payload.roofVentCount),
+    roofTurbineVentCount: measurementFieldString(payload.roofTurbineVentCount),
+    roofSkylightCount: measurementFieldString(payload.roofSkylightCount),
+    roofPenetrationCount: measurementFieldString(payload.roofPenetrationCount),
+    roofRepairAffectedSqft: measurementFieldString(
+      payload.roofRepairAffectedSqft
+    ),
+    roofGutterLf: measurementFieldString(payload.roofGutterLf),
+    roofDownspoutCount: measurementFieldString(payload.roofDownspoutCount),
     drywallSqft: measurementFieldString(payload.drywallSqft),
     concreteSqft: measurementFieldString(payload.concreteSqft),
     concreteReinforcementSqft: measurementFieldString(
@@ -17470,11 +18195,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   concreteReinforcementSqft?: string | number | null;
   concreteSealerSqft?: string | number | null;
   concreteDemoThicknessBand?:
-    | 'thin_2_3'
-    | 'standard_4'
-    | 'heavy_5_6'
-    | 'structural_7_plus'
-    | null;
+    'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus' | null;
   concreteDemoReinforced?: boolean | null;
   concreteDemoLimitedAccess?: boolean | null;
   concreteDemoThicknessBands?: Array<
@@ -17522,8 +18243,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
       quantitySource?: QuantitySource;
       includesCountertops?: boolean;
       measurementState?:
-        | import('@/utils/measurementSemantics').ScopeMeasurementState
-        | null;
+        import('@/utils/measurementSemantics').ScopeMeasurementState | null;
     }
   >;
   pricingAcceptance?: Record<
@@ -17535,6 +18255,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
     import('@/utils/scopeReviewUi').ScopeGapResolutionRecord
   >;
   planRooms?: import('@/utils/estimateAiDraft').PlanRoomMeasurement[];
+  quickMeasurementSources?: Record<string, string>;
   measurementProvenance?: Record<string, unknown>;
   measurementConflicts?: import('@/utils/estimateAiDraft').PlanMeasurementConflict[];
   wetAreaFinish?: import('@/utils/planBathRooms').WetAreaFinishChoice | null;
@@ -17550,8 +18271,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   garageDoorDoubleCount?: number | null;
   garageDoorRvCount?: number | null;
   areaReconciliation?:
-    | import('@/utils/measurementSemantics').AreaReconciliation
-    | null;
+    import('@/utils/measurementSemantics').AreaReconciliation | null;
   pricingOverrideLog?: import('@/utils/measurementSemantics').PricingOverrideLog[];
   /** Applied stage/component benchmark keys — blocks double application. */
   appliedBenchmarkKeys?: string[];
@@ -17561,9 +18281,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   bathroomToiletRelocateFloorType?: string | null;
   /** Whether toilet relocate floor type was user-selected or AI-inferred. */
   bathroomToiletRelocateFloorTypeSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   /** Bathroom shower/tub rough-in wall & floor access (valve, head, drain). */
   bathroomShowerRoughAccessType?: string | null;
   /** Whether shower rough-in access was user-selected or AI-inferred. */
@@ -17578,38 +18296,25 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   bathroomShowerRoughWallAccessSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomShowerRoughPlumbingExposed?: string | null;
   bathroomShowerRoughPlumbingExposedSource?:
-    | 'user_selected'
-    | 'demo_detected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'demo_detected' | 'ai_inferred' | null;
   bathroomShowerRoughFloorConstruction?: string | null;
   bathroomShowerRoughFloorConstructionSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   bathroomShowerRoughSlabWorkRequired?: string | null;
   bathroomShowerRoughSlabWorkRequiredSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   bathroomDrywallPaintUseCombinedAssemblySource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   bathroomPaintRepairScope?: string | null;
   bathroomPaintRepairScopeSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomPaintRepairEntireRoom?: boolean | null;
   bathroomPaintRepairEntireRoomSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomPaintRepairEntireRoomSqft?: string | number | null;
   bathroomPaintRepairEntireRoomSqftSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   bathroomInteriorPaintMobilization?: string | null;
   bathroomInteriorPaintMobilizationSource?:
-    | 'user_selected'
-    | 'ai_inferred'
-    | null;
+    'user_selected' | 'ai_inferred' | null;
   bathroomInteriorPaintSurface?: string | null;
   bathroomInteriorPaintSurfaceSource?: 'user_selected' | 'ai_inferred' | null;
   bathroomInteriorPaintCondition?: string | null;
@@ -17624,11 +18329,9 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   >;
   quickMeasurementFieldConfidence?: Record<string, number>;
   planImportMode?:
-    | import('@/utils/planImportTradeConfig').PlanEstimatingMode
-    | null;
+    import('@/utils/planImportTradeConfig').PlanEstimatingMode | null;
   planImportTradeKey?:
-    | import('@/utils/planImportTradeConfig').PlanTradeKey
-    | null;
+    import('@/utils/planImportTradeConfig').PlanTradeKey | null;
   planImportMissingInfo?: string[];
 };
 

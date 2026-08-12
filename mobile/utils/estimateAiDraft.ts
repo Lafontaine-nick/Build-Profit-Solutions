@@ -42,6 +42,8 @@ import {
   filterPlanScopesForTrade,
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
+import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
+import type { NormalizedTradeMeasurements } from '@/utils/subcontractorTrade/types';
 import type {
   MeasurementSuggestion,
   PlanBuildingAreas,
@@ -376,6 +378,26 @@ export type ScopeMeasurements = {
     Record<'concrete' | 'deck_patio' | 'hvac' | 'roofing', string[] | null>
   > | null;
   roofSquares?: number | null;
+  roofAreaSqft?: number | null;
+  roofIceWaterShieldSqft?: number | null;
+  roofPitch?: string | null;
+  storyCount?: number | null;
+  roofDeckingReplacementSqft?: number | null;
+  roofDripEdgeLf?: number | null;
+  roofRidgeCapLf?: number | null;
+  roofRidgeVentLf?: number | null;
+  roofValleyFlashingLf?: number | null;
+  roofStepFlashingLf?: number | null;
+  roofWallFlashingLf?: number | null;
+  roofChimneyFlashingCount?: number | null;
+  roofPipeBootCount?: number | null;
+  roofVentCount?: number | null;
+  roofTurbineVentCount?: number | null;
+  roofSkylightCount?: number | null;
+  roofPenetrationCount?: number | null;
+  roofRepairAffectedSqft?: number | null;
+  roofGutterLf?: number | null;
+  roofDownspoutCount?: number | null;
   drywallSqft?: number | null;
   concreteSqft?: number | null;
   concreteReinforcementSqft?: number | null;
@@ -999,6 +1021,48 @@ export function repairDraftRatePricingFromNotes(
     ...parsed,
     itemQuantities: mergedItemQuantities,
   };
+  if (
+    draft.scopeChecklist?.templateKey === 'roofing' ||
+    draft.projectType === 'roofing'
+  ) {
+    const normalizedRoofing = normalizeTradeMeasurements(
+      'roofing',
+      parsed,
+      'notes'
+    );
+    mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
+      mergedScopeMeasurements,
+      normalizedRoofing
+    );
+  }
+  if (
+    draft.scopeChecklist?.templateKey === 'concrete' ||
+    draft.projectType === 'concrete'
+  ) {
+    const normalizedConcrete = normalizeTradeMeasurements(
+      'concrete',
+      parsed,
+      'notes'
+    );
+    mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
+      mergedScopeMeasurements,
+      normalizedConcrete
+    );
+  }
+  if (
+    draft.scopeChecklist?.templateKey === 'flooring' ||
+    draft.projectType === 'flooring'
+  ) {
+    const normalizedFlooring = normalizeTradeMeasurements(
+      'flooring',
+      parsed,
+      'notes'
+    );
+    mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
+      mergedScopeMeasurements,
+      normalizedFlooring
+    );
+  }
 
   if (__DEV__) {
     const serverIq =
@@ -1599,6 +1663,7 @@ export type PlanImportPayload = {
   buildingAreas?: PlanBuildingAreas;
   planFacts?: PlanFacts;
   fieldConfidence?: Record<string, number>;
+  quickMeasurementSources?: Record<string, string>;
   measurementProvenance?: Record<string, unknown>;
   measurementConflicts?: PlanMeasurementConflict[];
 };
@@ -2222,6 +2287,93 @@ export function planImportPayloadFromDraft(
  * Apply Step 1 plan import onto a freshly generated draft: seed Quick
  * measurements and fill unsure checklist items from plan scope detections.
  */
+function mergeTradeNormalizationIntoScopeMeasurements(
+  scopeMeasurements: ScopeMeasurements,
+  normalization: NormalizedTradeMeasurements | null | undefined
+): ScopeMeasurements {
+  if (!normalization) return scopeMeasurements;
+  const next: ScopeMeasurements = { ...scopeMeasurements };
+  for (const [key, value] of Object.entries(normalization.measurements)) {
+    if (value === undefined || value === null) continue;
+    (next as Record<string, unknown>)[key] =
+      typeof value === 'number' ? value : String(value);
+  }
+  const structured = normalization.structuredMeasurements || {};
+  if (structured.concreteAreaByType) {
+    next.concreteAreaByType = structured.concreteAreaByType as ScopeMeasurements['concreteAreaByType'];
+  }
+  if (structured.concreteThicknessByType) {
+    next.concreteThicknessByType =
+      structured.concreteThicknessByType as ScopeMeasurements['concreteThicknessByType'];
+  }
+  if (Array.isArray(structured.concreteScope) && structured.concreteScope.length) {
+    next.concreteScope = structured.concreteScope.map(String);
+  }
+  if (Array.isArray(structured.flooringProductScope) && structured.flooringProductScope.length) {
+    next.flooringProductScope =
+      structured.flooringProductScope as ScopeMeasurements['flooringProductScope'];
+  }
+  if (Array.isArray(structured.flooringExistingTypes) && structured.flooringExistingTypes.length) {
+    next.flooringExistingTypes =
+      structured.flooringExistingTypes as ScopeMeasurements['flooringExistingTypes'];
+  }
+  if (structured.flooringInstallScopeCount != null) {
+    next.flooringInstallScopeCount = Number(structured.flooringInstallScopeCount);
+  }
+  if (structured.flooringDemoScopeCount != null) {
+    next.flooringDemoScopeCount = Number(structured.flooringDemoScopeCount);
+  }
+  if (
+    structured.itemQuantities &&
+    typeof structured.itemQuantities === 'object' &&
+    !Array.isArray(structured.itemQuantities)
+  ) {
+    next.itemQuantities = {
+      ...(next.itemQuantities || {}),
+      ...(structured.itemQuantities as ScopeMeasurements['itemQuantities']),
+    };
+  }
+  if (
+    structured.floorPrepByProduct &&
+    typeof structured.floorPrepByProduct === 'object' &&
+    !Array.isArray(structured.floorPrepByProduct)
+  ) {
+    next.floorPrepByProduct =
+      structured.floorPrepByProduct as ScopeMeasurements['floorPrepByProduct'];
+  }
+  if (normalization.quickMeasurementSources) {
+    next.quickMeasurementSources = {
+      ...next.quickMeasurementSources,
+      ...normalization.quickMeasurementSources,
+    } as ScopeMeasurements['quickMeasurementSources'];
+  }
+  if (normalization.measurementProvenance) {
+    next.measurementProvenance = {
+      ...next.measurementProvenance,
+      ...normalization.measurementProvenance,
+    };
+  }
+  return next;
+}
+
+function normalizeImportedTradeMeasurements(
+  tradeKey: PlanTradeKey | null,
+  measurements: Record<string, number | string>,
+  extras: Record<string, unknown> = {},
+  source: 'plan' | 'notes' = 'plan'
+): NormalizedTradeMeasurements | null {
+  if (tradeKey !== 'roofing' && tradeKey !== 'concrete' && tradeKey !== 'flooring')
+    return null;
+  return normalizeTradeMeasurements(
+    tradeKey,
+    {
+      ...measurements,
+      ...extras,
+    },
+    source
+  );
+}
+
 function normalizeTradePlanMeasurements(
   measurements: Record<string, number | string>,
   tradeKey: PlanTradeKey | null
@@ -2442,8 +2594,33 @@ export function applyPlanImportToDraft(
     planImportMode,
     planImportTradeKey
   );
+  const tradeNormalization = normalizeImportedTradeMeasurements(
+    planImportTradeKey,
+    filteredPlanMeasurements as Record<string, number | string>,
+    {
+      ...(planImportTradeKey === 'roofing'
+        ? {
+            roofPitch: payload.planFacts?.roofPitch,
+            storyCount: payload.planFacts?.storyCount,
+          }
+        : {}),
+      ...(payload.quickMeasurementSources
+        ? { quickMeasurementSources: payload.quickMeasurementSources }
+        : {}),
+      ...(payload.measurementProvenance
+        ? { measurementProvenance: payload.measurementProvenance }
+        : {}),
+    },
+    'plan'
+  );
+  const canonicalPlanMeasurements =
+    tradeNormalization?.measurements || filteredPlanMeasurements;
   let scopeMeasurements = planMeasurementsToScopeMeasurements(
-    filteredPlanMeasurements
+    canonicalPlanMeasurements as Record<string, number>
+  );
+  scopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
+    scopeMeasurements,
+    tradeNormalization
   );
   scopeMeasurements.planImportMode = planImportMode;
   scopeMeasurements.planImportTradeKey = planImportTradeKey;
@@ -2471,15 +2648,27 @@ export function applyPlanImportToDraft(
         templateKey:
           planImportTradeKey === 'stucco'
             ? 'stucco'
-            : next.scopeChecklist?.templateKey,
+            : planImportTradeKey === 'concrete'
+              ? 'concrete'
+              : planImportTradeKey === 'flooring'
+                ? 'flooring'
+                : next.scopeChecklist?.templateKey,
         title:
           planImportTradeKey === 'stucco'
             ? 'Stucco / exterior finish — confirm trade scope'
-            : next.scopeChecklist?.title,
+            : planImportTradeKey === 'concrete'
+              ? 'Concrete — confirm project scope'
+              : planImportTradeKey === 'flooring'
+                ? 'Flooring — confirm project scope'
+                : next.scopeChecklist?.title,
         intro:
           planImportTradeKey === 'stucco'
             ? 'Confirm the stucco system, quantities, accessories, and access included in this bid.'
-            : next.scopeChecklist?.intro,
+            : planImportTradeKey === 'concrete'
+              ? 'Confirm concrete scope before pricing.'
+              : planImportTradeKey === 'flooring'
+                ? 'Confirm flooring scope before pricing.'
+                : next.scopeChecklist?.intro,
       },
     };
   }
@@ -2499,6 +2688,18 @@ export function applyPlanImportToDraft(
   if (payload.fieldConfidence && Object.keys(payload.fieldConfidence).length) {
     scopeMeasurements.quickMeasurementFieldConfidence = {
       ...payload.fieldConfidence,
+    };
+  }
+  if (tradeNormalization?.quickMeasurementSources) {
+    scopeMeasurements.quickMeasurementSources = {
+      ...scopeMeasurements.quickMeasurementSources,
+      ...tradeNormalization.quickMeasurementSources,
+    } as ScopeMeasurements['quickMeasurementSources'];
+  }
+  if (tradeNormalization?.measurementProvenance) {
+    scopeMeasurements.measurementProvenance = {
+      ...scopeMeasurements.measurementProvenance,
+      ...tradeNormalization.measurementProvenance,
     };
   }
   if (payload.measurementProvenance) {

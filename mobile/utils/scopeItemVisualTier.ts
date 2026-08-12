@@ -34,7 +34,7 @@ function maybePhotoBadge(
 
 export const SCOPE_ITEM_TIER_OPACITY: Record<ScopeItemVisualTier, number> = {
   primary: 1,
-  secondary: 0.55,
+  secondary: 1,
   muted: 0.35,
 };
 
@@ -55,6 +55,108 @@ export type ScopeItemVisualContext = {
   templateKey?: string | null;
   measurements: NormalizedScopeMeasurements;
 };
+
+const ROOFING_SELECTION_ALIASES: Record<string, string[]> = {
+  tear_off: ['tear_off'],
+  roofing_system: ['roofing_system', 'shingles', 'shingles_roofing'],
+  shingles_roofing: ['shingles', 'shingles_roofing'],
+  roof_repairs: ['roof_repairs'],
+  underlayment: ['underlayment'],
+  ice_water_shield: ['ice_water_shield'],
+};
+
+const ROOFING_QM_MEASUREMENT_SIGNALS: Record<
+  string,
+  {
+    aliases: string[];
+    measurementValue: (measurements: NormalizedScopeMeasurements) => number;
+  }
+> = {
+  tear_off: {
+    aliases: ['tear_off'],
+    measurementValue: measurements => Number(measurements.roofSquares) || 0,
+  },
+  roofing_system: {
+    aliases: ['shingles', 'shingles_roofing'],
+    measurementValue: measurements => Number(measurements.roofSquares) || 0,
+  },
+  shingles_roofing: {
+    aliases: ['shingles', 'shingles_roofing'],
+    measurementValue: measurements => Number(measurements.roofSquares) || 0,
+  },
+  roof_repairs: {
+    aliases: ['roof_repairs'],
+    measurementValue: measurements =>
+      Number(measurements.roofRepairAffectedSqft) || 0,
+  },
+};
+
+function roofingQmHasMeasurement(
+  itemId: string,
+  measurements: NormalizedScopeMeasurements
+): boolean {
+  const signal = ROOFING_QM_MEASUREMENT_SIGNALS[itemId];
+  if (!signal) return false;
+  const selections = measurements.tradeScopeSelections?.roofing;
+  if (!Array.isArray(selections)) return false;
+  if (!signal.aliases.some(alias => selections.includes(alias))) return false;
+  return signal.measurementValue(measurements) > 0;
+}
+
+/** Confirm-scope card still needs a choice/state after QM takeoff is entered. */
+function roofingCardNeedsConfirmation(item: ScopeChecklistItem): boolean {
+  if (item.id === 'tear_off') {
+    return (
+      !item.choiceId ||
+      item.choiceId === 'unsure' ||
+      item.choiceId === 'new_construction'
+    );
+  }
+  if (item.id === 'roofing_system') {
+    return (
+      !item.choiceId ||
+      item.choiceId === 'unsure' ||
+      item.choiceId === 'not_in_scope'
+    );
+  }
+  if (item.id === 'roof_repairs') {
+    if (item.state === 'excluded' || item.choiceId === 'not_in_scope') {
+      return true;
+    }
+    return !item.choiceId || item.choiceId === 'unsure';
+  }
+  if (item.id === 'shingles_roofing') {
+    return !checklistItemInScope(item);
+  }
+  return !checklistItemInScope(item);
+}
+
+export function scopeItemHasMeasuredSelection(
+  item: ScopeChecklistItem,
+  ctx: ScopeItemVisualContext
+): boolean {
+  if (String(ctx.templateKey || '').toLowerCase() !== 'roofing') return false;
+
+  if (
+    roofingQmHasMeasurement(item.id, ctx.measurements) &&
+    roofingCardNeedsConfirmation(item)
+  ) {
+    return true;
+  }
+
+  const selections = ctx.measurements.tradeScopeSelections?.roofing;
+  if (!Array.isArray(selections)) return false;
+  const aliases = ROOFING_SELECTION_ALIASES[item.id] || [item.id];
+  if (!selections.some(selection => aliases.includes(String(selection)))) {
+    return false;
+  }
+  const resolved = resolveChecklistItemQuantity(item.id, ctx.measurements, {
+    choiceId: item.choiceId,
+    templateKey: ctx.templateKey,
+    notes: ctx.notes,
+  });
+  return Number(resolved.quantity) > 0;
+}
 
 function itemIsExcluded(item: ScopeChecklistItem): boolean {
   if (item.inputType === 'multi_choice') {
@@ -195,6 +297,13 @@ export function scopeItemVisualTier(item: ScopeChecklistItem, ctx: ScopeItemVisu
   if (ctx.templateKey === 'bathroom' && BATHROOM_ALWAYS_VISIBLE_SCOPE_IDS.has(item.id)) {
     return 'primary';
   }
+  if (
+    String(ctx.templateKey || '').toLowerCase() === 'roofing' &&
+    roofingQmHasMeasurement(item.id, ctx.measurements) &&
+    roofingCardNeedsConfirmation(item)
+  ) {
+    return 'primary';
+  }
   if (checklistItemInScope(item)) return 'primary';
   if (scopeItemHasNoteSignal(item, ctx)) return 'primary';
   return 'secondary';
@@ -213,16 +322,33 @@ export function scopeItemIsUnsure(
 export function scopeCardAccentForItem(
   tier: ScopeItemVisualTier,
   item: Pick<ScopeChecklistItem, 'state' | 'choiceId' | 'inputType' | 'choiceIds'>,
-  darkMode: boolean
+  darkMode: boolean,
+  measuredSelection = false
 ): ScopeCardAccent {
   if (tier === 'muted' || itemIsExcluded(item as ScopeChecklistItem)) {
     return { opacity: SCOPE_ITEM_TIER_OPACITY.muted };
   }
+  if (measuredSelection) {
+    return {
+      opacity: 1,
+      backgroundColor: darkMode
+        ? 'rgba(251, 191, 36, 0.14)'
+        : 'rgba(251, 191, 36, 0.12)',
+      borderColor: '#fbbf24',
+    };
+  }
   if (scopeItemIsUnsure(item)) {
     return {
       opacity: SCOPE_ITEM_UNSURE_OPACITY,
-      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.055)' : 'rgba(248, 250, 252, 0.96)',
-      borderColor: darkMode ? 'rgba(148, 163, 184, 0.14)' : 'rgba(148, 163, 184, 0.22)',
+      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.10)' : 'rgba(248, 250, 252, 0.96)',
+      borderColor: darkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(148, 163, 184, 0.22)',
+    };
+  }
+  if (tier === 'secondary') {
+    return {
+      opacity: 1,
+      backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.10)' : 'rgba(248, 250, 252, 0.96)',
+      borderColor: darkMode ? 'rgba(148, 163, 184, 0.22)' : 'rgba(148, 163, 184, 0.22)',
     };
   }
   return { opacity: SCOPE_ITEM_TIER_OPACITY[tier] };

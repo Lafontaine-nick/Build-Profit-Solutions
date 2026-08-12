@@ -171,6 +171,31 @@ describe('scopeIntelligence', () => {
       preferredUnits: ['lf'],
       alternateUnits: expect.arrayContaining(['each', 'allowance', 'lump_sum']),
     });
+    expect(getScopeUnitDefinition('roofing_system', 'roofing')).toMatchObject({
+      preferredUnits: ['squares'],
+      alternateUnits: expect.arrayContaining(['sqft', 'lump_sum', 'allowance']),
+    });
+  });
+
+  it('accepts roof squares on the roofing system card', () => {
+    const intelligence = resolveScopeItemIntelligence({
+      scopeKey: 'roofing_system',
+      templateKey: 'roofing',
+      measurements: emptyMeasurements({ roofSquares: 30 }),
+      resolved: resolved({
+        quantity: 30,
+        unit: 'squares',
+        quantitySource: 'inferred',
+        sourceLabel: 'Roof squares · Quick Measurements',
+        pricingReady: true,
+      }),
+    });
+
+    expect(
+      intelligence.validation.issues.some(
+        issue => issue.ruleKey === 'unit_not_approved_for_scope'
+      )
+    ).toBe(false);
   });
 
   it('returns safe fallback behavior for unregistered scopes', () => {

@@ -299,6 +299,8 @@ import {
   QmLandscapingScopePanels,
   QmConcreteScopePanels,
   QmKitchenScopePanels,
+  QmRoofingScopePanels,
+  QmStuccoScopePanels,
   QmSimpleTradeScopePanels,
   qmNeutralScopePanelStyle,
 } from '@/components/estimate/QmTradeScopePanels';
@@ -317,6 +319,7 @@ import {
   scopeCardAccentForItem,
   scopeChecklistNoteSummary,
   scopeItemNoteBadge,
+  scopeItemHasMeasuredSelection,
   scopeItemVisualTier,
   type ScopeItemNoteBadge,
   type ScopeItemVisualContext,
@@ -579,6 +582,17 @@ function captionColor(darkMode: boolean, Colors: ReturnType<typeof getColors>) {
   return darkMode ? 'rgba(255,255,255,0.62)' : Colors.sub;
 }
 
+function inactiveChoiceChipStyle(
+  darkMode: boolean,
+  Colors: ReturnType<typeof getColors>
+) {
+  return {
+    borderColor: darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line,
+    backgroundColor: darkMode ? 'rgba(255,255,255,0.04)' : 'transparent',
+    textColor: captionColor(darkMode, Colors),
+  };
+}
+
 function dividerColor(darkMode: boolean) {
   return estimateFlowDividerColor(darkMode);
 }
@@ -667,80 +681,6 @@ function hasPrimaryTakeoffFromResolved(
       resolved.quantitySource !== 'missing' &&
       resolved.quantitySource !== 'default_assumption'
   );
-}
-
-function hasConfirmedPricingBasis(
-  itemId: string,
-  measurementsInput: ScopeMeasurementsInputExtended,
-  templateKey?: string | null
-): boolean {
-  const entries = measurementsInput.itemQuantities || {};
-  const rawMeasurements = measurementsInput as unknown as Record<
-    string,
-    unknown
-  >;
-  const effectiveTemplateKey =
-    String(templateKey || '').toLowerCase() ||
-    (String(rawMeasurements.planImportTradeKey || '').toLowerCase() === 'stucco'
-      ? 'stucco'
-      : null);
-  const rule = getChecklistItemQuantityRuleOrDefault(
-    itemId,
-    effectiveTemplateKey
-  );
-  const candidateKeys = [
-    itemId,
-    `${itemId}__allowance`,
-    `${itemId}__sqft_basis`,
-    `${itemId}__material`,
-    `${itemId}__labor`,
-  ];
-  const confirmedSources = new Set([
-    'user_entered',
-    'plan_vision',
-    'calculated_confirmed',
-    'notes',
-  ]);
-  const isImportedStuccoTakeoff =
-    String(rawMeasurements.planImportMode || '').toLowerCase() ===
-      'selected_trade' &&
-    String(rawMeasurements.planImportTradeKey || '').toLowerCase() === 'stucco';
-  if (isImportedStuccoTakeoff) {
-    // Selected-trade plan quantities are the contractor's takeoff basis even
-    // when the UI preserved them as a suggested prefill during hydration.
-    confirmedSources.add('suggested_prefill');
-  }
-  const hasConfirmedEntry = candidateKeys.some(key => {
-    const entry = entries[key];
-    const quantity = Number(entry?.quantity);
-    return (
-      Number.isFinite(quantity) &&
-      quantity > 0 &&
-      confirmedSources.has(String(entry?.quantitySource || ''))
-    );
-  });
-  if (hasConfirmedEntry) return true;
-  const measurementKeys = [
-    rule?.measurementKey,
-    ...(Array.isArray(rule?.measurementKeys) ? rule.measurementKeys : []),
-  ].filter(Boolean) as string[];
-  // Stucco complete-system pricing is always based on net wall SF from Quick
-  // Measurements, even when the checklist template key is still ground_up.
-  if (
-    itemId === 'stucco' ||
-    itemId === 'stucco_wrb' ||
-    itemId === 'stucco_lath' ||
-    itemId === 'stucco_base_coat' ||
-    itemId === 'stucco_finish_coat'
-  ) {
-    measurementKeys.push('stuccoNetWallSqft', 'exteriorPaintSqft');
-  }
-  return measurementKeys.some(key => {
-    return (
-      (parseScopeMeasurementInput(String(rawMeasurements[String(key)] ?? '')) ||
-        0) > 0
-    );
-  });
 }
 
 function formatResolvedQuantityDisplay(
@@ -2902,9 +2842,15 @@ function scopeCardStyle(
     'state' | 'choiceId' | 'inputType' | 'choiceIds'
   >,
   Colors: ReturnType<typeof getColors>,
-  darkMode: boolean
+  darkMode: boolean,
+  measuredSelection = false
 ) {
-  const accent = scopeCardAccentForItem(tier, item, darkMode);
+  const accent = scopeCardAccentForItem(
+    tier,
+    item,
+    darkMode,
+    measuredSelection
+  );
   return [
     styles.card,
     estimateFlowCardStyle(Colors, darkMode),
@@ -4352,27 +4298,36 @@ function InlineTakeoffCountInput({
   }, [value, focused]);
 
   return (
-    <PricingInputField
-      label={label}
-      value={focused ? draft : value}
-      suffix={formatCountFieldSuffix(unit) ?? undefined}
-      placeholder='0'
-      embedded
-      onFocus={() => {
-        setFocused(true);
-        setDraft(value);
-        onFocus();
+    <View
+      style={{
+        paddingBottom: 10,
+        marginBottom: 10,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: dividerColor(darkMode),
       }}
-      onChangeText={setDraft}
-      onBlur={() => {
-        setFocused(false);
-        onCommit(draft);
-        onBlur();
-      }}
-      Colors={Colors}
-      darkMode={darkMode}
-      applying={applying}
-    />
+    >
+      <PricingInputField
+        label={label}
+        value={focused ? draft : value}
+        suffix={formatCountFieldSuffix(unit) ?? undefined}
+        placeholder='0'
+        embedded
+        onFocus={() => {
+          setFocused(true);
+          setDraft(value);
+          onFocus();
+        }}
+        onChangeText={setDraft}
+        onBlur={() => {
+          setFocused(false);
+          onCommit(draft);
+          onBlur();
+        }}
+        Colors={Colors}
+        darkMode={darkMode}
+        applying={applying}
+      />
+    </View>
   );
 }
 
@@ -6555,9 +6510,10 @@ function YesNoChip({
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
 }) {
-  let borderColor = darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line;
-  let backgroundColor = darkMode ? 'rgba(255,255,255,0.04)' : 'transparent';
-  let textColor = captionColor(darkMode, Colors);
+  const inactiveStyle = inactiveChoiceChipStyle(darkMode, Colors);
+  let borderColor = inactiveStyle.borderColor;
+  let backgroundColor = inactiveStyle.backgroundColor;
+  let textColor = inactiveStyle.textColor;
 
   if (active) {
     if (variant === 'yes') {
@@ -6611,9 +6567,10 @@ function AssemblyChoiceChip({
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
 }) {
-  let borderColor = darkMode ? 'rgba(148, 163, 184, 0.16)' : Colors.line;
-  let backgroundColor = darkMode ? 'rgba(255,255,255,0.04)' : 'transparent';
-  let textColor = captionColor(darkMode, Colors);
+  const inactiveStyle = inactiveChoiceChipStyle(darkMode, Colors);
+  let borderColor = inactiveStyle.borderColor;
+  let backgroundColor = inactiveStyle.backgroundColor;
+  let textColor = inactiveStyle.textColor;
 
   if (active) {
     if (variant === 'yes') {
@@ -6756,6 +6713,7 @@ function WetAreaInstallLineCard({
         ) || checklistDisplayLabel(item, templateKey)
       : checklistDisplayLabel(item, templateKey);
   const tier = scopeItemVisualTier(item, visualCtx);
+  const measuredSelection = scopeItemHasMeasuredSelection(item, visualCtx);
   const noteBadge = scopeItemNoteBadge(item, visualCtx);
 
   return (
@@ -6763,7 +6721,7 @@ function WetAreaInstallLineCard({
       style={
         embedded
           ? styles.qmEmbeddedScopeBlock
-          : scopeCardStyle(tier, item, Colors, darkMode)
+          : scopeCardStyle(tier, item, Colors, darkMode, measuredSelection)
       }
     >
       <ScopeItemTitleRow
@@ -6805,7 +6763,7 @@ function WetAreaInstallLineCard({
         originalNotes={originalNotes}
         hideInlineTakeoff={
           isWholeHomeQuickMeasurementTemplate(templateKey) ||
-          (['flooring', 'landscaping', 'concrete', 'stucco'].includes(
+          (['flooring', 'landscaping', 'concrete', 'stucco', 'roofing'].includes(
             String(templateKey || '').toLowerCase()
           ) &&
             !(item.id === 'stucco' && item.choiceId === 'repair_restucco'))
@@ -6975,6 +6933,7 @@ function YesNoRow({
   applying: boolean;
 }) {
   const tier = scopeItemVisualTier(item, visualCtx);
+  const measuredSelection = scopeItemHasMeasuredSelection(item, visualCtx);
   const noteBadge = scopeItemNoteBadge(item, visualCtx);
   const isCustom = isCustomScopeItem(item);
   let helper = isCustom
@@ -7313,7 +7272,9 @@ function YesNoRow({
   };
 
   return (
-    <View style={scopeCardStyle(tier, item, Colors, darkMode)}>
+    <View
+      style={scopeCardStyle(tier, item, Colors, darkMode, measuredSelection)}
+    >
       {isCustom && renaming ? (
         <View style={styles.customRenameRow}>
           <TextInput
@@ -8705,6 +8666,7 @@ function MultiChoiceRow({
   );
   const helper = checklistDisplayHelper(item, templateKey);
   const tier = scopeItemVisualTier(item, visualCtx);
+  const measuredSelection = scopeItemHasMeasuredSelection(item, visualCtx);
   const noteBadge = scopeItemNoteBadge(item, visualCtx);
   const wallWorkChoiceIds = choiceIds.filter(
     id => id === 'remove' || id === 'add'
@@ -8754,7 +8716,9 @@ function MultiChoiceRow({
   };
 
   return (
-    <View style={scopeCardStyle(tier, item, Colors, darkMode)}>
+    <View
+      style={scopeCardStyle(tier, item, Colors, darkMode, measuredSelection)}
+    >
       <ScopeItemTitleRow
         label={checklistDisplayLabel(item, templateKey)}
         noteBadge={noteBadge}
@@ -8778,13 +8742,10 @@ function MultiChoiceRow({
           const active = choiceIds.includes(opt.id);
           const isUnsure = opt.id === 'unsure';
           const isExcluded = opt.id === 'not_in_scope';
-          let borderColor = darkMode
-            ? 'rgba(148, 163, 184, 0.16)'
-            : Colors.line;
-          let backgroundColor = darkMode
-            ? 'rgba(255,255,255,0.04)'
-            : 'transparent';
-          let textColor = captionColor(darkMode, Colors);
+          const inactiveStyle = inactiveChoiceChipStyle(darkMode, Colors);
+          let borderColor = inactiveStyle.borderColor;
+          let backgroundColor = inactiveStyle.backgroundColor;
+          let textColor = inactiveStyle.textColor;
 
           if (active) {
             if (isUnsure) {
@@ -9141,6 +9102,7 @@ function ChoiceRow({
   );
   const helper = checklistDisplayHelper(item, templateKey);
   const tier = scopeItemVisualTier(item, visualCtx);
+  const measuredSelection = scopeItemHasMeasuredSelection(item, visualCtx);
   const noteBadge = scopeItemNoteBadge(item, visualCtx);
   const showToiletRelocateFloorPrompt =
     item.id === 'toilet' &&
@@ -9154,7 +9116,7 @@ function ChoiceRow({
       style={
         embedded
           ? styles.qmEmbeddedScopeBlock
-          : scopeCardStyle(tier, item, Colors, darkMode)
+          : scopeCardStyle(tier, item, Colors, darkMode, measuredSelection)
       }
     >
       {!embedded ? (
@@ -9182,13 +9144,10 @@ function ChoiceRow({
           const active = item.choiceId === opt.id;
           const isUnsure = opt.id === 'unsure';
           const isExcluded = opt.id === 'not_in_scope';
-          let borderColor = darkMode
-            ? 'rgba(148, 163, 184, 0.16)'
-            : Colors.line;
-          let backgroundColor = darkMode
-            ? 'rgba(255,255,255,0.04)'
-            : 'transparent';
-          let textColor = captionColor(darkMode, Colors);
+          const inactiveStyle = inactiveChoiceChipStyle(darkMode, Colors);
+          let borderColor = inactiveStyle.borderColor;
+          let backgroundColor = inactiveStyle.backgroundColor;
+          let textColor = inactiveStyle.textColor;
 
           if (active) {
             if (isUnsure) {
@@ -9219,6 +9178,13 @@ function ChoiceRow({
               }}
               style={[
                 styles.choiceChipWide,
+                item.id === 'tear_off'
+                  ? ['one_layer', 'two_layers', 'tile_removal', 'metal_removal'].includes(
+                      opt.id
+                    )
+                    ? styles.roofingChoiceChipHalf
+                    : styles.roofingChoiceChipFull
+                  : null,
                 item.id === 'stucco' ? styles.stuccoChoiceChip : null,
                 { borderColor, backgroundColor },
               ]}
@@ -10140,6 +10106,9 @@ function CollapsibleQuickMeasurements({
   const roofingQmJob =
     !wholeHomeLayout &&
     String(effectiveTemplateKey || '').toLowerCase() === 'roofing';
+  const stuccoQmJob =
+    !wholeHomeLayout &&
+    (String(effectiveTemplateKey || '').toLowerCase() === 'stucco' || stuccoTradeFlow);
   const bathroomFixturesQmJob =
     !wholeHomeLayout &&
     String(effectiveTemplateKey || '').toLowerCase() === 'bathroom';
@@ -11991,6 +11960,21 @@ function CollapsibleQuickMeasurements({
     'railingLf',
     'roofSquares',
   ]);
+  const stuccoEmbeddedMeasurementKeys = new Set<QuickMeasurementFieldKey>([
+    'stuccoGrossWallSqft',
+    'stuccoWindowDoorOpeningSqft',
+    'stuccoGarageOpeningSqft',
+    'stuccoOtherFinishDeductionSqft',
+    'stuccoNetWallSqft',
+    'stuccoSoffitSqft',
+    'stuccoParapetSqft',
+    'stuccoFoamTrimLf',
+    'stuccoControlJointLf',
+    'stuccoAccessAffectedSqft',
+    'stuccoRepairAffectedSqft',
+    'stuccoStories',
+    'stuccoWallHeightFt',
+  ]);
   const flooringInstallSqft =
     Number(measurements.flooringLvpSqft || 0) +
     Number(measurements.flooringLaminateSqft || 0) +
@@ -12009,6 +11993,7 @@ function CollapsibleQuickMeasurements({
       (landscapingQmJob &&
         landscapingEmbeddedMeasurementKeys.has(result.key)) ||
       (concreteQmJob && concreteEmbeddedMeasurementKeys.has(result.key)) ||
+      (stuccoQmJob && stuccoEmbeddedMeasurementKeys.has(result.key)) ||
       ((deckQmJob || hvacQmJob || roofingQmJob) &&
         simpleTradeEmbeddedMeasurementKeys.has(result.key))
     );
@@ -12820,8 +12805,16 @@ function CollapsibleQuickMeasurements({
                 />
               ) : null}
               {roofingQmJob ? (
-                <QmSimpleTradeScopePanels
-                  scopeKey='roofing'
+                <QmRoofingScopePanels
+                  measurements={measurements}
+                  setMeasurements={setMeasurements}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                />
+              ) : null}
+              {stuccoQmJob ? (
+                <QmStuccoScopePanels
                   measurements={measurements}
                   setMeasurements={setMeasurements}
                   applying={applying}
@@ -13215,6 +13208,11 @@ export default function AIEstimateScopeAssumptionsModal({
       itemQuantities: {},
     });
   const [quickMeasurementsOpen, setQuickMeasurementsOpen] = useState(true);
+  // Confirm Scope reuses this modal instance — reopening must restore QM expanded
+  // even when hydration short-circuits (e.g. plan import before checklist is ready).
+  useEffect(() => {
+    if (visible) setQuickMeasurementsOpen(true);
+  }, [visible]);
   const [quickMeasurementSummary, setQuickMeasurementSummary] =
     useState<QuickMeasurementSummary>({
       detected: 0,
@@ -14074,7 +14072,6 @@ export default function AIEstimateScopeAssumptionsModal({
       itemQuantities: {},
     });
     setCollapsedGroups({});
-    setQuickMeasurementsOpen(false);
     setCustomItemLabel('');
     setShowCustomItemInput(false);
   }, [
@@ -14620,6 +14617,11 @@ export default function AIEstimateScopeAssumptionsModal({
   ]);
   const qmScopeEmbeddedInQuickMeasurements = useCallback(
     (itemId: string) => {
+      // Roofing Quick Measurements are only a selector/takeoff surface. Their
+      // selected components still need independent Confirm Scope pricing cards.
+      if (String(checklist?.templateKey || '').toLowerCase() === 'roofing') {
+        return false;
+      }
       if (!qmEmbeddedScopeIds.has(itemId)) return false;
       if (
         shouldHideBathroomFixtureScopeCardInQmEmbed(
@@ -14633,7 +14635,7 @@ export default function AIEstimateScopeAssumptionsModal({
       if (BATHROOM_FIXTURES_QM_EMBEDDED_IDS.has(itemId)) return false;
       return true;
     },
-    [qmEmbeddedScopeIds, measurements, items]
+    [checklist?.templateKey, qmEmbeddedScopeIds, measurements, items]
   );
   const hideIncludedStuccoComponentCards = useMemo(() => {
     if (
@@ -14660,12 +14662,78 @@ export default function AIEstimateScopeAssumptionsModal({
       ]),
     []
   );
+  const hideDeselectedRoofingQmCard = useCallback(
+    (itemId: string) => {
+      if (String(checklist?.templateKey || '').toLowerCase() !== 'roofing') {
+        return false;
+      }
+      const selectionAliases: Record<string, string[]> = {
+        tear_off: ['tear_off'],
+        underlayment: ['underlayment'],
+        ice_water_shield: ['ice_water_shield'],
+        shingles_roofing: ['shingles', 'shingles_roofing'],
+        decking_repair: ['decking_repair'],
+        drip_edge: ['drip_edge'],
+        ridge_cap: ['ridge_cap'],
+        valley_flashing: ['valley_flashing'],
+        step_flashing: ['step_flashing'],
+        wall_flashing: ['wall_flashing'],
+        ridge_vent: ['ridge_vent'],
+        roof_vents: ['roof_vents'],
+        turbine_vents: ['turbine_vents'],
+        pipe_boots: ['pipe_boots'],
+        chimney_flashing: ['chimney_flashing'],
+        skylight_flashing: ['skylight_flashing'],
+        roof_penetrations: ['roof_penetrations'],
+        roof_repairs: ['roof_repairs'],
+        gutters: ['gutters'],
+        downspouts: ['downspouts'],
+      };
+      const aliases = selectionAliases[itemId];
+      if (!aliases) return false;
+      const selections = measurements.tradeScopeSelections?.roofing;
+      const hasExplicitSelectionState =
+        measurements.tradeScopeSelections &&
+        Object.prototype.hasOwnProperty.call(
+          measurements.tradeScopeSelections,
+          'roofing'
+        );
+      if (!hasExplicitSelectionState) {
+        return ['underlayment', 'ice_water_shield'].includes(itemId);
+      }
+      return !(
+        Array.isArray(selections) &&
+        aliases.some(alias => selections.includes(alias))
+      );
+    },
+    [checklist?.templateKey, measurements.tradeScopeSelections]
+  );
+  const hideDuplicateRoofingBaseCard = useCallback(
+    (itemId: string) => {
+      if (
+        String(checklist?.templateKey || '').toLowerCase() !== 'roofing' ||
+        itemId !== 'shingles_roofing'
+      ) {
+        return false;
+      }
+      return displayItems.some(
+        item =>
+          item.id === 'roofing_system' &&
+          item.state === 'included' &&
+          Boolean(item.choiceId) &&
+          !['not_in_scope', 'unsure'].includes(String(item.choiceId))
+      );
+    },
+    [checklist?.templateKey, displayItems]
+  );
   const scopeGroupedItems = useMemo(() => {
     return groupedItems
       .map(group => ({
         ...group,
         items: group.items.filter(
           item =>
+            !hideDeselectedRoofingQmCard(item.id) &&
+            !hideDuplicateRoofingBaseCard(item.id) &&
             !(
               hideIncludedStuccoComponentCards &&
               includedStuccoComponentIds.has(item.id)
@@ -14681,6 +14749,8 @@ export default function AIEstimateScopeAssumptionsModal({
     qmScopeEmbeddedInQuickMeasurements,
     hideIncludedStuccoComponentCards,
     includedStuccoComponentIds,
+    hideDeselectedRoofingQmCard,
+    hideDuplicateRoofingBaseCard,
   ]);
 
   // QM steppers / shower SF → auto-include shower wall & floor tile scope cards.
@@ -14817,6 +14887,8 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.excavationCy,
     measurements.deckSqft,
     measurements.railingLf,
+    measurements.roofAreaSqft,
+    measurements.roofIceWaterShieldSqft,
     measurements.roofSquares,
   ]);
 
@@ -14947,6 +15019,8 @@ export default function AIEstimateScopeAssumptionsModal({
       });
     for (const item of displayItems) {
       if (!checklistItemInScope(item)) continue;
+      if (hideDeselectedRoofingQmCard(item.id)) continue;
+      if (hideDuplicateRoofingBaseCard(item.id)) continue;
       // The matching scope cards are rendered inside the Quick Measurements
       // panels for photo/notes kitchen jobs. Their measurement rows can still
       // produce a pricing suggestion, but they are not separate Apply cards
@@ -15114,6 +15188,8 @@ export default function AIEstimateScopeAssumptionsModal({
     benchmarkRefresh,
     embedQmScopeInQuickMeasurements,
     qmScopeEmbeddedInQuickMeasurements,
+    hideDeselectedRoofingQmCard,
+    hideDuplicateRoofingBaseCard,
   ]);
 
   const scopeItemsNeedingConfirmation = useMemo(
@@ -15201,7 +15277,6 @@ export default function AIEstimateScopeAssumptionsModal({
       ) {
         continue;
       }
-      if (!hasConfirmedPricingBasis(row.itemId, measurements, checklist?.templateKey)) continue;
       if (
         scopeHasCommittedConfirmScopePrice({
           itemId: row.itemId,
@@ -15262,22 +15337,17 @@ export default function AIEstimateScopeAssumptionsModal({
 
   const applySuggestedPricingBlocks = useCallback(
     (rows: UnconfirmedSuggestedPricing[]) => {
-      const confirmedRows = rows.filter(row =>
-        hasConfirmedPricingBasis(row.itemId, measurements, checklist?.templateKey)
-      );
-      if (!confirmedRows.length) return;
+      if (!rows.length) return;
       hapticTap();
       selectedPricingRef.current = {
         ...selectedPricingRef.current,
-        ...Object.fromEntries(
-          confirmedRows.map(row => [row.itemId, row.block])
-        ),
+        ...Object.fromEntries(rows.map(row => [row.itemId, row.block])),
       };
       setMeasurementsSynced(prev => {
         const { measurements, clearedSelectedOwners } =
           mergeSuggestedPricingBlocksIntoMeasurements(
             prev,
-            confirmedRows,
+            rows,
             checklist?.templateKey
           );
         if (clearedSelectedOwners.length) {
@@ -15291,7 +15361,6 @@ export default function AIEstimateScopeAssumptionsModal({
     },
     [
       checklist?.templateKey,
-      measurements,
       persistScopeProgressNow,
       setMeasurementsSynced,
     ]
@@ -16054,14 +16123,6 @@ export default function AIEstimateScopeAssumptionsModal({
 
   const handleApplySuggestedPricing = useCallback(
     (itemId: string, block: SuggestedPricingBlock) => {
-      if (!hasConfirmedPricingBasis(itemId, measurements, checklist?.templateKey)) {
-        Alert.alert(
-          'Measurement required',
-          'Enter or confirm the actual quantity before applying pricing. Planning assumptions cannot be added to the bid.',
-          [{ text: 'OK', style: 'cancel' }]
-        );
-        return;
-      }
       // Stage lumps stay view-only; pure national comparison may be applied.
       if (block.benchmarkAction === 'included_in_stage') {
         return;
@@ -16694,6 +16755,12 @@ export default function AIEstimateScopeAssumptionsModal({
   );
 
   const renderItem = (item: ScopeChecklistItem) => {
+    if (hideDeselectedRoofingQmCard(item.id)) {
+      return null;
+    }
+    if (hideDuplicateRoofingBaseCard(item.id)) {
+      return null;
+    }
     if (
       embedQmScopeInQuickMeasurements &&
       qmScopeEmbeddedInQuickMeasurements(item.id)
@@ -18203,6 +18270,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     minWidth: '47%',
     flexGrow: 1,
+  },
+  roofingChoiceChipHalf: {
+    width: '48%',
+    minWidth: '48%',
+    maxWidth: '48%',
+    flexGrow: 0,
+    flexShrink: 0,
+  },
+  roofingChoiceChipFull: {
+    width: '100%',
+    minWidth: '100%',
+    maxWidth: '100%',
+    flexGrow: 0,
+    flexShrink: 0,
   },
   stuccoChoiceChip: {
     width: '48%',

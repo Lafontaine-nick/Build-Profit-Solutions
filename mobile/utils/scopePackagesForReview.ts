@@ -195,6 +195,24 @@ function isConfirmScopeReviewRowSelected(
   return bathroomFixtureScopeCardVisible(item.id, measurements, displayItems);
 }
 
+/** Roofing system choice card owns install pricing — hide legacy shingles row. */
+function shouldHideDuplicateRoofingShinglesRow(
+  itemId: string,
+  templateKey: string | null | undefined,
+  displayItems: ScopeChecklistItem[]
+): boolean {
+  if (String(templateKey || '').toLowerCase() !== 'roofing' || itemId !== 'shingles_roofing') {
+    return false;
+  }
+  return displayItems.some(
+    item =>
+      item.id === 'roofing_system' &&
+      checklistItemInScope(item) &&
+      Boolean(item.choiceId) &&
+      !['not_in_scope', 'unsure'].includes(String(item.choiceId))
+  );
+}
+
 /**
  * Flat scope row order shared by Step 2 cards and Step 3 review lines.
  * Step 3 uses the same top-to-bottom order but only rows selected on Confirm Scope.
@@ -207,7 +225,14 @@ export function flattenConfirmScopeVisibleRows(
   const ordered = flattenChecklistDisplayOrder(displayItems, ctx.templateKey);
 
   return ordered.filter((item) => {
-    if (isScopeCardHiddenInQmEmbed(item.id, displayItems, ctx.measurements, qmCtx)) return false;
+    // Step 2 hides QM-embedded cards in the scroll list; Step 3 must still list
+    // every selected/applied scope line so review matches Applied pricing.
+    if (
+      !ctx.forStep3Review &&
+      isScopeCardHiddenInQmEmbed(item.id, displayItems, ctx.measurements, qmCtx)
+    ) {
+      return false;
+    }
 
     if (ctx.forStep3Review) {
       if (item.id === 'wet_area_install') return false;
@@ -216,6 +241,10 @@ export function flattenConfirmScopeVisibleRows(
         const parent = displayItems.find((row) => row.id === 'wet_area_install');
         if (!parent || !checklistItemInScope(parent)) return false;
       }
+    }
+
+    if (shouldHideDuplicateRoofingShinglesRow(item.id, ctx.templateKey, displayItems)) {
+      return false;
     }
 
     return true;

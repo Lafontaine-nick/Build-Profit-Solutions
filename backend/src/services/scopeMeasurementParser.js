@@ -12,6 +12,8 @@ const LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|linea
 const WALL_LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|linear\s+ft|feet|foot)\b/gi;
 const CY_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:cy|cubic\s+yards?)/gi;
 const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)\s*squares?\b/gi;
+const ROOF_PITCH_RE = /\b(\d+)\s*(?::|\/)\s*(\d+)\s*pitch\b|\bpitch\s*(\d+)\s*(?::|\/)\s*(\d+)\b/i;
+const STORY_COUNT_RE = /\b(\d+|one|two|three|four|five)\s*[- ]?stor(?:y|ies)\b/i;
 const TON_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:tons?)\b/gi;
 const DEPTH_INCHES_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:inches?|["″])/i;
 
@@ -38,6 +40,15 @@ function isDirtExcavationClause(clause) {
 function parseQty(match) {
   const n = Number(String(match[1] ?? match[0]).replace(/,/g, ''));
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function parseStoryCount(text) {
+  const match = String(text || '').match(STORY_COUNT_RE);
+  if (!match) return null;
+  const raw = String(match[1] || '').toLowerCase();
+  const words = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+  const count = words[raw] || Number(raw);
+  return Number.isFinite(count) && count > 0 ? count : null;
 }
 
 function firstQty(text, re) {
@@ -593,6 +604,14 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
 
   // Roofing squares (or convert roof sqft → squares)
   if (/\broof(?:ing)?\b|\bshingles?\b|\btear[\s-]?off\b/.test(blob)) {
+    const pitchMatch = text.match(ROOF_PITCH_RE);
+    if (pitchMatch) {
+      const rise = pitchMatch[1] || pitchMatch[3];
+      const run = pitchMatch[2] || pitchMatch[4];
+      if (rise && run) out.roofPitch = `${rise}:${run}`;
+    }
+    const stories = parseStoryCount(text);
+    if (stories) out.storyCount = stories;
     for (const clause of clauses) {
       const sq = firstQty(clause, SQUARES_RE);
       if (sq) {
@@ -601,6 +620,7 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       }
       const sqft = firstQty(clause, SQFT_RE);
       if (sqft && /\broof|\bshingle/.test(clause.toLowerCase())) {
+        out.roofAreaSqft = sqft;
         out.roofSquares = Math.round((sqft / 100) * 10) / 10;
         break;
       }
@@ -610,7 +630,10 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
       if (sq) out.roofSquares = sq;
       else {
         const sqft = pickSqftNearPattern(text, /\broof|\bshingle/);
-        if (sqft) out.roofSquares = Math.round((sqft / 100) * 10) / 10;
+        if (sqft) {
+          out.roofAreaSqft = sqft;
+          out.roofSquares = Math.round((sqft / 100) * 10) / 10;
+        }
       }
     }
   }

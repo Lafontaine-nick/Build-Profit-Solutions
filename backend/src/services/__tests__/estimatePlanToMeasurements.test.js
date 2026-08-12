@@ -237,6 +237,51 @@ describe('estimatePlanToMeasurements', () => {
     expect(iq.trim.quantity).toBe(200);
   });
 
+  test('roof squares seed only the base Roofing quantity, never tear-off', () => {
+    const iq = buildItemQuantities({
+      roofSquares: 30,
+      roofDeckingReplacementSqft: 100,
+      roofDripEdgeLf: 180,
+      roofRepairAffectedSqft: 50,
+    });
+
+    expect(iq.shingles_roofing).toMatchObject({
+      quantity: 30,
+      unit: 'squares',
+      quantitySource: 'plan_vision',
+    });
+    expect(iq.tear_off).toBeUndefined();
+    expect(iq.decking_repair).toBeUndefined();
+  });
+
+  test('retains explicitly extracted Roofing accessory measurements', () => {
+    const measurements = sanitizeMeasurements(
+      {
+        roofSquares: 30,
+        roofDeckingReplacementSqft: 100,
+        roofDripEdgeLf: 180,
+        roofRidgeCapLf: 60,
+        roofRidgeVentLf: 40,
+        roofVentCount: 3,
+        roofPipeBootCount: 4,
+        roofRepairAffectedSqft: 50,
+      },
+      [],
+      {}
+    );
+
+    expect(measurements).toMatchObject({
+      roofSquares: 30,
+      roofDeckingReplacementSqft: 100,
+      roofDripEdgeLf: 180,
+      roofRidgeCapLf: 60,
+      roofRidgeVentLf: 40,
+      roofVentCount: 3,
+      roofPipeBootCount: 4,
+      roofRepairAffectedSqft: 50,
+    });
+  });
+
   test('sanitizeFieldConfidence keeps only known keys and clamps to [0,1]', () => {
     const conf = sanitizeFieldConfidence({
       floorAreaSqft: 0.95,

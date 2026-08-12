@@ -28,6 +28,7 @@ import {
 } from '@/utils/planImportRunner';
 import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import {
+  PLAN_EXPORT_TRADE_CONFIGURATIONS,
   PLAN_TRADE_CONFIGURATIONS,
   filterPlanMeasurementsForTrade,
   filterPlanScopesForTrade,
@@ -35,6 +36,7 @@ import {
   type PlanEstimatingMode,
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
+import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
 
 type Colors = {
   text: string;
@@ -59,6 +61,7 @@ export type PlanImportApplyResult = {
   buildingAreas?: import('@/utils/planMeasurementFacts').PlanBuildingAreas;
   planFacts?: import('@/utils/planMeasurementFacts').PlanFacts;
   fieldConfidence?: Record<string, number>;
+  quickMeasurementSources?: Record<string, string>;
   measurementProvenance?: Record<string, unknown>;
   measurementConflicts?: import('@/utils/estimateAiDraft').PlanMeasurementConflict[];
   estimatingMode: PlanEstimatingMode;
@@ -268,22 +271,70 @@ export default function EstimatePlanImportStrip({
         estimatingMode,
         selectedTrade
       );
-      const tradeMeasurements =
+      let tradeMeasurements =
         selection.mode === 'selected_trade' && selection.trade
           ? Object.fromEntries(
               Object.entries(
                 filterPlanMeasurementsForTrade(
                   Object.fromEntries(
-                    Object.entries(values)
-                      .map(([key, value]) => [key, Number(value)])
-                      .filter(([, n]) => Number.isFinite(n) && n > 0)
+                    Object.entries({
+                      ...values,
+                      ...(selection.trade.key === 'roofing'
+                        ? {
+                            roofPitch: takeoff.planFacts?.roofPitch,
+                            storyCount: takeoff.planFacts?.storyCount,
+                          }
+                        : {}),
+                    })
+                      .map(([key, value]) => [
+                        key,
+                        key === 'roofPitch' ? String(value || '') : Number(value),
+                      ])
+                      .filter(([key, value]) => {
+                        if (selection.trade?.key === 'roofing' && key === 'roofPitch') {
+                          return typeof value === 'string' && value.trim().length > 0;
+                        }
+                        const n = Number(value);
+                        return Number.isFinite(n) && n > 0;
+                      })
                   ),
                   selection.mode,
                   selection.trade.key
                 )
-              ).map(([key, n]) => [key, String(n)])
+              ).map(([key, value]) => [
+                key,
+                key === 'roofPitch' ? String(value) : String(Number(value)),
+              ])
             )
           : values;
+      const normalizedTrade =
+        selection.trade?.key === 'roofing' ||
+        selection.trade?.key === 'concrete' ||
+        selection.trade?.key === 'flooring'
+          ? normalizeTradeMeasurements(
+              selection.trade.key,
+              {
+                ...tradeMeasurements,
+                ...(selection.trade.key === 'roofing'
+                  ? {
+                      roofPitch:
+                        takeoff.planFacts?.roofPitch || tradeMeasurements.roofPitch,
+                      storyCount:
+                        takeoff.planFacts?.storyCount || tradeMeasurements.storyCount,
+                    }
+                  : {}),
+              },
+              'plan'
+            )
+          : null;
+      if (normalizedTrade) {
+        tradeMeasurements = Object.fromEntries(
+          Object.entries(normalizedTrade.measurements).map(([key, value]) => [
+            key,
+            String(value),
+          ])
+        );
+      }
       const tradeRooms =
         selection.mode === 'selected_trade' ? [] : rooms;
       const tradeScopeDetections =
@@ -310,13 +361,17 @@ export default function EstimatePlanImportStrip({
         planFacts:
           selection.mode === 'selected_trade' ? undefined : takeoff.planFacts,
         fieldConfidence: takeoff.fieldConfidence,
-        measurementProvenance: takeoff.measurementProvenance
-          ? Object.fromEntries(
-              Object.entries(takeoff.measurementProvenance).filter(([key]) =>
-                Object.prototype.hasOwnProperty.call(tradeMeasurements, key)
+        quickMeasurementSources: normalizedTrade?.quickMeasurementSources,
+        measurementProvenance: {
+          ...(normalizedTrade?.measurementProvenance || {}),
+          ...(takeoff.measurementProvenance
+            ? Object.fromEntries(
+                Object.entries(takeoff.measurementProvenance).filter(([key]) =>
+                  Object.prototype.hasOwnProperty.call(tradeMeasurements, key)
+                )
               )
-            )
-          : undefined,
+            : {}),
+        },
         measurementConflicts: (takeoff.measurementConflicts || []).filter(
           conflict =>
             Object.prototype.hasOwnProperty.call(tradeMeasurements, conflict.field)
@@ -472,7 +527,7 @@ export default function EstimatePlanImportStrip({
                   marginBottom: 10,
                 }}
               >
-                {PLAN_TRADE_CONFIGURATIONS.map(trade => (
+                {PLAN_EXPORT_TRADE_CONFIGURATIONS.map(trade => (
                   <TouchableOpacity
                     key={trade.key}
                     onPress={() => setSelectedTrade(trade.key)}
@@ -519,7 +574,7 @@ export default function EstimatePlanImportStrip({
             >
               {selectedTrade === 'electrical'
                 ? 'Electrical plan selected — we will focus on electrical sheets and quantities that can be verified.'
-                : `${PLAN_TRADE_CONFIGURATIONS.find(trade => trade.key === selectedTrade)?.label || 'Trade'} plan selected — we will focus on relevant sheets and quantities.`}
+                : `${PLAN_EXPORT_TRADE_CONFIGURATIONS.find(trade => trade.key === selectedTrade)?.label || PLAN_TRADE_CONFIGURATIONS.find(trade => trade.key === selectedTrade)?.label || 'Trade'} plan selected — we will focus on relevant sheets and quantities.`}
             </Text>
           ) : null}
         </>

@@ -1,0 +1,440 @@
+import type { ScopePricingBehavior } from './scopePricingBehavior';
+import {
+  CONCRETE_REVIEW_MEASUREMENT_KEYS,
+} from './concretePlanConvergence';
+import {
+  FLOORING_REVIEW_MEASUREMENT_KEYS,
+} from './flooringPlanConvergence';
+import { getTradeMeasurementSchema } from './measurementSchemas';
+import {
+  TRADE_SCOPE_ALLOWLISTS,
+  getTradeScopeAllowlist,
+} from './tradeAllowlists';
+import type {
+  SubcontractorTradeDefinition,
+  SubcontractorTradeKey,
+  TradeScopeItemDefinition,
+} from './types';
+
+export const PLAN_EXPORT_TRADE_KEYS: SubcontractorTradeKey[] = [
+  'electrical',
+  'plumbing',
+  'hvac',
+  'roofing',
+  'concrete',
+  'framing',
+  'drywall',
+  'stucco',
+  'insulation',
+  'flooring',
+  'windows_doors',
+];
+
+const STUCCO_REVIEW_MEASUREMENT_KEYS = [
+  'stuccoSqft',
+  'exteriorWallSqft',
+  'exteriorFinishSqft',
+  'exteriorFinishesSqft',
+  'exteriorPaintSqft',
+  'stuccoGrossWallSqft',
+  'stuccoWindowDoorOpeningSqft',
+  'stuccoGarageOpeningSqft',
+  'stuccoOtherFinishDeductionSqft',
+  'stuccoNetWallSqft',
+  'stuccoSoffitSqft',
+  'stuccoParapetSqft',
+  'stuccoFoamTrimLf',
+  'stuccoControlJointLf',
+  'stuccoAccessAffectedSqft',
+  'stuccoRepairAffectedSqft',
+  'stuccoStories',
+  'stuccoWallHeightFt',
+];
+
+const STUCCO_QUICK_MEASUREMENT_KEYS = [
+  'stuccoGrossWallSqft',
+  'stuccoWindowDoorOpeningSqft',
+  'stuccoGarageOpeningSqft',
+  'stuccoOtherFinishDeductionSqft',
+  'stuccoNetWallSqft',
+  'stuccoSoffitSqft',
+  'stuccoParapetSqft',
+  'stuccoFoamTrimLf',
+  'stuccoControlJointLf',
+  'stuccoStories',
+  'stuccoWallHeightFt',
+  'exteriorPaintSqft',
+];
+
+/** Descriptive metadata mapping existing Stucco behavior — not consumed by pricing yet. */
+const STUCCO_SCOPE_ITEMS: TradeScopeItemDefinition[] = [
+  { scopeItemId: 'stucco', pricingBehavior: 'ALTERNATE_SYSTEM' },
+  { scopeItemId: 'stucco_wrb', pricingBehavior: 'INCLUDED_IN_BASE' },
+  { scopeItemId: 'stucco_lath', pricingBehavior: 'INCLUDED_IN_BASE' },
+  { scopeItemId: 'stucco_base_coat', pricingBehavior: 'INCLUDED_IN_BASE' },
+  { scopeItemId: 'stucco_finish_coat', pricingBehavior: 'INCLUDED_IN_BASE' },
+  { scopeItemId: 'stucco_accessories', pricingBehavior: 'INCLUDED_IN_BASE' },
+  {
+    scopeItemId: 'stucco_foam_trim',
+    pricingBehavior: 'SEPARATE_ADDON',
+    measurementKeys: ['stuccoFoamTrimLf'],
+  },
+  {
+    scopeItemId: 'stucco_soffits',
+    pricingBehavior: 'SEPARATE_ADDON',
+    measurementKeys: ['stuccoSoffitSqft'],
+  },
+  {
+    scopeItemId: 'stucco_parapets',
+    pricingBehavior: 'SEPARATE_ADDON',
+    measurementKeys: ['stuccoParapetSqft'],
+  },
+  {
+    scopeItemId: 'stucco_access',
+    pricingBehavior: 'SEPARATE_ADDON',
+    measurementKeys: ['stuccoAccessAffectedSqft'],
+  },
+  {
+    scopeItemId: 'stucco_repairs',
+    pricingBehavior: 'SEPARATE_ADDON',
+    measurementKeys: ['stuccoRepairAffectedSqft'],
+  },
+  {
+    scopeItemId: 'stucco_other_finish',
+    pricingBehavior: 'NON_PRICED_CONFIRMATION',
+  },
+];
+
+function scaffoldedTrade(
+  key: SubcontractorTradeKey,
+  label: string,
+  opts: Partial<SubcontractorTradeDefinition> = {}
+): SubcontractorTradeDefinition {
+  const allowlist = TRADE_SCOPE_ALLOWLISTS[key];
+  const keywords = label
+    .toLowerCase()
+    .split(/[^\w]+/)
+    .filter(Boolean);
+  return {
+    key,
+    label,
+    status: 'scaffolded',
+    scopeHint: `Focus on ${label.toLowerCase()} sheets and notes; do not infer detailed quantities.`,
+    missingInfo: [
+      'Trade-specific plan/schedule details',
+      'Scope inclusions and exclusions',
+      'Quantities requiring contractor confirmation',
+    ],
+    measurements: getTradeMeasurementSchema(key),
+    scopeItems: [],
+    allowedScopeItemIds: allowlist,
+    reviewMeasurementKeys: [],
+    reviewScopeKeywords: keywords,
+    quickMeasurementFieldKeys: [],
+    ...opts,
+  };
+}
+
+const STUCCO_DEFINITION: SubcontractorTradeDefinition = {
+  key: 'stucco',
+  label: 'Stucco / Exterior Finish',
+  status: 'complete',
+  standaloneTemplateKey: 'stucco',
+  scopeHint:
+    'Focus on exterior elevations, wall areas, openings, soffits, and stucco notes.',
+  missingInfo: [
+    'Exterior wall area and openings',
+    'Stucco system and finish',
+    'Access, scaffolding, and repair conditions',
+  ],
+  measurements: getTradeMeasurementSchema('stucco'),
+  scopeItems: STUCCO_SCOPE_ITEMS,
+  allowedScopeItemIds: TRADE_SCOPE_ALLOWLISTS.stucco,
+  reviewMeasurementKeys: STUCCO_REVIEW_MEASUREMENT_KEYS,
+  reviewScopeKeywords: ['stucco'],
+  quickMeasurementFieldKeys: STUCCO_QUICK_MEASUREMENT_KEYS,
+};
+
+const ROOFING_SCOPE_ITEMS = [
+  {
+    scopeItemId: 'roofing_system',
+    pricingBehavior: 'ALTERNATE_SYSTEM' as const,
+  },
+  {
+    scopeItemId: 'shingles_roofing',
+    pricingBehavior: 'INCLUDED_IN_BASE' as const,
+    measurementKeys: ['roofSquares'],
+  },
+  {
+    scopeItemId: 'tear_off',
+    pricingBehavior: 'SEPARATE_ADDON' as const,
+    measurementKeys: ['roofSquares'],
+  },
+  {
+    scopeItemId: 'underlayment',
+    pricingBehavior: 'SEPARATE_ADDON' as const,
+    measurementKeys: ['roofAreaSqft'],
+  },
+  {
+    scopeItemId: 'ice_water_shield',
+    pricingBehavior: 'SEPARATE_ADDON' as const,
+    measurementKeys: ['roofIceWaterShieldSqft'],
+  },
+  {
+    scopeItemId: 'decking_repair',
+    pricingBehavior: 'SEPARATE_ADDON' as const,
+    measurementKeys: ['roofDeckingReplacementSqft'],
+  },
+  ...(
+    [
+      ['drip_edge', 'roofDripEdgeLf'],
+      ['ridge_cap', 'roofRidgeCapLf'],
+      ['valley_flashing', 'roofValleyFlashingLf'],
+      ['step_flashing', 'roofStepFlashingLf'],
+      ['wall_flashing', 'roofWallFlashingLf'],
+      ['ridge_vent', 'roofRidgeVentLf'],
+      ['roof_vents', 'roofVentCount'],
+      ['turbine_vents', 'roofTurbineVentCount'],
+      ['pipe_boots', 'roofPipeBootCount'],
+      ['chimney_flashing', 'roofChimneyFlashingCount'],
+      ['skylight_flashing', 'roofSkylightCount'],
+      ['roof_penetrations', 'roofPenetrationCount'],
+      ['gutters', 'roofGutterLf'],
+      ['downspouts', 'roofDownspoutCount'],
+    ] as const
+  ).map(([scopeItemId, measurementKey]) => ({
+    scopeItemId,
+    pricingBehavior: 'SEPARATE_ADDON' as const,
+    measurementKeys: [measurementKey],
+  })),
+  {
+    scopeItemId: 'roof_repairs',
+    pricingBehavior: 'SEPARATE_ADDON' as const,
+    measurementKeys: ['roofRepairAffectedSqft'],
+  },
+] satisfies SubcontractorTradeDefinition['scopeItems'];
+
+const CONCRETE_SCOPE_ITEMS = [
+  { scopeItemId: 'pour_flatwork', pricingBehavior: 'SEPARATE_ADDON' as const },
+  { scopeItemId: 'pour_foundation', pricingBehavior: 'SEPARATE_ADDON' as const },
+  { scopeItemId: 'demo_removal', pricingBehavior: 'SEPARATE_ADDON' as const },
+  { scopeItemId: 'excavation', pricingBehavior: 'SEPARATE_ADDON' as const },
+  { scopeItemId: 'reinforcement', pricingBehavior: 'SEPARATE_ADDON' as const },
+  { scopeItemId: 'site_prep', pricingBehavior: 'SEPARATE_ADDON' as const },
+  { scopeItemId: 'complex_forming', pricingBehavior: 'SEPARATE_ADDON' as const },
+  {
+    scopeItemId: 'concrete_sealer',
+    pricingBehavior: 'SEPARATE_ADDON' as const,
+  },
+  {
+    scopeItemId: 'decorative_finish',
+    pricingBehavior: 'SEPARATE_ADDON' as const,
+  },
+  {
+    scopeItemId: 'additional_haul_off',
+    pricingBehavior: 'SEPARATE_ADDON' as const,
+  },
+] satisfies SubcontractorTradeDefinition['scopeItems'];
+
+const ELECTRICAL_DEFINITION: SubcontractorTradeDefinition = {
+  key: 'electrical',
+  label: 'Electrical',
+  status: 'reference',
+  scopeHint:
+    'Focus on electrical sheets, panels, circuits, devices, lighting, and electrical notes.',
+  missingInfo: [
+    'Device and fixture counts',
+    'Panel/circuit schedule',
+    'Service size and utility scope',
+  ],
+  measurements: [],
+  scopeItems: [],
+  allowedScopeItemIds: TRADE_SCOPE_ALLOWLISTS.electrical,
+  reviewMeasurementKeys: [],
+  reviewScopeKeywords: [
+    'electrical',
+    'receptacle',
+    'switch',
+    'lighting',
+    'panel',
+    'circuit',
+    'smoke',
+    'detector',
+  ],
+  quickMeasurementFieldKeys: [],
+};
+
+export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
+  SubcontractorTradeKey,
+  SubcontractorTradeDefinition
+> = {
+  electrical: ELECTRICAL_DEFINITION,
+  plumbing: scaffoldedTrade('plumbing', 'Plumbing', {
+    standaloneTemplateKey: 'plumbing_service',
+  }),
+  hvac: scaffoldedTrade('hvac', 'HVAC', { standaloneTemplateKey: 'hvac' }),
+  roofing: scaffoldedTrade('roofing', 'Roofing', {
+    standaloneTemplateKey: 'roofing',
+    reviewMeasurementKeys: [
+      'roofAreaSqft',
+      'roofIceWaterShieldSqft',
+      'roofSquares',
+      'roofPitch',
+      'storyCount',
+      'roofDeckingReplacementSqft',
+      'roofDripEdgeLf',
+      'roofRidgeCapLf',
+      'roofRidgeVentLf',
+      'roofValleyFlashingLf',
+      'roofStepFlashingLf',
+      'roofWallFlashingLf',
+      'roofChimneyFlashingCount',
+      'roofPipeBootCount',
+      'roofVentCount',
+      'roofTurbineVentCount',
+      'roofSkylightCount',
+      'roofPenetrationCount',
+      'roofRepairAffectedSqft',
+      'roofGutterLf',
+      'roofDownspoutCount',
+    ],
+    quickMeasurementFieldKeys: [
+      'roofAreaSqft',
+      'roofIceWaterShieldSqft',
+      'roofSquares',
+      'roofPitch',
+      'storyCount',
+      'roofDeckingReplacementSqft',
+      'roofDripEdgeLf',
+      'roofRidgeCapLf',
+      'roofRidgeVentLf',
+      'roofValleyFlashingLf',
+      'roofStepFlashingLf',
+      'roofWallFlashingLf',
+      'roofChimneyFlashingCount',
+      'roofPipeBootCount',
+      'roofVentCount',
+      'roofTurbineVentCount',
+      'roofSkylightCount',
+      'roofPenetrationCount',
+      'roofRepairAffectedSqft',
+      'roofGutterLf',
+      'roofDownspoutCount',
+    ],
+    scopeItems: ROOFING_SCOPE_ITEMS,
+  }),
+  concrete: scaffoldedTrade('concrete', 'Concrete', {
+    standaloneTemplateKey: 'concrete',
+    status: 'complete',
+    scopeHint:
+      'Focus on labeled flatwork areas, footing/foundation CY, excavation, and concrete notes.',
+    missingInfo: [
+      'Flatwork type areas and slab thickness',
+      'Footing / foundation CY when not dimensioned',
+      'Demo, excavation, and reinforcement only when explicitly supported',
+    ],
+    reviewMeasurementKeys: [...CONCRETE_REVIEW_MEASUREMENT_KEYS],
+    reviewScopeKeywords: [
+      'concrete',
+      'flatwork',
+      'driveway',
+      'sidewalk',
+      'walkway',
+      'patio',
+      'footing',
+      'foundation',
+      'excavation',
+    ],
+    quickMeasurementFieldKeys: [
+      'concreteDrivewaySqft',
+      'concreteSidewalkSqft',
+      'concretePatioSqft',
+      'concreteWalkwaySqft',
+      'concreteRvPadSqft',
+      'concreteSqft',
+      'concreteCy',
+      'excavationCy',
+      'concreteDemoSqft',
+      'concreteReinforcementSqft',
+    ],
+    scopeItems: CONCRETE_SCOPE_ITEMS,
+  }),
+  framing: scaffoldedTrade('framing', 'Framing', {
+    standaloneTemplateKey: 'framing',
+  }),
+  drywall: scaffoldedTrade('drywall', 'Drywall', {
+    standaloneTemplateKey: 'drywall',
+    quickMeasurementFieldKeys: ['drywallSqft'],
+  }),
+  stucco: STUCCO_DEFINITION,
+  insulation: scaffoldedTrade('insulation', 'Insulation'),
+  flooring: scaffoldedTrade('flooring', 'Flooring', {
+    standaloneTemplateKey: 'flooring',
+    status: 'complete',
+    scopeHint:
+      'Focus on finish schedules, floor areas, and flooring notes. Do not infer demo, prep severity, or accessories without explicit support.',
+    missingInfo: [
+      'New flooring product types and install areas',
+      'Existing floor types when not on finish schedule',
+      'Demo, prep severity, and accessories only when explicitly supported',
+    ],
+    reviewMeasurementKeys: [...FLOORING_REVIEW_MEASUREMENT_KEYS],
+    reviewScopeKeywords: [
+      'flooring',
+      'floor',
+      'tile',
+      'carpet',
+      'lvp',
+      'vinyl',
+      'laminate',
+      'hardwood',
+    ],
+    quickMeasurementFieldKeys: [
+      'flooringSqft',
+      'flooringLvpSqft',
+      'flooringLaminateSqft',
+      'flooringEngineeredHardwoodSqft',
+      'flooringSolidHardwoodSqft',
+      'flooringTileSqft',
+      'flooringCarpetSqft',
+      'flooringSheetVinylSqft',
+      'floorDemoSqft',
+      'floorPrepSqft',
+      'underlaymentSqft',
+      'moistureBarrierSqft',
+      'baseboardLf',
+      'transitionCount',
+      'quarterRoundLf',
+    ],
+    scopeItems: [
+      { scopeItemId: 'flooring_lvp', pricingBehavior: 'SEPARATE_ADDON' as const },
+      { scopeItemId: 'tile_flooring', pricingBehavior: 'SEPARATE_ADDON' as const },
+      { scopeItemId: 'flooring_carpet', pricingBehavior: 'SEPARATE_ADDON' as const },
+      { scopeItemId: 'floor_demo', pricingBehavior: 'SEPARATE_ADDON' as const },
+      { scopeItemId: 'floor_prep', pricingBehavior: 'SEPARATE_ADDON' as const },
+      { scopeItemId: 'trim', pricingBehavior: 'SEPARATE_ADDON' as const },
+      { scopeItemId: 'transitions', pricingBehavior: 'SEPARATE_ADDON' as const },
+      { scopeItemId: 'quarter_round', pricingBehavior: 'SEPARATE_ADDON' as const },
+      { scopeItemId: 'underlayment', pricingBehavior: 'SEPARATE_ADDON' as const },
+      { scopeItemId: 'moisture_barrier', pricingBehavior: 'SEPARATE_ADDON' as const },
+    ],
+  }),
+  windows_doors: scaffoldedTrade('windows_doors', 'Windows & doors'),
+};
+
+export function getSubcontractorTradeDefinition(
+  key: string | null | undefined
+): SubcontractorTradeDefinition | null {
+  if (!key) return null;
+  return SUBCONTRACTOR_TRADE_DEFINITIONS[key as SubcontractorTradeKey] || null;
+}
+
+export function getPlanExportTradeConfigurations(): SubcontractorTradeDefinition[] {
+  return PLAN_EXPORT_TRADE_KEYS.map(
+    key => SUBCONTRACTOR_TRADE_DEFINITIONS[key]
+  );
+}
+
+export { getTradeScopeAllowlist, TRADE_SCOPE_ALLOWLISTS };
+
+export type { ScopePricingBehavior };

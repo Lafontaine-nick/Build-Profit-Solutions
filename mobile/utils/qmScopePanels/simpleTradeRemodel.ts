@@ -8,6 +8,7 @@ type TradeOption = {
   label: string;
   canonicalId: string;
   measurementKey?: string;
+  measurementHelper?: string;
   unit?: string;
 };
 
@@ -42,13 +43,39 @@ const HVAC_OPTIONS: TradeOption[] = [
 
 const ROOFING_OPTIONS: TradeOption[] = [
   { id: 'tear_off', label: 'Tear-off', canonicalId: 'tear_off', measurementKey: 'roofSquares', unit: 'squares' },
-  { id: 'underlayment', label: 'Underlayment', canonicalId: 'underlayment', measurementKey: 'roofSquares', unit: 'squares' },
-  { id: 'ice_water_shield', label: 'Ice & water shield', canonicalId: 'underlayment', measurementKey: 'roofSquares', unit: 'squares' },
-  { id: 'drip_edge', label: 'Drip edge', canonicalId: 'flashing', measurementKey: 'roofSquares', unit: 'squares' },
-  { id: 'flashing', label: 'Flashing', canonicalId: 'flashing', measurementKey: 'roofSquares', unit: 'squares' },
+  { id: 'underlayment', label: 'Premium / synthetic underlayment upgrade', canonicalId: 'underlayment', measurementKey: 'roofAreaSqft', unit: 'sqft' },
+  { id: 'ice_water_shield', label: 'Ice & water shield', canonicalId: 'ice_water_shield', measurementKey: 'roofIceWaterShieldSqft', unit: 'sqft' },
+  { id: 'drip_edge', label: 'Drip edge', canonicalId: 'drip_edge', measurementKey: 'roofDripEdgeLf', unit: 'LF' },
+  { id: 'ridge_cap', label: 'Ridge cap', canonicalId: 'ridge_cap', measurementKey: 'roofRidgeCapLf', unit: 'LF' },
+  { id: 'valley_flashing', label: 'Valley flashing', canonicalId: 'valley_flashing', measurementKey: 'roofValleyFlashingLf', unit: 'LF' },
+  { id: 'step_flashing', label: 'Step flashing', canonicalId: 'step_flashing', measurementKey: 'roofStepFlashingLf', unit: 'LF' },
+  { id: 'wall_flashing', label: 'Wall flashing', canonicalId: 'wall_flashing', measurementKey: 'roofWallFlashingLf', unit: 'LF' },
   { id: 'shingles', label: 'Shingles', canonicalId: 'shingles_roofing', measurementKey: 'roofSquares', unit: 'squares' },
-  { id: 'ridge_cap', label: 'Ridge cap', canonicalId: 'vents_penetrations', measurementKey: 'roofSquares', unit: 'squares' },
-  { id: 'roof_vents', label: 'Roof vents', canonicalId: 'vents_penetrations', measurementKey: 'roofSquares', unit: 'squares' },
+  { id: 'decking_repair', label: 'Decking replacement', canonicalId: 'decking_repair', measurementKey: 'roofDeckingReplacementSqft', unit: 'sqft' },
+  { id: 'ridge_vent', label: 'Ridge vent', canonicalId: 'ridge_vent', measurementKey: 'roofRidgeVentLf', unit: 'EA' },
+  { id: 'roof_vents', label: 'Roof vents', canonicalId: 'roof_vents', measurementKey: 'roofVentCount', unit: 'EA' },
+  { id: 'turbine_vents', label: 'Turbine vents', canonicalId: 'turbine_vents', measurementKey: 'roofTurbineVentCount', unit: 'EA' },
+  { id: 'pipe_boots', label: 'Pipe boots', canonicalId: 'pipe_boots', measurementKey: 'roofPipeBootCount', unit: 'EA' },
+  { id: 'chimney_flashing', label: 'Chimney flashing', canonicalId: 'chimney_flashing', measurementKey: 'roofChimneyFlashingCount', unit: 'EA' },
+  { id: 'skylight_flashing', label: 'Skylight flashing', canonicalId: 'skylight_flashing', measurementKey: 'roofSkylightCount', unit: 'EA' },
+  { id: 'roof_penetrations', label: 'Other penetrations', canonicalId: 'roof_penetrations', measurementKey: 'roofPenetrationCount', unit: 'EA' },
+  { id: 'roof_repairs', label: 'Roof repairs', canonicalId: 'roof_repairs', measurementKey: 'roofRepairAffectedSqft', unit: 'sqft' },
+  {
+    id: 'gutters',
+    label: 'Gutters',
+    canonicalId: 'gutters',
+    measurementKey: 'roofGutterLf',
+    measurementHelper: 'Enter only the gutter run included in this scope.',
+    unit: 'LF',
+  },
+  {
+    id: 'downspouts',
+    label: 'Downspouts',
+    canonicalId: 'downspouts',
+    measurementKey: 'roofDownspoutCount',
+    measurementHelper: 'Enter number of standard downspout drops.',
+    unit: 'EA',
+  },
   { id: 'cleanup', label: 'Cleanup', canonicalId: 'cleanup' },
 ];
 
@@ -65,7 +92,29 @@ export const SIMPLE_TRADE_SPECS: Record<SimpleTradeScopeKey, TradeSpec> = {
   },
   roofing: {
     scopeKey: 'roofing',
-    embeddedIds: ['tear_off', 'underlayment', 'shingles_roofing', 'flashing', 'vents_penetrations', 'cleanup'],
+    embeddedIds: [
+      'tear_off',
+      'underlayment',
+      'ice_water_shield',
+      'shingles_roofing',
+      'decking_repair',
+      'drip_edge',
+      'ridge_cap',
+      'valley_flashing',
+      'step_flashing',
+      'wall_flashing',
+      'ridge_vent',
+      'roof_vents',
+      'turbine_vents',
+      'pipe_boots',
+      'chimney_flashing',
+      'skylight_flashing',
+      'roof_penetrations',
+      'roof_repairs',
+      'gutters',
+      'downspouts',
+      'cleanup',
+    ],
     options: ROOFING_OPTIONS,
   },
 };
@@ -82,8 +131,13 @@ function selectedScope(measurements: Record<string, unknown>, scopeKey: SimpleTr
 function includedIds(spec: TradeSpec, selections: string[], measurements: Record<string, unknown>): Set<string> {
   const included = new Set<string>();
   for (const option of spec.options) {
-    if (selections.includes(option.id)) included.add(option.canonicalId);
-    if (option.measurementKey && Number(measurements[option.measurementKey]) > 0 && selections.includes(option.id)) {
+    // Persisted drafts may contain either the selector option ID or the
+    // canonical checklist ID. Treat both forms as the same selection so a
+    // roofing upgrade cannot disappear when the draft is rehydrated.
+    const selected =
+      selections.includes(option.id) || selections.includes(option.canonicalId);
+    if (selected) included.add(option.canonicalId);
+    if (option.measurementKey && Number(measurements[option.measurementKey]) > 0 && selected) {
       included.add(option.canonicalId);
     }
   }
@@ -95,6 +149,7 @@ function hydrateSimpleTrade(ctx: QmPanelHydrateContext, spec: TradeSpec): Record
   const inferred = spec.options
     .filter(
       (option, index, options) =>
+        !(spec.scopeKey === 'roofing' && option.id === 'underlayment') &&
         options.findIndex((candidate) => candidate.canonicalId === option.canonicalId) === index &&
         ctx.checklistItems.some((item) => item.id === option.canonicalId && item.state === 'included')
     )
@@ -138,4 +193,43 @@ export function simpleTradePanelFor(scopeKey: SimpleTradeScopeKey): QmPanelDefin
 
 export function simpleTradeSpec(scopeKey: SimpleTradeScopeKey): TradeSpec {
   return SIMPLE_TRADE_SPECS[scopeKey];
+}
+
+/** Tear-off / demo — rendered in its own QM card, separate from install. */
+export const ROOFING_DEMO_OPTION_IDS = ['tear_off'] as const;
+
+/** Main roofing install components (everything except tear-off and accessories). */
+export const ROOFING_INSTALL_OPTION_IDS = [
+  'underlayment',
+  'ice_water_shield',
+  'shingles',
+  'drip_edge',
+  'ridge_cap',
+  'valley_flashing',
+  'step_flashing',
+  'wall_flashing',
+  'decking_repair',
+] as const;
+
+/** Vents, penetrations, repairs, and closeout extras. */
+export const ROOFING_ACCESSORY_OPTION_IDS = [
+  'ridge_vent',
+  'roof_vents',
+  'turbine_vents',
+  'pipe_boots',
+  'chimney_flashing',
+  'skylight_flashing',
+  'roof_penetrations',
+  'roof_repairs',
+  'cleanup',
+] as const;
+
+/** Gutters and downspouts — separate drainage card in QM and Confirm Scope. */
+export const ROOFING_DRAINAGE_OPTION_IDS = ['gutters', 'downspouts'] as const;
+
+export function roofingOptionsForIds(
+  ids: readonly string[]
+): TradeOption[] {
+  const wanted = new Set(ids);
+  return ROOFING_OPTIONS.filter((option) => wanted.has(option.id));
 }

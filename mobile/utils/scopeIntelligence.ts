@@ -498,6 +498,10 @@ const SCOPE_UNIT_REGISTRY: Record<string, ScopeRegistryEntry> = {
     alternateUnits: ['sqft', 'lump_sum'],
     requiredMeasurementTypes: ['roof_area'],
   }),
+  roofing_system: ENTRY('roofing', ['squares'], ['roof_area'], ['building_floor_area'], {
+    alternateUnits: ['sqft', 'lump_sum', 'allowance'],
+    requiredMeasurementTypes: ['roof_area'],
+  }),
   tear_off: ENTRY('roofing', ['squares'], ['roof_area'], ['building_floor_area'], {
     alternateUnits: ['sqft', 'lump_sum'],
   }),

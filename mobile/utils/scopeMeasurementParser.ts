@@ -62,7 +62,11 @@ export type ParsedScopeMeasurements = {
   paverSqft?: number;
   rockMulchSqft?: number;
   landscapeTons?: number;
+  roofAreaSqft?: number;
+  roofIceWaterShieldSqft?: number;
   roofSquares?: number;
+  roofPitch?: string;
+  storyCount?: number;
   concreteSqft?: number;
   concreteDemoSqft?: number;
   concreteDemoThicknessBand?: 'thin_2_3' | 'standard_4' | 'heavy_5_6' | 'structural_7_plus';
@@ -85,6 +89,8 @@ const LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|linea
 const WALL_LF_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:lf|linear\s+(?:foot|feet)|ln\s*ft|linear\s+ft|feet|foot)\b/gi;
 const CY_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:cy|cubic\s+yards?)/gi;
 const SQUARES_RE = /(\d[\d,]*(?:\.\d+)?)\s*squares?\b/gi;
+const ROOF_PITCH_RE = /\b(\d+)\s*(?::|\/)\s*(\d+)\s*pitch\b|\bpitch\s*(\d+)\s*(?::|\/)\s*(\d+)\b/i;
+const STORY_COUNT_RE = /\b(\d+|one|two|three|four|five)\s*[- ]?stor(?:y|ies)\b/i;
 const TON_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:tons?)\b/gi;
 const DEPTH_INCHES_RE = /(\d[\d,]*(?:\.\d+)?)\s*(?:inches?|["″])/i;
 
@@ -111,6 +117,14 @@ function isDirtExcavationClause(clause: string): boolean {
 function parseQty(match: RegExpExecArray): number | null {
   const n = Number(String(match[1] ?? match[0]).replace(/,/g, ''));
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function parseStoryCount(text: string): number | null {
+  const match = text.match(STORY_COUNT_RE);
+  if (!match) return null;
+  const words: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+  const count = words[match[1].toLowerCase()] || Number(match[1]);
+  return Number.isFinite(count) && count > 0 ? count : null;
 }
 
 function firstQty(text: string, re: RegExp): number | null {
@@ -184,6 +198,34 @@ function pickSqftNearPattern(text: string, pattern: RegExp): number | null {
 
 function pickLfNearPattern(text: string, pattern: RegExp): number | null {
   return pickLfNearPatternWithRegex(text, pattern, LF_RE);
+}
+
+function pickCountNearPattern(text: string, pattern: RegExp): number | null {
+  const quantityRe = /(\d[\d,]*(?:\.\d+)?)\s*(?:ea|each|count)?\b/i;
+  for (const clause of text.split(/[.;,\n]+/)) {
+    if (!pattern.test(clause.toLowerCase())) continue;
+    const match = clause.match(quantityRe);
+    const quantity = match
+      ? Number(String(match[1]).replace(/,/g, ''))
+      : null;
+    if (quantity != null && Number.isFinite(quantity) && quantity > 0) {
+      return quantity;
+    }
+  }
+  return null;
+}
+
+function pickRoofQuantityInClause(
+  text: string,
+  pattern: RegExp,
+  quantityRe: RegExp
+): number | null {
+  for (const clause of text.split(/[.;,\n]+/)) {
+    if (!pattern.test(clause.toLowerCase())) continue;
+    const quantity = firstQty(clause, quantityRe);
+    if (quantity) return quantity;
+  }
+  return null;
 }
 
 function pickLfNearPatternWithRegex(text: string, pattern: RegExp, quantityRe: RegExp): number | null {
@@ -710,22 +752,88 @@ export function parseScopeMeasurementsFromNotes(
     }
   }
 
-  if (/\broof(?:ing)?\b|\bshingles?\b|\btear[\s-]?off\b/.test(blob)) {
+  if (/\broof(?:ing)?\b|\bshingles?\b|\btear[\s-]?off\b|\bgutters?\b|\bdownspouts?\b/.test(blob)) {
+    const pitchMatch = text.match(ROOF_PITCH_RE);
+    if (pitchMatch) {
+      const rise = pitchMatch[1] || pitchMatch[3];
+      const run = pitchMatch[2] || pitchMatch[4];
+      if (rise && run) out.roofPitch = `${rise}:${run}`;
+    }
+    const stories = parseStoryCount(text);
+    if (stories) out.storyCount = stories;
     for (const clause of clauses) {
       const sq = firstQty(clause, SQUARES_RE);
       if (sq) {
         out.roofSquares = sq;
         break;
       }
+      const sqft = firstQty(clause, SQFT_RE);
+      if (sqft && /\broof|\bshingle/.test(clause.toLowerCase())) {
+        out.roofAreaSqft = sqft;
+        out.roofSquares = Math.round((sqft / 100) * 10) / 10;
+        break;
+      }
+    }
+    if (!out.roofAreaSqft) {
+      const sqft = pickSqftNearPattern(text, /\broof|\bshingle/);
+      if (sqft) out.roofAreaSqft = sqft;
     }
     if (!out.roofSquares) {
       const sq = firstQty(text, SQUARES_RE);
       if (sq) out.roofSquares = sq;
       else {
         const sqft = pickSqftNearPattern(text, /\broof|\bshingle/);
-        if (sqft) out.roofSquares = Math.round((sqft / 100) * 10) / 10;
+        if (sqft) {
+          out.roofAreaSqft = sqft;
+          out.roofSquares = Math.round((sqft / 100) * 10) / 10;
+        }
       }
     }
+
+    const roofSqftFields = [
+      ['roofIceWaterShieldSqft', /\bice\s*(?:&|and)\s*water\s*(?:shield|membrane)?\b/],
+      ['roofDeckingReplacementSqft', /\b(?:roof\s*)?deck(?:ing)?\b|\bdeck\s*replacement\b/],
+      ['roofRepairAffectedSqft', /\broof(?:ing)?\s+repairs?\b|\brepair\s+affected\b/],
+    ] as const;
+    for (const [key, pattern] of roofSqftFields) {
+      const quantity = pickRoofQuantityInClause(text, pattern, SQFT_RE);
+      if (quantity) out[key] = quantity;
+    }
+
+    const roofLfFields = [
+      ['roofDripEdgeLf', /\bdrip\s*edge\b/],
+      ['roofRidgeCapLf', /\bridge\s*cap\b/],
+      ['roofValleyFlashingLf', /\bvalley\s*flashing\b/],
+      ['roofStepFlashingLf', /\bstep\s*flashing\b/],
+      ['roofWallFlashingLf', /\bwall\s*flashing\b/],
+      ['roofGutterLf', /\bgutters?\b(?!\s*(?:and|&)\s*downspouts?)/],
+    ] as const;
+    for (const [key, pattern] of roofLfFields) {
+      const quantity = pickRoofQuantityInClause(text, pattern, LF_RE);
+      if (quantity) out[key] = quantity;
+    }
+
+    const roofCountFields = [
+      ['roofVentCount', /\broof\s+vents?\b/],
+      ['roofTurbineVentCount', /\bturbine\s+vents?\b/],
+      ['roofPipeBootCount', /\bpipe\s+boots?\b/],
+      ['roofChimneyFlashingCount', /\bchimney\s+flashing\b/],
+      ['roofSkylightCount', /\bskylight(?:\s+flashing)?\b/],
+      ['roofPenetrationCount', /\b(?:other\s+)?roof\s+penetrations?\b/],
+    ] as const;
+    for (const [key, pattern] of roofCountFields) {
+      const quantity = pickCountNearPattern(text, pattern);
+      if (quantity) out[key] = Math.round(quantity);
+    }
+    const downspoutMatch = text.match(/(\d[\d,]*(?:\.\d+)?)\s+downspouts?\b/i);
+    if (downspoutMatch) {
+      const quantity = Number(String(downspoutMatch[1]).replace(/,/g, ''));
+      if (Number.isFinite(quantity) && quantity > 0) {
+        out.roofDownspoutCount = Math.round(quantity);
+      }
+    }
+    const ridgeVentCount = pickCountNearPattern(text, /\bridge\s*vent\b/);
+    if (ridgeVentCount) out.roofRidgeVentLf = Math.round(ridgeVentCount);
   }
 
   const concreteDemoSqft = (() => {

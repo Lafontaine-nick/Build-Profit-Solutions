@@ -1,6 +1,8 @@
 import { buildAreaReconciliation } from '@/utils/measurementSemantics';
 import {
   applyPlanTakeoffButtonLabel,
+  buildConcretePlanReviewSummary,
+  buildFlooringPlanReviewSummary,
   buildImportedPlanSummaryText,
   buildPlanReadyJobNotesPrompt,
   ensureGroundUpPlanNotes,
@@ -264,5 +266,82 @@ describe('plan takeoff review UI polish', () => {
     });
     expect(recon.detectedLivingRoomSf).not.toBe(1879);
     expect(recon.unassignedLivingSf).toBeGreaterThan(0);
+  });
+
+  it('builds grouped Concrete plan review summary with per-type flatwork and footing CY', () => {
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
+    const summary = buildConcretePlanReviewSummary({
+      concreteDrivewaySqft: 800,
+      concretePatioSqft: 250,
+      concreteWalkwaySqft: 140,
+      concreteCy: 32,
+      excavationCy: 100,
+    });
+    expect(summary).toEqual(
+      expect.arrayContaining([
+        { label: 'Driveway', value: '800 sqft' },
+        { label: 'Patio', value: '250 sqft' },
+        { label: 'Walkway', value: '140 sqft' },
+        { label: 'Sidewalk', value: '—' },
+        { label: 'RV pad', value: '—' },
+        { label: 'Footing / foundation', value: '32 CY' },
+        { label: 'Excavation', value: '100 CY' },
+        {
+          label: 'Thickness',
+          value: 'Needs confirmation',
+          note: 'Confirm 4" / 5" / 6" per slab type in Confirm Scope',
+        },
+      ])
+    );
+  });
+
+  it('shows aggregate flatwork total when only concreteSqft is supplied', () => {
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
+    const summary = buildConcretePlanReviewSummary({ concreteSqft: 500 });
+    expect(summary[0]).toMatchObject({
+      label: 'Flatwork total',
+      value: '500 sqft',
+      note: 'Assign driveway / patio / walkway type in Confirm Scope',
+    });
+  });
+
+  it('builds grouped Flooring plan review summary with per-type install areas', () => {
+    const summary = buildFlooringPlanReviewSummary({
+      flooringCarpetSqft: 500,
+      flooringTileSqft: 1500,
+      flooringExistingTypes: ['carpet', 'tile'],
+      floorDemoSqft: 2000,
+      baseboardLf: 200,
+    });
+    expect(summary).toEqual(
+      expect.arrayContaining([
+        { label: 'Total floor area', value: '2,000 sqft' },
+        { label: 'Carpet', value: '500 sqft' },
+        { label: 'Tile', value: '1,500 sqft' },
+        { label: 'Existing floor', value: 'Carpet, Tile' },
+        { label: 'Demo / removal', value: '2,000 sqft' },
+        { label: 'Subfloor prep', value: 'Needs confirmation' },
+        { label: 'Baseboards', value: '200 LF' },
+        { label: 'Transitions', value: '—' },
+        { label: 'Quarter round', value: '—' },
+      ])
+    );
+  });
+
+  it('shows aggregate flooring total and needs confirmation when only flooringSqft is supplied', () => {
+    const summary = buildFlooringPlanReviewSummary({ flooringSqft: 1850 });
+    expect(summary).toEqual(
+      expect.arrayContaining([
+        { label: 'Total floor area', value: '1,850 sqft' },
+        {
+          label: 'Flooring type',
+          value: 'Needs confirmation',
+          note: 'Assign flooring type in Confirm Scope',
+        },
+        { label: 'Existing floor', value: 'Needs confirmation' },
+        { label: 'Demo / removal', value: 'Needs confirmation' },
+        { label: 'Subfloor prep', value: 'Needs confirmation' },
+      ])
+    );
   });
 });

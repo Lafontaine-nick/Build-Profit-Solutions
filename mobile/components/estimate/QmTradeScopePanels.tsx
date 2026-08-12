@@ -45,7 +45,15 @@ import {
   concreteScopeCanonicalId,
   readConcreteScope,
 } from '@/utils/qmScopePanels/concreteRemodel';
-import { simpleTradeSpec, type SimpleTradeScopeKey } from '@/utils/qmScopePanels/simpleTradeRemodel';
+import {
+  roofingOptionsForIds,
+  ROOFING_ACCESSORY_OPTION_IDS,
+  ROOFING_DRAINAGE_OPTION_IDS,
+  ROOFING_DEMO_OPTION_IDS,
+  ROOFING_INSTALL_OPTION_IDS,
+  simpleTradeSpec,
+  type SimpleTradeScopeKey,
+} from '@/utils/qmScopePanels/simpleTradeRemodel';
 import {
   emptyBathroomExistingFixtureCounts,
   inferExistingBathroomFixturesFromNotes,
@@ -336,7 +344,15 @@ export function QmSqftMeasurementRow({
     return `${sign}${integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${decimalPart}`;
   })();
   return (
-    <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line }}>
+    <View
+      style={{
+        marginTop: 10,
+        paddingTop: 10,
+        paddingBottom: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: darkMode ? 'rgba(255,255,255,0.08)' : Colors.line,
+      }}
+    >
       <Text style={{ color: highlighted ? '#FACC15' : darkMode ? '#F5F7FA' : Colors.text, fontSize: 13, fontWeight: '600', marginBottom: 4 }}>
         {label}
       </Text>
@@ -3083,15 +3099,36 @@ export function QmConcreteScopePanels({
   );
 }
 
-export function QmSimpleTradeScopePanels({
+type TradeOptionRow = {
+  id: string;
+  label: string;
+  canonicalId: string;
+  measurementKey?: string;
+  unit?: string;
+};
+
+function qmPanelShellStyle(darkMode: boolean) {
+  return {
+    borderColor: darkMode ? 'rgba(148,163,184,0.28)' : 'rgba(100,116,139,0.24)',
+    backgroundColor: darkMode ? 'rgba(148,163,184,0.06)' : 'rgba(148,163,184,0.05)',
+  };
+}
+
+function QmTradeScopeOptionList({
+  options,
+  selections,
   scopeKey,
+  onToggle,
   measurements,
   setMeasurements,
   applying,
   darkMode,
   Colors,
 }: {
+  options: TradeOptionRow[];
+  selections: string[];
   scopeKey: SimpleTradeScopeKey;
+  onToggle: (id: string, canonicalId: string) => void;
   measurements: ScopeMeasurementsInputExtended;
   setMeasurements: React.Dispatch<React.SetStateAction<ScopeMeasurementsInputExtended>>;
   applying: boolean;
@@ -3099,11 +3136,95 @@ export function QmSimpleTradeScopePanels({
   Colors: Colors;
 }) {
   const spec = simpleTradeSpec(scopeKey);
+  const hasMeasurement = (key: string) => {
+    const value = Number(String((measurements as Record<string, unknown>)[key] ?? '').replace(/,/g, ''));
+    return Number.isFinite(value) && value > 0;
+  };
+
+  return (
+    <View style={styles.qmOptionWrap}>
+      {options.map((option) => {
+        const canonicalSelected = selections.includes(option.canonicalId);
+        const hasAlias = selections.some((value) => spec.options.some((candidate) => candidate.id === value));
+        const firstCanonicalOption = spec.options.find((candidate) => candidate.canonicalId === option.canonicalId)?.id;
+        const active =
+          selections.includes(option.id) ||
+          (canonicalSelected && !hasAlias && option.id === firstCanonicalOption);
+        return (
+          <React.Fragment key={option.id}>
+            <TouchableOpacity
+              onPress={() => onToggle(option.id, option.canonicalId)}
+              disabled={applying}
+              activeOpacity={1}
+              style={[
+                styles.qmOption,
+                {
+                  borderColor: active ? '#34d399' : darkMode ? '#52525b' : '#cbd5e1',
+                  backgroundColor: active ? 'rgba(52, 211, 153, 0.12)' : darkMode ? '#27272a' : '#f1f5f9',
+                },
+              ]}
+            >
+              <Text style={[styles.qmOptionText, { color: active ? '#34d399' : darkMode ? '#e4e4e7' : Colors.text }]}>
+                {active ? '✓ ' : ''}{option.label}
+              </Text>
+            </TouchableOpacity>
+            {active && option.measurementKey ? (
+              <>
+                <QmSqftMeasurementRow
+                  label={`${option.label} quantity`}
+                  helperText={
+                    option.measurementHelper ||
+                    'Enter only the quantity for this selected component.'
+                  }
+                  value={String((measurements as Record<string, unknown>)[option.measurementKey] || '')}
+                  placeholder="Enter"
+                  unitLabel={option.unit}
+                  onChangeText={(value) => setMeasurements((prev) => ({ ...prev, [option.measurementKey!]: value }))}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                  highlighted
+                />
+                {!hasMeasurement(option.measurementKey) ? (
+                  <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 5 }}>
+                    Quantity needed before this scope can be priced.
+                  </Text>
+                ) : null}
+              </>
+            ) : null}
+          </React.Fragment>
+        );
+      })}
+    </View>
+  );
+}
+
+export function QmRoofingScopePanels({
+  measurements,
+  setMeasurements,
+  onScopeSelectionChange,
+  applying,
+  darkMode,
+  Colors,
+}: {
+  measurements: ScopeMeasurementsInputExtended;
+  setMeasurements: React.Dispatch<React.SetStateAction<ScopeMeasurementsInputExtended>>;
+  onScopeSelectionChange?: (measurements: Record<string, unknown>) => void;
+  applying: boolean;
+  darkMode: boolean;
+  Colors: Colors;
+}) {
+  const scopeKey: SimpleTradeScopeKey = 'roofing';
   const selections = measurements.tradeScopeSelections?.[scopeKey] || [];
-  const toggle = (id: string, canonicalId: string) => {
-    const selected = selections.includes(id) || selections.includes(canonicalId);
+  const [installExpanded, setInstallExpanded] = useState(true);
+  const [demoExpanded, setDemoExpanded] = useState(true);
+  const [accessoryExpanded, setAccessoryExpanded] = useState(true);
+  const panelStyle = qmPanelShellStyle(darkMode);
+
+  const toggle = (id: string, _canonicalId: string) => {
+    const selected = selections.includes(id);
     const next = selected
-      ? selections.filter((value) => value !== id && value !== canonicalId)
+      ? selections.filter((value) => value !== id)
       : [...selections, id];
     setMeasurements((prev) => ({
       ...prev,
@@ -3112,6 +3233,496 @@ export function QmSimpleTradeScopePanels({
         [scopeKey]: next.length ? next : null,
       },
     }));
+    onScopeSelectionChange?.({
+      ...measurements,
+      tradeScopeSelections: {
+        ...(measurements.tradeScopeSelections || {}),
+        [scopeKey]: next.length ? next : null,
+      },
+    });
+  };
+
+  const installOptions = roofingOptionsForIds(ROOFING_INSTALL_OPTION_IDS);
+  const demoOptions = roofingOptionsForIds(ROOFING_DEMO_OPTION_IDS);
+  const accessoryOptions = roofingOptionsForIds(ROOFING_ACCESSORY_OPTION_IDS);
+  const drainageOptions = roofingOptionsForIds(ROOFING_DRAINAGE_OPTION_IDS);
+  const installSelected = installOptions.some(
+    (option) => selections.includes(option.id) || selections.includes(option.canonicalId)
+  );
+
+  return (
+    <View style={{ gap: 12 }}>
+      <View style={[styles.qmPanel, panelStyle]}>
+        <TouchableOpacity onPress={() => setInstallExpanded((value) => !value)} activeOpacity={0.75}>
+          <Text style={[styles.qmPanelTitle, { color: darkMode ? '#cbd5e1' : '#475569' }]}>
+            Roofing install scope {installExpanded ? '⌃' : '⌄'}
+          </Text>
+          <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 }]}>
+            {installExpanded
+              ? 'Tap to collapse card'
+              : installSelected
+                ? 'Selected · tap to expand card'
+                : 'Tap to expand card'}
+          </Text>
+        </TouchableOpacity>
+        {installExpanded ? (
+          <>
+            <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 10 }]}>
+              Select every install component included in this bid. Measurements feed the corresponding pricing cards.
+            </Text>
+            <Text style={[styles.qmPanelCaption, { color: '#fbbf24', marginTop: 4, marginBottom: 0 }]}>
+              Standard roofing includes normal underlayment, shingles, drip edge, and perimeter cleanup. Add only upgrades or work beyond the standard scope.
+            </Text>
+            <Text style={[styles.qmPanelCaption, { color: darkMode ? '#F5F7FA' : Colors.text, marginTop: 14, marginBottom: 6 }]}>
+              Install components
+            </Text>
+            <QmTradeScopeOptionList
+              options={installOptions}
+              selections={selections}
+              scopeKey={scopeKey}
+              onToggle={toggle}
+              measurements={measurements}
+              setMeasurements={setMeasurements}
+              applying={applying}
+              darkMode={darkMode}
+              Colors={Colors}
+            />
+          </>
+        ) : null}
+      </View>
+
+      {installExpanded ? (
+        <>
+          <View style={[styles.qmPanel, panelStyle]}>
+            <TouchableOpacity onPress={() => setDemoExpanded((value) => !value)} activeOpacity={0.75}>
+              <Text style={[styles.qmPanelCaption, { color: darkMode ? '#cbd5e1' : Colors.text, fontWeight: '700' }]}>
+                Existing roof / tear-off {demoExpanded ? '⌃' : '⌄'}
+              </Text>
+              <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 }]}>
+                Tear-off, disposal, and existing roof conditions.
+              </Text>
+            </TouchableOpacity>
+            {demoExpanded ? (
+              <QmTradeScopeOptionList
+                options={demoOptions}
+                selections={selections}
+                scopeKey={scopeKey}
+                onToggle={toggle}
+                measurements={measurements}
+                setMeasurements={setMeasurements}
+                applying={applying}
+                darkMode={darkMode}
+                Colors={Colors}
+              />
+            ) : null}
+          </View>
+
+          <View style={[styles.qmPanel, panelStyle]}>
+            <TouchableOpacity onPress={() => setAccessoryExpanded((value) => !value)} activeOpacity={0.75}>
+              <Text style={[styles.qmPanelCaption, { color: darkMode ? '#cbd5e1' : Colors.text, fontWeight: '700' }]}>
+                Ventilation & accessories {accessoryExpanded ? '⌃' : '⌄'}
+              </Text>
+              <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 }]}>
+                Vents, penetrations, repairs, and closeout extras.
+              </Text>
+            </TouchableOpacity>
+            {accessoryExpanded ? (
+              <QmTradeScopeOptionList
+                options={accessoryOptions}
+                selections={selections}
+                scopeKey={scopeKey}
+                onToggle={toggle}
+                measurements={measurements}
+                setMeasurements={setMeasurements}
+                applying={applying}
+                darkMode={darkMode}
+                Colors={Colors}
+              />
+            ) : null}
+          </View>
+
+          <View style={[styles.qmPanel, panelStyle]}>
+            <Text style={[styles.qmPanelCaption, { color: darkMode ? '#cbd5e1' : Colors.text, fontWeight: '700' }]}>
+              Other / drainage
+            </Text>
+            <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 }]}>
+              Gutters and downspouts priced independently by LF and each.
+            </Text>
+            <QmTradeScopeOptionList
+              options={drainageOptions}
+              selections={selections}
+              scopeKey={scopeKey}
+              onToggle={toggle}
+              measurements={measurements}
+              setMeasurements={setMeasurements}
+              applying={applying}
+              darkMode={darkMode}
+              Colors={Colors}
+            />
+            <TouchableOpacity
+              onPress={() => setInstallExpanded(false)}
+              activeOpacity={0.75}
+              style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line }}
+            >
+              <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', textAlign: 'center' }]}>
+                Collapse card ⌃
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+function parseStuccoMeasurement(value: unknown): number {
+  const parsed = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function reconcileStuccoNetWall(
+  measurements: ScopeMeasurementsInputExtended
+): Pick<ScopeMeasurementsInputExtended, 'stuccoNetWallSqft' | 'exteriorPaintSqft' | 'quickMeasurementSources'> {
+  const gross = parseStuccoMeasurement(measurements.stuccoGrossWallSqft);
+  const hasWindowDoorInput = String(measurements.stuccoWindowDoorOpeningSqft ?? '').trim() !== '';
+  const hasGarageInput = String(measurements.stuccoGarageOpeningSqft ?? '').trim() !== '';
+  const hasOtherFinishInput = String(measurements.stuccoOtherFinishDeductionSqft ?? '').trim() !== '';
+  if (!gross || !(hasWindowDoorInput || hasGarageInput || hasOtherFinishInput)) {
+    return {};
+  }
+  const openings =
+    parseStuccoMeasurement(measurements.stuccoWindowDoorOpeningSqft) +
+    parseStuccoMeasurement(measurements.stuccoGarageOpeningSqft) +
+    parseStuccoMeasurement(measurements.stuccoOtherFinishDeductionSqft);
+  const net = String(Math.max(0, gross - openings));
+  return {
+    stuccoNetWallSqft: net,
+    exteriorPaintSqft: net,
+    quickMeasurementSources: {
+      ...(measurements.quickMeasurementSources || {}),
+      stuccoNetWallSqft: 'calculated_from_deductions',
+      exteriorPaintSqft: 'calculated_from_deductions',
+    },
+  };
+}
+
+export function QmStuccoScopePanels({
+  measurements,
+  setMeasurements,
+  applying,
+  darkMode,
+  Colors,
+}: {
+  measurements: ScopeMeasurementsInputExtended;
+  setMeasurements: React.Dispatch<React.SetStateAction<ScopeMeasurementsInputExtended>>;
+  applying: boolean;
+  darkMode: boolean;
+  Colors: Colors;
+}) {
+  const [wallExpanded, setWallExpanded] = useState(true);
+  const [addonsExpanded, setAddonsExpanded] = useState(true);
+  const [accessExpanded, setAccessExpanded] = useState(true);
+  const panelStyle = qmPanelShellStyle(darkMode);
+
+  const updateMeasurement = (key: keyof ScopeMeasurementsInputExtended, value: string) => {
+    setMeasurements((prev) => {
+      const next = { ...prev, [key]: value };
+      const stuccoKeys = new Set([
+        'stuccoGrossWallSqft',
+        'stuccoWindowDoorOpeningSqft',
+        'stuccoGarageOpeningSqft',
+        'stuccoOtherFinishDeductionSqft',
+      ]);
+      if (stuccoKeys.has(String(key))) {
+        return { ...next, ...reconcileStuccoNetWall(next) };
+      }
+      return next;
+    });
+  };
+
+  const hasMeasurement = (key: string) => parseStuccoMeasurement((measurements as Record<string, unknown>)[key]) > 0;
+  const netWall = parseStuccoMeasurement(measurements.stuccoNetWallSqft);
+  const grossWall = parseStuccoMeasurement(measurements.stuccoGrossWallSqft);
+
+  return (
+    <View style={{ gap: 12 }}>
+      <View style={[styles.qmPanel, panelStyle]}>
+        <TouchableOpacity onPress={() => setWallExpanded((value) => !value)} activeOpacity={0.75}>
+          <Text style={[styles.qmPanelTitle, { color: darkMode ? '#cbd5e1' : '#475569' }]}>
+            Stucco wall takeoff {wallExpanded ? '⌃' : '⌄'}
+          </Text>
+          <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 }]}>
+            {wallExpanded ? 'Tap to collapse card' : grossWall > 0 ? 'Entered · tap to expand card' : 'Tap to expand card'}
+          </Text>
+        </TouchableOpacity>
+        {wallExpanded ? (
+          <>
+            <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 10 }]}>
+              Enter gross wall area and deduct openings to reach net stucco wall area.
+            </Text>
+            <Text style={[styles.qmPanelCaption, { color: '#fbbf24', marginTop: 4, marginBottom: 0 }]}>
+              Net wall area drives stucco system pricing. Deduct window, door, garage, and other finish areas before pricing.
+            </Text>
+            <QmSqftMeasurementRow
+              label="Exterior wall area — gross"
+              helperText="Total exterior wall surface before opening deductions."
+              value={String(measurements.stuccoGrossWallSqft || '')}
+              placeholder="Enter"
+              unitLabel="sqft"
+              onChangeText={(value) => updateMeasurement('stuccoGrossWallSqft', value)}
+              applying={applying}
+              darkMode={darkMode}
+              Colors={Colors}
+              highlighted
+            />
+            <QmSqftMeasurementRow
+              label="Window & door openings"
+              helperText="Combined window and door opening area to deduct."
+              value={String(measurements.stuccoWindowDoorOpeningSqft || '')}
+              placeholder="Enter"
+              unitLabel="sqft"
+              onChangeText={(value) => updateMeasurement('stuccoWindowDoorOpeningSqft', value)}
+              applying={applying}
+              darkMode={darkMode}
+              Colors={Colors}
+              highlighted
+            />
+            <QmSqftMeasurementRow
+              label="Garage door openings"
+              helperText="Garage opening area to deduct from gross wall area."
+              value={String(measurements.stuccoGarageOpeningSqft || '')}
+              placeholder="Enter"
+              unitLabel="sqft"
+              onChangeText={(value) => updateMeasurement('stuccoGarageOpeningSqft', value)}
+              applying={applying}
+              darkMode={darkMode}
+              Colors={Colors}
+              highlighted
+            />
+            <QmSqftMeasurementRow
+              label="Other finish deductions"
+              helperText="Stone, brick, siding, panels, or other areas not receiving stucco."
+              value={String(measurements.stuccoOtherFinishDeductionSqft || '')}
+              placeholder="Enter"
+              unitLabel="sqft"
+              onChangeText={(value) => updateMeasurement('stuccoOtherFinishDeductionSqft', value)}
+              applying={applying}
+              darkMode={darkMode}
+              Colors={Colors}
+              highlighted
+            />
+            <QmSqftMeasurementRow
+              label="Net stucco wall area"
+              helperText={netWall > 0 ? 'Calculated from gross wall area minus openings.' : 'Enter gross wall area and opening deductions to calculate net area.'}
+              value={String(measurements.stuccoNetWallSqft || '')}
+              placeholder="Calculated"
+              unitLabel="sqft"
+              onChangeText={(value) => updateMeasurement('stuccoNetWallSqft', value)}
+              applying={applying}
+              darkMode={darkMode}
+              Colors={Colors}
+              highlighted
+            />
+            {grossWall > 0 && netWall <= 0 ? (
+              <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 8 }}>
+                Enter opening deductions before this scope can be priced.
+              </Text>
+            ) : null}
+          </>
+        ) : null}
+      </View>
+
+      {wallExpanded ? (
+        <>
+          <View style={[styles.qmPanel, panelStyle]}>
+            <TouchableOpacity onPress={() => setAddonsExpanded((value) => !value)} activeOpacity={0.75}>
+              <Text style={[styles.qmPanelCaption, { color: darkMode ? '#cbd5e1' : Colors.text, fontWeight: '700' }]}>
+                Add-ons & architectural details {addonsExpanded ? '⌃' : '⌄'}
+              </Text>
+              <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 }]}>
+                Soffits, parapets, foam trim, and control joints.
+              </Text>
+            </TouchableOpacity>
+            {addonsExpanded ? (
+              <>
+                <QmSqftMeasurementRow
+                  label="Soffits / stucco ceilings"
+                  helperText="Soffit or stucco ceiling area priced separately from wall area."
+                  value={String(measurements.stuccoSoffitSqft || '')}
+                  placeholder="Enter"
+                  unitLabel="sqft"
+                  onChangeText={(value) => updateMeasurement('stuccoSoffitSqft', value)}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                  highlighted
+                />
+                <QmSqftMeasurementRow
+                  label="Parapets / raised walls"
+                  helperText="Parapet or raised wall stucco area."
+                  value={String(measurements.stuccoParapetSqft || '')}
+                  placeholder="Enter"
+                  unitLabel="sqft"
+                  onChangeText={(value) => updateMeasurement('stuccoParapetSqft', value)}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                  highlighted
+                />
+                <QmSqftMeasurementRow
+                  label="Foam trim / architectural bands"
+                  helperText="Linear foam trim or banding."
+                  value={String(measurements.stuccoFoamTrimLf || '')}
+                  placeholder="Enter"
+                  unitLabel="LF"
+                  onChangeText={(value) => updateMeasurement('stuccoFoamTrimLf', value)}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                  highlighted
+                />
+                <QmSqftMeasurementRow
+                  label="Control / expansion joints"
+                  helperText="Linear control or expansion joint length."
+                  value={String(measurements.stuccoControlJointLf || '')}
+                  placeholder="Enter"
+                  unitLabel="LF"
+                  onChangeText={(value) => updateMeasurement('stuccoControlJointLf', value)}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                  highlighted
+                />
+              </>
+            ) : null}
+          </View>
+
+          <View style={[styles.qmPanel, panelStyle]}>
+            <TouchableOpacity onPress={() => setAccessExpanded((value) => !value)} activeOpacity={0.75}>
+              <Text style={[styles.qmPanelCaption, { color: darkMode ? '#cbd5e1' : Colors.text, fontWeight: '700' }]}>
+                Access & site conditions {accessExpanded ? '⌃' : '⌄'}
+              </Text>
+              <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', marginTop: 2 }]}>
+                Story height, access difficulty, and localized repair areas.
+              </Text>
+            </TouchableOpacity>
+            {accessExpanded ? (
+              <>
+                <QmSqftMeasurementRow
+                  label="Stories"
+                  helperText="Number of stories affecting access and staging."
+                  value={String(measurements.stuccoStories || '')}
+                  placeholder="1"
+                  unitLabel="story"
+                  onChangeText={(value) => updateMeasurement('stuccoStories', value)}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                  highlighted
+                />
+                <QmSqftMeasurementRow
+                  label="Typical wall height / story"
+                  helperText="Average wall height per story for access planning."
+                  value={String(measurements.stuccoWallHeightFt || '')}
+                  placeholder="Enter"
+                  unitLabel="ft"
+                  onChangeText={(value) => updateMeasurement('stuccoWallHeightFt', value)}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                  highlighted
+                />
+                <QmSqftMeasurementRow
+                  label="Access-affected area"
+                  helperText="Wall area requiring special access, staging, or protection."
+                  value={String(measurements.stuccoAccessAffectedSqft || '')}
+                  placeholder="Enter"
+                  unitLabel="sqft"
+                  onChangeText={(value) => updateMeasurement('stuccoAccessAffectedSqft', value)}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                  highlighted
+                />
+                <QmSqftMeasurementRow
+                  label="Localized repair area"
+                  helperText="Patch or repair-only stucco area priced separately from full system work."
+                  value={String(measurements.stuccoRepairAffectedSqft || '')}
+                  placeholder="Enter"
+                  unitLabel="sqft"
+                  onChangeText={(value) => updateMeasurement('stuccoRepairAffectedSqft', value)}
+                  applying={applying}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                  highlighted
+                />
+                {!hasMeasurement('stuccoGrossWallSqft') && !hasMeasurement('stuccoRepairAffectedSqft') ? (
+                  <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 8 }}>
+                    Enter gross wall area or localized repair area before pricing.
+                  </Text>
+                ) : null}
+              </>
+            ) : null}
+            <TouchableOpacity
+              onPress={() => setWallExpanded(false)}
+              activeOpacity={0.75}
+              style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: darkMode ? 'rgba(255,255,255,0.12)' : Colors.line }}
+            >
+              <Text style={[styles.qmPanelCaption, { color: darkMode ? '#94a3b8' : '#64748b', textAlign: 'center' }]}>
+                Collapse card ⌃
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+export function QmSimpleTradeScopePanels({
+  scopeKey,
+  measurements,
+  setMeasurements,
+  onScopeSelectionChange,
+  applying,
+  darkMode,
+  Colors,
+}: {
+  scopeKey: SimpleTradeScopeKey;
+  measurements: ScopeMeasurementsInputExtended;
+  setMeasurements: React.Dispatch<React.SetStateAction<ScopeMeasurementsInputExtended>>;
+  onScopeSelectionChange?: (measurements: Record<string, unknown>) => void;
+  applying: boolean;
+  darkMode: boolean;
+  Colors: Colors;
+}) {
+  const spec = simpleTradeSpec(scopeKey);
+  const selections = measurements.tradeScopeSelections?.[scopeKey] || [];
+  const toggle = (id: string, _canonicalId: string) => {
+    // Selections are option IDs, not canonical checklist IDs. Multiple
+    // options may intentionally converge on one checklist item (for example,
+    // Roofing underlayment and Ice & water shield).
+    const selected = selections.includes(id);
+    const next = selected
+      ? selections.filter((value) => value !== id)
+      : [...selections, id];
+    setMeasurements((prev) => ({
+      ...prev,
+      tradeScopeSelections: {
+        ...(prev.tradeScopeSelections || {}),
+        [scopeKey]: next.length ? next : null,
+      },
+    }));
+    // Sync the Confirm Scope checklist in the same interaction as the
+    // selector. The effect in the parent remains as a rehydration safety net,
+    // but this prevents the new roofing card from waiting for a later render.
+    onScopeSelectionChange?.({
+      ...measurements,
+      tradeScopeSelections: {
+        ...(measurements.tradeScopeSelections || {}),
+        [scopeKey]: next.length ? next : null,
+      },
+    });
   };
 
   return (
@@ -3167,6 +3778,7 @@ export function QmSimpleTradeScopePanels({
                   applying={applying}
                   darkMode={darkMode}
                   Colors={Colors}
+                  highlighted
                 />
               ) : null}
             </React.Fragment>

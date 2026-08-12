@@ -1,21 +1,17 @@
+import {
+  getSubcontractorTradeDefinition,
+  getTradeScopeAllowlist,
+  PLAN_EXPORT_TRADE_KEYS,
+  type LegacyPlanTradeKey,
+  type SubcontractorTradeKey,
+} from '@/utils/subcontractorTrade';
+
 export type PlanEstimatingMode = 'whole_project' | 'selected_trade';
 
-export type PlanTradeKey =
-  | 'electrical'
-  | 'plumbing'
-  | 'hvac'
-  | 'roofing'
-  | 'concrete'
-  | 'framing'
-  | 'drywall'
-  | 'painting'
-  | 'stucco'
-  | 'insulation'
-  | 'flooring'
-  | 'cabinets'
-  | 'windows_doors'
-  | 'landscaping'
-  | 'other';
+export type { SubcontractorTradeKey, LegacyPlanTradeKey };
+export type PlanTradeKey = SubcontractorTradeKey | LegacyPlanTradeKey;
+
+export { PLAN_EXPORT_TRADE_KEYS };
 
 export type PlanTradeConfiguration = {
   key: PlanTradeKey;
@@ -27,95 +23,84 @@ export type PlanTradeConfiguration = {
   reviewScopeKeywords?: string[];
 };
 
-export const PLAN_TRADE_CONFIGURATIONS: PlanTradeConfiguration[] = [
+function subcontractorDefinitionToPlanConfig(
+  key: SubcontractorTradeKey
+): PlanTradeConfiguration {
+  const def = getSubcontractorTradeDefinition(key)!;
+  return {
+    key: def.key,
+    label: def.label,
+    status: def.status === 'reference' || def.status === 'complete' ? 'reference' : 'stub',
+    scopeHint: def.scopeHint,
+    missingInfo: def.missingInfo,
+    reviewMeasurementKeys: def.reviewMeasurementKeys,
+    reviewScopeKeywords: def.reviewScopeKeywords,
+  };
+}
+
+const LEGACY_PLAN_TRADE_CONFIGURATIONS: PlanTradeConfiguration[] = [
   {
-    key: 'electrical',
-    label: 'Electrical',
-    status: 'reference',
+    key: 'painting',
+    label: 'Painting',
+    status: 'stub',
     scopeHint:
-      'Focus on electrical sheets, panels, circuits, devices, lighting, and electrical notes.',
+      'Focus on painting sheets and notes; do not infer detailed quantities.',
     missingInfo: [
-      'Device and fixture counts',
-      'Panel/circuit schedule',
-      'Service size and utility scope',
+      'Trade-specific plan/schedule details',
+      'Scope inclusions and exclusions',
+      'Quantities requiring contractor confirmation',
     ],
-    reviewMeasurementKeys: [],
-    reviewScopeKeywords: [
-      'electrical',
-      'receptacle',
-      'switch',
-      'lighting',
-      'panel',
-      'circuit',
-      'smoke',
-      'detector',
-    ],
+    reviewScopeKeywords: ['painting', 'paint'],
   },
-  ...(
-    [
-      ['plumbing', 'Plumbing'],
-      ['hvac', 'HVAC'],
-      ['roofing', 'Roofing'],
-      ['concrete', 'Concrete'],
-      ['framing', 'Framing'],
-      ['drywall', 'Drywall'],
-      ['painting', 'Painting'],
-      ['stucco', 'Stucco / Exterior Finish'],
-      ['insulation', 'Insulation'],
-      ['flooring', 'Flooring'],
-      ['cabinets', 'Cabinets'],
-      ['windows_doors', 'Windows & doors'],
-      ['landscaping', 'Landscaping'],
-      ['other', 'Other'],
-    ] as ReadonlyArray<[PlanTradeKey, string]>
-  ).map(([key, label]) => ({
-    key,
-    label,
-    status: 'stub' as const,
-    scopeHint: `Focus on ${label.toLowerCase()} sheets and notes; do not infer detailed quantities.`,
-    missingInfo:
-      label === 'Stucco / Exterior Finish'
-        ? [
-            'Exterior wall area and openings',
-            'Stucco system and finish',
-            'Access, scaffolding, and repair conditions',
-          ]
-        : [
-            'Trade-specific plan/schedule details',
-            'Scope inclusions and exclusions',
-            'Quantities requiring contractor confirmation',
-          ],
-    reviewMeasurementKeys:
-      key === 'stucco'
-        ? [
-            'stuccoSqft',
-            'exteriorWallSqft',
-            'exteriorFinishSqft',
-            'exteriorFinishesSqft',
-            'exteriorPaintSqft',
-            'stuccoGrossWallSqft',
-            'stuccoWindowDoorOpeningSqft',
-            'stuccoGarageOpeningSqft',
-            'stuccoOtherFinishDeductionSqft',
-            'stuccoNetWallSqft',
-            'stuccoSoffitSqft',
-            'stuccoParapetSqft',
-            'stuccoFoamTrimLf',
-            'stuccoControlJointLf',
-            'stuccoAccessAffectedSqft',
-            'stuccoRepairAffectedSqft',
-            'stuccoStories',
-            'stuccoWallHeightFt',
-          ]
-        : [],
-    reviewScopeKeywords:
-      key === 'stucco'
-        ? ['stucco']
-        : String(label)
-            .toLowerCase()
-            .split(/[^\w]+/)
-            .filter(Boolean),
-  })),
+  {
+    key: 'cabinets',
+    label: 'Cabinets',
+    status: 'stub',
+    scopeHint:
+      'Focus on cabinets sheets and notes; do not infer detailed quantities.',
+    missingInfo: [
+      'Trade-specific plan/schedule details',
+      'Scope inclusions and exclusions',
+      'Quantities requiring contractor confirmation',
+    ],
+    reviewScopeKeywords: ['cabinets', 'cabinet'],
+  },
+  {
+    key: 'landscaping',
+    label: 'Landscaping',
+    status: 'stub',
+    scopeHint:
+      'Focus on landscaping sheets and notes; do not infer detailed quantities.',
+    missingInfo: [
+      'Trade-specific plan/schedule details',
+      'Scope inclusions and exclusions',
+      'Quantities requiring contractor confirmation',
+    ],
+    reviewScopeKeywords: ['landscaping', 'landscape'],
+  },
+  {
+    key: 'other',
+    label: 'Other',
+    status: 'stub',
+    scopeHint:
+      'Focus on other sheets and notes; do not infer detailed quantities.',
+    missingInfo: [
+      'Trade-specific plan/schedule details',
+      'Scope inclusions and exclusions',
+      'Quantities requiring contractor confirmation',
+    ],
+    reviewScopeKeywords: ['other'],
+  },
+];
+
+/** Trades shown in Plan Export / Single Trade menu (11 supported trades). */
+export const PLAN_EXPORT_TRADE_CONFIGURATIONS: PlanTradeConfiguration[] =
+  PLAN_EXPORT_TRADE_KEYS.map(subcontractorDefinitionToPlanConfig);
+
+/** All trade configs including legacy keys for persisted draft compatibility. */
+export const PLAN_TRADE_CONFIGURATIONS: PlanTradeConfiguration[] = [
+  ...PLAN_EXPORT_TRADE_CONFIGURATIONS,
+  ...LEGACY_PLAN_TRADE_CONFIGURATIONS,
 ];
 
 export const WHOLE_PROJECT_PLAN_TRADE: PlanTradeConfiguration = {
@@ -149,7 +134,17 @@ export function filterPlanMeasurementsForTrade(
   measurements: Record<string, number>,
   mode?: PlanEstimatingMode,
   tradeKey?: PlanTradeKey | null
-): Record<string, number> {
+): Record<string, number>;
+export function filterPlanMeasurementsForTrade(
+  measurements: Record<string, number | string>,
+  mode?: PlanEstimatingMode,
+  tradeKey?: PlanTradeKey | null
+): Record<string, number | string>;
+export function filterPlanMeasurementsForTrade(
+  measurements: Record<string, number | string>,
+  mode?: PlanEstimatingMode,
+  tradeKey?: PlanTradeKey | null
+): Record<string, number | string> {
   if (mode !== 'selected_trade') return measurements;
   const config = getPlanTradeConfiguration(tradeKey);
   const allowed = config?.reviewMeasurementKeys || [];
@@ -158,45 +153,17 @@ export function filterPlanMeasurementsForTrade(
   );
 }
 
-const TRADE_SCOPE_ITEM_IDS: Partial<Record<PlanTradeKey, string[]>> = {
-  electrical: ['electrical_rough'],
-  stucco: [
-    'stucco',
-    'stucco_wrb',
-    'stucco_lath',
-    'stucco_base_coat',
-    'stucco_finish_coat',
-    'stucco_foam_trim',
-    'stucco_accessories',
-    'stucco_soffits',
-    'stucco_parapets',
-    'stucco_access',
-    'stucco_repairs',
-    'stucco_other_finish',
-  ],
-};
-
 export function tradeQuickMeasurementFieldKeys(
   tradeKey?: PlanTradeKey | null
 ): string[] {
-  const byTrade: Partial<Record<PlanTradeKey, string[]>> = {
-    stucco: [
-      'stuccoGrossWallSqft',
-      'stuccoWindowDoorOpeningSqft',
-      'stuccoGarageOpeningSqft',
-      'stuccoOtherFinishDeductionSqft',
-      'stuccoNetWallSqft',
-      'stuccoSoffitSqft',
-      'stuccoParapetSqft',
-      'stuccoFoamTrimLf',
-      'stuccoControlJointLf',
-      'stuccoStories',
-      'stuccoWallHeightFt',
-      'exteriorPaintSqft',
-    ],
-    painting: ['exteriorPaintSqft', 'wallPaintSqft'],
-  };
-  return byTrade[tradeKey || 'other'] || [];
+  const def = getSubcontractorTradeDefinition(tradeKey || '');
+  if (def?.quickMeasurementFieldKeys?.length) {
+    return def.quickMeasurementFieldKeys;
+  }
+  if (tradeKey === 'painting') {
+    return ['exteriorPaintSqft', 'wallPaintSqft'];
+  }
+  return [];
 }
 
 export function filterPlanScopesForTrade<
@@ -211,7 +178,7 @@ export function filterPlanScopesForTrade<
   tradeKey?: PlanTradeKey | null
 ): T[] {
   if (mode !== 'selected_trade') return detections;
-  const allowedIds = TRADE_SCOPE_ITEM_IDS[tradeKey || 'other'];
+  const allowedIds = getTradeScopeAllowlist(tradeKey);
   if (allowedIds?.length) {
     return detections.filter(detection =>
       allowedIds.includes(String(detection.itemId || '').trim())
@@ -233,24 +200,7 @@ export function filterChecklistItemsForTrade<T extends { id: string }>(
   tradeKey?: PlanTradeKey | null
 ): T[] {
   if (mode !== 'selected_trade') return items;
-  const allowedByTrade: Partial<Record<PlanTradeKey, string[]>> = {
-    electrical: ['electrical_rough'],
-    stucco: [
-      'stucco',
-      'stucco_wrb',
-      'stucco_lath',
-      'stucco_base_coat',
-      'stucco_finish_coat',
-      'stucco_foam_trim',
-      'stucco_accessories',
-      'stucco_soffits',
-      'stucco_parapets',
-      'stucco_access',
-      'stucco_repairs',
-      'stucco_other_finish',
-    ],
-  };
-  const allowed = allowedByTrade[tradeKey || 'other'];
+  const allowed = getTradeScopeAllowlist(tradeKey);
   return allowed ? items.filter(item => allowed.includes(item.id)) : items;
 }
 
@@ -265,7 +215,26 @@ const WHOLE_PROJECT_QUICK_MEASUREMENT_KEYS = [
   'concreteDemoSqft',
   'concreteCy',
   'excavationCy',
+  'roofAreaSqft',
   'roofSquares',
+  'roofPitch',
+  'storyCount',
+  'roofDeckingReplacementSqft',
+  'roofDripEdgeLf',
+  'roofRidgeCapLf',
+  'roofRidgeVentLf',
+  'roofValleyFlashingLf',
+  'roofStepFlashingLf',
+  'roofWallFlashingLf',
+  'roofChimneyFlashingCount',
+  'roofPipeBootCount',
+  'roofVentCount',
+  'roofTurbineVentCount',
+  'roofSkylightCount',
+  'roofPenetrationCount',
+  'roofRepairAffectedSqft',
+  'roofGutterLf',
+  'roofDownspoutCount',
   'drywallSqft',
   'wallPaintSqft',
   'ceilingPaintSqft',
@@ -365,7 +334,7 @@ export function stripScopeInputForSingleTrade<T extends Record<string, unknown>>
   delete next.tubBathCount;
   delete next.bathFloorTileCount;
   delete next.showerDoorCount;
-  const allowedScopeIds = TRADE_SCOPE_ITEM_IDS[tradeKey || 'other'] || [];
+  const allowedScopeIds = getTradeScopeAllowlist(tradeKey) || [];
   if (allowedScopeIds.length && next.itemQuantities) {
     const quantities = next.itemQuantities as Record<string, unknown>;
     next.itemQuantities = Object.fromEntries(
@@ -378,3 +347,12 @@ export function stripScopeInputForSingleTrade<T extends Record<string, unknown>>
   }
   return next;
 }
+
+// Re-export shared trade definitions for callers that need the full contract.
+export {
+  getPlanExportTradeConfigurations,
+  getSubcontractorTradeDefinition,
+  getTradeScopeAllowlist,
+  normalizeTradeMeasurements,
+  SUBCONTRACTOR_TRADE_DEFINITIONS,
+} from '@/utils/subcontractorTrade';

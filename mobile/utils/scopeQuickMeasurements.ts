@@ -42,6 +42,26 @@ export type QuickMeasurementFieldKey =
   | 'boulderCount'
   | 'landscapeLightCount'
   | 'roofSquares'
+  | 'roofAreaSqft'
+  | 'roofIceWaterShieldSqft'
+  | 'roofPitch'
+  | 'storyCount'
+  | 'roofDeckingReplacementSqft'
+  | 'roofDripEdgeLf'
+  | 'roofRidgeCapLf'
+  | 'roofRidgeVentLf'
+  | 'roofValleyFlashingLf'
+  | 'roofStepFlashingLf'
+  | 'roofWallFlashingLf'
+  | 'roofChimneyFlashingCount'
+  | 'roofPipeBootCount'
+  | 'roofVentCount'
+  | 'roofTurbineVentCount'
+  | 'roofSkylightCount'
+  | 'roofPenetrationCount'
+  | 'roofRepairAffectedSqft'
+  | 'roofGutterLf'
+  | 'roofDownspoutCount'
   | 'drywallSqft'
   | 'flooringSqft'
   | 'flooringLvpSqft'
@@ -61,6 +81,19 @@ export type QuickMeasurementFieldKey =
   | 'concreteDemoSqft'
   | 'concreteCy'
   | 'excavationCy'
+  | 'concreteDrivewaySqft'
+  | 'concreteSidewalkSqft'
+  | 'concretePatioSqft'
+  | 'concreteWalkwaySqft'
+  | 'concreteRvPadSqft'
+  | 'concreteDrivewayThicknessInches'
+  | 'concreteSidewalkThicknessInches'
+  | 'concretePatioThicknessInches'
+  | 'concreteWalkwayThicknessInches'
+  | 'concreteRvPadThicknessInches'
+  | 'concreteReinforcementSqft'
+  | 'concreteSubgradePrepSqft'
+  | 'complexFormingLf'
   | 'deckSqft'
   | 'garageSqft'
   | 'stuccoGrossWallSqft'
@@ -146,10 +179,10 @@ const EXTERIOR_FLATWORK_LABEL = 'Exterior concrete flatwork';
 const EXTERIOR_FLATWORK_HELPER =
   'Driveway, walkways, porch, and exterior patio slabs — not the house or garage slab.';
 
-const QUICK_MEASUREMENT_FIELD_DEFS: Record<
+const QUICK_MEASUREMENT_FIELD_DEFS: Partial<Record<
   QuickMeasurementFieldKey,
   QuickMeasurementFieldDef
-> = {
+>> = {
   bathroomFloorSqft: F(
     'bathroomFloorSqft',
     'Bath floor',
@@ -266,6 +299,93 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Record<
   rockMulchSqft: F('rockMulchSqft', 'Rock / mulch', '600', 'sqft', 'site'),
   landscapeTons: F('landscapeTons', 'Rock / mulch', '12', 'tons', 'site'),
   roofSquares: F('roofSquares', 'Roof', '28', 'sq', 'structure'),
+  roofAreaSqft: F(
+    'roofAreaSqft',
+    'Roof surface area',
+    'Enter',
+    'sqft',
+    'structure',
+    undefined,
+    'Use only a measured roof surface area; do not substitute living or floor area.'
+  ),
+  roofPitch: F('roofPitch', 'Roof pitch / slope', 'e.g. 5:12', 'ratio', 'structure'),
+  storyCount: F('storyCount', 'Stories', '1', 'story', 'structure'),
+  roofDeckingReplacementSqft: F(
+    'roofDeckingReplacementSqft',
+    'Decking replacement',
+    'e.g. 200',
+    'sqft',
+    'structure'
+  ),
+  roofDripEdgeLf: F('roofDripEdgeLf', 'Drip edge', 'e.g. 120', 'LF', 'structure'),
+  roofRidgeCapLf: F('roofRidgeCapLf', 'Ridge cap', 'e.g. 80', 'LF', 'structure'),
+  roofRidgeVentLf: F('roofRidgeVentLf', 'Ridge vent', 'e.g. 2', 'EA', 'structure'),
+  roofValleyFlashingLf: F(
+    'roofValleyFlashingLf',
+    'Valley flashing',
+    'e.g. 60',
+    'LF',
+    'structure'
+  ),
+  roofStepFlashingLf: F(
+    'roofStepFlashingLf',
+    'Step flashing',
+    'e.g. 40',
+    'LF',
+    'structure'
+  ),
+  roofWallFlashingLf: F(
+    'roofWallFlashingLf',
+    'Wall flashing',
+    'e.g. 40',
+    'LF',
+    'structure'
+  ),
+  roofChimneyFlashingCount: F(
+    'roofChimneyFlashingCount',
+    'Chimney flashing',
+    'e.g. 1',
+    'EA',
+    'structure'
+  ),
+  roofPipeBootCount: F('roofPipeBootCount', 'Pipe boots', 'e.g. 4', 'EA', 'structure'),
+  roofVentCount: F('roofVentCount', 'Roof vents', 'e.g. 2', 'EA', 'structure'),
+  roofTurbineVentCount: F(
+    'roofTurbineVentCount',
+    'Turbine vents',
+    'e.g. 2',
+    'EA',
+    'structure'
+  ),
+  roofSkylightCount: F(
+    'roofSkylightCount',
+    'Skylight flashing',
+    'e.g. 1',
+    'EA',
+    'structure'
+  ),
+  roofPenetrationCount: F(
+    'roofPenetrationCount',
+    'Other penetrations',
+    'e.g. 2',
+    'EA',
+    'structure'
+  ),
+  roofRepairAffectedSqft: F(
+    'roofRepairAffectedSqft',
+    'Roof repair affected area',
+    'e.g. 100',
+    'sqft',
+    'structure'
+  ),
+  roofGutterLf: F('roofGutterLf', 'Gutters', 'e.g. 150', 'LF', 'structure'),
+  roofDownspoutCount: F(
+    'roofDownspoutCount',
+    'Downspouts',
+    'e.g. 4',
+    'EA',
+    'structure'
+  ),
   drywallSqft: F('drywallSqft', 'Drywall', '800', 'sqft', 'interior'),
   flooringSqft: F(
     'flooringSqft',
@@ -346,8 +466,79 @@ const QUICK_MEASUREMENT_FIELD_DEFS: Record<
     undefined,
     EXTERIOR_FLATWORK_HELPER
   ),
-  concreteCy: F('concreteCy', 'Concrete', '12', 'CY', 'structure'),
+  concreteDrivewaySqft: F(
+    'concreteDrivewaySqft',
+    'Driveway area',
+    '800',
+    'sqft',
+    'structure',
+    undefined,
+    'Labeled driveway flatwork only.'
+  ),
+  concreteSidewalkSqft: F(
+    'concreteSidewalkSqft',
+    'Sidewalk area',
+    '120',
+    'sqft',
+    'structure',
+    undefined,
+    'Labeled sidewalk flatwork only.'
+  ),
+  concretePatioSqft: F(
+    'concretePatioSqft',
+    'Patio area',
+    '250',
+    'sqft',
+    'structure',
+    undefined,
+    'Exterior concrete patio slab only — not covered patio.'
+  ),
+  concreteWalkwaySqft: F(
+    'concreteWalkwaySqft',
+    'Walkway area',
+    '140',
+    'sqft',
+    'structure',
+    undefined,
+    'Labeled walkway flatwork only.'
+  ),
+  concreteRvPadSqft: F(
+    'concreteRvPadSqft',
+    'RV pad area',
+    '400',
+    'sqft',
+    'structure',
+    undefined,
+    'Labeled RV pad flatwork only.'
+  ),
+  concreteCy: F(
+    'concreteCy',
+    'Footing / foundation concrete',
+    '12',
+    'CY',
+    'structure',
+    undefined,
+    'Structural footing or foundation pour — separate from flatwork SF.'
+  ),
   excavationCy: F('excavationCy', 'Excavation', '45', 'CY', 'site'),
+  concreteDemoSqft: F(
+    'concreteDemoSqft',
+    'Concrete demo / removal',
+    '100',
+    'sqft',
+    'site',
+    undefined,
+    'Existing concrete removal area only — not inferred from new flatwork.'
+  ),
+  concreteReinforcementSqft: F(
+    'concreteReinforcementSqft',
+    'Rebar / mesh area',
+    '400',
+    'sqft',
+    'structure',
+    undefined,
+    'Reinforcement area only when explicitly supported.'
+  ),
   deckSqft: F('deckSqft', 'Deck / patio', '320', 'sqft', 'exterior'),
   garageSqft: F('garageSqft', 'Garage', '480', 'sqft', 'structure'),
   stuccoGrossWallSqft: F(
@@ -591,7 +782,58 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
     ),
     row(F('landscapeSqft', 'Coverage', '1200', 'sqft', 'site')),
   ],
-  roofing: [row(F('roofSquares', 'Roof', '28', 'sq', 'structure', true))],
+  roofing: [
+    row(F('roofSquares', 'Roof squares', '28', 'sq', 'structure', true)),
+    row(
+      F('roofAreaSqft', 'Roof surface area', 'e.g. 2800', 'sqft', 'structure'),
+      F('roofPitch', 'Roof pitch / slope', 'e.g. 5:12', 'ratio', 'structure')
+    ),
+    row(F('storyCount', 'Stories', '1', 'story', 'structure')),
+    row(
+      F(
+        'roofDeckingReplacementSqft',
+        'Decking replacement',
+        'e.g. 200',
+        'sqft',
+        'structure'
+      ),
+      F(
+        'roofRepairAffectedSqft',
+        'Roof repair affected area',
+        'e.g. 100',
+        'sqft',
+        'structure'
+      )
+    ),
+    row(
+      F('roofDripEdgeLf', 'Drip edge', 'e.g. 120', 'LF', 'structure'),
+      F('roofRidgeCapLf', 'Ridge cap', 'e.g. 80', 'LF', 'structure')
+    ),
+    row(
+      F('roofRidgeVentLf', 'Ridge vent', 'e.g. 2', 'EA', 'structure'),
+      F('roofValleyFlashingLf', 'Valley flashing', 'e.g. 60', 'LF', 'structure')
+    ),
+    row(
+      F('roofStepFlashingLf', 'Step flashing', 'e.g. 40', 'LF', 'structure'),
+      F('roofWallFlashingLf', 'Wall flashing', 'e.g. 40', 'LF', 'structure')
+    ),
+    row(
+      F('roofChimneyFlashingCount', 'Chimney flashing', 'e.g. 1', 'EA', 'structure'),
+      F('roofPipeBootCount', 'Pipe boots', 'e.g. 4', 'EA', 'structure')
+    ),
+    row(
+      F('roofVentCount', 'Roof vents', 'e.g. 2', 'EA', 'structure'),
+      F('roofTurbineVentCount', 'Turbine vents', 'e.g. 2', 'EA', 'structure')
+    ),
+    row(
+      F('roofSkylightCount', 'Skylight flashing', 'e.g. 1', 'EA', 'structure'),
+      F('roofPenetrationCount', 'Other penetrations', 'e.g. 2', 'EA', 'structure')
+    ),
+    row(
+      F('roofGutterLf', 'Gutters', 'e.g. 150', 'LF', 'structure'),
+      F('roofDownspoutCount', 'Downspouts', 'e.g. 4', 'EA', 'structure')
+    ),
+  ],
   drywall: [row(F('drywallSqft', 'Drywall', '800', 'sqft', 'interior', true))],
   painting: [
     row(
@@ -1029,7 +1271,9 @@ export function quickMeasurementRowsForInput(
       !baseKeys.has(key) &&
       (!noteKeySet || noteKeySet.has(key)) &&
       hasQuickMeasurementValue(measurements[key])
-  ).map(key => QUICK_MEASUREMENT_FIELD_DEFS[key]);
+  )
+    .map(key => QUICK_MEASUREMENT_FIELD_DEFS[key])
+    .filter((field): field is QuickMeasurementFieldDef => Boolean(field));
 
   // Keep row order stable while typing — dynamic note-only rows caused TextInput focus to jump.
   if (resolvedKey === 'room_remodel') {
@@ -1195,6 +1439,10 @@ export function emptyQuickMeasurementInput(): Record<
     rockMulchSqft: '',
     landscapeTons: '',
     roofSquares: '',
+    roofAreaSqft: '',
+    roofIceWaterShieldSqft: '',
+    roofPitch: '',
+    storyCount: '',
     drywallSqft: '',
     flooringSqft: '',
     flooringLvpSqft: '',

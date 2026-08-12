@@ -403,6 +403,49 @@ Demo old cabinets and haul off $850 lump sum`;
     expect(parsed.itemQuantities?.cleanup).toMatchObject({ quantity: 600, unit: 'lump_sum' });
   });
 
+  test('roofing notes normalize the Phase 2A canonical measurements', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Replace 2800 sqft of roof area, 6/12 pitch, two-story, 28 squares of architectural shingles.',
+      { templateKey: 'roofing', projectType: 'roofing' }
+    );
+    expect(parsed.roofAreaSqft).toBe(2800);
+    expect(parsed.roofSquares).toBe(28);
+    expect(parsed.roofPitch).toBe('6:12');
+    expect(parsed.storyCount).toBe(2);
+  });
+
+  test('Roofing Confirm Scope exposes one system choice and Phase 2B groups', () => {
+    const ids = CHECKLIST_TEMPLATES.roofing.items.map(item => item.id);
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        'roofing_system',
+        'tear_off',
+        'decking_repair',
+        'underlayment',
+        'drip_edge',
+        'ridge_cap',
+        'valley_flashing',
+        'step_flashing',
+        'wall_flashing',
+        'ridge_vent',
+        'roof_vents',
+        'turbine_vents',
+        'pipe_boots',
+        'chimney_flashing',
+        'skylight_flashing',
+        'roof_penetrations',
+        'roof_pitch_complexity_access',
+        'roof_repairs',
+        'roof_exclusions',
+      ])
+    );
+    const system = CHECKLIST_TEMPLATES.roofing.items.find(
+      item => item.id === 'roofing_system'
+    );
+    expect(system.inputType).toBe('choice');
+    expect(system.options).toHaveLength(9);
+  });
+
   test('golden concrete scenario calculates sqft and CY rates', () => {
     const notes =
       'Concrete patio 400 sqft $12 per sqft. Foundation concrete 18 cy $165 per cy. Demo removal $900';
