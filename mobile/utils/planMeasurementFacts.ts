@@ -69,6 +69,14 @@ export type PlanFacts = {
   roofWastePercent?: number | null;
   wallHeightFt?: number | null;
   plateHeightFt?: number | null;
+  ceilingHeightFt?: number | null;
+  interiorRooms?: Array<{
+    name?: string | null;
+    lengthFt?: number | null;
+    widthFt?: number | null;
+    areaSqft?: number | null;
+    confidence?: number | null;
+  }>;
   exteriorPerimeterLf?: number | null;
   foundationPerimeterLf?: number | null;
   foundationFootprintSqft?: number | null;

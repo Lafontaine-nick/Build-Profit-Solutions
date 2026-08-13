@@ -14,6 +14,10 @@ import {
   type NormalizedScopeMeasurements,
 } from '@/utils/scopeItemQuantities';
 import {
+  electricalChecklistGroups,
+  syncElectricalScopeItems,
+} from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import {
   floorDemoNotesHint,
   inferChoiceFromNotes,
   inferChoicesFromNotes,
@@ -598,10 +602,12 @@ export function applyScopeInferencesFromNotes(
       measurements,
     }
   );
-  return applyMeasuredStuccoScopeInferences(
-    withKitchenInferences,
-    measurements
-  );
+  const withElectrical = syncElectricalScopeItems(withKitchenInferences, {
+    electricalScope: (measurements as { electricalScope?: string[] | null })
+      ?.electricalScope,
+    quantities: measurements as Partial<Record<string, unknown>>,
+  });
+  return applyMeasuredStuccoScopeInferences(withElectrical, measurements);
 }
 
 export function applyMeasuredStuccoScopeInferences(
@@ -3114,6 +3120,7 @@ export const SCOPE_CHECKLIST_GROUPS: Record<string, ScopeChecklistGroup[]> = {
     },
     { title: 'Closeout', itemIds: ['cleanup'] },
   ],
+  electrical: electricalChecklistGroups(),
 };
 
 /** @deprecated use SCOPE_CHECKLIST_GROUPS.bathroom */

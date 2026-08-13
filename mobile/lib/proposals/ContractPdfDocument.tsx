@@ -698,6 +698,38 @@ const styles = StyleSheet.create({
     lineHeight: 1.4,
     marginBottom: 4,
   },
+  measurementsCard: {
+    borderWidth: 1,
+    borderColor: "#DBE4EE",
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginTop: 4,
+    marginBottom: 6,
+  },
+  measurementsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E7EB",
+  },
+  measurementsRowLast: {
+    borderBottomWidth: 0,
+  },
+  measurementsLabel: {
+    fontSize: 9.5,
+    color: "#64748B",
+    fontWeight: 600,
+    flex: 1,
+  },
+  measurementsValue: {
+    fontSize: 9.5,
+    color: "#1F2937",
+    fontWeight: 700,
+    textAlign: "right",
+  },
 });
 
 const Footer = ({
@@ -1170,6 +1202,27 @@ export const ContractPdfDocument: React.FC<ContractPdfDocumentProps> = ({
             <View style={{ marginTop: 8 }}>
               <BulletList items={contractCopy.includedWorkBullets} />
             </View>
+          ) : null}
+          {sanitizedDoc.scope.measurementLines?.length ? (
+            <>
+              <Text style={styles.appendixContextTitle}>Measurements</Text>
+              <View style={styles.measurementsCard}>
+                {sanitizedDoc.scope.measurementLines.map((line, index) => (
+                  <View
+                    key={`${line.label}-${index}`}
+                    style={[
+                      styles.measurementsRow,
+                      index === (sanitizedDoc.scope.measurementLines?.length || 0) - 1
+                        ? styles.measurementsRowLast
+                        : null,
+                    ]}
+                  >
+                    <Text style={styles.measurementsLabel}>{line.label}</Text>
+                    <Text style={styles.measurementsValue}>{line.quantity}</Text>
+                  </View>
+                ))}
+              </View>
+            </>
           ) : null}
         </View>
 

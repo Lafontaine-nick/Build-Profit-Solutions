@@ -16,6 +16,8 @@ const VALID_PROJECT_TYPES = new Set([
   'flooring',
   'deck_patio',
   'plumbing_service',
+  'electrical',
+  'electrical_service',
   'landscaping',
   'other',
 ]);
@@ -581,11 +583,13 @@ function normalizeDraft(raw, options = {}) {
   const originalNotes = options.originalNotes != null ? options.originalNotes : draft.originalNotes;
 
   let projectType = String(draft.projectType || 'other').trim().toLowerCase();
+  if (projectType === 'electrical_service') projectType = 'electrical';
   if (!VALID_PROJECT_TYPES.has(projectType)) {
     projectType = 'other';
   }
   if (originalNotes) {
     projectType = inferProjectTypeFromNotes(originalNotes, projectType);
+    if (projectType === 'electrical_service') projectType = 'electrical';
     if (!VALID_PROJECT_TYPES.has(projectType)) projectType = 'other';
   }
 

@@ -17,6 +17,16 @@ import {
   FLOORING_REVIEW_MEASUREMENT_KEYS,
   normalizeFlooringScalarMeasurements,
 } from './flooringPlanConvergence';
+import {
+  buildPaintingStructuredMeasurements,
+  PAINTING_REVIEW_MEASUREMENT_KEYS,
+  normalizePaintingScalarMeasurements,
+} from './paintingPlanConvergence';
+import {
+  buildElectricalStructuredMeasurements,
+  ELECTRICAL_REVIEW_MEASUREMENT_KEYS,
+  normalizeElectricalScalarMeasurements,
+} from './electricalPlanConvergence';
 
 const PROVENANCE_TO_STORAGE: Record<
   NormalizedMeasurementProvenance,
@@ -224,6 +234,116 @@ export function normalizeTradeMeasurements(
       typeof input.floorPrepByProduct === 'object' &&
       !Array.isArray(input.floorPrepByProduct)
         ? { floorPrepByProduct: input.floorPrepByProduct }
+        : {}),
+    };
+    if (!Object.keys(structuredMeasurements).length) {
+      structuredMeasurements = undefined;
+    }
+  }
+
+  if (tradeKey === 'painting') {
+    const structured = buildPaintingStructuredMeasurements(input);
+    const scalar = normalizePaintingScalarMeasurements(input, structured);
+    for (const [key, value] of Object.entries(scalar)) {
+      measurements[key] = value;
+      if (schemaKeys.has(key) && !existingSources[key]) {
+        quickMeasurementSources[key] = defaultProvenanceTag;
+      }
+      if (schemaKeys.has(key) && normalizedProvenance[key] == null) {
+        normalizedProvenance[key] = normalizedSource;
+      }
+    }
+    for (const key of PAINTING_REVIEW_MEASUREMENT_KEYS) {
+      if (measurements[key] != null) continue;
+      const value = input[key];
+      if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+        measurements[key] = value;
+      }
+    }
+    structuredMeasurements = {
+      ...(structured.paintScope ? { paintScope: structured.paintScope } : {}),
+      ...(structured.paintPricingMethod
+        ? { paintPricingMethod: structured.paintPricingMethod }
+        : {}),
+      ...(structured.paintOccupancy
+        ? { paintOccupancy: structured.paintOccupancy }
+        : {}),
+      ...(structured.paintApplicationMethod
+        ? { paintApplicationMethod: structured.paintApplicationMethod }
+        : {}),
+      ...(structured.paintOccupancyConfirmed != null
+        ? { paintOccupancyConfirmed: structured.paintOccupancyConfirmed }
+        : {}),
+      ...(structured.paintApplicationMethodConfirmed != null
+        ? {
+            paintApplicationMethodConfirmed:
+              structured.paintApplicationMethodConfirmed,
+          }
+        : {}),
+      ...(structured.paintAreaNeedsConfirmation != null
+        ? { paintAreaNeedsConfirmation: structured.paintAreaNeedsConfirmation }
+        : {}),
+      ...(structured.paintAreaBasis
+        ? { paintAreaBasis: structured.paintAreaBasis }
+        : {}),
+      ...(structured.itemQuantities
+        ? { itemQuantities: structured.itemQuantities }
+        : {}),
+    };
+    if (!Object.keys(structuredMeasurements).length) {
+      structuredMeasurements = undefined;
+    }
+  }
+
+  if (tradeKey === 'electrical') {
+    const structured = buildElectricalStructuredMeasurements(input);
+    const scalar = normalizeElectricalScalarMeasurements(input, structured);
+    for (const [key, value] of Object.entries(scalar)) {
+      measurements[key] = value;
+      if (schemaKeys.has(key) && !existingSources[key]) {
+        quickMeasurementSources[key] = defaultProvenanceTag;
+      }
+      if (schemaKeys.has(key) && normalizedProvenance[key] == null) {
+        normalizedProvenance[key] = normalizedSource;
+      }
+    }
+    for (const key of ELECTRICAL_REVIEW_MEASUREMENT_KEYS) {
+      if (measurements[key] != null) continue;
+      const value = input[key];
+      if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+        measurements[key] = value;
+      }
+    }
+    structuredMeasurements = {
+      ...(structured.electricalScope
+        ? { electricalScope: structured.electricalScope }
+        : {}),
+      ...(structured.electricalProjectCondition
+        ? { electricalProjectCondition: structured.electricalProjectCondition }
+        : {}),
+      ...(structured.electricalIncludeRough != null
+        ? { electricalIncludeRough: structured.electricalIncludeRough }
+        : {}),
+      ...(structured.electricalIncludeTrim != null
+        ? { electricalIncludeTrim: structured.electricalIncludeTrim }
+        : {}),
+      ...(structured.electricalConduit != null
+        ? { electricalConduit: structured.electricalConduit }
+        : {}),
+      ...(structured.electricalTrenching != null
+        ? { electricalTrenching: structured.electricalTrenching }
+        : {}),
+      ...(structured.existingServiceAmperage != null
+        ? { existingServiceAmperage: structured.existingServiceAmperage }
+        : {}),
+      ...(structured.electricalPanelLocation
+        ? { electricalPanelLocation: structured.electricalPanelLocation }
+        : {}),
+      ...(structured.electricalMeterMainCombo != null
+        ? { electricalMeterMainCombo: structured.electricalMeterMainCombo }
+        : {}),
+      ...(structured.itemQuantities
+        ? { itemQuantities: structured.itemQuantities }
         : {}),
     };
     if (!Object.keys(structuredMeasurements).length) {

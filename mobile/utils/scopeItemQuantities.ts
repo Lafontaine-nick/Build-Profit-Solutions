@@ -8,6 +8,47 @@ import {
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
 import {
+  copyElectricalConditionFields,
+  copyElectricalQuantityFields,
+  electricalQuantityRules,
+  isCanonicalElectricalItemId,
+  shouldAutoPriceElectricalRoughPackage,
+  ELECTRICAL_CARDS,
+  type ElectricalQuantityKey,
+} from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import {
+  isElectricalServicePanelItemId,
+  resolveElectricalServicePanelSuggestedPricing,
+} from '@/utils/subcontractorTrade/electricalServicePanelPricing';
+import {
+  isElectricalCircuitItemId,
+  resolveElectricalCircuitSuggestedPricing,
+} from '@/utils/subcontractorTrade/electricalCircuitPricing';
+import {
+  isElectricalReceptacleItemId,
+  resolveElectricalReceptacleSuggestedPricing,
+} from '@/utils/subcontractorTrade/electricalReceptaclePricing';
+import {
+  isElectricalSwitchItemId,
+  resolveElectricalSwitchSuggestedPricing,
+} from '@/utils/subcontractorTrade/electricalSwitchPricing';
+import {
+  isElectricalLightingFanItemId,
+  resolveElectricalLightingFanSuggestedPricing,
+} from '@/utils/subcontractorTrade/electricalLightingFanPricing';
+import {
+  isElectricalHookupItemId,
+  resolveElectricalHookupSuggestedPricing,
+} from '@/utils/subcontractorTrade/electricalHookupPricing';
+import {
+  isElectricalSpecialSystemItemId,
+  resolveElectricalSpecialSystemSuggestedPricing,
+} from '@/utils/subcontractorTrade/electricalSpecialSystemsPricing';
+import {
+  isElectricalModificationItemId,
+  resolveElectricalModificationSuggestedPricing,
+} from '@/utils/subcontractorTrade/electricalModificationPricing';
+import {
   SCOPE_PARSED_FROM_NOTES_LABEL,
   SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL,
   SCOPE_LABOR_PARSED_FROM_NOTES_LABEL,
@@ -467,6 +508,7 @@ export type NormalizedScopeMeasurements = {
   cabinetRunLf: number | null;
   ceilingPaintSqft: number | null;
   paintAreaSqft: number | null;
+  combinedPaintableAreaSqft: number | null;
   showerWallTileSqft: number | null;
   showerFloorTileSqft: number | null;
   wallPaintSqft: number | null;
@@ -480,7 +522,7 @@ export type NormalizedScopeMeasurements = {
   measurementProvenance?: Record<string, unknown>;
   measurementConflicts?: import('@/utils/estimateAiDraft').PlanMeasurementConflict[];
   itemQuantities: Record<string, ScopeItemQuantityValue>;
-};
+} & Partial<Record<ElectricalQuantityKey, number | null>>;
 
 export type ScopeItemQuantityValue = {
   quantity: number | null;
@@ -5964,6 +6006,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKey: 'wallPaintSqft',
+    measurementKeys: ['wallPaintSqft', 'combinedPaintableAreaSqft'],
     requiresUserQuantity: true,
     quantityHelper: 'Enter interior paint sqft.',
     missingMessage: 'Enter paint sqft.',
@@ -5980,6 +6023,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     aggregateMeasurementKeys: ['wallPaintSqft', 'ceilingPaintSqft'],
+    measurementKeys: ['combinedPaintableAreaSqft', 'paintAreaSqft'],
     requiresUserQuantity: true,
     quantityHelper:
       'Uses the interior wall/ceiling paint area for standard protection and prep.',
@@ -5994,9 +6038,10 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
     missingMessage: 'Enter interior door count.',
   },
   cabinet_paint: {
-    defaultUnit: 'sqft',
-    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'sqft', 'allowance', 'lump_sum'],
     measurementKey: 'cabinetRunLf',
+    measurementKeys: ['cabinetRunLf', 'cabinetPaintSqft'],
     requiresUserQuantity: true,
     quantityHelper:
       'Enter total linear feet of upper and lower cabinets being painted. Do not use kitchen floor area.',
@@ -6028,6 +6073,7 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
       'Enter excavation CY directly, or calculate CY from excavation area and depth. Pricing includes labor and equipment; export, haul-off, dump fees, and imported fill are separate.',
     missingMessage: 'Enter excavation quantity.',
   },
+  ...electricalQuantityRules(),
 };
 
 function sourceLabel(source: QuantitySource): string {
@@ -6171,6 +6217,11 @@ export function normalizeScopeMeasurements(
     wallPaintSqft: num(measurements?.wallPaintSqft),
     ceilingPaintSqft: num(measurements?.ceilingPaintSqft),
     paintAreaSqft: num(measurements?.paintAreaSqft),
+    combinedPaintableAreaSqft:
+      num(measurements?.combinedPaintableAreaSqft) ??
+      (measurements?.paintPricingMethod === 'combined'
+        ? num(measurements?.paintAreaSqft)
+        : null),
     bathCount:
       measurements?.bathCount != null && Number(measurements.bathCount) > 0
         ? Math.round(Number(measurements.bathCount))
@@ -6205,6 +6256,7 @@ export function normalizeScopeMeasurements(
       Number(measurements.garageDoorRvCount) > 0
         ? Math.round(Number(measurements.garageDoorRvCount))
         : null,
+    ...copyElectricalQuantityFields(measurements as Record<string, unknown>, num),
     measurementProvenance: measurements?.measurementProvenance,
     measurementConflicts: measurements?.measurementConflicts,
     itemQuantities,
@@ -7431,13 +7483,18 @@ const GLOBAL_PRICING_BASIS_PREFERENCES: Record<string, PricingBasisPreference> =
     finish_tape: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
     texture: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
     patch_repair: { unit: 'sqft', measurementKeys: ['drywallSqft'] },
-    paint: { unit: 'sqft', measurementKeys: ['wallPaintSqft'] },
-    interior_paint: { unit: 'sqft', measurementKeys: ['wallPaintSqft'] },
+    paint: { unit: 'sqft', measurementKeys: ['wallPaintSqft', 'combinedPaintableAreaSqft'] },
+    interior_paint: { unit: 'sqft', measurementKeys: ['wallPaintSqft', 'combinedPaintableAreaSqft'] },
     ceiling_paint: { unit: 'sqft', measurementKeys: ['ceilingPaintSqft'] },
     exterior_paint: { unit: 'sqft', measurementKeys: ['exteriorPaintSqft'] },
-    prep: { unit: 'sqft', measurementKeys: ['wallPaintSqft'] },
+    prep: {
+      unit: 'sqft',
+      measurementKeys: ['wallPaintSqft', 'ceilingPaintSqft', 'combinedPaintableAreaSqft'],
+    },
     trim: { unit: 'lf', measurementKeys: ['baseboardLf'] },
     trim_paint: { unit: 'lf', measurementKeys: ['baseboardLf'] },
+    door_paint: { unit: 'each', measurementKeys: ['interiorDoorCount'] },
+    cabinet_paint: { unit: 'lf', measurementKeys: ['cabinetRunLf', 'cabinetPaintSqft'] },
     baseboard: { unit: 'lf', measurementKeys: ['baseboardLf'] },
     shower_tile: { unit: 'sqft', measurementKeys: ['showerWallTileSqft'] },
     shower_floor_tile: {
@@ -7924,7 +7981,7 @@ export function resolveSuggestAlignedEditorPricingBasis(
     return { quantity: 80, unit: 'sqft' };
   }
 
-  if (id === 'plumbing_rough' || id === 'electrical_rough') {
+  if (id === 'plumbing_rough') {
     const countEntry = measurementsInput.itemQuantities[itemId];
     const countQty = parseScopeMeasurementInput(
       String(countEntry?.quantity ?? '')
@@ -7934,6 +7991,29 @@ export function resolveSuggestAlignedEditorPricingBasis(
       return { quantity: countQty, unit: 'each' };
     }
     // Suggest plans from living SF when point/device counts are missing.
+    if (livingSf && livingSf > 0) return { quantity: livingSf, unit: 'sqft' };
+    return null;
+  }
+
+  if (id === 'electrical_rough') {
+    const countEntry = measurementsInput.itemQuantities[itemId];
+    const countQty = parseScopeMeasurementInput(
+      String(countEntry?.quantity ?? '')
+    );
+    const countUnit = normalizeBasisUnit(countEntry?.unit);
+    if (countQty && countQty > 0 && countUnit === 'each') {
+      return { quantity: countQty, unit: 'each' };
+    }
+    // Canonical Electrical is count-based. Living/floor/building SF must not
+    // own detailed cards or auto-price a rough package beside them.
+    if (
+      !shouldAutoPriceElectricalRoughPackage(
+        measurementsInput as unknown as Record<string, unknown>,
+        tk
+      )
+    ) {
+      return null;
+    }
     if (livingSf && livingSf > 0) return { quantity: livingSf, unit: 'sqft' };
     return null;
   }
@@ -8537,6 +8617,20 @@ export function syncItemQuantitiesToMeasurementFields(
     )
       continue;
     next[field] = String(entry.quantity);
+  }
+  for (const card of ELECTRICAL_CARDS) {
+    if (card.measurementKey === 'serviceAmperage') continue;
+    const entry = safeInput.itemQuantities?.[card.itemId];
+    if (!entry?.quantity) continue;
+    if (
+      !EXPLICIT_ITEM_QUANTITY_SOURCES.has(
+        entry.quantitySource || 'user_entered'
+      )
+    )
+      continue;
+    const quantity = Number(String(entry.quantity).replace(/,/g, ''));
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    (next as Record<string, unknown>)[card.measurementKey] = String(quantity);
   }
   return next;
 }
@@ -11388,6 +11482,112 @@ export function resolveScopeItemSuggestedPricing(
   const empty: ScopeItemSuggestedPricing = { fill: null, comparison: null };
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule) return empty;
+  const electricalTemplate = String(templateKey || '').toLowerCase() === 'electrical';
+  if (electricalTemplate && itemId === 'electrical_rough') {
+    return empty;
+  }
+  if (isElectricalServicePanelItemId(itemId)) {
+    return resolveElectricalServicePanelSuggestedPricing({
+      itemId,
+      quantity: resolved.quantity,
+      quantitySource: resolved.quantitySource,
+      serviceAmperage: Number(measurementsInput.serviceAmperage) || null,
+      existingServiceAmperage:
+        Number(measurementsInput.existingServiceAmperage) || null,
+      electricalProjectCondition: measurementsInput.electricalProjectCondition,
+      electricalPanelLocation: measurementsInput.electricalPanelLocation,
+      electricalMeterMainCombo: measurementsInput.electricalMeterMainCombo,
+      mainPanelCount: Number(measurementsInput.mainPanelCount) || null,
+      panelUpgradeCount: Number(measurementsInput.panelUpgradeCount) || null,
+      serviceUpgradeCount: Number(measurementsInput.serviceUpgradeCount) || null,
+      subpanelCount: Number(measurementsInput.subpanelCount) || null,
+      electricalScope: measurementsInput.electricalScope,
+    });
+  }
+  if (isElectricalCircuitItemId(itemId)) {
+    return resolveElectricalCircuitSuggestedPricing({
+      itemId,
+      quantity: resolved.quantity,
+      quantitySource: resolved.quantitySource,
+      electricalProjectCondition: measurementsInput.electricalProjectCondition,
+      rangeHookupCount: Number(measurementsInput.rangeHookupCount) || null,
+      dryerHookupCount: Number(measurementsInput.dryerHookupCount) || null,
+      waterHeaterHookupCount:
+        Number(measurementsInput.waterHeaterHookupCount) || null,
+      evChargerHookupCount: Number(measurementsInput.evChargerHookupCount) || null,
+      dishwasherHookupCount:
+        Number(measurementsInput.dishwasherHookupCount) || null,
+      disposalHookupCount: Number(measurementsInput.disposalHookupCount) || null,
+      microwaveHookupCount: Number(measurementsInput.microwaveHookupCount) || null,
+      refrigeratorHookupCount:
+        Number(measurementsInput.refrigeratorHookupCount) || null,
+    });
+  }
+  if (isElectricalReceptacleItemId(itemId)) {
+    return resolveElectricalReceptacleSuggestedPricing({
+      itemId,
+      quantity: resolved.quantity,
+      quantitySource: resolved.quantitySource,
+      electricalProjectCondition: measurementsInput.electricalProjectCondition,
+    });
+  }
+  if (isElectricalSwitchItemId(itemId)) {
+    return resolveElectricalSwitchSuggestedPricing({
+      itemId,
+      quantity: resolved.quantity,
+      quantitySource: resolved.quantitySource,
+      electricalProjectCondition: measurementsInput.electricalProjectCondition,
+    });
+  }
+  if (isElectricalLightingFanItemId(itemId)) {
+    return resolveElectricalLightingFanSuggestedPricing({
+      itemId,
+      quantity: resolved.quantity,
+      quantitySource: resolved.quantitySource,
+      electricalProjectCondition: measurementsInput.electricalProjectCondition,
+    });
+  }
+  if (isElectricalHookupItemId(itemId)) {
+    return resolveElectricalHookupSuggestedPricing({
+      itemId,
+      quantity: resolved.quantity,
+      quantitySource: resolved.quantitySource,
+      electricalProjectCondition: measurementsInput.electricalProjectCondition,
+    });
+  }
+  if (isElectricalSpecialSystemItemId(itemId)) {
+    return resolveElectricalSpecialSystemSuggestedPricing({
+      itemId,
+      quantity: resolved.quantity,
+      quantitySource: resolved.quantitySource,
+      electricalProjectCondition: measurementsInput.electricalProjectCondition,
+    });
+  }
+  if (isElectricalModificationItemId(itemId)) {
+    return resolveElectricalModificationSuggestedPricing({
+      itemId,
+      quantity: resolved.quantity,
+      quantitySource: resolved.quantitySource,
+      electricalProjectCondition: measurementsInput.electricalProjectCondition,
+    });
+  }
+  if (electricalTemplate && isCanonicalElectricalItemId(itemId)) {
+    return empty;
+  }
+  if (
+    itemId === 'electrical_rough' &&
+    !shouldAutoPriceElectricalRoughPackage(
+      measurementsInput as unknown as Record<string, unknown>,
+      templateKey
+    )
+  ) {
+    const countEntry = measurementsInput.itemQuantities?.[itemId];
+    const eachQty = parseScopeMeasurementInput(String(countEntry?.quantity ?? ''));
+    const eachUnit = normalizeBasisUnit(countEntry?.unit);
+    if (!(eachQty && eachQty > 0 && eachUnit === 'each')) {
+      return empty;
+    }
+  }
   const isRoofingTemplate =
     String(templateKey || '').toLowerCase() === 'roofing';
   if (
@@ -13469,6 +13669,15 @@ export function resolveScopeItemSuggestedPricing(
       const hasEachCount =
         eachQty != null && eachQty > 0 && eachUnit === 'each';
       if (!hasEachCount) {
+        if (
+          itemId === 'electrical_rough' &&
+          !shouldAutoPriceElectricalRoughPackage(
+            measurementsInput as unknown as Record<string, unknown>,
+            templateKey
+          )
+        ) {
+          return empty;
+        }
         const lump =
           itemId === 'plumbing_rough'
             ? resolvePlumbingRoughLumpSuggestedFill({
@@ -16222,7 +16431,7 @@ const PACKAGE_NAME_TO_RULE_KEY: Array<{ test: RegExp; key: string }> = [
     key: 'electrical_trim',
   },
   {
-    test: /\belectrical\b(?!.*trim)|\bnew\s+circuits\b/i,
+    test: /\belectrical\s+rough|\brough[\s-]?in\b.*\belectrical|\bnew\s+circuits?\b/i,
     key: 'electrical_rough',
   },
   { test: /\blight(?:ing)?\s+fix|\bfixture.*\blight/i, key: 'lighting' },
@@ -16524,7 +16733,7 @@ export function countScopePricingReadiness(
       ['ceiling_paint', ceilingReady],
       ['trim_paint', positive(measurements.baseboardLf)],
       ['door_paint', positive(measurements.interiorDoorCount)],
-      ['cabinet_paint', positive(measurements.cabinetPaintSqft)],
+      ['cabinet_paint', positive(measurements.cabinetPaintSqft) || positive(measurements.cabinetRunLf)],
       ['exterior_paint', positive(raw.exteriorPaintSqft)],
     ];
     for (const [id, readyForQuantity] of paintReadiness) {
@@ -16722,7 +16931,96 @@ export function scopeMeasurementsPayloadForPersist(
       options?.templateKey
     );
   }
+  extended = syncPaintingCombinedQuantitiesIntoItemQuantities(extended, options?.templateKey);
+  extended = syncElectricalQuantitiesIntoItemQuantities(extended, options?.templateKey);
   return scopeMeasurementsToPayload(extended);
+}
+
+function syncElectricalQuantitiesIntoItemQuantities(
+  extended: ScopeMeasurementsInputExtended,
+  templateKey?: string | null
+): ScopeMeasurementsInputExtended {
+  const isElectrical = String(templateKey || '').toLowerCase() === 'electrical';
+  if (!isElectrical && !Array.isArray(extended.electricalScope)) return extended;
+  const nextQuantities = { ...(extended.itemQuantities || {}) };
+  let changed = false;
+  for (const card of ELECTRICAL_CARDS) {
+    if (card.measurementKey === 'serviceAmperage') continue;
+    const raw = (extended as Record<string, unknown>)[card.measurementKey];
+    const quantity = Number(String(raw ?? '').replace(/,/g, ''));
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    if (Number(nextQuantities[card.itemId]?.quantity) > 0) continue;
+    nextQuantities[card.itemId] = {
+      quantity: String(quantity),
+      unit: card.unit,
+      quantitySource: 'user_entered',
+    };
+    changed = true;
+  }
+  return changed
+    ? { ...extended, itemQuantities: nextQuantities }
+    : extended;
+}
+
+function syncPaintingCombinedQuantitiesIntoItemQuantities(
+  extended: ScopeMeasurementsInputExtended,
+  templateKey?: string | null
+): ScopeMeasurementsInputExtended {
+  const isPainting = String(templateKey || '').toLowerCase() === 'painting';
+  if (!isPainting && extended.paintPricingMethod !== 'combined') return extended;
+  if (
+    extended.paintPricingMethod === 'combined' &&
+    Number(extended.combinedPaintableAreaSqft || extended.paintAreaSqft) > 0
+  ) {
+    const quantity = String(
+      extended.combinedPaintableAreaSqft || extended.paintAreaSqft
+    );
+    extended = {
+      ...extended,
+      itemQuantities: {
+        ...extended.itemQuantities,
+        interior_paint: {
+          quantity,
+          unit: 'sqft',
+          quantitySource: 'user_entered',
+        },
+        prep: {
+          ...(extended.itemQuantities?.prep || {}),
+          quantity: extended.itemQuantities?.prep?.quantity || quantity,
+          unit: extended.itemQuantities?.prep?.unit || 'sqft',
+          quantitySource:
+            extended.itemQuantities?.prep?.quantitySource || 'user_entered',
+        },
+      },
+    };
+  }
+  const copyIfMissing = (
+    itemId: string,
+    quantity: string | number | null | undefined,
+    unit: string
+  ) => {
+    if (!(Number(quantity) > 0)) return;
+    if (Number(extended.itemQuantities?.[itemId]?.quantity) > 0) return;
+    extended = {
+      ...extended,
+      itemQuantities: {
+        ...extended.itemQuantities,
+        [itemId]: {
+          quantity: String(quantity),
+          unit,
+          quantitySource: 'user_entered',
+        },
+      },
+    };
+  };
+  if (isPainting) {
+    copyIfMissing('trim_paint', extended.baseboardLf, 'lf');
+    copyIfMissing('door_paint', extended.interiorDoorCount, 'each');
+    copyIfMissing('cabinet_paint', extended.cabinetRunLf, 'lf');
+    copyIfMissing('exterior_paint', extended.exteriorPaintSqft, 'sqft');
+    copyIfMissing('ceiling_paint', extended.ceilingPaintSqft, 'sqft');
+  }
+  return extended;
 }
 
 export function scopeMeasurementsToPayload(
@@ -16941,6 +17239,11 @@ export function scopeMeasurementsToPayload(
     paintOccupancyConfirmed: sanitized.paintOccupancyConfirmed ?? null,
     paintApplicationMethodConfirmed:
       sanitized.paintApplicationMethodConfirmed ?? null,
+    ...copyElectricalQuantityFields(
+      sanitized as Record<string, unknown>,
+      parseScopeMeasurementInput
+    ),
+    ...copyElectricalConditionFields(sanitized as Record<string, unknown>),
     cabinetMeasurementMethod: sanitized.cabinetMeasurementMethod ?? null,
     interiorDoorCount: parseScopeMeasurementInput(sanitized.interiorDoorCount),
     cabinetPaintSqft: parseScopeMeasurementInput(sanitized.cabinetPaintSqft),
@@ -17495,6 +17798,12 @@ export function scopeMeasurementsInputFromPayload(
   return {
     ...base,
     paintScope: payload.paintScope ?? null,
+    ...Object.fromEntries(
+      Object.entries(
+        copyElectricalQuantityFields(payload as Record<string, unknown>)
+      ).map(([key, value]) => [key, value != null ? String(value) : ''])
+    ),
+    ...copyElectricalConditionFields(payload as Record<string, unknown>),
     bathroomFloorSqft: measurementFieldString(
       payload.bathroomFloorSqft ?? payload.sqft
     ),
@@ -18235,6 +18544,15 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   cabinetMeasurementMethod?: import('@/utils/estimateAiDraft').ScopeMeasurements['cabinetMeasurementMethod'];
   paintAreaBasis?: import('@/utils/estimateAiDraft').ScopeMeasurements['paintAreaBasis'];
   paintAreaNeedsConfirmation?: boolean | null;
+  electricalScope?: string[] | null;
+  electricalProjectCondition?: import('@/utils/estimateAiDraft').ScopeMeasurements['electricalProjectCondition'];
+  electricalIncludeRough?: boolean | null;
+  electricalIncludeTrim?: boolean | null;
+  electricalConduit?: boolean | null;
+  electricalTrenching?: boolean | null;
+  existingServiceAmperage?: string | number | null;
+  electricalPanelLocation?: import('@/utils/estimateAiDraft').ScopeMeasurements['electricalPanelLocation'];
+  electricalMeterMainCombo?: boolean | null;
   itemQuantities: Record<
     string,
     {
@@ -18333,7 +18651,7 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   planImportTradeKey?:
     import('@/utils/planImportTradeConfig').PlanTradeKey | null;
   planImportMissingInfo?: string[];
-};
+} & Partial<Record<ElectricalQuantityKey, string | number | null>>;
 
 export function initialScopeMeasurementInputExtended(
   draft: {
@@ -18766,8 +19084,16 @@ export function initialScopeMeasurementInputExtended(
     baseboardLf: pickBaseboardLf(),
     showerWallTileSqft: pick('showerWallTileSqft'),
     showerFloorTileSqft: pick('showerFloorTileSqft'),
-    wallPaintSqft: pick('wallPaintSqft'),
-    ceilingPaintSqft: pick('ceilingPaintSqft'),
+    wallPaintSqft:
+      parsedFromNotes.paintPricingMethod === 'combined' ||
+      parsedFromNotes.paintAreaBasis === 'combined'
+        ? ''
+        : pick('wallPaintSqft'),
+    ceilingPaintSqft:
+      parsedFromNotes.paintPricingMethod === 'combined' ||
+      parsedFromNotes.paintAreaBasis === 'combined'
+        ? ''
+        : pick('ceilingPaintSqft'),
     paintAreaSqft: pick('paintAreaSqft'),
     paintAreaBasis:
       parsedFromNotes.paintAreaBasis ??
@@ -18785,11 +19111,16 @@ export function initialScopeMeasurementInputExtended(
       saved?.paintPricingMethod ??
       (parsedFromNotes.paintAreaBasis === 'combined' ? 'combined' : null),
     combinedPaintableAreaSqft:
-      suggested?.combinedPaintableAreaSqft ??
-      saved?.combinedPaintableAreaSqft ??
-      (parsedFromNotes.paintAreaBasis === 'combined'
-        ? parsedFromNotes.paintAreaSqft
-        : null),
+      parsedFromNotes.paintPricingMethod === 'combined' ||
+      parsedFromNotes.paintAreaBasis === 'combined'
+        ? String(
+            parsedFromNotes.combinedPaintableAreaSqft ||
+              parsedFromNotes.paintAreaSqft ||
+              ''
+          )
+        : suggested?.combinedPaintableAreaSqft ??
+          saved?.combinedPaintableAreaSqft ??
+          null,
     originalPaintAreaReferenceSqft:
       suggested?.originalPaintAreaReferenceSqft ??
       saved?.originalPaintAreaReferenceSqft ??

@@ -271,6 +271,7 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKey: 'wallPaintSqft',
+    measurementKeys: ['wallPaintSqft', 'combinedPaintableAreaSqft'],
     dualAllowanceField: true,
     canUseRoomSqft: false,
     requiresUserQuantity: true,
@@ -741,10 +742,48 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
     defaultUnit: 'sqft',
     allowedUnits: ['sqft', 'allowance', 'lump_sum'],
     measurementKey: 'wallPaintSqft',
+    measurementKeys: ['wallPaintSqft', 'combinedPaintableAreaSqft'],
     requiresUserQuantity: true,
     pricingMethod: 'unit_rate',
     quantityHelper: 'Enter interior paint sqft.',
     missingMessage: 'Enter paint sqft.',
+  },
+  ceiling_paint: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'ceilingPaintSqft',
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Enter ceiling paint sqft.',
+    missingMessage: 'Enter ceiling paint sqft.',
+  },
+  trim_paint: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'allowance', 'lump_sum'],
+    measurementKey: 'baseboardLf',
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Enter painted trim linear feet.',
+    missingMessage: 'Enter painted trim LF.',
+  },
+  door_paint: {
+    defaultUnit: 'each',
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
+    measurementKey: 'interiorDoorCount',
+    requiresUserQuantity: true,
+    pricingMethod: 'each',
+    quantityHelper: 'Enter interior door count.',
+    missingMessage: 'Enter interior door count.',
+  },
+  cabinet_paint: {
+    defaultUnit: 'lf',
+    allowedUnits: ['lf', 'sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'cabinetRunLf',
+    measurementKeys: ['cabinetRunLf', 'cabinetPaintSqft'],
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Enter cabinet run LF.',
+    missingMessage: 'Enter cabinet run LF.',
   },
   exterior_paint: {
     defaultUnit: 'sqft',
@@ -754,6 +793,160 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
     pricingMethod: 'unit_rate',
     quantityHelper: 'Enter exterior paint sqft.',
     missingMessage: 'Enter exterior paint sqft.',
+  },
+  exterior_prep: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    measurementKey: 'exteriorPaintSqft',
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Uses exterior paint area for standard exterior prep.',
+    missingMessage: 'Enter exterior paint sqft.',
+  },
+};
+
+/** Electrical Phase 1 — quantities persist, rates are not calibrated. */
+const ELECTRICAL_CANONICAL_ITEM_IDS = [
+  'electrical_main_panel',
+  'electrical_subpanel',
+  'electrical_panel_upgrade',
+  'electrical_service_upgrade',
+  'electrical_standard_circuit',
+  'electrical_dedicated_20a',
+  'electrical_circuit_30a',
+  'electrical_circuit_40a',
+  'electrical_circuit_50a',
+  'electrical_circuit_60a_plus',
+  'electrical_standard_receptacle',
+  'electrical_gfci_receptacle',
+  'electrical_afci_receptacle',
+  'electrical_exterior_receptacle',
+  'electrical_floor_receptacle',
+  'electrical_usb_receptacle',
+  'electrical_240v_receptacle',
+  'electrical_single_pole_switch',
+  'electrical_3way_switch',
+  'electrical_4way_switch',
+  'electrical_dimmer_switch',
+  'electrical_occupancy_switch',
+  'electrical_smart_switch',
+  'electrical_standard_fixture',
+  'electrical_recessed_light',
+  'electrical_pendant_light',
+  'electrical_decorative_light',
+  'electrical_exterior_light',
+  'electrical_undercabinet_light',
+  'electrical_ceiling_fan',
+  'electrical_bath_exhaust_fan',
+  'electrical_range_hookup',
+  'electrical_dryer_hookup',
+  'electrical_dishwasher_hookup',
+  'electrical_disposal_hookup',
+  'electrical_microwave_hookup',
+  'electrical_refrigerator_hookup',
+  'electrical_water_heater_hookup',
+  'electrical_hvac_hookup',
+  'electrical_ev_charger_hookup',
+  'electrical_smoke_detector',
+  'electrical_co_detector',
+  'electrical_doorbell',
+  'electrical_cat6_drop',
+  'electrical_tv_coax',
+  'electrical_security_prewire',
+  'electrical_camera_prewire',
+  'electrical_device_removal',
+  'electrical_fixture_removal',
+  'electrical_relocate',
+  'electrical_abandoned_circuit',
+];
+
+const ELECTRICAL_ITEM_MEASUREMENT_KEYS = {
+  electrical_main_panel: 'mainPanelCount',
+  electrical_subpanel: 'subpanelCount',
+  electrical_panel_upgrade: 'panelUpgradeCount',
+  electrical_service_upgrade: 'serviceUpgradeCount',
+  electrical_standard_circuit: 'standardCircuitCount',
+  electrical_dedicated_20a: 'dedicated20aCircuitCount',
+  electrical_circuit_30a: 'circuit30aCount',
+  electrical_circuit_40a: 'circuit40aCount',
+  electrical_circuit_50a: 'circuit50aCount',
+  electrical_circuit_60a_plus: 'circuit60aPlusCount',
+  electrical_standard_receptacle: 'standardReceptacleCount',
+  electrical_gfci_receptacle: 'gfciReceptacleCount',
+  electrical_afci_receptacle: 'afciReceptacleCount',
+  electrical_exterior_receptacle: 'exteriorReceptacleCount',
+  electrical_floor_receptacle: 'floorReceptacleCount',
+  electrical_usb_receptacle: 'usbReceptacleCount',
+  electrical_240v_receptacle: 'receptacle240vCount',
+  electrical_single_pole_switch: 'singlePoleSwitchCount',
+  electrical_3way_switch: 'threeWaySwitchCount',
+  electrical_4way_switch: 'fourWaySwitchCount',
+  electrical_dimmer_switch: 'dimmerSwitchCount',
+  electrical_occupancy_switch: 'occupancySwitchCount',
+  electrical_smart_switch: 'smartSwitchCount',
+  electrical_standard_fixture: 'standardFixtureCount',
+  electrical_recessed_light: 'recessedLightCount',
+  electrical_pendant_light: 'pendantLightCount',
+  electrical_decorative_light: 'decorativeLightCount',
+  electrical_exterior_light: 'exteriorLightCount',
+  electrical_undercabinet_light: 'undercabinetLightCount',
+  electrical_ceiling_fan: 'ceilingFanCount',
+  electrical_bath_exhaust_fan: 'bathExhaustFanCount',
+  electrical_range_hookup: 'rangeHookupCount',
+  electrical_dryer_hookup: 'dryerHookupCount',
+  electrical_dishwasher_hookup: 'dishwasherHookupCount',
+  electrical_disposal_hookup: 'disposalHookupCount',
+  electrical_microwave_hookup: 'microwaveHookupCount',
+  electrical_refrigerator_hookup: 'refrigeratorHookupCount',
+  electrical_water_heater_hookup: 'waterHeaterHookupCount',
+  electrical_hvac_hookup: 'hvacHookupCount',
+  electrical_ev_charger_hookup: 'evChargerHookupCount',
+  electrical_smoke_detector: 'smokeDetectorCount',
+  electrical_co_detector: 'coDetectorCount',
+  electrical_doorbell: 'doorbellCount',
+  electrical_cat6_drop: 'cat6DropCount',
+  electrical_tv_coax: 'tvCoaxCount',
+  electrical_security_prewire: 'securityPrewireCount',
+  electrical_camera_prewire: 'cameraPrewireCount',
+  electrical_device_removal: 'deviceRemovalCount',
+  electrical_fixture_removal: 'fixtureRemovalCount',
+  electrical_relocate: 'relocateCount',
+  electrical_abandoned_circuit: 'abandonedCircuitCount',
+};
+
+const ELECTRICAL_CHECKLIST_QUANTITY_RULES = Object.fromEntries(
+  ELECTRICAL_CANONICAL_ITEM_IDS.map((id) => [
+    id,
+    {
+      defaultUnit: 'each',
+      allowedUnits: ['each', 'allowance', 'lump_sum'],
+      measurementKey: ELECTRICAL_ITEM_MEASUREMENT_KEYS[id],
+      requiresUserQuantity: true,
+      missingMessage: 'Needs pricing',
+      quantityHelper: 'Enter the count. Pricing is not calibrated in Phase 1.',
+    },
+  ])
+);
+
+/** Painting template — combined paintable area must not collapse into walls. */
+const PAINTING_CHECKLIST_QUANTITY_RULES = {
+  interior_paint: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.interior_paint,
+    measurementKeys: ['wallPaintSqft', 'combinedPaintableAreaSqft'],
+  },
+  paint: {
+    ...CHECKLIST_ITEM_QUANTITY_RULES.paint,
+    measurementKeys: ['wallPaintSqft', 'combinedPaintableAreaSqft'],
+  },
+  prep: {
+    defaultUnit: 'sqft',
+    allowedUnits: ['sqft', 'allowance', 'lump_sum'],
+    aggregateMeasurementKeys: ['wallPaintSqft', 'ceilingPaintSqft'],
+    measurementKeys: ['combinedPaintableAreaSqft', 'paintAreaSqft'],
+    requiresUserQuantity: true,
+    pricingMethod: 'unit_rate',
+    quantityHelper: 'Uses the interior wall/ceiling or combined paintable area for prep.',
+    missingMessage: 'Enter paintable wall/ceiling sqft.',
   },
 };
 
@@ -911,7 +1104,7 @@ const PACKAGE_NAME_TO_RULE_KEY = [
     test: /\belectrical\s+fixtures?\b|\belectrical\s+trim\b|\bdevices?.*\bplates?\b/i,
     key: 'electrical_trim',
   },
-  { test: /\belectrical\b(?!.*trim)|\bnew\s+circuits\b/i, key: 'electrical_rough' },
+  { test: /\belectrical\s+rough|\brough[\s-]?in\b.*\belectrical|\bnew\s+circuits?\b/i, key: 'electrical_rough' },
   { test: /\blight(?:ing)?\s+fix|\bfixture.*\blight/i, key: 'lighting' },
   { test: /\bhang\b[^.]{0,30}\bdrywall\b|\bdrywall\b[^.]{0,30}\bhang\b/i, key: 'hang' },
   { test: /\b(tape|mud|finish)\b[^.]{0,30}\bdrywall\b|\bdrywall\b[^.]{0,30}\b(tape|mud|finish)\b/i, key: 'finish_tape' },
@@ -920,7 +1113,11 @@ const PACKAGE_NAME_TO_RULE_KEY = [
   { test: /\bexterior[\s-]*(?:paint|painting)\b|\b(?:paint|painting)[\s-]*exterior\b|\b(siding|stucco|soffit|fascia)\b[^.]{0,30}\b(?:paint|painting)\b/i, key: 'exterior_paint' },
   { test: /\binterior[\s-]*(?:paint|painting)\b|\b(?:paint|painting)[\s-]*interior\b|\bceiling\b[^.]{0,20}\b(?:paint|painting)\b/i, key: 'interior_paint' },
   {
-    test: /\btrim\b[^.]{0,30}\b(?:paint|painting)\b|\b(?:paint|painting)\b[^.]{0,30}\btrim\b|\bdoors?\b[^.]{0,20}\b(?:paint|painting)\b/i,
+    test: /\b(?:interior\s+)?doors?\s*(?:&|and)?\s*frames?\b|\bdoors?\b[^.]{0,20}\b(?:paint|painting)\b|\b(?:paint|painting)\b[^.]{0,20}\bdoors?\b/i,
+    key: 'door_paint',
+  },
+  {
+    test: /\btrim\b[^.]{0,30}\b(?:paint|painting)\b|\b(?:paint|painting)\b[^.]{0,30}\btrim\b|\bbaseboards?,?\s*trim\b/i,
     key: 'trim_paint',
   },
   { test: /\bpaint|\bpainting/i, key: 'paint' },
@@ -947,6 +1144,18 @@ function normalizeScopeMeasurements(measurements = {}) {
   const showerWallTileSqft = parseMeasurementNumber(measurements.showerWallTileSqft);
   const showerFloorTileSqft = parseMeasurementNumber(measurements.showerFloorTileSqft);
   const wallPaintSqft = parseMeasurementNumber(measurements.wallPaintSqft);
+  const ceilingPaintSqft = parseMeasurementNumber(measurements.ceilingPaintSqft);
+  const paintAreaSqft = parseMeasurementNumber(measurements.paintAreaSqft);
+  const paintPricingMethod =
+    measurements.paintPricingMethod === 'combined' || measurements.paintPricingMethod === 'separate'
+      ? measurements.paintPricingMethod
+      : null;
+  const combinedPaintableAreaSqft =
+    parseMeasurementNumber(measurements.combinedPaintableAreaSqft) ??
+    (paintPricingMethod === 'combined' ? paintAreaSqft : null);
+  const interiorDoorCount = parseMeasurementNumber(measurements.interiorDoorCount);
+  const cabinetRunLf = parseMeasurementNumber(measurements.cabinetRunLf);
+  const cabinetPaintSqft = parseMeasurementNumber(measurements.cabinetPaintSqft);
   const kitchenFloorSqft = parseMeasurementNumber(measurements.kitchenFloorSqft);
   const backsplashSqft = parseMeasurementNumber(measurements.backsplashSqft);
   const landscapeSqft = parseMeasurementNumber(measurements.landscapeSqft);
@@ -974,6 +1183,16 @@ function normalizeScopeMeasurements(measurements = {}) {
     showerWallTileSqft,
     showerFloorTileSqft,
     wallPaintSqft,
+    ceilingPaintSqft,
+    paintAreaSqft,
+    paintPricingMethod,
+    combinedPaintableAreaSqft,
+    interiorDoorCount,
+    cabinetRunLf,
+    cabinetPaintSqft,
+    paintScope: Array.isArray(measurements.paintScope) ? measurements.paintScope : undefined,
+    paintOccupancy: measurements.paintOccupancy || undefined,
+    paintApplicationMethod: measurements.paintApplicationMethod || undefined,
     kitchenFloorSqft,
     backsplashSqft,
     countertopSqft,
@@ -1380,6 +1599,12 @@ function getRuleForChecklistItem(itemId, templateKey) {
   if (templateKey === 'flooring' && FLOORING_CHECKLIST_QUANTITY_RULES[itemId]) {
     return FLOORING_CHECKLIST_QUANTITY_RULES[itemId];
   }
+  if (templateKey === 'painting' && PAINTING_CHECKLIST_QUANTITY_RULES[itemId]) {
+    return PAINTING_CHECKLIST_QUANTITY_RULES[itemId];
+  }
+  if (templateKey === 'electrical' && ELECTRICAL_CHECKLIST_QUANTITY_RULES[itemId]) {
+    return ELECTRICAL_CHECKLIST_QUANTITY_RULES[itemId];
+  }
   return CHECKLIST_ITEM_QUANTITY_RULES[itemId] || DEFAULT_SCOPE_ITEM_RULE;
 }
 
@@ -1437,6 +1662,7 @@ function measurementUnitForKey(key, fallbackUnit) {
   if (/Cy$/.test(key)) return 'cy';
   if (/Tons$/.test(key)) return 'ton';
   if (/Squares$/.test(key)) return 'squares';
+  if (/Count$/.test(key)) return 'each';
   return fallbackUnit;
 }
 
@@ -1890,7 +2116,10 @@ function resolveQuantityForChecklistItem(itemId, ctx = {}) {
 
   const notes = String(ctx.notes || '');
   const packageName = ctx.packageName || itemId;
-  const extracted = extractScopeQuantitiesForPackage(packageName, '', notes);
+  const extracted =
+    templateKey === 'painting'
+      ? []
+      : extractScopeQuantitiesForPackage(packageName, '', notes);
   if (extracted.length) {
     const match =
       extracted.find((q) => rule.allowedUnits.includes(q.unit)) ||
@@ -1987,7 +2216,7 @@ function resolveQuantityForChecklistItem(itemId, ctx = {}) {
 }
 
 function resolveQuantityForPackage(name, scope = '', ctx = {}) {
-  const ruleKey = lookupRuleKeyForPackage(name, scope);
+  const ruleKey = ctx.checklistItemId || lookupRuleKeyForPackage(name, scope);
   if (ruleKey) {
     return resolveQuantityForChecklistItem(ruleKey, { ...ctx, packageName: name });
   }
@@ -2093,6 +2322,7 @@ function parsedTotalForPackage(name, scope, measurements = {}) {
   const aliases = [ruleKey];
   if (ruleKey === 'demo') aliases.push('floor_demo');
   if (ruleKey === 'interior_paint') aliases.push('paint');
+  if (ruleKey === 'rock' || ruleKey === 'mulch') aliases.push('rock_mulch');
   const direct = aliases.map((key) => itemQuantities[key]).find(Boolean);
   const allowance = aliases
     .map((key) => itemQuantities[`${key}__allowance`])
@@ -2222,6 +2452,7 @@ function stampPackageWithCatalogRules(pkg, ctx = {}) {
   const resolved = resolveQuantityForPackage(name, scope, {
     ...ctx,
     existingQuantities: existing,
+    checklistItemId: pkg.checklistItemId || null,
   });
 
   // Soft-cost / allowance scopes often have Applied M/L without a takeoff qty.

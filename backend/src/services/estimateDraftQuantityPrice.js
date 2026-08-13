@@ -514,6 +514,18 @@ function inferProjectTypeFromNotes(notes, projectType) {
     (/\b(tile demo|laminate|baseboard)\b/.test(n) && /\b(sqft|sq\s*ft|ft²|linear\s*feet|lf)\b/.test(n));
   const bathHeavy = /\b(bath(?:room)?\s+remodel|shower|vanity|toilet|tub)\b/.test(n);
   if (floorHeavy && !bathHeavy) return 'flooring';
+  if (
+    /\b(?:recessed|canless)\s+(?:lights?|cans?|fixtures?)\b/.test(n) ||
+    /\b(?:standard\s+)?(?:outlets?|receptacles?)\b/.test(n) ||
+    /\bgfci(?:\s+outlets?|\s+receptacles?)?\b/.test(n) ||
+    /\bdedicated\s+\d+\s*amp(?:ere)?s?\s+circuits?\b/.test(n) ||
+    /\b\d+\s*amp(?:ere)?s?\s+(?:main\s+)?panel\b/.test(n) ||
+    /\bceiling\s+fans?\b/.test(n) ||
+    /\belectrical\s+(?:work|job|service|estimate|rough)\b/.test(n) ||
+    projectType === 'electrical'
+  ) {
+    return 'electrical';
+  }
   return projectType;
 }
 

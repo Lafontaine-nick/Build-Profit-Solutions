@@ -51,7 +51,15 @@ const CHECKLIST_YES_HINTS: Record<string, RegExp> = {
   plumbing_rough: /\b(plumb(?:ing)?\s+rough|rough[\s-]?in|relocat.*plumb)\b/,
   plumbing_trim:
     /\b(?:(?:final\s+)?plumbing\s+(?:fixtures?|trim(?:[\s-]?out)?)|(?:new\s+)?plumbing\s+fixtures?|fixture\s+hookups?|faucets?,?\s+toilet(?:\s+set)?|toilet\s+set(?:\s+and\s+hookups?)?)\b/,
-  electrical_rough: /\b(electrical|new\s+circuits?|wiring|gfci)\b/,
+  electrical_rough:
+    /\b(electrical\s+rough(?:[\s-]?in)?|rough[\s-]?in(?:\s+electrical)?|new\s+circuits?|rewire|branch\s+(?:circuits?|wiring)|whole[\s-]?house\s+(?:electrical|rewire))\b/,
+  electrical_recessed_light: /\b(?:recessed|canless)\s+(?:lights?|cans?|fixtures?)\b/,
+  electrical_standard_receptacle: /\b(?:standard\s+)?(?:outlets?|receptacles?)\b/,
+  electrical_gfci_receptacle: /\bgfci(?:\s+outlets?|\s+receptacles?)?\b/,
+  electrical_main_panel: /\b(?:main\s+)?panels?\b|\b\d+\s*amp(?:ere)?s?\s+panel\b/,
+  electrical_dedicated_20a: /\bdedicated\s+20\s*amp(?:ere)?s?\s+circuits?\b/,
+  electrical_range_hookup: /\brange(?:\s+circuit|\s+hookup)\b/,
+  electrical_ceiling_fan: /\bceiling\s+fans?\b/,
   irrigation: /\b(irrigation|sprinkler)\b/,
   sod_turf: /\b(sod|natural\s+grass)\b/,
   artificial_turf: /\b(turf|artificial\s+grass|synthetic\s+grass)\b/,

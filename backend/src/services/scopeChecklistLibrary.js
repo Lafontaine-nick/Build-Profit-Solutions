@@ -1489,6 +1489,71 @@ const CHECKLIST_TEMPLATES = {
     ],
   },
 
+  electrical: {
+    title: "Electrical — confirm project scope",
+    intro: "Confirm panels, circuits, devices, and lighting. Service/panel cards can show proposed pricing pending contractor validation; other Electrical cards still need pricing.",
+    items: [
+      ["electrical_main_panel", "Main panel", "Service / panels", "New main-panel install only. Service upgrades own included panel/meter work. Amperage is a separate attribute."],
+      ["electrical_subpanel", "Subpanel", "Service / panels", "Branch / subpanel count. Not the main service panel."],
+      ["electrical_panel_upgrade", "Panel upgrade", "Service / panels", "In-place panel swap at the same or increased panel capacity. Not service conductors, meter, or utility coordination."],
+      ["electrical_service_upgrade", "Service upgrade", "Service / panels", "Service-size change including included panel/meter, grounding/bonding, and utility coordination. Do not also price Main panel or Panel upgrade for the same replacement."],
+      ["electrical_standard_circuit", "Standard 15/20A circuits", "Circuits", "General 120V lighting and receptacle homeruns. Dedicated appliance circuits, devices, and hookups are separate."],
+      ["electrical_dedicated_20a", "Dedicated 20A circuits", "Circuits", "Dedicated 120V 20A appliance homeruns. Do not also count as standard circuits. Dishwasher / disposal / microwave / refrigerator hookups own those circuits."],
+      ["electrical_circuit_30a", "30A circuits", "Circuits", "Generic 30A homeruns, typically 240V. A dryer or water-heater hookup owns that circuit instead."],
+      ["electrical_circuit_40a", "40A circuits", "Circuits", "40A circuits, typically 240V. Do not also count a matching appliance hookup here."],
+      ["electrical_circuit_50a", "50A circuits", "Circuits", "Generic 50A homeruns. A 50A range circuit belongs on Range hookup, not here."],
+      ["electrical_circuit_60a_plus", "60A+ circuits", "Circuits", "60A and larger feeder / equipment homeruns. EV charger hookups own that circuit. Specialty / confirm."],
+      ["electrical_standard_receptacle", "Standard receptacles", "Receptacles", "120V duplex outlets. Device / box / plate only — the homerun is a circuit card. GFCI, AFCI, exterior, floor, USB, and 240V devices are separate."],
+      ["electrical_gfci_receptacle", "GFCI receptacles", "Receptacles", "GFCI / WR kitchen, bath, garage, and wet-location devices. Not a standard receptacle and not the homerun."],
+      ["electrical_afci_receptacle", "AFCI / dual-function receptacle", "Receptacles", "Device + box + plate only. Does not include AFCI/dual-function breaker or new circuit wiring. Do not also count as standard or GFCI."],
+      ["electrical_exterior_receptacle", "Exterior receptacles", "Receptacles", "Weather-resistant exterior devices, including outdoor GFCI/WR. Distinct from interior GFCI. Homerun is separate."],
+      ["electrical_floor_receptacle", "Floor receptacles", "Receptacles", "Floor boxes / floor outlets. Device only — not a standard receptacle and not the homerun."],
+      ["electrical_usb_receptacle", "USB / specialty receptacles", "Receptacles", "USB, USB-C, or other specialty 120V devices. Not a standard receptacle. Homerun is separate."],
+      ["electrical_240v_receptacle", "240V receptacles", "Receptacles", "240V receptacle devices only. Range / dryer hookups own those connections. Homerun is a circuit or hookup card."],
+      ["electrical_single_pole_switch", "Single-pole switch", "Switches / controls", "Device + box + plate only. Does not include homerun, relocation, fishing, or wall repair. 3-way, 4-way, dimmer, occupancy, and smart switches own those locations instead."],
+      ["electrical_3way_switch", "3-way switch", "Switches / controls", "3-way switch devices. Count devices, not traveler circuits. Device + box + plate only — not a new circuit and not a relocation."],
+      ["electrical_4way_switch", "4-way switch", "Switches / controls", "4-way switch devices. Count devices, not traveler circuits. Device + box + plate only — not a new circuit and not a relocation."],
+      ["electrical_dimmer_switch", "Dimmer switch", "Switches / controls", "Dimmer switch device only. Does not include lighting fixture. Owns the switch location — do not also count as a single-pole switch."],
+      ["electrical_occupancy_switch", "Occupancy / motion sensor switch", "Switches / controls", "Occupancy or vacancy / motion sensor switch. Owns the switch location — not a single-pole switch. Homerun and relocation are separate."],
+      ["electrical_smart_switch", "Smart switch", "Switches / controls", "Smart / wifi / home-automation switch. Owns the switch location — do not also count a single-pole switch. Homerun and relocation are separate."],
+      ["electrical_standard_fixture", "Standard / vanity fixture", "Lighting", "Surface, flush, or vanity fixtures. Fixture + hang only — not the homerun and not a dimmer. Recessed, pendant, decorative, exterior, and under-cabinet are separate."],
+      ["electrical_recessed_light", "Recessed / canless / wafer light", "Lighting", "Recessed cans, canless, or wafer lights. Fixture + hang only — not the homerun. Do not also count as a standard fixture."],
+      ["electrical_pendant_light", "Pendant light", "Lighting", "Pendant fixtures. Fixture + hang only — not the homerun and not a standard fixture."],
+      ["electrical_decorative_light", "Decorative / chandelier", "Lighting", "Chandeliers, heavy decorative, or specialty fixtures. Fixture + hang only. Specialty / confirm — not a standard fixture and not the homerun."],
+      ["electrical_exterior_light", "Exterior light", "Lighting", "Exterior wall packs, floods, or porch lights. Fixture + hang only — not the homerun."],
+      ["electrical_undercabinet_light", "Under-cabinet fixture", "Lighting", "Under-cabinet fixture install only. Does not include a new homerun or cabinet wiring runs. Recessed, pendant, and standard fixtures are separate."],
+      ["electrical_ceiling_fan", "Ceiling fan", "Fans", "Ceiling fan fixtures, with or without a light kit. Fixture + hang only — not a new fan-rated box, homerun, or bath exhaust fan."],
+      ["electrical_bath_exhaust_fan", "Bathroom exhaust fan electrical install", "Fans", "Fan + electrical connection only. Does not include ducting, roof/wall venting, or HVAC work. Distinct from ceiling fans. Homerun is a circuit card."],
+      ["electrical_range_hookup", "Range hookup", "Appliance / equipment hookups", "Range / cooktop circuit and connection. Owns the 50A range circuit — do not also count a generic 50A card or a 240V receptacle."],
+      ["electrical_dryer_hookup", "Dryer hookup", "Appliance / equipment hookups", "Electric dryer circuit and connection. Owns the 30A dryer circuit — do not also count a generic 30A card or a 240V receptacle."],
+      ["electrical_dishwasher_hookup", "Dishwasher hookup", "Appliance / equipment hookups", "Dishwasher circuit and connection. Owns that dedicated 20A — do not also count a generic dedicated 20A card."],
+      ["electrical_disposal_hookup", "Disposal hookup", "Appliance / equipment hookups", "Garbage disposal circuit and connection. Owns that dedicated 20A. An air switch is a switch card, not this hookup."],
+      ["electrical_microwave_hookup", "Microwave hookup", "Appliance / equipment hookups", "Dedicated microwave / hood circuit and connection. Owns that dedicated 20A — do not also count a generic dedicated 20A card."],
+      ["electrical_refrigerator_hookup", "Refrigerator dedicated circuit / connection", "Appliance / equipment hookups", "Dedicated refrigerator circuit and connection only. Do not use this card for a fridge on an existing receptacle — that is a standard receptacle. Owns that dedicated 20A."],
+      ["electrical_water_heater_hookup", "Electric water heater electrical connection", "Appliance / equipment hookups", "Electric water-heater circuit and connection. Not a gas water heater. Owns that 30A circuit — do not also count a generic 30A card."],
+      ["electrical_hvac_hookup", "HVAC hookup", "Appliance / equipment hookups", "HVAC equipment electrical connection only. Not the HVAC trade package and not a generic circuit card. Specialty / confirm."],
+      ["electrical_ev_charger_hookup", "EV charger hookup", "Appliance / equipment hookups", "EV charger circuit and connection. Owns the 60A+ feeder — do not also count a generic 60A+ card. Specialty / confirm."],
+      ["electrical_smoke_detector", "Smoke detectors", "Life safety / low voltage", "Hardwired smoke alarms. Device + interconnect only — not a new homerun."],
+      ["electrical_co_detector", "CO detectors", "Life safety / low voltage", "Hardwired carbon-monoxide alarms. Device + interconnect only. Combo units count here only when called out as CO."],
+      ["electrical_doorbell", "Doorbell", "Life safety / low voltage", "Standard doorbell / chime wiring and device. Not a video doorbell or camera."],
+      ["electrical_cat6_drop", "CAT6 / data drops", "Life safety / low voltage", "Data / CAT6 drops or outlets. Drop only — not a new homerun and not a whole-house structured wiring package. Camera drops are a separate card."],
+      ["electrical_tv_coax", "TV / coax", "Life safety / low voltage", "TV, coax, or RG6 outlets. Drop only — not a new homerun."],
+      ["electrical_security_prewire", "Security prewire", "Life safety / low voltage", "Security / alarm prewire drops only. Does not include cameras, keypads, or monitoring. Camera drops are a separate card."],
+      ["electrical_camera_prewire", "Camera prewire / low-voltage drop", "Life safety / low voltage", "Camera prewire / low-voltage drop only. Does not include cameras or equipment (Ring, Nest, PoE). Drop only — not a new homerun. Do not also count as CAT6 or security prewire."],
+      ["electrical_device_removal", "Device removal", "Rough / modifications", "Remove existing receptacles or switches. Cap / make-safe only. Not a relocate and not a new device. Wall repair is a separate trade."],
+      ["electrical_fixture_removal", "Fixture removal", "Rough / modifications", "Remove existing light fixtures or fans. Cap / make-safe only. Not a relocate and not a new fixture."],
+      ["electrical_relocate", "Relocate outlet / switch / fixture", "Rough / modifications", "Move an existing outlet, switch, or fixture. Not a new device card. Wire modification stays here; wall repair is a separate trade."],
+      ["electrical_abandoned_circuit", "Abandoned circuits", "Rough / modifications", "Make-safe / abandon existing circuits. Not a new homerun. Tracing in finished walls is specialty / confirm."],
+      ["cleanup", "Cleanup & disposal", "Closeout", "Job cleanup and debris from electrical work."],
+    ].map(([id, label, category, helperText]) => ({
+      id,
+      inputType: "yes_no",
+      label,
+      helperText,
+      category,
+    })),
+  },
+
   room_remodel: {
     title: "Interior remodel — confirm project scope",
     intro: "Multi-trade remodel — confirm scope before pricing.",
@@ -2052,7 +2117,8 @@ const CHECKLIST_YES_HINTS = {
     /\b(?:(?:final\s+)?plumbing\s+(?:fixtures?|trim(?:[\s-]?out)?)|(?:new\s+)?plumbing\s+fixtures?|fixture\s+hookups?|faucets?,?\s+toilet(?:\s+set)?|toilet\s+set(?:\s+and\s+hookups?)?)\b/,
   electrical:
     /\b(electrical|new\s+circuits?|wiring|outlets?|switches?|gfci|panel)\b/,
-  electrical_rough: /\b(electrical|new\s+circuits?|wiring|gfci)\b/,
+  electrical_rough:
+    /\b(electrical\s+rough(?:[\s-]?in)?|rough[\s-]?in(?:\s+electrical)?|new\s+circuits?|rewire|branch\s+(?:circuits?|wiring)|whole[\s-]?house\s+(?:electrical|rewire))\b/,
   plans_engineering:
     /\b(plans?|drawings?|engineering|architect(?:ural)?|design\s+docs?)\b/,
   utility_coordination:
@@ -2283,6 +2349,15 @@ function checklistTemplateKey(draft, estimateTier) {
     /\b(drywall\s+(?:hang|finish|patch)|sheetrock)\b/i.test(notes)
   ) {
     return "drywall";
+  }
+  if (
+    projectType === "electrical" ||
+    projectType === "electrical_service" ||
+    /\b(electrical\s+service|recessed\s+lights?|gfci\s+outlets?|dedicated\s+\d+\s*amp|ceiling\s+fans?|\d+\s*amp(?:ere)?s?\s+panel)\b/i.test(
+      notes,
+    )
+  ) {
+    return "electrical";
   }
   if (estimateTier === "room_remodel") return "room_remodel";
   return "room_remodel";

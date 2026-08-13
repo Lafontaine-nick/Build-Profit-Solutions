@@ -13,8 +13,10 @@ const {
   reconcileBathroomMeasurement,
   sanitizePlanFacts,
   reconcileLabeledLivingAreas,
+  derivePaintingGeometryMeasurements,
   MIN_FIELD_CONFIDENCE,
 } = require('../estimatePlanToMeasurements');
+const { filterPlanMeasurementsForTrade, TRADE_CONFIGS } = require('../planImportTradeConfig');
 const shvPlanFacts = require('../testFixtures/shvPlanFacts');
 
 describe('estimatePlanToMeasurements', () => {
@@ -367,5 +369,225 @@ describe('estimatePlanToMeasurements', () => {
       { field: 'garageSqft', reason: 'Dimension string blurry' },
       { field: 'deckSqft', reason: 'Not legible on the plan' },
     ]);
+  });
+
+  const residentialPaintRooms = () =>
+    sanitizeRooms([
+      { name: 'Great Room', lengthFt: 16, widthFt: 14, confidence: 0.9 },
+      { name: 'Kitchen', lengthFt: 12, widthFt: 12, confidence: 0.9 },
+      { name: 'Bed 1', lengthFt: 12, widthFt: 11, confidence: 0.9 },
+      { name: 'Bed 2', lengthFt: 11, widthFt: 10, confidence: 0.9 },
+      { name: 'Bath', lengthFt: 8, widthFt: 5, confidence: 0.9 },
+      { name: 'Garage', lengthFt: 20, widthFt: 20, confidence: 0.9 },
+    ]);
+
+  test('labeled painting keys survive sanitize + selected-trade filter', () => {
+    const measurements = sanitizeMeasurements(
+      {
+        wallPaintSqft: 5000,
+        ceilingPaintSqft: 2000,
+        interiorDoorCount: 12,
+        baseboardLf: 800,
+        floorAreaSqft: 2400,
+        drywallSqft: 1800,
+      },
+      [],
+      { totalLivingSqft: 2400 },
+      ['wallPaintSqft', 'ceilingPaintSqft', 'interiorDoorCount', 'baseboardLf']
+    );
+    expect(measurements.wallPaintSqft).toBe(5000);
+    expect(measurements.ceilingPaintSqft).toBe(2000);
+    expect(measurements.interiorDoorCount).toBe(12);
+    expect(measurements.baseboardLf).toBe(800);
+    expect(measurements.drywallSqft).toBeUndefined();
+    const filtered = filterPlanMeasurementsForTrade(
+      measurements,
+      'selected_trade',
+      TRADE_CONFIGS.painting
+    );
+    expect(filtered).toEqual({
+      wallPaintSqft: 5000,
+      ceilingPaintSqft: 2000,
+      interiorDoorCount: 12,
+      baseboardLf: 800,
+    });
+  });
+
+  test('unlabeled interior door counts in 1-80 survive sanitize; unlabeled paint SF still drops', () => {
+    const measurements = sanitizeMeasurements(
+      {
+        interiorDoorCount: 16,
+        wallPaintSqft: 320,
+        ceilingPaintSqft: 320,
+      },
+      [],
+      { totalLivingSqft: 3660 },
+      []
+    );
+    expect(measurements.interiorDoorCount).toBe(16);
+    expect(measurements.wallPaintSqft).toBeUndefined();
+    expect(measurements.ceilingPaintSqft).toBeUndefined();
+  });
+
+  test('derivePaintingGeometryMeasurements calculates walls/ceilings/trim from dimensioned rooms', () => {
+    const rooms = residentialPaintRooms();
+    const derived = derivePaintingGeometryMeasurements(
+      { floorAreaSqft: 2000 },
+      rooms,
+      { wallHeightFt: 9 },
+      { buildingAreas: { totalLivingSqft: 2000 } }
+    );
+    expect(derived.measurements.wallPaintSqft).toBe(1998);
+    expect(derived.measurements.ceilingPaintSqft).toBe(2000);
+    expect(derived.measurements.baseboardLf).toBe(222);
+    expect(derived.measurements.cabinetRunLf).toBeUndefined();
+    expect(derived.measurements.cabinetPaintSqft).toBeUndefined();
+    expect(derived.derivedKeys).toEqual(
+      expect.arrayContaining(['wallPaintSqft', 'ceilingPaintSqft', 'baseboardLf'])
+    );
+    expect(derived.measurements.wallPaintSqft).not.toBe(2000);
+    expect(derived.measurements.wallPaintSqft).not.toBe(6000);
+  });
+
+  test('derivePaintingGeometryMeasurements does not invent walls from living SF or missing height', () => {
+    const noRooms = derivePaintingGeometryMeasurements(
+      { floorAreaSqft: 2000 },
+      [],
+      { wallHeightFt: 9 },
+      { buildingAreas: { totalLivingSqft: 2000 } }
+    );
+    expect(noRooms.measurements.wallPaintSqft).toBeUndefined();
+    expect(noRooms.measurements.ceilingPaintSqft).toBe(2000);
+    expect(noRooms.derivedKeys).toEqual(['ceilingPaintSqft']);
+
+    const noHeight = derivePaintingGeometryMeasurements(
+      { floorAreaSqft: 2000 },
+      residentialPaintRooms(),
+      {},
+      { buildingAreas: { totalLivingSqft: 2000 } }
+    );
+    expect(noHeight.measurements.wallPaintSqft).toBeUndefined();
+    expect(noHeight.measurements.ceilingPaintSqft).toBe(2000);
+    expect(noHeight.derivedKeys).toContain('ceilingPaintSqft');
+    expect(noHeight.derivedKeys).not.toContain('wallPaintSqft');
+  });
+
+  test('Lot 58 living areas fall back to 3660 ceiling SF and exclude garage/patio', () => {
+    const derived = derivePaintingGeometryMeasurements(
+      { floorAreaSqft: 3660, garageSqft: 781, deckSqft: 297 },
+      [],
+      { wallHeightFt: 10.2, plateHeightFt: 10.2 },
+      {
+        buildingAreas: {
+          totalLivingSqft: 3660,
+          mainFloorLivingSqft: 2047,
+          upstairsLivingSqft: 1613,
+          garageSqft: 781,
+          coveredPatioSqft: 297,
+        },
+      }
+    );
+    expect(derived.measurements.ceilingPaintSqft).toBe(3660);
+    expect(derived.measurements.wallPaintSqft).toBeUndefined();
+    expect(derived.measurements.baseboardLf).toBeUndefined();
+    expect(derived.measurements.cabinetRunLf).toBeUndefined();
+    expect(derived.measurements.exteriorPaintSqft).toBeUndefined();
+    expect(derived.measurements.ceilingPaintSqft).not.toBe(4441);
+    expect(derived.measurements.ceilingPaintSqft).not.toBe(3957);
+    const filtered = filterPlanMeasurementsForTrade(
+      derived.measurements,
+      'selected_trade',
+      TRADE_CONFIGS.painting
+    );
+    expect(filtered.ceilingPaintSqft).toBe(3660);
+    expect(filtered.garageSqft).toBeUndefined();
+    expect(filtered.floorAreaSqft).toBeUndefined();
+  });
+
+  test('Lot 58 incomplete rooms keep 3660 ceiling SF instead of the partial room sum', () => {
+    const derived = derivePaintingGeometryMeasurements(
+      { floorAreaSqft: 3660 },
+      sanitizeRooms([
+        { name: 'Great Room', lengthFt: 16, widthFt: 14, confidence: 0.9 },
+        { name: 'Kitchen', lengthFt: 12, widthFt: 12, confidence: 0.9 },
+      ]),
+      { wallHeightFt: 10.2 },
+      {
+        buildingAreas: {
+          totalLivingSqft: 3660,
+          mainFloorLivingSqft: 2047,
+          upstairsLivingSqft: 1613,
+        },
+      }
+    );
+    expect(derived.measurements.ceilingPaintSqft).toBe(3660);
+    expect(derived.measurements.ceilingPaintSqft).not.toBe(368);
+    expect(derived.measurements.wallPaintSqft).toBe(1101.6);
+    expect(derived.measurements.baseboardLf).toBe(108);
+    expect(derived.incompleteKeys).toEqual(
+      expect.arrayContaining(['wallPaintSqft', 'baseboardLf'])
+    );
+  });
+
+  test('derivePaintingGeometryMeasurements keeps labeled paint totals and skips unlabeled cabinets', () => {
+    const derived = derivePaintingGeometryMeasurements(
+      { wallPaintSqft: 5000, ceilingPaintSqft: 2000 },
+      residentialPaintRooms(),
+      { wallHeightFt: 9 },
+      {
+        rawVisionMeasurements: { cabinetRunLf: 42, interiorDoorCount: 12 },
+        geometryDerived: ['interiorDoorCount'],
+        buildingAreas: { totalLivingSqft: 2000 },
+      }
+    );
+    expect(derived.measurements.wallPaintSqft).toBe(5000);
+    expect(derived.measurements.ceilingPaintSqft).toBe(2000);
+    expect(derived.measurements.interiorDoorCount).toBe(12);
+    expect(derived.measurements.cabinetRunLf).toBeUndefined();
+  });
+
+  test('derivePaintingGeometryMeasurements accepts unlabeled interior door counts', () => {
+    const derived = derivePaintingGeometryMeasurements(
+      { floorAreaSqft: 2000 },
+      residentialPaintRooms(),
+      { wallHeightFt: 9 },
+      {
+        rawVisionMeasurements: { interiorDoorCount: 14, wallPaintSqft: 320 },
+        buildingAreas: { totalLivingSqft: 2000 },
+      }
+    );
+    expect(derived.measurements.interiorDoorCount).toBe(14);
+    expect(derived.measurements.wallPaintSqft).toBe(1998);
+    expect(derived.derivedKeys).toContain('interiorDoorCount');
+  });
+
+  test('formatNotesBlock includes room L×W when dimensioned', () => {
+    const notes = formatNotesBlock({
+      notesBlock: 'Main living area is 650 SqFt.',
+      rooms: [
+        { name: 'Kitchen', lengthFt: 12, widthFt: 12, areaSqft: 144 },
+        { name: 'Great Room', areaSqft: 224 },
+      ],
+      measurements: {},
+      buildingAreas: { totalLivingSqft: 650 },
+    });
+    expect(notes).toContain('- Kitchen: 12×12 ft (144 sqft)');
+    expect(notes).toContain('- Great Room: 224 sqft');
+  });
+
+  test('derivePaintingGeometryMeasurements takes exterior paint from painted elevation faces only', () => {
+    const derived = derivePaintingGeometryMeasurements(
+      { floorAreaSqft: 2400 },
+      [],
+      {
+        elevationFaces: [
+          { id: 'front', widthFt: 40, heightFt: 10, paintAreaSqft: 320, finish: 'siding' },
+          { id: 'rear', widthFt: 40, heightFt: 10, stuccoAreaSqft: 400, finish: 'stucco' },
+        ],
+      },
+      { buildingAreas: { totalLivingSqft: 2400 } }
+    );
+    expect(derived.measurements.exteriorPaintSqft).toBe(320);
+    expect(derived.measurements.exteriorPaintSqft).not.toBe(2400);
   });
 });

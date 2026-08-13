@@ -1,4 +1,5 @@
 import type { SubcontractorTradeKey } from './types';
+import { ELECTRICAL_SCOPE_ALLOWLIST } from './electricalPlanConvergence';
 
 /** Flatten scope group item ids (mirrors SCOPE_CHECKLIST_GROUPS — read-only reference). */
 function ids(...groups: string[][]): string[] {
@@ -7,10 +8,11 @@ function ids(...groups: string[][]): string[] {
 
 /**
  * Explicit single-trade scope allowlists.
- * Stucco + Electrical must match pre-Phase-0 planImportTradeConfig behavior exactly.
+ * Electrical Phase 1 expands the canonical estimator; existing rough/trim ids stay for compatibility.
  */
+
 export const TRADE_SCOPE_ALLOWLISTS: Record<SubcontractorTradeKey, string[]> = {
-  electrical: ['electrical_rough'],
+  electrical: [...ELECTRICAL_SCOPE_ALLOWLIST],
   stucco: [
     'stucco',
     'stucco_wrb',
@@ -105,6 +107,17 @@ export const TRADE_SCOPE_ALLOWLISTS: Record<SubcontractorTradeKey, string[]> = {
     'quarter_round',
     'trim',
     'adhesive_mastic_removal',
+    'cleanup',
+  ],
+  painting: [
+    'prep',
+    'interior_paint',
+    'ceiling_paint',
+    'trim_paint',
+    'door_paint',
+    'cabinet_paint',
+    'exterior_prep',
+    'exterior_paint',
     'cleanup',
   ],
   windows_doors: [

@@ -1090,4 +1090,60 @@ describe('estimateDraftComplexity', () => {
       expect.arrayContaining(['Prefab pan / base materials', 'Shower pan install labor'])
     );
   });
+
+  test('applyScopeMeasurements stamps painting confirmed measurements onto checklist packages', () => {
+    const draft = {
+      projectType: 'painting',
+      scopeChecklist: { templateKey: 'painting' },
+      originalNotes: 'Interior and exterior paint',
+      scopePackages: [
+        {
+          name: 'Walls',
+          scope: 'Paintable wall surface area only.',
+          checklistItemId: 'interior_paint',
+          scopeQuantities: [],
+        },
+        {
+          name: 'Baseboards, trim & molding',
+          scope: 'Baseboards, window casing, door casing, crown.',
+          checklistItemId: 'trim_paint',
+          scopeQuantities: [],
+        },
+        {
+          name: 'Interior doors & frames',
+          scope: 'Interior door slabs, door edges, and door jambs/frames.',
+          checklistItemId: 'door_paint',
+          scopeQuantities: [],
+        },
+        {
+          name: 'Cabinets',
+          scope: 'Includes cabinet boxes, doors, drawer fronts, and face frames.',
+          checklistItemId: 'cabinet_paint',
+          scopeQuantities: [],
+        },
+        {
+          name: 'Exterior Paint',
+          scope: 'Paintable exterior surface area.',
+          checklistItemId: 'exterior_paint',
+          scopeQuantities: [],
+        },
+      ],
+    };
+    const next = applyScopeMeasurements(draft, {
+      combinedPaintableAreaSqft: 1500,
+      paintPricingMethod: 'combined',
+      baseboardLf: 200,
+      interiorDoorCount: 6,
+      cabinetRunLf: 25,
+      exteriorPaintSqft: 2000,
+    });
+    expect(next.scopeMeasurements.combinedPaintableAreaSqft).toBe(1500);
+    expect(next.scopeMeasurements.interiorDoorCount).toBe(6);
+    expect(next.scopeMeasurements.cabinetRunLf).toBe(25);
+    expect(next.scopePackages[0].scopeQuantities[0]).toMatchObject({ quantity: 1500, unit: 'sqft' });
+    expect(next.scopePackages[1].scopeQuantities[0]).toMatchObject({ quantity: 200, unit: 'lf' });
+    expect(next.scopePackages[2].scopeQuantities[0]).toMatchObject({ quantity: 6, unit: 'each' });
+    expect(next.scopePackages[3].scopeQuantities[0]).toMatchObject({ quantity: 25, unit: 'lf' });
+    expect(next.scopePackages[4].scopeQuantities[0]).toMatchObject({ quantity: 2000, unit: 'sqft' });
+  });
 });

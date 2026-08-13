@@ -3,6 +3,7 @@ import {
   applyPlanTakeoffButtonLabel,
   buildConcretePlanReviewSummary,
   buildFlooringPlanReviewSummary,
+  buildPaintingPlanReviewSummary,
   buildImportedPlanSummaryText,
   buildPlanReadyJobNotesPrompt,
   ensureGroundUpPlanNotes,
@@ -12,6 +13,7 @@ import {
   livingReconciliationStatusLabel,
   measurementDisplayLabel,
   measurementSourceLabel,
+  planReviewProvenanceFlags,
   readyStateSummary,
   resolvePlanAreaReconciliation,
   scopeTakeoffStatusLines,
@@ -341,6 +343,142 @@ describe('plan takeoff review UI polish', () => {
         { label: 'Existing floor', value: 'Needs confirmation' },
         { label: 'Demo / removal', value: 'Needs confirmation' },
         { label: 'Subfloor prep', value: 'Needs confirmation' },
+      ])
+    );
+  });
+
+  it('builds grouped Painting plan review summary with interior and exterior rows', () => {
+    const summary = buildPaintingPlanReviewSummary({
+      wallPaintSqft: 8500,
+      ceilingPaintSqft: 3200,
+      interiorDoorCount: 16,
+      baseboardLf: 1150,
+      cabinetRunLf: 62,
+      exteriorPaintSqft: 3800,
+    });
+    expect(summary).toEqual(
+      expect.arrayContaining([
+        { label: 'Walls', value: '8,500 sqft' },
+        { label: 'Ceilings', value: '3,200 sqft' },
+        { label: 'Doors', value: '16 EA' },
+        { label: 'Baseboard / trim', value: '1,150 LF' },
+        { label: 'Cabinet painting', value: '62 LF' },
+        { label: 'Exterior walls', value: '3,800 sqft' },
+        { label: 'Job condition', value: 'Needs confirmation' },
+        { label: 'Application method', value: 'Needs confirmation' },
+        { label: 'Prep / masking', value: 'Needs confirmation' },
+      ])
+    );
+  });
+
+  it('shows combined painting area as needs confirmation without occupancy defaults', () => {
+    const summary = buildPaintingPlanReviewSummary({ paintAreaSqft: 1500 });
+    expect(summary).toEqual(
+      expect.arrayContaining([
+        {
+          label: 'Combined paintable area',
+          value: '1,500 sqft',
+          note: 'Choose combined or separate walls/ceilings in Confirm Scope',
+        },
+        { label: 'Job condition', value: 'Needs confirmation' },
+        { label: 'Application method', value: 'Needs confirmation' },
+      ])
+    );
+    expect(summary.some(line => line.label === 'Walls')).toBe(false);
+    expect(summary.some(line => line.label === 'Ceilings')).toBe(false);
+  });
+
+  it('labels geometry-derived Painting quantities in Plan Review', () => {
+    const summary = buildPaintingPlanReviewSummary(
+      {
+        wallPaintSqft: 5000,
+        ceilingPaintSqft: 2000,
+        interiorDoorCount: 12,
+        baseboardLf: 800,
+      },
+      {
+        wallPaintSqft: { source: 'measured_from_geometry' },
+        ceilingPaintSqft: { source: 'measured_from_geometry' },
+        interiorDoorCount: { source: 'detected_from_plan' },
+        baseboardLf: { source: 'measured_from_geometry' },
+      }
+    );
+    expect(summary).toEqual(
+      expect.arrayContaining([
+        {
+          label: 'Walls',
+          value: '5,000 sqft',
+          note: 'Calculated from plan geometry',
+        },
+        {
+          label: 'Ceilings',
+          value: '2,000 sqft',
+          note: 'Calculated from plan geometry',
+        },
+        { label: 'Doors', value: '12 EA', note: 'From plan' },
+        {
+          label: 'Baseboard / trim',
+          value: '800 LF',
+          note: 'Calculated from plan geometry',
+        },
+        { label: 'Job condition', value: 'Needs confirmation' },
+      ])
+    );
+  });
+
+  it('treats geometry-derived painting keys as calculated, not planning estimates', () => {
+    expect(
+      planReviewProvenanceFlags({
+        key: 'ceilingPaintSqft',
+        provenanceEntry: { source: 'measured_from_geometry' },
+      })
+    ).toMatchObject({
+      hasReliableDimensions: true,
+      hasExplicitPlanSource: false,
+    });
+    expect(
+      planReviewProvenanceFlags({
+        key: 'interiorDoorCount',
+        provenanceEntry: { source: 'detected_from_plan' },
+      }).hasExplicitPlanSource
+    ).toBe(true);
+  });
+
+  it('flags incomplete painting geometry as needs review, not reliable dimensions', () => {
+    expect(
+      planReviewProvenanceFlags({
+        key: 'wallPaintSqft',
+        provenanceEntry: { source: 'measured_from_geometry', coverage: 'incomplete' },
+      })
+    ).toMatchObject({
+      hasReliableDimensions: false,
+      roomDependent: true,
+    });
+    const summary = buildPaintingPlanReviewSummary(
+      { wallPaintSqft: 4918.2, ceilingPaintSqft: 3660, baseboardLf: 482.2 },
+      {
+        wallPaintSqft: { source: 'measured_from_geometry', coverage: 'incomplete' },
+        ceilingPaintSqft: { source: 'measured_from_geometry' },
+        baseboardLf: { source: 'measured_from_geometry', coverage: 'incomplete' },
+      }
+    );
+    expect(summary).toEqual(
+      expect.arrayContaining([
+        {
+          label: 'Walls',
+          value: '4,918.2 sqft',
+          note: 'Partial room geometry — confirm',
+        },
+        {
+          label: 'Ceilings',
+          value: '3,660 sqft',
+          note: 'Calculated from plan geometry',
+        },
+        {
+          label: 'Baseboard / trim',
+          value: '482.2 LF',
+          note: 'Partial room geometry — confirm',
+        },
       ])
     );
   });

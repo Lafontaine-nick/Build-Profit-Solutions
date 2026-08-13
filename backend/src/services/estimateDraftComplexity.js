@@ -962,6 +962,12 @@ function applyScopeMeasurements(draft, measurements) {
     norm.showerWallTileSqft ||
     norm.showerFloorTileSqft ||
     norm.wallPaintSqft ||
+    norm.ceilingPaintSqft ||
+    norm.paintAreaSqft ||
+    norm.combinedPaintableAreaSqft ||
+    norm.interiorDoorCount ||
+    norm.cabinetRunLf ||
+    norm.cabinetPaintSqft ||
     Object.keys(norm.itemQuantities || {}).length > 0 ||
     Object.keys(measurements?.pricingAcceptance || draft.scopeMeasurements?.pricingAcceptance || {}).length > 0;
   if (!hasAny) return draft;
@@ -993,7 +999,12 @@ function applyScopeMeasurements(draft, measurements) {
     ...norm,
     pricingAcceptance,
   };
-  const ctx = { measurements: measurementsForStamp, notes: originalNotes };
+  const templateKey =
+    draft.scopeChecklist?.templateKey === 'painting' ||
+    String(draft.projectType || '').toLowerCase() === 'painting'
+      ? 'painting'
+      : undefined;
+  const ctx = { measurements: measurementsForStamp, notes: originalNotes, templateKey };
 
   return {
     ...draft,
@@ -1025,6 +1036,16 @@ function applyScopeMeasurements(draft, measurements) {
       showerWallTileSqft: norm.showerWallTileSqft,
       showerFloorTileSqft: norm.showerFloorTileSqft,
       wallPaintSqft: norm.wallPaintSqft,
+      ceilingPaintSqft: norm.ceilingPaintSqft,
+      paintAreaSqft: norm.paintAreaSqft,
+      paintPricingMethod: norm.paintPricingMethod,
+      combinedPaintableAreaSqft: norm.combinedPaintableAreaSqft,
+      interiorDoorCount: norm.interiorDoorCount,
+      cabinetRunLf: norm.cabinetRunLf,
+      cabinetPaintSqft: norm.cabinetPaintSqft,
+      paintScope: norm.paintScope || prevMeasurements.paintScope,
+      paintOccupancy: norm.paintOccupancy || prevMeasurements.paintOccupancy,
+      paintApplicationMethod: norm.paintApplicationMethod || prevMeasurements.paintApplicationMethod,
       itemQuantities: {
         ...(prevMeasurements.itemQuantities || {}),
         ...(norm.itemQuantities || {}),

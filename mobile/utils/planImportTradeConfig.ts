@@ -40,19 +40,6 @@ function subcontractorDefinitionToPlanConfig(
 
 const LEGACY_PLAN_TRADE_CONFIGURATIONS: PlanTradeConfiguration[] = [
   {
-    key: 'painting',
-    label: 'Painting',
-    status: 'stub',
-    scopeHint:
-      'Focus on painting sheets and notes; do not infer detailed quantities.',
-    missingInfo: [
-      'Trade-specific plan/schedule details',
-      'Scope inclusions and exclusions',
-      'Quantities requiring contractor confirmation',
-    ],
-    reviewScopeKeywords: ['painting', 'paint'],
-  },
-  {
     key: 'cabinets',
     label: 'Cabinets',
     status: 'stub',
@@ -93,7 +80,7 @@ const LEGACY_PLAN_TRADE_CONFIGURATIONS: PlanTradeConfiguration[] = [
   },
 ];
 
-/** Trades shown in Plan Export / Single Trade menu (11 supported trades). */
+/** Trades shown in Plan Export / Single Trade menu. */
 export const PLAN_EXPORT_TRADE_CONFIGURATIONS: PlanTradeConfiguration[] =
   PLAN_EXPORT_TRADE_KEYS.map(subcontractorDefinitionToPlanConfig);
 
@@ -159,9 +146,6 @@ export function tradeQuickMeasurementFieldKeys(
   const def = getSubcontractorTradeDefinition(tradeKey || '');
   if (def?.quickMeasurementFieldKeys?.length) {
     return def.quickMeasurementFieldKeys;
-  }
-  if (tradeKey === 'painting') {
-    return ['exteriorPaintSqft', 'wallPaintSqft'];
   }
   return [];
 }

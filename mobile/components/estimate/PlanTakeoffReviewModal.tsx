@@ -30,12 +30,14 @@ import {
   applyPlanTakeoffButtonLabel,
   buildConcretePlanReviewSummary,
   buildFlooringPlanReviewSummary,
+  buildPaintingPlanReviewSummary,
   classifyPlanSpaceName,
   formatSf,
   garageReconciliationStatusLabel,
   livingReconciliationStatusLabel,
   measurementDisplayLabel,
   measurementSourceLabel,
+  planReviewProvenanceFlags,
   resolvePlanAreaReconciliation,
   roomSourceLabel,
   scopeTakeoffStatusLines,
@@ -141,6 +143,13 @@ const MEASUREMENT_SORT_ORDER: Record<string, number> = {
   transitionCount: 42,
   transitionLf: 43,
   quarterRoundLf: 44,
+  wallPaintSqft: 45,
+  ceilingPaintSqft: 46,
+  paintAreaSqft: 47,
+  combinedPaintableAreaSqft: 48,
+  interiorDoorCount: 49,
+  cabinetRunLf: 52,
+  cabinetPaintSqft: 53,
   kitchenFloorSqft: 50,
   bathroomFloorSqft: 51,
 };
@@ -259,17 +268,16 @@ export default function PlanTakeoffReviewModal({
               assumptions: takeoff.assumptions,
             })
           : null;
+        const provenanceFlags = planReviewProvenanceFlags({
+          key,
+          provenanceEntry: takeoff.measurementProvenance?.[key],
+        });
         const provenance = resolvePlanMeasurementProvenance({
           key,
           fieldConfidence: takeoff.fieldConfidence?.[key] ?? null,
-          hasExplicitPlanSource:
-            key === 'floorAreaSqft' ||
-            key === 'garageSqft' ||
-            key === 'deckSqft',
-          hasReliableDimensions:
-            key === 'kitchenFloorSqft' || key === 'bathroomFloorSqft',
-          roomDependent:
-            key === 'kitchenFloorSqft' || key === 'bathroomFloorSqft',
+          hasExplicitPlanSource: provenanceFlags.hasExplicitPlanSource,
+          hasReliableDimensions: provenanceFlags.hasReliableDimensions,
+          roomDependent: provenanceFlags.roomDependent,
           reconciliationVariancePercent:
             areaReconciliation?.livingVariancePercent,
         });
@@ -306,6 +314,18 @@ export default function PlanTakeoffReviewModal({
             effectiveTradeKey === 'flooring' &&
             row.key === 'floorAreaSqft' &&
             positiveMeasurement(visibleMeasurements.flooringSqft) != null
+          ) &&
+          !(
+            effectiveTradeKey === 'painting' &&
+            (row.key === 'paintAreaSqft' ||
+              row.key === 'combinedPaintableAreaSqft') &&
+            (positiveMeasurement(visibleMeasurements.wallPaintSqft) != null ||
+              positiveMeasurement(visibleMeasurements.ceilingPaintSqft) != null)
+          ) &&
+          !(
+            effectiveTradeKey === 'painting' &&
+            row.key === 'combinedPaintableAreaSqft' &&
+            positiveMeasurement(visibleMeasurements.paintAreaSqft) != null
           )
       );
     setRows(nextRows);
@@ -412,10 +432,36 @@ export default function PlanTakeoffReviewModal({
     return buildFlooringPlanReviewSummary(flooringReviewMeasurements);
   }, [effectiveTradeKey, flooringReviewMeasurements]);
 
+  const paintingReviewMeasurements = useMemo(() => {
+    const merged: Record<string, string | number> = {
+      ...(visibleMeasurements || {}),
+    };
+    for (const row of rows) {
+      const n = Number(row.value);
+      if (Number.isFinite(n) && n > 0) merged[row.key] = row.value;
+    }
+    return merged;
+  }, [visibleMeasurements, rows]);
+
+  const paintingPlanSummary = useMemo(() => {
+    if (effectiveTradeKey !== 'painting') return null;
+    return buildPaintingPlanReviewSummary(
+      paintingReviewMeasurements,
+      takeoff?.measurementProvenance
+    );
+  }, [effectiveTradeKey, paintingReviewMeasurements, takeoff?.measurementProvenance]);
+
   if (!visible || !takeoff) return null;
 
-  const unreadable = takeoff.unreadableFields || [];
-  const lowConfidence = takeoff.lowConfidence || [];
+  const tradeReviewKeys = new Set(
+    getPlanTradeConfiguration(effectiveTradeKey)?.reviewMeasurementKeys || []
+  );
+  const unreadable = (takeoff.unreadableFields || []).filter(field =>
+    tradeReview ? tradeReviewKeys.has(String(field.field || '')) : true
+  );
+  const lowConfidence = (takeoff.lowConfidence || []).filter(field =>
+    tradeReview ? tradeReviewKeys.has(String(field.field || '')) : true
+  );
   const measurementConflicts = (takeoff.measurementConflicts || []).filter(
     conflict =>
       Object.prototype.hasOwnProperty.call(
@@ -439,8 +485,9 @@ export default function PlanTakeoffReviewModal({
   const checkedScopeCount = scopeDetections.filter(
     d => scopeChecked[d.itemId]
   ).length;
-  const canApply =
-    includedCount > 0 || includedRoomCount > 0 || checkedScopeCount > 0;
+  const canApply = tradeReview
+    ? true
+    : includedCount > 0 || includedRoomCount > 0 || checkedScopeCount > 0;
   const tradeLabel =
     tradeReview
       ? importSelection.trade?.label ||
@@ -483,21 +530,32 @@ export default function PlanTakeoffReviewModal({
       if (row.include && Number.isFinite(n) && n > 0)
         values[row.key] = String(n);
     }
-    const rooms = roomRows
-      .filter(r => r.include)
-      .map(r => {
-        const area = Number(r.areaSqft);
-        return {
-          name: r.name,
-          areaSqft:
-            Number.isFinite(area) && area > 0
-              ? Math.round(area * 10) / 10
-              : null,
-          lengthFt: r.lengthFt,
-          widthFt: r.widthFt,
-        };
-      })
-      .filter(r => r.name);
+    const rooms = (
+      effectiveTradeKey === 'painting' && roomRows.length === 0
+        ? (takeoff.rooms || []).map(room => ({
+            name: String(room?.name || '').trim(),
+            areaSqft:
+              room.areaSqft != null && Number(room.areaSqft) > 0
+                ? Math.round(Number(room.areaSqft) * 10) / 10
+                : null,
+            lengthFt: room.lengthFt ?? null,
+            widthFt: room.widthFt ?? null,
+          }))
+        : roomRows
+            .filter(r => r.include)
+            .map(r => {
+              const area = Number(r.areaSqft);
+              return {
+                name: r.name,
+                areaSqft:
+                  Number.isFinite(area) && area > 0
+                    ? Math.round(area * 10) / 10
+                    : null,
+                lengthFt: r.lengthFt,
+                widthFt: r.widthFt,
+              };
+            })
+    ).filter(r => r.name);
     onApply(
       values,
       scopeDetections.filter(d => scopeChecked[d.itemId]),
@@ -644,10 +702,59 @@ export default function PlanTakeoffReviewModal({
                 </View>
               </View>
             ) : null}
+            {paintingPlanSummary ? (
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: Colors.sub }]}>
+                  Painting
+                </Text>
+                <View
+                  style={[
+                    styles.concreteSummaryCard,
+                    {
+                      borderColor: lineColor,
+                      backgroundColor: darkMode
+                        ? 'rgba(148,163,184,0.08)'
+                        : 'rgba(148,163,184,0.06)',
+                    },
+                  ]}
+                >
+                  {paintingPlanSummary.map(line => (
+                    <View key={line.label} style={styles.concreteSummaryRow}>
+                      <Text
+                        style={[styles.concreteSummaryLabel, { color: Colors.sub }]}
+                      >
+                        {line.label}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.concreteSummaryValue,
+                          {
+                            color:
+                              line.value === '—' || line.value === 'Needs confirmation'
+                                ? Colors.sub
+                                : Colors.text,
+                          },
+                        ]}
+                      >
+                        {line.value}
+                      </Text>
+                      {line.note ? (
+                        <Text
+                          style={[styles.evidenceText, { color: Colors.sub }]}
+                          numberOfLines={2}
+                        >
+                          {line.note}
+                        </Text>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : null}
             {hasMeasurements ? (
               <View style={styles.section}>
                 <Text style={[styles.sectionTitle, { color: Colors.sub }]}>
-                  {concretePlanSummary || flooringPlanSummary
+                  {concretePlanSummary || flooringPlanSummary || paintingPlanSummary
                     ? 'Edit quantities'
                     : 'Measurements'}
                 </Text>
@@ -774,9 +881,9 @@ export default function PlanTakeoffReviewModal({
                   {tradeLabel
                     ? `No ${tradeLabel} quantities were verified from the selected plan pages yet. ${
                         takeoff.missingInfo?.length
-                          ? `Confirm: ${takeoff.missingInfo.join(', ')}.`
-                          : 'Review the relevant trade sheets and confirm the missing quantities.'
-                      }`
+                          ? `Confirm: ${takeoff.missingInfo.join(', ')}. `
+                          : 'Review the relevant trade sheets and confirm the missing quantities. '
+                      }You can still apply and enter quantities in Confirm Scope.`
                     : takeoff.reason ||
                       'No square footage could be read from these pages.'}
                 </Text>

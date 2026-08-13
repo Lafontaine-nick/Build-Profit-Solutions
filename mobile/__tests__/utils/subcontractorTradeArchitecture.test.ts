@@ -27,7 +27,7 @@ import { SIMPLE_TRADE_SPECS } from '@/utils/qmScopePanels/simpleTradeRemodel';
 import { CHECKLIST_ITEM_QUANTITY_RULES } from '@/utils/scopeItemQuantities';
 
 describe('subcontractor trade architecture (Phase 0)', () => {
-  it('exposes exactly 11 Plan Export trades', () => {
+  it('exposes exactly 12 Plan Export trades', () => {
     expect(PLAN_EXPORT_TRADE_KEYS).toEqual([
       'electrical',
       'plumbing',
@@ -39,16 +39,17 @@ describe('subcontractor trade architecture (Phase 0)', () => {
       'stucco',
       'insulation',
       'flooring',
+      'painting',
       'windows_doors',
     ]);
-    expect(PLAN_EXPORT_TRADE_CONFIGURATIONS).toHaveLength(11);
+    expect(PLAN_EXPORT_TRADE_CONFIGURATIONS).toHaveLength(12);
     expect(PLAN_EXPORT_TRADE_CONFIGURATIONS.map(t => t.key)).toEqual(
       PLAN_EXPORT_TRADE_KEYS
     );
   });
 
   it('keeps legacy plan trade keys for persisted draft compatibility', () => {
-    const legacyKeys = ['painting', 'cabinets', 'landscaping', 'other'];
+    const legacyKeys = ['cabinets', 'landscaping', 'other'];
     for (const key of legacyKeys) {
       expect(PLAN_TRADE_CONFIGURATIONS.some(trade => trade.key === key)).toBe(
         true
@@ -77,7 +78,23 @@ describe('subcontractor trade architecture (Phase 0)', () => {
   });
 
   it('preserves the Electrical scope allowlist', () => {
-    expect(getTradeScopeAllowlist('electrical')).toEqual(['electrical_rough']);
+    expect(getTradeScopeAllowlist('electrical')).toEqual(
+      expect.arrayContaining([
+        'electrical_rough',
+        'electrical_trim',
+        'electrical_recessed_light',
+        'electrical_standard_receptacle',
+        'electrical_gfci_receptacle',
+        'electrical_main_panel',
+        'electrical_dedicated_20a',
+        'electrical_range_hookup',
+        'electrical_ceiling_fan',
+        'cleanup',
+      ])
+    );
+    expect(new Set(getTradeScopeAllowlist('electrical') || []).size).toBe(
+      (getTradeScopeAllowlist('electrical') || []).length
+    );
   });
 
   it('maps Stucco pricing behavior metadata to existing behavior categories', () => {
@@ -572,6 +589,69 @@ describe('subcontractor trade architecture (Phase 0)', () => {
       flooringTileSqft: 1500,
       floorAreaSqft: 2000,
       baseboardLf: 200,
+    });
+  });
+
+  it('declares painting measurement schema and converges plan surface keys', () => {
+    const keys = SUBCONTRACTOR_TRADE_DEFINITIONS.painting.measurements.map(
+      m => m.key
+    );
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'wallPaintSqft',
+        'ceilingPaintSqft',
+        'baseboardLf',
+        'interiorDoorCount',
+        'cabinetRunLf',
+        'exteriorPaintSqft',
+      ])
+    );
+    const normalized = normalizeTradeMeasurements(
+      'painting',
+      {
+        wallPaintSqft: 5000,
+        ceilingPaintSqft: 2000,
+        exteriorPaintSqft: 3800,
+      },
+      'plan'
+    );
+    expect(normalized.structuredMeasurements?.paintScope).toEqual(
+      expect.arrayContaining(['walls', 'ceilings', 'exterior'])
+    );
+    expect(normalized.measurements.wallPaintSqft).toBe(5000);
+    expect(normalized.measurements.ceilingPaintSqft).toBe(2000);
+    expect(normalized.structuredMeasurements?.paintPricingMethod).toBe('separate');
+    expect(normalized.structuredMeasurements?.paintOccupancy).toBeUndefined();
+    expect(
+      SUBCONTRACTOR_TRADE_DEFINITIONS.painting.reviewScopeKeywords
+    ).toEqual(
+      expect.arrayContaining([
+        'floor plan',
+        'door schedule',
+        'reflected ceiling',
+        'exterior elevation',
+      ])
+    );
+  });
+
+  it('filters painting plan measurements to supported review keys only', () => {
+    expect(
+      filterPlanMeasurementsForTrade(
+        {
+          wallPaintSqft: 5000,
+          ceilingPaintSqft: 2000,
+          floorAreaSqft: 2400,
+          exteriorPaintSqft: 3800,
+          baseboardLf: 800,
+        },
+        'selected_trade',
+        'painting'
+      )
+    ).toEqual({
+      wallPaintSqft: 5000,
+      ceilingPaintSqft: 2000,
+      exteriorPaintSqft: 3800,
+      baseboardLf: 800,
     });
   });
 

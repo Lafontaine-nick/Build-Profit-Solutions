@@ -450,4 +450,68 @@ describe('mobile scope measurement parser', () => {
     expect(parsed.concreteDemoSqft).toBe(100);
     expect(parsed.concreteSqft).toBe(100);
   });
+
+  it('parses combined interior paint notes into one area, not walls', () => {
+    const notes =
+      'Interior repaint about 1,500 sqft walls and ceilings two coats. 200 LF baseboards/trim, 6 interior doors, and 200 sqft kitchen cabinets. No exterior.';
+    const parsed = parseScopeMeasurementsFromNotes(notes, {
+      templateKey: 'painting',
+      projectType: 'painting',
+    });
+
+    expect(parsed.paintAreaSqft).toBe(1500);
+    expect(parsed.combinedPaintableAreaSqft).toBe(1500);
+    expect(parsed.paintPricingMethod).toBe('combined');
+    expect(parsed.wallPaintSqft).toBeUndefined();
+    expect(parsed.ceilingPaintSqft).toBeUndefined();
+    expect(parsed.baseboardLf).toBe(200);
+    expect(parsed.interiorDoorCount).toBe(6);
+    expect(parsed.cabinetPaintSqft).toBe(200);
+    expect(parsed.cabinetRunLf).toBeUndefined();
+    expect(parsed.exteriorPaintSqft).toBeUndefined();
+  });
+
+  it('does not dump combined paint notes onto walls when hydrating suggested measurements', () => {
+    const notes =
+      'Interior repaint 1500 sqft walls and ceilings two coats. Paint 200 sqft kitchen cabinets.';
+    const input = initialScopeMeasurementInputExtended({
+      projectType: 'painting',
+      originalNotes: notes,
+      scopeChecklist: {
+        templateKey: 'painting',
+        suggestedMeasurements: {
+          wallPaintSqft: 1500,
+          paintAreaSqft: 1500,
+        } as any,
+      },
+    });
+
+    expect(input.paintPricingMethod).toBe('combined');
+    expect(Number(input.paintAreaSqft)).toBe(1500);
+    expect(Number(input.combinedPaintableAreaSqft)).toBe(1500);
+    expect(String(input.wallPaintSqft || '')).toBe('');
+    expect(String(input.ceilingPaintSqft || '')).toBe('');
+    expect(Number(input.cabinetPaintSqft)).toBe(200);
+  });
+
+  it('parses canonical Electrical notes examples onto owned keys', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Install 18 recessed lights. Add 12 standard outlets. Add 4 GFCI outlets. Install a 200 amp panel. Run two dedicated 20 amp circuits. Install one 50 amp range circuit. Add 3 ceiling fans. Finished-wall fishing, include rough-in and conduit.',
+      { templateKey: 'electrical', projectType: 'electrical' }
+    );
+
+    expect(parsed.recessedLightCount).toBe(18);
+    expect(parsed.standardReceptacleCount).toBe(12);
+    expect(parsed.gfciReceptacleCount).toBe(4);
+    expect(parsed.mainPanelCount).toBe(1);
+    expect(parsed.serviceAmperage).toBe(200);
+    expect(parsed.dedicated20aCircuitCount).toBe(2);
+    expect(parsed.rangeHookupCount).toBe(1);
+    expect(parsed.circuit50aCount).toBeUndefined();
+    expect(parsed.ceilingFanCount).toBe(3);
+    expect(parsed.electricalProjectCondition).toBe('finished_wall_service');
+    expect(parsed.electricalIncludeRough).toBe(true);
+    expect(parsed.electricalConduit).toBe(true);
+    expect(parsed.itemQuantities?.electrical_recessed_light?.quantity).toBe(18);
+  });
 });

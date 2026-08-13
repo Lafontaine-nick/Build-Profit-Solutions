@@ -263,4 +263,34 @@ describe('estimateDraftFromNotes sqft × allowance pricing', () => {
     expect(draft.pricingWarnings.some((w) => /square footage/i.test(w))).toBe(true);
     expect(draft.missingInfo.some((m) => /Square footage/i.test(m))).toBe(true);
   });
+
+  test('keeps Electrical notes as an electrical project type', () => {
+    const fromType = normalizeDraft({
+      projectType: 'electrical',
+      originalNotes: 'Install 18 recessed lights and 12 outlets',
+      rooms: [{ name: 'Electrical', scope: 'devices and lighting', price: null }],
+    });
+    expect(fromType.projectType).toBe('electrical');
+
+    const fromNotes = normalizeDraft(
+      {
+        projectType: 'other',
+        rooms: [{ name: 'House', scope: 'lighting and outlets', price: null }],
+      },
+      {
+        originalNotes:
+          'Install 18 recessed lights. Add 12 standard outlets. Add 4 GFCI outlets. Install a 200 amp panel.',
+      }
+    );
+    expect(fromNotes.projectType).toBe('electrical');
+
+    const vague = normalizeDraft(
+      {
+        projectType: 'electrical',
+        rooms: [{ name: 'Electrical', scope: 'Need some electrical work', price: null }],
+      },
+      { originalNotes: 'Need some electrical work' }
+    );
+    expect(vague.projectType).toBe('electrical');
+  });
 });

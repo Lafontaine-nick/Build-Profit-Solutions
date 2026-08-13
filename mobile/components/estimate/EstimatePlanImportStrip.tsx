@@ -37,6 +37,14 @@ import {
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
+import { hydratePaintingPlanMeasurements } from '@/utils/hydratePaintingPlanMeasurements';
+
+function keepPaintingPlanGeometry(
+  mode: PlanEstimatingMode,
+  tradeKey?: PlanTradeKey | null
+): boolean {
+  return mode === 'selected_trade' && tradeKey === 'painting';
+}
 
 type Colors = {
   text: string;
@@ -125,22 +133,29 @@ export default function EstimatePlanImportStrip({
           selectedTradeKey: selectedTrade,
         });
         if (!takeoff) return;
+        const hydrated = hydratePaintingPlanMeasurements({
+          ...takeoff,
+          estimatingMode,
+          selectedTrade,
+        });
         const selection = normalizePlanImportSelection(
           estimatingMode,
           selectedTrade
         );
         const stamped: PlanToMeasurementsResult = {
-          ...takeoff,
+          ...hydrated,
           estimatingMode: selection.mode,
           selectedTrade: selection.trade?.key || null,
         };
         if (selection.mode === 'selected_trade' && selection.trade) {
           stamped.measurements = filterPlanMeasurementsForTrade(
-            takeoff.measurements || {},
+            hydrated.measurements || {},
             selection.mode,
             selection.trade.key
           );
-          stamped.rooms = [];
+          if (!keepPaintingPlanGeometry(selection.mode, selection.trade.key)) {
+            stamped.rooms = [];
+          }
           stamped.areaReconciliation = null;
           if (takeoff.scope?.detections) {
             stamped.scope = {
@@ -310,7 +325,8 @@ export default function EstimatePlanImportStrip({
       const normalizedTrade =
         selection.trade?.key === 'roofing' ||
         selection.trade?.key === 'concrete' ||
-        selection.trade?.key === 'flooring'
+        selection.trade?.key === 'flooring' ||
+        selection.trade?.key === 'painting'
           ? normalizeTradeMeasurements(
               selection.trade.key,
               {
@@ -335,8 +351,12 @@ export default function EstimatePlanImportStrip({
           ])
         );
       }
+      const keepPaintingGeometry = keepPaintingPlanGeometry(
+        selection.mode,
+        selection.trade?.key
+      );
       const tradeRooms =
-        selection.mode === 'selected_trade' ? [] : rooms;
+        selection.mode === 'selected_trade' && !keepPaintingGeometry ? [] : rooms;
       const tradeScopeDetections =
         selection.mode === 'selected_trade' && selection.trade
           ? filterPlanScopesForTrade(
@@ -357,9 +377,13 @@ export default function EstimatePlanImportStrip({
             ? null
             : takeoff.areaReconciliation ?? null,
         buildingAreas:
-          selection.mode === 'selected_trade' ? undefined : takeoff.buildingAreas,
+          selection.mode === 'selected_trade' && !keepPaintingGeometry
+            ? undefined
+            : takeoff.buildingAreas,
         planFacts:
-          selection.mode === 'selected_trade' ? undefined : takeoff.planFacts,
+          selection.mode === 'selected_trade' && !keepPaintingGeometry
+            ? undefined
+            : takeoff.planFacts,
         fieldConfidence: takeoff.fieldConfidence,
         quickMeasurementSources: normalizedTrade?.quickMeasurementSources,
         measurementProvenance: {

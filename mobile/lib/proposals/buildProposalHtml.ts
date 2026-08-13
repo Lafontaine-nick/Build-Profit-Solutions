@@ -543,6 +543,22 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
       contractCopy.includedWorkBullets?.length > 0
         ? `<ul class="bullet-list flush appendix-scope-bullets">${contractCopy.includedWorkBullets.map((b) => `<li>${esc(b)}</li>`).join("")}</ul>`
         : "";
+    const measurementLines = sanitizedDoc.scope.measurementLines || [];
+    const measurementsHtml =
+      measurementLines.length > 0
+        ? `<h3 class="appendix-context-title">Measurements</h3>
+        <div class="measurements-card">
+          ${measurementLines
+            .map(
+              (line) => `
+            <div class="measurements-row">
+              <span class="measurements-label">${esc(line.label)}</span>
+              <span class="measurements-value">${esc(line.quantity)}</span>
+            </div>`
+            )
+            .join("")}
+        </div>`
+        : "";
 
     return `
     <section class="page page--scope-pricing-flow appendix-page">
@@ -559,6 +575,7 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
         <h3 class="appendix-context-title">Scope &amp; included work</h3>
         <p class="appendix-scope-text">${esc(contractCopy.scopeSummary)}</p>
         ${includedWorkHtml}
+        ${measurementsHtml}
       </div>
 
       <div class="section-block section-block--split">
@@ -1280,6 +1297,24 @@ export function buildProposalHtml(doc: ContractDoc, input?: ProposalInput) {
     .appendix-meta-value { flex: 1; color: ${bodyText}; }
     .appendix-scope-text { margin: 0 0 8px; font-size: 9.5pt; line-height: 1.45; color: ${bodyText}; }
     .appendix-scope-bullets { margin-top: 6px; }
+    .measurements-card {
+      border: 1px solid #dbe4ee;
+      background: #ffffff;
+      border-radius: 8px;
+      padding: 4px 10px;
+      margin: 2px 0 8px;
+    }
+    .measurements-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 9.5pt;
+      padding: 6px 0;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .measurements-row:last-child { border-bottom: none; }
+    .measurements-label { color: ${muted}; font-weight: 600; }
+    .measurements-value { color: ${bodyText}; font-weight: 700; text-align: right; }
     .appendix-section-title {
       font-size: 10.5pt;
       font-weight: 700;

@@ -665,4 +665,97 @@ describe('trade-specific scope checklists', () => {
     expect(checklist.suggestedMeasurements.itemQuantities.backsplash__labor.quantity).toBe(540);
     expect(checklist.suggestedMeasurements.itemQuantities.paint__allowance.quantity).toBe(480);
   });
+
+  test('routes a 100A to 200A electrical service change to service upgrade only', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Upgrade existing 100A service to 200A',
+      { templateKey: 'electrical', projectType: 'electrical' }
+    );
+    expect(parsed.serviceUpgradeCount).toBe(1);
+    expect(parsed.existingServiceAmperage).toBe(100);
+    expect(parsed.serviceAmperage).toBe(200);
+    expect(parsed.mainPanelCount).toBeUndefined();
+    expect(parsed.panelUpgradeCount).toBeUndefined();
+    expect(parsed.itemQuantities?.electrical_service_upgrade).toMatchObject({
+      quantity: 1,
+      unit: 'each',
+    });
+    expect(parsed.itemQuantities?.electrical_main_panel).toBeUndefined();
+  });
+
+  test('does not stack appliance-owned electrical circuits onto generic circuit cards', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Install one 50 amp range circuit. Add a 30 amp dryer circuit. Run a dedicated 20 amp dishwasher circuit.',
+      { templateKey: 'electrical', projectType: 'electrical' }
+    );
+    expect(parsed.rangeHookupCount).toBe(1);
+    expect(parsed.dryerHookupCount).toBe(1);
+    expect(parsed.dishwasherHookupCount).toBe(1);
+    expect(parsed.circuit50aCount).toBeUndefined();
+    expect(parsed.circuit30aCount).toBeUndefined();
+    expect(parsed.dedicated20aCircuitCount).toBeUndefined();
+  });
+
+  test('keeps exterior electrical receptacles distinct from interior GFCI', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Add 4 GFCI outlets. Add 2 exterior GFCI outlets.',
+      { templateKey: 'electrical', projectType: 'electrical' }
+    );
+    expect(parsed.gfciReceptacleCount).toBe(4);
+    expect(parsed.exteriorReceptacleCount).toBe(2);
+    expect(parsed.standardReceptacleCount).toBeUndefined();
+    expect(parsed.standardCircuitCount).toBeUndefined();
+  });
+
+  test('parses canonical electrical notes onto owned keys', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Install 18 recessed lights. Add 12 standard outlets. Add 4 GFCI outlets. Install a 200 amp panel. Run two dedicated 20 amp circuits. Install one 50 amp range circuit. Add 3 ceiling fans.',
+      { templateKey: 'electrical', projectType: 'electrical' }
+    );
+    expect(parsed.recessedLightCount).toBe(18);
+    expect(parsed.standardReceptacleCount).toBe(12);
+    expect(parsed.gfciReceptacleCount).toBe(4);
+    expect(parsed.mainPanelCount).toBe(1);
+    expect(parsed.serviceAmperage).toBe(200);
+    expect(parsed.dedicated20aCircuitCount).toBe(2);
+    expect(parsed.rangeHookupCount).toBe(1);
+    expect(parsed.circuit50aCount).toBeUndefined();
+    expect(parsed.ceilingFanCount).toBe(3);
+    expect(parsed.itemQuantities?.electrical_recessed_light).toMatchObject({
+      quantity: 18,
+      unit: 'each',
+    });
+  });
+
+  test('parses electrical condition wording without inventing quantities', () => {
+    const parsed = parseScopeMeasurementsFromNotes(
+      'Finished-wall fishing. Include rough-in, trim-out, conduit, and trenching.',
+      { templateKey: 'electrical', projectType: 'electrical' }
+    );
+    expect(parsed.electricalProjectCondition).toBe('finished_wall_service');
+    expect(parsed.electricalIncludeRough).toBe(true);
+    expect(parsed.electricalIncludeTrim).toBe(true);
+    expect(parsed.electricalConduit).toBe(true);
+    expect(parsed.electricalTrenching).toBe(true);
+  });
+
+  test('routes electrical notes to the electrical template', () => {
+    const draft = {
+      projectType: 'electrical',
+      rooms: [],
+      originalNotes: 'Install 18 recessed lights and 12 standard outlets.',
+    };
+    expect(checklistTemplateKey(draft, 'room_remodel')).toBe('electrical');
+    expect(CHECKLIST_TEMPLATES.electrical.items.some((i) => i.id === 'electrical_recessed_light')).toBe(true);
+    expect(CHECKLIST_TEMPLATES.electrical.items.map((i) => i.id)).toEqual(
+      expect.arrayContaining([
+        'electrical_main_panel',
+        'electrical_standard_receptacle',
+        'electrical_gfci_receptacle',
+        'electrical_recessed_light',
+        'electrical_ceiling_fan',
+        'cleanup',
+      ])
+    );
+  });
 });

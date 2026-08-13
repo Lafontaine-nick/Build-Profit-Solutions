@@ -27,6 +27,10 @@ import {
   type MeasurementUnit,
 } from '@/utils/measurementSemantics';
 import { tagPlanDetectedQuickMeasurementKeys } from '@/utils/quickMeasurementProvenance';
+import {
+  hydratePaintingPlanMeasurements,
+  resolvePaintingPlanTakeoffApiSelection,
+} from '@/utils/hydratePaintingPlanMeasurements';
 import { stripBathroomFalsePositiveFloorDemoQuantities } from '@/utils/estimateScopeChecklistUi';
 import { syncMeasurementsWithSouthernUtahPlanFacts } from '@/utils/quickMeasurementEstimates';
 import {
@@ -43,6 +47,12 @@ import {
   type PlanTradeKey,
 } from '@/utils/planImportTradeConfig';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
+import { confirmedPaintingMeasurementTextLines } from '@/utils/subcontractorTrade/paintingPlanConvergence';
+import type {
+  ElectricalPanelLocation,
+  ElectricalProjectCondition,
+  ElectricalQuantityKey,
+} from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import type { NormalizedTradeMeasurements } from '@/utils/subcontractorTrade/types';
 import type {
   MeasurementSuggestion,
@@ -631,11 +641,21 @@ export type ScopeMeasurements = {
   >;
   /** Explicit pricing override confirmations (measurement-semantics). */
   pricingOverrideLog?: import('@/utils/measurementSemantics').PricingOverrideLog[];
+  /** Electrical canonical Notes/Voice/Manual selections — not fake quantities. */
+  electricalScope?: string[] | null;
+  electricalProjectCondition?: ElectricalProjectCondition | null;
+  electricalIncludeRough?: boolean | null;
+  electricalIncludeTrim?: boolean | null;
+  electricalConduit?: boolean | null;
+  electricalTrenching?: boolean | null;
+  existingServiceAmperage?: number | null;
+  electricalPanelLocation?: ElectricalPanelLocation | null;
+  electricalMeterMainCombo?: boolean | null;
   /** @deprecated use bathroomFloorSqft */
   sqft?: number | null;
   /** @deprecated use baseboardLf */
   lf?: number | null;
-};
+} & Partial<Record<ElectricalQuantityKey, number | null>>;
 
 export type EstimateDraftRoom = {
   name: string;
@@ -1016,7 +1036,7 @@ export function repairDraftRatePricingFromNotes(
     parsed.itemQuantities
   );
 
-  const mergedScopeMeasurements: ScopeMeasurements = {
+  let mergedScopeMeasurements: ScopeMeasurements = {
     ...(draft.scopeMeasurements || {}),
     ...parsed,
     itemQuantities: mergedItemQuantities,
@@ -1061,6 +1081,35 @@ export function repairDraftRatePricingFromNotes(
     mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
       mergedScopeMeasurements,
       normalizedFlooring
+    );
+  }
+  if (
+    draft.scopeChecklist?.templateKey === 'painting' ||
+    draft.projectType === 'painting'
+  ) {
+    const normalizedPainting = normalizeTradeMeasurements(
+      'painting',
+      parsed,
+      'notes'
+    );
+    mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
+      mergedScopeMeasurements,
+      normalizedPainting
+    );
+  }
+  if (
+    draft.scopeChecklist?.templateKey === 'electrical' ||
+    draft.projectType === 'electrical' ||
+    String(draft.projectType || '').toLowerCase() === 'electrical service'
+  ) {
+    const normalizedElectrical = normalizeTradeMeasurements(
+      'electrical',
+      parsed,
+      'notes'
+    );
+    mergedScopeMeasurements = mergeTradeNormalizationIntoScopeMeasurements(
+      mergedScopeMeasurements,
+      normalizedElectrical
     );
   }
 
@@ -1392,6 +1441,10 @@ export async function fetchPlanToMeasurements(params: {
     | import('@/utils/planImportTradeConfig').PlanTradeKey
     | null;
 }): Promise<PlanToMeasurementsResult> {
+  const takeoffRequest = resolvePaintingPlanTakeoffApiSelection({
+    estimatingMode: params.estimatingMode,
+    selectedTradeKey: params.selectedTradeKey,
+  });
   const payload = await postAiAssistantJson<
     Partial<PlanToMeasurementsResult> & { error?: string; message?: string }
   >(
@@ -1403,8 +1456,8 @@ export async function fetchPlanToMeasurements(params: {
       templateKeyHint: params.templateKeyHint || null,
       mergeIntoNotes: true,
       includeScope: params.includeScope !== false,
-      estimatingMode: params.estimatingMode || 'whole_project',
-      selectedTradeKey: params.selectedTradeKey || null,
+      estimatingMode: takeoffRequest.estimatingMode,
+      selectedTradeKey: takeoffRequest.selectedTradeKey,
     },
     180000
   );
@@ -1413,7 +1466,7 @@ export async function fetchPlanToMeasurements(params: {
     throw new Error(payload.message || payload.error || 'Plan takeoff failed');
   }
 
-  return {
+  const result: PlanToMeasurementsResult = {
     success: payload.success !== false,
     reason: payload.reason ?? null,
     imageQuality: payload.imageQuality ?? null,
@@ -1477,6 +1530,13 @@ export async function fetchPlanToMeasurements(params: {
       ? payload.missingInfo.map(String)
       : [],
   };
+
+  return hydratePaintingPlanMeasurements({
+    ...result,
+    estimatingMode:
+      params.estimatingMode || result.estimatingMode || 'whole_project',
+    selectedTrade: params.selectedTradeKey || result.selectedTrade || null,
+  });
 }
 
 const PHOTO_DETECTION_MIN_CONFIDENCE = 0.45;
@@ -2341,6 +2401,86 @@ function mergeTradeNormalizationIntoScopeMeasurements(
     next.floorPrepByProduct =
       structured.floorPrepByProduct as ScopeMeasurements['floorPrepByProduct'];
   }
+  if (Array.isArray(structured.paintScope) && structured.paintScope.length) {
+    next.paintScope = structured.paintScope as ScopeMeasurements['paintScope'];
+  }
+  if (
+    structured.paintPricingMethod === 'combined' ||
+    structured.paintPricingMethod === 'separate'
+  ) {
+    next.paintPricingMethod = structured.paintPricingMethod;
+  }
+  if (
+    structured.paintOccupancy === 'occupied' ||
+    structured.paintOccupancy === 'vacant' ||
+    structured.paintOccupancy === 'new_construction'
+  ) {
+    next.paintOccupancy = structured.paintOccupancy;
+  }
+  if (
+    structured.paintApplicationMethod === 'brush_roll' ||
+    structured.paintApplicationMethod === 'spray' ||
+    structured.paintApplicationMethod === 'mixed'
+  ) {
+    next.paintApplicationMethod = structured.paintApplicationMethod;
+  }
+  if (typeof structured.paintOccupancyConfirmed === 'boolean') {
+    next.paintOccupancyConfirmed = structured.paintOccupancyConfirmed;
+  }
+  if (typeof structured.paintApplicationMethodConfirmed === 'boolean') {
+    next.paintApplicationMethodConfirmed =
+      structured.paintApplicationMethodConfirmed;
+  }
+  if (typeof structured.paintAreaNeedsConfirmation === 'boolean') {
+    next.paintAreaNeedsConfirmation = structured.paintAreaNeedsConfirmation;
+  }
+  if (Array.isArray(structured.electricalScope) && structured.electricalScope.length) {
+    next.electricalScope = structured.electricalScope.map(String);
+  }
+  if (
+    structured.electricalProjectCondition === 'new_construction' ||
+    structured.electricalProjectCondition === 'remodel_open_wall' ||
+    structured.electricalProjectCondition === 'finished_wall_service'
+  ) {
+    next.electricalProjectCondition = structured.electricalProjectCondition;
+  }
+  if (typeof structured.electricalIncludeRough === 'boolean') {
+    next.electricalIncludeRough = structured.electricalIncludeRough;
+  }
+  if (typeof structured.electricalIncludeTrim === 'boolean') {
+    next.electricalIncludeTrim = structured.electricalIncludeTrim;
+  }
+  if (typeof structured.electricalConduit === 'boolean') {
+    next.electricalConduit = structured.electricalConduit;
+  }
+  if (typeof structured.electricalTrenching === 'boolean') {
+    next.electricalTrenching = structured.electricalTrenching;
+  }
+  if (
+    typeof structured.existingServiceAmperage === 'number' &&
+    Number.isFinite(structured.existingServiceAmperage) &&
+    structured.existingServiceAmperage > 0
+  ) {
+    next.existingServiceAmperage = structured.existingServiceAmperage;
+  }
+  if (
+    structured.electricalPanelLocation === 'indoor' ||
+    structured.electricalPanelLocation === 'outdoor'
+  ) {
+    next.electricalPanelLocation = structured.electricalPanelLocation;
+  }
+  if (typeof structured.electricalMeterMainCombo === 'boolean') {
+    next.electricalMeterMainCombo = structured.electricalMeterMainCombo;
+  }
+  if (
+    structured.paintAreaBasis === 'walls' ||
+    structured.paintAreaBasis === 'ceilings' ||
+    structured.paintAreaBasis === 'combined' ||
+    structured.paintAreaBasis === 'floor_area' ||
+    structured.paintAreaBasis === 'unknown'
+  ) {
+    next.paintAreaBasis = structured.paintAreaBasis;
+  }
   if (normalization.quickMeasurementSources) {
     next.quickMeasurementSources = {
       ...next.quickMeasurementSources,
@@ -2362,7 +2502,7 @@ function normalizeImportedTradeMeasurements(
   extras: Record<string, unknown> = {},
   source: 'plan' | 'notes' = 'plan'
 ): NormalizedTradeMeasurements | null {
-  if (tradeKey !== 'roofing' && tradeKey !== 'concrete' && tradeKey !== 'flooring')
+  if (tradeKey !== 'roofing' && tradeKey !== 'concrete' && tradeKey !== 'flooring' && tradeKey !== 'painting' && tradeKey !== 'electrical')
     return null;
   return normalizeTradeMeasurements(
     tradeKey,
@@ -2414,6 +2554,8 @@ const WHOLE_PROJECT_QUICK_MEASUREMENT_KEYS = [
   'roofSquares',
   'wallPaintSqft',
   'ceilingPaintSqft',
+  'paintAreaSqft',
+  'combinedPaintableAreaSqft',
   'baseboardLf',
   'interiorDoorCount',
   'cabinetRunLf',
@@ -2652,6 +2794,8 @@ export function applyPlanImportToDraft(
               ? 'concrete'
               : planImportTradeKey === 'flooring'
                 ? 'flooring'
+                : planImportTradeKey === 'painting'
+                  ? 'painting'
                 : next.scopeChecklist?.templateKey,
         title:
           planImportTradeKey === 'stucco'
@@ -2660,6 +2804,8 @@ export function applyPlanImportToDraft(
               ? 'Concrete — confirm project scope'
               : planImportTradeKey === 'flooring'
                 ? 'Flooring — confirm project scope'
+                : planImportTradeKey === 'painting'
+                  ? 'Painting — confirm project scope'
                 : next.scopeChecklist?.title,
         intro:
           planImportTradeKey === 'stucco'
@@ -2668,6 +2814,8 @@ export function applyPlanImportToDraft(
               ? 'Confirm concrete scope before pricing.'
               : planImportTradeKey === 'flooring'
                 ? 'Confirm flooring scope before pricing.'
+                : planImportTradeKey === 'painting'
+                  ? 'Confirm painting scope before pricing.'
                 : next.scopeChecklist?.intro,
       },
     };
@@ -3621,6 +3769,17 @@ function buildScopeDescription(draft: EstimateAiDraft): string {
     );
   }
 
+  const measurementLines = confirmedPaintingMeasurementTextLines(
+    draft.scopeMeasurements as Record<string, unknown> | null | undefined
+  );
+  if (measurementLines.length > 0) {
+    parts.push(
+      ['Confirmed measurements', ...measurementLines.map(line => `• ${line}`)].join(
+        '\n'
+      )
+    );
+  }
+
   return parts.filter(Boolean).join('\n\n').trim();
 }
 
@@ -4136,6 +4295,37 @@ function materialAmountForPackage(
   return 0;
 }
 
+const PHYSICAL_LINE_ITEM_UNITS = new Set([
+  'sqft',
+  'sf',
+  'lf',
+  'each',
+  'ea',
+  'cy',
+  'squares',
+  'ton',
+  'tons',
+]);
+
+function physicalQuantityFromPackage(
+  pkg: EstimateDraftScopePackage
+): { quantity: number; unit: string } | null {
+  const q = pkg.scopeQuantities?.[0] || pkg.budgetSplitBasis || null;
+  if (!q) return null;
+  const qty = Number(q.quantity);
+  const unit = String(q.unit || '').toLowerCase();
+  if (!(qty > 0) || !PHYSICAL_LINE_ITEM_UNITS.has(unit)) return null;
+  return { quantity: qty, unit };
+}
+
+function catalogUnitToLineItemUnit(unit: string): string {
+  const u = String(unit || '').toLowerCase();
+  if (u === 'sqft' || u === 'sf' || u === 'sq ft') return 'sq ft';
+  if (u === 'lf') return 'lf';
+  if (u === 'ea' || u === 'each') return 'each';
+  return u;
+}
+
 function laborLineItemsFromDraft(
   draft: EstimateAiDraft,
   applyConfirmedOnly: boolean
@@ -4169,11 +4359,18 @@ function laborLineItemsFromDraft(
         (pkg.includesLabor && pkg.includesMaterials) ||
         (packageSplitIsSuggestedOnly(pkg) && !applySuggestedSplits));
     const costCode = resolvePackageCostCode(pkg);
+    const physical = physicalQuantityFromPackage(pkg);
+    const hours = physical ? physical.quantity : 1;
+    const lineUnit = physical ? catalogUnitToLineItemUnit(physical.unit) : undefined;
     lines.push({
       id: newLineItemId(),
       name: pkg.name,
       description: laborDescriptionForPackage(pkg, parsedSplit),
-      hours: 1,
+      hours,
+      quantity: hours,
+      qty: hours,
+      unit: lineUnit,
+      mode: lineUnit === 'sq ft' ? 'sqft' : undefined,
       rate: total,
       total,
       totalCost: total,
@@ -4216,6 +4413,9 @@ function materialLineItemsFromDraft(
     const splitIsSuggested =
       parsedSplit?.splitIsSuggested ?? Boolean(pkg.splitIsSuggested);
     const costCode = resolvePackageCostCode(pkg);
+    const physical = physicalQuantityFromPackage(pkg);
+    const qty = physical ? physical.quantity : 1;
+    const unit = physical ? catalogUnitToLineItemUnit(physical.unit) : 'lot';
 
     if (splitMaterial > 0) {
       lines.push({
@@ -4224,11 +4424,12 @@ function materialLineItemsFromDraft(
         description: splitIsSuggested
           ? `Suggested materials split for ${pkg.name} — adjust after applying.`
           : `Materials for ${pkg.name}`,
-        quantity: 1,
-        qty: 1,
-        unit: 'lot',
-        unitPrice: splitMaterial,
-        cost: splitMaterial,
+        quantity: qty,
+        qty,
+        unit,
+        mode: unit === 'sq ft' ? 'sqft' : undefined,
+        unitPrice: qty > 0 ? splitMaterial / qty : splitMaterial,
+        cost: qty > 0 ? splitMaterial / qty : splitMaterial,
         total: splitMaterial,
         section: pkg.name,
         source: 'ai-draft',
@@ -4261,11 +4462,12 @@ function materialLineItemsFromDraft(
           description:
             item.description ||
             `${SCOPE_PARSED_FROM_NOTES_LABEL} (${item.status || 'confirmed'})`,
-          quantity: 1,
-          qty: 1,
-          unit: 'lot',
-          unitPrice: item.amount,
-          cost: item.amount,
+          quantity: qty,
+          qty,
+          unit,
+          mode: unit === 'sq ft' ? 'sqft' : undefined,
+          unitPrice: qty > 0 ? item.amount / qty : item.amount,
+          cost: qty > 0 ? item.amount / qty : item.amount,
           total: item.amount,
           section: pkg.name,
           source: 'ai-draft',

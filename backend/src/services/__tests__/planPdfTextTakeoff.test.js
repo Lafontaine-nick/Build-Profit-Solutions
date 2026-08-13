@@ -7,6 +7,7 @@ const {
   extractRoomsFromPhrases,
   dedupeRoomsByName,
   formatPdfEvidenceForVision,
+  scorePaintingRelevantPage,
 } = require('../planPdfTextTakeoff');
 const shvPlanFacts = require('../testFixtures/shvPlanFacts');
 
@@ -206,5 +207,37 @@ describe('planPdfTextTakeoff', () => {
     expect(text).toContain('totalLivingSqft: 1879');
     expect(text).toContain('Kitchen: 13.083');
     expect(text).toContain('do not swap labels');
+  });
+
+  test('scorePaintingRelevantPage ranks floor plans and schedules above electrical sheets', () => {
+    expect(scorePaintingRelevantPage('A1.1 FLOOR PLAN MAIN LEVEL')).toMatchObject({
+      score: expect.any(Number),
+      reasons: expect.arrayContaining(['floor plan']),
+    });
+    expect(scorePaintingRelevantPage('A1.1 FLOOR PLAN MAIN LEVEL').score).toBeGreaterThan(
+      scorePaintingRelevantPage('E1.0 ELECTRICAL PLAN').score
+    );
+    expect(scorePaintingRelevantPage('DOOR SCHEDULE').reasons).toContain('door schedule');
+    expect(scorePaintingRelevantPage('REFLECTED CEILING PLAN / RCP').reasons).toEqual(
+      expect.arrayContaining(['RCP'])
+    );
+    expect(scorePaintingRelevantPage('FRONT ELEVATION').reasons).toContain('exterior elevation');
+    expect(scorePaintingRelevantPage('E1.0 ELECTRICAL PLAN').score).toBe(0);
+  });
+
+  test('formatPdfEvidenceForVision lists painting-relevant pages for Painting trade', () => {
+    const text = formatPdfEvidenceForVision(
+      {
+        rooms: [{ name: 'Kitchen', lengthFt: 12, widthFt: 12, areaSqft: 144 }],
+        paintingRelevantPages: [
+          { page: 3, score: 8, reasons: ['floor plan'] },
+          { page: 8, score: 8, reasons: ['exterior elevation'] },
+        ],
+      },
+      { tradeKey: 'painting' }
+    );
+    expect(text).toContain('not only sheets titled Paint');
+    expect(text).toContain('page 3: floor plan');
+    expect(text).toContain('page 8: exterior elevation');
   });
 });

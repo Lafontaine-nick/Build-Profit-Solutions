@@ -5,6 +5,13 @@ import {
 import {
   FLOORING_REVIEW_MEASUREMENT_KEYS,
 } from './flooringPlanConvergence';
+import {
+  PAINTING_REVIEW_MEASUREMENT_KEYS,
+} from './paintingPlanConvergence';
+import {
+  ELECTRICAL_CARDS,
+  ELECTRICAL_REVIEW_MEASUREMENT_KEYS,
+} from './electricalPlanConvergence';
 import { getTradeMeasurementSchema } from './measurementSchemas';
 import {
   TRADE_SCOPE_ALLOWLISTS,
@@ -27,6 +34,7 @@ export const PLAN_EXPORT_TRADE_KEYS: SubcontractorTradeKey[] = [
   'stucco',
   'insulation',
   'flooring',
+  'painting',
   'windows_doors',
 ];
 
@@ -240,17 +248,25 @@ const ELECTRICAL_DEFINITION: SubcontractorTradeDefinition = {
   key: 'electrical',
   label: 'Electrical',
   status: 'reference',
+  standaloneTemplateKey: 'electrical',
   scopeHint:
-    'Focus on electrical sheets, panels, circuits, devices, lighting, and electrical notes.',
+    'Focus on electrical sheets, panels, circuits, devices, lighting, and electrical notes. Phase 1 is Notes/Voice/Manual canonical keys only — plan symbol counting is not converged yet.',
   missingInfo: [
     'Device and fixture counts',
     'Panel/circuit schedule',
     'Service size and utility scope',
+    'Installation condition (new construction, open-wall remodel, or finished-wall service)',
   ],
-  measurements: [],
-  scopeItems: [],
+  measurements: getTradeMeasurementSchema('electrical'),
+  scopeItems: ELECTRICAL_CARDS.filter(
+    card => card.measurementKey !== 'serviceAmperage'
+  ).map(card => ({
+    scopeItemId: card.itemId,
+    pricingBehavior: 'CUSTOM_PRICE' as const,
+    measurementKeys: [card.measurementKey],
+  })),
   allowedScopeItemIds: TRADE_SCOPE_ALLOWLISTS.electrical,
-  reviewMeasurementKeys: [],
+  reviewMeasurementKeys: [...ELECTRICAL_REVIEW_MEASUREMENT_KEYS],
   reviewScopeKeywords: [
     'electrical',
     'receptacle',
@@ -261,7 +277,7 @@ const ELECTRICAL_DEFINITION: SubcontractorTradeDefinition = {
     'smoke',
     'detector',
   ],
-  quickMeasurementFieldKeys: [],
+  quickMeasurementFieldKeys: [...ELECTRICAL_REVIEW_MEASUREMENT_KEYS],
 };
 
 export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
@@ -417,6 +433,57 @@ export const SUBCONTRACTOR_TRADE_DEFINITIONS: Record<
       { scopeItemId: 'quarter_round', pricingBehavior: 'SEPARATE_ADDON' as const },
       { scopeItemId: 'underlayment', pricingBehavior: 'SEPARATE_ADDON' as const },
       { scopeItemId: 'moisture_barrier', pricingBehavior: 'SEPARATE_ADDON' as const },
+    ],
+  }),
+  painting: scaffoldedTrade('painting', 'Painting', {
+    standaloneTemplateKey: 'painting',
+    status: 'complete',
+    scopeHint:
+      'Inspect floor plans, reflected ceiling plans, finish schedules, door schedules, interior elevations, cabinet/millwork sheets, and exterior elevations — not only sheets titled Paint. Calculate wall, ceiling, trim, and door quantities from labeled paint totals or from dimensioned plan geometry with an explicit wall/plate height. Never infer paint from living/floor area. Do not infer prep, occupancy, or application method. Cabinets only when the plan supports paint-grade millwork.',
+    missingInfo: [
+      'Interior wall and ceiling areas when not dimensioned',
+      'Job condition and application method',
+      'Prep / masking only when explicitly supported',
+    ],
+    reviewMeasurementKeys: [...PAINTING_REVIEW_MEASUREMENT_KEYS],
+    reviewScopeKeywords: [
+      'painting',
+      'paint',
+      'trim',
+      'cabinet',
+      'floor plan',
+      'finish plan',
+      'finish schedule',
+      'room finish',
+      'rcp',
+      'reflected ceiling',
+      'door schedule',
+      'interior elevation',
+      'exterior elevation',
+      'elevation',
+      'millwork',
+      'baseboard',
+      'wall finish',
+      'ceiling finish',
+    ],
+    quickMeasurementFieldKeys: [
+      'wallPaintSqft',
+      'ceilingPaintSqft',
+      'paintAreaSqft',
+      'baseboardLf',
+      'interiorDoorCount',
+      'cabinetRunLf',
+      'exteriorPaintSqft',
+    ],
+    scopeItems: [
+      { scopeItemId: 'prep', pricingBehavior: 'SEPARATE_ADDON' as const },
+      { scopeItemId: 'interior_paint', pricingBehavior: 'SEPARATE_ADDON' as const },
+      { scopeItemId: 'ceiling_paint', pricingBehavior: 'SEPARATE_ADDON' as const },
+      { scopeItemId: 'trim_paint', pricingBehavior: 'SEPARATE_ADDON' as const },
+      { scopeItemId: 'door_paint', pricingBehavior: 'SEPARATE_ADDON' as const },
+      { scopeItemId: 'cabinet_paint', pricingBehavior: 'SEPARATE_ADDON' as const },
+      { scopeItemId: 'exterior_prep', pricingBehavior: 'SEPARATE_ADDON' as const },
+      { scopeItemId: 'exterior_paint', pricingBehavior: 'SEPARATE_ADDON' as const },
     ],
   }),
   windows_doors: scaffoldedTrade('windows_doors', 'Windows & doors'),

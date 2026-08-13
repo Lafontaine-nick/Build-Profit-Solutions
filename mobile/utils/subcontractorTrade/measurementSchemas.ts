@@ -1,4 +1,5 @@
 import type { SubcontractorTradeKey, TradeMeasurementDefinition } from './types';
+import { ELECTRICAL_CARDS } from './electricalPlanConvergence';
 
 const M = (
   key: string,
@@ -138,7 +139,6 @@ export const TRADE_MEASUREMENT_SCHEMAS: Partial<
       quickMeasurementKey: 'roofDownspoutCount',
     }),
   ],
-  electrical: [],
   plumbing: [],
   hvac: [],
   concrete: [
@@ -252,7 +252,53 @@ export const TRADE_MEASUREMENT_SCHEMAS: Partial<
       quickMeasurementKey: 'quarterRoundLf',
     }),
   ],
+  painting: [
+    M('wallPaintSqft', 'Interior walls', 'sqft', 'primary', {
+      quickMeasurementKey: 'wallPaintSqft',
+    }),
+    M('ceilingPaintSqft', 'Ceilings', 'sqft', 'primary', {
+      quickMeasurementKey: 'ceilingPaintSqft',
+    }),
+    M('paintAreaSqft', 'Combined paintable area', 'sqft', 'primary', {
+      quickMeasurementKey: 'paintAreaSqft',
+    }),
+    M(
+      'combinedPaintableAreaSqft',
+      'Combined paintable area',
+      'sqft',
+      'calculated',
+      { quickMeasurementKey: 'combinedPaintableAreaSqft' }
+    ),
+    M('baseboardLf', 'Baseboard / trim', 'LF', 'more', {
+      quickMeasurementKey: 'baseboardLf',
+    }),
+    M('interiorDoorCount', 'Interior doors', 'each', 'more', {
+      quickMeasurementKey: 'interiorDoorCount',
+    }),
+    M('cabinetRunLf', 'Cabinet painting', 'LF', 'more', {
+      quickMeasurementKey: 'cabinetRunLf',
+    }),
+    M('cabinetPaintSqft', 'Cabinet painting area', 'sqft', 'more', {
+      quickMeasurementKey: 'cabinetPaintSqft',
+    }),
+    M('exteriorPaintSqft', 'Exterior paint', 'sqft', 'primary', {
+      quickMeasurementKey: 'exteriorPaintSqft',
+    }),
+  ],
   windows_doors: [],
+  electrical: [
+    M('serviceAmperage', 'Service amperage', 'amp', 'primary'),
+    ...ELECTRICAL_CARDS.filter(card => card.measurementKey !== 'serviceAmperage').map(card =>
+      M(
+        card.measurementKey,
+        card.label,
+        card.unit === 'amp' ? 'amp' : 'each',
+        card.groupId === 'service_panels' || card.groupId === 'circuits'
+          ? 'primary'
+          : 'more'
+      )
+    ),
+  ],
 };
 
 export function getTradeMeasurementSchema(

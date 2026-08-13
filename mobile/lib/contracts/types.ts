@@ -43,6 +43,7 @@ export interface ContractDoc {
     ownerResponsibilities?: string[];
     materialLineItems?: MaterialLineItem[];
     laborLineItems?: LaborLineItem[];
+    measurementLines?: Array<{ label: string; quantity: string }>;
   };
   allowances?: Allowance[];
   milestones: Milestone[];

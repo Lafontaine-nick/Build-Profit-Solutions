@@ -113,6 +113,10 @@ import {
   syncConfirmScopeMeasurementsFromPackages,
   syncSelectedScopePricing,
 } from '../../utils/estimateAiDraft';
+import {
+  buildPaintingPdfMeasurementLines,
+  stripConfirmedMeasurementsFromScopeDescription,
+} from '../../utils/subcontractorTrade/paintingPlanConvergence';
 import { sumStep3ReviewBudgetTotals } from '../../utils/benchmarkReasonablenessContext';
 import { getBidAllowanceLineItemsTotal } from '../../utils/estimateAllowances';
 import { formatEstimateAiError } from '../../utils/resolveAiBackendUrl';
@@ -3212,13 +3216,24 @@ function resolveMaterialCartUnitPrice(item) {
 }
 
 function resolveLaborContractLineItem(item, projectSqft = 0) {
-  const mode = item?.mode === 'sqft' ? 'sqft' : 'hourly';
+  const rawUnit = String(item?.unit || '').trim().toLowerCase();
+  const isSqft =
+    item?.mode === 'sqft' ||
+    rawUnit === 'sqft' ||
+    rawUnit === 'sf' ||
+    rawUnit === 'sq ft';
+  const preservedUnit =
+    rawUnit === 'lf' || rawUnit === 'each' || rawUnit === 'ea' || rawUnit === 'cy'
+      ? rawUnit === 'ea'
+        ? 'each'
+        : rawUnit
+      : null;
   const rate = Number(item?.rate || item?.unitPrice || item?.cost || 0) || 0;
   const hoursOrSqft = Number(item?.hours ?? item?.quantity ?? item?.qty ?? 0) || 0;
   const total = Number(item?.total || item?.totalCost || 0) || 0;
   const bidSqft = Number(projectSqft || 0) || 0;
 
-  if (mode === 'sqft') {
+  if (isSqft) {
     let qty = hoursOrSqft > 0 ? hoursOrSqft : 0;
     if (!qty && total > 0 && rate > 0) {
       qty = total / rate;
@@ -3237,6 +3252,24 @@ function resolveLaborContractLineItem(item, projectSqft = 0) {
       unitPrice: Number(unitPrice) || 0,
       labor: total,
       mode: 'sqft',
+      hours: hoursOrSqft,
+      rate,
+    };
+  }
+
+  if (preservedUnit) {
+    let qty = hoursOrSqft > 0 ? hoursOrSqft : 0;
+    if (!qty && total > 0 && rate > 0) {
+      qty = total / rate;
+    }
+    const storedLooksAccurate = qty > 0 && rate > 0 && Math.abs(rate * qty - total) < 0.01;
+    const unitPrice = storedLooksAccurate ? rate : qty > 0 && total > 0 ? total / qty : rate;
+    return {
+      unit: preservedUnit === 'lf' ? 'LF' : preservedUnit,
+      quantity: qty,
+      unitPrice: Number(unitPrice) || 0,
+      labor: total,
+      mode: preservedUnit,
       hours: hoursOrSqft,
       rate,
     };
@@ -11910,8 +11943,19 @@ export default function EstimateGeneratorScreen() {
   // Build Contract Document from Bid Data (optional profile snapshot for PDF export = fresh branding)
   const buildDocFromBid = (bidData, calcData, profileSnapshot = null) => {
     const cp = profileSnapshot || contractorProfile;
-    const scopeBullets = bidData.scopeDescription
-      ? bidData.scopeDescription.split('\n').filter(line => line.trim())
+    const paintingMeasurementLines = buildPaintingPdfMeasurementLines(
+      bidData.aiEstimateDraftSnapshot?.draft?.scopeMeasurements
+    );
+    const strippedScope = stripConfirmedMeasurementsFromScopeDescription(
+      bidData.scopeDescription || ''
+    );
+    const measurementLines =
+      paintingMeasurementLines.length > 0
+        ? paintingMeasurementLines
+        : strippedScope.measurementLines;
+    const scopeDescription = strippedScope.description;
+    const scopeBullets = scopeDescription
+      ? scopeDescription.split('\n').filter(line => line.trim())
       : [];
 
     // Build detailed line items from materials cart
@@ -12010,11 +12054,12 @@ export default function EstimateGeneratorScreen() {
       },
       scope: {
         bullets: scopeBullets,
-        description: bidData.scopeDescription || '',
+        description: scopeDescription,
         inclusions: [],
         exclusions: [],
         ownerResponsibilities: [],
         materialLineItems: materialLineItems,
+        measurementLines,
         laborLineItems: (bidData.laborLineItems || []).map(item => {
           const resolved = resolveLaborContractLineItem(item, bidData.sqft);
           return {

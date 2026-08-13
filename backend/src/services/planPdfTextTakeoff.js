@@ -635,6 +635,39 @@ function classifyPage(phrases, pageIndex) {
   return 'other';
 }
 
+const PAINTING_PAGE_SIGNALS = [
+  { re: /floor\s*plan|main\s*floor|upper\s*floor|second\s*floor|floor\s*layout/i, label: 'floor plan', score: 8 },
+  { re: /finish\s*(plan|schedule)|room\s*finish/i, label: 'finish schedule', score: 10 },
+  { re: /reflected\s*ceiling|\bRCP\b/i, label: 'RCP', score: 8 },
+  { re: /door\s*schedule/i, label: 'door schedule', score: 9 },
+  { re: /interior\s*elevation/i, label: 'interior elevation', score: 7 },
+  { re: /exterior\s*elevation|(?:front|rear|left|right)\s*elevation/i, label: 'exterior elevation', score: 8 },
+  { re: /\bcabinets?\b|\bmillwork\b|\bcasework\b/i, label: 'cabinets / millwork', score: 5 },
+  { re: /baseboard|wall\s*finish|ceiling\s*finish/i, label: 'finish / trim', score: 6 },
+  { re: /\bpaint(?:ing)?\b|\bPT\b|\bP-?1\b/i, label: 'paint', score: 10 },
+];
+
+const PAINTING_IRRELEVANT_PAGE_RE =
+  /\b(electrical|plumbing|hvac|mechanical|framing|foundation|roof\s*plan|structural|sprinkler)\b/i;
+
+function scorePaintingRelevantPage(text) {
+  const blob = String(text || '');
+  if (!blob.trim()) return { score: 0, reasons: [] };
+  const hasPaintSignal = PAINTING_PAGE_SIGNALS.some((signal) => signal.re.test(blob));
+  if (PAINTING_IRRELEVANT_PAGE_RE.test(blob) && !hasPaintSignal) {
+    return { score: 0, reasons: [] };
+  }
+  let score = 0;
+  const reasons = [];
+  for (const signal of PAINTING_PAGE_SIGNALS) {
+    if (signal.re.test(blob)) {
+      score += signal.score;
+      reasons.push(signal.label);
+    }
+  }
+  return { score, reasons: [...new Set(reasons)] };
+}
+
 function extractRoomsFromPhrases(phrases, { sourcePage = null, sourceSheet = null } = {}) {
   const dims = [];
   const names = [];
@@ -766,6 +799,7 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
   const scalarFacts = {};
   const allRooms = [];
   const assumptions = [];
+  const paintingRelevantPages = [];
   let pageCount = 0;
 
   for (const buf of list) {
@@ -781,6 +815,14 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
       const phrases = clusterPhrases(page.items);
       const pageText = phrases.map((p) => p.str).join(' ');
       const pageNumber = page.pageIndex + 1;
+      const paintingPage = scorePaintingRelevantPage(pageText);
+      if (paintingPage.score > 0) {
+        paintingRelevantPages.push({
+          page: pageNumber,
+          score: paintingPage.score,
+          reasons: paintingPage.reasons,
+        });
+      }
       const parsedFacts = parsePageFactsFromText(pageText, { page: pageNumber });
       const schedule = parsedFacts.buildingAreas;
       for (const [k, v] of Object.entries(schedule)) {
@@ -866,11 +908,14 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
     planFacts: { buildingAreas, ...scalarFacts, fieldEvidence },
     rooms: dedupeRoomsByName(allRooms).slice(0, 60),
     assumptions: [...new Set(assumptions)].slice(0, 8),
+    paintingRelevantPages: paintingRelevantPages
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 12),
     pageCount,
   };
 }
 
-function formatPdfEvidenceForVision(pdfTakeoff) {
+function formatPdfEvidenceForVision(pdfTakeoff, options = {}) {
   if (!pdfTakeoff) return '';
   const lines = [];
   const ba = pdfTakeoff.buildingAreas || {};
@@ -911,6 +956,23 @@ function formatPdfEvidenceForVision(pdfTakeoff) {
       'Only add additional rooms that are missing from this list and have a readable L×W. Never invent bath SF.'
     );
   }
+  const tradeKey = String(options.tradeKey || '').toLowerCase();
+  const paintingPages = Array.isArray(pdfTakeoff.paintingRelevantPages)
+    ? pdfTakeoff.paintingRelevantPages
+    : [];
+  if (tradeKey === 'painting') {
+    lines.push(
+      'Painting-relevant sheets are floor plans, RCPs, finish schedules, door schedules, interior/exterior elevations, and millwork — not only sheets titled Paint. Calculate paint quantities from those sheets when geometry is explicit.'
+    );
+    if (paintingPages.length) {
+      lines.push('PDF text layer — pages that look useful for a Painting takeoff:');
+      for (const page of paintingPages.slice(0, 8)) {
+        lines.push(
+          `- page ${page.page}: ${Array.isArray(page.reasons) ? page.reasons.join(', ') : 'plan geometry'}`
+        );
+      }
+    }
+  }
   return lines.join('\n');
 }
 
@@ -932,5 +994,6 @@ module.exports = {
   dedupeRoomsByName,
   extractPlanTakeoffFromPdfBuffers,
   formatPdfEvidenceForVision,
+  scorePaintingRelevantPage,
   feetInchesToDecimal,
 };

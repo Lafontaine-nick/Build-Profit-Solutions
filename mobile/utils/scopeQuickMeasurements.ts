@@ -665,6 +665,9 @@ const NOTE_BACKED_QUICK_FIELD_ORDER: QuickMeasurementFieldKey[] = [
   'wallPaintSqft',
   'ceilingPaintSqft',
   'paintAreaSqft',
+  'interiorDoorCount',
+  'cabinetPaintSqft',
+  'cabinetRunLf',
   'exteriorPaintSqft',
   'drywallSqft',
   'flooringSqft',
@@ -866,6 +869,17 @@ export const SCOPE_QUICK_MEASUREMENT_ROWS: Record<
       F('cabinetLowerLf', 'Lower Cabinets', '15', 'LF', 'interior')
     ),
     row(F('cabinetRunLf', 'Cabinet Run Length', '30', 'LF', 'interior')),
+    row(
+      F(
+        'cabinetPaintSqft',
+        'Paintable Cabinet Surface Area',
+        '200',
+        'sqft',
+        'interior',
+        undefined,
+        'Enter total paintable surface area for selected doors, drawer fronts, face frames, and exposed cabinet panels. Do not use kitchen floor area.'
+      )
+    ),
     row(F('exteriorPaintSqft', 'Exterior Paint', '2200', 'sqft', 'exterior')),
   ],
   concrete: [
@@ -1343,6 +1357,12 @@ export function countFilledQuickMeasurements(
     if (hasQuickMeasurementValue(value)) filled += 1;
   }
   return { filled, total: fields.length };
+}
+
+export function quickMeasurementFieldDef(
+  key: QuickMeasurementFieldKey
+): QuickMeasurementFieldDef | undefined {
+  return QUICK_MEASUREMENT_FIELD_DEFS[key];
 }
 
 /** Contractor-friendly label + unit for a quick-measurement key (plan takeoff review, alerts). */

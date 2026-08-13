@@ -38,6 +38,11 @@ const MEASUREMENT_KEYS = new Set([
   'showerWallTileSqft',
   'showerFloorTileSqft',
   'wallPaintSqft',
+  'ceilingPaintSqft',
+  'paintAreaSqft',
+  'interiorDoorCount',
+  'cabinetRunLf',
+  'cabinetPaintSqft',
   'exteriorPaintSqft',
   'stuccoGrossWallSqft',
   'stuccoWindowDoorOpeningSqft',
@@ -112,11 +117,18 @@ const MEASUREMENT_KEYS = new Set([
 
 /**
  * Floor plans almost never label paint/drywall/trim SF.
- * Accepting them caused invented values (e.g. paint 320 on a 1700 SF house).
- * Keep them out of auto-fill unless the model marks them as explicitly labeled.
+ * Accepting unlabeled vision numbers caused invented values (e.g. paint 320
+ * on a 1700 SF house). Keep vision auto-fill labeled-only; Painting selected-
+ * trade takeoff may still fill wall/ceiling/trim from dimensioned rooms via
+ * derivePaintingGeometryMeasurements.
  */
 const LABELED_ONLY_KEYS = new Set([
   'wallPaintSqft',
+  'ceilingPaintSqft',
+  'paintAreaSqft',
+  'interiorDoorCount',
+  'cabinetRunLf',
+  'cabinetPaintSqft',
   'exteriorPaintSqft',
   'drywallSqft',
   'baseboardLf',
@@ -316,6 +328,266 @@ function deriveStuccoElevationMeasurements(measurements = {}, planFacts = {}) {
   return { measurements: next, derivedKeys };
 }
 
+const NON_PAINTABLE_INTERIOR_ROOM_RE =
+  /\b(garage|rv\s*garage|carport|patio|porch|deck|balcony|terrace|mechanical|unfinished|attic|crawl|exterior|\bshop\b)\b/i;
+
+function isPaintableInteriorRoom(name) {
+  const n = String(name || '').trim();
+  if (!n) return false;
+  return !NON_PAINTABLE_INTERIOR_ROOM_RE.test(n);
+}
+
+function roomRectangle(room) {
+  const lengthFt = positive(room?.lengthFt);
+  const widthFt = positive(room?.widthFt);
+  const areaSqft =
+    positive(room?.areaSqft) ||
+    (lengthFt != null && widthFt != null ? lengthFt * widthFt : null);
+  const perimeterLf =
+    lengthFt != null && widthFt != null ? 2 * (lengthFt + widthFt) : null;
+  return { lengthFt, widthFt, areaSqft, perimeterLf };
+}
+
+/** Interior wall/plate height must be explicit and per-story — never assume 9'. */
+function explicitInteriorWallHeightFt(planFacts = {}) {
+  const wall = positive(planFacts.wallHeightFt);
+  const plate = positive(planFacts.plateHeightFt);
+  const ceiling = positive(planFacts.ceilingHeightFt);
+  if (wall != null && wall >= 7 && wall <= 14) return wall;
+  if (plate != null && plate >= 7 && plate <= 14) return plate;
+  if (ceiling != null && ceiling >= 7 && ceiling <= 14) return ceiling;
+  return null;
+}
+
+function roundTenth(n) {
+  return Math.round(Number(n) * 10) / 10;
+}
+
+/** Use labeled living SF when detected rooms cover less than 70% of it. */
+const ROOM_CEILING_COVERAGE_MIN = 0.7;
+
+function pickPaintingCeilingSqft(roomCeilingSqft, livingCeilingSqft) {
+  const room = positive(roomCeilingSqft);
+  const living = positive(livingCeilingSqft);
+  if (living && room && room < living * ROOM_CEILING_COVERAGE_MIN) {
+    return { value: living, usedRooms: false, incompleteRooms: true, roomSqft: room };
+  }
+  if (room) return { value: room, usedRooms: true, incompleteRooms: false, roomSqft: room };
+  if (living) return { value: living, usedRooms: false, incompleteRooms: false, roomSqft: room };
+  return { value: null, usedRooms: false, incompleteRooms: false, roomSqft: room };
+}
+
+function looksLikeLivingAreaProxy(value, measurements = {}, buildingAreas = {}) {
+  const living =
+    positive(buildingAreas.totalLivingSqft) ||
+    positive(measurements.floorAreaSqft) ||
+    positive(measurements.flooringSqft);
+  if (living == null || value == null) return false;
+  if (Math.abs(value - living) < 1) return true;
+  const ratio = value / living;
+  if (ratio >= 2.2 && ratio <= 4.0) {
+    return [2.5, 3, 3.5].some(
+      (multiplier) => Math.abs(value - living * multiplier) / living < 0.08
+    );
+  }
+  return false;
+}
+
+function deriveExteriorPaintFromFaces(planFacts = {}) {
+  const faces = Array.isArray(planFacts.elevationFaces)
+    ? planFacts.elevationFaces
+    : [];
+  let total = 0;
+  let used = 0;
+  for (const face of faces) {
+    const paintArea = positive(face?.paintAreaSqft);
+    if (paintArea) {
+      total += paintArea;
+      used += 1;
+      continue;
+    }
+    const finish = String(face?.finish || face?.cladding || '').toLowerCase();
+    const isMasonry = /brick|stone|masonry|veneer/.test(finish);
+    const isStucco =
+      /stucco|efis|eifs/.test(finish) || positive(face?.stuccoAreaSqft);
+    const isPaintedCladding = /paint|siding|fiber|hardi|wood|lap/.test(finish);
+    if (isMasonry || isStucco || !isPaintedCladding) continue;
+    const width = positive(face?.widthFt);
+    const height = positive(face?.heightFt);
+    const area =
+      positive(face?.areaSqft) ||
+      (width && height ? width * height : null);
+    if (!area) continue;
+    total += area;
+    used += 1;
+  }
+  return used ? roundTenth(total) : null;
+}
+
+/**
+ * Painting takeoff from dimensioned rooms + explicit wall/plate height.
+ * Ceilings may fall back to labeled conditioned living SF when room geometry
+ * is incomplete. Never uses living/floor SF as a wall-paint proxy.
+ * Does not invent cabinet paint.
+ */
+function conditionedLivingCeilingSqft(buildingAreas = {}) {
+  const main = positive(buildingAreas.mainFloorLivingSqft);
+  const upper = positive(buildingAreas.upstairsLivingSqft);
+  const additional = (Array.isArray(buildingAreas.additionalFloorAreas)
+    ? buildingAreas.additionalFloorAreas
+    : []
+  )
+    .map(positive)
+    .filter((value) => value != null);
+  if (main != null || upper != null || additional.length) {
+    return roundTenth((main || 0) + (upper || 0) + additional.reduce((sum, value) => sum + value, 0));
+  }
+  return positive(buildingAreas.totalLivingSqft);
+}
+
+function derivePaintingGeometryMeasurements(
+  measurements = {},
+  rooms = [],
+  planFacts = {},
+  options = {}
+) {
+  const next = { ...measurements };
+  const derivedKeys = [];
+  const explicitKeys = [];
+  const assumptions = [];
+  const labeled = new Set(
+    (Array.isArray(options.explicitlyLabeled) ? options.explicitlyLabeled : [])
+      .map((key) => String(key || '').trim())
+  );
+  const geometryDerived = new Set(
+    (Array.isArray(options.geometryDerived) ? options.geometryDerived : [])
+      .map((key) => String(key || '').trim())
+  );
+  const rawVision =
+    options.rawVisionMeasurements && typeof options.rawVisionMeasurements === 'object'
+      ? options.rawVisionMeasurements
+      : {};
+  const buildingAreas = options.buildingAreas || planFacts.buildingAreas || {};
+  const wallHeightFt =
+    explicitInteriorWallHeightFt(planFacts) ||
+    explicitInteriorWallHeightFt(options.rawPlanFacts || {});
+
+  const paintable = (Array.isArray(rooms) ? rooms : [])
+    .filter(
+      (room) =>
+        isPaintableInteriorRoom(room?.name) &&
+        (Number(room?.confidence) || 0) >= 0.4
+    )
+    .map((room) => ({ room, ...roomRectangle(room) }));
+  const dimensioned = paintable.filter((entry) => entry.perimeterLf != null);
+  const withArea = paintable.filter((entry) => entry.areaSqft != null);
+  const MIN_ROOMS = 2;
+  const roomCeilingSqft =
+    withArea.length >= MIN_ROOMS
+      ? withArea.reduce((sum, entry) => sum + entry.areaSqft, 0)
+      : null;
+  const livingCeilingSqft = conditionedLivingCeilingSqft(buildingAreas);
+  const pickedCeiling = pickPaintingCeilingSqft(roomCeilingSqft, livingCeilingSqft);
+  const geometryIncomplete = Boolean(pickedCeiling.incompleteRooms);
+
+  if (
+    !(positive(next.wallPaintSqft) > 0) &&
+    wallHeightFt &&
+    dimensioned.length >= MIN_ROOMS
+  ) {
+    const wallSqft = dimensioned.reduce(
+      (sum, entry) => sum + entry.perimeterLf * wallHeightFt,
+      0
+    );
+    const rounded = roundTenth(wallSqft);
+    if (rounded > 0) {
+      next.wallPaintSqft = rounded;
+      derivedKeys.push('wallPaintSqft');
+      assumptions.push(
+        geometryIncomplete
+          ? `Interior wall paint ${rounded.toLocaleString()} SF calculated from ${dimensioned.length} dimensioned rooms × ${wallHeightFt} FT wall/plate height (gross, room-perimeter method). Partial room geometry versus labeled living area — confirm remaining walls.`
+          : `Interior wall paint ${rounded.toLocaleString()} SF calculated from ${dimensioned.length} dimensioned rooms × ${wallHeightFt} FT wall/plate height (gross, room-perimeter method).`
+      );
+    }
+  }
+
+  const existingCeiling = positive(next.ceilingPaintSqft);
+  const shouldReplaceCeiling =
+    pickedCeiling.value != null &&
+    (!(existingCeiling > 0) ||
+      (geometryIncomplete &&
+        livingCeilingSqft != null &&
+        existingCeiling < livingCeilingSqft * ROOM_CEILING_COVERAGE_MIN));
+  if (shouldReplaceCeiling && pickedCeiling.value) {
+    const rounded = roundTenth(pickedCeiling.value);
+    next.ceilingPaintSqft = rounded;
+    if (!derivedKeys.includes('ceilingPaintSqft')) derivedKeys.push('ceilingPaintSqft');
+    const ceilingSource = pickedCeiling.incompleteRooms
+      ? `labeled conditioned living area (detected rooms ${pickedCeiling.roomSqft.toLocaleString()} SF were incomplete; garage and covered patio excluded)`
+      : pickedCeiling.usedRooms
+        ? `${withArea.length} dimensioned interior rooms`
+        : 'labeled conditioned living area (garage and covered patio excluded)';
+    assumptions.push(
+      `Ceiling paint ${rounded.toLocaleString()} SF calculated from ${ceilingSource}.`
+    );
+  }
+
+  if (!(positive(next.baseboardLf) > 0) && dimensioned.length >= MIN_ROOMS) {
+    const lf = dimensioned.reduce((sum, entry) => sum + entry.perimeterLf, 0);
+    const rounded = roundTenth(lf);
+    if (rounded > 0) {
+      next.baseboardLf = rounded;
+      derivedKeys.push('baseboardLf');
+      assumptions.push(
+        geometryIncomplete
+          ? `Baseboard / trim ${rounded.toLocaleString()} LF calculated from ${dimensioned.length} dimensioned room perimeters (planning LF). Partial room geometry — confirm remaining trim.`
+          : `Baseboard / trim ${rounded.toLocaleString()} LF calculated from ${dimensioned.length} dimensioned room perimeters (planning LF).`
+      );
+    }
+  }
+
+  if (!(positive(next.interiorDoorCount) > 0)) {
+    const raw = positive(rawVision.interiorDoorCount);
+    const count = raw != null ? Math.round(raw) : null;
+    // Painting selected-trade: accept a bounded interior door count even when
+    // vision omitted geometryDerived (Lot 58 has swings, no door schedule).
+    if (count >= 1 && count <= 80) {
+      next.interiorDoorCount = count;
+      if (labeled.has('interiorDoorCount')) explicitKeys.push('interiorDoorCount');
+      else derivedKeys.push('interiorDoorCount');
+      assumptions.push(
+        labeled.has('interiorDoorCount')
+          ? `Interior door count ${count} EA labeled on the plan.`
+          : geometryDerived.has('interiorDoorCount')
+            ? `Interior door count ${count} EA from door schedule or identifiable interior door symbols.`
+            : `Interior door count ${count} EA from identifiable interior door symbols on the plan.`
+      );
+    }
+  }
+
+  if (!(positive(next.exteriorPaintSqft) > 0)) {
+    const fromFaces = deriveExteriorPaintFromFaces(planFacts);
+    if (
+      fromFaces &&
+      !looksLikeLivingAreaProxy(fromFaces, next, buildingAreas)
+    ) {
+      next.exteriorPaintSqft = fromFaces;
+      derivedKeys.push('exteriorPaintSqft');
+      assumptions.push(
+        `Exterior paint ${fromFaces.toLocaleString()} SF calculated from dimensioned elevation faces with painted cladding.`
+      );
+    }
+  }
+
+  const incompleteKeys = [];
+  if (geometryIncomplete) {
+    if (positive(next.wallPaintSqft) > 0) incompleteKeys.push('wallPaintSqft');
+    if (positive(next.baseboardLf) > 0) incompleteKeys.push('baseboardLf');
+  }
+
+  return { measurements: next, derivedKeys, explicitKeys, assumptions, incompleteKeys };
+}
+
 function buildSystemPrompt() {
   return `You are a construction estimator reading architectural floor plans / blueprints (often photos of printed sheets).
 
@@ -364,7 +636,12 @@ Rules:
 8d. When the finish schedule or floor plan labels separate new flooring areas by product, prefer measurements.flooringLvpSqft, flooringTileSqft, flooringCarpetSqft, flooringLaminateSqft, flooringEngineeredHardwoodSqft, flooringSolidHardwoodSqft, and flooringSheetVinylSqft instead of rolling them into flooringSqft. Only use flooringSqft when the sheet gives one combined floor total without product breakdown.
 8e. measurements.floorDemoSqft ONLY when demolition/removal of existing flooring is explicitly labeled — never infer demo from new flooring alone. Per-type demo keys (floorDemoCarpetSqft, floorDemoTileSqft, etc.) only when explicitly labeled.
 8f. Do NOT infer floor-prep severity, existing floor type, underlayment, moisture barrier, baseboards, transitions, or quarter round unless explicitly labeled on the plan.
-9. wallPaintSqft, drywallSqft, exteriorPaintSqft, baseboardLf, and railingLf must be explicitly labeled. Stucco quantities may also be calculated only from complete, clearly labeled elevation face, perimeter/height/story, or opening-dimension inputs; mark those values as plan-derived and never estimate from living area.
+9. NEVER estimate paint, drywall, or trim from living/floor area, building footprint, or an arbitrary multiplier. drywallSqft, railingLf, cabinetRunLf, and cabinetPaintSqft remain labeled-only (cabinets only when paint-grade millwork / painted cabinetry is explicit). Stucco quantities may also be calculated only from complete, clearly labeled elevation face, perimeter/height/story, or opening-dimension inputs; mark those values as plan-derived and never estimate from living area.
+9a. Painting takeoff from plan geometry IS allowed when the inputs are explicit: wallPaintSqft = sum of dimensioned room perimeters × explicit wall/plate height (gross; each room's perimeter is a valid finish takeoff — do not use floorAreaSqft). ceilingPaintSqft = sum of dimensioned interior room areas when those rooms have painted ceilings. baseboardLf = sum of dimensioned room perimeters when finish/base geometry supports it. Put those keys in measurements and geometryDerived; set fieldEvidence sourceType to measured_from_geometry. If wall/plate height is not readable, omit wallPaintSqft. If room dimensions are incomplete, omit rather than guess. Never assume 9' ceilings.
+9b. Prefer separate measurements.wallPaintSqft and measurements.ceilingPaintSqft when walls and ceilings can be taken off separately. Only use measurements.paintAreaSqft when the sheet gives one combined paintable total without a wall/ceiling split. Do not collapse separate wall and ceiling areas into paintAreaSqft.
+9c. interiorDoorCount from a door schedule or reliably identifiable interior door symbols (exclude exterior doors). Prefill the count even without a schedule; do not assume every door is in the bid. Add interiorDoorCount to geometryDerived or explicitlyLabeled. cabinetRunLf / cabinetPaintSqft ONLY when painted cabinetry or paint-grade millwork is explicit — never map generic kitchen cabinet LF into painting.
+9d. exteriorPaintSqft from labeled exterior paint/finish area or dimensioned elevation width × supported wall height for painted cladding (set elevationFaces[].paintAreaSqft / finish). Never from footprint or living SF. If the cladding is stucco/brick/stone and paint is trim/eaves/doors only, omit exterior wall paint area.
+9e. Do NOT infer paint occupancy, application method, prep severity, or masking complexity from plan geometry.
 10. Multi-page sets: merge all floor-plan pages; ignore duplicate title-block totals; elevations do not add living SF.
 11. success false if none of the images are plans/blueprints, OR if imageQuality is "unreadable".
 12. notesBlock: short contractor-readable summary of Building Areas totals (room-by-room SF will be listed separately by the app).
@@ -399,6 +676,8 @@ Schema:
         "heightFt": 10.2,
         "areaSqft": 632.4,
         "stuccoAreaSqft": 560,
+        "paintAreaSqft": 0,
+        "finish": "stucco",
         "openingsSqft": 72.4,
         "windowDoorOpeningsSqft": 72.4,
         "garageOpeningsSqft": 0,
@@ -466,6 +745,7 @@ Schema:
     { "field": "Guest Bath", "reason": "No dimension label on plan" }
   ],
   "explicitlyLabeled": [],
+  "geometryDerived": [],
   "assumptions": ["Total living from Building Areas table on sheet 1"],
   "notesBlock": "string"
 }`;
@@ -769,7 +1049,7 @@ function sanitizePlanFacts(raw, buildingAreas = {}) {
     if (/^\d{1,2}\s*[:/]\s*12$/.test(pitch)) out.roofPitch = pitch.replace('/', ':').replace(/\s+/g, '');
     else if (pitch === 'low-slope') out.roofPitch = pitch;
   }
-  for (const key of ['wallHeightFt', 'plateHeightFt']) {
+  for (const key of ['wallHeightFt', 'plateHeightFt', 'ceilingHeightFt']) {
     const value = positive(src[key]);
     if (hasEvidence(key) && value != null && value <= 40) out[key] = Math.round(value * 1000) / 1000;
   }
@@ -801,6 +1081,7 @@ function sanitizePlanFacts(raw, buildingAreas = {}) {
         'heightFt',
         'areaSqft',
         'stuccoAreaSqft',
+        'paintAreaSqft',
         'openingsSqft',
         'windowDoorOpeningsSqft',
         'garageOpeningsSqft',
@@ -812,7 +1093,13 @@ function sanitizePlanFacts(raw, buildingAreas = {}) {
       }
       const evidence = sanitizeEvidence(face?.evidence);
       if (evidence.length) entry.evidence = evidence;
-      return entry.id && (entry.areaSqft || entry.stuccoAreaSqft || entry.widthFt)
+      const finish = String(face?.finish || face?.cladding || '').trim().slice(0, 40);
+      if (finish) entry.finish = finish;
+      return entry.id &&
+        (entry.areaSqft ||
+          entry.stuccoAreaSqft ||
+          entry.paintAreaSqft ||
+          entry.widthFt)
         ? entry
         : null;
     })
@@ -894,6 +1181,11 @@ function sanitizeMeasurements(raw, rooms, buildingAreas = {}, explicitlyLabeled 
     }
     const v = positive(src[key]);
     if (v == null) continue;
+    if (key === 'interiorDoorCount') {
+      const count = Math.round(v);
+      if (count >= 1 && count <= 80) out[key] = count;
+      continue;
+    }
     if (LABELED_ONLY_KEYS.has(key) && !labeled.has(key)) continue;
     // Concrete flatwork requires explicit label — covered patio must not land here
     if (CONCRETE_EXPLICIT_KEYS.has(key) && !labeled.has(key)) continue;
@@ -983,6 +1275,10 @@ function buildItemQuantities(measurements) {
     floorAreaSqft: { key: 'flooring', unit: 'sqft' },
     drywallSqft: { key: 'drywall', unit: 'sqft' },
     wallPaintSqft: { key: 'paint', unit: 'sqft' },
+    ceilingPaintSqft: { key: 'ceiling_paint', unit: 'sqft' },
+    interiorDoorCount: { key: 'door_paint', unit: 'each' },
+    cabinetRunLf: { key: 'cabinet_paint', unit: 'lf' },
+    exteriorPaintSqft: { key: 'exterior_paint', unit: 'sqft' },
     baseboardLf: { key: 'trim', unit: 'lf' },
     cabinetLf: { key: 'cabinets', unit: 'lf' },
     countertopSqft: { key: 'countertops', unit: 'sqft' },
@@ -1006,12 +1302,16 @@ function buildItemQuantities(measurements) {
 function formatRoomInventoryLines(rooms) {
   const lines = [];
   for (const room of (Array.isArray(rooms) ? rooms : []).slice(0, 48)) {
-    const dims =
-      room.areaSqft != null
-        ? `${room.areaSqft} sqft`
-        : room.lengthFt != null && room.widthFt != null
-          ? `${room.lengthFt}×${room.widthFt} ft`
-          : 'size unclear';
+    const lengthFt = positive(room.lengthFt);
+    const widthFt = positive(room.widthFt);
+    const areaSqft = positive(room.areaSqft);
+    let dims = 'size unclear';
+    if (lengthFt != null && widthFt != null) {
+      dims = `${lengthFt}×${widthFt} ft`;
+      if (areaSqft != null) dims += ` (${areaSqft} sqft)`;
+    } else if (areaSqft != null) {
+      dims = `${areaSqft} sqft`;
+    }
     lines.push(`- ${room.name}: ${dims}`);
   }
   return lines;
@@ -1170,7 +1470,11 @@ async function analyzePlanForMeasurements({
       .map((p) => Buffer.from(String(p.base64).replace(/^data:[^;]+;base64,/, ''), 'base64'));
     if (pdfBuffers.length) {
       pdfTakeoff = await extractPlanTakeoffFromPdfBuffers(pdfBuffers);
-      if (pdfTakeoff) pdfTakeoff.evidenceText = formatPdfEvidenceForVision(pdfTakeoff);
+      if (pdfTakeoff) {
+        pdfTakeoff.evidenceText = formatPdfEvidenceForVision(pdfTakeoff, {
+          tradeKey: planSelection.trade?.key,
+        });
+      }
     }
   } catch (err) {
     console.warn('PDF text takeoff skipped:', err?.message || err);
@@ -1194,6 +1498,15 @@ async function analyzePlanForMeasurements({
     hintBits.push(pdfTakeoff.evidenceText);
   }
 
+  const paintingSelected =
+    planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'painting';
+  const paintingVisionInstructions = [
+    'For Painting, relevant sheets are floor plans, RCPs / reflected ceiling plans, finish schedules, door schedules, interior elevations, cabinet/millwork, and exterior elevations — not only sheets that say Paint.',
+    'Perform a painting takeoff when geometry supports it. wallPaintSqft = dimensioned room perimeter × explicit wall/plate height (gross). ceilingPaintSqft = dimensioned interior room areas. baseboardLf = dimensioned room perimeters when base/trim is supported. Never use living SF, floor SF, or an arbitrary multiplier. Never assume 9\' height if it is not labeled.',
+    'Count interiorDoorCount from a door schedule or identifiable interior door symbols (exclude exterior doors) and add it to geometryDerived. Cabinet paint keys only when paint-grade millwork is explicit.',
+    'For exterior paint, use labeled paint area or dimensioned elevation width × height for painted cladding. Do not count stucco/brick/stone cladding as painted wall area.',
+  ].join('\n');
+
   const measurementsPromise = openai.chat.completions.create({
     model: aiModels.assistant.vision,
     response_format: aiRuntime.assistant.vision.responseFormat,
@@ -1215,7 +1528,9 @@ async function analyzePlanForMeasurements({
               'Use floor-plan sheets for room L×W, not foundation overall garage envelopes. Each bath needs its own readable L×W; otherwise omit bathroomFloorSqft.',
               'Photos of printed sheets are OK — read the title-block square footage table carefully.',
               'Only report numbers you can actually read. If a value is blurry or illegible, omit it and list it in unreadableFields — never guess.',
-              'Do not invent paint, drywall, or trim quantities. If a Stucco quantity is unavailable, list the exact missing sheet/measurement in unreadableFields or missingInfo.',
+              paintingSelected
+                ? paintingVisionInstructions
+                : 'Do not invent paint, drywall, or trim quantities. If a Stucco quantity is unavailable, list the exact missing sheet/measurement in unreadableFields or missingInfo.',
               'Covered patio / roof deck → deckSqft. Garage schedule → garageSqft. Never map patio to concrete flatwork.',
               hintBits.length ? hintBits.join('\n\n') : 'No extra context.',
             ].join('\n\n'),
@@ -1278,8 +1593,12 @@ async function analyzePlanForMeasurements({
                     : 'Review the complete plan set for all major building scopes: structure, foundation, concrete, framing, roof, windows/doors, exterior finishes, MEP, insulation, drywall, flooring, cabinets, tile, paint, sitework, patios, and landscaping.',
                   'For Stucco / Exterior Finish, return elevationFaces with readable face width/height or area, stucco area, windowDoorOpeningsSqft, garageOpeningsSqft, and non-stucco deductions. Also populate measurements.stuccoWindowDoorOpeningSqft and measurements.stuccoGarageOpeningSqft. Read graphical opening dimensions on every elevation, not only the PDF text layer.',
                   'PDF text perimeter/plate/story facts (when present) support gross wall area only. Opening deductions still come from elevation drawings.',
-                  'For every applicable scope, return clearly labeled trade-specific measurements and scope evidence using the existing JSON schema.',
-                  'Do not use living SF or visual proportions as a substitute. Leave unavailable values out and list the exact missing sheet or dimension.',
+                  paintingSelected
+                    ? paintingVisionInstructions
+                    : 'For every applicable scope, return clearly labeled trade-specific measurements and scope evidence using the existing JSON schema.',
+                  paintingSelected
+                    ? 'Return wallPaintSqft, ceilingPaintSqft, baseboardLf, interiorDoorCount, and exteriorPaintSqft when geometry or schedules support them. Add geometry-derived keys to geometryDerived. Leave occupancy, application method, and prep omitted.'
+                    : 'Do not use living SF or visual proportions as a substitute. Leave unavailable values out and list the exact missing sheet or dimension.',
                 ].join('\n\n'),
               },
               ...compatible.map(toVisionContentPart),
@@ -1467,6 +1786,34 @@ async function analyzePlanForMeasurements({
     buildingAreas,
     parsed.explicitlyLabeled
   );
+  const paintingKeys = [
+    'wallPaintSqft',
+    'ceilingPaintSqft',
+    'paintAreaSqft',
+    'interiorDoorCount',
+    'baseboardLf',
+    'cabinetRunLf',
+    'cabinetPaintSqft',
+    'exteriorPaintSqft',
+  ];
+  const paintingKeysFrom = (map) =>
+    Object.fromEntries(
+      paintingKeys
+        .filter((key) => positive(map?.[key]) > 0)
+        .map((key) => [key, map[key]])
+    );
+  if (process.env.NODE_ENV !== 'production' && paintingSelected) {
+    console.debug('[painting plan extract]', {
+      visionBeforeSanitize: paintingKeysFrom(parsed.measurements),
+      explicitlyLabeled: parsed.explicitlyLabeled || [],
+      geometryDerived: parsed.geometryDerived || [],
+      afterSanitize: paintingKeysFrom(rawMeasurements),
+      roomCount: rooms.length,
+      wallHeightFt: planFacts.wallHeightFt || null,
+      plateHeightFt: planFacts.plateHeightFt || null,
+      paintingRelevantPages: pdfTakeoff?.paintingRelevantPages || [],
+    });
+  }
   const elevationDerived = deriveStuccoElevationMeasurements(
     rawMeasurements,
     parsed.planFacts
@@ -1474,6 +1821,62 @@ async function analyzePlanForMeasurements({
   rawMeasurements = elevationDerived.measurements;
   for (const key of elevationDerived.derivedKeys) {
     fieldConfidence[key] = Math.max(Number(fieldConfidence[key] || 0), 0.75);
+  }
+  if (paintingSelected) {
+    const paintingDerived = derivePaintingGeometryMeasurements(
+      rawMeasurements,
+      rooms,
+      planFacts,
+      {
+        rawVisionMeasurements: parsed.measurements,
+        explicitlyLabeled: parsed.explicitlyLabeled,
+        geometryDerived: parsed.geometryDerived,
+        buildingAreas,
+        rawPlanFacts: visionPlanFacts,
+      }
+    );
+    rawMeasurements = paintingDerived.measurements;
+    for (const key of paintingDerived.derivedKeys) {
+      const incomplete = (paintingDerived.incompleteKeys || []).includes(key);
+      fieldConfidence[key] = Math.max(
+        Number(fieldConfidence[key] || 0),
+        incomplete ? 0.55 : 0.75
+      );
+      measurementProvenance[key] = {
+        value: rawMeasurements[key],
+        source: 'measured_from_geometry',
+        normalizedSource: incomplete ? 'NEEDS_REVIEW' : 'FROM_PLAN',
+        ...(incomplete ? { coverage: 'incomplete' } : {}),
+      };
+    }
+    for (const key of paintingDerived.explicitKeys) {
+      measurementProvenance[key] = {
+        value: rawMeasurements[key],
+        source: 'detected_from_plan',
+        normalizedSource: 'FROM_PLAN',
+      };
+    }
+    if (paintingDerived.assumptions.length) {
+      parsed.assumptions = [
+        ...(Array.isArray(parsed.assumptions) ? parsed.assumptions : []),
+        ...paintingDerived.assumptions,
+      ];
+    }
+    if (process.env.NODE_ENV !== 'production') {
+      console.debug('[painting plan extract]', {
+        afterGeometryDerive: paintingKeysFrom(rawMeasurements),
+        derivedKeys: paintingDerived.derivedKeys,
+      });
+    }
+    if (pdfTakeoff?.paintingRelevantPages?.length) {
+      parsed.assumptions = [
+        ...(Array.isArray(parsed.assumptions) ? parsed.assumptions : []),
+        `Painting-relevant pages: ${pdfTakeoff.paintingRelevantPages
+          .slice(0, 8)
+          .map((page) => `${page.page} (${(page.reasons || []).join(', ') || 'plan'})`)
+          .join('; ')}`,
+      ];
+    }
   }
   rawMeasurements = reconcileBathroomMeasurement(rawMeasurements, rooms, unreadableFields);
   const { measurements, lowConfidence } = applyConfidenceFloor(rawMeasurements, fieldConfidence);
@@ -1485,7 +1888,7 @@ async function analyzePlanForMeasurements({
   ]
     .map((a) => String(a).slice(0, 200))
     .filter(Boolean)
-    .slice(0, 10);
+    .slice(0, 16);
   let notesBlock = formatNotesBlock({
     notesBlock: parsed.notesBlock,
     rooms,
@@ -1645,7 +2048,14 @@ async function analyzePlanForMeasurements({
     planSelection.mode,
     planSelection.trade
   );
-  const tradeRooms = planSelection.mode === 'selected_trade' ? [] : rooms;
+  const keepPaintingRooms =
+    planSelection.mode === 'selected_trade' &&
+    planSelection.trade?.key === 'painting';
+  const tradeRooms =
+    planSelection.mode === 'selected_trade' && !keepPaintingRooms ? [] : rooms;
+  if (paintingSelected && rooms.length) {
+    planFacts.interiorRooms = rooms.slice(0, 80);
+  }
   const tradeAreaReconciliation =
     planSelection.mode === 'selected_trade' ? null : areaReconciliation;
   const tradeMissingInfo = [...(planSelection.trade?.missingInfo || [])];
@@ -1661,6 +2071,18 @@ async function analyzePlanForMeasurements({
     ) {
       tradeMissingInfo.unshift(
         'Opening deductions: no readable window, door, or garage opening dimensions'
+      );
+    }
+  }
+  if (paintingSelected) {
+    if (!(positive(tradeMeasurementInput.wallPaintSqft) > 0)) {
+      tradeMissingInfo.unshift(
+        'Interior wall area: no labeled paint SF or dimensioned rooms with explicit wall/plate height'
+      );
+    }
+    if (!(positive(tradeMeasurementInput.ceilingPaintSqft) > 0)) {
+      tradeMissingInfo.unshift(
+        'Ceiling area: no labeled ceiling finish SF or dimensioned interior rooms'
       );
     }
   }
@@ -1721,6 +2143,7 @@ module.exports = {
   mergePositiveMeasurementMaps,
   preferElevationFacesWithOpenings,
   deriveStuccoElevationMeasurements,
+  derivePaintingGeometryMeasurements,
   sanitizeRooms,
   sanitizeMeasurements,
   sanitizeBuildingAreas,

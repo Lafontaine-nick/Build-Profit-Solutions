@@ -377,4 +377,75 @@ describe('scopeItemQuantityCatalog', () => {
     });
     expect(backsplash.dualAllowance).toMatchObject({ quantity: 900 });
   });
+
+  test('painting confirmed measurements stamp interior/trim/door/cabinet/exterior quantities', () => {
+    const measurements = normalizeScopeMeasurements({
+      combinedPaintableAreaSqft: 1500,
+      paintPricingMethod: 'combined',
+      baseboardLf: 200,
+      interiorDoorCount: 6,
+      cabinetRunLf: 25,
+      exteriorPaintSqft: 2000,
+    });
+    expect(measurements.combinedPaintableAreaSqft).toBe(1500);
+
+    const interior = resolveQuantityForChecklistItem('interior_paint', {
+      measurements,
+      templateKey: 'painting',
+    });
+    expect(interior).toMatchObject({ quantity: 1500, unit: 'sqft', pricingReady: true });
+
+    const trim = resolveQuantityForChecklistItem('trim_paint', {
+      measurements,
+      templateKey: 'painting',
+    });
+    expect(trim).toMatchObject({ quantity: 200, unit: 'lf', pricingReady: true });
+
+    const doors = resolveQuantityForChecklistItem('door_paint', {
+      measurements,
+      templateKey: 'painting',
+    });
+    expect(doors).toMatchObject({ quantity: 6, unit: 'each', pricingReady: true });
+
+    const cabinets = resolveQuantityForChecklistItem('cabinet_paint', {
+      measurements,
+      templateKey: 'painting',
+    });
+    expect(cabinets).toMatchObject({ quantity: 25, unit: 'lf', pricingReady: true });
+
+    const exterior = resolveQuantityForChecklistItem('exterior_paint', {
+      measurements,
+      templateKey: 'painting',
+    });
+    expect(exterior).toMatchObject({ quantity: 2000, unit: 'sqft', pricingReady: true });
+  });
+
+  test('painting Walls package uses checklistItemId instead of kitchen cabinets name match', () => {
+    const measurements = normalizeScopeMeasurements({
+      combinedPaintableAreaSqft: 1500,
+      paintPricingMethod: 'combined',
+      cabinetRunLf: 25,
+    });
+    const walls = stampPackageWithCatalogRules(
+      {
+        name: 'Walls',
+        scope: 'Paintable wall surface area only.',
+        checklistItemId: 'interior_paint',
+        scopeQuantities: [],
+      },
+      { measurements, templateKey: 'painting' }
+    );
+    expect(walls.scopeQuantities[0]).toMatchObject({ quantity: 1500, unit: 'sqft' });
+
+    const cabinets = stampPackageWithCatalogRules(
+      {
+        name: 'Cabinets',
+        scope: 'Includes cabinet boxes, doors, drawer fronts, and face frames.',
+        checklistItemId: 'cabinet_paint',
+        scopeQuantities: [],
+      },
+      { measurements, templateKey: 'painting' }
+    );
+    expect(cabinets.scopeQuantities[0]).toMatchObject({ quantity: 25, unit: 'lf' });
+  });
 });

@@ -3,6 +3,14 @@ import { measurementStatusLabel } from './records';
 import type { MeasurementStatus } from './types';
 import { measurementSemanticsV1Enabled } from './flags';
 import { resolveStep2MissingStatusLabel } from '@/utils/confirmScopeStep2Pricing';
+import { isElectricalServicePanelItemId } from '@/utils/subcontractorTrade/electricalServicePanelPricing';
+import { isElectricalCircuitItemId } from '@/utils/subcontractorTrade/electricalCircuitPricing';
+import { isElectricalReceptacleItemId } from '@/utils/subcontractorTrade/electricalReceptaclePricing';
+import { isElectricalSwitchItemId } from '@/utils/subcontractorTrade/electricalSwitchPricing';
+import { isElectricalLightingFanItemId } from '@/utils/subcontractorTrade/electricalLightingFanPricing';
+import { isElectricalHookupItemId } from '@/utils/subcontractorTrade/electricalHookupPricing';
+import { isElectricalSpecialSystemItemId } from '@/utils/subcontractorTrade/electricalSpecialSystemsPricing';
+import { isElectricalModificationItemId } from '@/utils/subcontractorTrade/electricalModificationPricing';
 
 export type BenchmarkLevel = 'scope' | 'component' | 'stage' | 'overall';
 
@@ -340,6 +348,22 @@ export function missingStatusDisplayLabel(
     case 'interior_finishes':
       return 'Planning benchmark — takeoff still required';
     default: {
+      if (
+        String(templateKey || '').toLowerCase() === 'electrical' &&
+        scopeKey.startsWith('electrical_') &&
+        scopeKey !== 'electrical_rough' &&
+        scopeKey !== 'electrical_trim' &&
+        !isElectricalServicePanelItemId(scopeKey) &&
+        !isElectricalCircuitItemId(scopeKey) &&
+        !isElectricalReceptacleItemId(scopeKey) &&
+        !isElectricalSwitchItemId(scopeKey) &&
+        !isElectricalLightingFanItemId(scopeKey) &&
+        !isElectricalHookupItemId(scopeKey) &&
+        !isElectricalSpecialSystemItemId(scopeKey) &&
+        !isElectricalModificationItemId(scopeKey)
+      ) {
+        return 'Needs pricing';
+      }
       const status = missingStatusForScope(scopeKey);
       return measurementStatusLabel(status);
     }

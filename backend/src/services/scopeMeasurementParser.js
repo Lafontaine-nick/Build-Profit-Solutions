@@ -4,6 +4,7 @@
  */
 
 const { splitNoteClauses } = require('./estimateDraftQuantityPrice');
+const { parseElectricalMeasurementsFromNotes } = require('./electricalCanonicalParser');
 const { parseScopeItemAllowancesFromNotes } = require('./scopeAllowanceParser');
 const { parseScopeItemRatePricingFromNotes } = require('./scopeRatePricingParser');
 
@@ -740,9 +741,19 @@ function parseScopeMeasurementsFromNotes(notes, ctx = {}) {
   if (out.bathroomFloorSqft && !out.sqft) out.sqft = out.bathroomFloorSqft;
   if (out.baseboardLf && !out.lf) out.lf = out.baseboardLf;
 
+  const electrical = parseElectricalMeasurementsFromNotes(text);
+  const electricalItemQuantities = electrical.itemQuantities || {};
+  for (const [key, value] of Object.entries(electrical)) {
+    if (key === 'itemQuantities' || value == null) continue;
+    out[key] = value;
+  }
+
   const itemAllowances = parseScopeItemAllowancesFromNotes(text, ctx);
   const itemRatePricing = parseScopeItemRatePricingFromNotes(text, out, ctx);
   const itemQuantities = { ...itemAllowances, ...itemRatePricing };
+  for (const [itemId, quantity] of Object.entries(electricalItemQuantities)) {
+    if (!itemQuantities[itemId]) itemQuantities[itemId] = quantity;
+  }
   if (wallDemoSqft && !itemQuantities.wall_demo) {
     itemQuantities.wall_demo = {
       quantity: wallDemoSqft,

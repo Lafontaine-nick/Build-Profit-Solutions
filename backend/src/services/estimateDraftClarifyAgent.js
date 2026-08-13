@@ -45,6 +45,12 @@ const MEASUREMENT_KEY_WHITELIST = new Set([
   'showerWallTileSqft',
   'showerFloorTileSqft',
   'wallPaintSqft',
+  'ceilingPaintSqft',
+  'paintAreaSqft',
+  'combinedPaintableAreaSqft',
+  'interiorDoorCount',
+  'cabinetRunLf',
+  'cabinetPaintSqft',
 ]);
 
 const QUESTION_KINDS = new Set(['measurement', 'pricing', 'scope', 'project_info']);
@@ -101,6 +107,13 @@ function measurementKeyLabel(key) {
     concreteCy: 'Concrete',
     excavationCy: 'Excavation',
     wallPaintSqft: 'Paint',
+    ceilingPaintSqft: 'Ceiling paint',
+    combinedPaintableAreaSqft: 'Combined paintable area',
+    paintAreaSqft: 'Paintable area',
+    interiorDoorCount: 'Interior doors',
+    cabinetRunLf: 'Cabinet run',
+    cabinetPaintSqft: 'Cabinet paint',
+    exteriorPaintSqft: 'Exterior paint',
     showerWallTileSqft: 'Shower wall tile',
   };
   return labels[key] || key;
@@ -114,6 +127,7 @@ function inferUnitFromQuestion(question, targetKey) {
   if (/\broof(?:ing)?\s*squares?\b|\b\d+\s*squares?\b/.test(text) || key === 'roofsquares') return 'squares';
   if (/\bcubic\s*yards?\b|\bcy\b/.test(text) || key.includes('cy')) return 'cy';
   if (/\btons?\b/.test(text) || key.includes('ton')) return 'tons';
+  if (/\bdoors?\b|\beach\b|\bcount\b/.test(text) || key.endsWith('count')) return 'each';
   if (key.includes('sqft') || key.endsWith('sqft')) return 'sqft';
   return 'sqft';
 }

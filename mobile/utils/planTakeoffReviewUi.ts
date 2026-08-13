@@ -125,6 +125,17 @@ export function measurementDisplayLabel(
     quarterRoundLf: 'Quarter round',
   };
   if (flooringLabels[key]) return { label: flooringLabels[key] };
+  const paintingLabels: Record<string, string> = {
+    wallPaintSqft: 'Interior walls',
+    ceilingPaintSqft: 'Ceilings',
+    paintAreaSqft: 'Combined paintable area',
+    combinedPaintableAreaSqft: 'Combined paintable area',
+    interiorDoorCount: 'Interior doors',
+    cabinetRunLf: 'Cabinet painting',
+    cabinetPaintSqft: 'Cabinet painting area',
+    exteriorPaintSqft: 'Exterior paint',
+  };
+  if (paintingLabels[key]) return { label: paintingLabels[key] };
   return { label: key };
 }
 
@@ -372,6 +383,228 @@ export function buildFlooringPlanReviewSummary(
   lines.push({
     label: 'Quarter round',
     value: quarterRound != null ? `${formatSfWithCommas(quarterRound)} LF` : '—',
+  });
+
+  return lines;
+}
+
+export type PaintingPlanReviewLine = {
+  label: string;
+  value: string;
+  note?: string | null;
+};
+
+function occupancyLabel(value: unknown): string {
+  if (value === 'occupied') return 'Occupied';
+  if (value === 'vacant') return 'Vacant';
+  if (value === 'new_construction') return 'New construction';
+  return 'Needs confirmation';
+}
+
+function applicationLabel(value: unknown): string {
+  if (value === 'brush_roll') return 'Brush / roll';
+  if (value === 'spray') return 'Spray';
+  if (value === 'mixed') return 'Brush/roll + spray';
+  return 'Needs confirmation';
+}
+
+const PAINTING_PLAN_REVIEW_KEYS = new Set([
+  'wallPaintSqft',
+  'ceilingPaintSqft',
+  'paintAreaSqft',
+  'combinedPaintableAreaSqft',
+  'baseboardLf',
+  'interiorDoorCount',
+  'cabinetRunLf',
+  'cabinetPaintSqft',
+  'exteriorPaintSqft',
+]);
+
+function provenanceSourceText(entry: unknown): string {
+  if (entry == null) return '';
+  if (typeof entry === 'string') return entry.toLowerCase();
+  if (typeof entry === 'object') {
+    const rec = entry as { source?: string; normalizedSource?: string };
+    return String(rec.source || rec.normalizedSource || '').toLowerCase();
+  }
+  return '';
+}
+
+export function planReviewProvenanceFlags(input: {
+  key: string;
+  provenanceEntry?: unknown;
+}): {
+  hasExplicitPlanSource: boolean;
+  hasReliableDimensions: boolean;
+  roomDependent: boolean;
+} {
+  const source = provenanceSourceText(input.provenanceEntry);
+  const fromGeometry =
+    source.includes('geometry') || source.includes('calculated_from_plan');
+  const fromPlan =
+    source.includes('detected_from_plan') ||
+    source.includes('labeled') ||
+    source === 'from_plan';
+  const paintingKey = PAINTING_PLAN_REVIEW_KEYS.has(input.key);
+  const incomplete =
+    paintingKey &&
+    typeof input.provenanceEntry === 'object' &&
+    input.provenanceEntry != null &&
+    (input.provenanceEntry as { coverage?: string }).coverage === 'incomplete';
+  return {
+    hasExplicitPlanSource:
+      input.key === 'floorAreaSqft' ||
+      input.key === 'garageSqft' ||
+      input.key === 'deckSqft' ||
+      (paintingKey && fromPlan && !fromGeometry && !incomplete),
+    hasReliableDimensions:
+      input.key === 'kitchenFloorSqft' ||
+      input.key === 'bathroomFloorSqft' ||
+      (paintingKey && fromGeometry && !incomplete),
+    roomDependent:
+      input.key === 'kitchenFloorSqft' ||
+      input.key === 'bathroomFloorSqft' ||
+      incomplete,
+  };
+}
+
+function paintingQuantityNote(
+  key: string,
+  provenance?: Record<string, unknown> | null
+): string | undefined {
+  const entry = provenance?.[key];
+  if (entry == null) return undefined;
+  const s = provenanceSourceText(entry);
+  if (
+    (typeof entry === 'object' &&
+      entry != null &&
+      (entry as { coverage?: string }).coverage === 'incomplete') ||
+    s.includes('incomplete')
+  ) {
+    return 'Partial room geometry — confirm';
+  }
+  if (
+    s.includes('geometry') ||
+    s.includes('measured_from_geometry') ||
+    s.includes('calculated_from_plan')
+  ) {
+    return 'Calculated from plan geometry';
+  }
+  if (key === 'interiorDoorCount') {
+    return s.includes('schedule') ? 'From door schedule' : 'From plan';
+  }
+  if (
+    s.includes('explicit') ||
+    s.includes('detected_from_plan') ||
+    s === 'from_plan' ||
+    s.includes('labeled')
+  ) {
+    return 'From plan';
+  }
+  return undefined;
+}
+
+/** Grouped Painting summary for Plan Review before Confirm Scope. */
+export function buildPaintingPlanReviewSummary(
+  measurements: Record<string, number | string | null | undefined>,
+  provenance?: Record<string, unknown> | null
+): PaintingPlanReviewLine[] {
+  const lines: PaintingPlanReviewLine[] = [];
+  const walls = positiveMeasurement(measurements.wallPaintSqft);
+  const ceilings = positiveMeasurement(measurements.ceilingPaintSqft);
+  const combined =
+    positiveMeasurement(measurements.combinedPaintableAreaSqft) ??
+    positiveMeasurement(measurements.paintAreaSqft);
+  const doors = positiveMeasurement(measurements.interiorDoorCount);
+  const trim = positiveMeasurement(measurements.baseboardLf);
+  const cabinets =
+    positiveMeasurement(measurements.cabinetRunLf) ??
+    positiveMeasurement(measurements.cabinetPaintSqft);
+  const exterior = positiveMeasurement(measurements.exteriorPaintSqft);
+  const hasInterior =
+    walls != null ||
+    ceilings != null ||
+    combined != null ||
+    doors != null ||
+    trim != null ||
+    cabinets != null;
+
+  if (hasInterior) {
+    if (walls != null) {
+      const note = paintingQuantityNote('wallPaintSqft', provenance);
+      lines.push({
+        label: 'Walls',
+        value: `${formatSfWithCommas(walls)} sqft`,
+        ...(note ? { note } : {}),
+      });
+    }
+    if (ceilings != null) {
+      const note = paintingQuantityNote('ceilingPaintSqft', provenance);
+      lines.push({
+        label: 'Ceilings',
+        value: `${formatSfWithCommas(ceilings)} sqft`,
+        ...(note ? { note } : {}),
+      });
+    }
+    if (walls == null && ceilings == null && combined != null) {
+      lines.push({
+        label: 'Combined paintable area',
+        value: `${formatSfWithCommas(combined)} sqft`,
+        note: 'Choose combined or separate walls/ceilings in Confirm Scope',
+      });
+    }
+    if (doors != null) {
+      const note = paintingQuantityNote('interiorDoorCount', provenance);
+      lines.push({
+        label: 'Doors',
+        value: `${formatSfWithCommas(doors)} EA`,
+        ...(note ? { note } : {}),
+      });
+    }
+    if (trim != null) {
+      const note = paintingQuantityNote('baseboardLf', provenance);
+      lines.push({
+        label: 'Baseboard / trim',
+        value: `${formatSfWithCommas(trim)} LF`,
+        ...(note ? { note } : {}),
+      });
+    }
+    if (cabinets != null) {
+      const cabinetKey =
+        positiveMeasurement(measurements.cabinetRunLf) != null
+          ? 'cabinetRunLf'
+          : 'cabinetPaintSqft';
+      const note = paintingQuantityNote(cabinetKey, provenance);
+      lines.push({
+        label: 'Cabinet painting',
+        value: `${formatSfWithCommas(cabinets)} ${
+          cabinetKey === 'cabinetRunLf' ? 'LF' : 'sqft'
+        }`,
+        ...(note ? { note } : {}),
+      });
+    }
+  }
+
+  if (exterior != null) {
+    const note = paintingQuantityNote('exteriorPaintSqft', provenance);
+    lines.push({
+      label: 'Exterior walls',
+      value: `${formatSfWithCommas(exterior)} sqft`,
+      ...(note ? { note } : {}),
+    });
+  }
+
+  lines.push({
+    label: 'Job condition',
+    value: occupancyLabel(measurements.paintOccupancy),
+  });
+  lines.push({
+    label: 'Application method',
+    value: applicationLabel(measurements.paintApplicationMethod),
+  });
+  lines.push({
+    label: 'Prep / masking',
+    value: 'Needs confirmation',
   });
 
   return lines;

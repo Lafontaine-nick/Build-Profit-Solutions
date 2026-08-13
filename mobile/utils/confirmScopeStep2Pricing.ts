@@ -25,6 +25,14 @@ import {
   shouldSuppressSuggestedPricingAfterApply,
 } from '@/utils/scopeItemQuantities';
 import { parseScopeMeasurementInput } from '@/utils/scopeMeasurements';
+import { isElectricalServicePanelItemId } from '@/utils/subcontractorTrade/electricalServicePanelPricing';
+import { isElectricalCircuitItemId } from '@/utils/subcontractorTrade/electricalCircuitPricing';
+import { isElectricalReceptacleItemId } from '@/utils/subcontractorTrade/electricalReceptaclePricing';
+import { isElectricalSwitchItemId } from '@/utils/subcontractorTrade/electricalSwitchPricing';
+import { isElectricalLightingFanItemId } from '@/utils/subcontractorTrade/electricalLightingFanPricing';
+import { isElectricalHookupItemId } from '@/utils/subcontractorTrade/electricalHookupPricing';
+import { isElectricalSpecialSystemItemId } from '@/utils/subcontractorTrade/electricalSpecialSystemsPricing';
+import { isElectricalModificationItemId } from '@/utils/subcontractorTrade/electricalModificationPricing';
 
 /** How Step 2 should treat pricing for a checklist row before Apply. */
 export type Step2PricingTier =
@@ -201,6 +209,35 @@ export function resolveStep2PricingTier(
   templateKey?: string | null
 ): Step2PricingTierConfig {
   const template = String(templateKey || '').toLowerCase();
+  if (
+    template === 'electrical' &&
+    itemId.startsWith('electrical_') &&
+    itemId !== 'electrical_rough' &&
+    itemId !== 'electrical_trim' &&
+    !isElectricalServicePanelItemId(itemId) &&
+    !isElectricalCircuitItemId(itemId) &&
+    !isElectricalReceptacleItemId(itemId) &&
+    !isElectricalSwitchItemId(itemId) &&
+    !isElectricalLightingFanItemId(itemId) &&
+    !isElectricalHookupItemId(itemId) &&
+    !isElectricalSpecialSystemItemId(itemId) &&
+    !isElectricalModificationItemId(itemId)
+  ) {
+    return { tier: 'takeoff_required', takeoffLabel: 'pricing' };
+  }
+  if (
+    template === 'electrical' &&
+    (isElectricalServicePanelItemId(itemId) ||
+      isElectricalCircuitItemId(itemId) ||
+      isElectricalReceptacleItemId(itemId) ||
+      isElectricalSwitchItemId(itemId) ||
+      isElectricalLightingFanItemId(itemId) ||
+      isElectricalHookupItemId(itemId) ||
+      isElectricalSpecialSystemItemId(itemId) ||
+      isElectricalModificationItemId(itemId))
+  ) {
+    return { tier: 'auto_planning' };
+  }
   if (template === 'bathroom' && BATHROOM_STEP2_PRICING_TIER[itemId]) {
     return BATHROOM_STEP2_PRICING_TIER[itemId];
   }
