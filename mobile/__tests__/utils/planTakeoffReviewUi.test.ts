@@ -3,6 +3,9 @@ import {
   applyPlanTakeoffButtonLabel,
   buildConcretePlanReviewSummary,
   buildElectricalPlanReviewSummary,
+  electricalPlanReviewDetectedLines,
+  electricalPlanReviewStatusLines,
+  mergeElectricalConflictReadings,
   buildFlooringPlanReviewSummary,
   buildPaintingPlanReviewSummary,
   buildImportedPlanSummaryText,
@@ -445,6 +448,87 @@ describe('plan takeoff review UI polish', () => {
     ).toBe(true);
   });
 
+  it('does not mark a conflicted Electrical count as Plan verified', () => {
+    expect(
+      planReviewProvenanceFlags({
+        key: 'recessedLightCount',
+        provenanceEntry: {
+          source: 'pdf_text_instance_tags',
+          confidenceTier: 1,
+          evidenceKind: 'instance_tags',
+        },
+      })
+    ).toMatchObject({
+      hasExplicitPlanSource: true,
+      roomDependent: false,
+    });
+    expect(
+      planReviewProvenanceFlags({
+        key: 'recessedLightCount',
+        provenanceEntry: { source: 'detected_from_plan', confidenceTier: 1 },
+        hasConflict: true,
+      })
+    ).toMatchObject({
+      hasExplicitPlanSource: false,
+      hasReliableDimensions: false,
+      roomDependent: true,
+    });
+  });
+
+  it('does not mark symbol-only GFCI or inferred counts as Plan verified', () => {
+    expect(
+      planReviewProvenanceFlags({
+        key: 'gfciReceptacleCount',
+        provenanceEntry: {
+          source: 'calculated_from_symbols',
+          evidenceKind: 'symbols',
+          confidenceTier: 2,
+        },
+      })
+    ).toMatchObject({
+      hasExplicitPlanSource: false,
+      fromPlanSymbols: true,
+      aiInferred: false,
+    });
+    expect(
+      planReviewProvenanceFlags({
+        key: 'gfciReceptacleCount',
+        provenanceEntry: {
+          source: 'inferred_from_context',
+          evidenceKind: 'inference',
+        },
+      })
+    ).toMatchObject({
+      hasExplicitPlanSource: false,
+      fromPlanSymbols: false,
+      aiInferred: true,
+    });
+    expect(
+      planReviewProvenanceFlags({
+        key: 'standardReceptacleCount',
+        provenanceEntry: {
+          source: 'detected_from_plan',
+          evidenceKind: 'symbols',
+          methodsAgree: true,
+          confidenceTier: 1,
+        },
+      })
+    ).toMatchObject({
+      hasExplicitPlanSource: true,
+      fromPlanSymbols: false,
+      aiInferred: false,
+    });
+    expect(
+      planReviewProvenanceFlags({
+        key: 'ceilingFanCount',
+        provenanceEntry: {
+          source: 'calculated_from_symbols',
+          evidenceKind: 'symbols',
+        },
+      }).hasExplicitPlanSource
+    ).toBe(false);
+  });
+
   it('flags incomplete painting geometry as needs review, not reliable dimensions', () => {
     expect(
       planReviewProvenanceFlags({
@@ -484,6 +568,133 @@ describe('plan takeoff review UI polish', () => {
     );
   });
 
+  it('does not promote unresolved Electrical conflicts into Detected quantities', () => {
+    const merged = mergeElectricalConflictReadings(
+      {
+        mainPanelCount: 1,
+        rangeHookupCount: 1,
+        dryerHookupCount: 1,
+        standardReceptacleCount: 50,
+        gfciReceptacleCount: 5,
+        recessedLightCount: 32,
+      },
+      [
+        {
+          field: 'standardReceptacleCount',
+          selectedValue: 50,
+          candidates: [{ value: 40 }, { value: 50 }],
+        },
+        {
+          field: 'gfciReceptacleCount',
+          selectedValue: 5,
+          candidates: [{ value: 5 }, { value: 8 }],
+        },
+        {
+          field: 'recessedLightCount',
+          selectedValue: 32,
+          candidates: [{ value: 32 }, { value: 20 }],
+        },
+      ]
+    );
+    expect(merged.standardReceptacleCount).toBeUndefined();
+    expect(merged.gfciReceptacleCount).toBeUndefined();
+    expect(merged.recessedLightCount).toBeUndefined();
+    expect(merged.mainPanelCount).toBe(1);
+    const summary = buildElectricalPlanReviewSummary(merged, null, {
+      unresolvedConflictFields: [
+        'standardReceptacleCount',
+        'gfciReceptacleCount',
+        'recessedLightCount',
+      ],
+    });
+    const detected = electricalPlanReviewDetectedLines(summary);
+    const status = electricalPlanReviewStatusLines(summary);
+    expect(detected).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Main panel', value: '1 EA' }),
+        expect.objectContaining({
+          label: 'Electric range circuit + hookup',
+          value: '1 EA',
+        }),
+        expect.objectContaining({
+          label: 'Electric dryer circuit + hookup',
+          value: '1 EA',
+        }),
+      ])
+    );
+    expect(detected.some(line => line.label === 'Standard receptacles')).toBe(
+      false
+    );
+    expect(detected.some(line => line.label === 'GFCI receptacles')).toBe(false);
+    expect(
+      detected.some(line => line.label === 'Recessed / canless / wafer light')
+    ).toBe(false);
+    expect(status).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: 'Standard receptacles',
+          value: 'Needs confirmation',
+        }),
+        expect.objectContaining({
+          label: 'GFCI receptacles',
+          value: 'Needs confirmation',
+        }),
+        expect.objectContaining({
+          label: 'Recessed / canless / wafer light',
+          value: 'Needs confirmation',
+        }),
+        expect.objectContaining({
+          label: 'Shared homeruns / unlabeled circuits',
+          value: 'Needs confirmation',
+        }),
+      ])
+    );
+  });
+
+  it('shows a chosen Electrical conflict in Detected quantities', () => {
+    const merged = mergeElectricalConflictReadings(
+      { mainPanelCount: 1, standardReceptacleCount: 40 },
+      [
+        {
+          field: 'standardReceptacleCount',
+          selectedValue: 40,
+          candidates: [{ value: 40 }, { value: 50 }],
+        },
+      ],
+      { standardReceptacleCount: 50 }
+    );
+    expect(merged.standardReceptacleCount).toBe(50);
+    const summary = buildElectricalPlanReviewSummary(merged);
+    expect(electricalPlanReviewDetectedLines(summary)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: 'Standard receptacles',
+          value: '50 EA',
+        }),
+      ])
+    );
+  });
+
+  it('surfaces unclassified lighting fixtures as needs confirmation', () => {
+    const summary = buildElectricalPlanReviewSummary(
+      { mainPanelCount: 1 },
+      null,
+      {
+        unclassifiedFixtureCount: 4,
+        unclassifiedFixtureNote: '4 lighting fixtures without a symbol legend',
+      }
+    );
+    expect(electricalPlanReviewStatusLines(summary)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: 'Unclassified lighting fixtures',
+          value: 'Needs confirmation',
+          note: '4 lighting fixtures without a symbol legend',
+        }),
+      ])
+    );
+  });
+
   it('builds grouped Electrical plan review summary from canonical counts', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
     expect(measurementDisplayLabel('standardReceptacleCount').label).toBe(
@@ -503,7 +714,7 @@ describe('plan takeoff review UI polish', () => {
         { label: 'Standard receptacles', value: '42 EA' },
         { label: 'GFCI receptacles', value: '8 EA' },
         { label: 'Recessed / canless / wafer light', value: '24 EA' },
-        { label: 'Range hookup', value: '1 EA' },
+        { label: 'Electric range circuit + hookup', value: '1 EA' },
         {
           label: 'Rough / trim packages',
           value: 'Not auto-priced from detailed takeoff',
@@ -525,17 +736,20 @@ describe('plan takeoff review UI polish', () => {
       {
         mainPanelCount: { note: 'From panel callout', source: 'detected_from_plan' },
         recessedLightCount: {
-          note: 'Counted from electrical plan',
-          source: 'detected_from_plan',
+          note: 'Counted from instance tags',
+          source: 'pdf_text_instance_tags',
+          evidenceKind: 'instance_tags',
         },
         gfciReceptacleCount: {
-          note: 'Counted from symbols',
-          source: 'detected_from_plan',
+          note: 'From plan symbols',
+          source: 'calculated_from_symbols',
+          evidenceKind: 'symbols',
         },
         threeWaySwitchCount: {
-          note: 'Calculated from symbols, confirm',
+          note: 'From plan symbols',
           source: 'calculated_from_symbols',
           confidenceTier: 2,
+          evidenceKind: 'symbols',
         },
       }
     );
@@ -549,17 +763,17 @@ describe('plan takeoff review UI polish', () => {
         {
           label: 'Recessed / canless / wafer light',
           value: '34 EA',
-          note: 'Counted from electrical plan',
+          note: 'Counted from instance tags',
         },
         {
           label: 'GFCI receptacles',
           value: '6 EA',
-          note: 'Counted from symbols',
+          note: 'From plan symbols',
         },
         {
           label: '3-way switch',
           value: '4 EA',
-          note: 'Calculated from symbols, confirm',
+          note: 'From plan symbols',
         },
         {
           label: 'Shared homeruns / unlabeled circuits',

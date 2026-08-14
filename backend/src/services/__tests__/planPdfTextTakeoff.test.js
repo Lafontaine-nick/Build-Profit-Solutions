@@ -10,7 +10,14 @@ const {
   scorePaintingRelevantPage,
   scoreElectricalRelevantPage,
   expandElectricalRelevantPages,
+  countElectricalInstanceTagsOnPage,
+  aggregateElectricalInstanceTagCounts,
+  detectElectricalSheetKind,
+  detectElectricalPlanLevel,
+  extractSheet,
+  shouldCollapseDuplicateFixtureViews,
   toUint8Array,
+  fillElectricalSheetBackground,
 } = require('../planPdfTextTakeoff');
 const shvPlanFacts = require('../testFixtures/shvPlanFacts');
 
@@ -253,6 +260,16 @@ describe('planPdfTextTakeoff', () => {
     expect(copy.buffer).not.toBe(buf.buffer);
   });
 
+  test('fillElectricalSheetBackground paints white before JPEG encode', () => {
+    const fillRect = jest.fn();
+    const context = { save: jest.fn(), restore: jest.fn(), fillRect };
+    fillElectricalSheetBackground(context, 1200, 800);
+    expect(context.save).toHaveBeenCalled();
+    expect(context.fillStyle).toBe('#ffffff');
+    expect(fillRect).toHaveBeenCalledWith(0, 0, 1200, 800);
+    expect(context.restore).toHaveBeenCalled();
+  });
+
   test('expandElectricalRelevantPages includes the following sheet after a strong E-page hit', () => {
     const expanded = expandElectricalRelevantPages(
       [{ page: 12, score: 12, reasons: ['electrical plan'] }],
@@ -271,6 +288,18 @@ describe('planPdfTextTakeoff', () => {
           { page: 12, reasons: ['electrical plan', 'level electrical'] },
           { page: 13, reasons: ['electrical plan'] },
         ],
+        electricalInstanceTags: {
+          byKey: {
+            recessedLightCount: {
+              value: 48,
+              tag: 'R4',
+              sheets: [
+                { sheet: 'A-10', page: 10, count: 33 },
+                { sheet: 'A-11', page: 11, count: 15 },
+              ],
+            },
+          },
+        },
       },
       { tradeKey: 'electrical' }
     );
@@ -278,6 +307,9 @@ describe('planPdfTextTakeoff', () => {
     expect(text).toContain('page 12');
     expect(text).toContain('page 13');
     expect(text).toMatch(/Do not invent homeruns/i);
+    expect(text).toMatch(/fixture instance tags/i);
+    expect(text).toContain('recessedLightCount: 48 from R4 instance tags');
+    expect(text).toMatch(/Prefer these instance-tag counts/i);
   });
 
   test('formatPdfEvidenceForVision lists painting-relevant pages for Painting trade', () => {
@@ -294,5 +326,217 @@ describe('planPdfTextTakeoff', () => {
     expect(text).toContain('not only sheets titled Paint');
     expect(text).toContain('page 3: floor plan');
     expect(text).toContain('page 8: exterior elevation');
+  });
+
+  function scatterTags(tag, count, { x0 = 180, y0 = 900, dx = 24, dy = 20 } = {}) {
+    return Array.from({ length: count }, (_, i) => ({
+      str: tag,
+      x: x0 + (i % 11) * dx,
+      y: y0 - Math.floor(i / 11) * dy,
+    }));
+  }
+
+  test('repeated R4 instance tags become the recessedLightCount candidate', () => {
+    const main = countElectricalInstanceTagsOnPage(
+      [
+        { str: 'LIGHTING PLAN MAIN LEVEL A-10', x: 400, y: 1200 },
+        { str: 'LIGHTING LEGEND', x: 40, y: 180 },
+        { str: 'R4', x: 48, y: 140 },
+        { str: '4" LED RECESSED DOWNLIGHT', x: 110, y: 140 },
+        ...scatterTags('R4', 33),
+      ],
+      { page: 10, sheet: 'A-10' }
+    );
+    const upper = countElectricalInstanceTagsOnPage(
+      [
+        { str: 'LIGHTING PLAN 2ND LEVEL A-11', x: 400, y: 1200 },
+        ...scatterTags('R4', 15, { x0: 200, y0: 700 }),
+      ],
+      { page: 11, sheet: 'A-11' }
+    );
+    expect(main.measurements.recessedLightCount).toBe(33);
+    expect(upper.measurements.recessedLightCount).toBe(15);
+    expect(detectElectricalPlanLevel('LIGHTING PLAN MAIN LEVEL A-10')).toBe('main');
+    expect(detectElectricalPlanLevel('LIGHTING PLAN 2ND LEVEL A-11')).toBe('upper');
+    expect(detectElectricalSheetKind('LIGHTING PLAN MAIN LEVEL')).toBe('lighting');
+    const aggregated = aggregateElectricalInstanceTagCounts([main, upper]);
+    expect(aggregated.measurements.recessedLightCount).toBe(48);
+    expect(aggregated.byKey.recessedLightCount.tag).toBe('R4');
+  });
+
+  test('legend-only R4 text does not inflate recessedLightCount', () => {
+    const legendOnly = countElectricalInstanceTagsOnPage([
+      { str: 'LIGHTING PLAN MAIN LEVEL', x: 400, y: 1200 },
+      { str: 'LIGHTING LEGEND', x: 40, y: 200 },
+      { str: 'R4', x: 50, y: 160 },
+      { str: '4" LED RECESSED DOWNLIGHT', x: 90, y: 160 },
+      { str: 'CF', x: 50, y: 120 },
+      { str: 'CEILING FAN', x: 90, y: 120 },
+      { str: 'R4 6 INCH WAFER', x: 220, y: 500 },
+    ]);
+    expect(legendOnly.measurements.recessedLightCount).toBeUndefined();
+    expect(legendOnly.measurements.ceilingFanCount).toBeUndefined();
+  });
+
+  test('same-level RCP and lighting plan do not double-count R4 tags', () => {
+    const lighting = countElectricalInstanceTagsOnPage(
+      [
+        { str: 'LIGHTING PLAN MAIN LEVEL A-10', x: 400, y: 1200 },
+        ...scatterTags('R4', 20),
+      ],
+      { page: 10, sheet: 'A-10' }
+    );
+    const rcp = countElectricalInstanceTagsOnPage(
+      [
+        { str: 'REFLECTED CEILING PLAN MAIN LEVEL A-10A', x: 400, y: 1200 },
+        ...scatterTags('R4', 20, { x0: 160, y0: 820 }),
+      ],
+      { page: 12, sheet: 'A-10A' }
+    );
+    expect(lighting.level).toBe('main');
+    expect(rcp.kind).toBe('rcp');
+    const aggregated = aggregateElectricalInstanceTagCounts([lighting, rcp]);
+    expect(aggregated.measurements.recessedLightCount).toBe(20);
+  });
+
+  test('repeated CF instance tags become ceilingFanCount when present', () => {
+    const page = countElectricalInstanceTagsOnPage(
+      [
+        { str: 'LIGHTING PLAN MAIN LEVEL', x: 400, y: 1200 },
+        ...scatterTags('CF', 9),
+      ],
+      { page: 10 }
+    );
+    expect(page.measurements.ceilingFanCount).toBe(9);
+    expect(page.measurements.recessedLightCount).toBeUndefined();
+  });
+
+  test('extractSheet prefers the lighting-plan title over an earlier sheet reference', () => {
+    expect(extractSheet('SEE A-10 LIGHTING PLAN 2ND LEVEL A-11')).toBe('A-11');
+    expect(extractSheet('LIGHTING PLAN MAIN LEVEL A-10')).toBe('A-10');
+    expect(extractSheet('R4 R4 MAIN LEVEL ELECTRICAL DRAWINGS A-10')).toBe('A-10');
+  });
+
+  test('an R4 glued into a room label counts; door/floor numbers do not', () => {
+    const phrases = [
+      { str: 'MAIN LEVEL ELECTRICAL DRAWINGS A-10', x: 400, y: 1200 },
+      { str: 'LIGHTING LEGEND', x: 40, y: 180 },
+      { str: 'R4', x: 48, y: 140 },
+      { str: 'LAUNR4DRY', x: 900, y: 1017, xEnd: 954 },
+      { str: 'DOOR4', x: 500, y: 400 },
+      { str: 'FLOOR4', x: 520, y: 380 },
+      ...scatterTags('R4', 32),
+    ];
+    const page = countElectricalInstanceTagsOnPage(phrases, {
+      items: [
+        { str: 'R', x: 927, y: 1014 },
+        { str: '4', x: 930, y: 1014 },
+      ],
+    });
+    expect(page.measurements.recessedLightCount).toBe(33);
+    expect(page.level).toBe('main');
+  });
+
+  test('main and upper instance totals are counted separately before they sum', () => {
+    const main = countElectricalInstanceTagsOnPage(
+      [
+        { str: 'MAIN LEVEL ELECTRICAL DRAWINGS A-10', x: 400, y: 1200 },
+        { str: 'LIGHTING LEGEND', x: 40, y: 180 },
+        { str: 'R4', x: 48, y: 140 },
+        { str: 'LAUNR4DRY', x: 900, y: 1017 },
+        ...scatterTags('R4', 32),
+      ],
+      { page: 10, sheet: 'A-10' }
+    );
+    const upperItems = [
+      { str: '2ND LEVEL ELECTRICAL DRAWINGS A-11', x: 400, y: 1200 },
+      { str: 'W.I.S.', x: 1460, y: 1002 },
+      { str: 'R', x: 1466, y: 1002 },
+      { str: '4', x: 1469, y: 1002 },
+    ];
+    const upperPhrases = [
+      { str: '2ND LEVEL ELECTRICAL DRAWINGS A-11', x: 400, y: 1200 },
+      ...scatterTags('R4', 14, { x0: 200, y0: 700 }),
+      { str: 'W.RI4.S.', x: 1460, y: 1002 },
+    ];
+    const upper = countElectricalInstanceTagsOnPage(upperPhrases, {
+      page: 11,
+      sheet: 'A-11',
+      items: upperItems,
+    });
+    expect(main.measurements.recessedLightCount).toBe(33);
+    expect(upper.measurements.recessedLightCount).toBe(15);
+    expect(main.level).toBe('main');
+    expect(upper.level).toBe('upper');
+    const aggregated = aggregateElectricalInstanceTagCounts([main, upper]);
+    expect(aggregated.measurements.recessedLightCount).toBe(
+      main.measurements.recessedLightCount +
+        upper.measurements.recessedLightCount
+    );
+    expect(aggregated.byKey.recessedLightCount.sheets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sheet: 'A-10', count: 33, level: 'main' }),
+        expect.objectContaining({ sheet: 'A-11', count: 15, level: 'upper' }),
+      ])
+    );
+  });
+
+  test('lighting plan pages are not skipped because notes mention section', () => {
+    const page = countElectricalInstanceTagsOnPage(
+      [
+        { str: 'LIGHTING PLAN 2ND LEVEL A-11 SEE SECTION', x: 400, y: 1200 },
+        ...scatterTags('R4', 15),
+      ],
+      { page: 11 }
+    );
+    expect(page.measurements.recessedLightCount).toBe(15);
+  });
+
+  test('stacked R4 text without coordinate spread still counts instances', () => {
+    const upper = countElectricalInstanceTagsOnPage(
+      [
+        { str: 'LIGHTING PLAN 2ND LEVEL A-11', x: 400, y: 1200 },
+        ...Array.from({ length: 15 }, () => ({ str: 'R4', x: 10, y: 10 })),
+      ],
+      { page: 11 }
+    );
+    expect(upper.measurements.recessedLightCount).toBe(15);
+  });
+
+  test('main and upper lighting plans sum even if both extract as the same sheet id', () => {
+    const main = countElectricalInstanceTagsOnPage(
+      [
+        { str: 'LIGHTING PLAN MAIN LEVEL A-10', x: 400, y: 1200 },
+        ...scatterTags('R4', 33),
+      ],
+      { page: 10, sheet: 'A-10' }
+    );
+    const upper = countElectricalInstanceTagsOnPage(
+      [
+        { str: 'LIGHTING PLAN 2ND LEVEL A-11', x: 400, y: 1200 },
+        ...scatterTags('R4', 15, { x0: 200, y0: 700 }),
+      ],
+      { page: 11, sheet: 'A-10' }
+    );
+    expect(main.level).toBe('main');
+    expect(upper.level).toBe('upper');
+    expect(shouldCollapseDuplicateFixtureViews(main, upper)).toBe(false);
+    const aggregated = aggregateElectricalInstanceTagCounts([main, upper]);
+    expect(aggregated.measurements.recessedLightCount).toBe(48);
+  });
+
+  test('other lighting tags surface as unclassified fixtures', () => {
+    const page = countElectricalInstanceTagsOnPage(
+      [
+        { str: 'LIGHTING PLAN MAIN LEVEL A-10', x: 400, y: 1200 },
+        ...scatterTags('L1', 4, { x0: 80, y0: 400 }),
+        ...scatterTags('R4', 8, { x0: 200, y0: 800 }),
+      ],
+      { page: 10 }
+    );
+    expect(page.measurements.recessedLightCount).toBe(8);
+    expect(page.unclassifiedFixtureCount).toBe(4);
+    const aggregated = aggregateElectricalInstanceTagCounts([page]);
+    expect(aggregated.unclassifiedFixtureCount).toBe(4);
   });
 });

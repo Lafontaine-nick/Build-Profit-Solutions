@@ -93,14 +93,25 @@ export function isElectricalServicePanelItemId(
   );
 }
 
+export const ELECTRICAL_SERVICE_AMPERAGE_REQUIRED_HELPER =
+  'Service amperage required to price this item.';
+
+export const ELECTRICAL_SERVICE_AMPERAGE_REQUIRED_STATUS =
+  'Needs service amperage';
+
+export function electricalServiceAmperageKnown(
+  amps: number | null | undefined
+): boolean {
+  const n = Number(amps);
+  return Number.isFinite(n) && n > 0;
+}
+
 export function snapElectricalAmperageTier(
   amps: number | null | undefined,
   itemId: ElectricalServicePanelItemId
-): ElectricalAmperageTier {
+): ElectricalAmperageTier | null {
   const n = Number(amps);
-  if (!Number.isFinite(n) || n <= 0) {
-    return itemId === 'electrical_subpanel' ? 100 : 200;
-  }
+  if (!Number.isFinite(n) || n <= 0) return null;
   if (itemId === 'electrical_subpanel') {
     if (n <= 70) return 60;
     if (n <= 110) return 100;
@@ -168,6 +179,55 @@ export function electricalServicePanelCardShouldPrice(
   return true;
 }
 
+/**
+ * Deterministic panel math:
+ * 1. locked base material + labor for the selected amperage
+ * 2. panel-location modifiers (Outdoor multipliers and/or meter-main adders)
+ * 3. job-condition multiplier on labor only
+ * 4. quantity × existing rounding
+ */
+export function applyElectricalServicePanelModifiers(input: {
+  baseMaterial: number;
+  baseLabor: number;
+  quantity: number;
+  electricalPanelLocation?: ElectricalPanelLocation | null;
+  electricalMeterMainCombo?: boolean | null;
+  applyMeterMainAdders?: boolean;
+  electricalProjectCondition?: ElectricalProjectCondition | null;
+}): {
+  material: number;
+  labor: number;
+  total: number;
+  laborMultiplier: number;
+} {
+  const outdoor = input.electricalPanelLocation === 'outdoor';
+  let material = input.baseMaterial;
+  let labor = input.baseLabor;
+  if (outdoor) {
+    material *= OUTDOOR_MATERIAL_MULTIPLIER;
+    labor *= OUTDOOR_LABOR_MULTIPLIER;
+  }
+  if (input.applyMeterMainAdders && input.electricalMeterMainCombo) {
+    material += METER_MAIN_MATERIAL_ADD;
+    labor += METER_MAIN_LABOR_ADD;
+  }
+  const laborMultiplier =
+    input.electricalProjectCondition &&
+    ELECTRICAL_CONDITION_LABOR_MULTIPLIERS[input.electricalProjectCondition]
+      ? ELECTRICAL_CONDITION_LABOR_MULTIPLIERS[input.electricalProjectCondition]
+      : 1;
+  labor *= laborMultiplier;
+  const quantity = input.quantity;
+  material = roundMoney(material * quantity);
+  labor = roundMoney(labor * quantity);
+  return {
+    material,
+    labor,
+    total: roundMoney(material + labor),
+    laborMultiplier,
+  };
+}
+
 function baseSplitFor(
   itemId: ElectricalServicePanelItemId,
   tier: ElectricalAmperageTier,
@@ -220,48 +280,43 @@ export function quoteElectricalServicePanel(
   if (!(Number.isFinite(quantity) && quantity > 0)) return null;
 
   const tier = snapElectricalAmperageTier(input.serviceAmperage, input.itemId);
+  if (tier == null) return null;
   const split = baseSplitFor(input.itemId, tier, input.existingServiceAmperage ?? null);
   if (!split) return null;
 
-  const condition = input.electricalProjectCondition;
-  const laborMultiplier =
-    condition && ELECTRICAL_CONDITION_LABOR_MULTIPLIERS[condition]
-      ? ELECTRICAL_CONDITION_LABOR_MULTIPLIERS[condition]
-      : 1;
-  const outdoor = input.electricalPanelLocation === 'outdoor';
-  let material = split.material * (outdoor ? OUTDOOR_MATERIAL_MULTIPLIER : 1);
-  let labor = split.labor * laborMultiplier * (outdoor ? OUTDOOR_LABOR_MULTIPLIER : 1);
-
-  if (
-    input.electricalMeterMainCombo &&
-    (input.itemId === 'electrical_main_panel' ||
-      input.itemId === 'electrical_panel_upgrade')
-  ) {
-    material += METER_MAIN_MATERIAL_ADD;
-    labor += METER_MAIN_LABOR_ADD * laborMultiplier;
-  }
-
-  material = roundMoney(material * quantity);
-  labor = roundMoney(labor * quantity);
+  const applyMeterMainAdders =
+    input.itemId === 'electrical_main_panel' ||
+    input.itemId === 'electrical_panel_upgrade';
+  const priced = applyElectricalServicePanelModifiers({
+    baseMaterial: split.material,
+    baseLabor: split.labor,
+    quantity,
+    electricalPanelLocation: input.electricalPanelLocation,
+    electricalMeterMainCombo: input.electricalMeterMainCombo,
+    applyMeterMainAdders,
+    electricalProjectCondition: input.electricalProjectCondition,
+  });
   const specialty = tier >= 400;
-  const conditionLabel = condition
-    ? condition.replace(/_/g, ' ')
-    : 'standard';
+  const outdoor = input.electricalPanelLocation === 'outdoor';
+  const indoor = input.electricalPanelLocation === 'indoor';
+  const condition = input.electricalProjectCondition;
   const helper = [
     `${quantity} EA · ${tier}A`,
-    outdoor ? 'outdoor' : 'indoor',
-    conditionLabel,
+    outdoor ? 'outdoor' : indoor ? 'indoor' : null,
+    condition ? condition.replace(/_/g, ' ') : null,
     specialty ? 'specialty / confirm' : 'approved 100–200A split',
-  ].join(' · ');
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return {
-    material,
-    labor,
-    total: roundMoney(material + labor),
+    material: priced.material,
+    labor: priced.labor,
+    total: priced.total,
     quantity,
     unit: 'each',
     amperageTier: tier,
-    laborMultiplier,
+    laborMultiplier: priced.laborMultiplier,
     specialty,
     helper,
     rateSourceLabel: ELECTRICAL_SERVICE_PANEL_RATE_SOURCE_LABEL,
@@ -378,13 +433,51 @@ export type ElectricalServicePanelSuggestedPricing = {
     benchmarkScopeKey: string;
     benchmarkAction: 'price_ready';
     pricingRecordId: string;
+    needsServiceAmperage?: boolean;
   };
   comparison: null;
 };
 
+function electricalServicePanelNeedsAmperageFill(
+  input: ElectricalServicePanelPricingInput
+): ElectricalServicePanelSuggestedPricing {
+  const quantity = Number(input.quantity);
+  return {
+    fill: {
+      material: 0,
+      labor: 0,
+      total: 0,
+      materialSource: 'national_average',
+      laborSource: 'national_average',
+      rateSourceLabel: ELECTRICAL_SERVICE_PANEL_RATE_SOURCE_LABEL,
+      helper: ELECTRICAL_SERVICE_AMPERAGE_REQUIRED_HELPER,
+      mode: 'suggested_price',
+      splitSource: 'estimated',
+      splitConfidence: 'medium',
+      basis: { quantity: quantity > 0 ? quantity : 1, unit: 'each' },
+      productionStatus: 'review_required',
+      benchmarkLevel: 'component',
+      benchmarkScopeKey: input.itemId,
+      benchmarkAction: 'price_ready',
+      pricingRecordId: `bps_electrical_service_panel:${input.itemId}:needs_amperage`,
+      needsServiceAmperage: true,
+    },
+    comparison: null,
+  };
+}
+
 export function resolveElectricalServicePanelSuggestedPricing(
   input: ElectricalServicePanelPricingInput
 ): ElectricalServicePanelSuggestedPricing | { fill: null; comparison: null } {
+  if (!isElectricalServicePanelItemId(input.itemId)) {
+    return { fill: null, comparison: null };
+  }
+  if (!electricalServicePanelCardShouldPrice(input.itemId, input)) {
+    return { fill: null, comparison: null };
+  }
+  if (!electricalServiceAmperageKnown(input.serviceAmperage)) {
+    return electricalServicePanelNeedsAmperageFill(input);
+  }
   const quote = quoteElectricalServicePanel(input);
   if (!quote) return { fill: null, comparison: null };
   return {

@@ -1,6 +1,7 @@
 import React, {
   startTransition,
   useCallback,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -36,22 +37,42 @@ import {
 } from '@/constants/scopeNoteSourceLabels';
 import type {
   EstimateAiDraft,
+  PlanMeasurementConflict,
   ScopeAssumptionState,
   ScopeChecklistItem,
   ScopeMeasurements,
 } from '@/utils/estimateAiDraft';
 import {
+  applyScopeDetectionsToChecklistItems,
   buildStuccoTradeChecklistItems,
   formatDraftMoney,
+  mergeLivePlanImportIntoScopeMeasurements,
   resolveDraftScopeNotes,
   repairDraftRatePricingFromNotes,
 } from '@/utils/estimateAiDraft';
 import { applyPaintPricingMethodChoice } from '@/utils/subcontractorTrade/paintingPlanConvergence';
 import {
   syncElectricalScopeItems,
-  type ElectricalPanelLocation,
-  type ElectricalProjectCondition,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
+import {
+  ElectricalConfirmScopeAttributeChips,
+  ElectricalQuickMeasurementTakeoff,
+} from '@/components/estimate/ElectricalQuickMeasurementTakeoff';
+import { PlanTakeoffConflictChooser } from '@/components/estimate/PlanTakeoffConflictChooser';
+import {
+  applyElectricalQuickMeasurementPatch,
+  electricalConfirmScopeAttributesFromMeasurements,
+  electricalScopeSyncSignature,
+  restorePlanMeasurementConflict,
+  unresolvedElectricalConflictFields,
+} from '@/utils/electricalQuickMeasurementUi';
+import {
+  buildConflictResolution,
+  conflictedSuggestedItemIds,
+  conflictResolutionProvenanceEntry,
+  parseManualConflictValue,
+  type PlanConflictChoice,
+} from '@/utils/planMeasurementConflictUi';
 import {
   checklistDisplayHelper,
   checklistDisplayLabel,
@@ -219,6 +240,7 @@ import {
   quickMeasurementHelperText,
   quickMeasurementPlaceholder,
   quickMeasurementFieldDef,
+  quickMeasurementFieldMeta,
   quickMeasurementRowsForInput,
   quickMeasurementRowsForTemplate,
   quickMeasurementSectionsForRows,
@@ -420,6 +442,8 @@ import BenchmarkReasonablenessCard from '@/components/estimate/BenchmarkReasonab
 import {
   buildSuggestedPricingCardDisplay,
   displayPriceSourceLabel,
+  includeUnconfirmedSuggestedPricingFill,
+  suggestedPricingFooterCountsAmperageConfirm,
 } from '@/utils/suggestedPricingCardUi';
 import {
   insulationEnvelopeInputsFromPlanFacts,
@@ -1658,6 +1682,7 @@ function SuggestedBudgetSplitRows({
   // Stage lumps stay view-only.
   const canWritePrice =
     Boolean(onUsePricing) &&
+    !block.needsServiceAmperage &&
     action !== 'included_in_stage' &&
     !(
       hasCurrentPricing &&
@@ -9757,6 +9782,18 @@ function CollapsibleQuickMeasurements({
   >([]);
   const [typedMoreMeasurementPositions, setTypedMoreMeasurementPositions] =
     useState<Partial<Record<QuickMeasurementFieldKey, number>>>({});
+  const [conflictChoices, setConflictChoices] = useState<
+    Record<string, PlanConflictChoice | undefined>
+  >({});
+  const [conflictManualValues, setConflictManualValues] = useState<
+    Record<string, string>
+  >({});
+  const [resolvedConflictFields, setResolvedConflictFields] = useState<
+    string[]
+  >([]);
+  const originalConflictsRef = useRef<Record<string, PlanMeasurementConflict>>(
+    {}
+  );
   const paintInputRef = useRef({ wall: '', ceiling: '', primed: false });
   const lastPaintSplitRef = useRef({ wall: '', ceiling: '' });
   useEffect(() => {
@@ -10284,10 +10321,75 @@ function CollapsibleQuickMeasurements({
     () => summarizeQuickMeasurementFieldStates(fieldResults),
     [fieldResults]
   );
-  const measurementConflicts = (
-    measurements.measurementConflicts || []
-  ).filter(
-    conflict => !measurements.quickMeasurementUserOverrides?.[conflict.field]
+  const measurementConflicts = useMemo(
+    () =>
+      (measurements.measurementConflicts || []).filter(
+        conflict => !measurements.quickMeasurementUserOverrides?.[conflict.field]
+      ),
+    [
+      measurements.measurementConflicts,
+      measurements.quickMeasurementUserOverrides,
+    ]
+  );
+  for (const conflict of measurements.measurementConflicts || []) {
+    const field = String(conflict?.field || '');
+    if (field && !originalConflictsRef.current[field]) {
+      originalConflictsRef.current[field] = conflict;
+    }
+  }
+  const commitConflictQuantity = useCallback(
+    (field: string, value: number, manual = false) => {
+      startTransition(() => {
+        setResolvedConflictFields(prev =>
+          prev.includes(field) ? prev : [...prev, field]
+        );
+        setMeasurements(prev => {
+          const conflict =
+            (prev.measurementConflicts || []).find(
+              row => row.field === field
+            ) || originalConflictsRef.current[field];
+          if (conflict?.field) {
+            originalConflictsRef.current[field] = conflict;
+          }
+          const resolution = conflict
+            ? buildConflictResolution(
+                conflict,
+                manual ? 'manual' : value,
+                manual ? String(value) : undefined
+              )
+            : null;
+          const next = applyElectricalQuickMeasurementPatch(prev, field, value);
+          return {
+            ...next,
+            measurementConflicts: (prev.measurementConflicts || []).filter(
+              row => row.field !== field
+            ),
+            measurementProvenance: {
+              ...(prev.measurementProvenance || {}),
+              ...(resolution
+                ? { [field]: conflictResolutionProvenanceEntry(resolution) }
+                : {}),
+            },
+          };
+        });
+      });
+    },
+    [setMeasurements]
+  );
+  const clearConflictQuantity = useCallback(
+    (field: string) => {
+      startTransition(() => {
+        setResolvedConflictFields(prev => prev.filter(id => id !== field));
+        setMeasurements(prev =>
+          restorePlanMeasurementConflict(
+            prev,
+            field,
+            originalConflictsRef.current[field]
+          )
+        );
+      });
+    },
+    [setMeasurements]
   );
 
   const effectiveWetAreaFinish = useMemo(
@@ -12297,6 +12399,45 @@ function CollapsibleQuickMeasurements({
       : darkMode
         ? '#e4e4e7'
         : Colors.text;
+  const electricalAttributeValues = useMemo(
+    () =>
+      electricalConfirmScopeAttributesFromMeasurements(
+        measurements as Record<string, unknown>
+      ),
+    [
+      measurements.electricalProjectCondition,
+      measurements.serviceAmperage,
+      measurements.existingServiceAmperage,
+      measurements.electricalPanelLocation,
+      measurements.electricalMeterMainCombo,
+      measurements.electricalIncludeRough,
+      measurements.electricalIncludeTrim,
+      measurements.electricalConduit,
+      measurements.electricalTrenching,
+    ]
+  );
+  const patchElectricalAttributes = useCallback(
+    (
+      patch: Partial<
+        ReturnType<typeof electricalConfirmScopeAttributesFromMeasurements>
+      >
+    ) => {
+      startTransition(() => {
+        setMeasurements(prev => ({ ...prev, ...patch }));
+      });
+    },
+    [setMeasurements]
+  );
+  const patchElectricalQuantity = useCallback(
+    (field: string, value: string) => {
+      startTransition(() => {
+        setMeasurements(prev =>
+          applyElectricalQuickMeasurementPatch(prev, field, value)
+        );
+      });
+    },
+    [setMeasurements]
+  );
   const choosePaintAreaBasis = (
     basis: 'walls' | 'combined' | 'floor_area' | 'unknown'
   ) => {
@@ -12374,50 +12515,38 @@ function CollapsibleQuickMeasurements({
       </TouchableOpacity>
       {expanded ? (
         <View style={styles.quickMeasurementsBody}>
-          {measurementConflicts.length ? (
-            <View
-              style={{
-                borderWidth: 1,
-                borderColor: '#fbbf24',
-                borderRadius: 12,
-                padding: 12,
-                marginBottom: 12,
-                backgroundColor: darkMode
-                  ? 'rgba(120, 80, 0, 0.14)'
-                  : 'rgba(251, 191, 36, 0.08)',
+            <PlanTakeoffConflictChooser
+              conflicts={measurementConflicts}
+              choices={conflictChoices}
+              manualValues={conflictManualValues}
+              keepResolvedCards
+              onChoose={(field, choice) => {
+                if (choice == null) {
+                  setConflictChoices(prev => {
+                    const next = { ...prev };
+                    delete next[field];
+                    return next;
+                  });
+                  clearConflictQuantity(field);
+                  return;
+                }
+                setConflictChoices(prev => ({ ...prev, [field]: choice }));
+                if (typeof choice === 'number') {
+                  commitConflictQuantity(field, choice);
+                }
               }}
-            >
-              <Text
-                style={{
-                  color: darkMode ? '#fef3c7' : '#78350f',
-                  fontWeight: '800',
-                }}
-              >
-                Conflicting plan takeoffs — confirm measurement
-              </Text>
-              {measurementConflicts.map(conflict => (
-                <Text
-                  key={`qm-conflict-${conflict.field}`}
-                  style={{
-                    color: captionColor(darkMode, Colors),
-                    marginTop: 4,
-                  }}
-                >
-                  {quickMeasurementFieldMeta(conflict.field as QuickMeasurementFieldKey).label}:
-                  {' '}
-                  {conflict.candidates
-                    .map(
-                      candidate =>
-                        `${candidate.value.toLocaleString()} ${
-                          /Lf$/i.test(conflict.field) ? 'LF' : 'sqft'
-                        }`
-                    )
-                    .join(' vs ')}
-                  {' '}— confirm the measurement.
-                </Text>
-              ))}
-            </View>
-          ) : null}
+              onManualChange={(field, value) => {
+                setConflictManualValues(prev => ({ ...prev, [field]: value }));
+              }}
+              onManualSubmit={(field, value) => {
+                const n = parseManualConflictValue(value);
+                if (n != null) {
+                  commitConflictQuantity(field, n, true);
+                }
+              }}
+              darkMode={darkMode}
+              captionColor={captionColor(darkMode, Colors)}
+            />
           {ambiguousPaintArea ? (
             <View
               style={{
@@ -12484,97 +12613,30 @@ function CollapsibleQuickMeasurements({
             </View>
           ) : null}
           {String(templateKey || '').toLowerCase() === 'electrical' ? (
-            <View
-              style={{
-                borderWidth: 1,
-                borderColor: darkMode
-                  ? 'rgba(148,163,184,0.28)'
-                  : 'rgba(100,116,139,0.24)',
-                backgroundColor: darkMode
-                  ? 'rgba(148,163,184,0.06)'
-                  : 'rgba(148,163,184,0.05)',
-                borderRadius: 14,
-                padding: 16,
-                marginBottom: 14,
-              }}
-            >
-              <Text
-                style={{
-                  color: darkMode ? '#cbd5e1' : '#475569',
-                  fontWeight: '800',
-                  fontSize: 15,
-                }}
-              >
-                Job condition
-              </Text>
-              <Text
-                style={{ color: captionColor(darkMode, Colors), marginTop: 5 }}
-              >
-                Service / panel, circuit homeruns, receptacle devices, switch
-                devices, lighting / fan fixture installs, appliance hookups,
-                life-safety / low-voltage drops, relocate / removal, and
-                conduit / normal-soil trenching cards are approved when a
-                length is entered. Trim-out is approved at $55/EA for a
-                user-entered device count, or a $2,500 planning allowance when
-                detailed receptacle / switch / fixture counts are absent.
-                400A, 60A+, chandeliers, EV, HVAC, abandoned circuits, rigid /
-                oversized conduit, and rocky / difficult trenching stay
-                specialty. Rough-in is approved at $250/EA for a user-entered
-                rough-point count, or a $10,000 planning allowance when
-                requested and detailed 2A–2I counts are absent. Job condition
-                adjusts labor more than materials.
-              </Text>
-              <ElectricalAttributeChipPanel
-                values={{
-                  electricalProjectCondition:
-                    measurements.electricalProjectCondition ?? null,
-                  serviceAmperage:
-                    measurements.serviceAmperage == null
-                      ? null
-                      : Number(measurements.serviceAmperage),
-                  existingServiceAmperage:
-                    measurements.existingServiceAmperage == null
-                      ? null
-                      : Number(measurements.existingServiceAmperage),
-                  electricalPanelLocation:
-                    measurements.electricalPanelLocation ?? null,
-                  electricalMeterMainCombo: Boolean(
-                    measurements.electricalMeterMainCombo
-                  ),
-                  electricalIncludeRough: Boolean(
-                    measurements.electricalIncludeRough
-                  ),
-                  electricalIncludeTrim: Boolean(
-                    measurements.electricalIncludeTrim
-                  ),
-                  electricalConduit: Boolean(measurements.electricalConduit),
-                  electricalTrenching: Boolean(measurements.electricalTrenching),
-                }}
-                onPatch={patch =>
-                  startTransition(() => {
-                    setMeasurements(prev => ({ ...prev, ...patch }));
-                  })
-                }
-                paintChipStyle={paintChipStyle}
-                paintChipTextColor={paintChipTextColor}
-                headingColor={darkMode ? '#cbd5e1' : '#475569'}
-                showExistingService={
-                  Number(measurements.serviceUpgradeCount) > 0 ||
-                  Number(measurements.existingServiceAmperage) > 0
-                }
-              />
-              {Number(measurements.serviceAmperage) > 0 ? (
-                <Text
-                  style={{
-                    color: darkMode ? '#F5F7FA' : Colors.text,
-                    fontWeight: '700',
-                    marginTop: 16,
-                  }}
-                >
-                  Service amperage: {measurements.serviceAmperage}A
-                </Text>
-              ) : null}
-            </View>
+            <ElectricalConfirmScopeAttributeChips
+              values={electricalAttributeValues}
+              onPatch={patchElectricalAttributes}
+              darkMode={darkMode}
+              showExistingService={
+                Number(measurements.serviceUpgradeCount) > 0 ||
+                Number(measurements.existingServiceAmperage) > 0
+              }
+              quantityTakeoff={
+                <ElectricalQuickMeasurementTakeoff
+                  measurements={measurements as Record<string, unknown>}
+                  conflictFields={[
+                    ...unresolvedElectricalConflictFields(measurementConflicts),
+                  ]}
+                  sources={measurements.quickMeasurementSources}
+                  userOverrides={measurements.quickMeasurementUserOverrides}
+                  preferExpandedKeys={resolvedConflictFields}
+                  onChangeQuantity={patchElectricalQuantity}
+                  darkMode={darkMode}
+                  Colors={Colors}
+                  applying={applying}
+                />
+              }
+            />
           ) : null}
           {String(templateKey || '').toLowerCase() === 'painting' ? (
             <View
@@ -13459,189 +13521,6 @@ function ScopeGroupSection({
   );
 }
 
-function ElectricalAttributeChipPanel({
-  values,
-  onPatch,
-  paintChipStyle,
-  paintChipTextColor,
-  headingColor,
-  showExistingService,
-}: {
-  values: {
-    electricalProjectCondition: ElectricalProjectCondition | null;
-    serviceAmperage: number | null;
-    existingServiceAmperage: number | null;
-    electricalPanelLocation: ElectricalPanelLocation | null;
-    electricalMeterMainCombo: boolean;
-    electricalIncludeRough: boolean;
-    electricalIncludeTrim: boolean;
-    electricalConduit: boolean;
-    electricalTrenching: boolean;
-  };
-  onPatch: (patch: Partial<typeof values>) => void;
-  paintChipStyle: (selected: boolean) => object;
-  paintChipTextColor: (selected: boolean) => string;
-  headingColor: string;
-  showExistingService: boolean;
-}) {
-  const [local, setLocal] = useState(values);
-  useEffect(() => {
-    setLocal(values);
-  }, [
-    values.electricalProjectCondition,
-    values.serviceAmperage,
-    values.existingServiceAmperage,
-    values.electricalPanelLocation,
-    values.electricalMeterMainCombo,
-    values.electricalIncludeRough,
-    values.electricalIncludeTrim,
-    values.electricalConduit,
-    values.electricalTrenching,
-  ]);
-
-  const apply = (patch: Partial<typeof values>) => {
-    setLocal(prev => {
-      const next = { ...prev, ...patch };
-      setTimeout(() => onPatch(next), 0);
-      return next;
-    });
-  };
-
-  const chip = (key: string, selected: boolean, label: string, onPress: () => void) => (
-    <TouchableOpacity
-      key={key}
-      onPress={onPress}
-      activeOpacity={0.85}
-      style={[paintChipStyle(selected), { paddingVertical: 10, paddingHorizontal: 12 }]}
-    >
-      <Text
-        style={{
-          color: paintChipTextColor(selected),
-          fontWeight: '700',
-          textAlign: 'center',
-        }}
-      >
-        {selected ? '✓ ' : ''}
-        {label}
-      </Text>
-    </TouchableOpacity>
-  );
-
-  return (
-    <>
-      <View style={{ gap: 10, marginTop: 14 }}>
-        {(
-          [
-            ['new_construction', 'New construction / full rough'],
-            ['remodel_open_wall', 'Remodel / open wall'],
-            ['finished_wall_service', 'Finished-wall service'],
-          ] as Array<[ElectricalProjectCondition, string]>
-        ).map(([value, label]) =>
-          chip(value, local.electricalProjectCondition === value, label, () =>
-            apply({
-              electricalProjectCondition:
-                local.electricalProjectCondition === value ? null : value,
-            })
-          )
-        )}
-      </View>
-      <View style={{ gap: 10, marginTop: 16 }}>
-        <Text
-          style={{
-            color: headingColor,
-            fontWeight: '800',
-            fontSize: 14,
-          }}
-        >
-          Service amperage
-        </Text>
-        {(
-          [
-            [100, '100A'],
-            [125, '125A'],
-            [150, '150A'],
-            [200, '200A'],
-            [400, '400A / specialty'],
-          ] as Array<[number, string]>
-        ).map(([amps, label]) =>
-          chip(String(amps), Number(local.serviceAmperage) === amps, label, () =>
-            apply({
-              serviceAmperage:
-                Number(local.serviceAmperage) === amps ? null : amps,
-            })
-          )
-        )}
-      </View>
-      {showExistingService || Number(local.existingServiceAmperage) > 0 ? (
-        <View style={{ gap: 10, marginTop: 16 }}>
-          <Text
-            style={{
-              color: headingColor,
-              fontWeight: '800',
-              fontSize: 14,
-            }}
-          >
-            Existing service size
-          </Text>
-          {(
-            [
-              [100, '100A'],
-              [125, '125A'],
-              [150, '150A'],
-              [200, '200A'],
-            ] as Array<[number, string]>
-          ).map(([amps, label]) =>
-            chip(
-              `existing-${amps}`,
-              Number(local.existingServiceAmperage) === amps,
-              label,
-              () =>
-                apply({
-                  existingServiceAmperage:
-                    Number(local.existingServiceAmperage) === amps ? null : amps,
-                })
-            )
-          )}
-        </View>
-      ) : null}
-      <View style={{ gap: 10, marginTop: 16 }}>
-        {(
-          [
-            ['indoor', 'Indoor'],
-            ['outdoor', 'Outdoor'],
-          ] as Array<[ElectricalPanelLocation, string]>
-        ).map(([value, label]) =>
-          chip(value, local.electricalPanelLocation === value, label, () =>
-            apply({
-              electricalPanelLocation:
-                local.electricalPanelLocation === value ? null : value,
-            })
-          )
-        )}
-        {chip(
-          'meter-main',
-          Boolean(local.electricalMeterMainCombo),
-          'Meter / main combo',
-          () => apply({ electricalMeterMainCombo: !local.electricalMeterMainCombo })
-        )}
-      </View>
-      <View style={{ gap: 10, marginTop: 16 }}>
-        {(
-          [
-            ['electricalIncludeRough', 'Include rough-in'],
-            ['electricalIncludeTrim', 'Include trim / devices'],
-            ['electricalConduit', 'Conduit'],
-            ['electricalTrenching', 'Trenching'],
-          ] as const
-        ).map(([field, label]) =>
-          chip(field, Boolean(local[field]), label, () =>
-            apply({ [field]: !local[field] })
-          )
-        )}
-      </View>
-    </>
-  );
-}
 
 export default function AIEstimateScopeAssumptionsModal({
   visible,
@@ -13672,6 +13551,7 @@ export default function AIEstimateScopeAssumptionsModal({
       ...emptyQuickMeasurementInput(),
       itemQuantities: {},
     });
+  const deferredMeasurements = useDeferredValue(measurements);
   const [quickMeasurementsOpen, setQuickMeasurementsOpen] = useState(true);
   // Confirm Scope reuses this modal instance — reopening must restore QM expanded
   // even when hydration short-circuits (e.g. plan import before checklist is ready).
@@ -13696,6 +13576,8 @@ export default function AIEstimateScopeAssumptionsModal({
   const [benchmarkRefresh, setBenchmarkRefresh] = useState(0);
   const itemsRef = useRef(items);
   const measurementsRef = useRef(measurements);
+  const electricalMeasurementsStagedRef = useRef(false);
+  const electricalScopeSyncKeyRef = useRef('');
   const selectedPricingRef = useRef<Record<string, SuggestedPricingBlock>>({});
   const scrollRef = useRef<ScrollView>(null);
   const scrollContentRef = useRef<View>(null);
@@ -13952,9 +13834,17 @@ export default function AIEstimateScopeAssumptionsModal({
   );
 
   /** Applied Confirm Scope dollars — same list as scope cards (flatwork / openings / wet-area). */
+  const appliedPricingMeasurementInput =
+    String(checklist?.templateKey || '').toLowerCase() === 'electrical'
+      ? deferredMeasurements
+      : measurements;
   const measurementsForAppliedPricing = useMemo(
-    () => clearSupersededStageHostPricing(measurements, checklist?.templateKey),
-    [measurements, checklist?.templateKey]
+    () =>
+      clearSupersededStageHostPricing(
+        appliedPricingMeasurementInput,
+        checklist?.templateKey
+      ),
+    [appliedPricingMeasurementInput, checklist?.templateKey]
   );
   const step2AppliedPricingBreakdown = useMemo(
     () =>
@@ -14110,6 +14000,7 @@ export default function AIEstimateScopeAssumptionsModal({
     []
   );
   const hydratedVisibleSessionRef = useRef(false);
+  const livePlanImportHandoffKeyRef = useRef('');
 
   const setMeasurementsSynced = useCallback(
     (update: React.SetStateAction<ScopeMeasurementsInputExtended>) => {
@@ -14200,11 +14091,50 @@ export default function AIEstimateScopeAssumptionsModal({
     [checklist?.templateKey]
   );
 
+  const setElectricalMeasurementsStaged = useCallback(
+    (update: React.SetStateAction<ScopeMeasurementsInputExtended>) => {
+      const previous = measurementsRef.current;
+      const next =
+        typeof update === 'function'
+          ? (
+              update as (
+                prev: ScopeMeasurementsInputExtended
+              ) => ScopeMeasurementsInputExtended
+            )(previous)
+          : update;
+      if (next === previous) return;
+      measurementsRef.current = next;
+      electricalMeasurementsStagedRef.current = true;
+    },
+    []
+  );
+
+  const flushStagedElectricalMeasurements = useCallback(() => {
+    if (!electricalMeasurementsStagedRef.current) return;
+    electricalMeasurementsStagedRef.current = false;
+    setMeasurementsSynced({ ...measurementsRef.current });
+  }, [setMeasurementsSynced]);
+
+  const scopeItemsForCurrentMeasurements = useCallback(
+    (currentItems: ScopeChecklistItem[]) => {
+      if (String(checklist?.templateKey || '').toLowerCase() !== 'electrical') {
+        return currentItems;
+      }
+      const currentMeasurements = measurementsRef.current;
+      return syncElectricalScopeItems(currentItems, {
+        electricalScope: currentMeasurements.electricalScope,
+        quantities: currentMeasurements as Partial<Record<string, unknown>>,
+      });
+    },
+    [checklist?.templateKey]
+  );
+
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
 
   useEffect(() => {
+    if (electricalMeasurementsStagedRef.current) return;
     measurementsRef.current = measurements;
   }, [measurements]);
 
@@ -14286,6 +14216,24 @@ export default function AIEstimateScopeAssumptionsModal({
       notesFallback,
     ]
   );
+  const livePlanImportHandoffKey = useMemo(
+    () =>
+      planImport
+        ? JSON.stringify({
+            measurements: planImport.measurements,
+            scopeDetections: planImport.scopeDetections,
+            fieldConfidence: planImport.fieldConfidence,
+            quickMeasurementSources: planImport.quickMeasurementSources,
+            measurementProvenance: planImport.measurementProvenance,
+            measurementConflicts: planImport.measurementConflicts,
+            estimatingMode: planImport.estimatingMode,
+            selectedTrade: planImport.selectedTrade,
+            tradeProvenance: planImport.tradeProvenance,
+            missingInfo: planImport.missingInfo,
+          })
+        : '',
+    [planImport]
+  );
 
   useEffect(() => {
     if (visible && checklist?.items?.length) {
@@ -14361,6 +14309,10 @@ export default function AIEstimateScopeAssumptionsModal({
           ),
         };
       }
+      nextMeasurements = mergeLivePlanImportIntoScopeMeasurements(
+        nextMeasurements,
+        planImport
+      );
       const hydrateTradeContext = resolveSingleTradePlanContext({
         measurements: nextMeasurements,
         draftScopeMeasurements: draft?.scopeMeasurements,
@@ -14484,6 +14436,10 @@ export default function AIEstimateScopeAssumptionsModal({
           ...readWetAreaDemoCounts(nextMeasurements),
         } as typeof norm
       );
+      normalized = applyScopeDetectionsToChecklistItems(
+        normalized,
+        planImport?.scopeDetections
+      ).items;
       if (hydrateTradeContext.isSingleTrade && hydrateTradeContext.tradeKey) {
         normalized = filterChecklistItemsForTrade(
           normalized,
@@ -14521,14 +14477,47 @@ export default function AIEstimateScopeAssumptionsModal({
   }, [visible, draftScopeRestoreKey, checklist?.templateKey]);
 
   useEffect(() => {
+    if (
+      !visible ||
+      !hydratedVisibleSessionRef.current ||
+      !planImport ||
+      !livePlanImportHandoffKey ||
+      livePlanImportHandoffKeyRef.current === livePlanImportHandoffKey
+    ) {
+      return;
+    }
+    livePlanImportHandoffKeyRef.current = livePlanImportHandoffKey;
+    setMeasurementsSynced(prev =>
+      mergeLivePlanImportIntoScopeMeasurements(prev, planImport)
+    );
+    if (planImport.scopeDetections?.length) {
+      setItems(prev => {
+        const applied = applyScopeDetectionsToChecklistItems(
+          prev,
+          planImport.scopeDetections
+        );
+        return applied.appliedCount ? applied.items : prev;
+      });
+    }
+  }, [
+    visible,
+    livePlanImportHandoffKey,
+    planImport,
+    setMeasurementsSynced,
+  ]);
+
+  useEffect(() => {
     if (visible) return;
     // Persist before wiping local form state. Skip during Continue — parent saves in onConfirm.
     if (onPersistProgress && !applying && itemsRef.current.length) {
+      const currentItems = scopeItemsForCurrentMeasurements(itemsRef.current);
       onPersistProgress(
-        scopeChecklistItemsForPersist(itemsRef.current),
+        scopeChecklistItemsForPersist(currentItems),
         scopeMeasurementsPayloadForCurrentState()
       );
     }
+    electricalMeasurementsStagedRef.current = false;
+    livePlanImportHandoffKeyRef.current = '';
     hydratedVisibleSessionRef.current = false;
     setItems([]);
     // Do not clear measurementsRef here. Persist reads measurementsRef above.
@@ -14543,6 +14532,7 @@ export default function AIEstimateScopeAssumptionsModal({
     visible,
     onPersistProgress,
     applying,
+    scopeItemsForCurrentMeasurements,
     scopeMeasurementsPayloadForCurrentState,
   ]);
 
@@ -14627,10 +14617,20 @@ export default function AIEstimateScopeAssumptionsModal({
     }
   }, [visible, checklist?.templateKey, measurements.concreteSqft]);
 
+  const normMeasurementInput =
+    String(checklist?.templateKey || '').toLowerCase() === 'electrical'
+      ? deferredMeasurements
+      : measurements;
   const normMeasurements = useMemo(
-    () => buildNormFromInput(measurements, scopeNotes, checklist?.templateKey),
-    [measurements, scopeNotes, checklist?.templateKey]
+    () =>
+      buildNormFromInput(
+        normMeasurementInput,
+        scopeNotes,
+        checklist?.templateKey
+      ),
+    [normMeasurementInput, scopeNotes, checklist?.templateKey]
   );
+  const deferredNormMeasurements = useDeferredValue(normMeasurements);
 
   // Keep plan-backed Stucco cards synchronized with Quick Measurements after
   // every hydration/sync pass. This only promotes Not sure; explicit Yes/No
@@ -14681,13 +14681,18 @@ export default function AIEstimateScopeAssumptionsModal({
 
   const persistScopeProgressNow = useCallback(() => {
     if (!onPersistProgress || applying) return;
-    const currentItems = itemsRef.current;
+    const currentItems = scopeItemsForCurrentMeasurements(itemsRef.current);
     if (!currentItems.length) return;
     onPersistProgress(
       scopeChecklistItemsForPersist(currentItems),
       scopeMeasurementsPayloadForCurrentState()
     );
-  }, [onPersistProgress, applying, scopeMeasurementsPayloadForCurrentState]);
+  }, [
+    onPersistProgress,
+    applying,
+    scopeItemsForCurrentMeasurements,
+    scopeMeasurementsPayloadForCurrentState,
+  ]);
 
   const handleBathroomCountertopMaterialChange = useCallback(
     (
@@ -15393,28 +15398,20 @@ export default function AIEstimateScopeAssumptionsModal({
   useEffect(() => {
     if (String(checklist?.templateKey || '').toLowerCase() !== 'electrical')
       return;
-    setItems(prev =>
-      syncElectricalScopeItems(prev, {
-        electricalScope: measurements.electricalScope,
-        quantities: measurements as Partial<Record<string, unknown>>,
-      })
+    const signature = electricalScopeSyncSignature(
+      measurements as Record<string, unknown>
     );
-  }, [
-    checklist?.templateKey,
-    measurements.electricalScope,
-    measurements.recessedLightCount,
-    measurements.standardReceptacleCount,
-    measurements.gfciReceptacleCount,
-    measurements.mainPanelCount,
-    measurements.dedicated20aCircuitCount,
-    measurements.rangeHookupCount,
-    measurements.ceilingFanCount,
-    measurements.serviceUpgradeCount,
-    measurements.subpanelCount,
-    measurements.panelUpgradeCount,
-    measurements.electricalIncludeRough,
-    measurements.electricalIncludeTrim,
-  ]);
+    if (signature === electricalScopeSyncKeyRef.current) return;
+    electricalScopeSyncKeyRef.current = signature;
+    startTransition(() => {
+      setItems(prev =>
+        syncElectricalScopeItems(prev, {
+          electricalScope: measurements.electricalScope,
+          quantities: measurements as Partial<Record<string, unknown>>,
+        })
+      );
+    });
+  }, [checklist?.templateKey, measurements]);
 
   // Quick measurements Paint / shower tile → paint_repair count when scope is selected.
   useEffect(() => {
@@ -15495,6 +15492,8 @@ export default function AIEstimateScopeAssumptionsModal({
   const unconfirmedSuggestedPricing = useMemo<
     UnconfirmedSuggestedPricing[]
   >(() => {
+    const measurements = deferredMeasurements;
+    const normMeasurements = deferredNormMeasurements;
     const rows: UnconfirmedSuggestedPricing[] = [];
     const footerScopeKeys = new Set<string>();
     const bathroomPaintRepairCardVisible =
@@ -15508,6 +15507,11 @@ export default function AIEstimateScopeAssumptionsModal({
         legacyScope: measurements.bathroomPaintRepairScope,
         scopeSource: measurements.bathroomPaintRepairScopeSource,
       });
+    const blockedItemIds = conflictedSuggestedItemIds(
+      (measurements.measurementConflicts || []).filter(
+        conflict => !measurements.quickMeasurementUserOverrides?.[conflict.field]
+      )
+    );
     for (const item of displayItems) {
       if (!checklistItemInScope(item)) continue;
       if (hideDeselectedRoofingQmCard(item.id)) continue;
@@ -15569,6 +15573,7 @@ export default function AIEstimateScopeAssumptionsModal({
       // "Not sure" means the scope is not selected yet. Do not count or bulk-apply
       // its pricing suggestion until the contractor chooses Yes/included.
       if (item.state === 'unsure') continue;
+      if (blockedItemIds.has(item.id)) continue;
       // Any committed/manual/applied price — national average is comparison-only.
       if (
         scopeHasCommittedConfirmScopePrice({
@@ -15626,14 +15631,8 @@ export default function AIEstimateScopeAssumptionsModal({
         suggested: initialSuggested,
         choiceId: item.choiceId,
       });
-      // Applyable fills only — never included-in-stage or comparison-only cards.
-      if (
-        suggested.fill &&
-        !suggested.fill.isComparison &&
-        suggested.fill.benchmarkAction !== 'included_in_stage' &&
-        suggested.fill.benchmarkAction !== 'comparison_only' &&
-        suggested.fill.total > 0
-      ) {
+      // Applyable fills, plus panel/service cards waiting on required amperage.
+      if (includeUnconfirmedSuggestedPricingFill(suggested.fill)) {
         rows.push({
           itemId: item.id,
           label: item.label,
@@ -15670,8 +15669,8 @@ export default function AIEstimateScopeAssumptionsModal({
   }, [
     items,
     displayItems,
-    measurements,
-    normMeasurements,
+    deferredMeasurements,
+    deferredNormMeasurements,
     checklist?.templateKey,
     scopeNotes,
     enrichedPricingContext,
@@ -15710,9 +15709,23 @@ export default function AIEstimateScopeAssumptionsModal({
     ]
   );
 
+  const pricingFooterMeasurements =
+    String(checklist?.templateKey || '').toLowerCase() === 'electrical'
+      ? deferredMeasurements
+      : measurements;
   const suggestedPricingFooterBreakdown = useMemo(() => {
     let readyCount = 0;
     let benchmarkOnlyCount = 0;
+    let needsAmperageConfirmCount = 0;
+    const unresolvedPlanConflicts = (
+      pricingFooterMeasurements.measurementConflicts || []
+    ).filter(
+      conflict =>
+        !pricingFooterMeasurements.quickMeasurementUserOverrides?.[
+          conflict.field
+        ]
+    );
+    const blockedItemIds = conflictedSuggestedItemIds(unresolvedPlanConflicts);
     const selectedScopeIds = new Set(
       displayItems
         .filter(item => checklistItemInScope(item) && item.state !== 'unsure')
@@ -15755,6 +15768,7 @@ export default function AIEstimateScopeAssumptionsModal({
       // The suggestion list can briefly retain a row while a Yes/No/Not sure
       // choice is being synchronized. Count only currently selected scope items.
       if (!selectedScopeIds.has(row.itemId)) continue;
+      if (blockedItemIds.has(row.itemId)) continue;
       // Applied pricing lines are the source of truth for this footer. This
       // also prevents stale suggestion rows from being counted after a card
       // has already been priced.
@@ -15771,13 +15785,13 @@ export default function AIEstimateScopeAssumptionsModal({
       if (
         scopeHasCommittedConfirmScopePrice({
           itemId: row.itemId,
-          itemQuantities: measurements.itemQuantities,
-          pricingAcceptance: measurements.pricingAcceptance,
+          itemQuantities: pricingFooterMeasurements.itemQuantities,
+          pricingAcceptance: pricingFooterMeasurements.pricingAcceptance,
         }) ||
         hasAcceptedScopePricing(
           row.itemId,
-          measurements.itemQuantities,
-          measurements.pricingAcceptance
+          pricingFooterMeasurements.itemQuantities,
+          pricingFooterMeasurements.pricingAcceptance
         )
       ) {
         continue;
@@ -15791,6 +15805,10 @@ export default function AIEstimateScopeAssumptionsModal({
           String(row.block.rateSourceLabel || '')
         )
       ) {
+        continue;
+      }
+      if (suggestedPricingFooterCountsAmperageConfirm(row.block)) {
+        needsAmperageConfirmCount += 1;
         continue;
       }
       const isBenchmark =
@@ -15813,18 +15831,24 @@ export default function AIEstimateScopeAssumptionsModal({
     return {
       readyCount,
       benchmarkOnlyCount,
+      needsMeasurementCount:
+        unresolvedPlanConflicts.length + needsAmperageConfirmCount,
       readyRows,
       readyLabels: readyRows.map(row => row.label),
     };
   }, [
     checklist?.templateKey,
     displayItems,
-    measurements,
-    measurements.itemQuantities,
-    measurements.pricingAcceptance,
+    pricingFooterMeasurements,
     step2AppliedPricingLines,
     unconfirmedSuggestedPricing,
   ]);
+
+  const suggestedPricingFooterSummary = footerSuggestedPricingSummary({
+    readyCount: suggestedPricingFooterBreakdown.readyCount,
+    benchmarkOnlyCount: suggestedPricingFooterBreakdown.benchmarkOnlyCount,
+    needsMeasurementCount: suggestedPricingFooterBreakdown.needsMeasurementCount,
+  });
 
   const applySuggestedPricingBlocks = useCallback(
     (rows: UnconfirmedSuggestedPricing[]) => {
@@ -17021,7 +17045,10 @@ export default function AIEstimateScopeAssumptionsModal({
 
     const content = scrollContentRef.current;
     const qm = quickMeasurementsRef.current;
-    const collapseQm = () => setQuickMeasurementsOpen(false);
+    const collapseQm = () => {
+      flushStagedElectricalMeasurements();
+      setQuickMeasurementsOpen(false);
+    };
 
     // Snap to the QM card top before collapse so a tall expanded card cannot leave a
     // stale deep scroll offset that jumps to the page bottom when content shrinks.
@@ -17040,6 +17067,7 @@ export default function AIEstimateScopeAssumptionsModal({
   }, [
     scopeGroupedItems,
     embedQmScopeInQuickMeasurements,
+    flushStagedElectricalMeasurements,
     qmScopeEmbeddedInQuickMeasurements,
   ]);
 
@@ -17790,7 +17818,9 @@ export default function AIEstimateScopeAssumptionsModal({
       });
     }
     // Persist display-only cards (flatwork / openings) that were Yes'd in UI.
-    const baseItems = displayItems.length ? displayItems : items;
+    const baseItems = scopeItemsForCurrentMeasurements(
+      displayItems.length ? displayItems : items
+    );
     const tradeFilteredItems =
       singleTradePlanImport && singleTradeKey
         ? filterChecklistItemsForTrade(
@@ -17899,7 +17929,12 @@ export default function AIEstimateScopeAssumptionsModal({
 
           <CollapsibleQuickMeasurements
             expanded={quickMeasurementsOpen}
-            onToggle={() => setQuickMeasurementsOpen(v => !v)}
+            onToggle={() => {
+              if (quickMeasurementsOpen) {
+                flushStagedElectricalMeasurements();
+              }
+              setQuickMeasurementsOpen(v => !v);
+            }}
             onDone={handleQuickMeasurementsDone}
             onFlooringBottomCollapse={preserveFlooringQmScrollPosition}
             onFloorPrepCollapse={handleQuickMeasurementsDone}
@@ -17907,7 +17942,11 @@ export default function AIEstimateScopeAssumptionsModal({
             scrollContentRef={scrollContentRef}
             containerRef={quickMeasurementsRef}
             measurements={measurements}
-            setMeasurements={setMeasurementsSynced}
+            setMeasurements={
+              String(checklist?.templateKey || '').toLowerCase() === 'electrical'
+                ? setElectricalMeasurementsStaged
+                : setMeasurementsSynced
+            }
             templateKey={checklist?.templateKey}
             projectType={draft?.projectType}
             notes={scopeNotes}
@@ -18064,12 +18103,16 @@ export default function AIEstimateScopeAssumptionsModal({
               title={group.title}
               items={group.items}
               collapsed={Boolean(collapsedGroups[group.title])}
-              onToggle={() =>
+              onToggle={() => {
+                const isCollapsed = Boolean(collapsedGroups[group.title]);
+                if (isCollapsed) {
+                  flushStagedElectricalMeasurements();
+                }
                 setCollapsedGroups(prev => ({
                   ...prev,
-                  [group.title]: !prev[group.title],
-                }))
-              }
+                  [group.title]: !isCollapsed,
+                }));
+              }}
               renderItem={renderItem}
               noteSummary={scopeChecklistNoteSummary(group.items, visualCtx)}
               Colors={Colors}
@@ -18242,11 +18285,67 @@ export default function AIEstimateScopeAssumptionsModal({
           )}
         </TouchableOpacity>
 
-        {suggestedPricingFooterBreakdown.readyCount > 0 ||
-        suggestedPricingFooterBreakdown.benchmarkOnlyCount > 0 ||
+        {suggestedPricingFooterSummary ||
         quickMeasurementSummary.needsConfirmation > 0 ? (
           <View style={styles.bulkSuggestedPricingLink}>
-            {quickMeasurementSummary.needsConfirmation > 0 ? (
+            {suggestedPricingFooterSummary ? (
+              <TouchableOpacity
+                onPress={
+                  suggestedPricingFooterBreakdown.readyCount > 0
+                    ? handleUseAllSuggestedPricing
+                    : () =>
+                        Alert.alert(
+                          'Confirm measurements',
+                          'Choose a quantity for each conflicting takeoff before those cards can price.'
+                        )
+                }
+                disabled={
+                  applying ||
+                  (suggestedPricingFooterBreakdown.readyCount === 0 &&
+                    (suggestedPricingFooterBreakdown.needsMeasurementCount ||
+                      0) === 0)
+                }
+                activeOpacity={0.75}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6,
+                }}
+                accessibilityLabel={suggestedPricingFooterSummary}
+              >
+                <Text
+                  style={[
+                    styles.bulkSuggestedPricingBtnText,
+                    (suggestedPricingFooterBreakdown.needsMeasurementCount ||
+                      0) > 0 && suggestedPricingFooterBreakdown.readyCount === 0
+                      ? { color: '#fbbf24' }
+                      : null,
+                  ]}
+                >
+                  {suggestedPricingFooterSummary}
+                </Text>
+                {measurementSemanticsV1Enabled() &&
+                suggestedPricingFooterBreakdown.benchmarkOnlyCount > 0 ? (
+                  <TouchableOpacity
+                    onPress={() =>
+                      Alert.alert(
+                        'Pricing readiness',
+                        FOOTER_PLANNING_BENCHMARK_INFO
+                      )
+                    }
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityLabel='Pricing readiness info'
+                  >
+                    <Ionicons
+                      name='information-circle-outline'
+                      size={16}
+                      color='#22c55e'
+                    />
+                  </TouchableOpacity>
+                ) : null}
+              </TouchableOpacity>
+            ) : quickMeasurementSummary.needsConfirmation > 0 ? (
               <TouchableOpacity
                 onPress={() =>
                   Alert.alert(
@@ -18301,55 +18400,6 @@ export default function AIEstimateScopeAssumptionsModal({
                   size={16}
                   color='#fbbf24'
                 />
-              </TouchableOpacity>
-            ) : suggestedPricingFooterBreakdown.readyCount > 0 ||
-              suggestedPricingFooterBreakdown.benchmarkOnlyCount > 0 ? (
-              <TouchableOpacity
-                onPress={handleUseAllSuggestedPricing}
-                disabled={
-                  applying || suggestedPricingFooterBreakdown.readyCount === 0
-                }
-                activeOpacity={0.75}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                }}
-                accessibilityLabel={
-                  footerSuggestedPricingSummary({
-                    readyCount: suggestedPricingFooterBreakdown.readyCount,
-                    benchmarkOnlyCount:
-                      suggestedPricingFooterBreakdown.benchmarkOnlyCount,
-                  }) || 'Suggested pricing'
-                }
-              >
-                <Text style={styles.bulkSuggestedPricingBtnText}>
-                  {footerSuggestedPricingSummary({
-                    readyCount: suggestedPricingFooterBreakdown.readyCount,
-                    benchmarkOnlyCount:
-                      suggestedPricingFooterBreakdown.benchmarkOnlyCount,
-                  })}
-                </Text>
-                {measurementSemanticsV1Enabled() &&
-                suggestedPricingFooterBreakdown.benchmarkOnlyCount > 0 ? (
-                  <TouchableOpacity
-                    onPress={() =>
-                      Alert.alert(
-                        'Pricing readiness',
-                        FOOTER_PLANNING_BENCHMARK_INFO
-                      )
-                    }
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    accessibilityLabel='Pricing readiness info'
-                  >
-                    <Ionicons
-                      name='information-circle-outline'
-                      size={16}
-                      color='#22c55e'
-                    />
-                  </TouchableOpacity>
-                ) : null}
               </TouchableOpacity>
             ) : null}
           </View>

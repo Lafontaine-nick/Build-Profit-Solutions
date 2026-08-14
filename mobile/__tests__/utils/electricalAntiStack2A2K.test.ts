@@ -97,7 +97,7 @@ describe('electrical 2A–2K global anti-stack', () => {
   });
 
   it.each([
-    ['2A main panel', { mainPanelCount: 1 }, 'electrical_main_panel', 2050],
+    ['2A main panel', { mainPanelCount: 1, serviceAmperage: 200 }, 'electrical_main_panel', 2050],
     ['2B standard circuit', { standardCircuitCount: 8 }, 'electrical_standard_circuit', 2400],
     ['2C receptacle', { standardReceptacleCount: 12 }, 'electrical_standard_receptacle', 1320],
     ['2D switch', { singlePoleSwitchCount: 8 }, 'electrical_single_pole_switch', 760],

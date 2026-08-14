@@ -4,6 +4,8 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
+  Keyboard,
   Modal,
   View,
   Text,
@@ -17,10 +19,22 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import KeyboardPlainAccessory from '@/components/ui/KeyboardPlainAccessory';
+import { KEYBOARD_ACCESSORY_IDS } from '@/constants/keyboard';
+import { aiScopeConfirmNumericKeyboardProps } from '@/constants/inputKeyboardPresets';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getColors } from '@/theme/getColors';
 import AIEstimateFlowHeader from '@/components/estimate/AIEstimateFlowHeader';
+import { PlanTakeoffConflictChooser } from '@/components/estimate/PlanTakeoffConflictChooser';
 import { quickMeasurementFieldMeta } from '@/utils/scopeQuickMeasurements';
+import {
+  applyPlanConflictChoices,
+  conflictResolutionProvenanceEntry,
+  pendingManualConflictFields,
+  reviewablePlanMeasurementConflicts,
+  uniqueUnreadablePlanFields,
+  type PlanConflictChoice,
+} from '@/utils/planMeasurementConflictUi';
 import type {
   PlanToMeasurementsResult,
   PhotoScopeDetection,
@@ -32,6 +46,9 @@ import {
   buildElectricalPlanReviewSummary,
   buildFlooringPlanReviewSummary,
   buildPaintingPlanReviewSummary,
+  electricalPlanReviewDetectedLines,
+  electricalPlanReviewStatusLines,
+  mergeElectricalConflictReadings,
   classifyPlanSpaceName,
   formatSf,
   garageReconciliationStatusLabel,
@@ -174,6 +191,83 @@ const FLOORING_REVIEW_ADAPTER_KEYS = new Set([
   'floorDemoSheetVinylSqft',
 ]);
 
+const CONFIRM_YELLOW = '#fbbf24';
+const PANEL_BORDER_DARK = 'rgba(148,163,184,0.28)';
+const PANEL_BORDER_LIGHT = 'rgba(100,116,139,0.24)';
+const PANEL_BG_DARK = 'rgba(148,163,184,0.06)';
+const PANEL_BG_LIGHT = 'rgba(148,163,184,0.05)';
+
+function isNeedsConfirmationValue(value: string | null | undefined): boolean {
+  return (
+    value === 'Needs confirmation' ||
+    value === 'Not auto-priced from detailed takeoff'
+  );
+}
+
+function ReviewPanel({
+  darkMode,
+  children,
+}: {
+  darkMode: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <View
+      style={{
+        borderWidth: 1,
+        borderRadius: 14,
+        padding: 14,
+        marginBottom: 12,
+        borderColor: darkMode ? PANEL_BORDER_DARK : PANEL_BORDER_LIGHT,
+        backgroundColor: darkMode ? PANEL_BG_DARK : PANEL_BG_LIGHT,
+      }}
+    >
+      {children}
+    </View>
+  );
+}
+
+function TradeSummaryPanel({
+  darkMode,
+  labelColor,
+  valueColor,
+  lines,
+}: {
+  darkMode: boolean;
+  labelColor: string;
+  valueColor: string;
+  lines: Array<{ label: string; value: string; note?: string | null }>;
+}) {
+  return (
+    <ReviewPanel darkMode={darkMode}>
+      {lines.map((line, index) => (
+        <View key={line.label} style={index === 0 ? undefined : { marginTop: 12 }}>
+          <Text style={[styles.summaryLabel, { color: labelColor }]}>
+            {line.label}
+          </Text>
+          <Text
+            style={[
+              styles.summaryValue,
+              {
+                color: isNeedsConfirmationValue(line.value)
+                  ? CONFIRM_YELLOW
+                  : valueColor,
+              },
+            ]}
+          >
+            {line.value}
+          </Text>
+          {line.note ? (
+            <Text style={[styles.evidenceText, { color: labelColor }]} numberOfLines={2}>
+              {line.note}
+            </Text>
+          ) : null}
+        </View>
+      ))}
+    </ReviewPanel>
+  );
+}
+
 function positiveString(v: unknown): string | null {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? String(n) : null;
@@ -196,7 +290,6 @@ export default function PlanTakeoffReviewModal({
   const insets = useSafeAreaInsets();
   const { theme, darkMode } = useTheme();
   const Colors = getColors(theme);
-  const lineColor = darkMode ? 'rgba(255,255,255,0.12)' : Colors.line;
   const footerBottomPad = Math.max(insets.bottom, 16);
   const semanticsOn = measurementSemanticsV1Enabled();
 
@@ -215,6 +308,17 @@ export default function PlanTakeoffReviewModal({
   const [rows, setRows] = useState<PlanReviewRow[]>([]);
   const [roomRows, setRoomRows] = useState<PlanReviewRoomRow[]>([]);
   const [scopeChecked, setScopeChecked] = useState<Record<string, boolean>>({});
+  const [conflictChoices, setConflictChoices] = useState<
+    Record<string, PlanConflictChoice | undefined>
+  >({});
+  const [conflictManualValues, setConflictManualValues] = useState<
+    Record<string, string>
+  >({});
+  const [conflictManualCommitted, setConflictManualCommitted] = useState<
+    Record<string, boolean>
+  >({});
+  const [conflictChooserKey, setConflictChooserKey] = useState(0);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   const visibleMeasurements = useMemo(
     () =>
@@ -250,8 +354,18 @@ export default function PlanTakeoffReviewModal({
 
   useEffect(() => {
     if (!visible || !takeoff) return;
+    setConflictChoices({});
+    setConflictManualValues({});
+    setConflictManualCommitted({});
+    setConflictChooserKey(key => key + 1);
     const livingSf = Number(visibleMeasurements?.floorAreaSqft);
+    const unresolvedConflictFields = new Set(
+      (takeoff.measurementConflicts || [])
+        .filter(conflict => conflict?.requiresConfirmation && conflict.field)
+        .map(conflict => String(conflict.field))
+    );
     const nextRows: PlanReviewRow[] = Object.entries(visibleMeasurements)
+      .filter(([key]) => !unresolvedConflictFields.has(key))
       .map(([key, value]) => {
         const meta = quickMeasurementFieldMeta(key);
         const conflictValue = positiveString(currentValues?.[key]);
@@ -272,6 +386,7 @@ export default function PlanTakeoffReviewModal({
         const provenanceFlags = planReviewProvenanceFlags({
           key,
           provenanceEntry: takeoff.measurementProvenance?.[key],
+          hasConflict: unresolvedConflictFields.has(key),
         });
         const provenance = resolvePlanMeasurementProvenance({
           key,
@@ -279,6 +394,8 @@ export default function PlanTakeoffReviewModal({
           hasExplicitPlanSource: provenanceFlags.hasExplicitPlanSource,
           hasReliableDimensions: provenanceFlags.hasReliableDimensions,
           roomDependent: provenanceFlags.roomDependent,
+          fromPlanSymbols: provenanceFlags.fromPlanSymbols,
+          aiInferred: provenanceFlags.aiInferred,
           reconciliationVariancePercent:
             areaReconciliation?.livingVariancePercent,
         });
@@ -401,6 +518,27 @@ export default function PlanTakeoffReviewModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, takeoff, visibleMeasurements, tradeReview]);
 
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent =
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const shown = Keyboard.addListener(showEvent, () =>
+      setKeyboardVisible(true)
+    );
+    const hidden = Keyboard.addListener(hideEvent, () =>
+      setKeyboardVisible(false)
+    );
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!visible) setKeyboardVisible(false);
+  }, [visible]);
+
   const concreteReviewMeasurements = useMemo(() => {
     const merged: Record<string, string | number> = {
       ...(visibleMeasurements || {}),
@@ -452,46 +590,101 @@ export default function PlanTakeoffReviewModal({
     );
   }, [effectiveTradeKey, paintingReviewMeasurements, takeoff?.measurementProvenance]);
 
+  const electricalConflictState = useMemo(
+    () =>
+      applyPlanConflictChoices(
+        takeoff?.measurementConflicts || [],
+        conflictChoices,
+        conflictManualValues
+      ),
+    [takeoff?.measurementConflicts, conflictChoices, conflictManualValues]
+  );
+
   const electricalReviewMeasurements = useMemo(() => {
     const merged: Record<string, string | number> = {
       ...(visibleMeasurements || {}),
     };
     for (const row of rows) {
+      if (row.key === 'unclassifiedFixtureCount') continue;
       const n = Number(row.value);
       if (Number.isFinite(n) && n > 0) merged[row.key] = row.value;
     }
-    return merged;
-  }, [visibleMeasurements, rows]);
+    return mergeElectricalConflictReadings(
+      merged,
+      takeoff?.measurementConflicts,
+      electricalConflictState.resolved
+    );
+  }, [
+    visibleMeasurements,
+    rows,
+    takeoff?.measurementConflicts,
+    electricalConflictState.resolved,
+  ]);
+
+  const electricalUnreadable = useMemo(
+    () => uniqueUnreadablePlanFields(takeoff?.unreadableFields),
+    [takeoff?.unreadableFields]
+  );
 
   const electricalPlanSummary = useMemo(() => {
     if (effectiveTradeKey !== 'electrical') return null;
+    const unclassified = electricalUnreadable.find(
+      field => field.field === 'unclassifiedFixtureCount'
+    );
     return buildElectricalPlanReviewSummary(
       electricalReviewMeasurements,
-      takeoff?.measurementProvenance
+      takeoff?.measurementProvenance,
+      {
+        unresolvedConflictFields: electricalConflictState.unresolved.map(
+          conflict => conflict.field
+        ),
+        unclassifiedFixtureNote: unclassified?.reason || null,
+      }
     );
-  }, [effectiveTradeKey, electricalReviewMeasurements, takeoff?.measurementProvenance]);
+  }, [
+    effectiveTradeKey,
+    electricalReviewMeasurements,
+    takeoff?.measurementProvenance,
+    electricalConflictState.unresolved,
+    electricalUnreadable,
+  ]);
+
+  const electricalDetectedLines = useMemo(
+    () =>
+      electricalPlanSummary
+        ? electricalPlanReviewDetectedLines(electricalPlanSummary)
+        : [],
+    [electricalPlanSummary]
+  );
+
+  const electricalStatusLines = useMemo(
+    () =>
+      electricalPlanSummary
+        ? electricalPlanReviewStatusLines(electricalPlanSummary)
+        : [],
+    [electricalPlanSummary]
+  );
 
   if (!visible || !takeoff) return null;
 
   const tradeReviewKeys = new Set(
     getPlanTradeConfiguration(effectiveTradeKey)?.reviewMeasurementKeys || []
   );
-  const unreadable = (takeoff.unreadableFields || []).filter(field =>
-    tradeReview ? tradeReviewKeys.has(String(field.field || '')) : true
+  const unreadable = uniqueUnreadablePlanFields(takeoff.unreadableFields).filter(
+    field =>
+      tradeReview
+        ? tradeReviewKeys.has(String(field.field || '')) ||
+          field.field === 'unclassifiedFixtureCount'
+        : true
   );
   const lowConfidence = (takeoff.lowConfidence || []).filter(field =>
     tradeReview ? tradeReviewKeys.has(String(field.field || '')) : true
   );
-  const measurementConflicts = (takeoff.measurementConflicts || []).filter(
-    conflict =>
-      Object.prototype.hasOwnProperty.call(
-        visibleMeasurements,
-        conflict.field
-      ) ||
-      Object.prototype.hasOwnProperty.call(
-        takeoff.measurements || {},
-        conflict.field
-      )
+  const measurementConflicts = reviewablePlanMeasurementConflicts({
+    conflicts: takeoff.measurementConflicts,
+    provenance: takeoff.measurementProvenance,
+  }).filter(conflict =>
+    tradeReview ? tradeReviewKeys.has(String(conflict.field || '')) : true
   );
   const hasMeasurements = rows.length > 0;
   const hasRooms = roomRows.length > 0;
@@ -544,11 +737,35 @@ export default function PlanTakeoffReviewModal({
   };
 
   const handleApply = () => {
+    const pendingManual = pendingManualConflictFields(
+      conflictChoices,
+      conflictManualValues,
+      conflictManualCommitted
+    );
+    if (pendingManual.length) {
+      Alert.alert(
+        'Enter the custom count',
+        'Type a quantity for Enter manually, then tap Use this count — or pick one of the plan readings. This page stays open until the takeoff is applied.'
+      );
+      return;
+    }
+    const { resolved, unresolved, resolutions } = applyPlanConflictChoices(
+      takeoff.measurementConflicts || [],
+      conflictChoices,
+      conflictManualValues
+    );
+    const unresolvedFields = new Set(
+      unresolved.map(conflict => String(conflict.field))
+    );
     const values: Record<string, string> = {};
     for (const row of rows) {
+      if (unresolvedFields.has(row.key)) continue;
       const n = Number(row.value);
       if (row.include && Number.isFinite(n) && n > 0)
         values[row.key] = String(n);
+    }
+    for (const [key, value] of Object.entries(resolved)) {
+      values[key] = String(value);
     }
     const rooms = (
       effectiveTradeKey === 'painting' && roomRows.length === 0
@@ -581,8 +798,16 @@ export default function PlanTakeoffReviewModal({
       scopeDetections.filter(d => scopeChecked[d.itemId]),
       rooms,
       {
-        measurementProvenance: takeoff.measurementProvenance,
-        measurementConflicts: takeoff.measurementConflicts,
+        measurementProvenance: {
+          ...(takeoff.measurementProvenance || {}),
+          ...Object.fromEntries(
+            Object.entries(resolutions).map(([field, resolution]) => [
+              field,
+              conflictResolutionProvenanceEntry(resolution),
+            ])
+          ),
+        },
+        measurementConflicts: unresolved,
       }
     );
   };
@@ -601,6 +826,10 @@ export default function PlanTakeoffReviewModal({
         enabled={Platform.OS === 'ios'}
       >
         <View style={{ flex: 1, backgroundColor: Colors.bg }}>
+          <KeyboardPlainAccessory
+            nativeID={KEYBOARD_ACCESSORY_IDS.aiScopeConfirmNumeric}
+            backgroundColor={Colors.bg}
+          />
           <AIEstimateFlowHeader
             title={
               tradeLabel
@@ -617,312 +846,226 @@ export default function PlanTakeoffReviewModal({
 
           <ScrollView
             style={{ flex: 1 }}
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps='handled'
+            contentContainerStyle={[
+              styles.scrollContent,
+              keyboardVisible ? { paddingBottom: 120 } : null,
+            ]}
+            keyboardShouldPersistTaps='always'
             keyboardDismissMode={
               Platform.OS === 'ios' ? 'interactive' : 'on-drag'
             }
             showsVerticalScrollIndicator={false}
           >
+            {measurementConflicts.length ? (
+              <PlanTakeoffConflictChooser
+                key={conflictChooserKey}
+                conflicts={measurementConflicts}
+                choices={conflictChoices}
+                manualValues={conflictManualValues}
+                onChoose={(field, choice) => {
+                  if (choice !== 'manual') {
+                    setConflictManualCommitted(committed => {
+                      if (!committed[field]) return committed;
+                      const nextCommitted = { ...committed };
+                      delete nextCommitted[field];
+                      return nextCommitted;
+                    });
+                  }
+                  setConflictChoices(prev => {
+                    if (choice == null) {
+                      const next = { ...prev };
+                      delete next[field];
+                      return next;
+                    }
+                    return { ...prev, [field]: choice };
+                  });
+                }}
+                onManualChange={(field, value) => {
+                  setConflictManualValues(prev => ({ ...prev, [field]: value }));
+                  setConflictManualCommitted(prev => {
+                    if (!prev[field]) return prev;
+                    const next = { ...prev };
+                    delete next[field];
+                    return next;
+                  });
+                }}
+                onManualSubmit={(field, value) => {
+                  setConflictManualValues(prev => ({ ...prev, [field]: value }));
+                  setConflictManualCommitted(prev => ({
+                    ...prev,
+                    [field]: true,
+                  }));
+                }}
+                darkMode={darkMode}
+                captionColor={Colors.sub}
+              />
+            ) : null}
+
+            {hasReadingIssues ? (
+              <View style={styles.section}>
+                <Text style={styles.attentionEyebrow}>Needs review</Text>
+                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
+                  Could not read clearly
+                </Text>
+                <ReviewPanel darkMode={darkMode}>
+                  <Text style={styles.attentionTitle}>
+                    Enter these quantities manually
+                  </Text>
+                  {lowConfidence.map(f => {
+                    const meta = quickMeasurementFieldMeta(f.field);
+                    return (
+                      <Text
+                        key={`low-${f.field}`}
+                        style={[styles.evidenceText, { color: Colors.sub }]}
+                      >
+                        {meta.label}: read {f.value} {meta.unit}, confidence too
+                        low
+                      </Text>
+                    );
+                  })}
+                  {unreadable.map((f, idx) => {
+                    const meta = quickMeasurementFieldMeta(f.field);
+                    const label = measurementDisplayLabel(f.field).label;
+                    return (
+                      <Text
+                        key={`unread-${f.field}-${idx}`}
+                        style={[styles.evidenceText, { color: Colors.sub }]}
+                      >
+                        {meta.label !== f.field ? meta.label : label}: {f.reason}
+                      </Text>
+                    );
+                  })}
+                </ReviewPanel>
+              </View>
+            ) : null}
+
             {concretePlanSummary ? (
               <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: Colors.sub }]}>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  Project
+                </Text>
+                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
                   Concrete
                 </Text>
-                <View
-                  style={[
-                    styles.concreteSummaryCard,
-                    {
-                      borderColor: lineColor,
-                      backgroundColor: darkMode
-                        ? 'rgba(148,163,184,0.08)'
-                        : 'rgba(148,163,184,0.06)',
-                    },
-                  ]}
-                >
-                  {concretePlanSummary.map(line => (
-                    <View key={line.label} style={styles.concreteSummaryRow}>
-                      <Text
-                        style={[styles.concreteSummaryLabel, { color: Colors.sub }]}
-                      >
-                        {line.label}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.concreteSummaryValue,
-                          {
-                            color:
-                              line.value === '—' || line.value === 'Needs confirmation'
-                                ? Colors.sub
-                                : Colors.text,
-                          },
-                        ]}
-                      >
-                        {line.value}
-                      </Text>
-                      {line.note ? (
-                        <Text
-                          style={[styles.evidenceText, { color: Colors.sub }]}
-                          numberOfLines={2}
-                        >
-                          {line.note}
-                        </Text>
-                      ) : null}
-                    </View>
-                  ))}
-                </View>
+                <TradeSummaryPanel
+                  darkMode={darkMode}
+                  labelColor={Colors.sub}
+                  valueColor={Colors.text}
+                  lines={concretePlanSummary}
+                />
               </View>
             ) : null}
             {flooringPlanSummary ? (
               <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: Colors.sub }]}>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  Project
+                </Text>
+                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
                   Flooring
                 </Text>
-                <View
-                  style={[
-                    styles.concreteSummaryCard,
-                    {
-                      borderColor: lineColor,
-                      backgroundColor: darkMode
-                        ? 'rgba(148,163,184,0.08)'
-                        : 'rgba(148,163,184,0.06)',
-                    },
-                  ]}
-                >
-                  {flooringPlanSummary.map(line => (
-                    <View key={line.label} style={styles.concreteSummaryRow}>
-                      <Text
-                        style={[styles.concreteSummaryLabel, { color: Colors.sub }]}
-                      >
-                        {line.label}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.concreteSummaryValue,
-                          {
-                            color:
-                              line.value === '—' || line.value === 'Needs confirmation'
-                                ? Colors.sub
-                                : Colors.text,
-                          },
-                        ]}
-                      >
-                        {line.value}
-                      </Text>
-                      {line.note ? (
-                        <Text
-                          style={[styles.evidenceText, { color: Colors.sub }]}
-                          numberOfLines={2}
-                        >
-                          {line.note}
-                        </Text>
-                      ) : null}
-                    </View>
-                  ))}
-                </View>
+                <TradeSummaryPanel
+                  darkMode={darkMode}
+                  labelColor={Colors.sub}
+                  valueColor={Colors.text}
+                  lines={flooringPlanSummary}
+                />
               </View>
             ) : null}
             {paintingPlanSummary ? (
               <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: Colors.sub }]}>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  Project
+                </Text>
+                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
                   Painting
                 </Text>
-                <View
-                  style={[
-                    styles.concreteSummaryCard,
-                    {
-                      borderColor: lineColor,
-                      backgroundColor: darkMode
-                        ? 'rgba(148,163,184,0.08)'
-                        : 'rgba(148,163,184,0.06)',
-                    },
-                  ]}
-                >
-                  {paintingPlanSummary.map(line => (
-                    <View key={line.label} style={styles.concreteSummaryRow}>
-                      <Text
-                        style={[styles.concreteSummaryLabel, { color: Colors.sub }]}
-                      >
-                        {line.label}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.concreteSummaryValue,
-                          {
-                            color:
-                              line.value === '—' || line.value === 'Needs confirmation'
-                                ? Colors.sub
-                                : Colors.text,
-                          },
-                        ]}
-                      >
-                        {line.value}
-                      </Text>
-                      {line.note ? (
-                        <Text
-                          style={[styles.evidenceText, { color: Colors.sub }]}
-                          numberOfLines={2}
-                        >
-                          {line.note}
-                        </Text>
-                      ) : null}
-                    </View>
-                  ))}
-                </View>
-              </View>
-            ) : null}
-            {electricalPlanSummary ? (
-              <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: Colors.sub }]}>
-                  Electrical
-                </Text>
-                <View
-                  style={[
-                    styles.concreteSummaryCard,
-                    {
-                      borderColor: lineColor,
-                      backgroundColor: darkMode
-                        ? 'rgba(148,163,184,0.08)'
-                        : 'rgba(148,163,184,0.06)',
-                    },
-                  ]}
-                >
-                  {electricalPlanSummary.map(line => (
-                    <View key={line.label} style={styles.concreteSummaryRow}>
-                      <Text
-                        style={[styles.concreteSummaryLabel, { color: Colors.sub }]}
-                      >
-                        {line.label}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.concreteSummaryValue,
-                          {
-                            color:
-                              line.value === '—' ||
-                              line.value === 'Needs confirmation' ||
-                              line.value === 'Not auto-priced from detailed takeoff'
-                                ? Colors.sub
-                                : Colors.text,
-                          },
-                        ]}
-                      >
-                        {line.value}
-                      </Text>
-                      {line.note ? (
-                        <Text
-                          style={[styles.evidenceText, { color: Colors.sub }]}
-                          numberOfLines={2}
-                        >
-                          {line.note}
-                        </Text>
-                      ) : null}
-                    </View>
-                  ))}
-                </View>
+                <TradeSummaryPanel
+                  darkMode={darkMode}
+                  labelColor={Colors.sub}
+                  valueColor={Colors.text}
+                  lines={paintingPlanSummary}
+                />
               </View>
             ) : null}
             {hasMeasurements ? (
               <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: Colors.sub }]}>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  Takeoff
+                </Text>
+                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
                   {concretePlanSummary ||
                   flooringPlanSummary ||
                   paintingPlanSummary ||
-                  electricalPlanSummary
-                    ? 'Edit quantities'
+                  electricalStatusLines.length
+                    ? 'Quantities'
                     : 'Measurements'}
                 </Text>
                 {rows.map(row => {
+                  const provenanceColor = planProvenanceColor(
+                    row.provenance.status,
+                    Colors
+                  );
+                  const confirmRow =
+                    row.provenance.status === 'needs_confirmation' ||
+                    row.provenance.label === 'Needs confirmation';
                   return (
-                    <View
-                      key={row.key}
-                      style={[styles.row, { borderBottomColor: lineColor }]}
-                    >
-                      <TouchableOpacity
-                        onPress={() =>
-                          setRow(row.key, { include: !row.include })
-                        }
-                        style={styles.checkbox}
-                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                      >
-                        <Ionicons
-                          name={row.include ? 'checkbox' : 'square-outline'}
-                          size={22}
-                          color={row.include ? '#22c55e' : Colors.sub}
-                        />
-                      </TouchableOpacity>
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <View style={styles.rowLabelLine}>
+                    <ReviewPanel key={row.key} darkMode={darkMode}>
+                      <View style={styles.quantityHeader}>
+                        <TouchableOpacity
+                          onPress={() =>
+                            setRow(row.key, { include: !row.include })
+                          }
+                          style={styles.checkbox}
+                          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                        >
+                          <Ionicons
+                            name={row.include ? 'checkbox' : 'square-outline'}
+                            size={22}
+                            color={row.include ? '#22c55e' : Colors.sub}
+                          />
+                        </TouchableOpacity>
+                        <View style={{ flex: 1, minWidth: 0 }}>
                           <Text
-                            style={[styles.rowLabel, { color: Colors.text }]}
+                            style={[styles.itemTitle, { color: Colors.text }]}
                             numberOfLines={2}
                           >
                             {row.label}
                           </Text>
-                        </View>
-                        <View
-                          style={[
-                            styles.provenanceBadge,
-                            {
-                              borderColor: planProvenanceColor(
-                                row.provenance.status,
-                                Colors
-                              ),
-                            },
-                          ]}
-                        >
                           <Text
-                            style={[
-                              styles.provenanceBadgeText,
-                              {
-                                color: planProvenanceColor(
-                                  row.provenance.status,
-                                  Colors
-                                ),
-                              },
-                            ]}
+                            style={{
+                              color: confirmRow ? CONFIRM_YELLOW : provenanceColor,
+                              fontSize: 12,
+                              fontWeight: '700',
+                              marginTop: 4,
+                            }}
                           >
                             {row.provenance.label}
                           </Text>
+                          {row.sourceLabel || row.subtext ? (
+                            <Text
+                              style={[styles.evidenceText, { color: Colors.sub }]}
+                              numberOfLines={2}
+                            >
+                              {row.sourceLabel || row.subtext}
+                            </Text>
+                          ) : null}
+                          {row.conflictValue != null ? (
+                            <Text style={styles.conflictText}>
+                              Replaces your {row.conflictValue} {row.unit}
+                            </Text>
+                          ) : null}
                         </View>
-                        {row.subtext ? (
-                          <Text
-                            style={[styles.evidenceText, { color: Colors.sub }]}
-                            numberOfLines={2}
-                          >
-                            {row.subtext}
-                          </Text>
-                        ) : null}
-                        {row.sourceLabel ? (
-                          <Text
-                            style={[styles.evidenceText, { color: Colors.sub }]}
-                            numberOfLines={2}
-                          >
-                            {row.sourceLabel}
-                          </Text>
-                        ) : null}
-                        <Text
-                          style={[
-                            styles.evidenceText,
-                            {
-                              color: planProvenanceColor(
-                                row.provenance.status,
-                                Colors
-                              ),
-                            },
-                          ]}
-                          numberOfLines={2}
-                        >
-                          {row.provenance.reason}
-                        </Text>
-                        {row.conflictValue != null ? (
-                          <Text style={styles.conflictText}>
-                            Replaces your {row.conflictValue} {row.unit}
-                          </Text>
-                        ) : null}
                       </View>
                       <View
-                        style={[styles.valueShell, { borderColor: lineColor }]}
+                        style={[
+                          styles.valueShell,
+                          {
+                            borderColor: darkMode
+                              ? PANEL_BORDER_DARK
+                              : PANEL_BORDER_LIGHT,
+                            backgroundColor: darkMode ? '#27272a' : '#f1f5f9',
+                          },
+                        ]}
                       >
                         <TextInput
                           value={row.value}
@@ -935,6 +1078,7 @@ export default function PlanTakeoffReviewModal({
                               }),
                             })
                           }
+                          {...aiScopeConfirmNumericKeyboardProps}
                           keyboardType='decimal-pad'
                           style={[styles.valueInput, { color: Colors.text }]}
                         />
@@ -942,16 +1086,20 @@ export default function PlanTakeoffReviewModal({
                           {row.unit}
                         </Text>
                       </View>
-                    </View>
+                    </ReviewPanel>
                   );
                 })}
               </View>
             ) : (
               <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: Colors.sub }]}>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  Takeoff
+                </Text>
+                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
                   Measurements
                 </Text>
-                <Text style={[styles.emptyText, { color: Colors.sub }]}>
+                <ReviewPanel darkMode={darkMode}>
+                  <Text style={[styles.emptyText, { color: Colors.sub }]}>
                   {tradeLabel
                     ? `No ${tradeLabel} quantities were verified from the selected plan pages yet. ${
                         takeoff.missingInfo?.length
@@ -960,107 +1108,127 @@ export default function PlanTakeoffReviewModal({
                       }You can still apply and enter quantities in Confirm Scope.`
                     : takeoff.reason ||
                       'No square footage could be read from these pages.'}
-                </Text>
+                  </Text>
+                </ReviewPanel>
               </View>
             )}
 
-            {measurementConflicts.length ? (
-              <View style={styles.callout}>
-                <Text style={styles.calloutTitle}>
-                  Conflicting plan takeoffs — confirm measurement
+            {electricalDetectedLines.length || electricalStatusLines.length ? (
+              <View style={styles.section}>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  Project
                 </Text>
-                {measurementConflicts.map(conflict => (
-                  <Text
-                    key={`conflict-${conflict.field}`}
-                    style={[styles.calloutLine, { color: Colors.sub }]}
-                  >
-                    {quickMeasurementFieldMeta(conflict.field).label}:{' '}
-                    {conflict.selectedValue.toLocaleString()} selected from{' '}
-                    {conflict.selectedSource.replace(/_/g, ' ')}; alternate
-                    values were also read from the plan.
-                  </Text>
-                ))}
+                {electricalDetectedLines.length ? (
+                  <>
+                    <Text style={[styles.sectionHeading, { color: Colors.text }]}>
+                      Detected quantities
+                    </Text>
+                    <TradeSummaryPanel
+                      darkMode={darkMode}
+                      labelColor={Colors.sub}
+                      valueColor={Colors.text}
+                      lines={electricalDetectedLines}
+                    />
+                  </>
+                ) : null}
+                {electricalStatusLines.length ? (
+                  <>
+                    <Text
+                      style={[
+                        styles.sectionHeading,
+                        {
+                          color: Colors.text,
+                          marginTop: electricalDetectedLines.length ? 8 : 0,
+                        },
+                      ]}
+                    >
+                      Electrical status
+                    </Text>
+                    <TradeSummaryPanel
+                      darkMode={darkMode}
+                      labelColor={Colors.sub}
+                      valueColor={Colors.text}
+                      lines={electricalStatusLines}
+                    />
+                  </>
+                ) : null}
               </View>
             ) : null}
 
             {semanticsOn && areaReconciliation ? (
-              <View
-                style={[
-                  styles.reconcileCard,
-                  {
-                    borderColor: darkMode
-                      ? 'rgba(148,163,184,0.25)'
-                      : Colors.line,
-                    backgroundColor: darkMode
-                      ? 'rgba(255,255,255,0.04)'
-                      : Colors.surface2,
-                  },
-                ]}
-              >
-                <Text style={[styles.reconcileTitle, { color: Colors.text }]}>
+              <View style={styles.section}>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  Areas
+                </Text>
+                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
                   Area reconciliation
                 </Text>
-                <Text
-                  style={[styles.reconcileBlockTitle, { color: Colors.text }]}
-                >
-                  Living area
-                </Text>
-                <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                  Declared: {formatSf(areaReconciliation.declaredLivingSf)} SF
-                </Text>
-                <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                  Assigned to detected rooms: approximately{' '}
-                  {formatSf(areaReconciliation.detectedLivingRoomSf)} SF
-                </Text>
-                <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                  Unassigned: approximately{' '}
-                  {formatSf(areaReconciliation.unassignedLivingSf)} SF
-                </Text>
-                <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                  Variance: approximately{' '}
-                  {formatSf(areaReconciliation.livingVariancePercent)}%
-                </Text>
-                <Text style={[styles.reconcileStatus, { color: Colors.text }]}>
-                  Status: {livingReconciliationStatusLabel(areaReconciliation)}
-                </Text>
+                <ReviewPanel darkMode={darkMode}>
+                  <Text
+                    style={[styles.reconcileBlockTitle, { color: Colors.text }]}
+                  >
+                    Living area
+                  </Text>
+                  <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
+                    Declared: {formatSf(areaReconciliation.declaredLivingSf)} SF
+                  </Text>
+                  <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
+                    Assigned to detected rooms: approximately{' '}
+                    {formatSf(areaReconciliation.detectedLivingRoomSf)} SF
+                  </Text>
+                  <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
+                    Unassigned: approximately{' '}
+                    {formatSf(areaReconciliation.unassignedLivingSf)} SF
+                  </Text>
+                  <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
+                    Variance: approximately{' '}
+                    {formatSf(areaReconciliation.livingVariancePercent)}%
+                  </Text>
+                  <Text style={[styles.reconcileStatus, { color: Colors.text }]}>
+                    Status: {livingReconciliationStatusLabel(areaReconciliation)}
+                  </Text>
 
-                <Text
-                  style={[
-                    styles.reconcileBlockTitle,
-                    { color: Colors.text, marginTop: 10 },
-                  ]}
-                >
-                  Garage area
-                </Text>
-                <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                  Declared: {formatSf(areaReconciliation.declaredGarageSf)} SF
-                </Text>
-                <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                  Assigned to detected garage spaces: approximately{' '}
-                  {formatSf(areaReconciliation.detectedGarageRoomSf)} SF
-                </Text>
-                <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                  Unassigned: approximately{' '}
-                  {formatSf(areaReconciliation.unassignedGarageSf)} SF
-                </Text>
-                <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
-                  Variance: approximately{' '}
-                  {formatSf(areaReconciliation.garageVariancePercent)}%
-                </Text>
-                <Text style={[styles.reconcileStatus, { color: Colors.text }]}>
-                  Status: {garageReconciliationStatusLabel(areaReconciliation)}
-                </Text>
+                  <Text
+                    style={[
+                      styles.reconcileBlockTitle,
+                      { color: Colors.text, marginTop: 12 },
+                    ]}
+                  >
+                    Garage area
+                  </Text>
+                  <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
+                    Declared: {formatSf(areaReconciliation.declaredGarageSf)} SF
+                  </Text>
+                  <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
+                    Assigned to detected garage spaces: approximately{' '}
+                    {formatSf(areaReconciliation.detectedGarageRoomSf)} SF
+                  </Text>
+                  <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
+                    Unassigned: approximately{' '}
+                    {formatSf(areaReconciliation.unassignedGarageSf)} SF
+                  </Text>
+                  <Text style={[styles.reconcileLine, { color: Colors.sub }]}>
+                    Variance: approximately{' '}
+                    {formatSf(areaReconciliation.garageVariancePercent)}%
+                  </Text>
+                  <Text style={[styles.reconcileStatus, { color: Colors.text }]}>
+                    Status: {garageReconciliationStatusLabel(areaReconciliation)}
+                  </Text>
 
-                <Text style={[styles.reconcileHint, { color: Colors.sub }]}>
-                  Room dimensions are net detected spaces and may not include
-                  bathrooms, halls, closets, wall area or circulation.
-                </Text>
+                  <Text style={[styles.reconcileHint, { color: Colors.sub }]}>
+                    Room dimensions are net detected spaces and may not include
+                    bathrooms, halls, closets, wall area or circulation.
+                  </Text>
+                </ReviewPanel>
               </View>
             ) : null}
 
             {hasRooms ? (
               <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: Colors.sub }]}>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  Spaces
+                </Text>
+                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
                   {semanticsOn
                     ? spacesDetectedTitle(roomRows.length)
                     : `Rooms (${includedRoomCount} of ${roomRows.length})`}
@@ -1081,89 +1249,68 @@ export default function PlanTakeoffReviewModal({
                     : 'Per-room SF for finishes that differ by space (tile, carpet, etc.)'}
                 </Text>
                 {roomRows.map(room => (
-                  <View
-                    key={room.id}
-                    style={[styles.row, { borderBottomColor: lineColor }]}
-                  >
-                    <TouchableOpacity
-                      onPress={() =>
-                        setRoomRow(room.id, { include: !room.include })
-                      }
-                      style={styles.checkbox}
-                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                    >
-                      <Ionicons
-                        name={room.include ? 'checkbox' : 'square-outline'}
-                        size={22}
-                        color={room.include ? '#22c55e' : Colors.sub}
-                      />
-                    </TouchableOpacity>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <View style={styles.rowLabelLine}>
+                  <ReviewPanel key={room.id} darkMode={darkMode}>
+                    <View style={styles.quantityHeader}>
+                      <TouchableOpacity
+                        onPress={() =>
+                          setRoomRow(room.id, { include: !room.include })
+                        }
+                        style={styles.checkbox}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      >
+                        <Ionicons
+                          name={room.include ? 'checkbox' : 'square-outline'}
+                          size={22}
+                          color={room.include ? '#22c55e' : Colors.sub}
+                        />
+                      </TouchableOpacity>
+                      <View style={{ flex: 1, minWidth: 0 }}>
                         <Text
-                          style={[styles.rowLabel, { color: Colors.text }]}
+                          style={[styles.itemTitle, { color: Colors.text }]}
                           numberOfLines={1}
                         >
                           {room.name}
                         </Text>
-                      </View>
-                      <View
-                        style={[
-                          styles.provenanceBadge,
-                          {
-                            borderColor: planProvenanceColor(
-                              room.provenance.status,
-                              Colors
-                            ),
-                          },
-                        ]}
-                      >
                         <Text
-                          style={[
-                            styles.provenanceBadgeText,
-                            {
-                              color: planProvenanceColor(
-                                room.provenance.status,
-                                Colors
-                              ),
-                            },
-                          ]}
-                        >
-                          {room.provenance.label}
-                        </Text>
-                      </View>
-                      {room.lengthFt != null && room.widthFt != null ? (
-                        <Text
-                          style={[styles.evidenceText, { color: Colors.sub }]}
-                        >
-                          {room.lengthFt}×{room.widthFt} ft
-                        </Text>
-                      ) : null}
-                      <Text
-                        style={[
-                          styles.evidenceText,
-                          {
+                          style={{
                             color: planProvenanceColor(
                               room.provenance.status,
                               Colors
                             ),
-                          },
-                        ]}
-                        numberOfLines={2}
-                      >
-                        {room.provenance.reason}
-                      </Text>
-                      {room.sourceLabel ? (
-                        <Text
-                          style={[styles.evidenceText, { color: Colors.sub }]}
-                          numberOfLines={2}
+                            fontSize: 12,
+                            fontWeight: '700',
+                            marginTop: 4,
+                          }}
                         >
-                          {room.sourceLabel}
+                          {room.provenance.label}
                         </Text>
-                      ) : null}
+                        {room.lengthFt != null && room.widthFt != null ? (
+                          <Text
+                            style={[styles.evidenceText, { color: Colors.sub }]}
+                          >
+                            {room.lengthFt}×{room.widthFt} ft
+                          </Text>
+                        ) : null}
+                        {room.sourceLabel ? (
+                          <Text
+                            style={[styles.evidenceText, { color: Colors.sub }]}
+                            numberOfLines={2}
+                          >
+                            {room.sourceLabel}
+                          </Text>
+                        ) : null}
+                      </View>
                     </View>
                     <View
-                      style={[styles.valueShell, { borderColor: lineColor }]}
+                      style={[
+                        styles.valueShell,
+                        {
+                          borderColor: darkMode
+                            ? PANEL_BORDER_DARK
+                            : PANEL_BORDER_LIGHT,
+                          backgroundColor: darkMode ? '#27272a' : '#f1f5f9',
+                        },
+                      ]}
                     >
                       <TextInput
                         value={room.areaSqft}
@@ -1177,6 +1324,7 @@ export default function PlanTakeoffReviewModal({
                             }),
                           })
                         }
+                        {...aiScopeConfirmNumericKeyboardProps}
                         keyboardType='decimal-pad'
                         placeholder='—'
                         placeholderTextColor={Colors.sub}
@@ -1186,46 +1334,17 @@ export default function PlanTakeoffReviewModal({
                         sqft
                       </Text>
                     </View>
-                  </View>
+                  </ReviewPanel>
                 ))}
-              </View>
-            ) : null}
-
-            {hasReadingIssues ? (
-              <View style={styles.callout}>
-                <Text style={styles.calloutTitle}>
-                  Could not read clearly — enter manually
-                </Text>
-                {lowConfidence.map(f => {
-                  const meta = quickMeasurementFieldMeta(f.field);
-                  return (
-                    <Text
-                      key={`low-${f.field}`}
-                      style={[styles.calloutLine, { color: Colors.sub }]}
-                    >
-                      {meta.label}: read {f.value} {meta.unit}, confidence too
-                      low
-                    </Text>
-                  );
-                })}
-                {unreadable.map((f, idx) => {
-                  const meta = quickMeasurementFieldMeta(f.field);
-                  return (
-                    <Text
-                      key={`unread-${f.field}-${idx}`}
-                      style={[styles.calloutLine, { color: Colors.sub }]}
-                    >
-                      {meta.label !== f.field ? meta.label : f.field}:{' '}
-                      {f.reason}
-                    </Text>
-                  );
-                })}
               </View>
             ) : null}
 
             {scopeDetections.length ? (
               <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: Colors.sub }]}>
+                <Text style={[styles.mutedEyebrow, { color: Colors.sub }]}>
+                  Scope
+                </Text>
+                <Text style={[styles.sectionHeading, { color: Colors.text }]}>
                   Suggested scope
                 </Text>
                 {scopeDetections.map(d => {
@@ -1239,7 +1358,6 @@ export default function PlanTakeoffReviewModal({
                   return (
                     <TouchableOpacity
                       key={d.itemId}
-                      style={[styles.row, { borderBottomColor: lineColor }]}
                       onPress={() =>
                         setScopeChecked(prev => ({
                           ...prev,
@@ -1248,31 +1366,42 @@ export default function PlanTakeoffReviewModal({
                       }
                       activeOpacity={0.7}
                     >
-                      <Ionicons
-                        name={
-                          scopeChecked[d.itemId] ? 'checkbox' : 'square-outline'
-                        }
-                        size={22}
-                        color={scopeChecked[d.itemId] ? '#22c55e' : Colors.sub}
-                        style={styles.checkbox}
-                      />
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text
-                          style={[styles.rowLabel, { color: Colors.text }]}
-                          numberOfLines={1}
-                        >
-                          {d.label || d.itemId}
-                        </Text>
-                        {statusLines.map(line => (
-                          <Text
-                            key={`${d.itemId}-${line}`}
-                            style={[styles.evidenceText, { color: Colors.sub }]}
-                            numberOfLines={2}
-                          >
-                            {line}
-                          </Text>
-                        ))}
-                      </View>
+                      <ReviewPanel darkMode={darkMode}>
+                        <View style={styles.quantityHeader}>
+                          <Ionicons
+                            name={
+                              scopeChecked[d.itemId]
+                                ? 'checkbox'
+                                : 'square-outline'
+                            }
+                            size={22}
+                            color={
+                              scopeChecked[d.itemId] ? '#22c55e' : Colors.sub
+                            }
+                            style={styles.checkbox}
+                          />
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text
+                              style={[styles.itemTitle, { color: Colors.text }]}
+                              numberOfLines={2}
+                            >
+                              {d.label || d.itemId}
+                            </Text>
+                            {statusLines.map(line => (
+                              <Text
+                                key={`${d.itemId}-${line}`}
+                                style={[
+                                  styles.evidenceText,
+                                  { color: Colors.sub },
+                                ]}
+                                numberOfLines={2}
+                              >
+                                {line}
+                              </Text>
+                            ))}
+                          </View>
+                        </View>
+                      </ReviewPanel>
                     </TouchableOpacity>
                   );
                 })}
@@ -1280,40 +1409,42 @@ export default function PlanTakeoffReviewModal({
             ) : null}
           </ScrollView>
 
-          <View
-            style={[
-              styles.footer,
-              {
-                paddingBottom: footerBottomPad,
-                borderTopColor: darkMode
-                  ? 'rgba(255,255,255,0.08)'
-                  : Colors.line,
-                backgroundColor: Colors.bg,
-              },
-            ]}
-          >
-            <TouchableOpacity
-              style={[styles.primaryBtn, { opacity: canApply ? 1 : 0.5 }]}
-              onPress={handleApply}
-              disabled={!canApply}
-              activeOpacity={0.88}
+          {!keyboardVisible ? (
+            <View
+              style={[
+                styles.footer,
+                {
+                  paddingBottom: footerBottomPad,
+                  borderTopColor: darkMode
+                    ? 'rgba(255,255,255,0.08)'
+                    : Colors.line,
+                  backgroundColor: Colors.bg,
+                },
+              ]}
             >
-              <Text style={styles.primaryBtnText}>
-                {tradeLabel
-                  ? `Apply ${tradeLabel} Takeoff`
-                  : applyPlanTakeoffButtonLabel({
-                      includedMeasurementCount: includedCount,
-                      checkedScopeCount,
-                      semanticsEnabled: semanticsOn,
-                    })}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={onCancel} style={styles.cancelBtn}>
-              <Text style={{ color: Colors.sub, fontWeight: '700' }}>
-                Cancel
-              </Text>
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity
+                style={[styles.primaryBtn, { opacity: canApply ? 1 : 0.5 }]}
+                onPress={handleApply}
+                disabled={!canApply}
+                activeOpacity={0.88}
+              >
+                <Text style={styles.primaryBtnText}>
+                  {tradeLabel
+                    ? `Apply ${tradeLabel} Takeoff`
+                    : applyPlanTakeoffButtonLabel({
+                        includedMeasurementCount: includedCount,
+                        checkedScopeCount,
+                        semanticsEnabled: semanticsOn,
+                      })}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={onCancel} style={styles.cancelBtn}>
+                <Text style={{ color: Colors.sub, fontWeight: '700' }}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -1327,95 +1458,70 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   section: { marginBottom: 20 },
-  sectionTitle: {
-    fontSize: 13,
+  mutedEyebrow: {
+    fontSize: 11,
     fontWeight: '700',
-    marginBottom: 6,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 4,
   },
-  row: {
+  attentionEyebrow: {
+    color: CONFIRM_YELLOW,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  attentionTitle: {
+    color: CONFIRM_YELLOW,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
+    marginBottom: 8,
+  },
+  sectionHeading: { fontSize: 16, fontWeight: '700', marginBottom: 12 },
+  itemTitle: { fontSize: 16, fontWeight: '700' },
+  quantityHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
-    paddingVertical: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  checkbox: { marginRight: 2 },
-  rowLabelLine: { marginBottom: 3 },
-  rowLabel: { fontSize: 14, fontWeight: '700', flexShrink: 1 },
-  provenanceBadge: {
-    borderWidth: 1,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: 7,
-    backgroundColor: 'transparent',
-    alignSelf: 'flex-start',
-    marginBottom: 3,
-  },
-  provenanceBadgeText: { fontSize: 9.5, fontWeight: '800' },
+  summaryLabel: { fontSize: 12, fontWeight: '700' },
+  summaryValue: { fontSize: 15, fontWeight: '800', marginTop: 2 },
+  checkbox: { marginTop: 1 },
   conflictText: {
     fontSize: 11.5,
-    marginTop: 2,
+    marginTop: 4,
     fontWeight: '600',
-    color: '#d97706',
+    color: CONFIRM_YELLOW,
   },
   evidenceText: { fontSize: 11.5, marginTop: 3, lineHeight: 17 },
   valueShell: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 9,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-    gap: 5,
-    minWidth: 116,
-    marginTop: 1,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 6,
+    marginTop: 12,
   },
   valueInput: {
-    fontSize: 14.5,
+    fontSize: 14,
     fontWeight: '700',
-    minWidth: 52,
-    textAlign: 'right',
+    minWidth: 40,
+    textAlign: 'center',
     padding: 0,
   },
-  unitText: { fontSize: 11.5, fontWeight: '600' },
-  emptyText: { fontSize: 13.5, lineHeight: 19, marginTop: 4 },
-  roomHint: { fontSize: 12, lineHeight: 16, marginBottom: 4 },
-  reconcileCard: {
-    marginBottom: 20,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  reconcileTitle: { fontSize: 14, fontWeight: '800', marginBottom: 8 },
+  unitText: { fontSize: 11, fontWeight: '600' },
+  emptyText: { fontSize: 13.5, lineHeight: 19 },
+  roomHint: { fontSize: 12, lineHeight: 16, marginBottom: 12 },
   reconcileBlockTitle: { fontSize: 13, fontWeight: '700', marginBottom: 3 },
   reconcileLine: { fontSize: 12, lineHeight: 17, marginBottom: 1 },
   reconcileStatus: { fontSize: 12.5, fontWeight: '700', marginTop: 3 },
   reconcileHint: { fontSize: 11.5, lineHeight: 16, marginTop: 10 },
-  callout: {
-    marginBottom: 20,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    backgroundColor: 'rgba(245,158,11,0.08)',
-  },
-  calloutTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#d97706',
-    marginBottom: 6,
-  },
-  calloutLine: { fontSize: 12.5, lineHeight: 18, marginBottom: 3 },
-  concreteSummaryCard: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 10,
-  },
-  concreteSummaryRow: { gap: 2 },
-  concreteSummaryLabel: { fontSize: 12, fontWeight: '700' },
-  concreteSummaryValue: { fontSize: 15, fontWeight: '800' },
   footer: {
     paddingHorizontal: 16,
     paddingTop: 12,

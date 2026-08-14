@@ -43,6 +43,23 @@ import {
   isGlassDoorSuggestedBlock,
 } from '@/utils/bathroomGlassDoorPricing';
 import { isFlooringConfirmScopePricingCard } from '@/utils/qmScopePanels/flooringRemodel';
+import { ELECTRICAL_SERVICE_AMPERAGE_REQUIRED_STATUS } from '@/utils/subcontractorTrade/electricalServicePanelPricing';
+
+export function includeUnconfirmedSuggestedPricingFill(
+  fill: SuggestedPricingBlock | null | undefined
+): fill is SuggestedPricingBlock {
+  if (!fill || fill.isComparison) return false;
+  if (fill.benchmarkAction === 'included_in_stage') return false;
+  if (fill.benchmarkAction === 'comparison_only') return false;
+  if (fill.needsServiceAmperage) return true;
+  return Number(fill.total) > 0;
+}
+
+export function suggestedPricingFooterCountsAmperageConfirm(
+  block: Pick<SuggestedPricingBlock, 'needsServiceAmperage'>
+): boolean {
+  return Boolean(block.needsServiceAmperage);
+}
 
 export function minimumProjectNoteForSuggestedBlock(block: SuggestedPricingBlock): string | null {
   if (/small-project minimum applied/i.test(String(block.helper || ''))) {
@@ -67,6 +84,7 @@ export const LIVING_AREA_FALLBACK_SCOPE_IDS = new Set([
 export type SuggestedQuantitySource =
   | 'notes'
   | 'plan'
+  | 'plan_conflict'
   | 'user'
   | 'calculated'
   | 'assumption'
@@ -295,6 +313,9 @@ export function normalizeQuantitySource(
     .replace(/[\s-]+/g, '_');
   if (!key || key === 'missing') return 'unknown';
   if (key === 'notes' || /note/.test(key)) return 'notes';
+  if (key === 'plan_conflict' || /conflict/.test(key)) {
+    return 'plan_conflict';
+  }
   if (
     key === 'plan_vision' ||
     key === 'plan_explicit' ||
@@ -315,7 +336,7 @@ export function normalizeQuantitySource(
 export function quantityProvenanceLabel(source: SuggestedQuantitySource | string | null | undefined): string {
   const normalized =
     typeof source === 'string' &&
-    !['notes', 'plan', 'user', 'calculated', 'assumption', 'fallback', 'unknown'].includes(source)
+    !['notes', 'plan', 'plan_conflict', 'user', 'calculated', 'assumption', 'fallback', 'unknown'].includes(source)
       ? normalizeQuantitySource(source)
       : (source as SuggestedQuantitySource | null | undefined);
   switch (normalized) {
@@ -323,6 +344,8 @@ export function quantityProvenanceLabel(source: SuggestedQuantitySource | string
       return 'From notes';
     case 'plan':
       return 'From plan';
+    case 'plan_conflict':
+      return 'Plan conflict — confirm';
     case 'user':
       return 'User entered';
     case 'calculated':
@@ -671,8 +694,13 @@ export function buildSuggestedPricingCardDisplay(input: {
   let allowanceExtraNote: string | null = null;
 
   const whyThisPriceLines: string[] = [];
+  const needsServiceAmperage = Boolean(block.needsServiceAmperage);
 
-  if (block.installedBudgetBenchmark) {
+  if (needsServiceAmperage) {
+    statusTone = 'amber';
+    statusLine = ELECTRICAL_SERVICE_AMPERAGE_REQUIRED_STATUS;
+    pricingStatus = 'review_required';
+  } else if (block.installedBudgetBenchmark) {
     statusTone = 'amber';
     statusLine =
       itemId === 'landscaping'
@@ -788,9 +816,11 @@ export function buildSuggestedPricingCardDisplay(input: {
     statusTone = 'amber';
   }
 
-  const displayTotal = isAdjusted
-    ? formatDraftMoney(block.total)
-    : formatSuggestedDisplayMoney(block.total);
+  const displayTotal = needsServiceAmperage
+    ? '—'
+    : isAdjusted
+      ? formatDraftMoney(block.total)
+      : formatSuggestedDisplayMoney(block.total);
 
   const quantityLine = block.installedBudgetBenchmark
     ? formatInstalledBudgetQuantityLine(block)
@@ -809,7 +839,9 @@ export function buildSuggestedPricingCardDisplay(input: {
             });
 
   const fallbackBasisLine = isFallbackPricing ? formatFallbackBasisLine({ livingSf }) : null;
-  const compactLine = formatCompactSuggestedLine(block.total);
+  const compactLine = needsServiceAmperage
+    ? ELECTRICAL_SERVICE_AMPERAGE_REQUIRED_STATUS
+    : formatCompactSuggestedLine(block.total);
   const isFlooringLineCard = isFlooringConfirmScopePricingCard(itemId);
   const isFlooringLinearFootCard = itemId === 'trim' || itemId === 'quarter_round';
   const flooringQuantityUnit = isFlooringLinearFootCard ? 'LF' : itemId === 'transitions' ? 'each' : 'SF';
@@ -820,7 +852,9 @@ export function buildSuggestedPricingCardDisplay(input: {
         )}/${flooringQuantityUnit}`
       : null;
   const unitRateLine =
-    isFlooringLineCard
+    needsServiceAmperage
+      ? null
+      : isFlooringLineCard
       ? null
       : showerRough && showerCtx
       ? `${formatSuggestedDisplayMoney(block.total)}/each`
@@ -895,8 +929,9 @@ export function buildSuggestedPricingCardDisplay(input: {
     missingMeasurementTitle: null,
     missingMeasurementHint: null,
     displayTotal,
-    splitLine:
-      isFlooringLineCard
+    splitLine: needsServiceAmperage
+      ? block.helper
+      : isFlooringLineCard
         ? formatSuggestedSplitLine(block)
         : block.installedBudgetBenchmark || block.splitSource === 'none'
           ? formatSuggestedSplitLine(block)
@@ -909,7 +944,9 @@ export function buildSuggestedPricingCardDisplay(input: {
     statusLine,
     statusTone,
     actionLabel:
-      block.benchmarkAction === 'comparison_only' || block.benchmarkAction === 'included_in_stage'
+      needsServiceAmperage ||
+      block.benchmarkAction === 'comparison_only' ||
+      block.benchmarkAction === 'included_in_stage'
         ? null
         : suggestedActionLabel(actionType),
     allowanceExtraNote,

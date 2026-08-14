@@ -105,7 +105,7 @@ export const ELECTRICAL_CARD_GROUPS: Array<{
   { id: 'switches', title: 'Switches / controls' },
   { id: 'lighting', title: 'Lighting' },
   { id: 'fans', title: 'Fans' },
-  { id: 'appliances', title: 'Appliance / equipment hookups' },
+  { id: 'appliances', title: 'Appliance circuit + hookup' },
   { id: 'life_safety', title: 'Life safety / low voltage' },
   { id: 'rough_modifications', title: 'Rough / modifications' },
 ];
@@ -195,7 +195,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'electrical_circuit_50a',
     'circuit50aCount',
     '50A circuits',
-    'Generic 50A homeruns. A 50A range circuit belongs on Range hookup, not here.',
+    'Generic 50A homeruns. A 50A range circuit belongs on Electric range circuit + hookup, not here.',
     'circuits',
     { voltage: '240V' }
   ),
@@ -203,7 +203,7 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'electrical_circuit_60a_plus',
     'circuit60aPlusCount',
     '60A+ circuits',
-    '60A and larger feeder / equipment homeruns. EV charger hookups own that circuit. Specialty / confirm.',
+    '60A and larger feeder / equipment homeruns. EV charger circuit + hookup owns that circuit. Specialty / confirm.',
     'circuits',
     { voltage: '240V' }
   ),
@@ -364,72 +364,72 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
   C(
     'electrical_range_hookup',
     'rangeHookupCount',
-    'Range hookup',
-    'Range / cooktop circuit and connection. Owns the 50A range circuit — do not also count a generic 50A card or a 240V receptacle.',
+    'Electric range circuit + hookup',
+    'Includes the dedicated 50A circuit and the connection — not a plug-in only. Do not also count a generic 50A card or a 240V receptacle.',
     'appliances',
     { voltage: '240V' }
   ),
   C(
     'electrical_dryer_hookup',
     'dryerHookupCount',
-    'Dryer hookup',
-    'Electric dryer circuit and connection. Owns the 30A dryer circuit — do not also count a generic 30A card or a 240V receptacle.',
+    'Electric dryer circuit + hookup',
+    'Includes the dedicated 30A circuit and the connection — not a plug-in only. Do not also count a generic 30A card or a 240V receptacle.',
     'appliances',
     { voltage: '240V' }
   ),
   C(
     'electrical_dishwasher_hookup',
     'dishwasherHookupCount',
-    'Dishwasher hookup',
-    'Dishwasher circuit and connection. Owns that dedicated 20A — do not also count a generic dedicated 20A card.',
+    'Dishwasher circuit + hookup',
+    'Includes the dedicated 20A circuit and the connection — not a plug-in only. Do not also count a generic dedicated 20A card.',
     'appliances',
     { voltage: '120V' }
   ),
   C(
     'electrical_disposal_hookup',
     'disposalHookupCount',
-    'Disposal hookup',
-    'Garbage disposal circuit and connection. Owns that dedicated 20A. An air switch is a switch card, not this hookup.',
+    'Disposal circuit + hookup',
+    'Includes the dedicated 20A circuit and the connection — not a plug-in only. An air switch is a switch card, not this hookup.',
     'appliances',
     { voltage: '120V' }
   ),
   C(
     'electrical_microwave_hookup',
     'microwaveHookupCount',
-    'Microwave hookup',
-    'Dedicated microwave / hood circuit and connection. Owns that dedicated 20A — do not also count a generic dedicated 20A card.',
+    'Microwave circuit + hookup',
+    'Includes the dedicated 20A circuit and the connection — not a plug-in only. Do not also count a generic dedicated 20A card.',
     'appliances',
     { voltage: '120V' }
   ),
   C(
     'electrical_refrigerator_hookup',
     'refrigeratorHookupCount',
-    'Refrigerator dedicated circuit / connection',
-    'Dedicated refrigerator circuit and connection only. Do not use this card for a fridge on an existing receptacle — that is a standard receptacle. Owns that dedicated 20A.',
+    'Refrigerator circuit + hookup',
+    'Includes the dedicated 20A circuit and the connection — not a plug-in only. Do not use this card for a fridge on an existing receptacle — that is a standard receptacle.',
     'appliances',
     { voltage: '120V' }
   ),
   C(
     'electrical_water_heater_hookup',
     'waterHeaterHookupCount',
-    'Electric water heater electrical connection',
-    'Electric water-heater circuit and connection. Not a gas water heater. Owns that 30A circuit — do not also count a generic 30A card.',
+    'Electric water heater circuit + hookup',
+    'Includes the dedicated 30A circuit and the connection — not a plug-in only. Not a gas water heater. Do not also count a generic 30A card.',
     'appliances',
     { voltage: '240V' }
   ),
   C(
     'electrical_hvac_hookup',
     'hvacHookupCount',
-    'HVAC hookup',
-    'HVAC equipment electrical connection only. Not the HVAC trade package and not a generic circuit card. Specialty / confirm.',
+    'HVAC circuit + hookup',
+    'Includes the HVAC electrical circuit and connection — not a plug-in only. Not the HVAC trade package and not a generic circuit card. Specialty / confirm.',
     'appliances',
     { voltage: '240V' }
   ),
   C(
     'electrical_ev_charger_hookup',
     'evChargerHookupCount',
-    'EV charger hookup',
-    'EV charger circuit and connection. Owns the 60A+ feeder — do not also count a generic 60A+ card. Specialty / confirm.',
+    'EV charger circuit + hookup',
+    'Includes the EV charger circuit and connection — not a plug-in only. Owns the 60A+ feeder — do not also count a generic 60A+ card. Specialty / confirm.',
     'appliances',
     { voltage: '240V' }
   ),
@@ -961,6 +961,18 @@ export function electricalTemplateItems(): Array<{
   ];
 }
 
+const QUANTITY_OWNED_ITEM_IDS = new Set(
+  ELECTRICAL_CARDS.filter(card => card.measurementKey !== 'serviceAmperage').map(
+    card => card.itemId
+  )
+);
+
+function isExplicitlyClearedQuantity(value: unknown): boolean {
+  if (value === undefined) return false;
+  if (value === null || value === '') return true;
+  return value === 0 || value === '0';
+}
+
 export function syncElectricalScopeItems<T extends { id: string; state?: string }>(
   items: T[],
   params: {
@@ -974,10 +986,19 @@ export function syncElectricalScopeItems<T extends { id: string; state?: string 
   }
 ): T[] {
   const included = new Set(params.electricalScope || []);
+  const fromQuantity = new Set<string>();
+  const clearedQuantity = new Set<string>();
   for (const card of ELECTRICAL_CARDS) {
     if (card.measurementKey === 'serviceAmperage') continue;
-    if (positiveNumber(params.quantities?.[card.measurementKey]) != null) {
+    const raw = params.quantities?.[card.measurementKey];
+    if (positiveNumber(raw) != null) {
       included.add(card.itemId);
+      fromQuantity.add(card.itemId);
+    } else if (
+      QUANTITY_OWNED_ITEM_IDS.has(card.itemId) &&
+      isExplicitlyClearedQuantity(raw)
+    ) {
+      clearedQuantity.add(card.itemId);
     }
   }
   if (
@@ -992,10 +1013,15 @@ export function syncElectricalScopeItems<T extends { id: string; state?: string 
   ) {
     included.add('electrical_trim');
   }
-  if (!included.size) return items;
   return items.map(item => {
-    if (!included.has(item.id)) return item;
     if (item.state === 'excluded') return item;
+    if (fromQuantity.has(item.id)) {
+      return item.state === 'included' ? item : { ...item, state: 'included' };
+    }
+    if (clearedQuantity.has(item.id)) {
+      return item.state === 'included' ? { ...item, state: 'unsure' } : item;
+    }
+    if (!included.has(item.id)) return item;
     return item.state === 'included' ? item : { ...item, state: 'included' };
   });
 }

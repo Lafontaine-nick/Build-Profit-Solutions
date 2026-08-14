@@ -1731,6 +1731,92 @@ export type PlanImportPayload = {
   measurementConflicts?: PlanMeasurementConflict[];
 };
 
+type LivePlanImportMeasurementMetadata = {
+  quickMeasurementSources?: Record<string, string>;
+  quickMeasurementFieldConfidence?: Record<string, number>;
+  measurementProvenance?: Record<string, unknown>;
+  measurementConflicts?: PlanMeasurementConflict[];
+  planImportMode?: PlanImportPayload['estimatingMode'];
+  planImportTradeKey?: PlanImportPayload['selectedTrade'];
+  planImportProvenance?: PlanImportPayload['tradeProvenance'];
+  planImportMissingInfo?: string[];
+};
+
+/**
+ * Preserve reviewed plan metadata while Confirm Scope opens before the draft
+ * persistence round-trip finishes. An explicit empty conflict list clears
+ * stale draft conflicts after the contractor resolves them in plan review.
+ */
+export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
+  measurements: T,
+  payload: PlanImportPayload | null | undefined
+): T {
+  if (!payload) return measurements;
+  const current = measurements as T &
+    LivePlanImportMeasurementMetadata &
+    Record<string, unknown>;
+  let changed = false;
+  const next: T &
+    LivePlanImportMeasurementMetadata &
+    Record<string, unknown> = { ...current };
+
+  for (const [key, value] of Object.entries(payload.measurements || {})) {
+    if (value == null || value === '') continue;
+    next[key] = String(value);
+    changed = true;
+  }
+
+  if (
+    payload.quickMeasurementSources &&
+    Object.keys(payload.quickMeasurementSources).length
+  ) {
+    next.quickMeasurementSources = {
+      ...(current.quickMeasurementSources || {}),
+      ...payload.quickMeasurementSources,
+    };
+    changed = true;
+  }
+  if (payload.fieldConfidence && Object.keys(payload.fieldConfidence).length) {
+    next.quickMeasurementFieldConfidence = {
+      ...(current.quickMeasurementFieldConfidence || {}),
+      ...payload.fieldConfidence,
+    };
+    changed = true;
+  }
+  if (
+    payload.measurementProvenance &&
+    Object.keys(payload.measurementProvenance).length
+  ) {
+    next.measurementProvenance = {
+      ...(current.measurementProvenance || {}),
+      ...payload.measurementProvenance,
+    };
+    changed = true;
+  }
+  if (payload.measurementConflicts !== undefined) {
+    next.measurementConflicts = [...payload.measurementConflicts];
+    changed = true;
+  }
+  if (payload.estimatingMode !== undefined) {
+    next.planImportMode = payload.estimatingMode;
+    changed = true;
+  }
+  if (payload.selectedTrade !== undefined) {
+    next.planImportTradeKey = payload.selectedTrade;
+    changed = true;
+  }
+  if (payload.tradeProvenance !== undefined) {
+    next.planImportProvenance = payload.tradeProvenance;
+    changed = true;
+  }
+  if (payload.missingInfo !== undefined) {
+    next.planImportMissingInfo = [...payload.missingInfo];
+    changed = true;
+  }
+
+  return changed ? next : measurements;
+}
+
 /** Normalize vision room list for Quick measurements + field mapping. */
 export function normalizePlanRooms(
   rooms:

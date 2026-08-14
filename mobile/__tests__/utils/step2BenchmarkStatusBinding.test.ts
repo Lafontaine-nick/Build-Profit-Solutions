@@ -299,7 +299,14 @@ describe('Step 2 benchmark + measurement-status binding', () => {
         benchmarkOnlyCount: 4,
         needsMeasurementCount: 13,
       })
-    ).toBe('1 price ready · 4 planning benchmarks');
+    ).toBe('1 price ready · 4 planning benchmarks · 13 to confirm');
+    expect(
+      footerSuggestedPricingSummary({
+        readyCount: 8,
+        benchmarkOnlyCount: 0,
+        needsMeasurementCount: 4,
+      })
+    ).toBe('8 prices ready · 4 to confirm');
     expect(
       footerSuggestedPricingSummary({
         readyCount: 0,

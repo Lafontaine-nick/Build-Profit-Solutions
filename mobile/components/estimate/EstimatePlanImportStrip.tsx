@@ -276,7 +276,11 @@ export default function EstimatePlanImportStrip({
         areaSqft: number | null;
         lengthFt: number | null;
         widthFt: number | null;
-      }>
+      }>,
+      metadata?: {
+        measurementProvenance?: PlanToMeasurementsResult['measurementProvenance'];
+        measurementConflicts?: PlanToMeasurementsResult['measurementConflicts'];
+      }
     ) => {
       const takeoff = planReview;
       setPlanReview(null);
@@ -366,6 +370,24 @@ export default function EstimatePlanImportStrip({
               selection.trade.key
             )
           : scopeDetections;
+      const allowedConflictKeys = new Set(
+        selection.trade?.reviewMeasurementKeys || []
+      );
+      const unresolvedConflicts = (
+        metadata?.measurementConflicts ??
+        takeoff.measurementConflicts ??
+        []
+      ).filter(conflict => {
+        const field = String(conflict?.field || '');
+        if (!field || !conflict?.requiresConfirmation) return false;
+        if (Object.prototype.hasOwnProperty.call(tradeMeasurements, field)) {
+          return false;
+        }
+        if (allowedConflictKeys.size && !allowedConflictKeys.has(field)) {
+          return false;
+        }
+        return true;
+      });
 
       onApplied({
         measurements: tradeMeasurements,
@@ -396,11 +418,9 @@ export default function EstimatePlanImportStrip({
                 )
               )
             : {}),
+          ...(metadata?.measurementProvenance || {}),
         },
-        measurementConflicts: (takeoff.measurementConflicts || []).filter(
-          conflict =>
-            Object.prototype.hasOwnProperty.call(tradeMeasurements, conflict.field)
-        ),
+        measurementConflicts: unresolvedConflicts,
         estimatingMode: selection.mode,
         selectedTrade: selection.trade?.key || null,
         tradeProvenance: {

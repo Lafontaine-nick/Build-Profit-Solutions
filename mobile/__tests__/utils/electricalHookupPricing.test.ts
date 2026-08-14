@@ -34,7 +34,8 @@ describe('electrical Phase 2F hookup pricing', () => {
       labor: 725,
       total: 950,
     });
-    expect(quote?.helper).toMatch(/owned circuit/i);
+    expect(quote?.helper).toMatch(/dedicated circuit \+ connection/i);
+    expect(quote?.helper).toMatch(/not a plug-in only/i);
   });
 
   it('does not stack a notes-inferred 50A card onto a range hookup', () => {

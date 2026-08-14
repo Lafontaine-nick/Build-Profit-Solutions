@@ -143,11 +143,46 @@ function labeledNumber(text, patterns) {
   return null;
 }
 
-function extractSheet(text) {
-  const match = String(text || '').match(
-    /\b(?:sheet(?:\s*(?:no\.?|number))?\s*[:#-]?\s*)?([A-Z]{1,3}\s*[-.]?\s*\d{1,3}(?:\.\d{1,2})?)\b/i
+function normalizeExtractedSheetId(value) {
+  return String(value || '')
+    .replace(/\s+/g, '')
+    .toUpperCase()
+    .slice(0, 20);
+}
+
+function isFixtureTagSheetId(id) {
+  return /^(?:R-?\d{1,2}[A-Z]?|C\.?F\.?(?:-?\d)?|L-?\d{1,2}[A-Z]?)$/i.test(
+    String(id || '')
   );
-  return match ? match[1].replace(/\s+/g, '').toUpperCase().slice(0, 20) : null;
+}
+
+function isArchitecturalSheetId(id) {
+  const compact = String(id || '').toUpperCase();
+  if (!compact || isFixtureTagSheetId(compact)) return false;
+  return /^[A-Z]-?\d{1,3}(?:\.\d{1,2})?$/.test(compact);
+}
+
+function extractSheet(text) {
+  const t = String(text || '');
+  const candidates = [];
+  const titled = t.match(
+    /(?:lighting|electrical|power|reflected\s+ceiling|floor)\s+plan\b[\s\w.-]{0,60}?\b([A-Z]{1,3}\s*[-.]?\s*\d{1,3}(?:\.\d{1,2})?)\b/i
+  );
+  if (titled) candidates.push(titled[1]);
+  const beforeTitle = t.match(
+    /\b([A-Z]{1,3}\s*[-.]?\s*\d{1,3}(?:\.\d{1,2})?)\s+(?:lighting|electrical|power|reflected\s+ceiling|floor)\s+plan\b/i
+  );
+  if (beforeTitle) candidates.push(beforeTitle[1]);
+  for (const match of t.matchAll(
+    /\b(?:sheet(?:\s*(?:no\.?|number))?\s*[:#-]?\s*)?([A-Z]{1,3}\s*[-.]?\s*\d{1,3}(?:\.\d{1,2})?)\b/gi
+  )) {
+    candidates.push(match[1]);
+  }
+  for (const raw of candidates) {
+    const id = normalizeExtractedSheetId(raw);
+    if (id && isArchitecturalSheetId(id)) return id;
+  }
+  return null;
 }
 
 function evidenceFor(label, sourceText, page, sheet) {
@@ -681,6 +716,418 @@ function expandElectricalRelevantPages(pages, pageCount) {
   return [...byPage.values()].sort((a, b) => a.page - b.page);
 }
 
+/**
+ * Repeated fixture/device instance tags on lighting / electrical / floor sheets.
+ * R4 is the first mapped tag (recessedLightCount). A tag is a quantity only when
+ * it is a repeated drawing callout — not a legend, schedule, note, or r-value.
+ */
+const ELECTRICAL_INSTANCE_TAG_SPECS = [
+  {
+    key: 'recessedLightCount',
+    id: 'R4',
+    tokenRe: /^R-?4(?:[A-Z]|-?\d)?$/i,
+    concatRe: /R4(?![0-9])/g,
+  },
+  {
+    key: 'ceilingFanCount',
+    id: 'CF',
+    tokenRe: /^C\.?F\.?(?:-?\d)?$/i,
+    concatRe: null,
+  },
+];
+
+const OTHER_FIXTURE_TAG_RE =
+  /^(?:R-?(?:[1-35-9]|1\d)|L-?\d{1,2}|P-?\d{1,2}|F-?\d{1,2})[A-Z]?$/i;
+
+const FIXTURE_TAG_SKIP_PAGE_RE =
+  /elevation|section|roof\s*plan|framing|terrain|site\s*plan|cover\s*sheet|structural|foundation/i;
+
+const LIGHTING_OR_ELECTRICAL_PLAN_RE =
+  /lighting\s+plan|electrical\s+plan|power\s+plan|electrical\s+layout|lighting\s+layout/i;
+
+const NON_INSTANCE_TAG_PHRASE_RE =
+  /\b(legend|schedule|typical|typ\.|similar|sim\.|see\s+(?:sheet|plan|note)|refer(?:\s+to)?|insulation|insul\.?|batt|r-value|lumen|watt|downlight|description|duct\s*board)\b/i;
+
+function isFixtureTagSkipPage(text) {
+  const t = String(text || '');
+  if (LIGHTING_OR_ELECTRICAL_PLAN_RE.test(t)) return false;
+  return FIXTURE_TAG_SKIP_PAGE_RE.test(t);
+}
+
+function detectElectricalPlanLevel(text) {
+  const t = String(text || '');
+  if (/\b(?:2nd|second|upper)\s+(?:level|floor)\b|\bupstairs\b/i.test(t)) return 'upper';
+  if (/\b(?:main|first|1st|lower|ground)\s+(?:level|floor)\b/i.test(t)) return 'main';
+  return 'unknown';
+}
+
+function detectElectricalSheetKind(text) {
+  const t = String(text || '');
+  if (/reflected\s*ceiling|\bRCP\b/i.test(t)) return 'rcp';
+  if (/lighting\s+plan|electrical\s+plan|power\s+plan|electrical\s+layout|lighting\s+layout/i.test(t)) {
+    return 'lighting';
+  }
+  if (/floor\s*plan|level\s+layout/i.test(t)) return 'floor';
+  return 'other';
+}
+
+function phraseLooksLikeNonInstance(str) {
+  const s = String(str || '').trim();
+  if (!s) return true;
+  if (s.length > 22) return true;
+  if (NON_INSTANCE_TAG_PHRASE_RE.test(s)) return true;
+  if (/\d+\s*(?:'|\"|in(?:ch(?:es)?)?)\b/i.test(s) && /R-?4|\bC\.?F\.?/i.test(s)) {
+    return true;
+  }
+  return false;
+}
+
+function glyphPairCoveredByPhraseHit(hit, phraseHits) {
+  const x = Number(hit?.x) || 0;
+  const y = Number(hit?.y) || 0;
+  return (Array.isArray(phraseHits) ? phraseHits : []).some((phrase) => {
+    if (Math.abs((Number(phrase.y) || 0) - y) > 6) return false;
+    const left = Number(phrase.x) || 0;
+    const right = Number(phrase.xEnd) || left;
+    return x >= left - 4 && x <= right + 4;
+  });
+}
+
+function pairAdjacentGlyphTags(items, spec) {
+  if (spec?.id !== 'R4' || !Array.isArray(items) || !items.length) return [];
+  const rGlyphs = [];
+  const fourGlyphs = [];
+  for (const item of items) {
+    const str = String(item?.str || '').trim();
+    if (str === 'R' || str === 'r') rGlyphs.push(item);
+    else if (str === '4') fourGlyphs.push(item);
+  }
+  const usedFour = new Set();
+  const hits = [];
+  for (const r of rGlyphs) {
+    let best = -1;
+    let bestDx = 9;
+    for (let i = 0; i < fourGlyphs.length; i++) {
+      if (usedFour.has(i)) continue;
+      const four = fourGlyphs[i];
+      const dy = Math.abs((Number(r.y) || 0) - (Number(four.y) || 0));
+      const dx = (Number(four.x) || 0) - (Number(r.x) || 0);
+      if (dy <= 4 && dx > 0 && dx <= 8 && dx < bestDx) {
+        best = i;
+        bestDx = dx;
+      }
+    }
+    if (best < 0) continue;
+    usedFour.add(best);
+    hits.push({
+      x: Number(r.x) || 0,
+      y: Number(r.y) || 0,
+      count: 1,
+      str: 'R4',
+    });
+  }
+  return hits;
+}
+
+function countEmbeddedInstanceTags(compact, spec) {
+  if (!spec?.concatRe) return 0;
+  const upper = String(compact || '')
+    .toUpperCase()
+    .replace(/[-.]/g, '');
+  if (!upper || spec.tokenRe.test(upper)) return 0;
+  // CAD often glues one fixture tag into a room label (LAUNR4DRY).
+  // Require a letter on both sides so DOOR4 / FLOOR4 are not tags.
+  if (spec.id === 'R4') {
+    const bounded = upper.match(/[A-Z]R4[A-Z]/g);
+    if (bounded?.length) return bounded.length;
+  }
+  const matches = upper.match(spec.concatRe);
+  return matches && matches.length > 1 ? matches.length : 0;
+}
+
+function countTagOccurrences(str, spec) {
+  const s = String(str || '').trim();
+  if (!s) return 0;
+  const tokens = s.split(/[\s,;/]+/).filter(Boolean);
+  let n = 0;
+  for (const token of tokens) {
+    const compact = String(token || '').replace(/\s+/g, '');
+    if (spec.tokenRe.test(compact)) {
+      n += 1;
+      continue;
+    }
+    n += countEmbeddedInstanceTags(compact, spec);
+  }
+  return n;
+}
+
+function findLegendRegions(phrases) {
+  const regions = [];
+  for (const phrase of Array.isArray(phrases) ? phrases : []) {
+    const str = String(phrase?.str || '');
+    if (
+      !/\b(legend|fixture\s*schedule|lighting\s*schedule|symbol\s*(?:legend|list|key)|device\s*legend)\b/i.test(
+        str
+      )
+    ) {
+      continue;
+    }
+    regions.push({
+      x: Number(phrase.x) || 0,
+      y: Number(phrase.y) || 0,
+      w: 180,
+      h: 240,
+    });
+  }
+  return regions;
+}
+
+function isInsideLegendRegion(phrase, regions) {
+  const x = Number(phrase?.x) || 0;
+  const y = Number(phrase?.y) || 0;
+  return (Array.isArray(regions) ? regions : []).some(
+    (region) =>
+      x >= region.x - 24 &&
+      x <= region.x + region.w &&
+      y <= region.y + 24 &&
+      y >= region.y - region.h
+  );
+}
+
+function tagHitsHaveSpread(hits, minSpan = 40) {
+  const list = Array.isArray(hits) ? hits : [];
+  if (list.length < 2) return false;
+  const xs = list.map((hit) => Number(hit.x) || 0);
+  const ys = list.map((hit) => Number(hit.y) || 0);
+  return (
+    Math.max(...xs) - Math.min(...xs) > minSpan ||
+    Math.max(...ys) - Math.min(...ys) > minSpan
+  );
+}
+
+function instanceCountFromTagHits(hits) {
+  const list = Array.isArray(hits) ? hits : [];
+  if (!list.length) return 0;
+  const raw = list.reduce((sum, hit) => sum + (Number(hit.count) || 1), 0);
+  if (!tagHitsHaveSpread(list)) return raw;
+  return clusterTagHits(list).reduce(
+    (sum, hit) => sum + (Number(hit.count) || 1),
+    0
+  );
+}
+
+function isMappedElectricalInstanceTag(str) {
+  const compact = String(str || '').replace(/\s+/g, '');
+  return ELECTRICAL_INSTANCE_TAG_SPECS.some((spec) => spec.tokenRe.test(compact));
+}
+
+function clusterTagHits(hits, radius = 8) {
+  const list = Array.isArray(hits) ? hits : [];
+  const used = new Set();
+  const clusters = [];
+  for (let i = 0; i < list.length; i++) {
+    if (used.has(i)) continue;
+    const group = [list[i]];
+    used.add(i);
+    for (let j = i + 1; j < list.length; j++) {
+      if (used.has(j)) continue;
+      const dist = Math.hypot(
+        (Number(list[i].x) || 0) - (Number(list[j].x) || 0),
+        (Number(list[i].y) || 0) - (Number(list[j].y) || 0)
+      );
+      if (dist <= radius) {
+        group.push(list[j]);
+        used.add(j);
+      }
+    }
+    const count = Math.max(...group.map((hit) => Number(hit.count) || 1));
+    clusters.push({ ...group[0], count });
+  }
+  return clusters;
+}
+
+function countElectricalInstanceTagsOnPage(phrases, { pageText, page = null, sheet = null, items = null } = {}) {
+  const blob = pageText || (Array.isArray(phrases) ? phrases.map((p) => p.str).join(' ') : '');
+  if (isFixtureTagSkipPage(blob)) {
+    return {
+      measurements: {},
+      details: {},
+      kind: 'other',
+      level: 'unknown',
+      page,
+      sheet,
+      unclassifiedFixtureCount: 0,
+    };
+  }
+  const legendBoxes = findLegendRegions(phrases);
+  const kind = detectElectricalSheetKind(blob);
+  const level = detectElectricalPlanLevel(blob);
+  const sourceSheet = sheet || extractSheet(blob);
+  const measurements = {};
+  const details = {};
+  for (const spec of ELECTRICAL_INSTANCE_TAG_SPECS) {
+    const hits = [];
+    for (const phrase of Array.isArray(phrases) ? phrases : []) {
+      const str = String(phrase?.str || '').trim();
+      if (!str || phraseLooksLikeNonInstance(str)) continue;
+      if (isInsideLegendRegion(phrase, legendBoxes)) continue;
+      const count = countTagOccurrences(str, spec);
+      if (count < 1) continue;
+      const x = Number(phrase.x) || 0;
+      hits.push({
+        x,
+        y: Number(phrase.y) || 0,
+        count,
+        str,
+        xEnd:
+          Number(phrase.xEnd) ||
+          x + Math.max(Number(phrase.w) || 0, String(str).length * 6),
+      });
+    }
+    for (const hit of pairAdjacentGlyphTags(items, spec)) {
+      if (isInsideLegendRegion(hit, legendBoxes)) continue;
+      if (glyphPairCoveredByPhraseHit(hit, hits)) continue;
+      hits.push(hit);
+    }
+    const instanceCount = instanceCountFromTagHits(hits);
+    if (instanceCount < 2) continue;
+    measurements[spec.key] = instanceCount;
+    details[spec.key] = {
+      value: instanceCount,
+      tag: spec.id,
+      page,
+      sheet: sourceSheet,
+      kind,
+      level,
+    };
+  }
+  const unclassifiedFixtureCount = countUnclassifiedFixtureTagsOnPage(phrases, {
+    legendBoxes,
+    blob,
+  });
+  return {
+    measurements,
+    details,
+    kind,
+    level,
+    page,
+    sheet: sourceSheet,
+    unclassifiedFixtureCount,
+  };
+}
+
+function countUnclassifiedFixtureTagsOnPage(phrases, { legendBoxes, blob } = {}) {
+  if (!LIGHTING_OR_ELECTRICAL_PLAN_RE.test(String(blob || ''))) return 0;
+  const hits = [];
+  for (const phrase of Array.isArray(phrases) ? phrases : []) {
+    const str = String(phrase?.str || '').trim();
+    if (!str || phraseLooksLikeNonInstance(str)) continue;
+    if (isInsideLegendRegion(phrase, legendBoxes)) continue;
+    if (isMappedElectricalInstanceTag(str)) continue;
+    const compact = str.replace(/\s+/g, '');
+    if (!OTHER_FIXTURE_TAG_RE.test(compact)) continue;
+    hits.push({
+      x: Number(phrase.x) || 0,
+      y: Number(phrase.y) || 0,
+      count: 1,
+      str,
+    });
+  }
+  const count = instanceCountFromTagHits(hits);
+  return count >= 2 ? count : 0;
+}
+
+function normalizeSheetId(sheet) {
+  return String(sheet || '')
+    .replace(/\s+/g, '')
+    .toUpperCase();
+}
+
+function shouldCollapseDuplicateFixtureViews(a, b) {
+  if (
+    a?.level &&
+    b?.level &&
+    a.level !== 'unknown' &&
+    b.level !== 'unknown' &&
+    a.level !== b.level
+  ) {
+    return false;
+  }
+  const sheetA = normalizeSheetId(a?.sheet);
+  const sheetB = normalizeSheetId(b?.sheet);
+  if (sheetA && sheetB && sheetA === sheetB) return true;
+  if (a?.level && a.level !== 'unknown' && a.level === b?.level) {
+    const kinds = new Set([a.kind, b.kind]);
+    if (kinds.has('rcp') && (kinds.has('lighting') || kinds.has('floor') || kinds.has('other'))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function sumCollapsingDuplicateFixtureViews(pages) {
+  const groups = [];
+  for (const page of Array.isArray(pages) ? pages : []) {
+    const existing = groups.find((group) =>
+      group.some((member) => shouldCollapseDuplicateFixtureViews(member, page))
+    );
+    if (existing) existing.push(page);
+    else groups.push([page]);
+  }
+  return groups.reduce(
+    (sum, group) => sum + Math.max(...group.map((page) => Number(page.count) || 0)),
+    0
+  );
+}
+
+function aggregateElectricalInstanceTagCounts(pageResults) {
+  const byKey = {};
+  for (const spec of ELECTRICAL_INSTANCE_TAG_SPECS) {
+    const pages = (Array.isArray(pageResults) ? pageResults : [])
+      .map((result) => ({
+        ...result,
+        count: Number(result?.measurements?.[spec.key]) || 0,
+        kind: result?.kind || result?.details?.[spec.key]?.kind,
+        level: result?.level || result?.details?.[spec.key]?.level,
+        sheet: result?.sheet || result?.details?.[spec.key]?.sheet,
+        page: result?.page || result?.details?.[spec.key]?.page,
+      }))
+      .filter((result) => result.count >= 2);
+    if (!pages.length) continue;
+    const total = sumCollapsingDuplicateFixtureViews(pages);
+    if (total < 2) continue;
+    byKey[spec.key] = {
+      value: total,
+      tag: spec.id,
+      sourceType: 'pdf_text_instance_tags',
+      sheets: pages.map((page) => ({
+        sheet: page.sheet || null,
+        page: page.page || null,
+        count: page.count,
+        kind: page.kind || 'other',
+        level: page.level || 'unknown',
+      })),
+    };
+  }
+  const unclassifiedPages = (Array.isArray(pageResults) ? pageResults : [])
+    .map((result) => ({
+      ...result,
+      count: Number(result?.unclassifiedFixtureCount) || 0,
+    }))
+    .filter((result) => result.count >= 2);
+  const unclassifiedFixtureCount = unclassifiedPages.length
+    ? sumCollapsingDuplicateFixtureViews(unclassifiedPages)
+    : 0;
+  return {
+    measurements: Object.fromEntries(
+      Object.entries(byKey).map(([key, entry]) => [key, entry.value])
+    ),
+    byKey,
+    unclassifiedFixtureCount:
+      unclassifiedFixtureCount >= 2 ? unclassifiedFixtureCount : 0,
+  };
+}
+
 function scorePaintingRelevantPage(text) {
   const blob = String(text || '');
   if (!blob.trim()) return { score: 0, reasons: [] };
@@ -813,15 +1260,15 @@ class NodeCanvasFactory {
 
   create(width, height) {
     const canvas = this.createCanvas(Math.ceil(width), Math.ceil(height));
-    return {
-      canvas,
-      context: canvas.getContext('2d'),
-    };
+    const context = canvas.getContext('2d');
+    fillElectricalSheetBackground(context, width, height);
+    return { canvas, context };
   }
 
   reset(canvasAndContext, width, height) {
     canvasAndContext.canvas.width = Math.ceil(width);
     canvasAndContext.canvas.height = Math.ceil(height);
+    fillElectricalSheetBackground(canvasAndContext.context, width, height);
   }
 
   destroy(canvasAndContext) {
@@ -830,6 +1277,14 @@ class NodeCanvasFactory {
     canvasAndContext.canvas = null;
     canvasAndContext.context = null;
   }
+}
+
+function fillElectricalSheetBackground(context, width, height) {
+  if (!context) return;
+  context.save();
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, Math.ceil(width), Math.ceil(height));
+  context.restore();
 }
 
 function encodeJpeg(canvas, quality = 82) {
@@ -866,7 +1321,7 @@ async function renderElectricalPlanPages(pdfBuffers, electricalPages, options = 
   const pdfjs = await loadPdfJs();
   const canvasFactory = new NodeCanvasFactory(canvasLib.createCanvas);
   const images = [];
-  const maxDim = options.maxDimension || 3600;
+  const maxDim = options.maxDimension || 4200;
   const quality = options.quality || 82;
 
   for (const buffer of buffers) {
@@ -877,7 +1332,7 @@ async function renderElectricalPlanPages(pdfBuffers, electricalPages, options = 
         data: toUint8Array(buffer),
         useSystemFonts: true,
         isEvalSupported: false,
-        disableFontFace: true,
+        disableFontFace: false,
         canvasFactory,
       }).promise;
     } catch (err) {
@@ -889,13 +1344,19 @@ async function renderElectricalPlanPages(pdfBuffers, electricalPages, options = 
       try {
         const page = await doc.getPage(pageNumber);
         const base = page.getViewport({ scale: 1 });
-        const scale = Math.min(2.2, maxDim / Math.max(base.width, base.height, 1));
+        const scale = Math.min(2.4, maxDim / Math.max(base.width, base.height, 1));
         const viewport = page.getViewport({ scale });
         const canvasAndContext = canvasFactory.create(viewport.width, viewport.height);
+        fillElectricalSheetBackground(
+          canvasAndContext.context,
+          viewport.width,
+          viewport.height
+        );
         await page.render({
           canvas: canvasAndContext.canvas,
           canvasContext: canvasAndContext.context,
           viewport,
+          background: '#FFFFFF',
         }).promise;
         const jpeg = await encodeJpeg(canvasAndContext.canvas, quality);
         canvasFactory.destroy(canvasAndContext);
@@ -905,6 +1366,9 @@ async function renderElectricalPlanPages(pdfBuffers, electricalPages, options = 
           mimeType: 'image/jpeg',
           base64: bytes.toString('base64'),
           filename: `electrical-page-${pageNumber}.jpg`,
+          byteLength: bytes.length,
+          width: Math.round(viewport.width),
+          height: Math.round(viewport.height),
         });
       } catch (err) {
         console.warn(
@@ -968,6 +1432,7 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
   const assumptions = [];
   const paintingRelevantPages = [];
   const electricalRelevantPages = [];
+  const electricalInstanceTagPages = [];
   let pageCount = 0;
 
   for (const buf of list) {
@@ -998,6 +1463,30 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
           score: electricalPage.score,
           reasons: electricalPage.reasons,
         });
+      }
+      const instanceTagPage = countElectricalInstanceTagsOnPage(phrases, {
+        pageText,
+        page: pageNumber,
+        items: page.items,
+      });
+      if (Object.keys(instanceTagPage.measurements || {}).length) {
+        electricalInstanceTagPages.push(instanceTagPage);
+        const existingElectrical = electricalRelevantPages.find(
+          (entry) => entry.page === pageNumber
+        );
+        const tagReason = 'fixture instance tags';
+        if (existingElectrical) {
+          existingElectrical.score = Math.max(existingElectrical.score, 9);
+          existingElectrical.reasons = [
+            ...new Set([...(existingElectrical.reasons || []), tagReason]),
+          ];
+        } else {
+          electricalRelevantPages.push({
+            page: pageNumber,
+            score: 9,
+            reasons: [tagReason],
+          });
+        }
       }
       const parsedFacts = parsePageFactsFromText(pageText, { page: pageNumber });
       const schedule = parsedFacts.buildingAreas;
@@ -1093,6 +1582,7 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
     )
       .sort((a, b) => b.score - a.score)
       .slice(0, 12),
+    electricalInstanceTags: aggregateElectricalInstanceTagCounts(electricalInstanceTagPages),
     pageCount,
   };
 }
@@ -1160,7 +1650,7 @@ function formatPdfEvidenceForVision(pdfTakeoff, options = {}) {
     : [];
   if (tradeKey === 'electrical') {
     lines.push(
-      'Electrical-relevant sheets are electrical plans (E sheets), panel schedules, device legends, and lighting legends. Count symbols on those sheets. Prioritize main-level and second-level electrical plans when present. Do not invent homeruns, conduit LF, trench LF, or rough/trim packages from device counts.'
+      'Electrical-relevant sheets are electrical plans (E sheets), panel schedules, device legends, and lighting legends. Count symbols on those sheets. Sum main-level and upper-level lighting plans (for example A-10 + A-11). Count every ceiling-fan symbol, including covered patio, bedrooms, and upstairs living. Lighting fixtures that are not recessed/canless and not ceiling fans still count — if there is no symbol legend, report them as unclassifiedFixtureCount instead of guessing pendant/vanity/garage. Do not invent homeruns, conduit LF, trench LF, or rough/trim packages from device counts.'
     );
     if (electricalPages.length) {
       lines.push('PDF text layer — pages that look useful for an Electrical takeoff:');
@@ -1169,6 +1659,36 @@ function formatPdfEvidenceForVision(pdfTakeoff, options = {}) {
           `- page ${page.page}: ${Array.isArray(page.reasons) ? page.reasons.join(', ') : 'electrical plan'}`
         );
       }
+    }
+    const instanceTags = pdfTakeoff.electricalInstanceTags?.byKey || {};
+    const instanceLines = Object.entries(instanceTags)
+      .filter(([, entry]) => Number(entry?.value) > 0)
+      .map(([key, entry]) => {
+        const sheets = Array.isArray(entry.sheets)
+          ? entry.sheets
+              .map((sheet) => {
+                const where = [
+                  sheet.sheet ? `sheet ${sheet.sheet}` : null,
+                  sheet.page ? `page ${sheet.page}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(' ');
+                return `${where || 'plan'}: ${sheet.count} ${entry.tag}`.trim();
+              })
+              .join('; ')
+          : '';
+        return `- ${key}: ${entry.value} from ${entry.tag} instance tags${
+          sheets ? ` (${sheets})` : ''
+        }`;
+      });
+    if (instanceLines.length) {
+      lines.push(
+        'PDF text layer — fixture instance tags (each repeated tag is one fixture on the drawing; ignore legend/schedule/note entries):'
+      );
+      lines.push(...instanceLines);
+      lines.push(
+        'Prefer these instance-tag counts over symbol estimates when they disagree. Do not treat a legend definition as a quantity.'
+      );
     }
   }
   return lines.join('\n');
@@ -1195,7 +1715,14 @@ module.exports = {
   scorePaintingRelevantPage,
   scoreElectricalRelevantPage,
   expandElectricalRelevantPages,
+  ELECTRICAL_INSTANCE_TAG_SPECS,
+  countElectricalInstanceTagsOnPage,
+  aggregateElectricalInstanceTagCounts,
+  detectElectricalSheetKind,
+  detectElectricalPlanLevel,
+  shouldCollapseDuplicateFixtureViews,
   renderElectricalPlanPages,
+  fillElectricalSheetBackground,
   toUint8Array,
   feetInchesToDecimal,
 };

@@ -13,6 +13,27 @@ describe('plan measurement provenance', () => {
     ).toBe('plan_verified');
   });
 
+  it('labels electrical symbol counts and inferences without promoting them to Plan verified', () => {
+    expect(
+      resolvePlanMeasurementProvenance({
+        key: 'standardReceptacleCount',
+        fromPlanSymbols: true,
+      })
+    ).toMatchObject({
+      status: 'from_plan_symbols',
+      label: 'From plan — confirm',
+    });
+    expect(
+      resolvePlanMeasurementProvenance({
+        key: 'gfciReceptacleCount',
+        aiInferred: true,
+      })
+    ).toMatchObject({
+      status: 'ai_inferred',
+      label: 'AI inferred — confirm',
+    });
+  });
+
   it('labels dimension-derived values as calculated', () => {
     expect(
       resolvePlanMeasurementProvenance({

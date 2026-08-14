@@ -15,6 +15,10 @@ const {
   reconcileLabeledLivingAreas,
   derivePaintingGeometryMeasurements,
   MIN_FIELD_CONFIDENCE,
+  MEASUREMENT_KEYS,
+  buildElectricalSystemPrompt,
+  mergeElectricalEvidenceSources,
+  collectUnclassifiedElectricalFixtures,
 } = require('../estimatePlanToMeasurements');
 const { filterPlanMeasurementsForTrade, filterPlanScopesForTrade, TRADE_CONFIGS } = require('../planImportTradeConfig');
 const shvPlanFacts = require('../testFixtures/shvPlanFacts');
@@ -369,6 +373,14 @@ describe('estimatePlanToMeasurements', () => {
       { field: 'garageSqft', reason: 'Dimension string blurry' },
       { field: 'deckSqft', reason: 'Not legible on the plan' },
     ]);
+    expect(
+      sanitizeUnreadableFields([
+        { field: 'serviceAmperage', reason: 'No printed amperage callout' },
+        { field: 'serviceAmperage', reason: 'No printed amperage callout' },
+      ])
+    ).toEqual([
+      { field: 'serviceAmperage', reason: 'No printed amperage callout' },
+    ]);
   });
 
   const residentialPaintRooms = () =>
@@ -646,6 +658,89 @@ describe('estimatePlanToMeasurements', () => {
     expect(measurements.recessedLightCount).toBe(24);
   });
 
+  test('electrical plan aliases survive sanitize and fold onto canonical keys', () => {
+    expect(MEASUREMENT_KEYS.has('duplexReceptacleCount')).toBe(true);
+    expect(MEASUREMENT_KEYS.has('gfciCount')).toBe(true);
+    const aliased = sanitizeMeasurements(
+      {
+        duplexReceptacleCount: 42,
+        gfciCount: 6,
+        canLightCount: 34,
+        serviceAmps: 200,
+      },
+      [],
+      {},
+      []
+    );
+    expect(aliased.duplexReceptacleCount).toBe(42);
+    expect(aliased.gfciCount).toBe(6);
+    expect(aliased.canLightCount).toBe(34);
+    expect(aliased.serviceAmps).toBe(200);
+    const { normalizeElectricalPlanMeasurements } = require('../electricalPlanAdapter');
+    const folded = sanitizeMeasurements(
+      normalizeElectricalPlanMeasurements({
+        duplexReceptacleCount: 42,
+        gfciCount: 6,
+        canLightCount: 34,
+        serviceAmps: 200,
+      }),
+      [],
+      {},
+      ['serviceAmperage']
+    );
+    expect(folded.standardReceptacleCount).toBe(42);
+    expect(folded.gfciReceptacleCount).toBe(6);
+    expect(folded.recessedLightCount).toBe(34);
+    expect(folded.serviceAmperage).toBe(200);
+    expect(folded.duplexReceptacleCount).toBeUndefined();
+  });
+
+  test('unlabeled service amperage does not survive electrical explicit-only sanitize', () => {
+    const measurements = sanitizeMeasurements(
+      {
+        mainPanelCount: 1,
+        serviceAmperage: 200,
+        standardReceptacleCount: 50,
+      },
+      [],
+      {},
+      []
+    );
+    expect(measurements.mainPanelCount).toBe(1);
+    expect(measurements.standardReceptacleCount).toBe(50);
+    expect(measurements.serviceAmperage).toBeUndefined();
+  });
+
+  test('electrical system prompt requires symbol counting', () => {
+    const prompt = buildElectricalSystemPrompt();
+    expect(prompt).toMatch(/COUNT visible device/i);
+    expect(prompt).toMatch(/standardReceptacleCount/);
+    expect(prompt).toMatch(/unclassifiedFixtureCount/);
+    expect(prompt).toMatch(/every ceiling-fan symbol/i);
+    expect(prompt).not.toMatch(/NEVER estimate, round from visual proportions/);
+  });
+
+  test('unclassified lighting fixtures become a review field, not a priced count', () => {
+    const collected = collectUnclassifiedElectricalFixtures({
+      measurements: {
+        mainPanelCount: 1,
+        unclassifiedFixtureCount: 4,
+      },
+      pdfTakeoff: { electricalInstanceTags: { unclassifiedFixtureCount: 4 } },
+      unreadableFields: [{ field: 'serviceAmperage', reason: 'No printed amperage callout' }],
+    });
+    expect(collected.measurements.unclassifiedFixtureCount).toBeUndefined();
+    expect(collected.measurements.mainPanelCount).toBe(1);
+    expect(collected.unreadableFields).toEqual(
+      expect.arrayContaining([
+        {
+          field: 'unclassifiedFixtureCount',
+          reason: '4 lighting fixtures without a symbol legend',
+        },
+      ])
+    );
+  });
+
   test('derivePaintingGeometryMeasurements takes exterior paint from painted elevation faces only', () => {
     const derived = derivePaintingGeometryMeasurements(
       { floorAreaSqft: 2400 },
@@ -660,5 +755,25 @@ describe('estimatePlanToMeasurements', () => {
     );
     expect(derived.measurements.exteriorPaintSqft).toBe(320);
     expect(derived.measurements.exteriorPaintSqft).not.toBe(2400);
+  });
+
+  test('explicit R4 instance tags conflict with vision and stay out of priced measurements', () => {
+    const { omitUnresolvedElectricalConflicts } = require('../electricalPlanAdapter');
+    const merged = mergeElectricalEvidenceSources({
+      generalMeasurements: { recessedLightCount: 20, ceilingFanCount: 8, mainPanelCount: 1 },
+      generalConfidence: { recessedLightCount: 0.8, ceilingFanCount: 0.7, mainPanelCount: 0.95 },
+      focusedMeasurements: { recessedLightCount: 40, ceilingFanCount: 8, mainPanelCount: 1 },
+      focusedConfidence: { recessedLightCount: 0.85, ceilingFanCount: 0.8, mainPanelCount: 0.95 },
+      instanceTagMeasurements: { recessedLightCount: 48 },
+    });
+    expect(merged.measurements.recessedLightCount).toBe(48);
+    expect(merged.conflicts.some((row) => row.field === 'recessedLightCount')).toBe(true);
+    const omitted = omitUnresolvedElectricalConflicts(
+      merged.measurements,
+      merged.conflicts
+    );
+    expect(omitted.measurements.recessedLightCount).toBeUndefined();
+    expect(omitted.measurements.mainPanelCount).toBe(1);
+    expect(omitted.measurements.ceilingFanCount).toBe(8);
   });
 });

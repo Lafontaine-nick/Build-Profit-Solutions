@@ -18,13 +18,18 @@ const {
   filterPlanMeasurementsForTrade,
   filterPlanScopesForTrade,
 } = require('./planImportTradeConfig');
-const { mergeMeasurementCandidates } = require('./measurementMerge');
+const { mergeMeasurementCandidates, mergeMeasurementCandidateSets } = require('./measurementMerge');
 const {
   ELECTRICAL_MEASUREMENT_KEYS,
+  ELECTRICAL_PLAN_ALIASES,
   ELECTRICAL_COUNT_KEYS,
   ELECTRICAL_EXPLICIT_ONLY_KEYS,
   ELECTRICAL_VISION_INSTRUCTIONS,
   applyElectricalVisionTakeoff,
+  normalizeElectricalPlanMeasurements,
+  remapElectricalLabeledKeys,
+  omitUnresolvedElectricalConflicts,
+  instanceTagMeasurementsFromTakeoff,
 } = require('./electricalPlanAdapter');
 
 /** Temporary Lot 58 diagnosis — which pipeline stage drops Electrical counts. */
@@ -48,8 +53,81 @@ function electricalDebugSnapshot(measurements) {
   return out;
 }
 
+function electricalishMeasurementKeys(measurements) {
+  const src = measurements && typeof measurements === 'object' ? measurements : {};
+  const out = {};
+  for (const [key, value] of Object.entries(src)) {
+    if (
+      ELECTRICAL_DEBUG_KEYS.includes(key) ||
+      ELECTRICAL_PLAN_ALIASES[key] ||
+      /recept|gfci|switch|light|fan|panel|amp|outlet|duplex|circuit|smoke|hookup|fixture|conduit|trench/i.test(
+        key
+      )
+    ) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 function logElectricalTakeoffStage(stage, payload) {
   console.log(`[ELECTRICAL TAKEOFF] ${stage}`, payload);
+}
+
+function foldElectricalVisionPayload(parsed) {
+  if (!parsed || typeof parsed !== 'object') return parsed;
+  parsed.measurements = normalizeElectricalPlanMeasurements(parsed.measurements);
+  parsed.explicitlyLabeled = remapElectricalLabeledKeys(parsed.explicitlyLabeled);
+  parsed.geometryDerived = remapElectricalLabeledKeys(parsed.geometryDerived);
+  parsed.inferredKeys = remapElectricalLabeledKeys(parsed.inferredKeys);
+  if (parsed.fieldConfidence && typeof parsed.fieldConfidence === 'object') {
+    const nextConf = { ...parsed.fieldConfidence };
+    for (const [alias, canonical] of Object.entries(ELECTRICAL_PLAN_ALIASES)) {
+      if (nextConf[canonical] == null && nextConf[alias] != null) {
+        nextConf[canonical] = nextConf[alias];
+      }
+      delete nextConf[alias];
+    }
+    parsed.fieldConfidence = nextConf;
+  }
+  return parsed;
+}
+
+function mergeElectricalEvidenceSources({
+  generalMeasurements,
+  generalConfidence,
+  focusedMeasurements = null,
+  focusedConfidence = null,
+  instanceTagMeasurements = {},
+} = {}) {
+  const sets = [
+    {
+      measurements: generalMeasurements,
+      confidence: generalConfidence,
+      source: 'general_plan_takeoff',
+    },
+  ];
+  if (focusedMeasurements && typeof focusedMeasurements === 'object') {
+    sets.push({
+      measurements: focusedMeasurements,
+      confidence: focusedConfidence,
+      source: 'focused_trade_takeoff',
+    });
+  }
+  const tags =
+    instanceTagMeasurements && typeof instanceTagMeasurements === 'object'
+      ? instanceTagMeasurements
+      : {};
+  if (Object.keys(tags).length) {
+    sets.push({
+      measurements: tags,
+      confidence: Object.fromEntries(Object.keys(tags).map((key) => [key, 1])),
+      source: 'pdf_text_instance_tags',
+      evidence: Object.fromEntries(Object.keys(tags).map((key) => [key, true])),
+      defaultConfidence: 1,
+    });
+  }
+  return mergeMeasurementCandidateSets(sets);
 }
 
 /** Fields the model read but wasn't sure about are withheld below this. */
@@ -146,6 +224,7 @@ const MEASUREMENT_KEYS = new Set([
   'deckSqft',
   'garageSqft',
   ...ELECTRICAL_MEASUREMENT_KEYS,
+  ...Object.keys(ELECTRICAL_PLAN_ALIASES),
 ]);
 
 /**
@@ -787,6 +866,68 @@ Schema:
 }`;
 }
 
+function buildElectricalSystemPrompt() {
+  return `You are a construction estimator counting Electrical devices on Electrical plan sheets (E sheets, panel schedules, device legends, lighting legends).
+
+Return ONLY valid JSON (no markdown).
+
+Counting contract (most important):
+- COUNT visible device, fixture, panel, and legend symbols on the attached Electrical sheet images. That count is required takeoff. It is not estimating, not inventing, and not a readability violation.
+- A duplex receptacle symbol, GFCI symbol, recessed can, ceiling fan, smoke detector, or panel box that you can see MUST be counted even when no printed numeral sits next to it.
+- Printed labels still win when present: "PANEL", "RANGE", "DRYER", "GFCI", "3-WAY".
+- Repeated fixture instance tags in the PDF text-layer block (R4, CF) are individual fixtures. Prefer those counts over symbol estimates. Never treat a legend/schedule definition as a quantity. Sum main-level and upper-level lighting sheets.
+- Count every ceiling-fan symbol on every lighting sheet, including covered patio, primary suite, all bedrooms, and upstairs living.
+- Lighting fixtures that are not recessed/canless and not ceiling fans still count. If there is no symbol legend, report unclassifiedFixtureCount and list it in unreadableFields — do not guess pendant, vanity, garage, or standard fixture.
+- serviceAmperage ONLY when a printed amperage callout exists (200A, 125A, 150A). Never infer amperage from house size or from seeing a panel box. If it is not printed, omit it and list serviceAmperage in unreadableFields.
+- Do NOT invent homeruns, breaker counts, conduit LF, trench LF, rough/trim packages, job condition, or living SF. Device symbols do not create circuit relationships.
+- Leave rooms[] empty. Do not extract kitchen/bath/living square footage on this pass.
+- imageQuality: "good" if Electrical symbols or labels are visible, "partial" if some are, "unreadable" only if the attached images are blank or not Electrical sheets.
+- For every key in measurements, add fieldConfidence 0-1. Symbol counts you can see should be 0.7-0.95.
+- inferredKeys: keys guessed from room type or wet-location (probable GFCI in a bath) rather than counted symbols or printed tags.
+
+${ELECTRICAL_VISION_INSTRUCTIONS}
+
+Schema:
+{
+  "success": true,
+  "imageQuality": "good",
+  "rooms": [],
+  "measurements": {
+    "mainPanelCount": 1,
+    "standardReceptacleCount": 42,
+    "gfciReceptacleCount": 6,
+    "recessedLightCount": 34,
+    "singlePoleSwitchCount": 18,
+    "threeWaySwitchCount": 4,
+    "ceilingFanCount": 3,
+    "rangeHookupCount": 1,
+    "dryerHookupCount": 1,
+    "dishwasherHookupCount": 1,
+    "smokeDetectorCount": 8,
+    "unclassifiedFixtureCount": 4
+  },
+  "fieldConfidence": {
+    "standardReceptacleCount": 0.85,
+    "gfciReceptacleCount": 0.9,
+    "recessedLightCount": 0.85,
+    "mainPanelCount": 0.95
+  },
+  "unreadableFields": [
+    { "field": "serviceAmperage", "reason": "No printed amperage callout" },
+    { "field": "unclassifiedFixtureCount", "reason": "4 lighting fixtures without a symbol legend" }
+  ],
+  "explicitlyLabeled": ["mainPanelCount"],
+  "geometryDerived": [],
+  "inferredKeys": [],
+  "assumptions": [],
+  "notesBlock": "Counted Electrical symbols from attached E sheets."
+}`;
+}
+
+function visionSystemPrompt(electricalSelected) {
+  return electricalSelected ? buildElectricalSystemPrompt() : buildSystemPrompt();
+}
+
 function sanitizeRooms(rawRooms) {
   const out = [];
   for (const room of Array.isArray(rawRooms) ? rawRooms : []) {
@@ -915,11 +1056,38 @@ function sanitizeFieldConfidence(raw) {
   return out;
 }
 
+function collectUnclassifiedElectricalFixtures({
+  measurements,
+  pdfTakeoff,
+  unreadableFields,
+} = {}) {
+  const nextMeasurements = { ...(measurements || {}) };
+  const visionCount = Number(nextMeasurements.unclassifiedFixtureCount);
+  delete nextMeasurements.unclassifiedFixtureCount;
+  const tagCount = Number(pdfTakeoff?.electricalInstanceTags?.unclassifiedFixtureCount);
+  const count = [visionCount, tagCount]
+    .filter((value) => Number.isFinite(value) && value >= 2)
+    .reduce((max, value) => Math.max(max, Math.round(value)), 0);
+  const nextUnreadable = Array.isArray(unreadableFields) ? [...unreadableFields] : [];
+  const already = nextUnreadable.some(
+    (entry) => String(entry?.field || entry?.key || '') === 'unclassifiedFixtureCount'
+  );
+  if (count >= 2 && !already) {
+    nextUnreadable.push({
+      field: 'unclassifiedFixtureCount',
+      reason: `${count} lighting fixtures without a symbol legend`,
+    });
+  }
+  return { measurements: nextMeasurements, unreadableFields: nextUnreadable };
+}
+
 function sanitizeUnreadableFields(raw) {
+  const seen = new Set();
   const out = [];
   for (const entry of Array.isArray(raw) ? raw : []) {
     const field = String(entry?.field || entry?.key || '').trim().slice(0, 60);
-    if (!field) continue;
+    if (!field || seen.has(field)) continue;
+    seen.add(field);
     out.push({
       field,
       reason: String(entry?.reason || 'Not legible on the plan').trim().slice(0, 160),
@@ -1548,7 +1716,12 @@ async function analyzePlanForMeasurements({
         page: page.page,
         reasons: page.reasons || [],
       })),
-      rasterizedPages: electricalSheetImages.map((page) => page.page),
+      rasterizedPages: electricalSheetImages.map((page) => ({
+        page: page.page,
+        bytes: page.byteLength || null,
+        width: page.width || null,
+        height: page.height || null,
+      })),
     });
   }
 
@@ -1591,7 +1764,7 @@ async function analyzePlanForMeasurements({
     temperature: Math.min(aiRuntime.assistant.vision.temperature ?? 0.2, 0.15),
     max_tokens: Math.max(aiRuntime.assistant.vision.maxTokens || 900, 4000),
     messages: [
-      { role: 'system', content: buildSystemPrompt() },
+      { role: 'system', content: visionSystemPrompt(electricalSelected) },
       {
         role: 'user',
         content: [
@@ -1662,10 +1835,12 @@ async function analyzePlanForMeasurements({
           {
             role: 'system',
             content:
-              buildSystemPrompt() +
-              (planSelection.trade
+              visionSystemPrompt(electricalSelected) +
+              (planSelection.trade && !electricalSelected
                 ? '\nThis is a focused trade takeoff pass. Prioritize measurable geometry and scope for the selected trade over general room extraction.'
-                : '\nThis is a focused general-contractor takeoff pass. Prioritize measurable quantities across every major scope category.'),
+                : electricalSelected
+                  ? '\nThis is a focused Electrical symbol-count pass. Count devices on the attached E-sheet images.'
+                  : '\nThis is a focused general-contractor takeoff pass. Prioritize measurable quantities across every major scope category.'),
           },
           {
             role: 'user',
@@ -1712,28 +1887,48 @@ async function analyzePlanForMeasurements({
     err.status = 502;
     throw err;
   }
+  const generalElectricalVisionSource = electricalSelected
+    ? parsed.measurements
+    : null;
   const generalElectricalVision = electricalSelected
     ? electricalDebugSnapshot(parsed.measurements)
     : null;
+  if (electricalSelected) foldElectricalVisionPayload(parsed);
   let focusedElectricalVision = null;
+  let focusedElectricalVisionSource = null;
   let measurementProvenance = {};
   let measurementConflicts = [];
+  let electricalEvidenceMerged = false;
+  const electricalTagMeasurements = electricalSelected
+    ? instanceTagMeasurementsFromTakeoff(pdfTakeoff)
+    : {};
   if (tradeVisualCompletion) {
     try {
       const focused = JSON.parse(
         tradeVisualCompletion.choices?.[0]?.message?.content || '{}'
       );
       if (electricalSelected) {
+        focusedElectricalVisionSource = focused.measurements;
         focusedElectricalVision = electricalDebugSnapshot(focused.measurements);
+        foldElectricalVisionPayload(focused);
       }
-      const mergedMeasurements = mergeMeasurementCandidates({
-        baseMeasurements: parsed.measurements,
-        overlayMeasurements: focused.measurements,
-        baseConfidence: parsed.fieldConfidence,
-        overlayConfidence: focused.fieldConfidence,
-        baseEvidence: stuccoEvidenceByField(parsed.planFacts),
-        overlayEvidence: stuccoEvidenceByField(focused.planFacts),
-      });
+      const mergedMeasurements = electricalSelected
+        ? mergeElectricalEvidenceSources({
+            generalMeasurements: parsed.measurements,
+            generalConfidence: parsed.fieldConfidence,
+            focusedMeasurements: focused.measurements,
+            focusedConfidence: focused.fieldConfidence,
+            instanceTagMeasurements: electricalTagMeasurements,
+          })
+        : mergeMeasurementCandidates({
+            baseMeasurements: parsed.measurements,
+            overlayMeasurements: focused.measurements,
+            baseConfidence: parsed.fieldConfidence,
+            overlayConfidence: focused.fieldConfidence,
+            baseEvidence: stuccoEvidenceByField(parsed.planFacts),
+            overlayEvidence: stuccoEvidenceByField(focused.planFacts),
+          });
+      if (electricalSelected) electricalEvidenceMerged = true;
       const mergedFieldConfidence = {
         ...(parsed.fieldConfidence || {}),
         ...(focused.fieldConfidence || {}),
@@ -1788,6 +1983,18 @@ async function analyzePlanForMeasurements({
         },
         measurementProvenance,
         measurementConflicts,
+        explicitlyLabeled: [
+          ...(parsed.explicitlyLabeled || []),
+          ...(focused.explicitlyLabeled || []),
+        ],
+        geometryDerived: [
+          ...(parsed.geometryDerived || []),
+          ...(focused.geometryDerived || []),
+        ],
+        inferredKeys: [
+          ...(parsed.inferredKeys || []),
+          ...(focused.inferredKeys || []),
+        ],
         unreadableFields: [
           ...(parsed.unreadableFields || []),
           ...(focused.unreadableFields || []),
@@ -1798,13 +2005,43 @@ async function analyzePlanForMeasurements({
     }
   }
 
+  if (electricalSelected && !electricalEvidenceMerged) {
+    const mergedMeasurements = mergeElectricalEvidenceSources({
+      generalMeasurements: parsed.measurements,
+      generalConfidence: parsed.fieldConfidence,
+      instanceTagMeasurements: electricalTagMeasurements,
+    });
+    measurementProvenance = {
+      ...measurementProvenance,
+      ...mergedMeasurements.provenance,
+    };
+    measurementConflicts = mergedMeasurements.conflicts;
+    parsed.measurements = mergedMeasurements.measurements;
+  }
+
   if (electricalSelected) {
     logElectricalTakeoffStage('RAW ELECTRICAL VISION EXTRACTION', {
       merged: electricalDebugSnapshot(parsed.measurements),
+      mergedAliases: electricalishMeasurementKeys(parsed.measurements),
       general: generalElectricalVision,
+      generalAliases: electricalishMeasurementKeys(generalElectricalVisionSource),
       focused: focusedElectricalVision,
+      focusedAliases: electricalishMeasurementKeys(focusedElectricalVisionSource),
+      instanceTags: electricalTagMeasurements,
       unreadableFields: (parsed.unreadableFields || []).slice(0, 20),
     });
+    const omitted = omitUnresolvedElectricalConflicts(
+      parsed.measurements,
+      measurementConflicts
+    );
+    parsed.measurements = omitted.measurements;
+    const unclassified = collectUnclassifiedElectricalFixtures({
+      measurements: parsed.measurements,
+      pdfTakeoff,
+      unreadableFields: parsed.unreadableFields,
+    });
+    parsed.measurements = unclassified.measurements;
+    parsed.unreadableFields = unclassified.unreadableFields;
   }
 
   const imageQuality = sanitizeImageQuality(parsed?.imageQuality);
@@ -1990,12 +2227,26 @@ async function analyzePlanForMeasurements({
     measurements: rawMeasurements,
     explicitlyLabeled: parsed.explicitlyLabeled,
     geometryDerived: parsed.geometryDerived,
+    inferredKeys: parsed.inferredKeys,
+    instanceTagKeys: Object.keys(electricalTagMeasurements || {}),
+    methodsAgreeKeys: Object.entries(measurementProvenance || {})
+      .filter(([, entry]) => entry?.methodsAgree)
+      .map(([key]) => key),
     electricalSelected,
   });
   rawMeasurements = electricalTakeoff.measurements;
   measurementProvenance = {
     ...measurementProvenance,
-    ...electricalTakeoff.provenance,
+    ...Object.fromEntries(
+      Object.entries(electricalTakeoff.provenance || {}).map(([key, entry]) => [
+        key,
+        {
+          ...(measurementProvenance[key] || {}),
+          ...entry,
+          alternatives: measurementProvenance[key]?.alternatives,
+        },
+      ])
+    ),
   };
   if (electricalSelected) {
     logElectricalTakeoffStage(
@@ -2010,6 +2261,16 @@ async function analyzePlanForMeasurements({
         .slice(0, 8)
         .map((page) => `${page.page} (${(page.reasons || []).join(', ') || 'electrical plan'})`)
         .join('; ')}`,
+    ];
+  }
+  const instanceTagAssumption = Object.entries(electricalTagMeasurements || {})
+    .filter(([, value]) => Number(value) > 0)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(', ');
+  if (electricalSelected && instanceTagAssumption) {
+    parsed.assumptions = [
+      ...(Array.isArray(parsed.assumptions) ? parsed.assumptions : []),
+      `Electrical instance tags from PDF text: ${instanceTagAssumption}`,
     ];
   }
   rawMeasurements = reconcileBathroomMeasurement(rawMeasurements, rooms, unreadableFields);
@@ -2226,6 +2487,11 @@ async function analyzePlanForMeasurements({
         'Panel / service: no readable panel count or amperage callout'
       );
     }
+    if (!(positive(tradeMeasurementInput.serviceAmperage) > 0)) {
+      tradeMissingInfo.unshift(
+        'Service size: no printed amperage callout — confirm 100A/125A/150A/200A'
+      );
+    }
     if (
       !(positive(tradeMeasurementInput.standardCircuitCount) > 0) &&
       !(positive(tradeMeasurementInput.dedicated20aCircuitCount) > 0)
@@ -2302,12 +2568,16 @@ module.exports = {
   reconcileLabeledLivingAreas,
   sanitizeFieldConfidence,
   sanitizeUnreadableFields,
+  collectUnclassifiedElectricalFixtures,
   applyConfidenceFloor,
   buildItemQuantities,
   formatNotesBlock,
   mergeRoomsPreferPdf,
   pruneEnvelopeGarageRooms,
   reconcileBathroomMeasurement,
+  buildSystemPrompt,
+  buildElectricalSystemPrompt,
+  mergeElectricalEvidenceSources,
   MEASUREMENT_KEYS,
   LABELED_ONLY_KEYS,
   MAX_IMAGES,

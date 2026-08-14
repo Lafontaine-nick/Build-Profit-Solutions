@@ -2,6 +2,7 @@ import {
   ELECTRICAL_PLAN_EXPORT_RESIDENTIAL_FIXTURE,
   hasDetailedElectricalQuantities,
   normalizeElectricalPlanMeasurements,
+  parseElectricalMeasurementsFromNotes,
   shouldAutoPriceElectricalRoughPackage,
   shouldAutoPriceElectricalTrimPackage,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
@@ -15,6 +16,7 @@ import {
 import { emptyQuickMeasurementInput } from '@/utils/scopeQuickMeasurements';
 import { filterPlanMeasurementsForTrade, filterPlanScopesForTrade } from '@/utils/planImportTradeConfig';
 import { buildElectricalPlanReviewSummary } from '@/utils/planTakeoffReviewUi';
+import { applyElectricalQuickMeasurementPatch } from '@/utils/electricalQuickMeasurementUi';
 
 function inputWith(
   fields: Partial<ScopeMeasurementsInputExtended>
@@ -233,7 +235,7 @@ describe('electrical Phase 3A plan export adapter', () => {
         { label: '3-way switch', value: '7 EA' },
         { label: 'Recessed / canless / wafer light', value: '24 EA' },
         { label: 'Pendant light', value: '3 EA' },
-        { label: 'Range hookup', value: '1 EA' },
+        { label: 'Electric range circuit + hookup', value: '1 EA' },
         {
           label: 'Shared homeruns / unlabeled circuits',
           value: 'Needs confirmation',
@@ -251,5 +253,114 @@ describe('electrical Phase 3A plan export adapter', () => {
     expect(summary.some(line => /living|sqft/i.test(line.label))).toBe(false);
     expect(summary.some(line => line.value.includes('10,000'))).toBe(false);
     expect(summary.some(line => line.value.includes('2,500'))).toBe(false);
+  });
+
+  it('does not price a conflicted recessed count until the contractor confirms', () => {
+    const agreed = {
+      standardReceptacleCount: 50,
+      gfciReceptacleCount: 8,
+      ceilingFanCount: 8,
+      mainPanelCount: 1,
+      rangeHookupCount: 1,
+      dryerHookupCount: 1,
+      dishwasherHookupCount: 1,
+    };
+    expect(priceElectrical('electrical_recessed_light', agreed).fill).toBeNull();
+    expect(
+      priceElectrical('electrical_standard_receptacle', agreed).fill?.total
+    ).toBeGreaterThan(0);
+
+    const confirmedCount = 48;
+    const planConfirmed = { ...agreed, recessedLightCount: confirmedCount };
+    const fromNotes = parseElectricalMeasurementsFromNotes(
+      'Install 48 recessed lights. Add 50 standard outlets. Add 8 GFCI outlets. Add 8 ceiling fans.'
+    );
+    expect(fromNotes.recessedLightCount).toBe(confirmedCount);
+    expect(fromNotes.standardReceptacleCount).toBe(50);
+    expect(
+      priceElectrical('electrical_recessed_light', planConfirmed).fill?.total
+    ).toBe(
+      priceElectrical('electrical_recessed_light', fromNotes).fill?.total
+    );
+    expect(
+      priceElectrical('electrical_standard_receptacle', planConfirmed).fill?.total
+    ).toBe(
+      priceElectrical('electrical_standard_receptacle', fromNotes).fill?.total
+    );
+  });
+
+  it('prices a confirmed 46 recessed count the same as Notes/Voice 46', () => {
+    const fromNotes = parseElectricalMeasurementsFromNotes(
+      'Install 46 recessed lights.'
+    );
+    expect(fromNotes.recessedLightCount).toBe(46);
+    expect(
+      priceElectrical('electrical_recessed_light', {
+        recessedLightCount: 46,
+      }).fill?.total
+    ).toBe(
+      priceElectrical('electrical_recessed_light', fromNotes).fill?.total
+    );
+    expect(
+      priceElectrical('electrical_standard_receptacle', {}).fill
+    ).toBeNull();
+  });
+
+  it('reprices from the same canonical key when Quick Measurements edits a count', () => {
+    const patched = applyElectricalQuickMeasurementPatch(
+      { standardReceptacleCount: 50 },
+      'standardReceptacleCount',
+      52
+    );
+    expect(patched.standardReceptacleCount).toBe('52');
+    expect(
+      priceElectrical('electrical_standard_receptacle', patched).fill?.total
+    ).toBe(5720);
+    const reverted = applyElectricalQuickMeasurementPatch(
+      patched,
+      'standardReceptacleCount',
+      50
+    );
+    expect(
+      priceElectrical('electrical_standard_receptacle', reverted).fill?.total
+    ).toBe(5500);
+  });
+
+  it('unprices the card when Quick Measurements deselects a takeoff row', () => {
+    const selected = applyElectricalQuickMeasurementPatch(
+      { mainPanelCount: 1, standardReceptacleCount: 50 },
+      'standardReceptacleCount',
+      50
+    );
+    expect(
+      priceElectrical('electrical_standard_receptacle', selected).fill?.total
+    ).toBe(5500);
+    expect(
+      priceElectrical('electrical_main_panel', selected).fill?.needsServiceAmperage
+    ).toBe(true);
+    expect(priceElectrical('electrical_main_panel', selected).fill?.total).toBe(0);
+
+    const deselected = applyElectricalQuickMeasurementPatch(
+      selected,
+      'standardReceptacleCount',
+      ''
+    );
+    expect(deselected.standardReceptacleCount).toBe('');
+    expect(
+      priceElectrical('electrical_standard_receptacle', deselected).fill
+    ).toBeNull();
+    expect(
+      priceElectrical('electrical_main_panel', deselected).fill?.needsServiceAmperage
+    ).toBe(true);
+    expect(
+      priceElectrical('electrical_main_panel', deselected).fill?.total
+    ).toBe(0);
+
+    const panelOff = applyElectricalQuickMeasurementPatch(
+      deselected,
+      'mainPanelCount',
+      ''
+    );
+    expect(priceElectrical('electrical_main_panel', panelOff).fill).toBeNull();
   });
 });

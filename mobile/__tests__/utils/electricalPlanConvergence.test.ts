@@ -13,6 +13,7 @@ import {
   normalizeElectricalScalarMeasurements,
   shouldAutoPriceElectricalRoughPackage,
   shouldAutoPriceElectricalTrimPackage,
+  syncElectricalScopeItems,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
 import {
@@ -194,7 +195,7 @@ describe('electrical canonical architecture', () => {
       'Switches / controls',
       'Lighting',
       'Fans',
-      'Appliance / equipment hookups',
+      'Appliance circuit + hookup',
       'Life safety / low voltage',
       'Rough / modifications',
       'Packages',
@@ -601,15 +602,33 @@ describe('electrical canonical architecture', () => {
     expect(parsed.electricalIncludeRough).toBeUndefined();
   });
 
-  it('names refrigerator and water-heater cards so they do not over-apply', () => {
+  it('names appliance cards as circuit + hookup, not a plug-in only', () => {
     const byId = Object.fromEntries(
       ELECTRICAL_CARDS.map(card => [card.itemId, card])
     );
+    expect(byId.electrical_range_hookup.label).toBe(
+      'Electric range circuit + hookup'
+    );
+    expect(byId.electrical_dryer_hookup.label).toBe(
+      'Electric dryer circuit + hookup'
+    );
+    expect(byId.electrical_dishwasher_hookup.label).toBe(
+      'Dishwasher circuit + hookup'
+    );
     expect(byId.electrical_refrigerator_hookup.label).toBe(
-      'Refrigerator dedicated circuit / connection'
+      'Refrigerator circuit + hookup'
     );
     expect(byId.electrical_water_heater_hookup.label).toBe(
-      'Electric water heater electrical connection'
+      'Electric water heater circuit + hookup'
+    );
+    expect(byId.electrical_refrigerator_hookup.helper).toMatch(
+      /not a plug-in only/i
+    );
+    expect(byId.electrical_refrigerator_hookup.helper).toMatch(
+      /existing receptacle/i
+    );
+    expect(byId.electrical_water_heater_hookup.helper).toMatch(
+      /not a gas water heater/i
     );
   });
 
@@ -749,5 +768,55 @@ describe('electrical canonical architecture', () => {
     expect(lookupRuleKeyForPackage('Electrical fixtures')).toBe('electrical_trim');
     expect(lookupRuleKeyForPackage('Electrical rough-in')).toBe('electrical_rough');
     expect(lookupRuleKeyForPackage('Electrical')).not.toBe('electrical_rough');
+  });
+
+  it('drops a Confirm Scope card when its Quick Measurement quantity is cleared', () => {
+    const items = [
+      { id: 'electrical_main_panel', state: 'included' },
+      { id: 'electrical_standard_receptacle', state: 'included' },
+      { id: 'electrical_subpanel', state: 'unsure' },
+      { id: 'electrical_rough', state: 'unsure' },
+    ];
+    const selected = syncElectricalScopeItems(items, {
+      electricalScope: ['electrical_main_panel', 'electrical_standard_receptacle'],
+      quantities: { mainPanelCount: 1, standardReceptacleCount: 50 },
+    });
+    expect(selected.find(row => row.id === 'electrical_main_panel')?.state).toBe(
+      'included'
+    );
+    expect(
+      selected.find(row => row.id === 'electrical_standard_receptacle')?.state
+    ).toBe('included');
+
+    const afterDeselect = syncElectricalScopeItems(selected, {
+      electricalScope: ['electrical_main_panel', 'electrical_standard_receptacle'],
+      quantities: { mainPanelCount: '', standardReceptacleCount: 50 },
+    });
+    expect(
+      afterDeselect.find(row => row.id === 'electrical_main_panel')?.state
+    ).toBe('unsure');
+    expect(
+      afterDeselect.find(row => row.id === 'electrical_standard_receptacle')
+        ?.state
+    ).toBe('included');
+    expect(
+      afterDeselect.find(row => row.id === 'electrical_subpanel')?.state
+    ).toBe('unsure');
+  });
+
+  it('does not force-exclude a card the contractor already marked No', () => {
+    const next = syncElectricalScopeItems(
+      [{ id: 'electrical_main_panel', state: 'excluded' }],
+      { quantities: { mainPanelCount: 1 } }
+    );
+    expect(next[0].state).toBe('excluded');
+  });
+
+  it('keeps a Notes-inferred Yes when no quantity was entered or cleared', () => {
+    const next = syncElectricalScopeItems(
+      [{ id: 'electrical_main_panel', state: 'included' }],
+      { quantities: {} }
+    );
+    expect(next[0].state).toBe('included');
   });
 });

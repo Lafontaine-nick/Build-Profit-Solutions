@@ -18,6 +18,7 @@ import {
   shouldUseCompactSuggestedAlternative,
   suggestedActionLabel,
   suggestedCardTitle,
+  includeUnconfirmedSuggestedPricingFill,
 } from '@/utils/suggestedPricingCardUi';
 import { benchmarkActionButtonLabel, missingStatusDisplayLabel } from '@/utils/measurementSemantics/scopePriceUi';
 import { SCOPE_PARSED_FROM_NOTES_LABEL } from '@/constants/scopeNoteSourceLabels';
@@ -60,6 +61,8 @@ describe('suggestedPricingCardUi', () => {
     expect(normalizeQuantitySource('notes')).toBe('notes');
     expect(quantityProvenanceLabel('notes')).toBe('From notes');
     expect(quantityProvenanceLabel('plan')).toBe('From plan');
+    expect(quantityProvenanceLabel('plan_conflict')).toBe('Plan conflict — confirm');
+    expect(normalizeQuantitySource('plan_conflict')).toBe('plan_conflict');
     expect(quantityProvenanceLabel('calculated')).toBe('Calculated');
     expect(quantityProvenanceLabel('fallback')).toBe('Fallback basis');
     expect(
@@ -347,5 +350,37 @@ describe('suggestedPricingCardUi', () => {
     expect(display.allowanceExtraNote).toMatch(/Local range/);
     expect(display.whyThisPriceLines.join(' ')).toMatch(/walls\/gates/i);
     expect(display.actionLabel).toBe('Apply');
+  });
+
+  it('shows Needs service amperage instead of a silent 200A price', () => {
+    const display = buildSuggestedPricingCardDisplay({
+      itemId: 'electrical_main_panel',
+      block: block({
+        material: 0,
+        labor: 0,
+        total: 0,
+        helper: 'Service amperage required to price this item.',
+        needsServiceAmperage: true,
+        productionStatus: 'review_required',
+        basis: { quantity: 1, unit: 'each' },
+        costBuckets: [],
+      }),
+    });
+    expect(display.statusLine).toBe('Needs service amperage');
+    expect(display.statusTone).toBe('amber');
+    expect(display.actionLabel).toBeNull();
+    expect(display.displayTotal).toBe('—');
+    expect(display.splitLine).toMatch(/Service amperage required/);
+    expect(
+      includeUnconfirmedSuggestedPricingFill(
+        block({
+          material: 0,
+          labor: 0,
+          total: 0,
+          helper: 'Service amperage required to price this item.',
+          needsServiceAmperage: true,
+        })
+      )
+    ).toBe(true);
   });
 });

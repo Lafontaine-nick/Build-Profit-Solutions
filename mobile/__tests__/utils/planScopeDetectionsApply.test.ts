@@ -3,7 +3,11 @@ jest.mock('@/utils/resolveAiBackendUrl', () => ({
   resolveAiBackendUrl: jest.fn(() => 'http://localhost'),
 }));
 
-import { applyScopeDetectionsToChecklistItems, applyPlanImportToDraft } from '../../utils/estimateAiDraft';
+import {
+  applyScopeDetectionsToChecklistItems,
+  applyPlanImportToDraft,
+  mergeLivePlanImportIntoScopeMeasurements,
+} from '../../utils/estimateAiDraft';
 import type { PhotoScopeDetection, ScopeChecklistItem } from '../../utils/estimateAiDraft';
 
 const item = (overrides: Partial<ScopeChecklistItem> & { id: string }): ScopeChecklistItem =>
@@ -181,5 +185,74 @@ describe('applyPlanImportToDraft', () => {
     expect(byId.foundation.state).toBe('included');
     expect(byId.exterior.state).toBe('included');
     expect(byId.mep_rough.state).toBe('included');
+  });
+});
+
+describe('live plan-review handoff to Confirm Scope', () => {
+  test('preserves unresolved conflicts, provenance, and plan source labels', () => {
+    const conflict = {
+      field: 'ceilingFanCount',
+      requiresConfirmation: true,
+      candidates: [
+        { value: 6, source: 'symbol_count' },
+        { value: 5, source: 'alternate_symbol_count' },
+      ],
+    };
+    const next = mergeLivePlanImportIntoScopeMeasurements(
+      {
+        mainPanelCount: '1',
+        quickMeasurementSources: { mainPanelCount: 'saved_draft' },
+      },
+      {
+        measurements: {
+          standardReceptacleCount: '40',
+          ceilingFanCount: '',
+        },
+        quickMeasurementSources: {
+          mainPanelCount: 'plan_detected',
+          standardReceptacleCount: 'plan_detected',
+        },
+        fieldConfidence: { standardReceptacleCount: 0.93 },
+        measurementProvenance: {
+          standardReceptacleCount: { source: 'plan_takeoff' },
+        },
+        measurementConflicts: [conflict as any],
+        estimatingMode: 'selected_trade',
+        selectedTrade: 'electrical',
+        missingInfo: ['serviceAmperage: No printed amperage callout'],
+      }
+    );
+
+    expect(next.standardReceptacleCount).toBe('40');
+    expect(next.ceilingFanCount).toBeUndefined();
+    expect(next.quickMeasurementSources).toEqual({
+      mainPanelCount: 'plan_detected',
+      standardReceptacleCount: 'plan_detected',
+    });
+    expect(next.quickMeasurementFieldConfidence).toEqual({
+      standardReceptacleCount: 0.93,
+    });
+    expect(next.measurementProvenance).toEqual({
+      standardReceptacleCount: { source: 'plan_takeoff' },
+    });
+    expect(next.measurementConflicts).toEqual([conflict]);
+    expect(next.planImportMode).toBe('selected_trade');
+    expect(next.planImportTradeKey).toBe('electrical');
+    expect(next.planImportMissingInfo).toEqual([
+      'serviceAmperage: No printed amperage callout',
+    ]);
+  });
+
+  test('an explicit empty conflict list clears stale draft conflicts', () => {
+    const next = mergeLivePlanImportIntoScopeMeasurements(
+      {
+        measurementConflicts: [
+          { field: 'singlePoleSwitchCount', requiresConfirmation: true },
+        ],
+      },
+      { measurementConflicts: [] }
+    );
+
+    expect(next.measurementConflicts).toEqual([]);
   });
 });

@@ -29,6 +29,9 @@ describe('electrical Phase 2A service/panel pricing', () => {
     expect(snapElectricalAmperageTier(200, 'electrical_main_panel')).toBe(200);
     expect(snapElectricalAmperageTier(90, 'electrical_subpanel')).toBe(100);
     expect(snapElectricalAmperageTier(400, 'electrical_service_upgrade')).toBe(400);
+    expect(snapElectricalAmperageTier(null, 'electrical_main_panel')).toBeNull();
+    expect(snapElectricalAmperageTier(0, 'electrical_subpanel')).toBeNull();
+    expect(snapElectricalAmperageTier(undefined, 'electrical_service_upgrade')).toBeNull();
   });
 
   it('quotes a new indoor 200A main panel at the proposed split', () => {

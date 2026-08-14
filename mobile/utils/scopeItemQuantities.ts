@@ -9846,6 +9846,11 @@ export type SuggestedPricingBlock = {
   storedTotalExact?: number | null;
   /** Material-specific quantity breakdown shown for weighted pricing. */
   pricingDetail?: string | null;
+  /**
+   * Panel/service card is in scope but cannot produce a production price until
+   * the contractor selects service amperage. Not a $0 bid.
+   */
+  needsServiceAmperage?: boolean;
 };
 
 export type ScopeItemSuggestedPricing = {

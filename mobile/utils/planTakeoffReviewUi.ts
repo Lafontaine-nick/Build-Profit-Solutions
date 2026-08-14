@@ -143,6 +143,9 @@ export function measurementDisplayLabel(
   };
   if (paintingLabels[key]) return { label: paintingLabels[key] };
   if (key === 'serviceAmperage') return { label: 'Service amperage' };
+  if (key === 'unclassifiedFixtureCount') {
+    return { label: 'Unclassified lighting fixtures' };
+  }
   const electricalCard = electricalCardForMeasurementKey(key);
   if (electricalCard) return { label: electricalCard.label };
   return { label: key };
@@ -447,15 +450,28 @@ function provenanceSourceText(entry: unknown): string {
 export function planReviewProvenanceFlags(input: {
   key: string;
   provenanceEntry?: unknown;
+  hasConflict?: boolean;
 }): {
   hasExplicitPlanSource: boolean;
   hasReliableDimensions: boolean;
   roomDependent: boolean;
+  fromPlanSymbols: boolean;
+  aiInferred: boolean;
 } {
   const source = provenanceSourceText(input.provenanceEntry);
+  const evidenceKind =
+    typeof input.provenanceEntry === 'object' && input.provenanceEntry != null
+      ? String((input.provenanceEntry as { evidenceKind?: string }).evidenceKind || '')
+          .toLowerCase()
+      : '';
   const fromGeometry =
     source.includes('geometry') || source.includes('calculated_from_plan');
+  const fromInstanceTags =
+    source.includes('instance_tag') ||
+    source.includes('pdf_text') ||
+    evidenceKind === 'instance_tags';
   const fromPlan =
+    fromInstanceTags ||
     source.includes('detected_from_plan') ||
     source.includes('labeled') ||
     source === 'from_plan';
@@ -466,29 +482,56 @@ export function planReviewProvenanceFlags(input: {
     typeof input.provenanceEntry === 'object' &&
     input.provenanceEntry != null &&
     (input.provenanceEntry as { coverage?: string }).coverage === 'incomplete';
-  const electricalReview =
+  const aiInferred =
     electricalKey &&
-    (source.includes('calculated_from_symbols') ||
-      source.includes('needs_review') ||
-      (typeof input.provenanceEntry === 'object' &&
-        input.provenanceEntry != null &&
-        Number((input.provenanceEntry as { confidenceTier?: number }).confidenceTier) >= 2));
+    (evidenceKind === 'inference' || source.includes('inferred_from_context'));
+  const methodsAgree =
+    typeof input.provenanceEntry === 'object' &&
+    input.provenanceEntry != null &&
+    (input.provenanceEntry as { methodsAgree?: boolean }).methodsAgree === true;
+  const fromPlanSymbols =
+    electricalKey &&
+    !fromInstanceTags &&
+    !methodsAgree &&
+    (evidenceKind === 'symbols' ||
+      source.includes('calculated_from_symbols') ||
+      source.includes('symbol'));
+  const electricalReview =
+    Boolean(input.hasConflict) ||
+    aiInferred ||
+    (electricalKey &&
+      (fromPlanSymbols ||
+        source.includes('needs_review') ||
+        (typeof input.provenanceEntry === 'object' &&
+          input.provenanceEntry != null &&
+          Number((input.provenanceEntry as { confidenceTier?: number }).confidenceTier) >=
+            2 &&
+          !fromInstanceTags &&
+          !methodsAgree)));
   return {
     hasExplicitPlanSource:
-      input.key === 'floorAreaSqft' ||
-      input.key === 'garageSqft' ||
-      input.key === 'deckSqft' ||
-      (paintingKey && fromPlan && !fromGeometry && !incomplete) ||
-      (electricalKey && fromPlan && !electricalReview),
+      !input.hasConflict &&
+      (input.key === 'floorAreaSqft' ||
+        input.key === 'garageSqft' ||
+        input.key === 'deckSqft' ||
+        (paintingKey && fromPlan && !fromGeometry && !incomplete) ||
+        (electricalKey &&
+          !aiInferred &&
+          (fromInstanceTags ||
+            methodsAgree ||
+            (fromPlan && !electricalReview)))),
     hasReliableDimensions:
-      input.key === 'kitchenFloorSqft' ||
-      input.key === 'bathroomFloorSqft' ||
-      (paintingKey && fromGeometry && !incomplete),
+      !input.hasConflict &&
+      (input.key === 'kitchenFloorSqft' ||
+        input.key === 'bathroomFloorSqft' ||
+        (paintingKey && fromGeometry && !incomplete)),
     roomDependent:
       input.key === 'kitchenFloorSqft' ||
       input.key === 'bathroomFloorSqft' ||
       incomplete ||
       electricalReview,
+    fromPlanSymbols: !input.hasConflict && fromPlanSymbols,
+    aiInferred: !input.hasConflict && aiInferred,
   };
 }
 
@@ -685,11 +728,17 @@ function electricalQuantityNote(
   if (key === 'mainPanelCount' || key === 'serviceAmperage') {
     return 'From panel callout';
   }
-  if (s.includes('calculated_from_symbols') || s.includes('needs_review')) {
-    return 'Calculated from symbols, confirm';
+  if (s.includes('inferred_from_context') || s.includes('ai inferred')) {
+    return 'AI inferred — confirm';
+  }
+  if (s.includes('instance_tag') || s.includes('pdf_text')) {
+    return 'Counted from instance tags';
+  }
+  if (s.includes('calculated_from_symbols') || s.includes('needs_review') || s.includes('symbol')) {
+    return 'From plan symbols';
   }
   if (key === 'gfciReceptacleCount' || key === 'standardReceptacleCount') {
-    return 'Counted from symbols';
+    return 'From plan symbols';
   }
   if (s.includes('detected_from_plan') || s === 'from_plan') {
     return 'Counted from electrical plan';
@@ -697,18 +746,31 @@ function electricalQuantityNote(
   return undefined;
 }
 
+export type ElectricalPlanReviewOptions = {
+  unresolvedConflictFields?: Array<string | null | undefined> | null;
+  unclassifiedFixtureCount?: number | string | null;
+  unclassifiedFixtureNote?: string | null;
+};
+
 /** Grouped Electrical summary for Plan Review before Confirm Scope. */
 export function buildElectricalPlanReviewSummary(
   measurements: Record<string, number | string | null | undefined>,
-  provenance?: Record<string, unknown> | null
+  provenance?: Record<string, unknown> | null,
+  options?: ElectricalPlanReviewOptions | null
 ): ElectricalPlanReviewLine[] {
   const lines: ElectricalPlanReviewLine[] = [];
   const shownKeys = new Set<string>();
+  const unresolved = new Set(
+    (options?.unresolvedConflictFields || [])
+      .map(field => String(field || '').trim())
+      .filter(Boolean)
+  );
 
   for (const group of ELECTRICAL_CARD_GROUPS) {
     for (const card of ELECTRICAL_CARDS) {
       if (card.groupId !== group.id) continue;
       if (card.measurementKey === 'serviceAmperage') continue;
+      if (unresolved.has(card.measurementKey)) continue;
       const quantity = positiveMeasurement(measurements[card.measurementKey]);
       if (quantity == null) continue;
       shownKeys.add(card.measurementKey);
@@ -767,7 +829,85 @@ export function buildElectricalPlanReviewSummary(
     value: electricalConditionLabel(measurements.electricalProjectCondition),
   });
 
+  for (const field of unresolved) {
+    if (shownKeys.has(field)) continue;
+    const card = electricalCardForMeasurementKey(field);
+    lines.push({
+      label: card?.label || measurementDisplayLabel(field).label,
+      value: 'Needs confirmation',
+      note: 'Conflicting plan readings',
+    });
+  }
+
+  const unclassified = positiveMeasurement(options?.unclassifiedFixtureCount);
+  if (unclassified != null || options?.unclassifiedFixtureNote) {
+    lines.push({
+      label: 'Unclassified lighting fixtures',
+      value: 'Needs confirmation',
+      note:
+        options?.unclassifiedFixtureNote ||
+        (unclassified != null
+          ? `${formatSfWithCommas(unclassified)} EA visible — no symbol legend`
+          : 'Visible on plan — no symbol legend'),
+    });
+  }
+
   return lines;
+}
+
+function positiveConflictReading(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Keep unresolved Electrical conflicts out of Detected quantities.
+ * The priced map already omits them; do not promote selectedValue / the
+ * first candidate until the contractor chooses.
+ */
+export function mergeElectricalConflictReadings(
+  measurements: Record<string, number | string | null | undefined>,
+  conflicts?: Array<{
+    field?: string | null;
+    selectedValue?: unknown;
+    candidates?: Array<{ value?: unknown } | null> | null;
+  }> | null,
+  resolutions?: Record<string, number | string | null | undefined> | null
+): Record<string, number | string | null | undefined> {
+  const next = { ...measurements };
+  for (const conflict of conflicts || []) {
+    const field = String(conflict?.field || '').trim();
+    if (!field) continue;
+    const resolved = positiveConflictReading(resolutions?.[field]);
+    if (resolved != null) {
+      next[field] = resolved;
+      continue;
+    }
+    delete next[field];
+  }
+  return next;
+}
+
+export function isElectricalPlanReviewStatusLine(line: {
+  label: string;
+  value: string;
+}): boolean {
+  return (
+    line.value === 'Needs confirmation' ||
+    line.value === 'Not auto-priced from detailed takeoff'
+  );
+}
+
+export function electricalPlanReviewDetectedLines(
+  lines: Array<{ label: string; value: string; note?: string | null }>
+): Array<{ label: string; value: string; note?: string | null }> {
+  return lines.filter(line => !isElectricalPlanReviewStatusLine(line));
+}
+
+export function electricalPlanReviewStatusLines(
+  lines: Array<{ label: string; value: string; note?: string | null }>
+): Array<{ label: string; value: string; note?: string | null }> {
+  return lines.filter(isElectricalPlanReviewStatusLine);
 }
 
 function pageFromAssumptions(

@@ -1,5 +1,6 @@
 import React, { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { aiScopeConfirmNumericKeyboardProps } from '@/constants/inputKeyboardPresets';
 import { getColors } from '@/theme/getColors';
 import type { ScopeMeasurementsInputExtended } from '@/utils/scopeItemQuantities';
 import {
@@ -380,6 +381,7 @@ export function QmSqftMeasurementRow({
           onBlur={onBlur}
           editable={!applying}
           keyboardType="decimal-pad"
+          {...aiScopeConfirmNumericKeyboardProps}
           placeholder={placeholder || 'sqft'}
           placeholderTextColor={darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'}
           style={{

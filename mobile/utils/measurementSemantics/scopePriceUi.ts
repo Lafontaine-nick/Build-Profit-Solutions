@@ -454,6 +454,9 @@ export function footerSuggestedPricingSummary(input: {
         `${input.benchmarkOnlyCount} benchmark-only suggestion${input.benchmarkOnlyCount === 1 ? '' : 's'}`
       );
     }
+    if ((input.needsMeasurementCount || 0) > 0) {
+      parts.push(`${input.needsMeasurementCount} to confirm`);
+    }
     return parts.length ? parts.join(' · ') : null;
   }
   const parts: string[] = [];
@@ -463,6 +466,11 @@ export function footerSuggestedPricingSummary(input: {
   if (input.benchmarkOnlyCount > 0) {
     parts.push(
       `${input.benchmarkOnlyCount} planning benchmark${input.benchmarkOnlyCount === 1 ? '' : 's'}`
+    );
+  }
+  if ((input.needsMeasurementCount || 0) > 0) {
+    parts.push(
+      `${input.needsMeasurementCount} to confirm`
     );
   }
   return parts.length ? parts.join(' · ') : null;

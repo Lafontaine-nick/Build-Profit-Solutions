@@ -1,5 +1,7 @@
 export type PlanProvenanceStatus =
   | 'plan_verified'
+  | 'from_plan_symbols'
+  | 'ai_inferred'
   | 'calculated'
   | 'planning_estimate'
   | 'user_confirmed'
@@ -18,6 +20,10 @@ export function planProvenanceLabel(status: PlanProvenanceStatus): string {
   switch (status) {
     case 'plan_verified':
       return 'Plan verified';
+    case 'from_plan_symbols':
+      return 'From plan — confirm';
+    case 'ai_inferred':
+      return 'AI inferred — confirm';
     case 'calculated':
       return 'Calculated';
     case 'planning_estimate':
@@ -36,6 +42,10 @@ export function planProvenanceColor(
   switch (status) {
     case 'plan_verified':
       return '#22c55e';
+    case 'from_plan_symbols':
+      return '#60a5fa';
+    case 'ai_inferred':
+      return '#fbbf24';
     case 'calculated':
       return '#60a5fa';
     case 'needs_review':
@@ -53,6 +63,8 @@ export function resolvePlanMeasurementProvenance(input: {
   hasExplicitPlanSource?: boolean;
   hasReliableDimensions?: boolean;
   roomDependent?: boolean;
+  fromPlanSymbols?: boolean;
+  aiInferred?: boolean;
   reconciliationVariancePercent?: number | null;
   userConfirmed?: boolean;
 }): PlanMeasurementProvenance {
@@ -84,6 +96,15 @@ export function resolvePlanMeasurementProvenance(input: {
     };
   }
 
+  if (input.aiInferred) {
+    return {
+      status: 'ai_inferred',
+      label: planProvenanceLabel('ai_inferred'),
+      confidence: 'low',
+      reason: 'Contextual inference from the plan — confirm before pricing.',
+    };
+  }
+
   if (input.hasExplicitPlanSource) {
     return {
       status: 'plan_verified',
@@ -93,6 +114,15 @@ export function resolvePlanMeasurementProvenance(input: {
           ? 'medium'
           : 'high',
       reason: 'Explicitly stated on the plan.',
+    };
+  }
+
+  if (input.fromPlanSymbols) {
+    return {
+      status: 'from_plan_symbols',
+      label: planProvenanceLabel('from_plan_symbols'),
+      confidence: 'medium',
+      reason: 'Counted from plan symbols without an explicit printed quantity.',
     };
   }
 

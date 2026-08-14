@@ -114,7 +114,8 @@ export function quoteElectricalHookup(
     ? condition.replace(/_/g, ' ')
     : 'standard';
   const helper = [
-    `${quantity} EA · owned circuit + connection`,
+    `${quantity} EA · includes dedicated circuit + connection`,
+    'not a plug-in only',
     'generic circuit not stacked',
     conditionLabel,
     specialty ? 'specialty / confirm' : 'approved hookup split',

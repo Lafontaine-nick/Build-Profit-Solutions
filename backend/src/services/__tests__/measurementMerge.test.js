@@ -2,6 +2,7 @@
 
 const {
   mergeMeasurementCandidates,
+  mergeMeasurementCandidateSets,
   materiallyConflicts,
 } = require('../measurementMerge');
 
@@ -67,5 +68,37 @@ describe('measurement merge conflict handling', () => {
   test('does not treat small LF differences as conflicts', () => {
     expect(materiallyConflicts('stuccoFoamTrimLf', 150, 165)).toBe(false);
     expect(materiallyConflicts('stuccoFoamTrimLf', 150, 171)).toBe(true);
+  });
+
+  test('instance-tag counts conflict with vision instead of silently keeping vision', () => {
+    const result = mergeMeasurementCandidateSets([
+      {
+        measurements: { recessedLightCount: 20, ceilingFanCount: 8 },
+        confidence: { recessedLightCount: 0.8, ceilingFanCount: 0.75 },
+        source: 'general_plan_takeoff',
+      },
+      {
+        measurements: { recessedLightCount: 40, ceilingFanCount: 8 },
+        confidence: { recessedLightCount: 0.85, ceilingFanCount: 0.8 },
+        source: 'focused_trade_takeoff',
+      },
+      {
+        measurements: { recessedLightCount: 48 },
+        confidence: { recessedLightCount: 1 },
+        source: 'pdf_text_instance_tags',
+        evidence: { recessedLightCount: true },
+        defaultConfidence: 1,
+      },
+    ]);
+    expect(result.measurements.recessedLightCount).toBe(48);
+    expect(result.provenance.recessedLightCount.source).toBe('pdf_text_instance_tags');
+    const recessed = result.conflicts.find((row) => row.field === 'recessedLightCount');
+    expect(recessed.requiresConfirmation).toBe(true);
+    expect(recessed.candidates.map((row) => row.value).sort((a, b) => b - a)).toEqual([
+      48, 40, 20,
+    ]);
+    expect(result.conflicts.find((row) => row.field === 'ceilingFanCount')).toBeUndefined();
+    expect(result.measurements.ceilingFanCount).toBe(8);
+    expect(result.provenance.ceilingFanCount.methodsAgree).toBe(true);
   });
 });
