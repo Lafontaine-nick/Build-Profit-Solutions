@@ -831,6 +831,8 @@ export function buildElectricalPlanReviewSummary(
 
   for (const field of unresolved) {
     if (shownKeys.has(field)) continue;
+    // Unclassified fixtures are surfaced once in the dedicated block below.
+    if (field === 'unclassifiedFixtureCount') continue;
     const card = electricalCardForMeasurementKey(field);
     lines.push({
       label: card?.label || measurementDisplayLabel(field).label,

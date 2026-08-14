@@ -436,6 +436,7 @@ export function ElectricalQuickMeasurementTakeoff({
   userOverrides,
   preferExpandedKeys: _preferExpandedKeys,
   onChangeQuantity,
+  quantityEditingRef,
   darkMode,
   Colors,
   applying,
@@ -446,70 +447,27 @@ export function ElectricalQuickMeasurementTakeoff({
   userOverrides?: Record<string, boolean | undefined> | null;
   preferExpandedKeys?: string[];
   onChangeQuantity: (field: string, value: string) => void;
+  quantityEditingRef?: React.RefObject<boolean>;
   darkMode: boolean;
   Colors: Colors;
   applying?: boolean;
 }) {
-  const [pendingQuantities, setPendingQuantities] = useState<Record<string, string>>(
-    {}
-  );
-  const pendingRef = useRef(pendingQuantities);
-  pendingRef.current = pendingQuantities;
   const onChangeQuantityRef = useRef(onChangeQuantity);
   onChangeQuantityRef.current = onChangeQuantity;
-  const commitTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>(
-    {}
-  );
 
-  useEffect(
-    () => () => {
-      for (const timer of Object.values(commitTimersRef.current)) {
-        clearTimeout(timer);
-      }
-    },
-    []
-  );
-
-  useEffect(() => {
-    setPendingQuantities(prev => {
-      let changed = false;
-      const next = { ...prev };
-      for (const key of Object.keys(prev)) {
-        if (String(measurements[key] ?? '') === String(prev[key] ?? '')) {
-          delete next[key];
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [measurements]);
-
-  const visibleMeasurements = useMemo(
-    () => ({ ...measurements, ...pendingQuantities }),
-    [measurements, pendingQuantities]
-  );
-
-  const patchQuantity = useCallback((field: string, value: string) => {
-    setPendingQuantities(prev => ({ ...prev, [field]: value }));
-    if (commitTimersRef.current[field]) {
-      clearTimeout(commitTimersRef.current[field]);
-    }
-    commitTimersRef.current[field] = deferConfirmScopeUiPatch(() => {
-      if (pendingRef.current[field] !== value) return;
-      delete commitTimersRef.current[field];
-      onChangeQuantityRef.current(field, value);
-    });
+  const commitQuantity = useCallback((field: string, value: string) => {
+    onChangeQuantityRef.current(field, value);
   }, []);
 
   const groups = useMemo(
     () =>
       buildElectricalQuickMeasurementGroups({
-        measurements: visibleMeasurements,
+        measurements,
         conflictFields,
         sources,
         userOverrides,
       }),
-    [visibleMeasurements, conflictFields, sources, userOverrides]
+    [measurements, conflictFields, sources, userOverrides]
   );
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [expandedKeys, setExpandedKeys] = useState<Record<string, boolean>>({});
@@ -544,16 +502,16 @@ export function ElectricalQuickMeasurementTakeoff({
                 <ElectricalQmScopeOption
                   key={field.key}
                   field={field}
-                  draftValue={pendingQuantities[field.key]}
                   expanded={Boolean(expandedKeys[field.key])}
+                  quantityEditingRef={quantityEditingRef}
                   onToggleExpand={() =>
                     setExpandedKeys(prev => ({
                       ...prev,
                       [field.key]: !prev[field.key],
                     }))
                   }
-                  onChangeQuantity={value => {
-                    patchQuantity(field.key, value);
+                  onCommitQuantity={value => {
+                    commitQuantity(field.key, value);
                     if (!String(value || '').trim()) {
                       setExpandedKeys(prev => {
                         if (!prev[field.key]) return prev;
@@ -578,19 +536,19 @@ export function ElectricalQuickMeasurementTakeoff({
 
 function ElectricalQmScopeOption({
   field,
-  draftValue,
   expanded,
+  quantityEditingRef,
   onToggleExpand,
-  onChangeQuantity,
+  onCommitQuantity,
   applying,
   darkMode,
   Colors,
 }: {
   field: ElectricalQmField;
-  draftValue?: string;
   expanded: boolean;
+  quantityEditingRef?: React.RefObject<boolean>;
   onToggleExpand: () => void;
-  onChangeQuantity: (value: string) => void;
+  onCommitQuantity: (value: string) => void;
   applying: boolean;
   darkMode: boolean;
   Colors: Colors;
@@ -598,17 +556,51 @@ function ElectricalQmScopeOption({
   const active = electricalQmOptionActive(field);
   const chipSelected = electricalQmChipSelected(field, expanded);
   const showQuantity = electricalQmShowsQuantity(field, expanded);
+  const committedValue = electricalQmQuantityInputValue(field);
+  const [isEditingQuantity, setIsEditingQuantity] = useState(false);
+  const [quantityDraft, setQuantityDraft] = useState('');
+  const quantityDraftRef = useRef(quantityDraft);
+  quantityDraftRef.current = quantityDraft;
+
+  const setQuantityEditing = useCallback(
+    (editing: boolean) => {
+      if (quantityEditingRef) quantityEditingRef.current = editing;
+    },
+    [quantityEditingRef]
+  );
+
+  useEffect(() => {
+    if (isEditingQuantity) return;
+    setQuantityDraft(committedValue);
+  }, [committedValue, isEditingQuantity]);
+
+  const beginQuantityEdit = useCallback(() => {
+    setQuantityDraft(committedValue);
+    setIsEditingQuantity(true);
+    setQuantityEditing(true);
+  }, [committedValue, setQuantityEditing]);
+
+  const finishQuantityEdit = useCallback(() => {
+    if (!isEditingQuantity) return;
+    setIsEditingQuantity(false);
+    setQuantityEditing(false);
+    onCommitQuantity(quantityDraftRef.current);
+  }, [isEditingQuantity, onCommitQuantity, setQuantityEditing]);
 
   const handleToggle = () => {
     if (applying) return;
     const tapQuantity = electricalQmTapQuantity(field);
     if (tapQuantity != null) {
-      onChangeQuantity(tapQuantity);
+      setIsEditingQuantity(false);
+      setQuantityEditing(false);
+      onCommitQuantity(tapQuantity);
       if (tapQuantity && !expanded) onToggleExpand();
       return;
     }
     onToggleExpand();
   };
+
+  const inputValue = isEditingQuantity ? quantityDraft : committedValue;
 
   return (
     <View>
@@ -635,10 +627,12 @@ function ElectricalQmScopeOption({
                 ? 'Confirm the orange conflict above, or enter only the quantity for this component.'
                 : 'Enter only the quantity for this selected component.'
             }
-            value={electricalQmQuantityInputValue(field, draftValue)}
+            value={inputValue}
             placeholder='Enter'
             unitLabel={field.unit}
-            onChangeText={onChangeQuantity}
+            onChangeText={setQuantityDraft}
+            onFocus={beginQuantityEdit}
+            onBlur={finishQuantityEdit}
             applying={applying}
             darkMode={darkMode}
             Colors={Colors}

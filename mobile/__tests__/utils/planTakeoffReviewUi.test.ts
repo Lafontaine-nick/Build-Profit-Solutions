@@ -695,6 +695,27 @@ describe('plan takeoff review UI polish', () => {
     );
   });
 
+  it('does not duplicate unclassified lighting in Electrical status lines', () => {
+    const summary = buildElectricalPlanReviewSummary(
+      { mainPanelCount: 1 },
+      null,
+      {
+        unresolvedConflictFields: ['unclassifiedFixtureCount'],
+        unclassifiedFixtureCount: 5,
+        unclassifiedFixtureNote: '5 lighting fixtures without a symbol legend',
+      }
+    );
+    const status = electricalPlanReviewStatusLines(summary);
+    const unclassified = status.filter(
+      line => line.label === 'Unclassified lighting fixtures'
+    );
+    expect(unclassified).toHaveLength(1);
+    expect(unclassified[0]).toMatchObject({
+      value: 'Needs confirmation',
+      note: '5 lighting fixtures without a symbol legend',
+    });
+  });
+
   it('builds grouped Electrical plan review summary from canonical counts', () => {
     process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
     expect(measurementDisplayLabel('standardReceptacleCount').label).toBe(

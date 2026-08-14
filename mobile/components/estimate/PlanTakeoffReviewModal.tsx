@@ -241,7 +241,10 @@ function TradeSummaryPanel({
   return (
     <ReviewPanel darkMode={darkMode}>
       {lines.map((line, index) => (
-        <View key={line.label} style={index === 0 ? undefined : { marginTop: 12 }}>
+        <View
+          key={`${line.label}-${index}`}
+          style={index === 0 ? undefined : { marginTop: 12 }}
+        >
           <Text style={[styles.summaryLabel, { color: labelColor }]}>
             {line.label}
           </Text>
@@ -631,6 +634,7 @@ export default function PlanTakeoffReviewModal({
     const unclassified = electricalUnreadable.find(
       field => field.field === 'unclassifiedFixtureCount'
     );
+    const unclassifiedCountMatch = unclassified?.reason?.match(/^(\d+)\s+lighting/i);
     return buildElectricalPlanReviewSummary(
       electricalReviewMeasurements,
       takeoff?.measurementProvenance,
@@ -638,6 +642,9 @@ export default function PlanTakeoffReviewModal({
         unresolvedConflictFields: electricalConflictState.unresolved.map(
           conflict => conflict.field
         ),
+        unclassifiedFixtureCount: unclassifiedCountMatch
+          ? Number(unclassifiedCountMatch[1])
+          : null,
         unclassifiedFixtureNote: unclassified?.reason || null,
       }
     );

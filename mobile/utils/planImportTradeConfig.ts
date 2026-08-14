@@ -155,6 +155,7 @@ const ELECTRICAL_PLAN_CONFIRMATION_ONLY_SCOPE_IDS = new Set([
   'electrical_rough',
   'electrical_trim',
   'electrical',
+  'cleanup',
 ]);
 
 export function filterPlanScopesForTrade<

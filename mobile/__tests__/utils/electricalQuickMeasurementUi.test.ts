@@ -3,6 +3,9 @@ import {
   buildElectricalQuickMeasurementGroups,
   electricalConfirmScopeAttributesEqual,
   electricalConfirmScopeAttributesFromMeasurements,
+  electricalLivePricingAttributesChanged,
+  electricalQuantityFieldsChanged,
+  electricalMeasurementsShouldFlushImmediately,
   electricalConfirmScopeCardTitles,
   electricalQmGroupDefaultCollapsed,
   electricalQmChipSelected,
@@ -346,6 +349,59 @@ describe('electricalQuickMeasurementUi', () => {
     const conflicted = { unit: 'EA', selected: false, conflicted: true };
     expect(electricalQmTapQuantity(conflicted)).toBeNull();
     expect(electricalQmChipSelected(conflicted, true)).toBe(false);
+  });
+
+  it('treats amperage and other attribute chips as live pricing writes', () => {
+    const blank = electricalConfirmScopeAttributesFromMeasurements({});
+    const withAmps = electricalConfirmScopeAttributesFromMeasurements({
+      serviceAmperage: 125,
+    });
+    expect(
+      electricalLivePricingAttributesChanged(
+        blank as unknown as Record<string, unknown>,
+        { ...blank, standardReceptacleCount: 50 } as unknown as Record<
+          string,
+          unknown
+        >
+      )
+    ).toBe(false);
+    expect(
+      electricalLivePricingAttributesChanged(
+        blank as unknown as Record<string, unknown>,
+        withAmps as unknown as Record<string, unknown>
+      )
+    ).toBe(true);
+    expect(
+      electricalLivePricingAttributesChanged(
+        withAmps as unknown as Record<string, unknown>,
+        {
+          ...withAmps,
+          electricalPanelLocation: 'indoor',
+        } as unknown as Record<string, unknown>
+      )
+    ).toBe(true);
+  });
+
+  it('treats EA/LF quantity edits as immediate flush writes', () => {
+    const base = { mainPanelCount: '', standardReceptacleCount: 50 };
+    expect(
+      electricalQuantityFieldsChanged(
+        base as Record<string, unknown>,
+        { ...base, mainPanelCount: '1' } as Record<string, unknown>
+      )
+    ).toBe(true);
+    expect(
+      electricalMeasurementsShouldFlushImmediately(
+        base as Record<string, unknown>,
+        { ...base, mainPanelCount: '1' } as Record<string, unknown>
+      )
+    ).toBe(true);
+    expect(
+      electricalMeasurementsShouldFlushImmediately(
+        base as Record<string, unknown>,
+        { ...base, electricalPanelLocation: 'indoor' } as Record<string, unknown>
+      )
+    ).toBe(true);
   });
 
   it('defers Confirm Scope parent commits so chip paint is not blocked', () => {

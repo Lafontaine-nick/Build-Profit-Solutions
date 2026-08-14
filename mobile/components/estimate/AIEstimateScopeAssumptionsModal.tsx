@@ -62,6 +62,7 @@ import { PlanTakeoffConflictChooser } from '@/components/estimate/PlanTakeoffCon
 import {
   applyElectricalQuickMeasurementPatch,
   electricalConfirmScopeAttributesFromMeasurements,
+  electricalMeasurementsShouldFlushImmediately,
   electricalScopeSyncSignature,
   restorePlanMeasurementConflict,
   unresolvedElectricalConflictFields,
@@ -9687,6 +9688,7 @@ function CollapsibleQuickMeasurements({
   Colors,
   darkMode,
   applying,
+  electricalQuantityEditingRef,
 }: {
   expanded: boolean;
   onToggle: () => void;
@@ -9765,6 +9767,8 @@ function CollapsibleQuickMeasurements({
   Colors: ReturnType<typeof getColors>;
   darkMode: boolean;
   applying: boolean;
+  /** While true, defer Electrical scope-card sync so quantity inputs keep focus. */
+  electricalQuantityEditingRef?: React.RefObject<boolean>;
 }) {
   const [moreExpanded, setMoreExpanded] = useState(true);
   const [openDetailsKey, setOpenDetailsKey] =
@@ -12430,11 +12434,9 @@ function CollapsibleQuickMeasurements({
   );
   const patchElectricalQuantity = useCallback(
     (field: string, value: string) => {
-      startTransition(() => {
-        setMeasurements(prev =>
-          applyElectricalQuickMeasurementPatch(prev, field, value)
-        );
-      });
+      setMeasurements(prev =>
+        applyElectricalQuickMeasurementPatch(prev, field, value)
+      );
     },
     [setMeasurements]
   );
@@ -12631,6 +12633,7 @@ function CollapsibleQuickMeasurements({
                   userOverrides={measurements.quickMeasurementUserOverrides}
                   preferExpandedKeys={resolvedConflictFields}
                   onChangeQuantity={patchElectricalQuantity}
+                  quantityEditingRef={electricalQuantityEditingRef}
                   darkMode={darkMode}
                   Colors={Colors}
                   applying={applying}
@@ -13578,6 +13581,7 @@ export default function AIEstimateScopeAssumptionsModal({
   const measurementsRef = useRef(measurements);
   const electricalMeasurementsStagedRef = useRef(false);
   const electricalScopeSyncKeyRef = useRef('');
+  const electricalQmQuantityEditingRef = useRef(false);
   const selectedPricingRef = useRef<Record<string, SuggestedPricingBlock>>({});
   const scrollRef = useRef<ScrollView>(null);
   const scrollContentRef = useRef<View>(null);
@@ -14091,6 +14095,13 @@ export default function AIEstimateScopeAssumptionsModal({
     [checklist?.templateKey]
   );
 
+  const pinConfirmScopeScrollPosition = useCallback(() => {
+    const y = Math.max(0, scrollOffsetYRef.current);
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ y, animated: false });
+    });
+  }, []);
+
   const setElectricalMeasurementsStaged = useCallback(
     (update: React.SetStateAction<ScopeMeasurementsInputExtended>) => {
       const previous = measurementsRef.current;
@@ -14104,9 +14115,20 @@ export default function AIEstimateScopeAssumptionsModal({
           : update;
       if (next === previous) return;
       measurementsRef.current = next;
+      if (
+        electricalMeasurementsShouldFlushImmediately(
+          previous as Record<string, unknown>,
+          next as Record<string, unknown>
+        )
+      ) {
+        electricalMeasurementsStagedRef.current = false;
+        setMeasurementsSynced(next);
+        pinConfirmScopeScrollPosition();
+        return;
+      }
       electricalMeasurementsStagedRef.current = true;
     },
-    []
+    [setMeasurementsSynced, pinConfirmScopeScrollPosition]
   );
 
   const flushStagedElectricalMeasurements = useCallback(() => {
@@ -15398,6 +15420,7 @@ export default function AIEstimateScopeAssumptionsModal({
   useEffect(() => {
     if (String(checklist?.templateKey || '').toLowerCase() !== 'electrical')
       return;
+    if (electricalQmQuantityEditingRef.current) return;
     const signature = electricalScopeSyncSignature(
       measurements as Record<string, unknown>
     );
@@ -17952,6 +17975,7 @@ export default function AIEstimateScopeAssumptionsModal({
             notes={scopeNotes}
             includedScopeKeys={scopeAssemblyContext.activeScopeKeys}
             onSummaryChange={setQuickMeasurementSummary}
+            electricalQuantityEditingRef={electricalQmQuantityEditingRef}
             onWetAreaFinishChange={finish => {
               const choiceId = checklistChoiceFromWetAreaFinish(finish);
               if (!choiceId) return;

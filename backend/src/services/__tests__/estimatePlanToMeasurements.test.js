@@ -622,7 +622,7 @@ describe('estimatePlanToMeasurements', () => {
     expect(filtered.floorAreaSqft).toBeUndefined();
   });
 
-  test('electrical plan scope detections do not auto-include rough/trim packages', () => {
+  test('electrical plan scope detections do not auto-include rough/trim or cleanup', () => {
     const filtered = filterPlanScopesForTrade(
       {
         detections: [
@@ -637,7 +637,6 @@ describe('estimatePlanToMeasurements', () => {
       TRADE_CONFIGS.electrical
     );
     expect(filtered.detections.map((row) => row.itemId)).toEqual([
-      'cleanup',
       'electrical_standard_receptacle',
     ]);
   });

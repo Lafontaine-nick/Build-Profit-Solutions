@@ -110,6 +110,27 @@ describe('electrical pricing-control cleanup', () => {
     expect(quote).toMatchObject({ material: 450, labor: 750, total: 1200 });
   });
 
+  it('B2. Main panel 125A uses the locked $1,350 base', () => {
+    const quote = quoteElectricalServicePanel({
+      itemId: 'electrical_main_panel',
+      quantity: 1,
+      serviceAmperage: 125,
+    });
+    expect(quote).toMatchObject({ material: 525, labor: 825, total: 1350 });
+    expect(
+      priceElectrical('electrical_main_panel', {
+        mainPanelCount: 1,
+        serviceAmperage: 125,
+      }).fill?.total
+    ).toBe(1350);
+    expect(
+      priceElectrical('electrical_main_panel', {
+        mainPanelCount: 1,
+        serviceAmperage: 125,
+      }).fill?.needsServiceAmperage
+    ).toBeUndefined();
+  });
+
   it('C. Main panel 200A uses the locked $2,050 base', () => {
     const quote = quoteElectricalServicePanel({
       itemId: 'electrical_main_panel',
@@ -370,6 +391,74 @@ describe('electrical pricing-control cleanup', () => {
     expect(priceElectrical('electrical_standard_receptacle', notesCounts).fill?.total).toBe(5500);
     expect(priceElectrical('electrical_gfci_receptacle', notesCounts).fill?.total).toBe(1400);
     expect(priceElectrical('electrical_3way_switch', notesCounts).fill?.total).toBe(650);
+  });
+
+  it('N. Confirmed residential Confirm Scope cards stay dollar-identical by source', () => {
+    const shared = {
+      mainPanelCount: 1,
+      standardReceptacleCount: 50,
+      gfciReceptacleCount: 8,
+      singlePoleSwitchCount: 20,
+      threeWaySwitchCount: 5,
+      recessedLightCount: 48,
+      ceilingFanCount: 10,
+      rangeHookupCount: 1,
+      dryerHookupCount: 1,
+      dishwasherHookupCount: 1,
+      smokeDetectorCount: 6,
+    };
+    const cards: Array<[string, string, number]> = [
+      ['electrical_standard_receptacle', '50', 5500],
+      ['electrical_gfci_receptacle', '8', 1400],
+      ['electrical_single_pole_switch', '20', 1900],
+      ['electrical_3way_switch', '5', 650],
+      ['electrical_recessed_light', '48', 7200],
+      ['electrical_ceiling_fan', '10', 2750],
+      ['electrical_range_hookup', '1', 950],
+      ['electrical_dryer_hookup', '1', 675],
+      ['electrical_dishwasher_hookup', '1', 500],
+      ['electrical_smoke_detector', '6', 1050],
+    ];
+
+    for (const [itemId, quantity, total] of cards) {
+      const fromNotes = priceElectrical(itemId, {
+        ...shared,
+        itemQuantities: {
+          [itemId]: { quantity, unit: 'each', quantitySource: 'notes' },
+        },
+      });
+      const fromPlan = priceElectrical(itemId, {
+        ...shared,
+        itemQuantities: {
+          [itemId]: { quantity, unit: 'each', quantitySource: 'plan_detected' },
+        },
+      });
+      expect(fromPlan.fill?.material).toBe(fromNotes.fill?.material);
+      expect(fromPlan.fill?.labor).toBe(fromNotes.fill?.labor);
+      expect(fromPlan.fill?.total).toBe(fromNotes.fill?.total);
+      expect(fromPlan.fill?.total).toBe(total);
+    }
+
+    const panel = priceElectrical('electrical_main_panel', {
+      ...shared,
+      itemQuantities: {
+        electrical_main_panel: {
+          quantity: '1',
+          unit: 'each',
+          quantitySource: 'plan_detected',
+        },
+      },
+    });
+    expect(panel.fill?.total).toBe(0);
+    expect(panel.fill?.needsServiceAmperage).toBe(true);
+    expect(suggestedPricingFooterCountsAmperageConfirm(panel.fill!)).toBe(true);
+    const footer = footerSuggestedPricingSummary({
+      readyCount: cards.length,
+      benchmarkOnlyCount: 0,
+      needsMeasurementCount: 1,
+    });
+    expect(footer).toMatch(/10 prices ready/);
+    expect(footer).toMatch(/1 to confirm/);
   });
 
   it('applies panel-location then job-condition labor in one order', () => {

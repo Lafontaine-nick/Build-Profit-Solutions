@@ -392,6 +392,56 @@ export function electricalConfirmScopeAttributesEqual(
 }
 
 /**
+ * Attribute chips price cards below Quick Measurements (panel amperage,
+ * location, condition, packages, raceway). Those writes must reach React
+ * state immediately. Quantity EA/LF taps can stay staged.
+ */
+export const ELECTRICAL_LIVE_PRICING_ATTRIBUTE_KEYS = [
+  'electricalProjectCondition',
+  'serviceAmperage',
+  'existingServiceAmperage',
+  'electricalPanelLocation',
+  'electricalMeterMainCombo',
+  'electricalIncludeRough',
+  'electricalIncludeTrim',
+  'electricalConduit',
+  'electricalTrenching',
+] as const;
+
+export function electricalLivePricingAttributesChanged(
+  previous: Record<string, unknown>,
+  next: Record<string, unknown>
+): boolean {
+  return ELECTRICAL_LIVE_PRICING_ATTRIBUTE_KEYS.some(
+    key => previous[key] !== next[key]
+  );
+}
+
+/** EA/LF quantity keys — must reach React state immediately so inputs stay editable. */
+export function electricalQuantityFieldsChanged(
+  previous: Record<string, unknown>,
+  next: Record<string, unknown>
+): boolean {
+  for (const card of ELECTRICAL_CARDS) {
+    if (card.measurementKey === 'serviceAmperage') continue;
+    if (previous[card.measurementKey] !== next[card.measurementKey]) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function electricalMeasurementsShouldFlushImmediately(
+  previous: Record<string, unknown>,
+  next: Record<string, unknown>
+): boolean {
+  return (
+    electricalLivePricingAttributesChanged(previous, next) ||
+    electricalQuantityFieldsChanged(previous, next)
+  );
+}
+
+/**
  * Quantity / package fields that can change Yes/No scope cards.
  * Amperage, panel location, and job condition are excluded — those are
  * pricing attributes and must not resync the whole checklist on every tap.

@@ -376,7 +376,7 @@ export function QmSqftMeasurementRow({
       >
         <TextInput
           value={formattedValue}
-          onChangeText={onChangeText}
+          onChangeText={text => onChangeText(text.replace(/,/g, ''))}
           onFocus={onFocus}
           onBlur={onBlur}
           editable={!applying}

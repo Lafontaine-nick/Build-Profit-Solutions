@@ -17,6 +17,11 @@ import { emptyQuickMeasurementInput } from '@/utils/scopeQuickMeasurements';
 import { filterPlanMeasurementsForTrade, filterPlanScopesForTrade } from '@/utils/planImportTradeConfig';
 import { buildElectricalPlanReviewSummary } from '@/utils/planTakeoffReviewUi';
 import { applyElectricalQuickMeasurementPatch } from '@/utils/electricalQuickMeasurementUi';
+import {
+  includeUnconfirmedSuggestedPricingFill,
+  suggestedPricingFooterCountsAmperageConfirm,
+} from '@/utils/suggestedPricingCardUi';
+import { footerSuggestedPricingSummary } from '@/utils/measurementSemantics/scopePriceUi';
 
 function inputWith(
   fields: Partial<ScopeMeasurementsInputExtended>
@@ -202,7 +207,7 @@ describe('electrical Phase 3A plan export adapter', () => {
     expect(filtered.wallPaintSqft).toBeUndefined();
   });
 
-  it('does not auto-include Electrical rough/trim packages from plan detections', () => {
+  it('does not auto-include Electrical rough/trim or cleanup from plan detections', () => {
     const filtered = filterPlanScopesForTrade(
       [
         { itemId: 'electrical_rough', label: 'Electrical rough-in' },
@@ -215,7 +220,6 @@ describe('electrical Phase 3A plan export adapter', () => {
       'electrical'
     );
     expect(filtered.map(row => row.itemId)).toEqual([
-      'cleanup',
       'electrical_standard_receptacle',
     ]);
   });
@@ -287,6 +291,141 @@ describe('electrical Phase 3A plan export adapter', () => {
     ).toBe(
       priceElectrical('electrical_standard_receptacle', fromNotes).fill?.total
     );
+  });
+
+  it('prices confirmed residential Confirm Scope counts the same as Notes/Voice', () => {
+    const confirmedPlan = {
+      mainPanelCount: 1,
+      standardReceptacleCount: 50,
+      gfciReceptacleCount: 8,
+      singlePoleSwitchCount: 20,
+      threeWaySwitchCount: 5,
+      recessedLightCount: 48,
+      ceilingFanCount: 10,
+      rangeHookupCount: 1,
+      dryerHookupCount: 1,
+      dishwasherHookupCount: 1,
+      smokeDetectorCount: 6,
+    };
+    const fromNotes = parseElectricalMeasurementsFromNotes(
+      [
+        'Install 1 main panel.',
+        'Add 50 standard outlets.',
+        'Add 8 GFCI outlets.',
+        'Add 20 single-pole switches.',
+        'Add 5 three-way switches.',
+        'Install 48 recessed lights.',
+        'Add 10 ceiling fans.',
+        'Install one 50 amp range circuit.',
+        'Add a 30 amp dryer circuit.',
+        'Run a dedicated 20 amp dishwasher circuit.',
+        'Add 6 smoke detectors.',
+      ].join(' ')
+    );
+
+    expect(fromNotes.serviceAmperage).toBeUndefined();
+    expect(fromNotes.standardCircuitCount).toBeUndefined();
+    expect(fromNotes.dedicated20aCircuitCount).toBeUndefined();
+    expect(fromNotes.circuit30aCount).toBeUndefined();
+    expect(fromNotes.circuit50aCount).toBeUndefined();
+    expect(fromNotes.electricalIncludeRough).toBeUndefined();
+    expect(fromNotes.electricalIncludeTrim).toBeUndefined();
+    expect(fromNotes.conduitLf).toBeUndefined();
+    expect(fromNotes.trenchingLf).toBeUndefined();
+    expect(fromNotes.pendantLightCount).toBeUndefined();
+    expect(fromNotes.standardFixtureCount).toBeUndefined();
+    expect(fromNotes).toMatchObject(confirmedPlan);
+
+    const planNormalized = normalizeTradeMeasurements(
+      'electrical',
+      confirmedPlan,
+      'plan'
+    );
+    const notesNormalized = normalizeTradeMeasurements(
+      'electrical',
+      fromNotes,
+      'notes'
+    );
+    const planFields = {
+      ...confirmedPlan,
+      ...(planNormalized.structuredMeasurements || {}),
+    };
+    const notesFields = {
+      ...fromNotes,
+      ...(notesNormalized.structuredMeasurements || {}),
+    };
+
+    const pricedCards: Array<[string, number]> = [
+      ['electrical_standard_receptacle', 5500],
+      ['electrical_gfci_receptacle', 1400],
+      ['electrical_single_pole_switch', 1900],
+      ['electrical_3way_switch', 650],
+      ['electrical_recessed_light', 7200],
+      ['electrical_ceiling_fan', 2750],
+      ['electrical_range_hookup', 950],
+      ['electrical_dryer_hookup', 675],
+      ['electrical_dishwasher_hookup', 500],
+      ['electrical_smoke_detector', 1050],
+    ];
+
+    for (const [itemId, total] of pricedCards) {
+      const fromPlan = priceElectrical(itemId, planFields);
+      const fromVoice = priceElectrical(itemId, notesFields);
+      expect(fromPlan.fill?.total).toBe(total);
+      expect(fromPlan.fill?.material).toBe(fromVoice.fill?.material);
+      expect(fromPlan.fill?.labor).toBe(fromVoice.fill?.labor);
+      expect(fromPlan.fill?.total).toBe(fromVoice.fill?.total);
+    }
+
+    const panel = priceElectrical('electrical_main_panel', planFields);
+    expect(panel.fill?.total).toBe(0);
+    expect(panel.fill?.needsServiceAmperage).toBe(true);
+    expect(panel.fill?.total).toBe(
+      priceElectrical('electrical_main_panel', notesFields).fill?.total
+    );
+    expect(includeUnconfirmedSuggestedPricingFill(panel.fill)).toBe(true);
+    expect(suggestedPricingFooterCountsAmperageConfirm(panel.fill!)).toBe(true);
+
+    expect(priceElectrical('electrical_circuit_50a', planFields).fill).toBeNull();
+    expect(priceElectrical('electrical_dedicated_20a', planFields).fill).toBeNull();
+    expect(priceElectrical('electrical_circuit_30a', planFields).fill).toBeNull();
+    expect(
+      priceElectrical('electrical_rough', {
+        ...planFields,
+        electricalIncludeRough: true,
+      }).fill
+    ).toBeNull();
+    expect(
+      priceElectrical('electrical_trim', {
+        ...planFields,
+        electricalIncludeTrim: true,
+      }).fill
+    ).toBeNull();
+    expect(priceElectrical('electrical_conduit', planFields).fill).toBeNull();
+    expect(priceElectrical('electrical_trenching', planFields).fill).toBeNull();
+    expect(
+      priceElectrical('electrical_pendant_light', {
+        unclassifiedFixtureCount: 5,
+      }).fill
+    ).toBeNull();
+    expect(
+      priceElectrical('electrical_standard_fixture', {
+        unclassifiedFixtureCount: 5,
+      }).fill
+    ).toBeNull();
+
+    const cleanupFromPlan = priceElectrical('cleanup', planFields);
+    const cleanupFromNotes = priceElectrical('cleanup', notesFields);
+    expect(cleanupFromPlan.fill?.total).toBe(cleanupFromNotes.fill?.total);
+    expect(cleanupFromPlan.fill?.total).toBe(1000);
+
+    const footer = footerSuggestedPricingSummary({
+      readyCount: pricedCards.length,
+      benchmarkOnlyCount: 0,
+      needsMeasurementCount: 1,
+    });
+    expect(footer).toMatch(/10 prices ready/);
+    expect(footer).toMatch(/1 to confirm/);
   });
 
   it('prices a confirmed 46 recessed count the same as Notes/Voice 46', () => {
