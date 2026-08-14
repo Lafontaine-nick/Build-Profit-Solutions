@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@clerk/backend": "^1.29.0",
+    "@napi-rs/canvas": "^0.1.100",
     "@puppeteer/browsers": "2.13.0",
     "@sparticuz/chromium": "^148.0.0",
     "axios": "^1.12.2",

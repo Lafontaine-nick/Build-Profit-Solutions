@@ -19,6 +19,38 @@ const {
   filterPlanScopesForTrade,
 } = require('./planImportTradeConfig');
 const { mergeMeasurementCandidates } = require('./measurementMerge');
+const {
+  ELECTRICAL_MEASUREMENT_KEYS,
+  ELECTRICAL_COUNT_KEYS,
+  ELECTRICAL_EXPLICIT_ONLY_KEYS,
+  ELECTRICAL_VISION_INSTRUCTIONS,
+  applyElectricalVisionTakeoff,
+} = require('./electricalPlanAdapter');
+
+/** Temporary Lot 58 diagnosis — which pipeline stage drops Electrical counts. */
+const ELECTRICAL_DEBUG_KEYS = [
+  'standardReceptacleCount',
+  'gfciReceptacleCount',
+  'recessedLightCount',
+  'singlePoleSwitchCount',
+  'threeWaySwitchCount',
+  'ceilingFanCount',
+  'mainPanelCount',
+  'serviceAmperage',
+];
+
+function electricalDebugSnapshot(measurements) {
+  const src = measurements && typeof measurements === 'object' ? measurements : {};
+  const out = {};
+  for (const key of ELECTRICAL_DEBUG_KEYS) {
+    out[key] = src[key] ?? null;
+  }
+  return out;
+}
+
+function logElectricalTakeoffStage(stage, payload) {
+  console.log(`[ELECTRICAL TAKEOFF] ${stage}`, payload);
+}
 
 /** Fields the model read but wasn't sure about are withheld below this. */
 const MIN_FIELD_CONFIDENCE = 0.6;
@@ -113,6 +145,7 @@ const MEASUREMENT_KEYS = new Set([
   'excavationCy',
   'deckSqft',
   'garageSqft',
+  ...ELECTRICAL_MEASUREMENT_KEYS,
 ]);
 
 /**
@@ -642,6 +675,9 @@ Rules:
 9c. interiorDoorCount from a door schedule or reliably identifiable interior door symbols (exclude exterior doors). Prefill the count even without a schedule; do not assume every door is in the bid. Add interiorDoorCount to geometryDerived or explicitlyLabeled. cabinetRunLf / cabinetPaintSqft ONLY when painted cabinetry or paint-grade millwork is explicit — never map generic kitchen cabinet LF into painting.
 9d. exteriorPaintSqft from labeled exterior paint/finish area or dimensioned elevation width × supported wall height for painted cladding (set elevationFaces[].paintAreaSqft / finish). Never from footprint or living SF. If the cladding is stucco/brick/stone and paint is trim/eaves/doors only, omit exterior wall paint area.
 9e. Do NOT infer paint occupancy, application method, prep severity, or masking complexity from plan geometry.
+9f. Electrical takeoff from electrical sheets IS allowed when Electrical is the selected trade. Count device/fixture/panel symbols on E sheets, legends, and panel schedules. Map onto existing keys only: mainPanelCount, serviceAmperage, standardReceptacleCount, gfciReceptacleCount, recessedLightCount, and the other ElectricalQuantityKey values. Never invent electrical_rough or electrical_trim packages, living-SF electrical totals, homeruns from device counts, conduit LF, or trench LF.
+9g. Count the semantic item, not every visual mark. GFCI symbol → gfciReceptacleCount only. Labeled range circuit → rangeHookupCount only (not also circuit50aCount). 3-way switch devices → threeWaySwitchCount only (not an extra branch circuit).
+9h. Circuit/homerun counts, breaker ampacity, conduitLf, trenchingLf, EV, and specialty equipment are explicit-only: omit unless a panel schedule or labeled callout exists, and add those keys to explicitlyLabeled.
 10. Multi-page sets: merge all floor-plan pages; ignore duplicate title-block totals; elevations do not add living SF.
 11. success false if none of the images are plans/blueprints, OR if imageQuality is "unreadable".
 12. notesBlock: short contractor-readable summary of Building Areas totals (room-by-room SF will be listed separately by the app).
@@ -1189,6 +1225,11 @@ function sanitizeMeasurements(raw, rooms, buildingAreas = {}, explicitlyLabeled 
     if (LABELED_ONLY_KEYS.has(key) && !labeled.has(key)) continue;
     // Concrete flatwork requires explicit label — covered patio must not land here
     if (CONCRETE_EXPLICIT_KEYS.has(key) && !labeled.has(key)) continue;
+    if (ELECTRICAL_EXPLICIT_ONLY_KEYS.has(key) && !labeled.has(key)) continue;
+    if (ELECTRICAL_COUNT_KEYS.has(key)) {
+      out[key] = Math.round(v);
+      continue;
+    }
     out[key] = Math.round(v * 10) / 10;
   }
 
@@ -1422,6 +1463,10 @@ async function analyzePlanForMeasurements({
     estimatingMode,
     selectedTrade?.key || selectedTrade
   );
+  const paintingSelected =
+    planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'painting';
+  const electricalSelected =
+    planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'electrical';
   if (!openai) {
     const err = new Error('OpenAI client not configured');
     err.status = 503;
@@ -1460,12 +1505,13 @@ async function analyzePlanForMeasurements({
 
   // Deterministic PDF text takeoff (schedule + spatially paired rooms) when bytes are PDFs.
   let pdfTakeoff = null;
+  let pdfBuffers = [];
   try {
     const {
       extractPlanTakeoffFromPdfBuffers,
       formatPdfEvidenceForVision,
     } = require('./planPdfTextTakeoff');
-    const pdfBuffers = compatible
+    pdfBuffers = compatible
       .filter((p) => p.mimeType === PDF_MIME && p.base64)
       .map((p) => Buffer.from(String(p.base64).replace(/^data:[^;]+;base64,/, ''), 'base64'));
     if (pdfBuffers.length) {
@@ -1479,6 +1525,31 @@ async function analyzePlanForMeasurements({
   } catch (err) {
     console.warn('PDF text takeoff skipped:', err?.message || err);
     pdfTakeoff = null;
+  }
+
+  let electricalSheetImages = [];
+  if (electricalSelected && pdfBuffers.length && pdfTakeoff?.electricalRelevantPages?.length) {
+    try {
+      const { renderElectricalPlanPages } = require('./planPdfTextTakeoff');
+      electricalSheetImages = await renderElectricalPlanPages(
+        pdfBuffers,
+        pdfTakeoff.electricalRelevantPages
+      );
+    } catch (err) {
+      console.warn('Electrical sheet raster skipped:', err?.message || err);
+      electricalSheetImages = [];
+    }
+  }
+
+  if (electricalSelected) {
+    logElectricalTakeoffStage('ELECTRICAL PAGE SELECTION', {
+      pages: (pdfTakeoff?.electricalRelevantPages || []).map((page) => page.page),
+      reasons: (pdfTakeoff?.electricalRelevantPages || []).map((page) => ({
+        page: page.page,
+        reasons: page.reasons || [],
+      })),
+      rasterizedPages: electricalSheetImages.map((page) => page.page),
+    });
   }
 
   const hintBits = [];
@@ -1498,14 +1569,21 @@ async function analyzePlanForMeasurements({
     hintBits.push(pdfTakeoff.evidenceText);
   }
 
-  const paintingSelected =
-    planSelection.mode === 'selected_trade' && planSelection.trade?.key === 'painting';
   const paintingVisionInstructions = [
     'For Painting, relevant sheets are floor plans, RCPs / reflected ceiling plans, finish schedules, door schedules, interior elevations, cabinet/millwork, and exterior elevations — not only sheets that say Paint.',
     'Perform a painting takeoff when geometry supports it. wallPaintSqft = dimensioned room perimeter × explicit wall/plate height (gross). ceilingPaintSqft = dimensioned interior room areas. baseboardLf = dimensioned room perimeters when base/trim is supported. Never use living SF, floor SF, or an arbitrary multiplier. Never assume 9\' height if it is not labeled.',
     'Count interiorDoorCount from a door schedule or identifiable interior door symbols (exclude exterior doors) and add it to geometryDerived. Cabinet paint keys only when paint-grade millwork is explicit.',
     'For exterior paint, use labeled paint area or dimensioned elevation width × height for painted cladding. Do not count stucco/brick/stone cladding as painted wall area.',
   ].join('\n');
+  const electricalVisionParts = electricalSheetImages.length
+    ? electricalSheetImages.map(toVisionContentPart)
+    : null;
+  const visionParts = electricalVisionParts || compatible.map(toVisionContentPart);
+  const electricalSheetCountHint = electricalVisionParts
+    ? `The attached images are Electrical sheets (pages ${(pdfTakeoff?.electricalRelevantPages || [])
+        .map((page) => page.page)
+        .join(', ') || 'E sheets'}). Count symbols on these pages. Do not extract living SF or room L×W on this pass.`
+    : 'Prioritize E sheets and panel schedules inside the attached plan file.';
 
   const measurementsPromise = openai.chat.completions.create({
     model: aiModels.assistant.vision,
@@ -1519,7 +1597,14 @@ async function analyzePlanForMeasurements({
         content: [
           {
             type: 'text',
-            text: [
+            text: electricalSelected
+              ? [
+                  ELECTRICAL_VISION_INSTRUCTIONS,
+                  electricalSheetCountHint,
+                  'Return Electrical canonical counts only. Add explicit-only circuit/LF keys to explicitlyLabeled. Leave rough/trim packages, job condition, and unlabeled homeruns omitted.',
+                  hintBits.length ? hintBits.join('\n\n') : 'No extra context.',
+                ].join('\n\n')
+              : [
               'Extract Building Areas / Area Schedule totals AND every labeled room with length×width or SF from these floor plan / blueprint pages.',
               'For Stucco / Exterior Finish, inspect every front/rear/left/right elevation and wall section. Read elevation face widths/heights, story-specific plate heights, window and door dimensions, garage door dimensions, cladding callouts, soffits, parapets, foam bands, and control joints.',
               'Calculate gross exterior wall SF only from readable elevation face dimensions or a readable perimeter plus story-specific heights. PDF perimeter/plate facts (when provided) replace living-SF guesses for GROSS only — you must still return window/door opening SF and garage opening SF from the elevations. Subtract only readable opening and non-stucco finish deductions. Never use living SF, floor SF, ridge height, or visual proportions as wall area.',
@@ -1535,7 +1620,7 @@ async function analyzePlanForMeasurements({
               hintBits.length ? hintBits.join('\n\n') : 'No extra context.',
             ].join('\n\n'),
           },
-          ...compatible.map(toVisionContentPart),
+          ...visionParts,
         ],
       },
     ],
@@ -1595,13 +1680,17 @@ async function analyzePlanForMeasurements({
                   'PDF text perimeter/plate/story facts (when present) support gross wall area only. Opening deductions still come from elevation drawings.',
                   paintingSelected
                     ? paintingVisionInstructions
-                    : 'For every applicable scope, return clearly labeled trade-specific measurements and scope evidence using the existing JSON schema.',
+                    : electricalSelected
+                      ? ELECTRICAL_VISION_INSTRUCTIONS
+                      : 'For every applicable scope, return clearly labeled trade-specific measurements and scope evidence using the existing JSON schema.',
                   paintingSelected
                     ? 'Return wallPaintSqft, ceilingPaintSqft, baseboardLf, interiorDoorCount, and exteriorPaintSqft when geometry or schedules support them. Add geometry-derived keys to geometryDerived. Leave occupancy, application method, and prep omitted.'
-                    : 'Do not use living SF or visual proportions as a substitute. Leave unavailable values out and list the exact missing sheet or dimension.',
+                    : electricalSelected
+                      ? `${electricalSheetCountHint} Return Electrical canonical counts only. Add explicit-only circuit/LF keys to explicitlyLabeled. Leave rough/trim packages, job condition, and unlabeled homeruns omitted.`
+                      : 'Do not use living SF or visual proportions as a substitute. Leave unavailable values out and list the exact missing sheet or dimension.',
                 ].join('\n\n'),
               },
-              ...compatible.map(toVisionContentPart),
+              ...(electricalSelected ? visionParts : compatible.map(toVisionContentPart)),
             ],
           },
         ],
@@ -1623,6 +1712,10 @@ async function analyzePlanForMeasurements({
     err.status = 502;
     throw err;
   }
+  const generalElectricalVision = electricalSelected
+    ? electricalDebugSnapshot(parsed.measurements)
+    : null;
+  let focusedElectricalVision = null;
   let measurementProvenance = {};
   let measurementConflicts = [];
   if (tradeVisualCompletion) {
@@ -1630,6 +1723,9 @@ async function analyzePlanForMeasurements({
       const focused = JSON.parse(
         tradeVisualCompletion.choices?.[0]?.message?.content || '{}'
       );
+      if (electricalSelected) {
+        focusedElectricalVision = electricalDebugSnapshot(focused.measurements);
+      }
       const mergedMeasurements = mergeMeasurementCandidates({
         baseMeasurements: parsed.measurements,
         overlayMeasurements: focused.measurements,
@@ -1700,6 +1796,15 @@ async function analyzePlanForMeasurements({
     } catch (err) {
       console.warn('Focused trade takeoff pass returned invalid JSON:', err?.message || err);
     }
+  }
+
+  if (electricalSelected) {
+    logElectricalTakeoffStage('RAW ELECTRICAL VISION EXTRACTION', {
+      merged: electricalDebugSnapshot(parsed.measurements),
+      general: generalElectricalVision,
+      focused: focusedElectricalVision,
+      unreadableFields: (parsed.unreadableFields || []).slice(0, 20),
+    });
   }
 
   const imageQuality = sanitizeImageQuality(parsed?.imageQuality);
@@ -1786,6 +1891,9 @@ async function analyzePlanForMeasurements({
     buildingAreas,
     parsed.explicitlyLabeled
   );
+  if (electricalSelected) {
+    logElectricalTakeoffStage('AFTER SANITIZE', electricalDebugSnapshot(rawMeasurements));
+  }
   const paintingKeys = [
     'wallPaintSqft',
     'ceilingPaintSqft',
@@ -1877,6 +1985,32 @@ async function analyzePlanForMeasurements({
           .join('; ')}`,
       ];
     }
+  }
+  const electricalTakeoff = applyElectricalVisionTakeoff({
+    measurements: rawMeasurements,
+    explicitlyLabeled: parsed.explicitlyLabeled,
+    geometryDerived: parsed.geometryDerived,
+    electricalSelected,
+  });
+  rawMeasurements = electricalTakeoff.measurements;
+  measurementProvenance = {
+    ...measurementProvenance,
+    ...electricalTakeoff.provenance,
+  };
+  if (electricalSelected) {
+    logElectricalTakeoffStage(
+      'AFTER electricalPlanConvergence',
+      electricalDebugSnapshot(rawMeasurements)
+    );
+  }
+  if (electricalSelected && pdfTakeoff?.electricalRelevantPages?.length) {
+    parsed.assumptions = [
+      ...(Array.isArray(parsed.assumptions) ? parsed.assumptions : []),
+      `Electrical-relevant pages: ${pdfTakeoff.electricalRelevantPages
+        .slice(0, 8)
+        .map((page) => `${page.page} (${(page.reasons || []).join(', ') || 'electrical plan'})`)
+        .join('; ')}`,
+    ];
   }
   rawMeasurements = reconcileBathroomMeasurement(rawMeasurements, rooms, unreadableFields);
   const { measurements, lowConfidence } = applyConfidenceFloor(rawMeasurements, fieldConfidence);
@@ -2083,6 +2217,21 @@ async function analyzePlanForMeasurements({
     if (!(positive(tradeMeasurementInput.ceilingPaintSqft) > 0)) {
       tradeMissingInfo.unshift(
         'Ceiling area: no labeled ceiling finish SF or dimensioned interior rooms'
+      );
+    }
+  }
+  if (electricalSelected) {
+    if (!(positive(tradeMeasurementInput.mainPanelCount) > 0)) {
+      tradeMissingInfo.unshift(
+        'Panel / service: no readable panel count or amperage callout'
+      );
+    }
+    if (
+      !(positive(tradeMeasurementInput.standardCircuitCount) > 0) &&
+      !(positive(tradeMeasurementInput.dedicated20aCircuitCount) > 0)
+    ) {
+      tradeMissingInfo.unshift(
+        'Homeruns / dedicated circuits: confirm from panel schedule — device symbols do not invent circuit counts'
       );
     }
   }

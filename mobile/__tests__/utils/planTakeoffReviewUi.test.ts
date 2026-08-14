@@ -2,6 +2,7 @@ import { buildAreaReconciliation } from '@/utils/measurementSemantics';
 import {
   applyPlanTakeoffButtonLabel,
   buildConcretePlanReviewSummary,
+  buildElectricalPlanReviewSummary,
   buildFlooringPlanReviewSummary,
   buildPaintingPlanReviewSummary,
   buildImportedPlanSummaryText,
@@ -480,6 +481,95 @@ describe('plan takeoff review UI polish', () => {
           note: 'Partial room geometry — confirm',
         },
       ])
+    );
+  });
+
+  it('builds grouped Electrical plan review summary from canonical counts', () => {
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
+    expect(measurementDisplayLabel('standardReceptacleCount').label).toBe(
+      'Standard receptacles'
+    );
+    const summary = buildElectricalPlanReviewSummary({
+      mainPanelCount: 1,
+      serviceAmperage: 200,
+      standardReceptacleCount: 42,
+      gfciReceptacleCount: 8,
+      recessedLightCount: 24,
+      rangeHookupCount: 1,
+    });
+    expect(summary).toEqual(
+      expect.arrayContaining([
+        { label: 'Main panel', value: '1 EA · 200A' },
+        { label: 'Standard receptacles', value: '42 EA' },
+        { label: 'GFCI receptacles', value: '8 EA' },
+        { label: 'Recessed / canless / wafer light', value: '24 EA' },
+        { label: 'Range hookup', value: '1 EA' },
+        {
+          label: 'Rough / trim packages',
+          value: 'Not auto-priced from detailed takeoff',
+        },
+      ])
+    );
+  });
+
+  it('shows Electrical provenance notes on the review summary', () => {
+    process.env.EXPO_PUBLIC_BUILD_AI_MEASUREMENT_SEMANTICS_V1 = 'true';
+    const summary = buildElectricalPlanReviewSummary(
+      {
+        mainPanelCount: 1,
+        serviceAmperage: 200,
+        recessedLightCount: 34,
+        gfciReceptacleCount: 6,
+        threeWaySwitchCount: 4,
+      },
+      {
+        mainPanelCount: { note: 'From panel callout', source: 'detected_from_plan' },
+        recessedLightCount: {
+          note: 'Counted from electrical plan',
+          source: 'detected_from_plan',
+        },
+        gfciReceptacleCount: {
+          note: 'Counted from symbols',
+          source: 'detected_from_plan',
+        },
+        threeWaySwitchCount: {
+          note: 'Calculated from symbols, confirm',
+          source: 'calculated_from_symbols',
+          confidenceTier: 2,
+        },
+      }
+    );
+    expect(summary).toEqual(
+      expect.arrayContaining([
+        {
+          label: 'Main panel',
+          value: '1 EA · 200A',
+          note: 'From panel callout',
+        },
+        {
+          label: 'Recessed / canless / wafer light',
+          value: '34 EA',
+          note: 'Counted from electrical plan',
+        },
+        {
+          label: 'GFCI receptacles',
+          value: '6 EA',
+          note: 'Counted from symbols',
+        },
+        {
+          label: '3-way switch',
+          value: '4 EA',
+          note: 'Calculated from symbols, confirm',
+        },
+        {
+          label: 'Shared homeruns / unlabeled circuits',
+          value: 'Needs confirmation',
+          note: 'Device symbols do not invent circuit relationships',
+        },
+      ])
+    );
+    expect(measurementSourceLabel({ key: 'recessedLightCount' })).toMatch(
+      /electrical plan/i
     );
   });
 });

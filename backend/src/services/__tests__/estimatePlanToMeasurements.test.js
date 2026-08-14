@@ -16,7 +16,7 @@ const {
   derivePaintingGeometryMeasurements,
   MIN_FIELD_CONFIDENCE,
 } = require('../estimatePlanToMeasurements');
-const { filterPlanMeasurementsForTrade, TRADE_CONFIGS } = require('../planImportTradeConfig');
+const { filterPlanMeasurementsForTrade, filterPlanScopesForTrade, TRADE_CONFIGS } = require('../planImportTradeConfig');
 const shvPlanFacts = require('../testFixtures/shvPlanFacts');
 
 describe('estimatePlanToMeasurements', () => {
@@ -573,6 +573,77 @@ describe('estimatePlanToMeasurements', () => {
     });
     expect(notes).toContain('- Kitchen: 12×12 ft (144 sqft)');
     expect(notes).toContain('- Great Room: 224 sqft');
+  });
+
+  test('electrical symbol counts survive sanitize and selected-trade filter', () => {
+    const measurements = sanitizeMeasurements(
+      {
+        recessedLightCount: 34,
+        gfciReceptacleCount: 6,
+        mainPanelCount: 1,
+        serviceAmperage: 200,
+        standardCircuitCount: 18,
+        circuit50aCount: 1,
+        floorAreaSqft: 3660,
+        wallPaintSqft: 5000,
+      },
+      [],
+      { totalLivingSqft: 3660 },
+      ['mainPanelCount', 'serviceAmperage']
+    );
+    expect(measurements.recessedLightCount).toBe(34);
+    expect(measurements.gfciReceptacleCount).toBe(6);
+    expect(measurements.mainPanelCount).toBe(1);
+    expect(measurements.serviceAmperage).toBe(200);
+    expect(measurements.standardCircuitCount).toBeUndefined();
+    expect(measurements.circuit50aCount).toBeUndefined();
+    expect(measurements.wallPaintSqft).toBeUndefined();
+    const filtered = filterPlanMeasurementsForTrade(
+      measurements,
+      'selected_trade',
+      TRADE_CONFIGS.electrical
+    );
+    expect(filtered.recessedLightCount).toBe(34);
+    expect(filtered.gfciReceptacleCount).toBe(6);
+    expect(filtered.mainPanelCount).toBe(1);
+    expect(filtered.serviceAmperage).toBe(200);
+    expect(filtered.floorAreaSqft).toBeUndefined();
+  });
+
+  test('electrical plan scope detections do not auto-include rough/trim packages', () => {
+    const filtered = filterPlanScopesForTrade(
+      {
+        detections: [
+          { itemId: 'electrical_rough', state: 'included', label: 'Electrical rough-in' },
+          { itemId: 'electrical_trim', state: 'included', label: 'Electrical fixtures' },
+          { itemId: 'electrical', state: 'included', label: 'Electrical' },
+          { itemId: 'cleanup', state: 'included', label: 'Cleanup & disposal' },
+          { itemId: 'electrical_standard_receptacle', state: 'included', label: 'Standard receptacle' },
+        ],
+      },
+      'selected_trade',
+      TRADE_CONFIGS.electrical
+    );
+    expect(filtered.detections.map((row) => row.itemId)).toEqual([
+      'cleanup',
+      'electrical_standard_receptacle',
+    ]);
+  });
+
+  test('labeled homerun counts survive electrical explicit-only sanitize', () => {
+    const measurements = sanitizeMeasurements(
+      {
+        standardCircuitCount: 12,
+        conduitLf: 80,
+        recessedLightCount: 24,
+      },
+      [],
+      {},
+      ['standardCircuitCount', 'conduitLf']
+    );
+    expect(measurements.standardCircuitCount).toBe(12);
+    expect(measurements.conduitLf).toBe(80);
+    expect(measurements.recessedLightCount).toBe(24);
   });
 
   test('derivePaintingGeometryMeasurements takes exterior paint from painted elevation faces only', () => {

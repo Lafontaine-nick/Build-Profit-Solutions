@@ -51,6 +51,7 @@ import { confirmedPaintingMeasurementTextLines } from '@/utils/subcontractorTrad
 import type {
   ElectricalPanelLocation,
   ElectricalProjectCondition,
+  ElectricalTrenchCondition,
   ElectricalQuantityKey,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import type { NormalizedTradeMeasurements } from '@/utils/subcontractorTrade/types';
@@ -648,6 +649,8 @@ export type ScopeMeasurements = {
   electricalIncludeTrim?: boolean | null;
   electricalConduit?: boolean | null;
   electricalTrenching?: boolean | null;
+  electricalConduitSpecialty?: boolean | null;
+  electricalTrenchCondition?: ElectricalTrenchCondition | null;
   existingServiceAmperage?: number | null;
   electricalPanelLocation?: ElectricalPanelLocation | null;
   electricalMeterMainCombo?: boolean | null;
@@ -2455,6 +2458,15 @@ function mergeTradeNormalizationIntoScopeMeasurements(
   }
   if (typeof structured.electricalTrenching === 'boolean') {
     next.electricalTrenching = structured.electricalTrenching;
+  }
+  if (typeof structured.electricalConduitSpecialty === 'boolean') {
+    next.electricalConduitSpecialty = structured.electricalConduitSpecialty;
+  }
+  if (
+    structured.electricalTrenchCondition === 'normal_soil' ||
+    structured.electricalTrenchCondition === 'rocky'
+  ) {
+    next.electricalTrenchCondition = structured.electricalTrenchCondition;
   }
   if (
     typeof structured.existingServiceAmperage === 'number' &&

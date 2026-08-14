@@ -29,6 +29,7 @@ import { measurementSemanticsV1Enabled } from '@/utils/measurementSemantics';
 import {
   applyPlanTakeoffButtonLabel,
   buildConcretePlanReviewSummary,
+  buildElectricalPlanReviewSummary,
   buildFlooringPlanReviewSummary,
   buildPaintingPlanReviewSummary,
   classifyPlanSpaceName,
@@ -451,6 +452,25 @@ export default function PlanTakeoffReviewModal({
     );
   }, [effectiveTradeKey, paintingReviewMeasurements, takeoff?.measurementProvenance]);
 
+  const electricalReviewMeasurements = useMemo(() => {
+    const merged: Record<string, string | number> = {
+      ...(visibleMeasurements || {}),
+    };
+    for (const row of rows) {
+      const n = Number(row.value);
+      if (Number.isFinite(n) && n > 0) merged[row.key] = row.value;
+    }
+    return merged;
+  }, [visibleMeasurements, rows]);
+
+  const electricalPlanSummary = useMemo(() => {
+    if (effectiveTradeKey !== 'electrical') return null;
+    return buildElectricalPlanReviewSummary(
+      electricalReviewMeasurements,
+      takeoff?.measurementProvenance
+    );
+  }, [effectiveTradeKey, electricalReviewMeasurements, takeoff?.measurementProvenance]);
+
   if (!visible || !takeoff) return null;
 
   const tradeReviewKeys = new Set(
@@ -751,10 +771,64 @@ export default function PlanTakeoffReviewModal({
                 </View>
               </View>
             ) : null}
+            {electricalPlanSummary ? (
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: Colors.sub }]}>
+                  Electrical
+                </Text>
+                <View
+                  style={[
+                    styles.concreteSummaryCard,
+                    {
+                      borderColor: lineColor,
+                      backgroundColor: darkMode
+                        ? 'rgba(148,163,184,0.08)'
+                        : 'rgba(148,163,184,0.06)',
+                    },
+                  ]}
+                >
+                  {electricalPlanSummary.map(line => (
+                    <View key={line.label} style={styles.concreteSummaryRow}>
+                      <Text
+                        style={[styles.concreteSummaryLabel, { color: Colors.sub }]}
+                      >
+                        {line.label}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.concreteSummaryValue,
+                          {
+                            color:
+                              line.value === '—' ||
+                              line.value === 'Needs confirmation' ||
+                              line.value === 'Not auto-priced from detailed takeoff'
+                                ? Colors.sub
+                                : Colors.text,
+                          },
+                        ]}
+                      >
+                        {line.value}
+                      </Text>
+                      {line.note ? (
+                        <Text
+                          style={[styles.evidenceText, { color: Colors.sub }]}
+                          numberOfLines={2}
+                        >
+                          {line.note}
+                        </Text>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : null}
             {hasMeasurements ? (
               <View style={styles.section}>
                 <Text style={[styles.sectionTitle, { color: Colors.sub }]}>
-                  {concretePlanSummary || flooringPlanSummary || paintingPlanSummary
+                  {concretePlanSummary ||
+                  flooringPlanSummary ||
+                  paintingPlanSummary ||
+                  electricalPlanSummary
                     ? 'Edit quantities'
                     : 'Measurements'}
                 </Text>

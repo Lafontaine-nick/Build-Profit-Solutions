@@ -308,11 +308,12 @@ const CHECKLIST_ITEM_QUANTITY_RULES = {
   },
   electrical_trim: {
     defaultUnit: 'allowance',
-    allowedUnits: ['allowance', 'lump_sum'],
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
     requiresUserQuantity: true,
-    lumpSumOnly: true,
+    lumpSumOnly: false,
     pricingMethod: 'allowance',
-    quantityHelper: 'Enter electrical trim-out allowance for this job.',
+    quantityHelper:
+      'Package trim-out allowance, or enter a trim device count. Not living SF. Detailed receptacle / switch / fixture cards own those devices instead.',
     missingMessage: 'Enter electrical trim allowance.',
   },
   permits: {
@@ -858,6 +859,8 @@ const ELECTRICAL_CANONICAL_ITEM_IDS = [
   'electrical_fixture_removal',
   'electrical_relocate',
   'electrical_abandoned_circuit',
+  'electrical_conduit',
+  'electrical_trenching',
 ];
 
 const ELECTRICAL_ITEM_MEASUREMENT_KEYS = {
@@ -912,18 +915,29 @@ const ELECTRICAL_ITEM_MEASUREMENT_KEYS = {
   electrical_fixture_removal: 'fixtureRemovalCount',
   electrical_relocate: 'relocateCount',
   electrical_abandoned_circuit: 'abandonedCircuitCount',
+  electrical_conduit: 'conduitLf',
+  electrical_trenching: 'trenchingLf',
 };
+
+const ELECTRICAL_LF_ITEM_IDS = new Set([
+  'electrical_conduit',
+  'electrical_trenching',
+]);
 
 const ELECTRICAL_CHECKLIST_QUANTITY_RULES = Object.fromEntries(
   ELECTRICAL_CANONICAL_ITEM_IDS.map((id) => [
     id,
     {
-      defaultUnit: 'each',
-      allowedUnits: ['each', 'allowance', 'lump_sum'],
+      defaultUnit: ELECTRICAL_LF_ITEM_IDS.has(id) ? 'lf' : 'each',
+      allowedUnits: ELECTRICAL_LF_ITEM_IDS.has(id)
+        ? ['lf', 'allowance', 'lump_sum']
+        : ['each', 'allowance', 'lump_sum'],
       measurementKey: ELECTRICAL_ITEM_MEASUREMENT_KEYS[id],
       requiresUserQuantity: true,
       missingMessage: 'Needs pricing',
-      quantityHelper: 'Enter the count. Pricing is not calibrated in Phase 1.',
+      quantityHelper: ELECTRICAL_LF_ITEM_IDS.has(id)
+        ? 'Enter the linear feet. A flag without LF does not invent a length.'
+        : 'Enter the count. Pricing is not calibrated in Phase 1.',
     },
   ])
 );

@@ -6,6 +6,12 @@ import {
   missingStatusForScope,
   type AreaReconciliation,
 } from '@/utils/measurementSemantics';
+import {
+  ELECTRICAL_CARD_GROUPS,
+  ELECTRICAL_CARDS,
+  electricalCardForMeasurementKey,
+  hasDetailedElectricalQuantities,
+} from '@/utils/subcontractorTrade/electricalPlanConvergence';
 
 export type PlanReviewSpaceKind = 'living' | 'garage' | 'other';
 
@@ -136,6 +142,9 @@ export function measurementDisplayLabel(
     exteriorPaintSqft: 'Exterior paint',
   };
   if (paintingLabels[key]) return { label: paintingLabels[key] };
+  if (key === 'serviceAmperage') return { label: 'Service amperage' };
+  const electricalCard = electricalCardForMeasurementKey(key);
+  if (electricalCard) return { label: electricalCard.label };
   return { label: key };
 }
 
@@ -420,6 +429,11 @@ const PAINTING_PLAN_REVIEW_KEYS = new Set([
   'exteriorPaintSqft',
 ]);
 
+const ELECTRICAL_PLAN_REVIEW_KEYS = new Set([
+  ...ELECTRICAL_CARDS.map(card => card.measurementKey),
+  'serviceAmperage',
+]);
+
 function provenanceSourceText(entry: unknown): string {
   if (entry == null) return '';
   if (typeof entry === 'string') return entry.toLowerCase();
@@ -446,17 +460,26 @@ export function planReviewProvenanceFlags(input: {
     source.includes('labeled') ||
     source === 'from_plan';
   const paintingKey = PAINTING_PLAN_REVIEW_KEYS.has(input.key);
+  const electricalKey = ELECTRICAL_PLAN_REVIEW_KEYS.has(input.key);
   const incomplete =
     paintingKey &&
     typeof input.provenanceEntry === 'object' &&
     input.provenanceEntry != null &&
     (input.provenanceEntry as { coverage?: string }).coverage === 'incomplete';
+  const electricalReview =
+    electricalKey &&
+    (source.includes('calculated_from_symbols') ||
+      source.includes('needs_review') ||
+      (typeof input.provenanceEntry === 'object' &&
+        input.provenanceEntry != null &&
+        Number((input.provenanceEntry as { confidenceTier?: number }).confidenceTier) >= 2));
   return {
     hasExplicitPlanSource:
       input.key === 'floorAreaSqft' ||
       input.key === 'garageSqft' ||
       input.key === 'deckSqft' ||
-      (paintingKey && fromPlan && !fromGeometry && !incomplete),
+      (paintingKey && fromPlan && !fromGeometry && !incomplete) ||
+      (electricalKey && fromPlan && !electricalReview),
     hasReliableDimensions:
       input.key === 'kitchenFloorSqft' ||
       input.key === 'bathroomFloorSqft' ||
@@ -464,7 +487,8 @@ export function planReviewProvenanceFlags(input: {
     roomDependent:
       input.key === 'kitchenFloorSqft' ||
       input.key === 'bathroomFloorSqft' ||
-      incomplete,
+      incomplete ||
+      electricalReview,
   };
 }
 
@@ -610,6 +634,142 @@ export function buildPaintingPlanReviewSummary(
   return lines;
 }
 
+export type ElectricalPlanReviewLine = {
+  label: string;
+  value: string;
+  note?: string | null;
+};
+
+const ELECTRICAL_CIRCUIT_KEYS = new Set([
+  'standardCircuitCount',
+  'dedicated20aCircuitCount',
+  'circuit30aCount',
+  'circuit40aCount',
+  'circuit50aCount',
+  'circuit60aPlusCount',
+]);
+
+function electricalConditionLabel(value: unknown): string {
+  if (value === 'new_construction') return 'New construction / full rough';
+  if (value === 'remodel_open_wall') return 'Remodel / open wall';
+  if (value === 'finished_wall_service') return 'Finished-wall service';
+  return 'Needs confirmation';
+}
+
+function electricalQuantityLabel(
+  card: (typeof ELECTRICAL_CARDS)[number],
+  quantity: number,
+  measurements: Record<string, number | string | null | undefined>
+): string {
+  if (card.measurementKey === 'mainPanelCount') {
+    const amps = positiveMeasurement(measurements.serviceAmperage);
+    return amps != null
+      ? `${formatSfWithCommas(quantity)} EA · ${amps}A`
+      : `${formatSfWithCommas(quantity)} EA`;
+  }
+  if (card.unit === 'lf') return `${formatSfWithCommas(quantity)} LF`;
+  return `${formatSfWithCommas(quantity)} EA`;
+}
+
+function electricalQuantityNote(
+  key: string,
+  provenance?: Record<string, unknown> | null
+): string | undefined {
+  const entry = provenance?.[key];
+  if (entry && typeof entry === 'object' && 'note' in entry) {
+    const note = String((entry as { note?: unknown }).note || '').trim();
+    if (note) return note;
+  }
+  const s = provenanceSourceText(entry);
+  if (!s) return undefined;
+  if (key === 'mainPanelCount' || key === 'serviceAmperage') {
+    return 'From panel callout';
+  }
+  if (s.includes('calculated_from_symbols') || s.includes('needs_review')) {
+    return 'Calculated from symbols, confirm';
+  }
+  if (key === 'gfciReceptacleCount' || key === 'standardReceptacleCount') {
+    return 'Counted from symbols';
+  }
+  if (s.includes('detected_from_plan') || s === 'from_plan') {
+    return 'Counted from electrical plan';
+  }
+  return undefined;
+}
+
+/** Grouped Electrical summary for Plan Review before Confirm Scope. */
+export function buildElectricalPlanReviewSummary(
+  measurements: Record<string, number | string | null | undefined>,
+  provenance?: Record<string, unknown> | null
+): ElectricalPlanReviewLine[] {
+  const lines: ElectricalPlanReviewLine[] = [];
+  const shownKeys = new Set<string>();
+
+  for (const group of ELECTRICAL_CARD_GROUPS) {
+    for (const card of ELECTRICAL_CARDS) {
+      if (card.groupId !== group.id) continue;
+      if (card.measurementKey === 'serviceAmperage') continue;
+      const quantity = positiveMeasurement(measurements[card.measurementKey]);
+      if (quantity == null) continue;
+      shownKeys.add(card.measurementKey);
+      const note = electricalQuantityNote(card.measurementKey, provenance);
+      lines.push({
+        label: card.label,
+        value: electricalQuantityLabel(card, quantity, measurements),
+        ...(note ? { note } : {}),
+      });
+    }
+  }
+
+  if (
+    positiveMeasurement(measurements.serviceAmperage) != null &&
+    !shownKeys.has('mainPanelCount') &&
+    !shownKeys.has('panelUpgradeCount') &&
+    !shownKeys.has('serviceUpgradeCount')
+  ) {
+    lines.push({
+      label: 'Service amperage',
+      value: `${positiveMeasurement(measurements.serviceAmperage)}A`,
+    });
+  }
+
+  const hasCircuitCounts = [...ELECTRICAL_CIRCUIT_KEYS].some(
+    key => positiveMeasurement(measurements[key]) != null
+  );
+  if (!hasCircuitCounts) {
+    lines.push({
+      label: 'Shared homeruns / unlabeled circuits',
+      value: 'Needs confirmation',
+      note: 'Device symbols do not invent circuit relationships',
+    });
+  }
+
+  const conduit = positiveMeasurement(measurements.conduitLf);
+  lines.push({
+    label: 'Conduit',
+    value: conduit != null ? `${formatSfWithCommas(conduit)} LF` : 'Needs confirmation',
+  });
+  const trench = positiveMeasurement(measurements.trenchingLf);
+  lines.push({
+    label: 'Trenching',
+    value: trench != null ? `${formatSfWithCommas(trench)} LF` : 'Needs confirmation',
+  });
+
+  const detailed = hasDetailedElectricalQuantities(measurements);
+  lines.push({
+    label: 'Rough / trim packages',
+    value: detailed
+      ? 'Not auto-priced from detailed takeoff'
+      : 'Needs confirmation',
+  });
+  lines.push({
+    label: 'Job condition',
+    value: electricalConditionLabel(measurements.electricalProjectCondition),
+  });
+
+  return lines;
+}
+
 function pageFromAssumptions(
   assumptions: string[] | null | undefined,
   patterns: RegExp[]
@@ -684,6 +844,18 @@ export function measurementSourceLabel(input: {
     return resolvedPage != null
       ? `Derived from room dimensions — page ${resolvedPage}`
       : 'Derived from room dimensions';
+  }
+
+  if (ELECTRICAL_PLAN_REVIEW_KEYS.has(input.key)) {
+    const resolvedPage =
+      page ??
+      pageFromAssumptions(input.assumptions, [
+        /electrical|panel|receptacle|switch|lighting|e\s*sheet/i,
+      ]);
+    return formatPlanSourceLabel({
+      kind: 'electrical_plan',
+      page: resolvedPage,
+    });
   }
 
   return formatPlanSourceLabel({

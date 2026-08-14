@@ -650,6 +650,37 @@ const PAINTING_PAGE_SIGNALS = [
 const PAINTING_IRRELEVANT_PAGE_RE =
   /\b(electrical|plumbing|hvac|mechanical|framing|foundation|roof\s*plan|structural|sprinkler)\b/i;
 
+const ELECTRICAL_PAGE_SIGNALS = [
+  { re: /\belectrical\s+plan\b|\belectrical\s+layout\b/i, label: 'electrical plan', score: 12 },
+  { re: /\blighting\s+plan\b|\bpower\s+plan\b|\blighting\s+layout\b/i, label: 'lighting / power plan', score: 11 },
+  { re: /\bpanel\s+schedule\b|\bcircuit\s+schedule\b/i, label: 'panel schedule', score: 12 },
+  { re: /\bdevice\s+legend\b|\blighting\s+legend\b|\bsymbol\s+legend\b/i, label: 'device legend', score: 8 },
+  { re: /\bmain\s+(?:floor|level)\s+electrical|\b(?:second|upper)\s+(?:floor|level)\s+electrical/i, label: 'level electrical', score: 10 },
+  { re: /\bE\d+\.\d+\b|\bsheet\s+E[-.]?\d/i, label: 'E sheet', score: 9 },
+  { re: /\breceptacle|\bgfci\b|\bsmoke\s+detector|\bceiling\s+fan\b/i, label: 'device callouts', score: 4 },
+];
+
+/** Upper-level E sheets often have almost no text layer. Include the next page after a strong hit. */
+function expandElectricalRelevantPages(pages, pageCount) {
+  const byPage = new Map();
+  for (const page of Array.isArray(pages) ? pages : []) {
+    const pageNumber = Number(page?.page);
+    if (!Number.isInteger(pageNumber) || pageNumber < 1) continue;
+    byPage.set(pageNumber, page);
+  }
+  for (const page of [...byPage.values()]) {
+    if ((page.score || 0) < 8) continue;
+    const next = page.page + 1;
+    if (next > pageCount || byPage.has(next)) continue;
+    byPage.set(next, {
+      page: next,
+      score: Math.max(1, (page.score || 1) - 3),
+      reasons: ['following electrical sheet'],
+    });
+  }
+  return [...byPage.values()].sort((a, b) => a.page - b.page);
+}
+
 function scorePaintingRelevantPage(text) {
   const blob = String(text || '');
   if (!blob.trim()) return { score: 0, reasons: [] };
@@ -660,6 +691,20 @@ function scorePaintingRelevantPage(text) {
   let score = 0;
   const reasons = [];
   for (const signal of PAINTING_PAGE_SIGNALS) {
+    if (signal.re.test(blob)) {
+      score += signal.score;
+      reasons.push(signal.label);
+    }
+  }
+  return { score, reasons: [...new Set(reasons)] };
+}
+
+function scoreElectricalRelevantPage(text) {
+  const blob = String(text || '');
+  if (!blob.trim()) return { score: 0, reasons: [] };
+  let score = 0;
+  const reasons = [];
+  for (const signal of ELECTRICAL_PAGE_SIGNALS) {
     if (signal.re.test(blob)) {
       score += signal.score;
       reasons.push(signal.label);
@@ -753,12 +798,134 @@ async function loadPdfJs() {
   return import('pdfjs-dist/legacy/build/pdf.mjs');
 }
 
-function toUint8Array(buffer) {
-  if (buffer instanceof Uint8Array && !(Buffer.isBuffer?.(buffer))) return buffer;
-  if (Buffer.isBuffer(buffer)) {
-    return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+function loadNodeCanvas() {
+  try {
+    return require('@napi-rs/canvas');
+  } catch (err) {
+    return null;
   }
-  return new Uint8Array(buffer);
+}
+
+class NodeCanvasFactory {
+  constructor(createCanvas) {
+    this.createCanvas = createCanvas;
+  }
+
+  create(width, height) {
+    const canvas = this.createCanvas(Math.ceil(width), Math.ceil(height));
+    return {
+      canvas,
+      context: canvas.getContext('2d'),
+    };
+  }
+
+  reset(canvasAndContext, width, height) {
+    canvasAndContext.canvas.width = Math.ceil(width);
+    canvasAndContext.canvas.height = Math.ceil(height);
+  }
+
+  destroy(canvasAndContext) {
+    canvasAndContext.canvas.width = 0;
+    canvasAndContext.canvas.height = 0;
+    canvasAndContext.canvas = null;
+    canvasAndContext.context = null;
+  }
+}
+
+function encodeJpeg(canvas, quality = 82) {
+  if (typeof canvas.encodeSync === 'function') {
+    return canvas.encodeSync('jpeg', quality);
+  }
+  if (typeof canvas.encode === 'function') {
+    return canvas.encode('jpeg', quality);
+  }
+  if (typeof canvas.toBuffer === 'function') {
+    return canvas.toBuffer('image/jpeg', quality);
+  }
+  throw new Error('Canvas JPEG encode is unavailable');
+}
+
+/**
+ * Rasterize Electrical sheets so vision can count symbols. The full PDF file
+ * pass reads architectural text and skips tiny E-sheet glyphs.
+ */
+async function renderElectricalPlanPages(pdfBuffers, electricalPages, options = {}) {
+  const canvasLib = loadNodeCanvas();
+  if (!canvasLib?.createCanvas) {
+    console.warn('Electrical sheet raster skipped: @napi-rs/canvas is not installed');
+    return [];
+  }
+  const pageNumbers = [...new Set(
+    (Array.isArray(electricalPages) ? electricalPages : [])
+      .map((page) => Number(page?.page))
+      .filter((page) => Number.isInteger(page) && page > 0)
+  )].sort((a, b) => a - b).slice(0, options.maxPages || 4);
+  const buffers = (Array.isArray(pdfBuffers) ? pdfBuffers : [pdfBuffers]).filter(Boolean);
+  if (!pageNumbers.length || !buffers.length) return [];
+
+  const pdfjs = await loadPdfJs();
+  const canvasFactory = new NodeCanvasFactory(canvasLib.createCanvas);
+  const images = [];
+  const maxDim = options.maxDimension || 3600;
+  const quality = options.quality || 82;
+
+  for (const buffer of buffers) {
+    if (images.length >= pageNumbers.length) break;
+    let doc;
+    try {
+      doc = await pdfjs.getDocument({
+        data: toUint8Array(buffer),
+        useSystemFonts: true,
+        isEvalSupported: false,
+        disableFontFace: true,
+        canvasFactory,
+      }).promise;
+    } catch (err) {
+      console.warn('Electrical sheet raster open failed:', err?.message || err);
+      continue;
+    }
+    for (const pageNumber of pageNumbers) {
+      if (pageNumber > doc.numPages) continue;
+      try {
+        const page = await doc.getPage(pageNumber);
+        const base = page.getViewport({ scale: 1 });
+        const scale = Math.min(2.2, maxDim / Math.max(base.width, base.height, 1));
+        const viewport = page.getViewport({ scale });
+        const canvasAndContext = canvasFactory.create(viewport.width, viewport.height);
+        await page.render({
+          canvas: canvasAndContext.canvas,
+          canvasContext: canvasAndContext.context,
+          viewport,
+        }).promise;
+        const jpeg = await encodeJpeg(canvasAndContext.canvas, quality);
+        canvasFactory.destroy(canvasAndContext);
+        const bytes = Buffer.isBuffer(jpeg) ? jpeg : Buffer.from(jpeg);
+        images.push({
+          page: pageNumber,
+          mimeType: 'image/jpeg',
+          base64: bytes.toString('base64'),
+          filename: `electrical-page-${pageNumber}.jpg`,
+        });
+      } catch (err) {
+        console.warn(
+          `Electrical sheet raster failed for page ${pageNumber}:`,
+          err?.message || err
+        );
+      }
+    }
+  }
+  return images;
+}
+
+function toUint8Array(buffer) {
+  const src = Buffer.isBuffer(buffer)
+    ? buffer
+    : buffer instanceof Uint8Array
+      ? buffer
+      : Buffer.from(buffer || []);
+  const copy = new Uint8Array(src.length);
+  copy.set(src);
+  return copy;
 }
 
 async function extractItemsFromPdfBuffer(buffer) {
@@ -800,6 +967,7 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
   const allRooms = [];
   const assumptions = [];
   const paintingRelevantPages = [];
+  const electricalRelevantPages = [];
   let pageCount = 0;
 
   for (const buf of list) {
@@ -821,6 +989,14 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
           page: pageNumber,
           score: paintingPage.score,
           reasons: paintingPage.reasons,
+        });
+      }
+      const electricalPage = scoreElectricalRelevantPage(pageText);
+      if (electricalPage.score > 0) {
+        electricalRelevantPages.push({
+          page: pageNumber,
+          score: electricalPage.score,
+          reasons: electricalPage.reasons,
         });
       }
       const parsedFacts = parsePageFactsFromText(pageText, { page: pageNumber });
@@ -911,6 +1087,12 @@ async function extractPlanTakeoffFromPdfBuffers(pdfBuffers) {
     paintingRelevantPages: paintingRelevantPages
       .sort((a, b) => b.score - a.score)
       .slice(0, 12),
+    electricalRelevantPages: expandElectricalRelevantPages(
+      electricalRelevantPages,
+      pageCount
+    )
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 12),
     pageCount,
   };
 }
@@ -973,6 +1155,22 @@ function formatPdfEvidenceForVision(pdfTakeoff, options = {}) {
       }
     }
   }
+  const electricalPages = Array.isArray(pdfTakeoff.electricalRelevantPages)
+    ? pdfTakeoff.electricalRelevantPages
+    : [];
+  if (tradeKey === 'electrical') {
+    lines.push(
+      'Electrical-relevant sheets are electrical plans (E sheets), panel schedules, device legends, and lighting legends. Count symbols on those sheets. Prioritize main-level and second-level electrical plans when present. Do not invent homeruns, conduit LF, trench LF, or rough/trim packages from device counts.'
+    );
+    if (electricalPages.length) {
+      lines.push('PDF text layer — pages that look useful for an Electrical takeoff:');
+      for (const page of electricalPages.slice(0, 8)) {
+        lines.push(
+          `- page ${page.page}: ${Array.isArray(page.reasons) ? page.reasons.join(', ') : 'electrical plan'}`
+        );
+      }
+    }
+  }
   return lines.join('\n');
 }
 
@@ -995,5 +1193,9 @@ module.exports = {
   extractPlanTakeoffFromPdfBuffers,
   formatPdfEvidenceForVision,
   scorePaintingRelevantPage,
+  scoreElectricalRelevantPage,
+  expandElectricalRelevantPages,
+  renderElectricalPlanPages,
+  toUint8Array,
   feetInchesToDecimal,
 };

@@ -292,7 +292,7 @@ export const TRADE_MEASUREMENT_SCHEMAS: Partial<
       M(
         card.measurementKey,
         card.label,
-        card.unit === 'amp' ? 'amp' : 'each',
+        card.unit,
         card.groupId === 'service_panels' || card.groupId === 'circuits'
           ? 'primary'
           : 'more'

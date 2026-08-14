@@ -250,7 +250,7 @@ const ELECTRICAL_DEFINITION: SubcontractorTradeDefinition = {
   status: 'reference',
   standaloneTemplateKey: 'electrical',
   scopeHint:
-    'Focus on electrical sheets, panels, circuits, devices, lighting, and electrical notes. Phase 1 is Notes/Voice/Manual canonical keys only — plan symbol counting is not converged yet.',
+    'Focus on electrical sheets, panels, circuits, devices, lighting, and electrical notes. Plan Export maps symbol/schedule counts onto the locked 2A–2K keys — it does not create a second estimator.',
   missingInfo: [
     'Device and fixture counts',
     'Panel/circuit schedule',

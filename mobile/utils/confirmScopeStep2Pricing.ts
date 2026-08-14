@@ -33,6 +33,9 @@ import { isElectricalLightingFanItemId } from '@/utils/subcontractorTrade/electr
 import { isElectricalHookupItemId } from '@/utils/subcontractorTrade/electricalHookupPricing';
 import { isElectricalSpecialSystemItemId } from '@/utils/subcontractorTrade/electricalSpecialSystemsPricing';
 import { isElectricalModificationItemId } from '@/utils/subcontractorTrade/electricalModificationPricing';
+import { isElectricalRacewayItemId } from '@/utils/subcontractorTrade/electricalRacewayPricing';
+import { isElectricalTrimItemId } from '@/utils/subcontractorTrade/electricalTrimPricing';
+import { isElectricalRoughItemId } from '@/utils/subcontractorTrade/electricalRoughPricing';
 
 /** How Step 2 should treat pricing for a checklist row before Apply. */
 export type Step2PricingTier =
@@ -221,7 +224,8 @@ export function resolveStep2PricingTier(
     !isElectricalLightingFanItemId(itemId) &&
     !isElectricalHookupItemId(itemId) &&
     !isElectricalSpecialSystemItemId(itemId) &&
-    !isElectricalModificationItemId(itemId)
+    !isElectricalModificationItemId(itemId) &&
+    !isElectricalRacewayItemId(itemId)
   ) {
     return { tier: 'takeoff_required', takeoffLabel: 'pricing' };
   }
@@ -234,7 +238,10 @@ export function resolveStep2PricingTier(
       isElectricalLightingFanItemId(itemId) ||
       isElectricalHookupItemId(itemId) ||
       isElectricalSpecialSystemItemId(itemId) ||
-      isElectricalModificationItemId(itemId))
+      isElectricalModificationItemId(itemId) ||
+      isElectricalRacewayItemId(itemId) ||
+      isElectricalTrimItemId(itemId) ||
+      isElectricalRoughItemId(itemId))
   ) {
     return { tier: 'auto_planning' };
   }

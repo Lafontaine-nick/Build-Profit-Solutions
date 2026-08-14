@@ -1,7 +1,9 @@
 /**
- * Canonical Electrical Notes/Voice/Manual architecture.
- * Phase 1: keys, ownership, scope cards, parser, and persistence.
- * Does not calibrate rates or extract plan symbols.
+ * Canonical Electrical architecture.
+ * Notes/Voice/Manual keys and 2A–2K pricing are locked.
+ * Phase 3A: Plan Export adapter onto those same keys.
+ * Phase 3B: PDF/symbol extraction lives in backend electricalPlanAdapter.js
+ * and estimatePlanToMeasurements.js — still no Plan Export rates.
  */
 
 import { applyElectricalServicePanelOwnership } from './electricalServicePanelPricing';
@@ -12,6 +14,8 @@ export type ElectricalProjectCondition =
   | 'finished_wall_service';
 
 export type ElectricalPanelLocation = 'indoor' | 'outdoor';
+
+export type ElectricalTrenchCondition = 'normal_soil' | 'rocky';
 
 export type ElectricalQuantityKey =
   | 'mainPanelCount'
@@ -65,7 +69,9 @@ export type ElectricalQuantityKey =
   | 'deviceRemovalCount'
   | 'fixtureRemovalCount'
   | 'relocateCount'
-  | 'abandonedCircuitCount';
+  | 'abandonedCircuitCount'
+  | 'conduitLf'
+  | 'trenchingLf';
 
 export type ElectricalCardGroupId =
   | 'service_panels'
@@ -83,7 +89,7 @@ export type ElectricalCardDefinition = {
   measurementKey: ElectricalQuantityKey;
   label: string;
   helper: string;
-  unit: 'each' | 'amp';
+  unit: 'each' | 'amp' | 'lf';
   groupId: ElectricalCardGroupId;
   groupTitle: string;
   voltage?: '120V' | '240V';
@@ -504,6 +510,22 @@ export const ELECTRICAL_CARDS: ElectricalCardDefinition[] = [
     'Make-safe / abandon existing circuits. Not a new homerun. Tracing in finished walls is specialty / confirm.',
     'rough_modifications'
   ),
+  C(
+    'electrical_conduit',
+    'conduitLf',
+    'Conduit / raceway only',
+    'Standard residential PVC raceway. Not conductors, breaker, homerun, trenching, termination, equipment, or rigid/oversized conduit. A conduit flag without LF does not invent a length.',
+    'rough_modifications',
+    { unit: 'lf' }
+  ),
+  C(
+    'electrical_trenching',
+    'trenchingLf',
+    'Trenching — normal soil',
+    'Normal-soil excavation and backfill only. Not conduit, rock, boring, pavement, landscape restoration, or permits. Rocky / difficult trench is specialty / confirm. A trenching flag without LF does not invent a length.',
+    'rough_modifications',
+    { unit: 'lf' }
+  ),
 ];
 
 export const ELECTRICAL_ITEM_IDS = ELECTRICAL_CARDS.map(card => card.itemId);
@@ -530,6 +552,127 @@ export const ELECTRICAL_REVIEW_MEASUREMENT_KEYS = [
 ] as const;
 
 export const ELECTRICAL_NEEDS_PRICING_LABEL = 'Needs pricing';
+
+/**
+ * Adapter-only plan aliases. Vision / schedules may emit synonyms; they fold
+ * into existing ElectricalQuantityKey values. Never create a second estimator.
+ */
+export const ELECTRICAL_PLAN_ALIASES: Record<string, ElectricalQuantityKey> = {
+  panelCount: 'mainPanelCount',
+  duplexReceptacleCount: 'standardReceptacleCount',
+  duplexCount: 'standardReceptacleCount',
+  outletCount: 'standardReceptacleCount',
+  gfciCount: 'gfciReceptacleCount',
+  gfciOutletCount: 'gfciReceptacleCount',
+  wrReceptacleCount: 'exteriorReceptacleCount',
+  weatherResistantReceptacleCount: 'exteriorReceptacleCount',
+  exteriorGfciCount: 'exteriorReceptacleCount',
+  exteriorWrReceptacleCount: 'exteriorReceptacleCount',
+  threeWayCount: 'threeWaySwitchCount',
+  '3waySwitchCount': 'threeWaySwitchCount',
+  fourWayCount: 'fourWaySwitchCount',
+  canLightCount: 'recessedLightCount',
+  canlessCount: 'recessedLightCount',
+  canlessLightCount: 'recessedLightCount',
+  waferLightCount: 'recessedLightCount',
+  recessedCanCount: 'recessedLightCount',
+  pendantCount: 'pendantLightCount',
+  exteriorFixtureCount: 'exteriorLightCount',
+  smokeCount: 'smokeDetectorCount',
+  smokeAlarmCount: 'smokeDetectorCount',
+  coCount: 'coDetectorCount',
+  coAlarmCount: 'coDetectorCount',
+  rangeCircuitCount: 'rangeHookupCount',
+  range50aCount: 'rangeHookupCount',
+  dryerCircuitCount: 'dryerHookupCount',
+  dryer30aCount: 'dryerHookupCount',
+  dishwasherCircuitCount: 'dishwasherHookupCount',
+  serviceAmps: 'serviceAmperage',
+  panelAmperage: 'serviceAmperage',
+  amperage: 'serviceAmperage',
+};
+
+/**
+ * Representative residential plan counts used for Plan Export parity.
+ * These are fixture measurements, not vision output.
+ */
+export const ELECTRICAL_PLAN_EXPORT_RESIDENTIAL_FIXTURE: Partial<
+  Record<ElectricalQuantityKey, number>
+> = {
+  mainPanelCount: 1,
+  serviceAmperage: 200,
+  standardReceptacleCount: 42,
+  gfciReceptacleCount: 8,
+  exteriorReceptacleCount: 6,
+  singlePoleSwitchCount: 31,
+  threeWaySwitchCount: 7,
+  recessedLightCount: 24,
+  pendantLightCount: 3,
+  exteriorLightCount: 4,
+  ceilingFanCount: 5,
+  smokeDetectorCount: 7,
+  coDetectorCount: 2,
+  rangeHookupCount: 1,
+  dryerHookupCount: 1,
+  dishwasherHookupCount: 1,
+};
+
+const GENERIC_CIRCUIT_OWNED_BY_HOOKUP: Array<{
+  hookupKeys: ElectricalQuantityKey[];
+  circuitKey: ElectricalQuantityKey;
+}> = [
+  { hookupKeys: ['rangeHookupCount'], circuitKey: 'circuit50aCount' },
+  {
+    hookupKeys: ['dryerHookupCount', 'waterHeaterHookupCount'],
+    circuitKey: 'circuit30aCount',
+  },
+  {
+    hookupKeys: [
+      'dishwasherHookupCount',
+      'disposalHookupCount',
+      'microwaveHookupCount',
+      'refrigeratorHookupCount',
+    ],
+    circuitKey: 'dedicated20aCircuitCount',
+  },
+  { hookupKeys: ['evChargerHookupCount'], circuitKey: 'circuit60aPlusCount' },
+];
+
+function readAliasedElectricalPlanInput(
+  input: Record<string, unknown>
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...input };
+  for (const [alias, canonical] of Object.entries(ELECTRICAL_PLAN_ALIASES)) {
+    if (positiveNumber(out[canonical]) != null) continue;
+    const aliased = positiveNumber(out[alias]);
+    if (aliased != null) out[canonical] = aliased;
+  }
+  return out;
+}
+
+function applyElectricalPlanHookupOwnership(
+  input: Record<string, unknown>
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...input };
+  for (const rule of GENERIC_CIRCUIT_OWNED_BY_HOOKUP) {
+    const hasHookup = rule.hookupKeys.some(key => positiveNumber(out[key]) != null);
+    if (hasHookup) {
+      delete out[rule.circuitKey];
+    }
+  }
+  return out;
+}
+
+/**
+ * Plan Export adapter: fold aliases onto canonical 2A–2K keys, apply hookup
+ * ownership, and never invent homeruns, living-SF quantities, conduit LF,
+ * trench LF, or rough/trim packages from device symbols.
+ */
+export function normalizeElectricalPlanMeasurements(
+  input: Record<string, unknown>
+): Record<string, unknown> {
+  return applyElectricalPlanHookupOwnership(readAliasedElectricalPlanInput(input));
+}
 
 const CARD_BY_ITEM_ID = new Map(
   ELECTRICAL_CARDS.map(card => [card.itemId, card])
@@ -570,6 +713,8 @@ export type ElectricalStructuredMeasurements = {
   electricalIncludeTrim?: boolean | null;
   electricalConduit?: boolean | null;
   electricalTrenching?: boolean | null;
+  electricalConduitSpecialty?: boolean | null;
+  electricalTrenchCondition?: ElectricalTrenchCondition | null;
   existingServiceAmperage?: number | null;
   electricalPanelLocation?: ElectricalPanelLocation | null;
   electricalMeterMainCombo?: boolean | null;
@@ -612,6 +757,11 @@ function readProjectCondition(value: unknown): ElectricalProjectCondition | null
 function readPanelLocation(value: unknown): ElectricalPanelLocation | null {
   const raw = String(value || '').trim().toLowerCase();
   return raw === 'indoor' || raw === 'outdoor' ? raw : null;
+}
+
+function readTrenchCondition(value: unknown): ElectricalTrenchCondition | null {
+  const raw = String(value || '').trim();
+  return raw === 'normal_soil' || raw === 'rocky' ? raw : null;
 }
 
 function readExplicitElectricalScope(input: Record<string, unknown>): string[] | null {
@@ -682,6 +832,8 @@ export function buildElectricalStructuredMeasurements(
     electricalIncludeTrim: readBooleanFlag(input.electricalIncludeTrim),
     electricalConduit: readBooleanFlag(input.electricalConduit),
     electricalTrenching: readBooleanFlag(input.electricalTrenching),
+    electricalConduitSpecialty: readBooleanFlag(input.electricalConduitSpecialty),
+    electricalTrenchCondition: readTrenchCondition(input.electricalTrenchCondition),
     existingServiceAmperage: positiveNumber(input.existingServiceAmperage),
     electricalPanelLocation: readPanelLocation(input.electricalPanelLocation),
     electricalMeterMainCombo: readBooleanFlag(input.electricalMeterMainCombo),
@@ -721,6 +873,8 @@ export function copyElectricalConditionFields(source: Record<string, unknown> | 
   electricalIncludeTrim: boolean | null;
   electricalConduit: boolean | null;
   electricalTrenching: boolean | null;
+  electricalConduitSpecialty: boolean | null;
+  electricalTrenchCondition: ElectricalTrenchCondition | null;
   existingServiceAmperage: number | null;
   electricalPanelLocation: ElectricalPanelLocation | null;
   electricalMeterMainCombo: boolean | null;
@@ -734,6 +888,8 @@ export function copyElectricalConditionFields(source: Record<string, unknown> | 
     electricalIncludeTrim: readBooleanFlag(source?.electricalIncludeTrim),
     electricalConduit: readBooleanFlag(source?.electricalConduit),
     electricalTrenching: readBooleanFlag(source?.electricalTrenching),
+    electricalConduitSpecialty: readBooleanFlag(source?.electricalConduitSpecialty),
+    electricalTrenchCondition: readTrenchCondition(source?.electricalTrenchCondition),
     existingServiceAmperage: positiveNumber(source?.existingServiceAmperage),
     electricalPanelLocation: readPanelLocation(source?.electricalPanelLocation),
     electricalMeterMainCombo: readBooleanFlag(source?.electricalMeterMainCombo),
@@ -751,9 +907,18 @@ export function electricalChecklistGroups(): Array<{
         card => card.itemId
       ),
     })),
+    { title: 'Packages', itemIds: ['electrical_rough', 'electrical_trim'] },
     { title: 'Closeout', itemIds: ['cleanup'] },
   ];
 }
+
+export const ELECTRICAL_ROUGH_CARD_LABEL = 'Electrical rough-in';
+export const ELECTRICAL_ROUGH_CARD_HELPER =
+  'Whole-project electrical rough-in planning allowance — $10,000. Standard residential branch-circuit rough wiring, boxes, cable/conductors, basic supports and rough-in labor. Planning allowance only; confirm detailed device/circuit takeoff before final bid. Does not include service/panel work, trim devices/plates, light fixtures, fans, appliance hookups, low voltage, EV, conduit/trenching, utility work, wall repair, specialty systems, or work already priced on detailed Electrical cards. A rough flag without a point count does not invent a count. Living SF is not the quantity.';
+
+export const ELECTRICAL_TRIM_CARD_LABEL = 'Electrical trim-out';
+export const ELECTRICAL_TRIM_CARD_HELPER =
+  'Existing box/wiring electrical trim-out — standard receptacles/switches/plates, device installation, testing and labeling. No new circuit/homerun. Does not include light fixtures, fans, appliance hookups, specialty devices, or new circuits. Detailed receptacle / switch / fixture / fan counts own those cards instead. A trim flag without a device count does not invent a count. The $2,500 whole-project figure is a planning allowance only — confirm actual quantity before final bid.';
 
 export function electricalTemplateItems(): Array<{
   id: string;
@@ -773,6 +938,20 @@ export function electricalTemplateItems(): Array<{
       })
     ),
     {
+      id: 'electrical_rough',
+      inputType: 'yes_no',
+      label: ELECTRICAL_ROUGH_CARD_LABEL,
+      helperText: ELECTRICAL_ROUGH_CARD_HELPER,
+      category: 'packages',
+    },
+    {
+      id: 'electrical_trim',
+      inputType: 'yes_no',
+      label: ELECTRICAL_TRIM_CARD_LABEL,
+      helperText: ELECTRICAL_TRIM_CARD_HELPER,
+      category: 'packages',
+    },
+    {
       id: 'cleanup',
       inputType: 'yes_no',
       label: 'Cleanup & disposal',
@@ -786,7 +965,12 @@ export function syncElectricalScopeItems<T extends { id: string; state?: string 
   items: T[],
   params: {
     electricalScope?: string[] | null;
-    quantities?: Partial<Record<ElectricalQuantityKey, unknown>>;
+    electricalIncludeRough?: boolean | null;
+    electricalIncludeTrim?: boolean | null;
+    quantities?: Partial<Record<ElectricalQuantityKey, unknown>> & {
+      electricalIncludeRough?: boolean | null;
+      electricalIncludeTrim?: boolean | null;
+    };
   }
 ): T[] {
   const included = new Set(params.electricalScope || []);
@@ -795,6 +979,18 @@ export function syncElectricalScopeItems<T extends { id: string; state?: string 
     if (positiveNumber(params.quantities?.[card.measurementKey]) != null) {
       included.add(card.itemId);
     }
+  }
+  if (
+    params.electricalIncludeRough === true ||
+    params.quantities?.electricalIncludeRough === true
+  ) {
+    included.add('electrical_rough');
+  }
+  if (
+    params.electricalIncludeTrim === true ||
+    params.quantities?.electricalIncludeTrim === true
+  ) {
+    included.add('electrical_trim');
   }
   if (!included.size) return items;
   return items.map(item => {
@@ -822,6 +1018,81 @@ const WORD_COUNTS: Record<string, number> = {
 };
 
 const COUNT_TOKEN = String.raw`(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)`;
+const LENGTH_TOKEN = String.raw`(\d+(?:\.\d+)?)`;
+const LENGTH_UNIT = String.raw`(?:lf|lin(?:eal|ear)?\s*(?:ft|feet)|feet|foot|ft)\b`;
+
+function parseLengthLf(text: string, pattern: RegExp): number | null {
+  const match = text.match(pattern);
+  if (!match) return null;
+  const raw = match.slice(1).find(part => part != null && String(part).trim());
+  const n = Number(String(raw || '').replace(/,/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function parseConduitLf(text: string): number | null {
+  return (
+    parseLengthLf(
+      text,
+      new RegExp(
+        String.raw`${LENGTH_TOKEN}\s*${LENGTH_UNIT}\s*(?:of\s+)?(?:emt|pvc|rmc|rigid)?\s*conduit\b`,
+        'i'
+      )
+    ) ||
+    parseLengthLf(
+      text,
+      new RegExp(
+        String.raw`\b(?:emt|pvc|rmc|rigid)?\s*conduit\s*(?:run\s*)?(?:of\s+)?${LENGTH_TOKEN}\s*${LENGTH_UNIT}`,
+        'i'
+      )
+    ) ||
+    parseLengthLf(
+      text,
+      new RegExp(String.raw`${LENGTH_TOKEN}\s*'\s*(?:of\s+)?conduit\b`, 'i')
+    )
+  );
+}
+
+function parseTrenchingLf(text: string): number | null {
+  return (
+    parseLengthLf(
+      text,
+      new RegExp(
+        String.raw`${LENGTH_TOKEN}\s*${LENGTH_UNIT}\s*(?:of\s+)?trench(?:ing)?\b`,
+        'i'
+      )
+    ) ||
+    parseLengthLf(
+      text,
+      new RegExp(
+        String.raw`\btrench(?:ing)?\s*(?:of\s+)?${LENGTH_TOKEN}\s*${LENGTH_UNIT}`,
+        'i'
+      )
+    ) ||
+    parseLengthLf(
+      text,
+      new RegExp(String.raw`${LENGTH_TOKEN}\s*'\s*(?:of\s+)?trench(?:ing)?\b`, 'i')
+    )
+  );
+}
+
+function isSpecialtyElectricalConduitNotes(text: string): boolean {
+  return /\b(?:rigid(?:\s+metal)?\s+conduit|rmc|imc|grc|steel\s+conduit|metal\s+conduit|oversized(?:\s+conduit)?|(?:2|3|4|5|6)\s*(?:inch|in\.?|")\s+conduit)\b/i.test(
+    text
+  );
+}
+
+function parseElectricalTrenchConditionFromNotes(
+  text: string
+): ElectricalTrenchCondition | null {
+  if (
+    /\b(?:rocky|rock\s+(?:trench|excavation|soil|hammer)|bedrock|ledge\s+rock|pavement|asphalt|boring|horizontal\s+(?:bore|drill)|concrete\s+cut|rock\s*hammer|difficult\s+trench|tight\s+access|access[\s-]?constrained)\b/i.test(
+      text
+    )
+  ) {
+    return 'rocky';
+  }
+  return 'normal_soil';
+}
 
 function parseCountToken(raw: string | undefined): number | null {
   const token = String(raw || '').toLowerCase();
@@ -1206,7 +1477,7 @@ function parseProjectCondition(text: string): ElectricalProjectCondition | null 
 }
 
 function looksLikeElectricalNotes(text: string): boolean {
-  return /\b(electrical|outlet|receptacle|gfci|afci|switch(?:es)?|dimmers?|recessed|canless|wafer|vanity\s+lights?|pendant|chandelier|panel|subpanel|circuits?|ceiling\s+fan|amp(?:ere)?s?|\d+\s*a\b|service|ev\s+charger|cat\s*6|smoke\s+detector|doorbell|cameras?|prewire|poe|remove|removal|relocat|abandon|conduit|rough[\s-]?in|finished[\s-]?wall|fish(?:ing)?\s+(?:in\s+)?walls?)\b/i.test(
+  return /\b(electrical|outlet|receptacle|gfci|afci|switch(?:es)?|dimmers?|recessed|canless|wafer|vanity\s+lights?|pendant|chandelier|panel|subpanel|circuits?|ceiling\s+fan|amp(?:ere)?s?|\d+\s*a\b|service|ev\s+charger|cat\s*6|smoke\s+detector|doorbell|cameras?|prewire|poe|remove|removal|relocat|abandon|conduit|trench(?:ing)?|rough[\s-]?in|finished[\s-]?wall|fish(?:ing)?\s+(?:in\s+)?walls?)\b/i.test(
     text
   );
 }
@@ -1543,12 +1814,39 @@ export function parseElectricalMeasurementsFromNotes(
 
   const condition = parseProjectCondition(text);
   if (condition) out.electricalProjectCondition = condition;
-  if (/\brough(?:[\s-]?in)?\b/i.test(text)) out.electricalIncludeRough = true;
-  if (/\btrim(?:[\s-]?out)?\b|\bdevices?\s+and\s+plates\b/i.test(text)) {
+  if (
+    /\brough(?:[\s-]?in)?\b/i.test(text) ||
+    /\belectrical\s+rough\b/i.test(text)
+  ) {
+    out.electricalIncludeRough = true;
+  }
+  if (
+    /\btrim(?:[\s-]?out)?\b/i.test(text) ||
+    /\bdevices?\s+and\s+plates\b/i.test(text) ||
+    /\bfinish(?:ing)?\s+electrical\b/i.test(text) ||
+    /\belectrical\s+trim\b/i.test(text) ||
+    /\binstall\s+devices?\b/i.test(text)
+  ) {
     out.electricalIncludeTrim = true;
   }
-  if (/\bconduit\b/i.test(text)) out.electricalConduit = true;
+  if (/\bconduit\b|\bemt\b|\bpvc\s+conduit\b/i.test(text)) out.electricalConduit = true;
   if (/\btrench(?:ing)?\b/i.test(text)) out.electricalTrenching = true;
+  const conduitLf = parseConduitLf(text);
+  if (conduitLf != null) {
+    assign('conduitLf', conduitLf);
+    out.electricalConduit = true;
+  }
+  const trenchingLf = parseTrenchingLf(text);
+  if (trenchingLf != null) {
+    assign('trenchingLf', trenchingLf);
+    out.electricalTrenching = true;
+  }
+  if (out.electricalConduit && isSpecialtyElectricalConduitNotes(text)) {
+    out.electricalConduitSpecialty = true;
+  }
+  if (out.electricalTrenching) {
+    out.electricalTrenchCondition = parseElectricalTrenchConditionFromNotes(text);
+  }
 
   const structured = buildElectricalStructuredMeasurements(
     {
@@ -1596,15 +1894,17 @@ export function electricalQuantityRules(): Record<
 /**
  * Package vs detailed Electrical pricing.
  *
- * PACKAGE MODE: whole-project `electrical_rough` allowance when detailed counts
- * are unavailable (bathroom/kitchen/ground-up compatibility).
+ * PACKAGE MODE: whole-project `electrical_rough` / `electrical_trim` allowance
+ * when detailed counts are unavailable (bathroom/kitchen/ground-up compatibility).
  *
  * DETAILED MODE: owned circuit/device/fixture/panel counts. Once those exist,
  * the generic rough package must not auto-price the same branch/device work.
+ * Once receptacle / switch / fixture / fan counts exist, `electrical_trim`
+ * must not auto-price the same device + plate work.
  *
  * Living SF / floor SF / building SF is never a quantity owner for canonical
- * Electrical cards, and it must not price `electrical_rough` on the Electrical
- * estimator or alongside detailed takeoff.
+ * Electrical cards, and it must not price `electrical_rough` or
+ * `electrical_trim` on the Electrical estimator or alongside detailed takeoff.
  */
 export type ElectricalPricingMode = 'package' | 'detailed';
 
@@ -1641,15 +1941,110 @@ export function electricalPricingMode(
   return hasDetailedElectricalQuantities(input) ? 'detailed' : 'package';
 }
 
+const ELECTRICAL_TRIM_OWNED_GROUPS = new Set<ElectricalCardGroupId>([
+  'receptacles',
+  'switches',
+  'lighting',
+  'fans',
+]);
+
 /**
- * False when the generic rough package would double-count detailed takeoff,
- * or when the standalone Electrical estimator is the active template.
+ * True when 2C/2D/2E device or fixture counts already own trim-out work.
+ */
+export function hasDetailedElectricalTrimDeviceQuantities(
+  input: Record<string, unknown> | null | undefined
+): boolean {
+  if (!input) return false;
+  const itemQuantities = (input.itemQuantities || {}) as Record<
+    string,
+    { quantity?: unknown }
+  >;
+  for (const card of ELECTRICAL_CARDS) {
+    if (!ELECTRICAL_TRIM_OWNED_GROUPS.has(card.groupId)) continue;
+    if (readPositiveQuantity(input[card.measurementKey]) != null) return true;
+    if (readPositiveQuantity(itemQuantities[card.itemId]?.quantity) != null) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function electricalTrimPackageRequestedFromInput(
+  input: Record<string, unknown> | null | undefined
+): boolean {
+  if (!input) return false;
+  if (input.electricalIncludeTrim === true || input.electricalIncludeTrim === 'true') {
+    return true;
+  }
+  const scope = Array.isArray(input.electricalScope) ? input.electricalScope : [];
+  if (scope.some(id => String(id) === 'electrical_trim')) return true;
+  const itemQuantities = (input.itemQuantities || {}) as Record<
+    string,
+    { quantity?: unknown; unit?: unknown }
+  >;
+  const trimQty = itemQuantities.electrical_trim;
+  const qty = readPositiveQuantity(trimQty?.quantity);
+  if (qty != null) {
+    const unit = String(trimQty?.unit || '').toLowerCase();
+    if (unit === 'each') return true;
+    if ((unit === 'allowance' || unit === 'lump_sum') && qty > 1) return true;
+  }
+  return false;
+}
+
+/**
+ * False when detailed receptacle / switch / fixture / fan counts would
+ * double-count a trim package, or when the Electrical estimator has no
+ * trim-out request. Other templates keep existing package behavior unless
+ * those detailed device counts exist. Living SF is never a trim quantity.
+ */
+export function shouldAutoPriceElectricalTrimPackage(
+  input: Record<string, unknown> | null | undefined,
+  templateKey?: string | null
+): boolean {
+  if (hasDetailedElectricalTrimDeviceQuantities(input)) return false;
+  if (String(templateKey || '').toLowerCase() === 'electrical') {
+    return electricalTrimPackageRequestedFromInput(input);
+  }
+  return true;
+}
+
+function electricalRoughPackageRequestedFromInput(
+  input: Record<string, unknown> | null | undefined
+): boolean {
+  if (!input) return false;
+  if (input.electricalIncludeRough === true || input.electricalIncludeRough === 'true') {
+    return true;
+  }
+  const scope = Array.isArray(input.electricalScope) ? input.electricalScope : [];
+  if (scope.some(id => String(id) === 'electrical_rough')) return true;
+  const itemQuantities = (input.itemQuantities || {}) as Record<
+    string,
+    { quantity?: unknown; unit?: unknown }
+  >;
+  const roughQty = itemQuantities.electrical_rough;
+  const qty = readPositiveQuantity(roughQty?.quantity);
+  if (qty != null) {
+    const unit = String(roughQty?.unit || '').toLowerCase();
+    if (unit === 'each') return true;
+    if ((unit === 'allowance' || unit === 'lump_sum') && qty > 1) return true;
+  }
+  return false;
+}
+
+/**
+ * False when detailed 2A–2I counts would double-count a rough package, or
+ * when the Electrical estimator has no rough-in request. Other templates
+ * keep existing package behavior unless those detailed counts exist.
+ * Living SF is never a rough quantity on the Electrical estimator.
  */
 export function shouldAutoPriceElectricalRoughPackage(
   input: Record<string, unknown> | null | undefined,
   templateKey?: string | null
 ): boolean {
-  if (String(templateKey || '').toLowerCase() === 'electrical') return false;
   if (hasDetailedElectricalQuantities(input)) return false;
+  if (String(templateKey || '').toLowerCase() === 'electrical') {
+    return electricalRoughPackageRequestedFromInput(input);
+  }
   return true;
 }

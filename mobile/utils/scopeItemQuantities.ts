@@ -13,6 +13,7 @@ import {
   electricalQuantityRules,
   isCanonicalElectricalItemId,
   shouldAutoPriceElectricalRoughPackage,
+  shouldAutoPriceElectricalTrimPackage,
   ELECTRICAL_CARDS,
   type ElectricalQuantityKey,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
@@ -48,6 +49,18 @@ import {
   isElectricalModificationItemId,
   resolveElectricalModificationSuggestedPricing,
 } from '@/utils/subcontractorTrade/electricalModificationPricing';
+import {
+  isElectricalRacewayItemId,
+  resolveElectricalRacewaySuggestedPricing,
+} from '@/utils/subcontractorTrade/electricalRacewayPricing';
+import {
+  isElectricalTrimItemId,
+  resolveElectricalTrimSuggestedPricing,
+} from '@/utils/subcontractorTrade/electricalTrimPricing';
+import {
+  isElectricalRoughItemId,
+  resolveElectricalRoughSuggestedPricing,
+} from '@/utils/subcontractorTrade/electricalRoughPricing';
 import {
   SCOPE_PARSED_FROM_NOTES_LABEL,
   SCOPE_MATERIAL_PARSED_FROM_NOTES_LABEL,
@@ -5196,10 +5209,11 @@ export const CHECKLIST_ITEM_QUANTITY_RULES: Record<
   },
   electrical_trim: {
     defaultUnit: 'allowance',
-    allowedUnits: ['allowance', 'lump_sum'],
+    allowedUnits: ['each', 'allowance', 'lump_sum'],
     requiresUserQuantity: true,
     lumpSumOnly: false,
-    quantityHelper: 'Price electrical fixtures with material and labor.',
+    quantityHelper:
+      'Package trim-out allowance, or enter a trim device count. Not living SF. Detailed receptacle / switch / fixture cards own those devices instead.',
     missingMessage: 'Enter electrical trim pricing (material + labor).',
   },
   permits: {
@@ -8003,6 +8017,9 @@ export function resolveSuggestAlignedEditorPricingBasis(
     const countUnit = normalizeBasisUnit(countEntry?.unit);
     if (countQty && countQty > 0 && countUnit === 'each') {
       return { quantity: countQty, unit: 'each' };
+    }
+    if (String(tk || '').toLowerCase() === 'electrical') {
+      return null;
     }
     // Canonical Electrical is count-based. Living/floor/building SF must not
     // own detailed cards or auto-price a rough package beside them.
@@ -11483,8 +11500,24 @@ export function resolveScopeItemSuggestedPricing(
   const rule = getChecklistItemQuantityRule(itemId, templateKey);
   if (!rule) return empty;
   const electricalTemplate = String(templateKey || '').toLowerCase() === 'electrical';
-  if (electricalTemplate && itemId === 'electrical_rough') {
-    return empty;
+  if (isElectricalRoughItemId(itemId) && electricalTemplate) {
+    if (
+      !shouldAutoPriceElectricalRoughPackage(
+        measurementsInput as unknown as Record<string, unknown>,
+        templateKey
+      )
+    ) {
+      return empty;
+    }
+    return resolveElectricalRoughSuggestedPricing({
+      itemId,
+      quantity: resolved.quantity,
+      unit: resolved.unit,
+      quantitySource: resolved.quantitySource,
+      electricalProjectCondition: measurementsInput.electricalProjectCondition,
+      electricalIncludeRough: measurementsInput.electricalIncludeRough,
+      electricalScope: measurementsInput.electricalScope,
+    });
   }
   if (isElectricalServicePanelItemId(itemId)) {
     return resolveElectricalServicePanelSuggestedPricing({
@@ -11570,6 +11603,37 @@ export function resolveScopeItemSuggestedPricing(
       quantitySource: resolved.quantitySource,
       electricalProjectCondition: measurementsInput.electricalProjectCondition,
     });
+  }
+  if (isElectricalRacewayItemId(itemId)) {
+    return resolveElectricalRacewaySuggestedPricing({
+      itemId,
+      quantity: resolved.quantity,
+      quantitySource: resolved.quantitySource,
+      electricalProjectCondition: measurementsInput.electricalProjectCondition,
+      electricalTrenchCondition: measurementsInput.electricalTrenchCondition,
+      electricalConduitSpecialty: measurementsInput.electricalConduitSpecialty,
+    });
+  }
+  if (isElectricalTrimItemId(itemId)) {
+    if (
+      !shouldAutoPriceElectricalTrimPackage(
+        measurementsInput as unknown as Record<string, unknown>,
+        templateKey
+      )
+    ) {
+      return empty;
+    }
+    if (electricalTemplate) {
+      return resolveElectricalTrimSuggestedPricing({
+        itemId,
+        quantity: resolved.quantity,
+        unit: resolved.unit,
+        quantitySource: resolved.quantitySource,
+        electricalProjectCondition: measurementsInput.electricalProjectCondition,
+        electricalIncludeTrim: measurementsInput.electricalIncludeTrim,
+        electricalScope: measurementsInput.electricalScope,
+      });
+    }
   }
   if (electricalTemplate && isCanonicalElectricalItemId(itemId)) {
     return empty;
@@ -13059,6 +13123,15 @@ export function resolveScopeItemSuggestedPricing(
       itemId
     )
   ) {
+    if (
+      itemId === 'electrical_trim' &&
+      !shouldAutoPriceElectricalTrimPackage(
+        measurementsInput as unknown as Record<string, unknown>,
+        templateKey
+      )
+    ) {
+      return empty;
+    }
     const livingSf = parseScopeMeasurementInput(
       measurementsInput.floorAreaSqft
     );
@@ -18550,6 +18623,8 @@ export type ScopeMeasurementsInputExtended = ReturnType<
   electricalIncludeTrim?: boolean | null;
   electricalConduit?: boolean | null;
   electricalTrenching?: boolean | null;
+  electricalConduitSpecialty?: boolean | null;
+  electricalTrenchCondition?: import('@/utils/subcontractorTrade/electricalPlanConvergence').ElectricalTrenchCondition | null;
   existingServiceAmperage?: string | number | null;
   electricalPanelLocation?: import('@/utils/estimateAiDraft').ScopeMeasurements['electricalPanelLocation'];
   electricalMeterMainCombo?: boolean | null;

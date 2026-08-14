@@ -15,4 +15,7 @@ export * from './electricalLightingFanPricing';
 export * from './electricalHookupPricing';
 export * from './electricalSpecialSystemsPricing';
 export * from './electricalModificationPricing';
+export * from './electricalRacewayPricing';
+export * from './electricalTrimPricing';
+export * from './electricalRoughPricing';
 export * from './convergence';

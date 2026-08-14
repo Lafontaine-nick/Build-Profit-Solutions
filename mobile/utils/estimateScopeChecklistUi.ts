@@ -16,6 +16,10 @@ import {
 import {
   electricalChecklistGroups,
   syncElectricalScopeItems,
+  ELECTRICAL_ROUGH_CARD_HELPER,
+  ELECTRICAL_ROUGH_CARD_LABEL,
+  ELECTRICAL_TRIM_CARD_HELPER,
+  ELECTRICAL_TRIM_CARD_LABEL,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import {
   floorDemoNotesHint,
@@ -2679,6 +2683,12 @@ export function checklistDisplayHelper(
   ) {
     return BATHROOM_CHECKLIST_HELPER_OVERRIDES[item.id];
   }
+  if (templateKey === 'electrical' && item.id === 'electrical_rough') {
+    return ELECTRICAL_ROUGH_CARD_HELPER;
+  }
+  if (templateKey === 'electrical' && item.id === 'electrical_trim') {
+    return ELECTRICAL_TRIM_CARD_HELPER;
+  }
   return CHECKLIST_HELPER_OVERRIDES[item.id] || item.helperText;
 }
 
@@ -2694,6 +2704,12 @@ export function checklistDisplayLabel(
   }
   if (templateKey === 'kitchen' && KITCHEN_CHECKLIST_LABEL_OVERRIDES[item.id]) {
     return KITCHEN_CHECKLIST_LABEL_OVERRIDES[item.id];
+  }
+  if (templateKey === 'electrical' && item.id === 'electrical_rough') {
+    return ELECTRICAL_ROUGH_CARD_LABEL;
+  }
+  if (templateKey === 'electrical' && item.id === 'electrical_trim') {
+    return ELECTRICAL_TRIM_CARD_LABEL;
   }
   return item.label;
 }

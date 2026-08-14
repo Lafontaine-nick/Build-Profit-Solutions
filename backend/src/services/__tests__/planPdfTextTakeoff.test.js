@@ -8,6 +8,9 @@ const {
   dedupeRoomsByName,
   formatPdfEvidenceForVision,
   scorePaintingRelevantPage,
+  scoreElectricalRelevantPage,
+  expandElectricalRelevantPages,
+  toUint8Array,
 } = require('../planPdfTextTakeoff');
 const shvPlanFacts = require('../testFixtures/shvPlanFacts');
 
@@ -223,6 +226,58 @@ describe('planPdfTextTakeoff', () => {
     );
     expect(scorePaintingRelevantPage('FRONT ELEVATION').reasons).toContain('exterior elevation');
     expect(scorePaintingRelevantPage('E1.0 ELECTRICAL PLAN').score).toBe(0);
+  });
+
+  test('scoreElectricalRelevantPage ranks electrical sheets and panel schedules', () => {
+    expect(scoreElectricalRelevantPage('E1.0 ELECTRICAL PLAN MAIN LEVEL')).toMatchObject({
+      score: expect.any(Number),
+      reasons: expect.arrayContaining(['electrical plan']),
+    });
+    expect(scoreElectricalRelevantPage('PANEL SCHEDULE 200A')).toMatchObject({
+      reasons: expect.arrayContaining(['panel schedule']),
+    });
+    expect(
+      scoreElectricalRelevantPage('MAIN LEVEL ELECTRICAL PLAN').score
+    ).toBeGreaterThan(scoreElectricalRelevantPage('A1.1 FLOOR PLAN MAIN LEVEL').score);
+    expect(scoreElectricalRelevantPage('A1.1 FLOOR PLAN MAIN LEVEL').score).toBe(0);
+    expect(scoreElectricalRelevantPage('UPPER FLOOR LIGHTING PLAN').reasons).toContain(
+      'lighting / power plan'
+    );
+  });
+
+  test('toUint8Array copies bytes so pdf.js cannot detach the original buffer', () => {
+    const buf = Buffer.from('electrical-plan');
+    const copy = toUint8Array(buf);
+    expect(copy).toBeInstanceOf(Uint8Array);
+    expect(Buffer.from(copy).toString()).toBe('electrical-plan');
+    expect(copy.buffer).not.toBe(buf.buffer);
+  });
+
+  test('expandElectricalRelevantPages includes the following sheet after a strong E-page hit', () => {
+    const expanded = expandElectricalRelevantPages(
+      [{ page: 12, score: 12, reasons: ['electrical plan'] }],
+      15
+    );
+    expect(expanded.map((page) => page.page)).toEqual([12, 13]);
+    expect(expanded.find((page) => page.page === 13).reasons).toContain(
+      'following electrical sheet'
+    );
+  });
+
+  test('formatPdfEvidenceForVision lists electrical-relevant pages for Electrical trade', () => {
+    const text = formatPdfEvidenceForVision(
+      {
+        electricalRelevantPages: [
+          { page: 12, reasons: ['electrical plan', 'level electrical'] },
+          { page: 13, reasons: ['electrical plan'] },
+        ],
+      },
+      { tradeKey: 'electrical' }
+    );
+    expect(text).toMatch(/Electrical-relevant sheets/i);
+    expect(text).toContain('page 12');
+    expect(text).toContain('page 13');
+    expect(text).toMatch(/Do not invent homeruns/i);
   });
 
   test('formatPdfEvidenceForVision lists painting-relevant pages for Painting trade', () => {

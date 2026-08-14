@@ -8,7 +8,7 @@ const TRADE_CONFIGS = {
     key: 'electrical',
     label: 'Electrical',
     status: 'reference',
-    scopeHint: 'Focus on electrical sheets, panels, circuits, devices, lighting, and electrical notes.',
+    scopeHint: 'Focus on electrical sheets, panels, circuits, devices, lighting, and electrical notes. Plan Export maps symbol/schedule counts onto the locked 2A–2K keys.',
     missingInfo: ['Device and fixture counts', 'Panel/circuit schedule', 'Service size and utility scope'],
     reviewMeasurementKeys: [
       'mainPanelCount',
@@ -63,6 +63,8 @@ const TRADE_CONFIGS = {
       'fixtureRemovalCount',
       'relocateCount',
       'abandonedCircuitCount',
+      'conduitLf',
+      'trenchingLf',
     ],
     reviewScopeKeywords: ['electrical', 'receptacle', 'switch', 'lighting', 'panel', 'circuit', 'smoke', 'detector'],
   },
@@ -277,13 +279,24 @@ function filterPlanMeasurementsForTrade(measurements, mode, trade) {
   );
 }
 
+/** Plan-detected Electrical packages stay confirmation-only until the contractor selects them. */
+const ELECTRICAL_PLAN_CONFIRMATION_ONLY_SCOPE_IDS = new Set([
+  'electrical_rough',
+  'electrical_trim',
+  'electrical',
+]);
+
 function filterPlanScopesForTrade(scope, mode, trade) {
   if (!scope || mode !== 'selected_trade') return scope;
   const tradeKey = trade?.key || null;
   const allowedIds = getTradeScopeAllowlist(tradeKey);
   const detections = (scope.detections || []).filter((detection) => {
+    const itemId = String(detection.itemId || '').trim();
+    if (tradeKey === 'electrical' && ELECTRICAL_PLAN_CONFIRMATION_ONLY_SCOPE_IDS.has(itemId)) {
+      return false;
+    }
     if (allowedIds?.length) {
-      return allowedIds.includes(String(detection.itemId || '').trim());
+      return allowedIds.includes(itemId);
     }
     const keywords = trade?.reviewScopeKeywords || [];
     if (!keywords.length) return false;

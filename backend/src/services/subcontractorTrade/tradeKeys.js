@@ -73,6 +73,8 @@ const TRADE_SCOPE_ALLOWLISTS = {
     'electrical_fixture_removal',
     'electrical_relocate',
     'electrical_abandoned_circuit',
+    'electrical_conduit',
+    'electrical_trenching',
     'cleanup',
   ],
   stucco: ['stucco'],

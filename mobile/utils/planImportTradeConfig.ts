@@ -150,6 +150,13 @@ export function tradeQuickMeasurementFieldKeys(
   return [];
 }
 
+/** Plan-detected Electrical packages stay confirmation-only until the contractor selects them. */
+const ELECTRICAL_PLAN_CONFIRMATION_ONLY_SCOPE_IDS = new Set([
+  'electrical_rough',
+  'electrical_trim',
+  'electrical',
+]);
+
 export function filterPlanScopesForTrade<
   T extends {
     itemId?: string | null;
@@ -163,19 +170,25 @@ export function filterPlanScopesForTrade<
 ): T[] {
   if (mode !== 'selected_trade') return detections;
   const allowedIds = getTradeScopeAllowlist(tradeKey);
-  if (allowedIds?.length) {
-    return detections.filter(detection =>
-      allowedIds.includes(String(detection.itemId || '').trim())
-    );
-  }
-  const keywords =
-    getPlanTradeConfiguration(tradeKey)?.reviewScopeKeywords || [];
-  if (!keywords.length) return [];
-  return detections.filter(detection => {
+  const keepDetection = (detection: T) => {
+    const itemId = String(detection.itemId || '').trim();
+    if (
+      tradeKey === 'electrical' &&
+      ELECTRICAL_PLAN_CONFIRMATION_ONLY_SCOPE_IDS.has(itemId)
+    ) {
+      return false;
+    }
+    if (allowedIds?.length) {
+      return allowedIds.includes(itemId);
+    }
+    const keywords =
+      getPlanTradeConfiguration(tradeKey)?.reviewScopeKeywords || [];
+    if (!keywords.length) return false;
     const haystack =
       `${detection.itemId || ''} ${detection.label || ''} ${detection.evidence || ''}`.toLowerCase();
     return keywords.some(keyword => haystack.includes(keyword));
-  });
+  };
+  return detections.filter(keepDetection);
 }
 
 export function filterChecklistItemsForTrade<T extends { id: string }>(

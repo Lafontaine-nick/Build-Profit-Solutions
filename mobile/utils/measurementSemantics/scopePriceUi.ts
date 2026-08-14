@@ -11,6 +11,9 @@ import { isElectricalLightingFanItemId } from '@/utils/subcontractorTrade/electr
 import { isElectricalHookupItemId } from '@/utils/subcontractorTrade/electricalHookupPricing';
 import { isElectricalSpecialSystemItemId } from '@/utils/subcontractorTrade/electricalSpecialSystemsPricing';
 import { isElectricalModificationItemId } from '@/utils/subcontractorTrade/electricalModificationPricing';
+import { isElectricalRacewayItemId } from '@/utils/subcontractorTrade/electricalRacewayPricing';
+import { isElectricalTrimItemId } from '@/utils/subcontractorTrade/electricalTrimPricing';
+import { isElectricalRoughItemId } from '@/utils/subcontractorTrade/electricalRoughPricing';
 
 export type BenchmarkLevel = 'scope' | 'component' | 'stage' | 'overall';
 
@@ -360,7 +363,10 @@ export function missingStatusDisplayLabel(
         !isElectricalLightingFanItemId(scopeKey) &&
         !isElectricalHookupItemId(scopeKey) &&
         !isElectricalSpecialSystemItemId(scopeKey) &&
-        !isElectricalModificationItemId(scopeKey)
+        !isElectricalModificationItemId(scopeKey) &&
+        !isElectricalRacewayItemId(scopeKey) &&
+        !isElectricalTrimItemId(scopeKey) &&
+        !isElectricalRoughItemId(scopeKey)
       ) {
         return 'Needs pricing';
       }

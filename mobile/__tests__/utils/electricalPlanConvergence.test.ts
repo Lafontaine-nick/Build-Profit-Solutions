@@ -12,6 +12,7 @@ import {
   buildElectricalStructuredMeasurements,
   normalizeElectricalScalarMeasurements,
   shouldAutoPriceElectricalRoughPackage,
+  shouldAutoPriceElectricalTrimPackage,
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 import { normalizeTradeMeasurements } from '@/utils/subcontractorTrade/convergence';
 import {
@@ -53,7 +54,9 @@ describe('electrical canonical architecture', () => {
       expect(electricalCardForMeasurementKey(card.measurementKey)?.itemId).toBe(
         card.itemId
       );
-      expect(card.unit === 'each' || card.unit === 'amp').toBe(true);
+      expect(card.unit === 'each' || card.unit === 'amp' || card.unit === 'lf').toBe(
+        true
+      );
     }
   });
 
@@ -194,6 +197,7 @@ describe('electrical canonical architecture', () => {
       'Appliance / equipment hookups',
       'Life safety / low voltage',
       'Rough / modifications',
+      'Packages',
       'Closeout',
     ]);
     expect(SCOPE_CHECKLIST_GROUPS.electrical?.map(group => group.title)).toEqual(
@@ -204,6 +208,13 @@ describe('electrical canonical architecture', () => {
     }
     const templateIds = electricalTemplateItems().map(item => item.id);
     expect(templateIds).toEqual(expect.arrayContaining(groups.flatMap(g => g.itemIds)));
+    expect(groups.find(group => group.title === 'Packages')?.itemIds).toEqual([
+      'electrical_rough',
+      'electrical_trim',
+    ]);
+    expect(groups.find(group => group.title === 'Closeout')?.itemIds).toEqual([
+      'cleanup',
+    ]);
     expect(ELECTRICAL_REVIEW_MEASUREMENT_KEYS).toContain('serviceAmperage');
   });
 
@@ -307,6 +318,12 @@ describe('electrical canonical architecture', () => {
     expect(
       shouldAutoPriceElectricalRoughPackage(
         detailed as unknown as Record<string, unknown>,
+        'electrical'
+      )
+    ).toBe(false);
+    expect(
+      shouldAutoPriceElectricalTrimPackage(
+        { ...detailed, electricalIncludeTrim: true } as unknown as Record<string, unknown>,
         'electrical'
       )
     ).toBe(false);
@@ -529,6 +546,18 @@ describe('electrical canonical architecture', () => {
     expect(byId.electrical_fixture_removal.helper).toMatch(/not a new fixture/i);
     expect(byId.electrical_relocate.helper).toMatch(/not a new device card/i);
     expect(byId.electrical_abandoned_circuit.helper).toMatch(/not a new homerun/i);
+  });
+
+  it('names conduit and trenching as LF raceway cards', () => {
+    const byId = Object.fromEntries(
+      ELECTRICAL_CARDS.map(card => [card.itemId, card])
+    );
+    expect(byId.electrical_conduit.unit).toBe('lf');
+    expect(byId.electrical_trenching.unit).toBe('lf');
+    expect(byId.electrical_conduit.label).toBe('Conduit / raceway only');
+    expect(byId.electrical_trenching.label).toBe('Trenching — normal soil');
+    expect(byId.electrical_conduit.helper).toMatch(/not.*homerun/i);
+    expect(byId.electrical_trenching.helper).toMatch(/not conduit/i);
   });
 
   it('names switch cards as devices, not traveler circuits or fixtures', () => {

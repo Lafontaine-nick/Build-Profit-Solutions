@@ -1491,7 +1491,7 @@ const CHECKLIST_TEMPLATES = {
 
   electrical: {
     title: "Electrical — confirm project scope",
-    intro: "Confirm panels, circuits, devices, and lighting. Service/panel cards can show proposed pricing pending contractor validation; other Electrical cards still need pricing.",
+    intro: "Confirm panels, circuits, devices, and lighting. Detailed Electrical cards can show approved or proposed pricing; the trim-out and rough-in packages stay off when those counts exist.",
     items: [
       ["electrical_main_panel", "Main panel", "Service / panels", "New main-panel install only. Service upgrades own included panel/meter work. Amperage is a separate attribute."],
       ["electrical_subpanel", "Subpanel", "Service / panels", "Branch / subpanel count. Not the main service panel."],
@@ -1544,6 +1544,10 @@ const CHECKLIST_TEMPLATES = {
       ["electrical_fixture_removal", "Fixture removal", "Rough / modifications", "Remove existing light fixtures or fans. Cap / make-safe only. Not a relocate and not a new fixture."],
       ["electrical_relocate", "Relocate outlet / switch / fixture", "Rough / modifications", "Move an existing outlet, switch, or fixture. Not a new device card. Wire modification stays here; wall repair is a separate trade."],
       ["electrical_abandoned_circuit", "Abandoned circuits", "Rough / modifications", "Make-safe / abandon existing circuits. Not a new homerun. Tracing in finished walls is specialty / confirm."],
+      ["electrical_conduit", "Conduit / raceway only", "Rough / modifications", "Standard residential PVC raceway. Not conductors, breaker, homerun, trenching, termination, equipment, or rigid/oversized conduit. A conduit flag without LF does not invent a length."],
+      ["electrical_trenching", "Trenching — normal soil", "Rough / modifications", "Normal-soil excavation and backfill only. Not conduit, rock, boring, pavement, landscape restoration, or permits. Rocky / difficult trench is specialty / confirm. A trenching flag without LF does not invent a length."],
+      ["electrical_rough", "Electrical rough-in", "Packages", "Whole-project electrical rough-in planning allowance — $10,000. Standard residential branch-circuit rough wiring, boxes, cable/conductors, basic supports and rough-in labor. Planning allowance only; confirm detailed device/circuit takeoff before final bid. Does not include service/panel work, trim devices/plates, light fixtures, fans, appliance hookups, low voltage, EV, conduit/trenching, utility work, wall repair, specialty systems, or work already priced on detailed Electrical cards. A rough flag without a point count does not invent a count. Living SF is not the quantity."],
+      ["electrical_trim", "Electrical trim-out", "Packages", "Existing box/wiring electrical trim-out — standard receptacles/switches/plates, device installation, testing and labeling. No new circuit/homerun. Does not include light fixtures, fans, appliance hookups, specialty devices, or new circuits. Detailed receptacle / switch / fixture / fan counts own those cards instead. A trim flag without a device count does not invent a count. The $2,500 whole-project figure is a planning allowance only — confirm actual quantity before final bid."],
       ["cleanup", "Cleanup & disposal", "Closeout", "Job cleanup and debris from electrical work."],
     ].map(([id, label, category, helperText]) => ({
       id,

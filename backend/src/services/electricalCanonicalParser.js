@@ -74,6 +74,8 @@ const QUANTITY_ITEM_IDS = {
   fixtureRemovalCount: 'electrical_fixture_removal',
   relocateCount: 'electrical_relocate',
   abandonedCircuitCount: 'electrical_abandoned_circuit',
+  conduitLf: 'electrical_conduit',
+  trenchingLf: 'electrical_trenching',
 };
 
 function parseCountToken(raw) {
@@ -90,7 +92,7 @@ function matchCount(text, pattern) {
 }
 
 function looksLikeElectricalNotes(text) {
-  return /\b(electrical|outlet|receptacle|gfci|afci|switch(?:es)?|dimmers?|recessed|canless|wafer|vanity\s+lights?|pendant|chandelier|panel|subpanel|circuits?|ceiling\s+fan|amp(?:ere)?s?|\d+\s*a\b|service|ev\s+charger|cat\s*6|smoke\s+detector|doorbell|cameras?|prewire|poe|remove|removal|relocat|abandon|conduit|rough[\s-]?in|finished[\s-]?wall|fish(?:ing)?\s+(?:in\s+)?walls?)\b/i.test(
+  return /\b(electrical|outlet|receptacle|gfci|afci|switch(?:es)?|dimmers?|recessed|canless|wafer|vanity\s+lights?|pendant|chandelier|panel|subpanel|circuits?|ceiling\s+fan|amp(?:ere)?s?|\d+\s*a\b|service|ev\s+charger|cat\s*6|smoke\s+detector|doorbell|cameras?|prewire|poe|remove|removal|relocat|abandon|conduit|trench(?:ing)?|rough[\s-]?in|finished[\s-]?wall|fish(?:ing)?\s+(?:in\s+)?walls?)\b/i.test(
     text
   );
 }
@@ -428,11 +430,62 @@ function parseElectricalMeasurementsFromNotes(notes) {
 
   const condition = parseProjectCondition(text);
   if (condition) out.electricalProjectCondition = condition;
-  if (/\brough(?:[\s-]?in)?\b/i.test(text)) out.electricalIncludeRough = true;
-  if (/\btrim(?:[\s-]?out)?\b/i.test(text)) out.electricalIncludeTrim = true;
-  if (/\bconduit\b/i.test(text)) out.electricalConduit = true;
+  if (
+    /\brough(?:[\s-]?in)?\b/i.test(text) ||
+    /\belectrical\s+rough\b/i.test(text)
+  ) {
+    out.electricalIncludeRough = true;
+  }
+  if (
+    /\btrim(?:[\s-]?out)?\b/i.test(text) ||
+    /\bdevices?\s+and\s+plates\b/i.test(text) ||
+    /\bfinish(?:ing)?\s+electrical\b/i.test(text) ||
+    /\belectrical\s+trim\b/i.test(text) ||
+    /\binstall\s+devices?\b/i.test(text)
+  ) {
+    out.electricalIncludeTrim = true;
+  }
+  if (/\bconduit\b|\bemt\b/i.test(text)) out.electricalConduit = true;
   if (/\btrench(?:ing)?\b/i.test(text)) out.electricalTrenching = true;
+  const LENGTH_TOKEN = '(\\d+(?:\\.\\d+)?)';
+  const LENGTH_UNIT = '(?:lf|lin(?:eal|ear)?\\s*(?:ft|feet)|feet|foot|ft)\\b';
+  const conduitMatch =
+    text.match(new RegExp(`${LENGTH_TOKEN}\\s*${LENGTH_UNIT}\\s*(?:of\\s+)?(?:emt|pvc|rmc|rigid)?\\s*conduit\\b`, 'i')) ||
+    text.match(new RegExp(`\\b(?:emt|pvc|rmc|rigid)?\\s*conduit\\s*(?:run\\s*)?(?:of\\s+)?${LENGTH_TOKEN}\\s*${LENGTH_UNIT}`, 'i'));
+  if (conduitMatch) {
+    const lf = Number(conduitMatch[1]);
+    if (Number.isFinite(lf) && lf > 0) {
+      out.conduitLf = lf;
+      out.electricalConduit = true;
+    }
+  }
+  const trenchMatch =
+    text.match(new RegExp(`${LENGTH_TOKEN}\\s*${LENGTH_UNIT}\\s*(?:of\\s+)?trench(?:ing)?\\b`, 'i')) ||
+    text.match(new RegExp(`\\btrench(?:ing)?\\s*(?:of\\s+)?${LENGTH_TOKEN}\\s*${LENGTH_UNIT}`, 'i'));
+  if (trenchMatch) {
+    const lf = Number(trenchMatch[1]);
+    if (Number.isFinite(lf) && lf > 0) {
+      out.trenchingLf = lf;
+      out.electricalTrenching = true;
+    }
+  }
+  if (
+    out.electricalConduit &&
+    /\b(?:rigid(?:\s+metal)?\s+conduit|rmc|imc|grc|steel\s+conduit|metal\s+conduit|oversized(?:\s+conduit)?|(?:2|3|4|5|6)\s*(?:inch|in\.?|")\s+conduit)\b/i.test(
+      text
+    )
+  ) {
+    out.electricalConduitSpecialty = true;
+  }
+  if (out.electricalTrenching) {
+    out.electricalTrenchCondition = /\b(?:rocky|rock\s+(?:trench|excavation|soil|hammer)|bedrock|ledge\s+rock|pavement|asphalt|boring|horizontal\s+(?:bore|drill)|concrete\s+cut|rock\s*hammer|difficult\s+trench|tight\s+access|access[\s-]?constrained)\b/i.test(
+      text
+    )
+      ? 'rocky'
+      : 'normal_soil';
+  }
 
+  const LF_KEYS = new Set(['conduitLf', 'trenchingLf']);
   const itemQuantities = {};
   const electricalScope = [];
   for (const [key, itemId] of Object.entries(QUANTITY_ITEM_IDS)) {
@@ -440,7 +493,7 @@ function parseElectricalMeasurementsFromNotes(notes) {
     if (!Number.isFinite(quantity) || quantity <= 0) continue;
     itemQuantities[itemId] = {
       quantity,
-      unit: 'each',
+      unit: LF_KEYS.has(key) ? 'lf' : 'each',
       quantitySource: 'notes',
     };
     electricalScope.push(itemId);

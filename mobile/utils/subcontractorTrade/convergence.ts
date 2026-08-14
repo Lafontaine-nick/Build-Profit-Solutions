@@ -25,6 +25,7 @@ import {
 import {
   buildElectricalStructuredMeasurements,
   ELECTRICAL_REVIEW_MEASUREMENT_KEYS,
+  normalizeElectricalPlanMeasurements,
   normalizeElectricalScalarMeasurements,
 } from './electricalPlanConvergence';
 
@@ -296,8 +297,17 @@ export function normalizeTradeMeasurements(
   }
 
   if (tradeKey === 'electrical') {
-    const structured = buildElectricalStructuredMeasurements(input);
-    const scalar = normalizeElectricalScalarMeasurements(input, structured);
+    const electricalInput =
+      source === 'plan' ? normalizeElectricalPlanMeasurements(input) : input;
+    const quantitySource = source === 'plan' ? 'plan_detected' : 'user_entered';
+    const structured = buildElectricalStructuredMeasurements(
+      electricalInput,
+      quantitySource
+    );
+    const scalar = normalizeElectricalScalarMeasurements(
+      electricalInput,
+      structured
+    );
     for (const [key, value] of Object.entries(scalar)) {
       measurements[key] = value;
       if (schemaKeys.has(key) && !existingSources[key]) {
@@ -309,7 +319,7 @@ export function normalizeTradeMeasurements(
     }
     for (const key of ELECTRICAL_REVIEW_MEASUREMENT_KEYS) {
       if (measurements[key] != null) continue;
-      const value = input[key];
+      const value = electricalInput[key];
       if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
         measurements[key] = value;
       }
@@ -332,6 +342,12 @@ export function normalizeTradeMeasurements(
         : {}),
       ...(structured.electricalTrenching != null
         ? { electricalTrenching: structured.electricalTrenching }
+        : {}),
+      ...(structured.electricalConduitSpecialty != null
+        ? { electricalConduitSpecialty: structured.electricalConduitSpecialty }
+        : {}),
+      ...(structured.electricalTrenchCondition
+        ? { electricalTrenchCondition: structured.electricalTrenchCondition }
         : {}),
       ...(structured.existingServiceAmperage != null
         ? { existingServiceAmperage: structured.existingServiceAmperage }

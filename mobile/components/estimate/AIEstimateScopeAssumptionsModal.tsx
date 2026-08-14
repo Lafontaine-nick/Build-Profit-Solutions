@@ -48,7 +48,6 @@ import {
 } from '@/utils/estimateAiDraft';
 import { applyPaintPricingMethodChoice } from '@/utils/subcontractorTrade/paintingPlanConvergence';
 import {
-  ELECTRICAL_NEEDS_PRICING_LABEL,
   syncElectricalScopeItems,
   type ElectricalPanelLocation,
   type ElectricalProjectCondition,
@@ -12513,266 +12512,57 @@ function CollapsibleQuickMeasurements({
               >
                 Service / panel, circuit homeruns, receptacle devices, switch
                 devices, lighting / fan fixture installs, appliance hookups,
-                life-safety / low-voltage drops, and relocate / removal cards
-                are approved; 400A, 60A+, chandeliers, EV, HVAC, and abandoned
-                circuits stay specialty. Rough and trim packages still show{' '}
-                {ELECTRICAL_NEEDS_PRICING_LABEL.toLowerCase()} until those
-                buckets are calibrated. Job condition adjusts labor more than
-                materials.
+                life-safety / low-voltage drops, relocate / removal, and
+                conduit / normal-soil trenching cards are approved when a
+                length is entered. Trim-out is approved at $55/EA for a
+                user-entered device count, or a $2,500 planning allowance when
+                detailed receptacle / switch / fixture counts are absent.
+                400A, 60A+, chandeliers, EV, HVAC, abandoned circuits, rigid /
+                oversized conduit, and rocky / difficult trenching stay
+                specialty. Rough-in is approved at $250/EA for a user-entered
+                rough-point count, or a $10,000 planning allowance when
+                requested and detailed 2A–2I counts are absent. Job condition
+                adjusts labor more than materials.
               </Text>
-              <View style={{ gap: 10, marginTop: 14 }}>
-                {(
-                  [
-                    ['new_construction', 'New construction / full rough'],
-                    ['remodel_open_wall', 'Remodel / open wall'],
-                    ['finished_wall_service', 'Finished-wall service'],
-                  ] as Array<[ElectricalProjectCondition, string]>
-                ).map(([value, label]) => {
-                  const selected =
-                    measurements.electricalProjectCondition === value;
-                  return (
-                    <TouchableOpacity
-                      key={value}
-                      onPress={() =>
-                        setMeasurements(prev => ({
-                          ...prev,
-                          electricalProjectCondition:
-                            prev.electricalProjectCondition === value
-                              ? null
-                              : value,
-                        }))
-                      }
-                      activeOpacity={0.85}
-                      style={[
-                        paintChipStyle(selected),
-                        { paddingVertical: 10, paddingHorizontal: 12 },
-                      ]}
-                    >
-                      <Text
-                        style={{
-                          color: paintChipTextColor(selected),
-                          fontWeight: '700',
-                          textAlign: 'center',
-                        }}
-                      >
-                        {selected ? '✓ ' : ''}
-                        {label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-              <View style={{ gap: 10, marginTop: 16 }}>
-                <Text
-                  style={{
-                    color: darkMode ? '#cbd5e1' : '#475569',
-                    fontWeight: '800',
-                    fontSize: 14,
-                  }}
-                >
-                  Service amperage
-                </Text>
-                {(
-                  [
-                    [100, '100A'],
-                    [125, '125A'],
-                    [150, '150A'],
-                    [200, '200A'],
-                    [400, '400A / specialty'],
-                  ] as Array<[number, string]>
-                ).map(([amps, label]) => {
-                  const selected = Number(measurements.serviceAmperage) === amps;
-                  return (
-                    <TouchableOpacity
-                      key={amps}
-                      onPress={() =>
-                        setMeasurements(prev => ({
-                          ...prev,
-                          serviceAmperage:
-                            Number(prev.serviceAmperage) === amps ? null : amps,
-                        }))
-                      }
-                      activeOpacity={0.85}
-                      style={[
-                        paintChipStyle(selected),
-                        { paddingVertical: 10, paddingHorizontal: 12 },
-                      ]}
-                    >
-                      <Text
-                        style={{
-                          color: paintChipTextColor(selected),
-                          fontWeight: '700',
-                          textAlign: 'center',
-                        }}
-                      >
-                        {selected ? '✓ ' : ''}
-                        {label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-              {Number(measurements.serviceUpgradeCount) > 0 ||
-              Number(measurements.existingServiceAmperage) > 0 ? (
-                <View style={{ gap: 10, marginTop: 16 }}>
-                  <Text
-                    style={{
-                      color: darkMode ? '#cbd5e1' : '#475569',
-                      fontWeight: '800',
-                      fontSize: 14,
-                    }}
-                  >
-                    Existing service size
-                  </Text>
-                  {(
-                    [
-                      [100, '100A'],
-                      [125, '125A'],
-                      [150, '150A'],
-                      [200, '200A'],
-                    ] as Array<[number, string]>
-                  ).map(([amps, label]) => {
-                    const selected =
-                      Number(measurements.existingServiceAmperage) === amps;
-                    return (
-                      <TouchableOpacity
-                        key={`existing-${amps}`}
-                        onPress={() =>
-                          setMeasurements(prev => ({
-                            ...prev,
-                            existingServiceAmperage:
-                              Number(prev.existingServiceAmperage) === amps
-                                ? null
-                                : amps,
-                          }))
-                        }
-                        activeOpacity={0.85}
-                        style={[
-                          paintChipStyle(selected),
-                          { paddingVertical: 10, paddingHorizontal: 12 },
-                        ]}
-                      >
-                        <Text
-                          style={{
-                            color: paintChipTextColor(selected),
-                            fontWeight: '700',
-                            textAlign: 'center',
-                          }}
-                        >
-                          {selected ? '✓ ' : ''}
-                          {label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              ) : null}
-              <View style={{ gap: 10, marginTop: 16 }}>
-                {(
-                  [
-                    ['indoor', 'Indoor'],
-                    ['outdoor', 'Outdoor'],
-                  ] as Array<[ElectricalPanelLocation, string]>
-                ).map(([value, label]) => {
-                  const selected =
-                    measurements.electricalPanelLocation === value;
-                  return (
-                    <TouchableOpacity
-                      key={value}
-                      onPress={() =>
-                        setMeasurements(prev => ({
-                          ...prev,
-                          electricalPanelLocation:
-                            prev.electricalPanelLocation === value
-                              ? null
-                              : value,
-                        }))
-                      }
-                      activeOpacity={0.85}
-                      style={[
-                        paintChipStyle(selected),
-                        { paddingVertical: 10, paddingHorizontal: 12 },
-                      ]}
-                    >
-                      <Text
-                        style={{
-                          color: paintChipTextColor(selected),
-                          fontWeight: '700',
-                          textAlign: 'center',
-                        }}
-                      >
-                        {selected ? '✓ ' : ''}
-                        {label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-                <TouchableOpacity
-                  onPress={() =>
-                    setMeasurements(prev => ({
-                      ...prev,
-                      electricalMeterMainCombo: !prev.electricalMeterMainCombo,
-                    }))
-                  }
-                  activeOpacity={0.85}
-                  style={[
-                    paintChipStyle(Boolean(measurements.electricalMeterMainCombo)),
-                    { paddingVertical: 10, paddingHorizontal: 12 },
-                  ]}
-                >
-                  <Text
-                    style={{
-                      color: paintChipTextColor(
-                        Boolean(measurements.electricalMeterMainCombo)
-                      ),
-                      fontWeight: '700',
-                      textAlign: 'center',
-                    }}
-                  >
-                    {measurements.electricalMeterMainCombo ? '✓ ' : ''}
-                    Meter / main combo
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              <View style={{ gap: 10, marginTop: 16 }}>
-                {(
-                  [
-                    ['electricalIncludeRough', 'Include rough-in'],
-                    ['electricalIncludeTrim', 'Include trim / devices'],
-                    ['electricalConduit', 'Conduit'],
-                    ['electricalTrenching', 'Trenching'],
-                  ] as const
-                ).map(([field, label]) => {
-                  const selected = Boolean(measurements[field]);
-                  return (
-                    <TouchableOpacity
-                      key={field}
-                      onPress={() =>
-                        setMeasurements(prev => ({
-                          ...prev,
-                          [field]: !prev[field],
-                        }))
-                      }
-                      activeOpacity={0.85}
-                      style={[
-                        paintChipStyle(selected),
-                        { paddingVertical: 10, paddingHorizontal: 12 },
-                      ]}
-                    >
-                      <Text
-                        style={{
-                          color: paintChipTextColor(selected),
-                          fontWeight: '700',
-                          textAlign: 'center',
-                        }}
-                      >
-                        {selected ? '✓ ' : ''}
-                        {label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+              <ElectricalAttributeChipPanel
+                values={{
+                  electricalProjectCondition:
+                    measurements.electricalProjectCondition ?? null,
+                  serviceAmperage:
+                    measurements.serviceAmperage == null
+                      ? null
+                      : Number(measurements.serviceAmperage),
+                  existingServiceAmperage:
+                    measurements.existingServiceAmperage == null
+                      ? null
+                      : Number(measurements.existingServiceAmperage),
+                  electricalPanelLocation:
+                    measurements.electricalPanelLocation ?? null,
+                  electricalMeterMainCombo: Boolean(
+                    measurements.electricalMeterMainCombo
+                  ),
+                  electricalIncludeRough: Boolean(
+                    measurements.electricalIncludeRough
+                  ),
+                  electricalIncludeTrim: Boolean(
+                    measurements.electricalIncludeTrim
+                  ),
+                  electricalConduit: Boolean(measurements.electricalConduit),
+                  electricalTrenching: Boolean(measurements.electricalTrenching),
+                }}
+                onPatch={patch =>
+                  startTransition(() => {
+                    setMeasurements(prev => ({ ...prev, ...patch }));
+                  })
+                }
+                paintChipStyle={paintChipStyle}
+                paintChipTextColor={paintChipTextColor}
+                headingColor={darkMode ? '#cbd5e1' : '#475569'}
+                showExistingService={
+                  Number(measurements.serviceUpgradeCount) > 0 ||
+                  Number(measurements.existingServiceAmperage) > 0
+                }
+              />
               {Number(measurements.serviceAmperage) > 0 ? (
                 <Text
                   style={{
@@ -13666,6 +13456,190 @@ function ScopeGroupSection({
           ))
         : null}
     </View>
+  );
+}
+
+function ElectricalAttributeChipPanel({
+  values,
+  onPatch,
+  paintChipStyle,
+  paintChipTextColor,
+  headingColor,
+  showExistingService,
+}: {
+  values: {
+    electricalProjectCondition: ElectricalProjectCondition | null;
+    serviceAmperage: number | null;
+    existingServiceAmperage: number | null;
+    electricalPanelLocation: ElectricalPanelLocation | null;
+    electricalMeterMainCombo: boolean;
+    electricalIncludeRough: boolean;
+    electricalIncludeTrim: boolean;
+    electricalConduit: boolean;
+    electricalTrenching: boolean;
+  };
+  onPatch: (patch: Partial<typeof values>) => void;
+  paintChipStyle: (selected: boolean) => object;
+  paintChipTextColor: (selected: boolean) => string;
+  headingColor: string;
+  showExistingService: boolean;
+}) {
+  const [local, setLocal] = useState(values);
+  useEffect(() => {
+    setLocal(values);
+  }, [
+    values.electricalProjectCondition,
+    values.serviceAmperage,
+    values.existingServiceAmperage,
+    values.electricalPanelLocation,
+    values.electricalMeterMainCombo,
+    values.electricalIncludeRough,
+    values.electricalIncludeTrim,
+    values.electricalConduit,
+    values.electricalTrenching,
+  ]);
+
+  const apply = (patch: Partial<typeof values>) => {
+    setLocal(prev => {
+      const next = { ...prev, ...patch };
+      setTimeout(() => onPatch(next), 0);
+      return next;
+    });
+  };
+
+  const chip = (key: string, selected: boolean, label: string, onPress: () => void) => (
+    <TouchableOpacity
+      key={key}
+      onPress={onPress}
+      activeOpacity={0.85}
+      style={[paintChipStyle(selected), { paddingVertical: 10, paddingHorizontal: 12 }]}
+    >
+      <Text
+        style={{
+          color: paintChipTextColor(selected),
+          fontWeight: '700',
+          textAlign: 'center',
+        }}
+      >
+        {selected ? '✓ ' : ''}
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+
+  return (
+    <>
+      <View style={{ gap: 10, marginTop: 14 }}>
+        {(
+          [
+            ['new_construction', 'New construction / full rough'],
+            ['remodel_open_wall', 'Remodel / open wall'],
+            ['finished_wall_service', 'Finished-wall service'],
+          ] as Array<[ElectricalProjectCondition, string]>
+        ).map(([value, label]) =>
+          chip(value, local.electricalProjectCondition === value, label, () =>
+            apply({
+              electricalProjectCondition:
+                local.electricalProjectCondition === value ? null : value,
+            })
+          )
+        )}
+      </View>
+      <View style={{ gap: 10, marginTop: 16 }}>
+        <Text
+          style={{
+            color: headingColor,
+            fontWeight: '800',
+            fontSize: 14,
+          }}
+        >
+          Service amperage
+        </Text>
+        {(
+          [
+            [100, '100A'],
+            [125, '125A'],
+            [150, '150A'],
+            [200, '200A'],
+            [400, '400A / specialty'],
+          ] as Array<[number, string]>
+        ).map(([amps, label]) =>
+          chip(String(amps), Number(local.serviceAmperage) === amps, label, () =>
+            apply({
+              serviceAmperage:
+                Number(local.serviceAmperage) === amps ? null : amps,
+            })
+          )
+        )}
+      </View>
+      {showExistingService || Number(local.existingServiceAmperage) > 0 ? (
+        <View style={{ gap: 10, marginTop: 16 }}>
+          <Text
+            style={{
+              color: headingColor,
+              fontWeight: '800',
+              fontSize: 14,
+            }}
+          >
+            Existing service size
+          </Text>
+          {(
+            [
+              [100, '100A'],
+              [125, '125A'],
+              [150, '150A'],
+              [200, '200A'],
+            ] as Array<[number, string]>
+          ).map(([amps, label]) =>
+            chip(
+              `existing-${amps}`,
+              Number(local.existingServiceAmperage) === amps,
+              label,
+              () =>
+                apply({
+                  existingServiceAmperage:
+                    Number(local.existingServiceAmperage) === amps ? null : amps,
+                })
+            )
+          )}
+        </View>
+      ) : null}
+      <View style={{ gap: 10, marginTop: 16 }}>
+        {(
+          [
+            ['indoor', 'Indoor'],
+            ['outdoor', 'Outdoor'],
+          ] as Array<[ElectricalPanelLocation, string]>
+        ).map(([value, label]) =>
+          chip(value, local.electricalPanelLocation === value, label, () =>
+            apply({
+              electricalPanelLocation:
+                local.electricalPanelLocation === value ? null : value,
+            })
+          )
+        )}
+        {chip(
+          'meter-main',
+          Boolean(local.electricalMeterMainCombo),
+          'Meter / main combo',
+          () => apply({ electricalMeterMainCombo: !local.electricalMeterMainCombo })
+        )}
+      </View>
+      <View style={{ gap: 10, marginTop: 16 }}>
+        {(
+          [
+            ['electricalIncludeRough', 'Include rough-in'],
+            ['electricalIncludeTrim', 'Include trim / devices'],
+            ['electricalConduit', 'Conduit'],
+            ['electricalTrenching', 'Trenching'],
+          ] as const
+        ).map(([field, label]) =>
+          chip(field, Boolean(local[field]), label, () =>
+            apply({ [field]: !local[field] })
+          )
+        )}
+      </View>
+    </>
   );
 }
 
@@ -15435,13 +15409,11 @@ export default function AIEstimateScopeAssumptionsModal({
     measurements.dedicated20aCircuitCount,
     measurements.rangeHookupCount,
     measurements.ceilingFanCount,
-    measurements.serviceAmperage,
     measurements.serviceUpgradeCount,
     measurements.subpanelCount,
     measurements.panelUpgradeCount,
-    measurements.existingServiceAmperage,
-    measurements.electricalPanelLocation,
-    measurements.electricalMeterMainCombo,
+    measurements.electricalIncludeRough,
+    measurements.electricalIncludeTrim,
   ]);
 
   // Quick measurements Paint / shower tile → paint_repair count when scope is selected.

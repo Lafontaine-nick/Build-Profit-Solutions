@@ -326,7 +326,8 @@ export default function EstimatePlanImportStrip({
         selection.trade?.key === 'roofing' ||
         selection.trade?.key === 'concrete' ||
         selection.trade?.key === 'flooring' ||
-        selection.trade?.key === 'painting'
+        selection.trade?.key === 'painting' ||
+        selection.trade?.key === 'electrical'
           ? normalizeTradeMeasurements(
               selection.trade.key,
               {
@@ -597,7 +598,7 @@ export default function EstimatePlanImportStrip({
               }}
             >
               {selectedTrade === 'electrical'
-                ? 'Electrical plan selected — we will focus on electrical sheets and quantities that can be verified.'
+                ? 'Electrical plan selected — symbol and schedule counts map onto the existing Electrical cards. Confirm the takeoff before it fills the bid.'
                 : `${PLAN_EXPORT_TRADE_CONFIGURATIONS.find(trade => trade.key === selectedTrade)?.label || PLAN_TRADE_CONFIGURATIONS.find(trade => trade.key === selectedTrade)?.label || 'Trade'} plan selected — we will focus on relevant sheets and quantities.`}
             </Text>
           ) : null}
