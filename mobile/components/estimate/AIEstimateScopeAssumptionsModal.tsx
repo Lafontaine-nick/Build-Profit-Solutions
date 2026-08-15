@@ -63,6 +63,7 @@ import {
   applyElectricalQuickMeasurementPatch,
   electricalConfirmScopeAttributesFromMeasurements,
   electricalMeasurementsShouldFlushImmediately,
+  electricalLivePricingAttributesChanged,
   electricalScopeSyncSignature,
   restorePlanMeasurementConflict,
   unresolvedElectricalConflictFields,
@@ -14114,7 +14115,6 @@ export default function AIEstimateScopeAssumptionsModal({
             )(previous)
           : update;
       if (next === previous) return;
-      measurementsRef.current = next;
       if (
         electricalMeasurementsShouldFlushImmediately(
           previous as Record<string, unknown>,
@@ -14123,9 +14123,17 @@ export default function AIEstimateScopeAssumptionsModal({
       ) {
         electricalMeasurementsStagedRef.current = false;
         setMeasurementsSynced(next);
-        pinConfirmScopeScrollPosition();
+        if (
+          electricalLivePricingAttributesChanged(
+            previous as Record<string, unknown>,
+            next as Record<string, unknown>
+          )
+        ) {
+          pinConfirmScopeScrollPosition();
+        }
         return;
       }
+      measurementsRef.current = next;
       electricalMeasurementsStagedRef.current = true;
     },
     [setMeasurementsSynced, pinConfirmScopeScrollPosition]

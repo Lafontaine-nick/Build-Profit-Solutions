@@ -31,6 +31,7 @@ import {
   applyPlanConflictChoices,
   conflictResolutionProvenanceEntry,
   pendingManualConflictFields,
+  planConflictChooserRowsKey,
   reviewablePlanMeasurementConflicts,
   uniqueUnreadablePlanFields,
   type PlanConflictChoice,
@@ -865,7 +866,9 @@ export default function PlanTakeoffReviewModal({
           >
             {measurementConflicts.length ? (
               <PlanTakeoffConflictChooser
-                key={conflictChooserKey}
+                key={`${conflictChooserKey}-${planConflictChooserRowsKey(
+                  measurementConflicts
+                )}`}
                 conflicts={measurementConflicts}
                 choices={conflictChoices}
                 manualValues={conflictManualValues}

@@ -1758,10 +1758,16 @@ async function analyzePlanForMeasurements({
         .join(', ') || 'E sheets'}). Count symbols on these pages. Do not extract living SF or room L×W on this pass.`
     : 'Prioritize E sheets and panel schedules inside the attached plan file.';
 
+  // Electrical counts are a measurement pass, not creative estimation. Keep
+  // repeated imports of the same sheets stable; genuine disagreements still
+  // remain as conflict candidates for contractor confirmation.
+  const planVisionTemperature = electricalSelected
+    ? 0
+    : Math.min(aiRuntime.assistant.vision.temperature ?? 0.2, 0.15);
   const measurementsPromise = openai.chat.completions.create({
     model: aiModels.assistant.vision,
     response_format: aiRuntime.assistant.vision.responseFormat,
-    temperature: Math.min(aiRuntime.assistant.vision.temperature ?? 0.2, 0.15),
+    temperature: planVisionTemperature,
     max_tokens: Math.max(aiRuntime.assistant.vision.maxTokens || 900, 4000),
     messages: [
       { role: 'system', content: visionSystemPrompt(electricalSelected) },
@@ -1829,7 +1835,7 @@ async function analyzePlanForMeasurements({
     ? openai.chat.completions.create({
         model: aiModels.assistant.vision,
         response_format: aiRuntime.assistant.vision.responseFormat,
-        temperature: Math.min(aiRuntime.assistant.vision.temperature ?? 0.2, 0.15),
+        temperature: planVisionTemperature,
         max_tokens: Math.max(aiRuntime.assistant.vision.maxTokens || 900, 2500),
         messages: [
           {

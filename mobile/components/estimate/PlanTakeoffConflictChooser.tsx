@@ -170,6 +170,11 @@ export function PlanTakeoffConflictChooser({
       <Text style={[styles.sectionTitle, { color: titleColor }]}>
         Conflicting plan takeoffs
       </Text>
+      <Text style={[styles.sectionHint, { color: captionColor }]}>
+        These readings come from different parts of the plan or separate AI
+        passes. Choose the value that matches the drawing. Green means selected
+        for this export.
+      </Text>
       {visible.map(conflict => {
         const candidates = labeledConflictCandidates(conflict);
         const choice = availablePlanConflictChoice(
@@ -314,7 +319,8 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginBottom: 4,
   },
-  sectionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 12 },
+  sectionTitle: { fontSize: 16, fontWeight: '700', marginBottom: 6 },
+  sectionHint: { fontSize: 12, lineHeight: 17, marginBottom: 12 },
   card: {
     borderWidth: 1,
     borderRadius: 14,

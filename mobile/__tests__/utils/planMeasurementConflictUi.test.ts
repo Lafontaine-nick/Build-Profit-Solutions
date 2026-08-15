@@ -71,20 +71,24 @@ describe('planMeasurementConflictUi', () => {
     expect(normalizePlanEvidenceSource('general_plan_takeoff')).toBe('VISION_GENERAL');
     expect(normalizePlanEvidenceSource('focused_trade_takeoff')).toBe('VISION_FOCUSED');
     expect(normalizePlanEvidenceSource('pdf_text_instance_tags')).toBe('PLAN_TAGS');
-    expect(conflictCandidateSourceLabel('general_plan_takeoff')).toBe('Symbol count');
-    expect(conflictCandidateSourceLabel('focused_trade_takeoff')).toBe(
-      'Alternate symbol count'
+    expect(conflictCandidateSourceLabel('general_plan_takeoff')).toBe(
+      'AI symbol count (first review)'
     );
-    expect(conflictCandidateSourceLabel('pdf_text_instance_tags')).toBe('Plan tags');
+    expect(conflictCandidateSourceLabel('focused_trade_takeoff')).toBe(
+      'AI symbol count (second review)'
+    );
+    expect(conflictCandidateSourceLabel('pdf_text_instance_tags')).toBe(
+      'Counted from fixture tags on plan'
+    );
     expect(
       formatConflictCandidateChip('singlePoleSwitchCount', 25, 'general_plan_takeoff')
-    ).toBe('25 EA · Symbol count');
+    ).toBe('25 EA · AI symbol count (first review)');
     expect(
       formatConflictCandidateChip('singlePoleSwitchCount', 15, 'focused_trade_takeoff')
-    ).toBe('15 EA · Alternate symbol count');
+    ).toBe('15 EA · AI symbol count (second review)');
     expect(
       formatConflictCandidateChip('recessedLightCount', 46, 'pdf_text_instance_tags')
-    ).toBe('46 EA · Plan tags');
+    ).toBe('46 EA · Counted from fixture tags on plan');
     const labeled = labeledConflictCandidates(
       conflict('singlePoleSwitchCount', [25, 15], {
         candidates: [
@@ -104,8 +108,8 @@ describe('planMeasurementConflictUi', () => {
       })
     );
     expect(labeled.map(item => [item.sourceToken, item.sourceLabel])).toEqual([
-      ['VISION_GENERAL', 'Symbol count'],
-      ['VISION_FOCUSED', 'Alternate symbol count'],
+      ['VISION_GENERAL', 'AI symbol count (first review)'],
+      ['VISION_FOCUSED', 'AI symbol count (second review)'],
     ]);
   });
 
@@ -152,18 +156,18 @@ describe('planMeasurementConflictUi', () => {
     };
     const labeled = labeledConflictCandidates(recessed);
     expect(labeled.map(item => [item.value, item.sourceToken, item.sourceLabel])).toEqual([
-      [46, 'PLAN_TAGS', 'Plan tags'],
-      [32, 'VISION_GENERAL', 'Symbol count'],
-      [20, 'VISION_FOCUSED', 'Alternate symbol count'],
+      [46, 'PLAN_TAGS', 'Counted from fixture tags on plan'],
+      [32, 'VISION_GENERAL', 'AI symbol count (first review)'],
+      [20, 'VISION_FOCUSED', 'AI symbol count (second review)'],
     ]);
     expect(conflictEvidenceSubtitle(recessed)).toBe(
-      'Multiple plan readings — confirm'
+      'Plan tag and AI readings disagree — choose one'
     );
     expect(applyPlanConflictChoices([recessed], {}, {}).resolved).toEqual({});
     expect(normalizePlanEvidenceSource('pdf_text_instance_tags')).toBe('PLAN_TAGS');
   });
 
-  it('labels vision-vs-vision conflicts as symbol count conflicts', () => {
+  it('explains vision-vs-vision conflicts in contractor language', () => {
     const receptacles = conflict('standardReceptacleCount', [50, 40], {
       candidates: [
         {
@@ -181,7 +185,7 @@ describe('planMeasurementConflictUi', () => {
       ],
     });
     expect(conflictEvidenceSubtitle(receptacles)).toBe(
-      'Symbol count conflict — confirm'
+      'Two AI counts disagree — choose one'
     );
     expect(applyPlanConflictChoices([receptacles], {}, {}).unresolved).toHaveLength(
       1

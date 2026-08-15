@@ -321,6 +321,7 @@ export function QmSqftMeasurementRow({
   darkMode,
   Colors,
   highlighted = false,
+  keyboardType = 'decimal-pad',
 }: {
   label: string;
   helperText?: string;
@@ -334,6 +335,7 @@ export function QmSqftMeasurementRow({
   darkMode: boolean;
   Colors: Colors;
   highlighted?: boolean;
+  keyboardType?: 'decimal-pad' | 'number-pad';
 }) {
   const formattedValue = (() => {
     const raw = String(value || '').replace(/,/g, '');
@@ -380,7 +382,7 @@ export function QmSqftMeasurementRow({
           onFocus={onFocus}
           onBlur={onBlur}
           editable={!applying}
-          keyboardType="decimal-pad"
+          keyboardType={keyboardType}
           {...aiScopeConfirmNumericKeyboardProps}
           placeholder={placeholder || 'sqft'}
           placeholderTextColor={darkMode ? 'rgba(255,255,255,0.35)' : '#94a3b8'}

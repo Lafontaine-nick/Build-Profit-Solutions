@@ -9,7 +9,6 @@ import { ConfirmScopeChip } from '@/components/estimate/ConfirmScopeChip';
 import { QmSqftMeasurementRow } from '@/components/estimate/QmTradeScopePanels';
 import { getColors } from '@/theme/getColors';
 import {
-  CONFIRM_SCOPE_CHIP_COMMIT_MS,
   buildElectricalQuickMeasurementGroups,
   electricalConfirmScopeAttributesEqual,
   electricalQmGroupCaption,
@@ -28,10 +27,6 @@ import type {
 } from '@/utils/subcontractorTrade/electricalPlanConvergence';
 
 type Colors = ReturnType<typeof getColors>;
-
-function deferConfirmScopeUiPatch(task: () => void) {
-  return setTimeout(task, CONFIRM_SCOPE_CHIP_COMMIT_MS);
-}
 
 export function ElectricalQmCollapsibleCard({
   title,
@@ -177,11 +172,11 @@ export function ElectricalConfirmScopeAttributeChips({
     setLocal(next);
     const scheduled = next;
     if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
-    commitTimerRef.current = deferConfirmScopeUiPatch(() => {
+    commitTimerRef.current = setTimeout(() => {
       if (pendingRef.current !== scheduled) return;
       commitTimerRef.current = null;
       onPatchRef.current(scheduled);
-    });
+    }, 0);
   }, []);
 
   const toggle = (id: string) =>
@@ -534,7 +529,7 @@ export function ElectricalQuickMeasurementTakeoff({
   );
 }
 
-function ElectricalQmScopeOption({
+const ElectricalQmScopeOption = React.memo(function ElectricalQmScopeOption({
   field,
   expanded,
   quantityEditingRef,
@@ -558,42 +553,57 @@ function ElectricalQmScopeOption({
   const showQuantity = electricalQmShowsQuantity(field, expanded);
   const committedValue = electricalQmQuantityInputValue(field);
   const [isEditingQuantity, setIsEditingQuantity] = useState(false);
-  const [quantityDraft, setQuantityDraft] = useState('');
+  const [quantityDraft, setQuantityDraft] = useState(committedValue);
+  const isEditingQuantityRef = useRef(false);
   const quantityDraftRef = useRef(quantityDraft);
   quantityDraftRef.current = quantityDraft;
+  const onCommitQuantityRef = useRef(onCommitQuantity);
+  onCommitQuantityRef.current = onCommitQuantity;
 
   const setQuantityEditing = useCallback(
     (editing: boolean) => {
+      isEditingQuantityRef.current = editing;
       if (quantityEditingRef) quantityEditingRef.current = editing;
+      setIsEditingQuantity(editing);
     },
     [quantityEditingRef]
   );
 
   useEffect(() => {
-    if (isEditingQuantity) return;
+    if (isEditingQuantityRef.current) return;
     setQuantityDraft(committedValue);
-  }, [committedValue, isEditingQuantity]);
+  }, [committedValue]);
 
   const beginQuantityEdit = useCallback(() => {
     setQuantityDraft(committedValue);
-    setIsEditingQuantity(true);
     setQuantityEditing(true);
   }, [committedValue, setQuantityEditing]);
 
   const finishQuantityEdit = useCallback(() => {
-    if (!isEditingQuantity) return;
-    setIsEditingQuantity(false);
+    if (!isEditingQuantityRef.current) return;
+    const value = quantityDraftRef.current;
     setQuantityEditing(false);
-    onCommitQuantity(quantityDraftRef.current);
-  }, [isEditingQuantity, onCommitQuantity, setQuantityEditing]);
+    requestAnimationFrame(() => onCommitQuantityRef.current(value));
+  }, [setQuantityEditing]);
+
+  const handleQuantityChange = useCallback(
+    (text: string) => {
+      if (!isEditingQuantityRef.current) {
+        setQuantityDraft(committedValue);
+        setQuantityEditing(true);
+      }
+      setQuantityDraft(text);
+    },
+    [committedValue, setQuantityEditing]
+  );
 
   const handleToggle = () => {
     if (applying) return;
     const tapQuantity = electricalQmTapQuantity(field);
     if (tapQuantity != null) {
-      setIsEditingQuantity(false);
       setQuantityEditing(false);
-      onCommitQuantity(tapQuantity);
+      onCommitQuantityRef.current(tapQuantity);
+      if (!tapQuantity && expanded) onToggleExpand();
       if (tapQuantity && !expanded) onToggleExpand();
       return;
     }
@@ -601,6 +611,7 @@ function ElectricalQmScopeOption({
   };
 
   const inputValue = isEditingQuantity ? quantityDraft : committedValue;
+  const showStatusBelowInput = !isEditingQuantity;
 
   return (
     <View>
@@ -630,7 +641,8 @@ function ElectricalQmScopeOption({
             value={inputValue}
             placeholder='Enter'
             unitLabel={field.unit}
-            onChangeText={setQuantityDraft}
+            keyboardType={field.unit === 'LF' ? 'decimal-pad' : 'number-pad'}
+            onChangeText={handleQuantityChange}
             onFocus={beginQuantityEdit}
             onBlur={finishQuantityEdit}
             applying={applying}
@@ -638,7 +650,7 @@ function ElectricalQmScopeOption({
             Colors={Colors}
             highlighted
           />
-          {active && field.provenanceLabel ? (
+          {showStatusBelowInput && active && field.provenanceLabel ? (
             <Text
               style={{
                 color: darkMode ? '#94a3b8' : '#64748b',
@@ -649,7 +661,7 @@ function ElectricalQmScopeOption({
               {field.value?.toLocaleString()} {field.unit} · {field.provenanceLabel}
             </Text>
           ) : null}
-          {!active ? (
+          {showStatusBelowInput && !active ? (
             <Text style={{ color: '#fbbf24', fontSize: 11, marginTop: 5 }}>
               {field.conflicted
                 ? 'Unresolved plan conflict — this stays unpriced until you choose or enter a count.'
@@ -660,7 +672,7 @@ function ElectricalQmScopeOption({
       ) : null}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   qmPanel: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 12 },

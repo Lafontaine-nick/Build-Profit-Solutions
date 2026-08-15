@@ -116,10 +116,12 @@ export function electricalQmOptionActive(field: Pick<ElectricalQmField, 'selecte
 
 export function electricalQmChipSelected(
   field: Pick<ElectricalQmField, 'selected' | 'conflicted'>,
-  expanded: boolean
+  _expanded: boolean
 ): boolean {
   if (field.conflicted) return false;
-  return electricalQmOptionActive(field) || expanded;
+  // Opening a quantity editor is not the same as including the scope item.
+  // Keep the chip gray until an EA/LF quantity is actually selected.
+  return electricalQmOptionActive(field);
 }
 
 /** Quantity to write on a scope-chip tap. `null` means expand/collapse only (LF or conflicted). */

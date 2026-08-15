@@ -109,15 +109,15 @@ export function normalizePlanEvidenceSource(
 export function planEvidenceSourceLabel(source?: string | null): string | null {
   switch (normalizePlanEvidenceSource(source)) {
     case 'PLAN_TAGS':
-      return 'Plan tags';
+      return 'Counted from fixture tags on plan';
     case 'PLAN_TEXT':
-      return 'Plan text';
+      return 'Read from text on plan';
     case 'VISION_GENERAL':
-      return 'Symbol count';
+      return 'AI symbol count (first review)';
     case 'VISION_FOCUSED':
-      return 'Alternate symbol count';
+      return 'AI symbol count (second review)';
     case 'EXPLICIT_CALLOUT':
-      return 'Explicit callout';
+      return 'Read from printed callout';
     case 'PANEL_SCHEDULE':
       return 'Panel schedule';
     case 'USER_CONFIRMED':
@@ -153,15 +153,15 @@ export function conflictEvidenceSubtitle(
   const hasVision =
     tokens.has('VISION_GENERAL') || tokens.has('VISION_FOCUSED');
   if (hasExplicit && (hasVision || hasTags)) {
-    return 'Printed plan value conflicts with symbol count — confirm';
+    return 'Plan and AI readings disagree — choose one';
   }
   if (hasTags && hasVision) {
-    return 'Multiple plan readings — confirm';
+    return 'Plan tag and AI readings disagree — choose one';
   }
   if (hasVision && tokens.size >= 1) {
-    return 'Symbol count conflict — confirm';
+    return 'Two AI counts disagree — choose one';
   }
-  return 'Plan conflict — confirm';
+  return 'Different plan readings — choose one';
 }
 
 export function labeledConflictCandidates(

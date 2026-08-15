@@ -338,11 +338,11 @@ describe('electricalQuickMeasurementUi', () => {
     ).toBe('');
   });
 
-  it('does not invent 1 LF on tap; expanded LF chips still highlight as in-scope', () => {
+  it('does not invent 1 LF on tap or mark an expanded LF row as selected', () => {
     const conduit = { unit: 'LF', selected: false, conflicted: false };
     expect(electricalQmTapQuantity(conduit)).toBeNull();
     expect(electricalQmChipSelected(conduit, false)).toBe(false);
-    expect(electricalQmChipSelected(conduit, true)).toBe(true);
+    expect(electricalQmChipSelected(conduit, true)).toBe(false);
   });
 
   it('does not auto-select a conflicted row on tap', () => {
