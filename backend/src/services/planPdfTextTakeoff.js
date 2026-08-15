@@ -1314,7 +1314,7 @@ async function renderElectricalPlanPages(pdfBuffers, electricalPages, options = 
     (Array.isArray(electricalPages) ? electricalPages : [])
       .map((page) => Number(page?.page))
       .filter((page) => Number.isInteger(page) && page > 0)
-  )].sort((a, b) => a - b).slice(0, options.maxPages || 4);
+  )].sort((a, b) => a - b).slice(0, options.maxPages || 12);
   const buffers = (Array.isArray(pdfBuffers) ? pdfBuffers : [pdfBuffers]).filter(Boolean);
   if (!pageNumbers.length || !buffers.length) return [];
 

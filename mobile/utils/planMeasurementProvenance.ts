@@ -1,5 +1,6 @@
 export type PlanProvenanceStatus =
   | 'plan_verified'
+  | 'ai_verified'
   | 'from_plan_symbols'
   | 'ai_inferred'
   | 'calculated'
@@ -20,6 +21,8 @@ export function planProvenanceLabel(status: PlanProvenanceStatus): string {
   switch (status) {
     case 'plan_verified':
       return 'Plan verified';
+    case 'ai_verified':
+      return 'AI verified';
     case 'from_plan_symbols':
       return 'From plan — confirm';
     case 'ai_inferred':
@@ -42,6 +45,8 @@ export function planProvenanceColor(
   switch (status) {
     case 'plan_verified':
       return '#22c55e';
+    case 'ai_verified':
+      return '#38bdf8';
     case 'from_plan_symbols':
       return '#60a5fa';
     case 'ai_inferred':
@@ -64,6 +69,7 @@ export function resolvePlanMeasurementProvenance(input: {
   hasReliableDimensions?: boolean;
   roomDependent?: boolean;
   fromPlanSymbols?: boolean;
+  aiVerified?: boolean;
   aiInferred?: boolean;
   reconciliationVariancePercent?: number | null;
   userConfirmed?: boolean;
@@ -114,6 +120,18 @@ export function resolvePlanMeasurementProvenance(input: {
           ? 'medium'
           : 'high',
       reason: 'Explicitly stated on the plan.',
+    };
+  }
+
+  if (input.aiVerified) {
+    return {
+      status: 'ai_verified',
+      label: planProvenanceLabel('ai_verified'),
+      confidence:
+        input.fieldConfidence != null && input.fieldConfidence < 0.85
+          ? 'medium'
+          : 'high',
+      reason: 'Two independent AI counts agree and the electrical sheets reconcile.',
     };
   }
 

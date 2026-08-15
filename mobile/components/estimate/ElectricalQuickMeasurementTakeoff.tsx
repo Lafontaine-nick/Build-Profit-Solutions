@@ -449,20 +449,41 @@ export function ElectricalQuickMeasurementTakeoff({
 }) {
   const onChangeQuantityRef = useRef(onChangeQuantity);
   onChangeQuantityRef.current = onChangeQuantity;
+  const [optimisticQuantities, setOptimisticQuantities] = useState<
+    Record<string, string>
+  >({});
+
+  useEffect(() => {
+    setOptimisticQuantities(previous => {
+      let next: Record<string, string> | null = null;
+      for (const [key, value] of Object.entries(previous)) {
+        if (String(measurements[key] ?? '') !== value) continue;
+        next ||= { ...previous };
+        delete next[key];
+      }
+      return next || previous;
+    });
+  }, [measurements]);
+
+  const effectiveMeasurements = useMemo(
+    () => ({ ...measurements, ...optimisticQuantities }),
+    [measurements, optimisticQuantities]
+  );
 
   const commitQuantity = useCallback((field: string, value: string) => {
+    setOptimisticQuantities(previous => ({ ...previous, [field]: value }));
     onChangeQuantityRef.current(field, value);
   }, []);
 
   const groups = useMemo(
     () =>
       buildElectricalQuickMeasurementGroups({
-        measurements,
+        measurements: effectiveMeasurements,
         conflictFields,
         sources,
         userOverrides,
       }),
-    [measurements, conflictFields, sources, userOverrides]
+    [effectiveMeasurements, conflictFields, sources, userOverrides]
   );
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [expandedKeys, setExpandedKeys] = useState<Record<string, boolean>>({});
@@ -549,8 +570,15 @@ const ElectricalQmScopeOption = React.memo(function ElectricalQmScopeOption({
   Colors: Colors;
 }) {
   const active = electricalQmOptionActive(field);
-  const chipSelected = electricalQmChipSelected(field, expanded);
-  const showQuantity = electricalQmShowsQuantity(field, expanded);
+  // EA chips own their quantity selection. Once deselected, do not let the
+  // previous expanded state keep the quantity editor mounted for one more
+  // parent render.
+  const visibleExpanded =
+    field.unit === 'EA' && !field.conflicted && !field.selected
+      ? false
+      : expanded;
+  const chipSelected = electricalQmChipSelected(field, visibleExpanded);
+  const showQuantity = electricalQmShowsQuantity(field, visibleExpanded);
   const committedValue = electricalQmQuantityInputValue(field);
   const [isEditingQuantity, setIsEditingQuantity] = useState(false);
   const [quantityDraft, setQuantityDraft] = useState(committedValue);
@@ -620,6 +648,7 @@ const ElectricalQmScopeOption = React.memo(function ElectricalQmScopeOption({
         label={field.label}
         darkMode={darkMode}
         disabled={applying}
+        allowOptimisticDeselect={field.unit === 'EA' && !field.conflicted}
         accessibilityLabel={
           active
             ? `Remove ${field.label} from scope`

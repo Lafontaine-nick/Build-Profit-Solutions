@@ -68,9 +68,10 @@ describe('resolveQuickMeasurementFields', () => {
       templateKey: 'ground_up',
     });
     const byKey = Object.fromEntries(results.map((r) => [r.key, r]));
-    // Whole-home templates restore the always-visible field list (garage, kitchen, concrete, etc.).
+    // Whole-home templates keep core structural fields visible, while kitchen
+    // flooring remains gated by an included floor-work scope.
     expect(byKey.garageSqft.state).toBe('needs_confirmation');
-    expect(byKey.kitchenFloorSqft.state).toBe('needs_confirmation');
+    expect(byKey.kitchenFloorSqft.state).toBe('not_relevant');
     expect(byKey.cabinetLf.state).toBe('needs_confirmation');
     expect(byKey.concreteSqft.state).toBe('needs_confirmation');
     expect(byKey.floorAreaSqft.state).toBe('detected');
@@ -149,6 +150,23 @@ describe('resolveQuickMeasurementFields', () => {
 });
 
 describe('summarizeQuickMeasurementFieldStates', () => {
+  test('marks AI-verified plan quantities separately from deterministic plan reads', () => {
+    const results = resolveQuickMeasurementFields({
+      rows: groundUpRows(),
+      measurements: {
+        ...emptyQuickMeasurementInput(),
+        floorAreaSqft: '1879',
+      },
+      sourceMap: { floorAreaSqft: 'ai_verified' },
+      includedScopeKeys: ['roofing'],
+    });
+    const result = results.find(row => row.key === 'floorAreaSqft');
+    expect(result).toMatchObject({
+      state: 'ai_verified',
+      sourceLabel: 'AI verified · full sheet coverage checked',
+    });
+  });
+
   test('counts only relevant fields, excluding not_relevant', () => {
     const rows = groundUpRows();
     const measurements = { ...emptyQuickMeasurementInput(), floorAreaSqft: '1879', garageSqft: '994' };
@@ -174,7 +192,7 @@ describe('summarizeQuickMeasurementFieldStates', () => {
       confirmed: 0,
       relevantTotal: 22,
     });
-    expect(line).toBe('12 from plan · 6 suggestions · 4 need confirmation');
+    expect(line).toBe('12 from plan · 0 AI verified · 6 suggestions · 4 need confirmation');
   });
 });
 
@@ -195,10 +213,11 @@ describe('groupQuickMeasurementFields', () => {
       expect.arrayContaining(['roofSquares', 'concreteCy', 'excavationCy'])
     );
     expect(groups.needsConfirmation.map((r) => r.key)).toEqual(
-      expect.arrayContaining(['cabinetLf', 'showerWallTileSqft', 'kitchenFloorSqft', 'concreteSqft'])
+      expect.arrayContaining(['cabinetLf', 'showerWallTileSqft', 'concreteSqft'])
     );
-    // Whole-home cards keep the full list visible — no collapsed "More" dump.
-    expect(groups.more).toHaveLength(0);
+    expect(groups.needsConfirmation.map((r) => r.key)).not.toContain('kitchenFloorSqft');
+    // Irrelevant fields stay out of blockers and are grouped under More.
+    expect(groups.more.map((r) => r.key)).toContain('kitchenFloorSqft');
     expect(groups.needsConfirmation.every((r) => r.state === 'needs_confirmation')).toBe(true);
   });
 });

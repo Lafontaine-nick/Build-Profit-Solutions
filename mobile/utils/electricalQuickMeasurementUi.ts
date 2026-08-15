@@ -95,8 +95,10 @@ export function confirmScopeChipIsTap(
 
 export function confirmScopeChipPainted(
   selected: boolean,
-  optimistic: boolean | null
+  optimistic: boolean | null,
+  allowOptimisticDeselect = false
 ): boolean {
+  if (allowOptimisticDeselect && optimistic === false) return false;
   // Optimism may turn a pending selection on, but must never hide a committed
   // selection. Otherwise the card can say "Confirmed" while its chip is gray.
   return selected || optimistic === true;
@@ -419,7 +421,7 @@ export function electricalLivePricingAttributesChanged(
   );
 }
 
-/** EA/LF quantity keys — must reach React state immediately so inputs stay editable. */
+/** EA/LF quantity keys — used to distinguish quantity edits from attributes. */
 export function electricalQuantityFieldsChanged(
   previous: Record<string, unknown>,
   next: Record<string, unknown>
@@ -437,10 +439,10 @@ export function electricalMeasurementsShouldFlushImmediately(
   previous: Record<string, unknown>,
   next: Record<string, unknown>
 ): boolean {
-  return (
-    electricalLivePricingAttributesChanged(previous, next) ||
-    electricalQuantityFieldsChanged(previous, next)
-  );
+  // Quantity taps/edits are staged by Confirm Scope so the selected chip and
+  // quantity editor can paint locally without synchronously repricing every
+  // scope card. Live pricing attributes still need an immediate parent commit.
+  return electricalLivePricingAttributesChanged(previous, next);
 }
 
 /**

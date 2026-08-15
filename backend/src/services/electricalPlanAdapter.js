@@ -220,7 +220,7 @@ function electricalEvidenceKind(key, {
   const labeled = new Set(explicitlyLabeled || []);
   if (inferred.has(key) && !instance.has(key) && !labeled.has(key)) return 'inference';
   if (instance.has(key)) return 'instance_tags';
-  if (ELECTRICAL_EXPLICIT_CALLOUT_KEYS.has(key) || labeled.has(key)) return 'explicit_label';
+  if (labeled.has(key)) return 'explicit_label';
   return 'symbols';
 }
 
@@ -282,6 +282,165 @@ function normalizeElectricalPlanMeasurements(input) {
   return next;
 }
 
+function normalizeElectricalSheetEvidence(input) {
+  const source = input && typeof input === 'object' ? input : {};
+  const rawSheets = Array.isArray(source.sheetSubtotals)
+    ? source.sheetSubtotals
+    : Array.isArray(source.sheets)
+      ? source.sheets
+      : [];
+  const sheetSubtotals = rawSheets
+    .map((sheet) => {
+      if (!sheet || typeof sheet !== 'object') return null;
+      const page = Number(sheet.page);
+      if (!Number.isInteger(page) || page < 1) return null;
+      const rawCounts =
+        sheet.counts && typeof sheet.counts === 'object' ? sheet.counts : {};
+      const counts = {};
+      for (const key of ELECTRICAL_MEASUREMENT_KEYS) {
+        const raw = rawCounts[key];
+        const value = Number(String(raw ?? '').replace(/,/g, ''));
+        if (!Number.isFinite(value) || value < 0) continue;
+        counts[key] = Math.round(value);
+      }
+      return {
+        page,
+        sheet: String(sheet.sheet || '').trim().slice(0, 40) || null,
+        level: String(sheet.level || '').trim().slice(0, 20) || 'unknown',
+        kind: String(sheet.kind || '').trim().slice(0, 20) || 'other',
+        coverage:
+          String(sheet.coverage || '').toLowerCase() === 'complete'
+            ? 'complete'
+            : 'incomplete',
+        counts,
+        evidence: Array.isArray(sheet.evidence)
+          ? sheet.evidence
+              .filter((item) => item && typeof item === 'object')
+              .slice(0, 8)
+              .map((item) => ({
+                label: String(item.label || '').slice(0, 120),
+                page: Number.isInteger(Number(item.page)) ? Number(item.page) : page,
+                sheet: String(item.sheet || '').slice(0, 40) || null,
+              }))
+          : [],
+      };
+    })
+    .filter(Boolean);
+  return {
+    sheetSubtotals,
+    omittedPages: Array.isArray(source.omittedPages)
+      ? source.omittedPages
+          .map((page) => Number(page))
+          .filter((page) => Number.isInteger(page) && page > 0)
+      : [],
+  };
+}
+
+function normalizeElectricalFieldEvidence(input) {
+  const source = input && typeof input === 'object' ? input : {};
+  const out = {};
+  for (const [rawKey, rawEntries] of Object.entries(source)) {
+    const key = ELECTRICAL_PLAN_ALIASES[rawKey] || rawKey;
+    if (!ELECTRICAL_MEASUREMENT_KEYS.includes(key)) continue;
+    const entries = Array.isArray(rawEntries) ? rawEntries : [rawEntries];
+    const normalized = entries
+      .filter((entry) => entry && typeof entry === 'object')
+      .map((entry) => {
+        const page = Number(entry.page);
+        return {
+          page: Number.isInteger(page) && page > 0 ? page : null,
+          sheet: String(entry.sheet || '').trim().slice(0, 40) || null,
+          label: String(entry.label || '').trim().slice(0, 120) || null,
+          method: String(entry.method || '').trim().slice(0, 40) || null,
+          sourceText: String(entry.sourceText || '').trim().slice(0, 180) || null,
+        };
+      })
+      .filter((entry) => entry.page || entry.sheet || entry.label || entry.sourceText);
+    if (normalized.length) out[key] = normalized.slice(0, 12);
+  }
+  return out;
+}
+
+function buildElectricalSheetCoverage({
+  evidence,
+  relevantPages = [],
+  renderedPages = [],
+} = {}) {
+  const normalized = normalizeElectricalSheetEvidence(evidence);
+  const expectedPages = [
+    ...new Set(
+      (Array.isArray(relevantPages) ? relevantPages : [])
+        .map((page) => Number(page?.page ?? page))
+        .filter((page) => Number.isInteger(page) && page > 0)
+    ),
+  ].sort((a, b) => a - b);
+  const rendered = new Set(
+    (Array.isArray(renderedPages) ? renderedPages : [])
+      .map((page) => Number(page?.page ?? page))
+      .filter((page) => Number.isInteger(page) && page > 0)
+  );
+  const subtotalsByPage = new Map(
+    normalized.sheetSubtotals.map((sheet) => [sheet.page, sheet])
+  );
+  const evidencePages = normalized.sheetSubtotals.map((sheet) => sheet.page);
+  const pagesToCheck = expectedPages.length
+    ? expectedPages
+    : [...new Set(evidencePages)].sort((a, b) => a - b);
+  const missingPages = pagesToCheck.filter(
+    (page) =>
+      !subtotalsByPage.has(page) ||
+      normalized.sheetSubtotals.find((sheet) => sheet.page === page)?.coverage !==
+        'complete' ||
+      (rendered.size > 0 && !rendered.has(page))
+  );
+  return {
+    expectedPages: pagesToCheck,
+    renderedPages: [...rendered].sort((a, b) => a - b),
+    coveredPages: pagesToCheck.filter((page) => !missingPages.includes(page)),
+    missingPages,
+    complete:
+      pagesToCheck.length > 0 &&
+      missingPages.length === 0 &&
+      normalized.omittedPages.length === 0,
+    sheetSubtotals: normalized.sheetSubtotals,
+    omittedPages: normalized.omittedPages,
+  };
+}
+
+function electricalFieldHasValidatedSubtotals(
+  field,
+  value,
+  coverage
+) {
+  if (!coverage?.complete) return false;
+  const sheets = Array.isArray(coverage.sheetSubtotals)
+    ? coverage.sheetSubtotals
+    : [];
+  if (!sheets.length) return false;
+  const subtotal = sheets.reduce(
+    (sum, sheet) => sum + Number(sheet?.counts?.[field] || 0),
+    0
+  );
+  return Math.round(subtotal) === Math.round(Number(value));
+}
+
+function validateElectricalSemanticRules(measurements = {}) {
+  const issues = [];
+  for (const rule of GENERIC_CIRCUIT_OWNED_BY_HOOKUP) {
+    const hookupPresent = rule.hookupKeys.some(
+      (key) => positiveNumber(measurements[key]) != null
+    );
+    if (!hookupPresent || positiveNumber(measurements[rule.circuitKey]) == null) {
+      continue;
+    }
+    issues.push({
+      field: rule.circuitKey,
+      reason: `${rule.circuitKey} duplicates an appliance hookup-owned circuit`,
+    });
+  }
+  return issues;
+}
+
 function omitUnresolvedElectricalConflicts(measurements, conflicts) {
   const next = { ...(measurements || {}) };
   for (const conflict of Array.isArray(conflicts) ? conflicts : []) {
@@ -317,15 +476,39 @@ function applyElectricalVisionTakeoff({
   instanceTagKeys = [],
   inferredKeys = [],
   methodsAgreeKeys = [],
+  independentVisionAgreementKeys = [],
+  electricalSheetEvidence = null,
+  electricalRelevantPages = [],
+  electricalRenderedPages = [],
+  measurementConflicts = [],
+  unreadableFields = [],
+  electricalFieldEvidence = null,
 } = {}) {
   const labeled = labeledKeySet(explicitlyLabeled, geometryDerived);
   const instance = new Set(
     [...(instanceTagKeys || [])].map((key) => String(key || '').trim()).filter(Boolean)
   );
   const inferred = remapElectricalLabeledKeys(inferredKeys);
+  const inferredSet = new Set(inferred);
   const agreed = new Set(
     (Array.isArray(methodsAgreeKeys) ? methodsAgreeKeys : []).map((key) => String(key || '').trim())
   );
+  const independentVisionAgreement = new Set(
+    (Array.isArray(independentVisionAgreementKeys)
+      ? independentVisionAgreementKeys
+      : []
+    )
+      .map((key) => String(key || '').trim())
+      .filter(Boolean)
+  );
+  const sheetCoverage = buildElectricalSheetCoverage({
+    evidence: electricalSheetEvidence,
+    relevantPages: electricalRelevantPages,
+    renderedPages: electricalRenderedPages,
+  });
+  const fieldEvidence = normalizeElectricalFieldEvidence(electricalFieldEvidence);
+  const semanticIssues = validateElectricalSemanticRules(measurements);
+  const semanticIssueFields = new Set(semanticIssues.map((issue) => issue.field));
   let next = { ...(measurements || {}) };
 
   if (!electricalSelected) {
@@ -341,9 +524,24 @@ function applyElectricalVisionTakeoff({
   }
 
   const provenance = {};
+  const fieldValidation = {};
+  const priceableFields = [];
+  const blockedFields = [];
   for (const key of ELECTRICAL_MEASUREMENT_KEYS) {
     const value = positiveNumber(next[key]);
-    if (value == null) continue;
+    const inferredOnly =
+      inferredSet.has(key) && !instance.has(key) && !labeled.has(key);
+    if (value == null) {
+      if (inferredOnly) {
+        fieldValidation[key] = {
+          status: 'needs_review',
+          pricingEligible: false,
+          reason: 'AI inferred from context without a counted symbol or printed label',
+        };
+        blockedFields.push(key);
+      }
+      continue;
+    }
     const tier = electricalExtractionTier(key);
     const evidenceKind = electricalEvidenceKind(key, {
       instanceTagKeys: instance,
@@ -352,8 +550,58 @@ function applyElectricalVisionTakeoff({
     });
     const planVerified =
       evidenceKind === 'instance_tags' ||
-      evidenceKind === 'explicit_label' ||
-      (agreed.has(key) && evidenceKind !== 'inference');
+      (evidenceKind === 'explicit_label' &&
+        Array.isArray(fieldEvidence[key]) &&
+        fieldEvidence[key].length > 0);
+    const aiVerified =
+      !planVerified &&
+      evidenceKind !== 'inference' &&
+      agreed.has(key) &&
+      independentVisionAgreement.has(key) &&
+      electricalFieldHasValidatedSubtotals(key, value, sheetCoverage) &&
+      !semanticIssueFields.has(key);
+    const pricingEligible = planVerified || aiVerified;
+    const status = planVerified
+      ? 'plan_verified'
+      : aiVerified
+        ? 'ai_verified'
+        : 'needs_review';
+    const normalizedSource = planVerified
+      ? 'FROM_PLAN'
+      : aiVerified
+        ? 'AI_VERIFIED'
+        : 'NEEDS_REVIEW';
+    const reason = planVerified
+      ? 'Explicit plan evidence or parsed fixture tags support this quantity.'
+      : aiVerified
+        ? 'Two independent AI counts agree, and sheet coverage/subtotals reconcile.'
+        : evidenceKind === 'inference'
+          ? 'AI inferred this quantity from context rather than a counted symbol.'
+          : evidenceKind === 'explicit_label' && !planVerified
+            ? 'The model supplied a label without a traceable page or sheet reference.'
+          : !agreed.has(key)
+            ? 'Only one AI count supports this quantity.'
+            : !sheetCoverage.complete
+              ? 'The AI counts agree, but full electrical sheet coverage was not proven.'
+              : !electricalFieldHasValidatedSubtotals(key, value, sheetCoverage)
+                ? 'Sheet-level subtotals do not reconcile to the final quantity.'
+                : 'The quantity requires review before pricing.';
+    fieldValidation[key] = {
+      status,
+      pricingEligible,
+      evidenceKind,
+      methodsAgree: agreed.has(key),
+      independentVisionAgreement: independentVisionAgreement.has(key),
+      fullSheetCoverage: sheetCoverage.complete,
+      subtotalValidated: electricalFieldHasValidatedSubtotals(
+        key,
+        value,
+        sheetCoverage
+      ),
+      reason,
+    };
+    if (pricingEligible) priceableFields.push(key);
+    else blockedFields.push(key);
     provenance[key] = {
       value,
       source:
@@ -363,16 +611,109 @@ function applyElectricalVisionTakeoff({
             ? 'pdf_text_instance_tags'
             : planVerified
               ? 'detected_from_plan'
-              : 'calculated_from_symbols',
-      normalizedSource: planVerified ? 'FROM_PLAN' : 'NEEDS_REVIEW',
-      confidenceTier: planVerified ? 1 : Math.max(tier, 2),
+              : aiVerified
+                ? 'ai_verified_symbols'
+                : 'calculated_from_symbols',
+      normalizedSource,
+      status,
+      pricingEligible,
+      confidenceTier: planVerified ? 1 : aiVerified ? 2 : Math.max(tier, 2),
       evidenceKind,
       methodsAgree: agreed.has(key),
+      independentVisionAgreement: independentVisionAgreement.has(key),
+      fullSheetCoverage: sheetCoverage.complete,
+      subtotalValidated: electricalFieldHasValidatedSubtotals(
+        key,
+        value,
+        sheetCoverage
+      ),
+      reason,
+      evidence: fieldEvidence[key] || [],
       note: electricalProvenanceNote(key, tier, { evidenceKind }),
     };
   }
 
-  return { measurements: next, provenance };
+  for (const conflict of semanticIssues) {
+    fieldValidation[conflict.field] = {
+      ...(fieldValidation[conflict.field] || {}),
+      status: 'needs_review',
+      pricingEligible: false,
+      reason: conflict.reason,
+    };
+  }
+  for (const conflict of Array.isArray(measurementConflicts) ? measurementConflicts : []) {
+    const field = String(conflict?.field || '').trim();
+    if (!field) continue;
+    fieldValidation[field] = {
+      ...(fieldValidation[field] || {}),
+      status: 'conflict',
+      pricingEligible: false,
+      reason: 'Independent plan readings disagree — contractor confirmation required.',
+    };
+    blockedFields.push(field);
+  }
+  for (const unreadable of Array.isArray(unreadableFields) ? unreadableFields : []) {
+    const field = String(unreadable?.field || '').trim();
+    if (!field) continue;
+    if (fieldValidation[field]?.status === 'conflict') {
+      blockedFields.push(field);
+      continue;
+    }
+    const status =
+      positiveNumber(next[field]) != null || field === 'unclassifiedFixtureCount'
+        ? 'needs_review'
+        : 'not_detected';
+    fieldValidation[field] = {
+      ...(fieldValidation[field] || {}),
+      status,
+      pricingEligible: false,
+      reason: String(unreadable?.reason || 'Not readable on the plan').trim(),
+    };
+    const priceableIndex = priceableFields.indexOf(field);
+    if (priceableIndex >= 0) priceableFields.splice(priceableIndex, 1);
+    if (provenance[field]) {
+      provenance[field] = {
+        ...provenance[field],
+        status,
+        normalizedSource: 'NEEDS_REVIEW',
+        pricingEligible: false,
+        reason: fieldValidation[field].reason,
+      };
+    }
+    blockedFields.push(field);
+  }
+  const fieldStatuses = Object.values(fieldValidation);
+  return {
+    measurements: next,
+    provenance,
+    electricalValidation: electricalSelected
+      ? {
+          sheetCoverage,
+          semanticIssues,
+          fields: fieldValidation,
+          priceableFields,
+          blockedFields: [...new Set(blockedFields)],
+          summary: {
+            priceableCount: priceableFields.length,
+            aiVerifiedCount: fieldStatuses.filter(
+              (field) => field.status === 'ai_verified'
+            ).length,
+            planVerifiedCount: fieldStatuses.filter(
+              (field) => field.status === 'plan_verified'
+            ).length,
+            conflictCount: fieldStatuses.filter(
+              (field) => field.status === 'conflict'
+            ).length,
+            needsReviewCount: fieldStatuses.filter(
+              (field) => field.status === 'needs_review'
+            ).length,
+            notDetectedCount: fieldStatuses.filter(
+              (field) => field.status === 'not_detected'
+            ).length,
+          },
+        }
+      : null,
+  };
 }
 
 const ELECTRICAL_VISION_INSTRUCTIONS = [
@@ -414,6 +755,11 @@ module.exports = {
   remapElectricalLabeledKeys,
   omitUnresolvedElectricalConflicts,
   normalizeElectricalPlanMeasurements,
+  normalizeElectricalSheetEvidence,
+  normalizeElectricalFieldEvidence,
+  buildElectricalSheetCoverage,
+  validateElectricalSemanticRules,
+  electricalFieldHasValidatedSubtotals,
   applyElectricalVisionTakeoff,
   instanceTagMeasurementsFromTakeoff,
 };

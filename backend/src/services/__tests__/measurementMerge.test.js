@@ -100,5 +100,9 @@ describe('measurement merge conflict handling', () => {
     expect(result.conflicts.find((row) => row.field === 'ceilingFanCount')).toBeUndefined();
     expect(result.measurements.ceilingFanCount).toBe(8);
     expect(result.provenance.ceilingFanCount.methodsAgree).toBe(true);
+    expect(result.provenance.ceilingFanCount.independentVisionAgreement).toBe(true);
+    expect(result.provenance.ceilingFanCount.candidateSources).toEqual(
+      expect.arrayContaining(['general_plan_takeoff', 'focused_trade_takeoff'])
+    );
   });
 });

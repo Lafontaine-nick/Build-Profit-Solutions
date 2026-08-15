@@ -15,7 +15,10 @@ import {
 } from '@/utils/scopeItemQuantities';
 import { emptyQuickMeasurementInput } from '@/utils/scopeQuickMeasurements';
 import { filterPlanMeasurementsForTrade, filterPlanScopesForTrade } from '@/utils/planImportTradeConfig';
-import { buildElectricalPlanReviewSummary } from '@/utils/planTakeoffReviewUi';
+import {
+  buildElectricalPlanReviewSummary,
+  electricalPlanReadinessLine,
+} from '@/utils/planTakeoffReviewUi';
 import { applyElectricalQuickMeasurementPatch } from '@/utils/electricalQuickMeasurementUi';
 import {
   includeUnconfirmedSuggestedPricingFill,
@@ -257,6 +260,90 @@ describe('electrical Phase 3A plan export adapter', () => {
     expect(summary.some(line => /living|sqft/i.test(line.label))).toBe(false);
     expect(summary.some(line => line.value.includes('10,000'))).toBe(false);
     expect(summary.some(line => line.value.includes('2,500'))).toBe(false);
+  });
+
+  it('keeps export readiness blocked by conflicts and unclassified fixtures', () => {
+    const readiness = electricalPlanReadinessLine({
+      measurements: {
+        standardReceptacleCount: 50,
+        gfciReceptacleCount: 8,
+        threeWaySwitchCount: 6,
+        smokeDetectorCount: 10,
+      },
+      conflicts: [
+        { field: 'threeWaySwitchCount' },
+        { field: 'smokeDetectorCount' },
+      ],
+      unclassifiedFixtureCount: 3,
+      validation: {
+        fields: {
+          standardReceptacleCount: {
+            status: 'ai_verified',
+            pricingEligible: true,
+          },
+          gfciReceptacleCount: {
+            status: 'needs_review',
+            pricingEligible: false,
+          },
+          threeWaySwitchCount: {
+            status: 'conflict',
+            pricingEligible: false,
+          },
+          smokeDetectorCount: {
+            status: 'conflict',
+            pricingEligible: false,
+          },
+        },
+        priceableFields: ['standardReceptacleCount'],
+        blockedFields: [
+          'gfciReceptacleCount',
+          'threeWaySwitchCount',
+          'smokeDetectorCount',
+        ],
+      },
+    });
+
+    expect(readiness.value).toBe('1 prices ready · 4 to confirm');
+    expect(readiness.note).toMatch(/conflicts and inferred quantities are not priced/);
+  });
+
+  it('counts Plan verified provenance in the readiness summary', () => {
+    const readiness = electricalPlanReadinessLine({
+      measurements: {
+        mainPanelCount: 1,
+        standardReceptacleCount: 50,
+      },
+      provenance: {
+        mainPanelCount: {
+          status: 'plan_verified',
+          normalizedSource: 'FROM_PLAN',
+          evidenceKind: 'explicit_label',
+          pricingEligible: true,
+        },
+        standardReceptacleCount: {
+          status: 'ai_verified',
+          normalizedSource: 'AI_VERIFIED',
+          pricingEligible: true,
+        },
+      },
+      validation: {
+        fields: {
+          mainPanelCount: {
+            status: 'plan_verified',
+            pricingEligible: true,
+          },
+          standardReceptacleCount: {
+            status: 'ai_verified',
+            pricingEligible: true,
+          },
+        },
+        priceableFields: ['mainPanelCount', 'standardReceptacleCount'],
+        blockedFields: [],
+      },
+    });
+
+    expect(readiness.value).toBe('2 prices ready · 0 to confirm');
+    expect(readiness.note).toMatch(/1 Plan verified · 1 AI verified/);
   });
 
   it('does not price a conflicted recessed count until the contractor confirms', () => {

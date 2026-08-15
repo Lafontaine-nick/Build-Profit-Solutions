@@ -72,6 +72,7 @@ export type PlanImportApplyResult = {
   quickMeasurementSources?: Record<string, string>;
   measurementProvenance?: Record<string, unknown>;
   measurementConflicts?: import('@/utils/estimateAiDraft').PlanMeasurementConflict[];
+  electricalValidation?: PlanToMeasurementsResult['electricalValidation'];
   estimatingMode: PlanEstimatingMode;
   selectedTrade: PlanTradeKey | null;
   tradeProvenance: {
@@ -280,6 +281,7 @@ export default function EstimatePlanImportStrip({
       metadata?: {
         measurementProvenance?: PlanToMeasurementsResult['measurementProvenance'];
         measurementConflicts?: PlanToMeasurementsResult['measurementConflicts'];
+        electricalValidation?: PlanToMeasurementsResult['electricalValidation'];
       }
     ) => {
       const takeoff = planReview;
@@ -388,6 +390,47 @@ export default function EstimatePlanImportStrip({
         }
         return true;
       });
+      const appliedProvenance = {
+        ...(normalizedTrade?.measurementProvenance || {}),
+        ...(takeoff.measurementProvenance
+          ? Object.fromEntries(
+              Object.entries(takeoff.measurementProvenance).filter(([key]) =>
+                Object.prototype.hasOwnProperty.call(tradeMeasurements, key)
+              )
+            )
+          : {}),
+        ...(metadata?.measurementProvenance || {}),
+      };
+      const electricalQuickMeasurementSources =
+        selection.trade?.key === 'electrical'
+          ? Object.fromEntries(
+              Object.entries(appliedProvenance)
+                .filter(([key]) =>
+                  Object.prototype.hasOwnProperty.call(tradeMeasurements, key)
+                )
+                .map(([key, entry]) => {
+                  const record =
+                    entry && typeof entry === 'object'
+                      ? (entry as {
+                          status?: string;
+                          normalizedSource?: string;
+                          pricingEligible?: boolean;
+                        })
+                      : {};
+                  const source =
+                    record.normalizedSource === 'AI_VERIFIED' ||
+                    record.status === 'ai_verified'
+                      ? 'ai_verified'
+                      : record.normalizedSource === 'USER_CONFIRMED' ||
+                          record.normalizedSource === 'USER_ENTERED'
+                        ? 'user_entered'
+                        : record.pricingEligible === false
+                          ? 'needs_confirmation'
+                          : 'plan_detected';
+                  return [key, source];
+                })
+            )
+          : {};
 
       onApplied({
         measurements: tradeMeasurements,
@@ -408,19 +451,14 @@ export default function EstimatePlanImportStrip({
             ? undefined
             : takeoff.planFacts,
         fieldConfidence: takeoff.fieldConfidence,
-        quickMeasurementSources: normalizedTrade?.quickMeasurementSources,
-        measurementProvenance: {
-          ...(normalizedTrade?.measurementProvenance || {}),
-          ...(takeoff.measurementProvenance
-            ? Object.fromEntries(
-                Object.entries(takeoff.measurementProvenance).filter(([key]) =>
-                  Object.prototype.hasOwnProperty.call(tradeMeasurements, key)
-                )
-              )
-            : {}),
-          ...(metadata?.measurementProvenance || {}),
+        quickMeasurementSources: {
+          ...(normalizedTrade?.quickMeasurementSources || {}),
+          ...electricalQuickMeasurementSources,
         },
+        measurementProvenance: appliedProvenance,
         measurementConflicts: unresolvedConflicts,
+        electricalValidation:
+          metadata?.electricalValidation ?? takeoff.electricalValidation ?? null,
         estimatingMode: selection.mode,
         selectedTrade: selection.trade?.key || null,
         tradeProvenance: {

@@ -382,7 +382,7 @@ describe('electricalQuickMeasurementUi', () => {
     ).toBe(true);
   });
 
-  it('treats EA/LF quantity edits as immediate flush writes', () => {
+  it('stages EA/LF quantity edits while keeping live attributes immediate', () => {
     const base = { mainPanelCount: '', standardReceptacleCount: 50 };
     expect(
       electricalQuantityFieldsChanged(
@@ -395,7 +395,7 @@ describe('electricalQuickMeasurementUi', () => {
         base as Record<string, unknown>,
         { ...base, mainPanelCount: '1' } as Record<string, unknown>
       )
-    ).toBe(true);
+    ).toBe(false);
     expect(
       electricalMeasurementsShouldFlushImmediately(
         base as Record<string, unknown>,
@@ -411,6 +411,7 @@ describe('electricalQuickMeasurementUi', () => {
     expect(confirmScopeChipPainted(false, true)).toBe(true);
     expect(confirmScopeChipPainted(true, false)).toBe(true);
     expect(confirmScopeChipPainted(true, null)).toBe(true);
+    expect(confirmScopeChipPainted(true, false, true)).toBe(false);
   });
 
   it('treats finger travel past the slop as a scroll, not a chip tap', () => {

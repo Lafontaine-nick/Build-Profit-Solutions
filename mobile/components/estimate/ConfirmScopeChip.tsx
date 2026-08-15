@@ -16,6 +16,7 @@ type ConfirmScopeChipProps = {
   onPress: () => void;
   darkMode: boolean;
   disabled?: boolean;
+  allowOptimisticDeselect?: boolean;
   accessibilityLabel?: string;
 };
 
@@ -30,6 +31,7 @@ export function ConfirmScopeChip({
   onPress,
   darkMode,
   disabled = false,
+  allowOptimisticDeselect = false,
   accessibilityLabel,
 }: ConfirmScopeChipProps) {
   const onPressRef = useRef(onPress);
@@ -41,6 +43,7 @@ export function ConfirmScopeChip({
       subtitle={subtitle}
       darkMode={darkMode}
       disabled={disabled}
+      allowOptimisticDeselect={allowOptimisticDeselect}
       accessibilityLabel={accessibilityLabel}
       onPressRef={onPressRef}
     />
@@ -59,7 +62,11 @@ const ConfirmScopeChipView = React.memo(function ConfirmScopeChipView({
   onPressRef: React.MutableRefObject<() => void>;
 }) {
   const [optimistic, setOptimistic] = useState<boolean | null>(null);
-  const painted = confirmScopeChipPainted(selected, optimistic);
+  const painted = confirmScopeChipPainted(
+    selected,
+    optimistic,
+    allowOptimisticDeselect
+  );
   const selectedRef = useRef(selected);
   const optimisticRef = useRef(optimistic);
   const disabledRef = useRef(disabled);
@@ -146,7 +153,8 @@ const ConfirmScopeChipView = React.memo(function ConfirmScopeChipView({
     lockedUntilRef.current = now + CONFIRM_SCOPE_CHIP_PRESS_LOCK_MS;
     const current = confirmScopeChipPainted(
       selectedRef.current,
-      optimisticRef.current
+      optimisticRef.current,
+      allowOptimisticDeselect
     );
     const next = !current;
     optimisticRef.current = next;

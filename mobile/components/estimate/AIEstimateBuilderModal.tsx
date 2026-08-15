@@ -296,6 +296,7 @@ export default function AIEstimateBuilderModal({
       quickMeasurementSources: result.quickMeasurementSources,
       measurementProvenance: result.measurementProvenance,
       measurementConflicts: result.measurementConflicts,
+      electricalValidation: result.electricalValidation,
       estimatingMode: result.estimatingMode,
       selectedTrade: result.selectedTrade,
       tradeProvenance: result.tradeProvenance,

@@ -130,6 +130,64 @@ function mergeElectricalEvidenceSources({
   return mergeMeasurementCandidateSets(sets);
 }
 
+function mergeElectricalSheetEvidence(...sources) {
+  const byPage = new Map();
+  for (const source of sources) {
+    const sheets = Array.isArray(source?.sheetSubtotals)
+      ? source.sheetSubtotals
+      : Array.isArray(source?.sheets)
+        ? source.sheets
+        : [];
+    for (const sheet of sheets) {
+      const page = Number(sheet?.page);
+      if (!Number.isInteger(page) || page < 1) continue;
+      const previous = byPage.get(page);
+      const previousCounts =
+        previous?.counts && typeof previous.counts === 'object'
+          ? previous.counts
+          : {};
+      const nextCounts =
+        sheet?.counts && typeof sheet.counts === 'object' ? sheet.counts : {};
+      byPage.set(page, {
+        ...(previous || {}),
+        ...sheet,
+        page,
+        counts: { ...previousCounts, ...nextCounts },
+        evidence: [
+          ...(Array.isArray(previous?.evidence) ? previous.evidence : []),
+          ...(Array.isArray(sheet?.evidence) ? sheet.evidence : []),
+        ].slice(0, 8),
+      });
+    }
+  }
+  const omittedPages = [
+    ...new Set(
+      sources.flatMap((source) =>
+        Array.isArray(source?.omittedPages) ? source.omittedPages : []
+      )
+    ),
+  ];
+  return {
+    sheetSubtotals: [...byPage.values()].sort((a, b) => a.page - b.page),
+    omittedPages,
+  };
+}
+
+function mergeElectricalFieldEvidence(...sources) {
+  const out = {};
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue;
+    for (const [key, entries] of Object.entries(source)) {
+      const list = Array.isArray(entries) ? entries : [entries];
+      out[key] = [
+        ...(Array.isArray(out[key]) ? out[key] : []),
+        ...list,
+      ].slice(0, 16);
+    }
+  }
+  return out;
+}
+
 /** Fields the model read but wasn't sure about are withheld below this. */
 const MIN_FIELD_CONFIDENCE = 0.6;
 
@@ -878,6 +936,9 @@ Counting contract (most important):
 - Repeated fixture instance tags in the PDF text-layer block (R4, CF) are individual fixtures. Prefer those counts over symbol estimates. Never treat a legend/schedule definition as a quantity. Sum main-level and upper-level lighting sheets.
 - Count every ceiling-fan symbol on every lighting sheet, including covered patio, primary suite, all bedrooms, and upstairs living.
 - Lighting fixtures that are not recessed/canless and not ceiling fans still count. If there is no symbol legend, report unclassifiedFixtureCount and list it in unreadableFields — do not guess pendant, vanity, garage, or standard fixture.
+- Return electricalSheetEvidence.sheetSubtotals with one row for every attached electrical page. Include page, sheet, level, kind, coverage ("complete" only after reviewing the whole page), and counts for every counted canonical field, including zero when that field is absent. The sum of sheet subtotals must equal the final measurements.
+- Do not mark a page complete if it is cropped, duplicated, a legend-only view, or not reviewed. Put such pages in electricalSheetEvidence.omittedPages and explain the omission.
+- For every non-symbol quantity or explicitly labeled quantity, return electricalFieldEvidence[field] with the page/sheet and the printed label or source text. A quantity without a traceable field evidence reference cannot be Plan verified.
 - serviceAmperage ONLY when a printed amperage callout exists (200A, 125A, 150A). Never infer amperage from house size or from seeing a panel box. If it is not printed, omit it and list serviceAmperage in unreadableFields.
 - Do NOT invent homeruns, breaker counts, conduit LF, trench LF, rough/trim packages, job condition, or living SF. Device symbols do not create circuit relationships.
 - Leave rooms[] empty. Do not extract kitchen/bath/living square footage on this pass.
@@ -911,6 +972,36 @@ Schema:
     "gfciReceptacleCount": 0.9,
     "recessedLightCount": 0.85,
     "mainPanelCount": 0.95
+  },
+  "electricalSheetEvidence": {
+    "sheetSubtotals": [
+      {
+        "page": 5,
+        "sheet": "E1.1",
+        "level": "main",
+        "kind": "lighting",
+        "coverage": "complete",
+        "counts": {
+          "standardReceptacleCount": 24,
+          "gfciReceptacleCount": 3,
+          "recessedLightCount": 24,
+          "ceilingFanCount": 2
+        },
+        "evidence": [{ "page": 5, "sheet": "E1.1", "label": "Main-level lighting plan reviewed" }]
+      }
+    ],
+    "omittedPages": []
+  },
+  "electricalFieldEvidence": {
+    "mainPanelCount": [
+      {
+        "page": 5,
+        "sheet": "E1.1",
+        "label": "PANEL",
+        "method": "explicit_callout",
+        "sourceText": "PANEL A"
+      }
+    ]
   },
   "unreadableFields": [
     { "field": "serviceAmperage", "reason": "No printed amperage callout" },
@@ -1755,7 +1846,7 @@ async function analyzePlanForMeasurements({
   const electricalSheetCountHint = electricalVisionParts
     ? `The attached images are Electrical sheets (pages ${(pdfTakeoff?.electricalRelevantPages || [])
         .map((page) => page.page)
-        .join(', ') || 'E sheets'}). Count symbols on these pages. Do not extract living SF or room L×W on this pass.`
+        .join(', ') || 'E sheets'}). Count symbols on every attached page, return a sheet subtotal for every page, and reconcile the final totals to those subtotals. Do not extract living SF or room L×W on this pass.`
     : 'Prioritize E sheets and panel schedules inside the attached plan file.';
 
   // Electrical counts are a measurement pass, not creative estimation. Keep
@@ -1904,6 +1995,7 @@ async function analyzePlanForMeasurements({
   let focusedElectricalVisionSource = null;
   let measurementProvenance = {};
   let measurementConflicts = [];
+  let electricalValidation = null;
   let electricalEvidenceMerged = false;
   const electricalTagMeasurements = electricalSelected
     ? instanceTagMeasurementsFromTakeoff(pdfTakeoff)
@@ -1935,6 +2027,16 @@ async function analyzePlanForMeasurements({
             overlayEvidence: stuccoEvidenceByField(focused.planFacts),
           });
       if (electricalSelected) electricalEvidenceMerged = true;
+      if (electricalSelected) {
+        parsed.electricalSheetEvidence = mergeElectricalSheetEvidence(
+          parsed.electricalSheetEvidence,
+          focused.electricalSheetEvidence
+        );
+        parsed.electricalFieldEvidence = mergeElectricalFieldEvidence(
+          parsed.electricalFieldEvidence,
+          focused.electricalFieldEvidence
+        );
+      }
       const mergedFieldConfidence = {
         ...(parsed.fieldConfidence || {}),
         ...(focused.fieldConfidence || {}),
@@ -2238,9 +2340,19 @@ async function analyzePlanForMeasurements({
     methodsAgreeKeys: Object.entries(measurementProvenance || {})
       .filter(([, entry]) => entry?.methodsAgree)
       .map(([key]) => key),
+    independentVisionAgreementKeys: Object.entries(measurementProvenance || {})
+      .filter(([, entry]) => entry?.independentVisionAgreement)
+      .map(([key]) => key),
+    electricalSheetEvidence: parsed.electricalSheetEvidence,
+    electricalRelevantPages: pdfTakeoff?.electricalRelevantPages || [],
+    electricalRenderedPages: electricalSheetImages,
+    measurementConflicts,
+    unreadableFields: parsed.unreadableFields,
+    electricalFieldEvidence: parsed.electricalFieldEvidence,
     electricalSelected,
   });
   rawMeasurements = electricalTakeoff.measurements;
+  electricalValidation = electricalTakeoff.electricalValidation || null;
   measurementProvenance = {
     ...measurementProvenance,
     ...Object.fromEntries(
@@ -2517,6 +2629,7 @@ async function analyzePlanForMeasurements({
     fieldConfidence,
     measurementProvenance,
     measurementConflicts,
+    electricalValidation,
     lowConfidence,
     unreadableFields,
     buildingAreas,
@@ -2584,6 +2697,8 @@ module.exports = {
   buildSystemPrompt,
   buildElectricalSystemPrompt,
   mergeElectricalEvidenceSources,
+  mergeElectricalSheetEvidence,
+  mergeElectricalFieldEvidence,
   MEASUREMENT_KEYS,
   LABELED_ONLY_KEYS,
   MAX_IMAGES,

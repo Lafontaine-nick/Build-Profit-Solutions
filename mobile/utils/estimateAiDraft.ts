@@ -614,6 +614,25 @@ export type ScopeMeasurements = {
   measurementProvenance?: Record<string, unknown>;
   /** Material conflicts retained through plan import and scope hydration. */
   measurementConflicts?: PlanMeasurementConflict[];
+  /** Electrical confidence-tier readiness and sheet coverage validation. */
+  electricalValidation?: {
+    sheetCoverage?: {
+      expectedPages?: number[];
+      coveredPages?: number[];
+      missingPages?: number[];
+      complete?: boolean;
+    };
+    fields?: Record<
+      string,
+      {
+        status?: string;
+        pricingEligible?: boolean;
+        reason?: string;
+      }
+    >;
+    priceableFields?: string[];
+    blockedFields?: string[];
+  } | null;
   /** Declared vs detected living/garage reconciliation (measurement-semantics). */
   areaReconciliation?:
     | import('@/utils/measurementSemantics').AreaReconciliation
@@ -1409,6 +1428,25 @@ export type PlanToMeasurementsResult = {
   measurementProvenance?: Record<string, unknown>;
   /** Material conflicts that require contractor confirmation. */
   measurementConflicts?: PlanMeasurementConflict[];
+  /** Electrical confidence-tier readiness and sheet coverage validation. */
+  electricalValidation?: {
+    sheetCoverage?: {
+      expectedPages?: number[];
+      coveredPages?: number[];
+      missingPages?: number[];
+      complete?: boolean;
+    };
+    fields?: Record<
+      string,
+      {
+        status?: string;
+        pricingEligible?: boolean;
+        reason?: string;
+      }
+    >;
+    priceableFields?: string[];
+    blockedFields?: string[];
+  } | null;
   /** Fields the AI read but withheld because confidence was too low. */
   lowConfidence: PlanLowConfidenceField[];
   /** Fields the AI saw on the plan but could not read (blurry/cut off). */
@@ -1498,6 +1536,11 @@ export async function fetchPlanToMeasurements(params: {
     measurementConflicts: Array.isArray(payload.measurementConflicts)
       ? (payload.measurementConflicts as PlanMeasurementConflict[])
       : [],
+    electricalValidation:
+      payload.electricalValidation &&
+      typeof payload.electricalValidation === 'object'
+        ? (payload.electricalValidation as PlanToMeasurementsResult['electricalValidation'])
+        : null,
     lowConfidence: Array.isArray(payload.lowConfidence)
       ? (payload.lowConfidence as PlanLowConfidenceField[])
       : [],
@@ -1729,6 +1772,7 @@ export type PlanImportPayload = {
   quickMeasurementSources?: Record<string, string>;
   measurementProvenance?: Record<string, unknown>;
   measurementConflicts?: PlanMeasurementConflict[];
+  electricalValidation?: ScopeMeasurements['electricalValidation'];
 };
 
 type LivePlanImportMeasurementMetadata = {
@@ -1736,6 +1780,7 @@ type LivePlanImportMeasurementMetadata = {
   quickMeasurementFieldConfidence?: Record<string, number>;
   measurementProvenance?: Record<string, unknown>;
   measurementConflicts?: PlanMeasurementConflict[];
+  electricalValidation?: ScopeMeasurements['electricalValidation'];
   planImportMode?: PlanImportPayload['estimatingMode'];
   planImportTradeKey?: PlanImportPayload['selectedTrade'];
   planImportProvenance?: PlanImportPayload['tradeProvenance'];
@@ -1762,7 +1807,7 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
 
   for (const [key, value] of Object.entries(payload.measurements || {})) {
     if (value == null || value === '') continue;
-    next[key] = String(value);
+    (next as Record<string, unknown>)[key] = String(value);
     changed = true;
   }
 
@@ -1795,6 +1840,10 @@ export function mergeLivePlanImportIntoScopeMeasurements<T extends object>(
   }
   if (payload.measurementConflicts !== undefined) {
     next.measurementConflicts = [...payload.measurementConflicts];
+    changed = true;
+  }
+  if (payload.electricalValidation !== undefined) {
+    next.electricalValidation = payload.electricalValidation;
     changed = true;
   }
   if (payload.estimatingMode !== undefined) {
@@ -2425,6 +2474,7 @@ export function planImportPayloadFromDraft(
     fieldConfidence: sm.quickMeasurementFieldConfidence,
     measurementProvenance: sm.measurementProvenance,
     measurementConflicts: sm.measurementConflicts,
+    electricalValidation: sm.electricalValidation,
     estimatingMode: sm.planImportMode,
     selectedTrade: sm.planImportTradeKey,
     tradeProvenance: sm.planImportProvenance,
@@ -2953,6 +3003,9 @@ export function applyPlanImportToDraft(
   }
   if (payload.measurementConflicts?.length) {
     scopeMeasurements.measurementConflicts = payload.measurementConflicts;
+  }
+  if (payload.electricalValidation !== undefined) {
+    scopeMeasurements.electricalValidation = payload.electricalValidation;
   }
   if (planImportMode !== 'selected_trade' && payload.areaReconciliation) {
     scopeMeasurements.areaReconciliation = payload.areaReconciliation;

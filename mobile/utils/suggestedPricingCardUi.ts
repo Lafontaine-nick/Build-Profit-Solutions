@@ -84,6 +84,7 @@ export const LIVING_AREA_FALLBACK_SCOPE_IDS = new Set([
 export type SuggestedQuantitySource =
   | 'notes'
   | 'plan'
+  | 'ai_verified'
   | 'plan_conflict'
   | 'user'
   | 'calculated'
@@ -324,6 +325,9 @@ export function normalizeQuantitySource(
   ) {
     return 'plan';
   }
+  if (key === 'ai_verified' || key === 'ai_verified_symbols') {
+    return 'ai_verified';
+  }
   if (key === 'user_entered' || key === 'manual_override' || /user|manual/.test(key)) return 'user';
   if (key === 'calculated_confirmed' || key === 'inferred' || /calculat|formula|derived/.test(key)) {
     return 'calculated';
@@ -336,7 +340,7 @@ export function normalizeQuantitySource(
 export function quantityProvenanceLabel(source: SuggestedQuantitySource | string | null | undefined): string {
   const normalized =
     typeof source === 'string' &&
-    !['notes', 'plan', 'plan_conflict', 'user', 'calculated', 'assumption', 'fallback', 'unknown'].includes(source)
+    !['notes', 'plan', 'ai_verified', 'plan_conflict', 'user', 'calculated', 'assumption', 'fallback', 'unknown'].includes(source)
       ? normalizeQuantitySource(source)
       : (source as SuggestedQuantitySource | null | undefined);
   switch (normalized) {
@@ -344,6 +348,8 @@ export function quantityProvenanceLabel(source: SuggestedQuantitySource | string
       return 'From notes';
     case 'plan':
       return 'From plan';
+    case 'ai_verified':
+      return 'AI verified · full sheet coverage checked';
     case 'plan_conflict':
       return 'Plan conflict — confirm';
     case 'user':

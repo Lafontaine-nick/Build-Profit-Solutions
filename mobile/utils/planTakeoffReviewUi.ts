@@ -437,6 +437,41 @@ const ELECTRICAL_PLAN_REVIEW_KEYS = new Set([
   'serviceAmperage',
 ]);
 
+export function electricalPlanQuantityPricingEligible(
+  key: string,
+  provenanceEntry?: unknown
+): boolean {
+  if (!ELECTRICAL_PLAN_REVIEW_KEYS.has(key)) return true;
+  if (!provenanceEntry || typeof provenanceEntry !== 'object') return false;
+  const entry = provenanceEntry as {
+    pricingEligible?: unknown;
+    normalizedSource?: unknown;
+    status?: unknown;
+    evidenceKind?: unknown;
+  };
+  if (typeof entry.pricingEligible === 'boolean') {
+    return entry.pricingEligible;
+  }
+  if (
+    entry.normalizedSource === 'FROM_PLAN' ||
+    entry.normalizedSource === 'AI_VERIFIED' ||
+    entry.status === 'plan_verified' ||
+    entry.status === 'ai_verified'
+  ) {
+    return true;
+  }
+  if (
+    !entry.evidenceKind &&
+    (entry as { source?: unknown }).source === 'detected_from_plan'
+  ) {
+    return true;
+  }
+  return (
+    entry.evidenceKind === 'instance_tags' ||
+    entry.evidenceKind === 'explicit_label'
+  );
+}
+
 function provenanceSourceText(entry: unknown): string {
   if (entry == null) return '';
   if (typeof entry === 'string') return entry.toLowerCase();
@@ -456,6 +491,7 @@ export function planReviewProvenanceFlags(input: {
   hasReliableDimensions: boolean;
   roomDependent: boolean;
   fromPlanSymbols: boolean;
+  aiVerified: boolean;
   aiInferred: boolean;
 } {
   const source = provenanceSourceText(input.provenanceEntry);
@@ -489,10 +525,21 @@ export function planReviewProvenanceFlags(input: {
     typeof input.provenanceEntry === 'object' &&
     input.provenanceEntry != null &&
     (input.provenanceEntry as { methodsAgree?: boolean }).methodsAgree === true;
+  const aiVerified =
+    electricalKey &&
+    typeof input.provenanceEntry === 'object' &&
+    input.provenanceEntry != null &&
+    ((input.provenanceEntry as { status?: string }).status === 'ai_verified' ||
+      (input.provenanceEntry as { normalizedSource?: string }).normalizedSource ===
+        'AI_VERIFIED' ||
+      ((input.provenanceEntry as { pricingEligible?: boolean }).pricingEligible ===
+        true &&
+        (input.provenanceEntry as { independentVisionAgreement?: boolean })
+          .independentVisionAgreement === true));
   const fromPlanSymbols =
     electricalKey &&
     !fromInstanceTags &&
-    !methodsAgree &&
+    !aiVerified &&
     (evidenceKind === 'symbols' ||
       source.includes('calculated_from_symbols') ||
       source.includes('symbol'));
@@ -507,7 +554,8 @@ export function planReviewProvenanceFlags(input: {
           Number((input.provenanceEntry as { confidenceTier?: number }).confidenceTier) >=
             2 &&
           !fromInstanceTags &&
-          !methodsAgree)));
+          !methodsAgree &&
+          !aiVerified)));
   return {
     hasExplicitPlanSource:
       !input.hasConflict &&
@@ -517,8 +565,8 @@ export function planReviewProvenanceFlags(input: {
         (paintingKey && fromPlan && !fromGeometry && !incomplete) ||
         (electricalKey &&
           !aiInferred &&
+          !aiVerified &&
           (fromInstanceTags ||
-            methodsAgree ||
             (fromPlan && !electricalReview)))),
     hasReliableDimensions:
       !input.hasConflict &&
@@ -531,6 +579,7 @@ export function planReviewProvenanceFlags(input: {
       incomplete ||
       electricalReview,
     fromPlanSymbols: !input.hasConflict && fromPlanSymbols,
+    aiVerified: !input.hasConflict && aiVerified,
     aiInferred: !input.hasConflict && aiInferred,
   };
 }
@@ -719,6 +768,16 @@ function electricalQuantityNote(
   provenance?: Record<string, unknown> | null
 ): string | undefined {
   const entry = provenance?.[key];
+  if (
+    entry &&
+    typeof entry === 'object' &&
+    (((entry as { status?: string }).status || '').toLowerCase() ===
+      'ai_verified' ||
+      (entry as { normalizedSource?: string }).normalizedSource ===
+        'AI_VERIFIED')
+  ) {
+    return 'AI counted twice · full sheet coverage checked';
+  }
   if (entry && typeof entry === 'object' && 'note' in entry) {
     const note = String((entry as { note?: unknown }).note || '').trim();
     if (note) return note;
@@ -733,6 +792,9 @@ function electricalQuantityNote(
   }
   if (s.includes('instance_tag') || s.includes('pdf_text')) {
     return 'Counted from instance tags';
+  }
+  if (s.includes('ai_verified')) {
+    return 'AI counted twice · full sheet coverage checked';
   }
   if (s.includes('calculated_from_symbols') || s.includes('needs_review') || s.includes('symbol')) {
     return 'From plan symbols';
@@ -750,7 +812,97 @@ export type ElectricalPlanReviewOptions = {
   unresolvedConflictFields?: Array<string | null | undefined> | null;
   unclassifiedFixtureCount?: number | string | null;
   unclassifiedFixtureNote?: string | null;
+  electricalValidation?: {
+    fields?: Record<
+      string,
+      { status?: string; pricingEligible?: boolean; reason?: string }
+    >;
+    priceableFields?: string[];
+    blockedFields?: string[];
+  } | null;
 };
+
+export function electricalPlanReadinessLine(input: {
+  measurements: Record<string, unknown>;
+  provenance?: Record<string, unknown> | null;
+  conflicts?: Array<{ field?: string | null } | null> | null;
+  unreadableFields?: Array<{ field?: string | null } | null> | null;
+  unclassifiedFixtureCount?: number | string | null;
+  validation?: ElectricalPlanReviewOptions['electricalValidation'];
+}): { label: string; value: string; note: string } {
+  const fields = input.validation?.fields || {};
+  const priceable = new Set(
+    input.validation?.priceableFields ||
+      Object.entries(fields)
+        .filter(([, field]) => field?.pricingEligible === true)
+        .map(([key]) => key)
+  );
+  if (!priceable.size) {
+    for (const key of Object.keys(input.measurements || {})) {
+      if (electricalPlanQuantityPricingEligible(key, input.provenance?.[key])) {
+        priceable.add(key);
+      }
+    }
+  }
+  const blocked = new Set(
+    input.validation?.blockedFields ||
+      Object.entries(fields)
+        .filter(([, field]) => field?.pricingEligible !== true)
+        .map(([key]) => key)
+  );
+  for (const key of Object.keys(input.measurements || {})) {
+    if (!priceable.has(key)) blocked.add(key);
+  }
+  for (const conflict of input.conflicts || []) {
+    const field = String(conflict?.field || '').trim();
+    if (field) blocked.add(field);
+  }
+  for (const unreadable of input.unreadableFields || []) {
+    const field = String(unreadable?.field || '').trim();
+    if (field) blocked.add(field);
+  }
+  if (positiveMeasurement(input.unclassifiedFixtureCount) != null) {
+    blocked.add('unclassifiedFixtureCount');
+  }
+  const statusFor = (key: string): string => {
+    const validationStatus = fields[key]?.status;
+    if (validationStatus) return String(validationStatus).toLowerCase();
+    const entry = input.provenance?.[key];
+    if (!entry || typeof entry !== 'object') return '';
+    const record = entry as {
+      status?: unknown;
+      normalizedSource?: unknown;
+      evidenceKind?: unknown;
+    };
+    const status = String(record.status || '').toLowerCase();
+    if (status) return status;
+    const source = String(record.normalizedSource || '').toLowerCase();
+    if (
+      source === 'from_plan' ||
+      record.evidenceKind === 'instance_tags' ||
+      record.evidenceKind === 'explicit_label'
+    ) {
+      return 'plan_verified';
+    }
+    return source === 'ai_verified' ? 'ai_verified' : '';
+  };
+  const statusKeys = new Set(
+    [...Object.keys(fields), ...Object.keys(input.measurements || {})].filter(key =>
+      ELECTRICAL_PLAN_REVIEW_KEYS.has(key)
+    )
+  );
+  const planVerified = [...statusKeys].filter(
+    key => statusFor(key) === 'plan_verified'
+  ).length;
+  const aiVerified = [...statusKeys].filter(
+    key => statusFor(key) === 'ai_verified'
+  ).length;
+  return {
+    label: 'Electrical readiness',
+    value: `${priceable.size} prices ready · ${blocked.size} to confirm`,
+    note: `${planVerified} Plan verified · ${aiVerified} AI verified · conflicts and inferred quantities are not priced`,
+  };
+}
 
 /** Grouped Electrical summary for Plan Review before Confirm Scope. */
 export function buildElectricalPlanReviewSummary(
@@ -774,10 +926,27 @@ export function buildElectricalPlanReviewSummary(
       const quantity = positiveMeasurement(measurements[card.measurementKey]);
       if (quantity == null) continue;
       shownKeys.add(card.measurementKey);
-      const note = electricalQuantityNote(card.measurementKey, provenance);
+      const validation =
+        options?.electricalValidation?.fields?.[card.measurementKey];
+      const pricingEligible =
+        validation?.pricingEligible ??
+        (provenance?.[card.measurementKey] == null &&
+        options?.electricalValidation == null
+          ? true
+          : electricalPlanQuantityPricingEligible(
+              card.measurementKey,
+              provenance?.[card.measurementKey]
+            ));
+      const note = pricingEligible
+        ? electricalQuantityNote(card.measurementKey, provenance)
+        : `${formatSfWithCommas(quantity)} EA visible — ${
+            validation?.reason || 'Confirm before pricing'
+          }`;
       lines.push({
         label: card.label,
-        value: electricalQuantityLabel(card, quantity, measurements),
+        value: pricingEligible
+          ? electricalQuantityLabel(card, quantity, measurements)
+          : 'Needs confirmation',
         ...(note ? { note } : {}),
       });
     }
@@ -789,9 +958,29 @@ export function buildElectricalPlanReviewSummary(
     !shownKeys.has('panelUpgradeCount') &&
     !shownKeys.has('serviceUpgradeCount')
   ) {
+    const serviceValidation =
+      options?.electricalValidation?.fields?.serviceAmperage;
+    const servicePricingEligible =
+      serviceValidation?.pricingEligible ??
+      (provenance?.serviceAmperage == null &&
+      options?.electricalValidation == null
+        ? true
+        : electricalPlanQuantityPricingEligible(
+            'serviceAmperage',
+            provenance?.serviceAmperage
+          ));
     lines.push({
       label: 'Service amperage',
-      value: `${positiveMeasurement(measurements.serviceAmperage)}A`,
+      value: servicePricingEligible
+        ? `${positiveMeasurement(measurements.serviceAmperage)}A`
+        : 'Needs confirmation',
+      ...(servicePricingEligible
+        ? {}
+        : {
+            note:
+              serviceValidation?.reason ||
+              'Confirm the printed amperage before pricing',
+          }),
     });
   }
 

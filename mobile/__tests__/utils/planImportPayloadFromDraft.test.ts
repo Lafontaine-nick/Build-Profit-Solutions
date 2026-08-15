@@ -63,6 +63,20 @@ describe('planImportPayloadFromDraft', () => {
         mainFloorLivingSqft: 1892,
         garageSqft: 972,
       },
+      electricalValidation: {
+        priceableFields: ['standardReceptacleCount'],
+        blockedFields: ['threeWaySwitchCount'],
+        fields: {
+          standardReceptacleCount: {
+            status: 'ai_verified',
+            pricingEligible: true,
+          },
+          threeWaySwitchCount: {
+            status: 'conflict',
+            pricingEligible: false,
+          },
+        },
+      },
       scopeDetections: [{ itemId: 'framing', label: 'Framing', state: 'included' }],
     };
 
@@ -73,9 +87,16 @@ describe('planImportPayloadFromDraft', () => {
     expect(Number(rebuilt!.measurements?.garageSqft)).toBe(972);
     expect(rebuilt!.planFacts?.buildingAreas?.mainFloorLivingSqft).toBe(1892);
     expect(rebuilt!.rooms?.some((r) => r.name === 'Kitchen')).toBe(true);
+    expect(rebuilt!.electricalValidation).toMatchObject({
+      priceableFields: ['standardReceptacleCount'],
+      blockedFields: ['threeWaySwitchCount'],
+    });
 
     const regenerated = applyPlanImportToDraft(baseDraft(), rebuilt);
     expect(Number(regenerated.scopeMeasurements?.floorAreaSqft)).toBe(3098);
     expect(Number(regenerated.scopeMeasurements?.garageSqft)).toBe(972);
+    expect(regenerated.scopeMeasurements?.electricalValidation).toMatchObject({
+      blockedFields: ['threeWaySwitchCount'],
+    });
   });
 });

@@ -47,6 +47,8 @@ import {
   buildElectricalPlanReviewSummary,
   buildFlooringPlanReviewSummary,
   buildPaintingPlanReviewSummary,
+  electricalPlanQuantityPricingEligible,
+  electricalPlanReadinessLine,
   electricalPlanReviewDetectedLines,
   electricalPlanReviewStatusLines,
   mergeElectricalConflictReadings,
@@ -85,6 +87,7 @@ export type PlanReviewRow = {
   value: string;
   confidence: number | null;
   provenance: PlanMeasurementProvenance;
+  pricingEligible: boolean;
   /** Value already present in Quick measurements — applying replaces it. */
   conflictValue: string | null;
   include: boolean;
@@ -121,7 +124,9 @@ type Props = {
     }>,
     metadata?: Pick<
       PlanToMeasurementsResult,
-      'measurementProvenance' | 'measurementConflicts'
+      | 'measurementProvenance'
+      | 'measurementConflicts'
+      | 'electricalValidation'
     >
   ) => void;
   onCancel: () => void;
@@ -399,6 +404,7 @@ export default function PlanTakeoffReviewModal({
           hasReliableDimensions: provenanceFlags.hasReliableDimensions,
           roomDependent: provenanceFlags.roomDependent,
           fromPlanSymbols: provenanceFlags.fromPlanSymbols,
+          aiVerified: provenanceFlags.aiVerified,
           aiInferred: provenanceFlags.aiInferred,
           reconciliationVariancePercent:
             areaReconciliation?.livingVariancePercent,
@@ -412,8 +418,21 @@ export default function PlanTakeoffReviewModal({
           value: String(value),
           confidence: takeoff.fieldConfidence?.[key] ?? null,
           provenance,
+          pricingEligible:
+            effectiveTradeKey === 'electrical'
+              ? electricalPlanQuantityPricingEligible(
+                  key,
+                  takeoff.measurementProvenance?.[key]
+                )
+              : true,
           conflictValue,
-          include: conflictValue == null,
+          include:
+            conflictValue == null &&
+            (effectiveTradeKey !== 'electrical' ||
+              electricalPlanQuantityPricingEligible(
+                key,
+                takeoff.measurementProvenance?.[key]
+              )),
         };
       })
       .sort((a, b) => {
@@ -647,12 +666,14 @@ export default function PlanTakeoffReviewModal({
           ? Number(unclassifiedCountMatch[1])
           : null,
         unclassifiedFixtureNote: unclassified?.reason || null,
+        electricalValidation: takeoff?.electricalValidation,
       }
     );
   }, [
     effectiveTradeKey,
     electricalReviewMeasurements,
     takeoff?.measurementProvenance,
+    takeoff?.electricalValidation,
     electricalConflictState.unresolved,
     electricalUnreadable,
   ]);
@@ -672,6 +693,29 @@ export default function PlanTakeoffReviewModal({
         : [],
     [electricalPlanSummary]
   );
+
+  const electricalReadiness = useMemo(() => {
+    if (effectiveTradeKey !== 'electrical') return null;
+    const unclassified = electricalUnreadable.find(
+      field => field.field === 'unclassifiedFixtureCount'
+    );
+    const count = unclassified?.reason?.match(/^(\d+)\s+lighting/i)?.[1];
+    return electricalPlanReadinessLine({
+      measurements: electricalReviewMeasurements,
+      provenance: takeoff?.measurementProvenance,
+      conflicts: electricalConflictState.unresolved,
+      unreadableFields: electricalUnreadable,
+      unclassifiedFixtureCount: count ? Number(count) : null,
+      validation: takeoff?.electricalValidation,
+    });
+  }, [
+    effectiveTradeKey,
+    electricalReviewMeasurements,
+    takeoff?.measurementProvenance,
+    takeoff?.electricalValidation,
+    electricalConflictState.unresolved,
+    electricalUnreadable,
+  ]);
 
   if (!visible || !takeoff) return null;
 
@@ -769,7 +813,12 @@ export default function PlanTakeoffReviewModal({
     for (const row of rows) {
       if (unresolvedFields.has(row.key)) continue;
       const n = Number(row.value);
-      if (row.include && Number.isFinite(n) && n > 0)
+      if (
+        row.include &&
+        row.pricingEligible &&
+        Number.isFinite(n) &&
+        n > 0
+      )
         values[row.key] = String(n);
     }
     for (const [key, value] of Object.entries(resolved)) {
@@ -816,6 +865,7 @@ export default function PlanTakeoffReviewModal({
           ),
         },
         measurementConflicts: unresolved,
+        electricalValidation: takeoff.electricalValidation,
       }
     );
   };
@@ -1010,6 +1060,19 @@ export default function PlanTakeoffReviewModal({
                     ? 'Quantities'
                     : 'Measurements'}
                 </Text>
+                {electricalReadiness ? (
+                  <ReviewPanel darkMode={darkMode}>
+                    <Text style={[styles.summaryLabel, { color: Colors.sub }]}>
+                      {electricalReadiness.label}
+                    </Text>
+                    <Text style={[styles.summaryValue, { color: Colors.text }]}>
+                      {electricalReadiness.value}
+                    </Text>
+                    <Text style={[styles.evidenceText, { color: Colors.sub }]}>
+                      {electricalReadiness.note}
+                    </Text>
+                  </ReviewPanel>
+                ) : null}
                 {rows.map(row => {
                   const provenanceColor = planProvenanceColor(
                     row.provenance.status,
@@ -1023,7 +1086,12 @@ export default function PlanTakeoffReviewModal({
                       <View style={styles.quantityHeader}>
                         <TouchableOpacity
                           onPress={() =>
-                            setRow(row.key, { include: !row.include })
+                            row.pricingEligible
+                              ? setRow(row.key, { include: !row.include })
+                              : Alert.alert(
+                                  'Confirm this quantity',
+                                  'This AI count is visible but is not priceable yet. Edit the quantity to confirm it, then include it.'
+                                )
                           }
                           style={styles.checkbox}
                           hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
@@ -1086,6 +1154,8 @@ export default function PlanTakeoffReviewModal({
                                 key: row.key,
                                 userConfirmed: true,
                               }),
+                              pricingEligible: true,
+                              include: true,
                             })
                           }
                           {...aiScopeConfirmNumericKeyboardProps}

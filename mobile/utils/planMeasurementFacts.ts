@@ -1,5 +1,6 @@
 export type PlanMeasurementSourceType =
   | 'detected_from_plan'
+  | 'ai_verified'
   | 'measured_from_geometry'
   | 'calculated_from_components'
   | 'estimated_from_formula'

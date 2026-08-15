@@ -3,6 +3,7 @@ import {
   applyPlanTakeoffButtonLabel,
   buildConcretePlanReviewSummary,
   buildElectricalPlanReviewSummary,
+  electricalPlanReadinessLine,
   electricalPlanReviewDetectedLines,
   electricalPlanReviewStatusLines,
   mergeElectricalConflictReadings,
@@ -514,8 +515,8 @@ describe('plan takeoff review UI polish', () => {
         },
       })
     ).toMatchObject({
-      hasExplicitPlanSource: true,
-      fromPlanSymbols: false,
+      hasExplicitPlanSource: false,
+      fromPlanSymbols: true,
       aiInferred: false,
     });
     expect(
@@ -527,6 +528,51 @@ describe('plan takeoff review UI polish', () => {
         },
       }).hasExplicitPlanSource
     ).toBe(false);
+  });
+
+  it('labels validated dual-pass Electrical counts as AI verified', () => {
+    expect(
+      planReviewProvenanceFlags({
+        key: 'standardReceptacleCount',
+        provenanceEntry: {
+          source: 'ai_verified_symbols',
+          normalizedSource: 'AI_VERIFIED',
+          status: 'ai_verified',
+          pricingEligible: true,
+          independentVisionAgreement: true,
+        },
+      })
+    ).toMatchObject({
+      hasExplicitPlanSource: false,
+      aiVerified: true,
+      fromPlanSymbols: false,
+    });
+    expect(
+      electricalPlanReadinessLine({
+        measurements: {
+          mainPanelCount: 1,
+          standardReceptacleCount: 50,
+          threeWaySwitchCount: 6,
+        },
+        provenance: {
+          mainPanelCount: {
+            status: 'plan_verified',
+            pricingEligible: true,
+          },
+          standardReceptacleCount: {
+            status: 'ai_verified',
+            pricingEligible: true,
+          },
+          threeWaySwitchCount: {
+            status: 'needs_review',
+            pricingEligible: false,
+          },
+        },
+        conflicts: [{ field: 'smokeDetectorCount' }],
+      })
+    ).toMatchObject({
+      value: '2 prices ready · 2 to confirm',
+    });
   });
 
   it('flags incomplete painting geometry as needs review, not reliable dimensions', () => {
@@ -788,13 +834,13 @@ describe('plan takeoff review UI polish', () => {
         },
         {
           label: 'GFCI receptacles',
-          value: '6 EA',
-          note: 'From plan symbols',
+          value: 'Needs confirmation',
+          note: '6 EA visible — Confirm before pricing',
         },
         {
           label: '3-way switch',
-          value: '4 EA',
-          note: 'From plan symbols',
+          value: 'Needs confirmation',
+          note: '4 EA visible — Confirm before pricing',
         },
         {
           label: 'Shared homeruns / unlabeled circuits',

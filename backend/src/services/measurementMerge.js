@@ -155,6 +155,19 @@ function mergeMeasurementCandidateSets(sets = []) {
     const uniqueValues = [
       ...new Set(candidates.map((candidate) => roundCandidateValue(field, candidate.value))),
     ];
+    const visionCandidates = candidates.filter((candidate) =>
+      candidate.source === 'general_plan_takeoff' ||
+      candidate.source === 'focused_trade_takeoff'
+    );
+    const visionValues = [
+      ...new Set(
+        visionCandidates.map((candidate) =>
+          roundCandidateValue(field, candidate.value)
+        )
+      ),
+    ];
+    const independentVisionAgreement =
+      visionCandidates.length >= 2 && visionValues.length === 1;
     const methodsAgree =
       uniqueValues.length === 1 &&
       new Set(candidates.map((candidate) => candidate.source)).size >= 2;
@@ -162,6 +175,8 @@ function mergeMeasurementCandidateSets(sets = []) {
       ...selected,
       alternatives: candidates.slice(1).map((candidate) => ({ ...candidate })),
       methodsAgree,
+      independentVisionAgreement,
+      candidateSources: [...new Set(candidates.map((candidate) => candidate.source))],
     };
 
     let hasConflict = false;

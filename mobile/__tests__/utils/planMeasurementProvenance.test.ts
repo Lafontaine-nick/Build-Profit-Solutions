@@ -34,6 +34,20 @@ describe('plan measurement provenance', () => {
     });
   });
 
+  it('labels a reconciled dual-pass symbol count as AI verified', () => {
+    expect(
+      resolvePlanMeasurementProvenance({
+        key: 'standardReceptacleCount',
+        aiVerified: true,
+        fieldConfidence: 0.82,
+      })
+    ).toMatchObject({
+      status: 'ai_verified',
+      label: 'AI verified',
+      confidence: 'medium',
+    });
+  });
+
   it('labels dimension-derived values as calculated', () => {
     expect(
       resolvePlanMeasurementProvenance({

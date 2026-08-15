@@ -716,6 +716,10 @@ describe('estimatePlanToMeasurements', () => {
     expect(prompt).toMatch(/standardReceptacleCount/);
     expect(prompt).toMatch(/unclassifiedFixtureCount/);
     expect(prompt).toMatch(/every ceiling-fan symbol/i);
+    expect(prompt).toMatch(/electricalSheetEvidence\.sheetSubtotals/);
+    expect(prompt).toMatch(/sum of sheet subtotals/i);
+    expect(prompt).toMatch(/electricalFieldEvidence/);
+    expect(prompt).toMatch(/traceable field evidence reference/i);
     expect(prompt).not.toMatch(/NEVER estimate, round from visual proportions/);
   });
 

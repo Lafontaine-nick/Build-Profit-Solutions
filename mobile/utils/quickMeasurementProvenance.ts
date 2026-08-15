@@ -41,6 +41,7 @@ export type QuickMeasurementOverrideMap = Partial<Record<string, true>>;
 
 export type QuickMeasurementFieldState =
   | 'detected'
+  | 'ai_verified'
   | 'estimate_available'
   | 'needs_confirmation'
   | 'confirmed'
@@ -51,6 +52,7 @@ export const QUICK_MEASUREMENT_STATE_LABEL: Record<
   string | null
 > = {
   detected: 'Detected from plan',
+  ai_verified: 'AI verified',
   estimate_available: 'Estimate available',
   needs_confirmation: 'Needs confirmation',
   confirmed: 'Confirmed',
@@ -72,6 +74,11 @@ export const QUICK_MEASUREMENT_STATE_COLORS: Record<
     color: '#60a5fa',
     bg: 'rgba(96, 165, 250, 0.12)',
     border: 'rgba(96, 165, 250, 0.32)',
+  },
+  ai_verified: {
+    color: '#38bdf8',
+    bg: 'rgba(56, 189, 248, 0.14)',
+    border: 'rgba(56, 189, 248, 0.32)',
   },
   estimate_available: {
     color: '#34d399',
@@ -111,6 +118,8 @@ export function quickMeasurementSourceLabel(
     case 'plan_detected':
     case 'detected_from_plan':
       return 'From plan';
+    case 'ai_verified':
+      return 'AI verified · full sheet coverage checked';
     case 'measured_from_geometry':
       return 'Measured from plan geometry';
     case 'calculated_from_components':
@@ -164,6 +173,9 @@ function resolveFieldState(params: {
       params.sourceTag === 'measured_from_geometry'
     ) {
       return 'detected';
+    }
+    if (params.sourceTag === 'ai_verified') {
+      return 'ai_verified';
     }
     return 'confirmed';
   }
@@ -298,6 +310,7 @@ export function resolveQuickMeasurementFields(params: {
 
 export type QuickMeasurementSummary = {
   detected: number;
+  aiVerified?: number;
   estimateAvailable: number;
   needsConfirmation: number;
   confirmed: number;
@@ -309,6 +322,7 @@ export function summarizeQuickMeasurementFieldStates(
 ): QuickMeasurementSummary {
   const summary: QuickMeasurementSummary = {
     detected: 0,
+    aiVerified: 0,
     estimateAvailable: 0,
     needsConfirmation: 0,
     confirmed: 0,
@@ -318,6 +332,8 @@ export function summarizeQuickMeasurementFieldStates(
     if (result.state === 'not_relevant') continue;
     summary.relevantTotal += 1;
     if (result.state === 'detected') summary.detected += 1;
+    else if (result.state === 'ai_verified')
+      summary.aiVerified = (summary.aiVerified || 0) + 1;
     else if (result.state === 'estimate_available')
       summary.estimateAvailable += 1;
     else if (result.state === 'needs_confirmation')
@@ -330,7 +346,8 @@ export function summarizeQuickMeasurementFieldStates(
 export function quickMeasurementSummaryLine(
   summary: QuickMeasurementSummary
 ): string {
-  return `${summary.detected} from plan · ${summary.estimateAvailable} suggestion${summary.estimateAvailable === 1 ? '' : 's'} · ${summary.needsConfirmation} need confirmation`;
+  const aiVerified = summary.aiVerified || 0;
+  return `${summary.detected} from plan · ${aiVerified} AI verified · ${summary.estimateAvailable} suggestion${summary.estimateAvailable === 1 ? '' : 's'} · ${summary.needsConfirmation} need confirmation`;
 }
 
 export type QuickMeasurementUiGroups = {
@@ -356,6 +373,9 @@ export function groupQuickMeasurementFields(
   for (const result of results) {
     switch (result.state) {
       case 'detected':
+        groups.fromPlan.push(result);
+        break;
+      case 'ai_verified':
         groups.fromPlan.push(result);
         break;
       case 'estimate_available':
