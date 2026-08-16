@@ -1,4 +1,8 @@
 import {
+  resolvePlanMeasurementProvenance,
+  type PlanMeasurementProvenance,
+} from '@/utils/planMeasurementProvenance';
+import {
   buildAreaReconciliation,
   formatPlanSourceLabel,
   measurementSemanticsV1Enabled,
@@ -439,9 +443,16 @@ const ELECTRICAL_PLAN_REVIEW_KEYS = new Set([
 
 export function electricalPlanQuantityPricingEligible(
   key: string,
-  provenanceEntry?: unknown
+  provenanceEntry?: unknown,
+  validationField?: { pricingEligible?: boolean } | null
 ): boolean {
   if (!ELECTRICAL_PLAN_REVIEW_KEYS.has(key)) return true;
+  if (
+    validationField != null &&
+    typeof validationField.pricingEligible === 'boolean'
+  ) {
+    return validationField.pricingEligible;
+  }
   if (!provenanceEntry || typeof provenanceEntry !== 'object') return false;
   const entry = provenanceEntry as {
     pricingEligible?: unknown;
@@ -486,6 +497,7 @@ export function planReviewProvenanceFlags(input: {
   key: string;
   provenanceEntry?: unknown;
   hasConflict?: boolean;
+  pricingEligible?: boolean;
 }): {
   hasExplicitPlanSource: boolean;
   hasReliableDimensions: boolean;
@@ -525,7 +537,14 @@ export function planReviewProvenanceFlags(input: {
     typeof input.provenanceEntry === 'object' &&
     input.provenanceEntry != null &&
     (input.provenanceEntry as { methodsAgree?: boolean }).methodsAgree === true;
+  const entryPricingEligible =
+    typeof input.provenanceEntry === 'object' && input.provenanceEntry != null
+      ? (input.provenanceEntry as { pricingEligible?: boolean }).pricingEligible
+      : undefined;
+  const pricingBlocked =
+    input.pricingEligible === false || entryPricingEligible === false;
   const aiVerified =
+    !pricingBlocked &&
     electricalKey &&
     typeof input.provenanceEntry === 'object' &&
     input.provenanceEntry != null &&
@@ -582,6 +601,88 @@ export function planReviewProvenanceFlags(input: {
     aiVerified: !input.hasConflict && aiVerified,
     aiInferred: !input.hasConflict && aiInferred,
   };
+}
+
+export function buildPlanReviewMeasurementRowState(input: {
+  key: string;
+  provenanceEntry?: unknown;
+  fieldConfidence?: number | null;
+  hasConflict?: boolean;
+  reconciliationVariancePercent?: number | null;
+  userConfirmed?: boolean;
+  validationField?: {
+    status?: string;
+    pricingEligible?: boolean;
+    reason?: string;
+  } | null;
+  tradeKey?: string | null;
+}): {
+  pricingEligible: boolean;
+  provenance: PlanMeasurementProvenance;
+  includeDefault: boolean;
+} {
+  const pricingEligible =
+    input.tradeKey === 'electrical'
+      ? electricalPlanQuantityPricingEligible(
+          input.key,
+          input.provenanceEntry,
+          input.validationField
+        )
+      : true;
+  const provenanceFlags = planReviewProvenanceFlags({
+    key: input.key,
+    provenanceEntry: input.provenanceEntry,
+    hasConflict: input.hasConflict,
+    pricingEligible,
+  });
+  const provenance = resolvePlanMeasurementProvenance({
+    key: input.key,
+    fieldConfidence: input.fieldConfidence ?? null,
+    hasExplicitPlanSource: provenanceFlags.hasExplicitPlanSource,
+    hasReliableDimensions: provenanceFlags.hasReliableDimensions,
+    roomDependent: provenanceFlags.roomDependent,
+    fromPlanSymbols: provenanceFlags.fromPlanSymbols,
+    aiVerified: provenanceFlags.aiVerified,
+    aiInferred: provenanceFlags.aiInferred,
+    reconciliationVariancePercent: input.reconciliationVariancePercent,
+    userConfirmed: input.userConfirmed,
+    pricingEligible,
+  });
+  return {
+    pricingEligible,
+    provenance,
+    includeDefault: !input.hasConflict && pricingEligible,
+  };
+}
+
+export function planReviewCheckboxBlockedMessage(
+  provenance: PlanMeasurementProvenance,
+  row: { label: string; value: string; unit: string }
+): { title: string; message: string; confirmLabel: string } {
+  const formatted = `${row.value} ${row.unit}`.trim();
+  switch (provenance.status) {
+    case 'from_plan_symbols':
+      return {
+        title: 'Confirm this count',
+        message: `Use ${formatted} for ${row.label}? Symbol counts need confirmation before pricing.`,
+        confirmLabel: `Use ${row.value}`,
+      };
+    case 'ai_inferred':
+      return {
+        title: 'Confirm this count',
+        message: `Use ${formatted} for ${row.label}? This was inferred from context — confirm before pricing.`,
+        confirmLabel: `Use ${row.value}`,
+      };
+    case 'needs_review':
+    default:
+      return {
+        title: 'Confirm this count',
+        message:
+          provenance.reason ||
+          `Confirm ${formatted} before including it in the bid.`,
+        confirmLabel: `Use ${row.value}`,
+      };
+  }
 }
 
 function paintingQuantityNote(

@@ -76,4 +76,18 @@ describe('plan measurement provenance', () => {
       }).status
     ).toBe('user_confirmed');
   });
+
+  it('does not promote blocked pricing to AI verified', () => {
+    expect(
+      resolvePlanMeasurementProvenance({
+        key: 'threeWaySwitchCount',
+        aiVerified: true,
+        fromPlanSymbols: true,
+        pricingEligible: false,
+      })
+    ).toMatchObject({
+      status: 'from_plan_symbols',
+      label: 'From plan — confirm',
+    });
+  });
 });

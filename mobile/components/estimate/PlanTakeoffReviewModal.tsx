@@ -47,7 +47,7 @@ import {
   buildElectricalPlanReviewSummary,
   buildFlooringPlanReviewSummary,
   buildPaintingPlanReviewSummary,
-  electricalPlanQuantityPricingEligible,
+  buildPlanReviewMeasurementRowState,
   electricalPlanReadinessLine,
   electricalPlanReviewDetectedLines,
   electricalPlanReviewStatusLines,
@@ -58,7 +58,7 @@ import {
   livingReconciliationStatusLabel,
   measurementDisplayLabel,
   measurementSourceLabel,
-  planReviewProvenanceFlags,
+  planReviewCheckboxBlockedMessage,
   resolvePlanAreaReconciliation,
   roomSourceLabel,
   scopeTakeoffStatusLines,
@@ -369,9 +369,10 @@ export default function PlanTakeoffReviewModal({
     setConflictChooserKey(key => key + 1);
     const livingSf = Number(visibleMeasurements?.floorAreaSqft);
     const unresolvedConflictFields = new Set(
-      (takeoff.measurementConflicts || [])
-        .filter(conflict => conflict?.requiresConfirmation && conflict.field)
-        .map(conflict => String(conflict.field))
+      reviewablePlanMeasurementConflicts({
+        conflicts: takeoff.measurementConflicts,
+        provenance: takeoff.measurementProvenance,
+      }).map(conflict => String(conflict.field))
     );
     const nextRows: PlanReviewRow[] = Object.entries(visibleMeasurements)
       .filter(([key]) => !unresolvedConflictFields.has(key))
@@ -392,22 +393,14 @@ export default function PlanTakeoffReviewModal({
               assumptions: takeoff.assumptions,
             })
           : null;
-        const provenanceFlags = planReviewProvenanceFlags({
+        const rowState = buildPlanReviewMeasurementRowState({
           key,
           provenanceEntry: takeoff.measurementProvenance?.[key],
-          hasConflict: unresolvedConflictFields.has(key),
-        });
-        const provenance = resolvePlanMeasurementProvenance({
-          key,
           fieldConfidence: takeoff.fieldConfidence?.[key] ?? null,
-          hasExplicitPlanSource: provenanceFlags.hasExplicitPlanSource,
-          hasReliableDimensions: provenanceFlags.hasReliableDimensions,
-          roomDependent: provenanceFlags.roomDependent,
-          fromPlanSymbols: provenanceFlags.fromPlanSymbols,
-          aiVerified: provenanceFlags.aiVerified,
-          aiInferred: provenanceFlags.aiInferred,
-          reconciliationVariancePercent:
-            areaReconciliation?.livingVariancePercent,
+          hasConflict: unresolvedConflictFields.has(key),
+          reconciliationVariancePercent: areaReconciliation?.livingVariancePercent,
+          validationField: takeoff.electricalValidation?.fields?.[key],
+          tradeKey: effectiveTradeKey,
         });
         return {
           key,
@@ -417,22 +410,10 @@ export default function PlanTakeoffReviewModal({
           unit: meta.unit,
           value: String(value),
           confidence: takeoff.fieldConfidence?.[key] ?? null,
-          provenance,
-          pricingEligible:
-            effectiveTradeKey === 'electrical'
-              ? electricalPlanQuantityPricingEligible(
-                  key,
-                  takeoff.measurementProvenance?.[key]
-                )
-              : true,
+          provenance: rowState.provenance,
+          pricingEligible: rowState.pricingEligible,
           conflictValue,
-          include:
-            conflictValue == null &&
-            (effectiveTradeKey !== 'electrical' ||
-              electricalPlanQuantityPricingEligible(
-                key,
-                takeoff.measurementProvenance?.[key]
-              )),
+          include: conflictValue == null && rowState.includeDefault,
         };
       })
       .sort((a, b) => {
@@ -1078,21 +1059,38 @@ export default function PlanTakeoffReviewModal({
                     row.provenance.status,
                     Colors
                   );
-                  const confirmRow =
-                    row.provenance.status === 'needs_confirmation' ||
-                    row.provenance.label === 'Needs confirmation';
+                  const confirmRow = !row.pricingEligible;
                   return (
                     <ReviewPanel key={row.key} darkMode={darkMode}>
                       <View style={styles.quantityHeader}>
                         <TouchableOpacity
-                          onPress={() =>
-                            row.pricingEligible
-                              ? setRow(row.key, { include: !row.include })
-                              : Alert.alert(
-                                  'Confirm this quantity',
-                                  'This AI count is visible but is not priceable yet. Edit the quantity to confirm it, then include it.'
-                                )
-                          }
+                          onPress={() => {
+                            if (row.pricingEligible) {
+                              setRow(row.key, { include: !row.include });
+                              return;
+                            }
+                            const prompt = planReviewCheckboxBlockedMessage(
+                              row.provenance,
+                              row
+                            );
+                            Alert.alert(prompt.title, prompt.message, [
+                              { text: 'Cancel', style: 'cancel' },
+                              {
+                                text: prompt.confirmLabel,
+                                onPress: () =>
+                                  setRow(row.key, {
+                                    include: true,
+                                    pricingEligible: true,
+                                    provenance: resolvePlanMeasurementProvenance(
+                                      {
+                                        key: row.key,
+                                        userConfirmed: true,
+                                      }
+                                    ),
+                                  }),
+                              },
+                            ]);
+                          }}
                           style={styles.checkbox}
                           hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                         >

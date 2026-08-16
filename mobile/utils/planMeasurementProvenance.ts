@@ -73,6 +73,8 @@ export function resolvePlanMeasurementProvenance(input: {
   aiInferred?: boolean;
   reconciliationVariancePercent?: number | null;
   userConfirmed?: boolean;
+  /** When false, do not promote to AI verified or Plan verified. */
+  pricingEligible?: boolean;
 }): PlanMeasurementProvenance {
   if (input.userConfirmed) {
     return {
@@ -99,6 +101,31 @@ export function resolvePlanMeasurementProvenance(input: {
       label: planProvenanceLabel('needs_review'),
       confidence: 'low',
       reason: 'The plan extraction confidence is low.',
+    };
+  }
+
+  if (input.pricingEligible === false) {
+    if (input.aiInferred) {
+      return {
+        status: 'ai_inferred',
+        label: planProvenanceLabel('ai_inferred'),
+        confidence: 'low',
+        reason: 'Contextual inference from the plan — confirm before pricing.',
+      };
+    }
+    if (input.fromPlanSymbols) {
+      return {
+        status: 'from_plan_symbols',
+        label: planProvenanceLabel('from_plan_symbols'),
+        confidence: 'medium',
+        reason: 'Counted from plan symbols without an explicit printed quantity.',
+      };
+    }
+    return {
+      status: 'needs_review',
+      label: planProvenanceLabel('needs_review'),
+      confidence: 'medium',
+      reason: 'Confirm this count before including it in the bid.',
     };
   }
 

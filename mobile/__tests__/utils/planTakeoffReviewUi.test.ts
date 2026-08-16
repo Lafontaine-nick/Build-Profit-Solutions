@@ -18,6 +18,8 @@ import {
   livingReconciliationStatusLabel,
   measurementDisplayLabel,
   measurementSourceLabel,
+  buildPlanReviewMeasurementRowState,
+  planReviewCheckboxBlockedMessage,
   planReviewProvenanceFlags,
   readyStateSummary,
   resolvePlanAreaReconciliation,
@@ -852,5 +854,61 @@ describe('plan takeoff review UI polish', () => {
     expect(measurementSourceLabel({ key: 'recessedLightCount' })).toMatch(
       /electrical plan/i
     );
+  });
+
+  it('aligns Electrical review row label with pricing eligibility', () => {
+    const row = buildPlanReviewMeasurementRowState({
+      key: 'threeWaySwitchCount',
+      tradeKey: 'electrical',
+      provenanceEntry: {
+        source: 'calculated_from_symbols',
+        evidenceKind: 'symbols',
+        confidenceTier: 2,
+        pricingEligible: false,
+        status: 'needs_review',
+      },
+      validationField: {
+        pricingEligible: false,
+        status: 'needs_review',
+      },
+    });
+    expect(row.pricingEligible).toBe(false);
+    expect(row.provenance).toMatchObject({
+      status: 'from_plan_symbols',
+      label: 'From plan — confirm',
+    });
+    expect(row.includeDefault).toBe(false);
+  });
+
+  it('uses symbol confirmation copy instead of AI count messaging', () => {
+    expect(
+      planReviewCheckboxBlockedMessage(
+        {
+          status: 'from_plan_symbols',
+          label: 'From plan — confirm',
+          confidence: 'medium',
+          reason: 'Counted from plan symbols without an explicit printed quantity.',
+        },
+        { label: '3-way switch', value: '4', unit: 'EA' }
+      )
+    ).toMatchObject({
+      title: 'Confirm this count',
+      confirmLabel: 'Use 4',
+      message: expect.stringMatching(/symbol counts need confirmation/i),
+    });
+  });
+
+  it('does not mark blocked Electrical counts as AI verified', () => {
+    expect(
+      planReviewProvenanceFlags({
+        key: 'standardReceptacleCount',
+        provenanceEntry: {
+          status: 'ai_verified',
+          normalizedSource: 'AI_VERIFIED',
+          pricingEligible: false,
+        },
+        pricingEligible: false,
+      }).aiVerified
+    ).toBe(false);
   });
 });
