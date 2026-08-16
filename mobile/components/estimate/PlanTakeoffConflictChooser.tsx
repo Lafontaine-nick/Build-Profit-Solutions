@@ -37,7 +37,7 @@ function deferConflictUiPatch(task: () => void) {
   return timer;
 }
 
-export function PlanTakeoffConflictChooser({
+export const PlanTakeoffConflictChooser = React.memo(function PlanTakeoffConflictChooser({
   conflicts,
   choices,
   manualValues,
@@ -305,7 +305,13 @@ export function PlanTakeoffConflictChooser({
       })}
     </View>
   );
-}
+}, (previous, next) =>
+  previous.conflicts === next.conflicts &&
+  previous.choices === next.choices &&
+  previous.manualValues === next.manualValues &&
+  previous.darkMode === next.darkMode &&
+  previous.captionColor === next.captionColor &&
+  previous.keepResolvedCards === next.keepResolvedCards);
 
 export { applyPlanConflictChoices };
 

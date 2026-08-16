@@ -13,6 +13,7 @@ import {
   electricalQmQuantityInputValue,
   electricalQmShowsQuantity,
   electricalQmTapQuantity,
+  electricalServiceAmperageTap,
   electricalScopeGroupDefaultCollapsed,
   confirmScopeChipPainted,
   electricalScopeSyncSignature,
@@ -253,8 +254,8 @@ describe('electricalQuickMeasurementUi', () => {
     expect(restored.measurementConflicts).toEqual([conflict]);
   });
 
-  it('starts every Electrical Quick Measurement card expanded by default', () => {
-    expect(electricalQmGroupDefaultCollapsed()).toBe(false);
+  it('starts Electrical quantity groups collapsed so attribute taps stay responsive', () => {
+    expect(electricalQmGroupDefaultCollapsed()).toBe(true);
   });
 
   it('does not hide Electrical pricing cards behind Quick Measurements', () => {
@@ -315,6 +316,12 @@ describe('electricalQuickMeasurementUi', () => {
         electricalProjectCondition: 'new_construction',
       })
     ).toBe(true);
+  });
+
+  it('toggles service amperage as a single selected value', () => {
+    expect(electricalServiceAmperageTap(null, 200)).toBe(200);
+    expect(electricalServiceAmperageTap(200, 100)).toBe(100);
+    expect(electricalServiceAmperageTap(100, 100)).toBeNull();
   });
 
   it('tapping a blank EA row includes quantity 1 so the chip turns green', () => {
@@ -382,7 +389,7 @@ describe('electricalQuickMeasurementUi', () => {
     ).toBe(true);
   });
 
-  it('stages EA/LF quantity edits while keeping live attributes immediate', () => {
+  it('stages all electrical edits until Confirm Scope flushes them', () => {
     const base = { mainPanelCount: '', standardReceptacleCount: 50 };
     expect(
       electricalQuantityFieldsChanged(
@@ -401,15 +408,15 @@ describe('electricalQuickMeasurementUi', () => {
         base as Record<string, unknown>,
         { ...base, electricalPanelLocation: 'indoor' } as Record<string, unknown>
       )
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('defers Confirm Scope parent commits so chip paint is not blocked', () => {
     expect(CONFIRM_SCOPE_CHIP_COMMIT_MS).toBeGreaterThanOrEqual(180);
-    expect(CONFIRM_SCOPE_CHIP_PRESS_LOCK_MS).toBeGreaterThanOrEqual(300);
+    expect(CONFIRM_SCOPE_CHIP_PRESS_LOCK_MS).toBeGreaterThanOrEqual(100);
     expect(confirmScopeChipPainted(false, null)).toBe(false);
     expect(confirmScopeChipPainted(false, true)).toBe(true);
-    expect(confirmScopeChipPainted(true, false)).toBe(true);
+    expect(confirmScopeChipPainted(true, false)).toBe(false);
     expect(confirmScopeChipPainted(true, null)).toBe(true);
     expect(confirmScopeChipPainted(true, false, true)).toBe(false);
   });

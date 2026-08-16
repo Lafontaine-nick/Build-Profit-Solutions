@@ -62,8 +62,6 @@ import { PlanTakeoffConflictChooser } from '@/components/estimate/PlanTakeoffCon
 import {
   applyElectricalQuickMeasurementPatch,
   electricalConfirmScopeAttributesFromMeasurements,
-  electricalMeasurementsShouldFlushImmediately,
-  electricalLivePricingAttributesChanged,
   electricalScopeSyncSignature,
   restorePlanMeasurementConflict,
   unresolvedElectricalConflictFields,
@@ -12427,9 +12425,7 @@ function CollapsibleQuickMeasurements({
         ReturnType<typeof electricalConfirmScopeAttributesFromMeasurements>
       >
     ) => {
-      startTransition(() => {
-        setMeasurements(prev => ({ ...prev, ...patch }));
-      });
+      setMeasurements(prev => ({ ...prev, ...patch }));
     },
     [setMeasurements]
   );
@@ -12440,6 +12436,38 @@ function CollapsibleQuickMeasurements({
       );
     },
     [setMeasurements]
+  );
+  const electricalConflictFields = useMemo(
+    () => [...unresolvedElectricalConflictFields(measurementConflicts)],
+    [measurementConflicts],
+  );
+  const electricalQuantityTakeoff = useMemo(
+    () => (
+      <ElectricalQuickMeasurementTakeoff
+        measurements={measurements as Record<string, unknown>}
+        conflictFields={electricalConflictFields}
+        sources={measurements.quickMeasurementSources}
+        userOverrides={measurements.quickMeasurementUserOverrides}
+        preferExpandedKeys={resolvedConflictFields}
+        onChangeQuantity={patchElectricalQuantity}
+        quantityEditingRef={electricalQuantityEditingRef}
+        darkMode={darkMode}
+        Colors={Colors}
+        applying={applying}
+      />
+    ),
+    [
+      measurements,
+      electricalConflictFields,
+      measurements.quickMeasurementSources,
+      measurements.quickMeasurementUserOverrides,
+      resolvedConflictFields,
+      patchElectricalQuantity,
+      electricalQuantityEditingRef,
+      darkMode,
+      Colors,
+      applying,
+    ],
   );
   const choosePaintAreaBasis = (
     basis: 'walls' | 'combined' | 'floor_area' | 'unknown'
@@ -12624,22 +12652,7 @@ function CollapsibleQuickMeasurements({
                 Number(measurements.serviceUpgradeCount) > 0 ||
                 Number(measurements.existingServiceAmperage) > 0
               }
-              quantityTakeoff={
-                <ElectricalQuickMeasurementTakeoff
-                  measurements={measurements as Record<string, unknown>}
-                  conflictFields={[
-                    ...unresolvedElectricalConflictFields(measurementConflicts),
-                  ]}
-                  sources={measurements.quickMeasurementSources}
-                  userOverrides={measurements.quickMeasurementUserOverrides}
-                  preferExpandedKeys={resolvedConflictFields}
-                  onChangeQuantity={patchElectricalQuantity}
-                  quantityEditingRef={electricalQuantityEditingRef}
-                  darkMode={darkMode}
-                  Colors={Colors}
-                  applying={applying}
-                />
-              }
+              quantityTakeoff={electricalQuantityTakeoff}
             />
           ) : null}
           {String(templateKey || '').toLowerCase() === 'painting' ? (
@@ -14096,13 +14109,6 @@ export default function AIEstimateScopeAssumptionsModal({
     [checklist?.templateKey]
   );
 
-  const pinConfirmScopeScrollPosition = useCallback(() => {
-    const y = Math.max(0, scrollOffsetYRef.current);
-    requestAnimationFrame(() => {
-      scrollRef.current?.scrollTo({ y, animated: false });
-    });
-  }, []);
-
   const setElectricalMeasurementsStaged = useCallback(
     (update: React.SetStateAction<ScopeMeasurementsInputExtended>) => {
       const previous = measurementsRef.current;
@@ -14115,28 +14121,10 @@ export default function AIEstimateScopeAssumptionsModal({
             )(previous)
           : update;
       if (next === previous) return;
-      if (
-        electricalMeasurementsShouldFlushImmediately(
-          previous as Record<string, unknown>,
-          next as Record<string, unknown>
-        )
-      ) {
-        electricalMeasurementsStagedRef.current = false;
-        setMeasurementsSynced(next);
-        if (
-          electricalLivePricingAttributesChanged(
-            previous as Record<string, unknown>,
-            next as Record<string, unknown>
-          )
-        ) {
-          pinConfirmScopeScrollPosition();
-        }
-        return;
-      }
       measurementsRef.current = next;
       electricalMeasurementsStagedRef.current = true;
     },
-    [setMeasurementsSynced, pinConfirmScopeScrollPosition]
+    [setMeasurementsSynced]
   );
 
   const flushStagedElectricalMeasurements = useCallback(() => {
@@ -17914,6 +17902,7 @@ export default function AIEstimateScopeAssumptionsModal({
           paddingBottom: insets.bottom + (showCustomItemInput ? 260 : 200),
         }}
         keyboardShouldPersistTaps='always'
+        delayContentTouches={false}
         keyboardDismissMode='on-drag'
         automaticallyAdjustKeyboardInsets={false}
         showsVerticalScrollIndicator

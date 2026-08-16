@@ -80,10 +80,10 @@ export function electricalQmGroupCaption(groupId: ElectricalCardGroupId): string
 export const CONFIRM_SCOPE_CHIP_COMMIT_MS = 180;
 
 /** Ignore a second press that would toggle the chip back off before it can paint. */
-export const CONFIRM_SCOPE_CHIP_PRESS_LOCK_MS = 350;
+export const CONFIRM_SCOPE_CHIP_PRESS_LOCK_MS = 120;
 
 /** Finger travel, in points, that turns a chip press into a scroll. */
-export const CONFIRM_SCOPE_CHIP_SCROLL_SLOP = 16;
+export const CONFIRM_SCOPE_CHIP_SCROLL_SLOP = 20;
 
 export function confirmScopeChipIsTap(
   dx: number,
@@ -96,12 +96,10 @@ export function confirmScopeChipIsTap(
 export function confirmScopeChipPainted(
   selected: boolean,
   optimistic: boolean | null,
-  allowOptimisticDeselect = false
+  _allowOptimisticDeselect = false
 ): boolean {
-  if (allowOptimisticDeselect && optimistic === false) return false;
-  // Optimism may turn a pending selection on, but must never hide a committed
-  // selection. Otherwise the card can say "Confirmed" while its chip is gray.
-  return selected || optimistic === true;
+  if (optimistic != null) return optimistic;
+  return selected;
 }
 
 export function electricalScopeGroupDefaultCollapsed(
@@ -154,7 +152,10 @@ export function electricalQmShowsQuantity(
 }
 
 export function electricalQmGroupDefaultCollapsed(): boolean {
-  return false;
+  // Rendering every quantity row at once blocks the JS thread while the
+  // attribute cards above are receiving taps. Keep headers mounted and let the
+  // contractor expand only the quantity groups they need.
+  return true;
 }
 
 const QM_GROUP_ORDER: ElectricalCardGroupId[] = [
@@ -355,6 +356,13 @@ function positiveAmp(value: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+export function electricalServiceAmperageTap(
+  current: number | null | undefined,
+  tapped: number
+): number | null {
+  return Number(current) === tapped ? null : tapped;
+}
+
 export function electricalConfirmScopeAttributesFromMeasurements(
   measurements: Record<string, unknown>
 ): ElectricalConfirmScopeAttributes {
@@ -436,13 +444,13 @@ export function electricalQuantityFieldsChanged(
 }
 
 export function electricalMeasurementsShouldFlushImmediately(
-  previous: Record<string, unknown>,
-  next: Record<string, unknown>
+  _previous: Record<string, unknown>,
+  _next: Record<string, unknown>
 ): boolean {
-  // Quantity taps/edits are staged by Confirm Scope so the selected chip and
-  // quantity editor can paint locally without synchronously repricing every
-  // scope card. Live pricing attributes still need an immediate parent commit.
-  return electricalLivePricingAttributesChanged(previous, next);
+  // All Confirm Scope electrical writes are staged. The local chip state and
+  // measurements ref update immediately; the expensive parent pricing tree is
+  // flushed when the panel closes or the scope is confirmed.
+  return false;
 }
 
 /**
